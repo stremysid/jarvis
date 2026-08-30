@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { newUlid, type Sha256Hex } from "../../../../packages/contracts/src/index.js";
-import type {
-  ConversationDeliveryId,
-  ModelStreamClaimCapability,
-  StoredConversationDelivery,
-  StoredConversationTurn,
+import { newUlid, type Sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
+import {
+  createVoiceStreamDelivery,
+  type ConversationDeliveryId,
+  type ModelStreamClaimCapability,
+  type StoredConversationDelivery,
+  type StoredConversationTurn,
 } from "../../src/conversation/conversation-types.js";
 import { DefaultConversationService } from "../../src/conversation/conversation-service.js";
 import { D1ContextRetriever } from "../../src/conversation/context-retriever.js";
@@ -16,7 +17,90 @@ import { FakeTelegramProvider } from "../../src/providers/fake-telegram-provider
 import { ProviderCircuitBreaker } from "../../src/providers/provider-circuit-breaker.js";
 import { Redactor } from "../../src/security/redaction.js";
 
+function inertVoiceDelivery(sessionId: string, turnId: Ulid) {
+  return createVoiceStreamDelivery({
+    sessionId,
+    turnId,
+    sendToken: async () => { throw new Error("unexpected_voice_token"); },
+    finish: async () => { throw new Error("unexpected_voice_finish"); },
+  });
+}
+
 describe("conversation capture-once security", () => {
+  it.each([
+    ["session", true, false, false],
+    ["turn", false, true, false],
+    ["callback pair", false, false, true],
+  ] as const)("rejects a cross-%s voice wrapper before redaction or dependency work", async (
+    _variant,
+    substituteSession,
+    substituteTurn,
+    substituteFinish,
+  ) => {
+    const boundTurnId = newUlid();
+    const suppliedTurnId = substituteTurn ? newUlid() : boundTurnId;
+    const suppliedSessionId = substituteSession ? "voice-session-supplied" : "voice-session-bound";
+    let relayCalls = 0;
+    let redactorCalls = 0;
+    let repositoryCalls = 0;
+    let contextCalls = 0;
+    let modelCalls = 0;
+    const issued = createVoiceStreamDelivery({
+      sessionId: "voice-session-bound",
+      turnId: boundTurnId,
+      sendToken: async () => { relayCalls += 1; },
+      finish: async () => { relayCalls += 1; },
+    });
+    const other = createVoiceStreamDelivery({
+      sessionId: "voice-session-bound",
+      turnId: boundTurnId,
+      sendToken: async () => { relayCalls += 1; },
+      finish: async () => { relayCalls += 1; },
+    });
+    const delivery = substituteFinish
+      ? Object.freeze({ ...issued, finish: other.finish })
+      : issued;
+    const repository = {
+      async getOrCreateTurn(): Promise<never> { repositoryCalls += 1; throw new Error("unexpected_turn"); },
+      async claimModelTurn(): Promise<never> { throw new Error("unexpected_claim"); },
+      beginModelStream(): never { throw new Error("unexpected_begin"); },
+      async recordVoiceSent(): Promise<never> { throw new Error("unexpected_voice"); },
+      async stageAssistantDelivery(): Promise<never> { throw new Error("unexpected_stage"); },
+      async recordTurnCancelled(): Promise<never> { throw new Error("unexpected_cancel"); },
+      async recordTurnFailed(): Promise<never> { throw new Error("unexpected_failure"); },
+      async recordIngestFailure(): Promise<never> { throw new Error("unexpected_ingest"); },
+      async stageSystemNotice(): Promise<never> { throw new Error("unexpected_notice"); },
+    };
+    const implementation = new Redactor();
+    const service = new DefaultConversationService({
+      repository,
+      model: { stream(): never { modelCalls += 1; throw new Error("unexpected_model"); } },
+      context: { async retrieve(): Promise<never> { contextCalls += 1; throw new Error("unexpected_context"); } },
+      dispatcher: { async dispatch(): Promise<never> { throw new Error("unexpected_dispatch"); } },
+      redactor: {
+        redact(input) { redactorCalls += 1; return implementation.redact(input); },
+        redactText: implementation.redactText.bind(implementation),
+      },
+      now: () => new Date("2026-08-30T12:00:00.000Z"),
+    } as never);
+
+    await expect(service.handleTurn({
+      sessionId: suppliedSessionId,
+      principalId: "principal:voice-owner",
+      turnId: suppliedTurnId,
+      text: "private answer request",
+      signal: new AbortController().signal,
+      ...delivery,
+    })).rejects.toThrow(/^voice_stream_delivery_binding_invalid$/u);
+    expect({ relayCalls, redactorCalls, repositoryCalls, contextCalls, modelCalls }).toEqual({
+      relayCalls: 0,
+      redactorCalls: 0,
+      repositoryCalls: 0,
+      contextCalls: 0,
+      modelCalls: 0,
+    });
+  });
+
   it("uses the repository method captured at construction after caller mutation", async () => {
     const turnId = newUlid();
     let originalCalls = 0;
@@ -52,11 +136,8 @@ describe("conversation capture-once security", () => {
       turnId,
       text: "Authorization: Bearer secret-value",
       signal: new AbortController().signal,
-      channel: "voice",
-      kind: "voice_stream",
-      onToken: async () => undefined,
-      finish: async () => { throw new Error("unexpected_finish"); },
-    } as never)).rejects.toThrow("ingest_redaction_failed");
+      ...inertVoiceDelivery("voice-session-security", turnId),
+    })).rejects.toThrow("ingest_redaction_failed");
     expect(originalCalls).toBe(1);
   });
 
@@ -141,20 +222,20 @@ describe("conversation capture-once security", () => {
       return implementation.redactText("swapped output");
     };
 
+    const delivery = createVoiceStreamDelivery({
+      sessionId: admitted.sessionId,
+      turnId,
+      sendToken: async (token) => { received.push(token.text); },
+      finish: async (text) => { finished = text; },
+    });
     await expect(service.handleTurn({
       sessionId: admitted.sessionId,
       principalId: admitted.principalId,
       turnId,
       text: "hello",
       signal: new AbortController().signal,
-      channel: "voice",
-      kind: "voice_stream",
-      onToken: async (token) => { received.push(token.text); },
-      finish: async (text) => {
-        finished = text;
-        return Object.freeze({});
-      },
-    } as never)).resolves.toMatchObject({ outcome: "voice_sent" });
+      ...delivery,
+    })).resolves.toMatchObject({ outcome: "voice_sent" });
     expect(received.join("")).toBe("safe output");
     expect(finished).toBe("safe output");
     expect(originalOutputCalls).toBeGreaterThan(0);
@@ -192,14 +273,12 @@ describe("conversation capture-once security", () => {
       turnId,
       text: "Authorization: Bearer secret-value",
       signal: new AbortController().signal,
-      channel: "voice",
-      kind: "voice_stream",
-      onToken: async () => undefined,
-      finish: async () => { throw new Error("unexpected_finish"); },
-    } as never)).rejects.toThrow(/^ingest_redaction_failed$/u);
+      ...inertVoiceDelivery("voice-session-security", turnId),
+    })).rejects.toThrow(/^ingest_redaction_failed$/u);
   });
 
   it("never exposes a turn-admission dependency exception", async () => {
+    const turnId = newUlid();
     const repository = {
       async getOrCreateTurn(): Promise<never> { throw new Error("database secret"); },
       async claimModelTurn(): Promise<never> { throw new Error("unexpected_claim"); },
@@ -223,14 +302,11 @@ describe("conversation capture-once security", () => {
     await expect(service.handleTurn({
       sessionId: "voice-session-security",
       principalId: "principal:voice-owner",
-      turnId: newUlid(),
+      turnId,
       text: "hello",
       signal: new AbortController().signal,
-      channel: "voice",
-      kind: "voice_stream",
-      onToken: async () => undefined,
-      finish: async () => { throw new Error("unexpected_finish"); },
-    } as never)).rejects.toThrow(/^conversation_admission_failed$/u);
+      ...inertVoiceDelivery("voice-session-security", turnId),
+    })).rejects.toThrow(/^conversation_admission_failed$/u);
   });
 
   it("uses the dispatcher repository method captured at construction after caller mutation", async () => {
@@ -338,11 +414,8 @@ describe("conversation capture-once security", () => {
       turnId,
       text: "hello",
       signal: new AbortController().signal,
-      channel: "voice",
-      kind: "voice_stream",
-      onToken: async () => undefined,
-      finish: async () => { throw new Error("unexpected_finish"); },
-    } as never)).rejects.toThrow("conversation_admission_invalid");
+      ...inertVoiceDelivery(terminal.sessionId, turnId),
+    })).rejects.toThrow("conversation_admission_invalid");
     expect(claimCalls).toBe(0);
   });
 
@@ -408,11 +481,8 @@ describe("conversation capture-once security", () => {
       turnId,
       text: "hello",
       signal: new AbortController().signal,
-      channel: "voice",
-      kind: "voice_stream",
-      onToken: async () => undefined,
-      finish: async () => { throw new Error("unexpected_finish"); },
-    } as never)).rejects.toThrow("conversation_claim_invalid");
+      ...inertVoiceDelivery(admitted.sessionId, turnId),
+    })).rejects.toThrow("conversation_claim_invalid");
     expect(modelCalls).toBe(0);
   });
 
@@ -468,7 +538,7 @@ describe("conversation capture-once security", () => {
     expect(provider.requests).toHaveLength(0);
   });
 
-  it("rejects accessor-shaped retrieved context before beginning the model stream", async () => {
+  it("settles accessor-shaped retrieved context as unknown before beginning the model stream", async () => {
     const turnId = newUlid();
     const common = {
       turnId,
@@ -490,6 +560,13 @@ describe("conversation capture-once security", () => {
     };
     const admitted = Object.freeze({ ...common, state: "user_committed" as const }) satisfies StoredConversationTurn;
     const claimed = Object.freeze({ ...common, state: "model_claimed" as const }) satisfies StoredConversationTurn;
+    const unknown = Object.freeze({
+      ...common,
+      state: "model_outcome_unknown" as const,
+      resolvedAt: "2026-08-30T12:00:00.000Z",
+      failureCode: "model_outcome_unknown" as const,
+      failureCategory: "ambiguous" as const,
+    }) satisfies StoredConversationTurn;
     const capability = Object.freeze({ turnId, requestHash: common.requestHash }) as ModelStreamClaimCapability;
     const contextItem = Object.defineProperties({}, {
       sourceEventId: { enumerable: true, value: newUlid() },
@@ -498,6 +575,7 @@ describe("conversation capture-once security", () => {
     });
     let beginCalls = 0;
     let modelCalls = 0;
+    let settlementCalls = 0;
     const repository = {
       async getOrCreateTurn() { return Object.freeze({ turn: admitted, replayed: false }); },
       async claimModelTurn() { return Object.freeze({ kind: "claimed" as const, capability, turn: claimed }); },
@@ -505,7 +583,7 @@ describe("conversation capture-once security", () => {
       async recordVoiceSent(): Promise<never> { throw new Error("unexpected_voice"); },
       async stageAssistantDelivery(): Promise<never> { throw new Error("unexpected_stage"); },
       async recordTurnCancelled(): Promise<never> { throw new Error("unexpected_cancel"); },
-      async recordTurnFailed(): Promise<never> { throw new Error("unexpected_failure"); },
+      async recordTurnFailed() { settlementCalls += 1; return unknown; },
       async recordIngestFailure(): Promise<never> { throw new Error("unexpected_ingest_failure"); },
       async stageSystemNotice(): Promise<never> { throw new Error("unexpected_system_notice"); },
     };
@@ -529,13 +607,17 @@ describe("conversation capture-once security", () => {
       turnId,
       text: "hello",
       signal: new AbortController().signal,
-      channel: "voice",
-      kind: "voice_stream",
-      onToken: async () => undefined,
-      finish: async () => Object.freeze({}),
-    } as never)).rejects.toThrow("conversation_context_invalid");
+      ...inertVoiceDelivery(admitted.sessionId, turnId),
+    })).resolves.toEqual({
+      outcome: "model_outcome_unknown",
+      committedUserEventId: admitted.userEventId,
+      sentAssistantEventId: null,
+      deliveryId: null,
+      deliveredAssistantEventId: null,
+    });
     expect(beginCalls).toBe(0);
     expect(modelCalls).toBe(0);
+    expect(settlementCalls).toBe(1);
   });
 
   it("rejects an accessor-shaped Telegram stage result before dispatch", async () => {

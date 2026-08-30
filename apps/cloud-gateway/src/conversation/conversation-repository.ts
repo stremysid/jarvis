@@ -619,21 +619,30 @@ export class ConversationRepository {
 
   async recordTurnFailed(input: {
     claim: ModelStreamClaimCapability;
-    failureCode: "model_failed";
-    failureCategory: "provider";
+    failureCode: "model_failed" | "model_outcome_unknown";
+    failureCategory: "provider" | "ambiguous";
     now: Date;
   }): Promise<StoredConversationTurn> {
     const captured = exactDataRecord(input, ["claim", "failureCode", "failureCategory", "now"], "turn_failure_input_invalid");
-    if (captured.failureCode !== "model_failed" || captured.failureCategory !== "provider") {
-      throw new TypeError("turn_failure_input_invalid");
+    if (captured.failureCode === "model_failed" && captured.failureCategory === "provider") {
+      return this.recordModelTerminal(
+        { claim: captured.claim as ModelStreamClaimCapability, now: captured.now as Date },
+        "failed",
+        "model_failed",
+        "provider",
+        "conversation.turn_failed",
+      );
     }
-    return this.recordModelTerminal(
-      { claim: captured.claim as ModelStreamClaimCapability, now: captured.now as Date },
-      "failed",
-      "model_failed",
-      "provider",
-      "conversation.turn_failed",
-    );
+    if (captured.failureCode === "model_outcome_unknown" && captured.failureCategory === "ambiguous") {
+      return this.recordModelTerminal(
+        { claim: captured.claim as ModelStreamClaimCapability, now: captured.now as Date },
+        "model_outcome_unknown",
+        "model_outcome_unknown",
+        "ambiguous",
+        "conversation.turn_failed",
+      );
+    }
+    throw new TypeError("turn_failure_input_invalid");
   }
 
   async stageSystemNotice(input: {
@@ -967,15 +976,17 @@ export class ConversationRepository {
 
   private async recordModelTerminal(
     input: { claim: ModelStreamClaimCapability; now: Date },
-    state: "cancelled" | "failed",
-    code: "model_cancelled" | "model_failed",
-    category: "cancelled" | "provider",
+    state: "cancelled" | "failed" | "model_outcome_unknown",
+    code: "model_cancelled" | "model_failed" | "model_outcome_unknown",
+    category: "cancelled" | "provider" | "ambiguous",
     eventType: "conversation.turn_cancelled" | "conversation.turn_failed",
   ): Promise<StoredConversationTurn> {
     const captured = exactDataRecord(input, ["claim", "now"], "model_terminal_input_invalid");
     const claim = captured.claim as ModelStreamClaimCapability;
     const observedAt = snapshotDate(captured.now, "model_terminal_now");
-    const binding = this.settleModelClaim(claim);
+    const binding = state === "model_outcome_unknown"
+      ? this.settleUnbegunModelClaim(claim)
+      : this.settleModelClaim(claim);
     const envelope = await this.createConversationEnvelope({
       eventId: requireUlid(this.eventIdFactory(), "conversation_event_id"),
       eventType,
@@ -1021,6 +1032,15 @@ export class ConversationRepository {
   private settleModelClaim(claim: ModelStreamClaimCapability): ModelClaimBinding {
     const binding = this.modelClaimBindings.get(claim);
     if (binding === undefined || !this.begunModelClaims.has(claim) || this.settledModelClaims.has(claim)) {
+      throw new Error("model_stream_claim_invalid");
+    }
+    this.settledModelClaims.add(claim);
+    return binding;
+  }
+
+  private settleUnbegunModelClaim(claim: ModelStreamClaimCapability): ModelClaimBinding {
+    const binding = this.modelClaimBindings.get(claim);
+    if (binding === undefined || this.begunModelClaims.has(claim) || this.settledModelClaims.has(claim)) {
       throw new Error("model_stream_claim_invalid");
     }
     this.settledModelClaims.add(claim);

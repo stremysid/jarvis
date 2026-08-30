@@ -114,6 +114,12 @@ describe("DefaultConversationService", () => {
       redactor: new Redactor(),
       now: () => new Date(nowIso),
     } as never);
+    const delivery = createVoiceStreamDelivery({
+      sessionId: admitted.sessionId,
+      turnId,
+      sendToken: async () => { downstreamCalls += 1; },
+      finish: async () => { downstreamCalls += 1; throw new Error("unexpected_finish"); },
+    });
 
     await expect(service.handleTurn({
       sessionId: admitted.sessionId,
@@ -121,11 +127,8 @@ describe("DefaultConversationService", () => {
       turnId,
       text: "hello",
       signal: new AbortController().signal,
-      channel: "voice",
-      kind: "voice_stream",
-      onToken: async () => { downstreamCalls += 1; },
-      finish: async () => { downstreamCalls += 1; throw new Error("unexpected_finish"); },
-    } as never)).resolves.toEqual({
+      ...delivery,
+    })).resolves.toEqual({
       outcome: "voice_sent",
       committedUserEventId: admitted.userEventId,
       sentAssistantEventId: assistantEventId,
@@ -164,7 +167,6 @@ describe("DefaultConversationService", () => {
       redactor: new Redactor(),
       now: () => new Date(nowIso),
     } as never);
-
     await expect(service.handleTurn({
       sessionId: admitted.sessionId,
       principalId: admitted.principalId,
@@ -213,6 +215,12 @@ describe("DefaultConversationService", () => {
       redactor: new Redactor(),
       now: () => new Date(nowIso),
     } as never);
+    const delivery = createVoiceStreamDelivery({
+      sessionId: admitted.sessionId,
+      turnId,
+      sendToken: async () => undefined,
+      finish: async () => { throw new Error("unexpected_finish"); },
+    });
 
     await expect(service.handleTurn({
       sessionId: admitted.sessionId,
@@ -220,11 +228,8 @@ describe("DefaultConversationService", () => {
       turnId,
       text: "hello",
       signal: new AbortController().signal,
-      channel: "voice",
-      kind: "voice_stream",
-      onToken: async () => undefined,
-      finish: async () => { throw new Error("unexpected_finish"); },
-    } as never)).resolves.toEqual({
+      ...delivery,
+    })).resolves.toEqual({
       outcome: "model_outcome_unknown",
       committedUserEventId: admitted.userEventId,
       sentAssistantEventId: null,
@@ -648,17 +653,38 @@ describe("DefaultConversationService", () => {
       channel: "voice",
     });
     const claimed = Object.freeze({ ...admitted, state: "model_claimed" as const });
+    const unknown = Object.freeze({
+      ...claimed,
+      state: "model_outcome_unknown" as const,
+      resolvedAt: nowIso,
+      failureCode: "model_outcome_unknown" as const,
+      failureCategory: "ambiguous" as const,
+    });
     const capability = Object.freeze({ turnId, requestHash }) as ModelStreamClaimCapability;
     let beginCalls = 0;
     let modelCalls = 0;
+    let claimCalls = 0;
+    let unknownSettlements = 0;
+    let durable = admitted;
     const repository = {
-      async getOrCreateTurn() { return Object.freeze({ turn: admitted, replayed: false }); },
-      async claimModelTurn() { return Object.freeze({ kind: "claimed" as const, capability, turn: claimed }); },
+      async getOrCreateTurn() { return Object.freeze({ turn: durable, replayed: durable === unknown }); },
+      async claimModelTurn() {
+        claimCalls += 1;
+        return Object.freeze({ kind: "claimed" as const, capability, turn: claimed });
+      },
       beginModelStream(): void { beginCalls += 1; },
       async recordVoiceSent(): Promise<never> { throw new Error("unexpected_voice"); },
       async stageAssistantDelivery(): Promise<never> { throw new Error("unexpected_stage"); },
       async recordTurnCancelled(): Promise<never> { throw new Error("unexpected_cancel"); },
-      async recordTurnFailed(): Promise<never> { throw new Error("unexpected_failure"); },
+      async recordTurnFailed(input: { failureCode: string; failureCategory: string }) {
+        expect(input).toMatchObject({
+          failureCode: "model_outcome_unknown",
+          failureCategory: "ambiguous",
+        });
+        unknownSettlements += 1;
+        durable = unknown;
+        return unknown;
+      },
       async recordIngestFailure(): Promise<never> { throw new Error("unexpected_ingest_failure"); },
       async stageSystemNotice(): Promise<never> { throw new Error("unexpected_system_notice"); },
     };
@@ -671,17 +697,29 @@ describe("DefaultConversationService", () => {
       now: () => new Date(nowIso),
     } as never);
 
-    await expect(service.handleTurn({
+    const delivery = createVoiceStreamDelivery({
+      sessionId: admitted.sessionId,
+      turnId,
+      sendToken: async () => { throw new Error("unexpected_token"); },
+      finish: async () => { throw new Error("unexpected_finish"); },
+    });
+    const input = {
       sessionId: admitted.sessionId,
       principalId: admitted.principalId,
       turnId,
       text: "hello",
       signal: new AbortController().signal,
-      channel: "voice",
-      kind: "voice_stream",
-      onToken: async () => undefined,
-      finish: async () => { throw new Error("unexpected_finish"); },
-    } as never)).resolves.toEqual({
+      ...delivery,
+    } as const;
+
+    await expect(service.handleTurn(input)).resolves.toEqual({
+      outcome: "model_outcome_unknown",
+      committedUserEventId: admitted.userEventId,
+      sentAssistantEventId: null,
+      deliveryId: null,
+      deliveredAssistantEventId: null,
+    });
+    await expect(service.handleTurn(input)).resolves.toEqual({
       outcome: "model_outcome_unknown",
       committedUserEventId: admitted.userEventId,
       sentAssistantEventId: null,
@@ -690,6 +728,8 @@ describe("DefaultConversationService", () => {
     });
     expect(beginCalls).toBe(0);
     expect(modelCalls).toBe(0);
+    expect(claimCalls).toBe(1);
+    expect(unknownSettlements).toBe(1);
   });
 
   it("returns model_outcome_unknown when Telegram staging fails after model completion", async () => {

@@ -335,6 +335,15 @@ WHEN OLD.delivery_id IS NOT NEW.delivery_id
   OR OLD.created_at IS NOT NEW.created_at
   OR NEW.updated_at < OLD.updated_at
   OR (OLD.state IS NOT NEW.state AND NEW.updated_at < OLD.updated_at)
+  OR (
+    OLD.state = 'claimed'
+    AND (
+      OLD.attempt_count IS NOT NEW.attempt_count
+      OR OLD.lease_token_hash IS NOT NEW.lease_token_hash
+      OR OLD.claimed_at IS NOT NEW.claimed_at
+      OR OLD.lease_expires_at IS NOT NEW.lease_expires_at
+    )
+  )
   OR (OLD.provider_message_id IS NOT NULL AND OLD.provider_message_id IS NOT NEW.provider_message_id)
   OR (OLD.delivered_assistant_event_id IS NOT NULL AND OLD.delivered_assistant_event_id IS NOT NEW.delivered_assistant_event_id)
 BEGIN

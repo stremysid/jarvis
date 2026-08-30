@@ -276,6 +276,11 @@ const SHA256 = /^[a-f0-9]{64}$/u;
 const encoder = new TextEncoder();
 const issuedVoiceReceipts = new WeakSet<object>();
 const consumedVoiceReceipts = new WeakSet<object>();
+const issuedVoiceStreamBindings = new WeakMap<object, Readonly<{
+  sessionId: string;
+  turnId: Ulid;
+  finish: object;
+}>>();
 
 function exactDataRecord(value: unknown, fields: readonly string[], error: string): Record<string, unknown> {
   let prototype: object | null;
@@ -343,6 +348,13 @@ export interface CreateVoiceStreamDeliveryInput {
   readonly finish: (finalText: string) => Promise<void>;
 }
 
+export interface VoiceStreamDeliveryBindingInput {
+  readonly sessionId: string;
+  readonly turnId: Ulid;
+  readonly onToken: (token: ModelToken) => Promise<void>;
+  readonly finish: (finalText: string) => Promise<VoiceSentReceipt>;
+}
+
 /** Captures low-level relay functions and mints one receipt only after an exact contiguous stream finishes. */
 export function createVoiceStreamDelivery(input: CreateVoiceStreamDeliveryInput): Extract<ConversationDelivery, { channel: "voice" }> {
   const captured = exactDataRecord(input, ["sessionId", "turnId", "sendToken", "finish"], "voice_stream_delivery_invalid");
@@ -404,7 +416,29 @@ export function createVoiceStreamDelivery(input: CreateVoiceStreamDeliveryInput)
     return receipt;
   };
 
+  issuedVoiceStreamBindings.set(onToken, Object.freeze({ sessionId, turnId, finish }));
   return Object.freeze({ channel: "voice", kind: "voice_stream", onToken, finish });
+}
+
+/** Verifies that an exact callback pair was issued for this session and turn before any relay work. */
+export function assertVoiceStreamDeliveryBinding(input: VoiceStreamDeliveryBindingInput): void {
+  const captured = exactDataRecord(
+    input,
+    ["sessionId", "turnId", "onToken", "finish"],
+    "voice_stream_delivery_binding_invalid",
+  );
+  const sessionId = requireSafeText(captured.sessionId, "voice_stream_delivery_binding", 256);
+  const turnId = requireUlid(captured.turnId, "voice_stream_delivery_binding_turn_id");
+  const onToken = captured.onToken;
+  const finish = captured.finish;
+  if (typeof onToken !== "function" || typeof finish !== "function") {
+    throw new Error("voice_stream_delivery_binding_invalid");
+  }
+  const binding = issuedVoiceStreamBindings.get(onToken);
+  if (binding === undefined || binding.finish !== finish
+    || binding.sessionId !== sessionId || binding.turnId !== turnId) {
+    throw new Error("voice_stream_delivery_binding_invalid");
+  }
 }
 
 /** Consumes an issued voice receipt after checking exact session, turn, and output material. */

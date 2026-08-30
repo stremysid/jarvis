@@ -23,6 +23,7 @@ import type {
   StoredConversationTurn,
   VoiceSentReceipt,
 } from "./conversation-types.js";
+import { assertVoiceStreamDeliveryBinding } from "./conversation-types.js";
 import type { ConversationRepository } from "./conversation-repository.js";
 
 const COMMON_FIELDS = ["sessionId", "principalId", "turnId", "text", "signal", "channel", "kind"] as const;
@@ -244,6 +245,12 @@ function captureTurn(value: unknown): CapturedTurn {
     if (typeof initial.onToken !== "function" || typeof initial.finish !== "function") {
       throw new TypeError("conversation_turn_input_invalid");
     }
+    assertVoiceStreamDeliveryBinding(Object.freeze({
+      sessionId,
+      turnId: turnId as Ulid,
+      onToken: initial.onToken as (token: ModelToken) => Promise<void>,
+      finish: initial.finish as (finalText: string) => Promise<VoiceSentReceipt>,
+    }));
     return Object.freeze({
       sessionId,
       principalId,
@@ -747,28 +754,45 @@ export class DefaultConversationService implements ConversationService {
       return terminal;
     }
     const capability = claim.capability;
-    let contextValue: unknown;
+    let context: readonly RetrievedContext[];
     try {
-      contextValue = await call<Promise<readonly RetrievedContext[]>>(
+      const contextValue = await call<Promise<readonly RetrievedContext[]>>(
         this.contextRetrieve,
         Object.freeze({
-        principalId: captured.principalId,
-        channel: captured.channel,
-        purpose: "conversation",
-        query: userText.text,
-        maxTokens: 32_000,
+          principalId: captured.principalId,
+          channel: captured.channel,
+          purpose: "conversation",
+          query: userText.text,
+          maxTokens: 32_000,
         }),
       );
+      context = snapshotContext(contextValue);
     } catch {
-      return Object.freeze({
-        outcome: "model_outcome_unknown",
-        committedUserEventId: claim.turn.userEventId,
-        sentAssistantEventId: null,
-        deliveryId: null,
-        deliveredAssistantEventId: null,
-      });
+      try {
+        const stored = snapshotStoredTurn(await call<ReturnType<ConversationRepositoryPort["recordTurnFailed"]>>(
+          this.recordTurnFailed,
+          {
+            claim: capability,
+            failureCode: "model_outcome_unknown",
+            failureCategory: "ambiguous",
+            now: snapshotDate(this.clock()),
+          },
+        ), "conversation_model_settlement_invalid");
+        const terminal = resultFromTurn(stored);
+        if (terminal?.outcome !== "model_outcome_unknown") {
+          throw new Error("conversation_model_settlement_invalid");
+        }
+        return terminal;
+      } catch {
+        return Object.freeze({
+          outcome: "model_outcome_unknown",
+          committedUserEventId: claim.turn.userEventId,
+          sentAssistantEventId: null,
+          deliveryId: null,
+          deliveredAssistantEventId: null,
+        });
+      }
     }
-    const context = snapshotContext(contextValue);
     const output = new StreamingOutputRedactor(this.outputRedactor, {
       maxRawCharacters: MAX_OUTPUT_SCALARS,
       maxSanitizedCharacters: MAX_OUTPUT_SCALARS,

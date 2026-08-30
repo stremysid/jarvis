@@ -1,5 +1,11 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import { type Ulid } from "../../../../packages/contracts/src/index.js";
+import { ConversationRepository } from "../../src/conversation/conversation-repository.js";
+import type { ConversationDeliveryId } from "../../src/conversation/conversation-types.js";
+import { EventRepository } from "../../src/persistence/event-repository.js";
+import { ProviderFailure } from "../../src/providers/provider-types.js";
+import { Redactor } from "../../src/security/redaction.js";
 import {
   applyFoundationMigration,
   clearAuthenticationAttemptReservationsForTest,
@@ -40,6 +46,63 @@ function insertSnapshot(snapshotId: string, principalId: string, deviceId: strin
        boundary_start_event_id, boundary_end_event_id, event_count, has_more, expires_at, created_at
      ) VALUES (?, 'device:device:one', ?, ?, ?, NULL, ?, ?, 0, 0, 0, NULL, NULL, 0, 0, ?, ?)`,
   ).bind(snapshotId, principalId, deviceId, snapshotId, hashDigit.repeat(64), "a".repeat(64), futureTimestamp, timestamp).run();
+}
+
+const conversationTurnId = "01k3w1t4000000000000000100" as Ulid;
+const conversationEventIds = [
+  "01k3w1t4000000000000000110",
+  "01k3w1t4000000000000000111",
+  "01k3w1t4000000000000000112",
+] as Ulid[];
+const conversationDeliveryId = "01k3w1t4000000000000000120" as ConversationDeliveryId;
+
+async function seedClaimedConversationDelivery() {
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('principal:conversation-schema', 'service', 'active', 'conversation schema', ?, ?)").bind(timestamp, timestamp),
+    env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES ('identity:conversation-schema', 'principal:conversation-schema', 'telegram', '14165550199', 'active', ?, ?)").bind(timestamp, timestamp),
+  ]);
+  let eventIndex = 0;
+  const repository = new ConversationRepository(env.DB, new EventRepository(env.DB), {
+    eventIdFactory: () => {
+      const eventId = conversationEventIds[eventIndex];
+      if (eventId === undefined) throw new Error("conversation_schema_event_fixture_exhausted");
+      eventIndex += 1;
+      return eventId;
+    },
+    deliveryIdFactory: () => conversationDeliveryId,
+    claimTokenFactory: () => new Uint8Array(32).fill(0x31),
+    leaseTokenFactory: () => new Uint8Array(32).fill(0x32),
+    retryDelayMs: 0,
+  });
+  const text = new Redactor().redactText("schema history");
+  if (!text.ok) throw new Error("conversation_schema_redaction_failed");
+  const now = new Date(timestamp);
+  const admission = await repository.getOrCreateTurn({
+    turnId: conversationTurnId,
+    sessionId: "session:conversation-schema",
+    principalId: "principal:conversation-schema",
+    channel: "telegram",
+    userText: text,
+    now,
+  });
+  const modelClaim = await repository.claimModelTurn({
+    turnId: conversationTurnId,
+    requestHash: admission.turn.requestHash,
+    now,
+  });
+  if (modelClaim.kind !== "claimed") throw new Error("conversation_schema_model_claim_failed");
+  repository.beginModelStream(modelClaim.capability, conversationTurnId, admission.turn.requestHash);
+  const staged = await repository.stageAssistantDelivery({
+    claim: modelClaim.capability,
+    text,
+    targetIdentityId: "identity:conversation-schema",
+    replyToMessageId: null,
+    now,
+  });
+  const deliveryClaim = await repository.claimDelivery({ deliveryId: staged.delivery.deliveryId, now });
+  if (deliveryClaim.kind !== "claimed") throw new Error("conversation_schema_delivery_claim_failed");
+  repository.beginDelivery(deliveryClaim.capability, staged.delivery.deliveryId, staged.delivery.materialHash);
+  return { repository, staged, deliveryClaim, now };
 }
 
 describe("foundation migration constraints", () => {
@@ -157,6 +220,58 @@ describe("foundation migration constraints", () => {
       "conversation_deliveries_available_idx",
       "conversation_deliveries_target_idx",
     ]));
+  });
+
+  it("rejects direct invalid conversation turn and delivery state transitions", async () => {
+    const { staged } = await seedClaimedConversationDelivery();
+
+    await expect(env.DB.prepare(`UPDATE conversation_turns
+      SET state = 'voice_sent', sent_assistant_event_id = ?1, updated_at = ?2
+      WHERE turn_id = ?3`).bind(conversationEventIds[2], timestamp, conversationTurnId).run()).rejects.toThrow();
+    await expect(env.DB.prepare(`UPDATE conversation_deliveries
+      SET state = 'pending', attempt_count = 0, lease_token_hash = NULL,
+          claimed_at = NULL, lease_expires_at = NULL, updated_at = ?1
+      WHERE delivery_id = ?2`).bind(timestamp, staged.delivery.deliveryId).run()).rejects.toThrow();
+  });
+
+  it("rejects direct conversation state rows with incoherent NULL authority", async () => {
+    const { staged } = await seedClaimedConversationDelivery();
+
+    await expect(env.DB.prepare(`UPDATE conversation_turns
+      SET staged_delivery_id = NULL WHERE turn_id = ?1`).bind(conversationTurnId).run()).rejects.toThrow();
+    await expect(env.DB.prepare(`UPDATE conversation_deliveries
+      SET lease_token_hash = NULL WHERE delivery_id = ?1`).bind(staged.delivery.deliveryId).run()).rejects.toThrow();
+  });
+
+  it("keeps terminal conversation rows immutable under direct D1 writes", async () => {
+    const { repository, staged, deliveryClaim, now } = await seedClaimedConversationDelivery();
+    await repository.recordDeliveryFailure({
+      capability: deliveryClaim.capability,
+      failure: ProviderFailure.permanent(),
+      now,
+    });
+
+    await expect(env.DB.prepare(`UPDATE conversation_turns
+      SET updated_at = ?1 WHERE turn_id = ?2`).bind(futureTimestamp, conversationTurnId).run()).rejects.toThrow();
+    await expect(env.DB.prepare(`UPDATE conversation_deliveries
+      SET updated_at = ?1 WHERE delivery_id = ?2`).bind(futureTimestamp, staged.delivery.deliveryId).run()).rejects.toThrow();
+  });
+
+  it("rejects direct deletion of conversation turns and deliveries", async () => {
+    const { staged } = await seedClaimedConversationDelivery();
+
+    await expect(env.DB.prepare("DELETE FROM conversation_deliveries WHERE delivery_id = ?1")
+      .bind(staged.delivery.deliveryId).run()).rejects.toThrow();
+    await expect(env.DB.prepare("DELETE FROM conversation_turns WHERE turn_id = ?1")
+      .bind(conversationTurnId).run()).rejects.toThrow();
+  });
+
+  it("prevents replacement of an active delivery lease token by direct D1 writes", async () => {
+    const { staged } = await seedClaimedConversationDelivery();
+
+    await expect(env.DB.prepare(`UPDATE conversation_deliveries
+      SET lease_token_hash = ?1 WHERE delivery_id = ?2`)
+      .bind("f".repeat(64), staged.delivery.deliveryId).run()).rejects.toThrow();
   });
 
   it("rejects non-lowercase-hex values in every SHA-256 persistence column", async () => {

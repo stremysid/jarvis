@@ -10,7 +10,9 @@ import {
   createVoiceStreamDelivery,
   snapshotVoiceSentReceipt,
   type ConversationDeliveryId,
+  type DeliveryLeaseCapability,
   type ModelStreamClaimCapability,
+  type ProviderDeliveryReceipt,
 } from "../../src/conversation/conversation-types.js";
 import {
   CONVERSATION_EVENT_PRODUCER_VERSION,
@@ -110,8 +112,8 @@ async function admitAndClaim(repo: ConversationRepository, turnId = TURN_ID) {
   return { admission, claim };
 }
 
-async function stagedDelivery(repo: ConversationRepository) {
-  const { admission, claim } = await admitAndClaim(repo);
+async function stagedDelivery(repo: ConversationRepository, turnId = TURN_ID) {
+  const { admission, claim } = await admitAndClaim(repo, turnId);
   const staged = await repo.stageAssistantDelivery({
     claim: claim.capability,
     text: redacted("safe answer"),
@@ -295,6 +297,57 @@ describe("ConversationRepository", () => {
     expect(row?.model_claim_token_hash).not.toContain("11".repeat(32));
   });
 
+  it("atomically abandons an unbegun model claim as terminal unknown and exact replay agrees", async () => {
+    const repo = repository();
+    const admission = await repo.getOrCreateTurn({
+      turnId: TURN_ID,
+      sessionId: "session:telegram:44112233",
+      principalId: "principal:owner",
+      channel: "telegram",
+      userText: redacted("hello"),
+      now: NOW,
+    });
+    const claim = await repo.claimModelTurn({
+      turnId: TURN_ID,
+      requestHash: admission.turn.requestHash,
+      now: NOW,
+    });
+    if (claim.kind !== "claimed") throw new Error("test_claim_missing");
+
+    const terminal = await repo.recordTurnFailed({
+      claim: claim.capability,
+      failureCode: "model_outcome_unknown",
+      failureCategory: "ambiguous",
+      now: LATER,
+    });
+    const replay = await repo.getOrCreateTurn({
+      turnId: TURN_ID,
+      sessionId: "session:telegram:44112233",
+      principalId: "principal:owner",
+      channel: "telegram",
+      userText: redacted("hello"),
+      now: LATER,
+    });
+
+    expect(terminal).toMatchObject({
+      state: "model_outcome_unknown",
+      failureCode: "model_outcome_unknown",
+      failureCategory: "ambiguous",
+    });
+    expect(replay).toMatchObject({ replayed: true, turn: { state: "model_outcome_unknown" } });
+    expect(() => repo.beginModelStream(claim.capability, TURN_ID, admission.turn.requestHash))
+      .toThrow("model_stream_claim_invalid");
+    const stored = await env.DB.prepare(`SELECT event_type, envelope_json FROM events
+      WHERE event_type = 'conversation.turn_failed'`).first<{ event_type: string; envelope_json: string }>();
+    expect(JSON.parse(stored?.envelope_json ?? "null").payload).toEqual({
+      schemaCode: 1,
+      channelCode: 2,
+      failureCode: 4,
+      failureCategoryCode: 7,
+      historyEligible: false,
+    });
+  });
+
   it("stages redacted assistant text and its delivery atomically for one active exact-principal Telegram identity", async () => {
     const repo = repository();
     const { admission, staged } = await stagedDelivery(repo);
@@ -375,6 +428,104 @@ describe("ConversationRepository", () => {
     const leaseExpiry = new Date(winner.item.leaseExpiresAt ?? "invalid");
     const expired = await repo.claimDelivery({ deliveryId: staged.delivery.deliveryId, now: leaseExpiry });
     expect(expired).toMatchObject({ kind: "terminal", item: { state: "unknown" } });
+  });
+
+  it("rejects forged and cross-delivery lease or receipt capabilities without consuming either authority", async () => {
+    const repo = repository();
+    const first = await stagedDelivery(repo, TURN_ID);
+    const second = await stagedDelivery(repo, TURN_ID_2);
+    const firstClaim = await repo.claimDelivery({ deliveryId: first.staged.delivery.deliveryId, now: LATER });
+    const secondClaim = await repo.claimDelivery({ deliveryId: second.staged.delivery.deliveryId, now: LATER });
+    if (firstClaim.kind !== "claimed" || secondClaim.kind !== "claimed") throw new Error("test_lease_failed");
+    const forgedCapability = Object.freeze({
+      deliveryId: first.staged.delivery.deliveryId,
+      materialHash: first.staged.delivery.materialHash,
+    }) as DeliveryLeaseCapability;
+
+    expect(() => repo.beginDelivery(
+      forgedCapability,
+      first.staged.delivery.deliveryId,
+      first.staged.delivery.materialHash,
+    )).toThrow("delivery_lease_invalid");
+    expect(() => repo.beginDelivery(
+      firstClaim.capability,
+      second.staged.delivery.deliveryId,
+      second.staged.delivery.materialHash,
+    )).toThrow("delivery_lease_invalid");
+    repo.beginDelivery(firstClaim.capability, first.staged.delivery.deliveryId, first.staged.delivery.materialHash);
+    repo.beginDelivery(secondClaim.capability, second.staged.delivery.deliveryId, second.staged.delivery.materialHash);
+
+    await expect(repo.recordDeliveryFailure({
+      capability: forgedCapability,
+      failure: ProviderFailure.permanent(),
+      now: LATER,
+    })).rejects.toThrow("delivery_lease_invalid");
+    const forgedReceipt = Object.freeze({
+      deliveryId: first.staged.delivery.deliveryId,
+      targetIdentityId: first.staged.delivery.targetIdentityId,
+      providerIdempotencyKey: first.staged.delivery.providerIdempotencyKey,
+      materialHash: first.staged.delivery.materialHash,
+      providerMessageId: "forged-provider-message",
+    }) as ProviderDeliveryReceipt;
+    await expect(repo.recordDeliverySuccess({
+      capability: firstClaim.capability,
+      receipt: forgedReceipt,
+      now: LATER,
+    })).rejects.toThrow("provider_delivery_receipt_invalid");
+
+    const firstReceipt = repo.mintProviderDeliveryReceipt({
+      capability: firstClaim.capability,
+      providerMessageId: "telegram-message-first",
+    });
+    await expect(repo.recordDeliverySuccess({
+      capability: secondClaim.capability,
+      receipt: firstReceipt,
+      now: LATER,
+    })).rejects.toThrow("provider_delivery_receipt_invalid");
+    await expect(repo.recordDeliverySuccess({
+      capability: firstClaim.capability,
+      receipt: firstReceipt,
+      now: LATER,
+    })).resolves.toMatchObject({ state: "delivered", providerMessageId: "telegram-message-first" });
+
+    const secondReceipt = repo.mintProviderDeliveryReceipt({
+      capability: secondClaim.capability,
+      providerMessageId: "telegram-message-second",
+    });
+    await expect(repo.recordDeliverySuccess({
+      capability: secondClaim.capability,
+      receipt: secondReceipt,
+      now: LATER,
+    })).resolves.toMatchObject({ state: "delivered", providerMessageId: "telegram-message-second" });
+  });
+
+  it("caps known-safe retry authority at three attempts and records terminal exhaustion", async () => {
+    const repo = repository();
+    const { staged } = await stagedDelivery(repo);
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const claim = await repo.claimDelivery({ deliveryId: staged.delivery.deliveryId, now: LATER });
+      if (claim.kind !== "claimed") throw new Error(`test_retry_claim_${attempt}_failed`);
+      repo.beginDelivery(claim.capability, staged.delivery.deliveryId, staged.delivery.materialHash);
+      const settled = await repo.recordDeliveryFailure({
+        capability: claim.capability,
+        failure: ProviderFailure.transient("rate_limited"),
+        now: LATER,
+      });
+      expect(settled).toMatchObject(attempt < 3
+        ? { state: "retry_wait", attemptCount: attempt, failureCode: "delivery_retry" }
+        : { state: "failed", attemptCount: 3, failureCode: "delivery_retry_exhausted" });
+    }
+
+    await expect(repo.claimDelivery({ deliveryId: staged.delivery.deliveryId, now: LATER }))
+      .resolves.toMatchObject({ kind: "terminal", item: { state: "failed", attemptCount: 3 } });
+    const eventCounts = await env.DB.prepare(`SELECT event_type, COUNT(*) AS count FROM events
+      WHERE event_type IN ('conversation.delivery_retry', 'conversation.delivery_failed')
+      GROUP BY event_type ORDER BY event_type`).all<{ event_type: string; count: number }>();
+    expect(eventCounts.results).toEqual([
+      { event_type: "conversation.delivery_failed", count: 1 },
+      { event_type: "conversation.delivery_retry", count: 2 },
+    ]);
   });
 
   it("acknowledges a provider receipt atomically and converges exact settlement replay without replacing its provider id", async () => {
