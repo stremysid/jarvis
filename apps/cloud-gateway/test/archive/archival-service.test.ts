@@ -314,9 +314,29 @@ describe.sequential("ArchivalService", () => {
 
     await expect(guarded.archiveEligible(now, 1000)).resolves.toMatchObject({ startSequence: 25, endSequence: 48 });
 
-    expect(counted.queryCount()).toBe(43);
+    expect(counted.queryCount()).toBe(44);
     expect(counted.queryCount()).toBeLessThanOrEqual(50);
     expect(await state()).toEqual({ sealed_through: 48, circuit_state: "closed", circuit_reason: null });
+  });
+
+  it("reconciles one older delivered manifest during a seal conflict within the 50-query budget", async () => {
+    await appendEvents(49);
+    for (let sequence = 1; sequence <= 49; sequence += 1) await setCreatedAt(sequence, exactCutoff);
+    await service().archiveEligible(now, 1);
+    await service().archiveEligible(now, 24);
+    await markDelivered(1, ...Array.from({ length: 24 }, (_, index) => index + 26));
+    const counted = queryCountingDatabase(async () => {
+      await service().archiveEligible(now, 24);
+    });
+    const guarded = new ArchivalService({ database: counted.database, bucket: env.ARCHIVE });
+
+    await expect(guarded.archiveEligible(now, 24)).resolves.toMatchObject({ startSequence: 26, endSequence: 49 });
+
+    expect(counted.queryCount()).toBe(49);
+    expect(counted.queryCount()).toBeLessThanOrEqual(50);
+    expect((await env.DB.prepare("SELECT sequence FROM events ORDER BY sequence").all()).results)
+      .toEqual(Array.from({ length: 24 }, (_, index) => ({ sequence: index + 2 })));
+    expect(await state()).toEqual({ sealed_through: 49, circuit_state: "closed", circuit_reason: null });
   });
 
   it("treats exact 90-day equality as eligible and stops at the first younger sequence", async () => {
@@ -978,6 +998,58 @@ describe.sequential("ArchivalService", () => {
     expect((await env.DB.prepare("SELECT event_sequence FROM archive_purge_receipts ORDER BY event_sequence").all()).results)
       .toEqual([{ event_sequence: 1 }]);
     expect(await state()).toEqual({ sealed_through: 2, circuit_state: "closed", circuit_reason: null });
+  });
+
+  it("verifies and purges an older delivered manifest after reconciling the current tail", async () => {
+    await appendEvents(2);
+    await setCreatedAt(1, exactCutoff);
+    await setCreatedAt(2, exactCutoff);
+    const first = await service().archiveEligible(now, 1);
+    const tail = await service().archiveEligible(now, 1);
+    if (first === null || tail === null) throw new Error("expected two archive manifests");
+    await markDelivered(1);
+    const objectReads: string[] = [];
+    const reconciling = service({
+      put: (...args) => env.ARCHIVE.put(...args),
+      get: async (...args) => {
+        objectReads.push(args[0]);
+        return env.ARCHIVE.get(...args);
+      },
+    });
+
+    await expect(reconciling.archiveEligible(now, 1)).resolves.toBeNull();
+
+    expect(objectReads).toEqual([tail.objectKey, first.objectKey]);
+    expect((await env.DB.prepare("SELECT sequence FROM events ORDER BY sequence").all()).results)
+      .toEqual([{ sequence: 2 }]);
+    expect((await env.DB.prepare("SELECT event_sequence, status FROM outbox ORDER BY event_sequence").all()).results)
+      .toEqual([{ event_sequence: 2, status: "pending" }]);
+    expect((await env.DB.prepare("SELECT event_sequence FROM archive_purge_receipts ORDER BY event_sequence").all()).results)
+      .toEqual([{ event_sequence: 1 }]);
+    expect(await state()).toEqual({ sealed_through: 2, circuit_state: "closed", circuit_reason: null });
+  });
+
+  it("opens the circuit without purging when an older delivered manifest is corrupt", async () => {
+    await appendEvents(2);
+    await setCreatedAt(1, exactCutoff);
+    await setCreatedAt(2, exactCutoff);
+    const first = await service().archiveEligible(now, 1);
+    const tail = await service().archiveEligible(now, 1);
+    if (first === null || tail === null) throw new Error("expected two archive manifests");
+    await markDelivered(1);
+    await env.ARCHIVE.put(first.objectKey, "older manifest corruption");
+
+    await expect(service().archiveEligible(now, 1)).rejects.toThrow("archive_object_size_mismatch");
+
+    expect((await env.DB.prepare("SELECT sequence FROM events ORDER BY sequence").all()).results)
+      .toEqual([{ sequence: 1 }, { sequence: 2 }]);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM archive_purge_receipts").first<{ count: number }>())?.count)
+      .toBe(0);
+    expect(await state()).toEqual({
+      sealed_through: tail.endSequence,
+      circuit_state: "open",
+      circuit_reason: "archive_object_size_mismatch",
+    });
   });
 
   it.each([

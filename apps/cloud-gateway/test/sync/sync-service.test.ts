@@ -306,6 +306,18 @@ describe("SyncService", () => {
     await expect(pull(pullBody(1, 1, root.snapshotToken))).rejects.toThrow("snapshot_expired");
   });
 
+  it("replaces an exactly expired root snapshot without misclassifying the successful insert", async () => {
+    await append(1);
+    const first = await pull(pullBody(0, 1));
+    const expiry = await env.DB.prepare("SELECT expires_at FROM sync_snapshots WHERE snapshot_id = ?")
+      .bind(first.snapshotId).first<{ expires_at: string }>();
+    if (expiry === null) throw new Error("missing snapshot fixture");
+    currentNow = new Date(expiry.expires_at);
+
+    await expect(pull(pullBody(0, 1))).resolves.toMatchObject({ fromSequence: 0, toSequence: 1 });
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM sync_snapshots").first<{ count: number }>())?.count).toBe(1);
+  });
+
   it("fails closed on a noncontiguous event reader without persisting a page", async () => {
     await append(2);
     const incomplete: SyncEventReader = {

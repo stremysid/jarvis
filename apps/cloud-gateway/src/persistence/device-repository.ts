@@ -138,13 +138,14 @@ export class DeviceRepository {
          AND d.key_fingerprint = ? AND d.key_generation = ? AND d.status = 'active'
          AND p.status = 'active' AND ci.identity_id = ? AND ci.channel = ?
          AND ci.status = 'pending' AND ci.verified_at IS NULL
-         AND ci.enrolled_by_device_id = d.device_id`,
+         AND ci.enrolled_by_device_id = d.device_id
+       RETURNING challenge_id`,
     ).bind(
       input.challengeId, input.responseHmac, input.hmacKeyVersion, input.expiresAt, input.createdAt,
       input.verified.deviceId, input.verified.principalId, input.verified.keyId,
       input.verified.keyFingerprint, input.verified.keyGeneration, input.identityId, input.channel,
-    ).run();
-    return result.meta.changes === 1;
+    ).first<{ challenge_id: string }>();
+    return result?.challenge_id === input.challengeId;
   }
 
   readIdentityChallenge(challengeId: string): Promise<IdentityChallengeRow | null> {
@@ -237,15 +238,16 @@ export class DeviceRepository {
        JOIN consumer_cursors c ON c.consumer_name = ?
        WHERE d.device_id = ? AND d.principal_id = ? AND d.key_id = ?
          AND d.key_fingerprint = ? AND d.key_generation = ?
-         AND d.status = 'active' AND p.status = 'active'`,
+         AND d.status = 'active' AND p.status = 'active'
+       RETURNING snapshot_id`,
     ).bind(
       input.snapshotId, input.rootSnapshotId, input.inputTokenHash, input.outputTokenHash, input.materialHash,
       input.rootUpperSequence, input.fromSequence, input.throughSequence, input.boundaryStartEventId,
       input.boundaryEndEventId, input.eventCount, input.hasMore ? 1 : 0, input.expiresAt, input.createdAt,
       input.consumerName, input.verified.deviceId, input.verified.principalId, input.verified.keyId,
       input.verified.keyFingerprint, input.verified.keyGeneration,
-    ).run();
-    return result.meta.changes === 1;
+    ).first<{ snapshot_id: string }>();
+    return result?.snapshot_id === input.snapshotId;
   }
 
   readSnapshotById(snapshotId: string): Promise<SyncSnapshotRow | null> {

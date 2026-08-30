@@ -111,6 +111,7 @@ export class ArchivalService {
     let phase: ArchivePhase = "reconciliation";
     try {
       const reconciledThrough = await this.reconcileSealedTail(timestamp);
+      await this.reconcileOneOlderDeliveredManifest(reconciledThrough, timestamp);
       phase = "selection";
       const candidate = await this.repository.selectEligible(
         now,
@@ -181,6 +182,27 @@ export class ArchivalService {
     if (purged.sealedThrough < before.sealedThrough) throw new Error("archive_state_invalid");
     if (purged.sealedThrough !== before.sealedThrough) throw new Error("archive_reconciliation_unstable");
     return before.sealedThrough;
+  }
+
+  private async reconcileOneOlderDeliveredManifest(sealedThrough: number, purgedAt: string): Promise<void> {
+    // One older object per invocation keeps the worst-case reconciliation/seal
+    // race at 49 D1 statements plus one extra R2 read, leaving one circuit-write
+    // statement of headroom. Pending/failed rows remain for delivery policy.
+    if (sealedThrough <= 1) return;
+    let manifest: ArchiveManifest | null;
+    try {
+      manifest = await this.repository.findOldestManifestWithDeliveredEventsBefore(sealedThrough);
+    } catch {
+      throw new ArchiveOperationalError("archive_older_manifest_read_failed");
+    }
+    if (manifest === null) return;
+
+    await this.verifyManifest(manifest);
+    await this.repository.purgeDelivered(manifest, purgedAt);
+    const purged = await this.readArchiveState();
+    if (purged.circuitState !== "closed") throw new Error("archive_circuit_open");
+    if (purged.sealedThrough < sealedThrough) throw new Error("archive_state_invalid");
+    if (purged.sealedThrough !== sealedThrough) throw new Error("archive_reconciliation_unstable");
   }
 
   private async readArchiveState(): Promise<ArchiveState> {

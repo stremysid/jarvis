@@ -339,6 +339,25 @@ export class ArchiveRepository {
     return row === null ? null : toManifest(row);
   }
 
+  async findOldestManifestWithDeliveredEventsBefore(endSequence: number): Promise<ArchiveManifest | null> {
+    if (!Number.isSafeInteger(endSequence) || endSequence <= 0) {
+      throw new RangeError("archive_manifest_range_invalid");
+    }
+    const row = await this.database.prepare(
+      `SELECT m.manifest_id, m.start_sequence, m.end_sequence, m.event_count, m.sealed_at,
+              s.object_key, s.compressed_sha256, s.compressed_byte_length, s.uncompressed_byte_length
+       FROM outbox o INDEXED BY outbox_archive_reconcile_idx
+       JOIN archive_segment_events e ON e.event_sequence = o.event_sequence
+       JOIN archive_segments s ON s.segment_id = e.segment_id
+       JOIN archive_manifests m ON m.manifest_id = s.manifest_id
+       WHERE o.status = 'delivered' AND o.event_sequence < ?
+         AND m.end_sequence < ? AND m.status = 'sealed'
+       ORDER BY o.event_sequence ASC
+       LIMIT 1`,
+    ).bind(endSequence, endSequence).first<StoredManifest>();
+    return row === null ? null : toManifest(row);
+  }
+
   async listManifests(
     afterSequence: number,
     throughSequence: number,

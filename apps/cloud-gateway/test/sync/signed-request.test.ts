@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { canonicalize, sha256Hex, type SignedRequestV1 } from "../../../../packages/contracts/src/index.js";
 import { DeviceRequestVerifier } from "../../src/sync/signed-request.js";
 import { applyFoundationMigration } from "../persistence/migration.js";
@@ -30,6 +30,16 @@ function validateBody(value: unknown): TestBody {
   const body = value as Record<string, unknown>;
   if (body.schemaVersion !== "1.0" || typeof body.message !== "string") throw new TypeError("test_body_invalid");
   return body as unknown as TestBody;
+}
+
+function nestedArrays(depth: number): unknown {
+  let value: unknown = 0;
+  for (let index = 0; index < depth; index += 1) value = [value];
+  return value;
+}
+
+function wideObject(propertyCount: number): Record<string, number> {
+  return Object.fromEntries(Array.from({ length: propertyCount }, (_, index) => [`property${index}`, index]));
 }
 
 async function signingText(request: Omit<SignedRequestV1, "signatureBase64">, signedMethod = method, signedPath = path): Promise<Uint8Array> {
@@ -116,6 +126,19 @@ describe("DeviceRequestVerifier", () => {
     expect(await nonceCount()).toBe(1);
   });
 
+  it("accepts a fresh nonce when insertion reclaims an exactly expired nonce", async () => {
+    const { body, rawBody } = canonicalBody();
+    const first = await signed(rawBody, { nonce: nonce(1) });
+    await verifier.verify(first, method, path, body, rawBody, now, validateBody);
+    const later = new Date(now.valueOf() + 300_000);
+    const second = await signed(rawBody, { issuedAt: later.toISOString(), nonce: nonce(2) });
+
+    await expect(verifier.verify(second, method, path, body, rawBody, later, validateBody)).resolves.toMatchObject({
+      nonce: nonce(2),
+    });
+    expect(await nonceCount()).toBe(1);
+  });
+
   it("atomically accepts only one concurrent use of a nonce", async () => {
     const { body, rawBody } = canonicalBody();
     const request = await signed(rawBody);
@@ -139,6 +162,54 @@ describe("DeviceRequestVerifier", () => {
   ])("rejects %s before consuming a nonce", async (_label, rawBody) => {
     const request = await signed(rawBody);
     await expect(verifier.verify(request, method, path, { schemaVersion: "1.0", message: "hello" }, rawBody, now, validateBody)).rejects.toThrow();
+    expect(await nonceCount()).toBe(0);
+  });
+
+  it("rejects raw bodies over 64 KiB before JSON parsing", async () => {
+    const rawBody = new Uint8Array(65_537).fill(0x20);
+    const request = await signed(rawBody);
+    const parse = vi.spyOn(JSON, "parse");
+
+    try {
+      await expect(verifier.verify(
+        request, method, path, { schemaVersion: "1.0", message: "hello" }, rawBody, now, validateBody,
+      )).rejects.toMatchObject({ name: "TypeError", message: "signed_body_invalid" });
+      expect(parse).not.toHaveBeenCalled();
+    } finally {
+      parse.mockRestore();
+    }
+    expect(await nonceCount()).toBe(0);
+  });
+
+  it.each([
+    ["JSON depth", nestedArrays(33)],
+    ["total nodes", Array.from({ length: 4_096 }, () => 0)],
+    ["total object properties", wideObject(2_048)],
+  ])("rejects %s beyond the structural budget in raw and supplied bodies", async (_label, overBudgetBody) => {
+    const overBudgetRawBody = canonicalize(overBudgetBody);
+    const overBudgetRequest = await signed(overBudgetRawBody);
+    const identityValidator = (value: unknown) => value;
+
+    await expect(verifier.verify(
+      overBudgetRequest, method, path, overBudgetBody, overBudgetRawBody, now, identityValidator,
+    )).rejects.toMatchObject({ name: "TypeError", message: "signed_body_invalid" });
+
+    const { body, rawBody } = canonicalBody();
+    const shallowRequest = await signed(rawBody, { nonce: nonce(2) });
+    await expect(verifier.verify(
+      shallowRequest, method, path, overBudgetBody, rawBody, now, identityValidator,
+    )).rejects.toMatchObject({ name: "TypeError", message: "signed_body_invalid" });
+    expect(await nonceCount()).toBe(0);
+  });
+
+  it("rejects a supplied body whose canonical text exceeds 64 KiB", async () => {
+    const { rawBody } = canonicalBody();
+    const request = await signed(rawBody);
+    const suppliedBody = { schemaVersion: "1.0", message: "x".repeat(65_537) };
+
+    await expect(verifier.verify(
+      request, method, path, suppliedBody, rawBody, now, (value: unknown) => value,
+    )).rejects.toMatchObject({ name: "TypeError", message: "signed_body_invalid" });
     expect(await nonceCount()).toBe(0);
   });
 

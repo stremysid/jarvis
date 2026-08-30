@@ -1,5 +1,6 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import foundationSql from "../../src/persistence/migrations/0001_foundation.sql?raw";
+import foundationHardeningSql from "../../src/persistence/migrations/0002_foundation_hardening.sql?raw";
 
 let migrated: Promise<void> | undefined;
 
@@ -18,9 +19,15 @@ function splitMigration(sql: string): string[] {
 
 /** Applies the deployable Wrangler migration to the actual D1 test binding once. */
 export function applyFoundationMigration(): Promise<void> {
-  migrated ??= applyD1Migrations(env.DB, [{
-    name: "0001_foundation.sql",
-    queries: splitMigration(foundationSql),
-  }]);
+  migrated ??= applyD1Migrations(env.DB, [
+    {
+      name: "0001_foundation.sql",
+      queries: splitMigration(foundationSql),
+    },
+    {
+      name: "0002_foundation_hardening.sql",
+      queries: splitMigration(foundationHardeningSql),
+    },
+  ]);
   return migrated;
 }

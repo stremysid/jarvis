@@ -122,6 +122,29 @@ describe("event envelopes", () => {
     expect(canonicalJson(envelope.payload)).not.toContain("whitespace-secret");
   });
 
+  it("does not retain newly recognized credential forms in a persistable envelope", async () => {
+    const bearer = "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJl";
+    const privateKey = "-----BEGIN PRIVATE KEY-----\nYWJjZGVmZ2hpamtsbW5vcA==\n-----END PRIVATE KEY-----";
+    const envelope = await createEnvelope({
+      ...input,
+      payload: {
+        bearer: redacted(bearer),
+        pin: redacted("PIN 12345678"),
+        privateKey: redacted(privateKey),
+      },
+    } as never);
+    const serialized = canonicalJson(envelope.payload);
+
+    expect(envelope.payload).toEqual({
+      bearer: "[REDACTED_AUTHORIZATION]",
+      pin: "PIN [REDACTED_AUTH_DIGITS]",
+      privateKey: "[REDACTED_CREDENTIAL]",
+    });
+    expect(serialized).not.toContain(bearer);
+    expect(serialized).not.toContain("12345678");
+    expect(serialized).not.toContain(privateKey);
+  });
+
   it.each([
     ["a top-level authorization header", { "Authorization: Basic secret": redacted("safe") }],
     ["a top-level raw message", { "raw message 123456": redacted("safe") }],

@@ -6,6 +6,8 @@ const validHash = "0".repeat(64);
 const invalidHash = "g".repeat(64);
 const timestamp = "2026-08-30T00:00:00.000Z";
 const futureTimestamp = "2026-08-30T00:05:00.000Z";
+const expiredTimestamp = "2026-08-29T23:59:59.999Z";
+const beforeExpiredTimestamp = "2026-08-29T23:59:00.000Z";
 
 function jsonWithExactAsciiBytes(byteLength: number): string {
   const prefix = '{"value":"';
@@ -20,6 +22,7 @@ async function seedDevicePairs(): Promise<void> {
     env.DB.prepare("INSERT INTO device_keys (device_id, principal_id, key_id, public_key_base64, key_fingerprint, key_generation, algorithm, status, device_label, bootstrap_metadata_hash, created_at) VALUES ('device:one', 'principal:one', 'key:one', ?, ?, 1, 'ed25519', 'active', 'one', ?, ?)").bind(`${"A".repeat(43)}=`, "1".repeat(64), "2".repeat(64), timestamp),
     env.DB.prepare("INSERT INTO device_keys (device_id, principal_id, key_id, public_key_base64, key_fingerprint, key_generation, algorithm, status, device_label, bootstrap_metadata_hash, created_at) VALUES ('device:two', 'principal:two', 'key:two', ?, ?, 1, 'ed25519', 'active', 'two', ?, ?)").bind(`${"B".repeat(43)}=`, "3".repeat(64), "4".repeat(64), timestamp),
     env.DB.prepare("INSERT INTO consumer_cursors (consumer_name, current_sequence, updated_at) VALUES ('device:device:one', 0, ?)").bind(timestamp),
+    env.DB.prepare("INSERT INTO consumer_cursors (consumer_name, current_sequence, updated_at) VALUES ('device:device:two', 0, ?)").bind(timestamp),
   ]);
 }
 
@@ -176,5 +179,127 @@ describe("foundation migration constraints", () => {
     await expect(env.DB.prepare(
       "INSERT INTO archive_manifests (manifest_id, start_sequence, end_sequence, event_count, status, created_at, sealed_at) VALUES (?, 1, 25, 25, 'sealed', ?, ?)",
     ).bind("a".repeat(64), timestamp, timestamp).run()).rejects.toThrow();
+  });
+
+  it("reclaims expired nonce, snapshot, and identity-challenge rows before inserting replacements", async () => {
+    await seedDevicePairs();
+    await env.DB.prepare(
+      "INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, created_at, enrolled_by_device_id) VALUES ('identity:pending', 'principal:one', 'telegram', 'subject:pending', 'pending', ?, 'device:one')",
+    ).bind(timestamp).run();
+    await env.DB.prepare(
+      "INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, created_at, enrolled_by_device_id) VALUES ('identity:pending:two', 'principal:two', 'telegram', 'subject:pending:two', 'pending', ?, 'device:two')",
+    ).bind(timestamp).run();
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO request_nonces (nonce_id, device_id, principal_id, key_id, key_fingerprint, key_generation, nonce_hash, request_hash, expires_at, consumed_at, created_at) VALUES ('nonce:expired', 'device:one', 'principal:one', 'key:one', ?, 1, ?, ?, ?, ?, ?)",
+      ).bind("1".repeat(64), "2".repeat(64), "3".repeat(64), expiredTimestamp, expiredTimestamp, beforeExpiredTimestamp),
+      env.DB.prepare(
+        "INSERT INTO request_nonces (nonce_id, device_id, principal_id, key_id, key_fingerprint, key_generation, nonce_hash, request_hash, expires_at, consumed_at, created_at) VALUES ('nonce:expired:two', 'device:two', 'principal:two', 'key:two', ?, 1, ?, ?, ?, ?, ?)",
+      ).bind("3".repeat(64), "4".repeat(64), "5".repeat(64), expiredTimestamp, expiredTimestamp, beforeExpiredTimestamp),
+      env.DB.prepare(
+        `INSERT INTO sync_snapshots (
+           snapshot_id, consumer_name, principal_id, device_id, root_snapshot_id, input_token_hash,
+           output_token_hash, material_hash, root_upper_sequence, from_sequence, through_sequence,
+           boundary_start_event_id, boundary_end_event_id, event_count, has_more, expires_at, created_at
+         ) VALUES ('snapshot:expired', 'device:device:one', 'principal:one', 'device:one', 'snapshot:expired', NULL, ?, ?, 0, 0, 0, NULL, NULL, 0, 0, ?, ?)`,
+      ).bind("6".repeat(64), "7".repeat(64), expiredTimestamp, beforeExpiredTimestamp),
+      env.DB.prepare(
+        `INSERT INTO sync_snapshots (
+           snapshot_id, consumer_name, principal_id, device_id, root_snapshot_id, input_token_hash,
+           output_token_hash, material_hash, root_upper_sequence, from_sequence, through_sequence,
+           boundary_start_event_id, boundary_end_event_id, event_count, has_more, expires_at, created_at
+         ) VALUES ('snapshot:expired:two', 'device:device:two', 'principal:two', 'device:two', 'snapshot:expired:two', NULL, ?, ?, 0, 0, 0, NULL, NULL, 0, 0, ?, ?)`,
+      ).bind("8".repeat(64), "9".repeat(64), expiredTimestamp, beforeExpiredTimestamp),
+      env.DB.prepare(
+        "INSERT INTO identity_challenges (challenge_id, principal_id, identity_id, channel, initiating_device_id, initiating_key_id, initiating_key_fingerprint, initiating_key_generation, response_hmac, hmac_key_version, expires_at, created_at) VALUES ('challenge:expired', 'principal:one', 'identity:pending', 'telegram', 'device:one', 'key:one', ?, 1, ?, 'v1', ?, ?)",
+      ).bind("1".repeat(64), "a".repeat(64), expiredTimestamp, beforeExpiredTimestamp),
+      env.DB.prepare(
+        "INSERT INTO identity_challenges (challenge_id, principal_id, identity_id, channel, initiating_device_id, initiating_key_id, initiating_key_fingerprint, initiating_key_generation, response_hmac, hmac_key_version, expires_at, created_at) VALUES ('challenge:expired:two', 'principal:two', 'identity:pending:two', 'telegram', 'device:two', 'key:two', ?, 1, ?, 'v1', ?, ?)",
+      ).bind("3".repeat(64), "b".repeat(64), expiredTimestamp, beforeExpiredTimestamp),
+    ]);
+
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO request_nonces (nonce_id, device_id, principal_id, key_id, key_fingerprint, key_generation, nonce_hash, request_hash, expires_at, consumed_at, created_at) VALUES ('nonce:current', 'device:one', 'principal:one', 'key:one', ?, 1, ?, ?, ?, ?, ?)",
+      ).bind("1".repeat(64), "7".repeat(64), "8".repeat(64), futureTimestamp, timestamp, timestamp),
+      env.DB.prepare(
+        `INSERT INTO sync_snapshots (
+           snapshot_id, consumer_name, principal_id, device_id, root_snapshot_id, input_token_hash,
+           output_token_hash, material_hash, root_upper_sequence, from_sequence, through_sequence,
+           boundary_start_event_id, boundary_end_event_id, event_count, has_more, expires_at, created_at
+         ) VALUES ('snapshot:current', 'device:device:one', 'principal:one', 'device:one', 'snapshot:current', NULL, ?, ?, 0, 0, 0, NULL, NULL, 0, 0, ?, ?)`,
+      ).bind("9".repeat(64), "a".repeat(64), futureTimestamp, timestamp),
+      env.DB.prepare(
+        "INSERT INTO identity_challenges (challenge_id, principal_id, identity_id, channel, initiating_device_id, initiating_key_id, initiating_key_fingerprint, initiating_key_generation, response_hmac, hmac_key_version, expires_at, created_at) VALUES ('challenge:current', 'principal:one', 'identity:pending', 'telegram', 'device:one', 'key:one', ?, 1, ?, 'v1', ?, ?)",
+      ).bind("1".repeat(64), "b".repeat(64), futureTimestamp, timestamp),
+    ]);
+
+    await expect(env.DB.prepare("SELECT nonce_id FROM request_nonces ORDER BY nonce_id").all())
+      .resolves.toMatchObject({ results: [{ nonce_id: "nonce:current" }, { nonce_id: "nonce:expired:two" }] });
+    await expect(env.DB.prepare("SELECT snapshot_id FROM sync_snapshots ORDER BY snapshot_id").all())
+      .resolves.toMatchObject({ results: [{ snapshot_id: "snapshot:current" }, { snapshot_id: "snapshot:expired:two" }] });
+    await expect(env.DB.prepare("SELECT challenge_id FROM identity_challenges ORDER BY challenge_id").all())
+      .resolves.toMatchObject({ results: [{ challenge_id: "challenge:current" }, { challenge_id: "challenge:expired:two" }] });
+  });
+
+  it("caps live transient security state per enrolled device", async () => {
+    await seedDevicePairs();
+    await env.DB.prepare(
+      "INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, created_at, enrolled_by_device_id) VALUES ('identity:pending', 'principal:one', 'telegram', 'subject:pending', 'pending', ?, 'device:one')",
+    ).bind(timestamp).run();
+
+    await env.DB.prepare(
+      `WITH RECURSIVE counter(value) AS (SELECT 1 UNION ALL SELECT value + 1 FROM counter WHERE value < 1024)
+       INSERT INTO request_nonces (nonce_id, device_id, principal_id, key_id, key_fingerprint, key_generation, nonce_hash, request_hash, expires_at, consumed_at, created_at)
+       SELECT 'nonce:' || value, 'device:one', 'principal:one', 'key:one', ?, 1, printf('%064x', value), ?, ?, ?, ? FROM counter`,
+    ).bind("1".repeat(64), "2".repeat(64), futureTimestamp, timestamp, timestamp).run();
+    await expect(env.DB.prepare(
+      "INSERT INTO request_nonces (nonce_id, device_id, principal_id, key_id, key_fingerprint, key_generation, nonce_hash, request_hash, expires_at, consumed_at, created_at) VALUES ('nonce:overflow', 'device:one', 'principal:one', 'key:one', ?, 1, ?, ?, ?, ?, ?)",
+    ).bind("1".repeat(64), "f".repeat(64), "2".repeat(64), futureTimestamp, timestamp, timestamp).run())
+      .rejects.toThrow(/request_nonce_capacity_exceeded/u);
+
+    await env.DB.prepare(
+      `WITH RECURSIVE counter(value) AS (SELECT 1 UNION ALL SELECT value + 1 FROM counter WHERE value < 64)
+       INSERT INTO sync_snapshots (
+         snapshot_id, consumer_name, principal_id, device_id, root_snapshot_id, input_token_hash,
+         output_token_hash, material_hash, root_upper_sequence, from_sequence, through_sequence,
+         boundary_start_event_id, boundary_end_event_id, event_count, has_more, expires_at, created_at
+       ) SELECT 'snapshot:' || value, 'device:device:one', 'principal:one', 'device:one', 'root:' || value, NULL,
+         printf('%064x', value), ?, 0, 0, 0, NULL, NULL, 0, 0, ?, ? FROM counter`,
+    ).bind("a".repeat(64), futureTimestamp, timestamp).run();
+    await expect(insertSnapshot("snapshot:overflow", "principal:one", "device:one", "e"))
+      .rejects.toThrow(/sync_snapshot_capacity_exceeded/u);
+
+    await env.DB.prepare(
+      `WITH RECURSIVE counter(value) AS (SELECT 1 UNION ALL SELECT value + 1 FROM counter WHERE value < 8)
+       INSERT INTO identity_challenges (
+         challenge_id, principal_id, identity_id, channel, initiating_device_id, initiating_key_id,
+         initiating_key_fingerprint, initiating_key_generation, response_hmac, hmac_key_version, expires_at, created_at
+       ) SELECT 'challenge:' || value, 'principal:one', 'identity:pending', 'telegram', 'device:one', 'key:one',
+         ?, 1, printf('%064x', value), 'v1', ?, ? FROM counter`,
+    ).bind("1".repeat(64), futureTimestamp, timestamp).run();
+    await expect(env.DB.prepare(
+      "INSERT INTO identity_challenges (challenge_id, principal_id, identity_id, channel, initiating_device_id, initiating_key_id, initiating_key_fingerprint, initiating_key_generation, response_hmac, hmac_key_version, expires_at, created_at) VALUES ('challenge:overflow', 'principal:one', 'identity:pending', 'telegram', 'device:one', 'key:one', ?, 1, ?, 'v1', ?, ?)",
+    ).bind("1".repeat(64), "f".repeat(64), futureTimestamp, timestamp).run())
+      .rejects.toThrow(/identity_challenge_capacity_exceeded/u);
+  });
+
+  it("provides a bounded event-sequence seek for delivered archive reconciliation", async () => {
+    const plan = await env.DB.prepare(
+      `EXPLAIN QUERY PLAN
+       SELECT m.manifest_id
+       FROM outbox o INDEXED BY outbox_archive_reconcile_idx
+       JOIN archive_segment_events e ON e.event_sequence = o.event_sequence
+       JOIN archive_segments s ON s.segment_id = e.segment_id
+       JOIN archive_manifests m ON m.manifest_id = s.manifest_id
+       WHERE o.status = 'delivered' AND o.event_sequence < ?
+         AND m.end_sequence < ? AND m.status = 'sealed'
+       ORDER BY o.event_sequence ASC
+       LIMIT 1`,
+    ).bind(100, 100).all<{ detail: string }>();
+
+    const details = plan.results.map((step) => step.detail).join("\n");
+    expect(details).toMatch(/SEARCH o USING COVERING INDEX outbox_archive_reconcile_idx \(status=\? AND event_sequence<\?\)/u);
+    expect(details).not.toMatch(/SCAN m/u);
   });
 });

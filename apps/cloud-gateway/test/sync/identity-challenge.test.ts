@@ -164,6 +164,15 @@ describe("IdentityChallengeService", () => {
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM request_nonces").first<{ count: number }>())?.count).toBe(1);
   });
 
+  it("replaces an exactly expired challenge without misclassifying the successful insert", async () => {
+    const first = await begin("telegram");
+    currentNow = new Date(first.expiresAt);
+
+    await expect(begin("telegram")).resolves.toMatchObject({ challengeId: "challenge:2" });
+    expect((await env.DB.prepare("SELECT challenge_id FROM identity_challenges").all<{ challenge_id: string }>()).results)
+      .toEqual([{ challenge_id: "challenge:2" }]);
+  });
+
   it("rejects a forged signed request before storing a challenge or consuming its nonce", async () => {
     const body: BeginBody = { schemaVersion: "1.0", channel: "telegram", identityId: "identity:telegram" };
     const { request, rawBody } = await signed(body);

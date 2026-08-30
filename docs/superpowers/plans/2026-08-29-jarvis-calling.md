@@ -77,7 +77,7 @@ export interface PolicyEngine {
 export interface TwilioProvider { createCall(input: { commandId: string; toE164: string; twimlUrl: URL; statusCallbackUrl: URL; statusCallbackEvents: readonly ["initiated", "ringing", "answered", "completed"]; idempotencyKey: string }): Promise<{ callSid: string }>; }
 ```
 
-Task 1 of the calling plan extends `apps/cloud-gateway/src/env.ts` with the `PIN_VERIFIER_JSON` secret binding, replaces the foundation `CallSessionStub` with the real `CallSession` Durable Object in `apps/cloud-gateway/wrangler.toml`, and creates `apps/cloud-gateway/src/index.ts` as the sole Worker entrypoint. Calling schema follows the foundation-owned `apps/cloud-gateway/src/persistence/migrations/0001_foundation.sql` with `apps/cloud-gateway/src/persistence/migrations/0002_calling.sql`; the foundation tables remain untouched and Wrangler applies them in order.
+Task 1 of the calling plan extends `apps/cloud-gateway/src/env.ts` with the `PIN_VERIFIER_JSON` secret binding, replaces the foundation `CallSessionStub` with the real `CallSession` Durable Object in `apps/cloud-gateway/wrangler.toml`, and creates `apps/cloud-gateway/src/index.ts` as the sole Worker entrypoint. Calling schema follows the immutable foundation migration and its audit hardening migration with `apps/cloud-gateway/src/persistence/migrations/0003_calling.sql`; the calling migration leaves foundation tables untouched and Wrangler applies all migrations in order.
 
 ## File structure
 
@@ -87,7 +87,7 @@ Task 1 of the calling plan extends `apps/cloud-gateway/src/env.ts` with the `PIN
 | `packages/contracts/src/index.ts` | Re-export call contracts for Worker, CLI issuer, and tests. |
 | `apps/cloud-gateway/src/providers/twilio-webhook.ts` | Narrow Twilio signature/TwiML adapter layered over the foundation `TwilioProvider`. |
 | `apps/cloud-gateway/src/providers/conversation-relay.ts` | Typed parser/serializer for the relay WebSocket events used by the Durable Object. |
-| `apps/cloud-gateway/src/persistence/call-repository.ts` | Calling-specific D1 persistence layered over `0002_calling.sql`. |
+| `apps/cloud-gateway/src/persistence/call-repository.ts` | Calling-specific D1 persistence layered over `0003_calling.sql`. |
 | `apps/cloud-gateway/src/voice/call-state.ts` | Pure call and transcript state-transition rules. |
 | `apps/cloud-gateway/src/conversation/conversation-service.ts` | Shared streaming turn orchestration consumed by voice now and Telegram later. |
 | `apps/cloud-gateway/src/conversation/context-retriever.ts` | Principal/authentication/purpose-scoped recent-turn and active-fact retrieval boundary. |
@@ -350,7 +350,7 @@ git commit -m "feat(calls): extend shared Twilio provider for signed relay ingre
 ### Task 3: Atomic call persistence, event deduplication, and expected-call bindings
 
 **Files:**
-- Create: `apps/cloud-gateway/src/persistence/migrations/0002_calling.sql`
+- Create: `apps/cloud-gateway/src/persistence/migrations/0003_calling.sql`
 - Create: `apps/cloud-gateway/src/persistence/call-repository.ts`
 - Test: `apps/cloud-gateway/test/persistence/call-repository.test.ts`
 - Test: `apps/cloud-gateway/test/faults/calling-transaction-faults.test.ts`
@@ -434,7 +434,7 @@ Expected: PASS with replay rejection and rollback of every injected transaction 
 - [ ] **Step 5: Commit the durable call-binding deliverable**
 
 ```bash
-git add apps/cloud-gateway/src/persistence/migrations/0002_calling.sql apps/cloud-gateway/src/persistence/call-repository.ts apps/cloud-gateway/test/persistence/call-repository.test.ts apps/cloud-gateway/test/faults/calling-transaction-faults.test.ts
+git add apps/cloud-gateway/src/persistence/migrations/0003_calling.sql apps/cloud-gateway/src/persistence/call-repository.ts apps/cloud-gateway/test/persistence/call-repository.test.ts apps/cloud-gateway/test/faults/calling-transaction-faults.test.ts
 git commit -m "feat(calls): persist atomic event and outbound relay bindings"
 ```
 
