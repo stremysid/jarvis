@@ -15,6 +15,7 @@ export default defineConfig({
   test: {
     include: [
       "apps/cloud-gateway/test/**/*.test.ts",
+      "packages/contracts/test/**/*.test.ts",
       "tests/acceptance/**/*.test.ts"
     ]
   }
