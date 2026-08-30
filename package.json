@@ -8,8 +8,8 @@
     "node": ">=24.19.0 <25"
   },
   "scripts": {
-    "lint": "pnpm --filter @jarvis/cloud-gateway lint",
-    "typecheck": "pnpm --filter @jarvis/cloud-gateway typecheck",
+    "lint": "pnpm -r --if-present lint",
+    "typecheck": "pnpm -r --if-present typecheck",
     "test": "vitest --config vitest.workspace.ts run",
     "test:cloud": "pnpm --filter @jarvis/cloud-gateway test",
     "test:acceptance": "vitest --config vitest.workspace.ts run tests/acceptance"

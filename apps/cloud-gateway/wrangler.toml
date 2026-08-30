@@ -19,3 +19,19 @@ bucket_name = "jarvis-archive"
 [[durable_objects.bindings]]
 name = "CALL_SESSION"
 class_name = "CallSessionStub"
+
+[env.test]
+
+[[env.test.d1_databases]]
+binding = "DB"
+database_name = "jarvis_test"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "src/persistence/migrations"
+
+[[env.test.r2_buckets]]
+binding = "ARCHIVE"
+bucket_name = "jarvis-archive-test"
+
+[[env.test.durable_objects.bindings]]
+name = "CALL_SESSION"
+class_name = "CallSessionStub"

@@ -7,19 +7,15 @@ export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: {
-        configPath: "apps/cloud-gateway/wrangler.toml"
-      },
-      miniflare: {
-        d1Databases: ["DB"],
-        r2Buckets: ["ARCHIVE"],
-        durableObjects: {
-          CALL_SESSION: "CallSessionStub"
-        }
+        configPath: "apps/cloud-gateway/wrangler.toml",
+        environment: "test"
       }
     })
   ],
   test: {
-    include: ["apps/cloud-gateway/test/**/*.test.ts"],
-    passWithNoTests: true
+    include: [
+      "apps/cloud-gateway/test/**/*.test.ts",
+      "tests/acceptance/**/*.test.ts"
+    ]
   }
 });
