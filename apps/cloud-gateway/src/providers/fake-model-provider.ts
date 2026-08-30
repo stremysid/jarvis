@@ -148,17 +148,22 @@ export class FakeModelProvider implements ModelProvider {
     this.delays.push(milliseconds);
   }
 
-  async *streamText(input: ModelStreamTextInput): AsyncIterable<ModelChunk> {
+  streamText(input: ModelStreamTextInput): AsyncIterable<ModelChunk> {
+    const liveSignal = input.signal;
     const control = this.beginAttempt(cloneStreamRequest(input));
-    await wait(control.delay, input.signal);
-    if (input.signal.aborted) throw abortError();
+    return this.streamCaptured(control, liveSignal);
+  }
+
+  private async *streamCaptured(control: AttemptControl, liveSignal: AbortSignal): AsyncIterable<ModelChunk> {
+    await wait(control.delay, liveSignal);
+    if (liveSignal.aborted) throw abortError();
     if (control.failure !== undefined) throw control.failure;
 
     for (let index = 0; index < this.tokens.length; index += 1) {
-      if (input.signal.aborted) throw abortError();
+      if (liveSignal.aborted) throw abortError();
       yield Object.freeze({ type: "token" as const, index, text: this.tokens[index]! });
     }
-    if (input.signal.aborted) throw abortError();
+    if (liveSignal.aborted) throw abortError();
     yield Object.freeze({ type: "completed" as const });
   }
 

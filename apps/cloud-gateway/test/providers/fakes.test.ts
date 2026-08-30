@@ -138,6 +138,19 @@ describe("FakeTwilioProvider", () => {
     expect(fake.requests).toHaveLength(2);
   });
 
+  it("keeps the first normalized material permanently bound after a failed call attempt", async () => {
+    const fake = new FakeTwilioProvider();
+    const original = twilioCall();
+    fake.failNext(new Error("provider rejected first attempt"));
+    await expect(fake.createCall(original)).rejects.toThrow("provider rejected first attempt");
+
+    await expect(fake.createCall(twilioCall({ toE164: "+14165550124" }))).rejects.toMatchObject({
+      code: "provider_idempotency_conflict",
+    });
+    await expect(fake.createCall(original)).resolves.toEqual({ callSid: "CA00000000000000000000000000000002" });
+    expect(fake.requests).toHaveLength(2);
+  });
+
   it("consumes queued failures only for a new provider attempt", async () => {
     const fake = new FakeTwilioProvider();
     const first = twilioCall();
@@ -194,6 +207,19 @@ describe("FakeTelegramProvider", () => {
     await expect(fake.sendMessage(telegramMessage())).rejects.toThrow("telegram unavailable");
     await expect(fake.sendMessage(telegramMessage())).resolves.toEqual({ providerMessageId: "telegram-message-00000002" });
     await expect(fake.sendMessage(telegramMessage())).resolves.toEqual({ providerMessageId: "telegram-message-00000002" });
+    expect(fake.requests).toHaveLength(2);
+  });
+
+  it("keeps the first normalized material permanently bound after a failed message attempt", async () => {
+    const fake = new FakeTelegramProvider();
+    const original = telegramMessage();
+    fake.failNext(new Error("provider rejected first attempt"));
+    await expect(fake.sendMessage(original)).rejects.toThrow("provider rejected first attempt");
+
+    await expect(fake.sendMessage(telegramMessage({ text: "changed message" }))).rejects.toMatchObject({
+      code: "provider_idempotency_conflict",
+    });
+    await expect(fake.sendMessage(original)).resolves.toEqual({ providerMessageId: "telegram-message-00000002" });
     expect(fake.requests).toHaveLength(2);
   });
 
@@ -297,6 +323,46 @@ describe("FakeModelProvider", () => {
     expect(fake.requests).toHaveLength(2);
   });
 
+  it("assigns queued controls when streams are invoked even if they are consumed in reverse", async () => {
+    vi.useFakeTimers();
+    const fake = new FakeModelProvider({ streamText: "ok", streamTokenCount: 1 });
+    fake.failNext(ProviderFailure.transient("timeout"));
+    fake.delayNext(50);
+
+    const first = fake.streamText(modelStreamInput({ userText: "first invocation" }));
+    const second = fake.streamText(modelStreamInput({ userText: "second invocation" }));
+    const beforeIteration = fake.requests;
+    const secondResult = collect(second);
+    const firstResult = collect(first);
+    const outcomes = Promise.allSettled([firstResult, secondResult]);
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(beforeIteration.map((request) => request.userText)).toEqual(["first invocation", "second invocation"]);
+    await expect(outcomes).resolves.toEqual([
+      expect.objectContaining({ status: "rejected", reason: expect.objectContaining({ code: "provider_transient_failure", category: "timeout" }) }),
+      { status: "fulfilled", value: [{ type: "token", index: 0, text: "ok" }, { type: "completed" }] },
+    ]);
+  });
+
+  it("captures input and the original live signal before the first iterator step", async () => {
+    const fake = new FakeModelProvider();
+    const originalController = new AbortController();
+    const replacementController = new AbortController();
+    const input = modelStreamInput({ signal: originalController.signal });
+
+    const stream = fake.streamText(input);
+    input.userText = "mutated before iteration";
+    (input.context as { sourceEventId: string; text: string; sensitivity: "personal" }[])[0]!.text = "mutated context";
+    input.signal = replacementController.signal;
+    originalController.abort();
+
+    await expect(collect(stream)).rejects.toMatchObject({ name: "AbortError" });
+    expect(replacementController.signal.aborted).toBe(false);
+    expect(fake.requests).toHaveLength(1);
+    expect(fake.requests[0]).toMatchObject({ userText: "hello", context: [{ text: "remembered" }] });
+    expect(fake.requests[0]?.signal.aborted).toBe(false);
+  });
+
   it("keeps model request history as frozen deep snapshots", async () => {
     const fake = new FakeModelProvider();
     const input = modelStreamInput();
@@ -330,20 +396,29 @@ describe("ProviderCircuitBreaker", () => {
   const epoch = new Date("2026-08-30T12:00:00.000Z");
   const at = (milliseconds: number) => new Date(epoch.getTime() + milliseconds);
 
+  function requirePermit(breaker: ProviderCircuitBreaker, operation = voiceOperation, now = epoch) {
+    const permit = breaker.acquire(operation, now);
+    if (permit === null) throw new Error("test expected provider permit");
+    return permit;
+  }
+
   function recordTransientFailures(breaker: ProviderCircuitBreaker, operation = voiceOperation, count = 5, start = 0): void {
     for (let index = 0; index < count; index += 1) {
-      breaker.recordFailure(operation, ProviderFailure.transient("temporarily_unavailable"), at(start + index));
+      const permit = requirePermit(breaker, operation, at(start + index));
+      breaker.recordFailure(permit, ProviderFailure.transient("temporarily_unavailable"), at(start + index));
     }
   }
 
   it("opens after five qualifying failures within the rolling 60-second window", () => {
     const breaker = new ProviderCircuitBreaker();
     recordTransientFailures(breaker, voiceOperation, 4);
-    expect(breaker.allow(voiceOperation, at(4))).toBe(true);
+    const allowed = requirePermit(breaker, voiceOperation, at(4));
+    breaker.recordSuccess(allowed);
 
-    breaker.recordFailure(voiceOperation, ProviderFailure.transient("timeout"), at(5));
+    const fifth = requirePermit(breaker, voiceOperation, at(5));
+    breaker.recordFailure(fifth, ProviderFailure.transient("timeout"), at(5));
 
-    expect(breaker.allow(voiceOperation, at(6))).toBe(false);
+    expect(breaker.acquire(voiceOperation, at(6))).toBeNull();
     expect(() => breaker.assertAllowed(voiceOperation, at(6))).toThrow(ProviderCircuitOpenError);
     try {
       breaker.assertAllowed(voiceOperation, at(6));
@@ -355,17 +430,18 @@ describe("ProviderCircuitBreaker", () => {
   it("expires failures outside the rolling 60-second window", () => {
     const breaker = new ProviderCircuitBreaker();
     recordTransientFailures(breaker, voiceOperation, 4, 0);
-    breaker.recordFailure(voiceOperation, ProviderFailure.transient("timeout"), at(60_004));
+    const permit = requirePermit(breaker, voiceOperation, at(60_004));
+    breaker.recordFailure(permit, ProviderFailure.transient("timeout"), at(60_004));
 
-    expect(breaker.allow(voiceOperation, at(60_005))).toBe(true);
+    expect(breaker.acquire(voiceOperation, at(60_005))).not.toBeNull();
   });
 
   it("isolates failure state by provider operation", () => {
     const breaker = new ProviderCircuitBreaker();
     recordTransientFailures(breaker);
 
-    expect(breaker.allow(voiceOperation, at(10))).toBe(false);
-    expect(breaker.allow(telegramOperation, at(10))).toBe(true);
+    expect(breaker.acquire(voiceOperation, at(10))).toBeNull();
+    expect(breaker.acquire(telegramOperation, at(10))).not.toBeNull();
   });
 
   it("synchronously reserves exactly one half-open probe after 30 seconds", async () => {
@@ -373,48 +449,97 @@ describe("ProviderCircuitBreaker", () => {
     recordTransientFailures(breaker);
 
     const results = await Promise.all([
-      Promise.resolve().then(() => breaker.allow(voiceOperation, at(30_004))),
-      Promise.resolve().then(() => breaker.allow(voiceOperation, at(30_004))),
+      Promise.resolve().then(() => breaker.acquire(voiceOperation, at(30_004))),
+      Promise.resolve().then(() => breaker.acquire(voiceOperation, at(30_004))),
     ]);
 
-    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(results.filter((permit) => permit !== null)).toHaveLength(1);
     expect(() => breaker.assertAllowed(voiceOperation, at(30_004))).toThrow(ProviderCircuitOpenError);
   });
 
-  it("closes only after the reserved recovery probe succeeds", () => {
+  it("does not let a stale pre-open success close a pending recovery probe", () => {
     const breaker = new ProviderCircuitBreaker();
+    const stale = requirePermit(breaker, voiceOperation, at(-1));
     recordTransientFailures(breaker);
-    breaker.recordSuccess(voiceOperation);
-    expect(breaker.allow(voiceOperation, at(20_000))).toBe(false);
+    const probe = requirePermit(breaker, voiceOperation, at(30_004));
 
-    expect(breaker.allow(voiceOperation, at(30_004))).toBe(true);
-    breaker.recordSuccess(voiceOperation);
+    breaker.recordSuccess(stale);
 
-    expect(breaker.allow(voiceOperation, at(30_005))).toBe(true);
+    expect(breaker.acquire(voiceOperation, at(30_005))).toBeNull();
+    breaker.recordSuccess(probe);
+    expect(breaker.acquire(voiceOperation, at(30_006))).not.toBeNull();
+  });
+
+  it("does not let a stale pre-open failure reopen or release a pending recovery probe", () => {
+    const breaker = new ProviderCircuitBreaker();
+    const stale = requirePermit(breaker, voiceOperation, at(-1));
+    recordTransientFailures(breaker);
+    const probe = requirePermit(breaker, voiceOperation, at(30_004));
+
+    breaker.recordFailure(stale, ProviderFailure.transient("timeout"), at(30_005));
+
+    expect(breaker.acquire(voiceOperation, at(30_005))).toBeNull();
+    breaker.recordSuccess(probe);
+    expect(breaker.acquire(voiceOperation, at(30_006))).not.toBeNull();
+  });
+
+  it("does not count a stale ordinary failure after a probe closes into a fresh generation", () => {
+    const breaker = new ProviderCircuitBreaker();
+    const stale = requirePermit(breaker, voiceOperation, at(-1));
+    recordTransientFailures(breaker);
+    const probe = requirePermit(breaker, voiceOperation, at(30_004));
+    breaker.recordSuccess(probe);
+
+    breaker.recordFailure(stale, ProviderFailure.transient("timeout"), at(30_005));
+    recordTransientFailures(breaker, voiceOperation, 4, 30_006);
+
+    expect(breaker.acquire(voiceOperation, at(30_011))).not.toBeNull();
+  });
+
+  it("returns an operation-bound permit from assertAllowed and rejects foreign or forged permits", () => {
+    const breaker = new ProviderCircuitBreaker();
+    const other = new ProviderCircuitBreaker();
+    const permit = breaker.assertAllowed(telegramOperation, epoch);
+
+    expect(permit).toMatchObject({ operation: telegramOperation });
+    expect(() => other.recordSuccess(permit)).toThrowError(expect.objectContaining({ code: "provider_permit_invalid" }));
+    expect(() => breaker.recordSuccess({ operation: voiceOperation } as never)).toThrowError(expect.objectContaining({ code: "provider_permit_invalid" }));
+
+    breaker.recordSuccess(permit);
+    expect(breaker.acquire(telegramOperation, at(1))).not.toBeNull();
+  });
+
+  it("consumes each permit once and rejects duplicate outcomes", () => {
+    const breaker = new ProviderCircuitBreaker();
+    const permit = requirePermit(breaker);
+    breaker.recordSuccess(permit);
+
+    expect(() => breaker.recordSuccess(permit)).toThrowError(expect.objectContaining({ code: "provider_permit_consumed" }));
+    expect(() => breaker.recordFailure(permit, ProviderFailure.transient("timeout"), at(1))).toThrowError(expect.objectContaining({ code: "provider_permit_consumed" }));
   });
 
   it("reopens and restarts the recovery delay when the probe fails", () => {
     const breaker = new ProviderCircuitBreaker();
     recordTransientFailures(breaker);
-    expect(breaker.allow(voiceOperation, at(30_004))).toBe(true);
+    const probe = requirePermit(breaker, voiceOperation, at(30_004));
 
-    breaker.recordFailure(voiceOperation, ProviderFailure.transient("rate_limited"), at(30_005));
+    breaker.recordFailure(probe, ProviderFailure.transient("rate_limited"), at(30_005));
 
-    expect(breaker.allow(voiceOperation, at(60_004))).toBe(false);
-    expect(breaker.allow(voiceOperation, at(60_005))).toBe(true);
+    expect(breaker.acquire(voiceOperation, at(60_004))).toBeNull();
+    expect(breaker.acquire(voiceOperation, at(60_005))).not.toBeNull();
   });
 
   it("releases an excluded half-open outcome without counting it or restarting recovery", () => {
     const breaker = new ProviderCircuitBreaker();
     recordTransientFailures(breaker);
-    expect(breaker.allow(voiceOperation, at(30_004))).toBe(true);
+    const probe = requirePermit(breaker, voiceOperation, at(30_004));
 
-    breaker.recordFailure(voiceOperation, ProviderFailure.authentication(), at(30_005));
+    breaker.recordFailure(probe, ProviderFailure.authentication(), at(30_005));
 
-    expect(breaker.allow(voiceOperation, at(30_005))).toBe(true);
-    expect(breaker.allow(voiceOperation, at(30_005))).toBe(false);
-    breaker.recordSuccess(voiceOperation);
-    expect(breaker.allow(voiceOperation, at(30_006))).toBe(true);
+    const replacement = requirePermit(breaker, voiceOperation, at(30_005));
+    expect(breaker.acquire(voiceOperation, at(30_005))).toBeNull();
+    breaker.recordSuccess(replacement);
+    expect(breaker.acquire(voiceOperation, at(30_006))).not.toBeNull();
   });
 
   it("never counts authentication, policy, permanent, or untyped failures", () => {
@@ -427,9 +552,10 @@ describe("ProviderCircuitBreaker", () => {
     ];
 
     for (let index = 0; index < 20; index += 1) {
-      breaker.recordFailure(voiceOperation, excluded[index % excluded.length]!, at(index));
+      const permit = requirePermit(breaker, voiceOperation, at(index));
+      breaker.recordFailure(permit, excluded[index % excluded.length]!, at(index));
     }
 
-    expect(breaker.allow(voiceOperation, at(21))).toBe(true);
+    expect(breaker.acquire(voiceOperation, at(21))).not.toBeNull();
   });
 });

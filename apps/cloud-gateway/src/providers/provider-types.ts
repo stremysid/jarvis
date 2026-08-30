@@ -143,6 +143,25 @@ export type ProviderOperation =
   | "twilio.createCall"
   | "telegram.sendMessage";
 
+declare const providerPermitBrand: unique symbol;
+
+/** Opaque capability proving one breaker-approved provider attempt. */
+export interface ProviderPermit {
+  readonly operation: ProviderOperation;
+  readonly [providerPermitBrand]: true;
+}
+
+export type ProviderPermitErrorCode = "provider_permit_invalid" | "provider_permit_consumed";
+
+export class ProviderPermitError extends Error {
+  readonly category = "internal_contract" as const;
+
+  constructor(public readonly code: ProviderPermitErrorCode) {
+    super(code);
+    this.name = "ProviderPermitError";
+  }
+}
+
 export type ProviderUnavailableCategory =
   | "voice_provider_unavailable"
   | "telegram_provider_unavailable"

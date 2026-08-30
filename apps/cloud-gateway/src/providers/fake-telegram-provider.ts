@@ -7,9 +7,9 @@ import {
   type TelegramSendMessageResult,
 } from "./provider-types.js";
 
-interface IdempotentAttempt {
+interface IdempotencyBinding {
   readonly material: string;
-  readonly promise: Promise<TelegramSendMessageResult>;
+  promise: Promise<TelegramSendMessageResult> | null;
 }
 
 function cloneInput(input: TelegramSendMessageInput): TelegramSendMessageInput {
@@ -42,7 +42,7 @@ function wait(milliseconds: number): Promise<void> {
 
 export class FakeTelegramProvider implements TelegramProvider {
   private readonly requestLog: TelegramSendMessageInput[] = [];
-  private readonly attempts = new Map<string, IdempotentAttempt>();
+  private readonly bindings = new Map<string, IdempotencyBinding>();
   private readonly failures: Error[] = [];
   private readonly delays: number[] = [];
 
@@ -62,21 +62,22 @@ export class FakeTelegramProvider implements TelegramProvider {
   async sendMessage(input: TelegramSendMessageInput): Promise<TelegramSendMessageResult> {
     const snapshot = cloneInput(input);
     const material = materialOf(snapshot);
-    const existing = this.attempts.get(snapshot.idempotencyKey);
+    const existing = this.bindings.get(snapshot.idempotencyKey);
     if (existing !== undefined) {
       if (existing.material !== material) throw new ProviderIdempotencyConflictError();
-      return existing.promise;
+      if (existing.promise !== null) return existing.promise;
     }
 
     validateInput(snapshot);
     const promise = this.performAttempt(snapshot);
-    const attempt = { material, promise };
-    this.attempts.set(snapshot.idempotencyKey, attempt);
+    const binding = existing ?? { material, promise: null };
+    binding.promise = promise;
+    this.bindings.set(snapshot.idempotencyKey, binding);
 
     try {
       return await promise;
     } catch (error) {
-      if (this.attempts.get(snapshot.idempotencyKey) === attempt) this.attempts.delete(snapshot.idempotencyKey);
+      if (binding.promise === promise) binding.promise = null;
       throw error;
     }
   }

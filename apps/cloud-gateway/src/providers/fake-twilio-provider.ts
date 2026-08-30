@@ -12,9 +12,9 @@ import {
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/;
 const E164 = /^\+[1-9][0-9]{1,14}$/;
 
-interface IdempotentAttempt {
+interface IdempotencyBinding {
   readonly material: string;
-  readonly promise: Promise<TwilioCreateCallResult>;
+  promise: Promise<TwilioCreateCallResult> | null;
 }
 
 function cloneInput(input: TwilioCreateCallInput): TwilioCreateCallInput {
@@ -55,7 +55,7 @@ function wait(milliseconds: number): Promise<void> {
 
 export class FakeTwilioProvider implements TwilioProvider {
   private readonly requestLog: TwilioCreateCallInput[] = [];
-  private readonly attempts = new Map<string, IdempotentAttempt>();
+  private readonly bindings = new Map<string, IdempotencyBinding>();
   private readonly failures: Error[] = [];
   private readonly delays: number[] = [];
 
@@ -75,21 +75,22 @@ export class FakeTwilioProvider implements TwilioProvider {
   async createCall(input: TwilioCreateCallInput): Promise<TwilioCreateCallResult> {
     const snapshot = cloneInput(input);
     const material = materialOf(snapshot);
-    const existing = this.attempts.get(snapshot.idempotencyKey);
+    const existing = this.bindings.get(snapshot.idempotencyKey);
     if (existing !== undefined) {
       if (existing.material !== material) throw new ProviderIdempotencyConflictError();
-      return existing.promise;
+      if (existing.promise !== null) return existing.promise;
     }
 
     validateInput(snapshot);
     const promise = this.performAttempt(snapshot);
-    const attempt = { material, promise };
-    this.attempts.set(snapshot.idempotencyKey, attempt);
+    const binding = existing ?? { material, promise: null };
+    binding.promise = promise;
+    this.bindings.set(snapshot.idempotencyKey, binding);
 
     try {
       return await promise;
     } catch (error) {
-      if (this.attempts.get(snapshot.idempotencyKey) === attempt) this.attempts.delete(snapshot.idempotencyKey);
+      if (binding.promise === promise) binding.promise = null;
       throw error;
     }
   }
