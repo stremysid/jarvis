@@ -377,519 +377,195 @@ git commit -m "feat(calls): extend shared Twilio provider for signed relay ingre
 
 ### Task 3: Atomic call persistence, event deduplication, and expected-call bindings
 
-**Crash-safety correction:** Task 2 established that Twilio's Calls POST is non-idempotent. This task therefore owns the durable gate before any later real dispatch: one conditional D1 claim commits before the only provider invocation; `claimed` and `provider_dispatch_unknown` suppress every later invocation; a signed TwiML/status callback may reconcile the accepted call but never authorize another POST. Rows are keyed by the audited policy `attemptId`, not only `commandId`, so the one allowed policy-evaluated retry retains two immutable nonces, outcomes, TwiML references, and CallSid bindings. The corrected schema and methods below supersede the earlier simple expected-call sketch.
+**Final authority contract:** Twilio's Calls POST is non-idempotent. Task 3 therefore commits the durable `ready -> claimed` transition before the only provider invocation, then requires an in-memory, attempt-bound one-shot begin capability immediately before that POST. A `claimed` recovery becomes `provider_dispatch_unknown` and every terminal/unknown row suppresses later POSTs. Signed TwiML/status evidence may reconcile an accepted call, but it never creates new POST authority. The final implementation is the range `83ca8ad..2971265`.
 
 **Files:**
+
 - Create: `apps/cloud-gateway/src/persistence/migrations/0003_calling.sql`
 - Create: `apps/cloud-gateway/src/persistence/call-repository.ts`
 - Modify: `apps/cloud-gateway/src/persistence/event-repository.ts`
 - Modify: `apps/cloud-gateway/src/calls/outbound-call-dispatcher.ts`
-- Modify: `apps/cloud-gateway/src/policy/policy-types.ts`
-- Modify: `apps/cloud-gateway/src/policy/policy-audit.ts`
-- Modify: `apps/cloud-gateway/src/policy/policy-engine.ts`
-- Modify: `apps/cloud-gateway/test/persistence/migration.ts`
-- Test: `apps/cloud-gateway/test/calls/outbound-call-dispatcher.test.ts`
-- Test: `apps/cloud-gateway/test/policy/policy-engine.test.ts`
-- Test: `apps/cloud-gateway/test/persistence/call-repository.test.ts`
-- Test: `apps/cloud-gateway/test/faults/calling-transaction-faults.test.ts`
+- Modify: `apps/cloud-gateway/src/policy/policy-types.ts`, `policy-audit.ts`, and `policy-engine.ts`
+- Modify: `apps/cloud-gateway/src/providers/provider-types.ts`
+- Modify: `packages/contracts/src/calls.ts`
+- Modify: migration/archive/acceptance fixtures needed to apply migration 0003
+- Test: the four focused Task 3 suites plus the calls contract suite
 
 **Interfaces:**
-- Consumes: foundation `EventRepository`, D1 binding `Env.DB`, `EventEnvelope<T>`, `ExpectedOutboundCall`, `RelayBinding`, audited `DispatchPolicyCheck.attemptId`, `TwilioProvider`, `ProviderFailure`, and `ProviderDispatchUnknownError`.
-- Produces: `snapshotOutboundCallRequest`, stable attempt selection, separately identified repeatable dispatch-check audits, cryptographic `createRelayNonce`, crash-safe `OutboundCallDispatcher`, `CallRepository.getOrCreateExpectedCall`, `CallRepository.claimProviderDispatch`, capability-bound provider-result recording, idempotent `CallRepository.claimExpectedCall`, and `CallRepository.appendProviderEvent`. Active-call counting remains with the later durable call-state implementation because expected calls alone cannot represent inbound sessions or terminal phases.
 
-**Attempt identity ownership:** remove `MutablePolicyContext.dispatchAttemptId(commandId)`. The repository/dispatcher owns the durable attempt identity; `PolicyEngine.recheckOutboundDispatch(snapshot, attemptId)` accepts only that internal validated ULID. Each call to recheck mints a separate `checkId` for its audit event, so recovery can re-evaluate a stable ready attempt without reusing an event ID or conflicting with an earlier outcome. The audit payload links `{ checkId, attemptId, commandId }`. A duplicate/recovered command reuses its current attempt until that row reaches a known retry-eligible rejection; only then may the dispatcher propose a new ID for ordinal 1.
+- Consumes: concrete foundation `EventRepository`, D1 `Env.DB`, persistable `EventEnvelope` values, `ExpectedOutboundCall`, `RelayBinding`, `TwilioProvider`, constructor-issued `ProviderFailure`, and audited `DispatchPolicyCheck` values.
+- Produces: `snapshotOutboundCallRequest`, stable attempt selection, distinct recheck audits, `createRelayNonce`, crash-safe `OutboundCallDispatcher`, `CallRepository.getOrCreateExpectedCall`, `claimProviderDispatch`, `beginProviderDispatch`, capability-bound settlement methods, replay-safe `claimExpectedCall`, and atomic `appendProviderEvent`.
+- `MutablePolicyContext` contains `killSwitch`, `now`, `isQuietHours`, `activeOutboundCalls`, `outboundCallsForUtcPolicyDay`, and `authenticatedOrigin`. It has no attempt-ID callback and no retry-count callback; `PolicyEngine` derives retry count directly from D1.
 
-- [ ] **Step 1: Write the failing transaction and nonce-claim tests**
+**Identity and lineage:**
 
-```ts
-const CALL_SID_1 = `CA${"1".repeat(32)}`;
-const CALL_SID_2 = `CA${"2".repeat(32)}`;
+- `attemptId` is stable provider-attempt identity. `attemptOrdinal` is a required runtime-validated `0 | 1` proof supplied for both allocation and exact replay; it is never inferred after a policy audit.
+- `authorizationExpiresAt` is required immutable attempt lineage alongside `commandId`, principal, destination identity, command idempotency key, and ordinal.
+- Each real policy recheck mints a distinct `checkId`. The event header is `eventId=checkId`, `correlationId=attemptId`, and `causationId=commandId`.
+- The audit payload preserves exact reconstructible linkage as UTF-8 number arrays named `checkIdUtf8`, `attemptIdUtf8`, `commandIdUtf8`, and `inputHashUtf8`. Only validated decision/reason/time fields enter the separately redacted result object. The idempotency request hash is computed from canonical validated raw linkage/result primitives, so generic text redaction cannot corrupt ULIDs or hashes containing digit runs.
 
-it("creates canonical independent 32-byte relay nonces", () => {
-  const first = createRelayNonce();
-  const second = createRelayNonce();
-  expect(first).toMatch(/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/);
-  expect(second).not.toBe(first);
-});
+- [x] **Step 1: Prove the crash, race, expiry, callback, and runtime boundaries**
 
-it("claims an expected call exactly once and binds it to the Twilio CallSid", async () => {
-  await repository.getOrCreateExpectedCall(expectedInput);
-  expect(await repository.claimProviderDispatch({ attemptId: expected.attemptId, now: new Date("2026-08-29T12:00:30.000Z") })).toMatchObject({ kind: "claimed" });
-  const first = await repository.claimExpectedCall({ attemptId: expected.attemptId, callSid: CALL_SID_1, observedDestinationIdentityId: expected.destinationIdentityId, now: new Date("2026-08-29T12:01:00.000Z") });
-  const replay = await repository.claimExpectedCall({ attemptId: expected.attemptId, callSid: CALL_SID_2, observedDestinationIdentityId: expected.destinationIdentityId, now: new Date("2026-08-29T12:01:01.000Z") });
-  expect(first).toMatchObject({ callSid: CALL_SID_1, principalId: expected.principalId, relayNonce: expected.relayNonce });
-  expect(replay).toBeNull();
-});
+The focused tests cover:
 
-it("persists an unknown provider outcome and never invokes Twilio again", async () => {
-  await repository.getOrCreateExpectedCall(expectedInput);
-  twilio.acceptAndLoseNextResponse();
-  await expect(dispatcher.dispatch(command)).resolves.toMatchObject({ status: "provider_dispatch_unknown" });
-  await expect(dispatcher.dispatch(command)).resolves.toMatchObject({ status: "provider_dispatch_unknown" });
-  expect(twilio.requests).toHaveLength(1);
-  expect(await readDispatchState(database, expected.attemptId)).toBe("provider_dispatch_unknown");
-});
+- independent canonical 32-byte relay nonces and exact attempt replay;
+- one POST under concurrent dispatch and crash recovery;
+- candidate-aware insert barriers that prove distinct pre-insert ordinal candidates;
+- delayed ordinal-0 convergence after the winner becomes retry-eligible, followed by a fresh ordinal-1 dispatch only;
+- ordinal-1 race convergence before retry-limit classification;
+- callback reconciliation from `claimed` or `provider_dispatch_unknown` and atomic rollback for incompatible/failing batches;
+- same-CallSid replay after the first signed claim, including after nonce expiry, with different-SID rejection;
+- claim-time authorization/nonce expiry at exact and past boundaries;
+- issued/begun/settled capability binding, forged and cross-attempt capability rejection, and zero POST before a valid begin;
+- accessor/mutation/coercion boundaries for command, policy check, audit linkage, claim, date, provider result, `CallSid`, event input, and provider failure;
+- direct-D1 attempts to mutate immutable lineage, regress state, rewrite terminal evidence, inject SIDs, change retry authority, or delete a durable attempt.
 
-it("recovers a ready row by claiming it before the only provider POST", async () => {
-  await policy.recheckOutboundDispatch(command, ATTEMPT_0); // persisted pre-crash check
-  await repository.getOrCreateExpectedCall(expectedInput);
-  await expect(dispatcher.dispatch(command)).resolves.toMatchObject({ status: "dispatched", attemptId: ATTEMPT_0 });
-  expect(twilio.requests).toHaveLength(1);
-  expect(await readDispatchChecks(database)).toMatchObject([
-    { attemptId: ATTEMPT_0, checkId: CHECK_0 },
-    { attemptId: ATTEMPT_0, checkId: CHECK_1 },
-  ]);
-});
+The initial RED was missing migration/repository load failure. Subsequent RED cases exposed stale-ordinal promotion, capability substitution before POST, stale-time authorization, mutable boundary drift, dependency-array drift, and raw-D1 state regression/deletion.
 
-it("suppresses recovery after a crash immediately following the durable claim", async () => {
-  await repository.getOrCreateExpectedCall(expectedInput);
-  expect(await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now })).toMatchObject({ kind: "claimed" });
-  await expect(dispatcher.dispatch(command)).resolves.toMatchObject({ status: "provider_dispatch_unknown" });
-  expect(twilio.requests).toHaveLength(0);
-});
+- [x] **Step 2: Install the total migration 0003 contract**
 
-it("permits one provider invocation under concurrent dispatcher calls", async () => {
-  const twilio = new TestControllableTwilioProvider();
-  const dispatcher = createDispatcher({ twilio });
-  twilio.blockNextResponse();
-  const first = dispatcher.dispatch(command);
-  await twilio.waitForRequest();
-  const second = dispatcher.dispatch(command);
-  await expect(second).resolves.toMatchObject({ status: "provider_dispatch_unknown" });
-  twilio.releaseResponse();
-  await expect(first).resolves.toMatchObject({ status: "dispatched" });
-  expect(twilio.requests).toHaveLength(1);
-});
-
-it("converges raced candidate IDs on the winning attempt without rotating its nonce", async () => {
-  const insertBarrier = new TestAttemptInsertBarrier(database, 2);
-  const twilio = new TestControllableTwilioProvider();
-  twilio.blockNextResponse();
-  const left = createDispatcher({
-    twilio,
-    repository: createCallRepository({ db: insertBarrier.bindingForParticipant(), createRelayNonce: () => NONCE_0 }),
-    newAttemptId: () => ATTEMPT_0,
-  });
-  const right = createDispatcher({
-    twilio,
-    repository: createCallRepository({ db: insertBarrier.bindingForParticipant(), createRelayNonce: () => NONCE_1 }),
-    newAttemptId: () => ATTEMPT_1,
-  });
-
-  const leftPending = left.dispatch(command);
-  const rightPending = right.dispatch(command);
-  await insertBarrier.waitUntilBothInsertSelectsAreBlocked();
-  insertBarrier.releaseBoth();
-  await twilio.waitForRequest();
-  twilio.releaseResponse();
-  const results = await Promise.all([leftPending, rightPending]);
-
-  const winner = twilio.requests[0]!.attemptId;
-  expect(results.map((result) => result.attemptId)).toEqual([winner, winner]);
-  expect(await readAttempt(database, winner)).toMatchObject({
-    relayNonce: winner === ATTEMPT_0 ? NONCE_0 : NONCE_1,
-  });
-  expect((await readDispatchChecks(database)).filter((check) => check.attemptId === winner)).toHaveLength(2);
-  expect(twilio.requests).toHaveLength(1);
-});
-
-it("keeps the one policy-authorized retry as a distinct immutable attempt", async () => {
-  const first = await repository.getOrCreateExpectedCall(expectedAttempt({ attemptId: ATTEMPT_0 }));
-  const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now });
-  if (claim.kind !== "claimed") throw new Error("test_claim_failed");
-  await repository.recordProviderDispatchRejection({ claim: claim.capability, failure: ProviderFailure.transient("rate_limited"), now });
-  const retry = await repository.getOrCreateExpectedCall(expectedAttempt({ attemptId: ATTEMPT_1 }));
-  expect([first.attemptOrdinal, retry.attemptOrdinal]).toEqual([0, 1]);
-  expect(retry.relayNonce).not.toBe(first.relayNonce);
-  expect(retry.attemptId).not.toBe(first.attemptId);
-  await expect(repository.getOrCreateExpectedCall(expectedAttempt({ attemptId: ATTEMPT_2 }))).rejects.toThrow("outbound_retry_limit");
-});
-
-it("dispatches the one rate-limited retry under a new audited attempt and never a third", async () => {
-  twilio.rejectNext(ProviderFailure.transient("rate_limited"));
-  await expect(dispatcher.dispatch(command)).resolves.toMatchObject({ status: "rejected", attemptId: ATTEMPT_0, retryEligible: true });
-  twilio.rejectNext(ProviderFailure.transient("rate_limited"));
-  await expect(dispatcher.dispatch(command)).resolves.toMatchObject({ status: "rejected", attemptId: ATTEMPT_1, retryEligible: false });
-  await expect(dispatcher.dispatch(command)).resolves.toMatchObject({ status: "rejected", attemptId: ATTEMPT_1 });
-  expect(twilio.requests.map((request) => request.attemptId)).toEqual([ATTEMPT_0, ATTEMPT_1]);
-});
-
-it.each(["claimed", "dispatched", "provider_dispatch_unknown"] as const)("never makes %s retry-eligible", async (state) => {
-  await arrangeFirstAttemptInState(state);
-  await expect(repository.getOrCreateExpectedCall(expectedAttempt({ attemptId: ATTEMPT_1 }))).rejects.toThrow("outbound_retry_not_eligible");
-});
-
-it("replays the stored nonce and binding for the same attempt and signed CallSid", async () => {
-  const first = await repository.getOrCreateExpectedCall(expectedAttempt({ attemptId: ATTEMPT_0 }));
-  const replay = await repository.getOrCreateExpectedCall(expectedAttempt({ attemptId: ATTEMPT_0 }));
-  expect(replay).toEqual(first);
-  const claimed = await repository.claimExpectedCall({ attemptId: ATTEMPT_0, callSid: CALL_SID_1, observedDestinationIdentityId: first.destinationIdentityId, now });
-  const signedRetry = await repository.claimExpectedCall({ attemptId: ATTEMPT_0, callSid: CALL_SID_1, observedDestinationIdentityId: first.destinationIdentityId, now: afterNonceExpiry });
-  expect(signedRetry).toEqual(claimed);
-  await expect(repository.claimExpectedCall({ attemptId: ATTEMPT_0, callSid: CALL_SID_2, observedDestinationIdentityId: first.destinationIdentityId, now })).resolves.toBeNull();
-});
-
-it("never lets a late explicit rejection downgrade callback-proven dispatch", async () => {
-  await repository.getOrCreateExpectedCall(expectedInput);
-  const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now });
-  if (claim.kind !== "claimed") throw new Error("test_claim_failed");
-  await repository.claimExpectedCall({ attemptId: ATTEMPT_0, callSid: CALL_SID_1, observedDestinationIdentityId: expectedInput.destinationIdentityId, now });
-  await repository.recordProviderDispatchRejection({ claim: claim.capability, failure: ProviderFailure.transient("rate_limited"), now });
-  expect(await readDispatchState(database, ATTEMPT_0)).toBe("dispatched");
-  await expect(repository.claimExpectedCall({ attemptId: ATTEMPT_0, callSid: CALL_SID_2, observedDestinationIdentityId: expectedInput.destinationIdentityId, now })).resolves.toBeNull();
-});
-
-it("freezes command data before policy awaits and uses only audited dispatch values", async () => {
-  const mutable = { ...command };
-  policy.blockFinalRecheck();
-  const pending = dispatcher.dispatch(mutable);
-  mutable.principalId = "attacker"; mutable.destinationIdentityId = "attacker-destination";
-  policy.releaseFinalRecheck();
-  await pending;
-  expect(await readAttempt(database, ATTEMPT_0)).toMatchObject({ principalId: command.principalId, destinationIdentityId: command.destinationIdentityId });
-  expect(twilio.requests[0]).toMatchObject({ attemptId: ATTEMPT_0, commandId: command.commandId, toE164: AUDITED_DESTINATION });
-});
-
-it("constructs both trusted callback routes from attempt identity while retaining command lineage", async () => {
-  await dispatcher.dispatch(command);
-  const request = twilio.requests[0]!;
-  expect(request).toMatchObject({
-    attemptId: ATTEMPT_0,
-    commandId: command.commandId,
-    idempotencyKey: ATTEMPT_0,
-  });
-  expect(request.twimlUrl.toString()).toBe(`https://jarvis.example/voice/outbound/${ATTEMPT_0}`);
-  expect(request.statusCallbackUrl.toString()).toBe(`https://jarvis.example/voice/status/${ATTEMPT_0}`);
-});
-
-it("rolls back callback receipt, event, idempotency, and outbox when the final batch statement fails", async () => {
-  await installFailingProviderReceiptTrigger(database);
-  await expect(repository.appendProviderEvent(providerEventFixture())).rejects.toThrow("injected_provider_receipt_failure");
-  await expect(countCallingRows(database)).resolves.toEqual({ providerEvents: 0, events: 0, idempotency: 0, outbox: 0 });
-});
-
-it("deduplicates attempt-scoped status identity and rejects a changed request hash", async () => {
-  const first = await repository.appendProviderEvent(statusFixture({ attemptId: ATTEMPT_0, callSid: CALL_SID_1, callbackSource: "call-progress-events", sequenceNumber: 2, requestHash: HASH_1 }));
-  const replay = await repository.appendProviderEvent(statusFixture({ attemptId: ATTEMPT_0, callSid: CALL_SID_1, callbackSource: "call-progress-events", sequenceNumber: 2, requestHash: HASH_1 }));
-  expect(replay).toEqual({ ...first, replayed: true });
-  await expect(repository.appendProviderEvent(statusFixture({ attemptId: ATTEMPT_0, callSid: CALL_SID_1, callbackSource: "call-progress-events", sequenceNumber: 2, requestHash: HASH_2 }))).rejects.toThrow("idempotency_conflict");
-});
-
-it.each(["claimed", "provider_dispatch_unknown"] as const)("atomically reconciles a compatible %s attempt from signed status", async (state) => {
-  await arrangeAttempt({ attemptId: ATTEMPT_0, state });
-  await repository.appendProviderEvent(statusFixture({ attemptId: ATTEMPT_0, callSid: CALL_SID_1 }));
-  expect(await readAttempt(database, ATTEMPT_0)).toMatchObject({ providerDispatchState: "dispatched", providerCallSid: CALL_SID_1 });
-});
-
-it.each([
-  ["ready attempt", { state: "ready", callSid: CALL_SID_1 }],
-  ["rejected attempt", { state: "rejected", callSid: CALL_SID_1 }],
-  ["mismatched CallSid", { state: "provider_dispatch_unknown", callSid: CALL_SID_2 }],
-] as const)("aborts every callback batch row for a %s", async (_label, setup) => {
-  await arrangeAttempt({ attemptId: ATTEMPT_0, state: setup.state, boundCallSid: setup.callSid === CALL_SID_2 ? CALL_SID_1 : null });
-  await expect(repository.appendProviderEvent(statusFixture({ attemptId: ATTEMPT_0, callSid: setup.callSid }))).rejects.toThrow("provider_status_attempt_mismatch");
-  expect(await countCallingRows(database)).toMatchObject({ providerEvents: 0, events: 0, idempotency: 0, outbox: 0 });
-});
-
-it("uses CallSid plus SessionId for relay-ended without inventing status sequence fields", async () => {
-  await repository.appendProviderEvent(relayEndedFixture({ callSid: CALL_SID_1, sessionId: `VX${"3".repeat(32)}` }));
-  expect(await readProviderReceipt(database)).toMatchObject({ endpointKind: "relay_ended", attemptId: null, callbackSource: null, sequenceNumber: null });
-});
-```
-
-- [ ] **Step 2: Run the persistence tests to verify they fail**
-
-`TestControllableTwilioProvider` is a test-local `TwilioProvider` in `outbound-call-dispatcher.test.ts`. Its `blockNextResponse`/`waitForRequest`/`releaseResponse` methods only coordinate the race deterministically; do not add blocking controls to the production fake or provider interface. `TestAttemptInsertBarrier` is a test-local D1 binding proxy that recognizes the exact outbound-attempt `INSERT ... SELECT`, blocks two distinct dispatcher/repository instances after both have resolved an empty intent but before either insert runs, and then releases both. It must not require a production timing hook. The race test accepts either serializable winner, but proves that the loser receives `AttemptAllocationRaceError`, rechecks/audits the stored winner, reuses that row's original nonce, and cannot cause a second provider POST.
-
-Run: `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/persistence/call-repository.test.ts apps/cloud-gateway/test/faults/calling-transaction-faults.test.ts apps/cloud-gateway/test/calls/outbound-call-dispatcher.test.ts apps/cloud-gateway/test/policy/policy-engine.test.ts`
-
-Expected: FAIL because migration 0003, `CallRepository`, stable attempt/check-ID ownership, atomic dependent event statements, and the durable dispatcher gate do not exist.
-
-- [ ] **Step 3: Add the schema and atomic repository methods**
+`outbound_call_attempts` has:
 
 ```sql
-CREATE TABLE outbound_call_attempts (
-  attempt_id TEXT PRIMARY KEY,
-  command_id TEXT NOT NULL REFERENCES policy_decisions(decision_id) ON DELETE RESTRICT,
-  attempt_ordinal INTEGER NOT NULL CHECK (attempt_ordinal IN (0, 1)),
-  principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE RESTRICT,
-  destination_identity_id TEXT NOT NULL REFERENCES channel_identities(identity_id) ON DELETE RESTRICT,
-  command_idempotency_key TEXT NOT NULL,
-  relay_nonce TEXT NOT NULL UNIQUE,
-  nonce_expires_at TEXT NOT NULL,
-  provider_dispatch_state TEXT NOT NULL DEFAULT 'ready'
-    CHECK (provider_dispatch_state IN ('ready', 'claimed', 'dispatched', 'rejected', 'provider_dispatch_unknown')),
-  provider_dispatch_claimed_at TEXT,
-  provider_dispatch_resolved_at TEXT,
-  provider_failure_code TEXT CHECK (provider_failure_code IS NULL OR provider_failure_code IN ('provider_transient_failure', 'provider_authentication_failure', 'provider_permanent_failure')),
-  provider_failure_category TEXT CHECK (provider_failure_category IS NULL OR provider_failure_category IN ('rate_limited', 'authentication', 'invalid_request', 'permanent_failure')),
-  provider_call_sid TEXT UNIQUE,
-  relay_call_sid TEXT UNIQUE,
-  relay_claimed_at TEXT,
-  retry_eligible INTEGER NOT NULL DEFAULT 0 CHECK (retry_eligible IN (0, 1)),
-  created_at TEXT NOT NULL,
-  UNIQUE (command_id, attempt_ordinal),
-  CHECK (length(command_id) = 26),
-  CHECK (length(attempt_id) = 26),
-  CHECK (length(CAST(relay_nonce AS BLOB)) = 43),
-  CHECK (provider_call_sid IS NULL OR (length(provider_call_sid) = 34 AND substr(provider_call_sid, 1, 2) = 'CA' AND substr(provider_call_sid, 3) NOT GLOB '*[^0-9A-Fa-f]*')),
-  CHECK (relay_call_sid IS NULL OR (length(relay_call_sid) = 34 AND substr(relay_call_sid, 1, 2) = 'CA' AND substr(relay_call_sid, 3) NOT GLOB '*[^0-9A-Fa-f]*')),
-  CHECK (retry_eligible = 0 OR (attempt_ordinal = 0 AND provider_dispatch_state = 'rejected' AND provider_failure_code = 'provider_transient_failure' AND provider_failure_category = 'rate_limited')),
-  CHECK ((provider_dispatch_state IN ('ready', 'claimed', 'dispatched', 'provider_dispatch_unknown') AND provider_failure_code IS NULL AND provider_failure_category IS NULL)
-    OR (provider_dispatch_state = 'rejected' AND provider_failure_code IS NOT NULL AND provider_failure_category IS NOT NULL)),
-  CHECK ((provider_dispatch_state = 'ready' AND provider_dispatch_claimed_at IS NULL AND provider_dispatch_resolved_at IS NULL)
-    OR (provider_dispatch_state = 'claimed' AND provider_dispatch_claimed_at IS NOT NULL AND provider_dispatch_resolved_at IS NULL)
-    OR (provider_dispatch_state IN ('dispatched', 'rejected', 'provider_dispatch_unknown') AND provider_dispatch_claimed_at IS NOT NULL AND provider_dispatch_resolved_at IS NOT NULL))
-);
-CREATE INDEX outbound_call_attempts_command_idx ON outbound_call_attempts(command_id, attempt_ordinal);
-CREATE TABLE provider_events (
-  dedupe_key TEXT PRIMARY KEY CHECK (length(dedupe_key) = 64 AND dedupe_key NOT GLOB '*[^0-9a-f]*'),
-  endpoint_kind TEXT NOT NULL CHECK (endpoint_kind IN ('status', 'relay_ended')),
-  event_id TEXT NOT NULL UNIQUE CHECK (length(event_id) = 26),
-  attempt_id TEXT REFERENCES outbound_call_attempts(attempt_id) ON DELETE RESTRICT CHECK (attempt_id IS NULL OR length(attempt_id) = 26),
-  call_sid TEXT NOT NULL CHECK (length(call_sid) = 34 AND substr(call_sid, 1, 2) = 'CA' AND substr(call_sid, 3) NOT GLOB '*[^0-9A-Fa-f]*'),
-  callback_source TEXT,
-  sequence_number INTEGER CHECK (sequence_number IS NULL OR sequence_number >= 0),
-  session_id TEXT CHECK (session_id IS NULL OR (length(session_id) = 34 AND substr(session_id, 1, 2) = 'VX' AND substr(session_id, 3) NOT GLOB '*[^0-9A-Fa-f]*')),
-  received_at TEXT NOT NULL,
-  CHECK ((endpoint_kind = 'status' AND attempt_id IS NOT NULL AND callback_source = 'call-progress-events' AND sequence_number IS NOT NULL AND session_id IS NULL)
-    OR (endpoint_kind = 'relay_ended' AND attempt_id IS NULL AND callback_source IS NULL AND sequence_number IS NULL AND session_id IS NOT NULL))
-);
-CREATE UNIQUE INDEX provider_events_status_dedupe_idx
-  ON provider_events(endpoint_kind, attempt_id, call_sid, callback_source, sequence_number)
-  WHERE endpoint_kind = 'status';
-CREATE UNIQUE INDEX provider_events_relay_dedupe_idx
-  ON provider_events(endpoint_kind, call_sid, session_id)
-  WHERE endpoint_kind = 'relay_ended';
-CREATE TRIGGER provider_events_status_require_compatible_attempt
-BEFORE INSERT ON provider_events
-WHEN NEW.endpoint_kind = 'status' AND NOT EXISTS (
-  SELECT 1 FROM outbound_call_attempts a
-  WHERE a.attempt_id = NEW.attempt_id
-    AND a.provider_dispatch_state IN ('claimed', 'dispatched', 'provider_dispatch_unknown')
-    AND (a.provider_call_sid IS NULL OR a.provider_call_sid = NEW.call_sid)
-    AND (a.relay_call_sid IS NULL OR a.relay_call_sid = NEW.call_sid)
-)
-BEGIN
-  SELECT RAISE(ABORT, 'provider_status_attempt_mismatch');
-END;
-CREATE TRIGGER provider_events_status_reconcile_attempt
-AFTER INSERT ON provider_events
-WHEN NEW.endpoint_kind = 'status'
-BEGIN
-  UPDATE outbound_call_attempts
-  SET provider_dispatch_state = 'dispatched',
-      provider_call_sid = COALESCE(provider_call_sid, NEW.call_sid),
-      provider_dispatch_resolved_at = NEW.received_at
-  WHERE attempt_id = NEW.attempt_id
-    AND provider_dispatch_state IN ('claimed', 'provider_dispatch_unknown');
-END;
+attempt_id TEXT NOT NULL PRIMARY KEY
+command_id TEXT NOT NULL REFERENCES policy_decisions(decision_id) ON DELETE RESTRICT
+attempt_ordinal INTEGER NOT NULL CHECK (attempt_ordinal IN (0, 1))
+principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE RESTRICT
+destination_identity_id TEXT NOT NULL REFERENCES channel_identities(identity_id) ON DELETE RESTRICT
+command_idempotency_key TEXT NOT NULL
+relay_nonce TEXT NOT NULL UNIQUE
+nonce_expires_at TEXT NOT NULL
+authorization_expires_at TEXT NOT NULL
+provider_dispatch_state TEXT NOT NULL
+provider_dispatch_claimed_at TEXT
+provider_dispatch_resolved_at TEXT
+provider_failure_code TEXT
+provider_failure_category TEXT
+provider_call_sid TEXT UNIQUE
+relay_call_sid TEXT UNIQUE
+relay_claimed_at TEXT
+retry_eligible INTEGER NOT NULL DEFAULT 0
+created_at TEXT NOT NULL
+UNIQUE (command_id, attempt_ordinal)
 ```
 
-`provider_events` is metadata-only and deliberately has no raw form or `payload_json` column. Its `event_id` is not an event foreign key because foundation archival can purge an operational event while its idempotency identity must remain durable.
+The checks are total under SQLite NULL semantics:
+
+- `authorization_expires_at` must equal its canonical millisecond UTC `strftime` rendering; IDs, nonce, failure enums, and SIDs retain bounded canonical shapes.
+- `provider_dispatch_state` is exactly `ready | claimed | dispatched | rejected | provider_dispatch_unknown`.
+- `dispatched` iff `provider_call_sid IS NOT NULL`. Every non-dispatched state requires both CallSid columns null. A relay SID and `relay_claimed_at` are either both null or both non-null.
+- `retry_eligible` equals a total `CASE` expression: one only for ordinal-0 `rejected/provider_transient_failure/rate_limited`; zero otherwise.
+- Non-rejected states require null failure facts; rejected requires both facts. Ready has neither timestamp, claimed has claim time only, and dispatched/rejected/unknown have both claim and resolution times.
+
+The attempt triggers enforce:
+
+- immutable `attempt_id`, command, ordinal, principal, destination, idempotency key, nonce, both expiries, and `created_at`;
+- only same-state, `ready -> claimed`, `claimed -> dispatched|rejected|provider_dispatch_unknown`, and `provider_dispatch_unknown -> dispatched|rejected`;
+- once non-null, both CallSids, provider claim time, and relay claim time are immutable;
+- resolution time is immutable for dispatched/rejected and unknown-to-unknown; only unknown reconciliation to dispatched/rejected may replace its provisional resolution time;
+- failure code/category and retry eligibility are frozen except when claimed/unknown first transitions to rejected;
+- every DELETE aborts with `outbound_attempt_delete_forbidden`.
+
+`provider_events` uses `dedupe_key TEXT NOT NULL PRIMARY KEY`. Its endpoint-shape check uses `callback_source IS 'call-progress-events'` for status rows, so NULL cannot bypass it. Status requires attempt, CallSid, safe sequence, fixed callback source, and no session; relay-ended requires CallSid/session and no attempt/status fields. The BEFORE trigger rejects an incompatible status attempt. The AFTER trigger reconciles compatible claimed/unknown attempts to dispatched. The receipt, reconciliation, event, idempotency row, and outbox row share one D1 batch and roll back together.
+
+- [x] **Step 3: Implement expected-call allocation, durable claim, and dispatcher authority**
+
+The required repository boundary is:
 
 ```ts
-// apps/cloud-gateway/src/policy/policy-types.ts
-export interface DispatchPolicyCheck extends PolicyDecision {
-  checkedAt: string;
-  checkId?: Ulid;
-  attemptId?: Ulid;
-  destinationE164?: string;
-  commandId?: Ulid;
-}
-export interface PolicyEngineContract {
-  evaluateOutboundCall(request: OutboundCallRequest): Promise<PolicyDecision>;
-  recheckOutboundDispatch(request: OutboundCallRequest, attemptId: Ulid): Promise<DispatchPolicyCheck>;
+export interface ExpectedCallInput {
+  attemptId: Ulid;
+  commandId: Ulid;
+  principalId: string;
+  destinationIdentityId: string;
+  idempotencyKey: string;
+  authorizationExpiresAt: string;
+  now: Date;
+  attemptOrdinal: 0 | 1;
 }
 
-// apps/cloud-gateway/src/policy/policy-audit.ts
-// appendDispatchCheck mints event/idempotency identity from checkId and includes
-// checkId + stable attemptId + commandId in its canonical safe payload/hash.
+export type ProviderDispatchClaim =
+  | { kind: "claimed"; capability: ProviderDispatchClaimCapability }
+  | { kind: "authorization_expired" }
+  | { kind: "relay_nonce_expired" }
+  | { kind: "dispatched"; callSid: string }
+  | { kind: "rejected"; failureCode: ProviderFailureCode; retryEligible: boolean }
+  | { kind: "provider_dispatch_unknown" };
 
-// apps/cloud-gateway/src/persistence/call-repository.ts
-// apps/cloud-gateway/src/calls/outbound-call-dispatcher.ts exports this public result union.
 export type OutboundCallDispatchResult =
-  | { status: "denied"; reason: PolicyReason; checkedAt: string; checkId: Ulid | null; attemptId: Ulid }
+  | { status: "denied"; reason: PolicyReason; checkedAt: string; checkId: Ulid | null; attemptId: Ulid | null }
   | { status: "dispatched"; callSid: string; attemptId: Ulid }
   | { status: "rejected"; attemptId: Ulid; failureCode: ProviderFailureCode; retryEligible: boolean }
   | { status: "provider_dispatch_unknown"; attemptId: Ulid };
 
-export type ProviderDispatchState = "ready" | "claimed" | "dispatched" | "rejected" | "provider_dispatch_unknown";
-declare const dispatchClaimBrand: unique symbol;
-export interface ProviderDispatchClaimCapability { readonly attemptId: Ulid; readonly [dispatchClaimBrand]: true; }
-export type ProviderDispatchClaim =
-  | { kind: "claimed"; capability: ProviderDispatchClaimCapability }
-  | { kind: "dispatched"; callSid: string }
-  | { kind: "rejected"; failureCode: ProviderFailureCode }
-  | { kind: "provider_dispatch_unknown" };
-
-export interface StoredOutboundCallAttempt extends ExpectedOutboundCall {
-  attemptId: Ulid;
-  attemptOrdinal: 0 | 1;
-}
-export type DispatchIntent =
-  | { kind: "allocate"; attemptOrdinal: 0 | 1 }
-  | { kind: "existing"; attempt: StoredOutboundCallAttempt; state: ProviderDispatchState; callSid: string | null; failureCode: ProviderFailureCode | null };
-export class AttemptAllocationRaceError extends Error { constructor(readonly currentAttemptId: Ulid) { super("outbound_attempt_allocation_race"); } }
-
-export function createRelayNonce(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+export class AttemptAllocationRaceError extends Error {
+  constructor(readonly currentAttemptId: Ulid, readonly attemptOrdinal: 0 | 1);
 }
 
-export class CallRepository {
-  private readonly issuedClaims = new WeakSet<object>();
-  private readonly consumedClaims = new WeakSet<object>();
-  constructor(private readonly db: D1Database, private readonly events: EventRepository, private readonly createRelayNonce: () => string, private readonly nonceTtlMs = 300_000) {}
-
-  async resolveDispatchIntent(commandId: Ulid): Promise<DispatchIntent> {
-    // No rows => allocate ordinal 0. One ordinal-0 rate-limited rejection =>
-    // allocate ordinal 1. Every ready/claimed/dispatched/unknown or non-retryable
-    // rejected row is returned as existing. Ordinal 1 is always returned as existing,
-    // so this command can never allocate a third attempt.
-    return this.readDispatchIntent(commandId);
-  }
-
-  async getOrCreateExpectedCall(input: { attemptId: Ulid; commandId: Ulid; principalId: string; destinationIdentityId: string; idempotencyKey: string; now: Date }): Promise<StoredOutboundCallAttempt> {
-    // Validate a frozen bounded snapshot. Read and return an identical attempt first.
-    // Otherwise generate one canonical 32-byte base64url nonce and use one atomic
-    // INSERT ... SELECT whose HAVING clause allocates ordinal 0, or ordinal 1 only
-    // after ordinal 0 is rejected with retry_eligible=1. A raced loser reads the
-    // winner and discards its unused nonce. Mismatched lineage, a third row, or any
-    // claimed/dispatched/unknown/non-retryable predecessor fails closed.
-    const stored = await this.readAttempt(input.attemptId);
-    if (stored !== null) return this.requireMatchingLineage(stored, input);
-    const candidate = { relayNonce: this.createRelayNonce(), nonceExpiresAt: new Date(input.now.valueOf() + this.nonceTtlMs).toISOString() };
-    await this.insertEligibleAttempt(input, candidate); // one atomic statement, no read/modify/write allocation
-    const inserted = await this.readAttempt(input.attemptId);
-    if (inserted === null) throw await this.classifyAttemptInsertFailure(input.commandId); // returns AttemptAllocationRaceError with the winner when applicable
-    return this.requireMatchingLineage(inserted, input);
-  }
-
-  async claimProviderDispatch(input: { attemptId: Ulid; now: Date }): Promise<ProviderDispatchClaim> {
-    // Exactly one ready -> claimed transition mints the in-memory capability that
-    // authorizes the sole provider POST. A later observer atomically changes a still-
-    // claimed row to unknown and returns without a capability or provider call.
-    const row = await this.db.prepare(`UPDATE outbound_call_attempts
-      SET provider_dispatch_state = CASE provider_dispatch_state WHEN 'ready' THEN 'claimed' ELSE 'provider_dispatch_unknown' END,
-          provider_dispatch_claimed_at = COALESCE(provider_dispatch_claimed_at, ?),
-          provider_dispatch_resolved_at = CASE WHEN provider_dispatch_state = 'claimed' THEN ? ELSE provider_dispatch_resolved_at END
-      WHERE attempt_id = ? AND provider_dispatch_state IN ('ready', 'claimed')
-      RETURNING provider_dispatch_state, command_id`)
-      .bind(input.now.toISOString(), input.now.toISOString(), input.attemptId)
-      .first<{ provider_dispatch_state: ProviderDispatchState; command_id: string }>();
-    if (row?.provider_dispatch_state === "claimed") {
-      const capability = Object.freeze({ attemptId: input.attemptId }) as ProviderDispatchClaimCapability;
-      this.issuedClaims.add(capability);
-      return { kind: "claimed", capability };
-    }
-    if (row?.provider_dispatch_state === "provider_dispatch_unknown") return { kind: "provider_dispatch_unknown" };
-    const terminal = await this.readDispatchResult(input.attemptId);
-    if (terminal === null || terminal.kind === "ready" || terminal.kind === "claimed") throw new Error("dispatch_claim_invariant");
-    return terminal;
-  }
-
-  async recordProviderDispatchSuccess(input: { claim: ProviderDispatchClaimCapability; callSid: string; now: Date }): Promise<void> {
-    this.consumeIssuedClaim(input.claim);
-    // claimed|unknown -> dispatched; an already callback-proven dispatched row is
-    // idempotent only for the same CallSid. Never overwrite a different relay SID.
-    await this.resolveSuccess(input.claim.attemptId, input.callSid, input.now);
-  }
-
-  async recordProviderDispatchRejection(input: { claim: ProviderDispatchClaimCapability; failure: ProviderFailure; now: Date }): Promise<void> {
-    this.consumeIssuedClaim(input.claim);
-    // ProviderFailure is nominally minted by the adapter. Derive, never accept,
-    // retry eligibility: only the explicit HTTP 429/rate_limited result qualifies.
-    // claimed|unknown -> rejected only while both provider/relay SIDs remain null;
-    // a callback-proven dispatched row can never be downgraded.
-    await this.resolveExplicitRejection(input.claim.attemptId, input.failure, input.now);
-  }
-
-  async recordProviderDispatchUnknown(input: { claim: ProviderDispatchClaimCapability; now: Date }): Promise<void> {
-    this.consumeIssuedClaim(input.claim);
-    // claimed -> unknown. If a signed callback already proved dispatch, retain it.
-    await this.resolveUnknown(input.claim.attemptId, input.now);
-  }
-
-  async claimExpectedCall(input: { attemptId: Ulid; callSid: string; observedDestinationIdentityId: string; now: Date }): Promise<RelayBinding | null> {
-    const row = await this.db.prepare(`UPDATE outbound_call_attempts
-      SET relay_call_sid = COALESCE(relay_call_sid, ?), relay_claimed_at = COALESCE(relay_claimed_at, ?),
-          provider_call_sid = COALESCE(provider_call_sid, ?), provider_dispatch_state = 'dispatched',
-          provider_dispatch_resolved_at = COALESCE(provider_dispatch_resolved_at, ?)
-      WHERE attempt_id = ? AND (relay_call_sid IS NULL OR relay_call_sid = ?) AND destination_identity_id = ?
-        AND ((relay_call_sid IS NULL AND nonce_expires_at > ?) OR relay_call_sid = ?)
-        AND provider_dispatch_state IN ('claimed', 'dispatched', 'provider_dispatch_unknown')
-        AND (provider_call_sid IS NULL OR provider_call_sid = ?)
-      RETURNING principal_id, destination_identity_id, relay_nonce`)
-      .bind(input.callSid, input.now.toISOString(), input.callSid, input.now.toISOString(), input.attemptId, input.callSid, input.observedDestinationIdentityId, input.now.toISOString(), input.callSid, input.callSid)
-      .first<{ principal_id: string; destination_identity_id: string; relay_nonce: string }>();
-    return row ? { callSid: input.callSid, principalId: row.principal_id, identityId: row.destination_identity_id, destinationIdentityId: row.destination_identity_id, relayNonce: row.relay_nonce, direction: "outbound", activationOnly: false, activationChallengeId: null } : null;
-  }
-
-  private consumeIssuedClaim(claim: ProviderDispatchClaimCapability): void {
-    if (!this.issuedClaims.has(claim) || this.consumedClaims.has(claim)) throw new Error("provider_dispatch_claim_invalid");
-    this.consumedClaims.add(claim);
-  }
-}
+beginProviderDispatch(
+  capability: ProviderDispatchClaimCapability,
+  expectedAttemptId: Ulid,
+): void;
 ```
 
-The private methods in the sketch are not extension points. Implement them with these exact database rules:
+Allocation and replay rules:
 
-- `readDispatchIntent` orders rows by ordinal and returns: allocate-0 for none; allocate-1 only for exactly one ordinal-0 `rejected/rate_limited/retry_eligible=1`; otherwise the current row as existing. Ordinal 1 is always existing, even when rate-limited, so repeated dispatch returns its stored outcome and never proposes ordinal 2.
-- `insertEligibleAttempt` is one `INSERT ... SELECT` statement rooted at the matching allowed `policy_decisions` row. It computes ordinal `0` when no attempt exists and ordinal `1` only when exactly one ordinal-0 row exists with `provider_dispatch_state='rejected' AND retry_eligible=1`; a `HAVING` clause rejects every other count/state. The statement inserts the snapshotted principal, destination identity, command idempotency lineage, generated nonce, and fixed expiry. On same-attempt contention, `readAttempt(attemptId)` plus `requireMatchingLineage` returns the winner only when command/principal/destination/idempotency fields all match; generated nonce/expiry are never compared or overwritten. If another candidate now occupies the authorized ordinal, throw nominal `AttemptAllocationRaceError` carrying only that stored attempt ID so the dispatcher loops and audits the winner. Otherwise classify a lineage mismatch or exhausted ordinal as `outbound_attempt_conflict`/`outbound_retry_limit`.
-- `readDispatchResult` maps only `dispatched` with its non-null CallSid, `rejected` with its safe failure code, or `provider_dispatch_unknown`. It never converts `ready`/`claimed` into a terminal result. The sole conditional claim statement shown above performs `ready -> claimed`; observing `claimed` performs `claimed -> provider_dispatch_unknown`. Only the returned branded capability authorizes the one Twilio POST and one result recording call.
-- `resolveSuccess` conditionally updates `claimed|provider_dispatch_unknown -> dispatched`, sets `provider_call_sid`, and requires `relay_call_sid IS NULL OR relay_call_sid = :callSid`. A pre-existing `dispatched` row is idempotent only for that same SID; any different SID is `provider_dispatch_result_conflict`.
-- `resolveExplicitRejection` accepts only nominal adapter `ProviderFailure` values that prove a response before acceptance: current mappings are `rate_limited`, `authentication`, and `invalid_request`. It conditionally updates `claimed|provider_dispatch_unknown -> rejected` only while both CallSid columns are null. It derives `retry_eligible=1` only for an ordinal-0 `provider_transient_failure/rate_limited`; ordinal 1, authentication, and permanent invalid requests are zero. A callback-proven `dispatched` row is retained and never downgraded. Unsupported, thrown, malformed, 5xx, timeout, response-loss, or response-parse outcomes go through `resolveUnknown`, never this method.
-- `resolveUnknown` conditionally updates only `claimed -> provider_dispatch_unknown`; an already `dispatched` callback reconciliation remains dispatched. A claimed capability is consumed before result mutation, so a database failure can lose reconciliation but can never authorize a second provider call.
-- `claimExpectedCall` is both callback reconciliation and replay-safe relay claim. Its single conditional statement shown above changes `claimed|provider_dispatch_unknown -> dispatched`, sets compatible provider/relay CallSids, and returns the stored binding. A first claim requires an unexpired nonce; after that, the same signed CallSid/destination replay returns the same binding even if the original response was lost past expiry. A different SID, identity, expired never-claimed nonce, rejected attempt, or unclaimed ready row returns null. Task 7 derives the Durable Object name from `attemptId`, so replayed TwiML creates/addresses the same session.
+1. `resolveDispatchIntent` returns ordinal 0 only with no rows and ordinal 1 only with exactly one known ordinal-0 retry-eligible rejection. Otherwise it returns the latest stored attempt.
+2. `getOrCreateExpectedCall` captures every field exactly once before its first await. Existing replay requires exact command/principal/destination/idempotency/auth-expiry/ordinal lineage.
+3. New allocation is one `INSERT ... SELECT` rooted in the matching allowed `policy_decisions` row. Its live computed ordinal must equal the required expected ordinal. Ordinal 1 additionally requires the sole ordinal-0 predecessor to match principal, destination, idempotency key, authorization expiry, command lineage, and known rate-limit retry authority.
+4. After zero-row or constraint failure, classification first looks for a winner at the expected ordinal and raises `AttemptAllocationRaceError(winnerId, ordinal)`. Only after that does it classify retry limit, non-eligible retry, or conflict. This makes delayed ordinal-0 and ordinal-1 losers converge on the stored winner without promotion or nonce rotation.
+5. The dispatcher carries the race error's ordinal through the bounded retry loop, rechecks/audits the winner, and supplies that same ordinal for exact replay.
 
-Export the foundation request validator as `snapshotOutboundCallRequest(value): Readonly<OutboundCallRequest> | null` and make `PolicyEngine` and `OutboundCallDispatcher` use the same accessor-safe, own-data-only frozen snapshot. The dispatcher takes no command fields from the mutable caller object after its first synchronous snapshot. After the final recheck it verifies the audited command ID equals the snapshot, then uses audited `attemptId` and `destinationE164`; the snapshotted principal, destination identity, and command idempotency lineage populate the attempt row.
+Claim and provider rules:
 
-Change `PolicyEngine.recheckOutboundDispatch` to accept the dispatcher-selected attempt ID and inject a `newUlid` factory for a fresh audit `checkId` on every actual recheck. Validate both IDs before persistence. `PolicyAudit` uses `checkId` as the event/idempotency identity and includes the stable attempt ID in the canonical payload/hash, so two checks of one attempt are distinct evidence rather than a replay conflict. Remove the old context attempt-ID callback. Back `MutablePolicyContext.retryCount(commandId)` with the attempt table as `max(rowCount - 1, 0)`; repository ordinal/cap constraints remain authoritative under races.
+1. One captured `observedAt` drives the conditional claim. `ready -> claimed` requires both `authorization_expires_at > observedAt` and `nonce_expires_at > observedAt`; equality is expired.
+2. If no ready claim occurs, authorization expiry is reported before nonce expiry. Both outcomes leave the row unchanged and mint no capability. The dispatcher maps authorization expiry to denied `authorization_expired` and nonce-only expiry to denied `invalid_dispatch_attempt`, with `checkedAt=observedAt` and `checkId=null`.
+3. A previously claimed row is changed to unknown using the same observation time, independent of expiry. A bounded second update handles the race where another observer claims between the failed update and reread; it can only recover unknown or observe a terminal row, never mint authority.
+4. Only a repository-issued frozen capability from the successful ready claim is valid. `beginProviderDispatch(capability, expectedAttemptId)` synchronously verifies issuance, exact attempt binding, and not-begun/not-settled state, then marks it begun.
+5. There is no await between that begin gate and `TwilioProvider.createCall`. Settlement requires issued + begun + not settled, marks settled before persistence, and may call exactly one success/rejection/unknown method. A persistence failure cannot authorize a second settlement or POST.
+6. Exact primitive `CA` plus 32-hex validation precedes every public CallSid use. Provider success captures `callSid` exactly once. The same SID may reconcile callback/provider races; a different SID conflicts. Unknown or late rejection never downgrades callback-proven dispatch.
+7. `claimExpectedCall` uses one conditional `UPDATE ... RETURNING`. The first signed claim requires an unexpired relay nonce and compatible claimed/dispatched/unknown state, identity, and provider SID. An identical already-bound CallSid replay succeeds after expiry; another SID or an unclaimed ready/rejected attempt fails.
 
-`OutboundCallDispatcher` synchronously validates/freezes the whole command, then runs this bounded allocation loop (maximum three passes for one allocation race):
+The dispatcher snapshots the command and returned policy check as own-data-only immutable values. An allow must be paired with reason `allowed` and must echo exact check, attempt, command, and audited E.164 destination. The allocation loop is capped at three passes. It claims durable authority, calls `beginProviderDispatch`, then makes the sole POST. Correlation `idempotencyKey=attemptId` is not a Twilio idempotency header.
 
-1. `resolveDispatchIntent(commandId)` returns the extant attempt unless ordinal 0 is a known rate-limited rejection, in which case it authorizes allocation of ordinal 1; no rows authorizes ordinal 0. An existing dispatched/rejected/unknown result returns immediately. An existing claimed row is observed through `claimProviderDispatch`, becomes unknown, and returns without policy or provider work.
-2. Reuse an existing ready attempt ID, or mint one candidate ULID for an authorized allocation. Call `recheckOutboundDispatch(snapshot, attemptId)`. A deny returns the exact safe denied union and creates no row/POST. An allow must echo the same attempt/command IDs and audited destination.
-3. `getOrCreateExpectedCall` creates/replays the stable nonce row. If a different candidate won the same ordinal concurrently, it throws nominal `AttemptAllocationRaceError(currentAttemptId)`; loop back and audit/reuse that winner. It is not interpreted as a policy retry.
-4. Construct trusted opaque paths `/voice/outbound/${attemptId}` and `/voice/status/${attemptId}`, then invoke `claimProviderDispatch`. Only `{ kind: "claimed", capability }` authorizes the single Twilio call; terminal or unknown replay returns the stored outcome without a POST.
+Only constructor-issued explicit 429/authentication/invalid-request failures become known rejections. Thrown, malformed, unsupported, 5xx, timeout, response loss, and malformed success become `provider_dispatch_unknown`. Only a known ordinal-0 transient/rate-limited rejection permits ordinal 1; no state permits ordinal 2.
 
-`TwilioCreateCallInput.attemptId` carries the audited attempt, `commandId` remains the original audited lineage, and the correlation-only `idempotencyKey` is the attempt ID; none becomes a Twilio idempotency header.
+- [x] **Step 4: Harden dispatch policy, provider facts, audit, and atomic event dependencies**
 
-The dispatcher passes the returned capability to exactly one result method. Exact HTTP 201 records success; the current adapter's nominal 429/authentication/invalid-request failures record explicit rejection with repository-derived eligibility; `ProviderDispatchUnknownError`, thrown/unsupported failures, persistence uncertainty, response loss, or malformed success bodies record/surface `provider_dispatch_unknown`. A concurrent or recovered second invocation converts an unresolved claim to unknown and suppresses the POST. The original capability holder may reconcile that unknown with a later known 201 when each stored provider/relay SID is null or equals the returned SID; any different SID is a conflict. No later invocation receives a capability. A second audited attempt ID for the command is inserted only after a known rate-limited rejection; `claimed`, `dispatched`, authentication/permanent rejection, and `provider_dispatch_unknown` are never retry-eligible, and `(command_id, attempt_ordinal)` rejects a raced third attempt.
+Dispatch-time policy uses the following authority sequence:
 
-Use one conditional `UPDATE ... RETURNING` statement for the expected-call relay claim so no read/modify/write race exists. The signed Twilio TwiML handler resolves the provider-observed `To` number to its active identity before calling this method; the untrusted request never supplies the relay nonce. The stored nonce is returned only after attempt, destination, expiry, dispatch-state, and compatible provider-SID checks succeed. An identical signed CallSid replay returns the same binding so a lost TwiML response is recoverable; a different CallSid fails. The handler uses deterministic Durable Object session name `attemptId`, so the replay cannot create a second session.
+1. Capture a primitive initial clock sample and run kill-switch, authorization-expiry, and quiet-hours guards.
+2. Await active-call count and direct-D1 retry count. Each count must be a non-negative safe integer; malformed facts fail closed.
+3. Query daily count for a candidate UTC day, then capture a fresh final clock sample. If the day changed during the await, requery the new day. After three unstable rollovers, fail closed.
+4. On a stable day, rerun kill-switch, authorization expiry, and quiet hours at the final sample, then apply active/daily/retry limits. `killSwitch` and `isQuietHours` must return exact booleans. A fresh `Date` copy is passed to quiet-hours code so mutation cannot alter the retained sample.
+5. The accepted final sample is the persisted `checkedAt`. `retryCount` is `max(COUNT(outbound_call_attempts)-1, 0)` from D1; it is not supplied by `MutablePolicyContext`.
 
-Expose a package-callable but narrow event dependency API:
+`ProviderFailure` has a private module mint token, a module-private issued-instance `WeakSet`, frozen own nominal fields, and an own-data snapshot validator. `instanceof` lookalikes, prototype fabrication, accessors, and post-construction mutation cannot authorize explicit rejection or retry. The rejection whitelist is exactly transient/rate_limited, authentication/authentication, and permanent/invalid_request.
 
-```ts
-export type EventAppendDependencyFactory = (database: D1Database, createdAt: string) => readonly D1PreparedStatement[];
-export class EventRepository {
-  append(input: EventAppendInput): Promise<AppendedEvent> { return this.appendAtomic(input, () => []); }
-  appendAtomic(input: EventAppendInput, buildDependencies: EventAppendDependencyFactory): Promise<AppendedEvent>;
-}
-```
+`EventRepository.appendAtomic` captures `envelope`, `scope`, `key`, `requestHash`, and the factory exactly once before any await. Scope/key/hash must be primitive strings. Only after a genuine idempotency miss is the factory called once. Its result must be an actual array whose captured length is a safe integer from zero through two; indexed own entries are copied into a fresh array, so sparse arrays, length drift, and custom iterators cannot bypass the cap. Dependencies precede event/idempotency/outbox statements in the same batch. Replay never reruns the factory; dependency or final-statement failure rolls back the complete batch; an idempotency race rereads the durable winner.
 
-`appendAtomic` preserves the current `append` validation, replay, archive, and race behavior. Only on a genuinely new append does it call the factory once, cap the dependency list to the calling receipt/reconciliation statements, and batch dependency statements first, followed by event, idempotency, and outbox. A replay never reruns dependencies; any failed dependency rolls back every later row; a uniqueness race resolves through the same durable idempotency lookup. `CallRepository` depends on the concrete package class, not a private method or duplicated ledger logic.
+- [x] **Step 5: Verify and commit the durable call-binding deliverable**
 
-`CallRepository.appendProviderEvent` validates the normalized endpoint kind, `CA` plus 32 hex digits, and an already-redacted persistable envelope. For `status`, the route also supplies its validated opaque `attemptId`; the verified form requires exactly fixed `CallbackSource=call-progress-events` plus a canonical safe-integer `SequenceNumber`, then hashes `(status, attemptId, CallSid, CallbackSource, SequenceNumber)`. The guarded provider-receipt insert trigger aborts on an incompatible attempt and its after-insert trigger reconciles that attempt to `dispatched`; both execute before event/idempotency/outbox in the same batch. For `relay_ended`, it instead requires a valid `VX` plus 32 hex digit `SessionId` and hashes `(relay_ended, CallSid, SessionId)`; current ConversationRelay action callbacks do not contain `CallbackSource` or `SequenceNumber`.
+Focused command:
 
-The metadata-only `provider_events` insert is a dependent statement in the same D1 batch as callback reconciliation, event, idempotency, and outbox. Duplicate semantic callbacks replay one event; the same identity with a changed request hash fails closed. A global status URL is forbidden because it cannot identify which attempt an unknown CallSid belongs to. Fault tests use a temporary failing D1 trigger or final constraint failure, never a production `injectFailureAfter` hook.
+`pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/persistence/call-repository.test.ts apps/cloud-gateway/test/faults/calling-transaction-faults.test.ts apps/cloud-gateway/test/calls/outbound-call-dispatcher.test.ts apps/cloud-gateway/test/policy/policy-engine.test.ts`
 
-Update `test/persistence/migration.ts` to import and apply `0003_calling.sql`, and update cleanup helpers for both calling tables.
+Final evidence at `2971265`:
 
-- [ ] **Step 4: Run the persistence and fault tests to verify they pass**
+- Focused: 4 files, 148/148 tests passed.
+- Full repository: 33 files, 809/809 tests passed.
+- `pnpm typecheck` and `pnpm lint` passed all workspace projects.
+- `pnpm audit --audit-level high` reported no known vulnerabilities.
+- `git diff --check` passed.
+- Independent Task 3 spec and security reviews found no remaining Important/Critical blocker.
 
-Run: `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/persistence/call-repository.test.ts apps/cloud-gateway/test/faults/calling-transaction-faults.test.ts apps/cloud-gateway/test/calls/outbound-call-dispatcher.test.ts apps/cloud-gateway/test/policy/policy-engine.test.ts`
+Commits:
 
-Expected: PASS with stable attempt IDs plus distinct check audits, one provider invocation under races/recovery, persisted unknown suppression, replay-safe same-SID relay binding, attempt-scoped callback reconciliation/conflict behavior, and rollback at every tested batch failure.
+- `22a8b4c feat(calls): add atomic expected-call and provider-event persistence`
+- `6c9fbfe test(calls): prove race candidates and callback reconciliation`
+- `2971265 fix(calls): bind dispatch authority to durable attempt state`
 
-- [ ] **Step 5: Commit the durable call-binding deliverable**
 
-```bash
-git add apps/cloud-gateway/src/persistence/migrations/0003_calling.sql apps/cloud-gateway/src/persistence/call-repository.ts apps/cloud-gateway/src/persistence/event-repository.ts apps/cloud-gateway/src/calls/outbound-call-dispatcher.ts apps/cloud-gateway/src/policy/policy-types.ts apps/cloud-gateway/src/policy/policy-audit.ts apps/cloud-gateway/src/policy/policy-engine.ts apps/cloud-gateway/test/persistence/migration.ts apps/cloud-gateway/test/persistence/call-repository.test.ts apps/cloud-gateway/test/faults/calling-transaction-faults.test.ts apps/cloud-gateway/test/calls/outbound-call-dispatcher.test.ts apps/cloud-gateway/test/policy/policy-engine.test.ts
-git commit -m "feat(calls): persist atomic event and outbound relay bindings"
-```
 
 ### Task 4: Inbound Twilio ingress, DTMF PIN authentication, and neutral phone enrollment
 
