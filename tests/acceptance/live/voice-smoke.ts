@@ -500,11 +500,13 @@ export function auditVoiceEvidence(records: readonly unknown[]): true {
   try {
     if (!Array.isArray(records) || records.length !== VOICE_SMOKE_SCENARIOS.length) throw new Error();
     const scenarios = new Set<unknown>();
+    const commitShas = new Set<unknown>();
     for (const record of records) {
       validateEvidence(record);
       scenarios.add(scenarioOf(record));
+      commitShas.add(dataField(record as object, "commitSha"));
     }
-    if (scenarios.size !== VOICE_SMOKE_SCENARIOS.length) throw new Error();
+    if (scenarios.size !== VOICE_SMOKE_SCENARIOS.length || commitShas.size !== 1) throw new Error();
     for (const scenario of VOICE_SMOKE_SCENARIOS) {
       if (!scenarios.has(scenario)) throw new Error();
     }

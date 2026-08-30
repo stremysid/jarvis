@@ -24,7 +24,7 @@ The offline release audit reads only the five fixed files under `tests/acceptanc
 pnpm release:voice-gate
 ```
 
-Missing, duplicate, malformed, unsafe, or non-passed evidence exits nonzero. A skipped developer smoke never satisfies the release gate.
+Missing, duplicate, malformed, unsafe, non-passed, or mixed-commit evidence exits nonzero. All five scenarios must carry the same exact `commitSha`. This offline audit proves internal evidence-set coherence only; the later release layer must compare that shared SHA with the deployed release-candidate revision. A skipped developer smoke never satisfies the release gate.
 
 ## Future live authorization gates
 
