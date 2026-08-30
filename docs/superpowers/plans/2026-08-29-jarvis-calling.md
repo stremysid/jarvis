@@ -22,7 +22,7 @@
 - An outbound relay nonce is 32 cryptographically random bytes, URL-safe base64 encoded, single-use, and expires after five minutes. Relay traffic starts only after atomic binding to `CallSid`, subject, destination, and nonce.
 - Limits are: two concurrent calls; 30 minutes and 100 committed turns per call; three authentication attempts; one outbound retry; six outbound calls/day; 64 KiB/WebSocket frame; 8,000 transcript characters/turn; 32,000 voice-context tokens; eight seconds to first model token; 30 seconds/model turn.
 - D1 commits accepted event, idempotency record, and outbox row in one transaction. Every event has a lowercase ULID, RFC 3339 UTC millisecond timestamp, RFC 8785 canonical JSON payload, and SHA-256 hash over the canonical post-redaction payload.
-- Consumers reject unsupported major contract versions and retain only redacted invalid payloads in access-controlled dead letters. Provider callbacks are deduplicated by provider event type, `CallSid`, sequence, and provider message identifier.
+- Consumers reject unsupported major contract versions and retain only redacted invalid payloads in access-controlled dead letters. Signed call-progress callbacks are deduplicated by endpoint kind, `CallSid`, `CallbackSource`, and canonical `SequenceNumber`; signed ConversationRelay action callbacks are deduplicated by endpoint kind, `CallSid`, and `SessionId`. ConversationRelay WebSocket prompts provide no message identifier, so Jarvis creates its own turn ULIDs.
 - A model failure never authorizes a callback. Only the single policy-evaluated retry of an existing, unexpired outbound command can produce another outbound call.
 - Public liveness returns only `ok` or `unavailable`; detailed health/metrics require an enrolled operator identity. Logs are allowlist-only and contain no raw message text or direct channel identifiers.
 
@@ -70,14 +70,14 @@ export interface EventRepository {
 // apps/cloud-gateway/src/policy/policy-engine.ts
 export interface PolicyEngine {
   evaluateOutboundCall(request: OutboundCallCommand): Promise<PolicyDecision>;
-  recheckOutboundDispatch(request: OutboundCallCommand): Promise<DispatchPolicyCheck>;
+  recheckOutboundDispatch(request: OutboundCallCommand, attemptId: Ulid): Promise<DispatchPolicyCheck>;
 }
 
 // apps/cloud-gateway/src/providers/provider-types.ts
-export interface TwilioProvider { createCall(input: { commandId: string; toE164: string; twimlUrl: URL; statusCallbackUrl: URL; statusCallbackEvents: readonly ["initiated", "ringing", "answered", "completed"]; idempotencyKey: string }): Promise<{ callSid: string }>; }
+export interface TwilioProvider { createCall(input: { commandId: string; attemptId: string; toE164: string; twimlUrl: URL; statusCallbackUrl: URL; statusCallbackEvents: readonly ["initiated", "ringing", "answered", "completed"]; idempotencyKey: string }): Promise<{ callSid: string }>; }
 ```
 
-Task 1 of the calling plan extends `apps/cloud-gateway/src/env.ts` with the `PIN_VERIFIER_JSON` secret binding, replaces the foundation `CallSessionStub` with the real `CallSession` Durable Object in `apps/cloud-gateway/wrangler.toml`, and creates `apps/cloud-gateway/src/index.ts` as the sole Worker entrypoint. Calling schema follows the immutable foundation migration and its audit hardening migration with `apps/cloud-gateway/src/persistence/migrations/0003_calling.sql`; the calling migration leaves foundation tables untouched and Wrangler applies all migrations in order.
+Task 1 of the calling plan extends `apps/cloud-gateway/src/env.ts` with the `PIN_VERIFIER_JSON` secret binding, replaces the foundation `CallSessionStub` with the real `CallSession` Durable Object in `apps/cloud-gateway/wrangler.toml`, and creates `apps/cloud-gateway/src/index.ts` as the sole Worker entrypoint. Calling schema follows the immutable foundation migrations with `0003_calling.sql` for provider attempts/events and `0004_call_sessions.sql` for stable inbound/outbound relay-session routing; both leave foundation tables untouched and Wrangler applies all migrations in order.
 
 ## File structure
 
@@ -120,7 +120,7 @@ export interface ModelAdapter {
 
 // apps/cloud-gateway/src/conversation/conversation-service.ts
 export interface ConversationService {
-  handleTurn(input: { sessionId: string; principalId: string; channel: "voice" | "telegram"; turnId: Ulid; text: string; signal: AbortSignal; delivery: { kind: "streaming"; onToken(token: ModelToken): Promise<void>; awaitDelivery(finalText: string): Promise<{ deliveredText: string }> } | { kind: "outbox"; idempotencyKey: string; payload: JsonValue } }): Promise<{ committedUserEventId: Ulid; deliveredAssistantEventId: Ulid | null }>;
+  handleTurn(input: { sessionId: string; principalId: string; channel: "voice" | "telegram"; turnId: Ulid; text: string; signal: AbortSignal; delivery: { kind: "voice_stream"; onToken(token: ModelToken): Promise<void>; finish(finalText: string): Promise<{ outcome: "sent_to_provider" }> } | { kind: "outbox"; idempotencyKey: string; payload: JsonValue } }): Promise<{ committedUserEventId: Ulid; sentAssistantEventId: Ulid | null; deliveredAssistantEventId: Ulid | null }>;
   stageSystemNotice(input: { sessionId: string; principalId: string; channel: "telegram"; noticeCode: "busy"; idempotencyKey: string; payload: JsonValue }): Promise<{ outboxId: Ulid }>;
 }
 
@@ -243,15 +243,19 @@ git commit -m "feat(calls): add provider-neutral call contracts and state machin
 
 ### Task 2: Shared Twilio provider extension and ConversationRelay boundary
 
-**Contract correction:** `docs/superpowers/specs/2026-08-30-jarvis-twilio-contract-correction-design.md` supersedes the original draft event shapes and retry assumptions. Later tasks must consume the corrected `prompt`, one-digit `dtmf`, socket-close, verified-form, and `provider_dispatch_unknown` contracts even where an older illustrative snippet remains below.
+**Contract correction:** `docs/superpowers/specs/2026-08-30-jarvis-twilio-contract-correction-design.md` supersedes the original draft event shapes and retry assumptions. Later tasks consume the corrected `prompt`, one-digit `dtmf`, socket-close, verified-form, attempt-scoped route, and `provider_dispatch_unknown` contracts below.
 
 **Files:**
 - Modify: `apps/cloud-gateway/src/providers/provider-types.ts`
 - Modify: `apps/cloud-gateway/src/providers/fake-twilio-provider.ts`
+- Modify: `apps/cloud-gateway/src/calls/outbound-call-dispatcher.ts`
 - Create: `apps/cloud-gateway/src/providers/twilio-provider.ts`
 - Create: `apps/cloud-gateway/src/providers/twilio-verifier.ts`
 - Create: `apps/cloud-gateway/src/providers/conversation-relay.ts`
+- Create: `apps/cloud-gateway/src/security/trusted-public-origin.ts`
 - Create: `apps/cloud-gateway/src/voice/twiml.ts`
+- Test: `apps/cloud-gateway/test/calls/outbound-call-dispatcher.test.ts`
+- Test: `apps/cloud-gateway/test/providers/fakes.test.ts`
 - Test: `apps/cloud-gateway/test/providers/twilio.test.ts`
 - Test: `apps/cloud-gateway/test/providers/conversation-relay.test.ts`
 
@@ -287,13 +291,13 @@ describe("current ConversationRelay boundary", () => {
 
 Add negative tables for binary-equivalent/oversized text, malformed JSON, invalid SIDs/nonces/directions, multi-character DTMF, mixed known event fields, unknown types, and forbidden synthetic `disconnect`/old `speech` frames. Assert that parsing an error never returns its description.
 
-Render TwiML with explicit test settings (`en-US`, Deepgram `nova-3-general`, Google `en-US-Journey-O`) and assert exact XML escaping, `Connect method="POST"`, `dtmfDetection="true"`, `partialPrompts="false"`, `interruptible="any"`, `reportInputDuringAgentSpeech="any"`, the explicit STT/TTS settings, one nonce parameter, and no identity/purpose/PIN data. Task 6 ignores all pre-auth prompts, so enabling speech reporting for authenticated barge-in does not cross the privacy boundary.
+Render TwiML with an injected trusted public origin and explicit test settings (`en-US`, Deepgram `nova-3-general`, Google `en-US-Journey-O`). Assert exact fixed-host `/voice/relay/:sessionId` WSS and `/voice/relay-ended` HTTPS routes, no credentials/query/fragment/non-default port or overridden URL serialization, exact XML escaping, `Connect method="POST"`, `dtmfDetection="true"`, `partialPrompts="false"`, `interruptible="any"`, `reportInputDuringAgentSpeech="any"`, the explicit STT/TTS settings, one nonce parameter, and no identity/purpose/PIN data. Task 6 ignores all pre-auth prompts, so enabling speech reporting for authenticated barge-in does not cross the privacy boundary.
 
 - [ ] **Step 2: Write failing REST, signature, and ambiguous-dispatch tests**
 
-Use an injected fetch spy and synthetic credentials. Assert the exact fixed URL, API-key Basic authentication, bounded timeout, form encoding, configured `From`, `Method=POST`, `StatusCallbackMethod=POST`, four separate callback event pairs, `TimeLimit=1800`, and bounded ring timeout. Assert no idempotency header is sent.
+Use an injected fetch spy, synthetic credentials, trusted public origin, distinct valid `commandId`/`attemptId`, and attempt-bound URLs. Assert the exact fixed Twilio REST URL, API-key Basic authentication, bounded timeout, form encoding, configured `From`, exact `/voice/outbound/${attemptId}` and `/voice/status/${attemptId}` URLs, `Method=POST`, `StatusCallbackMethod=POST`, four separate callback event pairs, `TimeLimit=1800`, and bounded ring timeout. Reject command-bound/global/other-attempt routes, attacker origins, credentials, query/fragment/non-default ports, and overridden URL serialization. Assert no idempotency header is sent.
 
-Test the documented Twilio signature vector plus wrong signatures, exact percent-encoded query preservation, leading/trailing form whitespace, duplicate and additive form fields, malformed percent encoding, invalid UTF-8, wrong content type, and WebSocket GET signing. Match the official SDK's multi-value rule: sort parameter names, then de-duplicate and sort repeated values before appending them. A successful webhook verification must return an immutable parsed multimap; a failed verification returns `null` and exposes no parsed values.
+Test the documented Twilio signature vector plus wrong signatures, exact percent-encoded query preservation, leading/trailing form whitespace, duplicate and additive form fields, malformed percent encoding, invalid UTF-8, wrong content type, consumed/locked Requests, and WebSocket GET signing. Valid webhook strings require `https://`; WebSocket strings require `wss://`; controls, backslashes, userinfo, fragments, malformed authority/escapes, and wrong schemes fail before HMAC while noncanonical but safe exact bytes remain untouched. Match the official SDK's multi-value rule: sort parameter names, then de-duplicate and sort repeated values before appending them. A successful webhook verification returns an immutable parsed multimap; a failed verification returns `null` and exposes no parsed values.
 
 Test response validation for matching Account SID/CallSid, auth failure, permanent 4xx, explicit 429, network timeout, 5xx, oversized body, and malformed/mismatched success bodies. The ambiguous cases must throw `ProviderDispatchUnknownError`. Extend the fake with an accepted-but-response-lost control and prove a direct replay creates a second provider attempt, making the later durable no-retry gate testable instead of masking it.
 
@@ -344,13 +348,13 @@ export type RelayEvent =
 
 Measure UTF-8 frame bytes before JSON parsing, enforce provider SID/nonce/direction/DTMF shapes, map `outbound-api` and `outbound-dial` to internal `outbound`, and discard raw interrupt/error content. `parseRelayEvent` is stateless; Task 6 owns first/second setup and socket-close rules.
 
-`renderConversationRelayTwiML` validates schemes, forbids URL credentials/fragments, requires the 43-character base64url nonce, accepts explicit voice settings, escapes all XML attribute metacharacters, and emits only the provider settings plus the opaque session URL, action URL, and relay nonce.
+`renderConversationRelayTwiML` snapshots URL internal slots, pins both URLs to the configured public host and fixed opaque route shapes, requires WSS/HTTPS with no credentials/query/fragment/non-default port, requires the 43-character base64url nonce, accepts explicit voice settings, escapes all XML attribute metacharacters, and emits only the provider settings plus the opaque session URL, action URL, and relay nonce.
 
 - [ ] **Step 6: Implement Workers-native REST and signature adapters**
 
-`TwilioRestProvider.createCall` uses only `https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Calls.json`, injected `fetch`, one abort timeout, API-key SID/secret Basic authentication, and a streaming response reader capped at 64 KiB. It performs no retry and never logs the auth material, destination, signature, request body, or response body. An explicit 401/403 is authentication failure, an explicit 429 is rate limited, other non-5xx 4xx responses are permanent invalid requests, and every possibly accepted or indeterminate outcome is `provider_dispatch_unknown`.
+`TwilioRestProvider.createCall` validates the explicit attempt ID plus fixed trusted callback URLs, then uses only `https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Calls.json`, injected `fetch`, one abort timeout, API-key SID/secret Basic authentication, and a streaming response reader capped at 64 KiB. It performs no retry and never logs the auth material, destination, signature, request body, or response body. An explicit 401/403 is authentication failure, an explicit 429 is rate limited, other non-5xx 4xx responses are permanent invalid requests, and every possibly accepted or indeterminate outcome is `provider_dispatch_unknown`.
 
-`TwilioSignatureVerifier` uses the primary Auth Token only for HMAC-SHA1. It signs the exact URL string plus strictly decoded parameters using the official SDK ordering: names sorted case-sensitively, with repeated values de-duplicated and sorted before appending. It then uses Web Crypto verification against the strict Base64 header. The WebSocket path signs the exact WSS URL with no form body. It never derives the public URL from forwarded headers.
+`TwilioSignatureVerifier` uses the primary Auth Token only for HMAC-SHA1. It first validates the expected safe HTTPS/WSS string context without replacing its representation, then signs that untouched exact URL plus strictly decoded parameters using the official SDK ordering: names sorted case-sensitively, with repeated values de-duplicated and sorted before appending. It uses Web Crypto verification against the strict Base64 header. The WebSocket path signs the exact WSS URL with no form body. It never derives the public URL from forwarded headers.
 
 Extend `FakeTwilioProvider` with signature controls and `acceptAndLoseNextResponse()`. Correct the foundation fake so every direct `createCall` invocation is a non-idempotent provider attempt: it may log the local correlation key but must not cache, coalesce, conflict, or suppress a replay. Telegram's fake retains its idempotency behavior. Task 3/7 owns the durable gate that prevents Jarvis from making the second Twilio invocation.
 
@@ -367,113 +371,542 @@ Run: `pnpm test && pnpm typecheck && pnpm lint && pnpm audit --audit-level high`
 Require separate plan-compliance and code/security reviews. The review must explicitly check that no automatic Twilio POST retry or fake idempotency exists, the fake exposes response-loss duplicate risk for later orchestration tests, raw provider content cannot escape error/interrupt paths, and verified forms cannot be forged by parsing unverified request bodies in a route.
 
 ```bash
-git add apps/cloud-gateway/src/providers/provider-types.ts apps/cloud-gateway/src/providers/fake-twilio-provider.ts apps/cloud-gateway/src/providers/twilio-provider.ts apps/cloud-gateway/src/providers/twilio-verifier.ts apps/cloud-gateway/src/providers/conversation-relay.ts apps/cloud-gateway/src/voice/twiml.ts apps/cloud-gateway/test/providers/twilio.test.ts apps/cloud-gateway/test/providers/conversation-relay.test.ts
+git add apps/cloud-gateway/src/calls/outbound-call-dispatcher.ts apps/cloud-gateway/src/providers/provider-types.ts apps/cloud-gateway/src/providers/fake-twilio-provider.ts apps/cloud-gateway/src/providers/twilio-provider.ts apps/cloud-gateway/src/providers/twilio-verifier.ts apps/cloud-gateway/src/providers/conversation-relay.ts apps/cloud-gateway/src/security/trusted-public-origin.ts apps/cloud-gateway/src/voice/twiml.ts apps/cloud-gateway/test/calls/outbound-call-dispatcher.test.ts apps/cloud-gateway/test/providers/fakes.test.ts apps/cloud-gateway/test/providers/twilio.test.ts apps/cloud-gateway/test/providers/conversation-relay.test.ts
 git commit -m "feat(calls): extend shared Twilio provider for signed relay ingress"
 ```
 
 ### Task 3: Atomic call persistence, event deduplication, and expected-call bindings
 
+**Crash-safety correction:** Task 2 established that Twilio's Calls POST is non-idempotent. This task therefore owns the durable gate before any later real dispatch: one conditional D1 claim commits before the only provider invocation; `claimed` and `provider_dispatch_unknown` suppress every later invocation; a signed TwiML/status callback may reconcile the accepted call but never authorize another POST. Rows are keyed by the audited policy `attemptId`, not only `commandId`, so the one allowed policy-evaluated retry retains two immutable nonces, outcomes, TwiML references, and CallSid bindings. The corrected schema and methods below supersede the earlier simple expected-call sketch.
+
 **Files:**
 - Create: `apps/cloud-gateway/src/persistence/migrations/0003_calling.sql`
 - Create: `apps/cloud-gateway/src/persistence/call-repository.ts`
+- Modify: `apps/cloud-gateway/src/persistence/event-repository.ts`
+- Modify: `apps/cloud-gateway/src/calls/outbound-call-dispatcher.ts`
+- Modify: `apps/cloud-gateway/src/policy/policy-types.ts`
+- Modify: `apps/cloud-gateway/src/policy/policy-audit.ts`
+- Modify: `apps/cloud-gateway/src/policy/policy-engine.ts`
+- Modify: `apps/cloud-gateway/test/persistence/migration.ts`
+- Test: `apps/cloud-gateway/test/calls/outbound-call-dispatcher.test.ts`
+- Test: `apps/cloud-gateway/test/policy/policy-engine.test.ts`
 - Test: `apps/cloud-gateway/test/persistence/call-repository.test.ts`
 - Test: `apps/cloud-gateway/test/faults/calling-transaction-faults.test.ts`
 
 **Interfaces:**
-- Consumes: foundation `EventRepository`, D1 binding `Env.DB`, `EventEnvelope<T>`, `ExpectedOutboundCall`, and `RelayBinding`.
-- Produces: `CallRepository.createExpectedCall`, `CallRepository.claimExpectedCall`, `CallRepository.appendProviderEvent`, and `CallRepository.countActiveCalls`.
+- Consumes: foundation `EventRepository`, D1 binding `Env.DB`, `EventEnvelope<T>`, `ExpectedOutboundCall`, `RelayBinding`, audited `DispatchPolicyCheck.attemptId`, `TwilioProvider`, `ProviderFailure`, and `ProviderDispatchUnknownError`.
+- Produces: `snapshotOutboundCallRequest`, stable attempt selection, separately identified repeatable dispatch-check audits, cryptographic `createRelayNonce`, crash-safe `OutboundCallDispatcher`, `CallRepository.getOrCreateExpectedCall`, `CallRepository.claimProviderDispatch`, capability-bound provider-result recording, idempotent `CallRepository.claimExpectedCall`, and `CallRepository.appendProviderEvent`. Active-call counting remains with the later durable call-state implementation because expected calls alone cannot represent inbound sessions or terminal phases.
+
+**Attempt identity ownership:** remove `MutablePolicyContext.dispatchAttemptId(commandId)`. The repository/dispatcher owns the durable attempt identity; `PolicyEngine.recheckOutboundDispatch(snapshot, attemptId)` accepts only that internal validated ULID. Each call to recheck mints a separate `checkId` for its audit event, so recovery can re-evaluate a stable ready attempt without reusing an event ID or conflicting with an earlier outcome. The audit payload links `{ checkId, attemptId, commandId }`. A duplicate/recovered command reuses its current attempt until that row reaches a known retry-eligible rejection; only then may the dispatcher propose a new ID for ordinal 1.
 
 - [ ] **Step 1: Write the failing transaction and nonce-claim tests**
 
 ```ts
+const CALL_SID_1 = `CA${"1".repeat(32)}`;
+const CALL_SID_2 = `CA${"2".repeat(32)}`;
+
+it("creates canonical independent 32-byte relay nonces", () => {
+  const first = createRelayNonce();
+  const second = createRelayNonce();
+  expect(first).toMatch(/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/);
+  expect(second).not.toBe(first);
+});
+
 it("claims an expected call exactly once and binds it to the Twilio CallSid", async () => {
-  await repository.createExpectedCall(expected);
-  const first = await repository.claimExpectedCall({ commandId: expected.commandId, callSid: "CA1", observedDestinationIdentityId: expected.destinationIdentityId, now: new Date("2026-08-29T12:01:00.000Z") });
-  const replay = await repository.claimExpectedCall({ commandId: expected.commandId, callSid: "CA2", observedDestinationIdentityId: expected.destinationIdentityId, now: new Date("2026-08-29T12:01:01.000Z") });
-  expect(first).toMatchObject({ callSid: "CA1", principalId: expected.principalId, relayNonce: expected.relayNonce });
+  await repository.getOrCreateExpectedCall(expectedInput);
+  expect(await repository.claimProviderDispatch({ attemptId: expected.attemptId, now: new Date("2026-08-29T12:00:30.000Z") })).toMatchObject({ kind: "claimed" });
+  const first = await repository.claimExpectedCall({ attemptId: expected.attemptId, callSid: CALL_SID_1, observedDestinationIdentityId: expected.destinationIdentityId, now: new Date("2026-08-29T12:01:00.000Z") });
+  const replay = await repository.claimExpectedCall({ attemptId: expected.attemptId, callSid: CALL_SID_2, observedDestinationIdentityId: expected.destinationIdentityId, now: new Date("2026-08-29T12:01:01.000Z") });
+  expect(first).toMatchObject({ callSid: CALL_SID_1, principalId: expected.principalId, relayNonce: expected.relayNonce });
   expect(replay).toBeNull();
 });
 
-it("does not leave an accepted event without its outbox and idempotency rows", async () => {
-  await expect(repository.appendProviderEvent(fixture, { injectFailureAfter: "event" })).rejects.toThrow("injected_failure");
-  expect(await repository.findEvent(fixture.eventId)).toBeNull();
-  expect(await repository.findOutbox(fixture.eventId)).toBeNull();
+it("persists an unknown provider outcome and never invokes Twilio again", async () => {
+  await repository.getOrCreateExpectedCall(expectedInput);
+  twilio.acceptAndLoseNextResponse();
+  await expect(dispatcher.dispatch(command)).resolves.toMatchObject({ status: "provider_dispatch_unknown" });
+  await expect(dispatcher.dispatch(command)).resolves.toMatchObject({ status: "provider_dispatch_unknown" });
+  expect(twilio.requests).toHaveLength(1);
+  expect(await readDispatchState(database, expected.attemptId)).toBe("provider_dispatch_unknown");
+});
+
+it("recovers a ready row by claiming it before the only provider POST", async () => {
+  await policy.recheckOutboundDispatch(command, ATTEMPT_0); // persisted pre-crash check
+  await repository.getOrCreateExpectedCall(expectedInput);
+  await expect(dispatcher.dispatch(command)).resolves.toMatchObject({ status: "dispatched", attemptId: ATTEMPT_0 });
+  expect(twilio.requests).toHaveLength(1);
+  expect(await readDispatchChecks(database)).toMatchObject([
+    { attemptId: ATTEMPT_0, checkId: CHECK_0 },
+    { attemptId: ATTEMPT_0, checkId: CHECK_1 },
+  ]);
+});
+
+it("suppresses recovery after a crash immediately following the durable claim", async () => {
+  await repository.getOrCreateExpectedCall(expectedInput);
+  expect(await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now })).toMatchObject({ kind: "claimed" });
+  await expect(dispatcher.dispatch(command)).resolves.toMatchObject({ status: "provider_dispatch_unknown" });
+  expect(twilio.requests).toHaveLength(0);
+});
+
+it("permits one provider invocation under concurrent dispatcher calls", async () => {
+  const twilio = new TestControllableTwilioProvider();
+  const dispatcher = createDispatcher({ twilio });
+  twilio.blockNextResponse();
+  const first = dispatcher.dispatch(command);
+  await twilio.waitForRequest();
+  const second = dispatcher.dispatch(command);
+  await expect(second).resolves.toMatchObject({ status: "provider_dispatch_unknown" });
+  twilio.releaseResponse();
+  await expect(first).resolves.toMatchObject({ status: "dispatched" });
+  expect(twilio.requests).toHaveLength(1);
+});
+
+it("converges raced candidate IDs on the winning attempt without rotating its nonce", async () => {
+  const insertBarrier = new TestAttemptInsertBarrier(database, 2);
+  const twilio = new TestControllableTwilioProvider();
+  twilio.blockNextResponse();
+  const left = createDispatcher({
+    twilio,
+    repository: createCallRepository({ db: insertBarrier.bindingForParticipant(), createRelayNonce: () => NONCE_0 }),
+    newAttemptId: () => ATTEMPT_0,
+  });
+  const right = createDispatcher({
+    twilio,
+    repository: createCallRepository({ db: insertBarrier.bindingForParticipant(), createRelayNonce: () => NONCE_1 }),
+    newAttemptId: () => ATTEMPT_1,
+  });
+
+  const leftPending = left.dispatch(command);
+  const rightPending = right.dispatch(command);
+  await insertBarrier.waitUntilBothInsertSelectsAreBlocked();
+  insertBarrier.releaseBoth();
+  await twilio.waitForRequest();
+  twilio.releaseResponse();
+  const results = await Promise.all([leftPending, rightPending]);
+
+  const winner = twilio.requests[0]!.attemptId;
+  expect(results.map((result) => result.attemptId)).toEqual([winner, winner]);
+  expect(await readAttempt(database, winner)).toMatchObject({
+    relayNonce: winner === ATTEMPT_0 ? NONCE_0 : NONCE_1,
+  });
+  expect((await readDispatchChecks(database)).filter((check) => check.attemptId === winner)).toHaveLength(2);
+  expect(twilio.requests).toHaveLength(1);
+});
+
+it("keeps the one policy-authorized retry as a distinct immutable attempt", async () => {
+  const first = await repository.getOrCreateExpectedCall(expectedAttempt({ attemptId: ATTEMPT_0 }));
+  const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now });
+  if (claim.kind !== "claimed") throw new Error("test_claim_failed");
+  await repository.recordProviderDispatchRejection({ claim: claim.capability, failure: ProviderFailure.transient("rate_limited"), now });
+  const retry = await repository.getOrCreateExpectedCall(expectedAttempt({ attemptId: ATTEMPT_1 }));
+  expect([first.attemptOrdinal, retry.attemptOrdinal]).toEqual([0, 1]);
+  expect(retry.relayNonce).not.toBe(first.relayNonce);
+  expect(retry.attemptId).not.toBe(first.attemptId);
+  await expect(repository.getOrCreateExpectedCall(expectedAttempt({ attemptId: ATTEMPT_2 }))).rejects.toThrow("outbound_retry_limit");
+});
+
+it("dispatches the one rate-limited retry under a new audited attempt and never a third", async () => {
+  twilio.rejectNext(ProviderFailure.transient("rate_limited"));
+  await expect(dispatcher.dispatch(command)).resolves.toMatchObject({ status: "rejected", attemptId: ATTEMPT_0, retryEligible: true });
+  twilio.rejectNext(ProviderFailure.transient("rate_limited"));
+  await expect(dispatcher.dispatch(command)).resolves.toMatchObject({ status: "rejected", attemptId: ATTEMPT_1, retryEligible: false });
+  await expect(dispatcher.dispatch(command)).resolves.toMatchObject({ status: "rejected", attemptId: ATTEMPT_1 });
+  expect(twilio.requests.map((request) => request.attemptId)).toEqual([ATTEMPT_0, ATTEMPT_1]);
+});
+
+it.each(["claimed", "dispatched", "provider_dispatch_unknown"] as const)("never makes %s retry-eligible", async (state) => {
+  await arrangeFirstAttemptInState(state);
+  await expect(repository.getOrCreateExpectedCall(expectedAttempt({ attemptId: ATTEMPT_1 }))).rejects.toThrow("outbound_retry_not_eligible");
+});
+
+it("replays the stored nonce and binding for the same attempt and signed CallSid", async () => {
+  const first = await repository.getOrCreateExpectedCall(expectedAttempt({ attemptId: ATTEMPT_0 }));
+  const replay = await repository.getOrCreateExpectedCall(expectedAttempt({ attemptId: ATTEMPT_0 }));
+  expect(replay).toEqual(first);
+  const claimed = await repository.claimExpectedCall({ attemptId: ATTEMPT_0, callSid: CALL_SID_1, observedDestinationIdentityId: first.destinationIdentityId, now });
+  const signedRetry = await repository.claimExpectedCall({ attemptId: ATTEMPT_0, callSid: CALL_SID_1, observedDestinationIdentityId: first.destinationIdentityId, now: afterNonceExpiry });
+  expect(signedRetry).toEqual(claimed);
+  await expect(repository.claimExpectedCall({ attemptId: ATTEMPT_0, callSid: CALL_SID_2, observedDestinationIdentityId: first.destinationIdentityId, now })).resolves.toBeNull();
+});
+
+it("never lets a late explicit rejection downgrade callback-proven dispatch", async () => {
+  await repository.getOrCreateExpectedCall(expectedInput);
+  const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now });
+  if (claim.kind !== "claimed") throw new Error("test_claim_failed");
+  await repository.claimExpectedCall({ attemptId: ATTEMPT_0, callSid: CALL_SID_1, observedDestinationIdentityId: expectedInput.destinationIdentityId, now });
+  await repository.recordProviderDispatchRejection({ claim: claim.capability, failure: ProviderFailure.transient("rate_limited"), now });
+  expect(await readDispatchState(database, ATTEMPT_0)).toBe("dispatched");
+  await expect(repository.claimExpectedCall({ attemptId: ATTEMPT_0, callSid: CALL_SID_2, observedDestinationIdentityId: expectedInput.destinationIdentityId, now })).resolves.toBeNull();
+});
+
+it("freezes command data before policy awaits and uses only audited dispatch values", async () => {
+  const mutable = { ...command };
+  policy.blockFinalRecheck();
+  const pending = dispatcher.dispatch(mutable);
+  mutable.principalId = "attacker"; mutable.destinationIdentityId = "attacker-destination";
+  policy.releaseFinalRecheck();
+  await pending;
+  expect(await readAttempt(database, ATTEMPT_0)).toMatchObject({ principalId: command.principalId, destinationIdentityId: command.destinationIdentityId });
+  expect(twilio.requests[0]).toMatchObject({ attemptId: ATTEMPT_0, commandId: command.commandId, toE164: AUDITED_DESTINATION });
+});
+
+it("constructs both trusted callback routes from attempt identity while retaining command lineage", async () => {
+  await dispatcher.dispatch(command);
+  const request = twilio.requests[0]!;
+  expect(request).toMatchObject({
+    attemptId: ATTEMPT_0,
+    commandId: command.commandId,
+    idempotencyKey: ATTEMPT_0,
+  });
+  expect(request.twimlUrl.toString()).toBe(`https://jarvis.example/voice/outbound/${ATTEMPT_0}`);
+  expect(request.statusCallbackUrl.toString()).toBe(`https://jarvis.example/voice/status/${ATTEMPT_0}`);
+});
+
+it("rolls back callback receipt, event, idempotency, and outbox when the final batch statement fails", async () => {
+  await installFailingProviderReceiptTrigger(database);
+  await expect(repository.appendProviderEvent(providerEventFixture())).rejects.toThrow("injected_provider_receipt_failure");
+  await expect(countCallingRows(database)).resolves.toEqual({ providerEvents: 0, events: 0, idempotency: 0, outbox: 0 });
+});
+
+it("deduplicates attempt-scoped status identity and rejects a changed request hash", async () => {
+  const first = await repository.appendProviderEvent(statusFixture({ attemptId: ATTEMPT_0, callSid: CALL_SID_1, callbackSource: "call-progress-events", sequenceNumber: 2, requestHash: HASH_1 }));
+  const replay = await repository.appendProviderEvent(statusFixture({ attemptId: ATTEMPT_0, callSid: CALL_SID_1, callbackSource: "call-progress-events", sequenceNumber: 2, requestHash: HASH_1 }));
+  expect(replay).toEqual({ ...first, replayed: true });
+  await expect(repository.appendProviderEvent(statusFixture({ attemptId: ATTEMPT_0, callSid: CALL_SID_1, callbackSource: "call-progress-events", sequenceNumber: 2, requestHash: HASH_2 }))).rejects.toThrow("idempotency_conflict");
+});
+
+it.each(["claimed", "provider_dispatch_unknown"] as const)("atomically reconciles a compatible %s attempt from signed status", async (state) => {
+  await arrangeAttempt({ attemptId: ATTEMPT_0, state });
+  await repository.appendProviderEvent(statusFixture({ attemptId: ATTEMPT_0, callSid: CALL_SID_1 }));
+  expect(await readAttempt(database, ATTEMPT_0)).toMatchObject({ providerDispatchState: "dispatched", providerCallSid: CALL_SID_1 });
+});
+
+it.each([
+  ["ready attempt", { state: "ready", callSid: CALL_SID_1 }],
+  ["rejected attempt", { state: "rejected", callSid: CALL_SID_1 }],
+  ["mismatched CallSid", { state: "provider_dispatch_unknown", callSid: CALL_SID_2 }],
+] as const)("aborts every callback batch row for a %s", async (_label, setup) => {
+  await arrangeAttempt({ attemptId: ATTEMPT_0, state: setup.state, boundCallSid: setup.callSid === CALL_SID_2 ? CALL_SID_1 : null });
+  await expect(repository.appendProviderEvent(statusFixture({ attemptId: ATTEMPT_0, callSid: setup.callSid }))).rejects.toThrow("provider_status_attempt_mismatch");
+  expect(await countCallingRows(database)).toMatchObject({ providerEvents: 0, events: 0, idempotency: 0, outbox: 0 });
+});
+
+it("uses CallSid plus SessionId for relay-ended without inventing status sequence fields", async () => {
+  await repository.appendProviderEvent(relayEndedFixture({ callSid: CALL_SID_1, sessionId: `VX${"3".repeat(32)}` }));
+  expect(await readProviderReceipt(database)).toMatchObject({ endpointKind: "relay_ended", attemptId: null, callbackSource: null, sequenceNumber: null });
 });
 ```
 
 - [ ] **Step 2: Run the persistence tests to verify they fail**
 
-Run: `pnpm test:cloud -- persistence/call-repository.test.ts faults/calling-transaction-faults.test.ts`
+`TestControllableTwilioProvider` is a test-local `TwilioProvider` in `outbound-call-dispatcher.test.ts`. Its `blockNextResponse`/`waitForRequest`/`releaseResponse` methods only coordinate the race deterministically; do not add blocking controls to the production fake or provider interface. `TestAttemptInsertBarrier` is a test-local D1 binding proxy that recognizes the exact outbound-attempt `INSERT ... SELECT`, blocks two distinct dispatcher/repository instances after both have resolved an empty intent but before either insert runs, and then releases both. It must not require a production timing hook. The race test accepts either serializable winner, but proves that the loser receives `AttemptAllocationRaceError`, rechecks/audits the stored winner, reuses that row's original nonce, and cannot cause a second provider POST.
 
-Expected: FAIL with module-not-found error for `call-repository.ts`.
+Run: `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/persistence/call-repository.test.ts apps/cloud-gateway/test/faults/calling-transaction-faults.test.ts apps/cloud-gateway/test/calls/outbound-call-dispatcher.test.ts apps/cloud-gateway/test/policy/policy-engine.test.ts`
+
+Expected: FAIL because migration 0003, `CallRepository`, stable attempt/check-ID ownership, atomic dependent event statements, and the durable dispatcher gate do not exist.
 
 - [ ] **Step 3: Add the schema and atomic repository methods**
 
 ```sql
-CREATE TABLE expected_calls (
-  command_id TEXT PRIMARY KEY,
-  principal_id TEXT NOT NULL,
-  destination_identity_id TEXT NOT NULL,
+CREATE TABLE outbound_call_attempts (
+  attempt_id TEXT PRIMARY KEY,
+  command_id TEXT NOT NULL REFERENCES policy_decisions(decision_id) ON DELETE RESTRICT,
+  attempt_ordinal INTEGER NOT NULL CHECK (attempt_ordinal IN (0, 1)),
+  principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE RESTRICT,
+  destination_identity_id TEXT NOT NULL REFERENCES channel_identities(identity_id) ON DELETE RESTRICT,
+  command_idempotency_key TEXT NOT NULL,
   relay_nonce TEXT NOT NULL UNIQUE,
   nonce_expires_at TEXT NOT NULL,
-  idempotency_key TEXT NOT NULL UNIQUE,
-  call_sid TEXT UNIQUE,
-  claimed_at TEXT
+  provider_dispatch_state TEXT NOT NULL DEFAULT 'ready'
+    CHECK (provider_dispatch_state IN ('ready', 'claimed', 'dispatched', 'rejected', 'provider_dispatch_unknown')),
+  provider_dispatch_claimed_at TEXT,
+  provider_dispatch_resolved_at TEXT,
+  provider_failure_code TEXT CHECK (provider_failure_code IS NULL OR provider_failure_code IN ('provider_transient_failure', 'provider_authentication_failure', 'provider_permanent_failure')),
+  provider_failure_category TEXT CHECK (provider_failure_category IS NULL OR provider_failure_category IN ('rate_limited', 'authentication', 'invalid_request', 'permanent_failure')),
+  provider_call_sid TEXT UNIQUE,
+  relay_call_sid TEXT UNIQUE,
+  relay_claimed_at TEXT,
+  retry_eligible INTEGER NOT NULL DEFAULT 0 CHECK (retry_eligible IN (0, 1)),
+  created_at TEXT NOT NULL,
+  UNIQUE (command_id, attempt_ordinal),
+  CHECK (length(command_id) = 26),
+  CHECK (length(attempt_id) = 26),
+  CHECK (length(CAST(relay_nonce AS BLOB)) = 43),
+  CHECK (provider_call_sid IS NULL OR (length(provider_call_sid) = 34 AND substr(provider_call_sid, 1, 2) = 'CA' AND substr(provider_call_sid, 3) NOT GLOB '*[^0-9A-Fa-f]*')),
+  CHECK (relay_call_sid IS NULL OR (length(relay_call_sid) = 34 AND substr(relay_call_sid, 1, 2) = 'CA' AND substr(relay_call_sid, 3) NOT GLOB '*[^0-9A-Fa-f]*')),
+  CHECK (retry_eligible = 0 OR (attempt_ordinal = 0 AND provider_dispatch_state = 'rejected' AND provider_failure_code = 'provider_transient_failure' AND provider_failure_category = 'rate_limited')),
+  CHECK ((provider_dispatch_state IN ('ready', 'claimed', 'dispatched', 'provider_dispatch_unknown') AND provider_failure_code IS NULL AND provider_failure_category IS NULL)
+    OR (provider_dispatch_state = 'rejected' AND provider_failure_code IS NOT NULL AND provider_failure_category IS NOT NULL)),
+  CHECK ((provider_dispatch_state = 'ready' AND provider_dispatch_claimed_at IS NULL AND provider_dispatch_resolved_at IS NULL)
+    OR (provider_dispatch_state = 'claimed' AND provider_dispatch_claimed_at IS NOT NULL AND provider_dispatch_resolved_at IS NULL)
+    OR (provider_dispatch_state IN ('dispatched', 'rejected', 'provider_dispatch_unknown') AND provider_dispatch_claimed_at IS NOT NULL AND provider_dispatch_resolved_at IS NOT NULL))
 );
+CREATE INDEX outbound_call_attempts_command_idx ON outbound_call_attempts(command_id, attempt_ordinal);
 CREATE TABLE provider_events (
-  dedupe_key TEXT PRIMARY KEY,
-  event_id TEXT NOT NULL UNIQUE,
-  call_sid TEXT NOT NULL,
-  payload_json TEXT NOT NULL,
-  received_at TEXT NOT NULL
+  dedupe_key TEXT PRIMARY KEY CHECK (length(dedupe_key) = 64 AND dedupe_key NOT GLOB '*[^0-9a-f]*'),
+  endpoint_kind TEXT NOT NULL CHECK (endpoint_kind IN ('status', 'relay_ended')),
+  event_id TEXT NOT NULL UNIQUE CHECK (length(event_id) = 26),
+  attempt_id TEXT REFERENCES outbound_call_attempts(attempt_id) ON DELETE RESTRICT CHECK (attempt_id IS NULL OR length(attempt_id) = 26),
+  call_sid TEXT NOT NULL CHECK (length(call_sid) = 34 AND substr(call_sid, 1, 2) = 'CA' AND substr(call_sid, 3) NOT GLOB '*[^0-9A-Fa-f]*'),
+  callback_source TEXT,
+  sequence_number INTEGER CHECK (sequence_number IS NULL OR sequence_number >= 0),
+  session_id TEXT CHECK (session_id IS NULL OR (length(session_id) = 34 AND substr(session_id, 1, 2) = 'VX' AND substr(session_id, 3) NOT GLOB '*[^0-9A-Fa-f]*')),
+  received_at TEXT NOT NULL,
+  CHECK ((endpoint_kind = 'status' AND attempt_id IS NOT NULL AND callback_source = 'call-progress-events' AND sequence_number IS NOT NULL AND session_id IS NULL)
+    OR (endpoint_kind = 'relay_ended' AND attempt_id IS NULL AND callback_source IS NULL AND sequence_number IS NULL AND session_id IS NOT NULL))
 );
+CREATE UNIQUE INDEX provider_events_status_dedupe_idx
+  ON provider_events(endpoint_kind, attempt_id, call_sid, callback_source, sequence_number)
+  WHERE endpoint_kind = 'status';
+CREATE UNIQUE INDEX provider_events_relay_dedupe_idx
+  ON provider_events(endpoint_kind, call_sid, session_id)
+  WHERE endpoint_kind = 'relay_ended';
+CREATE TRIGGER provider_events_status_require_compatible_attempt
+BEFORE INSERT ON provider_events
+WHEN NEW.endpoint_kind = 'status' AND NOT EXISTS (
+  SELECT 1 FROM outbound_call_attempts a
+  WHERE a.attempt_id = NEW.attempt_id
+    AND a.provider_dispatch_state IN ('claimed', 'dispatched', 'provider_dispatch_unknown')
+    AND (a.provider_call_sid IS NULL OR a.provider_call_sid = NEW.call_sid)
+    AND (a.relay_call_sid IS NULL OR a.relay_call_sid = NEW.call_sid)
+)
+BEGIN
+  SELECT RAISE(ABORT, 'provider_status_attempt_mismatch');
+END;
+CREATE TRIGGER provider_events_status_reconcile_attempt
+AFTER INSERT ON provider_events
+WHEN NEW.endpoint_kind = 'status'
+BEGIN
+  UPDATE outbound_call_attempts
+  SET provider_dispatch_state = 'dispatched',
+      provider_call_sid = COALESCE(provider_call_sid, NEW.call_sid),
+      provider_dispatch_resolved_at = NEW.received_at
+  WHERE attempt_id = NEW.attempt_id
+    AND provider_dispatch_state IN ('claimed', 'provider_dispatch_unknown');
+END;
 ```
 
+`provider_events` is metadata-only and deliberately has no raw form or `payload_json` column. Its `event_id` is not an event foreign key because foundation archival can purge an operational event while its idempotency identity must remain durable.
+
 ```ts
+// apps/cloud-gateway/src/policy/policy-types.ts
+export interface DispatchPolicyCheck extends PolicyDecision {
+  checkedAt: string;
+  checkId?: Ulid;
+  attemptId?: Ulid;
+  destinationE164?: string;
+  commandId?: Ulid;
+}
+export interface PolicyEngineContract {
+  evaluateOutboundCall(request: OutboundCallRequest): Promise<PolicyDecision>;
+  recheckOutboundDispatch(request: OutboundCallRequest, attemptId: Ulid): Promise<DispatchPolicyCheck>;
+}
+
+// apps/cloud-gateway/src/policy/policy-audit.ts
+// appendDispatchCheck mints event/idempotency identity from checkId and includes
+// checkId + stable attemptId + commandId in its canonical safe payload/hash.
+
 // apps/cloud-gateway/src/persistence/call-repository.ts
+// apps/cloud-gateway/src/calls/outbound-call-dispatcher.ts exports this public result union.
+export type OutboundCallDispatchResult =
+  | { status: "denied"; reason: PolicyReason; checkedAt: string; checkId: Ulid | null; attemptId: Ulid }
+  | { status: "dispatched"; callSid: string; attemptId: Ulid }
+  | { status: "rejected"; attemptId: Ulid; failureCode: ProviderFailureCode; retryEligible: boolean }
+  | { status: "provider_dispatch_unknown"; attemptId: Ulid };
+
+export type ProviderDispatchState = "ready" | "claimed" | "dispatched" | "rejected" | "provider_dispatch_unknown";
+declare const dispatchClaimBrand: unique symbol;
+export interface ProviderDispatchClaimCapability { readonly attemptId: Ulid; readonly [dispatchClaimBrand]: true; }
+export type ProviderDispatchClaim =
+  | { kind: "claimed"; capability: ProviderDispatchClaimCapability }
+  | { kind: "dispatched"; callSid: string }
+  | { kind: "rejected"; failureCode: ProviderFailureCode }
+  | { kind: "provider_dispatch_unknown" };
+
+export interface StoredOutboundCallAttempt extends ExpectedOutboundCall {
+  attemptId: Ulid;
+  attemptOrdinal: 0 | 1;
+}
+export type DispatchIntent =
+  | { kind: "allocate"; attemptOrdinal: 0 | 1 }
+  | { kind: "existing"; attempt: StoredOutboundCallAttempt; state: ProviderDispatchState; callSid: string | null; failureCode: ProviderFailureCode | null };
+export class AttemptAllocationRaceError extends Error { constructor(readonly currentAttemptId: Ulid) { super("outbound_attempt_allocation_race"); } }
+
+export function createRelayNonce(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
 export class CallRepository {
-  constructor(private readonly db: D1Database, private readonly events: EventRepository) {}
-  async createExpectedCall(input: ExpectedOutboundCall): Promise<void> {
-    await this.db.prepare("INSERT INTO expected_calls (command_id, principal_id, destination_identity_id, relay_nonce, nonce_expires_at, idempotency_key) VALUES (?, ?, ?, ?, ?, ?)").bind(input.commandId, input.principalId, input.destinationIdentityId, input.relayNonce, input.nonceExpiresAt, input.idempotencyKey).run();
+  private readonly issuedClaims = new WeakSet<object>();
+  private readonly consumedClaims = new WeakSet<object>();
+  constructor(private readonly db: D1Database, private readonly events: EventRepository, private readonly createRelayNonce: () => string, private readonly nonceTtlMs = 300_000) {}
+
+  async resolveDispatchIntent(commandId: Ulid): Promise<DispatchIntent> {
+    // No rows => allocate ordinal 0. One ordinal-0 rate-limited rejection =>
+    // allocate ordinal 1. Every ready/claimed/dispatched/unknown or non-retryable
+    // rejected row is returned as existing. Ordinal 1 is always returned as existing,
+    // so this command can never allocate a third attempt.
+    return this.readDispatchIntent(commandId);
   }
-  async claimExpectedCall(input: { commandId: string; callSid: string; observedDestinationIdentityId: string; now: Date }): Promise<RelayBinding | null> {
-    const row = await this.db.prepare(`UPDATE expected_calls SET call_sid = ?, claimed_at = ?
-      WHERE command_id = ? AND call_sid IS NULL AND destination_identity_id = ? AND nonce_expires_at > ?
+
+  async getOrCreateExpectedCall(input: { attemptId: Ulid; commandId: Ulid; principalId: string; destinationIdentityId: string; idempotencyKey: string; now: Date }): Promise<StoredOutboundCallAttempt> {
+    // Validate a frozen bounded snapshot. Read and return an identical attempt first.
+    // Otherwise generate one canonical 32-byte base64url nonce and use one atomic
+    // INSERT ... SELECT whose HAVING clause allocates ordinal 0, or ordinal 1 only
+    // after ordinal 0 is rejected with retry_eligible=1. A raced loser reads the
+    // winner and discards its unused nonce. Mismatched lineage, a third row, or any
+    // claimed/dispatched/unknown/non-retryable predecessor fails closed.
+    const stored = await this.readAttempt(input.attemptId);
+    if (stored !== null) return this.requireMatchingLineage(stored, input);
+    const candidate = { relayNonce: this.createRelayNonce(), nonceExpiresAt: new Date(input.now.valueOf() + this.nonceTtlMs).toISOString() };
+    await this.insertEligibleAttempt(input, candidate); // one atomic statement, no read/modify/write allocation
+    const inserted = await this.readAttempt(input.attemptId);
+    if (inserted === null) throw await this.classifyAttemptInsertFailure(input.commandId); // returns AttemptAllocationRaceError with the winner when applicable
+    return this.requireMatchingLineage(inserted, input);
+  }
+
+  async claimProviderDispatch(input: { attemptId: Ulid; now: Date }): Promise<ProviderDispatchClaim> {
+    // Exactly one ready -> claimed transition mints the in-memory capability that
+    // authorizes the sole provider POST. A later observer atomically changes a still-
+    // claimed row to unknown and returns without a capability or provider call.
+    const row = await this.db.prepare(`UPDATE outbound_call_attempts
+      SET provider_dispatch_state = CASE provider_dispatch_state WHEN 'ready' THEN 'claimed' ELSE 'provider_dispatch_unknown' END,
+          provider_dispatch_claimed_at = COALESCE(provider_dispatch_claimed_at, ?),
+          provider_dispatch_resolved_at = CASE WHEN provider_dispatch_state = 'claimed' THEN ? ELSE provider_dispatch_resolved_at END
+      WHERE attempt_id = ? AND provider_dispatch_state IN ('ready', 'claimed')
+      RETURNING provider_dispatch_state, command_id`)
+      .bind(input.now.toISOString(), input.now.toISOString(), input.attemptId)
+      .first<{ provider_dispatch_state: ProviderDispatchState; command_id: string }>();
+    if (row?.provider_dispatch_state === "claimed") {
+      const capability = Object.freeze({ attemptId: input.attemptId }) as ProviderDispatchClaimCapability;
+      this.issuedClaims.add(capability);
+      return { kind: "claimed", capability };
+    }
+    if (row?.provider_dispatch_state === "provider_dispatch_unknown") return { kind: "provider_dispatch_unknown" };
+    const terminal = await this.readDispatchResult(input.attemptId);
+    if (terminal === null || terminal.kind === "ready" || terminal.kind === "claimed") throw new Error("dispatch_claim_invariant");
+    return terminal;
+  }
+
+  async recordProviderDispatchSuccess(input: { claim: ProviderDispatchClaimCapability; callSid: string; now: Date }): Promise<void> {
+    this.consumeIssuedClaim(input.claim);
+    // claimed|unknown -> dispatched; an already callback-proven dispatched row is
+    // idempotent only for the same CallSid. Never overwrite a different relay SID.
+    await this.resolveSuccess(input.claim.attemptId, input.callSid, input.now);
+  }
+
+  async recordProviderDispatchRejection(input: { claim: ProviderDispatchClaimCapability; failure: ProviderFailure; now: Date }): Promise<void> {
+    this.consumeIssuedClaim(input.claim);
+    // ProviderFailure is nominally minted by the adapter. Derive, never accept,
+    // retry eligibility: only the explicit HTTP 429/rate_limited result qualifies.
+    // claimed|unknown -> rejected only while both provider/relay SIDs remain null;
+    // a callback-proven dispatched row can never be downgraded.
+    await this.resolveExplicitRejection(input.claim.attemptId, input.failure, input.now);
+  }
+
+  async recordProviderDispatchUnknown(input: { claim: ProviderDispatchClaimCapability; now: Date }): Promise<void> {
+    this.consumeIssuedClaim(input.claim);
+    // claimed -> unknown. If a signed callback already proved dispatch, retain it.
+    await this.resolveUnknown(input.claim.attemptId, input.now);
+  }
+
+  async claimExpectedCall(input: { attemptId: Ulid; callSid: string; observedDestinationIdentityId: string; now: Date }): Promise<RelayBinding | null> {
+    const row = await this.db.prepare(`UPDATE outbound_call_attempts
+      SET relay_call_sid = COALESCE(relay_call_sid, ?), relay_claimed_at = COALESCE(relay_claimed_at, ?),
+          provider_call_sid = COALESCE(provider_call_sid, ?), provider_dispatch_state = 'dispatched',
+          provider_dispatch_resolved_at = COALESCE(provider_dispatch_resolved_at, ?)
+      WHERE attempt_id = ? AND (relay_call_sid IS NULL OR relay_call_sid = ?) AND destination_identity_id = ?
+        AND ((relay_call_sid IS NULL AND nonce_expires_at > ?) OR relay_call_sid = ?)
+        AND provider_dispatch_state IN ('claimed', 'dispatched', 'provider_dispatch_unknown')
+        AND (provider_call_sid IS NULL OR provider_call_sid = ?)
       RETURNING principal_id, destination_identity_id, relay_nonce`)
-      .bind(input.callSid, input.now.toISOString(), input.commandId, input.observedDestinationIdentityId, input.now.toISOString())
+      .bind(input.callSid, input.now.toISOString(), input.callSid, input.now.toISOString(), input.attemptId, input.callSid, input.observedDestinationIdentityId, input.now.toISOString(), input.callSid, input.callSid)
       .first<{ principal_id: string; destination_identity_id: string; relay_nonce: string }>();
     return row ? { callSid: input.callSid, principalId: row.principal_id, identityId: row.destination_identity_id, destinationIdentityId: row.destination_identity_id, relayNonce: row.relay_nonce, direction: "outbound", activationOnly: false, activationChallengeId: null } : null;
+  }
+
+  private consumeIssuedClaim(claim: ProviderDispatchClaimCapability): void {
+    if (!this.issuedClaims.has(claim) || this.consumedClaims.has(claim)) throw new Error("provider_dispatch_claim_invalid");
+    this.consumedClaims.add(claim);
   }
 }
 ```
 
-Use one conditional `UPDATE ... RETURNING` statement for the expected-call claim so no read/modify/write race exists. The signed Twilio TwiML handler resolves the provider-observed `To` number to its active identity before calling this method; the untrusted request never supplies the relay nonce. The stored nonce is returned only after command, destination, expiry, and unclaimed-state checks succeed. Use foundation `TransactionRunner.batch()` for every multi-row provider-event write; injected faults must abort the event, idempotency, and outbox statements together.
+The private methods in the sketch are not extension points. Implement them with these exact database rules:
+
+- `readDispatchIntent` orders rows by ordinal and returns: allocate-0 for none; allocate-1 only for exactly one ordinal-0 `rejected/rate_limited/retry_eligible=1`; otherwise the current row as existing. Ordinal 1 is always existing, even when rate-limited, so repeated dispatch returns its stored outcome and never proposes ordinal 2.
+- `insertEligibleAttempt` is one `INSERT ... SELECT` statement rooted at the matching allowed `policy_decisions` row. It computes ordinal `0` when no attempt exists and ordinal `1` only when exactly one ordinal-0 row exists with `provider_dispatch_state='rejected' AND retry_eligible=1`; a `HAVING` clause rejects every other count/state. The statement inserts the snapshotted principal, destination identity, command idempotency lineage, generated nonce, and fixed expiry. On same-attempt contention, `readAttempt(attemptId)` plus `requireMatchingLineage` returns the winner only when command/principal/destination/idempotency fields all match; generated nonce/expiry are never compared or overwritten. If another candidate now occupies the authorized ordinal, throw nominal `AttemptAllocationRaceError` carrying only that stored attempt ID so the dispatcher loops and audits the winner. Otherwise classify a lineage mismatch or exhausted ordinal as `outbound_attempt_conflict`/`outbound_retry_limit`.
+- `readDispatchResult` maps only `dispatched` with its non-null CallSid, `rejected` with its safe failure code, or `provider_dispatch_unknown`. It never converts `ready`/`claimed` into a terminal result. The sole conditional claim statement shown above performs `ready -> claimed`; observing `claimed` performs `claimed -> provider_dispatch_unknown`. Only the returned branded capability authorizes the one Twilio POST and one result recording call.
+- `resolveSuccess` conditionally updates `claimed|provider_dispatch_unknown -> dispatched`, sets `provider_call_sid`, and requires `relay_call_sid IS NULL OR relay_call_sid = :callSid`. A pre-existing `dispatched` row is idempotent only for that same SID; any different SID is `provider_dispatch_result_conflict`.
+- `resolveExplicitRejection` accepts only nominal adapter `ProviderFailure` values that prove a response before acceptance: current mappings are `rate_limited`, `authentication`, and `invalid_request`. It conditionally updates `claimed|provider_dispatch_unknown -> rejected` only while both CallSid columns are null. It derives `retry_eligible=1` only for an ordinal-0 `provider_transient_failure/rate_limited`; ordinal 1, authentication, and permanent invalid requests are zero. A callback-proven `dispatched` row is retained and never downgraded. Unsupported, thrown, malformed, 5xx, timeout, response-loss, or response-parse outcomes go through `resolveUnknown`, never this method.
+- `resolveUnknown` conditionally updates only `claimed -> provider_dispatch_unknown`; an already `dispatched` callback reconciliation remains dispatched. A claimed capability is consumed before result mutation, so a database failure can lose reconciliation but can never authorize a second provider call.
+- `claimExpectedCall` is both callback reconciliation and replay-safe relay claim. Its single conditional statement shown above changes `claimed|provider_dispatch_unknown -> dispatched`, sets compatible provider/relay CallSids, and returns the stored binding. A first claim requires an unexpired nonce; after that, the same signed CallSid/destination replay returns the same binding even if the original response was lost past expiry. A different SID, identity, expired never-claimed nonce, rejected attempt, or unclaimed ready row returns null. Task 7 derives the Durable Object name from `attemptId`, so replayed TwiML creates/addresses the same session.
+
+Export the foundation request validator as `snapshotOutboundCallRequest(value): Readonly<OutboundCallRequest> | null` and make `PolicyEngine` and `OutboundCallDispatcher` use the same accessor-safe, own-data-only frozen snapshot. The dispatcher takes no command fields from the mutable caller object after its first synchronous snapshot. After the final recheck it verifies the audited command ID equals the snapshot, then uses audited `attemptId` and `destinationE164`; the snapshotted principal, destination identity, and command idempotency lineage populate the attempt row.
+
+Change `PolicyEngine.recheckOutboundDispatch` to accept the dispatcher-selected attempt ID and inject a `newUlid` factory for a fresh audit `checkId` on every actual recheck. Validate both IDs before persistence. `PolicyAudit` uses `checkId` as the event/idempotency identity and includes the stable attempt ID in the canonical payload/hash, so two checks of one attempt are distinct evidence rather than a replay conflict. Remove the old context attempt-ID callback. Back `MutablePolicyContext.retryCount(commandId)` with the attempt table as `max(rowCount - 1, 0)`; repository ordinal/cap constraints remain authoritative under races.
+
+`OutboundCallDispatcher` synchronously validates/freezes the whole command, then runs this bounded allocation loop (maximum three passes for one allocation race):
+
+1. `resolveDispatchIntent(commandId)` returns the extant attempt unless ordinal 0 is a known rate-limited rejection, in which case it authorizes allocation of ordinal 1; no rows authorizes ordinal 0. An existing dispatched/rejected/unknown result returns immediately. An existing claimed row is observed through `claimProviderDispatch`, becomes unknown, and returns without policy or provider work.
+2. Reuse an existing ready attempt ID, or mint one candidate ULID for an authorized allocation. Call `recheckOutboundDispatch(snapshot, attemptId)`. A deny returns the exact safe denied union and creates no row/POST. An allow must echo the same attempt/command IDs and audited destination.
+3. `getOrCreateExpectedCall` creates/replays the stable nonce row. If a different candidate won the same ordinal concurrently, it throws nominal `AttemptAllocationRaceError(currentAttemptId)`; loop back and audit/reuse that winner. It is not interpreted as a policy retry.
+4. Construct trusted opaque paths `/voice/outbound/${attemptId}` and `/voice/status/${attemptId}`, then invoke `claimProviderDispatch`. Only `{ kind: "claimed", capability }` authorizes the single Twilio call; terminal or unknown replay returns the stored outcome without a POST.
+
+`TwilioCreateCallInput.attemptId` carries the audited attempt, `commandId` remains the original audited lineage, and the correlation-only `idempotencyKey` is the attempt ID; none becomes a Twilio idempotency header.
+
+The dispatcher passes the returned capability to exactly one result method. Exact HTTP 201 records success; the current adapter's nominal 429/authentication/invalid-request failures record explicit rejection with repository-derived eligibility; `ProviderDispatchUnknownError`, thrown/unsupported failures, persistence uncertainty, response loss, or malformed success bodies record/surface `provider_dispatch_unknown`. A concurrent or recovered second invocation converts an unresolved claim to unknown and suppresses the POST. The original capability holder may reconcile that unknown with a later known 201 when each stored provider/relay SID is null or equals the returned SID; any different SID is a conflict. No later invocation receives a capability. A second audited attempt ID for the command is inserted only after a known rate-limited rejection; `claimed`, `dispatched`, authentication/permanent rejection, and `provider_dispatch_unknown` are never retry-eligible, and `(command_id, attempt_ordinal)` rejects a raced third attempt.
+
+Use one conditional `UPDATE ... RETURNING` statement for the expected-call relay claim so no read/modify/write race exists. The signed Twilio TwiML handler resolves the provider-observed `To` number to its active identity before calling this method; the untrusted request never supplies the relay nonce. The stored nonce is returned only after attempt, destination, expiry, dispatch-state, and compatible provider-SID checks succeed. An identical signed CallSid replay returns the same binding so a lost TwiML response is recoverable; a different CallSid fails. The handler uses deterministic Durable Object session name `attemptId`, so the replay cannot create a second session.
+
+Expose a package-callable but narrow event dependency API:
+
+```ts
+export type EventAppendDependencyFactory = (database: D1Database, createdAt: string) => readonly D1PreparedStatement[];
+export class EventRepository {
+  append(input: EventAppendInput): Promise<AppendedEvent> { return this.appendAtomic(input, () => []); }
+  appendAtomic(input: EventAppendInput, buildDependencies: EventAppendDependencyFactory): Promise<AppendedEvent>;
+}
+```
+
+`appendAtomic` preserves the current `append` validation, replay, archive, and race behavior. Only on a genuinely new append does it call the factory once, cap the dependency list to the calling receipt/reconciliation statements, and batch dependency statements first, followed by event, idempotency, and outbox. A replay never reruns dependencies; any failed dependency rolls back every later row; a uniqueness race resolves through the same durable idempotency lookup. `CallRepository` depends on the concrete package class, not a private method or duplicated ledger logic.
+
+`CallRepository.appendProviderEvent` validates the normalized endpoint kind, `CA` plus 32 hex digits, and an already-redacted persistable envelope. For `status`, the route also supplies its validated opaque `attemptId`; the verified form requires exactly fixed `CallbackSource=call-progress-events` plus a canonical safe-integer `SequenceNumber`, then hashes `(status, attemptId, CallSid, CallbackSource, SequenceNumber)`. The guarded provider-receipt insert trigger aborts on an incompatible attempt and its after-insert trigger reconciles that attempt to `dispatched`; both execute before event/idempotency/outbox in the same batch. For `relay_ended`, it instead requires a valid `VX` plus 32 hex digit `SessionId` and hashes `(relay_ended, CallSid, SessionId)`; current ConversationRelay action callbacks do not contain `CallbackSource` or `SequenceNumber`.
+
+The metadata-only `provider_events` insert is a dependent statement in the same D1 batch as callback reconciliation, event, idempotency, and outbox. Duplicate semantic callbacks replay one event; the same identity with a changed request hash fails closed. A global status URL is forbidden because it cannot identify which attempt an unknown CallSid belongs to. Fault tests use a temporary failing D1 trigger or final constraint failure, never a production `injectFailureAfter` hook.
+
+Update `test/persistence/migration.ts` to import and apply `0003_calling.sql`, and update cleanup helpers for both calling tables.
 
 - [ ] **Step 4: Run the persistence and fault tests to verify they pass**
 
-Run: `pnpm test:cloud -- persistence/call-repository.test.ts faults/calling-transaction-faults.test.ts`
+Run: `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/persistence/call-repository.test.ts apps/cloud-gateway/test/faults/calling-transaction-faults.test.ts apps/cloud-gateway/test/calls/outbound-call-dispatcher.test.ts apps/cloud-gateway/test/policy/policy-engine.test.ts`
 
-Expected: PASS with replay rejection and rollback of every injected transaction failure.
+Expected: PASS with stable attempt IDs plus distinct check audits, one provider invocation under races/recovery, persisted unknown suppression, replay-safe same-SID relay binding, attempt-scoped callback reconciliation/conflict behavior, and rollback at every tested batch failure.
 
 - [ ] **Step 5: Commit the durable call-binding deliverable**
 
 ```bash
-git add apps/cloud-gateway/src/persistence/migrations/0003_calling.sql apps/cloud-gateway/src/persistence/call-repository.ts apps/cloud-gateway/test/persistence/call-repository.test.ts apps/cloud-gateway/test/faults/calling-transaction-faults.test.ts
+git add apps/cloud-gateway/src/persistence/migrations/0003_calling.sql apps/cloud-gateway/src/persistence/call-repository.ts apps/cloud-gateway/src/persistence/event-repository.ts apps/cloud-gateway/src/calls/outbound-call-dispatcher.ts apps/cloud-gateway/src/policy/policy-types.ts apps/cloud-gateway/src/policy/policy-audit.ts apps/cloud-gateway/src/policy/policy-engine.ts apps/cloud-gateway/test/persistence/migration.ts apps/cloud-gateway/test/persistence/call-repository.test.ts apps/cloud-gateway/test/faults/calling-transaction-faults.test.ts apps/cloud-gateway/test/calls/outbound-call-dispatcher.test.ts apps/cloud-gateway/test/policy/policy-engine.test.ts
 git commit -m "feat(calls): persist atomic event and outbound relay bindings"
 ```
 
 ### Task 4: Inbound Twilio ingress, DTMF PIN authentication, and neutral phone enrollment
 
 **Files:**
+- Create: `apps/cloud-gateway/src/persistence/migrations/0004_call_sessions.sql`
+- Modify: `apps/cloud-gateway/src/persistence/call-repository.ts`
+- Modify: `apps/cloud-gateway/test/persistence/migration.ts`
 - Create: `apps/cloud-gateway/src/voice/inbound-auth.ts`
 - Create: `apps/cloud-gateway/src/voice/inbound.ts`
+- Test: `apps/cloud-gateway/test/persistence/call-session-repository.test.ts`
 - Test: `apps/cloud-gateway/test/voice/inbound-auth.test.ts`
 - Test: `apps/cloud-gateway/test/http/inbound-voice.test.ts`
 - Test: `apps/cloud-gateway/test/security/inbound-auth-security.test.ts`
 
 **Interfaces:**
-- Consumes: shared `TwilioRequestVerifier`, foundation `IdentityChallengeService`, `renderConversationRelayTwiML`, `CallRepository`, `CallPhase`, and `RelayEvent`.
-- Produces: `decodePinVerifierRecord`, `verifyPin`, `evaluatePinAttempt`, and `handleInboundVoiceWebhook`.
+- Consumes: shared `TwilioRequestVerifier`, foundation `IdentityChallengeService`, `renderConversationRelayTwiML`, Task 3 `CallRepository`, `CallPhase`, and `RelayEvent`.
+- Produces: stable call-session persistence/routing, `CallRepository.getOrCreateInboundSession`, `getOrCreateOutboundSession`, `bindRelaySession`, `decodePinVerifierRecord`, `verifyPin`, `evaluatePinAttempt`, and `handleInboundVoiceWebhook`.
 
 - [ ] **Step 1: Write failing pre-authentication and PIN secrecy tests**
 
@@ -485,47 +918,88 @@ it("rejects an unsigned webhook before creating a call session", async () => {
   expect(sessionFactory.created).toHaveLength(0);
 });
 
-it("does not send DTMF digits to the model, event store, or log sink", async () => {
-  await session.handleRelayEvent({ type: "dtmf", digits: "12345678" });
-  expect(conversation.handleTurn).not.toHaveBeenCalled();
-  expect(events.serializedPayloads.join(" ")).not.toContain("12345678");
-  expect(logs.entries.join(" ")).not.toContain("12345678");
+it("verifies only an exact eight-digit PIN against the versioned secret record", async () => {
+  expect(await verifyPin("12345678", record)).toBe(true);
+  expect(await verifyPin("1234567", record)).toBe(false);
+  expect(await verifyPin("123456789", record)).toBe(false);
 });
 
-it("terminates only the failed call after three bad PINs", async () => {
-  await attemptBadPinThreeTimes(session);
-  expect(session.phase).toBe("rejected");
-  expect(await throttles.isCanonicalIdentityLocked("sid-principal")).toBe(false);
+it("counts a third completed bad PIN candidate as terminal without a canonical lockout", () => {
+  expect(evaluatePinAttempt({ failedAttempts: 2, pinMatches: false })).toEqual({ nextFailedAttempts: 3, terminateCall: true });
 });
 
-it("requires both the PIN and the local CLI one-time challenge to activate a pending phone identity", async () => {
+it("creates only a neutral activation-only binding for a pending phone with a live local challenge", async () => {
   const response = await handleInboundVoiceWebhook(pendingCallerRequest, dependencies);
   expect(response.status).toBe(200);
-  await session.handleRelayEvent({ type: "dtmf", digits: "12345678" });
-  expect(identityChallenges.confirm).not.toHaveBeenCalled();
-  await session.handleRelayEvent({ type: "dtmf", digits: "482913" });
-  expect(identityChallenges.confirm).toHaveBeenCalledWith(expect.objectContaining({ challengeId: "challenge-phone-1", response: "482913", observedChannelIdentityId: "pending-phone", pinAuthenticated: true }));
-  expect(conversation.handleTurn).not.toHaveBeenCalled();
-  expect(events.serializedPayloads.join(" ")).not.toMatch(/12345678|482913/);
-  expect(logs.entries.join(" ")).not.toMatch(/12345678|482913/);
+  expect(sessionFactory.created[0]).toMatchObject({ identityId: "pending-phone", activationOnly: true, activationChallengeId: "challenge-phone-1" });
+  expect(responseBody(response)).not.toMatch(/challenge-phone-1|pending-phone|482913/);
 });
 
-it.each(["expired", "replayed", "mismatched"])("fails a %s phone challenge without loading personal context", async (failure) => {
-  identityChallenges.failWith(failure);
-  await session.handleRelayEvent({ type: "dtmf", digits: "12345678" });
-  await session.handleRelayEvent({ type: "dtmf", digits: "482913" });
-  expect(session.phase).toBe("failed");
-  expect(conversation.handleTurn).not.toHaveBeenCalled();
+it("replays one stable inbound session and nonce when Twilio retries the signed webhook", async () => {
+  const first = await handleInboundVoiceWebhook(activeCallerRequest, dependencies);
+  const retry = await handleInboundVoiceWebhook(equivalentSignedRetryRequest(), dependencies);
+  expect(await first.text()).toBe(await retry.text());
+  expect(await readCallSessions(database)).toHaveLength(1);
+  expect(sessionFactory.uniqueCreations).toBe(1);
+});
+
+it.each(["expired", "replayed", "mismatched"])("rejects a pending phone whose local challenge is %s before a session exists", async (failure) => {
+  resolveCallerCandidate.failChallengeWith(failure);
+  const response = await handleInboundVoiceWebhook(pendingCallerRequest, dependencies);
+  expect(response.status).toBe(403);
+  expect(sessionFactory.created).toEqual([]);
 });
 ```
 
 - [ ] **Step 2: Run inbound security tests to verify they fail**
 
-Run: `pnpm vitest run apps/cloud-gateway/test/voice/inbound-auth.test.ts apps/cloud-gateway/test/http/inbound-voice.test.ts apps/cloud-gateway/test/security/inbound-auth-security.test.ts`
+Run: `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/persistence/call-session-repository.test.ts apps/cloud-gateway/test/voice/inbound-auth.test.ts apps/cloud-gateway/test/http/inbound-voice.test.ts apps/cloud-gateway/test/security/inbound-auth-security.test.ts`
 
-Expected: FAIL with module-not-found errors for inbound authentication and voice webhook handler.
+Expected: FAIL with missing migration 0004, stable call-session methods, inbound authentication, and voice webhook handler.
 
 - [ ] **Step 3: Implement versioned PIN verification and neutral ingress**
+
+```sql
+-- apps/cloud-gateway/src/persistence/migrations/0004_call_sessions.sql
+CREATE TABLE call_sessions (
+  session_id TEXT PRIMARY KEY CHECK (length(session_id) = 26),
+  call_sid TEXT NOT NULL UNIQUE CHECK (length(call_sid) = 34 AND substr(call_sid, 1, 2) = 'CA' AND substr(call_sid, 3) NOT GLOB '*[^0-9A-Fa-f]*'),
+  expected_attempt_id TEXT UNIQUE REFERENCES outbound_call_attempts(attempt_id) ON DELETE RESTRICT,
+  principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE RESTRICT,
+  identity_id TEXT NOT NULL REFERENCES channel_identities(identity_id) ON DELETE RESTRICT,
+  direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
+  activation_only INTEGER NOT NULL CHECK (activation_only IN (0, 1)),
+  activation_challenge_id TEXT REFERENCES identity_challenges(challenge_id) ON DELETE RESTRICT,
+  relay_nonce TEXT NOT NULL UNIQUE CHECK (length(CAST(relay_nonce AS BLOB)) = 43),
+  nonce_expires_at TEXT NOT NULL,
+  relay_setup_expires_at TEXT,
+  provider_session_id TEXT UNIQUE CHECK (provider_session_id IS NULL OR (length(provider_session_id) = 34 AND substr(provider_session_id, 1, 2) = 'VX' AND substr(provider_session_id, 3) NOT GLOB '*[^0-9A-Fa-f]*')),
+  phase TEXT NOT NULL DEFAULT 'created' CHECK (phase IN ('created', 'connecting', 'pre_auth', 'authenticated', 'active', 'ending', 'completed', 'rejected', 'failed', 'expired')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK ((direction = 'inbound' AND expected_attempt_id IS NULL) OR (direction = 'outbound' AND expected_attempt_id IS NOT NULL AND session_id = expected_attempt_id)),
+  CHECK ((activation_only = 1 AND direction = 'inbound' AND activation_challenge_id IS NOT NULL) OR (activation_only = 0 AND activation_challenge_id IS NULL)),
+  CHECK ((direction = 'inbound' AND relay_setup_expires_at IS NOT NULL) OR (direction = 'outbound' AND relay_setup_expires_at IS NULL))
+);
+CREATE INDEX call_sessions_active_principal_idx ON call_sessions(principal_id, phase, created_at);
+CREATE TRIGGER call_sessions_require_matching_outbound_attempt
+BEFORE INSERT ON call_sessions
+WHEN NEW.direction = 'outbound' AND NOT EXISTS (
+  SELECT 1 FROM outbound_call_attempts a
+  WHERE a.attempt_id = NEW.expected_attempt_id
+    AND a.relay_call_sid = NEW.call_sid
+    AND a.principal_id = NEW.principal_id
+    AND a.destination_identity_id = NEW.identity_id
+    AND a.relay_nonce = NEW.relay_nonce
+    AND a.nonce_expires_at = NEW.nonce_expires_at
+    AND a.provider_dispatch_state = 'dispatched'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'outbound_session_attempt_mismatch');
+END;
+```
+
+`getOrCreateInboundSession` mints a session ULID and canonical relay nonce only for a new signed `CallSid`, stores both the nonce expiry and a five-minute `relaySetupExpiresAt`, and returns the still-valid stored row on an identical retry. Changed principal, identity, activation mode, challenge, or an expired never-connected row fails closed. `getOrCreateOutboundSession` uses `sessionId=attemptId`, copies only the already signed-and-claimed binding, retains the attempt's original `nonceExpiresAt` as claim evidence, and stores `relaySetupExpiresAt=null`; the trigger prevents drift. The outbound nonce expiry gates only the first signed CallSid claim in Task 3. Once that claim succeeds, the immutable CallSid/destination binding plus the separately signed WebSocket handshake authorize the first setup, so a lost TwiML response can be replayed after the original claim deadline without reopening the claim to another CallSid. Both session paths initialize the named Durable Object idempotently with the stored `RelayBinding` and nullable relay-setup deadline. `bindRelaySession` conditionally records the first provider `VX` SessionId for a compatible nonterminal CallSid and returns the same row on an identical replay; a different SessionId or terminal session fails. Phase updates use the Task 1 transition table, and active-count queries include only nonterminal phases.
 
 ```ts
 // apps/cloud-gateway/src/voice/inbound-auth.ts
@@ -560,30 +1034,36 @@ export function evaluatePinAttempt(input: { failedAttempts: number; pinMatches: 
 
 ```ts
 // apps/cloud-gateway/src/voice/inbound.ts
-export async function handleInboundVoiceWebhook(request: Request, deps: { twilio: TwilioRequestVerifier; resolveCallerCandidate(callerE164: string): Promise<{ principalId: string; identityId: string; state: "active"; activationChallengeId: null } | { principalId: string; identityId: string; state: "pending"; activationChallengeId: string } | null>; createSession: (input: { callSid: string; principalId: string; identityId: string; activationOnly: boolean; activationChallengeId: string | null }) => Promise<{ sessionId: string; relayNonce: string }> }): Promise<Response> {
-  const rawBody = new Uint8Array(await request.arrayBuffer());
-  if (!(await deps.twilio.verifyWebhook({ method: "POST", url: new URL(request.url), headers: request.headers, rawBody }))) return new Response("forbidden", { status: 403 });
-  const form = new URLSearchParams(new TextDecoder().decode(rawBody));
-  const candidate = await deps.resolveCallerCandidate(form.get("From") ?? "");
+export async function handleInboundVoiceWebhook(request: Request, deps: { twilio: TwilioRequestVerifier; exactInboundWebhookUrl: string; publicOrigin: URL; resolveCallerCandidate(callerE164: string): Promise<{ principalId: string; identityId: string; state: "active"; activationChallengeId: null } | { principalId: string; identityId: string; state: "pending"; activationChallengeId: string } | null>; sessions: { getOrCreateInboundSession(input: { callSid: string; principalId: string; identityId: string; activationOnly: boolean; activationChallengeId: string | null }): Promise<{ sessionId: Ulid; relayNonce: string; relaySetupExpiresAt: string; binding: RelayBinding }> }; initializeSession(input: { sessionId: Ulid; binding: RelayBinding; relaySetupExpiresAt: string | null }): Promise<void> }): Promise<Response> {
+  const form = await deps.twilio.verifyWebhook({ request, exactUrl: deps.exactInboundWebhookUrl });
+  if (form === null) return new Response("forbidden", { status: 403 });
+  const from = form.getAll("From");
+  const callSid = form.getAll("CallSid");
+  if (from.length !== 1 || callSid.length !== 1 || !/^CA[0-9A-Fa-f]{32}$/.test(callSid[0] ?? "")) return new Response("rejected", { status: 403 });
+  const candidate = await deps.resolveCallerCandidate(from[0] ?? "");
   if (!candidate) return new Response("rejected", { status: 403 });
-  const session = await deps.createSession({ callSid: form.get("CallSid") ?? "", principalId: candidate.principalId, identityId: candidate.identityId, activationOnly: candidate.state === "pending", activationChallengeId: candidate.activationChallengeId });
-  const sessionUrl = new URL(`/voice/relay/${session.sessionId}`, request.url); sessionUrl.protocol = "wss:";
-  return new Response(renderConversationRelayTwiML({ sessionUrl, actionUrl: new URL("/voice/relay-ended", request.url), relayNonce: session.relayNonce }), { headers: { "content-type": "text/xml" } });
+  const session = await deps.sessions.getOrCreateInboundSession({ callSid: callSid[0]!, principalId: candidate.principalId, identityId: candidate.identityId, activationOnly: candidate.state === "pending", activationChallengeId: candidate.activationChallengeId });
+  await deps.initializeSession({ sessionId: session.sessionId, binding: session.binding, relaySetupExpiresAt: session.relaySetupExpiresAt });
+  const sessionUrl = new URL(`/voice/relay/${session.sessionId}`, deps.publicOrigin); sessionUrl.protocol = "wss:";
+  const body = renderConversationRelayTwiML({ publicOrigin: deps.publicOrigin, sessionUrl, actionUrl: new URL("/voice/relay-ended", deps.publicOrigin), relayNonce: session.relayNonce, voiceConfig: { language: "en-US", transcriptionProvider: "Deepgram", speechModel: "nova-3-general", ttsProvider: "Google", voice: "en-US-Journey-O" } });
+  return new Response(body, { headers: { "content-type": "text/xml; charset=UTF-8", "cache-control": "no-store" } });
 }
 ```
+
+`verifyWebhook` owns and consumes the original request. The handler receives only `VerifiedTwilioForm`, requires every semantic singleton through `getAll(name).length === 1`, and never clones, pre-buffers, decodes, or reparses the provider body. `exactInboundWebhookUrl` and `publicOrigin` come from validated trusted configuration, never forwarded headers or request parameters; the same origin is supplied to the strict TwiML renderer.
 
 Unknown or blocked callers are rejected before ConversationRelay. A pending bootstrap phone identity may enter only an `activationOnly` neutral session when an enrolled device has begun a still-valid challenge; its opaque challenge ID is bound into the session and the plaintext response is displayed only by the authenticated local CLI. The caller first enters the normal eight-digit PIN and is then prompted to enter that separate one-time DTMF response. Only successful verification of both factors against the provider-observed pending identity activates it. The session speaks neutral prompts and a neutral outcome, never speaks or persists either digit sequence, never loads memory, purpose, or model context, and ends after success or failure. The user places a new normal inbound call after activation.
 
 - [ ] **Step 4: Run inbound security tests to verify they pass**
 
-Run: `pnpm vitest run apps/cloud-gateway/test/voice/inbound-auth.test.ts apps/cloud-gateway/test/http/inbound-voice.test.ts apps/cloud-gateway/test/security/inbound-auth-security.test.ts`
+Run: `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/persistence/call-session-repository.test.ts apps/cloud-gateway/test/voice/inbound-auth.test.ts apps/cloud-gateway/test/http/inbound-voice.test.ts apps/cloud-gateway/test/security/inbound-auth-security.test.ts`
 
 Expected: PASS with signature-first rejection, no PIN or one-time-challenge leakage, expiry/replay/mismatch rejection, provider-bound two-factor pending phone activation, and no persistent spoofed-ID lockout.
 
 - [ ] **Step 5: Commit the inbound authentication deliverable**
 
 ```bash
-git add apps/cloud-gateway/src/voice/inbound-auth.ts apps/cloud-gateway/src/voice/inbound.ts apps/cloud-gateway/test/voice/inbound-auth.test.ts apps/cloud-gateway/test/http/inbound-voice.test.ts apps/cloud-gateway/test/security/inbound-auth-security.test.ts
+git add apps/cloud-gateway/src/persistence/migrations/0004_call_sessions.sql apps/cloud-gateway/src/persistence/call-repository.ts apps/cloud-gateway/test/persistence/migration.ts apps/cloud-gateway/src/voice/inbound-auth.ts apps/cloud-gateway/src/voice/inbound.ts apps/cloud-gateway/test/persistence/call-session-repository.test.ts apps/cloud-gateway/test/voice/inbound-auth.test.ts apps/cloud-gateway/test/http/inbound-voice.test.ts apps/cloud-gateway/test/security/inbound-auth-security.test.ts
 git commit -m "feat(calls): add signed inbound DTMF authentication"
 ```
 
@@ -602,19 +1082,22 @@ git commit -m "feat(calls): add signed inbound DTMF authentication"
 - Consumes: foundation `ModelProvider`, `FakeModelProvider`, `Redactor`, `EventRepository`, `Ulid`, and `JsonValue`.
 - Produces: `ContextRetriever.retrieve`, `ModelAdapter.stream`, `ConversationService.handleTurn`, and `OutboxDispatcher.dispatch` for voice and the later Telegram plan.
 
-- [ ] **Step 1: Write failing streamed-token and delivery-acknowledgement tests**
+- [ ] **Step 1: Write failing streamed-token and channel-specific delivery tests**
 
 ```ts
-it("commits assistant text only after the channel acknowledges complete delivery", async () => {
+it("records voice output only as sent_to_provider and never promotes it to delivered history", async () => {
   const received: string[] = [];
   const controller = new AbortController();
-  const completion = service.handleTurn({ sessionId, principalId, channel: "voice", turnId, text: "hello", signal: controller.signal, delivery: { kind: "streaming", onToken: async (token) => { received.push(token.text); }, awaitDelivery: async (text) => ({ deliveredText: text }) } });
+  const completion = service.handleTurn({ sessionId, principalId, channel: "voice", turnId, text: "hello", signal: controller.signal, delivery: { kind: "voice_stream", onToken: async (token) => { received.push(token.text); }, finish: async () => ({ outcome: "sent_to_provider" }) } });
   await fakeModel.emitToken("hello");
   expect(await events.assistantEvents(sessionId)).toEqual([]);
   await fakeModel.complete();
-  await completion;
+  const result = await completion;
   expect(received.join("")).toBe("hello");
-  expect(await events.assistantEvents(sessionId)).toHaveLength(1);
+  expect(result).toMatchObject({ deliveredAssistantEventId: null });
+  expect(result.sentAssistantEventId).toMatch(/^[0-7][0-9a-hjkmnp-tv-z]{25}$/);
+  expect(await events.assistantHistory(sessionId)).toEqual([]);
+  expect(await events.voiceDeliveryStates(sessionId)).toEqual(["sent_to_provider"]);
 });
 
 it("does not redispatch an outbox idempotency key after a delivered acknowledgement", async () => {
@@ -671,7 +1154,7 @@ export interface ModelAdapter {
 // apps/cloud-gateway/src/conversation/conversation-service.ts
 export class DefaultConversationService implements ConversationService {
   constructor(private readonly model: ModelAdapter, private readonly redactor: Redactor, private readonly context: ContextRetriever, private readonly events: ConversationEventStore, private readonly dispatcher: OutboxDispatcher) {}
-  async handleTurn(input: Parameters<ConversationService["handleTurn"]>[0]): Promise<{ committedUserEventId: Ulid; deliveredAssistantEventId: Ulid | null }> {
+  async handleTurn(input: Parameters<ConversationService["handleTurn"]>[0]): Promise<{ committedUserEventId: Ulid; sentAssistantEventId: Ulid | null; deliveredAssistantEventId: Ulid | null }> {
     const redacted = await this.redactor.redact({ text: input.text, channel: input.channel, field: "turn.text" });
     if (!redacted.ok) { await this.events.commitSafeFailure(input, redacted.category); throw new Error(redacted.category); }
     const committedUserEventId = await this.events.commitUser({ ...input, text: redacted.text });
@@ -679,17 +1162,18 @@ export class DefaultConversationService implements ConversationService {
     let finalText = "";
     for await (const token of this.model.stream({ correlationId: input.turnId, principalId: input.principalId, channel: input.channel, userText: redacted.text, context, timeoutMs: 30000, contextTokenBudget: input.channel === "voice" ? 32000 : 48000, signal: input.signal })) {
       finalText += token.text;
-      if (input.delivery.kind === "streaming") await input.delivery.onToken(token);
+      if (input.delivery.kind === "voice_stream") await input.delivery.onToken(token);
     }
-    if (input.signal.aborted) { await this.events.commitCancelledAssistant(input); return { committedUserEventId, deliveredAssistantEventId: null }; }
+    if (input.signal.aborted) { await this.events.commitCancelledAssistant(input); return { committedUserEventId, sentAssistantEventId: null, deliveredAssistantEventId: null }; }
     if (input.delivery.kind === "outbox") {
       const outboxId = await this.events.stageAssistantDelivery({ ...input, text: finalText, idempotencyKey: input.delivery.idempotencyKey, payload: { ...input.delivery.payload, text: finalText } });
       const result = await this.dispatcher.dispatch(outboxId);
-      return { committedUserEventId, deliveredAssistantEventId: result.deliveredAssistantEventId };
+      return { committedUserEventId, sentAssistantEventId: null, deliveredAssistantEventId: result.deliveredAssistantEventId };
     }
-    const { deliveredText } = await input.delivery.awaitDelivery(finalText);
-    const deliveredAssistantEventId = deliveredText.length > 0 ? await this.events.commitDeliveredAssistant({ ...input, text: deliveredText }) : null;
-    return { committedUserEventId, deliveredAssistantEventId };
+    const finished = await input.delivery.finish(finalText);
+    if (finished.outcome !== "sent_to_provider") throw new Error("invalid_voice_delivery_outcome");
+    const sentAssistantEventId = await this.events.recordVoiceAssistantSent({ ...input, text: finalText, historyEligible: false });
+    return { committedUserEventId, sentAssistantEventId, deliveredAssistantEventId: null };
   }
   async stageSystemNotice(input: Parameters<ConversationService["stageSystemNotice"]>[0]): Promise<{ outboxId: Ulid }> {
     return { outboxId: await this.events.stageSystemDelivery({ ...input, text: "Jarvis is busy. Please try again shortly.", historyMode: "none" }) };
@@ -715,13 +1199,15 @@ export class DefaultOutboxDispatcher implements OutboxDispatcher {
 
 `ConversationEventStore.stageAssistantDelivery` submits the staged assistant payload, idempotency record, and pending outbox row through one foundation `TransactionRunner.batch()`. No assistant-history event exists yet. `stageSystemDelivery` uses the same durable path with `historyMode: "none"` and maps the allowlisted notice code to fixed text. `OutboxDispatcher` leases only a stored row, routes it to the registered channel adapter, retries according to that adapter's bounded policy, and uses one batch to record provider delivery plus the committed assistant event when `historyMode` is `assistant`; system notices commit delivery with no conversational-history event. Terminal delivery failure records a safe outcome with no assistant history. A caller can never invent an outbox ID at the dispatch boundary, and only the dispatcher can complete a staged row.
 
+Voice deliberately does not use the outbox delivery acknowledgement contract. Current ConversationRelay documentation provides no playback acknowledgement that this implementation has proven in a live gate. `finish` therefore accepts only the nominal `sent_to_provider` outcome, `recordVoiceAssistantSent` creates a post-redaction operational event with `historyEligible: false`, and `deliveredAssistantEventId` remains `null`. An interrupt or socket close can append a cancellation transition for that sent event but can never promote it to delivered. Only a later credentialed contract update may introduce `delivered_to_caller` for voice.
+
 Implement `D1ContextRetriever` with an explicit principal, authenticated-channel purpose, sensitivity filter, source identifiers, and deterministic token budget. At this stage it reads only recent committed post-redaction events; the memory plan extends the same implementation with the latest active fact projection. Retrieved text remains a data field passed separately from `userText` and cannot supply system instructions, tools, policy decisions, or action authorization. The call session invokes `ConversationService` only after DTMF authentication, so no pre-auth path can call the retriever.
 
 - [ ] **Step 4: Run shared-conversation tests to verify they pass**
 
 Run: `pnpm test:cloud -- conversation/conversation-service.test.ts conversation/outbox-dispatcher.test.ts; pnpm typecheck`
 
-Expected: PASS; every model token reaches the channel, the final assistant event is committed only after acknowledgement, and duplicate delivery is suppressed.
+Expected: PASS; every model token reaches the voice provider without entering assistant history, Telegram history commits only after its durable acknowledgement, and duplicate outbox delivery is suppressed.
 
 - [ ] **Step 5: Commit the shared service deliverable**
 
@@ -734,26 +1220,98 @@ git commit -m "feat(conversation): add shared streaming turn and outbox services
 
 **Files:**
 - Create: `apps/cloud-gateway/src/voice/call-session-do.ts`
+- Modify: `apps/cloud-gateway/src/index.ts`
+- Modify: `apps/cloud-gateway/src/persistence/call-repository.ts`
 - Test: `apps/cloud-gateway/test/voice/call-session-do.test.ts`
 - Test: `apps/cloud-gateway/test/security/relay-binding.test.ts`
 
 **Interfaces:**
 - Consumes: `CallPhase`, `transitionCall`, `canPersistTurn`, `verifyPin`, `evaluatePinAttempt`, `RelayBinding`, `RelayEvent`, `CallRepository`, and calling-owned `ConversationService`.
-- Produces: Durable Object class `CallSession`, `CallSession.handleRelayEvent`, and `CallSession.validateRelaySetup`.
+- Produces: Durable Object class `CallSession`, idempotent RPC `CallSession.initialize`, signed-upgrade `fetch`, real WebSocket message/close callbacks, and testable `CallSessionCore.handleRelayEvent`/`validateRelaySetup`.
 
 - [ ] **Step 1: Write failing relay-binding and interruption tests**
 
 ```ts
 it("rejects a mismatched outbound relay setup before model traffic", async () => {
-  await expect(session.validateRelaySetup({ callSid: "CA-wrong", relayNonce: "wrong" })).rejects.toThrow("relay_binding_rejected");
+  await expect(session.handleRelayEvent(relaySetup({ callSid: `CA${"9".repeat(32)}` }))).rejects.toThrow("relay_binding_rejected");
   expect(conversation.handleTurn).not.toHaveBeenCalled();
 });
 
-it("marks unplayed assistant output cancelled and excludes it from history", async () => {
-  await session.handleRelayEvent({ type: "setup", callSid: session.callSid, relayNonce: expectedRelayNonce });
-  await session.handleRelayEvent({ type: "speech", messageId: "u1", text: "What is next?" });
-  await session.handleRelayEvent({ type: "interrupt", messageId: "u1" });
+it("accepts setup once and rejects a replay before another state transition", async () => {
+  await session.handleRelayEvent(relaySetup());
+  await expect(session.handleRelayEvent(relaySetup())).rejects.toThrow("relay_setup_replayed");
+  expect(relay.close).toHaveBeenCalledTimes(1);
+});
+
+it("allows the first outbound setup after its signed CallSid claim deadline", async () => {
+  const recovered = createSession({ direction: "outbound", relaySetupExpiresAt: null, now: AFTER_ATTEMPT_NONCE_EXPIRY });
+  await recovered.handleRelayEvent(relaySetup({ direction: "outbound" }));
+  expect(recovered.phase).toBe("pre_auth");
+  expect(repository.bindRelaySession).toHaveBeenCalledTimes(1);
+});
+
+it("rejects an inbound setup after its separate relay setup deadline", async () => {
+  const expired = createSession({ direction: "inbound", relaySetupExpiresAt: BEFORE_NOW });
+  await expect(expired.handleRelayEvent(relaySetup({ direction: "inbound" }))).rejects.toThrow("relay_binding_rejected");
+  expect(repository.bindRelaySession).not.toHaveBeenCalled();
+});
+
+it("ignores partial prompts and creates its own ULID only for a final prompt", async () => {
+  await session.handleRelayEvent(relaySetup());
+  await authenticateWithDigits(session, "12345678");
+  await session.handleRelayEvent({ type: "prompt", text: "What is", language: "en-US", final: false });
+  expect(conversation.handleTurn).not.toHaveBeenCalled();
+  await session.handleRelayEvent({ type: "prompt", text: "What is next?", language: "en-US", final: true });
+  expect(conversation.handleTurn).toHaveBeenCalledWith(expect.objectContaining({ turnId: GENERATED_TURN_ULID, text: "What is next?" }));
+});
+
+it("accumulates one DTMF key at a time without leaking or verifying an incomplete PIN", async () => {
+  await session.handleRelayEvent(relaySetup());
+  for (const digit of "1234567") await session.handleRelayEvent({ type: "dtmf", digit });
+  expect(pinVerifier.verify).not.toHaveBeenCalled();
+  await session.handleRelayEvent({ type: "dtmf", digit: "8" });
+  expect(pinVerifier.verify).toHaveBeenCalledTimes(1);
+  expect(modelRequestsAndPersistence()).not.toContain("12345678");
+});
+
+it("terminates only this call after three completed bad PIN candidates", async () => {
+  await session.handleRelayEvent(relaySetup());
+  for (let attempt = 0; attempt < 3; attempt += 1) for (const digit of "00000000") await session.handleRelayEvent({ type: "dtmf", digit });
+  expect(session.phase).toBe("rejected");
+  expect(await throttles.isCanonicalIdentityLocked("sid-principal")).toBe(false);
+});
+
+it("requires PIN then a separate six-digit local challenge for activation without model or digit leakage", async () => {
+  const pendingSession = createPendingActivationSession({ challengeId: "challenge-phone-1", identityId: "pending-phone" });
+  await pendingSession.handleRelayEvent(relaySetup({ direction: "inbound" }));
+  for (const digit of "12345678") await pendingSession.handleRelayEvent({ type: "dtmf", digit });
+  expect(identityChallenges.confirm).not.toHaveBeenCalled();
+  for (const digit of "482913") await pendingSession.handleRelayEvent({ type: "dtmf", digit });
+  expect(identityChallenges.confirm).toHaveBeenCalledWith(expect.objectContaining({ challengeId: "challenge-phone-1", response: "482913", observedChannelIdentityId: "pending-phone", pinAuthenticated: true }));
+  expect(conversation.handleTurn).not.toHaveBeenCalled();
+  expect(eventsAndLogs()).not.toMatch(/12345678|482913/);
+});
+
+it.each(["expired", "replayed", "mismatched"])("fails a %s activation response without personal context", async (failure) => {
+  const pendingSession = createPendingActivationSession();
+  identityChallenges.failWith(failure);
+  await pendingSession.handleRelayEvent(relaySetup({ direction: "inbound" }));
+  for (const digit of "12345678") await pendingSession.handleRelayEvent({ type: "dtmf", digit });
+  for (const digit of "482913") await pendingSession.handleRelayEvent({ type: "dtmf", digit });
+  expect(pendingSession.phase).toBe("failed");
+  expect(conversation.handleTurn).not.toHaveBeenCalled();
+});
+
+it("marks interrupted voice output cancelled and never promotes it to delivered history", async () => {
+  await session.handleRelayEvent(relaySetup());
+  await authenticateWithDigits(session, "12345678");
+  conversation.blockNextTurn();
+  const turn = session.handleRelayEvent({ type: "prompt", text: "What is next?", language: "en-US", final: true });
+  await conversation.waitUntilTurnStarted();
+  await session.handleRelayEvent({ type: "interrupt" });
+  await turn;
   expect(await repository.historyFor(session.callSid)).not.toContain("long model response");
+  expect(await repository.voiceDeliveryStates(session.callSid)).not.toContain("delivered_to_caller");
 });
 ```
 
@@ -767,35 +1325,53 @@ Expected: FAIL with module-not-found error for `call-session-do.ts`.
 
 ```ts
 // apps/cloud-gateway/src/voice/call-session-do.ts
-export class CallSession {
+export class CallSessionCore {
   phase: CallPhase = "created";
   private failedPinAttempts = 0;
   private awaitingPhoneActivationChallenge = false;
   private relaySetupVerified = false;
+  private pinDigits = "";
+  private activationDigits = "";
   private activeTurnAbort: AbortController | null = null;
-  constructor(readonly callSid: string, private readonly expected: RelayBinding, private readonly repository: CallRepository, private readonly conversation: ConversationService, private readonly relay: { sendToken(text: string): Promise<void>; waitForDelivered(finalText: string): Promise<{ deliveredText: string }>; cancel(): Promise<void> }, private readonly pinVerifier: { verify(digits: string): Promise<boolean> }, private readonly identityChallenges: IdentityChallengeService, private readonly throttles: { record(input: { callSid: string; bucket: string; now: Date }): Promise<void> }) {}
+  private lastSentAssistantEventId: Ulid | null = null;
+  private socketClosed = false;
+  constructor(readonly callSid: string, private readonly expected: RelayBinding, private readonly expectedRelaySetupExpiresAt: string | null, private readonly expectedAccountSid: string, private readonly repository: CallRepository, private readonly conversation: ConversationService, private readonly relay: { sendToken(text: string): Promise<void>; finish(finalText: string): Promise<{ outcome: "sent_to_provider" }>; cancel(): Promise<void>; close(code: number): void }, private readonly pinVerifier: { verify(digits: string): Promise<boolean> }, private readonly identityChallenges: IdentityChallengeService, private readonly throttles: { record(input: { callSid: string; bucket: string; now: Date }): Promise<void> }, private readonly newUlid: () => Ulid, private readonly now: () => Date) {}
 
-  async validateRelaySetup(actual: { callSid: string; relayNonce: string }): Promise<void> {
-    if (actual.callSid !== this.expected.callSid || actual.relayNonce !== this.expected.relayNonce) throw new Error("relay_binding_rejected");
+  async validateRelaySetup(actual: Extract<RelayEvent, { type: "setup" }>): Promise<void> {
+    if ((this.expectedRelaySetupExpiresAt !== null && this.now().toISOString() >= this.expectedRelaySetupExpiresAt) || actual.accountSid !== this.expectedAccountSid || actual.callSid !== this.expected.callSid || actual.relayNonce !== this.expected.relayNonce || actual.direction !== this.expected.direction) throw new Error("relay_binding_rejected");
   }
 
   beginPreAuth(): void { this.phase = transitionCall(this.phase, "connecting"); this.phase = transitionCall(this.phase, "pre_auth"); }
 
   async handleRelayEvent(event: RelayEvent): Promise<void> {
-    if (event.type === "setup") { await this.validateRelaySetup(event); this.relaySetupVerified = true; this.beginPreAuth(); return; }
+    if (event.type === "setup") {
+      if (this.relaySetupVerified) { this.relay.close(1008); throw new Error("relay_setup_replayed"); }
+      try { await this.validateRelaySetup(event); }
+      catch (error) { this.relay.close(1008); throw error; }
+      await this.repository.bindRelaySession({ callSid: event.callSid, providerSessionId: event.sessionId });
+      this.relaySetupVerified = true; this.beginPreAuth(); return;
+    }
     if (!this.relaySetupVerified) throw new Error("relay_setup_required");
-    if (event.type === "dtmf") { await this.handleDtmf(event.digits); return; }
-    if (event.type === "interrupt") { this.activeTurnAbort?.abort(); await this.relay.cancel(); await this.repository.cancelUnplayedAssistantTurns(this.callSid); return; }
-    if (event.type !== "speech" || this.phase !== "active") return;
-    if (event.text.length > 8000) throw new Error("turn_too_large");
+    if (event.type === "dtmf") { await this.handleDtmf(event.digit); return; }
+    if (event.type === "interrupt") { await this.cancelCurrentOutput("provider_interrupt"); return; }
+    if (event.type === "error") { await this.handleSocketClose("provider_error"); return; }
+    if (event.type !== "prompt" || !event.final || this.phase !== "active") return;
+    if (event.text.length === 0) return;
+    if (event.language !== "en-US" || new TextEncoder().encode(event.text).byteLength > 8000) throw new Error("turn_too_large");
+    if (this.activeTurnAbort !== null) throw new Error("turn_in_progress");
     const controller = new AbortController(); this.activeTurnAbort = controller;
     try {
-      await this.conversation.handleTurn({ sessionId: this.callSid, principalId: this.expected.principalId, channel: "voice", turnId: event.messageId as Ulid, text: event.text, signal: controller.signal, delivery: { kind: "streaming", onToken: async (token) => this.relay.sendToken(token.text), awaitDelivery: async (finalText) => this.relay.waitForDelivered(finalText) } });
+      const result = await this.conversation.handleTurn({ sessionId: this.callSid, principalId: this.expected.principalId, channel: "voice", turnId: this.newUlid(), text: event.text, signal: controller.signal, delivery: { kind: "voice_stream", onToken: async (token) => this.relay.sendToken(token.text), finish: async (finalText) => this.relay.finish(finalText) } });
+      this.lastSentAssistantEventId = result.sentAssistantEventId;
     } finally { if (this.activeTurnAbort === controller) this.activeTurnAbort = null; }
   }
 
-  private async handleDtmf(digits: string): Promise<void> {
+  private async handleDtmf(digit: string): Promise<void> {
     if (this.phase === "authenticated" && this.expected.activationOnly && this.awaitingPhoneActivationChallenge) {
+      if (!/^\d$/.test(digit)) { this.activationDigits = ""; return; }
+      this.activationDigits += digit;
+      if (this.activationDigits.length < 6) return;
+      const digits = this.activationDigits; this.activationDigits = "";
       try {
         if (!this.expected.activationChallengeId) throw new Error("activation_challenge_missing");
         await this.identityChallenges.confirm({ challengeId: this.expected.activationChallengeId, response: digits, observedChannelIdentityId: this.expected.identityId, pinAuthenticated: true });
@@ -810,6 +1386,10 @@ export class CallSession {
       return;
     }
     if (this.phase !== "pre_auth") return;
+    if (!/^\d$/.test(digit)) { this.pinDigits = ""; return; }
+    this.pinDigits += digit;
+    if (this.pinDigits.length < 8) return;
+    const digits = this.pinDigits; this.pinDigits = "";
     if (await this.pinVerifier.verify(digits)) {
       this.phase = transitionCall(this.phase, "authenticated");
       await this.repository.appendAuthenticationOutcome(this.callSid, "authenticated");
@@ -827,10 +1407,60 @@ export class CallSession {
     await this.repository.appendAuthenticationOutcome(this.callSid, "rejected");
     if (result.terminateCall) this.phase = transitionCall(this.phase, "rejected");
   }
+
+  private async cancelCurrentOutput(reason: "provider_interrupt" | "socket_closed"): Promise<void> {
+    this.activeTurnAbort?.abort();
+    await this.relay.cancel();
+    if (this.lastSentAssistantEventId !== null) await this.repository.cancelSentVoiceAssistant({ callSid: this.callSid, assistantEventId: this.lastSentAssistantEventId, reason });
+    this.lastSentAssistantEventId = null;
+  }
+
+  async handleSocketClose(reason: "socket_closed" | "provider_error" = "socket_closed"): Promise<void> {
+    if (this.socketClosed) return;
+    this.socketClosed = true;
+    await this.cancelCurrentOutput("socket_closed");
+    this.pinDigits = ""; this.activationDigits = "";
+    await this.repository.appendRelayLifecycleOutcome(this.callSid, reason);
+    if (this.phase === "authenticated" || this.phase === "active") { this.phase = transitionCall(this.phase, "ending"); this.phase = transitionCall(this.phase, "completed"); }
+    else if (this.phase === "created" || this.phase === "connecting" || this.phase === "pre_auth") this.phase = transitionCall(this.phase, "failed");
+  }
 }
 ```
 
-Every Task 4/6 test helper that sends DTMF or speech first sends a valid `setup` event. The Durable Object treats both DTMF inputs as transient authentication material: the PIN verifier and challenge service receive them directly, while events, logs, transcripts, model requests, and error details receive only allowlisted outcome codes. The activation challenge is never retried inside the same call after a failed, expired, mismatched, or replayed response.
+The same module exports the actual Cloudflare wrapper; the injected class above is its testable state machine, not the Wrangler export by itself:
+
+```ts
+export class CallSession extends DurableObject<Env> {
+  async initialize(input: { sessionId: Ulid; binding: RelayBinding; relaySetupExpiresAt: string | null }): Promise<void> {
+    // In one storage transaction create immutable session/binding state, or return
+    // success only when an existing record is byte-for-byte the same. A changed
+    // CallSid/principal/identity/direction/nonce/activation binding fails closed.
+  }
+
+  override async fetch(request: Request): Promise<Response> {
+    // The Worker route has already verified the exact signed WSS handshake. Require
+    // one GET WebSocket upgrade and initialized state, reject a second live socket,
+    // accept the server half with ctx.acceptWebSocket, and return the client half.
+  }
+
+  override async webSocketMessage(socket: WebSocket, frame: string | ArrayBuffer): Promise<void> {
+    // Reject binary with 1003; measure text UTF-8 before JSON and close >64 KiB with
+    // 1009; parse through parseRelayEvent and delegate to the one hydrated core.
+  }
+
+  override async webSocketClose(): Promise<void> {
+    await (await this.core()).handleSocketClose("socket_closed");
+  }
+}
+```
+
+`apps/cloud-gateway/src/index.ts` imports and re-exports this `CallSession` name for the existing Wrangler binding; it no longer declares the Task 1 skeleton. Initialization persists the immutable `RelayBinding`, nullable `relaySetupExpiresAt`, and resumable safe phase/output identifiers in Durable Object storage. Idempotent re-initialization requires all of those fields to be byte-for-byte equal. DTMF buffers and raw partial/provider text remain memory-only and are cleared on hibernation/close; hibernation during authentication requires a fresh neutral call rather than persisting digits. D1 `call_sessions` is the global routing/lifecycle projection, while the named Durable Object serializes the live socket and turn.
+
+Every Task 4/6 test helper that sends DTMF or prompt input first sends one valid `setup` event. Before setup every frame fails closed; a second setup closes the socket and cannot restart the state machine. Setup validation binds configured AccountSid, `callSid`, relay nonce, and mapped direction, enforces the separate setup deadline when non-null, then atomically records the provider `VX` SessionId for the later relay-ended callback. Inbound sessions use the bounded setup deadline; an outbound session already passed the expiring signed CallSid claim and uses `null`, allowing only its first separately signed, exact CallSid-bound setup even after a lost TwiML response. Terminal sessions still reject setup. The route calls the idempotent `handleSocketClose` from the real WebSocket close callback; there is no synthetic JSON `disconnect` event.
+
+The Durable Object ignores partial prompts entirely and mints a fresh local ULID only for a final prompt accepted in `active`. It treats DTMF as transient one-key frames: an in-memory numeric buffer invokes the PIN verifier only after exactly eight digits, then a separate buffer invokes the activation challenge only after exactly six digits. `*` or `#` clears the current buffer without persistence. Buffers are cleared after each complete candidate, setup failure, socket close, and terminal transition. The verifier and challenge service receive completed candidates directly, while events, logs, transcripts, model requests, and error details receive only allowlisted outcomes. The activation challenge is never retried inside the same call after a failed, expired, mismatched, or replayed response.
+
+Voice `sendToken`/`finish` proves only `sent_to_provider`. The session retains the returned operational event ID solely so interrupt or socket close can cancel it; neither normal completion nor interruption creates delivered assistant history. The credentialed Task 9 gate may later justify a separate playback-acknowledged state, but this implementation must not infer it.
 
 - [ ] **Step 4: Run the relay tests to verify they pass**
 
@@ -841,7 +1471,7 @@ Expected: PASS with binding rejection before model invocation and cancelled assi
 - [ ] **Step 5: Commit the call-session deliverable**
 
 ```bash
-git add apps/cloud-gateway/src/voice/call-session-do.ts apps/cloud-gateway/test/voice/call-session-do.test.ts apps/cloud-gateway/test/security/relay-binding.test.ts
+git add apps/cloud-gateway/src/voice/call-session-do.ts apps/cloud-gateway/src/index.ts apps/cloud-gateway/src/persistence/call-repository.ts apps/cloud-gateway/test/voice/call-session-do.test.ts apps/cloud-gateway/test/security/relay-binding.test.ts
 git commit -m "feat(calls): connect durable relay session to shared streaming conversation"
 ```
 
@@ -853,8 +1483,8 @@ git commit -m "feat(calls): connect durable relay session to shared streaming co
 - Test: `apps/cloud-gateway/test/security/outbound-security.test.ts`
 
 **Interfaces:**
-- Consumes: `OutboundCallCommand`, `ExpectedOutboundCall`, `CallRepository`, foundation `PolicyEngine`, foundation `TwilioProvider`, and shared `TwilioRequestVerifier`.
-- Produces: `dispatchOutboundCall`, `claimOutboundTwiML`, and `createRelayNonce`.
+- Consumes: `OutboundCallCommand`, `snapshotOutboundCallRequest`, Task 3 crash-safe `OutboundCallDispatcher`, Task 4 call-session persistence, `CallRepository`, foundation `PolicyEngine`, shared `TwilioRequestVerifier`, trusted public URL configuration, and `renderConversationRelayTwiML`.
+- Produces: `dispatchOutboundCall` as the initial-authorization adapter and Request-owning `claimOutboundTwiML`. It never calls `TwilioProvider` directly and never creates or rotates a relay nonce.
 
 - [ ] **Step 1: Write failing issuer, policy-recheck, replay, and voicemail tests**
 
@@ -866,9 +1496,40 @@ it("denies model-originated commands before creating a policy decision", async (
 });
 
 it("rechecks kill switch immediately before dispatch", async () => {
+  policy.pauseAfterInitialAllow();
+  const pending = dispatchOutboundCall(command, dependencies);
+  await policy.waitForInitialAllow();
   policyContext.killSwitch = true;
-  await expect(dispatchOutboundCall(command, dependencies)).rejects.toThrow("kill_switch_enabled");
+  policy.releaseDispatcher();
+  await expect(pending).resolves.toMatchObject({ status: "denied", reason: "kill_switch_enabled" });
   expect(twilio.requests).toHaveLength(0);
+});
+
+it("delegates the only provider invocation through the durable attempt gate", async () => {
+  const dispatchSpy = vi.spyOn(dispatcher, "dispatch");
+  await dispatchOutboundCall(command, dependencies);
+  await dispatchOutboundCall(command, dependencies);
+  expect(dispatchSpy).toHaveBeenCalledTimes(2);
+  expect(twilio.requests).toHaveLength(1);
+  expect(twilio.requests[0]).toMatchObject({ attemptId: ATTEMPT_0, commandId: command.commandId });
+});
+
+it("consumes the original signed Request once and idempotently replays the same outbound TwiML claim", async () => {
+  const first = await claimOutboundTwiML(originalRequest, ATTEMPT_0, dependencies);
+  clock.advancePastAttemptNonceExpiry();
+  const retry = await claimOutboundTwiML(signedRequestWithSameCallSid(), ATTEMPT_0, dependencies);
+  expect(verifier.requests[0]).toBe(originalRequest);
+  expect(first.status).toBe(200);
+  expect(await retry.text()).toBe(await first.clone().text());
+  expect(sessionFactory.sessionIds).toEqual([ATTEMPT_0, ATTEMPT_0]);
+  expect(sessionFactory.uniqueCreations).toBe(1);
+  expect(sessionFactory.initializations).toEqual(expect.arrayContaining([expect.objectContaining({ sessionId: ATTEMPT_0, relaySetupExpiresAt: null })]));
+});
+
+it("rejects a different signed CallSid for an already claimed attempt", async () => {
+  await claimOutboundTwiML(originalRequest, ATTEMPT_0, dependencies);
+  const response = await claimOutboundTwiML(signedRequestWithCallSid(CALL_SID_2), ATTEMPT_0, dependencies);
+  expect(response.status).toBe(403);
 });
 
 it("leaves only the neutral voicemail sentence before PIN verification", async () => {
@@ -888,29 +1549,26 @@ Expected: FAIL with a module-not-found error for `outbound.ts`.
 
 ```ts
 // apps/cloud-gateway/src/voice/outbound.ts
-export function createRelayNonce(): string {
-  const bytes = new Uint8Array(32); crypto.getRandomValues(bytes);
-  return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
-}
-
-export async function dispatchOutboundCall(command: OutboundCallCommand, deps: { policy: PolicyEngine; repository: CallRepository; twilio: TwilioProvider; publicBaseUrl: string }): Promise<{ callSid: string }> {
-  const decision = await deps.policy.evaluateOutboundCall(command);
+export async function dispatchOutboundCall(command: unknown, deps: { policy: PolicyEngine; dispatcher: OutboundCallDispatcher }): Promise<OutboundCallDispatchResult> {
+  const snapshot = snapshotOutboundCallRequest(command);
+  if (snapshot === null) throw new Error("invalid_request");
+  const decision = await deps.policy.evaluateOutboundCall(snapshot);
   if (decision.decision === "deny") throw new Error(decision.reason);
-  const relayNonce = createRelayNonce();
-  await deps.repository.createExpectedCall({ commandId: command.commandId, principalId: command.principalId, destinationIdentityId: command.destinationIdentityId, relayNonce, nonceExpiresAt: new Date(Date.now() + 300000).toISOString(), idempotencyKey: command.idempotencyKey });
-  const rechecked = await deps.policy.recheckOutboundDispatch(command);
-  if (rechecked.decision === "deny") throw new Error(rechecked.reason);
-  return deps.twilio.createCall({ commandId: command.commandId as Ulid, toE164: await deps.repository.verifiedE164(command.destinationIdentityId), twimlUrl: new URL(`/voice/outbound/${command.commandId}`, deps.publicBaseUrl), statusCallbackUrl: new URL("/voice/status", deps.publicBaseUrl), statusCallbackEvents: ["initiated", "ringing", "answered", "completed"], idempotencyKey: command.idempotencyKey });
+  return deps.dispatcher.dispatch(snapshot);
 }
 ```
 
-`claimOutboundTwiML` reads the exact raw form body, validates Twilio's signature before parsing, resolves the provider-observed `To` value through the active identity repository, and atomically claims the expected-call row for that identity plus the provider-observed `CallSid`. It creates the Durable Object session from the resulting internal `RelayBinding` and renders `renderConversationRelayTwiML` with the claimed row's stored `relayNonce`; the request never supplies that nonce. Its session URL uses `wss://`, its `<Connect action>` targets `/voice/relay-ended`, and no command purpose or identity value enters the document. A second, expired, inactive-destination, or mismatched claim returns neutral rejection TwiML without creating a session.
+`dispatchOutboundCall` snapshots before its first await, performs only the immutable initial authorization, and delegates to the Task 3 dispatcher. That dispatcher exclusively owns final recheck, attempt/nonce creation or replay, trusted URL construction, durable claim, the sole provider POST, and result persistence. Task 7 has no `TwilioProvider` dependency, second destination lookup, or path/idempotency construction.
+
+`claimOutboundTwiML(request, attemptId, deps)` validates the route's lowercase ULID, passes the original `Request` exactly once to `verifyWebhook({ request, exactUrl: deps.externalUrls.outboundTwiML(attemptId) })`, and consumes only the resulting `VerifiedTwilioForm`. It never clones, pre-buffers, calls `formData()`, decodes, or reparses the body. It requires singleton `CallSid` and `To` values through `getAll`, validates the CallSid, resolves the provider-observed destination through the active identity repository, and calls `claimExpectedCall({ attemptId, ... })`. The request never supplies a relay nonce.
+
+On success it calls `getOrCreateOutboundSession` with the claimed binding, which enforces deterministic `sessionId=attemptId`, then idempotently initializes/addresses that Durable Object with `relaySetupExpiresAt=null`. It builds `wss://<trusted-host>/voice/relay/${attemptId}` and renders `renderConversationRelayTwiML` with the trusted public origin, fixed `/voice/relay-ended` action, and the stored nonce. An identical signed CallSid retry returns the same binding, session, and TwiML even after the original claim deadline so response loss is recoverable; the Task 6 signed WebSocket binding still permits only the first setup for that CallSid/session. A different CallSid, changed identity, expired never-claimed/rejected/ready attempt, invalid signature, duplicate semantic form field, or inactive destination returns neutral rejection without a new session. No command purpose, identity, phone number, PIN, or nonce from the request enters the document.
 
 - [ ] **Step 4: Run outbound tests to verify they pass**
 
 Run: `pnpm test:cloud -- voice/outbound.test.ts security/outbound-security.test.ts`
 
-Expected: PASS with model issuer denial, immediate kill-switch denial, single-use nonce binding, and neutral pre-PIN voicemail content.
+Expected: PASS with model issuer denial, immediate kill-switch denial, crash-safe sole dispatch ownership, stable attempt nonce/session replay, mismatched CallSid rejection, Request-owned signature verification, and neutral pre-PIN voicemail content.
 
 - [ ] **Step 5: Commit the outbound dispatch deliverable**
 
@@ -936,7 +1594,10 @@ git commit -m "feat(calls): add policy-gated outbound call dispatch"
 
 ```ts
 it("rejects a 64 KiB plus one-byte relay frame", async () => {
-  await expect(routeVoiceRequest(frameRequest("x".repeat(65537)), dependencies)).resolves.toMatchObject({ status: 413 });
+  const socket = await fakeRelay.openSignedWebSocket(SESSION_ID);
+  await socket.sendText("x".repeat(65_537));
+  expect(socket.closeCode).toBe(1009);
+  expect(conversation.handleTurn).not.toHaveBeenCalled();
 });
 
 it("records one safe terminal outcome when the model exceeds 30 seconds", async () => {
@@ -964,23 +1625,32 @@ Expected: FAIL with module-not-found error for `voice-routes.ts` and the fake ac
 ```ts
 // apps/cloud-gateway/src/http/voice-routes.ts
 export async function routeVoiceRequest(request: Request, deps: VoiceRouteDependencies): Promise<Response> {
-  const contentLength = Number(request.headers.get("content-length") ?? "0");
-  if (contentLength > 65536) return new Response("frame_too_large", { status: 413 });
-  const path = new URL(request.url).pathname;
-  if (path === "/voice/inbound" || path.startsWith("/voice/outbound/")) try { await deps.capacity.assertAcceptingNewTurn(); } catch { return new Response("unavailable", { status: 503 }); }
-  if (path.startsWith("/voice/relay/") && request.headers.get("upgrade")?.toLowerCase() === "websocket") {
-    if (!(await deps.twilio.verifyWebSocket({ method: "GET", url: new URL(request.url), headers: request.headers }))) return new Response("invalid_signature", { status: 403 });
-    return deps.callSessions.getByName(path.slice("/voice/relay/".length)).fetch(request);
+  const requestUrl = new URL(request.url);
+  if (requestUrl.search !== "" || requestUrl.hash !== "") return new Response("not_found", { status: 404 });
+  const path = requestUrl.pathname;
+  const relay = path.match(/^\/voice\/relay\/([0-7][0-9a-hjkmnp-tv-z]{25})$/);
+  const outbound = path.match(/^\/voice\/outbound\/([0-7][0-9a-hjkmnp-tv-z]{25})$/);
+  const status = path.match(/^\/voice\/status\/([0-7][0-9a-hjkmnp-tv-z]{25})$/);
+  if (relay !== null && request.method === "GET" && request.headers.get("upgrade")?.toLowerCase() === "websocket") {
+    const sessionId = relay[1] as Ulid;
+    const exactUrl = deps.externalUrls.relayWebSocket(sessionId);
+    if (!(await deps.twilio.verifyWebSocket({ request, exactUrl }))) return new Response("invalid_signature", { status: 403 });
+    return deps.callSessions.getByName(sessionId).fetch(request);
   }
-  if (path === "/voice/inbound" && request.method === "POST") return handleInboundVoiceWebhook(request, deps);
-  if (path.startsWith("/voice/outbound/") && request.method === "POST") return claimOutboundTwiML(request, deps);
+  if (path === "/voice/inbound" && request.method === "POST") {
+    try { await deps.capacity.assertAcceptingNewCall(); } catch { return new Response("unavailable", { status: 503 }); }
+    return handleInboundVoiceWebhook(request, deps);
+  }
+  if (outbound !== null && request.method === "POST") return claimOutboundTwiML(request, outbound[1] as Ulid, deps);
   if (path === "/voice/relay-ended" && request.method === "POST") return handleTwilioRelayEndedCallback(request, deps);
-  if (path === "/voice/status" && request.method === "POST") return handleTwilioStatusCallback(request, deps);
+  if (status !== null && request.method === "POST") return handleTwilioStatusCallback(request, status[1] as Ulid, deps);
   return new Response("not_found", { status: 404 });
 }
 ```
 
-Both `/voice/status` and `/voice/relay-ended` read the exact raw form body, verify the Twilio signature before parsing, deduplicate provider identifiers through `CallRepository`, and advance but never reverse terminal state. The relay-ended callback records only allowlisted lifecycle fields; it never stores provider bodies or transcript fragments.
+`externalUrls` is constructed once from the validated trusted public origin; it emits only exact fixed route strings Twilio signs and never consults forwarded headers. Route matching accepts one canonical lowercase ULID segment and no suffix/query-derived identity. Each POST handler passes the original request once to `verifyWebhook({ request, exactUrl })` and consumes only the returned branded form. Form size limiting lives in that streaming verifier; WebSocket frame size limiting lives in the Durable Object before JSON parsing, not in a `Content-Length` check on the upgrade request. Capacity for an already accepted outbound TwiML fetch is never re-litigated; the durable dispatcher checked it before POST and the signed attempt callback must remain recoverable.
+
+`/voice/status/:attemptId` and `/voice/relay-ended` each give the original Request to the verifier and then require their semantic fields as singleton values from `VerifiedTwilioForm`; neither handler reads, clones, buffers, or parses a raw body. Status deduplication uses endpoint + attempt ID + `CallSid` + fixed `CallbackSource` + canonical `SequenceNumber`, and atomically reconciles only that compatible outbound attempt. Relay-ended deduplication uses endpoint + `CallSid` + `SessionId` because the current action payload has no callback source/sequence. Both advance but never reverse a terminal state, record only allowlisted lifecycle fields, and never store provider bodies or transcript fragments.
 
 ```ts
 // tests/acceptance/fake/voice-call-path.test.ts
@@ -1017,7 +1687,7 @@ git commit -m "feat(calls): add voice routes limits and fake acceptance gate"
 - Modify: `TESTING.md`
 
 **Interfaces:**
-- Consumes: deployed `/voice/inbound`, `/voice/outbound/:commandId`, `/voice/status`, `/voice/relay-ended`, local `jarvis call-me --purpose smoke --confirm --wait --json`, and call event repository query endpoint available only to the enrolled smoke operator.
+- Consumes: deployed `/voice/inbound`, attempt-scoped `/voice/outbound/:attemptId` and `/voice/status/:attemptId`, `/voice/relay-ended`, local `jarvis call-me --purpose smoke --confirm --wait --json`, and call event repository query endpoint available only to the enrolled smoke operator.
 - Produces: `pnpm smoke:voice -- --scenario <scenario>` and redacted JSON evidence at `tests/acceptance/live/evidence/<scenario>.json`.
 
 - [ ] **Step 1: Write failing live-gate evidence tests**
@@ -1096,7 +1766,7 @@ git commit -m "test(calls): add credentialed voice release gate"
 - Inbound signed webhook, allowlist, mandatory DTMF PIN authentication, the separate local-CLI phone enrollment challenge, pre-auth privacy, brute-force containment, and transcript rules are covered by Tasks 4 and 6.
 - Outbound issuer restrictions, foundation policy decision, verified destination, kill switch, quiet hours/limits, retry lineage, nonce binding, recipient PIN, and voicemail privacy are covered by Task 7.
 - Durable events, idempotency, event ordering, callback deduplication, transactions, and crash recovery are covered by Task 3.
-- WebSocket validation, streamed-token delivery acknowledgement, interruption, time/frame/turn limits, safe provider failures, and circuit-breaker-compatible routing are covered by Tasks 5, 6, and 8.
+- WebSocket validation, channel-specific delivery state, voice `sent_to_provider` without invented playback acknowledgement, interruption, time/frame/turn limits, safe provider failures, and circuit-breaker-compatible routing are covered by Tasks 5, 6, and 8.
 - Fake adapters, adversarial security tests, transaction-fault tests, and the real inbound/unauthorized-caller/outbound/no-answer/failure smoke harness, latency thresholds, and redacted evidence contract are covered by Tasks 2, 8, and 9; the final plan executes the credentialed gate after the CLI and deployment exist.
 
 ### Placeholder scan
@@ -1105,11 +1775,11 @@ The plan contains no unassigned implementation work, generic validation language
 
 ### Type consistency
 
-- `CallPhase`, `TranscriptState`, `OutboundCallCommand`, `ExpectedOutboundCall`, and `RelayBinding` originate in Task 1 and are consumed unchanged in later tasks.
-- `TwilioProvider`, `PolicyEngine`, and their deterministic fakes originate in the foundation-cloud plan; Task 2 adds only the signed-webhook and ConversationRelay boundary.
+- `CallPhase`, `TranscriptState`, `OutboundCallCommand`, base `ExpectedOutboundCall`, and `RelayBinding` originate in Task 1. Task 3's `StoredOutboundCallAttempt` extends the base expected-call fields with audited attempt identity/ordinal without redefining them.
+- `TwilioProvider`, `PolicyEngine`, and their deterministic fakes originate in the foundation-cloud plan; Task 2 extends Twilio inputs with explicit immutable `attemptId` and adds the signed-webhook, trusted-route, and ConversationRelay boundary.
 - `ConversationService.handleTurn`, `OutboxDispatcher.dispatch`, and `ModelAdapter.stream` originate in Task 5 and are consumed by Task 6 and the later Telegram plan.
 - `CallRepository.claimExpectedCall` produces `RelayBinding`, which Task 6 validates before model traffic.
-- Foundation `PolicyEngine.evaluateOutboundCall` produces the immutable policy decision used for both initial and immediately-before-dispatch checks in Task 7.
+- Foundation `PolicyEngine.evaluateOutboundCall` produces the immutable initial decision; Task 3's sole dispatcher consumes the separately audited final recheck and attempt ID after synchronously freezing the same command. Task 7 only composes those two owners.
 - `validateEvidence` is exported by Task 9 and tested by the colocated live-gate unit test.
 
 Approved execution mode: use `superpowers:subagent-driven-development` in the same isolated feature worktree after every foundation task passes, dispatch one fresh implementer per task, and require independent spec-compliance and code-quality review before advancing. The cost-bearing credentialed smoke commands remain deferred to the release execution checkpoint.
