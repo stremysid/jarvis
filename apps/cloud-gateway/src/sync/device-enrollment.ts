@@ -1,5 +1,6 @@
 import { canonicalJson, sha256Hex } from "../../../../packages/contracts/src/index.js";
 import { TransactionRunner } from "../persistence/transaction.js";
+import { decodePinVerifierRecord } from "../security/pin-verifier.js";
 
 export interface DeviceEnrollmentInput {
   schemaVersion: "1.0";
@@ -88,20 +89,6 @@ function decodeCanonicalBase64Url(value: unknown, byteLength: number, error: str
   } catch { throw new TypeError(error); }
 }
 
-function validatePinVerifier(raw: string): { schemaVersion: "1.0" } {
-  let parsed: unknown;
-  try { parsed = JSON.parse(raw); } catch { throw new TypeError("pin_verifier_invalid"); }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed) || Object.getPrototypeOf(parsed) !== Object.prototype) throw new TypeError("pin_verifier_invalid");
-  const record = parsed as Record<string, unknown>;
-  const keys = Object.keys(record);
-  const expected = ["schemaVersion", "algorithm", "iterations", "saltBase64", "digestBase64"];
-  if (keys.length !== expected.length || expected.some((field) => !keys.includes(field))) throw new TypeError("pin_verifier_invalid");
-  if (record.schemaVersion !== "1.0" || record.algorithm !== "pbkdf2-hmac-sha256" || !Number.isSafeInteger(record.iterations) || (record.iterations as number) < 600_000) throw new TypeError("pin_verifier_invalid");
-  decodeCanonicalBase64(record.saltBase64, 16, "pin_verifier_invalid");
-  decodeCanonicalBase64(record.digestBase64, 32, "pin_verifier_invalid");
-  return { schemaVersion: "1.0" };
-}
-
 function validateInput(value: unknown): DeviceEnrollmentInput {
   const record = exactRecord(value);
   if (record.schemaVersion !== "1.0") throw new TypeError("bootstrap_request_invalid");
@@ -132,7 +119,7 @@ export class DeviceEnrollment {
   }
 
   async bootstrap(rawInput: DeviceEnrollmentInput): Promise<DeviceEnrollmentResult> {
-    const pin = validatePinVerifier(this.deps.pinVerifierJson);
+    const pin = decodePinVerifierRecord(this.deps.pinVerifierJson);
     const input = validateInput(rawInput);
     const now = (this.deps.now ?? (() => new Date()))();
     const nowText = now.toISOString();

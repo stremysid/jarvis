@@ -546,11 +546,30 @@ describe("CallRepository", () => {
   });
 
   it("uses CallSid plus SessionId for relay-ended without status sequence fields", async () => {
+    const expected = await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
+    await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
+    const binding = await repository.claimExpectedCall({
+      attemptId: ATTEMPT_0,
+      callSid: CALL_SID_1,
+      observedDestinationIdentityId: expected.destinationIdentityId,
+      now: NOW,
+    });
+    if (binding === null) throw new Error("test_binding_failed");
+    const session = await repository.getOrCreateOutboundSession({ attemptId: ATTEMPT_0, binding, now: NOW });
+    const providerSessionId = `VX${"3".repeat(32)}`;
+    await repository.bindRelaySession({
+      sessionId: session.sessionId,
+      callSid: CALL_SID_1,
+      providerSessionId,
+      relayNonce: binding.relayNonce,
+      direction: "outbound",
+      now: NOW,
+    });
     const envelope = await callbackEnvelope();
     await repository.appendProviderEvent({
       endpointKind: "relay_ended",
       callSid: CALL_SID_1,
-      sessionId: `VX${"3".repeat(32)}`,
+      sessionId: providerSessionId,
       requestHash: await sha256Hex(canonicalJson({ relay: "ended" })),
       envelope,
     });

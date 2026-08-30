@@ -1,6 +1,11 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { applyFoundationMigration } from "./migration.js";
+import {
+  applyFoundationMigration,
+  clearAuthenticationAttemptReservationsForTest,
+  clearCallSessionsForTest,
+  clearOutboundCallAttemptsForTest,
+} from "./migration.js";
 
 const validHash = "0".repeat(64);
 const invalidHash = "g".repeat(64);
@@ -39,12 +44,63 @@ function insertSnapshot(snapshotId: string, principalId: string, deviceId: strin
 describe("foundation migration constraints", () => {
   beforeEach(async () => {
     await applyFoundationMigration();
+    await env.DB.prepare("DELETE FROM provider_events").run();
+    await clearCallSessionsForTest();
+    await clearAuthenticationAttemptReservationsForTest();
+    await clearOutboundCallAttemptsForTest();
     await env.DB.batch([
       env.DB.prepare("DELETE FROM policy_decisions"),
       env.DB.prepare("DELETE FROM sync_ack_receipts"), env.DB.prepare("DELETE FROM sync_snapshots"), env.DB.prepare("DELETE FROM request_nonces"), env.DB.prepare("DELETE FROM identity_challenges"),
       env.DB.prepare("DELETE FROM channel_identities"), env.DB.prepare("DELETE FROM consumer_cursors"), env.DB.prepare("DELETE FROM bootstrap_tokens"), env.DB.prepare("DELETE FROM device_keys"), env.DB.prepare("DELETE FROM principals"), env.DB.prepare("DELETE FROM outbox"),
       env.DB.prepare("DELETE FROM idempotency_records"), env.DB.prepare("DELETE FROM events"),
     ]);
+  });
+
+  it("installs the Task 4 session and hashed append-only authentication schema", async () => {
+    const columns = await env.DB.prepare("PRAGMA table_info(call_sessions)").all<{
+      name: string;
+      notnull: number;
+      pk: number;
+    }>();
+    const sessionId = columns.results.find((column) => column.name === "session_id");
+    expect(sessionId).toMatchObject({ notnull: 1, pk: 1 });
+    expect(columns.results.map((column) => column.name)).toEqual(expect.arrayContaining([
+      "destination_identity_id",
+      "activation_challenge_id",
+      "relay_setup_expires_at",
+      "provider_session_id",
+      "phase",
+    ]));
+
+    const foreignKeys = await env.DB.prepare("PRAGMA foreign_key_list(call_sessions)").all<{ table: string }>();
+    expect(foreignKeys.results.map((key) => key.table)).toEqual(expect.arrayContaining([
+      "outbound_call_attempts", "principals", "channel_identities",
+    ]));
+    expect(foreignKeys.results.map((key) => key.table)).not.toContain("identity_challenges");
+
+    const authColumns = await env.DB.prepare("PRAGMA table_info(authentication_attempt_reservations)").all<{ name: string }>();
+    expect(authColumns.results.map((column) => column.name)).toEqual([
+      "reservation_id", "attempt_kind", "call_sid_bucket_hash", "composite_bucket_hash",
+      "global_bucket_hash", "challenge_bucket_hash", "created_at", "expires_at",
+    ]);
+    expect(authColumns.results.map((column) => column.name).join(" ")).not.toMatch(/phone|pin|response|principal|identity|verifier/iu);
+
+    const triggers = await env.DB.prepare(`SELECT name FROM sqlite_master
+      WHERE type = 'trigger' AND (
+        name LIKE 'call_sessions_%'
+        OR name LIKE 'authentication_attempt_reservations_%'
+        OR name = 'provider_events_relay_require_bound_session'
+      ) ORDER BY name`).all<{ name: string }>();
+    expect(triggers.results.map((trigger) => trigger.name)).toEqual(expect.arrayContaining([
+      "call_sessions_immutable_lineage",
+      "call_sessions_require_initial_state",
+      "call_sessions_phase_transition",
+      "call_sessions_provider_binding_once",
+      "call_sessions_reject_delete",
+      "authentication_attempt_reservations_append_only",
+      "authentication_attempt_reservations_reject_delete",
+      "provider_events_relay_require_bound_session",
+    ]));
   });
 
   it("rejects non-lowercase-hex values in every SHA-256 persistence column", async () => {

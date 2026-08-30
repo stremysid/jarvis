@@ -7,8 +7,10 @@ const STRICT_SHA1_BASE64 = /^[A-Za-z0-9+/]{27}=$/;
 const BAD_PERCENT_ESCAPE = /%(?![0-9A-Fa-f]{2})/;
 const RAW_URL_CONTROL_OR_BACKSLASH = /[\u0000-\u0020\u007f-\u009f\\]/u;
 
-type FormPair = readonly [string, string];
+export type VerifiedTwilioFormPair = readonly [string, string];
+type FormPair = VerifiedTwilioFormPair;
 const verifiedTwilioFormBrand: unique symbol = Symbol("verifiedTwilioForm");
+const issuedTwilioForms = new WeakMap<object, readonly FormPair[]>();
 
 /** Nominal capability minted only after a Twilio signature has been verified. */
 export interface VerifiedTwilioForm {
@@ -34,6 +36,7 @@ class FrozenVerifiedTwilioForm implements VerifiedTwilioForm {
   constructor(pairs: readonly FormPair[]) {
     this.#pairs = Object.freeze(pairs.map(([name, value]) => Object.freeze([name, value] as const)));
     Object.freeze(this);
+    issuedTwilioForms.set(this, this.#pairs);
   }
 
   get(name: string): string | null {
@@ -52,6 +55,17 @@ class FrozenVerifiedTwilioForm implements VerifiedTwilioForm {
   entries(): readonly FormPair[] {
     return this.#pairs;
   }
+}
+
+/** Runtime nominal check for forms minted by this verifier module after signature validation. */
+export function isVerifiedTwilioForm(value: unknown): value is VerifiedTwilioForm {
+  return value !== null && typeof value === "object" && issuedTwilioForms.has(value);
+}
+
+/** Returns the immutable verifier-owned field snapshot without dispatching methods on the capability. */
+export function snapshotVerifiedTwilioFormPairs(value: unknown): readonly VerifiedTwilioFormPair[] | null {
+  if (!isVerifiedTwilioForm(value)) return null;
+  return issuedTwilioForms.get(value) ?? null;
 }
 
 function decodeFormComponent(component: string): string | null {
