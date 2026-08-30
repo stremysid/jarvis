@@ -36,7 +36,7 @@ class TestContext implements MutablePolicyContext {
 async function insertPrincipalAndIdentity(principalId = "principal:owner", identityId = "identity:voice", identityPrincipalId = principalId, status = "active", verifiedAt: string | null = instant.toISOString()): Promise<void> {
   await env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at) VALUES (?, 'human', 'active', 'test', '1.0', 'PIN_VERIFIER_JSON', ?, ?)")
     .bind(principalId, instant.toISOString(), instant.toISOString()).run();
-  await env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES (?, ?, 'voice', 'opaque-destination', ?, ?, ?)")
+  await env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES (?, ?, 'voice', '+14165550123', ?, ?, ?)")
     .bind(identityId, identityPrincipalId, status, verifiedAt, instant.toISOString()).run();
 }
 
@@ -143,10 +143,30 @@ describe("PolicyEngine", () => {
   it("rechecks mutable guards at dispatch time and appends a redaction-safe audit event", async () => {
     await evaluate(request());
     context.killSwitch = true;
-    await expect(recheck(request())).resolves.toMatchObject({ decision: "deny", reason: "kill_switch_enabled", checkedAt: instant.toISOString() });
+    await expect(recheck(request())).resolves.toMatchObject({
+      decision: "deny",
+      reason: "kill_switch_enabled",
+      checkedAt: instant.toISOString(),
+      attemptId: context.attemptId,
+    });
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events WHERE event_type = 'policy.dispatch_checked'").first<{ count: number }>())?.count).toBe(1);
     const stored = await env.DB.prepare("SELECT envelope_json FROM events WHERE event_type = 'policy.dispatch_checked'").first<{ envelope_json: string }>();
-    expect(stored?.envelope_json).not.toContain("opaque-destination");
+    expect(stored?.envelope_json).not.toContain("+14165550123");
+  });
+
+  it("returns the active verified E.164 only with an audited allow", async () => {
+    await evaluate(request());
+
+    await expect(recheck(request())).resolves.toEqual({
+      decision: "allow",
+      reason: "allowed",
+      checkedAt: instant.toISOString(),
+      attemptId: context.attemptId,
+      destinationE164: "+14165550123",
+      commandId: request().commandId,
+    });
+    const stored = await env.DB.prepare("SELECT envelope_json FROM events WHERE event_type = 'policy.dispatch_checked'").first<{ envelope_json: string }>();
+    expect(stored?.envelope_json).not.toContain("+14165550123");
   });
 
   it("denies dispatch without a matching allowed authorization", async () => {
@@ -231,7 +251,19 @@ describe("PolicyEngine", () => {
   it("rechecks destination identity ownership and verification after authorization", async () => {
     await evaluate(request());
     await env.DB.prepare("UPDATE channel_identities SET status = 'disabled' WHERE identity_id = 'identity:voice'").run();
-    await expect(recheck(request())).resolves.toMatchObject({ decision: "deny", reason: "destination_not_verified" });
+    const check = await recheck(request()) as Record<string, unknown>;
+    expect(check).toMatchObject({ decision: "deny", reason: "destination_not_verified" });
+    expect(check).not.toHaveProperty("destinationE164");
+  });
+
+  it("never dispatches an unvalidated provider destination", async () => {
+    await evaluate(request());
+    await env.DB.prepare("UPDATE channel_identities SET provider_subject = 'not-an-e164' WHERE identity_id = 'identity:voice'").run();
+
+    const check = await recheck(request()) as Record<string, unknown>;
+
+    expect(check).toMatchObject({ decision: "deny", reason: "destination_not_verified" });
+    expect(check).not.toHaveProperty("destinationE164");
   });
 
   it("rechecks destination unverification and deletion after authorization", async () => {

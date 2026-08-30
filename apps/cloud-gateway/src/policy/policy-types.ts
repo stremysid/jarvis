@@ -27,6 +27,12 @@ export interface PolicyDecision {
 
 export interface DispatchPolicyCheck extends PolicyDecision {
   checkedAt: string;
+  /** Stable audited attempt identity; present only after a dispatch check is durably recorded. */
+  attemptId?: string;
+  /** Active verified transport destination; present only on an audited allow. */
+  destinationE164?: string;
+  /** Canonical command identity captured by the same validated request and audit. */
+  commandId?: string;
 }
 
 export interface PolicyEngineContract {

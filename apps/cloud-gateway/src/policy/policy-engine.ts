@@ -22,6 +22,7 @@ const FIELDS = ["commandId", "principalId", "purposeCode", "destinationIdentityI
 const FIELD_SET = new Set<string>(FIELDS);
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
+const E164 = /^\+[1-9][0-9]{1,14}$/;
 const UTC_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const encoder = new TextEncoder();
 
@@ -87,12 +88,17 @@ export class PolicyEngine implements PolicyEngineContract {
     const inputHash = await sha256Hex(canonicalJson(request));
     const stored = await this.readDecision(request.commandId);
     let result: PolicyDecision;
+    let destinationE164: string | null = null;
     if (stored === null) result = denied("authorization_missing");
     else if (stored.input_hash !== inputHash) result = denied("policy_command_conflict");
     else if (stored.outcome !== "allow") result = denied("authorization_denied");
     else if (!await this.hasTrustedOrigin(request, inputHash)) result = denied("invalid_origin");
-    else if (!await this.verifiedDestination(request.principalId, request.destinationIdentityId)) result = denied("destination_not_verified");
-    else result = await this.recheckMutable(request, new Date(checkedAt));
+    else {
+      destinationE164 = await this.resolveVerifiedVoiceDestination(request.principalId, request.destinationIdentityId);
+      result = destinationE164 === null
+        ? denied("destination_not_verified")
+        : await this.recheckMutable(request, new Date(checkedAt));
+    }
     const check: DispatchPolicyCheck = { ...result, checkedAt };
     let attemptId: string;
     try { attemptId = this.deps.context.dispatchAttemptId(request.commandId); }
@@ -100,7 +106,9 @@ export class PolicyEngine implements PolicyEngineContract {
     if (!isUlid(attemptId)) return { decision: "deny", reason: "invalid_dispatch_attempt", checkedAt };
     try {
       await this.audit.appendDispatchCheck({ attemptId, principalId: request.principalId, commandId: request.commandId, inputHash, check });
-      return check;
+      return result.decision === "allow" && destinationE164 !== null
+        ? { ...check, attemptId, destinationE164, commandId: request.commandId }
+        : { ...check, attemptId };
     } catch { return { decision: "deny", reason: "audit_persistence_failed", checkedAt }; }
   }
 
@@ -137,9 +145,14 @@ export class PolicyEngine implements PolicyEngineContract {
       && (origin.issuedBy === "telegram_call_command" || origin.issuedBy === "local_cli");
   }
   private async verifiedDestination(principalId: string, identityId: string): Promise<boolean> {
-    const row = await this.deps.database.prepare("SELECT 1 AS verified FROM channel_identities WHERE identity_id = ? AND principal_id = ? AND channel = 'voice' AND status = 'active' AND verified_at IS NOT NULL")
-      .bind(identityId, principalId).first<{ verified: number }>();
-    return row?.verified === 1;
+    return await this.resolveVerifiedVoiceDestination(principalId, identityId) !== null;
+  }
+  private async resolveVerifiedVoiceDestination(principalId: string, identityId: string): Promise<string | null> {
+    const row = await this.deps.database.prepare("SELECT provider_subject FROM channel_identities WHERE identity_id = ? AND principal_id = ? AND channel = 'voice' AND status = 'active' AND verified_at IS NOT NULL")
+      .bind(identityId, principalId).first<{ provider_subject: string }>();
+    return typeof row?.provider_subject === "string" && E164.test(row.provider_subject)
+      ? row.provider_subject
+      : null;
   }
   private async readDecision(commandId: string): Promise<StoredDecision | null> { return this.deps.database.prepare("SELECT input_hash, outcome, reason_code FROM policy_decisions WHERE decision_id = ?").bind(commandId).first<StoredDecision>(); }
   private fromStored(stored: StoredDecision): PolicyDecision { return { decision: stored.outcome, reason: stored.reason_code }; }
