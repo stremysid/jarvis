@@ -39,6 +39,7 @@ export interface ExpectedOutboundCall {
   destinationIdentityId: string;
   relayNonce: string;
   nonceExpiresAt: string;
+  authorizationExpiresAt: string;
   idempotencyKey: string;
 }
 

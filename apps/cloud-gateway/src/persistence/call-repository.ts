@@ -8,7 +8,7 @@ import {
   type Sha256Hex,
   type Ulid,
 } from "../../../../packages/contracts/src/index.js";
-import { ProviderFailure, type ProviderFailureCode } from "../providers/provider-types.js";
+import { ProviderFailure, snapshotProviderFailure, type ProviderFailureCode } from "../providers/provider-types.js";
 import {
   EventRepository,
   type AppendedEvent,
@@ -19,6 +19,7 @@ const CALL_SID = /^CA[0-9A-Fa-f]{32}$/u;
 const SESSION_ID = /^VX[0-9A-Fa-f]{32}$/u;
 const RELAY_NONCE = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u;
 const CALLBACK_SOURCE = "call-progress-events";
+const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const MAX_TEXT_BYTES = 256;
 const encoder = new TextEncoder();
 
@@ -30,8 +31,11 @@ export interface ProviderDispatchClaimCapability {
   readonly [dispatchClaimBrand]: true;
 }
 
+/** Only `claimed` carries POST authority; an expired ready attempt remains unchanged and capability-free. */
 export type ProviderDispatchClaim =
   | { kind: "claimed"; capability: ProviderDispatchClaimCapability }
+  | { kind: "authorization_expired" }
+  | { kind: "relay_nonce_expired" }
   | { kind: "dispatched"; callSid: string }
   | { kind: "rejected"; failureCode: ProviderFailureCode; retryEligible: boolean }
   | { kind: "provider_dispatch_unknown" };
@@ -79,6 +83,7 @@ interface StoredAttemptRow {
   command_idempotency_key: string;
   relay_nonce: string;
   nonce_expires_at: string;
+  authorization_expires_at: string;
   provider_dispatch_state: ProviderDispatchState;
   provider_failure_code: ProviderFailureCode | null;
   provider_failure_category: string | null;
@@ -86,19 +91,25 @@ interface StoredAttemptRow {
   retry_eligible: number;
 }
 
-interface ExpectedCallInput {
+export interface ExpectedCallInput {
   attemptId: Ulid;
   commandId: Ulid;
   principalId: string;
   destinationIdentityId: string;
   idempotencyKey: string;
+  authorizationExpiresAt: string;
   now: Date;
-  /** Internal allocation proof supplied by the dispatcher; callers may omit it for replay. */
-  attemptOrdinal?: 0 | 1;
+  /** Internal allocation proof supplied by the dispatcher and retained across race recovery. */
+  attemptOrdinal: 0 | 1;
 }
 
+type ExpectedCallSnapshot = Readonly<
+  Omit<ExpectedCallInput, "now">
+  & { nowIso: string }
+>;
+
 export class AttemptAllocationRaceError extends Error {
-  constructor(readonly currentAttemptId: Ulid) {
+  constructor(readonly currentAttemptId: Ulid, readonly attemptOrdinal: 0 | 1) {
     super("outbound_attempt_allocation_race");
     this.name = "AttemptAllocationRaceError";
   }
@@ -115,9 +126,23 @@ function isUlid(value: unknown): value is Ulid {
   return typeof value === "string" && ULID.test(value);
 }
 
+function isCallSid(value: unknown): value is string {
+  return typeof value === "string" && CALL_SID.test(value);
+}
+
 function requireDate(value: Date, label: string): string {
-  if (!(value instanceof Date) || Number.isNaN(value.valueOf())) throw new TypeError(`${label}_invalid`);
-  return value.toISOString();
+  let epochMs: number;
+  try { epochMs = Date.prototype.getTime.call(value); }
+  catch { throw new TypeError(`${label}_invalid`); }
+  if (!Number.isFinite(epochMs)) throw new TypeError(`${label}_invalid`);
+  return new Date(epochMs).toISOString();
+}
+
+function requireCanonicalTimestamp(value: unknown, label: string): string {
+  if (typeof value !== "string" || !UTC_MILLISECONDS.test(value)) throw new TypeError(`${label}_invalid`);
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.valueOf()) || parsed.toISOString() !== value) throw new TypeError(`${label}_invalid`);
+  return value;
 }
 
 function requireSafeText(value: unknown, label: string): asserts value is string {
@@ -132,19 +157,20 @@ function requireSafeText(value: unknown, label: string): asserts value is string
   }
 }
 
-function snapshotExpectedCallInput(input: ExpectedCallInput): Readonly<Omit<ExpectedCallInput, "now"> & { nowIso: string }> {
+function snapshotExpectedCallInput(input: ExpectedCallInput): ExpectedCallSnapshot {
   const attemptId = input.attemptId;
   const commandId = input.commandId;
   const principalId = input.principalId;
   const destinationIdentityId = input.destinationIdentityId;
   const idempotencyKey = input.idempotencyKey;
+  const authorizationExpiresAt = input.authorizationExpiresAt;
   const attemptOrdinal = input.attemptOrdinal;
   const now = input.now;
   if (!isUlid(attemptId) || !isUlid(commandId)) throw new TypeError("outbound_attempt_identity_invalid");
   requireSafeText(principalId, "principal_id");
   requireSafeText(destinationIdentityId, "destination_identity_id");
   requireSafeText(idempotencyKey, "command_idempotency_key");
-  if (attemptOrdinal !== undefined && attemptOrdinal !== 0 && attemptOrdinal !== 1) {
+  if (attemptOrdinal !== 0 && attemptOrdinal !== 1) {
     throw new TypeError("outbound_attempt_ordinal_invalid");
   }
   return Object.freeze({
@@ -153,6 +179,7 @@ function snapshotExpectedCallInput(input: ExpectedCallInput): Readonly<Omit<Expe
     principalId,
     destinationIdentityId,
     idempotencyKey,
+    authorizationExpiresAt: requireCanonicalTimestamp(authorizationExpiresAt, "authorization_expires_at"),
     attemptOrdinal,
     nowIso: requireDate(now, "outbound_attempt_now"),
   });
@@ -162,15 +189,15 @@ function explicitRejection(failure: ProviderFailure): {
   code: "provider_transient_failure" | "provider_authentication_failure" | "provider_permanent_failure";
   category: "rate_limited" | "authentication" | "invalid_request";
 } | null {
-  if (!(failure instanceof ProviderFailure)) return null;
-  if (failure.code === "provider_transient_failure" && failure.category === "rate_limited") {
-    return { code: failure.code, category: failure.category };
+  const facts = snapshotProviderFailure(failure);
+  if (facts?.code === "provider_transient_failure" && facts.category === "rate_limited") {
+    return { code: facts.code, category: facts.category };
   }
-  if (failure.code === "provider_authentication_failure" && failure.category === "authentication") {
-    return { code: failure.code, category: failure.category };
+  if (facts?.code === "provider_authentication_failure" && facts.category === "authentication") {
+    return { code: facts.code, category: facts.category };
   }
-  if (failure.code === "provider_permanent_failure" && failure.category === "invalid_request") {
-    return { code: failure.code, category: failure.category };
+  if (facts?.code === "provider_permanent_failure" && facts.category === "invalid_request") {
+    return { code: facts.code, category: facts.category };
   }
   return null;
 }
@@ -178,7 +205,8 @@ function explicitRejection(failure: ProviderFailure): {
 /** Calling persistence with atomic allocation, provider claims, and callback receipt dependencies. */
 export class CallRepository {
   private readonly issuedClaims = new WeakSet<object>();
-  private readonly consumedClaims = new WeakSet<object>();
+  private readonly begunClaims = new WeakSet<object>();
+  private readonly settledClaims = new WeakSet<object>();
 
   constructor(
     private readonly database: D1Database,
@@ -222,28 +250,59 @@ export class CallRepository {
     throw await this.classifyAttemptInsertFailure(snapshot.commandId, snapshot.attemptOrdinal, insertError);
   }
 
+  /** Claims an unexpired ready attempt, while a previously claimed attempt always recovers to unknown. */
   async claimProviderDispatch(input: { attemptId: Ulid; now: Date }): Promise<ProviderDispatchClaim> {
     const attemptId = input.attemptId;
     const now = input.now;
     if (!isUlid(attemptId)) throw new TypeError("attempt_id_invalid");
     const observedAt = requireDate(now, "provider_dispatch_claim_now");
-    const row = await this.database.prepare(`UPDATE outbound_call_attempts
-      SET provider_dispatch_state = CASE provider_dispatch_state WHEN 'ready' THEN 'claimed' ELSE 'provider_dispatch_unknown' END,
-          provider_dispatch_claimed_at = COALESCE(provider_dispatch_claimed_at, ?1),
-          provider_dispatch_resolved_at = CASE WHEN provider_dispatch_state = 'claimed' THEN ?2 ELSE provider_dispatch_resolved_at END
-      WHERE attempt_id = ?3 AND provider_dispatch_state IN ('ready', 'claimed')
-      RETURNING provider_dispatch_state`)
-      .bind(observedAt, observedAt, attemptId)
-      .first<{ provider_dispatch_state: ProviderDispatchState }>();
+    const row = await this.updateDispatchClaim(attemptId, observedAt);
     if (row?.provider_dispatch_state === "claimed") {
       const capability = Object.freeze({ attemptId }) as ProviderDispatchClaimCapability;
       this.issuedClaims.add(capability);
       return { kind: "claimed", capability };
     }
     if (row?.provider_dispatch_state === "provider_dispatch_unknown") return { kind: "provider_dispatch_unknown" };
-    const terminal = await this.readDispatchResult(attemptId);
+    const stored = await this.readAttempt(attemptId);
+    if (
+      stored?.provider_dispatch_state === "ready"
+      && stored.authorization_expires_at <= observedAt
+    ) {
+      return { kind: "authorization_expired" };
+    }
+    if (
+      stored?.provider_dispatch_state === "ready"
+      && stored.nonce_expires_at <= observedAt
+    ) {
+      return { kind: "relay_nonce_expired" };
+    }
+    if (stored?.provider_dispatch_state === "claimed") {
+      const recovered = await this.updateDispatchClaim(attemptId, observedAt);
+      if (recovered?.provider_dispatch_state === "provider_dispatch_unknown") {
+        return { kind: "provider_dispatch_unknown" };
+      }
+      const afterRecovery = await this.readAttempt(attemptId);
+      const recoveredTerminal = afterRecovery === null ? null : this.dispatchResultFromRow(afterRecovery);
+      if (recoveredTerminal !== null) return recoveredTerminal;
+      throw new Error("dispatch_claim_invariant");
+    }
+    const terminal = stored === null ? null : this.dispatchResultFromRow(stored);
     if (terminal === null) throw new Error("dispatch_claim_invariant");
     return terminal;
+  }
+
+  /** Atomically binds one-shot in-memory POST authority to the dispatcher's audited attempt. */
+  beginProviderDispatch(claim: ProviderDispatchClaimCapability, expectedAttemptId: Ulid): void {
+    if (
+      !isUlid(expectedAttemptId)
+      || !this.issuedClaims.has(claim)
+      || claim.attemptId !== expectedAttemptId
+      || this.begunClaims.has(claim)
+      || this.settledClaims.has(claim)
+    ) {
+      throw new Error("provider_dispatch_claim_invalid");
+    }
+    this.begunClaims.add(claim);
   }
 
   async recordProviderDispatchSuccess(input: { claim: ProviderDispatchClaimCapability; callSid: string; now: Date }): Promise<void> {
@@ -251,8 +310,8 @@ export class CallRepository {
     const callSid = input.callSid;
     const now = input.now;
     const attemptId = claim.attemptId;
-    this.consumeIssuedClaim(claim);
-    if (!CALL_SID.test(callSid)) throw new TypeError("provider_call_sid_invalid");
+    this.settleBegunClaim(claim);
+    if (!isCallSid(callSid)) throw new TypeError("provider_call_sid_invalid");
     const resolvedAt = requireDate(now, "provider_dispatch_success_now");
     await this.resolveSuccess(attemptId, callSid, resolvedAt);
   }
@@ -262,7 +321,7 @@ export class CallRepository {
     const failure = input.failure;
     const now = input.now;
     const attemptId = claim.attemptId;
-    this.consumeIssuedClaim(claim);
+    this.settleBegunClaim(claim);
     const rejection = explicitRejection(failure);
     if (rejection === null) throw new TypeError("provider_dispatch_rejection_invalid");
     const resolvedAt = requireDate(now, "provider_dispatch_rejection_now");
@@ -273,7 +332,7 @@ export class CallRepository {
     const claim = input.claim;
     const now = input.now;
     const attemptId = claim.attemptId;
-    this.consumeIssuedClaim(claim);
+    this.settleBegunClaim(claim);
     const resolvedAt = requireDate(now, "provider_dispatch_unknown_now");
     await this.resolveUnknown(attemptId, resolvedAt);
   }
@@ -289,7 +348,7 @@ export class CallRepository {
     const observedDestinationIdentityId = input.observedDestinationIdentityId;
     const now = input.now;
     if (!isUlid(attemptId)) throw new TypeError("attempt_id_invalid");
-    if (!CALL_SID.test(callSid)) throw new TypeError("call_sid_invalid");
+    if (!isCallSid(callSid)) throw new TypeError("call_sid_invalid");
     requireSafeText(observedDestinationIdentityId, "destination_identity_id");
     const observedAt = requireDate(now, "relay_claim_now");
     const row = await this.database.prepare(`UPDATE outbound_call_attempts
@@ -335,7 +394,7 @@ export class CallRepository {
     const callSid = input.callSid;
     const envelope = input.envelope;
     const requestHash = input.requestHash;
-    if (!CALL_SID.test(callSid)) throw new TypeError("provider_event_call_sid_invalid");
+    if (!isCallSid(callSid)) throw new TypeError("provider_event_call_sid_invalid");
     if (!isPersistableEventEnvelope(envelope) || envelope.eventSequence !== undefined) {
       throw new TypeError("provider_event_envelope_invalid");
     }
@@ -396,16 +455,30 @@ export class CallRepository {
 
   private async readAttempt(attemptId: Ulid): Promise<StoredAttemptRow | null> {
     return this.database.prepare(`SELECT attempt_id, command_id, attempt_ordinal, principal_id,
-      destination_identity_id, command_idempotency_key, relay_nonce, nonce_expires_at,
+      destination_identity_id, command_idempotency_key, relay_nonce, nonce_expires_at, authorization_expires_at,
       provider_dispatch_state, provider_failure_code, provider_failure_category, provider_call_sid, retry_eligible
       FROM outbound_call_attempts WHERE attempt_id = ?1`)
       .bind(attemptId)
       .first<StoredAttemptRow>();
   }
 
+  private updateDispatchClaim(attemptId: Ulid, observedAt: string): Promise<{ provider_dispatch_state: ProviderDispatchState } | null> {
+    return this.database.prepare(`UPDATE outbound_call_attempts
+      SET provider_dispatch_state = CASE provider_dispatch_state WHEN 'ready' THEN 'claimed' ELSE 'provider_dispatch_unknown' END,
+          provider_dispatch_claimed_at = COALESCE(provider_dispatch_claimed_at, ?1),
+          provider_dispatch_resolved_at = CASE WHEN provider_dispatch_state = 'claimed' THEN ?2 ELSE provider_dispatch_resolved_at END
+      WHERE attempt_id = ?3 AND provider_dispatch_state IN ('ready', 'claimed')
+        AND (provider_dispatch_state = 'claimed' OR (
+          nonce_expires_at > ?4 AND authorization_expires_at > ?4
+        ))
+      RETURNING provider_dispatch_state`)
+      .bind(observedAt, observedAt, attemptId, observedAt)
+      .first<{ provider_dispatch_state: ProviderDispatchState }>();
+  }
+
   private async readAttemptsForCommand(commandId: Ulid): Promise<StoredAttemptRow[]> {
     const result = await this.database.prepare(`SELECT attempt_id, command_id, attempt_ordinal, principal_id,
-      destination_identity_id, command_idempotency_key, relay_nonce, nonce_expires_at,
+      destination_identity_id, command_idempotency_key, relay_nonce, nonce_expires_at, authorization_expires_at,
       provider_dispatch_state, provider_failure_code, provider_failure_category, provider_call_sid, retry_eligible
       FROM outbound_call_attempts WHERE command_id = ?1 ORDER BY attempt_ordinal ASC`)
       .bind(commandId)
@@ -425,6 +498,7 @@ export class CallRepository {
       destinationIdentityId: row.destination_identity_id,
       relayNonce: row.relay_nonce,
       nonceExpiresAt: row.nonce_expires_at,
+      authorizationExpiresAt: row.authorization_expires_at,
       idempotencyKey: row.command_idempotency_key,
     });
   }
@@ -442,13 +516,15 @@ export class CallRepository {
 
   private requireMatchingLineage(
     row: StoredAttemptRow,
-    input: Readonly<Omit<ExpectedCallInput, "now"> & { nowIso: string }>,
+    input: ExpectedCallSnapshot,
   ): StoredOutboundCallAttempt {
     if (
       row.command_id !== input.commandId
       || row.principal_id !== input.principalId
       || row.destination_identity_id !== input.destinationIdentityId
       || row.command_idempotency_key !== input.idempotencyKey
+      || row.authorization_expires_at !== input.authorizationExpiresAt
+      || row.attempt_ordinal !== input.attemptOrdinal
     ) {
       throw new Error("outbound_attempt_conflict");
     }
@@ -456,29 +532,37 @@ export class CallRepository {
   }
 
   private async insertEligibleAttempt(
-    input: Readonly<Omit<ExpectedCallInput, "now"> & { nowIso: string }>,
+    input: ExpectedCallSnapshot,
     relayNonce: string,
     nonceExpiresAt: string,
   ): Promise<void> {
     await this.database.prepare(`INSERT INTO outbound_call_attempts (
       attempt_id, command_id, attempt_ordinal, principal_id, destination_identity_id,
-      command_idempotency_key, relay_nonce, nonce_expires_at, provider_dispatch_state,
+      command_idempotency_key, relay_nonce, nonce_expires_at, authorization_expires_at, provider_dispatch_state,
       retry_eligible, created_at
     )
     SELECT ?1, p.decision_id,
       CASE COUNT(a.attempt_id) WHEN 0 THEN 0 ELSE 1 END,
-      ?2, ?3, ?4, ?5, ?6, 'ready', 0, ?7
+      ?2, ?3, ?4, ?5, ?6, ?7, 'ready', 0, ?8
     FROM policy_decisions p
     LEFT JOIN outbound_call_attempts a ON a.command_id = p.decision_id
-    WHERE p.decision_id = ?8 AND p.principal_id = ?9 AND p.outcome = 'allow'
+    WHERE p.decision_id = ?9 AND p.principal_id = ?10 AND p.outcome = 'allow'
     GROUP BY p.decision_id, p.principal_id
-    HAVING COUNT(a.attempt_id) = 0
+    HAVING (
+      COUNT(a.attempt_id) = 0
       OR (
         COUNT(a.attempt_id) = 1
         AND SUM(CASE WHEN a.attempt_ordinal = 0
           AND a.provider_dispatch_state = 'rejected'
-          AND a.retry_eligible = 1 THEN 1 ELSE 0 END) = 1
-      )`)
+          AND a.retry_eligible = 1
+          AND a.principal_id = ?2
+          AND a.destination_identity_id = ?3
+          AND a.command_idempotency_key = ?4
+          AND a.authorization_expires_at = ?7
+          THEN 1 ELSE 0 END) = 1
+      )
+    )
+      AND ?11 = CASE COUNT(a.attempt_id) WHEN 0 THEN 0 ELSE 1 END`)
       .bind(
         input.attemptId,
         input.principalId,
@@ -486,22 +570,24 @@ export class CallRepository {
         input.idempotencyKey,
         relayNonce,
         nonceExpiresAt,
+        input.authorizationExpiresAt,
         input.nowIso,
         input.commandId,
         input.principalId,
+        input.attemptOrdinal,
       )
       .run();
   }
 
   private async classifyAttemptInsertFailure(
     commandId: Ulid,
-    expectedOrdinal: 0 | 1 | undefined,
+    expectedOrdinal: 0 | 1,
     insertError: unknown,
   ): Promise<Error> {
     const rows = await this.readAttemptsForCommand(commandId);
-    if (expectedOrdinal !== undefined) {
-      const winner = rows.find((row) => row.attempt_ordinal === expectedOrdinal);
-      if (winner !== undefined && isUlid(winner.attempt_id)) return new AttemptAllocationRaceError(winner.attempt_id);
+    const winner = rows.find((row) => row.attempt_ordinal === expectedOrdinal);
+    if (winner !== undefined && isUlid(winner.attempt_id)) {
+      return new AttemptAllocationRaceError(winner.attempt_id, expectedOrdinal);
     }
     if (rows.length >= 2) return new Error("outbound_retry_limit");
     const first = rows[0];
@@ -518,9 +604,7 @@ export class CallRepository {
       && row.retry_eligible === 1;
   }
 
-  private async readDispatchResult(attemptId: Ulid): Promise<Exclude<ProviderDispatchClaim, { kind: "claimed" }> | null> {
-    const row = await this.readAttempt(attemptId);
-    if (row === null) return null;
+  private dispatchResultFromRow(row: StoredAttemptRow): Exclude<ProviderDispatchClaim, { kind: "claimed" } | { kind: "authorization_expired" } | { kind: "relay_nonce_expired" }> | null {
     if (row.provider_dispatch_state === "dispatched") {
       if (row.provider_call_sid === null) throw new Error("provider_dispatch_result_invalid");
       return { kind: "dispatched", callSid: row.provider_call_sid };
@@ -533,11 +617,15 @@ export class CallRepository {
     return null;
   }
 
-  private consumeIssuedClaim(claim: ProviderDispatchClaimCapability): void {
-    if (!this.issuedClaims.has(claim) || this.consumedClaims.has(claim)) {
+  private settleBegunClaim(claim: ProviderDispatchClaimCapability): void {
+    if (
+      !this.issuedClaims.has(claim)
+      || !this.begunClaims.has(claim)
+      || this.settledClaims.has(claim)
+    ) {
       throw new Error("provider_dispatch_claim_invalid");
     }
-    this.consumedClaims.add(claim);
+    this.settledClaims.add(claim);
   }
 
   private async resolveSuccess(attemptId: Ulid, callSid: string, resolvedAt: string): Promise<void> {

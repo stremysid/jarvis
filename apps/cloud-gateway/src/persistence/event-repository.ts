@@ -52,14 +52,16 @@ function now(): string {
   return new Date().toISOString();
 }
 
-function requireNonEmpty(value: string, label: string): void {
+function requireNonEmpty(value: unknown, label: string): asserts value is string {
+  if (typeof value !== "string") throw new TypeError(`${label} must be a string`);
   if (value.length === 0) throw new TypeError(`${label} must be non-empty`);
 }
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const encoder = new TextEncoder();
 
-function requireUtf8Limit(value: string, maximumBytes: number, label: string): void {
+function requireUtf8Limit(value: unknown, maximumBytes: number, label: string): asserts value is string {
+  if (typeof value !== "string") throw new TypeError(`${label} must be a string`);
   if (encoder.encode(value).byteLength > maximumBytes) throw new RangeError(`${label} exceeds UTF-8 byte limit`);
 }
 
@@ -76,24 +78,41 @@ export class EventRepository implements EventRepositoryContract {
   }
 
   async appendAtomic(input: EventAppendInput, buildDependencies: EventAppendDependencyFactory): Promise<AppendedEvent> {
-    requireNonEmpty(input.scope, "scope");
-    requireNonEmpty(input.key, "key");
-    requireUtf8Limit(input.scope, 128, "scope");
-    requireUtf8Limit(input.key, 256, "key");
-    if (!SHA256.test(input.requestHash)) throw new TypeError("requestHash must be a lowercase SHA-256 hash");
-    if (!isPersistableEventEnvelope(input.envelope)) throw new TypeError("envelope must be a persistable envelope");
-    if (input.envelope.eventSequence !== undefined) throw new TypeError("producer envelope must not include eventSequence");
-    await validateEnvelope(input.envelope);
-    const envelopeJson = canonicalJson(input.envelope);
+    const envelope = input.envelope;
+    const scope = input.scope;
+    const key = input.key;
+    const requestHash = input.requestHash;
+    const dependencyFactory = buildDependencies;
+    requireNonEmpty(scope, "scope");
+    requireNonEmpty(key, "key");
+    requireUtf8Limit(scope, 128, "scope");
+    requireUtf8Limit(key, 256, "key");
+    if (typeof requestHash !== "string" || !SHA256.test(requestHash)) throw new TypeError("requestHash must be a lowercase SHA-256 hash");
+    if (!isPersistableEventEnvelope(envelope)) throw new TypeError("envelope must be a persistable envelope");
+    if (envelope.eventSequence !== undefined) throw new TypeError("producer envelope must not include eventSequence");
+    if (typeof dependencyFactory !== "function") throw new TypeError("event_append_dependency_factory_invalid");
+    await validateEnvelope(envelope);
+    const envelopeJson = canonicalJson(envelope);
     requireUtf8Limit(envelopeJson, 262144, "envelope");
 
-    const existing = await this.readIdempotency(input.scope, input.key);
-    if (existing !== null) return this.resolveIdempotency(existing, input.scope, input.key, input.requestHash);
+    const existing = await this.readIdempotency(scope, key);
+    if (existing !== null) return this.resolveIdempotency(existing, scope, key, requestHash);
 
     const createdAt = now();
-    const dependencies = buildDependencies(this.database, createdAt);
-    if (!Array.isArray(dependencies) || dependencies.length > 2) {
+    const providedDependencies = dependencyFactory(this.database, createdAt);
+    if (!Array.isArray(providedDependencies)) {
       throw new RangeError("event_append_dependency_limit");
+    }
+    const dependencyCount = providedDependencies.length;
+    if (!Number.isSafeInteger(dependencyCount) || dependencyCount < 0 || dependencyCount > 2) {
+      throw new RangeError("event_append_dependency_limit");
+    }
+    const dependencies: D1PreparedStatement[] = [];
+    for (let index = 0; index < dependencyCount; index += 1) {
+      if (!Object.hasOwn(providedDependencies, index)) throw new TypeError("event_append_dependency_invalid");
+      const dependency = providedDependencies[index];
+      if (dependency === undefined) throw new TypeError("event_append_dependency_invalid");
+      dependencies.push(dependency);
     }
     try {
       await this.transactions.batch([
@@ -101,30 +120,30 @@ export class EventRepository implements EventRepositoryContract {
         this.database.prepare(
           "INSERT INTO events (event_id, event_type, source, subject_id, occurred_at, received_at, content_hash, envelope_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ).bind(
-          input.envelope.eventId,
-          input.envelope.eventType,
-          input.envelope.source,
-          input.envelope.subjectId,
-          input.envelope.occurredAt,
-          input.envelope.receivedAt,
-          input.envelope.contentHash,
+          envelope.eventId,
+          envelope.eventType,
+          envelope.source,
+          envelope.subjectId,
+          envelope.occurredAt,
+          envelope.receivedAt,
+          envelope.contentHash,
           envelopeJson,
           createdAt,
         ),
         this.database.prepare(
           "INSERT INTO idempotency_records (scope, key, request_hash, event_sequence, created_at) SELECT ?, ?, ?, sequence, ? FROM events WHERE event_id = ?",
-        ).bind(input.scope, input.key, input.requestHash, createdAt, input.envelope.eventId),
+        ).bind(scope, key, requestHash, createdAt, envelope.eventId),
         this.database.prepare(
           "INSERT INTO outbox (outbox_id, event_sequence, topic, status, available_at, created_at) SELECT ?, sequence, ?, 'pending', ?, ? FROM events WHERE event_id = ?",
-        ).bind(`event:${input.envelope.eventId}`, input.envelope.eventType, createdAt, createdAt, input.envelope.eventId),
+        ).bind(`event:${envelope.eventId}`, envelope.eventType, createdAt, createdAt, envelope.eventId),
       ]);
     } catch (error) {
-      const racedRecord = await this.readIdempotency(input.scope, input.key);
-      if (racedRecord !== null) return this.resolveIdempotency(racedRecord, input.scope, input.key, input.requestHash);
+      const racedRecord = await this.readIdempotency(scope, key);
+      if (racedRecord !== null) return this.resolveIdempotency(racedRecord, scope, key, requestHash);
       throw error;
     }
 
-    const stored = await this.readEventById(input.envelope.eventId);
+    const stored = await this.readEventById(envelope.eventId);
     if (stored === null) throw new Error("event_append_missing_after_commit");
     return this.toAppended(stored.sequence, stored.envelope_json, stored.content_hash, false);
   }

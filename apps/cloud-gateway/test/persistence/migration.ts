@@ -36,3 +36,17 @@ export function applyFoundationMigration(): Promise<void> {
   ]);
   return migrated;
 }
+
+/** Test-only reset that restores the production delete guard immediately after clearing isolated D1 state. */
+export async function clearOutboundCallAttemptsForTest(): Promise<void> {
+  await env.DB.prepare("DROP TRIGGER IF EXISTS outbound_call_attempts_reject_delete").run();
+  try {
+    await env.DB.prepare("DELETE FROM outbound_call_attempts").run();
+  } finally {
+    await env.DB.prepare(`CREATE TRIGGER outbound_call_attempts_reject_delete
+      BEFORE DELETE ON outbound_call_attempts
+      BEGIN
+        SELECT RAISE(ABORT, 'outbound_attempt_delete_forbidden');
+      END`).run();
+  }
+}

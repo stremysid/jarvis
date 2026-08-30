@@ -117,40 +117,95 @@ export type ProviderFailureCode =
   | "provider_policy_denied"
   | "provider_permanent_failure";
 
+const providerFailureMint = Symbol("providerFailureMint");
+const issuedProviderFailures = new WeakSet<object>();
+
 /** A provider failure whose retry classification is explicit and never inferred from text. */
 export class ProviderFailure extends Error {
   private constructor(
+    mint: typeof providerFailureMint,
     public readonly code: ProviderFailureCode,
     public readonly category: ProviderFailureCategory,
   ) {
     super(code);
+    if (mint !== providerFailureMint) throw new TypeError("provider_failure_invalid");
     this.name = "ProviderFailure";
+    Object.freeze(this);
+    issuedProviderFailures.add(this);
   }
 
   static transient(category: TransientProviderFailureCategory): ProviderFailure {
-    return new ProviderFailure("provider_transient_failure", category);
+    return new ProviderFailure(providerFailureMint, "provider_transient_failure", category);
   }
 
   static authentication(): ProviderFailure {
-    return new ProviderFailure("provider_authentication_failure", "authentication");
+    return new ProviderFailure(providerFailureMint, "provider_authentication_failure", "authentication");
   }
 
   static policyDenied(): ProviderFailure {
-    return new ProviderFailure("provider_policy_denied", "policy_denied");
+    return new ProviderFailure(providerFailureMint, "provider_policy_denied", "policy_denied");
   }
 
   static permanent(category: PermanentProviderFailureCategory = "permanent_failure"): ProviderFailure {
-    return new ProviderFailure("provider_permanent_failure", category);
+    return new ProviderFailure(providerFailureMint, "provider_permanent_failure", category);
   }
+}
+
+/** Captures only constructor-issued, frozen nominal failure facts; accessor-shaped lookalikes are rejected. */
+export function snapshotProviderFailure(error: unknown): Readonly<{
+  code: ProviderFailureCode;
+  category: ProviderFailureCategory;
+}> | null {
+  if (!(error instanceof ProviderFailure) || !issuedProviderFailures.has(error) || !Object.isFrozen(error)) return null;
+  let descriptors: PropertyDescriptorMap;
+  try { descriptors = Object.getOwnPropertyDescriptors(error); }
+  catch { return null; }
+  const codeDescriptor = descriptors.code;
+  const categoryDescriptor = descriptors.category;
+  if (
+    codeDescriptor === undefined
+    || categoryDescriptor === undefined
+    || !("value" in codeDescriptor)
+    || !("value" in categoryDescriptor)
+    || codeDescriptor.writable !== false
+    || codeDescriptor.configurable !== false
+    || categoryDescriptor.writable !== false
+    || categoryDescriptor.configurable !== false
+  ) {
+    return null;
+  }
+  const code = codeDescriptor.value;
+  const category = categoryDescriptor.value;
+  if (
+    code !== "provider_transient_failure"
+    && code !== "provider_authentication_failure"
+    && code !== "provider_policy_denied"
+    && code !== "provider_permanent_failure"
+  ) {
+    return null;
+  }
+  if (
+    category !== "timeout"
+    && category !== "rate_limited"
+    && category !== "temporarily_unavailable"
+    && category !== "invalid_request"
+    && category !== "output_limit"
+    && category !== "permanent_failure"
+    && category !== "authentication"
+    && category !== "policy_denied"
+  ) {
+    return null;
+  }
+  return Object.freeze({ code, category });
 }
 
 export function isTransientProviderFailure(error: unknown): error is ProviderFailure & {
   readonly code: "provider_transient_failure";
   readonly category: TransientProviderFailureCategory;
 } {
-  return error instanceof ProviderFailure
-    && error.code === "provider_transient_failure"
-    && (error.category === "timeout" || error.category === "rate_limited" || error.category === "temporarily_unavailable");
+  const failure = snapshotProviderFailure(error);
+  return failure?.code === "provider_transient_failure"
+    && (failure.category === "timeout" || failure.category === "rate_limited" || failure.category === "temporarily_unavailable");
 }
 
 export class ProviderIdempotencyConflictError extends Error {

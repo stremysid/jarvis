@@ -13,7 +13,7 @@ import { CallRepository } from "../../src/persistence/call-repository.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { ProviderFailure } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
-import { applyFoundationMigration } from "../persistence/migration.js";
+import { applyFoundationMigration, clearOutboundCallAttemptsForTest } from "../persistence/migration.js";
 
 const NOW = new Date("2026-08-29T12:00:00.000Z");
 const COMMAND_ID = "01k3s6k8000000000000000000" as Ulid;
@@ -25,9 +25,9 @@ const REQUEST_HASH = "1".repeat(64) as Sha256Hex;
 
 async function clearData(): Promise<void> {
   await env.DB.prepare("DROP TRIGGER IF EXISTS test_fail_calling_outbox").run();
+  await env.DB.prepare("DELETE FROM provider_events").run();
+  await clearOutboundCallAttemptsForTest();
   await env.DB.batch([
-    env.DB.prepare("DELETE FROM provider_events"),
-    env.DB.prepare("DELETE FROM outbound_call_attempts"),
     env.DB.prepare("DELETE FROM outbox"),
     env.DB.prepare("DELETE FROM idempotency_records"),
     env.DB.prepare("DELETE FROM events"),
@@ -113,7 +113,9 @@ describe("calling transaction faults", () => {
       principalId: "principal:owner",
       destinationIdentityId: "identity:voice",
       idempotencyKey: "call:test",
+      authorizationExpiresAt: "2026-08-29T12:05:00.000Z",
       now: NOW,
+      attemptOrdinal: 0,
     });
     await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
     await env.DB.prepare(`CREATE TRIGGER test_fail_calling_outbox
@@ -134,11 +136,14 @@ describe("calling transaction faults", () => {
       principalId: "principal:owner",
       destinationIdentityId: "identity:voice",
       idempotencyKey: "call:test",
+      authorizationExpiresAt: "2026-08-29T12:05:00.000Z",
       now: NOW,
+      attemptOrdinal: 0,
     });
     if (setup !== "ready") {
       const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
       if (claim.kind !== "claimed") throw new Error("test_claim_failed");
+      repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
       if (setup === "rejected") {
         await repository.recordProviderDispatchRejection({ claim: claim.capability, failure: ProviderFailure.permanent("invalid_request"), now: NOW });
       } else {
@@ -173,5 +178,133 @@ describe("calling transaction faults", () => {
     expect(first.replayed).toBe(false);
     expect(replay).toEqual({ ...first, replayed: true });
     expect(builds).toBe(1);
+  });
+
+  it("snapshots append identity before validation awaits and keeps dependencies on that receipt", async () => {
+    const originalEnvelope = await eventFixture();
+    const replacementEnvelope = await eventFixture();
+    const originalHash = await sha256Hex(canonicalJson({ callback: "original" }));
+    const replacementHash = await sha256Hex(canonicalJson({ callback: "replacement" }));
+    const input = {
+      envelope: originalEnvelope,
+      scope: "test:atomic-snapshot",
+      key: "original",
+      requestHash: originalHash,
+    };
+    const pending = events.appendAtomic(input, (database, createdAt) => [
+      database.prepare(`INSERT INTO principals (
+        principal_id, principal_type, status, display_name, created_at, updated_at
+      ) VALUES ('principal:dependency', 'service', 'active', ?, ?, ?)`).bind(originalEnvelope.eventId, createdAt, createdAt),
+    ]);
+    input.envelope = replacementEnvelope;
+    input.scope = "test:atomic-mutated";
+    input.key = "replacement";
+    input.requestHash = replacementHash;
+
+    await expect(pending).resolves.toMatchObject({ envelope: { eventId: originalEnvelope.eventId }, replayed: false });
+    await expect(env.DB.prepare("SELECT scope, key, request_hash FROM idempotency_records").first())
+      .resolves.toEqual({ scope: "test:atomic-snapshot", key: "original", request_hash: originalHash });
+    await expect(env.DB.prepare("SELECT display_name FROM principals WHERE principal_id = 'principal:dependency'").first())
+      .resolves.toEqual({ display_name: originalEnvelope.eventId });
+  });
+
+  it("materializes dependency array indices without trusting a custom iterator", async () => {
+    const envelope = await eventFixture();
+    const indexed = env.DB.prepare(`INSERT INTO principals (
+      principal_id, principal_type, status, display_name, created_at, updated_at
+    ) VALUES ('principal:indexed', 'service', 'active', 'indexed', ?, ?)`).bind(NOW.toISOString(), NOW.toISOString());
+    const iterated = [0, 1, 2].map((index) => env.DB.prepare(`INSERT INTO principals (
+      principal_id, principal_type, status, display_name, created_at, updated_at
+    ) VALUES (?, 'service', 'active', 'iterator', ?, ?)`).bind(`principal:iterator:${index}`, NOW.toISOString(), NOW.toISOString()));
+    const dependencies = [indexed];
+    Object.defineProperty(dependencies, Symbol.iterator, {
+      configurable: true,
+      value: function* () { yield* iterated; },
+    });
+
+    await events.appendAtomic({
+      envelope,
+      scope: "test:dependency-materialization",
+      key: "one",
+      requestHash: await sha256Hex(canonicalJson({ callback: "iterator" })),
+    }, () => dependencies);
+
+    await expect(env.DB.prepare("SELECT principal_id FROM principals WHERE principal_id LIKE 'principal:indexed' OR principal_id LIKE 'principal:iterator:%' ORDER BY principal_id").all())
+      .resolves.toMatchObject({ results: [{ principal_id: "principal:indexed" }] });
+  });
+
+  it("captures the dependency count once before materializing indices", async () => {
+    const envelope = await eventFixture();
+    const statements = ["indexed", "drifted:1", "drifted:2"].map((suffix) => env.DB.prepare(`INSERT INTO principals (
+      principal_id, principal_type, status, display_name, created_at, updated_at
+    ) VALUES (?, 'service', 'active', 'dependency', ?, ?)`).bind(`principal:${suffix}`, NOW.toISOString(), NOW.toISOString()));
+    let lengthReads = 0;
+    const dependencies = new Proxy(statements, {
+      get(target, property, receiver) {
+        if (property === "length") return lengthReads++ === 0 ? 1 : 3;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+
+    await events.appendAtomic({
+      envelope,
+      scope: "test:dependency-count",
+      key: "one",
+      requestHash: await sha256Hex(canonicalJson({ callback: "length" })),
+    }, () => dependencies);
+
+    await expect(env.DB.prepare("SELECT principal_id FROM principals WHERE principal_id LIKE 'principal:indexed' OR principal_id LIKE 'principal:drifted:%' ORDER BY principal_id").all())
+      .resolves.toMatchObject({ results: [{ principal_id: "principal:indexed" }] });
+    expect(lengthReads).toBe(1);
+  });
+
+  it("rejects sparse dependency arrays", async () => {
+    const envelope = await eventFixture();
+    const sparse = new Array<D1PreparedStatement>(1);
+
+    await expect(events.appendAtomic({
+      envelope,
+      scope: "test:dependency-sparse",
+      key: "one",
+      requestHash: await sha256Hex(canonicalJson({ callback: "sparse" })),
+    }, () => sparse)).rejects.toThrow("event_append_dependency_invalid");
+  });
+
+  it("rejects coercion-shaped append primitives before database or dependency effects", async () => {
+    let prepares = 0;
+    let builds = 0;
+    let coercions = 0;
+    const database = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "prepare") {
+          return (query: string) => {
+            prepares += 1;
+            return target.prepare(query);
+          };
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const repository = new EventRepository(database);
+    const envelope = await eventFixture();
+    const scope = {
+      length: 5,
+      toString() {
+        coercions += 1;
+        return "scope";
+      },
+    };
+
+    await expect(repository.appendAtomic({
+      envelope,
+      scope: scope as never,
+      key: "one",
+      requestHash: await sha256Hex(canonicalJson({ callback: "coercion" })),
+    }, () => {
+      builds += 1;
+      return [];
+    })).rejects.toThrow("scope must be a string");
+    expect({ prepares, builds, coercions }).toEqual({ prepares: 0, builds: 0, coercions: 0 });
   });
 });

@@ -7,6 +7,8 @@ CREATE TABLE outbound_call_attempts (
   command_idempotency_key TEXT NOT NULL,
   relay_nonce TEXT NOT NULL UNIQUE,
   nonce_expires_at TEXT NOT NULL,
+  authorization_expires_at TEXT NOT NULL
+    CHECK (strftime('%Y-%m-%dT%H:%M:%fZ', authorization_expires_at) IS authorization_expires_at),
   provider_dispatch_state TEXT NOT NULL DEFAULT 'ready'
     CHECK (provider_dispatch_state IN ('ready', 'claimed', 'dispatched', 'rejected', 'provider_dispatch_unknown')),
   provider_dispatch_claimed_at TEXT,
@@ -43,6 +45,21 @@ CREATE TABLE outbound_call_attempts (
       AND substr(relay_call_sid, 1, 2) = 'CA'
       AND substr(relay_call_sid, 3) NOT GLOB '*[^0-9A-Fa-f]*'
     )
+  ),
+  CHECK (
+    (
+      provider_dispatch_state = 'dispatched'
+      AND provider_call_sid IS NOT NULL
+    )
+    OR (
+      provider_dispatch_state <> 'dispatched'
+      AND provider_call_sid IS NULL
+      AND relay_call_sid IS NULL
+    )
+  ),
+  CHECK (
+    (relay_call_sid IS NULL AND relay_claimed_at IS NULL)
+    OR (relay_call_sid IS NOT NULL AND relay_claimed_at IS NOT NULL)
   ),
   CHECK (
     retry_eligible = CASE
@@ -84,6 +101,78 @@ CREATE TABLE outbound_call_attempts (
     )
   )
 );
+
+CREATE TRIGGER outbound_call_attempts_immutable_lineage
+BEFORE UPDATE ON outbound_call_attempts
+WHEN OLD.attempt_id IS NOT NEW.attempt_id
+  OR OLD.command_id IS NOT NEW.command_id
+  OR OLD.attempt_ordinal IS NOT NEW.attempt_ordinal
+  OR OLD.principal_id IS NOT NEW.principal_id
+  OR OLD.destination_identity_id IS NOT NEW.destination_identity_id
+  OR OLD.command_idempotency_key IS NOT NEW.command_idempotency_key
+  OR OLD.relay_nonce IS NOT NEW.relay_nonce
+  OR OLD.nonce_expires_at IS NOT NEW.nonce_expires_at
+  OR OLD.authorization_expires_at IS NOT NEW.authorization_expires_at
+  OR OLD.created_at IS NOT NEW.created_at
+BEGIN
+  SELECT RAISE(ABORT, 'outbound_attempt_immutable');
+END;
+
+CREATE TRIGGER outbound_call_attempts_state_machine
+BEFORE UPDATE ON outbound_call_attempts
+WHEN NOT (
+    OLD.provider_dispatch_state IS NEW.provider_dispatch_state
+    OR (OLD.provider_dispatch_state = 'ready' AND NEW.provider_dispatch_state = 'claimed')
+    OR (
+      OLD.provider_dispatch_state = 'claimed'
+      AND NEW.provider_dispatch_state IN ('dispatched', 'rejected', 'provider_dispatch_unknown')
+    )
+    OR (
+      OLD.provider_dispatch_state = 'provider_dispatch_unknown'
+      AND NEW.provider_dispatch_state IN ('dispatched', 'rejected')
+    )
+  )
+  OR (OLD.provider_call_sid IS NOT NULL AND OLD.provider_call_sid IS NOT NEW.provider_call_sid)
+  OR (OLD.relay_call_sid IS NOT NULL AND OLD.relay_call_sid IS NOT NEW.relay_call_sid)
+  OR (
+    OLD.provider_dispatch_claimed_at IS NOT NULL
+    AND OLD.provider_dispatch_claimed_at IS NOT NEW.provider_dispatch_claimed_at
+  )
+  OR (
+    OLD.relay_claimed_at IS NOT NULL
+    AND OLD.relay_claimed_at IS NOT NEW.relay_claimed_at
+  )
+  OR (
+    OLD.provider_dispatch_resolved_at IS NOT NULL
+    AND OLD.provider_dispatch_resolved_at IS NOT NEW.provider_dispatch_resolved_at
+    AND NOT (
+      OLD.provider_dispatch_state = 'provider_dispatch_unknown'
+      AND NEW.provider_dispatch_state IN ('dispatched', 'rejected')
+    )
+  )
+  OR (
+    (
+      OLD.provider_failure_code IS NOT NEW.provider_failure_code
+      OR OLD.provider_failure_category IS NOT NEW.provider_failure_category
+      OR OLD.retry_eligible IS NOT NEW.retry_eligible
+    )
+    AND NOT (
+      OLD.provider_dispatch_state IN ('claimed', 'provider_dispatch_unknown')
+      AND NEW.provider_dispatch_state = 'rejected'
+      AND OLD.provider_failure_code IS NULL
+      AND OLD.provider_failure_category IS NULL
+      AND OLD.retry_eligible = 0
+    )
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'outbound_attempt_state_transition_invalid');
+END;
+
+CREATE TRIGGER outbound_call_attempts_reject_delete
+BEFORE DELETE ON outbound_call_attempts
+BEGIN
+  SELECT RAISE(ABORT, 'outbound_attempt_delete_forbidden');
+END;
 
 CREATE INDEX outbound_call_attempts_command_idx
   ON outbound_call_attempts(command_id, attempt_ordinal);

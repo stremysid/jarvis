@@ -28,8 +28,8 @@ class TestContext implements MutablePolicyContext {
 
   now(): Date { return this.nowValue; }
   isQuietHours(now: Date): boolean { return this.quietHours(now); }
-  activeOutboundCalls(): number { return this.concurrentCalls; }
-  outboundCallsForUtcPolicyDay(): number { return this.dailyCalls; }
+  activeOutboundCalls(): number | Promise<number> { return this.concurrentCalls; }
+  outboundCallsForUtcPolicyDay(): number | Promise<number> { return this.dailyCalls; }
   retryCount(): number { return this.retries; }
   async authenticatedOrigin(commandId: string): Promise<{ principalId: string; issuedBy: "telegram_call_command" | "local_cli"; commandHash: Sha256Hex } | null> { await this.originGate; return this.origins.get(commandId) ?? null; }
   async trust(input: OutboundCallCommand, origin = { principalId: input.principalId, issuedBy: "telegram_call_command" as const }): Promise<void> {
@@ -164,6 +164,140 @@ describe("PolicyEngine", () => {
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events WHERE event_type = 'policy.dispatch_checked'").first<{ count: number }>())?.count).toBe(1);
     const stored = await env.DB.prepare("SELECT envelope_json FROM events WHERE event_type = 'policy.dispatch_checked'").first<{ envelope_json: string }>();
     expect(stored?.envelope_json).not.toContain("+14165550123");
+  });
+
+  it("resamples time after asynchronous guards and denies authorization that expires while blocked", async () => {
+    const expiring = request({ authorizationExpiresAt: "2026-08-30T12:00:01.000Z" });
+    await evaluate(expiring);
+    let signalCountBlocked: (() => void) | undefined;
+    let releaseCount: (() => void) | undefined;
+    const countBlocked = new Promise<void>((resolve) => { signalCountBlocked = resolve; });
+    const countRelease = new Promise<void>((resolve) => { releaseCount = resolve; });
+    context.activeOutboundCalls = async () => {
+      signalCountBlocked?.();
+      await countRelease;
+      return 0;
+    };
+
+    const pending = policy.recheckOutboundDispatch(expiring, ATTEMPT_0);
+    await countBlocked;
+    context.nowValue = new Date(expiring.authorizationExpiresAt);
+    releaseCount?.();
+
+    await expect(pending).resolves.toMatchObject({
+      decision: "deny",
+      reason: "authorization_expired",
+      checkedAt: expiring.authorizationExpiresAt,
+      checkId: CHECK_0,
+      attemptId: ATTEMPT_0,
+    });
+  });
+
+  it("rejects a Number-like active-call fact before any later mutable callback can affect it", async () => {
+    await evaluate(request());
+    let numericValue = 0;
+    let coercions = 0;
+    let dailyReads = 0;
+    context.activeOutboundCalls = () => ({
+      valueOf() {
+        coercions += 1;
+        return numericValue;
+      },
+    }) as never;
+    context.outboundCallsForUtcPolicyDay = () => {
+      dailyReads += 1;
+      numericValue = 2;
+      return 0;
+    };
+
+    await expect(policy.recheckOutboundDispatch(request(), ATTEMPT_0)).resolves.toMatchObject({
+      decision: "deny",
+      reason: "invalid_dispatch_attempt",
+      checkId: CHECK_0,
+      attemptId: ATTEMPT_0,
+    });
+    expect({ dailyReads, coercions }).toEqual({ dailyReads: 0, coercions: 0 });
+  });
+
+  it.each([
+    ["NaN", Number.NaN],
+    ["undefined", undefined],
+    ["negative", -1],
+  ] as const)("rejects a malformed %s daily-call fact", async (_label, dailyCalls) => {
+    await evaluate(request());
+    context.outboundCallsForUtcPolicyDay = () => dailyCalls as never;
+
+    await expect(policy.recheckOutboundDispatch(request(), ATTEMPT_0)).resolves.toMatchObject({
+      decision: "deny",
+      reason: "invalid_dispatch_attempt",
+      checkId: CHECK_0,
+      attemptId: ATTEMPT_0,
+    });
+  });
+
+  it.each([
+    ["kill switch", (value: TestContext) => { value.killSwitch = "false" as never; }],
+    ["quiet-hours result", (value: TestContext) => { value.quietHours = () => "false" as never; }],
+  ] as const)("rejects a malformed %s policy fact", async (_label, mutate) => {
+    await evaluate(request());
+    mutate(context);
+
+    await expect(policy.recheckOutboundDispatch(request(), ATTEMPT_0)).resolves.toMatchObject({
+      decision: "deny",
+      reason: "invalid_dispatch_attempt",
+      checkId: CHECK_0,
+      attemptId: ATTEMPT_0,
+    });
+  });
+
+  it("requeries daily usage when the policy day rolls over before the final audit sample", async () => {
+    const nearMidnight = new Date("2026-08-30T23:59:59.999Z");
+    const afterMidnight = new Date("2026-08-31T00:00:00.000Z");
+    const rolloverRequest = request({ authorizationExpiresAt: "2026-08-31T00:05:00.000Z" });
+    context.nowValue = nearMidnight;
+    await evaluate(rolloverRequest);
+    const queriedDays: string[] = [];
+    context.outboundCallsForUtcPolicyDay = async (_principalId: string, utcPolicyDay: string) => {
+      queriedDays.push(utcPolicyDay);
+      if (queriedDays.length === 1) context.nowValue = afterMidnight;
+      return utcPolicyDay === "2026-08-31" ? 6 : 0;
+    };
+
+    await expect(policy.recheckOutboundDispatch(rolloverRequest, ATTEMPT_0)).resolves.toMatchObject({
+      decision: "deny",
+      reason: "daily_limit",
+      checkedAt: afterMidnight.toISOString(),
+      checkId: CHECK_0,
+      attemptId: ATTEMPT_0,
+    });
+    expect(queriedDays).toEqual(["2026-08-30", "2026-08-31"]);
+  });
+
+  it("keeps the sampled policy day and audit instant stable when quiet-hours mutates its Date", async () => {
+    const nearMidnight = new Date("2026-08-30T23:59:59.999Z");
+    const expectedCheckedAt = nearMidnight.toISOString();
+    const rolloverRequest = request({ authorizationExpiresAt: "2026-08-31T00:05:00.000Z" });
+    context.nowValue = nearMidnight;
+    await evaluate(rolloverRequest);
+    context.nowValue = nearMidnight;
+    const queriedDays: string[] = [];
+    context.outboundCallsForUtcPolicyDay = (_principalId: string, utcPolicyDay: string) => {
+      queriedDays.push(utcPolicyDay);
+      return 0;
+    };
+    context.quietHours = (candidate) => {
+      candidate.setTime(new Date("2026-08-31T00:00:00.000Z").valueOf());
+      return false;
+    };
+
+    await expect(policy.recheckOutboundDispatch(rolloverRequest, ATTEMPT_0)).resolves.toMatchObject({
+      decision: "allow",
+      reason: "allowed",
+      checkedAt: expectedCheckedAt,
+      checkId: CHECK_0,
+      attemptId: ATTEMPT_0,
+    });
+    expect(queriedDays).toEqual(["2026-08-30"]);
   });
 
   it("returns the active verified E.164 only with an audited allow", async () => {
@@ -414,5 +548,54 @@ describe("PolicyEngine", () => {
     expect(decode(envelope.payload.linkage.commandIdUtf8 ?? [])).toBe(commandId);
     expect(decode(envelope.payload.linkage.inputHashUtf8 ?? [])).toBe(inputHash);
     expect(stored?.envelope_json).not.toContain("REDACTED_AUTH_DIGITS");
+  });
+
+  it("snapshots exported audit input and check fields exactly once before hashing awaits", async () => {
+    const checkIds = [CHECK_0, CHECK_1, CHECK_2, CHECK_3] as const;
+    let checkIdReads = 0;
+    let checkReads = 0;
+    const check = {
+      decision: "allow" as const,
+      reason: "allowed" as const,
+      checkedAt: instant.toISOString(),
+    };
+    const mutableInput = {
+      get checkId(): Ulid {
+        const value = checkIds[Math.min(checkIdReads, checkIds.length - 1)] ?? CHECK_3;
+        checkIdReads += 1;
+        return value;
+      },
+      attemptId: ATTEMPT_0,
+      principalId: "principal:owner",
+      commandId: request().commandId,
+      inputHash: "a".repeat(64) as Sha256Hex,
+      get check() {
+        checkReads += 1;
+        return check;
+      },
+    };
+
+    await new PolicyAudit(new EventRepository(env.DB)).appendDispatchCheck(mutableInput);
+
+    const stored = await env.DB.prepare(`SELECT e.event_id, e.envelope_json, i.key AS idempotency_key
+      FROM events e JOIN idempotency_records i ON i.event_sequence = e.sequence
+      WHERE e.event_type = 'policy.dispatch_checked'`).first<{
+      event_id: string;
+      envelope_json: string;
+      idempotency_key: string;
+    }>();
+    const envelope = JSON.parse(stored?.envelope_json ?? "null") as {
+      eventId: string;
+      correlationId: string;
+      causationId: string;
+      payload: { linkage: Record<string, number[]> };
+    };
+    const decode = (bytes: number[]) => new TextDecoder().decode(Uint8Array.from(bytes));
+
+    expect(checkIdReads).toBe(1);
+    expect(checkReads).toBe(1);
+    expect(stored).toMatchObject({ event_id: CHECK_0, idempotency_key: CHECK_0 });
+    expect(envelope).toMatchObject({ eventId: CHECK_0, correlationId: ATTEMPT_0, causationId: request().commandId });
+    expect(decode(envelope.payload.linkage.checkIdUtf8 ?? [])).toBe(CHECK_0);
   });
 });

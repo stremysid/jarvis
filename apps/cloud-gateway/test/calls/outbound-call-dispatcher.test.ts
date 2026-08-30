@@ -2,19 +2,21 @@ import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { OutboundCallCommand, Ulid } from "../../../../packages/contracts/src/index.js";
 import { OutboundCallDispatcher } from "../../src/calls/outbound-call-dispatcher.js";
-import { CallRepository } from "../../src/persistence/call-repository.js";
+import { CallRepository, type ProviderDispatchClaimCapability } from "../../src/persistence/call-repository.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import type { DispatchPolicyCheck, OutboundCallRequest, PolicyDecision, PolicyEngineContract } from "../../src/policy/policy-types.js";
 import {
   ProviderDispatchUnknownError,
   ProviderFailure,
+  snapshotProviderFailure,
   type TwilioCreateCallInput,
   type TwilioProvider,
 } from "../../src/providers/provider-types.js";
-import { applyFoundationMigration } from "../persistence/migration.js";
+import { applyFoundationMigration, clearOutboundCallAttemptsForTest } from "../persistence/migration.js";
 
 const NOW = new Date("2026-08-30T12:00:00.000Z");
 const COMMAND_ID = "01k3s6k8000000000000000000" as Ulid;
+const SECOND_COMMAND_ID = "01k3s6k8000000000000000004" as Ulid;
 const ATTEMPT_0 = "01k3s6k8000000000000000001" as Ulid;
 const ATTEMPT_1 = "01k3s6k8000000000000000002" as Ulid;
 const ATTEMPT_2 = "01k3s6k8000000000000000003" as Ulid;
@@ -25,9 +27,12 @@ const CHECK_IDS = [
   "01k3s6k800000000000000000c",
 ] as const satisfies readonly Ulid[];
 const CALL_SID = `CA${"1".repeat(32)}`;
+const CALL_SID_2 = `CA${"2".repeat(32)}`;
+const CALL_SID_3 = `CA${"3".repeat(32)}`;
 const AUDITED_DESTINATION = "+14165550123";
 const NONCE_0 = `${"A".repeat(42)}A`;
 const NONCE_1 = `${"B".repeat(42)}E`;
+const NONCE_2 = `${"C".repeat(42)}I`;
 
 function command(): OutboundCallCommand {
   return {
@@ -126,15 +131,17 @@ class TestControllableTwilioProvider implements TwilioProvider {
 class TestAttemptInsertBarrier {
   private readonly arrivals = new Set<number>();
   private readonly insertAttemptIds = new Map<number, unknown>();
-  private releaseGate: (() => void) | undefined;
+  private readonly participantReleaseGates = new Map<number, () => void>();
+  private readonly participantReleases = new Map<number, Promise<void>>();
   private arrivalGate: (() => void) | undefined;
-  private readonly released = new Promise<void>((resolve) => { this.releaseGate = resolve; });
   private readonly bothArrived = new Promise<void>((resolve) => { this.arrivalGate = resolve; });
 
   constructor(private readonly database: D1Database) {}
 
   bindingForParticipant(participant: number): D1Database {
     const barrier = this;
+    const released = new Promise<void>((resolve) => { barrier.participantReleaseGates.set(participant, resolve); });
+    barrier.participantReleases.set(participant, released);
     return new Proxy(this.database, {
       get(target, property) {
         if (property === "prepare") {
@@ -157,7 +164,7 @@ class TestAttemptInsertBarrier {
                       waited = true;
                       barrier.arrivals.add(participant);
                       if (barrier.arrivals.size === 2) barrier.arrivalGate?.();
-                      await barrier.released;
+                      await released;
                     }
                     return Reflect.apply(operation, statementTarget, values);
                   };
@@ -183,15 +190,20 @@ class TestAttemptInsertBarrier {
     return this.insertAttemptIds.get(participant);
   }
 
+  releaseParticipant(participant: number): void {
+    if (!this.participantReleases.has(participant)) throw new Error("insert_barrier_participant_unknown");
+    this.participantReleaseGates.get(participant)?.();
+  }
+
   releaseBoth(): void {
-    this.releaseGate?.();
+    for (const participant of this.arrivals) this.releaseParticipant(participant);
   }
 }
 
 async function clearData(): Promise<void> {
+  await env.DB.prepare("DELETE FROM provider_events").run();
+  await clearOutboundCallAttemptsForTest();
   await env.DB.batch([
-    env.DB.prepare("DELETE FROM provider_events"),
-    env.DB.prepare("DELETE FROM outbound_call_attempts"),
     env.DB.prepare("DELETE FROM outbox"),
     env.DB.prepare("DELETE FROM idempotency_records"),
     env.DB.prepare("DELETE FROM events"),
@@ -242,8 +254,9 @@ function createDispatcher(input: {
 
 async function readAttempt(attemptId: Ulid): Promise<Record<string, unknown> | null> {
   return env.DB.prepare(`SELECT attempt_id AS attemptId, principal_id AS principalId,
-    destination_identity_id AS destinationIdentityId, relay_nonce AS relayNonce,
-    provider_dispatch_state AS providerDispatchState FROM outbound_call_attempts WHERE attempt_id = ?`)
+    attempt_ordinal AS attemptOrdinal, destination_identity_id AS destinationIdentityId, relay_nonce AS relayNonce,
+    provider_dispatch_state AS providerDispatchState, provider_call_sid AS providerCallSid
+    FROM outbound_call_attempts WHERE attempt_id = ?`)
     .bind(attemptId).first<Record<string, unknown>>();
 }
 
@@ -292,18 +305,163 @@ describe("OutboundCallDispatcher", () => {
     expect(subject.twilio.requests).toHaveLength(1);
   });
 
+  it("freezes nominal provider failure facts and rejects accessor-fabricated failures", async () => {
+    const genuine = ProviderFailure.transient("rate_limited");
+    expect(Object.hasOwn(genuine, "code")).toBe(true);
+    expect(Object.hasOwn(genuine, "category")).toBe(true);
+    expect(Object.isFrozen(genuine)).toBe(true);
+    expect(() => Object.defineProperty(genuine, "category", { value: "timeout" })).toThrow(TypeError);
+
+    const fabricated = Object.create(ProviderFailure.prototype) as ProviderFailure;
+    Object.defineProperties(fabricated, {
+      code: { enumerable: true, configurable: false, writable: false, value: "provider_transient_failure" },
+      category: { enumerable: true, configurable: false, writable: false, value: "rate_limited" },
+    });
+    Object.freeze(fabricated);
+    expect(snapshotProviderFailure(fabricated)).toBeNull();
+    const subject = createDispatcher();
+    subject.twilio.rejectNext(fabricated);
+
+    await expect(subject.dispatcher.dispatch(command())).resolves.toMatchObject({
+      status: "provider_dispatch_unknown",
+      attemptId: ATTEMPT_0,
+    });
+    expect(subject.twilio.requests).toHaveLength(1);
+    await expect(readAttempt(ATTEMPT_0)).resolves.toMatchObject({ providerDispatchState: "provider_dispatch_unknown" });
+  });
+
   it("recovers a ready row by claiming it before the only provider POST", async () => {
     const subject = createDispatcher();
-    await subject.repository.getOrCreateExpectedCall({ attemptId: ATTEMPT_0, commandId: COMMAND_ID, principalId: command().principalId, destinationIdentityId: command().destinationIdentityId, idempotencyKey: command().idempotencyKey, now: NOW });
+    await subject.repository.getOrCreateExpectedCall({ attemptId: ATTEMPT_0, commandId: COMMAND_ID, principalId: command().principalId, destinationIdentityId: command().destinationIdentityId, idempotencyKey: command().idempotencyKey, authorizationExpiresAt: command().authorizationExpiresAt, now: NOW, attemptOrdinal: 0 });
 
     await expect(subject.dispatcher.dispatch(command())).resolves.toMatchObject({ status: "dispatched", attemptId: ATTEMPT_0 });
     expect(subject.policy.rechecks.map((entry) => entry.attemptId)).toEqual([ATTEMPT_0]);
     expect(subject.twilio.requests).toHaveLength(1);
   });
 
+  it.each([
+    ["at exact nonce expiry", 300_000],
+    ["past nonce expiry", 300_001],
+  ] as const)("denies ready-row recovery %s without a provider POST", async (_label, ageMs) => {
+    const subject = createDispatcher();
+    await subject.repository.getOrCreateExpectedCall({
+      attemptId: ATTEMPT_0,
+      commandId: COMMAND_ID,
+      principalId: command().principalId,
+      destinationIdentityId: command().destinationIdentityId,
+      idempotencyKey: command().idempotencyKey,
+      authorizationExpiresAt: command().authorizationExpiresAt,
+      now: new Date(NOW.valueOf() - ageMs),
+      attemptOrdinal: 0,
+    });
+
+    await expect(subject.dispatcher.dispatch(command())).resolves.toEqual({
+      status: "denied",
+      reason: "invalid_dispatch_attempt",
+      checkedAt: NOW.toISOString(),
+      checkId: null,
+      attemptId: ATTEMPT_0,
+    });
+    expect(subject.policy.rechecks.map((entry) => entry.attemptId)).toEqual([ATTEMPT_0]);
+    expect(subject.twilio.requests).toHaveLength(0);
+    await expect(readAttempt(ATTEMPT_0)).resolves.toMatchObject({ providerDispatchState: "ready" });
+  });
+
+  it("retains the captured claim observation time when a repository mutates its Date input", async () => {
+    const repository = createRepository();
+    await repository.getOrCreateExpectedCall({
+      attemptId: ATTEMPT_0,
+      commandId: COMMAND_ID,
+      principalId: command().principalId,
+      destinationIdentityId: command().destinationIdentityId,
+      idempotencyKey: command().idempotencyKey,
+      authorizationExpiresAt: command().authorizationExpiresAt,
+      now: new Date(NOW.valueOf() - 300_000),
+      attemptOrdinal: 0,
+    });
+    const wrappedRepository = new Proxy(repository, {
+      get(target, property) {
+        if (property === "claimProviderDispatch") {
+          return async (input: { attemptId: Ulid; now: Date }) => {
+            const result = await target.claimProviderDispatch(input);
+            input.now.setTime(NOW.valueOf() + 60_000);
+            return result;
+          };
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const twilio = new TestControllableTwilioProvider();
+    const dispatcher = new OutboundCallDispatcher({
+      policy: new RecordingPolicy(),
+      twilio,
+      repository: wrappedRepository,
+      publicBaseUrl: new URL("https://jarvis.example/"),
+      newAttemptId: () => ATTEMPT_0,
+      now: () => NOW,
+    });
+
+    await expect(dispatcher.dispatch(command())).resolves.toEqual({
+      status: "denied",
+      reason: "invalid_dispatch_attempt",
+      checkedAt: NOW.toISOString(),
+      checkId: null,
+      attemptId: ATTEMPT_0,
+    });
+    expect(twilio.requests).toHaveLength(0);
+  });
+
+  it("denies when authorization expires after audit but before the durable ready claim", async () => {
+    const repository = createRepository();
+    let signalReadyPersisted: (() => void) | undefined;
+    let releaseReady: (() => void) | undefined;
+    const readyPersisted = new Promise<void>((resolve) => { signalReadyPersisted = resolve; });
+    const readyRelease = new Promise<void>((resolve) => { releaseReady = resolve; });
+    const blockedRepository = new Proxy(repository, {
+      get(target, property) {
+        if (property === "getOrCreateExpectedCall") {
+          return async (...args: Parameters<CallRepository["getOrCreateExpectedCall"]>) => {
+            const stored = await target.getOrCreateExpectedCall(...args);
+            signalReadyPersisted?.();
+            await readyRelease;
+            return stored;
+          };
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    let now = NOW;
+    const twilio = new TestControllableTwilioProvider();
+    const dispatcher = new OutboundCallDispatcher({
+      policy: new RecordingPolicy(),
+      twilio,
+      repository: blockedRepository,
+      publicBaseUrl: new URL("https://jarvis.example/"),
+      newAttemptId: () => ATTEMPT_0,
+      now: () => now,
+    });
+
+    const pending = dispatcher.dispatch(command());
+    await readyPersisted;
+    now = new Date(command().authorizationExpiresAt);
+    releaseReady?.();
+
+    await expect(pending).resolves.toEqual({
+      status: "denied",
+      reason: "authorization_expired",
+      checkedAt: command().authorizationExpiresAt,
+      checkId: null,
+      attemptId: ATTEMPT_0,
+    });
+    expect(twilio.requests).toHaveLength(0);
+    await expect(readAttempt(ATTEMPT_0)).resolves.toMatchObject({ providerDispatchState: "ready" });
+  });
+
   it("suppresses recovery after a crash immediately following the durable claim", async () => {
     const subject = createDispatcher();
-    await subject.repository.getOrCreateExpectedCall({ attemptId: ATTEMPT_0, commandId: COMMAND_ID, principalId: command().principalId, destinationIdentityId: command().destinationIdentityId, idempotencyKey: command().idempotencyKey, now: NOW });
+    await subject.repository.getOrCreateExpectedCall({ attemptId: ATTEMPT_0, commandId: COMMAND_ID, principalId: command().principalId, destinationIdentityId: command().destinationIdentityId, idempotencyKey: command().idempotencyKey, authorizationExpiresAt: command().authorizationExpiresAt, now: NOW, attemptOrdinal: 0 });
     await expect(subject.repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW })).resolves.toMatchObject({ kind: "claimed" });
 
     await expect(subject.dispatcher.dispatch(command())).resolves.toMatchObject({ status: "provider_dispatch_unknown", attemptId: ATTEMPT_0 });
@@ -352,6 +510,122 @@ describe("OutboundCallDispatcher", () => {
     expect(twilio.requests).toHaveLength(1);
   });
 
+  it("never promotes a delayed ordinal-0 candidate after the winner becomes retry-eligible", async () => {
+    const barrier = new TestAttemptInsertBarrier(env.DB);
+    const twilio = new TestControllableTwilioProvider();
+    const policy = new RecordingPolicy();
+    twilio.rejectNext(ProviderFailure.transient("rate_limited"));
+    const left = createDispatcher({
+      policy,
+      twilio,
+      repository: createRepository(barrier.bindingForParticipant(0), () => NONCE_0),
+      attemptIds: [ATTEMPT_0],
+    });
+    const right = createDispatcher({
+      policy,
+      twilio,
+      repository: createRepository(barrier.bindingForParticipant(1), () => NONCE_1),
+      attemptIds: [ATTEMPT_1],
+    });
+
+    const leftPending = left.dispatcher.dispatch(command());
+    const rightPending = right.dispatcher.dispatch(command());
+    await barrier.waitUntilBothInsertSelectsAreBlocked();
+    expect(barrier.attemptIdForParticipant(0)).toBe(ATTEMPT_0);
+    expect(barrier.attemptIdForParticipant(1)).toBe(ATTEMPT_1);
+    expect(policy.rechecks.map((entry) => entry.attemptId).sort()).toEqual([ATTEMPT_0, ATTEMPT_1]);
+
+    barrier.releaseParticipant(0);
+    await expect(leftPending).resolves.toMatchObject({
+      status: "rejected",
+      attemptId: ATTEMPT_0,
+      retryEligible: true,
+    });
+    expect(twilio.requests.map((request) => request.attemptId)).toEqual([ATTEMPT_0]);
+
+    barrier.releaseParticipant(1);
+    await expect(rightPending).resolves.toMatchObject({
+      status: "rejected",
+      attemptId: ATTEMPT_0,
+      retryEligible: true,
+    });
+    expect(twilio.requests.map((request) => request.attemptId)).toEqual([ATTEMPT_0]);
+    await expect(readAttempt(ATTEMPT_1)).resolves.toBeNull();
+    await expect(env.DB.prepare("SELECT COUNT(*) AS count FROM outbound_call_attempts WHERE relay_nonce = ?")
+      .bind(NONCE_1).first()).resolves.toEqual({ count: 0 });
+
+    const later = createDispatcher({
+      policy,
+      twilio,
+      repository: createRepository(env.DB, () => NONCE_2),
+      attemptIds: [ATTEMPT_2],
+    });
+    await expect(later.dispatcher.dispatch(command())).resolves.toMatchObject({
+      status: "dispatched",
+      attemptId: ATTEMPT_2,
+    });
+    expect(policy.rechecks.at(-1)?.attemptId).toBe(ATTEMPT_2);
+    expect(twilio.requests.map((request) => request.attemptId)).toEqual([ATTEMPT_0, ATTEMPT_2]);
+    await expect(readAttempt(ATTEMPT_2)).resolves.toMatchObject({ attemptOrdinal: 1, relayNonce: NONCE_2 });
+  });
+
+  it("converges a delayed ordinal-1 candidate on the stored ordinal-1 winner", async () => {
+    const initialRepository = createRepository(env.DB, () => NONCE_0);
+    await initialRepository.getOrCreateExpectedCall({
+      attemptId: ATTEMPT_0,
+      commandId: COMMAND_ID,
+      principalId: command().principalId,
+      destinationIdentityId: command().destinationIdentityId,
+      idempotencyKey: command().idempotencyKey,
+      authorizationExpiresAt: command().authorizationExpiresAt,
+      now: NOW,
+      attemptOrdinal: 0,
+    });
+    const initialClaim = await initialRepository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
+    if (initialClaim.kind !== "claimed") throw new Error("test_initial_claim_failed");
+    initialRepository.beginProviderDispatch(initialClaim.capability, ATTEMPT_0);
+    await initialRepository.recordProviderDispatchRejection({
+      claim: initialClaim.capability,
+      failure: ProviderFailure.transient("rate_limited"),
+      now: NOW,
+    });
+    const barrier = new TestAttemptInsertBarrier(env.DB);
+    const twilio = new TestControllableTwilioProvider();
+    const policy = new RecordingPolicy();
+    const leftRepository = createRepository(barrier.bindingForParticipant(0), () => NONCE_1);
+    const rightBaseRepository = createRepository(barrier.bindingForParticipant(1), () => NONCE_2);
+    const rightOrdinals: (0 | 1 | undefined)[] = [];
+    const rightRepository = new Proxy(rightBaseRepository, {
+      get(target, property) {
+        if (property === "getOrCreateExpectedCall") {
+          return async (input: Parameters<CallRepository["getOrCreateExpectedCall"]>[0]) => {
+            rightOrdinals.push(input.attemptOrdinal);
+            return target.getOrCreateExpectedCall(input);
+          };
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const left = createDispatcher({ policy, twilio, repository: leftRepository, attemptIds: [ATTEMPT_1] });
+    const right = createDispatcher({ policy, twilio, repository: rightRepository, attemptIds: [ATTEMPT_2] });
+
+    const leftPending = left.dispatcher.dispatch(command());
+    const rightPending = right.dispatcher.dispatch(command());
+    await barrier.waitUntilBothInsertSelectsAreBlocked();
+    expect(barrier.attemptIdForParticipant(0)).toBe(ATTEMPT_1);
+    expect(barrier.attemptIdForParticipant(1)).toBe(ATTEMPT_2);
+    barrier.releaseParticipant(0);
+    await expect(leftPending).resolves.toMatchObject({ status: "dispatched", attemptId: ATTEMPT_1 });
+
+    barrier.releaseParticipant(1);
+    await expect(rightPending).resolves.toMatchObject({ status: "dispatched", attemptId: ATTEMPT_1 });
+    expect(rightOrdinals).toEqual([1, 1]);
+    expect(twilio.requests.map((request) => request.attemptId)).toEqual([ATTEMPT_1]);
+    await expect(readAttempt(ATTEMPT_1)).resolves.toMatchObject({ attemptOrdinal: 1, relayNonce: NONCE_1 });
+    await expect(readAttempt(ATTEMPT_2)).resolves.toBeNull();
+  });
+
   it("dispatches one rate-limited retry under a new audited attempt and never a third", async () => {
     const subject = createDispatcher();
     subject.twilio.rejectNext(ProviderFailure.transient("rate_limited"));
@@ -379,6 +653,309 @@ describe("OutboundCallDispatcher", () => {
     expect(subject.policy.rechecks[0]?.request).toEqual(command());
     expect(Object.isFrozen(subject.policy.rechecks[0]?.request)).toBe(true);
     expect(subject.twilio.requests[0]).toMatchObject({ attemptId: ATTEMPT_0, commandId: COMMAND_ID, toE164: AUDITED_DESTINATION });
+  });
+
+  it("snapshots the complete audited policy check before repository awaits", async () => {
+    const repository = createRepository();
+    let signalRepositoryBlocked: (() => void) | undefined;
+    let releaseRepository: (() => void) | undefined;
+    const repositoryBlocked = new Promise<void>((resolve) => { signalRepositoryBlocked = resolve; });
+    const repositoryRelease = new Promise<void>((resolve) => { releaseRepository = resolve; });
+    const blockedRepository = new Proxy(repository, {
+      get(target, property) {
+        if (property === "getOrCreateExpectedCall") {
+          return async (...args: Parameters<CallRepository["getOrCreateExpectedCall"]>) => {
+            signalRepositoryBlocked?.();
+            await repositoryRelease;
+            return target.getOrCreateExpectedCall(...args);
+          };
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const mutableCheck: DispatchPolicyCheck = {
+      decision: "allow",
+      reason: "allowed",
+      checkedAt: NOW.toISOString(),
+      checkId: CHECK_IDS[0],
+      attemptId: ATTEMPT_0,
+      commandId: COMMAND_ID,
+      destinationE164: AUDITED_DESTINATION,
+    };
+    const policy: PolicyEngineContract = {
+      evaluateOutboundCall: async () => ({ decision: "allow", reason: "allowed" }),
+      recheckOutboundDispatch: async () => mutableCheck,
+    };
+    const twilio = new TestControllableTwilioProvider();
+    const dispatcher = new OutboundCallDispatcher({
+      policy,
+      twilio,
+      repository: blockedRepository,
+      publicBaseUrl: new URL("https://jarvis.example/"),
+      newAttemptId: () => ATTEMPT_0,
+      now: () => NOW,
+    });
+
+    const pending = dispatcher.dispatch(command());
+    await repositoryBlocked;
+    mutableCheck.destinationE164 = "+14165550999";
+    mutableCheck.checkId = CHECK_IDS[1];
+    releaseRepository?.();
+
+    await expect(pending).resolves.toMatchObject({ status: "dispatched", attemptId: ATTEMPT_0 });
+    expect(twilio.requests).toHaveLength(1);
+    expect(twilio.requests[0]?.toE164).toBe(AUDITED_DESTINATION);
+  });
+
+  it.each([
+    ["allow with a denial reason", {
+      decision: "allow",
+      reason: "kill_switch_enabled",
+      checkedAt: NOW.toISOString(),
+      checkId: CHECK_IDS[0],
+      attemptId: ATTEMPT_0,
+      commandId: COMMAND_ID,
+      destinationE164: AUDITED_DESTINATION,
+    }],
+    ["deny with the allowed reason", {
+      decision: "deny",
+      reason: "allowed",
+      checkedAt: NOW.toISOString(),
+      checkId: CHECK_IDS[0],
+      attemptId: ATTEMPT_0,
+    }],
+  ] as const)("rejects a semantically inconsistent policy result: %s", async (_label, check) => {
+    const twilio = new TestControllableTwilioProvider();
+    const policy: PolicyEngineContract = {
+      evaluateOutboundCall: async () => ({ decision: "allow", reason: "allowed" }),
+      recheckOutboundDispatch: async () => check,
+    };
+    const dispatcher = new OutboundCallDispatcher({
+      policy,
+      twilio,
+      repository: createRepository(),
+      publicBaseUrl: new URL("https://jarvis.example/"),
+      newAttemptId: () => ATTEMPT_0,
+      now: () => NOW,
+    });
+
+    await expect(dispatcher.dispatch(command())).resolves.toEqual({
+      status: "denied",
+      reason: "invalid_dispatch_attempt",
+      checkedAt: NOW.toISOString(),
+      checkId: null,
+      attemptId: ATTEMPT_0,
+    });
+    expect(twilio.requests).toHaveLength(0);
+  });
+
+  it("reads a provider result CallSid exactly once before validation and persistence", async () => {
+    const requests: TwilioCreateCallInput[] = [];
+    const callSids = [CALL_SID, CALL_SID_2, CALL_SID_3];
+    let callSidReads = 0;
+    const twilio: TwilioProvider = {
+      async createCall(input) {
+        requests.push(input);
+        const result = {} as { callSid: string };
+        Object.defineProperty(result, "callSid", {
+          enumerable: true,
+          get: () => callSids[Math.min(callSidReads++, callSids.length - 1)] ?? CALL_SID_3,
+        });
+        return result;
+      },
+    };
+    const dispatcher = new OutboundCallDispatcher({
+      policy: new RecordingPolicy(),
+      twilio,
+      repository: createRepository(),
+      publicBaseUrl: new URL("https://jarvis.example/"),
+      newAttemptId: () => ATTEMPT_0,
+      now: () => NOW,
+    });
+
+    await expect(dispatcher.dispatch(command())).resolves.toEqual({
+      status: "dispatched",
+      callSid: CALL_SID,
+      attemptId: ATTEMPT_0,
+    });
+    expect(requests).toHaveLength(1);
+    expect(callSidReads).toBe(1);
+    await expect(readAttempt(ATTEMPT_0)).resolves.toMatchObject({ providerCallSid: CALL_SID });
+  });
+
+  it("rejects a coercion-shaped provider CallSid without invoking user conversion", async () => {
+    let coercions = 0;
+    const twilio: TwilioProvider = {
+      async createCall() {
+        return {
+          callSid: {
+            toString() {
+              coercions += 1;
+              return CALL_SID;
+            },
+          } as never,
+        };
+      },
+    };
+    const dispatcher = new OutboundCallDispatcher({
+      policy: new RecordingPolicy(),
+      twilio,
+      repository: createRepository(),
+      publicBaseUrl: new URL("https://jarvis.example/"),
+      newAttemptId: () => ATTEMPT_0,
+      now: () => NOW,
+    });
+
+    await expect(dispatcher.dispatch(command())).resolves.toEqual({
+      status: "provider_dispatch_unknown",
+      attemptId: ATTEMPT_0,
+    });
+    expect(coercions).toBe(0);
+    await expect(readAttempt(ATTEMPT_0)).resolves.toMatchObject({ providerDispatchState: "provider_dispatch_unknown", providerCallSid: null });
+  });
+
+  it("binds provider results to the capability captured before the provider await", async () => {
+    const repository = createRepository();
+    await env.DB.prepare("INSERT INTO policy_decisions (decision_id, principal_id, policy_version, input_hash, outcome, reason_code, decided_at) VALUES (?, 'principal:owner', 'v1', ?, 'allow', 'allowed', ?)")
+      .bind(SECOND_COMMAND_ID, "b".repeat(64), NOW.toISOString()).run();
+    await repository.getOrCreateExpectedCall({
+      attemptId: ATTEMPT_2,
+      commandId: SECOND_COMMAND_ID,
+      principalId: command().principalId,
+      destinationIdentityId: command().destinationIdentityId,
+      idempotencyKey: "call:second",
+      authorizationExpiresAt: command().authorizationExpiresAt,
+      now: NOW,
+      attemptOrdinal: 0,
+    });
+    const otherClaim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_2, now: NOW });
+    if (otherClaim.kind !== "claimed") throw new Error("test_other_claim_failed");
+    let swapCapability: (() => void) | undefined;
+    let capabilityReads = 0;
+    const wrappedRepository = new Proxy(repository, {
+      get(target, property) {
+        if (property === "claimProviderDispatch") {
+          return async (input: { attemptId: Ulid; now: Date }) => {
+            const claim = await target.claimProviderDispatch(input);
+            if (input.attemptId !== ATTEMPT_0 || claim.kind !== "claimed") return claim;
+            let capability = claim.capability;
+            swapCapability = () => { capability = otherClaim.capability; };
+            return {
+              kind: "claimed" as const,
+              get capability() {
+                capabilityReads += 1;
+                return capability;
+              },
+            };
+          };
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const twilio = new TestControllableTwilioProvider();
+    twilio.blockNextResponse();
+    const dispatcher = new OutboundCallDispatcher({
+      policy: new RecordingPolicy(),
+      twilio,
+      repository: wrappedRepository,
+      publicBaseUrl: new URL("https://jarvis.example/"),
+      newAttemptId: () => ATTEMPT_0,
+      now: () => NOW,
+    });
+
+    const pending = dispatcher.dispatch(command());
+    await twilio.waitForRequest();
+    swapCapability?.();
+    twilio.releaseResponse();
+
+    await expect(pending).resolves.toMatchObject({ status: "dispatched", attemptId: ATTEMPT_0 });
+    expect(capabilityReads).toBe(1);
+    await expect(readAttempt(ATTEMPT_0)).resolves.toMatchObject({ providerDispatchState: "dispatched", providerCallSid: CALL_SID });
+    await expect(readAttempt(ATTEMPT_2)).resolves.toMatchObject({ providerDispatchState: "claimed", providerCallSid: null });
+  });
+
+  it("rejects a genuine capability from a different attempt before any provider POST", async () => {
+    const repository = createRepository();
+    await env.DB.prepare("INSERT INTO policy_decisions (decision_id, principal_id, policy_version, input_hash, outcome, reason_code, decided_at) VALUES (?, 'principal:owner', 'v1', ?, 'allow', 'allowed', ?)")
+      .bind(SECOND_COMMAND_ID, "b".repeat(64), NOW.toISOString()).run();
+    await repository.getOrCreateExpectedCall({
+      attemptId: ATTEMPT_2,
+      commandId: SECOND_COMMAND_ID,
+      principalId: command().principalId,
+      destinationIdentityId: command().destinationIdentityId,
+      idempotencyKey: "call:second",
+      authorizationExpiresAt: command().authorizationExpiresAt,
+      now: NOW,
+      attemptOrdinal: 0,
+    });
+    const otherClaim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_2, now: NOW });
+    if (otherClaim.kind !== "claimed") throw new Error("test_other_claim_failed");
+    const wrappedRepository = new Proxy(repository, {
+      get(target, property) {
+        if (property === "claimProviderDispatch") {
+          return async (input: { attemptId: Ulid; now: Date }) => {
+            const claim = await target.claimProviderDispatch(input);
+            return input.attemptId === ATTEMPT_0 && claim.kind === "claimed"
+              ? { kind: "claimed" as const, capability: otherClaim.capability }
+              : claim;
+          };
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const twilio = new TestControllableTwilioProvider();
+    const dispatcher = new OutboundCallDispatcher({
+      policy: new RecordingPolicy(),
+      twilio,
+      repository: wrappedRepository,
+      publicBaseUrl: new URL("https://jarvis.example/"),
+      newAttemptId: () => ATTEMPT_0,
+      now: () => NOW,
+    });
+
+    await expect(dispatcher.dispatch(command())).resolves.toEqual({
+      status: "provider_dispatch_unknown",
+      attemptId: ATTEMPT_0,
+    });
+    expect(twilio.requests).toHaveLength(0);
+    await expect(readAttempt(ATTEMPT_0)).resolves.toMatchObject({ providerDispatchState: "claimed", providerCallSid: null });
+    await expect(readAttempt(ATTEMPT_2)).resolves.toMatchObject({ providerDispatchState: "claimed", providerCallSid: null });
+    expect(() => repository.beginProviderDispatch(otherClaim.capability, ATTEMPT_2)).not.toThrow();
+  });
+
+  it("rejects a forged claimed wrapper before any provider POST", async () => {
+    const repository = createRepository();
+    const wrappedRepository = new Proxy(repository, {
+      get(target, property) {
+        if (property === "claimProviderDispatch") {
+          return async (input: { attemptId: Ulid; now: Date }) => ({
+            kind: "claimed" as const,
+            capability: { attemptId: input.attemptId } as ProviderDispatchClaimCapability,
+          });
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const twilio = new TestControllableTwilioProvider();
+    const dispatcher = new OutboundCallDispatcher({
+      policy: new RecordingPolicy(),
+      twilio,
+      repository: wrappedRepository,
+      publicBaseUrl: new URL("https://jarvis.example/"),
+      newAttemptId: () => ATTEMPT_0,
+      now: () => NOW,
+    });
+
+    await expect(dispatcher.dispatch(command())).resolves.toEqual({
+      status: "provider_dispatch_unknown",
+      attemptId: ATTEMPT_0,
+    });
+    expect(twilio.requests).toHaveLength(0);
+    await expect(readAttempt(ATTEMPT_0)).resolves.toMatchObject({ providerDispatchState: "ready", providerCallSid: null });
   });
 
   it("constructs trusted callback routes from attempt identity while retaining command lineage", async () => {

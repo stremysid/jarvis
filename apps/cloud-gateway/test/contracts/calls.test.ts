@@ -15,11 +15,12 @@ describe("provider-neutral call contracts", () => {
       destinationIdentityId: "identity:sid:voice",
       relayNonce: "relay-nonce",
       nonceExpiresAt: "2026-08-30T12:05:00.000Z",
+      authorizationExpiresAt: "2026-08-30T12:05:00.000Z",
       idempotencyKey: "call:one",
     } satisfies ExpectedOutboundCall;
 
     expect(canonicalJson(expected)).toBe(
-      '{"commandId":"01k3s6k8000000000000000001","destinationIdentityId":"identity:sid:voice","idempotencyKey":"call:one","nonceExpiresAt":"2026-08-30T12:05:00.000Z","principalId":"principal:sid","relayNonce":"relay-nonce"}',
+      '{"authorizationExpiresAt":"2026-08-30T12:05:00.000Z","commandId":"01k3s6k8000000000000000001","destinationIdentityId":"identity:sid:voice","idempotencyKey":"call:one","nonceExpiresAt":"2026-08-30T12:05:00.000Z","principalId":"principal:sid","relayNonce":"relay-nonce"}',
     );
     expectTypeOf<CallDirection>().toEqualTypeOf<"inbound" | "outbound">();
   });
