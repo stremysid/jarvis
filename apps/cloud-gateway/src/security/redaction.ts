@@ -1,4 +1,4 @@
-import type { RedactionResult, Redactor as RedactorContract } from "../../../../packages/contracts/src/index.js";
+import { issueRedaction, type RedactionResult, type Redactor as RedactorContract } from "../../../../packages/contracts/src/calls.js";
 
 const AUTHENTICATION_DIGITS = /(?<!\d)\d{6}(?!\d)/g;
 const CREDENTIALS = /\b(?:authorization\s*:\s*bearer|api[_-]?key\s*[=:]|password\s*[=:])\s*[^\s,;]+/gi;
@@ -23,7 +23,7 @@ export class Redactor implements RedactorContract {
         if (!markers.includes("credential")) markers.push("credential");
         return "[REDACTED_CREDENTIAL]";
       });
-      return { ok: true, text: redacted.normalize("NFC"), markers };
+      return issueRedaction(redacted.normalize("NFC"), markers);
     } catch {
       return { ok: false, category: "ingest_redaction_failed" };
     }

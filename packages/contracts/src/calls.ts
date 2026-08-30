@@ -1,5 +1,8 @@
 import type { Sha256Hex, Ulid } from "./ids.js";
 
+const redactionToken = Symbol("redactionToken");
+const issuedRedactions = new WeakSet<object>();
+
 export interface OutboundCallCommand {
   commandId: Ulid;
   principalId: string;
@@ -24,8 +27,9 @@ export interface SignedRequestV1 {
 
 export interface SuccessfulRedaction {
   ok: true;
-  text: string;
-  markers: string[];
+  readonly text: string;
+  readonly markers: readonly string[];
+  readonly [redactionToken]: true;
 }
 
 export interface FailedRedaction {
@@ -34,6 +38,27 @@ export interface FailedRedaction {
 }
 
 export type RedactionResult = SuccessfulRedaction | FailedRedaction;
+
+/** Internal issuer used by the ingress Redactor after it has removed secrets. */
+export function issueRedaction(text: string, markers: readonly string[]): SuccessfulRedaction {
+  if (!text.isWellFormed() || text !== text.normalize("NFC") || markers.some((marker) => !marker.isWellFormed() || marker !== marker.normalize("NFC"))) {
+    throw new TypeError("redaction text and markers must be NFC-normalized");
+  }
+  const result = {
+    ok: true as const,
+    text,
+    markers: Object.freeze([...markers]),
+  } as SuccessfulRedaction;
+  Object.defineProperty(result, redactionToken, { value: true, enumerable: false, writable: false, configurable: false });
+  Object.freeze(result);
+  issuedRedactions.add(result);
+  return result;
+}
+
+/** Recognizes only tokens minted by issueRedaction in this module instance. */
+export function isIssuedRedaction(value: unknown): value is SuccessfulRedaction {
+  return value !== null && typeof value === "object" && issuedRedactions.has(value);
+}
 
 export interface Redactor {
   redact(input: { text: string; channel: "voice" | "telegram"; field: string }): RedactionResult;

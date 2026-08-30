@@ -41,7 +41,7 @@ function normalizeJson(value: unknown, path = "$"): JsonValue {
     throw new TypeError(`${path} must be a JSON value`);
   }
 
-  const normalized: Record<string, JsonValue> = {};
+  const normalized: Record<string, JsonValue> = Object.create(null) as Record<string, JsonValue>;
   for (const key of Object.keys(value)) {
     const normalizedKey = normalizeString(key);
     if (Object.hasOwn(normalized, normalizedKey)) throw new TypeError(`${path} contains duplicate NFC-normalized keys`);

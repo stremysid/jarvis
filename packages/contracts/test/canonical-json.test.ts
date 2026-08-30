@@ -26,6 +26,13 @@ describe("canonical JSON", () => {
     expect(canonicalJson({ z: 1, a: "e\u0301" })).toBe('{"a":"é","z":1}');
   });
 
+  it("preserves an own __proto__ key from parsed JSON when canonicalizing and hashing", async () => {
+    const payload = JSON.parse('{"__proto__":"value"}');
+
+    expect(canonicalJson(payload)).toBe('{"__proto__":"value"}');
+    expect(await sha256Hex(canonicalJson(payload))).toBe(await sha256Hex('{"__proto__":"value"}'));
+  });
+
   it.each([
     { label: "undefined object values", value: { value: undefined } },
     { label: "undefined array values", value: [undefined] },

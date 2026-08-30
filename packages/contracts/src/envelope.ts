@@ -1,5 +1,5 @@
 import { canonicalJson, normalizeJsonText, sha256Hex, type JsonValue } from "./canonical-json.js";
-import type { SuccessfulRedaction } from "./calls.js";
+import { isIssuedRedaction, type SuccessfulRedaction } from "./calls.js";
 import type { Sha256Hex, Ulid } from "./ids.js";
 
 export interface EventEnvelopeV1<T extends JsonValue = JsonValue> {
@@ -61,9 +61,9 @@ function requireSchemaVersion(value: unknown): void {
   if (match?.[1] !== "1") throw new TypeError("unsupported schema major version");
 }
 
-function requireNormalizedPayload(value: unknown): asserts value is JsonValue {
+function requireNfcNormalized(value: unknown): asserts value is JsonValue {
   const normalized = normalizeJsonText(value);
-  if (JSON.stringify(normalized) !== JSON.stringify(value)) throw new TypeError("payload must be NFC-normalized");
+  if (JSON.stringify(normalized) !== JSON.stringify(value)) throw new TypeError("envelope must be NFC-normalized");
 }
 
 function requireRedaction(value: unknown): void {
@@ -76,10 +76,18 @@ function requireRedaction(value: unknown): void {
 
 /** Creates an event only from a payload that has crossed the redaction boundary. */
 export async function createEnvelope<T extends JsonValue>(input: CreateEnvelopeInput<T>): Promise<EventEnvelopeV1<T>> {
-  const { redaction, ...headers } = input;
-  const payload = normalizeJsonText(input.payload) as T;
+  const { redaction, payload: rawPayload, ...headers } = input;
+  if (!isIssuedRedaction(redaction)) throw new TypeError("redaction must be a successful issued redaction token");
+  const payload = normalizeJsonText(rawPayload) as T;
+  if (payload !== null && typeof payload === "object" && !Array.isArray(payload) && Object.hasOwn(payload, "text")) {
+    const payloadRecord = payload as Record<string, JsonValue>;
+    if (typeof payloadRecord.text !== "string" || payloadRecord.text !== redaction.text) {
+      throw new TypeError("payload.text must match the successful redaction result");
+    }
+  }
+  const normalizedHeaders = normalizeJsonText(headers) as Record<string, JsonValue>;
   const envelope = {
-    ...headers,
+    ...normalizedHeaders,
     payload,
     redaction: { status: redaction.markers.length > 0 ? "redacted" : "none", markers: [...redaction.markers] },
     contentHash: await sha256Hex(canonicalJson(payload)),
@@ -91,7 +99,7 @@ export async function createEnvelope<T extends JsonValue>(input: CreateEnvelopeI
 /** Validates a received event before a consumer uses or dead-letters its redacted payload. */
 export async function validateEnvelope(value: unknown): Promise<EventEnvelopeV1> {
   const envelope = requireRecord(value, "envelope");
-  normalizeJsonText(envelope);
+  requireNfcNormalized(envelope);
   requireSchemaVersion(envelope.schemaVersion);
   requireUlid(envelope.eventId, "eventId");
   requireUlid(envelope.correlationId, "correlationId");
@@ -105,7 +113,6 @@ export async function validateEnvelope(value: unknown): Promise<EventEnvelopeV1>
   requireTimestamp(envelope.receivedAt, "receivedAt");
   if (envelope.contentType !== "application/json") throw new TypeError("contentType must be application/json");
   if (typeof envelope.contentHash !== "string" || !SHA256.test(envelope.contentHash)) throw new TypeError("contentHash must be a lowercase SHA-256 hash");
-  requireNormalizedPayload(envelope.payload);
   requireRedaction(envelope.redaction);
 
   const computedHash = await sha256Hex(canonicalJson(envelope.payload));
