@@ -431,6 +431,59 @@ describe("offline evidence lifecycle", () => {
 });
 
 describe("safe command contract", () => {
+  it("passes only an owner presence sentinel to the gate and never emits the raw identity", async () => {
+    const priorExitCode = process.exitCode;
+    const priorStderrWrite = process.stderr.write;
+    process.exitCode = undefined;
+    try {
+      const cli = await import("./voice-smoke-cli.mjs");
+      const rawOwnerIdentity = "synthetic-owner-identity-must-never-cross-cli-boundary";
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      process.stderr.write = ((value: unknown) => {
+        stderr.push(String(value));
+        return true;
+      }) as typeof process.stderr.write;
+      const gateInputs: unknown[] = [];
+      const environment = {
+        JARVIS_CLOUD_BASE_URL: "synthetic-cloud-url",
+        JARVIS_DEVICE_ID: "synthetic-device-id",
+        JARVIS_DEVICE_KEY_PATH: "synthetic-device-key-path",
+        JARVIS_PRINCIPAL_ID: "synthetic-principal-id",
+        OWNER_VOICE_IDENTITY_ID: rawOwnerIdentity,
+      };
+
+      const exitCode = await cli.runSmokeCommand(["--scenario", "inbound"], {
+        environment,
+        runGate: async (input: unknown) => {
+          gateInputs.push(input);
+          throw new Error(`private failure: ${rawOwnerIdentity}`);
+        },
+        writeStdout: (value: string) => { stdout.push(value); },
+      });
+
+      expect(exitCode).toBe(2);
+      expect(gateInputs).toEqual([{
+        scenario: "inbound",
+        executeLive: false,
+        configuration: {
+          JARVIS_CLOUD_BASE_URL: "synthetic-cloud-url",
+          JARVIS_DEVICE_ID: "synthetic-device-id",
+          JARVIS_DEVICE_KEY_PATH: "synthetic-device-key-path",
+          JARVIS_PRINCIPAL_ID: "synthetic-principal-id",
+          OWNER_VOICE_IDENTITY_ID: true,
+        },
+        secretPresence: {},
+      }]);
+      expect(stdout).toEqual(['{"status":"blocked","reason":"invalid_smoke_arguments"}\n']);
+      expect(stderr).toEqual([]);
+      expect(JSON.stringify({ gateInputs, stdout, stderr })).not.toContain(rawOwnerIdentity);
+    } finally {
+      process.stderr.write = priorStderrWrite;
+      process.exitCode = priorExitCode;
+    }
+  });
+
   it("parses a developer smoke as non-live by default", () => {
     expect(parseSmokeArguments(["--scenario", "inbound"])).toEqual({
       scenario: "inbound",
