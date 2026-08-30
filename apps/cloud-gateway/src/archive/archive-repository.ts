@@ -1,7 +1,12 @@
-import { canonicalJson, sha256Hex, validateEnvelope } from "../../../../packages/contracts/src/index.js";
+import {
+  canonicalJson,
+  sha256Hex,
+  validateEnvelope,
+  type EventEnvelope,
+} from "../../../../packages/contracts/src/index.js";
 import type { AppendedEvent } from "../persistence/event-repository.js";
 import { TransactionRunner } from "../persistence/transaction.js";
-import { ARCHIVE_CODEC, type EncodedArchiveSegment } from "./segment-codec.js";
+import { ARCHIVE_CODEC, ARCHIVE_SEGMENT_LIMITS, type EncodedArchiveSegment } from "./segment-codec.js";
 
 export interface ArchiveState {
   sealedThrough: number;
@@ -72,6 +77,9 @@ interface StoredCoverage {
 
 const retentionMilliseconds = 90 * 24 * 60 * 60 * 1000;
 const safeCircuitReason = /^archive_[a-z0-9_]{1,120}$/;
+const archiveSelectionPageSize = 32;
+const maximumSelectionAttempts = 3;
+const utf8Encoder = new TextEncoder();
 
 function requireNow(value: Date): number {
   const milliseconds = value.getTime();
@@ -81,6 +89,25 @@ function requireNow(value: Date): number {
 
 function requireLimit(value: number): void {
   if (!Number.isSafeInteger(value) || value <= 0 || value > 1000) throw new RangeError("archive_limit_invalid");
+}
+
+function requireByteBudget(value: number): void {
+  if (!Number.isSafeInteger(value) || value <= 0 || value > ARCHIVE_SEGMENT_LIMITS.maxUncompressedBytes) {
+    throw new RangeError("archive_byte_budget_invalid");
+  }
+}
+
+function requireManifestRange(afterSequence: number, throughSequence: number): void {
+  if (!Number.isSafeInteger(afterSequence) || afterSequence < 0
+    || !Number.isSafeInteger(throughSequence) || throughSequence < afterSequence) {
+    throw new RangeError("archive_manifest_range_invalid");
+  }
+}
+
+function requireManifestLimit(value: number): void {
+  if (!Number.isSafeInteger(value) || value <= 0 || value > 1000) {
+    throw new RangeError("archive_manifest_limit_invalid");
+  }
 }
 
 function toManifest(row: StoredManifest): ArchiveManifest {
@@ -104,7 +131,12 @@ async function toEvent(row: StoredCandidate): Promise<AppendedEvent> {
   } catch {
     throw new Error("archive_envelope_json_invalid");
   }
-  const envelope = await validateEnvelope(raw);
+  let envelope: EventEnvelope;
+  try {
+    envelope = await validateEnvelope(raw);
+  } catch {
+    throw new Error("archive_envelope_invalid");
+  }
   if (envelope.eventId !== row.event_id) throw new Error("archive_event_id_mismatch");
   if (envelope.contentHash !== row.content_hash) throw new Error("archive_content_hash_mismatch");
   if (envelope.eventSequence !== undefined && envelope.eventSequence !== row.sequence) {
@@ -135,35 +167,67 @@ export class ArchiveRepository {
     };
   }
 
-  async selectEligible(now: Date, maxEvents: number): Promise<ArchiveCandidate | null> {
+  async selectEligible(now: Date, maxEvents: number, maxEnvelopeBytes: number): Promise<ArchiveCandidate | null> {
     requireLimit(maxEvents);
+    requireByteBudget(maxEnvelopeBytes);
     const cutoff = requireNow(now) - retentionMilliseconds;
+    selectionAttempts: for (let attempt = 0; attempt < maximumSelectionAttempts; attempt += 1) {
+      const state = await this.readState();
+      if (state.circuitState !== "closed") throw new Error("archive_circuit_open");
+      if (state.sealedThrough === Number.MAX_SAFE_INTEGER) return null;
+      const expected = state.sealedThrough + 1;
+      const selected: AppendedEvent[] = [];
+      let selectedEnvelopeBytes = 0;
+      let nextSequence = expected;
+      while (selected.length < maxEvents) {
+        const pageLimit = Math.min(archiveSelectionPageSize, maxEvents - selected.length);
+        const rows = await this.database.prepare(
+          `SELECT e.sequence, e.event_id, e.envelope_json, e.content_hash, e.created_at,
+                  o.outbox_id, o.status AS outbox_status
+           FROM events e
+           LEFT JOIN outbox o ON o.event_sequence = e.sequence
+           WHERE e.sequence >= ?
+           ORDER BY e.sequence ASC
+           LIMIT ?`,
+        ).bind(nextSequence, pageLimit).all<StoredCandidate>();
+        if (rows.results.length === 0) {
+          if (await this.selectionStateAdvanced(state.sealedThrough)) continue selectionAttempts;
+          break;
+        }
+
+        for (const row of rows.results) {
+          if (row.sequence !== nextSequence) {
+            if (await this.selectionStateAdvanced(state.sealedThrough)) continue selectionAttempts;
+            throw new Error("archive_sequence_gap");
+          }
+          const createdAt = Date.parse(row.created_at);
+          if (!Number.isFinite(createdAt)) throw new Error("archive_created_at_invalid");
+          if (createdAt > cutoff) return selected.length === 0 ? null : { sealedThrough: state.sealedThrough, events: selected };
+
+          const envelopeBytes = utf8Encoder.encode(row.envelope_json).byteLength + 1;
+          if (selected.length > 0 && selectedEnvelopeBytes + envelopeBytes > maxEnvelopeBytes) {
+            return { sealedThrough: state.sealedThrough, events: selected };
+          }
+          if (row.outbox_id === null || row.outbox_status === null) throw new Error("archive_outbox_missing");
+          selected.push(await toEvent(row));
+          selectedEnvelopeBytes += envelopeBytes;
+          nextSequence += 1;
+          if (selected.length === maxEvents || selectedEnvelopeBytes >= maxEnvelopeBytes) {
+            return { sealedThrough: state.sealedThrough, events: selected };
+          }
+        }
+        if (rows.results.length < pageLimit) break;
+      }
+      return selected.length === 0 ? null : { sealedThrough: state.sealedThrough, events: selected };
+    }
+    throw new Error("archive_selection_unstable");
+  }
+
+  private async selectionStateAdvanced(previousSealedThrough: number): Promise<boolean> {
     const state = await this.readState();
     if (state.circuitState !== "closed") throw new Error("archive_circuit_open");
-    const expected = state.sealedThrough + 1;
-    const rows = await this.database.prepare(
-      `SELECT e.sequence, e.event_id, e.envelope_json, e.content_hash, e.created_at,
-              o.outbox_id, o.status AS outbox_status
-       FROM events e
-       LEFT JOIN outbox o ON o.event_sequence = e.sequence
-       WHERE e.sequence >= ?
-       ORDER BY e.sequence ASC
-       LIMIT ?`,
-    ).bind(expected, maxEvents).all<StoredCandidate>();
-    if (rows.results.length === 0) return null;
-    if (rows.results[0]!.sequence !== expected) throw new Error("archive_sequence_gap");
-
-    const selected: AppendedEvent[] = [];
-    for (let index = 0; index < rows.results.length; index += 1) {
-      const row = rows.results[index]!;
-      if (row.sequence !== expected + index) throw new Error("archive_sequence_gap");
-      const createdAt = Date.parse(row.created_at);
-      if (!Number.isFinite(createdAt)) throw new Error("archive_created_at_invalid");
-      if (createdAt > cutoff) break;
-      if (row.outbox_id === null || row.outbox_status === null) throw new Error("archive_outbox_missing");
-      selected.push(await toEvent(row));
-    }
-    return selected.length === 0 ? null : { sealedThrough: state.sealedThrough, events: selected };
+    if (state.sealedThrough < previousSealedThrough) throw new Error("archive_state_invalid");
+    return state.sealedThrough > previousSealedThrough;
   }
 
   async seal(
@@ -241,15 +305,22 @@ export class ArchiveRepository {
     return row === null ? null : toManifest(row);
   }
 
-  async listManifests(afterSequence: number, throughSequence: number): Promise<readonly ArchiveManifest[]> {
+  async listManifests(
+    afterSequence: number,
+    throughSequence: number,
+    manifestLimit: number,
+  ): Promise<readonly ArchiveManifest[]> {
+    requireManifestRange(afterSequence, throughSequence);
+    requireManifestLimit(manifestLimit);
     const rows = await this.database.prepare(
       `SELECT m.manifest_id, m.start_sequence, m.end_sequence, m.event_count, m.sealed_at,
               s.object_key, s.compressed_sha256, s.compressed_byte_length, s.uncompressed_byte_length
        FROM archive_manifests m
        JOIN archive_segments s ON s.manifest_id = m.manifest_id
        WHERE m.end_sequence > ? AND m.start_sequence <= ? AND m.status = 'sealed'
-       ORDER BY m.start_sequence ASC`,
-    ).bind(afterSequence, throughSequence).all<StoredManifest>();
+       ORDER BY m.start_sequence ASC
+       LIMIT ?`,
+    ).bind(afterSequence, throughSequence, manifestLimit).all<StoredManifest>();
     return rows.results.map(toManifest);
   }
 

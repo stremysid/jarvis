@@ -6,6 +6,7 @@ import {
   ARCHIVE_SEGMENT_LIMITS,
   decodeArchiveSegment,
   encodeArchiveSegment,
+  encodeLargestArchiveSegment,
 } from "../../src/archive/segment-codec.js";
 
 const textEncoder = new TextEncoder();
@@ -17,8 +18,9 @@ async function eventFixture(
   eventId: string,
   correlationId: string,
   attempt: number,
+  payloadOverride?: unknown,
 ): Promise<AppendedEvent> {
-  const payload = { attempt, ok: true };
+  const payload = payloadOverride ?? { attempt, ok: true };
   const envelope = await validateEnvelope({
     schemaVersion: "1.0",
     eventId,
@@ -60,6 +62,14 @@ function testGzip(text: string, level: 1 | 9 = 9): Uint8Array {
 }
 
 describe("archive segment codec", () => {
+  it("keeps the canonical segment within a conservative multi-copy Worker memory budget", () => {
+    expect(ARCHIVE_SEGMENT_LIMITS).toMatchObject({
+      maxCompressedBytes: 16 * 1024 * 1024,
+      maxUncompressedBytes: 8 * 1024 * 1024,
+      maxEventCount: 1000,
+    });
+  });
+
   it("emits the frozen canonical gzip bytes and exact metadata line", async () => {
     const encoded = await encodeArchiveSegment(await goldenEvents());
 
@@ -108,6 +118,54 @@ describe("archive segment codec", () => {
     await expect(decodeArchiveSegment(encoded.compressedBytes, encoded.compressedSha256, {
       maxEventCount: 1,
     })).rejects.toThrow("archive_event_count_limit");
+  });
+
+  it("selects the largest deterministic canonical prefix at exact byte-limit equality", async () => {
+    const events = [
+      await eventFixture(9, "01arz3ndektsv4rrffq69g5fc0", "01arz3ndektsv4rrffq69g5fc1", 9, { note: "雪" }),
+      await eventFixture(10, "01arz3ndektsv4rrffq69g5fc2", "01arz3ndektsv4rrffq69g5fc3", 10, { note: "雪雪" }),
+      await eventFixture(11, "01arz3ndektsv4rrffq69g5fc4", "01arz3ndektsv4rrffq69g5fc5", 11, { note: "雪雪雪" }),
+      await eventFixture(12, "01arz3ndektsv4rrffq69g5fc6", "01arz3ndektsv4rrffq69g5fc7", 12, { note: "雪雪雪雪" }),
+    ];
+    const encodedPrefixes = await Promise.all(events.map((_, index) => encodeArchiveSegment(events.slice(0, index + 1))));
+    const exactTwo = encodedPrefixes[1]!;
+    const limits = {
+      maxCompressedBytes: exactTwo.compressedBytes.byteLength,
+      maxUncompressedBytes: exactTwo.uncompressedByteLength,
+      maxEventCount: events.length,
+    };
+    const oracle = encodedPrefixes.filter((encoded) => (
+      encoded.compressedBytes.byteLength <= limits.maxCompressedBytes
+      && encoded.uncompressedByteLength <= limits.maxUncompressedBytes
+    )).at(-1)!;
+
+    const selected = await encodeLargestArchiveSegment(events, limits);
+    const replay = await encodeLargestArchiveSegment(events, limits);
+
+    expect(oracle.metadata.eventCount).toBe(2);
+    expect(selected.metadata).toEqual({
+      schemaVersion: "1.0",
+      codec: "jarvis-gzip-ndjson-v1",
+      startSequence: 9,
+      endSequence: 10,
+      eventCount: 2,
+    });
+    expect(selected.compressedBytes).toEqual(oracle.compressedBytes);
+    expect(selected.uncompressedByteLength).toBe(limits.maxUncompressedBytes);
+    expect(selected.compressedBytes).toHaveLength(limits.maxCompressedBytes);
+    expect(replay.compressedBytes).toEqual(selected.compressedBytes);
+  });
+
+  it("caps prefix selection by event count and reports a single-event capacity failure", async () => {
+    const events = await goldenEvents();
+    const first = await encodeArchiveSegment(events.slice(0, 1));
+
+    await expect(encodeLargestArchiveSegment(events, {
+      maxEventCount: 1,
+    })).resolves.toMatchObject({ metadata: { eventCount: 1, endSequence: 1 } });
+    await expect(encodeLargestArchiveSegment(events, {
+      maxUncompressedBytes: first.uncompressedByteLength - 1,
+    })).rejects.toThrow("archive_segment_capacity");
   });
 
   it("rejects content-hash corruption inside otherwise valid canonical NDJSON", async () => {

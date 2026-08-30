@@ -100,7 +100,7 @@ CREATE TABLE events (
   occurred_at TEXT NOT NULL,
   received_at TEXT NOT NULL,
   content_hash TEXT NOT NULL CHECK (length(content_hash) = 64 AND content_hash NOT GLOB '*[^0-9a-f]*'),
-  envelope_json TEXT NOT NULL CHECK (json_valid(envelope_json)),
+  envelope_json TEXT NOT NULL CHECK (json_valid(envelope_json) AND length(CAST(envelope_json AS BLOB)) <= 262144),
   created_at TEXT NOT NULL
 );
 CREATE INDEX events_subject_sequence_idx ON events(subject_id, sequence);

@@ -6,9 +6,19 @@ export const ARCHIVE_CODEC = "jarvis-gzip-ndjson-v1" as const;
 
 export const ARCHIVE_SEGMENT_LIMITS = Object.freeze({
   maxCompressedBytes: 16 * 1024 * 1024,
-  maxUncompressedBytes: 64 * 1024 * 1024,
+  // Worker selection and verification retain several representations at once;
+  // keep canonical input conservative under the 128 MiB isolate memory limit.
+  maxUncompressedBytes: 8 * 1024 * 1024,
   maxEventCount: 1000,
 });
+
+export interface ArchiveSegmentLimits {
+  maxCompressedBytes: number;
+  maxUncompressedBytes: number;
+  maxEventCount: number;
+}
+
+export type ArchiveSegmentLimitOverrides = Partial<ArchiveSegmentLimits>;
 
 export interface ArchiveSegmentMetadata {
   schemaVersion: "1.0";
@@ -31,9 +41,6 @@ export interface DecodedArchiveSegment {
   uncompressedByteLength: number;
 }
 
-type SegmentLimits = typeof ARCHIVE_SEGMENT_LIMITS;
-type SegmentLimitOverrides = Partial<SegmentLimits>;
-
 const sha256Pattern = /^[a-f0-9]{64}$/;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
@@ -45,13 +52,19 @@ function archiveError(code: string): Error {
   return new Error(code);
 }
 
-function limitsWith(overrides: SegmentLimitOverrides | undefined): SegmentLimits {
+export function resolveArchiveSegmentLimits(
+  overrides: ArchiveSegmentLimitOverrides | undefined,
+): ArchiveSegmentLimits {
   const limits = { ...ARCHIVE_SEGMENT_LIMITS, ...overrides };
   for (const [name, value] of Object.entries(limits)) {
     if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`${name} must be a positive integer`);
+    const maximum = ARCHIVE_SEGMENT_LIMITS[name as keyof ArchiveSegmentLimits];
+    if (value > maximum) throw new RangeError(`${name} exceeds the archive safety maximum`);
   }
   return limits;
 }
+
+const limitsWith = resolveArchiveSegmentLimits;
 
 function isSequence(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
@@ -149,48 +162,134 @@ function sequencedEnvelope(event: AppendedEvent): EventEnvelope {
   return { ...event.envelope, eventSequence: event.eventSequence };
 }
 
+interface PreparedEventLine {
+  bytes: Uint8Array;
+}
+
+interface CompressedPreparedSegment {
+  metadata: ArchiveSegmentMetadata;
+  compressedBytes: Uint8Array;
+  uncompressedByteLength: number;
+}
+
+function metadataFor(firstSequence: number, eventCount: number): ArchiveSegmentMetadata {
+  return {
+    schemaVersion: "1.0",
+    codec: ARCHIVE_CODEC,
+    startSequence: firstSequence,
+    endSequence: firstSequence + eventCount - 1,
+    eventCount,
+  };
+}
+
+async function prepareEventLine(event: AppendedEvent, expectedSequence: number): Promise<PreparedEventLine> {
+  if (event.eventSequence !== expectedSequence) throw archiveError("archive_sequence_noncontiguous");
+  const envelope = sequencedEnvelope(event);
+  await validateEnvelope(envelope);
+  return { bytes: encoder.encode(canonicalJson(envelope)) };
+}
+
+function uncompressedLength(
+  firstSequence: number,
+  lines: readonly PreparedEventLine[],
+  eventCount: number,
+): number {
+  const metadataBytes = encoder.encode(canonicalJson(metadataFor(firstSequence, eventCount)));
+  let byteLength = metadataBytes.byteLength + 1;
+  for (let index = 0; index < eventCount; index += 1) byteLength += lines[index]!.bytes.byteLength + 1;
+  return byteLength;
+}
+
+function compressPrepared(
+  firstSequence: number,
+  lines: readonly PreparedEventLine[],
+  eventCount: number,
+): CompressedPreparedSegment {
+  const metadata = metadataFor(firstSequence, eventCount);
+  const metadataBytes = encoder.encode(canonicalJson(metadata));
+  const byteLength = uncompressedLength(firstSequence, lines, eventCount);
+  const uncompressedBytes = new Uint8Array(byteLength);
+  let offset = 0;
+  uncompressedBytes.set(metadataBytes, offset);
+  offset += metadataBytes.byteLength;
+  uncompressedBytes[offset] = 10;
+  offset += 1;
+  for (let index = 0; index < eventCount; index += 1) {
+    const line = lines[index]!.bytes;
+    uncompressedBytes.set(line, offset);
+    offset += line.byteLength;
+    uncompressedBytes[offset] = 10;
+    offset += 1;
+  }
+  return {
+    metadata,
+    compressedBytes: gzipSync(uncompressedBytes, { level: 9, mem: 8, mtime: 0 }),
+    uncompressedByteLength: byteLength,
+  };
+}
+
+async function finalizeEncoded(segment: CompressedPreparedSegment): Promise<EncodedArchiveSegment> {
+  return {
+    ...segment,
+    compressedSha256: await sha256Hex(segment.compressedBytes),
+  };
+}
+
 export async function encodeArchiveSegment(
   events: readonly AppendedEvent[],
-  limitOverrides?: SegmentLimitOverrides,
+  limitOverrides?: ArchiveSegmentLimitOverrides,
 ): Promise<EncodedArchiveSegment> {
   const limits = limitsWith(limitOverrides);
   if (events.length === 0) throw archiveError("archive_segment_empty");
   if (events.length > limits.maxEventCount) throw archiveError("archive_event_count_limit");
 
-  const lines: string[] = [];
   const firstSequence = events[0]!.eventSequence;
   if (!isSequence(firstSequence)) throw archiveError("archive_sequence_noncontiguous");
+  const lines: PreparedEventLine[] = [];
   for (let index = 0; index < events.length; index += 1) {
-    const event = events[index]!;
-    if (event.eventSequence !== firstSequence + index) throw archiveError("archive_sequence_noncontiguous");
-    const envelope = sequencedEnvelope(event);
-    await validateEnvelope(envelope);
-    lines.push(canonicalJson(envelope));
+    lines.push(await prepareEventLine(events[index]!, firstSequence + index));
   }
+  if (uncompressedLength(firstSequence, lines, lines.length) > limits.maxUncompressedBytes) {
+    throw archiveError("archive_uncompressed_limit");
+  }
+  const compressed = compressPrepared(firstSequence, lines, lines.length);
+  if (compressed.compressedBytes.byteLength > limits.maxCompressedBytes) throw archiveError("archive_compressed_limit");
+  return finalizeEncoded(compressed);
+}
 
-  const metadata: ArchiveSegmentMetadata = {
-    schemaVersion: "1.0",
-    codec: ARCHIVE_CODEC,
-    startSequence: firstSequence,
-    endSequence: firstSequence + events.length - 1,
-    eventCount: events.length,
-  };
-  const uncompressedBytes = encoder.encode(`${canonicalJson(metadata)}\n${lines.join("\n")}\n`);
-  if (uncompressedBytes.byteLength > limits.maxUncompressedBytes) throw archiveError("archive_uncompressed_limit");
-  const compressedBytes = gzipSync(uncompressedBytes, { level: 9, mem: 8, mtime: 0 });
-  if (compressedBytes.byteLength > limits.maxCompressedBytes) throw archiveError("archive_compressed_limit");
-  return {
-    metadata,
-    compressedBytes,
-    compressedSha256: await sha256Hex(compressedBytes),
-    uncompressedByteLength: uncompressedBytes.byteLength,
-  };
+/** Returns the largest leading prefix whose final canonical bytes fit every limit. */
+export async function encodeLargestArchiveSegment(
+  events: readonly AppendedEvent[],
+  limitOverrides?: ArchiveSegmentLimitOverrides,
+): Promise<EncodedArchiveSegment> {
+  const limits = limitsWith(limitOverrides);
+  if (events.length === 0) throw archiveError("archive_segment_empty");
+  const firstSequence = events[0]!.eventSequence;
+  if (!isSequence(firstSequence)) throw archiveError("archive_sequence_noncontiguous");
+
+  const lines: PreparedEventLine[] = [];
+  const countLimit = Math.min(events.length, limits.maxEventCount);
+  for (let index = 0; index < countLimit; index += 1) {
+    const line = await prepareEventLine(events[index]!, firstSequence + index);
+    lines.push(line);
+    if (uncompressedLength(firstSequence, lines, lines.length) > limits.maxUncompressedBytes) {
+      lines.pop();
+      break;
+    }
+  }
+  for (let eventCount = lines.length; eventCount > 0; eventCount -= 1) {
+    const compressed = compressPrepared(firstSequence, lines, eventCount);
+    if (compressed.compressedBytes.byteLength <= limits.maxCompressedBytes) {
+      return finalizeEncoded(compressed);
+    }
+  }
+  throw archiveError("archive_segment_capacity");
 }
 
 export async function decodeArchiveSegment(
   compressedBytes: Uint8Array,
   expectedCompressedSha256: string,
-  limitOverrides?: SegmentLimitOverrides,
+  limitOverrides?: ArchiveSegmentLimitOverrides,
 ): Promise<DecodedArchiveSegment> {
   const limits = limitsWith(limitOverrides);
   if (compressedBytes.byteLength === 0 || compressedBytes.byteLength > limits.maxCompressedBytes) {

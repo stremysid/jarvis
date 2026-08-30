@@ -7,6 +7,12 @@ const invalidHash = "g".repeat(64);
 const timestamp = "2026-08-30T00:00:00.000Z";
 const futureTimestamp = "2026-08-30T00:05:00.000Z";
 
+function jsonWithExactAsciiBytes(byteLength: number): string {
+  const prefix = '{"value":"';
+  const suffix = '"}';
+  return `${prefix}${"x".repeat(byteLength - prefix.length - suffix.length)}${suffix}`;
+}
+
 async function seedDevicePairs(): Promise<void> {
   await env.DB.batch([
     env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('principal:one', 'service', 'active', 'one', ?, ?)").bind(timestamp, timestamp),
@@ -52,6 +58,16 @@ describe("foundation migration constraints", () => {
     await expect(env.DB.prepare("INSERT INTO request_nonces (nonce_id, device_id, principal_id, key_id, key_fingerprint, key_generation, nonce_hash, request_hash, expires_at, consumed_at, created_at) VALUES ('nonce', 'device', 'principal', 'key', ?, 1, ?, ?, ?, ?, ?)").bind(validHash, invalidHash, validHash, timestamp, timestamp, timestamp).run()).rejects.toThrow();
     await expect(env.DB.prepare("INSERT INTO policy_decisions (decision_id, principal_id, policy_version, input_hash, outcome, reason_code, decided_at) VALUES ('decision', 'principal', 'v1', ?, 'allow', 'test', ?)").bind(invalidHash, timestamp).run()).rejects.toThrow();
 
+  });
+
+  it("enforces the 256 KiB UTF-8 event envelope bound for direct D1 writes", async () => {
+    const insert = (eventId: string, envelopeJson: string) => env.DB.prepare(
+      "INSERT INTO events (event_id, event_type, source, subject_id, occurred_at, received_at, content_hash, envelope_json, created_at) VALUES (?, 'type', 'source', 'subject', ?, ?, ?, ?, ?)",
+    ).bind(eventId, timestamp, timestamp, validHash, envelopeJson, timestamp).run();
+
+    await expect(insert("event:exact-envelope-limit", jsonWithExactAsciiBytes(262144)))
+      .resolves.toMatchObject({ success: true });
+    await expect(insert("event:oversized-envelope", jsonWithExactAsciiBytes(262145))).rejects.toThrow();
   });
 
   it("keeps archive authority global and removes only event foreign keys that block verified purge", async () => {
