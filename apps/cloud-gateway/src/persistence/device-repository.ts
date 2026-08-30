@@ -209,6 +209,20 @@ export class DeviceRepository {
     return row?.active === 1;
   }
 
+  async isCurrentHumanDevice(verified: VerifiedDeviceRequest): Promise<boolean> {
+    const row = await this.database.prepare(
+      `SELECT 1 AS active
+       FROM device_keys d JOIN principals p ON p.principal_id = d.principal_id
+       WHERE d.device_id = ? AND d.principal_id = ? AND d.key_id = ?
+         AND d.key_fingerprint = ? AND d.key_generation = ?
+         AND d.status = 'active' AND p.status = 'active' AND p.principal_type = 'human'`,
+    ).bind(
+      verified.deviceId, verified.principalId, verified.keyId,
+      verified.keyFingerprint, verified.keyGeneration,
+    ).first<{ active: number }>();
+    return row?.active === 1;
+  }
+
   async createSyncSnapshot(input: CreateSyncSnapshotInput): Promise<boolean> {
     const result = await this.database.prepare(
       `INSERT INTO sync_snapshots (

@@ -71,4 +71,48 @@ describe("DeviceRepository Telegram identity lookup", () => {
   it.each(["", "0424242", "424242\n1", "not-a-telegram-id", "1".repeat(21)])("rejects malformed Telegram provider subject %j", async (subject) => {
     await expect(repository.findActiveVerifiedTelegramIdentity(subject)).rejects.toThrow("telegram_provider_subject_invalid");
   });
+
+  it("proves an exact active current device tuple belongs to a human principal", async () => {
+    const humanFingerprint = "1".repeat(64);
+    await env.DB.prepare(
+      `INSERT INTO device_keys (
+         device_id, principal_id, key_id, public_key_base64, key_fingerprint, key_generation,
+         algorithm, status, device_label, bootstrap_metadata_hash, created_at
+       ) VALUES ('device:human', 'principal:one', 'key:human', ?, ?, 2, 'ed25519', 'active', 'human', ?, ?)`,
+    ).bind(`${"A".repeat(43)}=`, humanFingerprint, "2".repeat(64), now).run();
+    await env.DB.prepare(
+      "INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('service:one', 'service', 'active', 'service', ?, ?)",
+    ).bind(now, now).run();
+    await env.DB.prepare(
+      `INSERT INTO device_keys (
+         device_id, principal_id, key_id, public_key_base64, key_fingerprint, key_generation,
+         algorithm, status, device_label, bootstrap_metadata_hash, created_at
+       ) VALUES ('device:service', 'service:one', 'key:service', ?, ?, 1, 'ed25519', 'active', 'service', ?, ?)`,
+    ).bind(`${"B".repeat(43)}=`, "3".repeat(64), "4".repeat(64), now).run();
+    const verifiedHuman = {
+      deviceId: "device:human",
+      principalId: "principal:one",
+      keyId: "key:human",
+      keyFingerprint: humanFingerprint,
+      keyGeneration: 2,
+    };
+    const verifiedService = {
+      deviceId: "device:service",
+      principalId: "service:one",
+      keyId: "key:service",
+      keyFingerprint: "3".repeat(64),
+      keyGeneration: 1,
+    };
+
+    await expect(repository.isCurrentHumanDevice(verifiedHuman as never)).resolves.toBe(true);
+    await expect(repository.isCurrentHumanDevice(verifiedService as never)).resolves.toBe(false);
+    await expect(repository.isCurrentHumanDevice({ ...verifiedHuman, keyId: "key:wrong" } as never)).resolves.toBe(false);
+    await expect(repository.isCurrentHumanDevice({ ...verifiedHuman, keyFingerprint: "9".repeat(64) } as never)).resolves.toBe(false);
+    await expect(repository.isCurrentHumanDevice({ ...verifiedHuman, keyGeneration: 1 } as never)).resolves.toBe(false);
+    await env.DB.prepare("UPDATE principals SET status = 'disabled' WHERE principal_id = 'principal:one'").run();
+    await expect(repository.isCurrentHumanDevice(verifiedHuman as never)).resolves.toBe(false);
+    await env.DB.prepare("UPDATE principals SET status = 'active' WHERE principal_id = 'principal:one'").run();
+    await env.DB.prepare("UPDATE device_keys SET status = 'revoked', revoked_at = ? WHERE device_id = 'device:human'").bind(now).run();
+    await expect(repository.isCurrentHumanDevice(verifiedHuman as never)).resolves.toBe(false);
+  });
 });
