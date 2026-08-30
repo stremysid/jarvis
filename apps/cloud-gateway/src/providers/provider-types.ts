@@ -1,3 +1,7 @@
+import type { VerifiedTwilioForm } from "./twilio-verifier.js";
+
+export type { VerifiedTwilioForm } from "./twilio-verifier.js";
+
 export const TWILIO_STATUS_CALLBACK_EVENTS = Object.freeze([
   "initiated",
   "ringing",
@@ -22,6 +26,28 @@ export interface TwilioCreateCallResult {
 
 export interface TwilioProvider {
   createCall(input: TwilioCreateCallInput): Promise<TwilioCreateCallResult>;
+}
+
+/** A call-creation result that may have been accepted by Twilio and must never be retried automatically. */
+export class ProviderDispatchUnknownError extends Error {
+  readonly code = "provider_dispatch_unknown" as const;
+  readonly operation = "twilio.createCall" as const;
+
+  constructor() {
+    super("provider_dispatch_unknown");
+    this.name = "ProviderDispatchUnknownError";
+  }
+}
+
+export interface TwilioRequestVerifier {
+  verifyWebhook(input: {
+    request: Request;
+    exactUrl: string;
+  }): Promise<VerifiedTwilioForm | null>;
+  verifyWebSocket(input: {
+    request: Request;
+    exactUrl: string;
+  }): Promise<boolean>;
 }
 
 export type ModelChunk =

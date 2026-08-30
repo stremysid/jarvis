@@ -5,6 +5,7 @@ import { FakeTwilioProvider } from "../../src/providers/fake-twilio-provider.js"
 import { ProviderCircuitBreaker } from "../../src/providers/provider-circuit-breaker.js";
 import {
   ProviderCircuitOpenError,
+  ProviderDispatchUnknownError,
   ProviderFailure,
   ProviderIdempotencyConflictError,
   type ModelChunk,
@@ -63,7 +64,67 @@ afterEach(() => {
 });
 
 describe("FakeTwilioProvider", () => {
-  it("returns one deterministic call for a replayed normalized idempotency request", async () => {
+  it("records an accepted response-loss attempt while direct replay remains a distinct POST", async () => {
+    const fake = new FakeTwilioProvider();
+    fake.acceptAndLoseNextResponse();
+
+    let firstError: unknown;
+    try {
+      await fake.createCall(twilioCall());
+    } catch (error) {
+      firstError = error;
+    }
+
+    expect(firstError).toBeInstanceOf(ProviderDispatchUnknownError);
+    await expect(fake.createCall(twilioCall())).resolves.toEqual({ callSid: "CA00000000000000000000000000000002" });
+    expect(fake.requests).toHaveLength(2);
+    expect(fake.acceptedCalls.map(({ callSid }) => callSid)).toEqual([
+      "CA00000000000000000000000000000001",
+      "CA00000000000000000000000000000002",
+    ]);
+  });
+
+  it("returns no parsed webhook values while its signature control is false", async () => {
+    const fake = new FakeTwilioProvider();
+    const exactUrl = "https://jarvis.example/voice/status";
+    const rawBody = new TextEncoder().encode("CallSid=CA123&Future=value");
+    const signature = await fake.signWebhook(exactUrl, rawBody);
+    const request = (body = rawBody, contentType = "application/x-www-form-urlencoded") => new Request(exactUrl, {
+      method: "POST",
+      headers: { "content-type": contentType, "x-twilio-signature": signature },
+      body,
+    });
+    const webSocketUrl = "wss://jarvis.example/voice/relay/x";
+    const webSocketSignature = await fake.signWebSocket(webSocketUrl);
+    const webSocketRequest = () => new Request("https://internal.invalid/relay", {
+      headers: { "x-twilio-signature": webSocketSignature },
+    });
+    fake.signatureValid = false;
+
+    await expect(fake.verifyWebhook({ exactUrl, request: request() })).resolves.toBeNull();
+    await expect(fake.verifyWebSocket({ exactUrl: webSocketUrl, request: webSocketRequest() })).resolves.toBe(false);
+
+    fake.signatureValid = true;
+    const verified = await fake.verifyWebhook({ exactUrl, request: request() });
+    expect(verified?.get("CallSid")).toBe("CA123");
+    expect(verified?.entries()).toEqual([["CallSid", "CA123"], ["Future", "value"]]);
+    await expect(fake.verifyWebSocket({ exactUrl: webSocketUrl, request: webSocketRequest() })).resolves.toBe(true);
+
+    await expect(fake.verifyWebhook({
+      exactUrl,
+      request: request(new TextEncoder().encode("CallSid=%GG")),
+    })).resolves.toBeNull();
+    await expect(fake.verifyWebhook({
+      exactUrl,
+      request: request(rawBody, "application/json"),
+    })).resolves.toBeNull();
+    await expect(fake.verifyWebhook({
+      exactUrl,
+      request: request(new TextEncoder().encode(`CallSid=${"x".repeat(65_529)}`)),
+    })).resolves.toBeNull();
+  });
+
+  it("models each replay as a distinct non-idempotent Calls POST", async () => {
     const fake = new FakeTwilioProvider();
     const firstInput = twilioCall();
     const secondInput = twilioCall({
@@ -75,8 +136,8 @@ describe("FakeTwilioProvider", () => {
     const two = await fake.createCall(secondInput);
 
     expect(one).toEqual({ callSid: "CA00000000000000000000000000000001" });
-    expect(two).toEqual(one);
-    expect(fake.requests).toHaveLength(1);
+    expect(two).toEqual({ callSid: "CA00000000000000000000000000000002" });
+    expect(fake.requests).toHaveLength(2);
     expect(fake.requests[0]).toMatchObject({
       commandId: firstInput.commandId,
       toE164: "+14165550123",
@@ -85,81 +146,82 @@ describe("FakeTwilioProvider", () => {
     });
   });
 
-  it("throws a typed stable conflict when one key is reused for changed material", async () => {
+  it("keeps idempotency keys as correlation only and does not suppress changed replays", async () => {
     const fake = new FakeTwilioProvider();
     await fake.createCall(twilioCall());
 
-    const conflict = fake.createCall(twilioCall({ toE164: "+14165550124" }));
-
-    await expect(conflict).rejects.toBeInstanceOf(ProviderIdempotencyConflictError);
-    await expect(conflict).rejects.toMatchObject({ code: "provider_idempotency_conflict" });
-    expect(fake.requests).toHaveLength(1);
+    await expect(fake.createCall(twilioCall({ toE164: "+14165550124" }))).resolves.toEqual({
+      callSid: "CA00000000000000000000000000000002",
+    });
+    expect(fake.requests).toHaveLength(2);
   });
 
-  it("coalesces concurrent retries of the same in-flight attempt", async () => {
+  it("models concurrent invocations as two independent provider attempts", async () => {
     vi.useFakeTimers();
     const fake = new FakeTwilioProvider();
     fake.delayNext(25);
 
     const one = fake.createCall(twilioCall());
     const two = fake.createCall(twilioCall());
-    expect(fake.requests).toHaveLength(1);
+    expect(fake.requests).toHaveLength(2);
     await vi.advanceTimersByTimeAsync(25);
 
     await expect(Promise.all([one, two])).resolves.toEqual([
       { callSid: "CA00000000000000000000000000000001" },
-      { callSid: "CA00000000000000000000000000000001" },
+      { callSid: "CA00000000000000000000000000000002" },
     ]);
-    expect(fake.requests).toHaveLength(1);
+    expect(fake.requests).toHaveLength(2);
   });
 
-  it("rejects changed material while the original idempotent attempt is still in flight", async () => {
+  it("does not locally reject changed material while another attempt is in flight", async () => {
     vi.useFakeTimers();
     const fake = new FakeTwilioProvider();
     fake.delayNext(25);
     const original = fake.createCall(twilioCall());
 
-    const conflict = fake.createCall(twilioCall({ toE164: "+14165550124" }));
+    const second = fake.createCall(twilioCall({ toE164: "+14165550124" }));
 
-    await expect(conflict).rejects.toMatchObject({ code: "provider_idempotency_conflict" });
-    expect(fake.requests).toHaveLength(1);
+    expect(fake.requests).toHaveLength(2);
     await vi.advanceTimersByTimeAsync(25);
     await expect(original).resolves.toEqual({ callSid: "CA00000000000000000000000000000001" });
+    await expect(second).resolves.toEqual({ callSid: "CA00000000000000000000000000000002" });
   });
 
-  it("does not let a failed attempt poison its idempotency key", async () => {
+  it("keeps every retry as a distinct attempt after a safe failure", async () => {
     const fake = new FakeTwilioProvider();
     const injected = new Error("injected test failure");
     fake.failNext(injected);
 
     await expect(fake.createCall(twilioCall())).rejects.toBe(injected);
     await expect(fake.createCall(twilioCall())).resolves.toEqual({ callSid: "CA00000000000000000000000000000002" });
-    await expect(fake.createCall(twilioCall())).resolves.toEqual({ callSid: "CA00000000000000000000000000000002" });
-    expect(fake.requests).toHaveLength(2);
+    await expect(fake.createCall(twilioCall())).resolves.toEqual({ callSid: "CA00000000000000000000000000000003" });
+    expect(fake.requests).toHaveLength(3);
   });
 
-  it("keeps the first normalized material permanently bound after a failed call attempt", async () => {
+  it("does not bind correlation material after a failed call attempt", async () => {
     const fake = new FakeTwilioProvider();
     const original = twilioCall();
     fake.failNext(new Error("provider rejected first attempt"));
     await expect(fake.createCall(original)).rejects.toThrow("provider rejected first attempt");
 
-    await expect(fake.createCall(twilioCall({ toE164: "+14165550124" }))).rejects.toMatchObject({
-      code: "provider_idempotency_conflict",
+    await expect(fake.createCall(twilioCall({ toE164: "+14165550124" }))).resolves.toEqual({
+      callSid: "CA00000000000000000000000000000002",
     });
-    await expect(fake.createCall(original)).resolves.toEqual({ callSid: "CA00000000000000000000000000000002" });
-    expect(fake.requests).toHaveLength(2);
+    await expect(fake.createCall(original)).resolves.toEqual({ callSid: "CA00000000000000000000000000000003" });
+    expect(fake.requests).toHaveLength(3);
   });
 
-  it("consumes queued failures only for a new provider attempt", async () => {
+  it("consumes queued failures on the next provider attempt even when correlation repeats", async () => {
     const fake = new FakeTwilioProvider();
     const first = twilioCall();
     await fake.createCall(first);
     fake.failNext(new Error("new attempt only"));
 
-    await expect(fake.createCall(first)).resolves.toEqual({ callSid: "CA00000000000000000000000000000001" });
-    await expect(fake.createCall(twilioCall({ idempotencyKey: "attempt:new" }))).rejects.toThrow("new attempt only");
-    expect(fake.requests).toHaveLength(2);
+    await expect(fake.createCall(first)).rejects.toThrow("new attempt only");
+    await expect(fake.createCall(twilioCall({ idempotencyKey: "attempt:new" }))).resolves.toEqual({
+      callSid: "CA00000000000000000000000000000003",
+    });
+    expect(fake.requests).toHaveLength(3);
   });
 
   it("keeps immutable request snapshots isolated from caller and observer mutation", async () => {

@@ -139,7 +139,7 @@ describe("OutboundCallDispatcher", () => {
     expect(twilio.requests).toHaveLength(0);
   });
 
-  it("coalesces concurrent submissions that share one audited attempt identity", async () => {
+  it("does not mistake one audited attempt identity for provider idempotency", async () => {
     const policy = new RecordingPolicy({
       decision: "allow",
       reason: "allowed",
@@ -154,10 +154,10 @@ describe("OutboundCallDispatcher", () => {
     const results = await Promise.all([subject.dispatch(command()), subject.dispatch(command())]);
 
     expect(results).toEqual([
-      expect.objectContaining({ status: "dispatched", attemptId }),
-      expect.objectContaining({ status: "dispatched", attemptId }),
+      expect.objectContaining({ status: "dispatched", attemptId, callSid: "CA00000000000000000000000000000001" }),
+      expect.objectContaining({ status: "dispatched", attemptId, callSid: "CA00000000000000000000000000000002" }),
     ]);
-    expect(twilio.requests).toHaveLength(1);
+    expect(twilio.requests).toHaveLength(2);
   });
 
   it("fails closed when an allow result has no audited command identity", async () => {
