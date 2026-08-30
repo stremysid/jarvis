@@ -1,4 +1,5 @@
 import type { Ulid } from "../../../../packages/contracts/src/index.js";
+import type { CapacityGuard } from "../archive/capacity-guard.js";
 import type { TwilioRequestVerifier } from "../providers/provider-types.js";
 import {
   snapshotVerifiedTwilioFormPairs,
@@ -9,6 +10,7 @@ import { snapshotTrustedPublicOrigin } from "../security/trusted-public-origin.j
 export interface VoiceRouteDependencies {
   publicOrigin: URL;
   twilio: TwilioRequestVerifier;
+  capacity: Pick<CapacityGuard, "assertAcceptingNewTurn">;
   inbound(request: Request): Promise<Response>;
   outbound(request: Request, attemptId: Ulid): Promise<Response>;
   relayEnded(form: VerifiedTwilioForm): Promise<Response>;
@@ -65,6 +67,15 @@ export async function routeVoiceRequest(
   if (url.pathname === "/voice/inbound" && request.method === "POST") {
     const trustedOrigin = snapshotTrustedPublicOrigin(ownData(dependencies, "publicOrigin"));
     if (trustedOrigin === null) return plainResponse("unavailable", 503);
+    const capacitySnapshot = method(ownData(dependencies, "capacity"), "assertAcceptingNewTurn");
+    const capacityThis = capacitySnapshot?.receiver as Pick<CapacityGuard, "assertAcceptingNewTurn">;
+    const assertAcceptingNewTurn = capacitySnapshot?.call as CapacityGuard["assertAcceptingNewTurn"];
+    if (capacitySnapshot === null) return plainResponse("unavailable", 503);
+    try {
+      await assertAcceptingNewTurn.call(capacityThis);
+    } catch {
+      return plainResponse("unavailable", 503);
+    }
     const inbound = ownData(dependencies, "inbound");
     if (typeof inbound !== "function") return plainResponse("unavailable", 503);
     try {

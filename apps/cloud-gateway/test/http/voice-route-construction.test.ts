@@ -19,7 +19,34 @@ async function signedPost(fake: FakeTwilioProvider, exactUrl: string, fields: st
 }
 
 describe("createVoiceRouteDependencies", () => {
-  it("preserves signed 501 route boundaries while Task 6 integrations are absent", async () => {
+  it("forwards Task 6 owner authority into the signed inbound boundary", async () => {
+    const fake = new FakeTwilioProvider();
+    fake.signatureValid = false;
+    const dependencies = createVoiceRouteDependencies({
+      publicOrigin: new URL("https://jarvis.example/"),
+      twilio: fake,
+      capacity: { assertAcceptingNewTurn: async () => undefined },
+      inbound: {
+        expectedInboundE164: "+14165550100",
+        ownerIdentityId: "identity:voice",
+        currentChallengeHmacKeyVersion: "hmac-v1",
+        sessions: {
+          getOrCreateInboundSession: async () => { throw new Error("must not run"); },
+        },
+        initializeSession: async () => { throw new Error("must not run"); },
+        now: () => new Date("2026-08-30T12:00:00.000Z"),
+      },
+    });
+
+    const response = await routeVoiceRequest(new Request(
+      "https://worker.internal/voice/inbound",
+      { method: "POST" },
+    ), dependencies);
+
+    expect(response.status).toBe(403);
+  });
+
+  it("fails inbound capacity closed while preserving other signed 501 boundaries", async () => {
     const fake = new FakeTwilioProvider();
     const dependencies = createVoiceRouteDependencies({
       publicOrigin: new URL("https://jarvis.example/"),
@@ -52,15 +79,19 @@ describe("createVoiceRouteDependencies", () => {
       "/voice/relay-ended",
       `/voice/relay/${ATTEMPT_ID}`,
     ];
+    const expectedStatuses = [503, 501, 501, 501, 501];
 
     for (let index = 0; index < requests.length; index += 1) {
       const request = requests[index];
       const path = paths[index];
-      if (request === undefined || path === undefined) throw new Error("fixture_request_missing");
+      const expectedStatus = expectedStatuses[index];
+      if (request === undefined || path === undefined || expectedStatus === undefined) {
+        throw new Error("fixture_request_missing");
+      }
       const routed = new Request(`https://worker.internal${path}`, request);
       const response = await routeVoiceRequest(routed, dependencies);
-      expect(response.status, path).toBe(501);
-      expect(await response.text(), path).toBe("Not implemented");
+      expect(response.status, path).toBe(expectedStatus);
+      expect(await response.text(), path).toBe(expectedStatus === 503 ? "unavailable" : "Not implemented");
     }
   });
 
@@ -85,7 +116,7 @@ describe("createVoiceRouteDependencies", () => {
     const dependencies = createVoiceRouteDependencies({
       publicOrigin: new URL("https://jarvis.example/"),
       twilio: fake,
-      outbound,
+      outbound: { ...outbound, ownerIdentityId: "identity:voice" },
     });
     const readsAfterConstruction = portReads;
 

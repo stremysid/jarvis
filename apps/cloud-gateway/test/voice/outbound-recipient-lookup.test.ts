@@ -14,7 +14,7 @@ async function clearFixture(): Promise<void> {
 
 async function seedActiveRecipient(): Promise<void> {
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at) VALUES ('principal:owner', 'human', 'active', 'Owner', '1.0', 'PIN_VERIFIER_JSON', ?, ?)").bind(NOW, NOW),
+    env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('principal:owner', 'human', 'active', 'Owner', ?, ?)").bind(NOW, NOW),
     env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES ('identity:voice', 'principal:owner', 'voice', ?, 'active', ?, ?)").bind(DESTINATION, NOW, NOW),
   ]);
 }

@@ -18,7 +18,7 @@ const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const CALL_SID = /^CA[0-9A-Fa-f]{32}$/u;
 const PROVIDER_SESSION_ID = /^VX[0-9A-Fa-f]{32}$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
-const CALL_STATUSES = new Set(["queued", "ringing", "in-progress", "completed", "busy", "failed", "no-answer", "canceled"]);
+const CALL_STATUSES = new Set(["queued", "initiated", "ringing", "in-progress", "completed", "busy", "failed", "no-answer", "canceled"]);
 const SESSION_STATUSES = new Set(["ended", "failed", "completed"]);
 const STATUS_FIELDS = new Set([
   "endpointKind", "attemptId", "callSid", "callbackSource", "sequenceNumber", "callStatus", "requestHash",

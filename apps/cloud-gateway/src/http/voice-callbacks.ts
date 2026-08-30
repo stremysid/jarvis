@@ -15,7 +15,7 @@ const CALL_SID = /^CA[0-9A-Fa-f]{32}$/u;
 const PROVIDER_SESSION_ID = /^VX[0-9A-Fa-f]{32}$/u;
 const CANONICAL_SEQUENCE = /^(?:0|[1-9][0-9]*)$/u;
 const CALL_STATUSES = new Set([
-  "queued", "ringing", "in-progress", "completed", "busy", "failed", "no-answer", "canceled",
+  "queued", "initiated", "ringing", "in-progress", "completed", "busy", "failed", "no-answer", "canceled",
 ]);
 const SESSION_STATUSES = new Set(["ended", "failed", "completed"]);
 

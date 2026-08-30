@@ -20,6 +20,7 @@ function dependencies(overrides: Record<string, unknown> = {}): VoiceRouteDepend
       verifyWebhook: async () => null,
       verifyWebSocket: async () => false,
     },
+    capacity: { assertAcceptingNewTurn: async () => undefined },
     inbound: async () => new Response("Not implemented", { status: 501 }),
     outbound: async () => new Response("Not implemented", { status: 501 }),
     status: async () => new Response("Not implemented", { status: 501 }),
@@ -126,6 +127,40 @@ describe("routeVoiceRequest", () => {
       status: 501,
       cacheControl: null,
       body: "Not implemented",
+    });
+  });
+
+  it("fails closed at capacity before reading or invoking the inbound handler", async () => {
+    const events: string[] = [];
+    const routeDependencies = dependencies({
+      capacity: {
+        assertAcceptingNewTurn: async () => {
+          events.push("capacity");
+          throw new Error("private capacity detail");
+        },
+      },
+      inbound: async () => {
+        events.push("inbound");
+        return new Response("must not run");
+      },
+    });
+    const guardedDependencies = new Proxy(routeDependencies, {
+      getOwnPropertyDescriptor: (target, property) => {
+        if (property === "inbound") events.push("inbound-read");
+        return Reflect.getOwnPropertyDescriptor(target, property);
+      },
+    });
+
+    const response = await routeVoiceRequest(
+      new Request("https://worker.internal/voice/inbound", { method: "POST" }),
+      guardedDependencies,
+    );
+
+    expect(events).toEqual(["capacity"]);
+    await expect(exactResponse(response)).resolves.toEqual({
+      status: 503,
+      cacheControl: "no-store",
+      body: "unavailable",
     });
   });
 

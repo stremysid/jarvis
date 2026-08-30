@@ -8,6 +8,7 @@ import {
   applyFoundationMigration,
   clearCallSessionsForTest,
   clearOutboundCallAttemptsForTest,
+  clearVoiceAccessDataForTest,
 } from "../persistence/migration.js";
 
 const NOW = new Date("2026-08-30T12:00:00.000Z");
@@ -24,6 +25,7 @@ async function clearFixture(): Promise<void> {
   await env.DB.prepare("DELETE FROM provider_events").run();
   await clearCallSessionsForTest();
   await clearOutboundCallAttemptsForTest();
+  await clearVoiceAccessDataForTest();
   await env.DB.batch([
     env.DB.prepare("DELETE FROM outbox"),
     env.DB.prepare("DELETE FROM idempotency_records"),
@@ -37,8 +39,9 @@ async function clearFixture(): Promise<void> {
 async function seedClaimedAttempt(repository: CallRepository): Promise<void> {
   const timestamp = NOW.toISOString();
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at) VALUES ('principal:owner', 'human', 'active', 'Owner', '1.0', 'PIN_VERIFIER_JSON', ?, ?)").bind(timestamp, timestamp),
+    env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('principal:owner', 'human', 'active', 'Owner', ?, ?)").bind(timestamp, timestamp),
     env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES ('identity:voice', 'principal:owner', 'voice', '+14165550123', 'active', ?, ?)").bind(timestamp, timestamp),
+    env.DB.prepare("INSERT INTO voice_owner_identity (singleton_id, principal_id, identity_id, created_at) VALUES (1, 'principal:owner', 'identity:voice', ?)").bind(timestamp),
     env.DB.prepare("INSERT INTO policy_decisions (decision_id, principal_id, policy_version, input_hash, outcome, reason_code, decided_at) VALUES (?, 'principal:owner', 'v1', ?, 'allow', 'allowed', ?)").bind(COMMAND_ID, "b".repeat(64), timestamp),
   ]);
   await repository.getOrCreateExpectedCall({
@@ -78,7 +81,7 @@ describe("D1TwilioCallbackRecorder", () => {
       callSid: CALL_SID,
       callbackSource: "call-progress-events",
       sequenceNumber: 2,
-      callStatus: "completed",
+      callStatus: "initiated",
       requestHash: REQUEST_HASH,
     }));
 
@@ -99,7 +102,7 @@ describe("D1TwilioCallbackRecorder", () => {
     expect(stored?.subject_id).toBe("principal:owner");
     expect(JSON.parse(stored?.envelope_json ?? "null")).toMatchObject({
       correlationId: COMMAND_ID,
-      payload: { callStatus: "completed", sequenceNumber: 2 },
+      payload: { callStatus: "initiated", sequenceNumber: 2 },
     });
     await expect(repository.resolveDispatchIntent(COMMAND_ID)).resolves.toMatchObject({
       kind: "existing",
@@ -115,11 +118,12 @@ describe("D1TwilioCallbackRecorder", () => {
     const repository = new CallRepository(env.DB, new EventRepository(env.DB), () => NONCE);
     await seedClaimedAttempt(repository);
     const expected = await repository.claimExpectedCall({
-      attemptId: ATTEMPT_ID,
-      callSid: CALL_SID,
-      observedDestinationIdentityId: "identity:voice",
-      now: NOW,
-    });
+    attemptId: ATTEMPT_ID,
+    callSid: CALL_SID,
+    observedDestinationIdentityId: "identity:voice",
+    ownerIdentityId: "identity:voice",
+    now: NOW,
+  });
     if (expected === null) throw new Error("fixture_expected_call_missing");
     const session = await repository.getOrCreateOutboundSession({ attemptId: ATTEMPT_ID, binding: expected, now: NOW });
     await repository.bindRelaySession({
