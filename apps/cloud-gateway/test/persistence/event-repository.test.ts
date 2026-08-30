@@ -2,7 +2,7 @@ import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { canonicalJson, createEnvelope, newUlid, sha256Hex, type CreateEnvelopeInput, type EventEnvelopeV1, type PersistableEventEnvelopeV1, type Sha256Hex } from "../../../../packages/contracts/src/index.js";
 import { Redactor } from "../../src/security/redaction.js";
-import { EventRepository, IdempotencyConflict } from "../../src/persistence/event-repository.js";
+import { EventRepository, IdempotencyConflict, type SyncEventReader } from "../../src/persistence/event-repository.js";
 import { applyFoundationMigration } from "./migration.js";
 
 const timestamp = "2026-08-29T12:00:00.000Z";
@@ -195,6 +195,55 @@ describe("EventRepository", () => {
     expect(replay).toEqual({ ...original, replayed: true });
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events").first<{ count: number }>())?.count).toBe(1);
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM outbox").first<{ count: number }>())?.count).toBe(1);
+  });
+
+  it("resolves a purged idempotent event through the injected verified tiered reader", async () => {
+    const live = new EventRepository(env.DB);
+    const envelope = await eventFixture("archived-replay");
+    const hash = await requestHash("archived-replay");
+    const original = await live.append({ envelope, scope: "telegram:update", key: "archived", requestHash: hash });
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM outbox WHERE event_sequence = ?").bind(original.eventSequence),
+      env.DB.prepare("DELETE FROM events WHERE sequence = ?").bind(original.eventSequence),
+    ]);
+    const verified: SyncEventReader = {
+      latestSequence: async () => original.eventSequence,
+      readRange: async () => [{ ...original, replayed: true }],
+    };
+
+    const replay = await new EventRepository(env.DB, verified).append({
+      envelope: await eventFixture("replacement"),
+      scope: "telegram:update",
+      key: "archived",
+      requestHash: hash,
+    });
+
+    expect(replay).toEqual({ ...original, replayed: true });
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events").first<{ count: number }>())?.count).toBe(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM idempotency_records").first<{ count: number }>())?.count).toBe(1);
+  });
+
+  it("fails a purged idempotency replay closed when the verified tier is unavailable", async () => {
+    const live = new EventRepository(env.DB);
+    const envelope = await eventFixture("archived-unavailable");
+    const hash = await requestHash("archived-unavailable");
+    const original = await live.append({ envelope, scope: "telegram:update", key: "archived", requestHash: hash });
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM outbox WHERE event_sequence = ?").bind(original.eventSequence),
+      env.DB.prepare("DELETE FROM events WHERE sequence = ?").bind(original.eventSequence),
+    ]);
+    const unavailable: SyncEventReader = {
+      latestSequence: async () => original.eventSequence,
+      readRange: async () => { throw new Error("archive_object_unavailable"); },
+    };
+
+    await expect(new EventRepository(env.DB, unavailable).append({
+      envelope: await eventFixture("replacement"),
+      scope: "telegram:update",
+      key: "archived",
+      requestHash: hash,
+    })).rejects.toThrow("archive_object_unavailable");
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events").first<{ count: number }>())?.count).toBe(0);
   });
 
   it("rejects a reused idempotency key with a different request hash", async () => {

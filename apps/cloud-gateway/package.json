@@ -7,5 +7,8 @@
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest --config ../../vitest.workspace.ts run apps/cloud-gateway/test"
+  },
+  "dependencies": {
+    "fflate": "0.8.2"
   }
 }

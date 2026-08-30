@@ -110,7 +110,7 @@ CREATE TABLE idempotency_records (
   scope TEXT NOT NULL,
   key TEXT NOT NULL,
   request_hash TEXT NOT NULL CHECK (length(request_hash) = 64 AND request_hash NOT GLOB '*[^0-9a-f]*'),
-  event_sequence INTEGER NOT NULL UNIQUE REFERENCES events(sequence) ON DELETE RESTRICT,
+  event_sequence INTEGER NOT NULL UNIQUE CHECK (event_sequence > 0),
   created_at TEXT NOT NULL,
   PRIMARY KEY (scope, key)
 );
@@ -123,7 +123,8 @@ CREATE TABLE outbox (
   attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
   available_at TEXT NOT NULL,
   delivered_at TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  CHECK ((status = 'delivered' AND delivered_at IS NOT NULL) OR (status != 'delivered' AND delivered_at IS NULL))
 );
 CREATE INDEX outbox_dispatch_idx ON outbox(status, available_at, event_sequence);
 
@@ -237,7 +238,7 @@ CREATE INDEX request_nonces_expiry_idx ON request_nonces(expires_at);
 CREATE TABLE policy_decisions (
   decision_id TEXT PRIMARY KEY,
   principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE RESTRICT,
-  event_sequence INTEGER REFERENCES events(sequence) ON DELETE RESTRICT,
+  event_sequence INTEGER CHECK (event_sequence IS NULL OR event_sequence > 0),
   policy_version TEXT NOT NULL,
   input_hash TEXT NOT NULL CHECK (length(input_hash) = 64 AND input_hash NOT GLOB '*[^0-9a-f]*'),
   outcome TEXT NOT NULL CHECK (outcome IN ('allow', 'deny', 'challenge')),
@@ -246,26 +247,187 @@ CREATE TABLE policy_decisions (
 );
 CREATE INDEX policy_decisions_principal_idx ON policy_decisions(principal_id, decided_at);
 
+CREATE TABLE archive_state (
+  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+  sealed_through INTEGER NOT NULL CHECK (sealed_through >= 0),
+  circuit_state TEXT NOT NULL CHECK (circuit_state IN ('closed', 'open')),
+  circuit_reason TEXT,
+  circuit_opened_at TEXT,
+  updated_at TEXT NOT NULL,
+  CHECK (
+    (circuit_state = 'closed' AND circuit_reason IS NULL AND circuit_opened_at IS NULL)
+    OR (circuit_state = 'open' AND circuit_reason IS NOT NULL AND circuit_opened_at IS NOT NULL)
+  )
+);
+INSERT INTO archive_state (singleton, sealed_through, circuit_state, circuit_reason, circuit_opened_at, updated_at)
+VALUES (1, 0, 'closed', NULL, NULL, '1970-01-01T00:00:00.000Z');
+
 CREATE TABLE archive_manifests (
-  manifest_id TEXT PRIMARY KEY,
-  subject_id TEXT NOT NULL,
-  from_sequence INTEGER NOT NULL CHECK (from_sequence >= 0),
-  through_sequence INTEGER NOT NULL CHECK (through_sequence >= from_sequence),
-  content_hash TEXT NOT NULL CHECK (length(content_hash) = 64 AND content_hash NOT GLOB '*[^0-9a-f]*'),
-  status TEXT NOT NULL CHECK (status IN ('pending', 'sealed', 'deleted')),
+  manifest_id TEXT PRIMARY KEY CHECK (length(manifest_id) = 64 AND manifest_id NOT GLOB '*[^0-9a-f]*'),
+  start_sequence INTEGER NOT NULL UNIQUE CHECK (start_sequence > 0),
+  end_sequence INTEGER NOT NULL UNIQUE CHECK (end_sequence >= start_sequence),
+  event_count INTEGER NOT NULL CHECK (event_count > 0 AND event_count = end_sequence - start_sequence + 1),
+  status TEXT NOT NULL CHECK (status = 'sealed'),
   created_at TEXT NOT NULL,
-  sealed_at TEXT,
-  UNIQUE (subject_id, from_sequence, through_sequence)
+  sealed_at TEXT NOT NULL,
+  UNIQUE (start_sequence, end_sequence)
 );
 
 CREATE TABLE archive_segments (
-  manifest_id TEXT NOT NULL REFERENCES archive_manifests(manifest_id) ON DELETE RESTRICT,
-  segment_index INTEGER NOT NULL CHECK (segment_index >= 0),
+  segment_id TEXT PRIMARY KEY CHECK (length(segment_id) = 64 AND segment_id NOT GLOB '*[^0-9a-f]*'),
+  manifest_id TEXT NOT NULL UNIQUE REFERENCES archive_manifests(manifest_id) ON DELETE RESTRICT,
   object_key TEXT NOT NULL UNIQUE,
-  first_sequence INTEGER NOT NULL CHECK (first_sequence > 0),
-  last_sequence INTEGER NOT NULL CHECK (last_sequence >= first_sequence),
-  content_hash TEXT NOT NULL CHECK (length(content_hash) = 64 AND content_hash NOT GLOB '*[^0-9a-f]*'),
-  byte_length INTEGER NOT NULL CHECK (byte_length >= 0),
-  created_at TEXT NOT NULL,
-  PRIMARY KEY (manifest_id, segment_index)
+  compressed_sha256 TEXT NOT NULL UNIQUE CHECK (length(compressed_sha256) = 64 AND compressed_sha256 NOT GLOB '*[^0-9a-f]*'),
+  compressed_byte_length INTEGER NOT NULL CHECK (compressed_byte_length > 0),
+  uncompressed_byte_length INTEGER NOT NULL CHECK (uncompressed_byte_length > 0),
+  codec TEXT NOT NULL CHECK (codec = 'jarvis-gzip-ndjson-v1'),
+  created_at TEXT NOT NULL
 );
+
+CREATE TABLE archive_segment_events (
+  event_sequence INTEGER PRIMARY KEY CHECK (event_sequence > 0),
+  event_id TEXT NOT NULL UNIQUE,
+  segment_id TEXT NOT NULL REFERENCES archive_segments(segment_id) ON DELETE RESTRICT,
+  envelope_sha256 TEXT NOT NULL CHECK (length(envelope_sha256) = 64 AND envelope_sha256 NOT GLOB '*[^0-9a-f]*'),
+  content_hash TEXT NOT NULL CHECK (length(content_hash) = 64 AND content_hash NOT GLOB '*[^0-9a-f]*'),
+  created_at TEXT NOT NULL,
+  UNIQUE (segment_id, event_sequence)
+);
+CREATE INDEX archive_segment_events_segment_idx ON archive_segment_events(segment_id, event_sequence);
+
+CREATE TABLE archive_purge_receipts (
+  event_sequence INTEGER PRIMARY KEY REFERENCES archive_segment_events(event_sequence) ON DELETE RESTRICT,
+  outbox_id TEXT NOT NULL UNIQUE,
+  delivered_at TEXT NOT NULL,
+  purged_at TEXT NOT NULL
+);
+
+CREATE TRIGGER archive_state_no_delete
+BEFORE DELETE ON archive_state
+BEGIN
+  SELECT RAISE(ABORT, 'archive_state_immutable');
+END;
+
+CREATE TRIGGER archive_state_no_second_row
+BEFORE INSERT ON archive_state
+WHEN EXISTS (SELECT 1 FROM archive_state)
+BEGIN
+  SELECT RAISE(ABORT, 'archive_state_singleton');
+END;
+
+CREATE TRIGGER archive_state_circuit_latched
+BEFORE UPDATE OF circuit_state ON archive_state
+WHEN OLD.circuit_state = 'open' AND NEW.circuit_state != 'open'
+BEGIN
+  SELECT RAISE(ABORT, 'archive_circuit_latched');
+END;
+
+CREATE TRIGGER archive_manifests_require_next_range
+BEFORE INSERT ON archive_manifests
+WHEN NOT EXISTS (
+  SELECT 1 FROM archive_state
+  WHERE singleton = 1
+    AND circuit_state = 'closed'
+    AND NEW.start_sequence = sealed_through + 1
+)
+BEGIN
+  SELECT RAISE(ABORT, 'archive_seal_compare_failed');
+END;
+
+CREATE TRIGGER archive_segment_events_require_manifest_range
+BEFORE INSERT ON archive_segment_events
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM archive_segments s
+  JOIN archive_manifests m ON m.manifest_id = s.manifest_id
+  WHERE s.segment_id = NEW.segment_id
+    AND NEW.event_sequence BETWEEN m.start_sequence AND m.end_sequence
+)
+BEGIN
+  SELECT RAISE(ABORT, 'archive_coverage_out_of_range');
+END;
+
+CREATE TRIGGER archive_state_advance_guard
+BEFORE UPDATE OF sealed_through ON archive_state
+WHEN NEW.sealed_through != OLD.sealed_through
+  AND NOT EXISTS (
+    SELECT 1
+    FROM archive_manifests m
+    JOIN archive_segments s ON s.manifest_id = m.manifest_id
+    WHERE OLD.circuit_state = 'closed'
+      AND NEW.circuit_state = 'closed'
+      AND m.start_sequence = OLD.sealed_through + 1
+      AND m.end_sequence = NEW.sealed_through
+      AND m.status = 'sealed'
+      AND (SELECT COUNT(*) FROM archive_segment_events e WHERE e.segment_id = s.segment_id) = m.event_count
+      AND (SELECT MIN(event_sequence) FROM archive_segment_events e WHERE e.segment_id = s.segment_id) = m.start_sequence
+      AND (SELECT MAX(event_sequence) FROM archive_segment_events e WHERE e.segment_id = s.segment_id) = m.end_sequence
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'archive_state_advance_invalid');
+END;
+
+CREATE TRIGGER archive_purge_receipts_require_delivered
+BEFORE INSERT ON archive_purge_receipts
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM archive_state st
+  JOIN archive_segment_events e ON e.event_sequence = NEW.event_sequence
+  JOIN outbox o ON o.event_sequence = e.event_sequence
+  WHERE st.singleton = 1
+    AND st.circuit_state = 'closed'
+    AND o.outbox_id = NEW.outbox_id
+    AND o.status = 'delivered'
+    AND o.delivered_at = NEW.delivered_at
+)
+BEGIN
+  SELECT RAISE(ABORT, 'archive_purge_not_delivered');
+END;
+
+CREATE TRIGGER events_reject_archived_event_id
+BEFORE INSERT ON events
+WHEN EXISTS (SELECT 1 FROM archive_segment_events WHERE event_id = NEW.event_id)
+BEGIN
+  SELECT RAISE(ABORT, 'archived_event_id_reuse');
+END;
+
+CREATE TRIGGER archive_manifests_no_update
+BEFORE UPDATE ON archive_manifests
+BEGIN
+  SELECT RAISE(ABORT, 'archive_manifest_immutable');
+END;
+CREATE TRIGGER archive_manifests_no_delete
+BEFORE DELETE ON archive_manifests
+BEGIN
+  SELECT RAISE(ABORT, 'archive_manifest_immutable');
+END;
+CREATE TRIGGER archive_segments_no_update
+BEFORE UPDATE ON archive_segments
+BEGIN
+  SELECT RAISE(ABORT, 'archive_segment_immutable');
+END;
+CREATE TRIGGER archive_segments_no_delete
+BEFORE DELETE ON archive_segments
+BEGIN
+  SELECT RAISE(ABORT, 'archive_segment_immutable');
+END;
+CREATE TRIGGER archive_segment_events_no_update
+BEFORE UPDATE ON archive_segment_events
+BEGIN
+  SELECT RAISE(ABORT, 'archive_coverage_immutable');
+END;
+CREATE TRIGGER archive_segment_events_no_delete
+BEFORE DELETE ON archive_segment_events
+BEGIN
+  SELECT RAISE(ABORT, 'archive_coverage_immutable');
+END;
+CREATE TRIGGER archive_purge_receipts_no_update
+BEFORE UPDATE ON archive_purge_receipts
+BEGIN
+  SELECT RAISE(ABORT, 'archive_purge_receipt_immutable');
+END;
+CREATE TRIGGER archive_purge_receipts_no_delete
+BEFORE DELETE ON archive_purge_receipts
+BEGIN
+  SELECT RAISE(ABORT, 'archive_purge_receipt_immutable');
+END;

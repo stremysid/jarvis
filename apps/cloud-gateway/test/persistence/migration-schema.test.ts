@@ -31,7 +31,7 @@ describe("foundation migration constraints", () => {
   beforeEach(async () => {
     await applyFoundationMigration();
     await env.DB.batch([
-      env.DB.prepare("DELETE FROM archive_segments"), env.DB.prepare("DELETE FROM archive_manifests"), env.DB.prepare("DELETE FROM policy_decisions"),
+      env.DB.prepare("DELETE FROM policy_decisions"),
       env.DB.prepare("DELETE FROM sync_ack_receipts"), env.DB.prepare("DELETE FROM sync_snapshots"), env.DB.prepare("DELETE FROM request_nonces"), env.DB.prepare("DELETE FROM identity_challenges"),
       env.DB.prepare("DELETE FROM channel_identities"), env.DB.prepare("DELETE FROM consumer_cursors"), env.DB.prepare("DELETE FROM bootstrap_tokens"), env.DB.prepare("DELETE FROM device_keys"), env.DB.prepare("DELETE FROM principals"), env.DB.prepare("DELETE FROM outbox"),
       env.DB.prepare("DELETE FROM idempotency_records"), env.DB.prepare("DELETE FROM events"),
@@ -52,9 +52,37 @@ describe("foundation migration constraints", () => {
     await expect(env.DB.prepare("INSERT INTO request_nonces (nonce_id, device_id, principal_id, key_id, key_fingerprint, key_generation, nonce_hash, request_hash, expires_at, consumed_at, created_at) VALUES ('nonce', 'device', 'principal', 'key', ?, 1, ?, ?, ?, ?, ?)").bind(validHash, invalidHash, validHash, timestamp, timestamp, timestamp).run()).rejects.toThrow();
     await expect(env.DB.prepare("INSERT INTO policy_decisions (decision_id, principal_id, policy_version, input_hash, outcome, reason_code, decided_at) VALUES ('decision', 'principal', 'v1', ?, 'allow', 'test', ?)").bind(invalidHash, timestamp).run()).rejects.toThrow();
 
-    await expect(env.DB.prepare("INSERT INTO archive_manifests (manifest_id, subject_id, from_sequence, through_sequence, content_hash, status, created_at) VALUES ('manifest', 'subject', 0, 0, ?, 'pending', ?)").bind(invalidHash, timestamp).run()).rejects.toThrow();
-    await env.DB.prepare("INSERT INTO archive_manifests (manifest_id, subject_id, from_sequence, through_sequence, content_hash, status, created_at) VALUES ('manifest', 'subject', 0, 0, ?, 'pending', ?)").bind(validHash, timestamp).run();
-    await expect(env.DB.prepare("INSERT INTO archive_segments (manifest_id, segment_index, object_key, first_sequence, last_sequence, content_hash, byte_length, created_at) VALUES ('manifest', 0, 'object', 1, 1, ?, 0, ?)").bind(invalidHash, timestamp).run()).rejects.toThrow();
+  });
+
+  it("keeps archive authority global and removes only event foreign keys that block verified purge", async () => {
+    const state = await env.DB.prepare(
+      "SELECT singleton, sealed_through, circuit_state, circuit_reason, circuit_opened_at FROM archive_state",
+    ).first();
+    expect(state).toEqual({
+      singleton: 1,
+      sealed_through: 0,
+      circuit_state: "closed",
+      circuit_reason: null,
+      circuit_opened_at: null,
+    });
+
+    const foreignParents = async (table: string): Promise<string[]> => {
+      const rows = await env.DB.prepare(`PRAGMA foreign_key_list(${table})`).all<{ table: string }>();
+      return rows.results.map((row) => row.table);
+    };
+    expect(await foreignParents("idempotency_records")).not.toContain("events");
+    expect(await foreignParents("policy_decisions")).not.toContain("events");
+    expect(await foreignParents("outbox")).toContain("events");
+
+    const tables = await env.DB.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('archive_manifests', 'archive_segments', 'archive_segment_events', 'archive_purge_receipts') ORDER BY name",
+    ).all<{ name: string }>();
+    expect(tables.results.map((row) => row.name)).toEqual([
+      "archive_manifests",
+      "archive_purge_receipts",
+      "archive_segment_events",
+      "archive_segments",
+    ]);
   });
 
   it("enforces exactly one canonical human while allowing service principals", async () => {

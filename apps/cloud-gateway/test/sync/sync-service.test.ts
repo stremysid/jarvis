@@ -13,10 +13,13 @@ import {
   type SyncEventsPullBodyV1,
 } from "../../../../packages/contracts/src/index.js";
 import { EventRepository, type SyncEventReader } from "../../src/persistence/event-repository.js";
+import { ArchiveRepository } from "../../src/archive/archive-repository.js";
+import { ArchivalService } from "../../src/archive/archival-service.js";
+import { TieredEventReader } from "../../src/archive/tiered-event-reader.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { DeviceRequestVerifier } from "../../src/sync/signed-request.js";
 import { SyncService } from "../../src/sync/sync-service.js";
-import { applyFoundationMigration } from "../persistence/migration.js";
+import { markDelivered, resetArchiveFixture, setCreatedAt } from "../archive/archive-fixture.js";
 
 const audience = "jarvis-local-agent";
 const pullPath = "/sync/pull";
@@ -70,7 +73,7 @@ describe("SyncService", () => {
   let snapshotSeed: number;
 
   beforeEach(async () => {
-    await applyFoundationMigration();
+    await resetArchiveFixture();
     await env.DB.batch([
       env.DB.prepare("DELETE FROM sync_ack_receipts"),
       env.DB.prepare("DELETE FROM sync_snapshots"),
@@ -276,6 +279,25 @@ describe("SyncService", () => {
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM sync_snapshots").first<{ count: number }>())?.count).toBe(0);
   });
 
+  it("pulls one signed snapshot page across the verified R2 and live D1 seam", async () => {
+    await append(3);
+    await setCreatedAt(1, "2026-09-02T00:00:00.000Z");
+    await setCreatedAt(2, "2026-09-02T00:00:00.000Z");
+    await markDelivered(1, 2);
+    const archive = new ArchivalService({ database: env.DB, bucket: env.ARCHIVE });
+    await archive.archiveEligible(new Date("2026-12-01T00:00:00.000Z"), 2);
+    sync = makeService(new TieredEventReader({
+      archive,
+      live: events,
+      state: new ArchiveRepository(env.DB),
+    }));
+
+    const page = await pull(pullBody(0, 3));
+
+    expect(page.events.map((event) => event.eventSequence)).toEqual([1, 2, 3]);
+    expect(page).toMatchObject({ fromSequence: 0, toSequence: 3, hasMore: false });
+  });
+
   it("atomically acknowledges an exact issued boundary and replays only its durable receipt", async () => {
     await append(2);
     const page = await pull(pullBody(0, 2));
@@ -343,15 +365,19 @@ describe("SyncService", () => {
   it("acknowledges from the immutable page boundary after all referenced D1 event rows are purged", async () => {
     await append(2);
     const page = await pull(pullBody(0, 2));
-    await env.DB.batch([
-      env.DB.prepare("DELETE FROM outbox"),
-      env.DB.prepare("DELETE FROM idempotency_records"),
-      env.DB.prepare("DELETE FROM events"),
-    ]);
+    await setCreatedAt(1, "2026-09-02T00:00:00.000Z");
+    await setCreatedAt(2, "2026-09-02T00:00:00.000Z");
+    await markDelivered(1, 2);
+    await new ArchivalService({ database: env.DB, bucket: env.ARCHIVE })
+      .archiveEligible(new Date("2026-12-01T00:00:00.000Z"), 2);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events").first<{ count: number }>())?.count).toBe(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM idempotency_records").first<{ count: number }>())?.count).toBe(2);
     const body: SyncEventsAckBodyV1 = { schemaVersion: "1.0", snapshotId: page.snapshotId, expectedCurrent: 0, throughSequence: 2 };
 
     await expect(acknowledge(body)).resolves.toEqual({ schemaVersion: "1.0", currentSequence: 2, replayed: false });
     expect(await cursor()).toBe(2);
+    await expect(acknowledge(body)).resolves.toEqual({ schemaVersion: "1.0", currentSequence: 2, replayed: true });
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM sync_ack_receipts WHERE snapshot_id = ?").bind(page.snapshotId).first<{ count: number }>())?.count).toBe(1);
   });
 
   it("rejects boundary mismatches, stale cursors, and first-time ACKs at exact expiry", async () => {

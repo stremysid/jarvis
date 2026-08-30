@@ -19,8 +19,8 @@ export interface EventRepositoryContract extends SyncEventReader {
 interface StoredIdempotencyRecord {
   request_hash: string;
   event_sequence: number;
-  envelope_json: string;
-  content_hash: string;
+  envelope_json: string | null;
+  content_hash: string | null;
 }
 
 interface StoredEvent {
@@ -55,7 +55,7 @@ function requireUtf8Limit(value: string, maximumBytes: number, label: string): v
 export class EventRepository implements EventRepositoryContract {
   private readonly transactions: TransactionRunner;
 
-  constructor(private readonly database: D1Database) {
+  constructor(private readonly database: D1Database, private readonly replayReader?: SyncEventReader) {
     this.transactions = new TransactionRunner(database);
   }
 
@@ -126,7 +126,7 @@ export class EventRepository implements EventRepositoryContract {
 
   private async readIdempotency(scope: string, key: string): Promise<StoredIdempotencyRecord | null> {
     return this.database.prepare(
-      "SELECT i.request_hash, i.event_sequence, e.envelope_json, e.content_hash FROM idempotency_records i JOIN events e ON e.sequence = i.event_sequence WHERE i.scope = ? AND i.key = ?",
+      "SELECT i.request_hash, i.event_sequence, e.envelope_json, e.content_hash FROM idempotency_records i LEFT JOIN events e ON e.sequence = i.event_sequence WHERE i.scope = ? AND i.key = ?",
     ).bind(scope, key).first<StoredIdempotencyRecord>();
   }
 
@@ -136,7 +136,17 @@ export class EventRepository implements EventRepositoryContract {
 
   private async resolveIdempotency(record: StoredIdempotencyRecord, scope: string, key: string, requestHash: Sha256Hex): Promise<AppendedEvent> {
     if (record.request_hash !== requestHash) throw new IdempotencyConflict(scope, key);
-    return this.toAppended(record.event_sequence, record.envelope_json, record.content_hash, true);
+    if (record.envelope_json !== null && record.content_hash !== null) {
+      return this.toAppended(record.event_sequence, record.envelope_json, record.content_hash, true);
+    }
+    if (record.envelope_json !== null || record.content_hash !== null) throw new Error("idempotency_record_corrupt");
+    if (this.replayReader === undefined) throw new Error("idempotency_replay_unavailable");
+    const archived = await this.replayReader.readRange(record.event_sequence - 1, 1);
+    const event = archived[0];
+    if (archived.length !== 1 || event?.eventSequence !== record.event_sequence) {
+      throw new Error("idempotency_replay_incomplete");
+    }
+    return { ...event, replayed: true };
   }
 
   private async toAppended(sequence: number, envelopeJson: string, contentHash: string, replayed: boolean): Promise<AppendedEvent> {
