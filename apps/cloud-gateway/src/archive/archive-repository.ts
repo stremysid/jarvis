@@ -110,6 +110,13 @@ function requireManifestLimit(value: number): void {
   }
 }
 
+function boundedManifestEnd(throughSequence: number): number {
+  const maximumOverlap = ARCHIVE_SEGMENT_LIMITS.maxEventCount - 1;
+  return throughSequence > Number.MAX_SAFE_INTEGER - maximumOverlap
+    ? Number.MAX_SAFE_INTEGER
+    : throughSequence + maximumOverlap;
+}
+
 function toManifest(row: StoredManifest): ArchiveManifest {
   return {
     manifestId: row.manifest_id,
@@ -121,6 +128,15 @@ function toManifest(row: StoredManifest): ArchiveManifest {
     compressedByteLength: row.compressed_byte_length,
     uncompressedByteLength: row.uncompressed_byte_length,
     sealedAt: row.sealed_at,
+  };
+}
+
+function toCoverage(row: StoredCoverage): ArchiveCoverage {
+  return {
+    eventSequence: row.event_sequence,
+    eventId: row.event_id,
+    envelopeSha256: row.envelope_sha256,
+    contentHash: row.content_hash,
   };
 }
 
@@ -236,6 +252,10 @@ export class ArchiveRepository {
     objectKey: string,
     sealedAt: string,
   ): Promise<ArchiveManifest> {
+    if (candidate.events.length > ARCHIVE_SEGMENT_LIMITS.maxEventCount
+      || encoded.metadata.eventCount > ARCHIVE_SEGMENT_LIMITS.maxEventCount) {
+      throw new Error("archive_event_count_limit");
+    }
     const manifest: ArchiveManifest = {
       manifestId: encoded.compressedSha256,
       startSequence: encoded.metadata.startSequence,
@@ -305,6 +325,20 @@ export class ArchiveRepository {
     return row === null ? null : toManifest(row);
   }
 
+  async findManifestEndingAt(endSequence: number): Promise<ArchiveManifest | null> {
+    if (!Number.isSafeInteger(endSequence) || endSequence <= 0) {
+      throw new RangeError("archive_manifest_range_invalid");
+    }
+    const row = await this.database.prepare(
+      `SELECT m.manifest_id, m.start_sequence, m.end_sequence, m.event_count, m.sealed_at,
+              s.object_key, s.compressed_sha256, s.compressed_byte_length, s.uncompressed_byte_length
+       FROM archive_manifests m INDEXED BY archive_manifests_overlap_seek_idx
+       JOIN archive_segments s ON s.manifest_id = m.manifest_id
+       WHERE m.end_sequence = ? AND m.status = 'sealed'`,
+    ).bind(endSequence).first<StoredManifest>();
+    return row === null ? null : toManifest(row);
+  }
+
   async listManifests(
     afterSequence: number,
     throughSequence: number,
@@ -312,15 +346,17 @@ export class ArchiveRepository {
   ): Promise<readonly ArchiveManifest[]> {
     requireManifestRange(afterSequence, throughSequence);
     requireManifestLimit(manifestLimit);
+    const maximumEndSequence = boundedManifestEnd(throughSequence);
     const rows = await this.database.prepare(
       `SELECT m.manifest_id, m.start_sequence, m.end_sequence, m.event_count, m.sealed_at,
               s.object_key, s.compressed_sha256, s.compressed_byte_length, s.uncompressed_byte_length
-       FROM archive_manifests m
+       FROM archive_manifests m INDEXED BY archive_manifests_overlap_seek_idx
        JOIN archive_segments s ON s.manifest_id = m.manifest_id
-       WHERE m.end_sequence > ? AND m.start_sequence <= ? AND m.status = 'sealed'
-       ORDER BY m.start_sequence ASC
+       WHERE m.end_sequence > ? AND m.end_sequence <= ?
+         AND m.start_sequence <= ? AND m.status = 'sealed'
+       ORDER BY m.end_sequence ASC
        LIMIT ?`,
-    ).bind(afterSequence, throughSequence, manifestLimit).all<StoredManifest>();
+    ).bind(afterSequence, maximumEndSequence, throughSequence, manifestLimit).all<StoredManifest>();
     return rows.results.map(toManifest);
   }
 
@@ -331,12 +367,24 @@ export class ArchiveRepository {
        WHERE segment_id = ?
        ORDER BY event_sequence ASC`,
     ).bind(manifest.compressedSha256).all<StoredCoverage>();
-    return rows.results.map((row) => ({
-      eventSequence: row.event_sequence,
-      eventId: row.event_id,
-      envelopeSha256: row.envelope_sha256,
-      contentHash: row.content_hash,
-    }));
+    return rows.results.map(toCoverage);
+  }
+
+  async readCoverageRange(
+    afterSequence: number,
+    throughSequence: number,
+    coverageLimit: number,
+  ): Promise<readonly ArchiveCoverage[]> {
+    requireManifestRange(afterSequence, throughSequence);
+    requireManifestLimit(coverageLimit);
+    const rows = await this.database.prepare(
+      `SELECT event_sequence, event_id, envelope_sha256, content_hash
+       FROM archive_segment_events
+       WHERE event_sequence > ? AND event_sequence <= ?
+       ORDER BY event_sequence ASC
+       LIMIT ?`,
+    ).bind(afterSequence, throughSequence, coverageLimit).all<StoredCoverage>();
+    return rows.results.map(toCoverage);
   }
 
   async purgeDelivered(manifest: ArchiveManifest, purgedAt: string): Promise<void> {

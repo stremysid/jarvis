@@ -66,7 +66,7 @@ describe("archive segment codec", () => {
     expect(ARCHIVE_SEGMENT_LIMITS).toMatchObject({
       maxCompressedBytes: 16 * 1024 * 1024,
       maxUncompressedBytes: 8 * 1024 * 1024,
-      maxEventCount: 1000,
+      maxEventCount: 24,
     });
   });
 

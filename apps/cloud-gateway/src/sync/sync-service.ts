@@ -24,6 +24,9 @@ import {
 const PULL_PATH = "/sync/pull";
 const ACK_PATH = "/sync/ack";
 const SNAPSHOT_LIFETIME_MS = 300_000;
+// Requested pageSize remains 500; actual immutable pages stay memory-safe for
+// the maximum 256 KiB envelope and persist their exact replay event_count.
+const MAXIMUM_MATERIAL_EVENTS = 48;
 const PULL_FIELDS = new Set(["schemaVersion", "consumerId", "afterSequence", "pageSize", "snapshotToken"]);
 const ACK_FIELDS = new Set(["schemaVersion", "snapshotId", "expectedCurrent", "throughSequence"]);
 const encoder = new TextEncoder();
@@ -297,7 +300,7 @@ export class SyncService {
 
   private async readMaterial(afterSequence: number, pageSize: number, upperSequence: number): Promise<PageMaterial> {
     if (afterSequence > upperSequence) throw new Error("snapshot_continuation_boundary_mismatch");
-    const count = Math.min(pageSize, upperSequence - afterSequence);
+    const count = Math.min(pageSize, upperSequence - afterSequence, MAXIMUM_MATERIAL_EVENTS);
     const events = count === 0 ? [] : await this.deps.events.readRange(afterSequence, count);
     return this.validateMaterial(afterSequence, upperSequence, events, count);
   }

@@ -9,7 +9,9 @@ export const ARCHIVE_SEGMENT_LIMITS = Object.freeze({
   // Worker selection and verification retain several representations at once;
   // keep canonical input conservative under the 128 MiB isolate memory limit.
   maxUncompressedBytes: 8 * 1024 * 1024,
-  maxEventCount: 1000,
+  // Seal uses three fixed D1 statements plus one coverage insert per event;
+  // 24 leaves reconciliation and purge headroom under the 50-query free limit.
+  maxEventCount: 24,
 });
 
 export interface ArchiveSegmentLimits {

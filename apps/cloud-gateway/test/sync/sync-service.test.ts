@@ -12,7 +12,7 @@ import {
   type SyncEventsAckBodyV1,
   type SyncEventsPullBodyV1,
 } from "../../../../packages/contracts/src/index.js";
-import { EventRepository, type SyncEventReader } from "../../src/persistence/event-repository.js";
+import { EventRepository, type AppendedEvent, type SyncEventReader } from "../../src/persistence/event-repository.js";
 import { ArchiveRepository } from "../../src/archive/archive-repository.js";
 import { ArchivalService } from "../../src/archive/archival-service.js";
 import { TieredEventReader } from "../../src/archive/tiered-event-reader.js";
@@ -204,6 +204,45 @@ describe("SyncService", () => {
     expect(second.events.map((event) => event.eventSequence)).toEqual([3]);
     expect((await env.DB.prepare("SELECT DISTINCT root_upper_sequence FROM sync_snapshots").all<{ root_upper_sequence: number }>()).results).toEqual([{ root_upper_sequence: 3 }]);
     expect(await cursor()).toBe(0);
+  });
+
+  it("accepts a 500-event request but materializes at most 48 maximum-size envelopes", async () => {
+    const maximumEnvelopePayload = "x".repeat(262_000);
+    const requestedLimits: number[] = [];
+    const bounded: SyncEventReader = {
+      latestSequence: async () => 500,
+      readRange: async (afterSequence, limit) => {
+        requestedLimits.push(limit);
+        return Array.from({ length: limit }, (_, index) => {
+          const eventSequence = afterSequence + index + 1;
+          return {
+            eventSequence,
+            envelope: {
+              eventSequence,
+              eventId: `event:${eventSequence}`,
+              payload: maximumEnvelopePayload,
+            } as unknown as AppendedEvent["envelope"],
+            replayed: true,
+          };
+        });
+      },
+    };
+    sync = makeService(bounded);
+
+    const page = await pull(pullBody(0, 500));
+
+    expect(requestedLimits).toEqual([48]);
+    expect(page.events).toHaveLength(48);
+    expect(page).toMatchObject({ fromSequence: 0, toSequence: 48, hasMore: true });
+
+    const childBody = pullBody(48, 500, page.snapshotToken);
+    const child = await pull(childBody);
+    const replay = await pull(childBody);
+    expect(replay).toEqual(child);
+    expect(requestedLimits).toEqual([48, 48, 48]);
+    expect((await env.DB.prepare(
+      "SELECT event_count FROM sync_snapshots ORDER BY from_sequence",
+    ).all<{ event_count: number }>()).results).toEqual([{ event_count: 48 }, { event_count: 48 }]);
   });
 
   it("stores only continuation-token hashes and reproduces the same child page for a fresh-nonce semantic retry", async () => {

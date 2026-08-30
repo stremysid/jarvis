@@ -26,8 +26,12 @@ export interface ArchivalServiceOptions {
 }
 
 const sha256Pattern = /^[a-f0-9]{64}$/;
+const maximumArchiveRequestEvents = 1000;
+// Matches the Sync material cap: two full physical segments bound decoded
+// envelopes and response copies conservatively within a 128 MiB isolate.
+const maximumArchivedReadEvents = 48;
 
-type ArchivePhase = "selection" | "encoding" | "publication" | "readback" | "seal" | "post_seal" | "purge";
+type ArchivePhase = "reconciliation" | "selection" | "encoding" | "publication" | "readback" | "seal" | "post_seal" | "purge";
 
 const candidateIntegrityFailures = new Set([
   "archive_state_invalid",
@@ -50,7 +54,9 @@ function errorCode(error: unknown): string {
 
 function shouldLatchArchiveFailure(phase: ArchivePhase, error: unknown): boolean {
   const code = errorCode(error);
-  if (code === "archive_circuit_open" || code === "archive_segment_capacity") return false;
+  if (code === "archive_circuit_open" || code === "archive_segment_capacity"
+    || code === "archive_reconciliation_unstable") return false;
+  if (phase === "reconciliation" || phase === "post_seal") return !(error instanceof ArchiveOperationalError);
   if (phase === "selection") return candidateIntegrityFailures.has(code);
   if (phase === "encoding") return code !== "archive_operation_failed";
   if (phase === "publication") return false;
@@ -64,7 +70,9 @@ function shouldLatchArchivedReadFailure(error: unknown): boolean {
 
 function requireReadRange(afterSequence: number, limit: number): void {
   if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) throw new RangeError("afterSequence must be a non-negative integer");
-  if (!Number.isSafeInteger(limit) || limit <= 0 || limit > 1000) throw new RangeError("limit must be between 1 and 1000");
+  if (!Number.isSafeInteger(limit) || limit <= 0 || limit > maximumArchivedReadEvents) {
+    throw new RangeError("limit must be between 1 and 48");
+  }
 }
 
 function requireNow(now: Date): string {
@@ -73,7 +81,7 @@ function requireNow(now: Date): string {
 }
 
 function requireArchiveLimit(value: number): void {
-  if (!Number.isSafeInteger(value) || value <= 0 || value > ARCHIVE_SEGMENT_LIMITS.maxEventCount) {
+  if (!Number.isSafeInteger(value) || value <= 0 || value > maximumArchiveRequestEvents) {
     throw new RangeError("archive_limit_invalid");
   }
 }
@@ -100,14 +108,17 @@ export class ArchivalService {
   async archiveEligible(now: Date, maxEvents: number): Promise<ArchiveManifest | null> {
     const timestamp = requireNow(now);
     requireArchiveLimit(maxEvents);
-    let phase: ArchivePhase = "selection";
+    let phase: ArchivePhase = "reconciliation";
     try {
+      const reconciledThrough = await this.reconcileSealedTail(timestamp);
+      phase = "selection";
       const candidate = await this.repository.selectEligible(
         now,
         Math.min(maxEvents, this.segmentLimits.maxEventCount),
         this.segmentLimits.maxUncompressedBytes,
       );
       if (candidate === null) return null;
+      if (candidate.sealedThrough !== reconciledThrough) throw new Error("archive_reconciliation_unstable");
       phase = "encoding";
       const encoded = await encodeLargestArchiveSegment(candidate.events, this.segmentLimits);
       const selectedCandidate: ArchiveCandidate = {
@@ -132,7 +143,7 @@ export class ArchivalService {
       const manifest = await this.repository.seal(selectedCandidate, encoded, objectKey, timestamp);
       phase = "post_seal";
       await this.verifyManifest(manifest);
-      const state = await this.repository.readState();
+      const state = await this.readArchiveState();
       if (state.circuitState !== "closed") throw new Error("archive_circuit_open");
       phase = "purge";
       await this.repository.purgeDelivered(manifest, timestamp);
@@ -142,6 +153,42 @@ export class ArchivalService {
         await this.repository.openCircuit(errorCode(error), timestamp);
       }
       throw error;
+    }
+  }
+
+  private async reconcileSealedTail(purgedAt: string): Promise<number> {
+    const before = await this.readArchiveState();
+    if (before.circuitState !== "closed") throw new Error("archive_circuit_open");
+    if (before.sealedThrough === 0) return 0;
+
+    let manifest: ArchiveManifest | null;
+    try {
+      manifest = await this.repository.findManifestEndingAt(before.sealedThrough);
+    } catch {
+      throw new ArchiveOperationalError("archive_tail_manifest_read_failed");
+    }
+    if (manifest === null) throw new Error("archive_tail_manifest_missing");
+    await this.verifyManifest(manifest);
+
+    const verified = await this.readArchiveState();
+    if (verified.circuitState !== "closed") throw new Error("archive_circuit_open");
+    if (verified.sealedThrough < before.sealedThrough) throw new Error("archive_state_invalid");
+    if (verified.sealedThrough !== before.sealedThrough) throw new Error("archive_reconciliation_unstable");
+
+    await this.repository.purgeDelivered(manifest, purgedAt);
+    const purged = await this.readArchiveState();
+    if (purged.circuitState !== "closed") throw new Error("archive_circuit_open");
+    if (purged.sealedThrough < before.sealedThrough) throw new Error("archive_state_invalid");
+    if (purged.sealedThrough !== before.sealedThrough) throw new Error("archive_reconciliation_unstable");
+    return before.sealedThrough;
+  }
+
+  private async readArchiveState(): Promise<ArchiveState> {
+    try {
+      return await this.repository.readState();
+    } catch (error) {
+      if (errorCode(error) === "archive_state_invalid") throw error;
+      throw new ArchiveOperationalError("archive_state_read_failed");
     }
   }
 
@@ -166,13 +213,21 @@ export class ArchivalService {
       } catch {
         throw new ArchiveOperationalError("archive_manifest_list_failed");
       }
+      let coverage: readonly ArchiveCoverage[];
+      try {
+        coverage = await this.repository.readCoverageRange(afterSequence, terminalSequence, expectedCount);
+      } catch {
+        throw new ArchiveOperationalError("archive_coverage_read_failed");
+      }
+      if (coverage.length !== expectedCount) throw new Error("archive_coverage_mismatch");
       const events: AppendedEvent[] = [];
       let expectedSequence = afterSequence + 1;
       for (const manifest of manifests) {
-        const decoded = await this.verifyManifest(manifest);
+        const decoded = await this.verifyManifestObject(manifest);
         for (const event of decoded.events) {
           if (event.eventSequence < expectedSequence) continue;
           if (event.eventSequence !== expectedSequence) throw new Error("archive_range_gap");
+          await this.verifyEventCoverage(event, coverage[events.length]);
           events.push(event);
           expectedSequence += 1;
           if (events.length === expectedCount) return events;
@@ -186,6 +241,18 @@ export class ArchivalService {
   }
 
   private async verifyManifest(manifest: ArchiveManifest): Promise<DecodedArchiveSegment> {
+    const decoded = await this.verifyManifestObject(manifest);
+    let coverage: readonly ArchiveCoverage[];
+    try {
+      coverage = await this.repository.readCoverage(manifest);
+    } catch {
+      throw new ArchiveOperationalError("archive_coverage_read_failed");
+    }
+    await this.verifyCoverage(decoded.events, coverage);
+    return decoded;
+  }
+
+  private async verifyManifestObject(manifest: ArchiveManifest): Promise<DecodedArchiveSegment> {
     const decoded = await this.readAndDecode(
       manifest.objectKey,
       manifest.compressedSha256,
@@ -197,24 +264,27 @@ export class ArchivalService {
       || decoded.metadata.eventCount !== manifest.eventCount) {
       throw new Error("archive_manifest_mismatch");
     }
-    let coverage: readonly ArchiveCoverage[];
-    try {
-      coverage = await this.repository.readCoverage(manifest);
-    } catch {
-      throw new ArchiveOperationalError("archive_coverage_read_failed");
-    }
-    if (coverage.length !== decoded.events.length) throw new Error("archive_coverage_mismatch");
-    for (let index = 0; index < decoded.events.length; index += 1) {
-      const event = decoded.events[index]!;
-      const covered = coverage[index]!;
-      if (covered.eventSequence !== event.eventSequence
-        || covered.eventId !== event.envelope.eventId
-        || covered.contentHash !== event.envelope.contentHash
-        || covered.envelopeSha256 !== await sha256Hex(canonicalJson(event.envelope))) {
-        throw new Error("archive_coverage_mismatch");
-      }
-    }
     return decoded;
+  }
+
+  private async verifyCoverage(
+    events: readonly AppendedEvent[],
+    coverage: readonly ArchiveCoverage[],
+  ): Promise<void> {
+    if (coverage.length !== events.length) throw new Error("archive_coverage_mismatch");
+    for (let index = 0; index < events.length; index += 1) {
+      await this.verifyEventCoverage(events[index]!, coverage[index]);
+    }
+  }
+
+  private async verifyEventCoverage(event: AppendedEvent, covered: ArchiveCoverage | undefined): Promise<void> {
+    if (covered === undefined
+      || covered.eventSequence !== event.eventSequence
+      || covered.eventId !== event.envelope.eventId
+      || covered.contentHash !== event.envelope.contentHash
+      || covered.envelopeSha256 !== await sha256Hex(canonicalJson(event.envelope))) {
+      throw new Error("archive_coverage_mismatch");
+    }
   }
 
   private async verifyObject(

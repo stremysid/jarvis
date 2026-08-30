@@ -66,7 +66,7 @@ describe("TieredEventReader", () => {
     expect(calls).toEqual(["live", "state"]);
   });
 
-  it("retries against the new high-water when a live row moves to archive during readRange", async () => {
+  it("defers to the next invocation when a live row moves to archive during readRange", async () => {
     let sealedThrough = 0;
     let liveReads = 0;
     let archiveReads = 0;
@@ -88,6 +88,7 @@ describe("TieredEventReader", () => {
       state: stateReader(() => sealedThrough),
     });
 
+    await expect(tiered.readRange(0, 1)).rejects.toThrow("tiered_archive_state_unstable");
     expect((await tiered.readRange(0, 1)).map((event) => event.eventSequence)).toEqual([1]);
     expect(liveReads).toBe(1);
     expect(archiveReads).toBe(1);
@@ -114,6 +115,7 @@ describe("TieredEventReader", () => {
       state: stateReader(() => sealedThrough),
     });
 
+    await expect(tiered.readRange(0, 3)).rejects.toThrow("tiered_archive_state_unstable");
     expect((await tiered.readRange(0, 3)).map((event) => event.eventSequence)).toEqual([1, 2, 3]);
     expect(liveAfter).toEqual([1, 2]);
   });
@@ -141,7 +143,29 @@ describe("TieredEventReader", () => {
     });
 
     await expect(tiered.readRange(0, 1)).rejects.toThrow("tiered_archive_state_unstable");
-    expect(stateReads).toBe(6);
+    expect(stateReads).toBe(2);
+  });
+
+  it("accepts the 48-event material boundary and rejects 49 before any tier read", async () => {
+    let reads = 0;
+    const tiered = new TieredEventReader({
+      archive: { readArchivedRange: async () => { reads += 1; return []; } },
+      live: {
+        latestSequence: async () => 0,
+        readRange: async () => { reads += 1; return []; },
+      },
+      state: {
+        readState: async () => {
+          reads += 1;
+          return { sealedThrough: 0, circuitState: "closed", circuitReason: null, circuitOpenedAt: null };
+        },
+      },
+    });
+
+    await expect(tiered.readRange(0, 48)).resolves.toEqual([]);
+    expect(reads).toBe(3);
+    await expect(tiered.readRange(0, 49)).rejects.toThrow("limit must be between 1 and 48");
+    expect(reads).toBe(3);
   });
 
   it("rejects already-read provisional data when the second state read opens the circuit", async () => {

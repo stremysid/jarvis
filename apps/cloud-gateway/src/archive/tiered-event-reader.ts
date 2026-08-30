@@ -15,7 +15,9 @@ export interface TieredEventReaderOptions {
   state: ArchiveStateReader;
 }
 
-const maximumReadAttempts = 3;
+// Two maximum-sized physical segments keep envelope/string/response copies
+// conservative under the 128 MiB isolate limit and far below 1,000 subrequests.
+const maximumTieredReadEvents = 48;
 
 interface ProvisionalRange {
   events: readonly AppendedEvent[];
@@ -24,7 +26,9 @@ interface ProvisionalRange {
 
 function requireRange(afterSequence: number, limit: number): void {
   if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) throw new RangeError("afterSequence must be a non-negative integer");
-  if (!Number.isSafeInteger(limit) || limit <= 0 || limit > 1000) throw new RangeError("limit must be between 1 and 1000");
+  if (!Number.isSafeInteger(limit) || limit <= 0 || limit > maximumTieredReadEvents) {
+    throw new RangeError("limit must be between 1 and 48");
+  }
 }
 
 function requireClosed(state: ArchiveState): void {
@@ -57,26 +61,22 @@ export class TieredEventReader implements SyncEventReader {
 
   async readRange(afterSequence: number, limit: number): Promise<readonly AppendedEvent[]> {
     requireRange(afterSequence, limit);
-    for (let attempt = 0; attempt < maximumReadAttempts; attempt += 1) {
-      const before = await this.options.state.readState();
-      requireClosed(before);
-      const provisional = await this.readAtState(afterSequence, limit, before);
-      const after = await this.options.state.readState();
-      requireClosed(after);
-      if (after.sealedThrough === before.sealedThrough) {
-        if (provisional.live !== null) {
-          requireContiguous(
-            provisional.live.events,
-            provisional.live.firstSequence,
-            null,
-            "tiered_live_range_incomplete",
-          );
-        }
-        requireContiguous(provisional.events, afterSequence + 1, null, "tiered_event_range_incomplete");
-        return provisional.events;
-      }
+    const before = await this.options.state.readState();
+    requireClosed(before);
+    const provisional = await this.readAtState(afterSequence, limit, before);
+    const after = await this.options.state.readState();
+    requireClosed(after);
+    if (after.sealedThrough !== before.sealedThrough) throw new Error("tiered_archive_state_unstable");
+    if (provisional.live !== null) {
+      requireContiguous(
+        provisional.live.events,
+        provisional.live.firstSequence,
+        null,
+        "tiered_live_range_incomplete",
+      );
     }
-    throw new Error("tiered_archive_state_unstable");
+    requireContiguous(provisional.events, afterSequence + 1, null, "tiered_event_range_incomplete");
+    return provisional.events;
   }
 
   private async readAtState(

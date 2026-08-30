@@ -108,6 +108,131 @@ function selectionInterleavingDatabase(beforeCandidateRead: () => Promise<void>)
   } as D1Database;
 }
 
+function recordingBatchDatabase(onBatch: (statementCount: number) => void): D1Database {
+  return {
+    prepare: (query: string) => env.DB.prepare(query),
+    batch: (statements: D1PreparedStatement[]) => {
+      onBatch(statements.length);
+      return env.DB.batch(statements);
+    },
+  } as D1Database;
+}
+
+function queryCountingDatabase(beforeSealBatch: () => Promise<void>): {
+  database: D1Database;
+  queryCount: () => number;
+} {
+  let count = 0;
+  let interceptedSeal = false;
+  const originals = new WeakMap<object, D1PreparedStatement>();
+  const wrap = (statement: D1PreparedStatement): D1PreparedStatement => {
+    const wrapped = {
+      bind: (...values: unknown[]) => wrap(statement.bind(...values)),
+      first: async <T>(columnName?: string) => {
+        count += 1;
+        return columnName === undefined ? statement.first<T>() : statement.first<T>(columnName);
+      },
+      run: async <T>() => {
+        count += 1;
+        return statement.run<T>();
+      },
+      all: async <T>() => {
+        count += 1;
+        return statement.all<T>();
+      },
+      raw: async (options?: { columnNames?: boolean }) => {
+        count += 1;
+        return options?.columnNames === true
+          ? statement.raw({ columnNames: true })
+          : statement.raw();
+      },
+    } as D1PreparedStatement;
+    originals.set(wrapped as object, statement);
+    return wrapped;
+  };
+  return {
+    database: {
+      prepare: (query: string) => wrap(env.DB.prepare(query)),
+      batch: async <T>(statements: D1PreparedStatement[]) => {
+        count += statements.length;
+        if (statements.length > 3 && !interceptedSeal) {
+          interceptedSeal = true;
+          await beforeSealBatch();
+        }
+        return env.DB.batch<T>(statements.map((statement) => originals.get(statement as object) ?? statement));
+      },
+    } as D1Database,
+    queryCount: () => count,
+  };
+}
+
+function recordingCoverageDatabase(onBind: (values: readonly unknown[]) => void): D1Database {
+  return {
+    prepare: (query: string) => {
+      const statement = env.DB.prepare(query);
+      if (!query.includes("FROM archive_segment_events") || !query.includes("SELECT event_sequence")) return statement;
+      return {
+        bind: (...values: unknown[]) => {
+          onBind(values);
+          return statement.bind(...values);
+        },
+      } as D1PreparedStatement;
+    },
+    batch: (statements: D1PreparedStatement[]) => env.DB.batch(statements),
+  } as D1Database;
+}
+
+function postSealCoverageFailureDatabase(error: Error): D1Database {
+  let failed = false;
+  return {
+    prepare: (query: string) => {
+      const statement = env.DB.prepare(query);
+      if (failed || !query.includes("FROM archive_segment_events") || !query.includes("WHERE segment_id = ?")) {
+        return statement;
+      }
+      return {
+        bind: () => ({
+          all: async () => {
+            failed = true;
+            throw error;
+          },
+        }) as D1PreparedStatement,
+      } as D1PreparedStatement;
+    },
+    batch: (statements: D1PreparedStatement[]) => env.DB.batch(statements),
+  } as D1Database;
+}
+
+function failBucketGet(getNumber: number): ArchiveBucket {
+  let reads = 0;
+  return {
+    put: (...args) => env.ARCHIVE.put(...args),
+    get: async (...args) => {
+      reads += 1;
+      if (reads === getNumber) throw new Error("temporary_r2_read_failure");
+      return env.ARCHIVE.get(...args);
+    },
+  };
+}
+
+function stateReadInterleavingDatabase(stateReadNumber: number, beforeRead: () => Promise<void>): D1Database {
+  let stateReads = 0;
+  return {
+    prepare: (query: string) => {
+      const statement = env.DB.prepare(query);
+      if (!query.includes("FROM archive_state WHERE singleton = 1")) return statement;
+      return {
+        first: async <T>() => {
+          stateReads += 1;
+          if (stateReads === stateReadNumber) await beforeRead();
+          return statement.first<T>();
+        },
+      } as D1PreparedStatement;
+    },
+    batch: (statements: D1PreparedStatement[]) => env.DB.batch(statements),
+  } as D1Database;
+}
+
 async function state(): Promise<{ sealed_through: number; circuit_state: string; circuit_reason: string | null }> {
   const row = await env.DB.prepare(
     "SELECT sealed_through, circuit_state, circuit_reason FROM archive_state WHERE singleton = 1",
@@ -137,7 +262,7 @@ describe.sequential("ArchivalService", () => {
     if (manifest === null) throw new Error("expected manifest");
     expect(manifest.objectKey).toBe(`events/sha256/${manifest.compressedSha256}.ndjson.gz`);
     expect((await objectForManifest(manifest)).size).toBe(manifest.compressedByteLength);
-    expect((await service().readArchivedRange(0, 100)).map((event) => event.eventSequence)).toEqual([1, 2, 3, 4]);
+    expect((await service().readArchivedRange(0, 48)).map((event) => event.eventSequence)).toEqual([1, 2, 3, 4]);
     expect((await env.DB.prepare("SELECT sequence FROM events ORDER BY sequence").all<{ sequence: number }>()).results)
       .toEqual([{ sequence: 2 }, { sequence: 3 }]);
     expect((await env.DB.prepare("SELECT event_sequence, status FROM outbox ORDER BY event_sequence").all()).results)
@@ -150,6 +275,48 @@ describe.sequential("ArchivalService", () => {
       .rejects.toThrow("archive_manifest_immutable");
     await expect(env.DB.prepare("UPDATE archive_segment_events SET event_id = 'replacement' WHERE event_sequence = 1").run())
       .rejects.toThrow("archive_coverage_immutable");
+  });
+
+  it("accepts a 1000-event work request while sealing at most 24 events in a 27-statement batch", async () => {
+    await appendEvents(50);
+    for (let sequence = 1; sequence <= 50; sequence += 1) await setCreatedAt(sequence, exactCutoff);
+    const batchSizes: number[] = [];
+    const bounded = new ArchivalService({
+      database: recordingBatchDatabase((statementCount) => batchSizes.push(statementCount)),
+      bucket: env.ARCHIVE,
+    });
+
+    await expect(bounded.archiveEligible(now, 1000)).resolves.toMatchObject({
+      startSequence: 1, endSequence: 24, eventCount: 24,
+    });
+    await expect(bounded.archiveEligible(now, 1000)).resolves.toMatchObject({
+      startSequence: 25, endSequence: 48, eventCount: 24,
+    });
+    await expect(bounded.archiveEligible(now, 1000)).resolves.toMatchObject({
+      startSequence: 49, endSequence: 50, eventCount: 2,
+    });
+    await expect(bounded.archiveEligible(now, 1000)).resolves.toBeNull();
+
+    expect(Math.max(...batchSizes)).toBe(27);
+    expect(batchSizes.filter((statementCount) => statementCount > 3)).toEqual([27, 27, 5]);
+    expect(await state()).toEqual({ sealed_through: 50, circuit_state: "closed", circuit_reason: null });
+  });
+
+  it("keeps a reconciled 24-event seal conflict within the 50-query free-tier budget", async () => {
+    await appendEvents(48);
+    for (let sequence = 1; sequence <= 48; sequence += 1) await setCreatedAt(sequence, exactCutoff);
+    await markDelivered(...Array.from({ length: 48 }, (_, index) => index + 1));
+    await service().archiveEligible(now, 1000);
+    const counted = queryCountingDatabase(async () => {
+      await service().archiveEligible(now, 1000);
+    });
+    const guarded = new ArchivalService({ database: counted.database, bucket: env.ARCHIVE });
+
+    await expect(guarded.archiveEligible(now, 1000)).resolves.toMatchObject({ startSequence: 25, endSequence: 48 });
+
+    expect(counted.queryCount()).toBe(43);
+    expect(counted.queryCount()).toBeLessThanOrEqual(50);
+    expect(await state()).toEqual({ sealed_through: 48, circuit_state: "closed", circuit_reason: null });
   });
 
   it("treats exact 90-day equality as eligible and stops at the first younger sequence", async () => {
@@ -269,30 +436,39 @@ describe.sequential("ArchivalService", () => {
     expect(await state()).toEqual({ sealed_through: 0, circuit_state: "closed", circuit_reason: null });
   });
 
-  it("restarts paged selection when a concurrent archiver seals and purges before the first page", async () => {
+  it("defers paged selection when a concurrent archiver seals and purges before the first page", async () => {
     await appendEvents(33);
     for (let sequence = 1; sequence <= 33; sequence += 1) await setCreatedAt(sequence, exactCutoff);
-    await markDelivered(1, 32);
+    await markDelivered(1, 24);
     let moved = false;
+    let guardedPuts = 0;
     const guarded = new ArchivalService({
       database: selectionInterleavingDatabase(async () => {
         if (moved) return;
         moved = true;
         await service().archiveEligible(now, 32);
       }),
-      bucket: env.ARCHIVE,
+      bucket: {
+        put: async (...args) => {
+          guardedPuts += 1;
+          return env.ARCHIVE.put(...args);
+        },
+        get: (...args) => env.ARCHIVE.get(...args),
+      },
     });
 
-    await expect(guarded.archiveEligible(now, 32)).resolves.toMatchObject({
-      startSequence: 33,
+    await expect(guarded.archiveEligible(now, 32)).rejects.toThrow("archive_reconciliation_unstable");
+    expect(guardedPuts).toBe(0);
+    await expect(service().archiveEligible(now, 32)).resolves.toMatchObject({
+      startSequence: 25,
       endSequence: 33,
-      eventCount: 1,
+      eventCount: 9,
     });
     expect((await env.DB.prepare(
       "SELECT start_sequence, end_sequence FROM archive_manifests ORDER BY start_sequence",
     ).all()).results).toEqual([
-      { start_sequence: 1, end_sequence: 32 },
-      { start_sequence: 33, end_sequence: 33 },
+      { start_sequence: 1, end_sequence: 24 },
+      { start_sequence: 25, end_sequence: 33 },
     ]);
     expect(await state()).toEqual({ sealed_through: 33, circuit_state: "closed", circuit_reason: null });
   });
@@ -399,9 +575,59 @@ describe.sequential("ArchivalService", () => {
     });
 
     expect((await bounded.readArchivedRange(0, 1)).map((event) => event.eventSequence)).toEqual([1]);
-    expect(manifestBindings).toEqual([[0, 1, 1]]);
+    expect(manifestBindings).toEqual([[0, 24, 1, 1]]);
     expect(objectReads).toEqual([stored.results[0]!.object_key]);
     expect(await state()).toEqual({ sealed_through: 3, circuit_state: "closed", circuit_reason: null });
+  });
+
+  it("seeks a many-segment tail read and accesses only the terminal manifest object", async () => {
+    await appendEvents(48);
+    for (let sequence = 1; sequence <= 48; sequence += 1) await setCreatedAt(sequence, exactCutoff);
+    for (let index = 0; index < 48; index += 1) await service().archiveEligible(now, 1);
+    const stored = await env.DB.prepare(
+      `SELECT s.object_key
+       FROM archive_segments s
+       JOIN archive_manifests m ON m.manifest_id = s.manifest_id
+       ORDER BY m.end_sequence`,
+    ).all<{ object_key: string }>();
+    const manifestBindings: unknown[][] = [];
+    const objectReads: string[] = [];
+    const reader = new ArchivalService({
+      database: recordingDatabase((values) => manifestBindings.push([...values])),
+      bucket: {
+        put: (...args) => env.ARCHIVE.put(...args),
+        get: async (...args) => {
+          objectReads.push(args[0]);
+          return env.ARCHIVE.get(...args);
+        },
+      },
+    });
+
+    expect((await reader.readArchivedRange(47, 1)).map((event) => event.eventSequence)).toEqual([48]);
+    expect(manifestBindings).toEqual([[47, 71, 48, 1]]);
+    expect(objectReads).toEqual([stored.results[47]!.object_key]);
+
+    manifestBindings.length = 0;
+    objectReads.length = 0;
+    expect((await reader.readArchivedRange(0, 48)).map((event) => event.eventSequence)).toEqual(
+      Array.from({ length: 48 }, (_, index) => index + 1),
+    );
+    expect(manifestBindings).toEqual([[0, 71, 48, 48]]);
+    expect(objectReads).toEqual(stored.results.map((row) => row.object_key));
+  });
+
+  it("verifies a multi-manifest archived range with one bounded coverage query", async () => {
+    await appendEvents(3);
+    for (const sequence of [1, 2, 3]) await setCreatedAt(sequence, exactCutoff);
+    for (let index = 0; index < 3; index += 1) await service().archiveEligible(now, 1);
+    const coverageBindings: unknown[][] = [];
+    const reader = new ArchivalService({
+      database: recordingCoverageDatabase((values) => coverageBindings.push([...values])),
+      bucket: env.ARCHIVE,
+    });
+
+    expect((await reader.readArchivedRange(0, 3)).map((event) => event.eventSequence)).toEqual([1, 2, 3]);
+    expect(coverageBindings).toEqual([[0, 3, 3]]);
   });
 
   it("rejects oversized R2 metadata before materializing the object body", async () => {
@@ -546,7 +772,9 @@ describe.sequential("ArchivalService", () => {
       },
     });
 
-    await expect(guarded.readArchivedRange(0, 0)).rejects.toThrow("limit must be between 1 and 1000");
+    await expect(guarded.readArchivedRange(Number.MAX_SAFE_INTEGER, 48)).resolves.toEqual([]);
+    await expect(guarded.readArchivedRange(0, 0)).rejects.toThrow("limit must be between 1 and 48");
+    await expect(guarded.readArchivedRange(0, 49)).rejects.toThrow("limit must be between 1 and 48");
     expect(objectReads).toBe(0);
     expect(await state()).toEqual({ sealed_through: 0, circuit_state: "closed", circuit_reason: null });
   });
@@ -595,7 +823,7 @@ describe.sequential("ArchivalService", () => {
       bucket: env.ARCHIVE,
     });
 
-    await expect(bounded.readArchivedRange(Number.MAX_SAFE_INTEGER, 1000)).resolves.toEqual([]);
+    await expect(bounded.readArchivedRange(Number.MAX_SAFE_INTEGER, 48)).resolves.toEqual([]);
     expect(manifestBindings).toEqual([]);
     expect(await state()).toEqual({ sealed_through: 0, circuit_state: "closed", circuit_reason: null });
   });
@@ -711,6 +939,178 @@ describe.sequential("ArchivalService", () => {
     expect((await env.DB.prepare("SELECT status FROM outbox WHERE event_sequence = 1").first<{ status: string }>())?.status)
       .toBe("delivered");
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events").first<{ count: number }>())?.count).toBe(1);
+    expect(await state()).toMatchObject({ sealed_through: 1, circuit_state: "open" });
+  });
+
+  it("keeps a sealed manifest retryable when the second R2 get fails transiently", async () => {
+    await appendEvents(1);
+    await setCreatedAt(1, exactCutoff);
+    await markDelivered(1);
+
+    await expect(service(failBucketGet(2)).archiveEligible(now, 1)).rejects.toThrow("archive_object_read_failed");
+
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM archive_manifests").first<{ count: number }>())?.count).toBe(1);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM archive_purge_receipts").first<{ count: number }>())?.count).toBe(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events").first<{ count: number }>())?.count).toBe(1);
+    expect(await state()).toEqual({ sealed_through: 1, circuit_state: "closed", circuit_reason: null });
+  });
+
+  it("reconciles and purges the sealed tail before publishing the next segment", async () => {
+    await appendEvents(2);
+    await setCreatedAt(1, exactCutoff);
+    await setCreatedAt(2, exactCutoff);
+    await markDelivered(1);
+    await expect(service(failBucketGet(2)).archiveEligible(now, 1)).rejects.toThrow("archive_object_read_failed");
+    let newPublications = 0;
+    const reconciling = service({
+      put: async (...args) => {
+        newPublications += 1;
+        const stillLive = await env.DB.prepare("SELECT 1 AS present FROM events WHERE sequence = 1").first();
+        if (stillLive !== null) throw new Error("published_before_reconciliation_purge");
+        return env.ARCHIVE.put(...args);
+      },
+      get: (...args) => env.ARCHIVE.get(...args),
+    });
+
+    await expect(reconciling.archiveEligible(now, 1)).resolves.toMatchObject({ startSequence: 2, endSequence: 2 });
+
+    expect(newPublications).toBe(1);
+    expect((await env.DB.prepare("SELECT event_sequence FROM archive_purge_receipts ORDER BY event_sequence").all()).results)
+      .toEqual([{ event_sequence: 1 }]);
+    expect(await state()).toEqual({ sealed_through: 2, circuit_state: "closed", circuit_reason: null });
+  });
+
+  it.each([
+    [2, "before purge"],
+    [3, "after purge"],
+  ] as const)("defers publication when the reconciled seal advances %s", async (stateReadNumber) => {
+    await appendEvents(3);
+    for (const sequence of [1, 2, 3]) await setCreatedAt(sequence, exactCutoff);
+    await markDelivered(1, 2);
+    await service().archiveEligible(now, 1);
+    let advanced = false;
+    let guardedPuts = 0;
+    const guarded = new ArchivalService({
+      database: stateReadInterleavingDatabase(stateReadNumber, async () => {
+        if (advanced) return;
+        advanced = true;
+        await expect(service(failBucketGet(3)).archiveEligible(now, 1)).rejects.toThrow("archive_object_read_failed");
+      }),
+      bucket: {
+        put: async (...args) => {
+          guardedPuts += 1;
+          return env.ARCHIVE.put(...args);
+        },
+        get: (...args) => env.ARCHIVE.get(...args),
+      },
+    });
+
+    await expect(guarded.archiveEligible(now, 1)).rejects.toThrow("archive_reconciliation_unstable");
+    expect(guardedPuts).toBe(0);
+    expect(await state()).toEqual({ sealed_through: 2, circuit_state: "closed", circuit_reason: null });
+
+    await expect(service().archiveEligible(now, 1)).resolves.toMatchObject({ startSequence: 3, endSequence: 3 });
+    expect((await env.DB.prepare("SELECT event_sequence FROM archive_purge_receipts ORDER BY event_sequence").all()).results)
+      .toEqual([{ event_sequence: 1 }, { event_sequence: 2 }]);
+    expect(await state()).toEqual({ sealed_through: 3, circuit_state: "closed", circuit_reason: null });
+  });
+
+  it("defers publication to a bounded retry when the seal advances before selection", async () => {
+    await appendEvents(3);
+    for (const sequence of [1, 2, 3]) await setCreatedAt(sequence, exactCutoff);
+    await markDelivered(1, 2);
+    await service().archiveEligible(now, 1);
+    let advanced = false;
+    let guardedPuts = 0;
+    const guarded = new ArchivalService({
+      database: stateReadInterleavingDatabase(4, async () => {
+        if (advanced) return;
+        advanced = true;
+        await expect(service(failBucketGet(3)).archiveEligible(now, 1)).rejects.toThrow("archive_object_read_failed");
+      }),
+      bucket: {
+        put: async (...args) => {
+          guardedPuts += 1;
+          return env.ARCHIVE.put(...args);
+        },
+        get: (...args) => env.ARCHIVE.get(...args),
+      },
+    });
+
+    await expect(guarded.archiveEligible(now, 1)).rejects.toThrow("archive_reconciliation_unstable");
+    expect(guardedPuts).toBe(0);
+    expect(await env.DB.prepare("SELECT 1 AS present FROM events WHERE sequence = 2").first()).not.toBeNull();
+    expect(await state()).toEqual({ sealed_through: 2, circuit_state: "closed", circuit_reason: null });
+
+    await expect(service().archiveEligible(now, 1)).resolves.toMatchObject({ startSequence: 3, endSequence: 3 });
+    expect((await env.DB.prepare("SELECT event_sequence FROM archive_purge_receipts ORDER BY event_sequence").all()).results)
+      .toEqual([{ event_sequence: 1 }, { event_sequence: 2 }]);
+    expect(await state()).toEqual({ sealed_through: 3, circuit_state: "closed", circuit_reason: null });
+  });
+
+  it("keeps a sealed manifest retryable when post-seal coverage D1 is transiently unavailable", async () => {
+    await appendEvents(1);
+    await setCreatedAt(1, exactCutoff);
+    await markDelivered(1);
+    const guarded = new ArchivalService({
+      database: postSealCoverageFailureDatabase(new Error("temporary_coverage_failure")),
+      bucket: env.ARCHIVE,
+    });
+
+    await expect(guarded.archiveEligible(now, 1)).rejects.toThrow("archive_coverage_read_failed");
+
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM archive_manifests").first<{ count: number }>())?.count).toBe(1);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM archive_purge_receipts").first<{ count: number }>())?.count).toBe(0);
+    expect(await state()).toEqual({ sealed_through: 1, circuit_state: "closed", circuit_reason: null });
+  });
+
+  it("publishes no new segment while sealed-tail reconciliation is unavailable", async () => {
+    await appendEvents(2);
+    await setCreatedAt(1, exactCutoff);
+    await setCreatedAt(2, exactCutoff);
+    await markDelivered(1);
+    await expect(service(failBucketGet(2)).archiveEligible(now, 1)).rejects.toThrow("archive_object_read_failed");
+    let puts = 0;
+    const unavailable = service({
+      put: async (...args) => {
+        puts += 1;
+        return env.ARCHIVE.put(...args);
+      },
+      get: async () => { throw new Error("temporary_reconciliation_read_failure"); },
+    });
+
+    await expect(unavailable.archiveEligible(now, 1)).rejects.toThrow("archive_object_read_failed");
+
+    expect(puts).toBe(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM archive_manifests").first<{ count: number }>())?.count).toBe(1);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM archive_purge_receipts").first<{ count: number }>())?.count).toBe(0);
+    expect(await state()).toEqual({ sealed_through: 1, circuit_state: "closed", circuit_reason: null });
+  });
+
+  it("latches reconciliation corruption before publishing or purging", async () => {
+    await appendEvents(2);
+    await setCreatedAt(1, exactCutoff);
+    await setCreatedAt(2, exactCutoff);
+    await markDelivered(1);
+    await expect(service(failBucketGet(2)).archiveEligible(now, 1)).rejects.toThrow("archive_object_read_failed");
+    const stored = await env.DB.prepare(
+      "SELECT object_key FROM archive_segments WHERE manifest_id = (SELECT manifest_id FROM archive_manifests WHERE end_sequence = 1)",
+    ).first<{ object_key: string }>();
+    if (stored === null) throw new Error("missing unsettled manifest fixture");
+    await env.ARCHIVE.put(stored.object_key, "reconciliation corruption");
+    let puts = 0;
+    const guarded = service({
+      put: async (...args) => {
+        puts += 1;
+        return env.ARCHIVE.put(...args);
+      },
+      get: (...args) => env.ARCHIVE.get(...args),
+    });
+
+    await expect(guarded.archiveEligible(now, 1)).rejects.toThrow("archive_object_size_mismatch");
+
+    expect(puts).toBe(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM archive_purge_receipts").first<{ count: number }>())?.count).toBe(0);
     expect(await state()).toMatchObject({ sealed_through: 1, circuit_state: "open" });
   });
 

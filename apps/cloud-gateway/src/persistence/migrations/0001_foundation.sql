@@ -266,12 +266,13 @@ CREATE TABLE archive_manifests (
   manifest_id TEXT PRIMARY KEY CHECK (length(manifest_id) = 64 AND manifest_id NOT GLOB '*[^0-9a-f]*'),
   start_sequence INTEGER NOT NULL UNIQUE CHECK (start_sequence > 0),
   end_sequence INTEGER NOT NULL UNIQUE CHECK (end_sequence >= start_sequence),
-  event_count INTEGER NOT NULL CHECK (event_count > 0 AND event_count = end_sequence - start_sequence + 1),
+  event_count INTEGER NOT NULL CHECK (event_count > 0 AND event_count <= 24 AND event_count = end_sequence - start_sequence + 1),
   status TEXT NOT NULL CHECK (status = 'sealed'),
   created_at TEXT NOT NULL,
   sealed_at TEXT NOT NULL,
   UNIQUE (start_sequence, end_sequence)
 );
+CREATE INDEX archive_manifests_overlap_seek_idx ON archive_manifests(end_sequence, start_sequence);
 
 CREATE TABLE archive_segments (
   segment_id TEXT PRIMARY KEY CHECK (length(segment_id) = 64 AND segment_id NOT GLOB '*[^0-9a-f]*'),

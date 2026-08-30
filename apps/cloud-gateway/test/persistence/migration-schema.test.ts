@@ -101,6 +101,23 @@ describe("foundation migration constraints", () => {
     ]);
   });
 
+  it("uses the named manifest overlap index for an end-sequence tail seek", async () => {
+    const indexes = await env.DB.prepare("PRAGMA index_list(archive_manifests)").all<{ name: string }>();
+    expect(indexes.results.map((index) => index.name)).toContain("archive_manifests_overlap_seek_idx");
+
+    const plan = await env.DB.prepare(
+      `EXPLAIN QUERY PLAN
+       SELECT m.manifest_id
+       FROM archive_manifests m INDEXED BY archive_manifests_overlap_seek_idx
+       WHERE m.end_sequence > ? AND m.end_sequence <= ?
+         AND m.start_sequence <= ? AND m.status = 'sealed'
+       ORDER BY m.end_sequence ASC
+       LIMIT ?`,
+    ).bind(900, 1023, 1000, 100).all<{ detail: string }>();
+    expect(plan.results.map((row) => row.detail).join("\n"))
+      .toMatch(/SEARCH m USING INDEX archive_manifests_overlap_seek_idx \(end_sequence>\? AND end_sequence<\?\)/u);
+  });
+
   it("enforces exactly one canonical human while allowing service principals", async () => {
     await env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at) VALUES ('human:one', 'human', 'active', 'one', '1.0', 'PIN_VERIFIER_JSON', ?, ?)").bind(timestamp, timestamp).run();
     await expect(env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at) VALUES ('human:two', 'human', 'active', 'two', '1.0', 'PIN_VERIFIER_JSON', ?, ?)").bind(timestamp, timestamp).run()).rejects.toThrow();
@@ -153,5 +170,11 @@ describe("foundation migration constraints", () => {
     await expect(env.DB.prepare(
       "INSERT INTO sync_ack_receipts (receipt_id, snapshot_id, principal_id, device_id, consumer_name, expected_current, through_sequence, current_sequence, acknowledged_at, receipt_kind) VALUES ('receipt:snapshot', 'snapshot:valid', 'principal:one', 'device:one', 'device:device:one', 0, 0, 0, ?, 'snapshot')",
     ).bind(timestamp).run()).resolves.toMatchObject({ success: true });
+  });
+
+  it("rejects an archive manifest above the 24-event physical segment cap", async () => {
+    await expect(env.DB.prepare(
+      "INSERT INTO archive_manifests (manifest_id, start_sequence, end_sequence, event_count, status, created_at, sealed_at) VALUES (?, 1, 25, 25, 'sealed', ?, ?)",
+    ).bind("a".repeat(64), timestamp, timestamp).run()).rejects.toThrow();
   });
 });
