@@ -21,7 +21,7 @@ This design replaces the foundation rule that every inbound and outbound call re
 - Owner PIN bypass does not bypass Twilio signature verification, exact `CallSid` and relay nonce binding, active-identity checks, session limits, action policy, or explicit confirmation requirements for external, destructive, credential, or spending effects.
 - An unknown, blocked, revoked, or unprovisioned number is rejected before ConversationRelay and receives no PIN prompt or information about registered callers.
 - A guest number is usable only after an owner-confirmed grant exists for that exact canonical E.164 voice identity.
-- Every guest has an individual PIN of exactly four decimal digits. There is no shared PIN and no global guest PIN.
+- Every guest has an individual verifier for a PIN of exactly four decimal digits. New grants may start from the privately configured default guest PIN when the owner explicitly says `use the default`; because each grant uses its own salt and grant-bound derivation, there is still no global verifier or PIN-only path for an unknown number. The owner may assign or rotate a different value per guest at any time.
 - A guest authenticates once per call. A proof is nominal, single-session, and bound to the exact grant version, principal, identity, `CallSid`, direction, and relay session.
 - Only the owner identity can manage callers, grants, PINs, permission sets, security configuration, credentials, or the owner identity itself.
 - Each guest receives a separate principal, conversation history, memory scope, and permission set. No guest permission grants access to Sid's personal memory by implication.
@@ -68,7 +68,7 @@ The interaction is:
 2. The model may return an untrusted proposal conforming to the closed administration proposal schema through a dedicated parse-only response channel. This is not a normal model tool call or external-effect command, and it cannot call the repository, dispatch an action, or mint authority.
 3. The session canonicalizes the number, resolves permission phrases to installed capability IDs, rejects owner-only or unknown capabilities, and freezes a proposal with a cryptographically random proposal ID that expires exactly 60 seconds after creation.
 4. Jarvis reads back the operation, masked or spoken canonical number as appropriate, permission summary, and any high-impact warnings. It does not repeat a PIN.
-5. For add or PIN rotation, Jarvis enters an isolated PIN-capture state. Sid may enter exactly four digits using DTMF or speak a four-digit sequence. Spoken digits are accepted only by a strict digit normalizer while that state is active; they bypass the conversational transcript, memory, model, and logs. Ambiguous speech is rejected with a keypad fallback.
+5. For add or PIN rotation, Jarvis enters an isolated PIN-selection state. Sid may say `use the default`, enter exactly four digits using DTMF, or speak a four-digit sequence. `use the default` is accepted only when the private `DEFAULT_GUEST_PIN` binding is present and valid. Spoken digits are accepted only by a strict digit normalizer while that state is active; digits and the default binding bypass the conversational transcript, memory, model, and logs. Ambiguous speech is rejected with a keypad fallback.
 6. Jarvis reads back the non-secret proposal and asks Sid to say `confirm` or `cancel`. Confirmation must arrive in the same owner session before expiry and while the exact proposal remains current.
 7. The access service revalidates owner authority, grant conflicts, capability registration, proposal expiry, and the captured PIN before committing one transaction.
 8. Jarvis returns a fixed success or neutral failure response. Repository or validation details never enter model-visible error text.
@@ -78,6 +78,7 @@ There is no generic model tool for access changes. The model is a parser and con
 ## 5. PIN handling and abuse limits
 
 - Guest PIN syntax is exactly `[0-9]{4}`.
+- `DEFAULT_GUEST_PIN`, when configured, must also match `[0-9]{4}` and is read only by the owner-access service after an issued same-session `use the default` selection. It is never a fallback authentication record and never makes an unprovisioned number eligible.
 - Plaintext digits exist only in bounded call-session memory during capture or verification and are zeroed or released after the candidate is processed.
 - Each verifier record uses schema version `2.0`, algorithm identifier `hmac-sha256-pepper+pbkdf2-hmac-sha256`, a cryptographically random 16-byte salt, exactly 600,000 PBKDF2 iterations for this release, and a 32-byte digest. The Worker secret `GUEST_PIN_PEPPER_V1` is a cryptographically random 32-byte key that is never stored in D1.
 - Derivation first computes `HMAC-SHA-256(GUEST_PIN_PEPPER_V1, UTF8("jarvis.guest-pin/v1\\0" + grantId + "\\0" + pin))`, then uses that 32-byte result as the PBKDF2-HMAC-SHA-256 input with the record salt and iteration count to derive the stored 32-byte digest. Verification parses bounded canonical fields, derives a candidate, and compares all 32 bytes in constant time. D1 therefore contains no verifier that can be checked without the pepper.
@@ -196,7 +197,7 @@ No automated test places a real call or uses live credentials.
 
 - Speaker recognition or voiceprint training.
 - Public self-registration or a PIN prompt for arbitrary unknown callers.
-- Shared PINs.
+- A shared verifier or a PIN-only path for unknown callers. Multiple grant-bound verifiers may intentionally originate from the owner's configured default value.
 - Guest access to Sid's memory by default.
 - Model-issued authority, generic model database tools, or model-controlled permission mutation.
 - A capability grant creating a missing tool.
