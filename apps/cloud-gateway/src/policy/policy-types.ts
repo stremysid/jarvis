@@ -4,6 +4,7 @@ export interface OutboundCallRequest extends OutboundCallCommand {}
 
 export type PolicyReason =
   | "allowed"
+  | "invalid_request"
   | "invalid_origin"
   | "invalid_purpose"
   | "destination_not_verified"
@@ -16,7 +17,8 @@ export type PolicyReason =
   | "policy_command_conflict"
   | "authorization_missing"
   | "authorization_denied"
-  | "audit_persistence_failed";
+  | "audit_persistence_failed"
+  | "invalid_dispatch_attempt";
 
 export interface PolicyDecision {
   decision: "allow" | "deny";

@@ -3,16 +3,12 @@ import type { EventRepositoryContract } from "../persistence/event-repository.js
 import { Redactor } from "../security/redaction.js";
 import type { DispatchPolicyCheck } from "./policy-types.js";
 
-export interface PolicyAuditClock {
-  nextAuditId(): string;
-}
-
 /** Appends only canonical policy metadata; it never accepts destination or ingress text. */
 export class PolicyAudit {
-  constructor(private readonly events: EventRepositoryContract, private readonly clock: PolicyAuditClock) {}
+  constructor(private readonly events: EventRepositoryContract) {}
 
-  async appendDispatchCheck(input: { principalId: string; commandId: string; inputHash: string; check: DispatchPolicyCheck }): Promise<void> {
-    const auditId = this.clock.nextAuditId();
+  async appendDispatchCheck(input: { attemptId: string; principalId: string; commandId: string; inputHash: string; check: DispatchPolicyCheck }): Promise<void> {
+    const auditId = input.attemptId;
     const payload = canonicalJson({ commandId: input.commandId, inputHash: input.inputHash, decision: input.check.decision, reason: input.check.reason, checkedAt: input.check.checkedAt });
     const audit = new Redactor().redactText(payload);
     if (!audit.ok) throw new Error("policy_audit_redaction_failed");
@@ -21,6 +17,7 @@ export class PolicyAudit {
       occurredAt: input.check.checkedAt, receivedAt: input.check.checkedAt, correlationId: auditId as never, contentType: "application/json",
       payload: { audit }, producerVersion: "policy-v1",
     });
-    await this.events.append({ envelope, scope: "policy:dispatch-check", key: auditId, requestHash: await sha256Hex(payload) });
+    const attemptHash = canonicalJson({ attemptId: auditId, commandId: input.commandId, inputHash: input.inputHash, decision: input.check.decision, reason: input.check.reason });
+    await this.events.append({ envelope, scope: "policy:dispatch-check", key: auditId, requestHash: await sha256Hex(attemptHash) });
   }
 }
