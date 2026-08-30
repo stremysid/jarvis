@@ -1,13 +1,13 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { canonicalJson, createEnvelope, newUlid, sha256Hex, type EventEnvelopeV1, type Sha256Hex } from "../../../../packages/contracts/src/index.js";
+import { canonicalJson, createEnvelope, newUlid, sha256Hex, type EventEnvelopeV1, type PersistableEventEnvelopeV1, type Sha256Hex } from "../../../../packages/contracts/src/index.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { EventRepository, IdempotencyConflict } from "../../src/persistence/event-repository.js";
 import { applyFoundationMigration } from "./migration.js";
 
 const timestamp = "2026-08-29T12:00:00.000Z";
 
-async function eventFixture(label: string, eventId = newUlid()): Promise<EventEnvelopeV1> {
+async function eventFixture(label: string, eventId = newUlid()): Promise<PersistableEventEnvelopeV1> {
   const token = new Redactor().redact({
     text: `Authorization: Bearer ${label}-secret`,
     channel: "telegram",
@@ -31,6 +31,15 @@ async function eventFixture(label: string, eventId = newUlid()): Promise<EventEn
 
 async function requestHash(label: string): Promise<Sha256Hex> {
   return sha256Hex(canonicalJson({ label }));
+}
+
+async function oversizedFixture(): Promise<PersistableEventEnvelopeV1> {
+  const token = new Redactor().redact({ text: "x".repeat(262144), channel: "telegram", field: "message.text" });
+  if (!token.ok) throw new Error("fixture redaction failed");
+  return createEnvelope({
+    schemaVersion: "1.0", eventId: newUlid(), eventType: "telegram.update", source: "telegram", subjectId: "principal:test",
+    occurredAt: timestamp, receivedAt: timestamp, correlationId: newUlid(), contentType: "application/json", payload: { message: token }, producerVersion: "test",
+  });
 }
 
 describe("EventRepository", () => {
@@ -69,6 +78,57 @@ describe("EventRepository", () => {
     const stored = await env.DB.prepare("SELECT envelope_json FROM events").first<{ envelope_json: string }>();
     expect(stored?.envelope_json).toContain("[REDACTED_AUTHORIZATION]");
     expect(stored?.envelope_json).not.toContain("first-secret");
+  });
+
+  it("refuses a hand-built, self-hashed envelope that was not minted by createEnvelope", async () => {
+    const repository = new EventRepository(env.DB);
+    const payload = { message: "unredacted ingress" };
+    const forged = {
+      schemaVersion: "1.0" as const,
+      eventId: newUlid(),
+      eventType: "telegram.update",
+      source: "telegram",
+      subjectId: "principal:test",
+      occurredAt: timestamp,
+      receivedAt: timestamp,
+      correlationId: newUlid(),
+      contentType: "application/json" as const,
+      contentHash: await sha256Hex(canonicalJson(payload)),
+      payload,
+      redaction: { status: "none" as const, markers: [] },
+      producerVersion: "test",
+    };
+
+    await expect(repository.append({
+      envelope: forged as unknown as PersistableEventEnvelopeV1,
+      scope: "telegram:update",
+      key: "forged",
+      requestHash: await requestHash("forged"),
+    })).rejects.toThrow("persistable envelope");
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events").first<{ count: number }>())?.count).toBe(0);
+  });
+
+  it("refuses a copy with an unknown top-level field even when its contents validate", async () => {
+    const repository = new EventRepository(env.DB);
+    const minted = await eventFixture("unknown-field");
+    const copied = { ...minted, unexpected: "field" };
+
+    await expect(repository.append({
+      envelope: copied as unknown as PersistableEventEnvelopeV1,
+      scope: "telegram:update",
+      key: "unknown-field",
+      requestHash: await requestHash("unknown-field"),
+    })).rejects.toThrow("persistable envelope");
+  });
+
+  it("does not persist a post-creation mutation attempt", async () => {
+    const repository = new EventRepository(env.DB);
+    const minted = await eventFixture("immutable");
+
+    expect(Reflect.set(minted.payload as object, "message", "unredacted ingress")).toBe(false);
+    await repository.append({ envelope: minted, scope: "telegram:update", key: "immutable", requestHash: await requestHash("immutable") });
+    const stored = await env.DB.prepare("SELECT envelope_json FROM events").first<{ envelope_json: string }>();
+    expect(stored?.envelope_json).not.toContain("unredacted ingress");
   });
 
   it("rolls back all ledger writes when a later batch constraint fails", async () => {
@@ -143,5 +203,34 @@ describe("EventRepository", () => {
     expect(range).toHaveLength(2);
     await env.DB.prepare("UPDATE events SET envelope_json = '{\"invalid\":true}' WHERE sequence = 2").run();
     await expect(repository.readRange(0, 3)).rejects.toThrow("schemaVersion");
+  });
+
+  it("rejects a valid stored envelope whose ledger content hash differs", async () => {
+    const repository = new EventRepository(env.DB);
+    await repository.append({ envelope: await eventFixture("column-range"), scope: "telegram:update", key: "column-range", requestHash: await requestHash("column-range") });
+    await env.DB.prepare("UPDATE events SET content_hash = ? WHERE sequence = 1").bind("0".repeat(64)).run();
+
+    await expect(repository.readRange(0, 1)).rejects.toThrow("ledger content hash");
+  });
+
+  it("rejects a replay when the durable ledger content hash differs", async () => {
+    const repository = new EventRepository(env.DB);
+    const envelope = await eventFixture("column-replay");
+    const hash = await requestHash("column-replay");
+    await repository.append({ envelope, scope: "telegram:update", key: "column-replay", requestHash: hash });
+    await env.DB.prepare("UPDATE events SET content_hash = ? WHERE sequence = 1").bind("0".repeat(64)).run();
+
+    await expect(repository.append({ envelope, scope: "telegram:update", key: "column-replay", requestHash: hash })).rejects.toThrow("ledger content hash");
+  });
+
+  it("enforces UTF-8 scope, key, envelope, request-hash, and range limits before D1 work", async () => {
+    const repository = new EventRepository(env.DB);
+    const envelope = await eventFixture("bounds");
+
+    await expect(repository.append({ envelope, scope: "é".repeat(65), key: "key", requestHash: await requestHash("bounds") })).rejects.toThrow("scope");
+    await expect(repository.append({ envelope, scope: "scope", key: "é".repeat(129), requestHash: await requestHash("bounds") })).rejects.toThrow("key");
+    await expect(repository.append({ envelope, scope: "scope", key: "bad-hash", requestHash: "g".repeat(64) as Sha256Hex })).rejects.toThrow("requestHash");
+    await expect(repository.append({ envelope: await oversizedFixture(), scope: "scope", key: "oversized", requestHash: await requestHash("oversized") })).rejects.toThrow("envelope");
+    await expect(repository.readRange(0, 1001)).rejects.toThrow("limit");
   });
 });

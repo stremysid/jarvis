@@ -6,6 +6,7 @@ export interface CursorRepositoryContract {
 }
 
 interface CursorRow { current_sequence: number; }
+const encoder = new TextEncoder();
 
 function requireSequence(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value < 0) throw new RangeError(`${label} must be a non-negative integer`);
@@ -21,6 +22,7 @@ export class CursorRepository implements CursorRepositoryContract {
 
   async advanceContiguous(consumerName: string, expectedCurrent: number, throughSequence: number): Promise<void> {
     if (consumerName.length === 0) throw new TypeError("consumerName must be non-empty");
+    if (encoder.encode(consumerName).byteLength > 128) throw new RangeError("consumerName exceeds UTF-8 byte limit");
     requireSequence(expectedCurrent, "expectedCurrent");
     requireSequence(throughSequence, "throughSequence");
     if (throughSequence <= expectedCurrent) throw new RangeError("cursor_range_invalid");
@@ -48,7 +50,7 @@ export class CursorRepository implements CursorRepositoryContract {
            (SELECT COUNT(*) FROM events WHERE sequence > ? AND sequence <= ?),
            'ack_receipt', ?, ?
          WHERE changes() = 1`,
-      ).bind(snapshotId, consumerName, expectedCurrent, throughSequence, expectedCurrent + 1, throughSequence, expectedCurrent, throughSequence, acknowledgedAt, acknowledgedAt),
+      ).bind(snapshotId, consumerName, expectedCurrent, throughSequence, expectedCurrent + 1, throughSequence, expectedCurrent, throughSequence, null, acknowledgedAt),
     ]);
 
     if (cursorResult[0]?.meta.changes !== 1 || cursorResult[1]?.meta.changes !== 1) {

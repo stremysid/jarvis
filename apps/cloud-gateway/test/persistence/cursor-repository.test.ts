@@ -85,4 +85,24 @@ describe("CursorRepository", () => {
     expect(await cursors.read("device:d1")).toBe(2);
     expect(await cursors.read("device:other")).toBe(2);
   });
+
+  it("keeps durable ACK receipts while expiry cleanup removes issued snapshots", async () => {
+    await append(2);
+    const cursors = new CursorRepository(env.DB);
+    await cursors.advanceContiguous("device:d1", 0, 2);
+    await env.DB.prepare(
+      "INSERT INTO sync_snapshots (snapshot_id, consumer_name, from_sequence, through_sequence, boundary_start_event_id, boundary_end_event_id, event_count, snapshot_kind, expires_at, acknowledged_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'issued', ?, NULL)",
+    ).bind("issued:1", "device:d1", 0, 2, (await env.DB.prepare("SELECT event_id FROM events WHERE sequence = 1").first<{ event_id: string }>())?.event_id, (await env.DB.prepare("SELECT event_id FROM events WHERE sequence = 2").first<{ event_id: string }>())?.event_id, 2, "2000-01-01T00:00:00.000Z").run();
+
+    await env.DB.prepare("DELETE FROM sync_snapshots WHERE snapshot_kind = 'issued' AND expires_at < ?").bind("2026-08-30T00:00:00.000Z").run();
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM sync_snapshots WHERE snapshot_kind = 'issued'").first<{ count: number }>())?.count).toBe(0);
+    const receipt = await env.DB.prepare("SELECT expires_at, acknowledged_at FROM sync_snapshots WHERE snapshot_kind = 'ack_receipt'").first<{ expires_at: string | null; acknowledged_at: string | null }>();
+    expect(receipt).toEqual({ expires_at: null, acknowledged_at: expect.any(String) });
+  });
+
+  it("enforces consumer names by UTF-8 bytes", async () => {
+    await append(1);
+    const cursors = new CursorRepository(env.DB);
+    await expect(cursors.advanceContiguous("é".repeat(65), 0, 1)).rejects.toThrow("consumerName");
+  });
 });

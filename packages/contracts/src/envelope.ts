@@ -20,6 +20,15 @@ export interface EventEnvelopeV1<T extends JsonValue = JsonValue> {
   producerVersion: string;
 }
 
+declare const persistableEventEnvelope: unique symbol;
+
+/** An opaque, in-memory proof that createEnvelope minted this immutable envelope. */
+export type PersistableEventEnvelopeV1<T extends JsonValue = JsonValue> = EventEnvelopeV1<T> & {
+  readonly [persistableEventEnvelope]: true;
+};
+
+const persistableEnvelopes = new WeakSet<object>();
+
 /** Producer payloads permit only issued redaction tokens wherever text appears. */
 export type RedactedJsonValue =
   | null
@@ -144,8 +153,21 @@ function materializePayload(value: unknown, markers: Set<string>, path = "payloa
   return materialized;
 }
 
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) deepFreeze(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+/** Recognizes only immutable envelopes minted by createEnvelope in this module instance. */
+export function isPersistableEventEnvelope(value: unknown): value is PersistableEventEnvelopeV1 {
+  return value !== null && typeof value === "object" && persistableEnvelopes.has(value);
+}
+
 /** Creates an event from tokenized text and safe JSON structure only. */
-export async function createEnvelope(input: CreateEnvelopeInput): Promise<EventEnvelopeV1> {
+export async function createEnvelope(input: CreateEnvelopeInput): Promise<PersistableEventEnvelopeV1> {
   const candidate = requireRecord(input, "envelope input");
   for (const key of Object.keys(candidate)) {
     if (!CREATE_FIELDS.has(key)) throw new TypeError(`unsupported producer field: ${key}`);
@@ -161,7 +183,9 @@ export async function createEnvelope(input: CreateEnvelopeInput): Promise<EventE
     contentHash: await sha256Hex(canonicalJson(payload)),
   } as EventEnvelopeV1;
   await validateEnvelope(envelope);
-  return envelope;
+  const persistable = deepFreeze(envelope) as PersistableEventEnvelopeV1;
+  persistableEnvelopes.add(persistable);
+  return persistable;
 }
 
 /** Validates a received event before a consumer uses or dead-letters its redacted payload. */
