@@ -17,11 +17,13 @@ export interface InboundVoiceDependencies {
   exactInboundWebhookUrl: string;
   publicOrigin: URL;
   expectedInboundE164: string;
+  ownerIdentityId: string;
   currentChallengeHmacKeyVersion: string;
   sessions: {
     getOrCreateInboundSession(input: {
       callSid: string;
       callerE164: string;
+      ownerIdentityId: string;
       currentChallengeHmacKeyVersion: string;
       now: Date;
     }): Promise<StoredCallSession>;
@@ -55,10 +57,11 @@ const SESSION_FIELDS = new Set([
 const BINDING_FIELDS = new Set([
   "callSid", "principalId", "identityId", "destinationIdentityId", "relayNonce",
   "direction", "activationOnly", "activationChallengeId",
+  "accessKind", "guestGrantId", "guestGrantVersion", "accessDocumentHash",
 ]);
 const DEPENDENCY_FIELDS = new Set([
   "twilio", "exactInboundWebhookUrl", "publicOrigin", "expectedInboundE164",
-  "currentChallengeHmacKeyVersion", "sessions", "initializeSession", "now",
+  "ownerIdentityId", "currentChallengeHmacKeyVersion", "sessions", "initializeSession", "now",
 ]);
 
 function neutral(body: "forbidden" | "unavailable", status: 403 | 503): Response {
@@ -149,6 +152,23 @@ function canonicalTimestamp(value: unknown): value is string {
   return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value;
 }
 
+function validAccessBinding(binding: Record<string, unknown>): boolean {
+  if (binding.accessKind === "owner") {
+    return binding.guestGrantId === null
+      && binding.guestGrantVersion === null
+      && binding.accessDocumentHash === null;
+  }
+  return binding.accessKind === "guest"
+    && typeof binding.guestGrantId === "string"
+    && ULID.test(binding.guestGrantId)
+    && Number.isSafeInteger(binding.guestGrantVersion)
+    && (binding.guestGrantVersion as number) > 0
+    && typeof binding.accessDocumentHash === "string"
+    && /^[0-9a-f]{64}$/u.test(binding.accessDocumentHash)
+    && binding.activationOnly === false
+    && binding.activationChallengeId === null;
+}
+
 function snapshotSession(value: unknown, expectedCallSid: string, observedAt: string): SessionSnapshot | null {
   const session = exactDataRecord(value, SESSION_FIELDS);
   if (session === null) return null;
@@ -182,6 +202,7 @@ function snapshotSession(value: unknown, expectedCallSid: string, observedAt: st
     || typeof binding.activationOnly !== "boolean"
     || binding.activationChallengeId !== null && !safeAtom(binding.activationChallengeId)
     || (binding.activationOnly ? binding.activationChallengeId === null : binding.activationChallengeId !== null)
+    || !validAccessBinding(binding)
   ) {
     return null;
   }
@@ -194,6 +215,10 @@ function snapshotSession(value: unknown, expectedCallSid: string, observedAt: st
     direction: "inbound",
     activationOnly: binding.activationOnly,
     activationChallengeId: binding.activationChallengeId,
+    accessKind: binding.accessKind as "owner" | "guest",
+    guestGrantId: binding.guestGrantId as string | null,
+    guestGrantVersion: binding.guestGrantVersion as number | null,
+    accessDocumentHash: binding.accessDocumentHash as string | null,
   });
   return Object.freeze({
     sessionId: session.sessionId as Ulid,
@@ -225,6 +250,7 @@ export async function handleInboundVoiceWebhook(
   let initializeSession: InboundVoiceDependencies["initializeSession"];
   let exactInboundWebhookUrl: string;
   let expectedInboundE164: string;
+  let ownerIdentityId: string;
   let currentChallengeHmacKeyVersion: string;
   let now: () => Date;
   let trustedOrigin: ReturnType<typeof snapshotTrustedPublicOrigin>;
@@ -239,6 +265,7 @@ export async function handleInboundVoiceWebhook(
   initializeSession = captured.initializeSession as InboundVoiceDependencies["initializeSession"];
   exactInboundWebhookUrl = captured.exactInboundWebhookUrl as string;
   expectedInboundE164 = captured.expectedInboundE164 as string;
+  ownerIdentityId = captured.ownerIdentityId as string;
   currentChallengeHmacKeyVersion = captured.currentChallengeHmacKeyVersion as string;
   now = (captured.now ?? (() => new Date())) as () => Date;
   trustedOrigin = snapshotTrustedPublicOrigin(captured.publicOrigin);
@@ -258,6 +285,7 @@ export async function handleInboundVoiceWebhook(
     || !isTrustedFixedUrl(inboundUrl, trustedOrigin, "https:", "/voice/inbound")
     || typeof expectedInboundE164 !== "string"
     || !E164.test(expectedInboundE164)
+    || !safeAtom(ownerIdentityId)
     || !safeAtom(currentChallengeHmacKeyVersion)
   ) {
     return neutral("unavailable", 503);
@@ -302,6 +330,7 @@ export async function handleInboundVoiceWebhook(
     stored = await getOrCreateInboundSession.call(sessionsThis, {
       callSid,
       callerE164,
+      ownerIdentityId,
       currentChallengeHmacKeyVersion,
       now: observedAt,
     });

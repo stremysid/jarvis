@@ -32,6 +32,10 @@ function binding(overrides: Partial<RelayBinding> = {}): RelayBinding {
     direction: "inbound",
     activationOnly: false,
     activationChallengeId: null,
+    accessKind: "owner",
+    guestGrantId: null,
+    guestGrantVersion: null,
+    accessDocumentHash: null,
     ...overrides,
   };
 }

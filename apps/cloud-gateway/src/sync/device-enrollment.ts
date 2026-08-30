@@ -1,6 +1,5 @@
 import { canonicalJson, sha256Hex } from "../../../../packages/contracts/src/index.js";
 import { TransactionRunner } from "../persistence/transaction.js";
-import { decodePinVerifierRecord } from "../security/pin-verifier.js";
 
 export interface DeviceEnrollmentInput {
   schemaVersion: "1.0";
@@ -109,7 +108,6 @@ export class DeviceEnrollment {
 
   constructor(private readonly deps: {
     database: D1Database;
-    pinVerifierJson: string;
     now?: () => Date;
     ids?: DeviceEnrollmentIdFactory;
     afterCommit?: () => void;
@@ -119,7 +117,6 @@ export class DeviceEnrollment {
   }
 
   async bootstrap(rawInput: DeviceEnrollmentInput): Promise<DeviceEnrollmentResult> {
-    const pin = decodePinVerifierRecord(this.deps.pinVerifierJson);
     const input = validateInput(rawInput);
     const now = (this.deps.now ?? (() => new Date()))();
     const nowText = now.toISOString();
@@ -134,8 +131,6 @@ export class DeviceEnrollment {
       publicKeyBase64: input.publicKeyBase64,
       phoneProviderSubject: input.phoneProviderSubject,
       telegramProviderSubject: input.telegramProviderSubject,
-      pinVerifierVersion: pin.schemaVersion,
-      pinVerifierSecretRef: "PIN_VERIFIER_JSON",
     }));
 
     if (!await this.validToken(tokenHash, nowText)) throw new Error("bootstrap_token_invalid");
@@ -168,16 +163,19 @@ export class DeviceEnrollment {
     try {
       const results = await this.transactions.batch([
         this.deps.database.prepare(
-          `INSERT INTO principals (principal_id, principal_type, status, display_name, pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at)
-           VALUES (?, 'human', 'active', ?, ?, 'PIN_VERIFIER_JSON',
+          `INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at)
+           VALUES (?, 'human', 'active', ?,
              (SELECT ? WHERE EXISTS (SELECT 1 FROM bootstrap_tokens WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?)), ?)`,
-        ).bind(created.principalId, input.displayName, pin.schemaVersion, nowText, tokenHash, nowText, nowText),
+        ).bind(created.principalId, input.displayName, nowText, tokenHash, nowText, nowText),
         this.deps.database.prepare(
           "INSERT INTO device_keys (device_id, principal_id, key_id, public_key_base64, key_fingerprint, key_generation, algorithm, status, device_label, bootstrap_metadata_hash, created_at, revoked_at) VALUES (?, ?, ?, ?, ?, 1, 'ed25519', 'active', ?, ?, ?, NULL)",
         ).bind(created.deviceId, created.principalId, created.keyId, input.publicKeyBase64, keyFingerprint, input.deviceLabel, metadataHash, nowText),
         this.deps.database.prepare(
           "INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at, enrolled_by_device_id) VALUES (?, ?, 'voice', ?, 'pending', NULL, ?, ?)",
         ).bind(created.phoneIdentityId, created.principalId, input.phoneProviderSubject, nowText, created.deviceId),
+        this.deps.database.prepare(
+          "INSERT INTO voice_owner_identity (singleton_id, principal_id, identity_id, created_at) VALUES (1, ?, ?, ?)",
+        ).bind(created.principalId, created.phoneIdentityId, nowText),
         this.deps.database.prepare(
           "INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at, enrolled_by_device_id) VALUES (?, ?, 'telegram', ?, 'pending', NULL, ?, ?)",
         ).bind(created.telegramIdentityId, created.principalId, input.telegramProviderSubject, nowText, created.deviceId),
@@ -203,8 +201,9 @@ export class DeviceEnrollment {
       `SELECT d.principal_id, d.device_id, d.key_id, d.key_generation, d.bootstrap_metadata_hash,
         voice.identity_id AS phone_identity_id, telegram.identity_id AS telegram_identity_id
        FROM device_keys d
+       JOIN voice_owner_identity owner ON owner.principal_id = d.principal_id
        LEFT JOIN channel_identities voice ON voice.principal_id = d.principal_id AND voice.enrolled_by_device_id = d.device_id
-         AND voice.channel = 'voice' AND voice.provider_subject = ?
+         AND voice.channel = 'voice' AND voice.provider_subject = ? AND voice.identity_id = owner.identity_id
        LEFT JOIN channel_identities telegram ON telegram.principal_id = d.principal_id AND telegram.enrolled_by_device_id = d.device_id
          AND telegram.channel = 'telegram' AND telegram.provider_subject = ?
        WHERE d.public_key_base64 = ?`,

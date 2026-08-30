@@ -16,11 +16,6 @@ export interface IdentityChallengeBeginResult {
   readonly expiresAt: string;
 }
 
-export interface AuthoritativePinAuthentication {
-  readonly proofId: string;
-  readonly authenticated: boolean;
-}
-
 export interface ChannelObservationInput {
   readonly challengeId: string;
   readonly providerRequestId: string;
@@ -32,7 +27,6 @@ export interface ChannelObservationInput {
   readonly initiatingKeyId: string;
   readonly initiatingKeyFingerprint: string;
   readonly initiatingKeyGeneration: number;
-  readonly pinAuthentication: AuthoritativePinAuthentication | null;
 }
 
 export interface VerifiedChannelObservation extends Readonly<ChannelObservationInput> {}
@@ -44,7 +38,7 @@ const RESPONSE = /^\d{6}$/u;
 const BEGIN_FIELDS = new Set(["schemaVersion", "channel", "identityId"]);
 const OBSERVATION_FIELDS = new Set([
   "challengeId", "providerRequestId", "channel", "principalId", "identityId", "response", "initiatingDeviceId",
-  "initiatingKeyId", "initiatingKeyFingerprint", "initiatingKeyGeneration", "pinAuthentication",
+  "initiatingKeyId", "initiatingKeyFingerprint", "initiatingKeyGeneration",
 ]);
 const encoder = new TextEncoder();
 
@@ -88,8 +82,7 @@ function requireNow(value: Date): Date {
 }
 
 function freezeObservation(input: ChannelObservationInput): VerifiedChannelObservation {
-  const pinAuthentication = input.pinAuthentication === null ? null : Object.freeze({ ...input.pinAuthentication });
-  return Object.freeze({ ...input, pinAuthentication });
+  return Object.freeze({ ...input });
 }
 
 /** Mints opaque observations only for the adapter authority injected into the service. */
@@ -106,13 +99,6 @@ export class VerifiedChannelObservationAuthority {
       || !Number.isSafeInteger(input.initiatingKeyGeneration) || (input.initiatingKeyGeneration as number) <= 0) {
       throw new TypeError("channel_observation_invalid");
     }
-    let pinAuthentication: AuthoritativePinAuthentication | null = null;
-    if (input.pinAuthentication !== null) {
-      const pin = exactRecord(input.pinAuthentication, new Set(["proofId", "authenticated"]), "channel_observation_invalid");
-      if (!safeAtom(pin.proofId) || typeof pin.authenticated !== "boolean") throw new TypeError("channel_observation_invalid");
-      pinAuthentication = { proofId: pin.proofId, authenticated: pin.authenticated };
-    }
-    if (input.channel === "telegram" && pinAuthentication !== null) throw new TypeError("channel_observation_invalid");
     const observation = freezeObservation({
       challengeId: input.challengeId as string,
       providerRequestId: input.providerRequestId as string,
@@ -124,7 +110,6 @@ export class VerifiedChannelObservationAuthority {
       initiatingKeyId: input.initiatingKeyId as string,
       initiatingKeyFingerprint: input.initiatingKeyFingerprint,
       initiatingKeyGeneration: input.initiatingKeyGeneration as number,
-      pinAuthentication,
     });
     this.issued.add(observation);
     return observation;
@@ -208,7 +193,9 @@ export class IdentityChallengeService {
     const row = await this.repository.readIdentityChallenge(observation.challengeId);
     this.checkChallengeState(row, observation, now);
     if (row === null) throw new Error("identity_challenge_not_found");
-    if (row.channel === "voice" && observation.pinAuthentication?.authenticated !== true) throw new Error("phone_pin_required");
+    if (row.channel === "voice" && !await this.repository.isOwnerVoiceIdentity(row.identity_id, row.principal_id)) {
+      throw new Error("owner_voice_identity_required");
+    }
     if (row.hmac_key_version !== this.deps.hmacKeyVersion) throw new Error("identity_challenge_hmac_key_unavailable");
     const input = this.hmacInput({
       challengeId: row.challenge_id, principalId: row.principal_id, channel: row.channel, identityId: row.identity_id,

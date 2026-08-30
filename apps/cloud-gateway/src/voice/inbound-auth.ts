@@ -39,6 +39,10 @@ interface BindingSnapshot {
   readonly direction: CallDirection;
   readonly activationOnly: boolean;
   readonly activationChallengeId: string | null;
+  readonly accessKind: "owner" | "guest";
+  readonly guestGrantId: string | null;
+  readonly guestGrantVersion: number | null;
+  readonly accessDocumentHash: string | null;
 }
 
 const MAXIMUM_LIMITS = Object.freeze({
@@ -51,6 +55,7 @@ const MAXIMUM_LIMITS = Object.freeze({
 const BINDING_FIELDS = new Set([
   "callSid", "principalId", "identityId", "destinationIdentityId", "relayNonce",
   "direction", "activationOnly", "activationChallengeId",
+  "accessKind", "guestGrantId", "guestGrantVersion", "accessDocumentHash",
 ]);
 const AUTH_INPUT_FIELDS = new Set(["pinDigits", "sessionId", "binding", "now"]);
 const CALL_SID = /^CA[0-9A-Fa-f]{32}$/u;
@@ -110,6 +115,7 @@ function snapshotBinding(value: unknown): BindingSnapshot {
     || (input.activationOnly
       ? input.direction !== "inbound" || input.activationChallengeId === null
       : input.activationChallengeId !== null)
+    || !validAccessBinding(input)
   ) {
     throw new TypeError("relay_binding_invalid");
   }
@@ -122,7 +128,28 @@ function snapshotBinding(value: unknown): BindingSnapshot {
     direction: input.direction,
     activationOnly: input.activationOnly,
     activationChallengeId: input.activationChallengeId,
+    accessKind: input.accessKind as "owner" | "guest",
+    guestGrantId: input.guestGrantId as string | null,
+    guestGrantVersion: input.guestGrantVersion as number | null,
+    accessDocumentHash: input.accessDocumentHash as string | null,
   });
+}
+
+function validAccessBinding(input: Record<string, unknown>): boolean {
+  if (input.accessKind === "owner") {
+    return input.guestGrantId === null
+      && input.guestGrantVersion === null
+      && input.accessDocumentHash === null;
+  }
+  return input.accessKind === "guest"
+    && typeof input.guestGrantId === "string"
+    && ULID.test(input.guestGrantId)
+    && Number.isSafeInteger(input.guestGrantVersion)
+    && (input.guestGrantVersion as number) > 0
+    && typeof input.accessDocumentHash === "string"
+    && /^[0-9a-f]{64}$/u.test(input.accessDocumentHash)
+    && input.activationOnly === false
+    && input.activationChallengeId === null;
 }
 
 function requireDate(value: unknown, error: string): { readonly iso: string; readonly epochMs: number } {

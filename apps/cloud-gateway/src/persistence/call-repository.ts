@@ -17,12 +17,17 @@ import {
   EventRepository,
   type AppendedEvent,
 } from "./event-repository.js";
+import {
+  VoiceAccessRepository,
+  type VoiceAccessCandidate,
+} from "./voice-access-repository.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const CALL_SID = /^CA[0-9A-Fa-f]{32}$/u;
 const SESSION_ID = /^VX[0-9A-Fa-f]{32}$/u;
 const RELAY_NONCE = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u;
 const E164 = /^\+[1-9][0-9]{7,14}$/u;
+const HASH = /^[0-9a-f]{64}$/u;
 const CALLBACK_SOURCE = "call-progress-events";
 const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const MAX_TEXT_BYTES = 256;
@@ -31,6 +36,7 @@ const TERMINAL_PHASES = Object.freeze(["completed", "rejected", "failed", "expir
 const RELAY_BINDING_FIELDS = new Set([
   "callSid", "principalId", "identityId", "destinationIdentityId", "relayNonce",
   "direction", "activationOnly", "activationChallengeId",
+  "accessKind", "guestGrantId", "guestGrantVersion", "accessDocumentHash",
 ]);
 
 const callSessionAdmissionErrors = new WeakSet<object>();
@@ -126,6 +132,10 @@ interface StoredCallSessionRow {
   activation_only: number;
   activation_challenge_id: string | null;
   activation_hmac_key_version: string | null;
+  access_kind: "owner" | "guest" | null;
+  guest_grant_id: string | null;
+  guest_grant_version: number | null;
+  access_document_hash: string | null;
   relay_nonce: string;
   nonce_expires_at: string;
   relay_setup_expires_at: string | null;
@@ -232,6 +242,7 @@ function snapshotRelayBinding(value: unknown): Readonly<RelayBinding> {
     || input.direction !== "inbound" && input.direction !== "outbound"
     || typeof input.activationOnly !== "boolean"
     || input.activationChallengeId !== null && typeof input.activationChallengeId !== "string"
+    || input.accessKind !== "owner" && input.accessKind !== "guest"
   ) {
     throw new TypeError("relay_binding_invalid");
   }
@@ -242,6 +253,7 @@ function snapshotRelayBinding(value: unknown): Readonly<RelayBinding> {
     input.direction === "inbound" && input.identityId !== input.destinationIdentityId
     || input.activationOnly && (input.direction !== "inbound" || input.activationChallengeId === null)
     || !input.activationOnly && input.activationChallengeId !== null
+    || !validAccessBinding(input)
   ) {
     throw new TypeError("relay_binding_invalid");
   }
@@ -254,7 +266,47 @@ function snapshotRelayBinding(value: unknown): Readonly<RelayBinding> {
     direction: input.direction,
     activationOnly: input.activationOnly,
     activationChallengeId: input.activationChallengeId,
+    accessKind: input.accessKind,
+    guestGrantId: input.guestGrantId as string | null,
+    guestGrantVersion: input.guestGrantVersion as number | null,
+    accessDocumentHash: input.accessDocumentHash as string | null,
   });
+}
+
+function validAccessBinding(input: Readonly<Record<string, unknown>>): boolean {
+  if (input.accessKind === "owner") {
+    return input.guestGrantId === null
+      && input.guestGrantVersion === null
+      && input.accessDocumentHash === null;
+  }
+  return input.accessKind === "guest"
+    && typeof input.guestGrantId === "string"
+    && ULID.test(input.guestGrantId)
+    && Number.isSafeInteger(input.guestGrantVersion)
+    && (input.guestGrantVersion as number) > 0
+    && typeof input.accessDocumentHash === "string"
+    && HASH.test(input.accessDocumentHash)
+    && input.activationOnly === false
+    && input.activationChallengeId === null;
+}
+
+function accessBindingFromCandidate(candidate: VoiceAccessCandidate): Pick<
+RelayBinding,
+"accessKind" | "guestGrantId" | "guestGrantVersion" | "accessDocumentHash"
+> {
+  return candidate.kind === "owner"
+    ? Object.freeze({
+      accessKind: "owner" as const,
+      guestGrantId: null,
+      guestGrantVersion: null,
+      accessDocumentHash: null,
+    })
+    : Object.freeze({
+      accessKind: "guest" as const,
+      guestGrantId: candidate.grantId,
+      guestGrantVersion: candidate.grantVersion,
+      accessDocumentHash: candidate.accessDocumentHash,
+    });
 }
 
 function requireDate(value: Date, label: string): string {
@@ -471,16 +523,26 @@ export class CallRepository {
     attemptId: Ulid;
     callSid: string;
     observedDestinationIdentityId: string;
+    ownerIdentityId: string;
     now: Date;
   }): Promise<RelayBinding | null> {
     const attemptId = input.attemptId;
     const callSid = input.callSid;
     const observedDestinationIdentityId = input.observedDestinationIdentityId;
+    const ownerIdentityId = input.ownerIdentityId;
     const now = input.now;
     if (!isUlid(attemptId)) throw new TypeError("attempt_id_invalid");
     if (!isCallSid(callSid)) throw new TypeError("call_sid_invalid");
     requireSafeText(observedDestinationIdentityId, "destination_identity_id");
+    requireSafeText(ownerIdentityId, "owner_identity_id");
     const observedAt = requireDate(now, "relay_claim_now");
+    const candidate = await new VoiceAccessRepository(this.database).resolveIdentityCandidate({
+      identityId: observedDestinationIdentityId,
+      ownerIdentityId,
+      now: new Date(observedAt),
+    });
+    if (candidate === null) return null;
+    const access = accessBindingFromCandidate(candidate);
     const row = await this.database.prepare(`UPDATE outbound_call_attempts
       SET relay_call_sid = COALESCE(relay_call_sid, ?1),
           relay_claimed_at = COALESCE(relay_claimed_at, ?2),
@@ -493,7 +555,40 @@ export class CallRepository {
         AND ((relay_call_sid IS NULL AND nonce_expires_at > ?8) OR relay_call_sid = ?9)
         AND provider_dispatch_state IN ('claimed', 'dispatched', 'provider_dispatch_unknown')
         AND (provider_call_sid IS NULL OR provider_call_sid = ?10)
-      RETURNING principal_id, destination_identity_id, relay_nonce`)
+        AND EXISTS (
+          SELECT 1 FROM voice_owner_identity owner
+          WHERE owner.identity_id = ?11 AND owner.principal_id = outbound_call_attempts.principal_id
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM channel_identities destination
+          WHERE destination.identity_id = outbound_call_attempts.destination_identity_id
+            AND destination.principal_id = ?12
+            AND destination.channel = 'voice'
+            AND (
+              (
+                ?13 = 'owner'
+                AND destination.identity_id = ?11
+                AND destination.status = 'active'
+                AND destination.verified_at IS NOT NULL
+              )
+              OR
+              (
+                ?13 = 'guest'
+                AND destination.status IN ('pending', 'active')
+                AND EXISTS (
+                  SELECT 1 FROM voice_access_grants grant_row
+                  WHERE grant_row.grant_id = ?14
+                    AND grant_row.grant_version = ?15
+                    AND grant_row.access_document_hash = ?16
+                    AND grant_row.principal_id = destination.principal_id
+                    AND grant_row.identity_id = destination.identity_id
+                    AND grant_row.status IN ('pending', 'active')
+                )
+              )
+            )
+        )
+      RETURNING destination_identity_id, relay_nonce`)
       .bind(
         callSid,
         observedAt,
@@ -505,153 +600,122 @@ export class CallRepository {
         observedAt,
         callSid,
         callSid,
+        ownerIdentityId,
+        candidate.principalId,
+        access.accessKind,
+        access.guestGrantId,
+        access.guestGrantVersion,
+        access.accessDocumentHash,
       )
-      .first<{ principal_id: string; destination_identity_id: string; relay_nonce: string }>();
+      .first<{ destination_identity_id: string; relay_nonce: string }>();
     return row === null ? null : Object.freeze({
       callSid,
-      principalId: row.principal_id,
+      principalId: candidate.principalId,
       identityId: row.destination_identity_id,
       destinationIdentityId: row.destination_identity_id,
       relayNonce: row.relay_nonce,
       direction: "outbound",
       activationOnly: false,
       activationChallengeId: null,
+      ...access,
     });
   }
 
   async getOrCreateInboundSession(input: {
     callSid: string;
     callerE164: string;
+    ownerIdentityId: string;
     currentChallengeHmacKeyVersion: string;
     now: Date;
   }): Promise<StoredCallSession> {
     const captured = exactDataRecord(
       input,
-      new Set(["callSid", "callerE164", "currentChallengeHmacKeyVersion", "now"]),
+      new Set(["callSid", "callerE164", "ownerIdentityId", "currentChallengeHmacKeyVersion", "now"]),
       "inbound_session_input_invalid",
     );
     const callSid = captured.callSid;
     const callerE164 = captured.callerE164;
+    const ownerIdentityId = captured.ownerIdentityId;
     const currentChallengeHmacKeyVersion = captured.currentChallengeHmacKeyVersion;
     if (!isCallSid(callSid) || typeof callerE164 !== "string" || !E164.test(callerE164)) {
       throw new TypeError("inbound_session_input_invalid");
     }
+    requireSafeText(ownerIdentityId, "owner_identity_id");
     requireSafeText(currentChallengeHmacKeyVersion, "challenge_hmac_key_version");
     const nowIso = requireDate(captured.now as Date, "inbound_session_now");
-    const replay = await this.readEligibleInboundSessionReplay(
-      callSid,
-      callerE164,
-      currentChallengeHmacKeyVersion,
-      nowIso,
-    );
-    if (replay !== null) return replay;
+    const candidate = await new VoiceAccessRepository(this.database).resolveInboundCandidate({
+      providerE164: callerE164,
+      ownerIdentityId: ownerIdentityId as string,
+      challengeHmacKeyVersion: currentChallengeHmacKeyVersion as string,
+      now: new Date(nowIso),
+    });
     const existing = await this.readCallSessionByCallSid(callSid);
     if (existing !== null) {
-      return this.rejectInboundSessionReplay(existing, callerE164, currentChallengeHmacKeyVersion, nowIso);
+      return this.requireInboundSessionReplay(existing, callerE164, currentChallengeHmacKeyVersion as string, nowIso, candidate);
     }
+    if (candidate === null) throw callSessionAdmissionFailure("inbound_session_rejected");
 
     const sessionId = this.sessionIdFactory();
     const relayNonce = this.nonceFactory();
     if (!isUlid(sessionId) || !RELAY_NONCE.test(relayNonce)) throw new TypeError("call_session_identifier_invalid");
-    const relaySetupExpiresAt = new Date(new Date(nowIso).valueOf() + 300_000).toISOString();
+    const activationChallengeId = candidate.kind === "owner" ? candidate.activationChallengeId : null;
+    const activationOnly = activationChallengeId !== null;
+    let relaySetupExpiresAt = new Date(new Date(nowIso).valueOf() + 300_000).toISOString();
+    if (activationChallengeId !== null) {
+      const challenge = await this.database.prepare("SELECT expires_at FROM identity_challenges WHERE challenge_id = ?")
+        .bind(activationChallengeId).first<{ expires_at: string }>();
+      if (challenge === null) throw callSessionAdmissionFailure("inbound_session_rejected");
+      const challengeExpiresAt = requireCanonicalTimestamp(challenge.expires_at, "challenge_expires_at");
+      if (challengeExpiresAt < relaySetupExpiresAt) relaySetupExpiresAt = challengeExpiresAt;
+    }
+    const access = accessBindingFromCandidate(candidate);
     let insertError: unknown;
     try {
-      await this.database.prepare(`WITH candidates AS (
-        SELECT p.principal_id, i.identity_id, 0 AS activation_only,
-          NULL AS activation_challenge_id, NULL AS activation_hmac_key_version,
-          ?4 AS relay_setup_expires_at, '' AS challenge_created_at
-        FROM principals p
-        JOIN channel_identities i ON i.principal_id = p.principal_id
-        WHERE p.principal_type = 'human'
-          AND p.status = 'active'
-          AND i.channel = 'voice'
-          AND i.provider_subject = ?1
-          AND i.status = 'active'
-          AND i.verified_at IS NOT NULL
-        UNION ALL
-        SELECT p.principal_id, i.identity_id, 1 AS activation_only,
-          c.challenge_id, c.hmac_key_version,
-          CASE WHEN c.expires_at < ?4 THEN c.expires_at ELSE ?4 END,
-          c.created_at
-        FROM principals p
-        JOIN channel_identities i ON i.principal_id = p.principal_id
-        JOIN identity_challenges c
-          ON c.principal_id = p.principal_id
-          AND c.identity_id = i.identity_id
-        JOIN device_keys d
-          ON d.device_id = c.initiating_device_id
-          AND d.principal_id = c.principal_id
-        WHERE p.principal_type = 'human'
-          AND p.status = 'active'
-          AND i.channel = 'voice'
-          AND i.provider_subject = ?1
-          AND i.status = 'pending'
-          AND i.verified_at IS NULL
-          AND c.channel = 'voice'
-          AND c.consumed_at IS NULL
-          AND strftime('%Y-%m-%dT%H:%M:%fZ', c.expires_at) IS c.expires_at
-          AND strftime('%Y-%m-%dT%H:%M:%fZ', c.created_at) IS c.created_at
-          AND c.created_at <= ?3
-          AND c.expires_at > ?3
-          AND c.hmac_key_version = ?2
-          AND d.key_id = c.initiating_key_id
-          AND d.key_fingerprint = c.initiating_key_fingerprint
-          AND d.key_generation = c.initiating_key_generation
-          AND d.status = 'active'
-      ), candidate AS (
-        SELECT * FROM candidates
-        ORDER BY activation_only ASC, challenge_created_at DESC, activation_challenge_id DESC
-        LIMIT 1
-      )
-      INSERT INTO call_sessions (
+      await this.database.prepare(`INSERT INTO call_sessions (
         session_id, call_sid, expected_attempt_id, principal_id, identity_id,
         destination_identity_id, direction, activation_only, activation_challenge_id,
         activation_hmac_key_version, relay_nonce, nonce_expires_at,
-        relay_setup_expires_at, provider_session_id, phase, created_at, updated_at
+        relay_setup_expires_at, provider_session_id, phase, created_at, updated_at,
+        access_kind, guest_grant_id, guest_grant_version, access_document_hash
       )
-      SELECT ?5, ?6, NULL, c.principal_id, c.identity_id, c.identity_id,
-        'inbound', c.activation_only, c.activation_challenge_id,
-        c.activation_hmac_key_version, ?7, c.relay_setup_expires_at,
-        c.relay_setup_expires_at, NULL, 'created', ?3, ?3
-      FROM candidate c
+      SELECT ?1, ?2, NULL, ?3, ?4, ?4, 'inbound', ?5, ?6, ?7,
+        ?8, ?9, ?9, NULL, 'created', ?10, ?10, ?11, ?12, ?13, ?14
       WHERE (
         SELECT COUNT(*) FROM call_sessions s
-        WHERE s.principal_id = c.principal_id
+        WHERE s.principal_id = ?3
           AND s.phase NOT IN ('completed', 'rejected', 'failed', 'expired')
           AND NOT (
             s.direction = 'inbound'
             AND s.provider_session_id IS NULL
-            AND s.relay_setup_expires_at <= ?3
+            AND s.relay_setup_expires_at <= ?10
           )
       ) < 2`)
         .bind(
-          callerE164,
-          currentChallengeHmacKeyVersion,
-          nowIso,
-          relaySetupExpiresAt,
           sessionId,
           callSid,
+          candidate.principalId,
+          candidate.identityId,
+          activationOnly ? 1 : 0,
+          activationChallengeId,
+          activationOnly ? currentChallengeHmacKeyVersion : null,
           relayNonce,
+          relaySetupExpiresAt,
+          nowIso,
+          access.accessKind,
+          access.guestGrantId,
+          access.guestGrantVersion,
+          access.accessDocumentHash,
         )
         .run();
     } catch (error) {
       insertError = error;
     }
-    const insertedReplay = await this.readEligibleInboundSessionReplay(
-      callSid,
-      callerE164,
-      currentChallengeHmacKeyVersion,
-      nowIso,
-    );
-    if (insertedReplay !== null) return insertedReplay;
     const stored = await this.readCallSessionByCallSid(callSid);
     if (stored !== null) {
-      return this.rejectInboundSessionReplay(stored, callerE164, currentChallengeHmacKeyVersion, nowIso);
+      return this.requireInboundSessionReplay(stored, callerE164, currentChallengeHmacKeyVersion as string, nowIso, candidate);
     }
-    if (await this.hasEligibleInboundCandidate(callerE164, currentChallengeHmacKeyVersion, nowIso)) {
-      const active = await this.countActiveSessionsForPrincipalAtCaller(callerE164, nowIso);
-      if (active >= 2) throw callSessionAdmissionFailure("call_session_capacity");
-    }
+    const active = await this.countActiveSessions({ principalId: candidate.principalId, now: new Date(nowIso) });
+    if (active >= 2) throw callSessionAdmissionFailure("call_session_capacity");
     if (insertError instanceof Error && /UNIQUE constraint failed: call_sessions\.call_sid/u.test(insertError.message)) {
       throw callSessionAdmissionFailure("call_session_conflict");
     }
@@ -678,22 +742,23 @@ export class CallRepository {
         session_id, call_sid, expected_attempt_id, principal_id, identity_id,
         destination_identity_id, direction, activation_only, activation_challenge_id,
         activation_hmac_key_version, relay_nonce, nonce_expires_at,
-        relay_setup_expires_at, provider_session_id, phase, created_at, updated_at
+        relay_setup_expires_at, provider_session_id, phase, created_at, updated_at,
+        access_kind, guest_grant_id, guest_grant_version, access_document_hash
       )
-      SELECT a.attempt_id, a.relay_call_sid, a.attempt_id, a.principal_id,
+      SELECT a.attempt_id, a.relay_call_sid, a.attempt_id, ?4,
         a.destination_identity_id, a.destination_identity_id, 'outbound', 0,
-        NULL, NULL, a.relay_nonce, a.nonce_expires_at, NULL, NULL, 'created', ?1, ?1
+        NULL, NULL, a.relay_nonce, a.nonce_expires_at, NULL, NULL, 'created', ?1, ?1,
+        ?8, ?9, ?10, ?11
       FROM outbound_call_attempts a
       WHERE a.attempt_id = ?2
         AND a.relay_call_sid = ?3
-        AND a.principal_id = ?4
         AND a.destination_identity_id = ?5
         AND a.destination_identity_id = ?6
         AND a.relay_nonce = ?7
         AND a.provider_dispatch_state = 'dispatched'
         AND (
           SELECT COUNT(*) FROM call_sessions s
-          WHERE s.principal_id = a.principal_id
+          WHERE s.principal_id = ?4
             AND s.phase NOT IN ('completed', 'rejected', 'failed', 'expired')
             AND NOT (
               s.direction = 'inbound'
@@ -709,6 +774,10 @@ export class CallRepository {
           binding.identityId,
           binding.destinationIdentityId,
           binding.relayNonce,
+          binding.accessKind,
+          binding.guestGrantId,
+          binding.guestGrantVersion,
+          binding.accessDocumentHash,
         )
         .run();
     } catch (error) {
@@ -782,35 +851,65 @@ export class CallRepository {
             AND i.channel = 'voice'
             AND (
               (
-                s.activation_only = 0
-                AND i.status = 'active'
-                AND i.verified_at IS NOT NULL
+                s.access_kind = 'owner'
+                AND s.guest_grant_id IS NULL
+                AND s.guest_grant_version IS NULL
+                AND s.access_document_hash IS NULL
+                AND EXISTS (
+                  SELECT 1 FROM voice_owner_identity owner
+                  WHERE owner.principal_id = s.principal_id
+                    AND owner.identity_id = s.identity_id
+                )
+                AND (
+                  (
+                    s.activation_only = 0
+                    AND i.status = 'active'
+                    AND i.verified_at IS NOT NULL
+                  )
+                  OR
+                  (
+                    s.activation_only = 1
+                    AND i.status = 'pending'
+                    AND i.verified_at IS NULL
+                    AND EXISTS (
+                      SELECT 1
+                      FROM identity_challenges c
+                      JOIN device_keys d
+                        ON d.device_id = c.initiating_device_id
+                        AND d.principal_id = c.principal_id
+                      WHERE c.challenge_id = s.activation_challenge_id
+                        AND c.principal_id = s.principal_id
+                        AND c.identity_id = s.identity_id
+                        AND c.channel = 'voice'
+                        AND c.consumed_at IS NULL
+                        AND strftime('%Y-%m-%dT%H:%M:%fZ', c.expires_at) IS c.expires_at
+                        AND strftime('%Y-%m-%dT%H:%M:%fZ', c.created_at) IS c.created_at
+                        AND c.created_at <= ?2
+                        AND c.expires_at > ?2
+                        AND c.hmac_key_version = s.activation_hmac_key_version
+                        AND d.key_id = c.initiating_key_id
+                        AND d.key_fingerprint = c.initiating_key_fingerprint
+                        AND d.key_generation = c.initiating_key_generation
+                        AND d.status = 'active'
+                    )
+                  )
+                )
               )
               OR
               (
-                s.activation_only = 1
-                AND i.status = 'pending'
-                AND i.verified_at IS NULL
+                s.access_kind = 'guest'
+                AND s.activation_only = 0
+                AND s.activation_challenge_id IS NULL
+                AND s.activation_hmac_key_version IS NULL
+                AND i.status IN ('pending', 'active')
                 AND EXISTS (
-                  SELECT 1
-                  FROM identity_challenges c
-                  JOIN device_keys d
-                    ON d.device_id = c.initiating_device_id
-                    AND d.principal_id = c.principal_id
-                  WHERE c.challenge_id = s.activation_challenge_id
-                    AND c.principal_id = s.principal_id
-                    AND c.identity_id = s.identity_id
-                    AND c.channel = 'voice'
-                    AND c.consumed_at IS NULL
-                    AND strftime('%Y-%m-%dT%H:%M:%fZ', c.expires_at) IS c.expires_at
-                    AND strftime('%Y-%m-%dT%H:%M:%fZ', c.created_at) IS c.created_at
-                    AND c.created_at <= ?2
-                    AND c.expires_at > ?2
-                    AND c.hmac_key_version = s.activation_hmac_key_version
-                    AND d.key_id = c.initiating_key_id
-                    AND d.key_fingerprint = c.initiating_key_fingerprint
-                    AND d.key_generation = c.initiating_key_generation
-                    AND d.status = 'active'
+                  SELECT 1 FROM voice_access_grants grant_row
+                  WHERE grant_row.grant_id = s.guest_grant_id
+                    AND grant_row.grant_version = s.guest_grant_version
+                    AND grant_row.access_document_hash = s.access_document_hash
+                    AND grant_row.principal_id = s.principal_id
+                    AND grant_row.identity_id = s.identity_id
+                    AND grant_row.status IN ('pending', 'active')
                 )
               )
             )
@@ -971,70 +1070,12 @@ export class CallRepository {
       .first<StoredCallSessionRow>();
   }
 
-  private async readEligibleInboundSessionReplay(
-    callSid: string,
-    callerE164: string,
-    currentChallengeHmacKeyVersion: string,
-    nowIso: string,
-  ): Promise<StoredCallSession | null> {
-    const row = await this.database.prepare(`SELECT s.*, i.provider_subject AS identity_provider_subject
-      FROM call_sessions s
-      JOIN principals p ON p.principal_id = s.principal_id
-      JOIN channel_identities i ON i.identity_id = s.identity_id
-        AND i.principal_id = p.principal_id
-      WHERE s.call_sid = ?1
-        AND s.direction = 'inbound'
-        AND i.provider_subject = ?2
-        AND p.principal_type = 'human'
-        AND p.status = 'active'
-        AND i.channel = 'voice'
-        AND s.phase NOT IN ('completed', 'rejected', 'failed', 'expired')
-        AND (s.provider_session_id IS NOT NULL OR s.relay_setup_expires_at > ?3)
-        AND (
-          (
-            s.activation_only = 0
-            AND i.status = 'active'
-            AND i.verified_at IS NOT NULL
-          )
-          OR
-          (
-            s.activation_only = 1
-            AND s.activation_hmac_key_version = ?4
-            AND i.status = 'pending'
-            AND i.verified_at IS NULL
-            AND EXISTS (
-              SELECT 1
-              FROM identity_challenges c
-              JOIN device_keys d
-                ON d.device_id = c.initiating_device_id
-                AND d.principal_id = c.principal_id
-              WHERE c.challenge_id = s.activation_challenge_id
-                AND c.principal_id = s.principal_id
-                AND c.identity_id = s.identity_id
-                AND c.channel = 'voice'
-                AND c.consumed_at IS NULL
-                AND strftime('%Y-%m-%dT%H:%M:%fZ', c.expires_at) IS c.expires_at
-                AND strftime('%Y-%m-%dT%H:%M:%fZ', c.created_at) IS c.created_at
-                AND c.created_at <= ?3
-                AND c.expires_at > ?3
-                AND c.hmac_key_version = s.activation_hmac_key_version
-                AND d.key_id = c.initiating_key_id
-                AND d.key_fingerprint = c.initiating_key_fingerprint
-                AND d.key_generation = c.initiating_key_generation
-                AND d.status = 'active'
-            )
-          )
-        )`)
-      .bind(callSid, callerE164, nowIso, currentChallengeHmacKeyVersion)
-      .first<StoredCallSessionRow>();
-    return row === null ? null : this.toStoredCallSession(row);
-  }
-
-  private async rejectInboundSessionReplay(
+  private async requireInboundSessionReplay(
     row: StoredCallSessionRow,
     callerE164: string,
     currentChallengeHmacKeyVersion: string,
     nowIso: string,
+    candidate: VoiceAccessCandidate | null,
   ): Promise<StoredCallSession> {
     if (
       row.direction !== "inbound"
@@ -1061,14 +1102,17 @@ export class CallRepository {
       }
       throw callSessionAdmissionFailure("call_session_expired");
     }
-    throw callSessionAdmissionFailure("inbound_session_rejected");
+    if (candidate === null || !this.inboundCandidateMatchesRow(row, candidate, currentChallengeHmacKeyVersion)) {
+      throw callSessionAdmissionFailure("inbound_session_rejected");
+    }
+    return this.toStoredCallSession(row);
   }
 
-  private requireOutboundSessionReplay(
+  private async requireOutboundSessionReplay(
     row: StoredCallSessionRow,
     attemptId: Ulid,
     binding: Readonly<RelayBinding>,
-  ): StoredCallSession {
+  ): Promise<StoredCallSession> {
     if (
       row.direction !== "outbound"
       || row.session_id !== attemptId
@@ -1080,74 +1124,92 @@ export class CallRepository {
       || row.relay_nonce !== binding.relayNonce
       || row.activation_only !== 0
       || row.activation_challenge_id !== null
+      || row.access_kind !== binding.accessKind
+      || row.guest_grant_id !== binding.guestGrantId
+      || row.guest_grant_version !== binding.guestGrantVersion
+      || row.access_document_hash !== binding.accessDocumentHash
+      || !await this.isCurrentAccessBinding(binding)
     ) {
       throw callSessionAdmissionFailure("call_session_conflict");
     }
     return this.toStoredCallSession(row);
   }
 
-  private async hasEligibleInboundCandidate(
-    callerE164: string,
+  private inboundCandidateMatchesRow(
+    row: StoredCallSessionRow,
+    candidate: VoiceAccessCandidate,
     currentChallengeHmacKeyVersion: string,
-    nowIso: string,
-  ): Promise<boolean> {
-    const row = await this.database.prepare(`SELECT 1 AS eligible
-      FROM principals p
-      JOIN channel_identities i ON i.principal_id = p.principal_id
-      WHERE p.principal_type = 'human'
-        AND p.status = 'active'
-        AND i.channel = 'voice'
-        AND i.provider_subject = ?1
-        AND (
-          (i.status = 'active' AND i.verified_at IS NOT NULL)
-          OR (
-            i.status = 'pending'
-            AND i.verified_at IS NULL
-            AND EXISTS (
-              SELECT 1
-              FROM identity_challenges c
-              JOIN device_keys d
-                ON d.device_id = c.initiating_device_id
-                AND d.principal_id = c.principal_id
-              WHERE c.principal_id = p.principal_id
-                AND c.identity_id = i.identity_id
-                AND c.channel = 'voice'
-                AND c.consumed_at IS NULL
-                AND strftime('%Y-%m-%dT%H:%M:%fZ', c.expires_at) IS c.expires_at
-                AND strftime('%Y-%m-%dT%H:%M:%fZ', c.created_at) IS c.created_at
-                AND c.created_at <= ?2
-                AND c.expires_at > ?2
-                AND c.hmac_key_version = ?3
-                AND d.key_id = c.initiating_key_id
-                AND d.key_fingerprint = c.initiating_key_fingerprint
-                AND d.key_generation = c.initiating_key_generation
-                AND d.status = 'active'
-            )
-          )
-        )
-      LIMIT 1`)
-      .bind(callerE164, nowIso, currentChallengeHmacKeyVersion)
-      .first<{ eligible: number }>();
-    return row?.eligible === 1;
+  ): boolean {
+    if (
+      row.principal_id !== candidate.principalId
+      || row.identity_id !== candidate.identityId
+      || row.destination_identity_id !== candidate.identityId
+    ) {
+      return false;
+    }
+    if (candidate.kind === "guest") {
+      return row.access_kind === "guest"
+        && row.guest_grant_id === candidate.grantId
+        && row.guest_grant_version === candidate.grantVersion
+        && row.access_document_hash === candidate.accessDocumentHash
+        && row.activation_only === 0
+        && row.activation_challenge_id === null
+        && row.activation_hmac_key_version === null;
+    }
+    return row.access_kind === "owner"
+      && row.guest_grant_id === null
+      && row.guest_grant_version === null
+      && row.access_document_hash === null
+      && row.activation_only === (candidate.activationChallengeId === null ? 0 : 1)
+      && row.activation_challenge_id === candidate.activationChallengeId
+      && row.activation_hmac_key_version === (candidate.activationChallengeId === null ? null : currentChallengeHmacKeyVersion);
   }
 
-  private async countActiveSessionsForPrincipalAtCaller(callerE164: string, nowIso: string): Promise<number> {
-    const row = await this.database.prepare(`SELECT COUNT(*) AS count
-      FROM call_sessions s
-      WHERE s.principal_id = (
-          SELECT i.principal_id FROM channel_identities i
-          WHERE i.channel = 'voice' AND i.provider_subject = ?1
-          LIMIT 1
-        )
-        AND s.phase NOT IN ('completed', 'rejected', 'failed', 'expired')
-        AND NOT (
-          s.direction = 'inbound'
-          AND s.provider_session_id IS NULL
-          AND s.relay_setup_expires_at <= ?2
+  private async isCurrentAccessBinding(binding: Readonly<RelayBinding>): Promise<boolean> {
+    const row = await this.database.prepare(`SELECT 1 AS eligible
+      FROM principals principal
+      JOIN channel_identities identity
+        ON identity.identity_id = ?1 AND identity.principal_id = principal.principal_id
+      WHERE principal.principal_id = ?2
+        AND principal.principal_type = 'human'
+        AND principal.status = 'active'
+        AND identity.channel = 'voice'
+        AND (
+          (
+            ?3 = 'owner'
+            AND identity.status = 'active'
+            AND identity.verified_at IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM voice_owner_identity owner
+              WHERE owner.principal_id = principal.principal_id
+                AND owner.identity_id = identity.identity_id
+            )
+          )
+          OR
+          (
+            ?3 = 'guest'
+            AND identity.status IN ('pending', 'active')
+            AND EXISTS (
+              SELECT 1 FROM voice_access_grants grant_row
+              WHERE grant_row.grant_id = ?4
+                AND grant_row.grant_version = ?5
+                AND grant_row.access_document_hash = ?6
+                AND grant_row.principal_id = principal.principal_id
+                AND grant_row.identity_id = identity.identity_id
+                AND grant_row.status IN ('pending', 'active')
+            )
+          )
         )`)
-      .bind(callerE164, nowIso)
-      .first<{ count: number }>();
-    return Number.isSafeInteger(row?.count) ? row?.count ?? 0 : 0;
+      .bind(
+        binding.identityId,
+        binding.principalId,
+        binding.accessKind,
+        binding.guestGrantId,
+        binding.guestGrantVersion,
+        binding.accessDocumentHash,
+      )
+      .first<{ eligible: number }>();
+    return row?.eligible === 1;
   }
 
   private toStoredCallSession(row: StoredCallSessionRow): StoredCallSession {
@@ -1169,7 +1231,7 @@ export class CallRepository {
       : requireCanonicalTimestamp(row.relay_setup_expires_at, "call_session_relay_setup_expires_at");
     const createdAt = requireCanonicalTimestamp(row.created_at, "call_session_created_at");
     const updatedAt = requireCanonicalTimestamp(row.updated_at, "call_session_updated_at");
-    const binding: RelayBinding = Object.freeze({
+    const binding = snapshotRelayBinding({
       callSid: row.call_sid,
       principalId: row.principal_id,
       identityId: row.identity_id,
@@ -1178,6 +1240,10 @@ export class CallRepository {
       direction: row.direction,
       activationOnly: row.activation_only === 1,
       activationChallengeId: row.activation_challenge_id,
+      accessKind: row.access_kind,
+      guestGrantId: row.guest_grant_id,
+      guestGrantVersion: row.guest_grant_version,
+      accessDocumentHash: row.access_document_hash,
     });
     return Object.freeze({
       sessionId: row.session_id,

@@ -120,7 +120,7 @@ export class PolicyEngine implements PolicyEngineContract {
     else if (stored.outcome !== "allow") result = denied("authorization_denied");
     else if (!await this.hasTrustedOrigin(request, inputHash)) result = denied("invalid_origin");
     else {
-      destinationE164 = await this.resolveVerifiedVoiceDestination(request.principalId, request.destinationIdentityId);
+      destinationE164 = await this.resolveVoiceAccessDestination(request.principalId, request.destinationIdentityId);
       if (destinationE164 === null) result = denied("destination_not_verified");
       else {
         const mutable = await this.recheckMutableForDispatch(request);
@@ -225,11 +225,46 @@ export class PolicyEngine implements PolicyEngineContract {
       && (origin.issuedBy === "telegram_call_command" || origin.issuedBy === "local_cli");
   }
   private async verifiedDestination(principalId: string, identityId: string): Promise<boolean> {
-    return await this.resolveVerifiedVoiceDestination(principalId, identityId) !== null;
+    return await this.resolveVoiceAccessDestination(principalId, identityId) !== null;
   }
-  private async resolveVerifiedVoiceDestination(principalId: string, identityId: string): Promise<string | null> {
-    const row = await this.deps.database.prepare("SELECT provider_subject FROM channel_identities WHERE identity_id = ? AND principal_id = ? AND channel = 'voice' AND status = 'active' AND verified_at IS NOT NULL")
-      .bind(identityId, principalId).first<{ provider_subject: string }>();
+  private async resolveVoiceAccessDestination(principalId: string, identityId: string): Promise<string | null> {
+    const row = await this.deps.database.prepare(`SELECT destination.provider_subject
+      FROM voice_owner_identity owner
+      JOIN principals actor ON actor.principal_id = owner.principal_id
+      JOIN channel_identities owner_identity
+        ON owner_identity.identity_id = owner.identity_id
+        AND owner_identity.principal_id = owner.principal_id
+      JOIN channel_identities destination ON destination.identity_id = ?2
+      JOIN principals destination_principal
+        ON destination_principal.principal_id = destination.principal_id
+      WHERE owner.principal_id = ?1
+        AND actor.principal_type = 'human'
+        AND actor.status = 'active'
+        AND owner_identity.channel = 'voice'
+        AND owner_identity.status = 'active'
+        AND owner_identity.verified_at IS NOT NULL
+        AND destination_principal.principal_type = 'human'
+        AND destination_principal.status = 'active'
+        AND destination.channel = 'voice'
+        AND (
+          (
+            destination.identity_id = owner.identity_id
+            AND destination.principal_id = owner.principal_id
+            AND destination.status = 'active'
+            AND destination.verified_at IS NOT NULL
+          )
+          OR
+          (
+            destination.status IN ('pending', 'active')
+            AND EXISTS (
+              SELECT 1 FROM voice_access_grants grant_row
+              WHERE grant_row.identity_id = destination.identity_id
+                AND grant_row.principal_id = destination.principal_id
+                AND grant_row.status IN ('pending', 'active')
+            )
+          )
+        )`)
+      .bind(principalId, identityId).first<{ provider_subject: string }>();
     return typeof row?.provider_subject === "string" && E164.test(row.provider_subject)
       ? row.provider_subject
       : null;

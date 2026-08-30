@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { canonicalize, sha256Hex, type SignedRequestV1 } from "../../../../packages/contracts/src/index.js";
 import { IdentityChallengeService, VerifiedChannelObservationAuthority } from "../../src/sync/identity-challenge.js";
 import { DeviceRequestVerifier } from "../../src/sync/signed-request.js";
-import { applyFoundationMigration } from "../persistence/migration.js";
+import { applyFoundationMigration, clearVoiceAccessDataForTest } from "../persistence/migration.js";
 
 const audience = "jarvis-local-agent";
 const beginPath = "/identity/challenge/begin";
@@ -42,6 +42,7 @@ describe("IdentityChallengeService", () => {
 
   beforeEach(async () => {
     await applyFoundationMigration();
+    await clearVoiceAccessDataForTest();
     await env.DB.batch([
       env.DB.prepare("DELETE FROM sync_ack_receipts"),
       env.DB.prepare("DELETE FROM sync_snapshots"),
@@ -62,7 +63,7 @@ describe("IdentityChallengeService", () => {
     publicKeyBase64 = base64(publicKey);
     keyFingerprint = await sha256Hex(publicKey);
     await env.DB.prepare(
-      "INSERT INTO principals (principal_id, principal_type, status, display_name, pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at) VALUES ('principal:one', 'human', 'active', 'Sid', '1.0', 'PIN_VERIFIER_JSON', ?, ?)",
+      "INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('principal:one', 'human', 'active', 'Sid', ?, ?)",
     ).bind(initialNow.toISOString(), initialNow.toISOString()).run();
     await env.DB.prepare(
       "INSERT INTO device_keys (device_id, principal_id, key_id, public_key_base64, key_fingerprint, key_generation, algorithm, status, device_label, bootstrap_metadata_hash, created_at) VALUES ('device:one', 'principal:one', 'key:one', ?, ?, 1, 'ed25519', 'active', 'laptop', ?, ?)",
@@ -74,7 +75,12 @@ describe("IdentityChallengeService", () => {
       env.DB.prepare(
         "INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at, enrolled_by_device_id) VALUES ('identity:telegram', 'principal:one', 'telegram', '424242', 'pending', NULL, ?, 'device:one')",
       ).bind(initialNow.toISOString()),
+      env.DB.prepare(
+        "INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at, enrolled_by_device_id) VALUES ('identity:other-phone', 'principal:one', 'voice', '+14165550124', 'pending', NULL, ?, 'device:one')",
+      ).bind(initialNow.toISOString()),
     ]);
+    await env.DB.prepare("INSERT INTO voice_owner_identity (singleton_id, principal_id, identity_id, created_at) VALUES (1, 'principal:one', 'identity:phone', ?)")
+      .bind(initialNow.toISOString()).run();
     verifier = new DeviceRequestVerifier({ database: env.DB, audience });
     observations = new VerifiedChannelObservationAuthority();
     identities = makeService();
@@ -112,8 +118,8 @@ describe("IdentityChallengeService", () => {
     return { request: { ...unsigned, signatureBase64 }, rawBody };
   }
 
-  async function begin(channel: Channel) {
-    const body: BeginBody = { schemaVersion: "1.0", channel, identityId: channel === "phone" ? "identity:phone" : "identity:telegram" };
+  async function begin(channel: Channel, identityId = channel === "phone" ? "identity:phone" : "identity:telegram") {
+    const body: BeginBody = { schemaVersion: "1.0", channel, identityId };
     const signedBody = await signed(body);
     return identities.begin(signedBody.request, body, signedBody.rawBody);
   }
@@ -134,7 +140,6 @@ describe("IdentityChallengeService", () => {
       initiatingKeyId: "key:one",
       initiatingKeyFingerprint: keyFingerprint,
       initiatingKeyGeneration: 1,
-      pinAuthentication: channel === "phone" ? { proofId: "call-auth:CA123", authenticated: true } : null,
       ...overrides,
     });
   }
@@ -190,7 +195,7 @@ describe("IdentityChallengeService", () => {
     const foreignProof = foreignAuthority.issue({
       challengeId: challenge.challengeId, providerRequestId: "telegram:update:77", channel: "telegram", principalId: "principal:one",
       identityId: "identity:telegram", response: challenge.response, initiatingDeviceId: "device:one", initiatingKeyId: "key:one",
-      initiatingKeyFingerprint: keyFingerprint, initiatingKeyGeneration: 1, pinAuthentication: null,
+      initiatingKeyFingerprint: keyFingerprint, initiatingKeyGeneration: 1,
     });
 
     await expect(identities.confirm({ ...foreignProof })).rejects.toThrow("channel_observation_untrusted");
@@ -200,15 +205,16 @@ describe("IdentityChallengeService", () => {
     expect(await identityState("identity:telegram")).toEqual({ status: "active", verified_at: initialNow.toISOString() });
   });
 
-  it("requires an authority-issued successful phone PIN proof and consumes the challenge exactly once", async () => {
+  it("activates only the configured owner phone without a reusable call PIN", async () => {
     const challenge = await begin("phone");
-    const failedPin = observe(challenge, "phone", { pinAuthentication: { proofId: "call-auth:CA123", authenticated: false } });
-
-    await expect(identities.confirm(failedPin)).rejects.toThrow("phone_pin_required");
-    expect(await identityState("identity:phone")).toEqual({ status: "pending", verified_at: null });
     const proof = observe(challenge, "phone");
     await expect(identities.confirm(proof)).resolves.toEqual({ identityId: "identity:phone", state: "active" });
     await expect(identities.confirm(proof)).rejects.toThrow("identity_challenge_consumed");
+
+    const other = await begin("phone", "identity:other-phone");
+    await expect(identities.confirm(observe(other, "phone", { identityId: "identity:other-phone" })))
+      .rejects.toThrow("owner_voice_identity_required");
+    expect(await identityState("identity:other-phone")).toEqual({ status: "pending", verified_at: null });
   });
 
   it("rejects wrong-channel, foreign-device, and already-active identities at challenge insertion time", async () => {

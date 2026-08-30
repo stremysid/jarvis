@@ -14,6 +14,7 @@ import {
   applyFoundationMigration,
   clearCallSessionsForTest,
   clearOutboundCallAttemptsForTest,
+  clearVoiceAccessDataForTest,
 } from "../persistence/migration.js";
 
 const AUTH_TOKEN = "synthetic-auth-token";
@@ -32,6 +33,7 @@ async function clearFixture(): Promise<void> {
   await env.DB.prepare("DELETE FROM provider_events").run();
   await clearCallSessionsForTest();
   await clearOutboundCallAttemptsForTest();
+  await clearVoiceAccessDataForTest();
   await env.DB.batch([
     env.DB.prepare("DELETE FROM outbox"),
     env.DB.prepare("DELETE FROM idempotency_records"),
@@ -45,8 +47,9 @@ async function clearFixture(): Promise<void> {
 async function seedAttempt(repository: CallRepository): Promise<void> {
   const timestamp = NOW.toISOString();
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at) VALUES ('principal:owner', 'human', 'active', 'Owner', '1.0', 'PIN_VERIFIER_JSON', ?, ?)").bind(timestamp, timestamp),
+    env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('principal:owner', 'human', 'active', 'Owner', ?, ?)").bind(timestamp, timestamp),
     env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES ('identity:voice', 'principal:owner', 'voice', ?, 'active', ?, ?)").bind(DESTINATION, timestamp, timestamp),
+    env.DB.prepare("INSERT INTO voice_owner_identity (singleton_id, principal_id, identity_id, created_at) VALUES (1, 'principal:owner', 'identity:voice', ?)").bind(timestamp),
     env.DB.prepare("INSERT INTO policy_decisions (decision_id, principal_id, policy_version, input_hash, outcome, reason_code, decided_at) VALUES (?, 'principal:owner', 'v1', ?, 'allow', 'allowed', ?)").bind(COMMAND_ID, "a".repeat(64), timestamp),
   ]);
   await repository.getOrCreateExpectedCall({
@@ -121,6 +124,7 @@ describe("outbound TwiML claim security boundary", () => {
     dependencies = {
       twilio: new TwilioSignatureVerifier({ authToken: AUTH_TOKEN }),
       publicOrigin: PUBLIC_ORIGIN,
+      ownerIdentityId: "identity:voice",
       recipients: { resolveActiveVerifiedVoiceIdentityId },
       calls: repository,
       initializeSession,

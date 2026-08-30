@@ -22,7 +22,7 @@ describe("DeviceRepository Telegram identity lookup", () => {
       env.DB.prepare("DELETE FROM principals"),
     ]);
     await env.DB.prepare(
-      "INSERT INTO principals (principal_id, principal_type, status, display_name, pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at) VALUES ('principal:one', 'human', 'active', 'Sid', '1.0', 'PIN_VERIFIER_JSON', ?, ?)",
+      "INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('principal:one', 'human', 'active', 'Sid', ?, ?)",
     ).bind(now, now).run();
     await env.DB.prepare(
       "INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES ('identity:telegram', 'principal:one', 'telegram', '424242', 'active', ?, ?)",

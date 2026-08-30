@@ -122,6 +122,20 @@ export interface ActiveTelegramIdentity {
 export class DeviceRepository {
   constructor(private readonly database: D1Database) {}
 
+  async isOwnerVoiceIdentity(identityId: string, principalId: string): Promise<boolean> {
+    const row = await this.database.prepare(
+      `SELECT 1 AS owner
+       FROM voice_owner_identity owner
+       JOIN channel_identities identity ON identity.identity_id = owner.identity_id
+       JOIN principals principal ON principal.principal_id = owner.principal_id
+       WHERE owner.singleton_id = 1 AND owner.identity_id = ? AND owner.principal_id = ?
+         AND identity.identity_id = ? AND identity.principal_id = ? AND identity.channel = 'voice'
+         AND identity.status = 'pending' AND identity.verified_at IS NULL
+         AND principal.status = 'active' AND principal.principal_type = 'human'`,
+    ).bind(identityId, principalId, identityId, principalId).first<{ owner: number }>();
+    return row?.owner === 1;
+  }
+
   async createIdentityChallenge(input: CreateIdentityChallengeInput): Promise<boolean> {
     const result = await this.database.prepare(
       `INSERT INTO identity_challenges (

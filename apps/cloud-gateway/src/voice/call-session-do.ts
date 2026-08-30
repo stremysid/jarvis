@@ -43,6 +43,7 @@ const INITIALIZATION_KEY = "call-session.initialization.v1";
 const BINDING_FIELDS = new Set([
   "callSid", "principalId", "identityId", "destinationIdentityId", "relayNonce",
   "direction", "activationOnly", "activationChallengeId",
+  "accessKind", "guestGrantId", "guestGrantVersion", "accessDocumentHash",
 ]);
 const ACTIVATION_DEPENDENCY_FIELDS = new Set([
   "database", "authentication", "budgets", "observations", "challenges",
@@ -118,6 +119,7 @@ function snapshotBinding(value: unknown): RelayBinding {
     || (input.activationOnly
       ? input.direction !== "inbound" || input.activationChallengeId === null
       : input.activationChallengeId !== null)
+    || !validAccessBinding(input)
   ) {
     throw new TypeError("relay_binding_invalid");
   }
@@ -130,7 +132,28 @@ function snapshotBinding(value: unknown): RelayBinding {
     direction: input.direction,
     activationOnly: input.activationOnly,
     activationChallengeId: input.activationChallengeId,
+    accessKind: input.accessKind,
+    guestGrantId: input.guestGrantId as string | null,
+    guestGrantVersion: input.guestGrantVersion as number | null,
+    accessDocumentHash: input.accessDocumentHash as string | null,
   }) as RelayBinding;
+}
+
+function validAccessBinding(input: Record<string, unknown>): boolean {
+  if (input.accessKind === "owner") {
+    return input.guestGrantId === null
+      && input.guestGrantVersion === null
+      && input.accessDocumentHash === null;
+  }
+  return input.accessKind === "guest"
+    && typeof input.guestGrantId === "string"
+    && ULID.test(input.guestGrantId)
+    && Number.isSafeInteger(input.guestGrantVersion)
+    && (input.guestGrantVersion as number) > 0
+    && typeof input.accessDocumentHash === "string"
+    && /^[0-9a-f]{64}$/u.test(input.accessDocumentHash)
+    && input.activationOnly === false
+    && input.activationChallengeId === null;
 }
 
 function snapshotDate(value: unknown): Date {
@@ -207,7 +230,11 @@ function sameBinding(left: RelayBinding, right: RelayBinding): boolean {
     && left.relayNonce === right.relayNonce
     && left.direction === right.direction
     && left.activationOnly === right.activationOnly
-    && left.activationChallengeId === right.activationChallengeId;
+    && left.activationChallengeId === right.activationChallengeId
+    && left.accessKind === right.accessKind
+    && left.guestGrantId === right.guestGrantId
+    && left.guestGrantVersion === right.guestGrantVersion
+    && left.accessDocumentHash === right.accessDocumentHash;
 }
 
 function sameInitialization(
@@ -344,7 +371,6 @@ export class PhoneActivationChallengeConfirmer {
       initiatingKeyId: challenge.initiating_key_id,
       initiatingKeyFingerprint: challenge.initiating_key_fingerprint,
       initiatingKeyGeneration: challenge.initiating_key_generation,
-      pinAuthentication: { proofId: proof.proofId, authenticated: true },
     });
     return confirmIdentityChallenge.call(this.#challenges, observation);
   }

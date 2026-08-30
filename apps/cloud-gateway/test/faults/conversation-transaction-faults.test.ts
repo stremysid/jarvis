@@ -45,7 +45,7 @@ function createRepository(): ConversationRepository {
 async function seed(): Promise<void> {
   const now = NOW.toISOString();
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at) VALUES ('principal:owner', 'human', 'active', 'owner', '1.0', 'PIN_VERIFIER_JSON', ?, ?)").bind(now, now),
+    env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('principal:owner', 'human', 'active', 'owner', ?, ?)").bind(now, now),
     env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES ('identity:telegram', 'principal:owner', 'telegram', '44112233', 'active', ?, ?)").bind(now, now),
   ]);
 }

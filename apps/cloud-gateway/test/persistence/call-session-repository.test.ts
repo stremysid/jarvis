@@ -10,7 +10,10 @@ import {
   type RelayBinding,
   type Ulid,
 } from "../../../../packages/contracts/src/index.js";
-import { CallRepository } from "../../src/persistence/call-repository.js";
+import {
+  CallRepository,
+  isCallSessionAdmissionError,
+} from "../../src/persistence/call-repository.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
 import {
@@ -18,6 +21,7 @@ import {
   clearAuthenticationAttemptReservationsForTest,
   clearCallSessionsForTest,
   clearOutboundCallAttemptsForTest,
+  clearVoiceAccessDataForTest,
 } from "./migration.js";
 
 const NOW = new Date("2026-08-30T12:00:00.000Z");
@@ -39,6 +43,13 @@ const VX_2 = `VX${"2".repeat(32)}`;
 const NONCE_1 = `${"A".repeat(42)}A`;
 const NONCE_2 = `${"B".repeat(42)}E`;
 const NONCE_3 = `${"C".repeat(42)}I`;
+const OWNER_IDENTITY_ID = "identity:voice";
+const GUEST_PRINCIPAL_ID = "principal:guest";
+const GUEST_IDENTITY_ID = "identity:guest";
+const GUEST_E164 = "+14165550111";
+const UNGRANTED_E164 = "+14165550112";
+const GRANT_ID = "01k3wceg000000000000000020";
+const DOCUMENT_HASH = "b".repeat(64);
 const CALL_PHASES = [
   "created", "connecting", "pre_auth", "authenticated", "active",
   "ending", "completed", "rejected", "failed", "expired",
@@ -73,6 +84,7 @@ async function clearFixture(): Promise<void> {
   await clearCallSessionsForTest();
   await clearAuthenticationAttemptReservationsForTest();
   await clearOutboundCallAttemptsForTest();
+  await clearVoiceAccessDataForTest();
   await env.DB.batch([
     env.DB.prepare("DELETE FROM identity_challenges"),
     env.DB.prepare("DELETE FROM outbox"),
@@ -94,9 +106,8 @@ async function seedHuman(input: {
   const identityStatus = input.identityStatus ?? "active";
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO principals (
-      principal_id, principal_type, status, display_name, pin_verifier_version,
-      pin_verifier_secret_ref, created_at, updated_at
-    ) VALUES ('principal:owner', 'human', ?, 'Owner', '1.0', 'PIN_VERIFIER_JSON', ?, ?)`)
+      principal_id, principal_type, status, display_name, created_at, updated_at
+    ) VALUES ('principal:owner', 'human', ?, 'Owner', ?, ?)`)
       .bind(input.principalStatus ?? "active", timestamp, timestamp),
     env.DB.prepare(`INSERT INTO device_keys (
       device_id, principal_id, key_id, public_key_base64, key_fingerprint,
@@ -115,15 +126,20 @@ async function seedHuman(input: {
         timestamp,
       ),
   ]);
+  if ((input.principalStatus ?? "active") === "active" && identityStatus !== "disabled") {
+    await env.DB.prepare(`INSERT INTO voice_owner_identity (
+      singleton_id, principal_id, identity_id, created_at
+    ) VALUES (1, 'principal:owner', 'identity:voice', ?)`)
+      .bind(timestamp).run();
+  }
 }
 
 async function seedServiceIdentity(): Promise<void> {
   const timestamp = NOW.toISOString();
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO principals (
-      principal_id, principal_type, status, display_name, pin_verifier_version,
-      pin_verifier_secret_ref, created_at, updated_at
-    ) VALUES ('principal:service', 'service', 'active', 'Service', NULL, NULL, ?, ?)`)
+      principal_id, principal_type, status, display_name, created_at, updated_at
+    ) VALUES ('principal:service', 'service', 'active', 'Service', ?, ?)`)
       .bind(timestamp, timestamp),
     env.DB.prepare(`INSERT INTO channel_identities (
       identity_id, principal_id, channel, provider_subject, status, verified_at,
@@ -131,6 +147,71 @@ async function seedServiceIdentity(): Promise<void> {
     ) VALUES ('identity:service', 'principal:service', 'voice', '+14165550999',
       'active', ?, ?, NULL)`)
       .bind(timestamp, timestamp),
+  ]);
+}
+
+async function seedGuest(input: {
+  principalId?: string;
+  identityId?: string;
+  providerSubject?: string;
+  identityStatus?: "pending" | "active";
+  grantStatus?: "pending" | "active";
+} = {}): Promise<void> {
+  const timestamp = NOW.toISOString();
+  const principalId = input.principalId ?? GUEST_PRINCIPAL_ID;
+  const identityId = input.identityId ?? GUEST_IDENTITY_ID;
+  const identityStatus = input.identityStatus ?? "active";
+  const grantStatus = input.grantStatus ?? "active";
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO principals (
+      principal_id, principal_type, status, display_name, created_at, updated_at
+    ) VALUES (?, 'human', 'active', 'Guest', ?, ?)`)
+      .bind(principalId, timestamp, timestamp),
+    env.DB.prepare(`INSERT INTO channel_identities (
+      identity_id, principal_id, channel, provider_subject, status, verified_at, created_at
+    ) VALUES (?, ?, 'voice', ?, ?, ?, ?)`)
+      .bind(
+        identityId,
+        principalId,
+        input.providerSubject ?? GUEST_E164,
+        identityStatus,
+        identityStatus === "active" ? timestamp : null,
+        timestamp,
+      ),
+    env.DB.prepare(`INSERT INTO voice_access_grants (
+      grant_id, principal_id, identity_id, grant_version, capability_ids_json,
+      resource_scopes_json, access_document_hash, pin_schema_version, pin_algorithm,
+      pin_pepper_version, pin_iterations, pin_salt_base64, pin_digest_base64,
+      status, created_by_identity_id, created_at, activated_at, updated_at, revoked_at
+    ) VALUES (?, ?, ?, 1, '["conversation.basic"]',
+      '{"schemaVersion":"1.0","calendarConnectionIds":[],"fileRootIds":[],"pcActionIds":[]}',
+      ?, '2.0', 'hmac-sha256-pepper+pbkdf2-hmac-sha256', 'v1', 600000,
+      'AAAAAAAAAAAAAAAAAAAAAA==', 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+      ?, 'identity:voice', ?, ?, ?, NULL)`)
+      .bind(
+        GRANT_ID,
+        principalId,
+        identityId,
+        DOCUMENT_HASH,
+        grantStatus,
+        timestamp,
+        grantStatus === "active" ? timestamp : null,
+        timestamp,
+      ),
+  ]);
+}
+
+async function seedUngrantVoiceIdentity(): Promise<void> {
+  const timestamp = NOW.toISOString();
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO principals (
+      principal_id, principal_type, status, display_name, created_at, updated_at
+    ) VALUES ('principal:ungranted', 'human', 'active', 'Ungrant', ?, ?)`)
+      .bind(timestamp, timestamp),
+    env.DB.prepare(`INSERT INTO channel_identities (
+      identity_id, principal_id, channel, provider_subject, status, verified_at, created_at
+    ) VALUES ('identity:ungranted', 'principal:ungranted', 'voice', ?, 'active', ?, ?)`)
+      .bind(UNGRANTED_E164, timestamp, timestamp),
   ]);
 }
 
@@ -176,9 +257,10 @@ async function insertDirectNormalInbound(index: number): Promise<Ulid> {
     session_id, call_sid, expected_attempt_id, principal_id, identity_id,
     destination_identity_id, direction, activation_only, activation_challenge_id,
     activation_hmac_key_version, relay_nonce, nonce_expires_at,
-    relay_setup_expires_at, provider_session_id, phase, created_at, updated_at
+    relay_setup_expires_at, provider_session_id, phase, created_at, updated_at,
+    access_kind, guest_grant_id, guest_grant_version, access_document_hash
   ) VALUES (?, ?, NULL, 'principal:owner', 'identity:voice', 'identity:voice',
-    'inbound', 0, NULL, NULL, ?, ?, ?, NULL, 'created', ?, ?)`)
+    'inbound', 0, NULL, NULL, ?, ?, ?, NULL, 'created', ?, ?, 'owner', NULL, NULL, NULL)`)
     .bind(
       sessionId,
       matrixCallSid(index),
@@ -206,8 +288,10 @@ function insertDirectInbound(input: {
     session_id, call_sid, expected_attempt_id, principal_id, identity_id,
     destination_identity_id, direction, activation_only, activation_challenge_id,
     activation_hmac_key_version, relay_nonce, nonce_expires_at,
-    relay_setup_expires_at, provider_session_id, phase, created_at, updated_at
-  ) VALUES (?, ?, NULL, ?, ?, ?, 'inbound', ?, ?, ?, ?, ?, ?, NULL, 'created', ?, ?)`)
+    relay_setup_expires_at, provider_session_id, phase, created_at, updated_at,
+    access_kind, guest_grant_id, guest_grant_version, access_document_hash
+  ) VALUES (?, ?, NULL, ?, ?, ?, 'inbound', ?, ?, ?, ?, ?, ?, NULL, 'created', ?, ?,
+    'owner', NULL, NULL, NULL)`)
     .bind(
       SESSION_1,
       CALL_1,
@@ -263,6 +347,7 @@ async function outboundBinding(input: {
     attemptId: input.attemptId,
     callSid: input.callSid,
     observedDestinationIdentityId: expected.destinationIdentityId,
+    ownerIdentityId: OWNER_IDENTITY_ID,
     now: NOW,
   });
   if (binding === null) throw new Error("fixture_binding_missing");
@@ -273,6 +358,7 @@ async function inbound(repo: CallRepository, callSid = CALL_1, now = NOW) {
   return repo.getOrCreateInboundSession({
     callSid,
     callerE164: "+14165550123",
+    ownerIdentityId: OWNER_IDENTITY_ID,
     currentChallengeHmacKeyVersion: "hmac-v1",
     now,
   });
@@ -327,10 +413,119 @@ describe("CallRepository call sessions", () => {
         direction: "inbound",
         activationOnly: false,
         activationChallengeId: null,
+        accessKind: "owner",
+        guestGrantId: null,
+        guestGrantVersion: null,
+        accessDocumentHash: null,
       },
     });
     expect(Object.isFrozen(stored)).toBe(true);
     expect(Object.isFrozen(stored.binding)).toBe(true);
+  });
+
+  it("admits the configured owner and an exact pending guest grant but rejects an active ungranted number", async () => {
+    await seedHuman();
+    await seedGuest({ identityStatus: "pending", grantStatus: "pending" });
+    await seedUngrantVoiceIdentity();
+    const repo = repository();
+
+    await expect(inbound(repo, CALL_1)).resolves.toMatchObject({
+      binding: {
+        accessKind: "owner",
+        principalId: "principal:owner",
+        identityId: OWNER_IDENTITY_ID,
+        guestGrantId: null,
+        guestGrantVersion: null,
+        accessDocumentHash: null,
+      },
+    });
+    await expect(repo.getOrCreateInboundSession({
+      callSid: CALL_2,
+      callerE164: GUEST_E164,
+      ownerIdentityId: OWNER_IDENTITY_ID,
+      currentChallengeHmacKeyVersion: "hmac-v1",
+      now: NOW,
+    })).resolves.toMatchObject({
+      binding: {
+        accessKind: "guest",
+        principalId: GUEST_PRINCIPAL_ID,
+        identityId: GUEST_IDENTITY_ID,
+        guestGrantId: GRANT_ID,
+        guestGrantVersion: 1,
+        accessDocumentHash: DOCUMENT_HASH,
+        activationOnly: false,
+        activationChallengeId: null,
+      },
+    });
+    await expect(repo.getOrCreateInboundSession({
+      callSid: CALL_3,
+      callerE164: UNGRANTED_E164,
+      ownerIdentityId: OWNER_IDENTITY_ID,
+      currentChallengeHmacKeyVersion: "hmac-v1",
+      now: NOW,
+    })).rejects.toSatisfy(isCallSessionAdmissionError);
+  });
+
+  it("rejects an inbound replay after the exact guest grant lineage changes", async () => {
+    await seedHuman();
+    await seedGuest();
+    const repo = repository();
+    const input = {
+      callSid: CALL_1,
+      callerE164: GUEST_E164,
+      ownerIdentityId: OWNER_IDENTITY_ID,
+      currentChallengeHmacKeyVersion: "hmac-v1",
+      now: NOW,
+    } as const;
+    await expect(repo.getOrCreateInboundSession(input)).resolves.toMatchObject({
+      binding: { accessKind: "guest", guestGrantVersion: 1 },
+    });
+    await env.DB.prepare(`UPDATE voice_access_grants
+      SET grant_version = 2, capability_ids_json = '["conversation.basic","research.web"]',
+          access_document_hash = ?, updated_at = ?
+      WHERE grant_id = ?`)
+      .bind("c".repeat(64), "2026-08-30T12:00:01.000Z", GRANT_ID).run();
+    await expect(repo.getOrCreateInboundSession(input)).rejects.toSatisfy(isCallSessionAdmissionError);
+  });
+
+  it("binds an outbound guest session to the destination principal and exact grant lineage", async () => {
+    await seedHuman();
+    await seedGuest();
+    await env.DB.prepare(`INSERT INTO policy_decisions (
+      decision_id, principal_id, policy_version, input_hash, outcome, reason_code, decided_at
+    ) VALUES (?, 'principal:owner', 'v1', ?, 'allow', 'allowed', ?)`)
+      .bind(COMMAND_ID, "d".repeat(64), NOW.toISOString()).run();
+    const repo = repository();
+    await repo.getOrCreateExpectedCall({
+      attemptId: ATTEMPT_ID,
+      commandId: COMMAND_ID,
+      principalId: "principal:owner",
+      destinationIdentityId: GUEST_IDENTITY_ID,
+      idempotencyKey: "call:guest",
+      authorizationExpiresAt: "2026-08-30T12:10:00.000Z",
+      attemptOrdinal: 0,
+      now: NOW,
+    });
+    await repo.claimProviderDispatch({ attemptId: ATTEMPT_ID, now: NOW });
+    const binding = await repo.claimExpectedCall({
+      attemptId: ATTEMPT_ID,
+      callSid: CALL_1,
+      observedDestinationIdentityId: GUEST_IDENTITY_ID,
+      ownerIdentityId: OWNER_IDENTITY_ID,
+      now: NOW,
+    });
+    expect(binding).toMatchObject({
+      principalId: GUEST_PRINCIPAL_ID,
+      identityId: GUEST_IDENTITY_ID,
+      destinationIdentityId: GUEST_IDENTITY_ID,
+      accessKind: "guest",
+      guestGrantId: GRANT_ID,
+      guestGrantVersion: 1,
+      accessDocumentHash: DOCUMENT_HASH,
+    });
+    if (binding === null) throw new Error("fixture_binding_missing");
+    await expect(repo.getOrCreateOutboundSession({ attemptId: ATTEMPT_ID, binding, now: NOW }))
+      .resolves.toMatchObject({ binding: { principalId: GUEST_PRINCIPAL_ID, accessKind: "guest" } });
   });
 
   it("selects the newest eligible activation challenge deterministically and caps setup at challenge expiry", async () => {
@@ -400,6 +595,7 @@ describe("CallRepository call sessions", () => {
     await expect(repo.getOrCreateInboundSession({
       callSid: CALL_1,
       callerE164: "+14165559999",
+      ownerIdentityId: OWNER_IDENTITY_ID,
       currentChallengeHmacKeyVersion: "hmac-v1",
       now: NOW,
     })).rejects.toThrow("call_session_conflict");
@@ -414,6 +610,7 @@ describe("CallRepository call sessions", () => {
     await expect(repo.getOrCreateInboundSession({
       callSid: CALL_1,
       callerE164: "+14165559999",
+      ownerIdentityId: OWNER_IDENTITY_ID,
       currentChallengeHmacKeyVersion: "hmac-v1",
       now: NOW,
     })).rejects.toThrow("call_session_conflict");
@@ -458,6 +655,7 @@ describe("CallRepository call sessions", () => {
       attemptId: ATTEMPT_ID,
       callSid: CALL_1,
       observedDestinationIdentityId: expected.destinationIdentityId,
+      ownerIdentityId: OWNER_IDENTITY_ID,
       now: NOW,
     });
     if (binding === null) throw new Error("fixture_binding_missing");
@@ -496,9 +694,10 @@ describe("CallRepository call sessions", () => {
       session_id, call_sid, expected_attempt_id, principal_id, identity_id,
       destination_identity_id, direction, activation_only, activation_challenge_id,
       activation_hmac_key_version, relay_nonce, nonce_expires_at,
-      relay_setup_expires_at, provider_session_id, phase, created_at, updated_at
+      relay_setup_expires_at, provider_session_id, phase, created_at, updated_at,
+      access_kind, guest_grant_id, guest_grant_version, access_document_hash
     ) VALUES (?, ?, ?, 'principal:owner', 'identity:voice', 'identity:voice',
-      'outbound', 0, NULL, NULL, ?, ?, NULL, NULL, 'created', ?, ?)`)
+      'outbound', 0, NULL, NULL, ?, ?, NULL, NULL, 'created', ?, ?, 'owner', NULL, NULL, NULL)`)
       .bind(
         ATTEMPT_ID,
         CALL_1,
@@ -530,6 +729,7 @@ describe("CallRepository call sessions", () => {
       attemptId: ATTEMPT_ID,
       callSid: CALL_1,
       observedDestinationIdentityId: expected.destinationIdentityId,
+      ownerIdentityId: OWNER_IDENTITY_ID,
       now: NOW,
     });
     if (binding === null) throw new Error("fixture_binding_missing");
@@ -809,9 +1009,10 @@ describe("CallRepository call sessions", () => {
       session_id, call_sid, expected_attempt_id, principal_id, identity_id,
       destination_identity_id, direction, activation_only, activation_challenge_id,
       activation_hmac_key_version, relay_nonce, nonce_expires_at,
-      relay_setup_expires_at, provider_session_id, phase, created_at, updated_at
+      relay_setup_expires_at, provider_session_id, phase, created_at, updated_at,
+      access_kind, guest_grant_id, guest_grant_version, access_document_hash
     ) VALUES (?, ?, NULL, 'principal:owner', 'identity:voice', 'identity:voice',
-      'inbound', 0, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)`)
+      'inbound', 0, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, 'owner', NULL, NULL, NULL)`)
       .bind(
         SESSION_1,
         CALL_1,
@@ -854,7 +1055,9 @@ describe("CallRepository call sessions", () => {
     }],
   ])("rejects direct SQL inbound lineage for %s", async (_label, arrange) => {
     const input = await arrange();
-    await expect(insertDirectInbound(input)).rejects.toThrow("inbound_session_lineage_mismatch");
+    await expect(insertDirectInbound(input)).rejects.toThrow(
+      /(?:inbound_session_lineage_mismatch|call_session_voice_access_required)/u,
+    );
   });
 
   it.each([
@@ -903,7 +1106,7 @@ describe("CallRepository call sessions", () => {
       activationChallengeId: "challenge:live",
       activationHmacKeyVersion: "hmac-v1",
       ...input,
-    })).rejects.toThrow("inbound_session_lineage_mismatch");
+    })).rejects.toThrow(/(?:inbound_session_lineage_mismatch|call_session_voice_access_required)/u);
   });
 
   it("rejects direct SQL activation insertion against an older eligible challenge", async () => {
@@ -914,9 +1117,11 @@ describe("CallRepository call sessions", () => {
       session_id, call_sid, expected_attempt_id, principal_id, identity_id,
       destination_identity_id, direction, activation_only, activation_challenge_id,
       activation_hmac_key_version, relay_nonce, nonce_expires_at,
-      relay_setup_expires_at, provider_session_id, phase, created_at, updated_at
+      relay_setup_expires_at, provider_session_id, phase, created_at, updated_at,
+      access_kind, guest_grant_id, guest_grant_version, access_document_hash
     ) VALUES (?, ?, NULL, 'principal:owner', 'identity:voice', 'identity:voice',
-      'inbound', 1, 'challenge:old', 'hmac-v1', ?, ?, ?, NULL, 'created', ?, ?)`)
+      'inbound', 1, 'challenge:old', 'hmac-v1', ?, ?, ?, NULL, 'created', ?, ?,
+      'owner', NULL, NULL, NULL)`)
       .bind(SESSION_1, CALL_1, NONCE_1, FIVE_MINUTES.toISOString(), FIVE_MINUTES.toISOString(), NOW.toISOString(), NOW.toISOString()).run())
       .rejects.toThrow("inbound_session_lineage_mismatch");
   });

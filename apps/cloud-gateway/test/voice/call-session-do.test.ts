@@ -42,6 +42,7 @@ import {
   clearCallSessionsForTest,
   clearConversationDataForTest,
   clearOutboundCallAttemptsForTest,
+  clearVoiceAccessDataForTest,
 } from "../persistence/migration.js";
 
 const NOW = new Date("2026-08-30T12:00:00.000Z");
@@ -82,6 +83,7 @@ async function clearFixture(): Promise<void> {
   await clearAuthenticationAttemptReservationsForTest();
   await clearOutboundCallAttemptsForTest();
   await clearConversationDataForTest();
+  await clearVoiceAccessDataForTest();
   await env.DB.batch([
     env.DB.prepare("DELETE FROM request_nonces"),
     env.DB.prepare("DELETE FROM identity_challenges"),
@@ -99,10 +101,8 @@ async function seedActiveVoiceIdentity(): Promise<void> {
   const timestamp = NOW.toISOString();
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO principals (
-      principal_id, principal_type, status, display_name, pin_verifier_version,
-      pin_verifier_secret_ref, created_at, updated_at
-    ) VALUES ('principal:owner', 'human', 'active', 'Owner', '1.0',
-      'PIN_VERIFIER_JSON', ?, ?)`)
+      principal_id, principal_type, status, display_name, created_at, updated_at
+    ) VALUES ('principal:owner', 'human', 'active', 'Owner', ?, ?)`)
       .bind(timestamp, timestamp),
     env.DB.prepare(`INSERT INTO device_keys (
       device_id, principal_id, key_id, public_key_base64, key_fingerprint,
@@ -116,6 +116,10 @@ async function seedActiveVoiceIdentity(): Promise<void> {
     ) VALUES ('identity:voice', 'principal:owner', 'voice', '+14165550123',
       'active', ?, ?, 'device:owner')`)
       .bind(timestamp, timestamp),
+    env.DB.prepare(`INSERT INTO voice_owner_identity (
+      singleton_id, principal_id, identity_id, created_at
+    ) VALUES (1, 'principal:owner', 'identity:voice', ?)`)
+      .bind(timestamp),
   ]);
 }
 
@@ -129,10 +133,8 @@ async function seedPendingVoiceIdentity(): Promise<{
   const keyFingerprint = await sha256Hex(publicKey);
   await env.DB.batch([
     env.DB.prepare(`INSERT INTO principals (
-      principal_id, principal_type, status, display_name, pin_verifier_version,
-      pin_verifier_secret_ref, created_at, updated_at
-    ) VALUES ('principal:owner', 'human', 'active', 'Owner', '1.0',
-      'PIN_VERIFIER_JSON', ?, ?)`)
+      principal_id, principal_type, status, display_name, created_at, updated_at
+    ) VALUES ('principal:owner', 'human', 'active', 'Owner', ?, ?)`)
       .bind(timestamp, timestamp),
     env.DB.prepare(`INSERT INTO device_keys (
       device_id, principal_id, key_id, public_key_base64, key_fingerprint,
@@ -145,6 +147,10 @@ async function seedPendingVoiceIdentity(): Promise<{
       created_at, enrolled_by_device_id
     ) VALUES ('identity:voice', 'principal:owner', 'voice', '+14165550123',
       'pending', NULL, ?, 'device:owner')`)
+      .bind(timestamp),
+    env.DB.prepare(`INSERT INTO voice_owner_identity (
+      singleton_id, principal_id, identity_id, created_at
+    ) VALUES (1, 'principal:owner', 'identity:voice', ?)`)
       .bind(timestamp),
   ]);
   return { privateKey: pair.privateKey, keyFingerprint };
@@ -167,6 +173,7 @@ async function createInboundSession(
   return repo.getOrCreateInboundSession({
     callSid: CALL_SID,
     callerE164: "+14165550123",
+    ownerIdentityId: "identity:voice",
     currentChallengeHmacKeyVersion,
     now: NOW,
   });
@@ -399,6 +406,10 @@ function outboundInitialization(sessionId: Ulid = newUlid()): OutboundSessionIni
     direction: "outbound",
     activationOnly: false,
     activationChallengeId: null,
+    accessKind: "owner",
+    guestGrantId: null,
+    guestGrantVersion: null,
+    accessDocumentHash: null,
   });
   return Object.freeze({
     sessionId,

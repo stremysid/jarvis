@@ -208,9 +208,8 @@ describe("D1ContextRetriever", () => {
     const targetIdentityId = "identity:context-owner";
     await env.DB.batch([
       env.DB.prepare(`INSERT INTO principals (
-        principal_id, principal_type, status, display_name,
-        pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at
-      ) VALUES (?1, 'human', 'active', 'Context owner', '1.0', 'PIN_VERIFIER_JSON', ?2, ?2)`)
+        principal_id, principal_type, status, display_name, created_at, updated_at
+      ) VALUES (?1, 'human', 'active', 'Context owner', ?2, ?2)`)
         .bind(principalId, observedAt),
       env.DB.prepare(`INSERT INTO channel_identities (
         identity_id, principal_id, channel, provider_subject, status, verified_at, created_at

@@ -82,6 +82,10 @@ function storedSession() {
       direction: "inbound" as const,
       activationOnly: false,
       activationChallengeId: null,
+      accessKind: "owner" as const,
+      guestGrantId: null,
+      guestGrantVersion: null,
+      accessDocumentHash: null,
     }),
   });
 }
@@ -94,6 +98,7 @@ function dependencies(overrides: Partial<InboundVoiceDependencies> = {}) {
     exactInboundWebhookUrl: EXACT_URL,
     publicOrigin: new URL("https://jarvis.example/"),
     expectedInboundE164: EXPECTED_TO,
+    ownerIdentityId: "identity:voice",
     currentChallengeHmacKeyVersion: "hmac-v1",
     sessions: { getOrCreateInboundSession },
     initializeSession,
@@ -192,6 +197,7 @@ describe("signed inbound voice webhook", () => {
     expect(getOrCreateInboundSession).toHaveBeenCalledWith({
       callSid: CALL_SID,
       callerE164: FROM,
+      ownerIdentityId: "identity:voice",
       currentChallengeHmacKeyVersion: "hmac-v1",
       now: new Date("2026-08-30T12:00:00.000Z"),
     });

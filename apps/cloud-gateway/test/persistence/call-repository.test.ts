@@ -17,7 +17,11 @@ import {
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { ProviderFailure } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
-import { applyFoundationMigration, clearOutboundCallAttemptsForTest } from "./migration.js";
+import {
+  applyFoundationMigration,
+  clearOutboundCallAttemptsForTest,
+  clearVoiceAccessDataForTest,
+} from "./migration.js";
 
 const NOW = new Date("2026-08-29T12:00:00.000Z");
 const AT_EXPIRY = new Date("2026-08-29T12:05:00.000Z");
@@ -37,6 +41,7 @@ const HASH_2 = "2".repeat(64) as Sha256Hex;
 async function clearCallingData(): Promise<void> {
   await env.DB.prepare("DELETE FROM provider_events").run();
   await clearOutboundCallAttemptsForTest();
+  await clearVoiceAccessDataForTest();
   await env.DB.batch([
     env.DB.prepare("DELETE FROM outbox"),
     env.DB.prepare("DELETE FROM idempotency_records"),
@@ -51,8 +56,9 @@ async function clearCallingData(): Promise<void> {
 async function seedAuthorizedCommand(): Promise<void> {
   const timestamp = NOW.toISOString();
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at) VALUES ('principal:owner', 'human', 'active', 'owner', '1.0', 'PIN_VERIFIER_JSON', ?, ?)").bind(timestamp, timestamp),
+    env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('principal:owner', 'human', 'active', 'owner', ?, ?)").bind(timestamp, timestamp),
     env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES ('identity:voice', 'principal:owner', 'voice', '+14165550123', 'active', ?, ?)").bind(timestamp, timestamp),
+    env.DB.prepare("INSERT INTO voice_owner_identity (singleton_id, principal_id, identity_id, created_at) VALUES (1, 'principal:owner', 'identity:voice', ?)").bind(timestamp),
     env.DB.prepare("INSERT INTO policy_decisions (decision_id, principal_id, policy_version, input_hash, outcome, reason_code, decided_at) VALUES (?, 'principal:owner', 'v1', ?, 'allow', 'allowed', ?)").bind(COMMAND_ID, "a".repeat(64), timestamp),
   ]);
 }
@@ -137,12 +143,14 @@ describe("CallRepository", () => {
       attemptId: ATTEMPT_0,
       callSid: CALL_SID_1,
       observedDestinationIdentityId: expected.destinationIdentityId,
+      ownerIdentityId: "identity:voice",
       now: NOW,
     });
     const replay = await repository.claimExpectedCall({
       attemptId: ATTEMPT_0,
       callSid: CALL_SID_1,
       observedDestinationIdentityId: expected.destinationIdentityId,
+      ownerIdentityId: "identity:voice",
       now: AFTER_EXPIRY,
     });
 
@@ -152,6 +160,7 @@ describe("CallRepository", () => {
       attemptId: ATTEMPT_0,
       callSid: CALL_SID_2,
       observedDestinationIdentityId: expected.destinationIdentityId,
+      ownerIdentityId: "identity:voice",
       now: NOW,
     })).resolves.toBeNull();
   });
@@ -344,6 +353,7 @@ describe("CallRepository", () => {
       attemptId: ATTEMPT_0,
       callSid: CALL_SID_1,
       observedDestinationIdentityId: expected.destinationIdentityId,
+      ownerIdentityId: "identity:voice",
       now: NOW,
     };
 
@@ -439,7 +449,7 @@ describe("CallRepository", () => {
     const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
     if (claim.kind !== "claimed") throw new Error("test_claim_failed");
     repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
-    await repository.claimExpectedCall({ attemptId: ATTEMPT_0, callSid: CALL_SID_1, observedDestinationIdentityId: expected.destinationIdentityId, now: NOW });
+    await repository.claimExpectedCall({ attemptId: ATTEMPT_0, callSid: CALL_SID_1, observedDestinationIdentityId: expected.destinationIdentityId, ownerIdentityId: "identity:voice", now: NOW });
 
     await repository.recordProviderDispatchRejection({ claim: claim.capability, failure: ProviderFailure.transient("rate_limited"), now: NOW });
 
@@ -552,6 +562,7 @@ describe("CallRepository", () => {
       attemptId: ATTEMPT_0,
       callSid: CALL_SID_1,
       observedDestinationIdentityId: expected.destinationIdentityId,
+      ownerIdentityId: "identity:voice",
       now: NOW,
     });
     if (binding === null) throw new Error("test_binding_failed");
@@ -683,6 +694,7 @@ describe("CallRepository", () => {
         attemptId: ATTEMPT_0,
         callSid: CALL_SID_1,
         observedDestinationIdentityId: expected.destinationIdentityId,
+        ownerIdentityId: "identity:voice",
         now: NOW,
       });
     }
@@ -777,6 +789,7 @@ describe("CallRepository", () => {
       attemptId: ATTEMPT_0,
       callSid: CALL_SID_1,
       observedDestinationIdentityId: expected.destinationIdentityId,
+      ownerIdentityId: "identity:voice",
       now: NOW,
     });
 

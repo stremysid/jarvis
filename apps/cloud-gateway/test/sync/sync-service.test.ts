@@ -109,7 +109,7 @@ describe("SyncService", () => {
     const fingerprint = await sha256Hex(publicKey);
     if (input.principalType === "human") {
       await env.DB.prepare(
-        "INSERT INTO principals (principal_id, principal_type, status, display_name, pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at) VALUES (?, 'human', 'active', 'Sid', '1.0', 'PIN_VERIFIER_JSON', ?, ?)",
+        "INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES (?, 'human', 'active', 'Sid', ?, ?)",
       ).bind(input.principalId, initialNow.toISOString(), initialNow.toISOString()).run();
     } else {
       await env.DB.prepare(

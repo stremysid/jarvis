@@ -71,7 +71,7 @@ describe("DeviceRequestVerifier", () => {
     publicKeyBase64 = base64(rawPublicKey);
     keyFingerprint = await sha256Hex(rawPublicKey);
     await env.DB.prepare(
-      "INSERT INTO principals (principal_id, principal_type, status, display_name, pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at) VALUES ('principal:one', 'human', 'active', 'Sid', '1.0', 'PIN_VERIFIER_JSON', ?, ?)",
+      "INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('principal:one', 'human', 'active', 'Sid', ?, ?)",
     ).bind(now.toISOString(), now.toISOString()).run();
     await env.DB.prepare(
       "INSERT INTO device_keys (device_id, principal_id, key_id, public_key_base64, key_fingerprint, key_generation, algorithm, status, device_label, bootstrap_metadata_hash, created_at) VALUES ('device:one', 'principal:one', 'key:one', ?, ?, 1, 'ed25519', 'active', 'laptop', ?, ?)",

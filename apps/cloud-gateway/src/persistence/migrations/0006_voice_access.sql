@@ -57,10 +57,14 @@ BEFORE INSERT ON call_sessions
 WHEN NEW.direction = 'inbound' AND NOT (
   (
     NEW.activation_only = 0
+    AND NEW.access_kind = 'owner'
     AND EXISTS (
       SELECT 1
       FROM principals p
       JOIN channel_identities i ON i.principal_id = p.principal_id
+      JOIN voice_owner_identity owner
+        ON owner.principal_id = p.principal_id
+        AND owner.identity_id = i.identity_id
       WHERE p.principal_id = NEW.principal_id
         AND p.principal_type = 'human'
         AND p.status = 'active'
@@ -73,10 +77,14 @@ WHEN NEW.direction = 'inbound' AND NOT (
   OR
   (
     NEW.activation_only = 1
+    AND NEW.access_kind = 'owner'
     AND EXISTS (
       SELECT 1
       FROM principals p
       JOIN channel_identities i ON i.principal_id = p.principal_id
+      JOIN voice_owner_identity owner
+        ON owner.principal_id = p.principal_id
+        AND owner.identity_id = i.identity_id
       JOIN identity_challenges c
         ON c.principal_id = p.principal_id
         AND c.identity_id = i.identity_id
@@ -133,6 +141,31 @@ WHEN NEW.direction = 'inbound' AND NOT (
         END
     )
   )
+  OR
+  (
+    NEW.activation_only = 0
+    AND NEW.activation_challenge_id IS NULL
+    AND NEW.activation_hmac_key_version IS NULL
+    AND NEW.access_kind = 'guest'
+    AND EXISTS (
+      SELECT 1
+      FROM principals p
+      JOIN channel_identities i ON i.principal_id = p.principal_id
+      JOIN voice_access_grants grant_row
+        ON grant_row.principal_id = p.principal_id
+        AND grant_row.identity_id = i.identity_id
+      WHERE p.principal_id = NEW.principal_id
+        AND p.principal_type = 'human'
+        AND p.status = 'active'
+        AND i.identity_id = NEW.identity_id
+        AND i.channel = 'voice'
+        AND i.status IN ('pending', 'active')
+        AND grant_row.grant_id = NEW.guest_grant_id
+        AND grant_row.grant_version = NEW.guest_grant_version
+        AND grant_row.access_document_hash = NEW.access_document_hash
+        AND grant_row.status IN ('pending', 'active')
+    )
+  )
 )
 BEGIN
   SELECT RAISE(ABORT, 'inbound_session_lineage_mismatch');
@@ -144,79 +177,82 @@ WHEN OLD.provider_session_id IS NULL
   AND NEW.provider_session_id IS NOT NULL
   AND NOT (
     NEW.phase NOT IN ('completed', 'rejected', 'failed', 'expired')
-    AND (
-      (
-        NEW.direction = 'outbound'
-        AND NEW.nonce_expires_at > NEW.updated_at
-        AND EXISTS (
-          SELECT 1
-          FROM principals p
-          JOIN channel_identities i ON i.principal_id = p.principal_id
-          WHERE p.principal_id = NEW.principal_id
-            AND p.principal_type = 'human'
-            AND p.status = 'active'
-            AND i.identity_id = NEW.identity_id
-            AND i.channel = 'voice'
-            AND i.status = 'active'
-            AND i.verified_at IS NOT NULL
-        )
-      )
-      OR
-      (
-        NEW.direction = 'inbound'
-        AND NEW.relay_setup_expires_at > NEW.updated_at
+    AND ((NEW.direction = 'outbound' AND NEW.nonce_expires_at > NEW.updated_at)
+      OR (NEW.direction = 'inbound' AND NEW.relay_setup_expires_at > NEW.updated_at))
+    AND EXISTS (
+      SELECT 1
+      FROM principals p
+      JOIN channel_identities i ON i.principal_id = p.principal_id
+      WHERE p.principal_id = NEW.principal_id
+        AND p.principal_type = 'human'
+        AND p.status = 'active'
+        AND i.identity_id = NEW.identity_id
+        AND i.channel = 'voice'
         AND (
           (
-            NEW.activation_only = 0
+            NEW.access_kind = 'owner'
+            AND NEW.guest_grant_id IS NULL
+            AND NEW.guest_grant_version IS NULL
+            AND NEW.access_document_hash IS NULL
             AND EXISTS (
-              SELECT 1
-              FROM principals p
-              JOIN channel_identities i ON i.principal_id = p.principal_id
-              WHERE p.principal_id = NEW.principal_id
-                AND p.principal_type = 'human'
-                AND p.status = 'active'
-                AND i.identity_id = NEW.identity_id
-                AND i.channel = 'voice'
+              SELECT 1 FROM voice_owner_identity owner
+              WHERE owner.principal_id = p.principal_id
+                AND owner.identity_id = i.identity_id
+            )
+            AND (
+              (
+                NEW.activation_only = 0
                 AND i.status = 'active'
                 AND i.verified_at IS NOT NULL
+              )
+              OR
+              (
+                NEW.direction = 'inbound'
+                AND NEW.activation_only = 1
+                AND i.status = 'pending'
+                AND i.verified_at IS NULL
+                AND EXISTS (
+                  SELECT 1
+                  FROM identity_challenges c
+                  JOIN device_keys d
+                    ON d.device_id = c.initiating_device_id
+                    AND d.principal_id = c.principal_id
+                  WHERE c.challenge_id = NEW.activation_challenge_id
+                    AND c.principal_id = NEW.principal_id
+                    AND c.identity_id = NEW.identity_id
+                    AND c.channel = 'voice'
+                    AND c.consumed_at IS NULL
+                    AND strftime('%Y-%m-%dT%H:%M:%fZ', c.expires_at) IS c.expires_at
+                    AND strftime('%Y-%m-%dT%H:%M:%fZ', c.created_at) IS c.created_at
+                    AND c.created_at <= NEW.updated_at
+                    AND c.expires_at > NEW.updated_at
+                    AND c.hmac_key_version = NEW.activation_hmac_key_version
+                    AND d.key_id = c.initiating_key_id
+                    AND d.key_fingerprint = c.initiating_key_fingerprint
+                    AND d.key_generation = c.initiating_key_generation
+                    AND d.status = 'active'
+                )
+              )
             )
           )
           OR
           (
-            NEW.activation_only = 1
+            NEW.access_kind = 'guest'
+            AND NEW.activation_only = 0
+            AND NEW.activation_challenge_id IS NULL
+            AND NEW.activation_hmac_key_version IS NULL
+            AND i.status IN ('pending', 'active')
             AND EXISTS (
-              SELECT 1
-              FROM principals p
-              JOIN channel_identities i ON i.principal_id = p.principal_id
-              JOIN identity_challenges c
-                ON c.challenge_id = NEW.activation_challenge_id
-                AND c.principal_id = p.principal_id
-                AND c.identity_id = i.identity_id
-              JOIN device_keys d
-                ON d.device_id = c.initiating_device_id
-                AND d.principal_id = c.principal_id
-              WHERE p.principal_id = NEW.principal_id
-                AND p.principal_type = 'human'
-                AND p.status = 'active'
-                AND i.identity_id = NEW.identity_id
-                AND i.channel = 'voice'
-                AND i.status = 'pending'
-                AND i.verified_at IS NULL
-                AND c.channel = 'voice'
-                AND c.consumed_at IS NULL
-                AND strftime('%Y-%m-%dT%H:%M:%fZ', c.expires_at) IS c.expires_at
-                AND strftime('%Y-%m-%dT%H:%M:%fZ', c.created_at) IS c.created_at
-                AND c.created_at <= NEW.updated_at
-                AND c.expires_at > NEW.updated_at
-                AND c.hmac_key_version = NEW.activation_hmac_key_version
-                AND d.key_id = c.initiating_key_id
-                AND d.key_fingerprint = c.initiating_key_fingerprint
-                AND d.key_generation = c.initiating_key_generation
-                AND d.status = 'active'
+              SELECT 1 FROM voice_access_grants grant_row
+              WHERE grant_row.grant_id = NEW.guest_grant_id
+                AND grant_row.grant_version = NEW.guest_grant_version
+                AND grant_row.access_document_hash = NEW.access_document_hash
+                AND grant_row.principal_id = NEW.principal_id
+                AND grant_row.identity_id = NEW.identity_id
+                AND grant_row.status IN ('pending', 'active')
             )
           )
         )
-      )
     )
   )
 BEGIN

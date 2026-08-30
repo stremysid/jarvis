@@ -4,7 +4,10 @@ import { canonicalJson, sha256Hex, type OutboundCallCommand, type Sha256Hex, typ
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { PolicyAudit } from "../../src/policy/policy-audit.js";
 import { PolicyEngine, snapshotOutboundCallRequest, type MutablePolicyContext } from "../../src/policy/policy-engine.js";
-import { applyFoundationMigration } from "../persistence/migration.js";
+import {
+  applyFoundationMigration,
+  clearVoiceAccessDataForTest,
+} from "../persistence/migration.js";
 
 const instant = new Date("2026-08-30T12:00:00.000Z");
 const expires = "2026-08-30T12:05:00.000Z";
@@ -38,10 +41,42 @@ class TestContext implements MutablePolicyContext {
 }
 
 async function insertPrincipalAndIdentity(principalId = "principal:owner", identityId = "identity:voice", identityPrincipalId = principalId, status = "active", verifiedAt: string | null = instant.toISOString()): Promise<void> {
-  await env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at) VALUES (?, 'human', 'active', 'test', '1.0', 'PIN_VERIFIER_JSON', ?, ?)")
+  await env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES (?, 'human', 'active', 'test', ?, ?)")
     .bind(principalId, instant.toISOString(), instant.toISOString()).run();
   await env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES (?, ?, 'voice', '+14165550123', ?, ?, ?)")
     .bind(identityId, identityPrincipalId, status, verifiedAt, instant.toISOString()).run();
+  if (principalId === "principal:owner" && identityId === "identity:voice" && identityPrincipalId === principalId) {
+    await env.DB.prepare(`INSERT INTO voice_owner_identity (
+      singleton_id, principal_id, identity_id, created_at
+    ) VALUES (1, ?, ?, ?)`)
+      .bind(principalId, identityId, instant.toISOString()).run();
+  }
+}
+
+async function insertGuestGrant(): Promise<void> {
+  const now = instant.toISOString();
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO principals (
+      principal_id, principal_type, status, display_name, created_at, updated_at
+    ) VALUES ('principal:guest', 'human', 'active', 'guest', ?, ?)`)
+      .bind(now, now),
+    env.DB.prepare(`INSERT INTO channel_identities (
+      identity_id, principal_id, channel, provider_subject, status, verified_at, created_at
+    ) VALUES ('identity:guest', 'principal:guest', 'voice', '+14165550111', 'pending', NULL, ?)`)
+      .bind(now),
+    env.DB.prepare(`INSERT INTO voice_access_grants (
+      grant_id, principal_id, identity_id, grant_version, capability_ids_json,
+      resource_scopes_json, access_document_hash, pin_schema_version, pin_algorithm,
+      pin_pepper_version, pin_iterations, pin_salt_base64, pin_digest_base64,
+      status, created_by_identity_id, created_at, activated_at, updated_at, revoked_at
+    ) VALUES ('01k3s6k8000000000000000099', 'principal:guest', 'identity:guest', 1,
+      '["conversation.basic"]',
+      '{"schemaVersion":"1.0","calendarConnectionIds":[],"fileRootIds":[],"pcActionIds":[]}',
+      ?, '2.0', 'hmac-sha256-pepper+pbkdf2-hmac-sha256', 'v1', 600000,
+      'AAAAAAAAAAAAAAAAAAAAAA==', 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+      'pending', 'identity:voice', ?, NULL, ?, NULL)`)
+      .bind("b".repeat(64), now, now),
+  ]);
 }
 
 function request(overrides: Partial<OutboundCallCommand> = {}): OutboundCallCommand {
@@ -58,6 +93,7 @@ describe("PolicyEngine", () => {
 
   beforeEach(async () => {
     await applyFoundationMigration();
+    await clearVoiceAccessDataForTest();
     await env.DB.batch([
       env.DB.prepare("DELETE FROM channel_identities"), env.DB.prepare("DELETE FROM policy_decisions"), env.DB.prepare("DELETE FROM principals"),
       env.DB.prepare("DELETE FROM outbox"), env.DB.prepare("DELETE FROM idempotency_records"), env.DB.prepare("DELETE FROM events"),
@@ -79,6 +115,7 @@ describe("PolicyEngine", () => {
   }
 
   afterEach(async () => {
+    await clearVoiceAccessDataForTest();
     await env.DB.batch([
       env.DB.prepare("DELETE FROM channel_identities"), env.DB.prepare("DELETE FROM policy_decisions"), env.DB.prepare("DELETE FROM principals"),
       env.DB.prepare("DELETE FROM outbox"), env.DB.prepare("DELETE FROM idempotency_records"), env.DB.prepare("DELETE FROM events"),
@@ -101,6 +138,45 @@ describe("PolicyEngine", () => {
     await env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('principal:foreign', 'service', 'active', 'foreign', ?, ?)").bind(instant.toISOString(), instant.toISOString()).run();
     await env.DB.prepare("UPDATE channel_identities SET principal_id = 'principal:foreign', status = 'active' WHERE identity_id = 'identity:voice'").run();
     await expect(evaluate(request({ commandId: "01k3s6k8000000000000000003" as never }))).resolves.toMatchObject({ reason: "destination_not_verified" });
+  });
+
+  it("allows only the owner actor to the owner or an exact live guest grant", async () => {
+    await insertGuestGrant();
+    const guestDestination = request({
+      commandId: "01k3s6k800000000000000001a" as never,
+      destinationIdentityId: "identity:guest",
+    });
+    await expect(evaluate(guestDestination)).resolves.toEqual({ decision: "allow", reason: "allowed" });
+
+    const guestIssued = request({
+      commandId: "01k3s6k800000000000000001b" as never,
+      principalId: "principal:guest",
+    });
+    await expect(evaluate(guestIssued)).resolves.toMatchObject({ reason: "destination_not_verified" });
+
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO principals (
+        principal_id, principal_type, status, display_name, created_at, updated_at
+      ) VALUES ('principal:ungranted', 'human', 'active', 'ungranted', ?, ?)`)
+        .bind(instant.toISOString(), instant.toISOString()),
+      env.DB.prepare(`INSERT INTO channel_identities (
+        identity_id, principal_id, channel, provider_subject, status, verified_at, created_at
+      ) VALUES ('identity:ungranted', 'principal:ungranted', 'voice', '+14165550112', 'active', ?, ?)`)
+        .bind(instant.toISOString(), instant.toISOString()),
+    ]);
+    await expect(evaluate(request({
+      commandId: "01k3s6k800000000000000001c" as never,
+      destinationIdentityId: "identity:ungranted",
+    }))).resolves.toMatchObject({ reason: "destination_not_verified" });
+
+    await env.DB.prepare(`UPDATE voice_access_grants
+      SET grant_version = 2, status = 'revoked', revoked_at = ?, updated_at = ?
+      WHERE grant_id = '01k3s6k8000000000000000099'`)
+      .bind("2026-08-30T12:00:01.000Z", "2026-08-30T12:00:01.000Z").run();
+    await expect(evaluate(request({
+      commandId: "01k3s6k800000000000000001d" as never,
+      destinationIdentityId: "identity:guest",
+    }))).resolves.toMatchObject({ reason: "destination_not_verified" });
   });
 
   it("treats expiry equality and malformed expiry as expired", async () => {
@@ -413,11 +489,12 @@ describe("PolicyEngine", () => {
     expect(check).not.toHaveProperty("destinationE164");
   });
 
-  it("rechecks destination unverification and deletion after authorization", async () => {
+  it("rechecks destination unverification and keeps the owner identity undeletable", async () => {
     await evaluate(request());
     await env.DB.prepare("UPDATE channel_identities SET verified_at = NULL, status = 'pending' WHERE identity_id = 'identity:voice'").run();
     await expect(recheck(request())).resolves.toMatchObject({ decision: "deny", reason: "destination_not_verified" });
-    await env.DB.prepare("DELETE FROM channel_identities WHERE identity_id = 'identity:voice'").run();
+    await expect(env.DB.prepare("DELETE FROM channel_identities WHERE identity_id = 'identity:voice'").run())
+      .rejects.toThrow();
     await expect(recheck(request(), ATTEMPT_1)).resolves.toMatchObject({ decision: "deny", reason: "destination_not_verified" });
   });
 

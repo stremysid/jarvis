@@ -43,6 +43,7 @@ const POLICY_REASONS = new Set<PolicyReason>([
 const BINDING_FIELDS = new Set([
   "callSid", "principalId", "identityId", "destinationIdentityId", "relayNonce",
   "direction", "activationOnly", "activationChallengeId",
+  "accessKind", "guestGrantId", "guestGrantVersion", "accessDocumentHash",
 ]);
 const SESSION_FIELDS = new Set([
   "sessionId", "callSid", "expectedAttemptId", "direction", "phase", "nonceExpiresAt",
@@ -50,7 +51,7 @@ const SESSION_FIELDS = new Set([
 ]);
 const DISPATCH_DEPENDENCY_FIELDS = new Set(["policy", "dispatcher"]);
 const TWIML_DEPENDENCY_FIELDS = new Set([
-  "twilio", "publicOrigin", "recipients", "calls", "initializeSession", "now",
+  "twilio", "publicOrigin", "ownerIdentityId", "recipients", "calls", "initializeSession", "now",
 ]);
 
 export const OUTBOUND_VOICEMAIL_MESSAGE = "Jarvis called for Sid. No private message was left." as const;
@@ -92,6 +93,7 @@ export interface OutboundSessionInitializer {
 export interface OutboundTwiMLDependencies {
   twilio: TwilioRequestVerifier;
   publicOrigin: URL;
+  ownerIdentityId: string;
   recipients: OutboundRecipientIdentityLookup;
   calls: Pick<CallRepository, "claimExpectedCall" | "getOrCreateOutboundSession">;
   initializeSession: OutboundSessionInitializer["initialize"];
@@ -204,6 +206,7 @@ function snapshotBinding(value: unknown, callSid: string, identityId: string): R
     || binding.direction !== "outbound"
     || binding.activationOnly !== false
     || binding.activationChallengeId !== null
+    || !validAccessBinding(binding)
   ) {
     return null;
   }
@@ -216,7 +219,26 @@ function snapshotBinding(value: unknown, callSid: string, identityId: string): R
     direction: "outbound",
     activationOnly: false,
     activationChallengeId: null,
+    accessKind: binding.accessKind as "owner" | "guest",
+    guestGrantId: binding.guestGrantId as string | null,
+    guestGrantVersion: binding.guestGrantVersion as number | null,
+    accessDocumentHash: binding.accessDocumentHash as string | null,
   });
+}
+
+function validAccessBinding(binding: Record<string, unknown>): boolean {
+  if (binding.accessKind === "owner") {
+    return binding.guestGrantId === null
+      && binding.guestGrantVersion === null
+      && binding.accessDocumentHash === null;
+  }
+  return binding.accessKind === "guest"
+    && typeof binding.guestGrantId === "string"
+    && ULID.test(binding.guestGrantId)
+    && Number.isSafeInteger(binding.guestGrantVersion)
+    && (binding.guestGrantVersion as number) > 0
+    && typeof binding.accessDocumentHash === "string"
+    && /^[0-9a-f]{64}$/u.test(binding.accessDocumentHash);
 }
 
 function sameBinding(left: Readonly<RelayBinding>, right: Readonly<RelayBinding>): boolean {
@@ -227,7 +249,11 @@ function sameBinding(left: Readonly<RelayBinding>, right: Readonly<RelayBinding>
     && left.relayNonce === right.relayNonce
     && left.direction === right.direction
     && left.activationOnly === right.activationOnly
-    && left.activationChallengeId === right.activationChallengeId;
+    && left.activationChallengeId === right.activationChallengeId
+    && left.accessKind === right.accessKind
+    && left.guestGrantId === right.guestGrantId
+    && left.guestGrantVersion === right.guestGrantVersion
+    && left.accessDocumentHash === right.accessDocumentHash;
 }
 
 function snapshotOutboundSession(
@@ -316,6 +342,7 @@ export async function claimOutboundTwiML(
     || typeof initializeSession !== "function"
     || typeof now !== "function"
     || trustedOrigin === null
+    || !safeAtom(captured?.ownerIdentityId)
   ) {
     return neutral("unavailable", 503);
   }
@@ -363,6 +390,7 @@ export async function claimOutboundTwiML(
       attemptId,
       callSid,
       observedDestinationIdentityId: observedIdentity,
+      ownerIdentityId: captured.ownerIdentityId,
       now: observedAt,
     }) as RelayBinding | null;
   } catch {

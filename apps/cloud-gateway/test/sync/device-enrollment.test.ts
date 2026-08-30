@@ -2,17 +2,9 @@ import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { sha256Hex } from "../../../../packages/contracts/src/index.js";
 import { DeviceEnrollment, type DeviceEnrollmentIdFactory } from "../../src/sync/device-enrollment.js";
-import { applyFoundationMigration } from "../persistence/migration.js";
+import { applyFoundationMigration, clearVoiceAccessDataForTest } from "../persistence/migration.js";
 
 const now = new Date("2026-08-30T12:00:00.000Z");
-const pinVerifierJson = JSON.stringify({
-  schemaVersion: "1.0",
-  algorithm: "pbkdf2-hmac-sha256",
-  iterations: 600_000,
-  saltBase64: btoa(String.fromCharCode(...Uint8Array.from({ length: 16 }, (_, index) => index + 11))),
-  digestBase64: btoa(String.fromCharCode(...Uint8Array.from({ length: 32 }, (_, index) => index + 31))),
-});
-
 function base64Url(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 }
@@ -60,6 +52,7 @@ async function count(table: string): Promise<number> {
 describe("DeviceEnrollment", () => {
   beforeEach(async () => {
     await applyFoundationMigration();
+    await clearVoiceAccessDataForTest();
     await env.DB.batch([
       env.DB.prepare("DELETE FROM sync_ack_receipts"),
       env.DB.prepare("DELETE FROM sync_snapshots"),
@@ -74,10 +67,10 @@ describe("DeviceEnrollment", () => {
   });
 
   function service(overrides: Partial<ConstructorParameters<typeof DeviceEnrollment>[0]> = {}) {
-    return new DeviceEnrollment({ database: env.DB, pinVerifierJson, now: () => now, ids: ids(), ...overrides });
+    return new DeviceEnrollment({ database: env.DB, now: () => now, ids: ids(), ...overrides });
   }
 
-  it("atomically consumes one exact 256-bit token and creates the sole human, current device key, pending identities, and cursor", async () => {
+  it("atomically creates the PIN-free human and exactly one pending owner voice identity", async () => {
     await provision();
 
     const enrolled = await service().bootstrap(input());
@@ -91,8 +84,12 @@ describe("DeviceEnrollment", () => {
       telegramIdentityId: "identity:first:telegram",
       recovered: false,
     });
-    expect(await env.DB.prepare("SELECT principal_type, status, pin_verifier_version, pin_verifier_secret_ref FROM principals").first()).toEqual({
-      principal_type: "human", status: "active", pin_verifier_version: "1.0", pin_verifier_secret_ref: "PIN_VERIFIER_JSON",
+    expect(await env.DB.prepare("SELECT principal_type, status FROM principals").first()).toEqual({
+      principal_type: "human", status: "active",
+    });
+    expect(await env.DB.prepare("SELECT principal_id, identity_id FROM voice_owner_identity WHERE singleton_id = 1").first()).toEqual({
+      principal_id: enrolled.principalId,
+      identity_id: enrolled.phoneIdentityId,
     });
     expect(await env.DB.prepare("SELECT status, key_generation, public_key_base64, device_label FROM device_keys").first()).toEqual({
       status: "active", key_generation: 1, public_key_base64: publicKeyBase64, device_label: "Jarvis laptop",
@@ -189,17 +186,6 @@ describe("DeviceEnrollment", () => {
         "INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at, enrolled_by_device_id) VALUES ('identity:decoy:telegram', 'principal:first', 'telegram', '111111', 'pending', NULL, ?, 'device:first')",
       ).bind(now.toISOString()),
     ]);
-    // Make the decoys older than the canonical rows so the unconstrained query
-    // deterministically reproduces the original cross-product bug.
-    await env.DB.batch([
-      env.DB.prepare("DELETE FROM channel_identities WHERE identity_id IN ('identity:first:voice', 'identity:first:telegram')"),
-      env.DB.prepare(
-        "INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at, enrolled_by_device_id) VALUES ('identity:first:voice', 'principal:first', 'voice', '+14165550123', 'pending', NULL, ?, 'device:first')",
-      ).bind(now.toISOString()),
-      env.DB.prepare(
-        "INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at, enrolled_by_device_id) VALUES ('identity:first:telegram', 'principal:first', 'telegram', '424242', 'pending', NULL, ?, 'device:first')",
-      ).bind(now.toISOString()),
-    ]);
     await provision(secondToken, "2026-08-30T12:15:00.000Z", "bootstrap:recovery");
 
     const recovered = await service({ ids: ids("different") }).bootstrap(input({ bootstrapToken: secondToken }));
@@ -225,31 +211,14 @@ describe("DeviceEnrollment", () => {
     expect((await env.DB.prepare("SELECT consumed_at FROM bootstrap_tokens WHERE bootstrap_token_id = 'bootstrap:recovery'").first<{ consumed_at: string | null }>())?.consumed_at).toBeNull();
   });
 
-  it("validates the injected PIN verifier schema before any mutation", async () => {
-    await provision();
-    const salt = btoa(String.fromCharCode(...new Uint8Array(16)));
-    const digest = btoa(String.fromCharCode(...new Uint8Array(32)));
-    for (const invalid of [
-      "not-json", "{}",
-      JSON.stringify({ schemaVersion: "2.0", algorithm: "pbkdf2-hmac-sha256", iterations: 600_000, saltBase64: salt, digestBase64: digest }),
-      JSON.stringify({ schemaVersion: "1.0", algorithm: "plain", iterations: 600_000, saltBase64: salt, digestBase64: digest }),
-      JSON.stringify({ schemaVersion: "1.0", algorithm: "pbkdf2-hmac-sha256", iterations: 599_999, saltBase64: salt, digestBase64: digest }),
-      JSON.stringify({ schemaVersion: "1.0", algorithm: "pbkdf2-hmac-sha256", iterations: 600_000, saltBase64: btoa("short"), digestBase64: digest }),
-    ]) {
-      await expect(service({ pinVerifierJson: invalid }).bootstrap(input())).rejects.toThrow("pin_verifier_invalid");
-    }
-    expect((await env.DB.prepare("SELECT consumed_at FROM bootstrap_tokens").first<{ consumed_at: string | null }>())?.consumed_at).toBeNull();
-    expect(await count("principals")).toBe(0);
-  });
-
-  it("never persists the plaintext bootstrap token or PIN verifier", async () => {
+  it("never persists the plaintext bootstrap token or reusable PIN material", async () => {
     await provision();
     await service().bootstrap(input());
     const dump = await env.DB.prepare("SELECT token_hash, issued_by, device_label FROM bootstrap_tokens").all();
-    const principal = await env.DB.prepare("SELECT pin_verifier_version, pin_verifier_secret_ref FROM principals").all();
+    const principal = await env.DB.prepare("SELECT * FROM principals").all();
 
     expect(JSON.stringify([dump.results, principal.results])).not.toContain(token);
     expect(JSON.stringify([dump.results, principal.results])).not.toContain("digestBase64");
-    expect(JSON.stringify(principal.results)).toContain("PIN_VERIFIER_JSON");
+    expect(JSON.stringify(principal.results)).not.toContain("PIN_VERIFIER_JSON");
   });
 });
