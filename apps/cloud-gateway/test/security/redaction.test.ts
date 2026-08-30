@@ -22,4 +22,18 @@ describe("Redactor", () => {
       category: "ingest_redaction_failed",
     });
   });
+
+  it.each([
+    "Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==",
+    "Authorization: Bearer secret-token-value",
+  ])("redacts an authorization header regardless of scheme", (input) => {
+    const result = new Redactor().redactText(input);
+
+    expect(result).toMatchObject({
+      ok: true,
+      text: "[REDACTED_AUTHORIZATION]",
+      markers: ["authorization"],
+    });
+    if (result.ok) expect(result.text).not.toContain("secret");
+  });
 });

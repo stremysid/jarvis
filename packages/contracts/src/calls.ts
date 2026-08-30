@@ -2,6 +2,9 @@ import type { Sha256Hex, Ulid } from "./ids.js";
 
 const redactionToken = Symbol("redactionToken");
 const issuedRedactions = new WeakSet<object>();
+const AUTHENTICATION_DIGITS = /(?<!\d)\d{6}(?!\d)/g;
+const AUTHORIZATION_HEADER = /\bauthorization\s*:\s*[^\r\n]*/gi;
+const CREDENTIALS = /\b(?:api[_-]?key\s*[=:]|password\s*[=:])\s*[^\s,;]+/gi;
 
 export interface OutboundCallCommand {
   commandId: Ulid;
@@ -39,8 +42,7 @@ export interface FailedRedaction {
 
 export type RedactionResult = SuccessfulRedaction | FailedRedaction;
 
-/** Internal issuer used by the ingress Redactor after it has removed secrets. */
-export function issueRedaction(text: string, markers: readonly string[]): SuccessfulRedaction {
+function issueSanitizedRedaction(text: string, markers: readonly string[]): SuccessfulRedaction {
   if (!text.isWellFormed() || text !== text.normalize("NFC") || markers.some((marker) => !marker.isWellFormed() || marker !== marker.normalize("NFC"))) {
     throw new TypeError("redaction text and markers must be NFC-normalized");
   }
@@ -58,6 +60,35 @@ export function issueRedaction(text: string, markers: readonly string[]): Succes
 /** Recognizes only tokens minted by issueRedaction in this module instance. */
 export function isIssuedRedaction(value: unknown): value is SuccessfulRedaction {
   return value !== null && typeof value === "object" && issuedRedactions.has(value);
+}
+
+/**
+ * The only redaction-token issuer. It removes secrets before minting an opaque,
+ * frozen token; failure values never retain the original input.
+ */
+export function sanitizeRedaction(text: string): RedactionResult {
+  try {
+    if (typeof text !== "string" || !text.isWellFormed()) return { ok: false, category: "ingest_redaction_failed" };
+    const markers: string[] = [];
+    const mark = (marker: string) => {
+      if (!markers.includes(marker)) markers.push(marker);
+    };
+    let redacted = text.replace(AUTHORIZATION_HEADER, () => {
+      mark("authorization");
+      return "[REDACTED_AUTHORIZATION]";
+    });
+    redacted = redacted.replace(CREDENTIALS, () => {
+      mark("credential");
+      return "[REDACTED_CREDENTIAL]";
+    });
+    redacted = redacted.replace(AUTHENTICATION_DIGITS, () => {
+      mark("authentication_digits");
+      return "[REDACTED_AUTH_DIGITS]";
+    });
+    return issueSanitizedRedaction(redacted.normalize("NFC"), markers);
+  } catch {
+    return { ok: false, category: "ingest_redaction_failed" };
+  }
 }
 
 export interface Redactor {

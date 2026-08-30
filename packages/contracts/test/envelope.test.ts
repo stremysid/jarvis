@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createEnvelope, validateEnvelope, type CreateEnvelopeInput } from "../src";
+import { canonicalJson, createEnvelope, validateEnvelope, type CreateEnvelopeInput } from "../src";
 import { Redactor } from "../../../apps/cloud-gateway/src/security/redaction";
 
 function redacted(text: string) {
@@ -10,7 +10,7 @@ function redacted(text: string) {
 
 const initialRedaction = redacted("e\u0301");
 
-const input: CreateEnvelopeInput<{ text: string }> = {
+const input: CreateEnvelopeInput = {
   schemaVersion: "1.0",
   eventId: "01j00000000000000000000000",
   eventType: "message.committed",
@@ -20,8 +20,7 @@ const input: CreateEnvelopeInput<{ text: string }> = {
   receivedAt: "2026-08-29T00:00:00.000Z",
   correlationId: "01j00000000000000000000001",
   contentType: "application/json",
-  payload: { text: initialRedaction.text },
-  redaction: initialRedaction,
+  payload: initialRedaction,
   producerVersion: "0.1.0",
 } as const;
 
@@ -31,7 +30,7 @@ describe("event envelopes", () => {
 
     expect(envelope).toMatchObject({
       contentType: "application/json",
-      payload: { text: "é" },
+      payload: "é",
     });
     expect(envelope.contentHash).toMatch(/^[a-f0-9]{64}$/);
     await expect(validateEnvelope(envelope)).resolves.toEqual(envelope);
@@ -42,11 +41,10 @@ describe("event envelopes", () => {
 
     const envelope = await createEnvelope({
       ...input,
-      payload: { text: result.text, safeField: "kept" },
-      redaction: result,
+      payload: { text: result, safeField: result },
     } as never);
 
-    expect(envelope.payload).toEqual({ text: "Your sign-in code is [REDACTED_AUTH_DIGITS].", safeField: "kept" });
+    expect(envelope.payload).toEqual({ text: "Your sign-in code is [REDACTED_AUTH_DIGITS].", safeField: "Your sign-in code is [REDACTED_AUTH_DIGITS]." });
   });
 
   it("normalizes producer-controlled envelope headers", async () => {
@@ -54,8 +52,7 @@ describe("event envelopes", () => {
     const envelope = await createEnvelope({
       ...input,
       source: "te\u0301legram",
-      payload: { text: result.text },
-      redaction: result,
+      payload: result,
     } as never);
 
     expect(envelope.source).toBe("télegram");
@@ -69,14 +66,52 @@ describe("event envelopes", () => {
     } as never)).rejects.toThrow("redaction");
   });
 
-  it("rejects raw text that does not match the successful redaction result", async () => {
+  it("rejects the legacy separate payload/redaction association", async () => {
     const result = redacted("Your sign-in code is 123456.");
 
     await expect(createEnvelope({
       ...input,
       payload: { text: "Your sign-in code is 123456." },
       redaction: result,
-    } as never)).rejects.toThrow("payload.text");
+    } as never)).rejects.toThrow();
+  });
+
+  it.each([
+    ["an alternative top-level property", { alternative: "raw ingress" }],
+    ["a nested property", { nested: { alternative: "raw ingress" } }],
+    ["an array element", { values: ["raw ingress"] }],
+  ])("rejects raw strings in %s", async (_label, payload) => {
+    await expect(createEnvelope({ ...input, payload } as never)).rejects.toThrow("issued redaction token");
+  });
+
+  it("rejects a forged redaction token nested in the payload", async () => {
+    await expect(createEnvelope({
+      ...input,
+      payload: { nested: { text: { ok: true, text: "forged", markers: [] } } },
+    } as never)).rejects.toThrow("forged redaction token");
+  });
+
+  it("rejects producer-only additive fields", async () => {
+    await expect(createEnvelope({
+      ...input,
+      producerBuild: redacted("ingress text"),
+    } as never)).rejects.toThrow("unsupported producer field");
+  });
+
+  it("materializes a nested payload from multiple issued redactions and combines markers", async () => {
+    const plain = redacted("plain text");
+    const secret = redacted("Code 123456");
+    const envelope = await createEnvelope({
+      ...input,
+      payload: { title: plain, nested: [secret, { alternate: plain }] },
+    } as never);
+
+    expect(envelope.payload).toEqual({
+      title: "plain text",
+      nested: ["Code [REDACTED_AUTH_DIGITS]", { alternate: "plain text" }],
+    });
+    expect(envelope.redaction).toEqual({ status: "redacted", markers: ["authentication_digits"] });
+    expect(canonicalJson(envelope.payload)).not.toContain("123456");
   });
 
   it("rejects an envelope whose hash does not match its payload", async () => {

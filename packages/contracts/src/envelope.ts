@@ -20,20 +20,40 @@ export interface EventEnvelopeV1<T extends JsonValue = JsonValue> {
   producerVersion: string;
 }
 
+/** Producer payloads permit only issued redaction tokens wherever text appears. */
+export type RedactedJsonValue =
+  | null
+  | boolean
+  | number
+  | SuccessfulRedaction
+  | readonly RedactedJsonValue[]
+  | { readonly [key: string]: RedactedJsonValue };
+
 export type EventEnvelope<T extends JsonValue = JsonValue> = EventEnvelopeV1<T>;
-/**
- * Event producers must pass the successful output from Redactor rather than
- * any raw ingress message shape. The stored envelope records only its status
- * and markers, never the redactor's transient source text field.
- */
-export type CreateEnvelopeInput<T extends JsonValue> = Omit<EventEnvelopeV1<T>, "contentHash" | "redaction"> & {
-  redaction: SuccessfulRedaction;
-};
+export interface CreateEnvelopeInput {
+  schemaVersion: "1.0";
+  eventId: Ulid;
+  eventSequence?: number;
+  eventType: string;
+  source: string;
+  subjectId: string;
+  occurredAt: string;
+  receivedAt: string;
+  correlationId: Ulid;
+  causationId?: Ulid;
+  contentType: "application/json";
+  payload: RedactedJsonValue;
+  producerVersion: string;
+}
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const SCHEMA_VERSION = /^(\d+)\.(\d+)$/;
+const CREATE_FIELDS = new Set([
+  "schemaVersion", "eventId", "eventSequence", "eventType", "source", "subjectId", "occurredAt", "receivedAt",
+  "correlationId", "causationId", "contentType", "payload", "producerVersion",
+]);
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${label} must be an object`);
@@ -74,24 +94,52 @@ function requireRedaction(value: unknown): void {
   }
 }
 
-/** Creates an event only from a payload that has crossed the redaction boundary. */
-export async function createEnvelope<T extends JsonValue>(input: CreateEnvelopeInput<T>): Promise<EventEnvelopeV1<T>> {
-  const { redaction, payload: rawPayload, ...headers } = input;
-  if (!isIssuedRedaction(redaction)) throw new TypeError("redaction must be a successful issued redaction token");
-  const payload = normalizeJsonText(rawPayload) as T;
-  if (payload !== null && typeof payload === "object" && !Array.isArray(payload) && Object.hasOwn(payload, "text")) {
-    const payloadRecord = payload as Record<string, JsonValue>;
-    if (typeof payloadRecord.text !== "string" || payloadRecord.text !== redaction.text) {
-      throw new TypeError("payload.text must match the successful redaction result");
-    }
+function materializePayload(value: unknown, markers: Set<string>, path = "payload"): JsonValue {
+  if (isIssuedRedaction(value)) {
+    for (const marker of value.markers) markers.add(marker);
+    return value.text;
   }
-  const normalizedHeaders = normalizeJsonText(headers) as Record<string, JsonValue>;
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new TypeError(`${path} must not contain a non-finite number`);
+    return value;
+  }
+  if (typeof value === "string") throw new TypeError(`${path} must be an issued redaction token, not raw text`);
+  if (typeof value === "undefined") throw new TypeError(`${path} must not contain undefined`);
+  if (Array.isArray(value)) {
+    const materialized: JsonValue[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      if (!Object.hasOwn(value, index)) throw new TypeError(`${path} must not contain sparse arrays`);
+      materialized.push(materializePayload(value[index], markers, `${path}[${index}]`));
+    }
+    return materialized;
+  }
+  if (typeof value !== "object" || Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) {
+    throw new TypeError(`${path} must be a redacted JSON value`);
+  }
+  const record = value as Record<string, unknown>;
+  if (record.ok === true && Object.hasOwn(record, "text")) throw new TypeError(`${path} contains a forged redaction token`);
+  const materialized: Record<string, JsonValue> = Object.create(null) as Record<string, JsonValue>;
+  for (const key of Object.keys(record)) materialized[key] = materializePayload(record[key], markers, `${path}.${key}`);
+  return materialized;
+}
+
+/** Creates an event from tokenized text and safe JSON structure only. */
+export async function createEnvelope(input: CreateEnvelopeInput): Promise<EventEnvelopeV1> {
+  const candidate = requireRecord(input, "envelope input");
+  for (const key of Object.keys(candidate)) {
+    if (!CREATE_FIELDS.has(key)) throw new TypeError(`unsupported producer field: ${key}`);
+  }
+  const { payload: rawPayload, ...rawHeaders } = candidate;
+  const markers = new Set<string>();
+  const payload = normalizeJsonText(materializePayload(rawPayload, markers));
+  const headers = normalizeJsonText(rawHeaders) as Record<string, JsonValue>;
   const envelope = {
-    ...normalizedHeaders,
+    ...headers,
     payload,
-    redaction: { status: redaction.markers.length > 0 ? "redacted" : "none", markers: [...redaction.markers] },
+    redaction: { status: markers.size > 0 ? "redacted" : "none", markers: [...markers] },
     contentHash: await sha256Hex(canonicalJson(payload)),
-  } as EventEnvelopeV1<T>;
+  } as EventEnvelopeV1;
   await validateEnvelope(envelope);
   return envelope;
 }
