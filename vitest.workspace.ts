@@ -9,6 +9,7 @@ const syntheticPinVerifier = JSON.stringify({
   saltBase64: "AAAAAAAAAAAAAAAAAAAAAA==",
   digestBase64: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 });
+const syntheticPrivateBinding = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 
 // Wrangler validates required secrets before Miniflare applies explicit bindings.
 // Force the test process to use the public synthetic fixture, never a developer's real verifier.
@@ -21,6 +22,11 @@ export default defineConfig({
       miniflare: {
         bindings: {
           PIN_VERIFIER_JSON: syntheticPinVerifier,
+          OWNER_VOICE_IDENTITY_ID: "identity:synthetic-owner:voice",
+          GUEST_PIN_PEPPER_V1: syntheticPrivateBinding,
+          AUTHENTICATION_BUDGET_PEPPER: syntheticPrivateBinding,
+          IDENTITY_CHALLENGE_HMAC_PEPPER: syntheticPrivateBinding,
+          DEFAULT_GUEST_PIN: "4827",
         },
       },
       wrangler: {

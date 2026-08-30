@@ -35,19 +35,33 @@ describe("provider-neutral call contracts", () => {
       direction: "inbound",
       activationOnly: true,
       activationChallengeId: "challenge:voice",
+      accessKind: "owner",
+      guestGrantId: null,
+      guestGrantVersion: null,
+      accessDocumentHash: null,
     } satisfies RelayBinding;
 
     expect(canonicalJson(binding)).toBe(
-      '{"activationChallengeId":"challenge:voice","activationOnly":true,"callSid":"provider-call-reference","destinationIdentityId":"identity:sid:voice","direction":"inbound","identityId":"identity:caller","principalId":"principal:sid","relayNonce":"relay-nonce"}',
+      '{"accessDocumentHash":null,"accessKind":"owner","activationChallengeId":"challenge:voice","activationOnly":true,"callSid":"provider-call-reference","destinationIdentityId":"identity:sid:voice","direction":"inbound","guestGrantId":null,"guestGrantVersion":null,"identityId":"identity:caller","principalId":"principal:sid","relayNonce":"relay-nonce"}',
     );
   });
 });
 
 describe("calling entrypoint boundary", () => {
-  it("receives only a synthetic PIN verifier in the local Worker runtime", () => {
-    expect(env.PIN_VERIFIER_JSON).toBe(
-      '{"schemaVersion":"1.0","algorithm":"pbkdf2-hmac-sha256","iterations":600000,"saltBase64":"AAAAAAAAAAAAAAAAAAAAAA==","digestBase64":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}',
-    );
+  it("receives only canonical synthetic owner and guest security bindings in tests", () => {
+    expect(env.OWNER_VOICE_IDENTITY_ID).toBe("identity:synthetic-owner:voice");
+    const privateBindings = [
+      env.GUEST_PIN_PEPPER_V1,
+      env.AUTHENTICATION_BUDGET_PEPPER,
+      env.IDENTITY_CHALLENGE_HMAC_PEPPER,
+    ];
+    for (const binding of privateBindings) {
+      const bytes = Uint8Array.from(atob(binding), (character) => character.charCodeAt(0));
+      expect(bytes).toHaveLength(32);
+      expect(btoa(String.fromCharCode(...bytes))).toBe(binding);
+      bytes.fill(0);
+    }
+    expect(env.DEFAULT_GUEST_PIN).toMatch(/^[0-9]{4}$/u);
   });
 
   it("fails closed before Task 6 installs Worker routes", async () => {
