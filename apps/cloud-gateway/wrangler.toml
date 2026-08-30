@@ -1,0 +1,21 @@
+name = "jarvis-cloud-gateway"
+main = "src/call-session-stub.ts"
+compatibility_date = "2026-08-22"
+
+[exports.CallSessionStub]
+type = "durable-object"
+storage = "sqlite"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "jarvis"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "src/persistence/migrations"
+
+[[r2_buckets]]
+binding = "ARCHIVE"
+bucket_name = "jarvis-archive"
+
+[[durable_objects.bindings]]
+name = "CALL_SESSION"
+class_name = "CallSessionStub"

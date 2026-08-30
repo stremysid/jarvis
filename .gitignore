@@ -6,6 +6,7 @@ node_modules/
 .dev.vars
 .env
 .env.*
+.env*
 !.env.example
 .secrets/
 __pycache__/

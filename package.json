@@ -1,0 +1,24 @@
+{
+  "name": "jarvis",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=24.19.0 <25"
+  },
+  "scripts": {
+    "lint": "pnpm --filter @jarvis/cloud-gateway lint",
+    "typecheck": "pnpm --filter @jarvis/cloud-gateway typecheck",
+    "test": "vitest --config vitest.workspace.ts run",
+    "test:cloud": "pnpm --filter @jarvis/cloud-gateway test",
+    "test:acceptance": "vitest --config vitest.workspace.ts run tests/acceptance"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/workers-types": "^5.20260830.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.127.1"
+  }
+}

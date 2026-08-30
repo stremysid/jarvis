@@ -1,0 +1,11 @@
+{
+  "name": "@jarvis/cloud-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --config ../../vitest.workspace.ts run"
+  }
+}
