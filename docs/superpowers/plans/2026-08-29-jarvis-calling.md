@@ -287,15 +287,15 @@ describe("current ConversationRelay boundary", () => {
 
 Add negative tables for binary-equivalent/oversized text, malformed JSON, invalid SIDs/nonces/directions, multi-character DTMF, mixed known event fields, unknown types, and forbidden synthetic `disconnect`/old `speech` frames. Assert that parsing an error never returns its description.
 
-Render TwiML with explicit test settings (`en-US`, Deepgram `nova-3-general`, Google `en-US-Journey-O`) and assert exact XML escaping, `Connect method="POST"`, `dtmfDetection="true"`, `partialPrompts="false"`, `interruptible="any"`, `reportInputDuringAgentSpeech="dtmf"`, the explicit STT/TTS settings, one nonce parameter, and no identity/purpose/PIN data.
+Render TwiML with explicit test settings (`en-US`, Deepgram `nova-3-general`, Google `en-US-Journey-O`) and assert exact XML escaping, `Connect method="POST"`, `dtmfDetection="true"`, `partialPrompts="false"`, `interruptible="any"`, `reportInputDuringAgentSpeech="any"`, the explicit STT/TTS settings, one nonce parameter, and no identity/purpose/PIN data. Task 6 ignores all pre-auth prompts, so enabling speech reporting for authenticated barge-in does not cross the privacy boundary.
 
 - [ ] **Step 2: Write failing REST, signature, and ambiguous-dispatch tests**
 
 Use an injected fetch spy and synthetic credentials. Assert the exact fixed URL, API-key Basic authentication, bounded timeout, form encoding, configured `From`, `Method=POST`, `StatusCallbackMethod=POST`, four separate callback event pairs, `TimeLimit=1800`, and bounded ring timeout. Assert no idempotency header is sent.
 
-Test the documented Twilio signature vector plus wrong signatures, exact percent-encoded query preservation, leading/trailing form whitespace, duplicate and additive form fields, malformed percent encoding, invalid UTF-8, wrong content type, and WebSocket GET signing. A successful webhook verification must return an immutable parsed multimap; a failed verification returns `null` and exposes no parsed values.
+Test the documented Twilio signature vector plus wrong signatures, exact percent-encoded query preservation, leading/trailing form whitespace, duplicate and additive form fields, malformed percent encoding, invalid UTF-8, wrong content type, and WebSocket GET signing. Match the official SDK's multi-value rule: sort parameter names, then de-duplicate and sort repeated values before appending them. A successful webhook verification must return an immutable parsed multimap; a failed verification returns `null` and exposes no parsed values.
 
-Test response validation for matching Account SID/CallSid, auth failure, permanent 4xx, explicit 429, network timeout, 5xx, oversized body, and malformed/mismatched success bodies. The ambiguous cases must throw `ProviderDispatchUnknownError`. Extend the fake with an accepted-but-response-lost control and prove replay returns the same unknown result without a second provider request.
+Test response validation for matching Account SID/CallSid, auth failure, permanent 4xx, explicit 429, network timeout, 5xx, oversized body, and malformed/mismatched success bodies. The ambiguous cases must throw `ProviderDispatchUnknownError`. Extend the fake with an accepted-but-response-lost control and prove a direct replay creates a second provider attempt, making the later durable no-retry gate testable instead of masking it.
 
 - [ ] **Step 3: Run the tests to verify they fail**
 
@@ -346,21 +346,21 @@ Measure UTF-8 frame bytes before JSON parsing, enforce provider SID/nonce/direct
 
 `TwilioRestProvider.createCall` uses only `https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Calls.json`, injected `fetch`, one abort timeout, API-key SID/secret Basic authentication, and a streaming response reader capped at 64 KiB. It performs no retry and never logs the auth material, destination, signature, request body, or response body. An explicit 401/403 is authentication failure, an explicit 429 is rate limited, other non-5xx 4xx responses are permanent invalid requests, and every possibly accepted or indeterminate outcome is `provider_dispatch_unknown`.
 
-`TwilioSignatureVerifier` uses the primary Auth Token only for HMAC-SHA1. It signs the exact URL string plus every strictly decoded form pair sorted case-sensitively by name, then uses Web Crypto verification against the strict Base64 header. The WebSocket path signs the exact WSS URL with no form body. It never derives the public URL from forwarded headers.
+`TwilioSignatureVerifier` uses the primary Auth Token only for HMAC-SHA1. It signs the exact URL string plus strictly decoded parameters using the official SDK ordering: names sorted case-sensitively, with repeated values de-duplicated and sorted before appending. It then uses Web Crypto verification against the strict Base64 header. The WebSocket path signs the exact WSS URL with no form body. It never derives the public URL from forwarded headers.
 
-Extend `FakeTwilioProvider` with signature controls and `acceptAndLoseNextResponse()`. Preserve existing deterministic known-result and safe-failure behavior, but permanently bind an ambiguous accepted attempt so replay cannot issue a second request.
+Extend `FakeTwilioProvider` with signature controls and `acceptAndLoseNextResponse()`. Correct the foundation fake so every direct `createCall` invocation is a non-idempotent provider attempt: it may log the local correlation key but must not cache, coalesce, conflict, or suppress a replay. Telegram's fake retains its idempotency behavior. Task 3/7 owns the durable gate that prevents Jarvis from making the second Twilio invocation.
 
 - [ ] **Step 7: Run focused and full verification**
 
 Run: `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/providers/twilio.test.ts apps/cloud-gateway/test/providers/conversation-relay.test.ts apps/cloud-gateway/test/providers/fakes.test.ts`
 
-Expected: PASS with the official relay fixtures, signature vector, exact REST request, ambiguous-dispatch containment, and existing fake behavior green.
+Expected: PASS with the official relay fixtures, signature vector and multi-value behavior, exact REST request, ambiguous-dispatch classification, faithful non-idempotent Twilio fake, and existing non-Twilio fake behavior green.
 
 Run: `pnpm test && pnpm typecheck && pnpm lint && pnpm audit --audit-level high`
 
 - [ ] **Step 8: Independently review and commit the provider boundary**
 
-Require separate plan-compliance and code/security reviews. The review must explicitly check that no automatic Twilio POST retry exists, the fake contains response loss, raw provider content cannot escape error/interrupt paths, and verified forms cannot be forged by parsing unverified request bodies in a route.
+Require separate plan-compliance and code/security reviews. The review must explicitly check that no automatic Twilio POST retry or fake idempotency exists, the fake exposes response-loss duplicate risk for later orchestration tests, raw provider content cannot escape error/interrupt paths, and verified forms cannot be forged by parsing unverified request bodies in a route.
 
 ```bash
 git add apps/cloud-gateway/src/providers/provider-types.ts apps/cloud-gateway/src/providers/fake-twilio-provider.ts apps/cloud-gateway/src/providers/twilio-provider.ts apps/cloud-gateway/src/providers/twilio-verifier.ts apps/cloud-gateway/src/providers/conversation-relay.ts apps/cloud-gateway/src/voice/twiml.ts apps/cloud-gateway/test/providers/twilio.test.ts apps/cloud-gateway/test/providers/conversation-relay.test.ts

@@ -16,7 +16,7 @@ Use small Workers-native adapters rather than Twilio's Node SDK:
 2. A TwiML renderer emits an explicit, DTMF-enabled ConversationRelay configuration and carries only an opaque relay nonce.
 3. A REST provider owns fixed-host call creation, Basic authentication, response limits, and result validation.
 4. A signature verifier owns exact-URL signing, form decoding, HMAC verification, and the immutable verified-form capability.
-5. A deterministic fake models both known outcomes and the accepted-but-response-lost case.
+5. A deterministic fake models both known outcomes and the accepted-but-response-lost case without pretending Twilio honors local idempotency keys.
 
 This avoids adding a Node compatibility layer to the Worker and prevents provider objects or raw provider payloads from escaping the adapter boundary.
 
@@ -37,7 +37,7 @@ WebSocket closure is handled by the Durable Object socket-close callback, not a 
 The renderer requires a `wss://` session URL, an `https://` action URL, a 32-byte base64url relay nonce, and an explicit tested voice configuration. It emits:
 
 - `<Connect action="..." method="POST">`
-- `<ConversationRelay>` with `dtmfDetection="true"`, `partialPrompts="false"`, `interruptible="any"`, `reportInputDuringAgentSpeech="dtmf"`, explicit language, STT provider/model, and TTS provider/voice
+- `<ConversationRelay>` with `dtmfDetection="true"`, `partialPrompts="false"`, `interruptible="any"`, `reportInputDuringAgentSpeech="any"`, explicit language, STT provider/model, and TTS provider/voice
 - exactly one `<Parameter name="relayNonce" ...>` child
 
 No purpose, identity, phone number, PIN, activation value, prompt, or memory text enters TwiML. All attributes are XML-escaped. HTTP handlers return the document with `text/xml` and `Cache-Control: no-store`.
@@ -63,7 +63,7 @@ For form webhooks it:
 
 1. requires POST and `application/x-www-form-urlencoded`;
 2. decodes the bounded raw body exactly once using strict UTF-8 and strict percent encoding;
-3. includes every form pair, sorted case-sensitively by name, in Twilio's HMAC-SHA1 input;
+3. sorts parameter names case-sensitively and, for repeated names, appends the de-duplicated values in sorted order to match Twilio's official validator;
 4. verifies the Base64 signature with Web Crypto; and
 5. returns an immutable branded accessor over the already parsed multimap only after verification.
 
@@ -73,7 +73,7 @@ For WebSocket upgrades it requires GET and verifies the exact configured WSS URL
 
 Task 2 is test-driven with current official fixtures for setup, final/partial prompt, one-digit DTMF, interrupt, error, malformed frames, mixed frames, and TwiML structure. REST tests assert exact form multiplicity, fixed host, caller number, callback methods/events, time limits, bounded parsing, and API-key authentication without exposing credentials. Signature tests cover the official Twilio vector, extra and duplicate form parameters, exact encoded query strings, whitespace, malformed forms, wrong signatures, and WebSocket URLs.
 
-The fake must simulate response loss after provider acceptance and prove replay does not issue a second request. No live or paid call is made in automated tests. Before release, a credentialed smoke test must validate the chosen STT/TTS combination, the exact signed WSS handshake representation, DTMF delivery, callback schemas, and any provider playback event used as delivery evidence.
+The fake must simulate response loss after provider acceptance and demonstrate that calling the provider again would create a duplicate. Task 3/7 orchestration must prove that a persisted unknown outcome prevents that second invocation. No live or paid call is made in automated tests. Before release, a credentialed smoke test must validate the chosen STT/TTS combination, the exact signed WSS handshake representation, DTMF delivery, callback schemas, and any provider playback event used as delivery evidence.
 
 Until that playback acknowledgement is proven, Jarvis records assistant output as `sent_to_provider`, not `delivered_to_caller`, and does not commit it to conversational history under the existing delivered-only rule.
 
