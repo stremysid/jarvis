@@ -170,7 +170,7 @@ describe("call state", () => {
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `pnpm vitest run apps/cloud-gateway/test/contracts/calls.test.ts apps/cloud-gateway/test/voice/call-state.test.ts`
+Run: `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/contracts/calls.test.ts apps/cloud-gateway/test/voice/call-state.test.ts`
 
 Expected: FAIL because the calling state-machine exports and the real Durable Object/Worker entrypoint do not exist yet.
 
@@ -230,7 +230,7 @@ export function canPersistTurn(state: TranscriptState, direction: "user" | "assi
 
 - [ ] **Step 4: Run the focused tests to verify they pass**
 
-Run: `pnpm vitest run apps/cloud-gateway/test/contracts/calls.test.ts apps/cloud-gateway/test/voice/call-state.test.ts`
+Run: `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/contracts/calls.test.ts apps/cloud-gateway/test/voice/call-state.test.ts`
 
 Expected: PASS with all transition and transcript-persistence assertions green.
 
