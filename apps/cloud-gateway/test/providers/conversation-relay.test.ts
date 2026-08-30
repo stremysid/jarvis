@@ -6,6 +6,18 @@ const SESSION_SID = `VX${"0".repeat(32)}`;
 const ACCOUNT_SID = `AC${"1".repeat(32)}`;
 const CALL_SID = `CA${"2".repeat(32)}`;
 const RELAY_NONCE = "Abcdefghijklmnopqrstuvwxyz0123456789_-ABCDE";
+const CALL_SESSION_ID = "01k3s6k8000000000000000000";
+const PUBLIC_ORIGIN = "https://jarvis.example/";
+
+class MisleadingUrl extends URL {
+  constructor(value: string, private readonly misleadingValue: string) {
+    super(value);
+  }
+
+  override toString(): string {
+    return this.misleadingValue;
+  }
+}
 
 const officialSetupFixture = {
   type: "setup",
@@ -210,62 +222,93 @@ describe("ConversationRelay TwiML", () => {
     voice: "en-US-Journey-O",
   } as const;
 
-  it("renders an explicit DTMF-enabled relay document and XML-escapes URL attributes", () => {
-    const xml = renderConversationRelayTwiML({
-      sessionUrl: new URL("wss://relay.example/voice/session&revision-2"),
-      actionUrl: new URL("https://jarvis.example/voice/relay-ended&revision-2"),
+  function validTwiMLInput(overrides: Record<string, unknown> = {}) {
+    return {
+      publicOrigin: new URL(PUBLIC_ORIGIN),
+      sessionUrl: new URL(`wss://jarvis.example/voice/relay/${CALL_SESSION_ID}`),
+      actionUrl: new URL("https://jarvis.example/voice/relay-ended"),
       relayNonce: RELAY_NONCE,
       voiceConfig: explicitVoiceConfig,
-    });
+      ...overrides,
+    };
+  }
+
+  it("renders an explicit DTMF-enabled relay document only on the trusted fixed routes", () => {
+    const xml = renderConversationRelayTwiML(validTwiMLInput());
 
     expect(xml).toBe(
-      '<?xml version="1.0" encoding="UTF-8"?><Response><Connect action="https://jarvis.example/voice/relay-ended&amp;revision-2" method="POST"><ConversationRelay url="wss://relay.example/voice/session&amp;revision-2" language="en-US" transcriptionProvider="Deepgram" speechModel="nova-3-general" ttsProvider="Google" voice="en-US-Journey-O" dtmfDetection="true" partialPrompts="false" interruptible="any" reportInputDuringAgentSpeech="any"><Parameter name="relayNonce" value="Abcdefghijklmnopqrstuvwxyz0123456789_-ABCDE" /></ConversationRelay></Connect></Response>',
+      '<?xml version="1.0" encoding="UTF-8"?><Response><Connect action="https://jarvis.example/voice/relay-ended" method="POST"><ConversationRelay url="wss://jarvis.example/voice/relay/01k3s6k8000000000000000000" language="en-US" transcriptionProvider="Deepgram" speechModel="nova-3-general" ttsProvider="Google" voice="en-US-Journey-O" dtmfDetection="true" partialPrompts="false" interruptible="any" reportInputDuringAgentSpeech="any"><Parameter name="relayNonce" value="Abcdefghijklmnopqrstuvwxyz0123456789_-ABCDE" /></ConversationRelay></Connect></Response>',
     );
     expect(xml.match(/<Parameter\b/g)).toHaveLength(1);
     expect(xml.match(/name="relayNonce"/g)).toHaveLength(1);
   });
 
   it("ignores non-allowlisted identity, purpose, PIN, and prompt input", () => {
-    const xml = renderConversationRelayTwiML({
-      sessionUrl: new URL("wss://relay.example/voice/session"),
-      actionUrl: new URL("https://jarvis.example/voice/relay-ended"),
-      relayNonce: RELAY_NONCE,
-      voiceConfig: explicitVoiceConfig,
+    const xml = renderConversationRelayTwiML(validTwiMLInput({
       purpose: "private-purpose",
       identity: "private-identity",
       phoneNumber: "+18005550199",
       pin: "88442211",
       prompt: "private-prompt",
-    } as Parameters<typeof renderConversationRelayTwiML>[0] & Record<string, unknown>);
+    }) as Parameters<typeof renderConversationRelayTwiML>[0] & Record<string, unknown>);
 
     expect(xml).not.toMatch(/private|18005550199|88442211/);
   });
 
   it.each([
-    ["session HTTP", "https://relay.example/session", "https://jarvis.example/end"],
-    ["session insecure WebSocket", "ws://relay.example/session", "https://jarvis.example/end"],
-    ["session credentials", "wss://user:pass@relay.example/session", "https://jarvis.example/end"],
-    ["session fragment", "wss://relay.example/session#fragment", "https://jarvis.example/end"],
-    ["session empty fragment", "wss://relay.example/session#", "https://jarvis.example/end"],
-    ["session query", "wss://relay.example/session?mode=a", "https://jarvis.example/end"],
-    ["session empty query", "wss://relay.example/session?", "https://jarvis.example/end"],
-    ["session nondefault port", "wss://relay.example:8443/session", "https://jarvis.example/end"],
-    ["action HTTP", "wss://relay.example/session", "http://jarvis.example/end"],
-    ["action credentials", "wss://relay.example/session", "https://user:pass@jarvis.example/end"],
-    ["action fragment", "wss://relay.example/session", "https://jarvis.example/end#fragment"],
-    ["action empty fragment", "wss://relay.example/session", "https://jarvis.example/end#"],
-    ["action query", "wss://relay.example/session", "https://jarvis.example/end?mode=a"],
-    ["action empty query", "wss://relay.example/session", "https://jarvis.example/end?"],
-    ["action nondefault port", "wss://relay.example/session", "https://jarvis.example:8443/end"],
+    ["session HTTP", `https://jarvis.example/voice/relay/${CALL_SESSION_ID}`, "https://jarvis.example/voice/relay-ended"],
+    ["session insecure WebSocket", `ws://jarvis.example/voice/relay/${CALL_SESSION_ID}`, "https://jarvis.example/voice/relay-ended"],
+    ["session attacker origin", `wss://attacker.invalid/voice/relay/${CALL_SESSION_ID}`, "https://jarvis.example/voice/relay-ended"],
+    ["session credentials", `wss://user:pass@jarvis.example/voice/relay/${CALL_SESSION_ID}`, "https://jarvis.example/voice/relay-ended"],
+    ["session fragment", `wss://jarvis.example/voice/relay/${CALL_SESSION_ID}#fragment`, "https://jarvis.example/voice/relay-ended"],
+    ["session empty fragment", `wss://jarvis.example/voice/relay/${CALL_SESSION_ID}#`, "https://jarvis.example/voice/relay-ended"],
+    ["session query", `wss://jarvis.example/voice/relay/${CALL_SESSION_ID}?identity=private`, "https://jarvis.example/voice/relay-ended"],
+    ["session empty query", `wss://jarvis.example/voice/relay/${CALL_SESSION_ID}?`, "https://jarvis.example/voice/relay-ended"],
+    ["session nondefault port", `wss://jarvis.example:8443/voice/relay/${CALL_SESSION_ID}`, "https://jarvis.example/voice/relay-ended"],
+    ["session route mismatch", `wss://jarvis.example/session/${CALL_SESSION_ID}`, "https://jarvis.example/voice/relay-ended"],
+    ["session non-opaque identifier", "wss://jarvis.example/voice/relay/private-identity", "https://jarvis.example/voice/relay-ended"],
+    ["action HTTP", `wss://jarvis.example/voice/relay/${CALL_SESSION_ID}`, "http://jarvis.example/voice/relay-ended"],
+    ["action attacker origin", `wss://jarvis.example/voice/relay/${CALL_SESSION_ID}`, "https://attacker.invalid/voice/relay-ended"],
+    ["action credentials", `wss://jarvis.example/voice/relay/${CALL_SESSION_ID}`, "https://user:pass@jarvis.example/voice/relay-ended"],
+    ["action fragment", `wss://jarvis.example/voice/relay/${CALL_SESSION_ID}`, "https://jarvis.example/voice/relay-ended#fragment"],
+    ["action empty fragment", `wss://jarvis.example/voice/relay/${CALL_SESSION_ID}`, "https://jarvis.example/voice/relay-ended#"],
+    ["action query", `wss://jarvis.example/voice/relay/${CALL_SESSION_ID}`, "https://jarvis.example/voice/relay-ended?identity=private"],
+    ["action empty query", `wss://jarvis.example/voice/relay/${CALL_SESSION_ID}`, "https://jarvis.example/voice/relay-ended?"],
+    ["action nondefault port", `wss://jarvis.example/voice/relay/${CALL_SESSION_ID}`, "https://jarvis.example:8443/voice/relay-ended"],
+    ["action route mismatch", `wss://jarvis.example/voice/relay/${CALL_SESSION_ID}`, "https://jarvis.example/voice/status"],
   ])("rejects invalid relay URLs: %s", (_label, sessionUrl, actionUrl) => {
     expect(() =>
       renderConversationRelayTwiML({
+        publicOrigin: new URL(PUBLIC_ORIGIN),
         sessionUrl: new URL(sessionUrl),
         actionUrl: new URL(actionUrl),
         relayNonce: RELAY_NONCE,
         voiceConfig: explicitVoiceConfig,
       }),
     ).toThrowError(/^invalid_conversation_relay_twiml$/);
+  });
+
+  it("serializes trusted URL internal slots instead of overridable toString methods", () => {
+    const xml = renderConversationRelayTwiML(validTwiMLInput({
+      sessionUrl: new MisleadingUrl(
+        `wss://jarvis.example/voice/relay/${CALL_SESSION_ID}`,
+        "wss://attacker.invalid/collect-relay",
+      ),
+      actionUrl: new MisleadingUrl(
+        "https://jarvis.example/voice/relay-ended",
+        "https://attacker.invalid/collect-action",
+      ),
+    }));
+
+    expect(xml).toContain(`url="wss://jarvis.example/voice/relay/${CALL_SESSION_ID}"`);
+    expect(xml).toContain('action="https://jarvis.example/voice/relay-ended"');
+    expect(xml).not.toContain("attacker.invalid");
+  });
+
+  it("snapshots the trusted public origin through URL internal slots", () => {
+    expect(() => renderConversationRelayTwiML(validTwiMLInput({
+      publicOrigin: new MisleadingUrl("https://attacker.invalid/", PUBLIC_ORIGIN),
+    }))).toThrowError(/^invalid_conversation_relay_twiml$/);
   });
 
   it.each([
@@ -279,12 +322,7 @@ describe("ConversationRelay TwiML", () => {
     "rejects a relay nonce that is not 32-byte unpadded base64url",
     (relayNonce) => {
       expect(() =>
-        renderConversationRelayTwiML({
-          sessionUrl: new URL("wss://relay.example/session"),
-          actionUrl: new URL("https://jarvis.example/end"),
-          relayNonce,
-          voiceConfig: explicitVoiceConfig,
-        }),
+        renderConversationRelayTwiML(validTwiMLInput({ relayNonce })),
       ).toThrowError(/^invalid_conversation_relay_twiml$/);
     },
   );
@@ -301,12 +339,7 @@ describe("ConversationRelay TwiML", () => {
     ["untested voice", { ...explicitVoiceConfig, voice: "en-US-Journey-F" }],
   ])("requires a complete XML-safe explicit voice config: %s", (_label, voiceConfig) => {
     expect(() =>
-      renderConversationRelayTwiML({
-        sessionUrl: new URL("wss://relay.example/session"),
-        actionUrl: new URL("https://jarvis.example/end"),
-        relayNonce: RELAY_NONCE,
-        voiceConfig,
-      } as Parameters<typeof renderConversationRelayTwiML>[0]),
+      renderConversationRelayTwiML(validTwiMLInput({ voiceConfig }) as Parameters<typeof renderConversationRelayTwiML>[0]),
     ).toThrowError(/^invalid_conversation_relay_twiml$/);
   });
 });

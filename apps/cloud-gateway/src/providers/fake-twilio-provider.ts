@@ -48,6 +48,7 @@ function cloneInput(input: TwilioCreateCallInput): TwilioCreateCallInput {
   const events = Object.freeze([...input.statusCallbackEvents]) as unknown as TwilioStatusCallbackEvents;
   const snapshot = {
     commandId: input.commandId.normalize("NFC"),
+    attemptId: input.attemptId.normalize("NFC"),
     toE164: input.toE164.normalize("NFC"),
     twimlUrl: Object.freeze(new URL(input.twimlUrl.toString())),
     statusCallbackUrl: Object.freeze(new URL(input.statusCallbackUrl.toString())),
@@ -60,7 +61,13 @@ function cloneInput(input: TwilioCreateCallInput): TwilioCreateCallInput {
 function validateInput(input: TwilioCreateCallInput): void {
   const exactEvents = input.statusCallbackEvents.length === TWILIO_STATUS_CALLBACK_EVENTS.length
     && input.statusCallbackEvents.every((event, index) => event === TWILIO_STATUS_CALLBACK_EVENTS[index]);
-  if (!ULID.test(input.commandId) || !E164.test(input.toE164) || input.idempotencyKey.length === 0 || !exactEvents) {
+  if (
+    !ULID.test(input.commandId)
+    || !ULID.test(input.attemptId)
+    || !E164.test(input.toE164)
+    || input.idempotencyKey.length === 0
+    || !exactEvents
+  ) {
     throw ProviderFailure.permanent("invalid_request");
   }
 }

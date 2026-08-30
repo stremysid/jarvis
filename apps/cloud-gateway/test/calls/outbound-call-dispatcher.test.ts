@@ -92,9 +92,10 @@ describe("OutboundCallDispatcher", () => {
     expect(twilio.requests).toEqual([
       expect.objectContaining({
         commandId: command().commandId,
+        attemptId,
         toE164: destinationE164,
-        twimlUrl: new URL("https://jarvis.example/voice/outbound/01k3s6k8000000000000000000"),
-        statusCallbackUrl: new URL("https://jarvis.example/voice/status"),
+        twimlUrl: new URL(`https://jarvis.example/voice/outbound/${attemptId}`),
+        statusCallbackUrl: new URL(`https://jarvis.example/voice/status/${attemptId}`),
         idempotencyKey: attemptId,
         statusCallbackEvents: ["initiated", "ringing", "answered", "completed"],
       }),
@@ -203,7 +204,8 @@ describe("OutboundCallDispatcher", () => {
     expect(original.commandId).toBe(mutated);
     expect(twilio.requests[0]).toMatchObject({
       commandId: auditedCommandId,
-      twimlUrl: new URL(`https://jarvis.example/voice/outbound/${auditedCommandId}`),
+      attemptId,
+      twimlUrl: new URL(`https://jarvis.example/voice/outbound/${attemptId}`),
     });
   });
 });

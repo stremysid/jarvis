@@ -5,6 +5,7 @@ import type {
 const MAX_FORM_BYTES = 65_536;
 const STRICT_SHA1_BASE64 = /^[A-Za-z0-9+/]{27}=$/;
 const BAD_PERCENT_ESCAPE = /%(?![0-9A-Fa-f]{2})/;
+const RAW_URL_CONTROL_OR_BACKSLASH = /[\u0000-\u0020\u007f-\u009f\\]/u;
 
 type FormPair = readonly [string, string];
 const verifiedTwilioFormBrand: unique symbol = Symbol("verifiedTwilioForm");
@@ -108,10 +109,11 @@ async function readBoundedRequestBody(request: Request): Promise<Uint8Array | nu
   }
 
   if (request.body === null) return new Uint8Array();
-  const reader = request.body.getReader();
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   const chunks: Uint8Array[] = [];
   let total = 0;
   try {
+    reader = request.body.getReader();
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -123,10 +125,14 @@ async function readBoundedRequestBody(request: Request): Promise<Uint8Array | nu
       chunks.push(value);
     }
   } catch {
-    try {
-      await reader.cancel();
-    } catch {
-      // The stream is already rejected.
+    if (reader === undefined) {
+      await cancelBody(request);
+    } else {
+      try {
+        await reader.cancel();
+      } catch {
+        // The stream is already rejected.
+      }
     }
     return null;
   }
@@ -143,6 +149,27 @@ async function readBoundedRequestBody(request: Request): Promise<Uint8Array | nu
 function contentTypeIsForm(headers: Headers): boolean {
   const contentType = headers.get("content-type");
   return contentType?.split(";", 1)[0]?.trim().toLowerCase() === "application/x-www-form-urlencoded";
+}
+
+function isValidExactUrl(value: unknown, expectedProtocol: "https:" | "wss:"): value is string {
+  if (
+    typeof value !== "string"
+    || RAW_URL_CONTROL_OR_BACKSLASH.test(value)
+    || BAD_PERCENT_ESCAPE.test(value)
+    || value.includes("#")
+    || !(expectedProtocol === "https:" ? /^https:\/\//iu : /^wss:\/\//iu).test(value)
+  ) {
+    return false;
+  }
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === expectedProtocol
+      && parsed.hostname.length > 0
+      && parsed.username.length === 0
+      && parsed.password.length === 0;
+  } catch {
+    return false;
+  }
 }
 
 function strictSignatureBytes(value: string | null): Uint8Array | null {
@@ -194,7 +221,11 @@ export class TwilioSignatureVerifier implements TwilioRequestVerifier {
     request: Request;
     exactUrl: string;
   }): Promise<VerifiedTwilioForm | null> {
-    if (input.request.method !== "POST" || !contentTypeIsForm(input.request.headers)) {
+    if (
+      input.request.method !== "POST"
+      || !contentTypeIsForm(input.request.headers)
+      || !isValidExactUrl(input.exactUrl, "https:")
+    ) {
       await cancelBody(input.request);
       return null;
     }
@@ -222,7 +253,7 @@ export class TwilioSignatureVerifier implements TwilioRequestVerifier {
     request: Request;
     exactUrl: string;
   }): Promise<boolean> {
-    if (input.request.method !== "GET") return false;
+    if (input.request.method !== "GET" || !isValidExactUrl(input.exactUrl, "wss:")) return false;
     const signature = strictSignatureBytes(input.request.headers.get("x-twilio-signature"));
     if (signature === null) return false;
     try {

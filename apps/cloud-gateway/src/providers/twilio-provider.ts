@@ -6,11 +6,18 @@ import {
   type TwilioCreateCallResult,
   type TwilioProvider,
 } from "./provider-types.js";
+import {
+  isTrustedFixedUrl,
+  snapshotTrustedPublicOrigin,
+  snapshotUrl,
+  type TrustedPublicOrigin,
+} from "../security/trusted-public-origin.js";
 
 const ACCOUNT_SID = /^AC[0-9A-Fa-f]{32}$/;
 const API_KEY_SID = /^SK[0-9A-Fa-f]{32}$/;
 const CALL_SID = /^CA[0-9A-Fa-f]{32}$/;
 const E164 = /^\+[1-9][0-9]{1,14}$/;
+const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/;
 const MAX_RESPONSE_BYTES = 65_536;
 const MAX_REQUEST_TIMEOUT_MS = 60_000;
 const MAX_RING_TIMEOUT_SECONDS = 600;
@@ -22,6 +29,7 @@ export interface TwilioRestProviderOptions {
   fromE164: string;
   requestTimeoutMs: number;
   ringTimeoutSeconds: number;
+  publicOrigin: URL;
   fetch: typeof fetch;
 }
 
@@ -29,25 +37,29 @@ function invalidRequest(): ProviderFailure {
   return ProviderFailure.permanent("invalid_request");
 }
 
-function validHttpsUrl(url: URL): boolean {
-  return url.protocol === "https:"
-    && url.username.length === 0
-    && url.password.length === 0
-    && url.hash.length === 0;
-}
-
-function validateCallInput(input: TwilioCreateCallInput): void {
+function validatedCallUrls(
+  input: TwilioCreateCallInput,
+  publicOrigin: TrustedPublicOrigin,
+): { readonly twimlUrl: string; readonly statusCallbackUrl: string } {
   const exactEvents = input.statusCallbackEvents.length === TWILIO_STATUS_CALLBACK_EVENTS.length
     && input.statusCallbackEvents.every((event, index) => event === TWILIO_STATUS_CALLBACK_EVENTS[index]);
+  const twimlUrl = snapshotUrl(input.twimlUrl);
+  const statusCallbackUrl = snapshotUrl(input.statusCallbackUrl);
   if (
-    !E164.test(input.toE164)
-    || !validHttpsUrl(input.twimlUrl)
-    || !validHttpsUrl(input.statusCallbackUrl)
+    !ULID.test(input.commandId)
+    || !ULID.test(input.attemptId)
+    || !E164.test(input.toE164)
+    || !isTrustedFixedUrl(twimlUrl, publicOrigin, "https:", `/voice/outbound/${input.attemptId}`)
+    || !isTrustedFixedUrl(statusCallbackUrl, publicOrigin, "https:", `/voice/status/${input.attemptId}`)
     || !exactEvents
     || input.idempotencyKey.length === 0
   ) {
     throw invalidRequest();
   }
+  return Object.freeze({
+    twimlUrl: twimlUrl.serialized,
+    statusCallbackUrl: statusCallbackUrl.serialized,
+  });
 }
 
 function basicAuthorization(username: string, password: string): string {
@@ -57,13 +69,18 @@ function basicAuthorization(username: string, password: string): string {
   return `Basic ${btoa(binary)}`;
 }
 
-function requestBody(input: TwilioCreateCallInput, fromE164: string, ringTimeoutSeconds: number): string {
+function requestBody(
+  input: TwilioCreateCallInput,
+  fromE164: string,
+  ringTimeoutSeconds: number,
+  urls: { readonly twimlUrl: string; readonly statusCallbackUrl: string },
+): string {
   const form = new URLSearchParams();
   form.append("To", input.toE164);
   form.append("From", fromE164);
-  form.append("Url", input.twimlUrl.toString());
+  form.append("Url", urls.twimlUrl);
   form.append("Method", "POST");
-  form.append("StatusCallback", input.statusCallbackUrl.toString());
+  form.append("StatusCallback", urls.statusCallbackUrl);
   form.append("StatusCallbackMethod", "POST");
   for (const event of input.statusCallbackEvents) form.append("StatusCallbackEvent", event);
   form.append("TimeLimit", "1800");
@@ -130,9 +147,11 @@ export class TwilioRestProvider implements TwilioProvider {
   readonly #fromE164: string;
   readonly #requestTimeoutMs: number;
   readonly #ringTimeoutSeconds: number;
+  readonly #publicOrigin: TrustedPublicOrigin;
   readonly #fetch: typeof fetch;
 
   constructor(options: TwilioRestProviderOptions) {
+    const publicOrigin = snapshotTrustedPublicOrigin(options.publicOrigin);
     if (
       !ACCOUNT_SID.test(options.accountSid)
       || !API_KEY_SID.test(options.apiKeySid)
@@ -144,6 +163,7 @@ export class TwilioRestProvider implements TwilioProvider {
       || !Number.isSafeInteger(options.ringTimeoutSeconds)
       || options.ringTimeoutSeconds < 1
       || options.ringTimeoutSeconds > MAX_RING_TIMEOUT_SECONDS
+      || publicOrigin === null
       || typeof options.fetch !== "function"
     ) {
       throw invalidRequest();
@@ -154,11 +174,12 @@ export class TwilioRestProvider implements TwilioProvider {
     this.#fromE164 = options.fromE164;
     this.#requestTimeoutMs = options.requestTimeoutMs;
     this.#ringTimeoutSeconds = options.ringTimeoutSeconds;
+    this.#publicOrigin = publicOrigin;
     this.#fetch = options.fetch;
   }
 
   async createCall(input: TwilioCreateCallInput): Promise<TwilioCreateCallResult> {
-    validateCallInput(input);
+    const urls = validatedCallUrls(input, this.#publicOrigin);
     const abort = new AbortController();
     const timeout = setTimeout(() => abort.abort(), this.#requestTimeoutMs);
 
@@ -173,7 +194,7 @@ export class TwilioRestProvider implements TwilioProvider {
               authorization: basicAuthorization(this.#apiKeySid, this.#apiKeySecret),
               "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
             },
-            body: requestBody(input, this.#fromE164, this.#ringTimeoutSeconds),
+            body: requestBody(input, this.#fromE164, this.#ringTimeoutSeconds, urls),
             signal: abort.signal,
             redirect: "manual",
           },

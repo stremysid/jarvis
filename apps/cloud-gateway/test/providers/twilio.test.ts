@@ -13,13 +13,26 @@ const CALL_SID = `CA${"3".repeat(32)}`;
 const API_KEY_SECRET = "synthetic-api-secret";
 const AUTH_TOKEN = "12345";
 const CALLBACK_EVENTS = ["initiated", "ringing", "answered", "completed"] as const;
+const PUBLIC_ORIGIN = "https://jarvis.example/";
+const ATTEMPT_ID = "01k3s6k8000000000000000009";
+
+class MisleadingUrl extends URL {
+  constructor(value: string, private readonly misleadingValue: string) {
+    super(value);
+  }
+
+  override toString(): string {
+    return this.misleadingValue;
+  }
+}
 
 function callInput(overrides: Partial<TwilioCreateCallInput> = {}): TwilioCreateCallInput {
   return {
     commandId: "01k3s6k8000000000000000000",
+    attemptId: ATTEMPT_ID,
     toE164: "+14165550123",
-    twimlUrl: new URL("https://jarvis.example/voice/outbound/01k3s6k8000000000000000000"),
-    statusCallbackUrl: new URL("https://jarvis.example/voice/status"),
+    twimlUrl: new URL(`https://jarvis.example/voice/outbound/${ATTEMPT_ID}`),
+    statusCallbackUrl: new URL(`https://jarvis.example/voice/status/${ATTEMPT_ID}`),
     statusCallbackEvents: CALLBACK_EVENTS,
     idempotencyKey: "attempt:01k3s6k8000000000000000001",
     ...overrides,
@@ -37,6 +50,7 @@ function restProvider(
     fromE164: "+14165550100",
     requestTimeoutMs: 250,
     ringTimeoutSeconds: 25,
+    publicOrigin: new URL(PUBLIC_ORIGIN),
     fetch: fetcher,
     ...overrides,
   });
@@ -67,6 +81,20 @@ function webhookRequest(
   const headers = signatureHeaders(signature, contentType);
   new Headers(extraHeaders).forEach((value, name) => headers.set(name, value));
   return new Request(exactUrl, { method: "POST", headers, body: rawBody });
+}
+
+function emptySignedWebhookRequest(signature: string): Request {
+  return new Request("https://internal.invalid/twilio-webhook", {
+    method: "POST",
+    headers: signatureHeaders(signature),
+    body: new Uint8Array(),
+  });
+}
+
+function signedWebSocketRequest(signature: string): Request {
+  return new Request("https://internal.invalid/twilio-relay", {
+    headers: { "x-twilio-signature": signature },
+  });
 }
 
 function streamedWebhookRequest(
@@ -216,6 +244,37 @@ describe("TwilioSignatureVerifier", () => {
     expect(request.bodyUsed).toBe(true);
   });
 
+  it("fails closed when the webhook Request body was already consumed", async () => {
+    const exactUrl = "https://jarvis.example/voice/status";
+    const request = webhookRequest(
+      exactUrl,
+      "AAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      utf8("CallSid=CA123"),
+    );
+    await request.arrayBuffer();
+    const verifier = new TwilioSignatureVerifier({ authToken: AUTH_TOKEN });
+
+    await expect(verifier.verifyWebhook({ request, exactUrl })).resolves.toBeNull();
+  });
+
+  it("fails closed when the webhook Request body is already locked", async () => {
+    const exactUrl = "https://jarvis.example/voice/status";
+    const request = webhookRequest(
+      exactUrl,
+      "AAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      utf8("CallSid=CA123"),
+    );
+    const reader = request.body?.getReader();
+    if (reader === undefined) throw new Error("expected request body");
+    const verifier = new TwilioSignatureVerifier({ authToken: AUTH_TOKEN });
+
+    try {
+      await expect(verifier.verifyWebhook({ request, exactUrl })).resolves.toBeNull();
+    } finally {
+      reader.releaseLock();
+    }
+  });
+
   it("verifies a WebSocket GET against the exact WSS URL and no reconstructed variant", async () => {
     const exactUrl = "wss://jarvis.example/voice/relay/session?encoded=%2f&b=2&a=1";
     const signature = await signExactUrl(AUTH_TOKEN, exactUrl);
@@ -229,6 +288,72 @@ describe("TwilioSignatureVerifier", () => {
       exactUrl: exactUrl.replace("%2f", "%2F"),
       request,
     })).resolves.toBe(false);
+  });
+
+  it.each([
+    ["HTTP scheme", "http://jarvis.example/voice/status"],
+    ["WebSocket scheme", "wss://jarvis.example/voice/status"],
+    ["userinfo", "https://user:pass@jarvis.example/voice/status"],
+    ["fragment", "https://jarvis.example/voice/status#private"],
+    ["empty fragment", "https://jarvis.example/voice/status#"],
+    ["raw newline", "https://jarvis.example/voice/\nstatus"],
+    ["raw NUL", "https://jarvis.example/voice/\u0000status"],
+    ["malformed percent escape", "https://jarvis.example/voice/%GGstatus"],
+    ["backslash normalization", "https://jarvis.example\\@attacker.invalid/voice/status"],
+    ["malformed authority", "https://"],
+  ])("rejects a validly signed webhook URL with %s", async (_label, exactUrl) => {
+    const signature = await signExactUrl(AUTH_TOKEN, exactUrl);
+    const verifier = new TwilioSignatureVerifier({ authToken: AUTH_TOKEN });
+
+    await expect(verifier.verifyWebhook({
+      exactUrl,
+      request: emptySignedWebhookRequest(signature),
+    })).resolves.toBeNull();
+  });
+
+  it("validates without replacing the exact webhook bytes used by HMAC", async () => {
+    const exactUrl = "https://JARVIS.EXAMPLE:443/voice/./status?encoded=%2f";
+    const signature = await signExactUrl(AUTH_TOKEN, exactUrl);
+    const verifier = new TwilioSignatureVerifier({ authToken: AUTH_TOKEN });
+
+    const verified = await verifier.verifyWebhook({
+      exactUrl,
+      request: emptySignedWebhookRequest(signature),
+    });
+
+    expect(verified?.entries()).toEqual([]);
+  });
+
+  it.each([
+    ["HTTPS scheme", "https://jarvis.example/voice/relay/session"],
+    ["insecure WebSocket scheme", "ws://jarvis.example/voice/relay/session"],
+    ["userinfo", "wss://user:pass@jarvis.example/voice/relay/session"],
+    ["fragment", "wss://jarvis.example/voice/relay/session#private"],
+    ["empty fragment", "wss://jarvis.example/voice/relay/session#"],
+    ["raw tab", "wss://jarvis.example/voice/\trelay/session"],
+    ["raw NUL", "wss://jarvis.example/voice/\u0000relay/session"],
+    ["malformed percent escape", "wss://jarvis.example/voice/%GGrelay/session"],
+    ["backslash normalization", "wss://jarvis.example\\@attacker.invalid/voice/relay/session"],
+    ["malformed authority", "wss://"],
+  ])("rejects a validly signed WebSocket URL with %s", async (_label, exactUrl) => {
+    const signature = await signExactUrl(AUTH_TOKEN, exactUrl);
+    const verifier = new TwilioSignatureVerifier({ authToken: AUTH_TOKEN });
+
+    await expect(verifier.verifyWebSocket({
+      exactUrl,
+      request: signedWebSocketRequest(signature),
+    })).resolves.toBe(false);
+  });
+
+  it("validates without replacing the exact WebSocket bytes used by HMAC", async () => {
+    const exactUrl = "wss://JARVIS.EXAMPLE:443/voice/./relay/session?encoded=%2f";
+    const signature = await signExactUrl(AUTH_TOKEN, exactUrl);
+    const verifier = new TwilioSignatureVerifier({ authToken: AUTH_TOKEN });
+
+    await expect(verifier.verifyWebSocket({
+      exactUrl,
+      request: signedWebSocketRequest(signature),
+    })).resolves.toBe(true);
   });
 });
 
@@ -244,7 +369,7 @@ describe("TwilioRestProvider", () => {
     expect(requestUrl).toBe(`https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Calls.json`);
     expect(init?.method).toBe("POST");
     expect(init?.body).toBe(
-      "To=%2B14165550123&From=%2B14165550100&Url=https%3A%2F%2Fjarvis.example%2Fvoice%2Foutbound%2F01k3s6k8000000000000000000&Method=POST&StatusCallback=https%3A%2F%2Fjarvis.example%2Fvoice%2Fstatus&StatusCallbackMethod=POST&StatusCallbackEvent=initiated&StatusCallbackEvent=ringing&StatusCallbackEvent=answered&StatusCallbackEvent=completed&TimeLimit=1800&Timeout=25",
+      `To=%2B14165550123&From=%2B14165550100&Url=https%3A%2F%2Fjarvis.example%2Fvoice%2Foutbound%2F${ATTEMPT_ID}&Method=POST&StatusCallback=https%3A%2F%2Fjarvis.example%2Fvoice%2Fstatus%2F${ATTEMPT_ID}&StatusCallbackMethod=POST&StatusCallbackEvent=initiated&StatusCallbackEvent=ringing&StatusCallbackEvent=answered&StatusCallbackEvent=completed&TimeLimit=1800&Timeout=25`,
     );
     const headers = new Headers(init?.headers);
     expect(headers.get("authorization")).toBe(`Basic ${btoa(`${API_KEY_SID}:${API_KEY_SECRET}`)}`);
@@ -254,6 +379,101 @@ describe("TwilioRestProvider", () => {
     expect(init?.redirect).toBe("manual");
     expect(init?.signal).toBeInstanceOf(AbortSignal);
     expect(init?.signal?.aborted).toBe(false);
+  });
+
+  it("accepts a TwiML route bound to the immutable attempt identity", async () => {
+    const fetcher = vi.fn(async () => successResponse());
+    const provider = restProvider(fetcher as typeof fetch);
+    const input = callInput();
+
+    await expect(provider.createCall(input)).resolves.toEqual({ callSid: CALL_SID });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a TwiML route bound to command lineage instead of the attempt", async () => {
+    const fetcher = vi.fn(async () => successResponse());
+    const provider = restProvider(fetcher as typeof fetch);
+    const input = callInput({
+      twimlUrl: new URL("https://jarvis.example/voice/outbound/01k3s6k8000000000000000000"),
+    });
+
+    await expect(provider.createCall(input)).rejects.toBeInstanceOf(ProviderFailure);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("accepts a status callback route bound to the immutable attempt identity", async () => {
+    const fetcher = vi.fn(async () => successResponse());
+    const provider = restProvider(fetcher as typeof fetch);
+    const input = callInput({
+      statusCallbackUrl: new URL(`https://jarvis.example/voice/status/${ATTEMPT_ID}`),
+    });
+
+    await expect(provider.createCall(input)).resolves.toEqual({ callSid: CALL_SID });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["global", "https://jarvis.example/voice/status"],
+    ["command-bound", "https://jarvis.example/voice/status/01k3s6k8000000000000000000"],
+    ["other-attempt", "https://jarvis.example/voice/status/01k3s6k8000000000000000008"],
+  ])("rejects a %s status callback route", async (_label, url) => {
+    const fetcher = vi.fn(async () => successResponse());
+    const provider = restProvider(fetcher as typeof fetch);
+
+    await expect(provider.createCall(callInput({
+      statusCallbackUrl: new URL(url),
+    }))).rejects.toBeInstanceOf(ProviderFailure);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["attacker TwiML origin", { twimlUrl: new URL(`https://attacker.invalid/voice/outbound/${ATTEMPT_ID}`) }],
+    ["attacker callback origin", { statusCallbackUrl: new URL(`https://attacker.invalid/voice/status/${ATTEMPT_ID}`) }],
+    ["TwiML query data", { twimlUrl: new URL(`https://jarvis.example/voice/outbound/${ATTEMPT_ID}?identity=private`) }],
+    ["callback query data", { statusCallbackUrl: new URL(`https://jarvis.example/voice/status/${ATTEMPT_ID}?identity=private`) }],
+    ["TwiML nondefault port", { twimlUrl: new URL(`https://jarvis.example:8443/voice/outbound/${ATTEMPT_ID}`) }],
+    ["callback nondefault port", { statusCallbackUrl: new URL(`https://jarvis.example:8443/voice/status/${ATTEMPT_ID}`) }],
+    ["TwiML route mismatch", { twimlUrl: new URL("https://jarvis.example/voice/inbound") }],
+    ["TwiML attempt mismatch", { twimlUrl: new URL("https://jarvis.example/voice/outbound/01k3s6k8000000000000000008") }],
+    ["invalid attempt identity", { attemptId: "private-identity", twimlUrl: new URL("https://jarvis.example/voice/outbound/private-identity") }],
+    ["callback route mismatch", { statusCallbackUrl: new URL("https://jarvis.example/voice/relay-ended") }],
+  ])("rejects %s before sending a call", async (_label, overrides) => {
+    const fetcher = vi.fn(async () => successResponse());
+    const provider = restProvider(fetcher as typeof fetch);
+
+    await expect(provider.createCall(callInput(overrides))).rejects.toBeInstanceOf(ProviderFailure);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("serializes URL internal slots instead of an overridable toString method", async () => {
+    const fetcher = vi.fn(async () => successResponse());
+    const provider = restProvider(fetcher as typeof fetch);
+    const input = callInput({
+      twimlUrl: new MisleadingUrl(
+        `https://jarvis.example/voice/outbound/${ATTEMPT_ID}`,
+        "https://attacker.invalid/collect-twiml",
+      ),
+      statusCallbackUrl: new MisleadingUrl(
+        `https://jarvis.example/voice/status/${ATTEMPT_ID}`,
+        "https://attacker.invalid/collect-status",
+      ),
+    });
+
+    await provider.createCall(input);
+
+    const body = new URLSearchParams(String(fetcher.mock.calls[0]?.[1]?.body));
+    expect(body.get("Url")).toBe(`https://jarvis.example/voice/outbound/${ATTEMPT_ID}`);
+    expect(body.get("StatusCallback")).toBe(`https://jarvis.example/voice/status/${ATTEMPT_ID}`);
+  });
+
+  it("snapshots the configured public origin through URL internal slots", async () => {
+    const fetcher = vi.fn(async () => successResponse());
+    const provider = restProvider(fetcher as typeof fetch, {
+      publicOrigin: new MisleadingUrl("https://attacker.invalid/", PUBLIC_ORIGIN),
+    });
+
+    await expect(provider.createCall(callInput())).rejects.toBeInstanceOf(ProviderFailure);
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -321,6 +541,9 @@ describe("TwilioRestProvider", () => {
     expect(() => restProvider(fetcher as typeof fetch, { accountSid: "ACinvalid" })).toThrow(ProviderFailure);
     expect(() => restProvider(fetcher as typeof fetch, { ringTimeoutSeconds: 601 })).toThrow(ProviderFailure);
     expect(() => restProvider(fetcher as typeof fetch, { requestTimeoutMs: 60_001 })).toThrow(ProviderFailure);
+    expect(() => restProvider(fetcher as typeof fetch, { publicOrigin: new URL("https://jarvis.example/tenant") })).toThrow(ProviderFailure);
+    expect(() => restProvider(fetcher as typeof fetch, { publicOrigin: new URL("https://jarvis.example/?identity=private") })).toThrow(ProviderFailure);
+    expect(() => restProvider(fetcher as typeof fetch, { publicOrigin: new URL("https://jarvis.example:8443/") })).toThrow(ProviderFailure);
     expect(fetcher).not.toHaveBeenCalled();
   });
 });

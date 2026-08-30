@@ -41,9 +41,10 @@ export class OutboundCallDispatcher {
 
     const result = await this.deps.twilio.createCall({
       commandId: check.commandId,
+      attemptId: check.attemptId,
       toE164: check.destinationE164,
-      twimlUrl: new URL(`/voice/outbound/${encodeURIComponent(check.commandId)}`, this.publicBaseUrl),
-      statusCallbackUrl: new URL("/voice/status", this.publicBaseUrl),
+      twimlUrl: new URL(`/voice/outbound/${encodeURIComponent(check.attemptId)}`, this.publicBaseUrl),
+      statusCallbackUrl: new URL(`/voice/status/${encodeURIComponent(check.attemptId)}`, this.publicBaseUrl),
       statusCallbackEvents: TWILIO_STATUS_CALLBACK_EVENTS,
       idempotencyKey: check.attemptId,
     });

@@ -19,9 +19,10 @@ const callbackEvents = ["initiated", "ringing", "answered", "completed"] as cons
 function twilioCall(overrides: Partial<TwilioCreateCallInput> = {}): TwilioCreateCallInput {
   return {
     commandId: "01k3s6k8000000000000000000",
+    attemptId: "01k3s6k8000000000000000001",
     toE164: "+14165550123",
-    twimlUrl: new URL("https://jarvis.example/voice/outbound/01k3s6k8000000000000000000"),
-    statusCallbackUrl: new URL("https://jarvis.example/voice/status"),
+    twimlUrl: new URL("https://jarvis.example/voice/outbound/01k3s6k8000000000000000001"),
+    statusCallbackUrl: new URL("https://jarvis.example/voice/status/01k3s6k8000000000000000001"),
     statusCallbackEvents: callbackEvents,
     idempotencyKey: "attempt:01k3s6k8000000000000000001",
     ...overrides,
@@ -128,8 +129,8 @@ describe("FakeTwilioProvider", () => {
     const fake = new FakeTwilioProvider();
     const firstInput = twilioCall();
     const secondInput = twilioCall({
-      twimlUrl: new URL("https://jarvis.example/voice/outbound/01k3s6k8000000000000000000"),
-      statusCallbackUrl: new URL("https://jarvis.example/voice/status"),
+      twimlUrl: new URL("https://jarvis.example/voice/outbound/01k3s6k8000000000000000001"),
+      statusCallbackUrl: new URL("https://jarvis.example/voice/status/01k3s6k8000000000000000001"),
     });
 
     const one = await fake.createCall(firstInput);
@@ -236,7 +237,7 @@ describe("FakeTwilioProvider", () => {
     expect(Object.isFrozen(observed[0]?.statusCallbackEvents)).toBe(true);
     observed[0]!.twimlUrl.pathname = "/changed-by-observer";
 
-    expect(fake.requests[0]?.twimlUrl.toString()).toBe("https://jarvis.example/voice/outbound/01k3s6k8000000000000000000");
+    expect(fake.requests[0]?.twimlUrl.toString()).toBe("https://jarvis.example/voice/outbound/01k3s6k8000000000000000001");
   });
 });
 

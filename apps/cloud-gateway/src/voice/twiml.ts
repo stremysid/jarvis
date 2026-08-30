@@ -1,4 +1,12 @@
+import {
+  isTrustedFixedUrl,
+  snapshotTrustedPublicOrigin,
+  snapshotUrl,
+} from "../security/trusted-public-origin.js";
+
 const RELAY_NONCE_PATTERN = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/;
+const ULID_PATTERN = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/;
+const SESSION_PATH_PATTERN = /^\/voice\/relay\/([0-7][0-9a-hjkmnp-tv-z]{25})$/;
 
 export interface ConversationRelayVoiceConfig {
   language: "en-US";
@@ -9,6 +17,7 @@ export interface ConversationRelayVoiceConfig {
 }
 
 export interface ConversationRelayTwiMLInput {
+  publicOrigin: URL;
   sessionUrl: URL;
   actionUrl: URL;
   relayNonce: string;
@@ -21,19 +30,6 @@ function invalidTwiML(): never {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isSafeUrl(value: unknown, protocol: "wss:" | "https:"): value is URL {
-  return (
-    value instanceof URL &&
-    value.protocol === protocol &&
-    value.hostname.length > 0 &&
-    value.username.length === 0 &&
-    value.password.length === 0 &&
-    value.port.length === 0 &&
-    !value.href.includes("#") &&
-    !value.href.includes("?")
-  );
 }
 
 function xmlAttribute(value: string): string {
@@ -61,9 +57,17 @@ export function renderConversationRelayTwiML(input: ConversationRelayTwiMLInput)
   }
 
   const voiceConfig = input.voiceConfig;
+  const publicOrigin = snapshotTrustedPublicOrigin(input.publicOrigin);
+  const sessionUrl = snapshotUrl(input.sessionUrl);
+  const actionUrl = snapshotUrl(input.actionUrl);
+  const sessionPath = sessionUrl?.url.pathname.match(SESSION_PATH_PATTERN);
   if (
-    !isSafeUrl(input.sessionUrl, "wss:") ||
-    !isSafeUrl(input.actionUrl, "https:") ||
+    publicOrigin === null ||
+    sessionPath === undefined ||
+    sessionPath === null ||
+    !ULID_PATTERN.test(sessionPath[1] ?? "") ||
+    !isTrustedFixedUrl(sessionUrl, publicOrigin, "wss:", `/voice/relay/${sessionPath[1]}`) ||
+    !isTrustedFixedUrl(actionUrl, publicOrigin, "https:", "/voice/relay-ended") ||
     typeof input.relayNonce !== "string" ||
     !RELAY_NONCE_PATTERN.test(input.relayNonce) ||
     !isRecord(voiceConfig) ||
@@ -76,8 +80,8 @@ export function renderConversationRelayTwiML(input: ConversationRelayTwiMLInput)
     invalidTwiML();
   }
 
-  const actionUrl = xmlAttribute(input.actionUrl.toString());
-  const sessionUrl = xmlAttribute(input.sessionUrl.toString());
+  const serializedActionUrl = xmlAttribute(actionUrl.serialized);
+  const serializedSessionUrl = xmlAttribute(sessionUrl.serialized);
   const language = xmlAttribute(voiceConfig.language);
   const transcriptionProvider = xmlAttribute(voiceConfig.transcriptionProvider);
   const speechModel = xmlAttribute(voiceConfig.speechModel);
@@ -85,5 +89,5 @@ export function renderConversationRelayTwiML(input: ConversationRelayTwiMLInput)
   const voice = xmlAttribute(voiceConfig.voice);
   const relayNonce = xmlAttribute(input.relayNonce);
 
-  return `<?xml version="1.0" encoding="UTF-8"?><Response><Connect action="${actionUrl}" method="POST"><ConversationRelay url="${sessionUrl}" language="${language}" transcriptionProvider="${transcriptionProvider}" speechModel="${speechModel}" ttsProvider="${ttsProvider}" voice="${voice}" dtmfDetection="true" partialPrompts="false" interruptible="any" reportInputDuringAgentSpeech="any"><Parameter name="relayNonce" value="${relayNonce}" /></ConversationRelay></Connect></Response>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Connect action="${serializedActionUrl}" method="POST"><ConversationRelay url="${serializedSessionUrl}" language="${language}" transcriptionProvider="${transcriptionProvider}" speechModel="${speechModel}" ttsProvider="${ttsProvider}" voice="${voice}" dtmfDetection="true" partialPrompts="false" interruptible="any" reportInputDuringAgentSpeech="any"><Parameter name="relayNonce" value="${relayNonce}" /></ConversationRelay></Connect></Response>`;
 }

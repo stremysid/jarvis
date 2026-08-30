@@ -13,6 +13,7 @@ export type TwilioStatusCallbackEvents = readonly ["initiated", "ringing", "answ
 
 export interface TwilioCreateCallInput {
   commandId: string;
+  attemptId: string;
   toE164: string;
   twimlUrl: URL;
   statusCallbackUrl: URL;
