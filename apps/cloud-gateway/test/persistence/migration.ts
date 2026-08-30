@@ -3,6 +3,7 @@ import foundationSql from "../../src/persistence/migrations/0001_foundation.sql?
 import foundationHardeningSql from "../../src/persistence/migrations/0002_foundation_hardening.sql?raw";
 import callingSql from "../../src/persistence/migrations/0003_calling.sql?raw";
 import callSessionsSql from "../../src/persistence/migrations/0004_call_sessions.sql?raw";
+import conversationSql from "../../src/persistence/migrations/0005_conversation.sql?raw";
 
 let migrated: Promise<void> | undefined;
 
@@ -37,6 +38,10 @@ export function applyFoundationMigration(): Promise<void> {
     {
       name: "0004_call_sessions.sql",
       queries: splitMigration(callSessionsSql),
+    },
+    {
+      name: "0005_conversation.sql",
+      queries: splitMigration(conversationSql),
     },
   ]);
   return migrated;
@@ -81,6 +86,27 @@ export async function clearAuthenticationAttemptReservationsForTest(): Promise<v
       BEFORE DELETE ON authentication_attempt_reservations
       BEGIN
         SELECT RAISE(ABORT, 'authentication_reservation_delete_forbidden');
+      END`).run();
+  }
+}
+
+/** Test-only reset for immutable conversation turn and delivery replay authority. */
+export async function clearConversationDataForTest(): Promise<void> {
+  await env.DB.prepare("DROP TRIGGER IF EXISTS conversation_deliveries_reject_delete").run();
+  await env.DB.prepare("DROP TRIGGER IF EXISTS conversation_turns_reject_delete").run();
+  try {
+    await env.DB.prepare("DELETE FROM conversation_deliveries").run();
+    await env.DB.prepare("DELETE FROM conversation_turns").run();
+  } finally {
+    await env.DB.prepare(`CREATE TRIGGER conversation_turns_reject_delete
+      BEFORE DELETE ON conversation_turns
+      BEGIN
+        SELECT RAISE(ABORT, 'conversation_turn_delete_forbidden');
+      END`).run();
+    await env.DB.prepare(`CREATE TRIGGER conversation_deliveries_reject_delete
+      BEFORE DELETE ON conversation_deliveries
+      BEGIN
+        SELECT RAISE(ABORT, 'conversation_delivery_delete_forbidden');
       END`).run();
   }
 }

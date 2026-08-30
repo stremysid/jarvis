@@ -13,6 +13,7 @@ export interface FakeModelProviderOptions {
   streamTokenCount?: number;
   completeJson?: unknown;
   completeJsonTokenCount?: number;
+  manual?: boolean;
 }
 
 export type FakeModelRequest =
@@ -25,6 +26,11 @@ export type FakeModelRequest =
 interface AttemptControl {
   readonly delay: number;
   readonly failure: Error | undefined;
+}
+
+interface ManualWaiter {
+  readonly resolve: (value: IteratorResult<ModelChunk>) => void;
+  readonly reject: (reason: unknown) => void;
 }
 
 function cloneContext(context: readonly ModelContextItem[]): readonly Readonly<ModelContextItem>[] {
@@ -116,6 +122,130 @@ function wait(milliseconds: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+class ManualModelStream implements AsyncIterableIterator<ModelChunk> {
+  private readonly queued: ModelChunk[] = [];
+  private waiter: ManualWaiter | null = null;
+  private failure: Error | null = null;
+  private completed = false;
+  private closed = false;
+  private nextIndex = 0;
+  private readonly ready: Promise<void>;
+  private listening = false;
+
+  constructor(
+    private readonly signal: AbortSignal,
+    control: AttemptControl,
+    private readonly onInactive: () => void,
+  ) {
+    this.ready = wait(control.delay, signal).then(() => {
+      if (control.failure !== undefined) throw control.failure;
+    });
+  }
+
+  start(): void {
+    if (this.signal.aborted) {
+      this.abort();
+      return;
+    }
+    this.signal.addEventListener("abort", this.abort, { once: true });
+    this.listening = true;
+  }
+
+  [Symbol.asyncIterator](): AsyncIterableIterator<ModelChunk> {
+    return this;
+  }
+
+  async next(): Promise<IteratorResult<ModelChunk>> {
+    if (this.waiter !== null) throw new Error("fake_model_manual_next_pending");
+    try {
+      await this.ready;
+    } catch (error) {
+      this.failInternal(error instanceof Error ? error : new Error("fake_model_manual_initial_failure"));
+    }
+    if (this.queued.length > 0) return { done: false, value: this.queued.shift()! };
+    if (this.failure !== null) throw this.failure;
+    if (this.completed || this.closed) return { done: true, value: undefined };
+    return new Promise<IteratorResult<ModelChunk>>((resolve, reject) => {
+      this.waiter = { resolve, reject };
+    });
+  }
+
+  async return(): Promise<IteratorResult<ModelChunk>> {
+    if (!this.closed) {
+      this.closed = true;
+      this.queued.length = 0;
+      this.waiter?.resolve({ done: true, value: undefined });
+      this.waiter = null;
+      this.deactivate();
+    }
+    return { done: true, value: undefined };
+  }
+
+  emitToken(text: string): void {
+    this.requireActive();
+    if (typeof text !== "string" || text.length === 0 || !text.isWellFormed() || text !== text.normalize("NFC")) {
+      throw new TypeError("fake_model_manual_token_invalid");
+    }
+    const chunk = Object.freeze({ type: "token" as const, index: this.nextIndex, text });
+    this.nextIndex += 1;
+    if (this.waiter !== null) {
+      const waiter = this.waiter;
+      this.waiter = null;
+      waiter.resolve({ done: false, value: chunk });
+    } else {
+      this.queued.push(chunk);
+    }
+  }
+
+  complete(): void {
+    this.requireActive();
+    const chunk = Object.freeze({ type: "completed" as const });
+    this.completed = true;
+    if (this.waiter !== null) {
+      const waiter = this.waiter;
+      this.waiter = null;
+      waiter.resolve({ done: false, value: chunk });
+    } else {
+      this.queued.push(chunk);
+    }
+    this.deactivate();
+  }
+
+  fail(error: Error): void {
+    this.requireActive();
+    if (!(error instanceof Error)) throw new TypeError("fake_model_manual_failure_invalid");
+    this.failInternal(error);
+  }
+
+  private readonly abort = (): void => {
+    if (this.closed || this.completed || this.failure !== null) return;
+    this.queued.length = 0;
+    this.failInternal(abortError());
+  };
+
+  private failInternal(error: Error): void {
+    if (this.failure === null) this.failure = error;
+    if (this.waiter !== null) {
+      const waiter = this.waiter;
+      this.waiter = null;
+      waiter.reject(this.failure);
+    }
+    this.deactivate();
+  }
+
+  private requireActive(): void {
+    if (this.closed || this.completed || this.failure !== null) throw new Error("fake_model_manual_stream_inactive");
+  }
+
+  private deactivate(): void {
+    if (this.listening) {
+      this.signal.removeEventListener("abort", this.abort);
+      this.listening = false;
+    }
+    this.onInactive();
+  }
+}
+
 export class FakeModelProvider implements ModelProvider {
   private readonly requestLog: FakeModelRequest[] = [];
   private readonly failures: Error[] = [];
@@ -123,8 +253,14 @@ export class FakeModelProvider implements ModelProvider {
   private readonly tokens: readonly string[];
   private readonly completeJsonText: string;
   private readonly completeJsonTokenCount: number;
+  private readonly manual: boolean;
+  private manualActive: ManualModelStream | undefined;
 
   constructor(options: FakeModelProviderOptions = {}) {
+    if (options.manual !== undefined && typeof options.manual !== "boolean") {
+      throw new TypeError("fake_model_manual_mode_invalid");
+    }
+    this.manual = options.manual ?? false;
     const streamText = options.streamText ?? "ok";
     const streamTokenCount = options.streamTokenCount ?? (streamText.length === 0 ? 0 : 1);
     this.tokens = splitTokens(streamText, streamTokenCount);
@@ -150,8 +286,31 @@ export class FakeModelProvider implements ModelProvider {
 
   streamText(input: ModelStreamTextInput): AsyncIterable<ModelChunk> {
     const liveSignal = input.signal;
+    if (this.manual) {
+      if (this.manualActive !== undefined) throw new Error("fake_model_manual_stream_active");
+      const control = this.beginAttempt(cloneStreamRequest(input));
+      let stream!: ManualModelStream;
+      stream = new ManualModelStream(liveSignal, control, () => {
+        if (this.manualActive === stream) this.manualActive = undefined;
+      });
+      this.manualActive = stream;
+      stream.start();
+      return stream;
+    }
     const control = this.beginAttempt(cloneStreamRequest(input));
     return this.streamCaptured(control, liveSignal);
+  }
+
+  emitToken(text: string): void {
+    this.requireManualActive().emitToken(text);
+  }
+
+  complete(): void {
+    this.requireManualActive().complete();
+  }
+
+  fail(error: Error): void {
+    this.requireManualActive().fail(error);
   }
 
   private async *streamCaptured(control: AttemptControl, liveSignal: AbortSignal): AsyncIterable<ModelChunk> {
@@ -183,5 +342,11 @@ export class FakeModelProvider implements ModelProvider {
       delay: this.delays.shift() ?? 0,
       failure: this.failures.shift(),
     };
+  }
+
+  private requireManualActive(): ManualModelStream {
+    if (!this.manual) throw new Error("fake_model_manual_mode_required");
+    if (this.manualActive === undefined) throw new Error("fake_model_manual_stream_inactive");
+    return this.manualActive;
   }
 }

@@ -4,6 +4,7 @@ import {
   applyFoundationMigration,
   clearAuthenticationAttemptReservationsForTest,
   clearCallSessionsForTest,
+  clearConversationDataForTest,
   clearOutboundCallAttemptsForTest,
 } from "./migration.js";
 
@@ -45,6 +46,7 @@ describe("foundation migration constraints", () => {
   beforeEach(async () => {
     await applyFoundationMigration();
     await env.DB.prepare("DELETE FROM provider_events").run();
+    await clearConversationDataForTest();
     await clearCallSessionsForTest();
     await clearAuthenticationAttemptReservationsForTest();
     await clearOutboundCallAttemptsForTest();
@@ -100,6 +102,60 @@ describe("foundation migration constraints", () => {
       "authentication_attempt_reservations_append_only",
       "authentication_attempt_reservations_reject_delete",
       "provider_events_relay_require_bound_session",
+    ]));
+  });
+
+  it("installs the Task 5 turn and dedicated delivery ledgers without channel subjects or message text", async () => {
+    const turnColumns = await env.DB.prepare("PRAGMA table_info(conversation_turns)").all<{
+      name: string; notnull: number; pk: number;
+    }>();
+    expect(turnColumns.results.map((column) => column.name)).toEqual([
+      "turn_id", "session_id", "principal_id", "channel", "request_hash", "user_event_id", "state",
+      "model_claim_token_hash", "model_claimed_at", "model_claim_expires_at", "resolved_at",
+      "staged_delivery_id", "sent_assistant_event_id", "delivered_assistant_event_id",
+      "failure_code", "failure_category", "created_at", "updated_at",
+    ]);
+    expect(turnColumns.results.find((column) => column.name === "turn_id"))
+      .toMatchObject({ notnull: 1, pk: 1 });
+
+    const deliveryColumns = await env.DB.prepare("PRAGMA table_info(conversation_deliveries)").all<{
+      name: string; notnull: number; pk: number;
+    }>();
+    expect(deliveryColumns.results.map((column) => column.name)).toEqual([
+      "delivery_id", "correlation_id", "turn_id", "staged_event_id", "principal_id", "target_identity_id",
+      "reply_to_message_id", "history_mode", "material_hash", "provider_idempotency_key", "state",
+      "attempt_count", "available_at", "lease_token_hash", "claimed_at", "lease_expires_at", "resolved_at",
+      "provider_message_id", "delivered_assistant_event_id", "failure_code", "failure_category",
+      "created_at", "updated_at",
+    ]);
+    expect(deliveryColumns.results.find((column) => column.name === "delivery_id"))
+      .toMatchObject({ notnull: 1, pk: 1 });
+    expect(deliveryColumns.results.map((column) => column.name).join(" "))
+      .not.toMatch(/chat|provider_subject|text|payload|body|exception/iu);
+
+    const triggers = await env.DB.prepare(`SELECT name FROM sqlite_master
+      WHERE type = 'trigger' AND (
+        name LIKE 'conversation_turns_%'
+        OR name LIKE 'conversation_deliveries_%'
+        OR name LIKE 'events_conversation_%'
+      ) ORDER BY name`).all<{ name: string }>();
+    expect(triggers.results.map((row) => row.name)).toEqual(expect.arrayContaining([
+      "conversation_turns_reject_delete",
+      "conversation_turns_transition_guard",
+      "conversation_turns_immutable_guard",
+      "conversation_deliveries_reject_delete",
+      "conversation_deliveries_transition_guard",
+      "conversation_deliveries_immutable_guard",
+      "conversation_deliveries_target_guard",
+      "events_conversation_transition_guard",
+    ]));
+
+    const indexes = await env.DB.prepare(`SELECT name FROM sqlite_master
+      WHERE type = 'index' AND name LIKE 'conversation_%' ORDER BY name`).all<{ name: string }>();
+    expect(indexes.results.map((row) => row.name)).toEqual(expect.arrayContaining([
+      "conversation_turns_principal_session_idx",
+      "conversation_deliveries_available_idx",
+      "conversation_deliveries_target_idx",
     ]));
   });
 

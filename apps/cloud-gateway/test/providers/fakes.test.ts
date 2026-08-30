@@ -451,6 +451,127 @@ describe("FakeModelProvider", () => {
 
     expect(fake.requests[0]?.signal.aborted).toBe(false);
   });
+
+  it("manually emits contiguous chunks and completes exactly one active stream", async () => {
+    const fake = new FakeModelProvider({ manual: true });
+    const stream = fake.streamText(modelStreamInput({ reasoningEffort: "max" }));
+
+    fake.emitToken("hel");
+    fake.emitToken("lo");
+    fake.complete();
+
+    await expect(collect(stream)).resolves.toEqual([
+      { type: "token", index: 0, text: "hel" },
+      { type: "token", index: 1, text: "lo" },
+      { type: "completed" },
+    ]);
+    expect(fake.requests).toHaveLength(1);
+    expect(fake.requests[0]).toMatchObject({ operation: "streamText", reasoningEffort: "max" });
+    expect(() => fake.emitToken("late")).toThrow("fake_model_manual_stream_inactive");
+    expect(() => fake.complete()).toThrow("fake_model_manual_stream_inactive");
+  });
+
+  it("delivers manual controls to a waiting consumer and permits a later independent stream", async () => {
+    const fake = new FakeModelProvider({ manual: true });
+    const first = collect(fake.streamText(modelStreamInput({ userText: "first" })));
+    await Promise.resolve();
+
+    fake.emitToken("one");
+    fake.complete();
+    await expect(first).resolves.toEqual([
+      { type: "token", index: 0, text: "one" },
+      { type: "completed" },
+    ]);
+
+    const second = collect(fake.streamText(modelStreamInput({ userText: "second" })));
+    fake.emitToken("two");
+    fake.complete();
+    await expect(second).resolves.toEqual([
+      { type: "token", index: 0, text: "two" },
+      { type: "completed" },
+    ]);
+    expect(fake.requests.map((request) => request.userText)).toEqual(["first", "second"]);
+  });
+
+  it("rejects overlapping manual streams without consuming a second request", async () => {
+    const fake = new FakeModelProvider({ manual: true });
+    const first = fake.streamText(modelStreamInput({ userText: "first" }));
+
+    expect(() => fake.streamText(modelStreamInput({ userText: "overlap" })))
+      .toThrow("fake_model_manual_stream_active");
+    expect(fake.requests).toHaveLength(1);
+
+    fake.emitToken("ok");
+    fake.complete();
+    await expect(collect(first)).resolves.toHaveLength(2);
+  });
+
+  it("fails one active manual stream without leaking the failure into the next", async () => {
+    const fake = new FakeModelProvider({ manual: true });
+    const injected = new Error("manual provider failure");
+    const first = collect(fake.streamText(modelStreamInput()));
+    await Promise.resolve();
+
+    fake.fail(injected);
+
+    await expect(first).rejects.toBe(injected);
+    expect(() => fake.fail(injected)).toThrow("fake_model_manual_stream_inactive");
+
+    const second = collect(fake.streamText(modelStreamInput()));
+    fake.emitToken("recovered");
+    fake.complete();
+    await expect(second).resolves.toEqual([
+      { type: "token", index: 0, text: "recovered" },
+      { type: "completed" },
+    ]);
+  });
+
+  it("aborts an active manual stream and rejects every late control", async () => {
+    const fake = new FakeModelProvider({ manual: true });
+    const controller = new AbortController();
+    const pending = collect(fake.streamText(modelStreamInput({ signal: controller.signal })));
+    await Promise.resolve();
+
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(() => fake.emitToken("late")).toThrow("fake_model_manual_stream_inactive");
+    expect(() => fake.complete()).toThrow("fake_model_manual_stream_inactive");
+    expect(() => fake.fail(new Error("late"))).toThrow("fake_model_manual_stream_inactive");
+  });
+
+  it("rejects manual controls outside manual mode or without an active stream", () => {
+    const automatic = new FakeModelProvider();
+    expect(() => automatic.emitToken("nope")).toThrow("fake_model_manual_mode_required");
+    expect(() => automatic.complete()).toThrow("fake_model_manual_mode_required");
+    expect(() => automatic.fail(new Error("nope"))).toThrow("fake_model_manual_mode_required");
+
+    const manual = new FakeModelProvider({ manual: true });
+    expect(() => manual.emitToken("nope")).toThrow("fake_model_manual_stream_inactive");
+    expect(() => manual.complete()).toThrow("fake_model_manual_stream_inactive");
+    expect(() => manual.fail(new Error("nope"))).toThrow("fake_model_manual_stream_inactive");
+  });
+
+  it("preserves completeJson behavior while manual stream mode is enabled", async () => {
+    const fake = new FakeModelProvider({
+      manual: true,
+      completeJson: { answer: "kept" },
+      completeJsonTokenCount: 2,
+    });
+    const request = {
+      correlationId: "01k3s6k8000000000000000005",
+      principalId: "principal:sid",
+      purpose: "memory_distillation" as const,
+      prompt: "distill",
+      timeoutMs: 30_000,
+      maxOutputTokens: 2,
+      reasoningEffort: "high" as const,
+    };
+
+    await expect(fake.completeJson(request)).resolves.toEqual({ answer: "kept" });
+    expect(fake.requests).toHaveLength(1);
+    expect(fake.requests[0]).toMatchObject({ operation: "completeJson" });
+  });
 });
 
 describe("ProviderCircuitBreaker", () => {

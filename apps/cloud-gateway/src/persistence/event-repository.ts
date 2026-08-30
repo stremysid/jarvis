@@ -24,6 +24,8 @@ export type EventAppendDependencyFactory = (
   createdAt: string,
 ) => readonly D1PreparedStatement[];
 
+export type EventAppendPostDependencyFactory = EventAppendDependencyFactory;
+
 export interface EventRepositoryContract extends SyncEventReader {
   append(input: EventAppendInput): Promise<AppendedEvent>;
 }
@@ -63,6 +65,82 @@ const encoder = new TextEncoder();
 function requireUtf8Limit(value: unknown, maximumBytes: number, label: string): asserts value is string {
   if (typeof value !== "string") throw new TypeError(`${label} must be a string`);
   if (encoder.encode(value).byteLength > maximumBytes) throw new RangeError(`${label} exceeds UTF-8 byte limit`);
+}
+
+function captureAppendInput(input: EventAppendInput): Readonly<EventAppendInput> {
+  const fields = ["envelope", "scope", "key", "requestHash"] as const;
+  let prototype: object | null;
+  let keys: readonly PropertyKey[];
+  try {
+    prototype = Object.getPrototypeOf(input);
+    keys = Reflect.ownKeys(input);
+  } catch {
+    throw new TypeError("event_append_input_invalid");
+  }
+  if (
+    prototype !== Object.prototype
+    || keys.length !== fields.length
+    || keys.some((key) => typeof key !== "string" || !(fields as readonly string[]).includes(key))
+  ) {
+    throw new TypeError("event_append_input_invalid");
+  }
+  const captured = Object.create(null) as Record<(typeof fields)[number], unknown>;
+  for (const field of fields) {
+    let descriptor: PropertyDescriptor | undefined;
+    try { descriptor = Object.getOwnPropertyDescriptor(input, field); }
+    catch { throw new TypeError("event_append_input_invalid"); }
+    if (descriptor === undefined || !descriptor.enumerable || !("value" in descriptor)) {
+      throw new TypeError("event_append_input_invalid");
+    }
+    captured[field] = descriptor.value;
+  }
+  return Object.freeze(captured) as unknown as Readonly<EventAppendInput>;
+}
+
+function capturePostDependencies(value: unknown): readonly D1PreparedStatement[] {
+  if (!Array.isArray(value)) throw new RangeError("event_append_post_dependency_limit");
+  let prototype: object | null;
+  let keys: readonly PropertyKey[];
+  let lengthDescriptor: PropertyDescriptor | undefined;
+  try {
+    prototype = Object.getPrototypeOf(value);
+    keys = Reflect.ownKeys(value);
+    lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+  } catch {
+    throw new TypeError("event_append_post_dependency_invalid");
+  }
+  if (
+    prototype !== Array.prototype
+    || lengthDescriptor === undefined
+    || !("value" in lengthDescriptor)
+    || !Number.isSafeInteger(lengthDescriptor.value)
+    || lengthDescriptor.value < 0
+  ) {
+    throw new TypeError("event_append_post_dependency_invalid");
+  }
+  const dependencyCount = lengthDescriptor.value as number;
+  if (dependencyCount > 2) throw new RangeError("event_append_post_dependency_limit");
+  const expectedKeys = new Set<PropertyKey>(["length"]);
+  for (let index = 0; index < dependencyCount; index += 1) expectedKeys.add(String(index));
+  if (keys.length !== expectedKeys.size || keys.some((key) => !expectedKeys.has(key))) {
+    throw new TypeError("event_append_post_dependency_invalid");
+  }
+  const dependencies: D1PreparedStatement[] = [];
+  for (let index = 0; index < dependencyCount; index += 1) {
+    let descriptor: PropertyDescriptor | undefined;
+    try { descriptor = Object.getOwnPropertyDescriptor(value, String(index)); }
+    catch { throw new TypeError("event_append_post_dependency_invalid"); }
+    if (
+      descriptor === undefined
+      || !descriptor.enumerable
+      || !("value" in descriptor)
+      || descriptor.value === undefined
+    ) {
+      throw new TypeError("event_append_post_dependency_invalid");
+    }
+    dependencies.push(descriptor.value as D1PreparedStatement);
+  }
+  return Object.freeze(dependencies);
 }
 
 /** Stores only canonical, already-redacted envelopes and their content hash. */
@@ -136,6 +214,70 @@ export class EventRepository implements EventRepositoryContract {
         this.database.prepare(
           "INSERT INTO outbox (outbox_id, event_sequence, topic, status, available_at, created_at) SELECT ?, sequence, ?, 'pending', ?, ? FROM events WHERE event_id = ?",
         ).bind(`event:${envelope.eventId}`, envelope.eventType, createdAt, createdAt, envelope.eventId),
+      ]);
+    } catch (error) {
+      const racedRecord = await this.readIdempotency(scope, key);
+      if (racedRecord !== null) return this.resolveIdempotency(racedRecord, scope, key, requestHash);
+      throw error;
+    }
+
+    const stored = await this.readEventById(envelope.eventId);
+    if (stored === null) throw new Error("event_append_missing_after_commit");
+    return this.toAppended(stored.sequence, stored.envelope_json, stored.content_hash, false);
+  }
+
+  /** Appends up to two dependencies after the event, idempotency row, and foundation outbox row. */
+  async appendAtomicAfter(
+    input: EventAppendInput,
+    buildPostDependencies: EventAppendPostDependencyFactory,
+  ): Promise<AppendedEvent> {
+    const captured = captureAppendInput(input);
+    const envelope = captured.envelope;
+    const scope = captured.scope;
+    const key = captured.key;
+    const requestHash = captured.requestHash;
+    const dependencyFactory = buildPostDependencies;
+    requireNonEmpty(scope, "scope");
+    requireNonEmpty(key, "key");
+    requireUtf8Limit(scope, 128, "scope");
+    requireUtf8Limit(key, 256, "key");
+    if (typeof requestHash !== "string" || !SHA256.test(requestHash)) {
+      throw new TypeError("requestHash must be a lowercase SHA-256 hash");
+    }
+    if (!isPersistableEventEnvelope(envelope)) throw new TypeError("envelope must be a persistable envelope");
+    if (envelope.eventSequence !== undefined) throw new TypeError("producer envelope must not include eventSequence");
+    if (typeof dependencyFactory !== "function") throw new TypeError("event_append_post_dependency_factory_invalid");
+    await validateEnvelope(envelope);
+    const envelopeJson = canonicalJson(envelope);
+    requireUtf8Limit(envelopeJson, 262144, "envelope");
+
+    const existing = await this.readIdempotency(scope, key);
+    if (existing !== null) return this.resolveIdempotency(existing, scope, key, requestHash);
+
+    const createdAt = now();
+    const postDependencies = capturePostDependencies(dependencyFactory(this.database, createdAt));
+    try {
+      await this.transactions.batch([
+        this.database.prepare(
+          "INSERT INTO events (event_id, event_type, source, subject_id, occurred_at, received_at, content_hash, envelope_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ).bind(
+          envelope.eventId,
+          envelope.eventType,
+          envelope.source,
+          envelope.subjectId,
+          envelope.occurredAt,
+          envelope.receivedAt,
+          envelope.contentHash,
+          envelopeJson,
+          createdAt,
+        ),
+        this.database.prepare(
+          "INSERT INTO idempotency_records (scope, key, request_hash, event_sequence, created_at) SELECT ?, ?, ?, sequence, ? FROM events WHERE event_id = ?",
+        ).bind(scope, key, requestHash, createdAt, envelope.eventId),
+        this.database.prepare(
+          "INSERT INTO outbox (outbox_id, event_sequence, topic, status, available_at, created_at) SELECT ?, sequence, ?, 'pending', ?, ? FROM events WHERE event_id = ?",
+        ).bind(`event:${envelope.eventId}`, envelope.eventType, createdAt, createdAt, envelope.eventId),
+        ...postDependencies,
       ]);
     } catch (error) {
       const racedRecord = await this.readIdempotency(scope, key);

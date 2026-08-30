@@ -317,4 +317,102 @@ describe("EventRepository", () => {
     await expect(repository.append({ envelope: await oversizedFixture(), scope: "scope", key: "oversized", requestHash: await requestHash("oversized") })).rejects.toThrow("envelope");
     await expect(repository.readRange(0, 1001)).rejects.toThrow("limit");
   });
+
+  it("appends bounded post dependencies after the event ledger and skips them on replay", async () => {
+    const repository = new EventRepository(env.DB);
+    const envelope = await eventFixture("post-order");
+    const hash = await requestHash("post-order");
+    let builds = 0;
+    const input = { envelope, scope: "test:post-order", key: "one", requestHash: hash };
+    const build = (database: D1Database, createdAt: string) => {
+      builds += 1;
+      return [database.prepare(`INSERT INTO principals (
+        principal_id, principal_type, status, display_name, created_at, updated_at
+      ) SELECT 'principal:post-order', 'service', 'active', e.event_id, ?, ?
+        FROM events e
+        JOIN outbox o ON o.event_sequence = e.sequence
+        WHERE e.event_id = ? AND o.outbox_id = ?`)
+        .bind(createdAt, createdAt, envelope.eventId, `event:${envelope.eventId}`)];
+    };
+
+    const first = await repository.appendAtomicAfter(input, build);
+    const replay = await repository.appendAtomicAfter(input, build);
+
+    expect(first.replayed).toBe(false);
+    expect(replay).toEqual({ ...first, replayed: true });
+    expect(builds).toBe(1);
+    await expect(env.DB.prepare("SELECT display_name FROM principals WHERE principal_id = 'principal:post-order'").first())
+      .resolves.toEqual({ display_name: envelope.eventId });
+  });
+
+  it("rejects accessor, sparse, and custom-iterator post dependency arrays without executing them", async () => {
+    const repository = new EventRepository(env.DB);
+    const variants: Array<{ label: string; dependencies: D1PreparedStatement[]; reads: () => number }> = [];
+
+    let accessorReads = 0;
+    const accessor: D1PreparedStatement[] = [];
+    Object.defineProperty(accessor, 0, {
+      enumerable: true,
+      configurable: true,
+      get() {
+        accessorReads += 1;
+        return env.DB.prepare("SELECT 1");
+      },
+    });
+    Object.defineProperty(accessor, "length", { value: 1 });
+    variants.push({ label: "accessor", dependencies: accessor, reads: () => accessorReads });
+
+    const sparse = new Array<D1PreparedStatement>(1);
+    variants.push({ label: "sparse", dependencies: sparse, reads: () => 0 });
+
+    let iteratorReads = 0;
+    const customIterator = [env.DB.prepare("SELECT 1")];
+    Object.defineProperty(customIterator, Symbol.iterator, {
+      configurable: true,
+      value: function* () {
+        iteratorReads += 1;
+        yield env.DB.prepare("SELECT 2");
+      },
+    });
+    variants.push({ label: "iterator", dependencies: customIterator, reads: () => iteratorReads });
+
+    for (const variant of variants) {
+      await expect(repository.appendAtomicAfter({
+        envelope: await eventFixture(`post-${variant.label}`),
+        scope: "test:post-invalid",
+        key: variant.label,
+        requestHash: await requestHash(variant.label),
+      }, () => variant.dependencies)).rejects.toThrow("event_append_post_dependency_invalid");
+      expect(variant.reads()).toBe(0);
+    }
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events").first<{ count: number }>())?.count).toBe(0);
+  });
+
+  it("caps post dependencies at two and converges concurrent exact replays", async () => {
+    const repository = new EventRepository(env.DB);
+    const envelope = await eventFixture("post-race");
+    const input = {
+      envelope,
+      scope: "test:post-race",
+      key: "one",
+      requestHash: await requestHash("post-race"),
+    };
+    const statements = [0, 1, 2].map((index) => env.DB.prepare("SELECT ? AS value").bind(index));
+
+    await expect(repository.appendAtomicAfter(input, () => statements))
+      .rejects.toThrow("event_append_post_dependency_limit");
+
+    const attempts = await Promise.all(Array.from({ length: 8 }, () => repository.appendAtomicAfter(
+      input,
+      (database, createdAt) => [database.prepare(`INSERT INTO principals (
+        principal_id, principal_type, status, display_name, created_at, updated_at
+      ) VALUES ('principal:post-race', 'service', 'active', 'winner', ?, ?)`)
+        .bind(createdAt, createdAt)],
+    )));
+
+    expect(new Set(attempts.map((attempt) => attempt.eventSequence))).toEqual(new Set([1]));
+    expect(attempts.filter((attempt) => !attempt.replayed)).toHaveLength(1);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events").first<{ count: number }>())?.count).toBe(1);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM principals WHERE principal_id = 'principal:post-race'").first<{ count: number }>())?.count).toBe(1);
+  });
 });
