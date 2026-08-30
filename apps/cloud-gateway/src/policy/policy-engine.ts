@@ -1,4 +1,4 @@
-import { canonicalJson, sha256Hex, type Sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
+import { canonicalJson, newUlid, sha256Hex, type Sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import type { EventRepositoryContract } from "../persistence/event-repository.js";
 import { TransactionRunner } from "../persistence/transaction.js";
 import { PolicyAudit } from "./policy-audit.js";
@@ -12,9 +12,7 @@ export interface MutablePolicyContext {
   isQuietHours(now: Date): boolean;
   activeOutboundCalls(principalId: string): number | Promise<number>;
   outboundCallsForUtcPolicyDay(principalId: string, utcDay: string): number | Promise<number>;
-  retryCount(commandId: string): number | Promise<number>;
   authenticatedOrigin(commandId: string): TrustedOrigin | null | Promise<TrustedOrigin | null>;
-  dispatchAttemptId(commandId: string): string;
 }
 
 interface StoredDecision { input_hash: string; outcome: "allow" | "deny"; reason_code: PolicyReason; }
@@ -39,8 +37,8 @@ function isCanonicalTimestamp(value: unknown): value is string {
 function isUlid(value: unknown): value is Ulid { return typeof value === "string" && ULID.test(value); }
 function isSha256Hex(value: unknown): value is Sha256Hex { return typeof value === "string" && SHA256.test(value); }
 
-/** Rejects accessor, inherited, symbol, extra, non-enumerable, and malformed request values before hashing. */
-function validateRequest(value: unknown): OutboundCallRequest | null {
+/** Rejects accessor, inherited, symbol, extra, non-enumerable, and malformed values, then freezes an owned snapshot. */
+export function snapshotOutboundCallRequest(value: unknown): Readonly<OutboundCallRequest> | null {
   if (value === null || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return null;
   const keys = Reflect.ownKeys(value);
   if (keys.length !== FIELDS.length || keys.some((key) => typeof key !== "string" || !FIELD_SET.has(key))) return null;
@@ -54,7 +52,16 @@ function validateRequest(value: unknown): OutboundCallRequest | null {
   if (!isSafeText(record.purposeCode, 64)) return null;
   if (record.urgency !== "normal" && record.urgency !== "urgent") return null;
   if (!isSafeText(record.issuedBy, 64) || !isCanonicalTimestamp(record.authorizationExpiresAt)) return null;
-  return record as unknown as OutboundCallRequest;
+  return Object.freeze({
+    commandId: record.commandId,
+    principalId: record.principalId,
+    purposeCode: record.purposeCode,
+    destinationIdentityId: record.destinationIdentityId,
+    urgency: record.urgency,
+    authorizationExpiresAt: record.authorizationExpiresAt,
+    idempotencyKey: record.idempotencyKey,
+    issuedBy: record.issuedBy,
+  }) as Readonly<OutboundCallRequest>;
 }
 
 function validExpiry(value: string, now: Date): boolean { return new Date(value).valueOf() > now.valueOf(); }
@@ -63,13 +70,19 @@ function validExpiry(value: string, now: Date): boolean { return new Date(value)
 export class PolicyEngine implements PolicyEngineContract {
   private readonly transactions: TransactionRunner;
   private readonly audit: PolicyAudit;
-  constructor(private readonly deps: { database: D1Database; events: EventRepositoryContract; context: MutablePolicyContext; policyVersion?: string }) {
+  constructor(private readonly deps: {
+    database: D1Database;
+    events: EventRepositoryContract;
+    context: MutablePolicyContext;
+    policyVersion?: string;
+    newUlid?: () => Ulid;
+  }) {
     this.transactions = new TransactionRunner(deps.database);
     this.audit = new PolicyAudit(deps.events);
   }
 
   async evaluateOutboundCall(input: OutboundCallRequest): Promise<PolicyDecision> {
-    const request = validateRequest(input);
+    const request = snapshotOutboundCallRequest(input);
     if (request === null) return denied("invalid_request");
     const inputHash = await sha256Hex(canonicalJson(request));
     const existing = await this.readDecision(request.commandId);
@@ -81,10 +94,11 @@ export class PolicyEngine implements PolicyEngineContract {
     return this.persistDecision(request, inputHash, await this.evaluateNew(request, this.now()), true);
   }
 
-  async recheckOutboundDispatch(input: OutboundCallRequest): Promise<DispatchPolicyCheck> {
-    const request = validateRequest(input);
+  async recheckOutboundDispatch(input: OutboundCallRequest, attemptId: Ulid): Promise<DispatchPolicyCheck> {
+    const request = snapshotOutboundCallRequest(input);
     const checkedAt = this.now().toISOString();
     if (request === null) return { ...denied("invalid_request"), checkedAt };
+    if (!isUlid(attemptId)) return { ...denied("invalid_dispatch_attempt"), checkedAt };
     const inputHash = await sha256Hex(canonicalJson(request));
     const stored = await this.readDecision(request.commandId);
     let result: PolicyDecision;
@@ -100,16 +114,16 @@ export class PolicyEngine implements PolicyEngineContract {
         : await this.recheckMutable(request, new Date(checkedAt));
     }
     const check: DispatchPolicyCheck = { ...result, checkedAt };
-    let attemptId: string;
-    try { attemptId = this.deps.context.dispatchAttemptId(request.commandId); }
-    catch { return { decision: "deny", reason: "invalid_dispatch_attempt", checkedAt }; }
-    if (!isUlid(attemptId)) return { decision: "deny", reason: "invalid_dispatch_attempt", checkedAt };
+    let checkId: Ulid;
+    try { checkId = (this.deps.newUlid ?? newUlid)(); }
+    catch { return { decision: "deny", reason: "invalid_dispatch_attempt", checkedAt, attemptId }; }
+    if (!isUlid(checkId)) return { decision: "deny", reason: "invalid_dispatch_attempt", checkedAt, attemptId };
     try {
-      await this.audit.appendDispatchCheck({ attemptId, principalId: request.principalId, commandId: request.commandId, inputHash, check });
+      await this.audit.appendDispatchCheck({ checkId, attemptId, principalId: request.principalId, commandId: request.commandId, inputHash, check });
       return result.decision === "allow" && destinationE164 !== null
-        ? { ...check, attemptId, destinationE164, commandId: request.commandId }
-        : { ...check, attemptId };
-    } catch { return { decision: "deny", reason: "audit_persistence_failed", checkedAt }; }
+        ? { ...check, checkId, attemptId, destinationE164, commandId: request.commandId }
+        : { ...check, checkId, attemptId };
+    } catch { return { decision: "deny", reason: "audit_persistence_failed", checkedAt, attemptId }; }
   }
 
   private async persistDecision(request: OutboundCallRequest, inputHash: string, result: PolicyDecision, replayOnRace: boolean): Promise<PolicyDecision> {
@@ -135,7 +149,7 @@ export class PolicyEngine implements PolicyEngineContract {
     if (this.deps.context.isQuietHours(now)) return denied("quiet_hours");
     if (await this.deps.context.activeOutboundCalls(request.principalId) >= 2) return denied("concurrency_limit");
     if (await this.deps.context.outboundCallsForUtcPolicyDay(request.principalId, utcDay(now)) >= 6) return denied("daily_limit");
-    if (await this.deps.context.retryCount(request.commandId) > 1) return denied("retry_limit");
+    if (await this.retryCount(request.commandId) > 1) return denied("retry_limit");
     return { decision: "allow", reason: "allowed" };
   }
   private async hasTrustedOrigin(request: OutboundCallRequest, inputHash: Sha256Hex): Promise<boolean> {
@@ -153,6 +167,13 @@ export class PolicyEngine implements PolicyEngineContract {
     return typeof row?.provider_subject === "string" && E164.test(row.provider_subject)
       ? row.provider_subject
       : null;
+  }
+  private async retryCount(commandId: Ulid): Promise<number> {
+    const row = await this.deps.database.prepare("SELECT COUNT(*) AS count FROM outbound_call_attempts WHERE command_id = ?")
+      .bind(commandId).first<{ count: number }>();
+    const count = row?.count ?? 0;
+    if (!Number.isSafeInteger(count) || count < 0) throw new Error("outbound_retry_count_invalid");
+    return Math.max(count - 1, 0);
   }
   private async readDecision(commandId: string): Promise<StoredDecision | null> { return this.deps.database.prepare("SELECT input_hash, outcome, reason_code FROM policy_decisions WHERE decision_id = ?").bind(commandId).first<StoredDecision>(); }
   private fromStored(stored: StoredDecision): PolicyDecision { return { decision: stored.outcome, reason: stored.reason_code }; }

@@ -9,6 +9,7 @@ import { ArchiveRepository } from "../../apps/cloud-gateway/src/archive/archive-
 import { ArchivalService } from "../../apps/cloud-gateway/src/archive/archival-service.js";
 import { TieredEventReader } from "../../apps/cloud-gateway/src/archive/tiered-event-reader.js";
 import { OutboundCallDispatcher } from "../../apps/cloud-gateway/src/calls/outbound-call-dispatcher.js";
+import { CallRepository } from "../../apps/cloud-gateway/src/persistence/call-repository.js";
 import { EventRepository } from "../../apps/cloud-gateway/src/persistence/event-repository.js";
 import { PolicyEngine, type MutablePolicyContext } from "../../apps/cloud-gateway/src/policy/policy-engine.js";
 import { FakeTwilioProvider } from "../../apps/cloud-gateway/src/providers/fake-twilio-provider.js";
@@ -254,7 +255,6 @@ class AcceptancePolicyContext implements MutablePolicyContext {
   outboundCallsForUtcPolicyDay(): number { return 0; }
   retryCount(): number { return 0; }
   authenticatedOrigin(): null { return null; }
-  dispatchAttemptId(): string { return "01k3s6k8000000000000000009"; }
 }
 
 beforeEach(resetAcceptanceState);
@@ -307,12 +307,27 @@ it("preserves 1,000 canonical events across D1, R2, signed sync, and denied disp
     purposeCode: "user_requested", destinationIdentityId: enrolled.phoneIdentityId, urgency: "normal",
     authorizationExpiresAt: "2026-12-01T12:05:00.000Z", idempotencyKey: "call:model-origin", issuedBy: "model",
   } as unknown as OutboundCallCommand;
-  const policy = new PolicyEngine({ database: env.DB, events: liveEvents, context: new AcceptancePolicyContext() });
+  const attemptId = "01k3s6k8000000000000000009" as OutboundCallCommand["commandId"];
+  const checkId = "01k3s6k800000000000000000a" as OutboundCallCommand["commandId"];
+  const policy = new PolicyEngine({
+    database: env.DB,
+    events: liveEvents,
+    context: new AcceptancePolicyContext(),
+    newUlid: () => checkId,
+  });
   await expect(policy.evaluateOutboundCall(modelCommand)).resolves.toEqual({ decision: "deny", reason: "invalid_origin" });
   const twilio = new FakeTwilioProvider();
-  const dispatcher = new OutboundCallDispatcher({ policy, twilio, publicBaseUrl: new URL("https://jarvis.example/") });
+  const dispatcher = new OutboundCallDispatcher({
+    policy,
+    twilio,
+    repository: new CallRepository(env.DB, liveEvents),
+    publicBaseUrl: new URL("https://jarvis.example/"),
+    newAttemptId: () => attemptId,
+    now: () => new Date(syncNow),
+  });
   await expect(dispatcher.dispatch(modelCommand)).resolves.toEqual({
     status: "denied", reason: "authorization_denied", checkedAt: syncNow.toISOString(),
+    checkId, attemptId,
   });
   expect(await env.DB.prepare("SELECT COUNT(*) AS count, MIN(sequence) AS first_sequence FROM events WHERE event_type = 'policy.dispatch_checked'").first())
     .toEqual({ count: 1, first_sequence: 1001 });

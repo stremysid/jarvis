@@ -1,6 +1,7 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import foundationSql from "../../src/persistence/migrations/0001_foundation.sql?raw";
 import foundationHardeningSql from "../../src/persistence/migrations/0002_foundation_hardening.sql?raw";
+import callingSql from "../../src/persistence/migrations/0003_calling.sql?raw";
 
 let migrated: Promise<void> | undefined;
 
@@ -27,6 +28,10 @@ export function applyFoundationMigration(): Promise<void> {
     {
       name: "0002_foundation_hardening.sql",
       queries: splitMigration(foundationHardeningSql),
+    },
+    {
+      name: "0003_calling.sql",
+      queries: splitMigration(callingSql),
     },
   ]);
   return migrated;

@@ -12,8 +12,20 @@ export interface SyncEventReader {
   readRange(afterSequence: number, limit: number): Promise<readonly AppendedEvent[]>;
 }
 
+export interface EventAppendInput {
+  envelope: PersistableEventEnvelopeV1;
+  scope: string;
+  key: string;
+  requestHash: Sha256Hex;
+}
+
+export type EventAppendDependencyFactory = (
+  database: D1Database,
+  createdAt: string,
+) => readonly D1PreparedStatement[];
+
 export interface EventRepositoryContract extends SyncEventReader {
-  append(input: { envelope: PersistableEventEnvelopeV1; scope: string; key: string; requestHash: Sha256Hex }): Promise<AppendedEvent>;
+  append(input: EventAppendInput): Promise<AppendedEvent>;
 }
 
 interface StoredIdempotencyRecord {
@@ -59,7 +71,11 @@ export class EventRepository implements EventRepositoryContract {
     this.transactions = new TransactionRunner(database);
   }
 
-  async append(input: { envelope: PersistableEventEnvelopeV1; scope: string; key: string; requestHash: Sha256Hex }): Promise<AppendedEvent> {
+  append(input: EventAppendInput): Promise<AppendedEvent> {
+    return this.appendAtomic(input, () => []);
+  }
+
+  async appendAtomic(input: EventAppendInput, buildDependencies: EventAppendDependencyFactory): Promise<AppendedEvent> {
     requireNonEmpty(input.scope, "scope");
     requireNonEmpty(input.key, "key");
     requireUtf8Limit(input.scope, 128, "scope");
@@ -75,8 +91,13 @@ export class EventRepository implements EventRepositoryContract {
     if (existing !== null) return this.resolveIdempotency(existing, input.scope, input.key, input.requestHash);
 
     const createdAt = now();
+    const dependencies = buildDependencies(this.database, createdAt);
+    if (!Array.isArray(dependencies) || dependencies.length > 2) {
+      throw new RangeError("event_append_dependency_limit");
+    }
     try {
       await this.transactions.batch([
+        ...dependencies,
         this.database.prepare(
           "INSERT INTO events (event_id, event_type, source, subject_id, occurred_at, received_at, content_hash, envelope_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         ).bind(

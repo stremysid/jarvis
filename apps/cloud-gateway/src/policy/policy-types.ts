@@ -1,4 +1,4 @@
-import type { OutboundCallCommand } from "../../../../packages/contracts/src/index.js";
+import type { OutboundCallCommand, Ulid } from "../../../../packages/contracts/src/index.js";
 
 export interface OutboundCallRequest extends OutboundCallCommand {}
 
@@ -27,15 +27,17 @@ export interface PolicyDecision {
 
 export interface DispatchPolicyCheck extends PolicyDecision {
   checkedAt: string;
-  /** Stable audited attempt identity; present only after a dispatch check is durably recorded. */
-  attemptId?: string;
+  /** Fresh event identity for this individual persisted recheck. */
+  checkId?: Ulid;
+  /** Stable audited attempt identity supplied by the dispatcher. */
+  attemptId?: Ulid;
   /** Active verified transport destination; present only on an audited allow. */
   destinationE164?: string;
   /** Canonical command identity captured by the same validated request and audit. */
-  commandId?: string;
+  commandId?: Ulid;
 }
 
 export interface PolicyEngineContract {
   evaluateOutboundCall(request: OutboundCallRequest): Promise<PolicyDecision>;
-  recheckOutboundDispatch(request: OutboundCallRequest): Promise<DispatchPolicyCheck>;
+  recheckOutboundDispatch(request: OutboundCallRequest, attemptId: Ulid): Promise<DispatchPolicyCheck>;
 }

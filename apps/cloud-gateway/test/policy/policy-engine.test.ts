@@ -1,12 +1,19 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { canonicalJson, sha256Hex, type OutboundCallCommand, type Sha256Hex } from "../../../../packages/contracts/src/index.js";
+import { canonicalJson, sha256Hex, type OutboundCallCommand, type Sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
-import { PolicyEngine, type MutablePolicyContext } from "../../src/policy/policy-engine.js";
+import { PolicyAudit } from "../../src/policy/policy-audit.js";
+import { PolicyEngine, snapshotOutboundCallRequest, type MutablePolicyContext } from "../../src/policy/policy-engine.js";
 import { applyFoundationMigration } from "../persistence/migration.js";
 
 const instant = new Date("2026-08-30T12:00:00.000Z");
 const expires = "2026-08-30T12:05:00.000Z";
+const ATTEMPT_0 = "01k3s6k8000000000000000009" as Ulid;
+const ATTEMPT_1 = "01k3s6k800000000000000000a" as Ulid;
+const CHECK_0 = "01k3s6k800000000000000000b" as Ulid;
+const CHECK_1 = "01k3s6k800000000000000000c" as Ulid;
+const CHECK_2 = "01k3s6k800000000000000000d" as Ulid;
+const CHECK_3 = "01k3s6k800000000000000000e" as Ulid;
 
 class TestContext implements MutablePolicyContext {
   public killSwitch = false;
@@ -16,8 +23,6 @@ class TestContext implements MutablePolicyContext {
   public retries = 0;
   public nowValue = instant;
   public quietHours = () => this.quiet;
-  public attemptId = "01k3s6k8000000000000000009";
-  public attemptLookupFails = false;
   public originGate: Promise<void> | undefined;
   public readonly origins = new Map<string, { principalId: string; issuedBy: "telegram_call_command" | "local_cli"; commandHash: Sha256Hex }>();
 
@@ -27,7 +32,6 @@ class TestContext implements MutablePolicyContext {
   outboundCallsForUtcPolicyDay(): number { return this.dailyCalls; }
   retryCount(): number { return this.retries; }
   async authenticatedOrigin(commandId: string): Promise<{ principalId: string; issuedBy: "telegram_call_command" | "local_cli"; commandHash: Sha256Hex } | null> { await this.originGate; return this.origins.get(commandId) ?? null; }
-  dispatchAttemptId(commandId: string): string { if (this.attemptLookupFails) throw new Error("attempt lookup failed"); return commandId === request().commandId ? this.attemptId : commandId; }
   async trust(input: OutboundCallCommand, origin = { principalId: input.principalId, issuedBy: "telegram_call_command" as const }): Promise<void> {
     this.origins.set(input.commandId, { ...origin, commandHash: await sha256Hex(canonicalJson(input)) });
   }
@@ -50,6 +54,7 @@ function request(overrides: Partial<OutboundCallCommand> = {}): OutboundCallComm
 describe("PolicyEngine", () => {
   let context: TestContext;
   let policy: PolicyEngine;
+  let checkIds: Ulid[];
 
   beforeEach(async () => {
     await applyFoundationMigration();
@@ -59,7 +64,8 @@ describe("PolicyEngine", () => {
     ]);
     await insertPrincipalAndIdentity();
     context = new TestContext();
-    policy = new PolicyEngine({ database: env.DB, events: new EventRepository(env.DB), context });
+    checkIds = [CHECK_0, CHECK_1, CHECK_2, CHECK_3];
+    policy = new PolicyEngine({ database: env.DB, events: new EventRepository(env.DB), context, newUlid: () => checkIds.shift() ?? CHECK_3 });
   });
 
   async function evaluate(input: OutboundCallCommand): Promise<unknown> {
@@ -67,9 +73,9 @@ describe("PolicyEngine", () => {
     return policy.evaluateOutboundCall(input);
   }
 
-  async function recheck(input: OutboundCallCommand): Promise<unknown> {
+  async function recheck(input: OutboundCallCommand, attemptId = ATTEMPT_0): Promise<unknown> {
     await context.trust(input);
-    return policy.recheckOutboundDispatch(input);
+    return policy.recheckOutboundDispatch(input, attemptId);
   }
 
   afterEach(async () => {
@@ -107,10 +113,15 @@ describe("PolicyEngine", () => {
     ["quiet hours", (value: TestContext) => { value.quiet = true; }, "quiet_hours"],
     ["concurrency", (value: TestContext) => { value.concurrentCalls = 2; }, "concurrency_limit"],
     ["daily cap", (value: TestContext) => { value.dailyCalls = 6; }, "daily_limit"],
-    ["retry cap", (value: TestContext) => { value.retries = 2; }, "retry_limit"],
   ] as const)("denies %s", async (_label, configure, reason) => {
     configure(context);
     await expect(evaluate(request())).resolves.toMatchObject({ decision: "deny", reason });
+  });
+
+  it("uses durable attempt rows instead of a caller-supplied retry counter", async () => {
+    context.retries = 2;
+
+    await expect(evaluate(request())).resolves.toEqual({ decision: "allow", reason: "allowed" });
   });
 
   it("uses the supplied clock at the quiet-hours boundary", async () => {
@@ -147,7 +158,8 @@ describe("PolicyEngine", () => {
       decision: "deny",
       reason: "kill_switch_enabled",
       checkedAt: instant.toISOString(),
-      attemptId: context.attemptId,
+      checkId: CHECK_0,
+      attemptId: ATTEMPT_0,
     });
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events WHERE event_type = 'policy.dispatch_checked'").first<{ count: number }>())?.count).toBe(1);
     const stored = await env.DB.prepare("SELECT envelope_json FROM events WHERE event_type = 'policy.dispatch_checked'").first<{ envelope_json: string }>();
@@ -161,7 +173,8 @@ describe("PolicyEngine", () => {
       decision: "allow",
       reason: "allowed",
       checkedAt: instant.toISOString(),
-      attemptId: context.attemptId,
+      checkId: CHECK_0,
+      attemptId: ATTEMPT_0,
       destinationE164: "+14165550123",
       commandId: request().commandId,
     });
@@ -189,7 +202,7 @@ describe("PolicyEngine", () => {
     });
     await context.trust(request());
     await failing.evaluateOutboundCall(request());
-    await expect(failing.recheckOutboundDispatch(request())).resolves.toMatchObject({ decision: "deny", reason: "audit_persistence_failed" });
+    await expect(failing.recheckOutboundDispatch(request(), ATTEMPT_0)).resolves.toMatchObject({ decision: "deny", reason: "audit_persistence_failed" });
   });
 
   it("rejects malformed request shapes before hashing or persistence without command-id aliasing", async () => {
@@ -271,8 +284,7 @@ describe("PolicyEngine", () => {
     await env.DB.prepare("UPDATE channel_identities SET verified_at = NULL, status = 'pending' WHERE identity_id = 'identity:voice'").run();
     await expect(recheck(request())).resolves.toMatchObject({ decision: "deny", reason: "destination_not_verified" });
     await env.DB.prepare("DELETE FROM channel_identities WHERE identity_id = 'identity:voice'").run();
-    context.attemptId = "01k3s6k800000000000000000d";
-    await expect(recheck(request())).resolves.toMatchObject({ decision: "deny", reason: "destination_not_verified" });
+    await expect(recheck(request(), ATTEMPT_1)).resolves.toMatchObject({ decision: "deny", reason: "destination_not_verified" });
   });
 
   it("rechecks destination reassignment after authorization", async () => {
@@ -285,7 +297,7 @@ describe("PolicyEngine", () => {
   it("revalidates the trusted origin record at dispatch time", async () => {
     await evaluate(request());
     await context.trust(request(), { principalId: request().principalId, issuedBy: "local_cli" });
-    await expect(policy.recheckOutboundDispatch(request())).resolves.toMatchObject({ decision: "deny", reason: "invalid_origin" });
+    await expect(policy.recheckOutboundDispatch(request(), ATTEMPT_0)).resolves.toMatchObject({ decision: "deny", reason: "invalid_origin" });
   });
 
   it("revalidates the trusted canonical command hash at dispatch time", async () => {
@@ -293,7 +305,7 @@ describe("PolicyEngine", () => {
     const origin = context.origins.get(request().commandId);
     if (origin === undefined) throw new Error("missing test origin");
     origin.commandHash = "0".repeat(64) as Sha256Hex;
-    await expect(policy.recheckOutboundDispatch(request())).resolves.toMatchObject({ decision: "deny", reason: "invalid_origin" });
+    await expect(policy.recheckOutboundDispatch(request(), ATTEMPT_0)).resolves.toMatchObject({ decision: "deny", reason: "invalid_origin" });
   });
 
   it("does not replay a prior allow when the authoritative origin binding is later absent", async () => {
@@ -320,39 +332,87 @@ describe("PolicyEngine", () => {
     await expect(pending).resolves.toEqual({ decision: "deny", reason: "invalid_origin" });
   });
 
-  it("uses the stable attempt identity to replay an uncertain audit append once", async () => {
+  it("uses a distinct check identity for every audit of one stable attempt", async () => {
     await evaluate(request());
     await expect(recheck(request())).resolves.toMatchObject({ decision: "allow", reason: "allowed" });
     context.nowValue = new Date("2026-08-30T12:00:01.000Z");
     await expect(recheck(request())).resolves.toMatchObject({ decision: "allow", reason: "allowed" });
-    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events WHERE event_type = 'policy.dispatch_checked'").first<{ count: number }>())?.count).toBe(1);
+    const rows = await env.DB.prepare("SELECT event_id, envelope_json FROM events WHERE event_type = 'policy.dispatch_checked' ORDER BY sequence").all<{ event_id: string; envelope_json: string }>();
+    expect(rows.results.map((row) => row.event_id)).toEqual([CHECK_0, CHECK_1]);
+    for (const row of rows.results) {
+      expect(row.envelope_json).toContain(ATTEMPT_0);
+      expect(row.envelope_json).toContain(request().commandId);
+      expect(row.envelope_json).toContain(row.event_id);
+    }
   });
 
   it("uses a new stable attempt identity for a second dispatch check", async () => {
     await evaluate(request());
     await recheck(request());
-    context.attemptId = "01k3s6k800000000000000000c";
-    await recheck(request());
+    await recheck(request(), ATTEMPT_1);
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events WHERE event_type = 'policy.dispatch_checked'").first<{ count: number }>())?.count).toBe(2);
   });
 
-  it("fails closed if a reused attempt would change its audited result", async () => {
+  it("records a later changed result as distinct evidence for the same attempt", async () => {
     await evaluate(request());
     await recheck(request());
     context.killSwitch = true;
-    await expect(recheck(request())).resolves.toMatchObject({ decision: "deny", reason: "audit_persistence_failed" });
-    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events WHERE event_type = 'policy.dispatch_checked'").first<{ count: number }>())?.count).toBe(1);
+    await expect(recheck(request())).resolves.toMatchObject({ decision: "deny", reason: "kill_switch_enabled", attemptId: ATTEMPT_0, checkId: CHECK_1 });
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events WHERE event_type = 'policy.dispatch_checked'").first<{ count: number }>())?.count).toBe(2);
   });
 
-  it("fails closed for a malformed stable dispatch-attempt identity", async () => {
+  it("fails closed for a malformed dispatcher-selected attempt identity", async () => {
     await evaluate(request());
-    context.attemptId = "not-a-ulid";
-    await expect(recheck(request())).resolves.toMatchObject({ decision: "deny", reason: "invalid_dispatch_attempt" });
+    await context.trust(request());
+    await expect(policy.recheckOutboundDispatch(request(), "not-a-ulid" as Ulid)).resolves.toMatchObject({ decision: "deny", reason: "invalid_dispatch_attempt" });
   });
 
-  it("fails closed when stable dispatch-attempt lookup fails", async () => {
+  it("fails closed when the audit check identity factory returns a malformed ULID", async () => {
     await evaluate(request());
-    context.attemptLookupFails = true;
-    await expect(recheck(request())).resolves.toMatchObject({ decision: "deny", reason: "invalid_dispatch_attempt" });
+    await context.trust(request());
+    const malformed = new PolicyEngine({ database: env.DB, events: new EventRepository(env.DB), context, newUlid: () => "not-a-ulid" as Ulid });
+    await expect(malformed.recheckOutboundDispatch(request(), ATTEMPT_0)).resolves.toMatchObject({ decision: "deny", reason: "invalid_dispatch_attempt" });
+  });
+
+  it("exports the same accessor-safe frozen request snapshot used by policy and dispatch", () => {
+    const snapshot = snapshotOutboundCallRequest(request());
+    const accessor = { ...request() };
+    Object.defineProperty(accessor, "principalId", { enumerable: true, get: () => "attacker" });
+
+    expect(snapshot).toEqual(request());
+    expect(Object.isFrozen(snapshot)).toBe(true);
+    expect(snapshotOutboundCallRequest(accessor)).toBeNull();
+  });
+
+  it("preserves exact reconstructible audit linkage when identifiers contain six-digit runs", async () => {
+    const commandId = "01k3s6ka123456b00000000000" as Ulid;
+    const attemptId = "01k3s6kb123456c00000000000" as Ulid;
+    const checkId = "01k3s6kc123456d00000000000" as Ulid;
+    const inputHash = `a123456b${"c".repeat(56)}` as Sha256Hex;
+    await new PolicyAudit(new EventRepository(env.DB)).appendDispatchCheck({
+      checkId,
+      attemptId,
+      commandId,
+      principalId: "principal:owner",
+      inputHash,
+      check: { decision: "allow", reason: "allowed", checkedAt: instant.toISOString() },
+    });
+
+    const stored = await env.DB.prepare("SELECT envelope_json FROM events WHERE event_id = ?")
+      .bind(checkId).first<{ envelope_json: string }>();
+    const envelope = JSON.parse(stored?.envelope_json ?? "null") as {
+      eventId: string;
+      correlationId: string;
+      causationId: string;
+      payload: { linkage: Record<string, number[]> };
+    };
+    const decode = (bytes: number[]) => new TextDecoder().decode(Uint8Array.from(bytes));
+
+    expect(envelope).toMatchObject({ eventId: checkId, correlationId: attemptId, causationId: commandId });
+    expect(decode(envelope.payload.linkage.checkIdUtf8 ?? [])).toBe(checkId);
+    expect(decode(envelope.payload.linkage.attemptIdUtf8 ?? [])).toBe(attemptId);
+    expect(decode(envelope.payload.linkage.commandIdUtf8 ?? [])).toBe(commandId);
+    expect(decode(envelope.payload.linkage.inputHashUtf8 ?? [])).toBe(inputHash);
+    expect(stored?.envelope_json).not.toContain("REDACTED_AUTH_DIGITS");
   });
 });
