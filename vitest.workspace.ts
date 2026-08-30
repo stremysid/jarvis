@@ -2,10 +2,27 @@ import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
+const syntheticPinVerifier = JSON.stringify({
+  schemaVersion: "1.0",
+  algorithm: "pbkdf2-hmac-sha256",
+  iterations: 600_000,
+  saltBase64: "AAAAAAAAAAAAAAAAAAAAAA==",
+  digestBase64: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+});
+
+// Wrangler validates required secrets before Miniflare applies explicit bindings.
+// Force the test process to use the public synthetic fixture, never a developer's real verifier.
+process.env.PIN_VERIFIER_JSON = syntheticPinVerifier;
+
 export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
   plugins: [
     cloudflareTest({
+      miniflare: {
+        bindings: {
+          PIN_VERIFIER_JSON: syntheticPinVerifier,
+        },
+      },
       wrangler: {
         configPath: "apps/cloud-gateway/wrangler.toml",
         environment: "test"

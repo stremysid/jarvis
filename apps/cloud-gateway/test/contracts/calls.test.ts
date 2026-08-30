@@ -43,6 +43,12 @@ describe("provider-neutral call contracts", () => {
 });
 
 describe("calling entrypoint boundary", () => {
+  it("receives only a synthetic PIN verifier in the local Worker runtime", () => {
+    expect(env.PIN_VERIFIER_JSON).toBe(
+      '{"schemaVersion":"1.0","algorithm":"pbkdf2-hmac-sha256","iterations":600000,"saltBase64":"AAAAAAAAAAAAAAAAAAAAAA==","digestBase64":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}',
+    );
+  });
+
   it("fails closed before Task 6 installs Worker routes", async () => {
     const response = await SELF.fetch("https://jarvis.test/voice/inbound", { method: "POST", body: "untrusted" });
 

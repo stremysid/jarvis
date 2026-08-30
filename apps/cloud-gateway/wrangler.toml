@@ -2,6 +2,9 @@ name = "jarvis-cloud-gateway"
 main = "src/index.ts"
 compatibility_date = "2026-08-22"
 
+[secrets]
+required = ["PIN_VERIFIER_JSON"]
+
 [exports.CallSession]
 type = "durable-object"
 storage = "sqlite"
@@ -21,6 +24,9 @@ name = "CALL_SESSION"
 class_name = "CallSession"
 
 [env.test]
+
+[env.test.secrets]
+required = ["PIN_VERIFIER_JSON"]
 
 [[env.test.d1_databases]]
 binding = "DB"
