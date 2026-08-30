@@ -1,11 +1,11 @@
-import { canonicalJson, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
+import { canonicalJson, sha256Hex, type Sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import type { EventRepositoryContract } from "../persistence/event-repository.js";
 import { TransactionRunner } from "../persistence/transaction.js";
 import { PolicyAudit } from "./policy-audit.js";
 import type { DispatchPolicyCheck, OutboundCallRequest, PolicyDecision, PolicyEngineContract, PolicyReason } from "./policy-types.js";
 
 export type { DispatchPolicyCheck, OutboundCallRequest, PolicyDecision, PolicyEngineContract, PolicyReason } from "./policy-types.js";
-export interface TrustedOrigin { principalId: string; issuedBy: "telegram_call_command" | "local_cli"; }
+export interface TrustedOrigin { principalId: string; issuedBy: "telegram_call_command" | "local_cli"; commandHash: Sha256Hex; }
 export interface MutablePolicyContext {
   killSwitch: boolean;
   now(): Date;
@@ -21,6 +21,7 @@ interface StoredDecision { input_hash: string; outcome: "allow" | "deny"; reason
 const FIELDS = ["commandId", "principalId", "purposeCode", "destinationIdentityId", "urgency", "authorizationExpiresAt", "idempotencyKey", "issuedBy"] as const;
 const FIELD_SET = new Set<string>(FIELDS);
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/;
+const SHA256 = /^[a-f0-9]{64}$/;
 const UTC_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const encoder = new TextEncoder();
 
@@ -35,6 +36,7 @@ function isCanonicalTimestamp(value: unknown): value is string {
   return !Number.isNaN(date.valueOf()) && date.toISOString() === value;
 }
 function isUlid(value: unknown): value is Ulid { return typeof value === "string" && ULID.test(value); }
+function isSha256Hex(value: unknown): value is Sha256Hex { return typeof value === "string" && SHA256.test(value); }
 
 /** Rejects accessor, inherited, symbol, extra, non-enumerable, and malformed request values before hashing. */
 function validateRequest(value: unknown): OutboundCallRequest | null {
@@ -71,7 +73,7 @@ export class PolicyEngine implements PolicyEngineContract {
     const inputHash = await sha256Hex(canonicalJson(request));
     const existing = await this.readDecision(request.commandId);
     if (existing !== null && existing.input_hash !== inputHash) return denied("policy_command_conflict");
-    if (!await this.hasTrustedOrigin(request)) return existing === null
+    if (!await this.hasTrustedOrigin(request, inputHash)) return existing === null
       ? this.persistDecision(request, inputHash, denied("invalid_origin"), false)
       : denied("invalid_origin");
     if (existing !== null) return this.fromStored(existing);
@@ -88,7 +90,7 @@ export class PolicyEngine implements PolicyEngineContract {
     if (stored === null) result = denied("authorization_missing");
     else if (stored.input_hash !== inputHash) result = denied("policy_command_conflict");
     else if (stored.outcome !== "allow") result = denied("authorization_denied");
-    else if (!await this.hasTrustedOrigin(request)) result = denied("invalid_origin");
+    else if (!await this.hasTrustedOrigin(request, inputHash)) result = denied("invalid_origin");
     else if (!await this.verifiedDestination(request.principalId, request.destinationIdentityId)) result = denied("destination_not_verified");
     else result = await this.recheckMutable(request, new Date(checkedAt));
     const check: DispatchPolicyCheck = { ...result, checkedAt };
@@ -128,9 +130,11 @@ export class PolicyEngine implements PolicyEngineContract {
     if (await this.deps.context.retryCount(request.commandId) > 1) return denied("retry_limit");
     return { decision: "allow", reason: "allowed" };
   }
-  private async hasTrustedOrigin(request: OutboundCallRequest): Promise<boolean> {
+  private async hasTrustedOrigin(request: OutboundCallRequest, inputHash: Sha256Hex): Promise<boolean> {
     const origin = await this.deps.context.authenticatedOrigin(request.commandId);
-    return origin !== null && origin.principalId === request.principalId && origin.issuedBy === request.issuedBy && (origin.issuedBy === "telegram_call_command" || origin.issuedBy === "local_cli");
+    return origin !== null && isSha256Hex(origin.commandHash) && origin.commandHash === inputHash
+      && origin.principalId === request.principalId && origin.issuedBy === request.issuedBy
+      && (origin.issuedBy === "telegram_call_command" || origin.issuedBy === "local_cli");
   }
   private async verifiedDestination(principalId: string, identityId: string): Promise<boolean> {
     const row = await this.deps.database.prepare("SELECT 1 AS verified FROM channel_identities WHERE identity_id = ? AND principal_id = ? AND channel = 'voice' AND status = 'active' AND verified_at IS NOT NULL")

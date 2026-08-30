@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type OutboundCallCommand } from "../../../../packages/contracts/src/index.js";
+import { canonicalJson, sha256Hex, type OutboundCallCommand, type Sha256Hex } from "../../../../packages/contracts/src/index.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { PolicyEngine, type MutablePolicyContext } from "../../src/policy/policy-engine.js";
 import { applyFoundationMigration } from "../persistence/migration.js";
@@ -19,16 +19,18 @@ class TestContext implements MutablePolicyContext {
   public attemptId = "01k3s6k8000000000000000009";
   public attemptLookupFails = false;
   public originGate: Promise<void> | undefined;
-  public readonly origins = new Map<string, { principalId: string; issuedBy: "telegram_call_command" | "local_cli" }>();
+  public readonly origins = new Map<string, { principalId: string; issuedBy: "telegram_call_command" | "local_cli"; commandHash: Sha256Hex }>();
 
   now(): Date { return this.nowValue; }
   isQuietHours(now: Date): boolean { return this.quietHours(now); }
   activeOutboundCalls(): number { return this.concurrentCalls; }
   outboundCallsForUtcPolicyDay(): number { return this.dailyCalls; }
   retryCount(): number { return this.retries; }
-  async authenticatedOrigin(commandId: string): Promise<{ principalId: string; issuedBy: "telegram_call_command" | "local_cli" } | null> { await this.originGate; return this.origins.get(commandId) ?? null; }
+  async authenticatedOrigin(commandId: string): Promise<{ principalId: string; issuedBy: "telegram_call_command" | "local_cli"; commandHash: Sha256Hex } | null> { await this.originGate; return this.origins.get(commandId) ?? null; }
   dispatchAttemptId(commandId: string): string { if (this.attemptLookupFails) throw new Error("attempt lookup failed"); return commandId === request().commandId ? this.attemptId : commandId; }
-  trust(input: OutboundCallCommand, origin = { principalId: input.principalId, issuedBy: "telegram_call_command" as const }): void { this.origins.set(input.commandId, origin); }
+  async trust(input: OutboundCallCommand, origin = { principalId: input.principalId, issuedBy: "telegram_call_command" as const }): Promise<void> {
+    this.origins.set(input.commandId, { ...origin, commandHash: await sha256Hex(canonicalJson(input)) });
+  }
 }
 
 async function insertPrincipalAndIdentity(principalId = "principal:owner", identityId = "identity:voice", identityPrincipalId = principalId, status = "active", verifiedAt: string | null = instant.toISOString()): Promise<void> {
@@ -61,12 +63,12 @@ describe("PolicyEngine", () => {
   });
 
   async function evaluate(input: OutboundCallCommand): Promise<unknown> {
-    context.trust(input);
+    try { await context.trust(input); } catch { /* malformed input has no trusted canonical record */ }
     return policy.evaluateOutboundCall(input);
   }
 
   async function recheck(input: OutboundCallCommand): Promise<unknown> {
-    context.trust(input);
+    await context.trust(input);
     return policy.recheckOutboundDispatch(input);
   }
 
@@ -132,7 +134,7 @@ describe("PolicyEngine", () => {
   });
 
   it("concurrently evaluates duplicate commands without overwriting the first decision", async () => {
-    context.trust(request());
+    await context.trust(request());
     const results = await Promise.all(Array.from({ length: 2 }, () => policy.evaluateOutboundCall(request())));
     expect(results).toEqual([{ decision: "allow", reason: "allowed" }, { decision: "allow", reason: "allowed" }]);
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM policy_decisions WHERE decision_id = ?").bind(request().commandId).first<{ count: number }>())?.count).toBe(1);
@@ -157,7 +159,7 @@ describe("PolicyEngine", () => {
 
   it("fails closed when dispatch audit persistence fails", async () => {
     const failing = new PolicyEngine({ database: env.DB, context, events: { append: async () => { throw new Error("D1 unavailable"); }, readRange: async () => [] } });
-    context.trust(request());
+    await context.trust(request());
     await failing.evaluateOutboundCall(request());
     await expect(failing.recheckOutboundDispatch(request())).resolves.toMatchObject({ decision: "deny", reason: "audit_persistence_failed" });
   });
@@ -181,11 +183,41 @@ describe("PolicyEngine", () => {
   it("requires an authoritative trusted origin record rather than request-controlled origin fields", async () => {
     await expect(policy.evaluateOutboundCall(request({ issuedBy: "local_cli" }))).resolves.toEqual({ decision: "deny", reason: "invalid_origin" });
     const principalMismatch = request({ commandId: "01k3s6k800000000000000000a" as never });
-    context.trust(principalMismatch, { principalId: "principal:other", issuedBy: "telegram_call_command" });
+    await context.trust(principalMismatch, { principalId: "principal:other", issuedBy: "telegram_call_command" });
     await expect(policy.evaluateOutboundCall(principalMismatch)).resolves.toEqual({ decision: "deny", reason: "invalid_origin" });
     const channelMismatch = request({ commandId: "01k3s6k800000000000000000b" as never });
-    context.trust(channelMismatch, { principalId: channelMismatch.principalId, issuedBy: "local_cli" });
+    await context.trust(channelMismatch, { principalId: channelMismatch.principalId, issuedBy: "local_cli" });
     await expect(policy.evaluateOutboundCall(channelMismatch)).resolves.toEqual({ decision: "deny", reason: "invalid_origin" });
+  });
+
+  it("binds trusted ingress to the exact canonical command before the first decision", async () => {
+    await env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES ('identity:alternate', 'principal:owner', 'voice', 'opaque-alternate', 'active', ?, ?)")
+      .bind(instant.toISOString(), instant.toISOString()).run();
+    const substitutions = [
+      [request({ commandId: "01k3s6k800000000000000000e" as never }), request({ commandId: "01k3s6k800000000000000000e" as never, destinationIdentityId: "identity:alternate" })],
+      [request({ commandId: "01k3s6k800000000000000000f" as never }), request({ commandId: "01k3s6k800000000000000000f" as never, purposeCode: "smoke" })],
+      [request({ commandId: "01k3s6k800000000000000000g" as never }), request({ commandId: "01k3s6k800000000000000000g" as never, authorizationExpiresAt: "2026-08-30T12:06:00.000Z" })],
+    ] as const;
+
+    for (const [trusted, submitted] of substitutions) {
+      await context.trust(trusted);
+      await expect(policy.evaluateOutboundCall(submitted)).resolves.toEqual({ decision: "deny", reason: "invalid_origin" });
+    }
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM policy_decisions WHERE outcome = 'allow'").first<{ count: number }>())?.count).toBe(0);
+  });
+
+  it("fails closed for a missing or malformed trusted command hash", async () => {
+    await context.trust(request());
+    const origin = context.origins.get(request().commandId);
+    if (origin === undefined) throw new Error("missing test origin");
+    origin.commandHash = "not-a-sha256-hash" as Sha256Hex;
+    await expect(policy.evaluateOutboundCall(request())).resolves.toEqual({ decision: "deny", reason: "invalid_origin" });
+    const missingHash = request({ commandId: "01k3s6k800000000000000000h" as never });
+    await context.trust(missingHash);
+    const originWithoutHash = context.origins.get(missingHash.commandId);
+    if (originWithoutHash === undefined) throw new Error("missing test origin");
+    delete (originWithoutHash as { commandHash?: Sha256Hex }).commandHash;
+    await expect(policy.evaluateOutboundCall(missingHash)).resolves.toEqual({ decision: "deny", reason: "invalid_origin" });
   });
 
   it("rechecks destination identity ownership and verification after authorization", async () => {
@@ -212,7 +244,15 @@ describe("PolicyEngine", () => {
 
   it("revalidates the trusted origin record at dispatch time", async () => {
     await evaluate(request());
-    context.trust(request(), { principalId: request().principalId, issuedBy: "local_cli" });
+    await context.trust(request(), { principalId: request().principalId, issuedBy: "local_cli" });
+    await expect(policy.recheckOutboundDispatch(request())).resolves.toMatchObject({ decision: "deny", reason: "invalid_origin" });
+  });
+
+  it("revalidates the trusted canonical command hash at dispatch time", async () => {
+    await evaluate(request());
+    const origin = context.origins.get(request().commandId);
+    if (origin === undefined) throw new Error("missing test origin");
+    origin.commandHash = "0".repeat(64) as Sha256Hex;
     await expect(policy.recheckOutboundDispatch(request())).resolves.toMatchObject({ decision: "deny", reason: "invalid_origin" });
   });
 
