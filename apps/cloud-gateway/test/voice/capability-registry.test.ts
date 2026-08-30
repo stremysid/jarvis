@@ -53,6 +53,18 @@ describe("CapabilityRegistry", () => {
     })).rejects.toThrow("resource_scope_unused");
   });
 
+  it("never auto-expands globally configured resource scopes", async () => {
+    const registry = new CapabilityRegistry({
+      installed: ["conversation.basic", "files.read"],
+      fileRootIds: ["file-root:owner", "file-root:guest-a", "file-root:guest-b"],
+    });
+
+    await expect(registry.snapshotConfigured(["files.read"]))
+      .rejects.toThrow("resource_scope_required");
+    await expect(registry.snapshotConfigured(["conversation.basic"]))
+      .resolves.toMatchObject({ resourceScopes: emptyScopes });
+  });
+
   it("canonicalizes sorted duplicate-free permissions and scope IDs", async () => {
     const registry = new CapabilityRegistry({
       installed: ["files.read", "conversation.basic", "files.read"],

@@ -227,12 +227,11 @@ export class CapabilityRegistry {
   }
 
   async snapshotConfigured(requested: readonly string[] | "everything"): Promise<CapabilitySnapshot> {
-    const capabilityIds = this.resolve(requested);
-    return this.snapshot(capabilityIds, {
+    return this.snapshot(requested, {
       schemaVersion: "1.0",
-      calendarConnectionIds: needsCalendar(capabilityIds) ? [...this.#calendarConnectionIds] : [],
-      fileRootIds: needsFiles(capabilityIds) ? [...this.#fileRootIds] : [],
-      pcActionIds: needsPc(capabilityIds) ? [...this.#pcActionIds] : [],
+      calendarConnectionIds: [],
+      fileRootIds: [],
+      pcActionIds: [],
     });
   }
 }

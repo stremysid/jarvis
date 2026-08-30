@@ -1,6 +1,18 @@
+import type { VoiceResourceScopesV1 } from "../../../../packages/contracts/src/index.js";
+
 export type OwnerAccessDraft =
-  | Readonly<{ kind: "add"; providerE164: string; permissionPhrases: readonly string[] }>
-  | Readonly<{ kind: "replace_permissions"; providerE164: string; permissionPhrases: readonly string[] }>
+  | Readonly<{
+    kind: "add";
+    providerE164: string;
+    permissionPhrases: readonly string[];
+    resourceScopes?: VoiceResourceScopesV1;
+  }>
+  | Readonly<{
+    kind: "replace_permissions";
+    providerE164: string;
+    permissionPhrases: readonly string[];
+    resourceScopes?: VoiceResourceScopesV1;
+  }>
   | Readonly<{ kind: "rotate_pin"; providerE164: string }>
   | Readonly<{ kind: "revoke"; providerE164: string }>
   | Readonly<{ kind: "list" }>;

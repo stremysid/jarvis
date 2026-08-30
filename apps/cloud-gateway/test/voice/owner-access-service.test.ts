@@ -1,10 +1,18 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type RelayBinding, type Ulid } from "../../../../packages/contracts/src/index.js";
+import {
+  GUEST_CAPABILITY_IDS,
+  type GuestCapabilityId,
+  type RelayBinding,
+  type Ulid,
+} from "../../../../packages/contracts/src/index.js";
 import { VoiceAccessRepository } from "../../src/persistence/voice-access-repository.js";
 import { GuestPinVerifier } from "../../src/security/guest-pin-verifier.js";
 import { CapabilityRegistry } from "../../src/voice/capability-registry.js";
-import { OwnerAccessService } from "../../src/voice/owner-access-service.js";
+import {
+  OwnerAccessService,
+  TargetGuestResourceScopeResolver,
+} from "../../src/voice/owner-access-service.js";
 import { VoiceAccessAuthorityService } from "../../src/voice/voice-access-authority.js";
 import {
   clearVoiceAccessFixture,
@@ -231,12 +239,12 @@ describe("OwnerAccessService", () => {
     expect(stored).toEqual({ status: "revoked", grant_version: 4 });
   });
 
-  it("snapshots everything against the registry's currently configured resource scopes", async () => {
+  it("maps every closed guest permission phrase and still rejects owner-only authority", async () => {
     const scopedRegistry = new CapabilityRegistry({
-      installed: ["conversation.basic", "calendar.read", "files.read", "pc.control", "access.manage"],
-      calendarConnectionIds: ["calendar:guest"],
-      fileRootIds: ["file-root:guest"],
-      pcActionIds: ["pc-action:open-notes"],
+      installed: [...GUEST_CAPABILITY_IDS, "access.manage"],
+      calendarConnectionIds: ["calendar:guest-b"],
+      fileRootIds: ["file-root:guest-b"],
+      pcActionIds: ["pc-action:guest-b"],
     });
     const scopedAuthorities = new VoiceAccessAuthorityService(repository, scopedRegistry);
     const scopedOwner = await scopedAuthorities.mintOwner({
@@ -244,15 +252,122 @@ describe("OwnerAccessService", () => {
       binding: ownerBinding(),
       now: NOW,
     });
+    const scopeResolver = new TargetGuestResourceScopeResolver([{
+      providerE164: GUEST_E164,
+      resourceScopes: {
+        schemaVersion: "1.0",
+        calendarConnectionIds: ["calendar:guest-b"],
+        fileRootIds: ["file-root:guest-b"],
+        pcActionIds: ["pc-action:guest-b"],
+      },
+    }]);
     const service = new OwnerAccessService({
       repository,
       registry: scopedRegistry,
       authorities: scopedAuthorities,
       verifier,
+      scopeResolver,
+      idFactory: sequentialIds(),
+      proposalIdFactory: () => `owner-access-proposal:${crypto.randomUUID()}`,
+      defaultGuestPin: () => "1357",
+    });
+    const cases: readonly (readonly [string, GuestCapabilityId])[] = [
+      ["conversation", "conversation.basic"],
+      ["web research", "research.web"],
+      ["memory", "memory.own"],
+      ["reminders", "reminders.manage"],
+      ["calendar reading", "calendar.read"],
+      ["calendar management", "calendar.manage"],
+      ["owner contact", "owner.contact"],
+      ["communication drafting", "communications.draft"],
+      ["communication sending", "communications.send"],
+      ["calls", "calls.place"],
+      ["file reading", "files.read"],
+      ["file writing", "files.write"],
+      ["computer control", "pc.control"],
+      ["spending proposals", "spending.propose"],
+      ["destructive proposals", "destructive.propose"],
+    ];
+
+    for (const [phrase, capability] of cases) {
+      const proposal = await service.prepare({
+        ownerAuthority: scopedOwner,
+        sessionId: OWNER_SESSION_ID,
+        draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: [phrase] },
+        now: NOW,
+      });
+      expect(proposal.capabilityIds).toEqual([capability]);
+    }
+    await expect(service.prepare({
+      ownerAuthority: scopedOwner,
+      sessionId: OWNER_SESSION_ID,
+      draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["access management"] },
+      now: NOW,
+    })).rejects.toThrow("owner_access_permission_invalid");
+  });
+
+  it("resolves everything only to the exact target guest's owned scopes", async () => {
+    const scopedRegistry = new CapabilityRegistry({
+      installed: ["conversation.basic", "calendar.read", "files.read", "pc.control", "access.manage"],
+      calendarConnectionIds: ["calendar:owner", "calendar:guest-a", "calendar:guest-b"],
+      fileRootIds: ["file-root:owner", "file-root:guest-a", "file-root:guest-b"],
+      pcActionIds: ["pc-action:owner", "pc-action:guest-a", "pc-action:guest-b"],
+    });
+    const scopedAuthorities = new VoiceAccessAuthorityService(repository, scopedRegistry);
+    const scopedOwner = await scopedAuthorities.mintOwner({
+      sessionId: OWNER_SESSION_ID,
+      binding: ownerBinding(),
+      now: NOW,
+    });
+    const scopeResolver = new TargetGuestResourceScopeResolver([
+      {
+        providerE164: "+14165550110",
+        resourceScopes: {
+          schemaVersion: "1.0",
+          calendarConnectionIds: ["calendar:guest-a"],
+          fileRootIds: ["file-root:guest-a"],
+          pcActionIds: ["pc-action:guest-a"],
+        },
+      },
+      {
+        providerE164: GUEST_E164,
+        resourceScopes: {
+          schemaVersion: "1.0",
+          calendarConnectionIds: ["calendar:guest-b"],
+          fileRootIds: ["file-root:guest-b"],
+          pcActionIds: ["pc-action:guest-b"],
+        },
+      },
+    ]);
+    const service = new OwnerAccessService({
+      repository,
+      registry: scopedRegistry,
+      authorities: scopedAuthorities,
+      verifier,
+      scopeResolver,
       idFactory: sequentialIds(),
       proposalIdFactory: () => "owner-access-proposal:everything",
       defaultGuestPin: () => "1357",
     });
+
+    for (const foreignFileRootId of ["file-root:owner", "file-root:guest-a"]) {
+      await expect(service.prepare({
+        ownerAuthority: scopedOwner,
+        sessionId: OWNER_SESSION_ID,
+        draft: {
+          kind: "add",
+          providerE164: GUEST_E164,
+          permissionPhrases: ["file reading"],
+          resourceScopes: {
+            schemaVersion: "1.0",
+            calendarConnectionIds: [],
+            fileRootIds: [foreignFileRootId],
+            pcActionIds: [],
+          },
+        },
+        now: NOW,
+      })).rejects.toThrow("owner_access_permission_invalid");
+    }
 
     const proposal = await service.prepare({
       ownerAuthority: scopedOwner,
@@ -277,9 +392,10 @@ describe("OwnerAccessService", () => {
       .first<{ resource_scopes_json: string }>();
     expect(JSON.parse(row?.resource_scopes_json ?? "null")).toEqual({
       schemaVersion: "1.0",
-      calendarConnectionIds: ["calendar:guest"],
-      fileRootIds: ["file-root:guest"],
-      pcActionIds: ["pc-action:open-notes"],
+      calendarConnectionIds: ["calendar:guest-b"],
+      fileRootIds: ["file-root:guest-b"],
+      pcActionIds: ["pc-action:guest-b"],
     });
+    expect(JSON.stringify(row)).not.toMatch(/owner|guest-a/u);
   });
 });

@@ -1,10 +1,12 @@
 import {
   canonicalJson,
+  GUEST_CAPABILITY_IDS,
   newUlid,
   sha256Hex,
   type GuestCapabilityId,
   type Sha256Hex,
   type Ulid,
+  type VoiceResourceScopesV1,
 } from "../../../../packages/contracts/src/index.js";
 import {
   type GuestGrantSnapshot,
@@ -39,6 +41,7 @@ export interface OwnerAccessServiceDependencies {
   readonly registry: CapabilityRegistry;
   readonly authorities: VoiceAccessAuthorityService;
   readonly verifier: GuestPinVerifier;
+  readonly scopeResolver?: TargetGuestResourceScopeResolver;
   readonly idFactory?: (now: Date) => Ulid;
   readonly proposalIdFactory?: () => string;
   readonly defaultGuestPin?: () => unknown;
@@ -50,8 +53,12 @@ export interface OwnerAccessExecutionResult {
 }
 
 type CapturedDraft =
-  | Readonly<{ kind: "add"; providerE164: string; permissionPhrases: readonly string[] }>
-  | Readonly<{ kind: "replace_permissions"; providerE164: string; permissionPhrases: readonly string[] }>
+  | Readonly<{
+    kind: "add" | "replace_permissions";
+    providerE164: string;
+    permissionPhrases: readonly string[];
+    resourceScopes: VoiceResourceScopesV1 | null;
+  }>
   | Readonly<{ kind: "rotate_pin"; providerE164: string }>
   | Readonly<{ kind: "revoke"; providerE164: string }>
   | Readonly<{ kind: "list" }>;
@@ -77,22 +84,42 @@ const E164 = /^\+[1-9][0-9]{7,14}$/u;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$/u;
 const SAFE_PROPOSAL_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/u;
 const PERMISSION_PHRASE = /^[a-z][a-z0-9]*(?: [a-z][a-z0-9]*){0,3}$/u;
+const OPAQUE_SCOPE_ID = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/u;
 const DEPENDENCY_FIELDS = new Set([
-  "repository", "registry", "authorities", "verifier", "idFactory", "proposalIdFactory", "defaultGuestPin",
+  "repository", "registry", "authorities", "verifier", "scopeResolver", "idFactory", "proposalIdFactory",
+  "defaultGuestPin",
 ]);
 const REQUIRED_DEPENDENCY_FIELDS = new Set(["repository", "registry", "authorities", "verifier"]);
 const PREPARE_FIELDS = new Set(["ownerAuthority", "sessionId", "draft", "now"]);
 const EXECUTE_FIELDS = new Set(["proposal", "ownerAuthority", "pinSelection", "now"]);
 const PERMISSION_DRAFT_FIELDS = new Set(["kind", "providerE164", "permissionPhrases"]);
+const SCOPED_PERMISSION_DRAFT_FIELDS = new Set([
+  "kind", "providerE164", "permissionPhrases", "resourceScopes",
+]);
 const TARGET_DRAFT_FIELDS = new Set(["kind", "providerE164"]);
 const LIST_DRAFT_FIELDS = new Set(["kind"]);
+const RESOURCE_SCOPE_FIELDS = new Set([
+  "schemaVersion", "calendarConnectionIds", "fileRootIds", "pcActionIds",
+]);
+const SCOPE_ASSIGNMENT_FIELDS = new Set(["providerE164", "resourceScopes"]);
 
 const PERMISSION_CAPABILITIES = Object.freeze({
   conversation: "conversation.basic",
   "web research": "research.web",
   memory: "memory.own",
   reminders: "reminders.manage",
+  "calendar reading": "calendar.read",
+  "calendar management": "calendar.manage",
+  "owner contact": "owner.contact",
+  "communication drafting": "communications.draft",
+  "communication sending": "communications.send",
   calls: "calls.place",
+  "file reading": "files.read",
+  "file writing": "files.write",
+  "computer control": "pc.control",
+  "spending proposals": "spending.propose",
+  "destructive proposals": "destructive.propose",
+  "destructive action proposals": "destructive.propose",
   "access management": "access.manage",
 } as const);
 
@@ -143,6 +170,174 @@ function captureExact(value: unknown, fields: ReadonlySet<string>, invalid: () =
   return result;
 }
 
+function invalidScopeResolver(): never {
+  throw new TypeError("owner_access_scope_resolver_invalid");
+}
+
+function captureScopeIds(value: unknown, invalid: () => never): readonly string[] {
+  let prototype: object | null;
+  let keys: readonly PropertyKey[];
+  let length: number;
+  try {
+    prototype = value !== null && typeof value === "object" ? Object.getPrototypeOf(value) : null;
+    keys = value !== null && typeof value === "object" ? Reflect.ownKeys(value) : [];
+    const lengthDescriptor = value !== null && typeof value === "object"
+      ? Object.getOwnPropertyDescriptor(value, "length")
+      : undefined;
+    length = lengthDescriptor !== undefined && "value" in lengthDescriptor
+      ? Number(lengthDescriptor.value)
+      : Number.NaN;
+  } catch {
+    return invalid();
+  }
+  if (
+    !Array.isArray(value) || prototype !== Array.prototype || !Number.isSafeInteger(length)
+    || length < 0 || length > 256
+    || keys.some((key) => key !== "length"
+      && !(typeof key === "string" && /^(?:0|[1-9][0-9]*)$/u.test(key) && Number(key) < length))
+  ) {
+    invalid();
+  }
+  const ids: string[] = [];
+  for (let index = 0; index < length; index += 1) {
+    let descriptor: PropertyDescriptor | undefined;
+    try {
+      descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    } catch {
+      return invalid();
+    }
+    if (descriptor === undefined || !descriptor.enumerable || !("value" in descriptor)) invalid();
+    const id = descriptor.value;
+    if (
+      typeof id !== "string" || !id.isWellFormed() || id !== id.normalize("NFC")
+      || !OPAQUE_SCOPE_ID.test(id) || id.includes("*") || id.includes("/") || id.includes("\\")
+    ) {
+      invalid();
+    }
+    ids.push(id);
+  }
+  return Object.freeze([...new Set(ids)].sort());
+}
+
+function captureResourceScopes(
+  value: unknown,
+  invalid: () => never = invalidInput,
+): VoiceResourceScopesV1 {
+  const captured = captureExact(value, RESOURCE_SCOPE_FIELDS, invalid);
+  if (captured.schemaVersion !== "1.0") invalid();
+  return Object.freeze({
+    schemaVersion: "1.0",
+    calendarConnectionIds: captureScopeIds(captured.calendarConnectionIds, invalid),
+    fileRootIds: captureScopeIds(captured.fileRootIds, invalid),
+    pcActionIds: captureScopeIds(captured.pcActionIds, invalid),
+  });
+}
+
+const EMPTY_RESOURCE_SCOPES: VoiceResourceScopesV1 = Object.freeze({
+  schemaVersion: "1.0",
+  calendarConnectionIds: Object.freeze([] as string[]),
+  fileRootIds: Object.freeze([] as string[]),
+  pcActionIds: Object.freeze([] as string[]),
+});
+const GUEST_CAPABILITIES = new Set<string>(GUEST_CAPABILITY_IDS);
+
+export interface TargetGuestResourceScopeAssignment {
+  readonly providerE164: string;
+  readonly resourceScopes: VoiceResourceScopesV1;
+}
+
+export class TargetGuestResourceScopeResolver {
+  readonly #ownedByProvider = new Map<string, VoiceResourceScopesV1>();
+
+  constructor(assignments: readonly TargetGuestResourceScopeAssignment[]) {
+    let prototype: object | null;
+    let keys: readonly PropertyKey[];
+    let length: number;
+    try {
+      prototype = Object.getPrototypeOf(assignments);
+      keys = Reflect.ownKeys(assignments);
+      const lengthDescriptor = Object.getOwnPropertyDescriptor(assignments, "length");
+      length = lengthDescriptor !== undefined && "value" in lengthDescriptor
+        ? Number(lengthDescriptor.value)
+        : Number.NaN;
+    } catch {
+      invalidScopeResolver();
+    }
+    if (
+      !Array.isArray(assignments) || prototype !== Array.prototype || !Number.isSafeInteger(length)
+      || length < 0 || length > 256
+      || keys.some((key) => key !== "length"
+        && !(typeof key === "string" && /^(?:0|[1-9][0-9]*)$/u.test(key) && Number(key) < length))
+    ) {
+      invalidScopeResolver();
+    }
+    for (let index = 0; index < length; index += 1) {
+      let descriptor: PropertyDescriptor | undefined;
+      try {
+        descriptor = Object.getOwnPropertyDescriptor(assignments, String(index));
+      } catch {
+        invalidScopeResolver();
+      }
+      if (descriptor === undefined || !descriptor.enumerable || !("value" in descriptor)) invalidScopeResolver();
+      const captured = captureExact(descriptor.value, SCOPE_ASSIGNMENT_FIELDS, invalidScopeResolver);
+      if (typeof captured.providerE164 !== "string" || !E164.test(captured.providerE164)) {
+        invalidScopeResolver();
+      }
+      if (this.#ownedByProvider.has(captured.providerE164)) invalidScopeResolver();
+      this.#ownedByProvider.set(
+        captured.providerE164,
+        captureResourceScopes(captured.resourceScopes, invalidScopeResolver),
+      );
+    }
+  }
+
+  resolve(
+    providerE164: string,
+    capabilityIds: readonly GuestCapabilityId[],
+    requestedScopes: VoiceResourceScopesV1 | null,
+  ): VoiceResourceScopesV1 {
+    if (
+      typeof providerE164 !== "string" || !E164.test(providerE164) || !Array.isArray(capabilityIds)
+      || capabilityIds.some((capability) => !GUEST_CAPABILITIES.has(capability))
+      || new Set(capabilityIds).size !== capabilityIds.length
+    ) {
+      invalidScopeResolver();
+    }
+    const owned = this.#ownedByProvider.get(providerE164) ?? EMPTY_RESOURCE_SCOPES;
+    const requested = requestedScopes === null
+      ? null
+      : captureResourceScopes(requestedScopes, invalidScopeResolver);
+    const select = (
+      required: boolean,
+      requestedIds: readonly string[] | null,
+      ownedIds: readonly string[],
+    ): readonly string[] => {
+      if (!required) {
+        if ((requestedIds?.length ?? 0) > 0) invalidScopeResolver();
+        return Object.freeze([] as string[]);
+      }
+      const selected = requestedIds ?? ownedIds;
+      if (selected.length === 0 || selected.some((id) => !ownedIds.includes(id))) invalidScopeResolver();
+      return Object.freeze([...selected]);
+    };
+    const needsCalendar = capabilityIds.some((capability) =>
+      capability === "calendar.read" || capability === "calendar.manage");
+    const needsFiles = capabilityIds.some((capability) =>
+      capability === "files.read" || capability === "files.write");
+    const needsPc = capabilityIds.includes("pc.control");
+    return Object.freeze({
+      schemaVersion: "1.0",
+      calendarConnectionIds: select(
+        needsCalendar,
+        requested?.calendarConnectionIds ?? null,
+        owned.calendarConnectionIds,
+      ),
+      fileRootIds: select(needsFiles, requested?.fileRootIds ?? null, owned.fileRootIds),
+      pcActionIds: select(needsPc, requested?.pcActionIds ?? null, owned.pcActionIds),
+    });
+  }
+}
+
 function dateEpoch(value: unknown): number {
   let epoch: number;
   try {
@@ -180,18 +375,33 @@ function captureStringArray(value: unknown): readonly string[] {
 }
 
 function captureDraft(value: unknown): CapturedDraft {
-  const kindDescriptor = value !== null && typeof value === "object"
-    ? Object.getOwnPropertyDescriptor(value, "kind")
-    : undefined;
+  let kindDescriptor: PropertyDescriptor | undefined;
+  let resourceScopesDescriptor: PropertyDescriptor | undefined;
+  try {
+    kindDescriptor = value !== null && typeof value === "object"
+      ? Object.getOwnPropertyDescriptor(value, "kind")
+      : undefined;
+    resourceScopesDescriptor = value !== null && typeof value === "object"
+      ? Object.getOwnPropertyDescriptor(value, "resourceScopes")
+      : undefined;
+  } catch {
+    invalidInput();
+  }
   if (kindDescriptor === undefined || !("value" in kindDescriptor)) invalidInput();
   const kind = kindDescriptor.value;
   if (kind === "add" || kind === "replace_permissions") {
-    const captured = captureExact(value, PERMISSION_DRAFT_FIELDS);
+    const captured = captureExact(
+      value,
+      resourceScopesDescriptor === undefined ? PERMISSION_DRAFT_FIELDS : SCOPED_PERMISSION_DRAFT_FIELDS,
+    );
     if (typeof captured.providerE164 !== "string" || !E164.test(captured.providerE164)) invalidInput();
     return Object.freeze({
       kind,
       providerE164: captured.providerE164,
       permissionPhrases: captureStringArray(captured.permissionPhrases),
+      resourceScopes: resourceScopesDescriptor === undefined
+        ? null
+        : captureResourceScopes(captured.resourceScopes),
     });
   }
   if (kind === "rotate_pin" || kind === "revoke") {
@@ -258,6 +468,7 @@ export class OwnerAccessService {
   readonly #registry: CapabilityRegistry;
   readonly #authorities: VoiceAccessAuthorityService;
   readonly #verifier: GuestPinVerifier;
+  readonly #scopeResolver: TargetGuestResourceScopeResolver;
   readonly #idFactory: (now: Date) => Ulid;
   readonly #proposalIdFactory: () => string;
   readonly #defaultGuestPin: (() => unknown) | undefined;
@@ -292,12 +503,14 @@ export class OwnerAccessService {
     const registry = captured.registry;
     const authorities = captured.authorities;
     const verifier = captured.verifier;
+    const scopeResolver = captured.scopeResolver ?? new TargetGuestResourceScopeResolver([]);
     const idFactory = captured.idFactory ?? ((now: Date) => newUlid(now));
     const proposalIdFactory = captured.proposalIdFactory ?? (() => `owner-access-proposal:${crypto.randomUUID()}`);
     const defaultGuestPin = captured.defaultGuestPin;
     if (
       !(repository instanceof VoiceAccessRepository) || !(registry instanceof CapabilityRegistry)
       || !(authorities instanceof VoiceAccessAuthorityService) || !(verifier instanceof GuestPinVerifier)
+      || !(scopeResolver instanceof TargetGuestResourceScopeResolver)
       || typeof idFactory !== "function" || typeof proposalIdFactory !== "function"
       || (defaultGuestPin !== undefined && typeof defaultGuestPin !== "function")
     ) {
@@ -307,6 +520,7 @@ export class OwnerAccessService {
     this.#registry = registry;
     this.#authorities = authorities;
     this.#verifier = verifier;
+    this.#scopeResolver = scopeResolver;
     this.#idFactory = idFactory as (now: Date) => Ulid;
     this.#proposalIdFactory = proposalIdFactory as () => string;
     this.#defaultGuestPin = defaultGuestPin as (() => unknown) | undefined;
@@ -323,7 +537,11 @@ export class OwnerAccessService {
     }
   }
 
-  async #snapshot(permissionPhrases: readonly string[]): Promise<CapabilitySnapshot> {
+  async #snapshot(
+    permissionPhrases: readonly string[],
+    providerE164: string,
+    requestedScopes: VoiceResourceScopesV1 | null,
+  ): Promise<CapabilitySnapshot> {
     let requested: readonly string[] | "everything";
     if (permissionPhrases.length === 1 && permissionPhrases[0] === "everything") {
       requested = "everything";
@@ -337,7 +555,9 @@ export class OwnerAccessService {
       requested = Object.freeze(capabilities);
     }
     try {
-      return await this.#registry.snapshotConfigured(requested);
+      const capabilityIds = this.#registry.resolve(requested);
+      const resourceScopes = this.#scopeResolver.resolve(providerE164, capabilityIds, requestedScopes);
+      return await this.#registry.snapshot(capabilityIds, resourceScopes);
     } catch {
       throw safeError("owner_access_permission_invalid");
     }
@@ -367,11 +587,11 @@ export class OwnerAccessService {
     }
     if (draft.kind === "add") {
       if (target !== null) throw safeError("owner_access_target_unavailable");
-      snapshot = await this.#snapshot(draft.permissionPhrases);
+      snapshot = await this.#snapshot(draft.permissionPhrases, draft.providerE164, draft.resourceScopes);
       grantId = safeUlid(this.#idFactory(new Date(nowEpoch)));
     } else if (draft.kind === "replace_permissions") {
       if (target === null || target.status === "revoked") throw safeError("owner_access_target_unavailable");
-      snapshot = await this.#snapshot(draft.permissionPhrases);
+      snapshot = await this.#snapshot(draft.permissionPhrases, draft.providerE164, draft.resourceScopes);
       grantId = target.grantId;
     } else if (draft.kind === "rotate_pin" || draft.kind === "revoke") {
       if (target === null || target.status === "revoked") throw safeError("owner_access_target_unavailable");
@@ -462,7 +682,12 @@ export class OwnerAccessService {
       this.invalidate(state.proposal);
 
       if (selection?.kind === "default") {
-        const defaultPin = this.#defaultGuestPin?.();
+        let defaultPin: unknown;
+        try {
+          defaultPin = this.#defaultGuestPin?.();
+        } catch {
+          throw safeError("owner_access_default_pin_invalid");
+        }
         if (typeof defaultPin !== "string" || !/^[0-9]{4}$/u.test(defaultPin)) {
           throw safeError("owner_access_default_pin_invalid");
         }

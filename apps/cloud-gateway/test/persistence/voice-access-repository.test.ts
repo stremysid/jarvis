@@ -151,6 +151,8 @@ describe("VoiceAccessRepository", () => {
       now: NOW,
     });
     expect(revoked).toMatchObject({ grantVersion: 4, status: "revoked" });
+    await expect(repository.listGuests({ ownerAuthority, ownerIdentityId: OWNER_IDENTITY_ID, now: NOW }))
+      .resolves.toEqual([]);
     await expect(repository.resolveIdentityCandidate({
       identityId: GUEST_IDENTITY_ID,
       ownerIdentityId: OWNER_IDENTITY_ID,

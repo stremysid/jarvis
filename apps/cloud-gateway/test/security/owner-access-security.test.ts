@@ -299,13 +299,55 @@ describe("owner access security", () => {
       now: NOW,
     });
     expect(reads).toBe(0);
-    await expect(invalidDefaultService.execute({
-      proposal,
-      ownerAuthority,
-      pinSelection: { kind: "default" },
-      now: new Date(NOW.valueOf() + 1),
-    })).rejects.toThrow("owner_access_default_pin_invalid");
+    let message = "";
+    try {
+      await invalidDefaultService.execute({
+        proposal,
+        ownerAuthority,
+        pinSelection: { kind: "default" },
+        now: new Date(NOW.valueOf() + 1),
+      });
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(message).toBe("owner_access_default_pin_invalid");
     expect(reads).toBe(1);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM voice_access_grants").first())
+      .toEqual({ count: 0 });
+  });
+
+  it("maps a throwing default PIN provider to the fixed invalid error without leaking its canary", async () => {
+    const throwingDefaultService = new OwnerAccessService({
+      repository,
+      registry,
+      authorities,
+      verifier: new GuestPinVerifier(new Uint8Array(32).fill(12), () => new Uint8Array(16).fill(8)),
+      idFactory: idFactory(),
+      proposalIdFactory: () => "owner-access-proposal:throwing-default",
+      defaultGuestPin: () => {
+        throw new Error("default provider leaked 4827");
+      },
+    });
+    const proposal = await throwingDefaultService.prepare({
+      ownerAuthority,
+      sessionId: OWNER_SESSION_ID,
+      draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["conversation"] },
+      now: NOW,
+    });
+
+    let message = "";
+    try {
+      await throwingDefaultService.execute({
+        proposal,
+        ownerAuthority,
+        pinSelection: { kind: "default" },
+        now: new Date(NOW.valueOf() + 1),
+      });
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(message).toBe("owner_access_default_pin_invalid");
+    expect(message).not.toContain("4827");
     expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM voice_access_grants").first())
       .toEqual({ count: 0 });
   });

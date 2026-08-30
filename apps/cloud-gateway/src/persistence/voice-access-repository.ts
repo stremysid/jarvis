@@ -969,7 +969,9 @@ export class VoiceAccessRepository {
   }): Promise<readonly MaskedGuestGrant[]> {
     const captured = captureExact(input, new Set(["ownerAuthority", "ownerIdentityId", "now"]));
     await this.#requireOwnerAuthority(captured.ownerAuthority, captured.ownerIdentityId, captured.now);
-    const rows = await this.#database.prepare(`${GRANT_SELECT} ORDER BY grant_row.created_at, grant_row.grant_id`)
+    const rows = await this.#database.prepare(`${GRANT_SELECT}
+      WHERE grant_row.status IN ('pending', 'active')
+      ORDER BY grant_row.created_at, grant_row.grant_id`)
       .all<GrantRow>();
     return Object.freeze(rows.results.map((row) => {
       const grant = decodeGrantRow(row);
