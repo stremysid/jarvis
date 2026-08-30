@@ -61,9 +61,35 @@ CREATE TABLE identity_challenges (
   expires_at TEXT NOT NULL,
   consumed_at TEXT,
   created_at TEXT NOT NULL,
-  FOREIGN KEY (initiating_device_id, principal_id, initiating_key_id, initiating_key_fingerprint, initiating_key_generation) REFERENCES device_keys(device_id, principal_id, key_id, key_fingerprint, key_generation) ON DELETE RESTRICT
+  FOREIGN KEY (initiating_device_id, principal_id) REFERENCES device_keys(device_id, principal_id) ON DELETE RESTRICT
 );
 CREATE INDEX identity_challenges_activation_idx ON identity_challenges(identity_id, channel, expires_at);
+
+CREATE TRIGGER identity_challenges_activate_pending_identity
+BEFORE UPDATE OF consumed_at ON identity_challenges
+WHEN OLD.consumed_at IS NULL AND NEW.consumed_at IS NOT NULL
+BEGIN
+  UPDATE channel_identities
+  SET status = 'active', verified_at = NEW.consumed_at
+  WHERE identity_id = OLD.identity_id
+    AND principal_id = OLD.principal_id
+    AND channel = OLD.channel
+    AND status = 'pending'
+    AND verified_at IS NULL
+    AND EXISTS (
+      SELECT 1
+      FROM device_keys d
+      JOIN principals p ON p.principal_id = d.principal_id
+      WHERE d.device_id = OLD.initiating_device_id
+        AND d.principal_id = OLD.principal_id
+        AND d.key_id = OLD.initiating_key_id
+        AND d.key_fingerprint = OLD.initiating_key_fingerprint
+        AND d.key_generation = OLD.initiating_key_generation
+        AND d.status = 'active'
+        AND p.status = 'active'
+    );
+  SELECT CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'identity_challenge_state_changed') END;
+END;
 
 CREATE TABLE events (
   sequence INTEGER PRIMARY KEY AUTOINCREMENT CHECK (sequence > 0),
@@ -174,7 +200,7 @@ CREATE TABLE request_nonces (
   consumed_at TEXT NOT NULL,
   created_at TEXT NOT NULL,
   UNIQUE (device_id, nonce_hash),
-  FOREIGN KEY (device_id, principal_id, key_id, key_fingerprint, key_generation) REFERENCES device_keys(device_id, principal_id, key_id, key_fingerprint, key_generation) ON DELETE RESTRICT
+  FOREIGN KEY (device_id, principal_id) REFERENCES device_keys(device_id, principal_id) ON DELETE RESTRICT
 );
 CREATE INDEX request_nonces_expiry_idx ON request_nonces(expires_at);
 
