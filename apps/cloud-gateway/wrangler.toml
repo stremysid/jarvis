@@ -1,8 +1,8 @@
 name = "jarvis-cloud-gateway"
-main = "src/call-session-stub.ts"
+main = "src/index.ts"
 compatibility_date = "2026-08-22"
 
-[exports.CallSessionStub]
+[exports.CallSession]
 type = "durable-object"
 storage = "sqlite"
 
@@ -18,7 +18,7 @@ bucket_name = "jarvis-archive"
 
 [[durable_objects.bindings]]
 name = "CALL_SESSION"
-class_name = "CallSessionStub"
+class_name = "CallSession"
 
 [env.test]
 
@@ -34,4 +34,4 @@ bucket_name = "jarvis-archive-test"
 
 [[env.test.durable_objects.bindings]]
 name = "CALL_SESSION"
-class_name = "CallSessionStub"
+class_name = "CallSession"

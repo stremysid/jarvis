@@ -29,6 +29,30 @@ export interface OutboundCallCommand {
   issuedBy: "telegram_call_command" | "local_cli";
 }
 
+export type CallPhase = "created" | "connecting" | "pre_auth" | "authenticated" | "active" | "ending" | "completed" | "rejected" | "failed" | "expired";
+export type TranscriptState = "partial" | "committed" | "cancelled";
+export type CallDirection = "inbound" | "outbound";
+
+export interface ExpectedOutboundCall {
+  commandId: string;
+  principalId: string;
+  destinationIdentityId: string;
+  relayNonce: string;
+  nonceExpiresAt: string;
+  idempotencyKey: string;
+}
+
+export interface RelayBinding {
+  callSid: string;
+  principalId: string;
+  identityId: string;
+  destinationIdentityId: string;
+  relayNonce: string;
+  direction: CallDirection;
+  activationOnly: boolean;
+  activationChallengeId: string | null;
+}
+
 export interface SignedRequestV1 {
   schemaVersion: "1.0";
   deviceId: string;
