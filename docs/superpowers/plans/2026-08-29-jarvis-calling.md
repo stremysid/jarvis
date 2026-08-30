@@ -312,19 +312,23 @@ export class ProviderDispatchUnknownError extends Error {
   readonly operation = "twilio.createCall" as const;
 }
 
+// apps/cloud-gateway/src/providers/twilio-verifier.ts
+declare const verifiedTwilioFormBrand: unique symbol;
 export interface VerifiedTwilioForm {
+  readonly [verifiedTwilioFormBrand]: true;
   get(name: string): string | null;
   getAll(name: string): readonly string[];
   entries(): readonly (readonly [string, string])[];
 }
 
+// apps/cloud-gateway/src/providers/provider-types.ts
 export interface TwilioRequestVerifier {
-  verifyWebhook(input: { method: "POST"; exactUrl: string; headers: Headers; rawBody: Uint8Array }): Promise<VerifiedTwilioForm | null>;
-  verifyWebSocket(input: { method: "GET"; exactUrl: string; headers: Headers }): Promise<boolean>;
+  verifyWebhook(input: { request: Request; exactUrl: string }): Promise<VerifiedTwilioForm | null>;
+  verifyWebSocket(input: { request: Request; exactUrl: string }): Promise<boolean>;
 }
 ```
 
-The verified-form implementation owns a private frozen copy of all pairs and returns frozen snapshots. Callers never parse the raw body a second time. The fake implements the same interface, but a false signature returns `null` before parsed values are exposed.
+The verifier owns the original `Request`, rejects the wrong method/content type, streams at most 64 KiB before allocating the combined body, verifies the signature, and only then mints the nominal capability. The verified-form implementation owns a private frozen copy of all pairs and returns frozen snapshots. Callers never clone, pre-buffer, or parse the raw body a second time. The fake delegates to the same strict verifier with synthetic credentials, so a false signature returns `null` before parsed values are exposed and cannot make route tests pass under looser decoding rules.
 
 - [ ] **Step 5: Implement the corrected relay decoder and TwiML renderer**
 
