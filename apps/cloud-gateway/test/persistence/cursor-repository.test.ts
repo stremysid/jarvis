@@ -23,14 +23,14 @@ describe("CursorRepository", () => {
   beforeEach(async () => {
     await applyFoundationMigration();
     await env.DB.batch([
-      env.DB.prepare("DELETE FROM sync_snapshots"), env.DB.prepare("DELETE FROM consumer_cursors"), env.DB.prepare("DELETE FROM outbox"),
+      env.DB.prepare("DELETE FROM sync_ack_receipts"), env.DB.prepare("DELETE FROM sync_snapshots"), env.DB.prepare("DELETE FROM consumer_cursors"), env.DB.prepare("DELETE FROM outbox"),
       env.DB.prepare("DELETE FROM idempotency_records"), env.DB.prepare("DELETE FROM events"),
       env.DB.prepare("DELETE FROM sqlite_sequence WHERE name = 'events'"),
     ]);
   });
   afterEach(async () => {
     await env.DB.batch([
-      env.DB.prepare("DELETE FROM sync_snapshots"), env.DB.prepare("DELETE FROM consumer_cursors"), env.DB.prepare("DELETE FROM outbox"),
+      env.DB.prepare("DELETE FROM sync_ack_receipts"), env.DB.prepare("DELETE FROM sync_snapshots"), env.DB.prepare("DELETE FROM consumer_cursors"), env.DB.prepare("DELETE FROM outbox"),
       env.DB.prepare("DELETE FROM idempotency_records"), env.DB.prepare("DELETE FROM events"),
       env.DB.prepare("DELETE FROM sqlite_sequence WHERE name = 'events'"),
     ]);
@@ -52,7 +52,7 @@ describe("CursorRepository", () => {
 
     expect(await cursors.read("device:d1")).toBe(3);
     await expect(cursors.advanceContiguous("device:d1", 0, 3)).rejects.toThrow("cursor_compare_failed");
-    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM sync_snapshots WHERE consumer_name = 'device:d1'").first<{ count: number }>())?.count).toBe(1);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM sync_ack_receipts WHERE consumer_name = 'device:d1'").first<{ count: number }>())?.count).toBe(1);
   });
 
   it("refuses a cursor range containing a missing event", async () => {
@@ -90,14 +90,9 @@ describe("CursorRepository", () => {
     await append(2);
     const cursors = new CursorRepository(env.DB);
     await cursors.advanceContiguous("device:d1", 0, 2);
-    await env.DB.prepare(
-      "INSERT INTO sync_snapshots (snapshot_id, consumer_name, from_sequence, through_sequence, boundary_start_event_id, boundary_end_event_id, event_count, snapshot_kind, expires_at, acknowledged_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'issued', ?, NULL)",
-    ).bind("issued:1", "device:d1", 0, 2, (await env.DB.prepare("SELECT event_id FROM events WHERE sequence = 1").first<{ event_id: string }>())?.event_id, (await env.DB.prepare("SELECT event_id FROM events WHERE sequence = 2").first<{ event_id: string }>())?.event_id, 2, "2000-01-01T00:00:00.000Z").run();
-
-    await env.DB.prepare("DELETE FROM sync_snapshots WHERE snapshot_kind = 'issued' AND expires_at < ?").bind("2026-08-30T00:00:00.000Z").run();
-    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM sync_snapshots WHERE snapshot_kind = 'issued'").first<{ count: number }>())?.count).toBe(0);
-    const receipt = await env.DB.prepare("SELECT expires_at, acknowledged_at FROM sync_snapshots WHERE snapshot_kind = 'ack_receipt'").first<{ expires_at: string | null; acknowledged_at: string | null }>();
-    expect(receipt).toEqual({ expires_at: null, acknowledged_at: expect.any(String) });
+    await env.DB.prepare("DELETE FROM sync_snapshots WHERE expires_at < ?").bind("2026-08-30T00:00:00.000Z").run();
+    const receipt = await env.DB.prepare("SELECT acknowledged_at FROM sync_ack_receipts WHERE receipt_kind = 'legacy'").first<{ acknowledged_at: string }>();
+    expect(receipt).toEqual({ acknowledged_at: expect.any(String) });
   });
 
   it("enforces consumer names by UTF-8 bytes", async () => {

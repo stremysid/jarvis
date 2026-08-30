@@ -43,14 +43,10 @@ export class CursorRepository implements CursorRepositoryContract {
         expectedCurrent, throughSequence, throughSequence, expectedCurrent, expectedCurrent, throughSequence, expectedCurrent + 1, expectedCurrent, throughSequence, throughSequence,
       ),
       this.database.prepare(
-        `INSERT INTO sync_snapshots (snapshot_id, consumer_name, from_sequence, through_sequence, boundary_start_event_id, boundary_end_event_id, event_count, snapshot_kind, expires_at, acknowledged_at)
-         SELECT ?, ?, ?, ?,
-           (SELECT event_id FROM events WHERE sequence = ?),
-           (SELECT event_id FROM events WHERE sequence = ?),
-           (SELECT COUNT(*) FROM events WHERE sequence > ? AND sequence <= ?),
-           'ack_receipt', ?, ?
+        `INSERT INTO sync_ack_receipts (receipt_id, snapshot_id, principal_id, device_id, consumer_name, expected_current, through_sequence, current_sequence, acknowledged_at, receipt_kind)
+         SELECT ?, ?, NULL, NULL, ?, ?, ?, ?, ?, 'legacy'
          WHERE changes() = 1`,
-      ).bind(snapshotId, consumerName, expectedCurrent, throughSequence, expectedCurrent + 1, throughSequence, expectedCurrent, throughSequence, null, acknowledgedAt),
+      ).bind(snapshotId, snapshotId, consumerName, expectedCurrent, throughSequence, throughSequence, acknowledgedAt),
     ]);
 
     if (cursorResult[0]?.meta.changes !== 1 || cursorResult[1]?.meta.changes !== 1) {

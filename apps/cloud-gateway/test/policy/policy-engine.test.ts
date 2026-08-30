@@ -34,7 +34,7 @@ class TestContext implements MutablePolicyContext {
 }
 
 async function insertPrincipalAndIdentity(principalId = "principal:owner", identityId = "identity:voice", identityPrincipalId = principalId, status = "active", verifiedAt: string | null = instant.toISOString()): Promise<void> {
-  await env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES (?, 'human', 'active', 'test', ?, ?)")
+  await env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at) VALUES (?, 'human', 'active', 'test', '1.0', 'PIN_VERIFIER_JSON', ?, ?)")
     .bind(principalId, instant.toISOString(), instant.toISOString()).run();
   await env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES (?, ?, 'voice', 'opaque-destination', ?, ?, ?)")
     .bind(identityId, identityPrincipalId, status, verifiedAt, instant.toISOString()).run();
@@ -88,11 +88,11 @@ describe("PolicyEngine", () => {
   it("fails closed for invalid purposes and destination ownership or verification failures", async () => {
     await expect(evaluate(request({ purposeCode: "model" as never }))).resolves.toMatchObject({ reason: "invalid_purpose" });
     await expect(evaluate(request({ commandId: "01k3s6k8000000000000000008" as never, purposeCode: undefined as never }))).resolves.toMatchObject({ reason: "invalid_request" });
-    await env.DB.prepare("UPDATE channel_identities SET verified_at = NULL WHERE identity_id = 'identity:voice'").run();
+    await env.DB.prepare("UPDATE channel_identities SET verified_at = NULL, status = 'pending' WHERE identity_id = 'identity:voice'").run();
     await expect(evaluate(request({ commandId: "01k3s6k8000000000000000001" as never }))).resolves.toMatchObject({ reason: "destination_not_verified" });
     await env.DB.prepare("UPDATE channel_identities SET verified_at = ?, status = 'disabled' WHERE identity_id = 'identity:voice'").bind(instant.toISOString()).run();
     await expect(evaluate(request({ commandId: "01k3s6k8000000000000000002" as never }))).resolves.toMatchObject({ reason: "destination_not_verified" });
-    await env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('principal:foreign', 'human', 'active', 'foreign', ?, ?)").bind(instant.toISOString(), instant.toISOString()).run();
+    await env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('principal:foreign', 'service', 'active', 'foreign', ?, ?)").bind(instant.toISOString(), instant.toISOString()).run();
     await env.DB.prepare("UPDATE channel_identities SET principal_id = 'principal:foreign', status = 'active' WHERE identity_id = 'identity:voice'").run();
     await expect(evaluate(request({ commandId: "01k3s6k8000000000000000003" as never }))).resolves.toMatchObject({ reason: "destination_not_verified" });
   });
@@ -228,7 +228,7 @@ describe("PolicyEngine", () => {
 
   it("rechecks destination unverification and deletion after authorization", async () => {
     await evaluate(request());
-    await env.DB.prepare("UPDATE channel_identities SET verified_at = NULL WHERE identity_id = 'identity:voice'").run();
+    await env.DB.prepare("UPDATE channel_identities SET verified_at = NULL, status = 'pending' WHERE identity_id = 'identity:voice'").run();
     await expect(recheck(request())).resolves.toMatchObject({ decision: "deny", reason: "destination_not_verified" });
     await env.DB.prepare("DELETE FROM channel_identities WHERE identity_id = 'identity:voice'").run();
     context.attemptId = "01k3s6k800000000000000000d";
@@ -237,7 +237,7 @@ describe("PolicyEngine", () => {
 
   it("rechecks destination reassignment after authorization", async () => {
     await evaluate(request());
-    await env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('principal:other', 'human', 'active', 'other', ?, ?)").bind(instant.toISOString(), instant.toISOString()).run();
+    await env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('principal:other', 'service', 'active', 'other', ?, ?)").bind(instant.toISOString(), instant.toISOString()).run();
     await env.DB.prepare("UPDATE channel_identities SET principal_id = 'principal:other' WHERE identity_id = 'identity:voice'").run();
     await expect(recheck(request())).resolves.toMatchObject({ decision: "deny", reason: "destination_not_verified" });
   });
