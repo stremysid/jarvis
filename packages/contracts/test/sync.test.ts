@@ -9,14 +9,31 @@ import type {
 
 describe("sync contracts", () => {
   it("owns the frozen page and durable ACK protocol shapes", () => {
-    expectTypeOf<SyncEventsPullBodyV1>().toMatchTypeOf<{
-      schemaVersion: "1.0"; consumerId: string; afterSequence: number; pageSize: number; snapshotToken: string | null;
+    expectTypeOf<SyncEventsPullBodyV1>().toEqualTypeOf<{
+      readonly schemaVersion: "1.0";
+      readonly consumerId: string;
+      readonly afterSequence: number;
+      readonly pageSize: number;
+      readonly snapshotToken: string | null;
     }>();
-    expectTypeOf<SyncEventsAckBodyV1>().toMatchTypeOf<{
-      schemaVersion: "1.0"; snapshotId: string; expectedCurrent: number; throughSequence: number;
+    expectTypeOf<SyncEventsPageV1>().toEqualTypeOf<{
+      readonly snapshotId: string;
+      readonly snapshotToken: string;
+      readonly fromSequence: number;
+      readonly toSequence: number;
+      readonly events: readonly SequencedEventV1[];
+      readonly hasMore: boolean;
     }>();
-    expectTypeOf<SyncEventsPageV1["events"]>().toEqualTypeOf<readonly SequencedEventV1[]>();
-    expectTypeOf<SyncAckReceiptV1["replayed"]>().toEqualTypeOf<boolean>();
-    expectTypeOf<SyncAckReceiptV1>().toEqualTypeOf<{ schemaVersion: "1.0"; currentSequence: number; replayed: boolean }>();
+    expectTypeOf<SyncEventsAckBodyV1>().toEqualTypeOf<{
+      readonly schemaVersion: "1.0";
+      readonly snapshotId: string;
+      readonly expectedCurrent: number;
+      readonly throughSequence: number;
+    }>();
+    expectTypeOf<SyncAckReceiptV1>().toEqualTypeOf<{
+      readonly schemaVersion: "1.0";
+      readonly currentSequence: number;
+      readonly replayed: boolean;
+    }>();
   });
 });

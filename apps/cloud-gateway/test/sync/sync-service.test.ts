@@ -383,6 +383,26 @@ describe("SyncService", () => {
     expect(await cursor(foreign)).toBe(0);
   });
 
+  it("persists snapshot and ACK receipt rows under the verified device-principal composite", async () => {
+    await append(1);
+    const page = await pull(pullBody(0, 1));
+    const foreign = await insertDevice({ principalId: "service:other", principalType: "service", deviceId: "device:other", keyId: "key:other" });
+
+    await expect(env.DB.prepare("UPDATE sync_snapshots SET principal_id = ? WHERE snapshot_id = ?")
+      .bind(foreign.principalId, page.snapshotId).run()).rejects.toThrow();
+    await acknowledge({ schemaVersion: "1.0", snapshotId: page.snapshotId, expectedCurrent: 0, throughSequence: 1 });
+    await expect(env.DB.prepare("UPDATE sync_ack_receipts SET principal_id = ? WHERE snapshot_id = ?")
+      .bind(foreign.principalId, page.snapshotId).run()).rejects.toThrow();
+
+    expect(await env.DB.prepare(
+      "SELECT principal_id, device_id, receipt_kind FROM sync_ack_receipts WHERE snapshot_id = ?",
+    ).bind(page.snapshotId).first()).toEqual({
+      principal_id: primary.principalId,
+      device_id: primary.deviceId,
+      receipt_kind: "snapshot",
+    });
+  });
+
   it("loses a post-verification revocation race before snapshot creation", async () => {
     sync = makeService(events, {
       beforeSnapshotAction: async () => {

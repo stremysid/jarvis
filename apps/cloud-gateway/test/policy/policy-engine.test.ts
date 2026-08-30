@@ -158,7 +158,15 @@ describe("PolicyEngine", () => {
   });
 
   it("fails closed when dispatch audit persistence fails", async () => {
-    const failing = new PolicyEngine({ database: env.DB, context, events: { append: async () => { throw new Error("D1 unavailable"); }, readRange: async () => [] } });
+    const failing = new PolicyEngine({
+      database: env.DB,
+      context,
+      events: {
+        append: async () => { throw new Error("D1 unavailable"); },
+        latestSequence: async () => 0,
+        readRange: async () => [],
+      },
+    });
     await context.trust(request());
     await failing.evaluateOutboundCall(request());
     await expect(failing.recheckOutboundDispatch(request())).resolves.toMatchObject({ decision: "deny", reason: "audit_persistence_failed" });

@@ -12,13 +12,13 @@ const initialRedaction = redacted("e\u0301");
 
 const input: CreateEnvelopeInput = {
   schemaVersion: "1.0",
-  eventId: "01j00000000000000000000000",
+  eventId: "01j00000000000000000000000" as CreateEnvelopeInput["eventId"],
   eventType: "message.committed",
   source: "telegram",
   subjectId: "sid",
   occurredAt: "2026-08-29T00:00:00.000Z",
   receivedAt: "2026-08-29T00:00:00.000Z",
-  correlationId: "01j00000000000000000000001",
+  correlationId: "01j00000000000000000000001" as CreateEnvelopeInput["correlationId"],
   contentType: "application/json",
   payload: initialRedaction,
   producerVersion: "0.1.0",

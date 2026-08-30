@@ -178,12 +178,49 @@ describe("DeviceEnrollment", () => {
     expect((await env.DB.prepare("SELECT consumed_at FROM bootstrap_tokens WHERE bootstrap_token_id = 'bootstrap:recovery'").first<{ consumed_at: string | null }>())?.consumed_at).toBe(now.toISOString());
   });
 
-  it("denies recovery with conflicting metadata and leaves the new token usable", async () => {
+  it("recovers the identities matching the bootstrap metadata when the device has decoy identities", async () => {
+    await provision();
+    await service().bootstrap(input());
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at, enrolled_by_device_id) VALUES ('identity:decoy:voice', 'principal:first', 'voice', '+12025550123', 'pending', NULL, ?, 'device:first')",
+      ).bind(now.toISOString()),
+      env.DB.prepare(
+        "INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at, enrolled_by_device_id) VALUES ('identity:decoy:telegram', 'principal:first', 'telegram', '111111', 'pending', NULL, ?, 'device:first')",
+      ).bind(now.toISOString()),
+    ]);
+    // Make the decoys older than the canonical rows so the unconstrained query
+    // deterministically reproduces the original cross-product bug.
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM channel_identities WHERE identity_id IN ('identity:first:voice', 'identity:first:telegram')"),
+      env.DB.prepare(
+        "INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at, enrolled_by_device_id) VALUES ('identity:first:voice', 'principal:first', 'voice', '+14165550123', 'pending', NULL, ?, 'device:first')",
+      ).bind(now.toISOString()),
+      env.DB.prepare(
+        "INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at, enrolled_by_device_id) VALUES ('identity:first:telegram', 'principal:first', 'telegram', '424242', 'pending', NULL, ?, 'device:first')",
+      ).bind(now.toISOString()),
+    ]);
+    await provision(secondToken, "2026-08-30T12:15:00.000Z", "bootstrap:recovery");
+
+    const recovered = await service({ ids: ids("different") }).bootstrap(input({ bootstrapToken: secondToken }));
+
+    expect(recovered).toMatchObject({
+      phoneIdentityId: "identity:first:voice",
+      telegramIdentityId: "identity:first:telegram",
+      recovered: true,
+    });
+  });
+
+  it.each([
+    ["device label", { deviceLabel: "different laptop" }],
+    ["phone subject", { phoneProviderSubject: "+14165550999" }],
+    ["Telegram subject", { telegramProviderSubject: "999999" }],
+  ])("denies recovery with a conflicting %s and leaves the new token usable", async (_label, changedMetadata) => {
     await provision();
     await service().bootstrap(input());
     await provision(secondToken, "2026-08-30T12:15:00.000Z", "bootstrap:recovery");
 
-    await expect(service({ ids: ids("different") }).bootstrap(input({ bootstrapToken: secondToken, deviceLabel: "different laptop" }))).rejects.toThrow("bootstrap_recovery_conflict");
+    await expect(service({ ids: ids("different") }).bootstrap(input({ bootstrapToken: secondToken, ...changedMetadata }))).rejects.toThrow("bootstrap_recovery_conflict");
 
     expect((await env.DB.prepare("SELECT consumed_at FROM bootstrap_tokens WHERE bootstrap_token_id = 'bootstrap:recovery'").first<{ consumed_at: string | null }>())?.consumed_at).toBeNull();
   });

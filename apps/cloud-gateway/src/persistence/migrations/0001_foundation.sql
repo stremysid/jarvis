@@ -153,7 +153,8 @@ CREATE TABLE sync_snapshots (
   created_at TEXT NOT NULL,
   acknowledged_at TEXT,
   CHECK (through_sequence <= root_upper_sequence),
-  CHECK ((event_count = 0 AND from_sequence = through_sequence AND boundary_start_event_id IS NULL AND boundary_end_event_id IS NULL) OR (event_count > 0 AND boundary_start_event_id IS NOT NULL AND boundary_end_event_id IS NOT NULL))
+  CHECK ((event_count = 0 AND from_sequence = through_sequence AND boundary_start_event_id IS NULL AND boundary_end_event_id IS NULL) OR (event_count > 0 AND boundary_start_event_id IS NOT NULL AND boundary_end_event_id IS NOT NULL)),
+  FOREIGN KEY (device_id, principal_id) REFERENCES device_keys(device_id, principal_id) ON DELETE RESTRICT
 );
 CREATE UNIQUE INDEX sync_snapshots_input_token_idx ON sync_snapshots(input_token_hash) WHERE input_token_hash IS NOT NULL;
 CREATE INDEX sync_snapshots_consumer_idx ON sync_snapshots(consumer_name, through_sequence);
@@ -169,7 +170,9 @@ CREATE TABLE sync_ack_receipts (
   current_sequence INTEGER NOT NULL CHECK (current_sequence >= 0),
   acknowledged_at TEXT NOT NULL,
   receipt_kind TEXT NOT NULL CHECK (receipt_kind IN ('snapshot', 'legacy')),
-  UNIQUE (snapshot_id, principal_id, device_id, consumer_name, expected_current, through_sequence)
+  UNIQUE (snapshot_id, principal_id, device_id, consumer_name, expected_current, through_sequence),
+  CHECK ((receipt_kind = 'snapshot' AND principal_id IS NOT NULL AND device_id IS NOT NULL) OR (receipt_kind = 'legacy' AND principal_id IS NULL AND device_id IS NULL)),
+  FOREIGN KEY (device_id, principal_id) REFERENCES device_keys(device_id, principal_id) ON DELETE RESTRICT
 );
 CREATE INDEX sync_ack_receipts_consumer_idx ON sync_ack_receipts(consumer_name, current_sequence);
 
@@ -207,7 +210,10 @@ CREATE TABLE bootstrap_tokens (
   issued_at TEXT NOT NULL,
   intended_channel TEXT CHECK (intended_channel IN ('telegram', 'voice', 'local')),
   device_label TEXT,
-  issued_by TEXT NOT NULL
+  issued_by TEXT NOT NULL,
+  CHECK ((principal_id IS NULL AND device_id IS NULL) OR (principal_id IS NOT NULL AND device_id IS NOT NULL)),
+  CHECK (consumed_at IS NULL OR (principal_id IS NOT NULL AND device_id IS NOT NULL)),
+  FOREIGN KEY (device_id, principal_id) REFERENCES device_keys(device_id, principal_id) ON DELETE RESTRICT
 );
 CREATE INDEX bootstrap_tokens_expiry_idx ON bootstrap_tokens(expires_at);
 

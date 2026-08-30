@@ -35,8 +35,8 @@ interface ExistingEnrollment {
   key_id: string;
   key_generation: number;
   bootstrap_metadata_hash: string;
-  phone_identity_id: string;
-  telegram_identity_id: string;
+  phone_identity_id: string | null;
+  telegram_identity_id: string | null;
 }
 
 const FIELDS = ["schemaVersion", "bootstrapToken", "displayName", "deviceLabel", "publicKeyBase64", "phoneProviderSubject", "telegramProviderSubject"] as const;
@@ -152,9 +152,11 @@ export class DeviceEnrollment {
     }));
 
     if (!await this.validToken(tokenHash, nowText)) throw new Error("bootstrap_token_invalid");
-    const existing = await this.findExisting(input.publicKeyBase64);
+    const existing = await this.findExisting(input.publicKeyBase64, input.phoneProviderSubject, input.telegramProviderSubject);
     if (existing !== null) {
-      if (existing.bootstrap_metadata_hash !== metadataHash) throw new Error("bootstrap_recovery_conflict");
+      if (existing.bootstrap_metadata_hash !== metadataHash || existing.phone_identity_id === null || existing.telegram_identity_id === null) {
+        throw new Error("bootstrap_recovery_conflict");
+      }
       const result = await this.transactions.batch([
         this.deps.database.prepare(
           `UPDATE bootstrap_tokens SET consumed_at = ?, principal_id = ?, device_id = ?
@@ -209,15 +211,17 @@ export class DeviceEnrollment {
     return created;
   }
 
-  private findExisting(publicKeyBase64: string): Promise<ExistingEnrollment | null> {
+  private findExisting(publicKeyBase64: string, phoneProviderSubject: string, telegramProviderSubject: string): Promise<ExistingEnrollment | null> {
     return this.deps.database.prepare(
       `SELECT d.principal_id, d.device_id, d.key_id, d.key_generation, d.bootstrap_metadata_hash,
         voice.identity_id AS phone_identity_id, telegram.identity_id AS telegram_identity_id
        FROM device_keys d
-       JOIN channel_identities voice ON voice.principal_id = d.principal_id AND voice.enrolled_by_device_id = d.device_id AND voice.channel = 'voice'
-       JOIN channel_identities telegram ON telegram.principal_id = d.principal_id AND telegram.enrolled_by_device_id = d.device_id AND telegram.channel = 'telegram'
+       LEFT JOIN channel_identities voice ON voice.principal_id = d.principal_id AND voice.enrolled_by_device_id = d.device_id
+         AND voice.channel = 'voice' AND voice.provider_subject = ?
+       LEFT JOIN channel_identities telegram ON telegram.principal_id = d.principal_id AND telegram.enrolled_by_device_id = d.device_id
+         AND telegram.channel = 'telegram' AND telegram.provider_subject = ?
        WHERE d.public_key_base64 = ?`,
-    ).bind(publicKeyBase64).first<ExistingEnrollment>();
+    ).bind(phoneProviderSubject, telegramProviderSubject, publicKeyBase64).first<ExistingEnrollment>();
   }
 
   private async validToken(tokenHash: string, now: string): Promise<boolean> {
