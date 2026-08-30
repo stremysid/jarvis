@@ -1,3 +1,9 @@
+import type {
+  ConversationFailureCategory,
+  ConversationFailureCode,
+  ConversationTurnOutcome,
+} from "../../../apps/cloud-gateway/src/conversation/conversation-types.js";
+
 export const VOICE_SMOKE_SCENARIOS = [
   "inbound",
   "unauthorized-caller",
@@ -95,6 +101,7 @@ const INBOUND_FIELDS = [
   "relayEndedCallbackSchema",
   "assistantOutputEvidence",
   "assistantHistoryCommitted",
+  "conversationTurnResult",
 ] as const;
 
 const UNAUTHORIZED_FIELDS = [
@@ -121,6 +128,7 @@ const OUTBOUND_ANSWER_FIELDS = [
   "relayEndedCallbackSchema",
   "assistantOutputEvidence",
   "assistantHistoryCommitted",
+  "conversationTurnResult",
 ] as const;
 
 const OUTBOUND_NO_ANSWER_FIELDS = [
@@ -141,6 +149,9 @@ const FAILURE_FIELDS = [
   "statusCallbackSchema",
   "relayEndedCallbackSchema",
   "safeErrorCategories",
+  "conversationTurnResult",
+  "modelFailureCode",
+  "modelFailureCategory",
 ] as const;
 
 const SAFE_ERROR_CATEGORIES = new Set([
@@ -148,6 +159,17 @@ const SAFE_ERROR_CATEGORIES = new Set([
   "relay_closed",
   "callback_rejected",
 ]);
+const TASK_5_VOICE_SENT = "voice_sent" satisfies ConversationTurnOutcome;
+const TASK_5_MODEL_FAILED = "failed" satisfies ConversationTurnOutcome;
+const TASK_5_MODEL_FAILURE_CODE = "model_failed" satisfies ConversationFailureCode;
+const TASK_5_MODEL_FAILURE_CATEGORY = "provider" satisfies ConversationFailureCategory;
+const TASK_5_TURN_RESULT_FIELDS = [
+  "outcome",
+  "committedUserEventId",
+  "sentAssistantEventId",
+  "deliveryId",
+  "deliveredAssistantEventId",
+] as const;
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const COMMIT_SHA = /^[0-9a-f]{40}$/u;
@@ -218,7 +240,7 @@ function percentile95(samples: readonly number[]): number {
 
 function validateCommon(evidence: Record<string, unknown>, scenario: VoiceSmokeScenario, manifestKey: string): void {
   if (
-    evidence.schemaVersion !== "1.0"
+    evidence.schemaVersion !== "1.1"
     || evidence.generatorVersion !== "0.1.0"
     || evidence.status !== "passed"
     || evidence.scenario !== scenario
@@ -232,6 +254,32 @@ function validateCommon(evidence: Record<string, unknown>, scenario: VoiceSmokeS
     || Date.parse(evidence.startedAt) >= Date.parse(evidence.endedAt)
     || !validEventIds(evidence.eventIds)
   ) unsafe();
+}
+
+function validateTask5VoiceTurn(
+  value: unknown,
+  eventIdsValue: unknown,
+  expectedOutcome: typeof TASK_5_VOICE_SENT | typeof TASK_5_MODEL_FAILED,
+): void {
+  const turn = exactRecord(value, TASK_5_TURN_RESULT_FIELDS);
+  if (!Array.isArray(eventIdsValue)) unsafe();
+  const eventIds = eventIdsValue as readonly unknown[];
+  if (
+    turn.outcome !== expectedOutcome
+    || typeof turn.committedUserEventId !== "string"
+    || !ULID.test(turn.committedUserEventId)
+    || !eventIds.includes(turn.committedUserEventId)
+    || turn.deliveryId !== null
+    || turn.deliveredAssistantEventId !== null
+  ) unsafe();
+  if (expectedOutcome === TASK_5_VOICE_SENT) {
+    if (
+      typeof turn.sentAssistantEventId !== "string"
+      || !ULID.test(turn.sentAssistantEventId)
+      || !eventIds.includes(turn.sentAssistantEventId)
+      || turn.sentAssistantEventId === turn.committedUserEventId
+    ) unsafe();
+  } else if (turn.sentAssistantEventId !== null) unsafe();
 }
 
 function validateInbound(value: unknown): void {
@@ -250,6 +298,7 @@ function validateInbound(value: unknown): void {
     || evidence.cleanHangup !== true
   ) unsafe();
   validateRelayContract(evidence);
+  validateTask5VoiceTurn(evidence.conversationTurnResult, evidence.eventIds, TASK_5_VOICE_SENT);
 }
 
 function validateUnauthorizedCaller(value: unknown): void {
@@ -290,6 +339,7 @@ function validateOutboundAnswer(value: unknown): void {
     || evidence.purposeDisclosedAfterAuthentication !== true
   ) unsafe();
   validateRelayContract(evidence);
+  validateTask5VoiceTurn(evidence.conversationTurnResult, evidence.eventIds, TASK_5_VOICE_SENT);
 }
 
 function validateOutboundNoAnswer(value: unknown): void {
@@ -323,8 +373,11 @@ function validateFailureCallbacks(value: unknown): void {
     || evidence.unauthorizedCallbackCreated !== false
     || evidence.statusCallbackSchema !== "verified"
     || evidence.relayEndedCallbackSchema !== "verified"
+    || evidence.modelFailureCode !== TASK_5_MODEL_FAILURE_CODE
+    || evidence.modelFailureCategory !== TASK_5_MODEL_FAILURE_CATEGORY
     || !validSafeErrorCategories(evidence.safeErrorCategories)
   ) unsafe();
+  validateTask5VoiceTurn(evidence.conversationTurnResult, evidence.eventIds, TASK_5_MODEL_FAILED);
 }
 
 export function validateEvidence(value: unknown): true {

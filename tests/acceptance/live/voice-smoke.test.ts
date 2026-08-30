@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type {
+  ConversationFailureCategory,
+  ConversationFailureCode,
+  ConversationTurnResult,
+} from "../../../apps/cloud-gateway/src/conversation/conversation-types.js";
 import {
   LIVE_VOICE_SMOKE_CONFIRMATION,
   REQUIRED_LIVE_CONFIGURATION,
@@ -12,8 +17,16 @@ import {
   type EvidenceStore,
 } from "./voice-smoke.js";
 
+const inboundConversationTurn = {
+  outcome: "voice_sent",
+  committedUserEventId: "01j00000000000000000000001",
+  sentAssistantEventId: "01j00000000000000000000004",
+  deliveryId: null,
+  deliveredAssistantEventId: null,
+} as const satisfies ConversationTurnResult;
+
 const inboundEvidence = {
-  schemaVersion: "1.0",
+  schemaVersion: "1.1",
   generatorVersion: "0.1.0",
   status: "passed",
   scenario: "inbound",
@@ -23,7 +36,7 @@ const inboundEvidence = {
   startedAt: "2026-08-29T12:00:00.000Z",
   endedAt: "2026-08-29T12:01:00.000Z",
   terminalState: "completed",
-  eventIds: ["01j00000000000000000000001"],
+  eventIds: [inboundConversationTurn.committedUserEventId, inboundConversationTurn.sentAssistantEventId],
   authenticatedTurns: 20,
   interruptions: 1,
   firstAudibleMs: Array<number>(20).fill(3_000),
@@ -41,10 +54,11 @@ const inboundEvidence = {
   relayEndedCallbackSchema: "verified",
   assistantOutputEvidence: "sent_to_provider_only",
   assistantHistoryCommitted: false,
+  conversationTurnResult: inboundConversationTurn,
 } as const;
 
 const commonEvidence = {
-  schemaVersion: "1.0",
+  schemaVersion: "1.1",
   generatorVersion: "0.1.0",
   status: "passed",
   commitSha: "b".repeat(40),
@@ -84,6 +98,14 @@ const outboundAnswerEvidence = {
   relayEndedCallbackSchema: "verified",
   assistantOutputEvidence: "sent_to_provider_only",
   assistantHistoryCommitted: false,
+  eventIds: [...commonEvidence.eventIds, "01j00000000000000000000005"],
+  conversationTurnResult: {
+    outcome: "voice_sent",
+    committedUserEventId: commonEvidence.eventIds[0],
+    sentAssistantEventId: "01j00000000000000000000005",
+    deliveryId: null,
+    deliveredAssistantEventId: null,
+  } as const satisfies ConversationTurnResult,
 } as const;
 
 const outboundNoAnswerEvidence = {
@@ -110,6 +132,15 @@ const failureEvidence = {
   statusCallbackSchema: "verified",
   relayEndedCallbackSchema: "verified",
   safeErrorCategories: ["model_unavailable", "relay_closed", "callback_rejected"],
+  conversationTurnResult: {
+    outcome: "failed",
+    committedUserEventId: commonEvidence.eventIds[0],
+    sentAssistantEventId: null,
+    deliveryId: null,
+    deliveredAssistantEventId: null,
+  } as const satisfies ConversationTurnResult,
+  modelFailureCode: "model_failed" as const satisfies ConversationFailureCode,
+  modelFailureCategory: "provider" as const satisfies ConversationFailureCategory,
 } as const;
 
 describe("validateEvidence", () => {
@@ -147,6 +178,24 @@ describe("validateEvidence", () => {
     expect(() => validateEvidence({ ...outboundAnswerEvidence, assistantHistoryCommitted: true })).toThrow(/^unsafe_or_incomplete_evidence$/u);
   });
 
+  it("requires Task 5 voice_sent evidence without inventing delivery acknowledgement", () => {
+    expect(validateEvidence(inboundEvidence)).toBe(true);
+    expect(() => validateEvidence({
+      ...inboundEvidence,
+      conversationTurnResult: {
+        ...inboundEvidence.conversationTurnResult,
+        outcome: "telegram_delivered",
+      },
+    })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    expect(() => validateEvidence({
+      ...inboundEvidence,
+      conversationTurnResult: {
+        ...inboundEvidence.conversationTurnResult,
+        deliveredAssistantEventId: "01j00000000000000000000006",
+      },
+    })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+  });
+
   it("accepts a private outbound no-answer result and rejects purpose disclosure", () => {
     expect(validateEvidence(outboundNoAnswerEvidence)).toBe(true);
     expect(() => validateEvidence({ ...outboundNoAnswerEvidence, purposeDisclosed: true })).toThrow(/^unsafe_or_incomplete_evidence$/u);
@@ -155,6 +204,8 @@ describe("validateEvidence", () => {
   it("accepts safe failure evidence only when no new callback was authorized", () => {
     expect(validateEvidence(failureEvidence)).toBe(true);
     expect(() => validateEvidence({ ...failureEvidence, unauthorizedCallbackCreated: true })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    expect(() => validateEvidence({ ...failureEvidence, modelFailureCode: "model_outcome_unknown" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    expect(() => validateEvidence({ ...failureEvidence, modelFailureCategory: "ambiguous" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
   });
 
   it("normalizes accessor and proxy failures to the public evidence error", () => {

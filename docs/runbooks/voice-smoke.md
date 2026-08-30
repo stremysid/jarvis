@@ -1,6 +1,6 @@
 # Credentialed voice smoke gate
 
-This runbook defines the Task 9 handoff contract. The checked-in harness is intentionally incapable of placing a call: it validates deterministic fake observations, gates future live execution, writes only strict redacted evidence through an injected driver/store, audits retained evidence, and cleans generated evidence. Tasks 5–8, the local CLI, deployed routes, and the enrolled-operator evidence query are prerequisites that are not present on this branch.
+This runbook defines the Task 9 handoff contract. The checked-in harness is intentionally incapable of placing a call: it validates deterministic fake observations, gates future live execution, writes only strict redacted evidence through an injected driver/store, audits retained evidence, and cleans generated evidence. Reviewed Task 5 is present at `0c81fee573778b4164488808d85b318dfa576bd4`; Tasks 6–8 remain unconsumed prerequisites, as do the local CLI, deployed routes, and enrolled-operator evidence query.
 
 ## Offline developer workflow
 
@@ -43,15 +43,19 @@ The current command deliberately has no live driver and no secret-presence adapt
 
 ## Redacted evidence contract
 
-Every accepted record is exact-key, scenario-discriminated JSON with `schemaVersion: "1.0"`, `generatorVersion: "0.1.0"`, `status: "passed"`, a lowercase 40-hex commit, ULID correlation/event identifiers, and UTC millisecond timestamps. Unknown keys are rejected, including phone numbers, provider SIDs, transcript/PIN fields, authorization data, tokens, raw errors, URLs, headers, and provider bodies.
+Every accepted record is exact-key, scenario-discriminated JSON with `schemaVersion: "1.1"`, `generatorVersion: "0.1.0"`, `status: "passed"`, a lowercase 40-hex commit, ULID correlation/event identifiers, and UTC millisecond timestamps. Unknown keys are rejected, including phone numbers, provider SIDs, transcript/PIN fields, authorization data, tokens, raw errors, URLs, headers, and provider bodies.
 
 The inbound sample requires 20 authenticated turns, persistence and recall, a clean hangup, at least one interruption, p95 first-audible latency at or below 4,000 ms, and p95 interruption-stop latency at or below 1,500 ms. Inbound and answered-outbound evidence also pins Deepgram `nova-3-general`, Google `en-US-Journey-O`, the exact configured signed WSS representation, DTMF delivery, and callback-schema verification.
 
 No provider playback acknowledgement has been proven. Evidence therefore accepts only `assistantOutputEvidence: "sent_to_provider_only"` with `assistantHistoryCommitted: false`; it must never claim delivery to the caller.
 
+Answered voice scenarios also retain the exact reviewed Task 5 `ConversationTurnResult`: `outcome: "voice_sent"`, distinct ULID `committedUserEventId` and `sentAssistantEventId` values that are both present in `eventIds`, and `deliveryId: null` plus `deliveredAssistantEventId: null`. The failure scenario requires Task 5's deterministic provider-failure result: `outcome: "failed"`, no sent or delivered assistant event, `modelFailureCode: "model_failed"`, and `modelFailureCategory: "provider"`. `model_outcome_unknown` is deliberately not accepted as proof that the failure path settled successfully.
+
+These fields validate Task 5 only. They do not assert route wiring, call-session state, interruption handling, outbound authorization, callback reconciliation, or the fake end-to-end call path owned by Tasks 6–8.
+
 ## Operator sequence and rollback boundary
 
-After Tasks 5–8 and the release tooling land, the operator sequence is: run fake gates; run `jarvis doctor`; verify authenticated readiness; obtain explicit authorization for each paid scenario; run each scenario once; query only aggregate evidence as the enrolled operator; validate and atomically retain the five redacted records; then run `pnpm release:voice-gate` before release-manifest aggregation.
+After Tasks 6–8 and the release tooling land, the operator sequence is: run fake gates; run `jarvis doctor`; verify authenticated readiness; obtain explicit authorization for each paid scenario; run each scenario once; query only aggregate evidence as the enrolled operator; validate and atomically retain the five redacted records; then run `pnpm release:voice-gate` before release-manifest aggregation.
 
 On any failure, stop the release, preserve the last known-good deployment identifier, and do not retry an indeterminate outbound dispatch. Task 10 owns deployment and rollback. Worker rollback must use an explicit schema-compatible known-good version and does not roll back D1, R2, or Durable Object state; migrations remain forward-only or require the separately proven encrypted restore procedure. This Task 9 harness never deploys or rolls back anything.
 
