@@ -6,8 +6,6 @@ import type {
 } from "../../../apps/cloud-gateway/src/conversation/conversation-types.js";
 import {
   LIVE_VOICE_SMOKE_CONFIRMATION,
-  REQUIRED_LIVE_CONFIGURATION,
-  REQUIRED_LIVE_SECRETS,
   auditVoiceEvidence,
   cleanupVoiceEvidence,
   formatRunResult,
@@ -26,7 +24,7 @@ const inboundConversationTurn = {
 } as const satisfies ConversationTurnResult;
 
 const inboundEvidence = {
-  schemaVersion: "1.1",
+  schemaVersion: "1.2",
   generatorVersion: "0.1.0",
   status: "passed",
   scenario: "inbound",
@@ -38,6 +36,9 @@ const inboundEvidence = {
   terminalState: "completed",
   eventIds: [inboundConversationTurn.committedUserEventId, inboundConversationTurn.sentAssistantEventId],
   authenticatedTurns: 20,
+  authenticationMode: "owner_identity_pin_free",
+  pinPromptCount: 0,
+  pinAttemptCount: 0,
   interruptions: 1,
   firstAudibleMs: Array<number>(20).fill(3_000),
   interruptionStopMs: [900],
@@ -58,7 +59,7 @@ const inboundEvidence = {
 } as const;
 
 const commonEvidence = {
-  schemaVersion: "1.1",
+  schemaVersion: "1.2",
   generatorVersion: "0.1.0",
   status: "passed",
   commitSha: "a".repeat(40),
@@ -75,6 +76,9 @@ const unauthorizedEvidence = {
   terminalState: "rejected",
   authenticatedTurns: 0,
   authenticationAttempts: 0,
+  conversationRelaySessions: 0,
+  pinPromptCount: 0,
+  pinAttemptCount: 0,
   modelRequests: 0,
   personalContextReads: 0,
 } as const;
@@ -85,6 +89,9 @@ const outboundAnswerEvidence = {
   manifestKey: "outbound_answer",
   terminalState: "completed",
   authenticatedTurns: 1,
+  authenticationMode: "owner_identity_pin_free",
+  pinPromptCount: 0,
+  pinAttemptCount: 0,
   recipientAuthenticated: true,
   neutralGreetingBeforeAuthentication: true,
   purposeDisclosedAfterAuthentication: true,
@@ -153,6 +160,13 @@ describe("validateEvidence", () => {
       { ...inboundEvidence, callSid: "synthetic-provider-id" },
       { ...inboundEvidence, transcript: "synthetic-text" },
       { ...inboundEvidence, pin: "synthetic-auth-input" },
+      { ...inboundEvidence, guestPin: "0000" },
+      { ...inboundEvidence, livePin: "0000" },
+      { ...inboundEvidence, accessId: "access:synthetic" },
+      { ...inboundEvidence, accessGrantId: "access-grant:synthetic" },
+      { ...inboundEvidence, phoneNumber: "+15555550123" },
+      { ...inboundEvidence, from: "+15555550123" },
+      { ...inboundEvidence, to: "+15555550124" },
       { ...inboundEvidence, authorization: "synthetic-auth" },
     ]) {
       expect(() => validateEvidence(unsafe)).toThrow(/^unsafe_or_incomplete_evidence$/u);
@@ -171,11 +185,27 @@ describe("validateEvidence", () => {
   it("accepts unauthorized-caller evidence only when no auth, model, or context traffic occurred", () => {
     expect(validateEvidence(unauthorizedEvidence)).toBe(true);
     expect(() => validateEvidence({ ...unauthorizedEvidence, modelRequests: 1 })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    expect(() => validateEvidence({ ...unauthorizedEvidence, conversationRelaySessions: 1 })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    expect(() => validateEvidence({ ...unauthorizedEvidence, pinPromptCount: 1 })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    expect(() => validateEvidence({ ...unauthorizedEvidence, pinAttemptCount: 1 })).toThrow(/^unsafe_or_incomplete_evidence$/u);
   });
 
   it("accepts an authenticated outbound-answer contract with conservative playback evidence", () => {
     expect(validateEvidence(outboundAnswerEvidence)).toBe(true);
     expect(() => validateEvidence({ ...outboundAnswerEvidence, assistantHistoryCommitted: true })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+  });
+
+  it("requires PIN-free owner evidence for live inbound and answered outbound", () => {
+    for (const evidence of [inboundEvidence, outboundAnswerEvidence]) {
+      expect(validateEvidence(evidence)).toBe(true);
+      expect(() => validateEvidence({ ...evidence, authenticationMode: "guest_pin" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+      expect(() => validateEvidence({ ...evidence, pinPromptCount: 1 })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+      expect(() => validateEvidence({ ...evidence, pinAttemptCount: 1 })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    }
+  });
+
+  it("rejects the retired schema 1.1 contract", () => {
+    expect(() => validateEvidence({ ...inboundEvidence, schemaVersion: "1.1" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
   });
 
   it("requires Task 5 voice_sent evidence without inventing delivery acknowledgement", () => {
@@ -243,20 +273,21 @@ const completeGate = {
   executeLive: true,
   confirmation: LIVE_VOICE_SMOKE_CONFIRMATION ?? "I_AUTHORIZE_PAID_VOICE_SMOKE",
   doctorExitCode: 0,
-  configuration: Object.fromEntries((REQUIRED_LIVE_CONFIGURATION ?? [
-    "JARVIS_CLOUD_BASE_URL",
-    "JARVIS_DEVICE_ID",
-    "JARVIS_DEVICE_KEY_PATH",
-    "JARVIS_PRINCIPAL_ID",
-  ]).map((name) => [name, "synthetic-present"])),
-  secretPresence: Object.fromEntries((REQUIRED_LIVE_SECRETS ?? [
-    "DEEPSEEK_API_KEY",
-    "PIN_VERIFIER_JSON",
-    "TWILIO_ACCOUNT_SID",
-    "TWILIO_API_KEY_SECRET",
-    "TWILIO_API_KEY_SID",
-    "TWILIO_AUTH_TOKEN",
-  ]).map((name) => [name, true])),
+  configuration: {
+    JARVIS_CLOUD_BASE_URL: "synthetic-present",
+    JARVIS_DEVICE_ID: "synthetic-present",
+    JARVIS_DEVICE_KEY_PATH: "synthetic-present",
+    JARVIS_PRINCIPAL_ID: "synthetic-present",
+    OWNER_VOICE_IDENTITY_ID: "synthetic-owner-identity",
+  },
+  secretPresence: {
+    DEEPSEEK_API_KEY: true,
+    GUEST_PIN_PEPPER_V1: true,
+    TWILIO_ACCOUNT_SID: true,
+    TWILIO_API_KEY_SECRET: true,
+    TWILIO_API_KEY_SID: true,
+    TWILIO_AUTH_TOKEN: true,
+  },
 } as const;
 
 describe("runVoiceSmoke", () => {
@@ -286,10 +317,26 @@ describe("runVoiceSmoke", () => {
     expect(result).toEqual({
       status: "skipped",
       reason: "missing_required_prerequisites",
-      missingConfiguration: ["JARVIS_DEVICE_ID", "JARVIS_DEVICE_KEY_PATH", "JARVIS_PRINCIPAL_ID"],
-      missingSecrets: ["DEEPSEEK_API_KEY", "PIN_VERIFIER_JSON", "TWILIO_API_KEY_SECRET", "TWILIO_API_KEY_SID", "TWILIO_AUTH_TOKEN"],
+      missingConfiguration: ["JARVIS_DEVICE_ID", "JARVIS_DEVICE_KEY_PATH", "JARVIS_PRINCIPAL_ID", "OWNER_VOICE_IDENTITY_ID"],
+      missingSecrets: ["DEEPSEEK_API_KEY", "GUEST_PIN_PEPPER_V1", "TWILIO_API_KEY_SECRET", "TWILIO_API_KEY_SID", "TWILIO_AUTH_TOKEN"],
     });
     expect(JSON.stringify(result)).not.toContain("synthetic-present");
+    expect(JSON.stringify(result)).not.toContain("PIN_VERIFIER_JSON");
+    expect(JSON.stringify(result)).not.toContain("DEFAULT_GUEST_PIN");
+    expect([...store.files]).toEqual([]);
+  });
+
+  it("requires only the owner identity configuration name without interpreting or returning its value", async () => {
+    const store = new MemoryEvidenceStore();
+    const opaqueOwnerIdentity = Object.freeze({ marker: "synthetic-owner-value-must-not-return" });
+    const result = await runVoiceSmoke({
+      ...completeGate,
+      scenario: "inbound",
+      configuration: { ...completeGate.configuration, OWNER_VOICE_IDENTITY_ID: opaqueOwnerIdentity },
+    }, { store });
+
+    expect(result).toEqual({ status: "blocked", reason: "live_driver_unavailable" });
+    expect(JSON.stringify(result)).not.toContain(opaqueOwnerIdentity.marker);
     expect([...store.files]).toEqual([]);
   });
 

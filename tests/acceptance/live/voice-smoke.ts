@@ -21,11 +21,12 @@ export const REQUIRED_LIVE_CONFIGURATION = Object.freeze([
   "JARVIS_DEVICE_ID",
   "JARVIS_DEVICE_KEY_PATH",
   "JARVIS_PRINCIPAL_ID",
+  "OWNER_VOICE_IDENTITY_ID",
 ] as const);
 
 export const REQUIRED_LIVE_SECRETS = Object.freeze([
   "DEEPSEEK_API_KEY",
-  "PIN_VERIFIER_JSON",
+  "GUEST_PIN_PEPPER_V1",
   "TWILIO_ACCOUNT_SID",
   "TWILIO_API_KEY_SECRET",
   "TWILIO_API_KEY_SID",
@@ -85,6 +86,9 @@ const COMMON_FIELDS = [
 const INBOUND_FIELDS = [
   ...COMMON_FIELDS,
   "authenticatedTurns",
+  "authenticationMode",
+  "pinPromptCount",
+  "pinAttemptCount",
   "interruptions",
   "firstAudibleMs",
   "interruptionStopMs",
@@ -108,6 +112,9 @@ const UNAUTHORIZED_FIELDS = [
   ...COMMON_FIELDS,
   "authenticatedTurns",
   "authenticationAttempts",
+  "conversationRelaySessions",
+  "pinPromptCount",
+  "pinAttemptCount",
   "modelRequests",
   "personalContextReads",
 ] as const;
@@ -115,6 +122,9 @@ const UNAUTHORIZED_FIELDS = [
 const OUTBOUND_ANSWER_FIELDS = [
   ...COMMON_FIELDS,
   "authenticatedTurns",
+  "authenticationMode",
+  "pinPromptCount",
+  "pinAttemptCount",
   "recipientAuthenticated",
   "neutralGreetingBeforeAuthentication",
   "purposeDisclosedAfterAuthentication",
@@ -163,6 +173,8 @@ const TASK_5_VOICE_SENT = "voice_sent" satisfies ConversationTurnOutcome;
 const TASK_5_MODEL_FAILED = "failed" satisfies ConversationTurnOutcome;
 const TASK_5_MODEL_FAILURE_CODE = "model_failed" satisfies ConversationFailureCode;
 const TASK_5_MODEL_FAILURE_CATEGORY = "provider" satisfies ConversationFailureCategory;
+const OWNER_AUTHENTICATION_MODE = "owner_identity_pin_free";
+const OWNER_VOICE_IDENTITY_CONFIGURATION = "OWNER_VOICE_IDENTITY_ID";
 const TASK_5_TURN_RESULT_FIELDS = [
   "outcome",
   "committedUserEventId",
@@ -240,7 +252,7 @@ function percentile95(samples: readonly number[]): number {
 
 function validateCommon(evidence: Record<string, unknown>, scenario: VoiceSmokeScenario, manifestKey: string): void {
   if (
-    evidence.schemaVersion !== "1.1"
+    evidence.schemaVersion !== "1.2"
     || evidence.generatorVersion !== "0.1.0"
     || evidence.status !== "passed"
     || evidence.scenario !== scenario
@@ -253,6 +265,14 @@ function validateCommon(evidence: Record<string, unknown>, scenario: VoiceSmokeS
     || !validUtcMilliseconds(evidence.endedAt)
     || Date.parse(evidence.startedAt) >= Date.parse(evidence.endedAt)
     || !validEventIds(evidence.eventIds)
+  ) unsafe();
+}
+
+function validatePinFreeOwner(evidence: Record<string, unknown>): void {
+  if (
+    evidence.authenticationMode !== OWNER_AUTHENTICATION_MODE
+    || evidence.pinPromptCount !== 0
+    || evidence.pinAttemptCount !== 0
   ) unsafe();
 }
 
@@ -297,6 +317,7 @@ function validateInbound(value: unknown): void {
     || evidence.recallVerified !== true
     || evidence.cleanHangup !== true
   ) unsafe();
+  validatePinFreeOwner(evidence);
   validateRelayContract(evidence);
   validateTask5VoiceTurn(evidence.conversationTurnResult, evidence.eventIds, TASK_5_VOICE_SENT);
 }
@@ -308,6 +329,9 @@ function validateUnauthorizedCaller(value: unknown): void {
     evidence.terminalState !== "rejected"
     || evidence.authenticatedTurns !== 0
     || evidence.authenticationAttempts !== 0
+    || evidence.conversationRelaySessions !== 0
+    || evidence.pinPromptCount !== 0
+    || evidence.pinAttemptCount !== 0
     || evidence.modelRequests !== 0
     || evidence.personalContextReads !== 0
   ) unsafe();
@@ -338,6 +362,7 @@ function validateOutboundAnswer(value: unknown): void {
     || evidence.neutralGreetingBeforeAuthentication !== true
     || evidence.purposeDisclosedAfterAuthentication !== true
   ) unsafe();
+  validatePinFreeOwner(evidence);
   validateRelayContract(evidence);
   validateTask5VoiceTurn(evidence.conversationTurnResult, evidence.eventIds, TASK_5_VOICE_SENT);
 }
@@ -412,7 +437,14 @@ function missingConfiguration(record: Readonly<Record<string, unknown>>): readon
   for (const name of REQUIRED_LIVE_CONFIGURATION) {
     try {
       const descriptor = Object.getOwnPropertyDescriptor(record, name);
-      if (descriptor === undefined || !("value" in descriptor) || typeof descriptor.value !== "string" || descriptor.value.trim().length === 0) missing.push(name);
+      if (descriptor === undefined || !("value" in descriptor)) {
+        missing.push(name);
+      } else if (
+        name !== OWNER_VOICE_IDENTITY_CONFIGURATION
+        && (typeof descriptor.value !== "string" || descriptor.value.trim().length === 0)
+      ) {
+        missing.push(name);
+      }
     } catch {
       missing.push(name);
     }
