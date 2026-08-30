@@ -243,10 +243,13 @@ git commit -m "feat(calls): add provider-neutral call contracts and state machin
 
 ### Task 2: Shared Twilio provider extension and ConversationRelay boundary
 
+**Contract correction:** `docs/superpowers/specs/2026-08-30-jarvis-twilio-contract-correction-design.md` supersedes the original draft event shapes and retry assumptions. Later tasks must consume the corrected `prompt`, one-digit `dtmf`, socket-close, verified-form, and `provider_dispatch_unknown` contracts even where an older illustrative snippet remains below.
+
 **Files:**
 - Modify: `apps/cloud-gateway/src/providers/provider-types.ts`
 - Modify: `apps/cloud-gateway/src/providers/fake-twilio-provider.ts`
 - Create: `apps/cloud-gateway/src/providers/twilio-provider.ts`
+- Create: `apps/cloud-gateway/src/providers/twilio-verifier.ts`
 - Create: `apps/cloud-gateway/src/providers/conversation-relay.ts`
 - Create: `apps/cloud-gateway/src/voice/twiml.ts`
 - Test: `apps/cloud-gateway/test/providers/twilio.test.ts`
@@ -254,96 +257,113 @@ git commit -m "feat(calls): add provider-neutral call contracts and state machin
 
 **Interfaces:**
 - Consumes: foundation `TwilioProvider`, foundation `FakeTwilioProvider`, and `RelayBinding` from `@jarvis/contracts`.
-- Produces: real `TwilioRestProvider`, `TwilioRequestVerifier`, `RelayEvent`, `parseRelayEvent`, and `renderConversationRelayTwiML`.
+- Produces: real `TwilioRestProvider`, `TwilioSignatureVerifier`, `TwilioRequestVerifier`, immutable `VerifiedTwilioForm`, corrected `RelayEvent`, `parseRelayEvent`, `ProviderDispatchUnknownError`, and `renderConversationRelayTwiML`.
 
-- [ ] **Step 1: Write the failing adapter-boundary tests**
+- [ ] **Step 1: Write failing tests from current official provider fixtures**
 
 ```ts
 import { describe, expect, it } from "vitest";
-import { FakeTwilioProvider } from "../../src/providers/fake-twilio-provider";
 import { parseRelayEvent } from "../../src/providers/conversation-relay";
 import { renderConversationRelayTwiML } from "../../src/voice/twiml";
 
-describe("provider boundaries", () => {
-  it("creates deterministic fake calls without exposing provider objects", async () => {
-    const twilio = new FakeTwilioProvider();
-    await twilio.createCall({ commandId: "01j00000000000000000000000" as Ulid, toE164: "+14165550100", twimlUrl: new URL("https://jarvis.example/twiml/x"), statusCallbackUrl: new URL("https://jarvis.example/status"), statusCallbackEvents: ["initiated", "ringing", "answered", "completed"], idempotencyKey: "cmd-1" });
-    expect(twilio.requests).toHaveLength(1);
-    expect(twilio.requests[0].idempotencyKey).toBe("cmd-1");
+describe("current ConversationRelay boundary", () => {
+  it("parses setup only from the documented customParameters location", () => {
+    const event = parseRelayEvent(JSON.stringify({ type: "setup", sessionId: `VX${"0".repeat(32)}`, accountSid: `AC${"1".repeat(32)}`, callSid: `CA${"2".repeat(32)}`, direction: "outbound-api", customParameters: { relayNonce: "A".repeat(43) } }));
+    expect(event).toEqual({ type: "setup", sessionId: `VX${"0".repeat(32)}`, accountSid: `AC${"1".repeat(32)}`, callSid: `CA${"2".repeat(32)}`, direction: "outbound", relayNonce: "A".repeat(43) });
   });
 
-  it("rejects a relay event containing DTMF and speech in one frame", () => {
-    expect(() => parseRelayEvent('{"type":"dtmf","digits":"12345678","text":"ignored"}')).toThrow("invalid_relay_event");
+  it("maps final and partial prompts without inventing a provider message id", () => {
+    expect(parseRelayEvent('{"type":"prompt","voicePrompt":"hello","lang":"en-US","last":true}')).toEqual({ type: "prompt", text: "hello", language: "en-US", final: true });
+    expect(parseRelayEvent('{"type":"prompt","voicePrompt":"hel","lang":"en-US","last":false}')).toEqual({ type: "prompt", text: "hel", language: "en-US", final: false });
   });
 
-  it("binds the opaque relay nonce through TwiML and parses it only from setup", () => {
-    const xml = renderConversationRelayTwiML({ sessionUrl: new URL("wss://jarvis.example/voice/relay/session-1"), actionUrl: new URL("https://jarvis.example/voice/relay-ended"), relayNonce: "nonce-1" });
-    expect(xml).toContain('<Parameter name="relayNonce" value="nonce-1"');
-    expect(parseRelayEvent('{"type":"setup","callSid":"CA1","customParameters":{"relayNonce":"nonce-1"}}')).toEqual({ type: "setup", callSid: "CA1", relayNonce: "nonce-1" });
+  it("accepts one DTMF key and discards provider error/interrupt text", () => {
+    expect(parseRelayEvent('{"type":"dtmf","digit":"8"}')).toEqual({ type: "dtmf", digit: "8" });
+    expect(parseRelayEvent('{"type":"interrupt","utteranceUntilInterrupt":"private text","durationUntilInterruptMs":460}')).toEqual({ type: "interrupt" });
+    expect(parseRelayEvent('{"type":"error","description":"raw malformed payload"}')).toEqual({ type: "error", code: "conversation_relay_error" });
   });
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+Add negative tables for binary-equivalent/oversized text, malformed JSON, invalid SIDs/nonces/directions, multi-character DTMF, mixed known event fields, unknown types, and forbidden synthetic `disconnect`/old `speech` frames. Assert that parsing an error never returns its description.
 
-Run: `pnpm vitest run apps/cloud-gateway/test/providers/twilio.test.ts apps/cloud-gateway/test/providers/conversation-relay.test.ts`
+Render TwiML with explicit test settings (`en-US`, Deepgram `nova-3-general`, Google `en-US-Journey-O`) and assert exact XML escaping, `Connect method="POST"`, `dtmfDetection="true"`, `partialPrompts="false"`, `interruptible="any"`, `reportInputDuringAgentSpeech="dtmf"`, the explicit STT/TTS settings, one nonce parameter, and no identity/purpose/PIN data.
 
-Expected: FAIL because `TwilioRestProvider`, `TwilioRequestVerifier`, `parseRelayEvent`, and the shared fake's signature controls do not exist.
+- [ ] **Step 2: Write failing REST, signature, and ambiguous-dispatch tests**
 
-- [ ] **Step 3: Write the adapter interfaces and deterministic fakes**
+Use an injected fetch spy and synthetic credentials. Assert the exact fixed URL, API-key Basic authentication, bounded timeout, form encoding, configured `From`, `Method=POST`, `StatusCallbackMethod=POST`, four separate callback event pairs, `TimeLimit=1800`, and bounded ring timeout. Assert no idempotency header is sent.
+
+Test the documented Twilio signature vector plus wrong signatures, exact percent-encoded query preservation, leading/trailing form whitespace, duplicate and additive form fields, malformed percent encoding, invalid UTF-8, wrong content type, and WebSocket GET signing. A successful webhook verification must return an immutable parsed multimap; a failed verification returns `null` and exposes no parsed values.
+
+Test response validation for matching Account SID/CallSid, auth failure, permanent 4xx, explicit 429, network timeout, 5xx, oversized body, and malformed/mismatched success bodies. The ambiguous cases must throw `ProviderDispatchUnknownError`. Extend the fake with an accepted-but-response-lost control and prove replay returns the same unknown result without a second provider request.
+
+- [ ] **Step 3: Run the tests to verify they fail**
+
+Run: `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/providers/twilio.test.ts apps/cloud-gateway/test/providers/conversation-relay.test.ts`
+
+Expected: FAIL because the real REST/signature adapters, corrected relay parser, TwiML renderer, immutable verified form, ambiguous-dispatch error, and fake controls do not exist.
+
+- [ ] **Step 4: Define the safe adapter capabilities**
 
 ```ts
 // apps/cloud-gateway/src/providers/provider-types.ts
+export class ProviderDispatchUnknownError extends Error {
+  readonly code = "provider_dispatch_unknown" as const;
+  readonly operation = "twilio.createCall" as const;
+}
+
+export interface VerifiedTwilioForm {
+  get(name: string): string | null;
+  getAll(name: string): readonly string[];
+  entries(): readonly (readonly [string, string])[];
+}
+
 export interface TwilioRequestVerifier {
-  verifyWebhook(input: { method: "POST"; url: URL; headers: Headers; rawBody: Uint8Array }): Promise<boolean>;
-  verifyWebSocket(input: { method: "GET"; url: URL; headers: Headers }): Promise<boolean>;
+  verifyWebhook(input: { method: "POST"; exactUrl: string; headers: Headers; rawBody: Uint8Array }): Promise<VerifiedTwilioForm | null>;
+  verifyWebSocket(input: { method: "GET"; exactUrl: string; headers: Headers }): Promise<boolean>;
 }
 ```
 
-```ts
-// apps/cloud-gateway/src/providers/fake-twilio-provider.ts
-export class FakeTwilioProvider implements TwilioProvider, TwilioRequestVerifier {
-  signatureValid = true;
-  async verifyWebhook(): Promise<boolean> { return this.signatureValid; }
-  async verifyWebSocket(): Promise<boolean> { return this.signatureValid; }
-}
-```
+The verified-form implementation owns a private frozen copy of all pairs and returns frozen snapshots. Callers never parse the raw body a second time. The fake implements the same interface, but a false signature returns `null` before parsed values are exposed.
 
-Implement `TwilioRestProvider.createCall` in `twilio-provider.ts` against Twilio's Calls REST resource with a bounded timeout and Basic authentication assembled only at the provider boundary. Every outbound request explicitly registers `/voice/status` for `initiated`, `ringing`, `answered`, and `completed`; number-level callbacks do not substitute for these progress events. The repository/idempotency layer must claim the command before this adapter is invoked, so retrying an acknowledged provider result cannot create another call. Implement HTTP and WebSocket signature verification with Twilio's supported validation algorithm over the externally visible URL; never log the auth token, signature, raw body, destination, or provider response body.
+- [ ] **Step 5: Implement the corrected relay decoder and TwiML renderer**
 
 ```ts
 // apps/cloud-gateway/src/providers/conversation-relay.ts
-export type RelayEvent = { type: "setup"; callSid: string; relayNonce: string } | { type: "speech"; messageId: string; text: string } | { type: "dtmf"; digits: string } | { type: "interrupt"; messageId: string } | { type: "disconnect" };
-export function parseRelayEvent(raw: string): RelayEvent {
-  const value = JSON.parse(raw) as Record<string, unknown>;
-  if (value.type === "setup" && typeof value.callSid === "string" && isPlainStringMap(value.customParameters) && typeof value.customParameters.relayNonce === "string") return { type: "setup", callSid: value.callSid, relayNonce: value.customParameters.relayNonce };
-  if (value.type === "dtmf" && typeof value.digits === "string" && value.text === undefined) return { type: "dtmf", digits: value.digits };
-  if (value.type === "speech" && typeof value.messageId === "string" && typeof value.text === "string") return { type: "speech", messageId: value.messageId, text: value.text };
-  if (value.type === "interrupt" && typeof value.messageId === "string") return { type: "interrupt", messageId: value.messageId };
-  if (value.type === "disconnect") return { type: "disconnect" };
-  throw new Error("invalid_relay_event");
-}
+export type RelayEvent =
+  | { type: "setup"; sessionId: string; accountSid: string; callSid: string; direction: "inbound" | "outbound"; relayNonce: string }
+  | { type: "prompt"; text: string; language: string; final: boolean }
+  | { type: "dtmf"; digit: string }
+  | { type: "interrupt" }
+  | { type: "error"; code: "conversation_relay_error" };
 ```
 
-```ts
-// apps/cloud-gateway/src/voice/twiml.ts
-export function renderConversationRelayTwiML(input: { sessionUrl: URL; actionUrl: URL; relayNonce: string }): string {
-  return `<Response><Connect action="${xmlAttribute(input.actionUrl.toString())}"><ConversationRelay url="${xmlAttribute(input.sessionUrl.toString())}"><Parameter name="relayNonce" value="${xmlAttribute(input.relayNonce)}" /></ConversationRelay></Connect></Response>`;
-}
-```
+Measure UTF-8 frame bytes before JSON parsing, enforce provider SID/nonce/direction/DTMF shapes, map `outbound-api` and `outbound-dial` to internal `outbound`, and discard raw interrupt/error content. `parseRelayEvent` is stateless; Task 6 owns first/second setup and socket-close rules.
 
-`isPlainStringMap` rejects arrays, prototypes, and non-string values. `xmlAttribute` escapes all XML attribute metacharacters. Only the opaque session URL and relay nonce enter TwiML; purpose, identity identifiers, phone numbers, and context do not. The setup event's `callSid` and `relayNonce` are the only provider-supplied binding values trusted by the Durable Object, after the WebSocket signature has already passed.
+`renderConversationRelayTwiML` validates schemes, forbids URL credentials/fragments, requires the 43-character base64url nonce, accepts explicit voice settings, escapes all XML attribute metacharacters, and emits only the provider settings plus the opaque session URL, action URL, and relay nonce.
 
-- [ ] **Step 4: Run the adapter tests to verify they pass**
+- [ ] **Step 6: Implement Workers-native REST and signature adapters**
 
-Run: `pnpm vitest run apps/cloud-gateway/test/providers/twilio.test.ts apps/cloud-gateway/test/providers/conversation-relay.test.ts`
+`TwilioRestProvider.createCall` uses only `https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Calls.json`, injected `fetch`, one abort timeout, API-key SID/secret Basic authentication, and a streaming response reader capped at 64 KiB. It performs no retry and never logs the auth material, destination, signature, request body, or response body. An explicit 401/403 is authentication failure, an explicit 429 is rate limited, other non-5xx 4xx responses are permanent invalid requests, and every possibly accepted or indeterminate outcome is `provider_dispatch_unknown`.
 
-Expected: PASS with deterministic REST call creation, HTTP and WebSocket signature controls, and malformed relay-frame rejection.
+`TwilioSignatureVerifier` uses the primary Auth Token only for HMAC-SHA1. It signs the exact URL string plus every strictly decoded form pair sorted case-sensitively by name, then uses Web Crypto verification against the strict Base64 header. The WebSocket path signs the exact WSS URL with no form body. It never derives the public URL from forwarded headers.
 
-- [ ] **Step 5: Commit the provider-boundary deliverable**
+Extend `FakeTwilioProvider` with signature controls and `acceptAndLoseNextResponse()`. Preserve existing deterministic known-result and safe-failure behavior, but permanently bind an ambiguous accepted attempt so replay cannot issue a second request.
+
+- [ ] **Step 7: Run focused and full verification**
+
+Run: `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/providers/twilio.test.ts apps/cloud-gateway/test/providers/conversation-relay.test.ts apps/cloud-gateway/test/providers/fakes.test.ts`
+
+Expected: PASS with the official relay fixtures, signature vector, exact REST request, ambiguous-dispatch containment, and existing fake behavior green.
+
+Run: `pnpm test && pnpm typecheck && pnpm lint && pnpm audit --audit-level high`
+
+- [ ] **Step 8: Independently review and commit the provider boundary**
+
+Require separate plan-compliance and code/security reviews. The review must explicitly check that no automatic Twilio POST retry exists, the fake contains response loss, raw provider content cannot escape error/interrupt paths, and verified forms cannot be forged by parsing unverified request bodies in a route.
 
 ```bash
-git add apps/cloud-gateway/src/providers/provider-types.ts apps/cloud-gateway/src/providers/fake-twilio-provider.ts apps/cloud-gateway/src/providers/twilio-provider.ts apps/cloud-gateway/src/providers/conversation-relay.ts apps/cloud-gateway/src/voice/twiml.ts apps/cloud-gateway/test/providers/twilio.test.ts apps/cloud-gateway/test/providers/conversation-relay.test.ts
+git add apps/cloud-gateway/src/providers/provider-types.ts apps/cloud-gateway/src/providers/fake-twilio-provider.ts apps/cloud-gateway/src/providers/twilio-provider.ts apps/cloud-gateway/src/providers/twilio-verifier.ts apps/cloud-gateway/src/providers/conversation-relay.ts apps/cloud-gateway/src/voice/twiml.ts apps/cloud-gateway/test/providers/twilio.test.ts apps/cloud-gateway/test/providers/conversation-relay.test.ts
 git commit -m "feat(calls): extend shared Twilio provider for signed relay ingress"
 ```
 
