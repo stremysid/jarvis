@@ -7,9 +7,13 @@ export interface AppendedEvent {
   replayed: boolean;
 }
 
-export interface EventRepositoryContract {
-  append(input: { envelope: PersistableEventEnvelopeV1; scope: string; key: string; requestHash: Sha256Hex }): Promise<AppendedEvent>;
+export interface SyncEventReader {
+  latestSequence(): Promise<number>;
   readRange(afterSequence: number, limit: number): Promise<readonly AppendedEvent[]>;
+}
+
+export interface EventRepositoryContract extends SyncEventReader {
+  append(input: { envelope: PersistableEventEnvelopeV1; scope: string; key: string; requestHash: Sha256Hex }): Promise<AppendedEvent>;
 }
 
 interface StoredIdempotencyRecord {
@@ -111,6 +115,13 @@ export class EventRepository implements EventRepositoryContract {
       "SELECT sequence, envelope_json, content_hash FROM events WHERE sequence > ? ORDER BY sequence ASC LIMIT ?",
     ).bind(afterSequence, limit).all<StoredEvent>();
     return Promise.all(result.results.map((row) => this.toAppended(row.sequence, row.envelope_json, row.content_hash, true)));
+  }
+
+  async latestSequence(): Promise<number> {
+    const row = await this.database.prepare("SELECT COALESCE(MAX(sequence), 0) AS latest_sequence FROM events").first<{ latest_sequence: number }>();
+    const latest = row?.latest_sequence ?? 0;
+    if (!Number.isSafeInteger(latest) || latest < 0) throw new Error("event_sequence_invalid");
+    return latest;
   }
 
   private async readIdempotency(scope: string, key: string): Promise<StoredIdempotencyRecord | null> {

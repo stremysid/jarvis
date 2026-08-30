@@ -324,4 +324,21 @@ describe("DeviceRequestVerifier", () => {
     await expect(verifier.verify(request, method, path, body, rawBody, now, validateBody)).rejects.toThrow("device_key_changed");
     expect(await nonceCount()).toBe(0);
   });
+
+  it("allows immediate key rotation while preserving the historical tuple on consumed nonces", async () => {
+    const { body, rawBody } = canonicalBody();
+    const request = await signed(rawBody);
+    await verifier.verify(request, method, path, body, rawBody, now, validateBody);
+    const replacement = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+    const replacementRaw = new Uint8Array(await crypto.subtle.exportKey("raw", replacement.publicKey));
+
+    await env.DB.prepare("UPDATE device_keys SET key_id = 'key:two', public_key_base64 = ?, key_fingerprint = ?, key_generation = 2 WHERE device_id = 'device:one'")
+      .bind(base64(replacementRaw), await sha256Hex(replacementRaw)).run();
+
+    expect(await env.DB.prepare("SELECT key_id, key_fingerprint, key_generation FROM request_nonces").first()).toEqual({
+      key_id: "key:one", key_fingerprint: keyFingerprint, key_generation: 1,
+    });
+    const next = await signed(rawBody, { nonce: nonce(11) });
+    await expect(verifier.verify(next, method, path, body, rawBody, now, validateBody)).rejects.toThrow("signature_invalid");
+  });
 });

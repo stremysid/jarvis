@@ -50,6 +50,74 @@ export interface ConsumeIdentityChallengeInput {
   readonly now: string;
 }
 
+export interface SyncSnapshotRow {
+  readonly snapshot_id: string;
+  readonly consumer_name: string;
+  readonly principal_id: string;
+  readonly device_id: string;
+  readonly root_snapshot_id: string;
+  readonly input_token_hash: Sha256Hex | null;
+  readonly output_token_hash: Sha256Hex;
+  readonly material_hash: Sha256Hex;
+  readonly root_upper_sequence: number;
+  readonly from_sequence: number;
+  readonly through_sequence: number;
+  readonly boundary_start_event_id: string | null;
+  readonly boundary_end_event_id: string | null;
+  readonly event_count: number;
+  readonly has_more: 0 | 1;
+  readonly expires_at: string;
+  readonly created_at: string;
+  readonly acknowledged_at: string | null;
+}
+
+export interface CreateSyncSnapshotInput {
+  readonly snapshotId: string;
+  readonly verified: VerifiedDeviceRequest;
+  readonly consumerName: string;
+  readonly rootSnapshotId: string;
+  readonly inputTokenHash: Sha256Hex | null;
+  readonly outputTokenHash: Sha256Hex;
+  readonly materialHash: Sha256Hex;
+  readonly rootUpperSequence: number;
+  readonly fromSequence: number;
+  readonly throughSequence: number;
+  readonly boundaryStartEventId: string | null;
+  readonly boundaryEndEventId: string | null;
+  readonly eventCount: number;
+  readonly hasMore: boolean;
+  readonly expiresAt: string;
+  readonly createdAt: string;
+}
+
+export interface SyncAckReceiptRow {
+  readonly receipt_id: string;
+  readonly snapshot_id: string;
+  readonly principal_id: string;
+  readonly device_id: string;
+  readonly consumer_name: string;
+  readonly expected_current: number;
+  readonly through_sequence: number;
+  readonly current_sequence: number;
+  readonly acknowledged_at: string;
+}
+
+export interface SnapshotAckInput {
+  readonly receiptId: string;
+  readonly verified: VerifiedDeviceRequest;
+  readonly snapshotId: string;
+  readonly consumerName: string;
+  readonly expectedCurrent: number;
+  readonly throughSequence: number;
+  readonly acknowledgedAt: string;
+}
+
+export interface ActiveTelegramIdentity {
+  readonly identityId: string;
+  readonly principalId: string;
+  readonly principalType: "human" | "service";
+}
+
 /** Owns atomic device/key-bound state transitions in D1. */
 export class DeviceRepository {
   constructor(private readonly database: D1Database) {}
@@ -111,5 +179,123 @@ export class DeviceRepository {
       input.initiatingKeyGeneration, input.responseHmac, input.hmacKeyVersion,
     ).run();
     return result.meta.changes > 0;
+  }
+
+  async findActiveVerifiedTelegramIdentity(providerSubject: string): Promise<ActiveTelegramIdentity | null> {
+    if (!/^[1-9]\d{0,19}$/u.test(providerSubject)) throw new TypeError("telegram_provider_subject_invalid");
+    const row = await this.database.prepare(
+      `SELECT ci.identity_id, p.principal_id, p.principal_type
+       FROM channel_identities ci
+       JOIN principals p ON p.principal_id = ci.principal_id
+       WHERE ci.channel = 'telegram' AND ci.provider_subject = ?
+         AND ci.status = 'active' AND ci.verified_at IS NOT NULL
+         AND p.status = 'active'`,
+    ).bind(providerSubject).first<{ identity_id: string; principal_id: string; principal_type: "human" | "service" }>();
+    if (row === null) return null;
+    return Object.freeze({ identityId: row.identity_id, principalId: row.principal_id, principalType: row.principal_type });
+  }
+
+  async isCurrentDevice(verified: VerifiedDeviceRequest): Promise<boolean> {
+    const row = await this.database.prepare(
+      `SELECT 1 AS active
+       FROM device_keys d JOIN principals p ON p.principal_id = d.principal_id
+       WHERE d.device_id = ? AND d.principal_id = ? AND d.key_id = ?
+         AND d.key_fingerprint = ? AND d.key_generation = ?
+         AND d.status = 'active' AND p.status = 'active'`,
+    ).bind(
+      verified.deviceId, verified.principalId, verified.keyId,
+      verified.keyFingerprint, verified.keyGeneration,
+    ).first<{ active: number }>();
+    return row?.active === 1;
+  }
+
+  async createSyncSnapshot(input: CreateSyncSnapshotInput): Promise<boolean> {
+    const result = await this.database.prepare(
+      `INSERT INTO sync_snapshots (
+         snapshot_id, consumer_name, principal_id, device_id, root_snapshot_id,
+         input_token_hash, output_token_hash, material_hash, root_upper_sequence,
+         from_sequence, through_sequence, boundary_start_event_id, boundary_end_event_id,
+         event_count, has_more, expires_at, created_at, acknowledged_at
+       )
+       SELECT ?, c.consumer_name, d.principal_id, d.device_id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL
+       FROM device_keys d
+       JOIN principals p ON p.principal_id = d.principal_id
+       JOIN consumer_cursors c ON c.consumer_name = ?
+       WHERE d.device_id = ? AND d.principal_id = ? AND d.key_id = ?
+         AND d.key_fingerprint = ? AND d.key_generation = ?
+         AND d.status = 'active' AND p.status = 'active'`,
+    ).bind(
+      input.snapshotId, input.rootSnapshotId, input.inputTokenHash, input.outputTokenHash, input.materialHash,
+      input.rootUpperSequence, input.fromSequence, input.throughSequence, input.boundaryStartEventId,
+      input.boundaryEndEventId, input.eventCount, input.hasMore ? 1 : 0, input.expiresAt, input.createdAt,
+      input.consumerName, input.verified.deviceId, input.verified.principalId, input.verified.keyId,
+      input.verified.keyFingerprint, input.verified.keyGeneration,
+    ).run();
+    return result.meta.changes === 1;
+  }
+
+  readSnapshotById(snapshotId: string): Promise<SyncSnapshotRow | null> {
+    return this.database.prepare("SELECT * FROM sync_snapshots WHERE snapshot_id = ?").bind(snapshotId).first<SyncSnapshotRow>();
+  }
+
+  readSnapshotByInputToken(inputTokenHash: Sha256Hex): Promise<SyncSnapshotRow | null> {
+    return this.database.prepare("SELECT * FROM sync_snapshots WHERE input_token_hash = ?").bind(inputTokenHash).first<SyncSnapshotRow>();
+  }
+
+  readSnapshotByOutputToken(outputTokenHash: Sha256Hex): Promise<SyncSnapshotRow | null> {
+    return this.database.prepare("SELECT * FROM sync_snapshots WHERE output_token_hash = ?").bind(outputTokenHash).first<SyncSnapshotRow>();
+  }
+
+  readSnapshotReceipt(input: {
+    snapshotId: string;
+    principalId: string;
+    deviceId: string;
+    consumerName: string;
+    expectedCurrent: number;
+    throughSequence: number;
+  }): Promise<SyncAckReceiptRow | null> {
+    return this.database.prepare(
+      `SELECT receipt_id, snapshot_id, principal_id, device_id, consumer_name,
+         expected_current, through_sequence, current_sequence, acknowledged_at
+       FROM sync_ack_receipts
+       WHERE receipt_kind = 'snapshot' AND snapshot_id = ? AND principal_id = ? AND device_id = ?
+         AND consumer_name = ? AND expected_current = ? AND through_sequence = ?`,
+    ).bind(
+      input.snapshotId, input.principalId, input.deviceId, input.consumerName,
+      input.expectedCurrent, input.throughSequence,
+    ).first<SyncAckReceiptRow>();
+  }
+
+  async acknowledgeSnapshot(input: SnapshotAckInput): Promise<boolean> {
+    const result = await this.database.prepare(
+      `INSERT INTO sync_ack_receipts (
+         receipt_id, snapshot_id, principal_id, device_id, consumer_name,
+         expected_current, through_sequence, current_sequence, acknowledged_at, receipt_kind
+       )
+       SELECT ?, s.snapshot_id, s.principal_id, s.device_id, s.consumer_name,
+         ?, ?, ?, ?, 'snapshot'
+       FROM sync_snapshots s
+       JOIN consumer_cursors c ON c.consumer_name = s.consumer_name
+       JOIN device_keys d ON d.device_id = s.device_id AND d.principal_id = s.principal_id
+       JOIN principals p ON p.principal_id = s.principal_id
+       WHERE s.snapshot_id = ? AND s.principal_id = ? AND s.device_id = ? AND s.consumer_name = ?
+         AND s.from_sequence = ? AND s.through_sequence = ?
+         AND s.acknowledged_at IS NULL AND s.expires_at > ?
+         AND c.current_sequence = ?
+         AND d.key_id = ? AND d.key_fingerprint = ? AND d.key_generation = ?
+         AND d.status = 'active' AND p.status = 'active'`,
+    ).bind(
+      input.receiptId, input.expectedCurrent, input.throughSequence, input.throughSequence,
+      input.acknowledgedAt, input.snapshotId, input.verified.principalId, input.verified.deviceId,
+      input.consumerName, input.expectedCurrent, input.throughSequence, input.acknowledgedAt,
+      input.expectedCurrent, input.verified.keyId, input.verified.keyFingerprint, input.verified.keyGeneration,
+    ).run();
+    return result.meta.changes > 0;
+  }
+
+  async readCursor(consumerName: string): Promise<number> {
+    const row = await this.database.prepare("SELECT current_sequence FROM consumer_cursors WHERE consumer_name = ?")
+      .bind(consumerName).first<{ current_sequence: number }>();
+    return row?.current_sequence ?? 0;
   }
 }

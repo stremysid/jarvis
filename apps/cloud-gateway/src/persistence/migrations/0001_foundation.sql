@@ -173,6 +173,30 @@ CREATE TABLE sync_ack_receipts (
 );
 CREATE INDEX sync_ack_receipts_consumer_idx ON sync_ack_receipts(consumer_name, current_sequence);
 
+CREATE TRIGGER sync_ack_receipts_apply_snapshot
+BEFORE INSERT ON sync_ack_receipts
+WHEN NEW.receipt_kind = 'snapshot'
+BEGIN
+  UPDATE consumer_cursors
+  SET current_sequence = NEW.current_sequence, updated_at = NEW.acknowledged_at
+  WHERE consumer_name = NEW.consumer_name
+    AND current_sequence = NEW.expected_current
+    AND NEW.current_sequence = NEW.through_sequence
+    AND NEW.through_sequence >= NEW.expected_current;
+  SELECT CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'sync_cursor_compare_failed') END;
+  UPDATE sync_snapshots
+  SET acknowledged_at = NEW.acknowledged_at
+  WHERE snapshot_id = NEW.snapshot_id
+    AND principal_id = NEW.principal_id
+    AND device_id = NEW.device_id
+    AND consumer_name = NEW.consumer_name
+    AND from_sequence = NEW.expected_current
+    AND through_sequence = NEW.through_sequence
+    AND acknowledged_at IS NULL
+    AND expires_at > NEW.acknowledged_at;
+  SELECT CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'sync_snapshot_state_changed') END;
+END;
+
 CREATE TABLE bootstrap_tokens (
   bootstrap_token_id TEXT PRIMARY KEY,
   token_hash TEXT NOT NULL UNIQUE CHECK (length(token_hash) = 64 AND token_hash NOT GLOB '*[^0-9a-f]*'),

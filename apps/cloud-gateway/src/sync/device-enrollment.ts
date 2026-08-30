@@ -181,7 +181,7 @@ export class DeviceEnrollment {
         this.deps.database.prepare(
           `INSERT INTO principals (principal_id, principal_type, status, display_name, pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at)
            VALUES (?, 'human', 'active', ?, ?, 'PIN_VERIFIER_JSON',
-             (SELECT ? WHERE EXISTS (SELECT 1 FROM bootstrap_tokens WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?)), ?)` ,
+             (SELECT ? WHERE EXISTS (SELECT 1 FROM bootstrap_tokens WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?)), ?)`,
         ).bind(created.principalId, input.displayName, pin.schemaVersion, nowText, tokenHash, nowText, nowText),
         this.deps.database.prepare(
           "INSERT INTO device_keys (device_id, principal_id, key_id, public_key_base64, key_fingerprint, key_generation, algorithm, status, device_label, bootstrap_metadata_hash, created_at, revoked_at) VALUES (?, ?, ?, ?, ?, 1, 'ed25519', 'active', ?, ?, ?, NULL)",
@@ -200,7 +200,6 @@ export class DeviceEnrollment {
       ]);
       if (results.some((result) => result.meta.changes !== 1)) throw new Error("bootstrap_transaction_incomplete");
     } catch (error) {
-      const consumed = await this.deps.database.prepare("SELECT consumed_at FROM bootstrap_tokens WHERE token_hash = ?").bind(tokenHash).first<{ consumed_at: string | null }>();
       if (error instanceof Error && /NOT NULL constraint failed: principals.created_at/.test(error.message)) {
         throw new Error("bootstrap_token_invalid");
       }
