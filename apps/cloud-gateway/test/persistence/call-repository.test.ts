@@ -266,6 +266,72 @@ describe("CallRepository", () => {
     });
   });
 
+  it("reconciles a signed status callback from provider_dispatch_unknown", async () => {
+    await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
+    const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
+    if (claim.kind !== "claimed") throw new Error("test_claim_failed");
+    await repository.recordProviderDispatchUnknown({ claim: claim.capability, now: NOW });
+
+    await repository.appendProviderEvent(await statusFixture());
+
+    await expect(repository.resolveDispatchIntent(COMMAND_ID)).resolves.toMatchObject({
+      kind: "existing",
+      state: "dispatched",
+      callSid: CALL_SID_1,
+    });
+  });
+
+  it("accepts original-capability success after a callback binds the same CallSid", async () => {
+    await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
+    const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
+    if (claim.kind !== "claimed") throw new Error("test_claim_failed");
+    await repository.appendProviderEvent(await statusFixture());
+
+    await expect(repository.recordProviderDispatchSuccess({
+      claim: claim.capability,
+      callSid: CALL_SID_1,
+      now: NOW,
+    })).resolves.toBeUndefined();
+    await expect(repository.resolveDispatchIntent(COMMAND_ID)).resolves.toMatchObject({
+      kind: "existing",
+      state: "dispatched",
+      callSid: CALL_SID_1,
+    });
+  });
+
+  it("rejects original-capability success after a callback binds a different CallSid", async () => {
+    await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
+    const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
+    if (claim.kind !== "claimed") throw new Error("test_claim_failed");
+    await repository.appendProviderEvent(await statusFixture());
+
+    await expect(repository.recordProviderDispatchSuccess({
+      claim: claim.capability,
+      callSid: CALL_SID_2,
+      now: NOW,
+    })).rejects.toThrow("provider_dispatch_result_conflict");
+    await expect(repository.resolveDispatchIntent(COMMAND_ID)).resolves.toMatchObject({
+      kind: "existing",
+      state: "dispatched",
+      callSid: CALL_SID_1,
+    });
+  });
+
+  it("preserves callback-proven dispatch when the original capability records unknown", async () => {
+    await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
+    const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
+    if (claim.kind !== "claimed") throw new Error("test_claim_failed");
+    await repository.appendProviderEvent(await statusFixture());
+
+    await expect(repository.recordProviderDispatchUnknown({ claim: claim.capability, now: NOW }))
+      .resolves.toBeUndefined();
+    await expect(repository.resolveDispatchIntent(COMMAND_ID)).resolves.toMatchObject({
+      kind: "existing",
+      state: "dispatched",
+      callSid: CALL_SID_1,
+    });
+  });
+
   it("deduplicates attempt-scoped status identity and rejects a changed request hash", async () => {
     await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
     await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });

@@ -125,6 +125,7 @@ class TestControllableTwilioProvider implements TwilioProvider {
 
 class TestAttemptInsertBarrier {
   private readonly arrivals = new Set<number>();
+  private readonly insertAttemptIds = new Map<number, unknown>();
   private releaseGate: (() => void) | undefined;
   private arrivalGate: (() => void) | undefined;
   private readonly released = new Promise<void>((resolve) => { this.releaseGate = resolve; });
@@ -143,7 +144,12 @@ class TestAttemptInsertBarrier {
             let waited = false;
             const wrap = (real: D1PreparedStatement): D1PreparedStatement => new Proxy(real, {
               get(statementTarget, statementProperty) {
-                if (statementProperty === "bind") return (...values: unknown[]) => wrap(statementTarget.bind(...values));
+                if (statementProperty === "bind") {
+                  return (...values: unknown[]) => {
+                    barrier.insertAttemptIds.set(participant, values[0]);
+                    return wrap(statementTarget.bind(...values));
+                  };
+                }
                 if (["run", "all", "first", "raw"].includes(String(statementProperty))) {
                   const operation = Reflect.get(statementTarget, statementProperty) as (...values: unknown[]) => unknown;
                   return async (...values: unknown[]) => {
@@ -171,6 +177,10 @@ class TestAttemptInsertBarrier {
 
   waitUntilBothInsertSelectsAreBlocked(): Promise<void> {
     return this.bothArrived;
+  }
+
+  attemptIdForParticipant(participant: number): unknown {
+    return this.insertAttemptIds.get(participant);
   }
 
   releaseBoth(): void {
@@ -326,6 +336,10 @@ describe("OutboundCallDispatcher", () => {
     const leftPending = left.dispatcher.dispatch(command());
     const rightPending = right.dispatcher.dispatch(command());
     await barrier.waitUntilBothInsertSelectsAreBlocked();
+    expect(barrier.attemptIdForParticipant(0)).toBe(ATTEMPT_0);
+    expect(barrier.attemptIdForParticipant(1)).toBe(ATTEMPT_1);
+    expect(policy.rechecks).toHaveLength(2);
+    expect(policy.rechecks.map((entry) => entry.attemptId).sort()).toEqual([ATTEMPT_0, ATTEMPT_1]);
     barrier.releaseBoth();
     await twilio.waitForRequest();
     twilio.releaseResponse();
