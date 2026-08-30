@@ -61,7 +61,7 @@ const commonEvidence = {
   schemaVersion: "1.1",
   generatorVersion: "0.1.0",
   status: "passed",
-  commitSha: "b".repeat(40),
+  commitSha: "a".repeat(40),
   correlationId: "01j00000000000000000000002",
   startedAt: "2026-08-29T13:00:00.000Z",
   endedAt: "2026-08-29T13:01:00.000Z",
@@ -353,6 +353,16 @@ describe("offline evidence lifecycle", () => {
       outboundAnswerEvidence,
       outboundNoAnswerEvidence,
       failureEvidence,
+    ])).toThrow(/^release_voice_evidence_incomplete$/u);
+  });
+
+  it("rejects a release audit whose scenarios come from different commits", () => {
+    expect(() => auditVoiceEvidence([
+      inboundEvidence,
+      unauthorizedEvidence,
+      outboundAnswerEvidence,
+      outboundNoAnswerEvidence,
+      { ...failureEvidence, commitSha: "b".repeat(40) },
     ])).toThrow(/^release_voice_evidence_incomplete$/u);
   });
 
