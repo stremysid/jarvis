@@ -946,6 +946,13 @@ export class CallRepository {
       .bind(dedupeKey, envelope.eventId, callSid, sessionId, envelope.receivedAt)]);
   }
 
+  /** Read-only hydration seam for the named relay-session Durable Object. */
+  async getCallSession(sessionId: Ulid): Promise<StoredCallSession | null> {
+    if (!isUlid(sessionId)) throw new TypeError("call_session_id_invalid");
+    const row = await this.readCallSessionById(sessionId);
+    return row === null ? null : this.toStoredCallSession(row);
+  }
+
   private readCallSessionById(sessionId: string): Promise<StoredCallSessionRow | null> {
     return this.database.prepare(`SELECT s.*, i.provider_subject AS identity_provider_subject
       FROM call_sessions s
