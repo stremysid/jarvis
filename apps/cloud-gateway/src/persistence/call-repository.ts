@@ -140,6 +140,7 @@ interface StoredCallSessionRow {
   nonce_expires_at: string;
   relay_setup_expires_at: string | null;
   provider_session_id: string | null;
+  provider_connected_at: string | null;
   phase: CallPhase;
   created_at: string;
   updated_at: string;
@@ -155,6 +156,7 @@ export interface StoredCallSession {
   readonly nonceExpiresAt: string;
   readonly relaySetupExpiresAt: string | null;
   readonly providerSessionId: string | null;
+  readonly providerConnectedAt: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly binding: RelayBinding;
@@ -393,9 +395,13 @@ export class CallRepository {
     private readonly nonceFactory: () => string = createRelayNonce,
     private readonly nonceTtlMs = 300_000,
     private readonly sessionIdFactory: () => Ulid = newUlid,
+    private readonly voiceAccessRepository: VoiceAccessRepository = new VoiceAccessRepository(database),
   ) {
     if (!Number.isSafeInteger(nonceTtlMs) || nonceTtlMs <= 0 || nonceTtlMs > 300_000) {
       throw new RangeError("relay_nonce_ttl_invalid");
+    }
+    if (!(voiceAccessRepository instanceof VoiceAccessRepository)) {
+      throw new TypeError("voice_access_repository_invalid");
     }
   }
 
@@ -536,7 +542,7 @@ export class CallRepository {
     requireSafeText(observedDestinationIdentityId, "destination_identity_id");
     requireSafeText(ownerIdentityId, "owner_identity_id");
     const observedAt = requireDate(now, "relay_claim_now");
-    const candidate = await new VoiceAccessRepository(this.database).resolveIdentityCandidate({
+    const candidate = await this.voiceAccessRepository.resolveIdentityCandidate({
       identityId: observedDestinationIdentityId,
       ownerIdentityId,
       now: new Date(observedAt),
@@ -643,12 +649,17 @@ export class CallRepository {
     requireSafeText(ownerIdentityId, "owner_identity_id");
     requireSafeText(currentChallengeHmacKeyVersion, "challenge_hmac_key_version");
     const nowIso = requireDate(captured.now as Date, "inbound_session_now");
-    const candidate = await new VoiceAccessRepository(this.database).resolveInboundCandidate({
-      providerE164: callerE164,
-      ownerIdentityId: ownerIdentityId as string,
-      challengeHmacKeyVersion: currentChallengeHmacKeyVersion as string,
-      now: new Date(nowIso),
-    });
+    let candidate: Awaited<ReturnType<VoiceAccessRepository["resolveInboundCandidate"]>>;
+    try {
+      candidate = await this.voiceAccessRepository.resolveInboundCandidate({
+        providerE164: callerE164,
+        ownerIdentityId: ownerIdentityId as string,
+        challengeHmacKeyVersion: currentChallengeHmacKeyVersion as string,
+        now: new Date(nowIso),
+      });
+    } catch {
+      throw callSessionAdmissionFailure("inbound_session_rejected");
+    }
     const existing = await this.readCallSessionByCallSid(callSid);
     if (existing !== null) {
       return this.requireInboundSessionReplay(existing, callerE164, currentChallengeHmacKeyVersion as string, nowIso, candidate);
@@ -689,7 +700,24 @@ export class CallRepository {
             AND s.provider_session_id IS NULL
             AND s.relay_setup_expires_at <= ?10
           )
-      ) < 2`)
+      ) < 2
+        AND (
+          ?11 != 'guest'
+          OR EXISTS (
+            SELECT 1
+            FROM voice_owner_identity owner
+            JOIN principals owner_principal ON owner_principal.principal_id = owner.principal_id
+            JOIN channel_identities owner_identity
+              ON owner_identity.identity_id = owner.identity_id
+              AND owner_identity.principal_id = owner.principal_id
+              AND owner_identity.channel = 'voice'
+            WHERE owner.singleton_id = 1
+              AND owner_principal.principal_type = 'human'
+              AND owner_principal.status = 'active'
+              AND owner_identity.status = 'active'
+              AND owner_identity.verified_at IS NOT NULL
+          )
+        )`)
         .bind(
           sessionId,
           callSid,
@@ -823,7 +851,7 @@ export class CallRepository {
     }
     const nowIso = requireDate(captured.now as Date, "call_session_bind_now");
     const row = await this.database.prepare(`UPDATE call_sessions AS s
-      SET provider_session_id = ?1, updated_at = ?2
+      SET provider_session_id = ?1, provider_connected_at = COALESCE(provider_connected_at, ?2), updated_at = ?2
       WHERE s.session_id = ?3
         AND s.call_sid = ?4
         AND s.relay_nonce = ?5
@@ -910,6 +938,20 @@ export class CallRepository {
                     AND grant_row.principal_id = s.principal_id
                     AND grant_row.identity_id = s.identity_id
                     AND grant_row.status IN ('pending', 'active')
+                )
+                AND EXISTS (
+                  SELECT 1
+                  FROM voice_owner_identity owner
+                  JOIN principals owner_principal ON owner_principal.principal_id = owner.principal_id
+                  JOIN channel_identities owner_identity
+                    ON owner_identity.identity_id = owner.identity_id
+                    AND owner_identity.principal_id = owner.principal_id
+                    AND owner_identity.channel = 'voice'
+                  WHERE owner.singleton_id = 1
+                    AND owner_principal.principal_type = 'human'
+                    AND owner_principal.status = 'active'
+                    AND owner_identity.status = 'active'
+                    AND owner_identity.verified_at IS NOT NULL
                 )
               )
             )
@@ -1221,6 +1263,7 @@ export class CallRepository {
       || row.activation_only !== 0 && row.activation_only !== 1
       || !RELAY_NONCE.test(row.relay_nonce)
       || row.provider_session_id !== null && !isProviderSessionId(row.provider_session_id)
+      || (row.provider_session_id === null) !== (row.provider_connected_at === null)
       || !isCallPhase(row.phase)
     ) {
       throw new Error("call_session_row_invalid");
@@ -1229,6 +1272,9 @@ export class CallRepository {
     const relaySetupExpiresAt = row.relay_setup_expires_at === null
       ? null
       : requireCanonicalTimestamp(row.relay_setup_expires_at, "call_session_relay_setup_expires_at");
+    const providerConnectedAt = row.provider_connected_at === null
+      ? null
+      : requireCanonicalTimestamp(row.provider_connected_at, "call_session_provider_connected_at");
     const createdAt = requireCanonicalTimestamp(row.created_at, "call_session_created_at");
     const updatedAt = requireCanonicalTimestamp(row.updated_at, "call_session_updated_at");
     const binding = snapshotRelayBinding({
@@ -1254,6 +1300,7 @@ export class CallRepository {
       nonceExpiresAt,
       relaySetupExpiresAt,
       providerSessionId: row.provider_session_id,
+      providerConnectedAt,
       createdAt,
       updatedAt,
       binding,

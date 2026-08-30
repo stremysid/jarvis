@@ -5,6 +5,7 @@ import callingSql from "../../src/persistence/migrations/0003_calling.sql?raw";
 import callSessionsSql from "../../src/persistence/migrations/0004_call_sessions.sql?raw";
 import conversationSql from "../../src/persistence/migrations/0005_conversation.sql?raw";
 import voiceAccessSql from "../../src/persistence/migrations/0006_voice_access.sql?raw";
+import voiceAccessBoundariesSql from "../../src/persistence/migrations/0007_voice_access_boundaries.sql?raw";
 
 let migrated: Promise<void> | undefined;
 
@@ -47,6 +48,10 @@ export function applyFoundationMigration(): Promise<void> {
     {
       name: "0006_voice_access.sql",
       queries: splitMigration(voiceAccessSql),
+    },
+    {
+      name: "0007_voice_access_boundaries.sql",
+      queries: splitMigration(voiceAccessBoundariesSql),
     },
   ]);
   return migrated;

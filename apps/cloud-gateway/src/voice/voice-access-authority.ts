@@ -85,6 +85,7 @@ const PROOF_FIELDS = new Set([
 ]);
 const MINT_OWNER_FIELDS = new Set(["sessionId", "binding", "now"]);
 const MINT_GUEST_FIELDS = new Set(["sessionId", "binding", "pinProof", "now"]);
+const REHYDRATE_FIELDS = new Set(["sessionId", "binding", "now"]);
 const BINDING_FIELDS = new Set([
   "callSid", "principalId", "identityId", "destinationIdentityId", "relayNonce", "direction",
   "activationOnly", "activationChallengeId", "accessKind", "guestGrantId", "guestGrantVersion",
@@ -260,6 +261,65 @@ export class VoiceAccessAuthorityService {
     return value;
   }
 
+  async #issueFromPersisted(persisted: PersistedCallAuthority): Promise<VoiceCallAuthority> {
+    if (persisted.kind === "owner") {
+      return this.#remember(Object.freeze({
+        authorityId: `call-authority:${crypto.randomUUID()}`,
+        kind: "owner",
+        sessionId: persisted.sessionId,
+        principalId: persisted.principalId,
+        identityId: persisted.identityId,
+        expiresAt: persisted.expiresAt,
+      }), persisted);
+    }
+    if (persisted.grantId === null || persisted.grantVersion === null || persisted.accessDocumentHash === null) {
+      invalidAuthority();
+    }
+    const grant = await this.#repository.getGuestGrant(persisted.grantId);
+    if (
+      grant === null || grant.status !== "active"
+      || grant.principalId !== persisted.principalId || grant.identityId !== persisted.identityId
+      || grant.grantVersion !== persisted.grantVersion
+      || grant.accessDocumentHash !== persisted.accessDocumentHash
+    ) {
+      throw new Error("call_authority_stale");
+    }
+    const capabilityIds = this.#registry.resolve(grant.capabilityIds);
+    const snapshot = await this.#registry.snapshot(capabilityIds, grant.resourceScopes);
+    if (snapshot.accessDocumentHash !== grant.accessDocumentHash) throw new Error("call_authority_stale");
+    return this.#remember(Object.freeze({
+      authorityId: `call-authority:${crypto.randomUUID()}`,
+      kind: "guest",
+      sessionId: persisted.sessionId,
+      principalId: persisted.principalId,
+      identityId: persisted.identityId,
+      grantId: grant.grantId,
+      grantVersion: grant.grantVersion,
+      accessDocumentHash: grant.accessDocumentHash,
+      capabilityIds: snapshot.capabilityIds,
+      resourceScopes: snapshot.resourceScopes,
+      expiresAt: persisted.expiresAt,
+    }), persisted);
+  }
+
+  async rehydrate(input: {
+    sessionId: Ulid;
+    binding: RelayBinding;
+    now: Date;
+  }): Promise<VoiceCallAuthority> {
+    const captured = captureExact(input, REHYDRATE_FIELDS, invalidAuthority);
+    if (typeof captured.sessionId !== "string" || !ULID.test(captured.sessionId)) invalidAuthority();
+    const binding = relayBinding(captured.binding);
+    dateIso(captured.now, invalidAuthority);
+    const persisted = await this.#repository.rehydrateAuthority({
+      sessionId: captured.sessionId as Ulid,
+      binding,
+      now: captured.now as Date,
+    });
+    if (persisted.kind !== binding.accessKind) invalidAuthority();
+    return this.#issueFromPersisted(persisted);
+  }
+
   async mintOwner(input: {
     sessionId: Ulid;
     binding: RelayBinding;
@@ -321,27 +381,9 @@ export class VoiceAccessAuthorityService {
       activationRequestHash,
       now: captured.now as Date,
     });
-    const grant = await this.#repository.getGuestGrant(proof.grantId);
-    if (
-      grant === null || grant.status !== "active" || grant.grantVersion !== proof.grantVersion
-      || grant.accessDocumentHash !== proof.accessDocumentHash
-    ) {
-      throw new Error("call_authority_stale");
-    }
-    const authority: GuestCallAuthority = Object.freeze({
-      authorityId: `call-authority:${crypto.randomUUID()}`,
-      kind: "guest",
-      sessionId: persisted.sessionId,
-      principalId: persisted.principalId,
-      identityId: persisted.identityId,
-      grantId: grant.grantId,
-      grantVersion: grant.grantVersion,
-      accessDocumentHash: grant.accessDocumentHash,
-      capabilityIds: grant.capabilityIds,
-      resourceScopes: grant.resourceScopes,
-      expiresAt: persisted.expiresAt,
-    });
-    return this.#remember(authority, persisted);
+    const authority = await this.#issueFromPersisted(persisted);
+    if (authority.kind !== "guest") invalidAuthority();
+    return authority;
   }
 
   snapshot(value: unknown): VoiceCallAuthority {
@@ -368,6 +410,8 @@ export class VoiceAccessAuthorityService {
       if (!authority.capabilityIds.includes(capabilityId as GuestCapabilityId)) throw new Error("capability_denied");
     }
     await this.#repository.requireCurrentAuthority(issued.persisted, now);
+    const current = this.#issued.get(authority);
+    if (current !== issued || current.value !== authority) invalidAuthority();
     return authority;
   }
 

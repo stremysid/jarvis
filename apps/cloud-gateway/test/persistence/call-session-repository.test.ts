@@ -9,13 +9,20 @@ import {
   type PersistableEventEnvelopeV1,
   type RelayBinding,
   type Ulid,
+  type VoiceResourceScopesV1,
 } from "../../../../packages/contracts/src/index.js";
 import {
   CallRepository,
   isCallSessionAdmissionError,
 } from "../../src/persistence/call-repository.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
+import { VoiceAccessRepository } from "../../src/persistence/voice-access-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
+import { CapabilityRegistry } from "../../src/voice/capability-registry.js";
+import {
+  createTargetGuestAccessDocumentVerifier,
+  TargetGuestResourceScopeResolver,
+} from "../../src/voice/owner-access-service.js";
 import {
   applyFoundationMigration,
   clearAuthenticationAttemptReservationsForTest,
@@ -49,7 +56,7 @@ const GUEST_IDENTITY_ID = "identity:guest";
 const GUEST_E164 = "+14165550111";
 const UNGRANTED_E164 = "+14165550112";
 const GRANT_ID = "01k3wceg000000000000000020";
-const DOCUMENT_HASH = "b".repeat(64);
+const DOCUMENT_HASH = "9c76368a27e3170a4cf6168573d21836d00714b3c4c4a4ef53ce6ff5d3c9644c";
 const CALL_PHASES = [
   "created", "connecting", "pre_auth", "authenticated", "active",
   "ending", "completed", "rejected", "failed", "expired",
@@ -156,6 +163,9 @@ async function seedGuest(input: {
   providerSubject?: string;
   identityStatus?: "pending" | "active";
   grantStatus?: "pending" | "active";
+  capabilityIds?: readonly string[];
+  resourceScopes?: VoiceResourceScopesV1;
+  accessDocumentHash?: string;
 } = {}): Promise<void> {
   const timestamp = NOW.toISOString();
   const principalId = input.principalId ?? GUEST_PRINCIPAL_ID;
@@ -183,16 +193,21 @@ async function seedGuest(input: {
       resource_scopes_json, access_document_hash, pin_schema_version, pin_algorithm,
       pin_pepper_version, pin_iterations, pin_salt_base64, pin_digest_base64,
       status, created_by_identity_id, created_at, activated_at, updated_at, revoked_at
-    ) VALUES (?, ?, ?, 1, '["conversation.basic"]',
-      '{"schemaVersion":"1.0","calendarConnectionIds":[],"fileRootIds":[],"pcActionIds":[]}',
-      ?, '2.0', 'hmac-sha256-pepper+pbkdf2-hmac-sha256', 'v1', 600000,
+    ) VALUES (?, ?, ?, 1, ?, ?, ?, '2.0', 'hmac-sha256-pepper+pbkdf2-hmac-sha256', 'v1', 600000,
       'AAAAAAAAAAAAAAAAAAAAAA==', 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
       ?, 'identity:voice', ?, ?, ?, NULL)`)
       .bind(
         GRANT_ID,
         principalId,
         identityId,
-        DOCUMENT_HASH,
+        JSON.stringify(input.capabilityIds ?? ["conversation.basic"]),
+        JSON.stringify(input.resourceScopes ?? {
+          schemaVersion: "1.0",
+          calendarConnectionIds: [],
+          fileRootIds: [],
+          pcActionIds: [],
+        }),
+        input.accessDocumentHash ?? DOCUMENT_HASH,
         grantStatus,
         timestamp,
         grantStatus === "active" ? timestamp : null,
@@ -309,7 +324,7 @@ function insertDirectInbound(input: {
     ).run();
 }
 
-function repository(): CallRepository {
+function repository(voiceAccessRepository?: VoiceAccessRepository): CallRepository {
   const nonces = [NONCE_1, NONCE_2, NONCE_3];
   const sessions = [SESSION_1, SESSION_2, SESSION_3];
   return new CallRepository(
@@ -318,6 +333,7 @@ function repository(): CallRepository {
     () => nonces.shift() ?? NONCE_3,
     300_000,
     () => sessions.shift() ?? SESSION_3,
+    voiceAccessRepository,
   );
 }
 
@@ -464,6 +480,111 @@ describe("CallRepository call sessions", () => {
       currentChallengeHmacKeyVersion: "hmac-v1",
       now: NOW,
     })).rejects.toSatisfy(isCallSessionAdmissionError);
+  });
+
+  it("admits a scoped guest only through the verifier-backed repository reconstructed from target ownership", async () => {
+    await seedHuman();
+    const registry = new CapabilityRegistry({
+      installed: ["conversation.basic", "files.read"],
+      fileRootIds: ["file-root:guest"],
+    });
+    const resolver = new TargetGuestResourceScopeResolver([{
+      providerE164: GUEST_E164,
+      resourceScopes: {
+        schemaVersion: "1.0",
+        calendarConnectionIds: [],
+        fileRootIds: ["file-root:guest"],
+        pcActionIds: [],
+      },
+    }]);
+    const snapshot = await registry.snapshot(["conversation.basic", "files.read"], {
+      schemaVersion: "1.0",
+      calendarConnectionIds: [],
+      fileRootIds: ["file-root:guest"],
+      pcActionIds: [],
+    });
+    await seedGuest({
+      identityStatus: "pending",
+      grantStatus: "pending",
+      capabilityIds: snapshot.capabilityIds,
+      resourceScopes: snapshot.resourceScopes,
+      accessDocumentHash: snapshot.accessDocumentHash,
+    });
+    const verifierBacked = new VoiceAccessRepository(env.DB, {
+      accessDocumentVerifier: createTargetGuestAccessDocumentVerifier(registry, resolver),
+    });
+
+    await expect(repository(verifierBacked).getOrCreateInboundSession({
+      callSid: CALL_1,
+      callerE164: GUEST_E164,
+      ownerIdentityId: OWNER_IDENTITY_ID,
+      currentChallengeHmacKeyVersion: "hmac-v1",
+      now: NOW,
+    })).resolves.toMatchObject({
+      binding: {
+        accessKind: "guest",
+        accessDocumentHash: snapshot.accessDocumentHash,
+      },
+    });
+
+    await expect(repository().getOrCreateInboundSession({
+      callSid: CALL_2,
+      callerE164: GUEST_E164,
+      ownerIdentityId: OWNER_IDENTITY_ID,
+      currentChallengeHmacKeyVersion: "hmac-v1",
+      now: NOW,
+    })).rejects.toSatisfy(isCallSessionAdmissionError);
+  });
+
+  it("rechecks the configured active owner atomically when inserting a resolved guest session", async () => {
+    await seedHuman();
+    await seedGuest({ identityStatus: "pending", grantStatus: "pending" });
+    const voiceAccess = new VoiceAccessRepository(env.DB, {
+      accessDocumentVerifier: async () => {
+        await env.DB.prepare("UPDATE channel_identities SET status = 'disabled' WHERE identity_id = ?")
+          .bind(OWNER_IDENTITY_ID).run();
+        return true;
+      },
+    });
+
+    await expect(repository(voiceAccess).getOrCreateInboundSession({
+      callSid: CALL_1,
+      callerE164: GUEST_E164,
+      ownerIdentityId: OWNER_IDENTITY_ID,
+      currentChallengeHmacKeyVersion: "hmac-v1",
+      now: NOW,
+    })).rejects.toSatisfy(isCallSessionAdmissionError);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM call_sessions").first())
+      .toEqual({ count: 0 });
+  });
+
+  it("rechecks the configured active owner at the guest's first provider bind", async () => {
+    await seedHuman();
+    await seedGuest({ identityStatus: "pending", grantStatus: "pending" });
+    const repo = repository();
+    const stored = await repo.getOrCreateInboundSession({
+      callSid: CALL_1,
+      callerE164: GUEST_E164,
+      ownerIdentityId: OWNER_IDENTITY_ID,
+      currentChallengeHmacKeyVersion: "hmac-v1",
+      now: NOW,
+    });
+    await env.DB.prepare("UPDATE channel_identities SET status = 'disabled' WHERE identity_id = ?")
+      .bind(OWNER_IDENTITY_ID).run();
+
+    await expect(repo.bindRelaySession({
+      sessionId: stored.sessionId,
+      callSid: stored.callSid,
+      providerSessionId: VX_1,
+      relayNonce: stored.binding.relayNonce,
+      direction: "inbound",
+      now: NOW,
+    })).rejects.toThrow("call_session_bind_conflict");
+    await expect(repo.getCallSession(stored.sessionId)).resolves.toMatchObject({
+      providerSessionId: null,
+      providerConnectedAt: null,
+      phase: "created",
+    });
   });
 
   it("rejects an inbound replay after the exact guest grant lineage changes", async () => {
@@ -759,8 +880,13 @@ describe("CallRepository call sessions", () => {
       direction: "inbound" as const,
       now: NOW,
     };
-    expect((await repo.bindRelaySession(input)).providerSessionId).toBe(VX_1);
-    expect((await repo.bindRelaySession({ ...input, now: FIVE_MINUTES })).providerSessionId).toBe(VX_1);
+    const first = await repo.bindRelaySession(input);
+    expect(first).toMatchObject({ providerSessionId: VX_1, providerConnectedAt: NOW.toISOString() });
+    const replay = await repo.bindRelaySession({ ...input, now: FIVE_MINUTES });
+    expect(replay).toMatchObject({ providerSessionId: VX_1, providerConnectedAt: NOW.toISOString() });
+    await expect(env.DB.prepare("UPDATE call_sessions SET provider_connected_at = ?, updated_at = ? WHERE session_id = ?")
+      .bind(FIVE_MINUTES.toISOString(), FIVE_MINUTES.toISOString(), session.sessionId).run())
+      .rejects.toThrow("call_session_provider_connected_at_immutable");
     await expect(repo.bindRelaySession({ ...input, providerSessionId: VX_2 })).rejects.toThrow("call_session_bind_conflict");
 
     const connecting = await repo.transitionCallSession({ sessionId: session.sessionId, expectedPhase: "created", nextPhase: "connecting", now: FIVE_MINUTES });
@@ -983,9 +1109,9 @@ describe("CallRepository call sessions", () => {
     await expect(env.DB.prepare("UPDATE call_sessions SET call_sid = NULL WHERE session_id = ?").bind(session.sessionId).run()).rejects.toThrow();
     await expect(env.DB.prepare("UPDATE call_sessions SET relay_setup_expires_at = NULL WHERE session_id = ?").bind(session.sessionId).run()).rejects.toThrow();
     await expect(env.DB.prepare("UPDATE call_sessions SET provider_session_id = NULL WHERE session_id = ?").bind(session.sessionId).run())
-      .rejects.toThrow("call_session_provider_binding_invalid");
+      .rejects.toThrow("call_session_provider_connected_at_immutable");
     await expect(env.DB.prepare("UPDATE call_sessions SET provider_session_id = ? WHERE session_id = ?").bind(VX_2, session.sessionId).run())
-      .rejects.toThrow("call_session_provider_binding_invalid");
+      .rejects.toThrow("call_session_provider_connected_at_immutable");
     await expect(env.DB.prepare("UPDATE call_sessions SET phase = 'active' WHERE session_id = ?").bind(session.sessionId).run()).rejects.toThrow();
     const advancedAt = "2026-08-30T12:00:01.000Z";
     await repo.transitionCallSession({
@@ -1000,10 +1126,10 @@ describe("CallRepository call sessions", () => {
   });
 
   it.each([
-    ["pre-bound provider session", VX_1, "created", NOW.toISOString()],
-    ["advanced phase", null, "active", NOW.toISOString()],
-    ["advanced updated time", null, "created", "2026-08-30T12:00:00.001Z"],
-  ])("rejects direct SQL insertion with %s", async (_label, providerSessionId, phase, updatedAt) => {
+    ["pre-bound provider session", VX_1, "created", NOW.toISOString(), "call_session_provider_connected_at_required"],
+    ["advanced phase", null, "active", NOW.toISOString(), "call_session_initial_state_invalid"],
+    ["advanced updated time", null, "created", "2026-08-30T12:00:00.001Z", "call_session_initial_state_invalid"],
+  ])("rejects direct SQL insertion with %s", async (_label, providerSessionId, phase, updatedAt, expectedError) => {
     await seedHuman();
     await expect(env.DB.prepare(`INSERT INTO call_sessions (
       session_id, call_sid, expected_attempt_id, principal_id, identity_id,
@@ -1023,7 +1149,7 @@ describe("CallRepository call sessions", () => {
         phase,
         NOW.toISOString(),
         updatedAt,
-      ).run()).rejects.toThrow("call_session_initial_state_invalid");
+      ).run()).rejects.toThrow(expectedError);
   });
 
   it.each([

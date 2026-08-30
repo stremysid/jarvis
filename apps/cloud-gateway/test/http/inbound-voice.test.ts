@@ -71,6 +71,7 @@ function storedSession() {
     nonceExpiresAt: "2026-08-30T12:05:00.000Z",
     relaySetupExpiresAt: "2026-08-30T12:05:00.000Z",
     providerSessionId: null,
+    providerConnectedAt: null,
     createdAt: "2026-08-30T12:00:00.000Z",
     updatedAt: "2026-08-30T12:00:00.000Z",
     binding: Object.freeze({

@@ -1,9 +1,13 @@
 import {
+  type RelayBinding,
   type Sha256Hex,
   type Ulid,
   type VoiceResourceScopesV1,
 } from "../../../../packages/contracts/src/index.js";
-import type { PersistedCallAuthority } from "../../src/persistence/voice-access-repository.js";
+import {
+  type PersistedCallAuthority,
+  VoiceAccessRepository,
+} from "../../src/persistence/voice-access-repository.js";
 import {
   decodeGuestPinVerifierRecord,
   type GuestPinVerifierRecordV2,
@@ -24,7 +28,8 @@ export const GUEST_IDENTITY_ID = "identity:voice-guest";
 export const GRANT_ID = "01k3w1t4000000000000000501";
 export const MUTATION_ID = "01k3w1t4000000000000000510" as Ulid;
 export const REQUEST_HASH = "a".repeat(64) as Sha256Hex;
-export const DOCUMENT_HASH = "b".repeat(64) as Sha256Hex;
+export const DOCUMENT_HASH = "9c76368a27e3170a4cf6168573d21836d00714b3c4c4a4ef53ce6ff5d3c9644c" as Sha256Hex;
+export const REPLACED_DOCUMENT_HASH = "d4edfa2907264f8dea1833082d862a853e6d1e5070c722cfb9fbe7df5d19dc0a" as Sha256Hex;
 export const EMPTY_SCOPES: VoiceResourceScopesV1 = Object.freeze({
   schemaVersion: "1.0",
   calendarConnectionIds: Object.freeze([]),
@@ -62,9 +67,11 @@ export async function clearVoiceAccessFixture(database: D1Database): Promise<voi
   ]);
 }
 
-export async function seedOwnerAuthority(database: D1Database): Promise<PersistedCallAuthority> {
+export async function seedOwnerAuthority(
+  database: D1Database,
+  repository: VoiceAccessRepository,
+): Promise<PersistedCallAuthority> {
   const now = NOW.toISOString();
-  const expiresAt = "2026-08-30T12:30:00.000Z";
   await database.batch([
     database.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES (?, 'human', 'active', 'owner', ?, ?)")
       .bind(OWNER_PRINCIPAL_ID, now, now),
@@ -92,29 +99,28 @@ export async function seedOwnerAuthority(database: D1Database): Promise<Persiste
       now,
       now,
     ).run();
+  await database.prepare(`UPDATE call_sessions
+    SET provider_session_id = ?, provider_connected_at = ?, updated_at = ? WHERE session_id = ?`)
+    .bind(`VX${"5".repeat(32)}`, now, now, OWNER_SESSION_ID).run();
   await database.prepare("UPDATE call_sessions SET phase = 'connecting', updated_at = ? WHERE session_id = ?")
     .bind(now, OWNER_SESSION_ID).run();
   await database.prepare("UPDATE call_sessions SET phase = 'pre_auth', updated_at = ? WHERE session_id = ?")
     .bind(now, OWNER_SESSION_ID).run();
-  await database.prepare(`INSERT INTO call_session_authorities (
-    session_id, authority_kind, principal_id, identity_id, grant_id, grant_version,
-    access_document_hash, authenticated_at, expires_at
-  ) VALUES (?, 'owner', ?, ?, NULL, NULL, NULL, ?, ?)`)
-    .bind(OWNER_SESSION_ID, OWNER_PRINCIPAL_ID, OWNER_IDENTITY_ID, now, expiresAt).run();
-  await database.prepare("UPDATE call_sessions SET phase = 'authenticated', updated_at = ? WHERE session_id = ?")
-    .bind(now, OWNER_SESSION_ID).run();
-
-  return Object.freeze({
-    sessionId: OWNER_SESSION_ID,
-    kind: "owner",
+  const binding: RelayBinding = Object.freeze({
+    callSid: `CA${"5".repeat(32)}`,
     principalId: OWNER_PRINCIPAL_ID,
     identityId: OWNER_IDENTITY_ID,
-    grantId: null,
-    grantVersion: null,
+    destinationIdentityId: OWNER_IDENTITY_ID,
+    relayNonce: `${"5".repeat(42)}A`,
+    direction: "inbound",
+    activationOnly: false,
+    activationChallengeId: null,
+    accessKind: "owner",
+    guestGrantId: null,
+    guestGrantVersion: null,
     accessDocumentHash: null,
-    authenticatedAt: now,
-    expiresAt,
   });
+  return repository.mintOwnerAuthority({ sessionId: OWNER_SESSION_ID, binding, now: NOW });
 }
 
 export function validCreateInput(ownerAuthority: PersistedCallAuthority) {

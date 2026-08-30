@@ -52,7 +52,7 @@ const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const NONTERMINAL_PHASES = new Set(["created", "connecting", "pre_auth", "authenticated", "active", "ending"]);
 const SESSION_FIELDS = new Set([
   "sessionId", "callSid", "expectedAttemptId", "direction", "phase", "nonceExpiresAt",
-  "relaySetupExpiresAt", "providerSessionId", "createdAt", "updatedAt", "binding",
+  "relaySetupExpiresAt", "providerSessionId", "providerConnectedAt", "createdAt", "updatedAt", "binding",
 ]);
 const BINDING_FIELDS = new Set([
   "callSid", "principalId", "identityId", "destinationIdentityId", "relayNonce",
@@ -186,6 +186,8 @@ function snapshotSession(value: unknown, expectedCallSid: string, observedAt: st
     || !canonicalTimestamp(session.relaySetupExpiresAt)
     || session.nonceExpiresAt !== session.relaySetupExpiresAt
     || session.providerSessionId !== null && (typeof session.providerSessionId !== "string" || !PROVIDER_SESSION_ID.test(session.providerSessionId))
+    || (session.providerSessionId === null) !== (session.providerConnectedAt === null)
+    || session.providerConnectedAt !== null && !canonicalTimestamp(session.providerConnectedAt)
     || !canonicalTimestamp(session.createdAt)
     || !canonicalTimestamp(session.updatedAt)
     || session.updatedAt < session.createdAt

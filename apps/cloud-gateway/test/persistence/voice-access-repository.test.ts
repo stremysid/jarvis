@@ -2,6 +2,11 @@ import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type RelayBinding, type Sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { VoiceAccessRepository } from "../../src/persistence/voice-access-repository.js";
+import { CapabilityRegistry } from "../../src/voice/capability-registry.js";
+import {
+  createTargetGuestAccessDocumentVerifier,
+  TargetGuestResourceScopeResolver,
+} from "../../src/voice/owner-access-service.js";
 import {
   clearVoiceAccessFixture,
   DOCUMENT_HASH,
@@ -14,6 +19,7 @@ import {
   OWNER_IDENTITY_ID,
   OWNER_PRINCIPAL_ID,
   REQUEST_HASH,
+  REPLACED_DOCUMENT_HASH,
   ROTATED_RECORD,
   seedOwnerAuthority,
   SYNTHETIC_RECORD,
@@ -41,8 +47,8 @@ describe("VoiceAccessRepository", () => {
 
   beforeEach(async () => {
     await clearVoiceAccessFixture(env.DB);
-    ownerAuthority = await seedOwnerAuthority(env.DB);
     repository = new VoiceAccessRepository(env.DB);
+    ownerAuthority = await seedOwnerAuthority(env.DB, repository);
   });
 
   afterEach(() => clearVoiceAccessFixture(env.DB));
@@ -73,6 +79,126 @@ describe("VoiceAccessRepository", () => {
         maskedNumber: "+1******0111",
         status: "pending",
       })]);
+  });
+
+  it("rejects a structural clone at every owner-only mutation boundary", async () => {
+    const clone = Object.freeze({ ...ownerAuthority });
+
+    await expect(repository.createGuestGrant(validCreateInput(clone)))
+      .rejects.toThrow("owner_authority_required");
+    await expect(repository.listGuests({
+      ownerAuthority: clone,
+      ownerIdentityId: OWNER_IDENTITY_ID,
+      now: NOW,
+    })).rejects.toThrow("owner_authority_required");
+    expect(await counts()).toEqual({ principals: 1, identities: 1, grants: 0, events: 0 });
+  });
+
+  it("recomputes the canonical capability document before creating a grant", async () => {
+    await expect(repository.createGuestGrant({
+      ...validCreateInput(ownerAuthority),
+      accessDocumentHash: "f".repeat(64) as Sha256Hex,
+    })).rejects.toThrow("voice_access_document_invalid");
+    expect(await counts()).toEqual({ principals: 1, identities: 1, grants: 0, events: 0 });
+  });
+
+  it("rejects a capability document carrying another guest's resource scope", async () => {
+    await clearVoiceAccessFixture(env.DB);
+    const registry = new CapabilityRegistry({
+      installed: ["files.read"],
+      fileRootIds: ["file-root:guest-a", "file-root:guest-b"],
+    });
+    const resolver = new TargetGuestResourceScopeResolver([{
+      providerE164: "+14165550111",
+      resourceScopes: {
+        schemaVersion: "1.0",
+        calendarConnectionIds: [],
+        fileRootIds: ["file-root:guest-b"],
+        pcActionIds: [],
+      },
+    }]);
+    const scopedRepository = new VoiceAccessRepository(env.DB, {
+      accessDocumentVerifier: createTargetGuestAccessDocumentVerifier(registry, resolver),
+    });
+    const scopedOwner = await seedOwnerAuthority(env.DB, scopedRepository);
+    const foreign = await registry.snapshot(["files.read"], {
+      schemaVersion: "1.0",
+      calendarConnectionIds: [],
+      fileRootIds: ["file-root:guest-a"],
+      pcActionIds: [],
+    });
+
+    await expect(scopedRepository.createGuestGrant({
+      ...validCreateInput(scopedOwner),
+      capabilityIds: foreign.capabilityIds,
+      resourceScopes: foreign.resourceScopes,
+      accessDocumentHash: foreign.accessDocumentHash,
+    })).rejects.toThrow("voice_access_document_invalid");
+    expect(await counts()).toEqual({ principals: 1, identities: 1, grants: 0, events: 0 });
+  });
+
+  it("rehydrates a scoped grant only under the same reconstructed target ownership configuration", async () => {
+    await clearVoiceAccessFixture(env.DB);
+    const configuredRegistry = () => new CapabilityRegistry({
+      installed: ["conversation.basic", "files.read"],
+      fileRootIds: ["file-root:guest-a", "file-root:guest-b"],
+    });
+    const configuredResolver = () => new TargetGuestResourceScopeResolver([{
+      providerE164: "+14165550111",
+      resourceScopes: {
+        schemaVersion: "1.0",
+        calendarConnectionIds: [],
+        fileRootIds: ["file-root:guest-b"],
+        pcActionIds: [],
+      },
+    }]);
+    const registry = configuredRegistry();
+    const scopedRepository = new VoiceAccessRepository(env.DB, {
+      accessDocumentVerifier: createTargetGuestAccessDocumentVerifier(registry, configuredResolver()),
+    });
+    const scopedOwner = await seedOwnerAuthority(env.DB, scopedRepository);
+    const snapshot = await registry.snapshot(["conversation.basic", "files.read"], {
+      schemaVersion: "1.0",
+      calendarConnectionIds: [],
+      fileRootIds: ["file-root:guest-b"],
+      pcActionIds: [],
+    });
+    await scopedRepository.createGuestGrant({
+      ...validCreateInput(scopedOwner),
+      capabilityIds: snapshot.capabilityIds,
+      resourceScopes: snapshot.resourceScopes,
+      accessDocumentHash: snapshot.accessDocumentHash,
+    });
+
+    const restartedRepository = new VoiceAccessRepository(env.DB, {
+      accessDocumentVerifier: createTargetGuestAccessDocumentVerifier(
+        configuredRegistry(),
+        configuredResolver(),
+      ),
+    });
+    await expect(restartedRepository.getGuestGrant(GRANT_ID)).resolves.toMatchObject({
+      capabilityIds: ["conversation.basic", "files.read"],
+      resourceScopes: { fileRootIds: ["file-root:guest-b"] },
+    });
+
+    const driftedRepository = new VoiceAccessRepository(env.DB, {
+      accessDocumentVerifier: createTargetGuestAccessDocumentVerifier(
+        configuredRegistry(),
+        new TargetGuestResourceScopeResolver([{
+          providerE164: "+14165550111",
+          resourceScopes: {
+            schemaVersion: "1.0",
+            calendarConnectionIds: [],
+            fileRootIds: ["file-root:guest-a"],
+            pcActionIds: [],
+          },
+        }]),
+      ),
+    });
+    await expect(driftedRepository.getGuestGrant(GRANT_ID))
+      .rejects.toThrow("voice_access_document_invalid");
+    await expect(new VoiceAccessRepository(env.DB).getGuestGrant(GRANT_ID))
+      .rejects.toThrow("voice_access_document_invalid");
   });
 
   it("resolves only the configured owner and exact pending or active guest grant", async () => {
@@ -113,6 +239,41 @@ describe("VoiceAccessRepository", () => {
     })).resolves.toBeNull();
   });
 
+  it("fails closed for a valid guest when the configured owner is stale or missing", async () => {
+    await repository.createGuestGrant(validCreateInput(ownerAuthority));
+    const inboundGuest = () => repository.resolveInboundCandidate({
+      providerE164: "+14165550111",
+      ownerIdentityId: OWNER_IDENTITY_ID,
+      challengeHmacKeyVersion: "v1",
+      now: NOW,
+    });
+    const identityGuest = () => repository.resolveIdentityCandidate({
+      identityId: GUEST_IDENTITY_ID,
+      ownerIdentityId: OWNER_IDENTITY_ID,
+      now: NOW,
+    });
+
+    await env.DB.prepare("UPDATE channel_identities SET status = 'disabled' WHERE identity_id = ?")
+      .bind(OWNER_IDENTITY_ID).run();
+    await expect(inboundGuest()).resolves.toBeNull();
+    await expect(identityGuest()).resolves.toBeNull();
+
+    await env.DB.prepare("UPDATE channel_identities SET status = 'active' WHERE identity_id = ?")
+      .bind(OWNER_IDENTITY_ID).run();
+    await env.DB.prepare("DROP TRIGGER voice_owner_identity_delete_forbidden").run();
+    try {
+      await env.DB.prepare("DELETE FROM voice_owner_identity WHERE singleton_id = 1").run();
+    } finally {
+      await env.DB.prepare(`CREATE TRIGGER voice_owner_identity_delete_forbidden
+        BEFORE DELETE ON voice_owner_identity
+        BEGIN
+          SELECT RAISE(ABORT, 'voice_owner_identity_delete_forbidden');
+        END`).run();
+    }
+    await expect(inboundGuest()).resolves.toBeNull();
+    await expect(identityGuest()).resolves.toBeNull();
+  });
+
   it("replaces permissions, rotates the verifier, and revokes with monotone lineage", async () => {
     await repository.createGuestGrant(validCreateInput(ownerAuthority));
     const replaced = await repository.replacePermissions({
@@ -124,7 +285,7 @@ describe("VoiceAccessRepository", () => {
       expectedGrantVersion: 1,
       capabilityIds: ["conversation.basic", "research.web"],
       resourceScopes: EMPTY_SCOPES,
-      accessDocumentHash: "d".repeat(64) as Sha256Hex,
+      accessDocumentHash: REPLACED_DOCUMENT_HASH,
       now: NOW,
     });
     expect(replaced).toMatchObject({ grantVersion: 2, capabilityIds: ["conversation.basic", "research.web"] });
@@ -175,6 +336,9 @@ describe("VoiceAccessRepository", () => {
       .bind(secondSessionId, `CA${"6".repeat(32)}`, OWNER_PRINCIPAL_ID, OWNER_IDENTITY_ID, OWNER_IDENTITY_ID,
         `${"6".repeat(42)}A`, "2026-08-30T12:05:00.000Z", "2026-08-30T12:05:00.000Z",
         now, now).run();
+    await env.DB.prepare(`UPDATE call_sessions
+      SET provider_session_id = ?, provider_connected_at = ?, updated_at = ? WHERE session_id = ?`)
+      .bind(`VX${"6".repeat(32)}`, now, now, secondSessionId).run();
     await env.DB.prepare("UPDATE call_sessions SET phase = 'connecting' WHERE session_id = ?").bind(secondSessionId).run();
     await env.DB.prepare("UPDATE call_sessions SET phase = 'pre_auth' WHERE session_id = ?").bind(secondSessionId).run();
     const binding: RelayBinding = {
@@ -212,6 +376,9 @@ describe("VoiceAccessRepository", () => {
       .bind(guestSessionId, `CA${"7".repeat(32)}`, GUEST_PRINCIPAL_ID, GUEST_IDENTITY_ID, GUEST_IDENTITY_ID,
         `${"7".repeat(42)}A`, "2026-08-30T12:05:00.000Z", "2026-08-30T12:05:00.000Z",
         now, now, GRANT_ID, DOCUMENT_HASH).run();
+    await env.DB.prepare(`UPDATE call_sessions
+      SET provider_session_id = ?, provider_connected_at = ?, updated_at = ? WHERE session_id = ?`)
+      .bind(`VX${"7".repeat(32)}`, now, now, guestSessionId).run();
     await env.DB.prepare("UPDATE call_sessions SET phase = 'connecting' WHERE session_id = ?").bind(guestSessionId).run();
     await env.DB.prepare("UPDATE call_sessions SET phase = 'pre_auth' WHERE session_id = ?").bind(guestSessionId).run();
     const guestBinding: RelayBinding = {
@@ -244,7 +411,7 @@ describe("VoiceAccessRepository", () => {
       expectedGrantVersion: 1,
       capabilityIds: ["conversation.basic", "research.web"],
       resourceScopes: EMPTY_SCOPES,
-      accessDocumentHash: "3".repeat(64) as Sha256Hex,
+      accessDocumentHash: REPLACED_DOCUMENT_HASH,
       now: NOW,
     });
     await expect(repository.requireCurrentAuthority(guestAuthority, NOW))

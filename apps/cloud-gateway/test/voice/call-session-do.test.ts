@@ -9,21 +9,32 @@ import type { RelayEvent } from "../../src/providers/conversation-relay.js";
 import { FakeModelProvider, type FakeModelProviderOptions } from "../../src/providers/fake-model-provider.js";
 import { CallRepository, type StoredCallSession } from "../../src/persistence/call-repository.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
+import { VoiceAccessRepository } from "../../src/persistence/voice-access-repository.js";
+import { GuestPinVerifier } from "../../src/security/guest-pin-verifier.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { IdentityChallengeService, VerifiedChannelObservationAuthority } from "../../src/sync/identity-challenge.js";
 import { DeviceRequestVerifier } from "../../src/sync/signed-request.js";
 import {
   CallSession,
   CallSessionCore,
+  GuestCallAuthentication,
   PhoneActivationChallengeConfirmer,
   type CallSessionInitialization,
   type CallSessionRuntimeFactory,
 } from "../../src/voice/call-session-do.js";
+import { CapabilityRegistry } from "../../src/voice/capability-registry.js";
+import {
+  createTargetGuestAccessDocumentVerifier,
+  OwnerAccessService,
+  TargetGuestResourceScopeResolver,
+} from "../../src/voice/owner-access-service.js";
 import {
   AuthenticationAttemptBudget,
-  PinAuthenticationService,
-  decodePinVerifierRecord,
 } from "../../src/voice/inbound-auth.js";
+import {
+  GuestPinProofIssuer,
+  VoiceAccessAuthorityService,
+} from "../../src/voice/voice-access-authority.js";
 import {
   canonicalize,
   newUlid,
@@ -44,6 +55,11 @@ import {
   clearOutboundCallAttemptsForTest,
   clearVoiceAccessDataForTest,
 } from "../persistence/migration.js";
+import {
+  OWNER_IDENTITY_ID as FIXTURE_OWNER_IDENTITY_ID,
+  seedOwnerAuthority as seedFixtureOwnerAuthority,
+  validCreateInput,
+} from "../persistence/voice-access-fixture.js";
 
 const NOW = new Date("2026-08-30T12:00:00.000Z");
 const SESSION_ID = "01k3wceg000000000000000101" as Ulid;
@@ -52,13 +68,6 @@ const PROVIDER_SESSION_ID = `VX${"5".repeat(32)}`;
 const ACCOUNT_SID = `AC${"6".repeat(32)}`;
 const RELAY_NONCE = `${"D".repeat(42)}M`;
 const PEPPER = new Uint8Array(32).fill(7);
-const PIN_RECORD_JSON = JSON.stringify({
-  schemaVersion: "1.0",
-  algorithm: "pbkdf2-hmac-sha256",
-  iterations: 600_000,
-  saltBase64: "AAAAAAAAAAAAAAAAAAAAAA==",
-  digestBase64: "SEQMsb6DRNNigkTZFNlCnQLLXSwB1jfsvHCYVO4ib2w=",
-});
 const DEVICE_AUDIENCE = "jarvis-local-agent";
 const CHALLENGE_PATH = "/identity/challenge/begin";
 const CHALLENGE_ID = "challenge:phone";
@@ -68,6 +77,8 @@ const TURN_ID = "01k3wceg000000000000000103" as Ulid;
 const NEXT_TURN_ID = "01k3wceg000000000000000104" as Ulid;
 const OUTBOUND_CALL_SID = `CA${"7".repeat(32)}`;
 const OUTBOUND_RELAY_NONCE = `${"E".repeat(42)}Q`;
+const GUEST_GRANT_ID = "01k3wceg000000000000000105" as Ulid;
+const GUEST_E164 = "+14165550111";
 
 function base64(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes));
@@ -193,20 +204,25 @@ function relaySetup(session: StoredCallSession): Extract<RelayEvent, { type: "se
 function makeCore(input: {
   session: StoredCallSession;
   repo: CallRepository;
-  budgets?: AuthenticationAttemptBudget;
-  authentication?: PinAuthenticationService;
+  authority?: VoiceAccessAuthorityService | null;
+  guestAuthentication?: GuestCallAuthentication | null;
   activation?: PhoneActivationChallengeConfirmer | null;
+  ownerAccess?: import("../../src/voice/owner-access-service.js").OwnerAccessService | null;
   conversation?: ConversationService | null;
   turnIds?: readonly Ulid[];
+  now?: () => Date;
 }) {
   const close = vi.fn<(code: number) => void>();
   const sendNeutralText = vi.fn<(text: string) => Promise<void>>(async () => undefined);
   const sendToken = vi.fn<(token: ModelToken) => Promise<void>>(async () => undefined);
   const finish = vi.fn<(finalText: string) => Promise<void>>(async () => undefined);
   const cancelOutput = vi.fn<() => Promise<void>>(async () => undefined);
-  const budgets = input.budgets ?? new AuthenticationAttemptBudget(env.DB, PEPPER);
-  const authentication = input.authentication
-    ?? new PinAuthenticationService(budgets, decodePinVerifierRecord(PIN_RECORD_JSON));
+  const authority = input.authority === undefined
+    ? new VoiceAccessAuthorityService(
+      new VoiceAccessRepository(env.DB),
+      new CapabilityRegistry({ installed: ["conversation.basic", "access.manage"] }),
+    )
+    : input.authority;
   const turnIds = [...(input.turnIds ?? [TURN_ID])];
   return {
     close,
@@ -214,14 +230,15 @@ function makeCore(input: {
     sendToken,
     finish,
     cancelOutput,
-    budgets,
-    authentication,
+    authority,
     instance: new CallSessionCore({
       session: input.session,
       expectedAccountSid: ACCOUNT_SID,
       repository: input.repo,
-      authentication,
+      authority,
+      guestAuthentication: input.guestAuthentication ?? null,
       activation: input.activation ?? null,
+      ownerAccess: input.ownerAccess ?? null,
       conversation: input.conversation ?? null,
       relay: { close, sendNeutralText, sendToken, finish, cancelOutput },
       newTurnId: () => {
@@ -229,7 +246,7 @@ function makeCore(input: {
         if (turnId === undefined) throw new Error("fixture_turn_id_exhausted");
         return turnId;
       },
-      now: () => new Date(NOW),
+      now: input.now ?? (() => new Date(NOW)),
     }),
   };
 }
@@ -310,19 +327,18 @@ async function activationHarness(options: { readonly challengeLimit?: number } =
     PEPPER,
     options.challengeLimit === undefined ? undefined : { challengeLimit: options.challengeLimit },
   );
-  const authentication = new PinAuthenticationService(budgets, decodePinVerifierRecord(PIN_RECORD_JSON));
   const activation = new PhoneActivationChallengeConfirmer({
     database: env.DB,
-    authentication,
     budgets,
     observations,
     challenges,
-  });
+  } as never);
   return {
     stored,
     activation,
     keyFingerprint,
-    ...makeCore({ session: stored, repo, budgets, authentication, activation }),
+    budgets,
+    ...makeCore({ session: stored, repo, activation }),
   };
 }
 
@@ -379,11 +395,21 @@ async function conversationTurn(turnId: Ulid): Promise<{
 
 async function authenticateForConversation(harness: ReturnType<typeof conversationHarness>): Promise<void> {
   await harness.instance.handleRelayEvent(relaySetup(harness.stored));
-  await sendDigits(harness.instance, "12345678");
   expect(harness.instance.phase).toBe("active");
 }
 
-type CallSessionRpc = Pick<CallSession, "initialize">;
+type CallSessionRpc = Pick<CallSession, "initialize"> & {
+  terminate(input: {
+    sessionId: Ulid;
+    phase: "completed" | "failed";
+    reason: "provider_callback";
+  }): Promise<{
+    sessionId: Ulid;
+    terminalPhase: "completed" | "failed";
+    invalidated: boolean;
+    outcome: "applied" | "replayed" | "recovered";
+  }>;
+};
 
 function callSessionStub(sessionId: Ulid) {
   return env.CALL_SESSION.getByName(sessionId) as DurableObjectStub<CallSession> & CallSessionRpc;
@@ -430,7 +456,697 @@ function fakeSocket(sessionId: Ulid) {
   return { socket, close, send };
 }
 
-describe("CallSessionCore PIN authentication", () => {
+async function seedPendingGuestAccess(
+  registry: CapabilityRegistry,
+  verifier: GuestPinVerifier,
+): Promise<void> {
+  const timestamp = NOW.toISOString();
+  const snapshot = await registry.snapshotConfigured(["conversation.basic"]);
+  const pin = Uint8Array.from([52, 56, 50, 55]);
+  const record = await verifier.create(GUEST_GRANT_ID, pin);
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO principals (
+      principal_id, principal_type, status, display_name, created_at, updated_at
+    ) VALUES ('principal:guest', 'human', 'active', 'Guest', ?, ?)`)
+      .bind(timestamp, timestamp),
+    env.DB.prepare(`INSERT INTO channel_identities (
+      identity_id, principal_id, channel, provider_subject, status, verified_at, created_at, enrolled_by_device_id
+    ) VALUES ('identity:guest', 'principal:guest', 'voice', ?, 'pending', NULL, ?, NULL)`)
+      .bind(GUEST_E164, timestamp),
+    env.DB.prepare(`INSERT INTO voice_access_grants (
+      grant_id, principal_id, identity_id, grant_version, capability_ids_json, resource_scopes_json,
+      access_document_hash, pin_schema_version, pin_algorithm, pin_pepper_version, pin_iterations,
+      pin_salt_base64, pin_digest_base64, status, created_by_identity_id, created_at,
+      activated_at, updated_at, revoked_at
+    ) VALUES (?, 'principal:guest', 'identity:guest', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending',
+      'identity:voice', ?, NULL, ?, NULL)`)
+      .bind(
+        GUEST_GRANT_ID,
+        JSON.stringify(snapshot.capabilityIds),
+        JSON.stringify(snapshot.resourceScopes),
+        snapshot.accessDocumentHash,
+        record.schemaVersion,
+        record.algorithm,
+        record.pepperVersion,
+        record.iterations,
+        record.saltBase64,
+        record.digestBase64,
+        timestamp,
+        timestamp,
+      ),
+    env.DB.prepare(`INSERT INTO voice_access_grant_events (
+      event_id, grant_id, grant_version, event_type, owner_identity_id, request_hash,
+      capability_ids_json, access_document_hash, created_at
+    ) VALUES ('01k3wceg000000000000000790', ?, 1, 'created', 'identity:voice', ?, ?, ?, ?)`)
+      .bind(
+        GUEST_GRANT_ID,
+        "e".repeat(64),
+        JSON.stringify(snapshot.capabilityIds),
+        snapshot.accessDocumentHash,
+        timestamp,
+      ),
+  ]);
+}
+
+async function accessHarness(
+  kind: "owner" | "guest",
+  callSidLimit?: number,
+  withOwnerAdministration = false,
+) {
+  await clearFixture();
+  await seedActiveVoiceIdentity();
+  const repo = repository();
+  const registry = new CapabilityRegistry({ installed: ["conversation.basic", "access.manage"] });
+  const voiceRepository = new VoiceAccessRepository(env.DB);
+  const pinVerifier = new GuestPinVerifier(
+    new Uint8Array(32).fill(12),
+    () => new Uint8Array(16).fill(8),
+  );
+  if (kind === "guest") await seedPendingGuestAccess(registry, pinVerifier);
+  const stored = kind === "owner"
+    ? await createInboundSession(repo)
+    : await repo.getOrCreateInboundSession({
+      callSid: CALL_SID,
+      callerE164: GUEST_E164,
+      ownerIdentityId: "identity:voice",
+      currentChallengeHmacKeyVersion: "hmac-v1",
+      now: NOW,
+    });
+  const proofs = new GuestPinProofIssuer();
+  const authority = new VoiceAccessAuthorityService(voiceRepository, registry, proofs);
+  const budgets = new AuthenticationAttemptBudget(
+    env.DB,
+    PEPPER,
+    callSidLimit === undefined ? undefined : { callSidLimit },
+  );
+  const guestAuthentication = new GuestCallAuthentication({
+    repository: voiceRepository,
+    budgets,
+    verifier: pinVerifier,
+    proofs,
+  });
+  const authenticate = vi.spyOn(guestAuthentication, "authenticate");
+  let id = 800;
+  const ownerAccess = withOwnerAdministration
+    ? new OwnerAccessService({
+      repository: voiceRepository,
+      registry,
+      authorities: authority,
+      verifier: pinVerifier,
+      idFactory: () => `01k3wceg000000000000000${id++}` as Ulid,
+      proposalIdFactory: () => `owner-access-proposal:${crypto.randomUUID()}`,
+      defaultGuestPin: () => "1357",
+    })
+    : null;
+  const conversation = {
+    handleTurn: vi.fn(async () => ({
+      outcome: "voice_sent" as const,
+      userEventId: TURN_ID,
+      assistantEventId: NEXT_TURN_ID,
+      sentAssistantEventId: NEXT_TURN_ID,
+      deliveredAssistantEventId: null,
+      deliveryId: null,
+    })),
+  } as unknown as ConversationService;
+  const close = vi.fn<(code: number) => void>();
+  const sendNeutralText = vi.fn<(text: string) => Promise<void>>(async () => undefined);
+  const instance = new CallSessionCore({
+    session: stored,
+    expectedAccountSid: ACCOUNT_SID,
+    repository: repo,
+    authority,
+    guestAuthentication,
+    activation: null,
+    ownerAccess,
+    conversation,
+    relay: {
+      close,
+      sendNeutralText,
+      sendToken: async () => undefined,
+      finish: async () => undefined,
+      cancelOutput: async () => undefined,
+    },
+    now: () => new Date(NOW),
+  } as never);
+  return {
+    repo,
+    voiceRepository,
+    stored,
+    authority,
+    guestAuthentication,
+    ownerAccess,
+    authenticate,
+    conversation,
+    close,
+    sendNeutralText,
+    instance,
+  };
+}
+
+describe("CallSessionCore owner and guest access", () => {
+  beforeEach(applyFoundationMigration);
+  afterEach(clearFixture);
+
+  it("moves an active owner from relay setup to active with zero PIN work", async () => {
+    const harness = await accessHarness("owner");
+
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+
+    expect(harness.instance.phase).toBe("active");
+    expect(harness.authenticate).not.toHaveBeenCalled();
+    expect(harness.sendNeutralText.mock.calls.flat()).not.toContainEqual(expect.stringMatching(/pin|passcode/iu));
+  });
+
+  it("authenticates only the bound guest grant and rechecks it before conversation", async () => {
+    const harness = await accessHarness("guest");
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    await sendDigits(harness.instance, "4827");
+    expect(harness.instance.phase).toBe("active");
+    expect(harness.authenticate).toHaveBeenCalledOnce();
+    expect(await env.DB.prepare(`SELECT grant_version, status, activated_at
+      FROM voice_access_grants WHERE grant_id = ?`).bind(GUEST_GRANT_ID)
+      .first<{ grant_version: number; status: string; activated_at: string | null }>())
+      .toEqual({ grant_version: 1, status: "active", activated_at: NOW.toISOString() });
+    expect(await env.DB.prepare("SELECT status, verified_at FROM channel_identities WHERE identity_id = 'identity:guest'")
+      .first<{ status: string; verified_at: string | null }>())
+      .toEqual({ status: "active", verified_at: NOW.toISOString() });
+    expect(await env.DB.prepare(`SELECT authority_kind, grant_id, grant_version, access_document_hash
+      FROM call_session_authorities WHERE session_id = ?`).bind(harness.stored.sessionId)
+      .first<{ authority_kind: string; grant_id: string; grant_version: number; access_document_hash: string }>())
+      .toMatchObject({ authority_kind: "guest", grant_id: GUEST_GRANT_ID, grant_version: 1 });
+    expect((await env.DB.prepare("SELECT event_type FROM voice_access_grant_events ORDER BY created_at, event_id")
+      .all<{ event_type: string }>()).results)
+      .toEqual([{ event_type: "created" }, { event_type: "activated" }]);
+
+    const revokedAt = new Date(NOW.valueOf() + 1).toISOString();
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE voice_access_grants
+        SET grant_version = 2, status = 'revoked', updated_at = ?, revoked_at = ?
+        WHERE grant_id = ? AND grant_version = 1`)
+        .bind(revokedAt, revokedAt, GUEST_GRANT_ID),
+      env.DB.prepare("UPDATE channel_identities SET status = 'disabled' WHERE identity_id = 'identity:guest'"),
+    ]);
+    await expect(harness.instance.handleRelayEvent({
+      type: "prompt",
+      final: true,
+      language: "en-US",
+      text: "hello",
+    })).rejects.toThrow("call_authority_stale");
+    expect(harness.conversation.handleTurn).not.toHaveBeenCalled();
+  });
+
+  it("writes, admits, binds, PIN-activates, and rehydrates one target-owned scoped guest", async () => {
+    await clearFixture();
+    const makeResolver = () => new TargetGuestResourceScopeResolver([{
+      providerE164: GUEST_E164,
+      resourceScopes: {
+        schemaVersion: "1.0",
+        calendarConnectionIds: [],
+        fileRootIds: ["file-root:guest"],
+        pcActionIds: [],
+      },
+    }]);
+    const registry = new CapabilityRegistry({
+      installed: ["conversation.basic", "files.read", "access.manage"],
+      fileRootIds: ["file-root:guest"],
+    });
+    const voiceRepository = new VoiceAccessRepository(env.DB, {
+      accessDocumentVerifier: createTargetGuestAccessDocumentVerifier(registry, makeResolver()),
+    });
+    const ownerAuthority = await seedFixtureOwnerAuthority(env.DB, voiceRepository);
+    const snapshot = await registry.snapshot(["conversation.basic", "files.read"], {
+      schemaVersion: "1.0",
+      calendarConnectionIds: [],
+      fileRootIds: ["file-root:guest"],
+      pcActionIds: [],
+    });
+    const verifier = new GuestPinVerifier(
+      new Uint8Array(32).fill(12),
+      () => new Uint8Array(16).fill(8),
+    );
+    const pinVerifier = await verifier.create(GUEST_GRANT_ID, Uint8Array.from([52, 56, 50, 55]));
+    await voiceRepository.createGuestGrant({
+      ...validCreateInput(ownerAuthority),
+      mutationId: "01k3wceg000000000000000791" as Ulid,
+      grantId: GUEST_GRANT_ID,
+      guestPrincipalId: "principal:guest",
+      guestIdentityId: "identity:guest",
+      ownerIdentityId: FIXTURE_OWNER_IDENTITY_ID,
+      providerE164: GUEST_E164,
+      capabilityIds: snapshot.capabilityIds,
+      resourceScopes: snapshot.resourceScopes,
+      accessDocumentHash: snapshot.accessDocumentHash,
+      pinVerifier,
+    });
+    const repo = new CallRepository(
+      env.DB,
+      new EventRepository(env.DB),
+      () => RELAY_NONCE,
+      300_000,
+      () => SESSION_ID,
+      voiceRepository,
+    );
+    const stored = await repo.getOrCreateInboundSession({
+      callSid: CALL_SID,
+      callerE164: GUEST_E164,
+      ownerIdentityId: FIXTURE_OWNER_IDENTITY_ID,
+      currentChallengeHmacKeyVersion: "hmac-v1",
+      now: NOW,
+    });
+    const proofs = new GuestPinProofIssuer();
+    const authorities = new VoiceAccessAuthorityService(voiceRepository, registry, proofs);
+    const guestAuthentication = new GuestCallAuthentication({
+      repository: voiceRepository,
+      budgets: new AuthenticationAttemptBudget(env.DB, PEPPER),
+      verifier,
+      proofs,
+    });
+    const conversation = {
+      handleTurn: vi.fn(async () => ({
+        outcome: "voice_sent" as const,
+        userEventId: TURN_ID,
+        assistantEventId: NEXT_TURN_ID,
+        sentAssistantEventId: NEXT_TURN_ID,
+        deliveredAssistantEventId: null,
+        deliveryId: null,
+      })),
+    } as unknown as ConversationService;
+    const harness = makeCore({
+      session: stored,
+      repo,
+      authority: authorities,
+      guestAuthentication,
+      conversation,
+    });
+
+    const scopedProviderSessionId = `VX${"9".repeat(32)}`;
+    await harness.instance.handleRelayEvent({ ...relaySetup(stored), sessionId: scopedProviderSessionId });
+    await sendDigits(harness.instance, "4827");
+    expect(harness.instance.phase).toBe("active");
+    expect(await repo.getCallSession(stored.sessionId)).toMatchObject({
+      phase: "active",
+      providerSessionId: scopedProviderSessionId,
+      binding: { accessDocumentHash: snapshot.accessDocumentHash },
+    });
+    await harness.instance.handleRelayEvent({
+      type: "prompt",
+      final: true,
+      language: "en-US",
+      text: "read my scoped file",
+    });
+    expect(conversation.handleTurn).toHaveBeenCalledOnce();
+
+    const restartedRegistry = new CapabilityRegistry({
+      installed: ["conversation.basic", "files.read", "access.manage"],
+      fileRootIds: ["file-root:guest"],
+    });
+    const restartedRepository = new VoiceAccessRepository(env.DB, {
+      accessDocumentVerifier: createTargetGuestAccessDocumentVerifier(restartedRegistry, makeResolver()),
+    });
+    await expect(new VoiceAccessAuthorityService(restartedRepository, restartedRegistry).rehydrate({
+      sessionId: stored.sessionId,
+      binding: stored.binding,
+      now: NOW,
+    })).resolves.toMatchObject({
+      kind: "guest",
+      capabilityIds: snapshot.capabilityIds,
+      resourceScopes: snapshot.resourceScopes,
+      accessDocumentHash: snapshot.accessDocumentHash,
+    });
+  });
+
+  it("keeps pending guest activation atomic when the configured owner is invalidated after provider bind", async () => {
+    const harness = await accessHarness("guest");
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    await env.DB.prepare("UPDATE channel_identities SET status = 'disabled' WHERE identity_id = 'identity:voice'")
+      .run();
+
+    await expect(sendDigits(harness.instance, "4827"))
+      .rejects.toThrow("call_session_authority_guest_owner_required");
+    expect(await env.DB.prepare(`SELECT grant_version, status, activated_at
+      FROM voice_access_grants WHERE grant_id = ?`).bind(GUEST_GRANT_ID)
+      .first<{ grant_version: number; status: string; activated_at: string | null }>())
+      .toEqual({ grant_version: 1, status: "pending", activated_at: null });
+    expect(await env.DB.prepare("SELECT status, verified_at FROM channel_identities WHERE identity_id = 'identity:guest'")
+      .first<{ status: string; verified_at: string | null }>())
+      .toEqual({ status: "pending", verified_at: null });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM call_session_authorities").first())
+      .toEqual({ count: 0 });
+    expect((await env.DB.prepare("SELECT event_type FROM voice_access_grant_events ORDER BY created_at, event_id")
+      .all<{ event_type: string }>()).results)
+      .toEqual([{ event_type: "created" }]);
+  });
+
+  it.each(["owner", "guest"] as const)("rehydrates an exact active %s authority after a core restart", async (kind) => {
+    const harness = await accessHarness(kind);
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    if (kind === "guest") await sendDigits(harness.instance, "4827");
+    const active = await harness.repo.getCallSession(harness.stored.sessionId);
+    if (active === null || active.phase !== "active") throw new Error("active_session_fixture_missing");
+
+    const restartedRepository = new VoiceAccessRepository(env.DB);
+    const restartedAuthority = new VoiceAccessAuthorityService(
+      restartedRepository,
+      new CapabilityRegistry({ installed: ["conversation.basic", "access.manage"] }),
+      new GuestPinProofIssuer(),
+    );
+    const conversation = {
+      handleTurn: vi.fn(async () => ({
+        outcome: "voice_sent" as const,
+        userEventId: TURN_ID,
+        assistantEventId: NEXT_TURN_ID,
+        sentAssistantEventId: NEXT_TURN_ID,
+        deliveredAssistantEventId: null,
+        deliveryId: null,
+      })),
+    } as unknown as ConversationService;
+    const restarted = new CallSessionCore({
+      session: active,
+      expectedAccountSid: ACCOUNT_SID,
+      repository: harness.repo,
+      authority: restartedAuthority,
+      activation: null,
+      ownerAccess: null,
+      conversation,
+      relay: {
+        close: vi.fn(),
+        sendNeutralText: async () => undefined,
+        sendToken: async () => undefined,
+        finish: async () => undefined,
+        cancelOutput: async () => undefined,
+      },
+      now: () => new Date(NOW),
+    } as never);
+
+    await restarted.handleRelayEvent({ type: "prompt", final: true, language: "en-US", text: "resume" });
+    expect(conversation.handleTurn).toHaveBeenCalledOnce();
+  });
+
+  it("fails an active restarted call closed at the exact provider-connected authority deadline", async () => {
+    const harness = await accessHarness("owner");
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    const active = await harness.repo.getCallSession(harness.stored.sessionId);
+    if (active === null || active.phase !== "active") throw new Error("active_session_fixture_missing");
+    const conversation = { handleTurn: vi.fn() } as unknown as ConversationService;
+    const restarted = new CallSessionCore({
+      session: active,
+      expectedAccountSid: ACCOUNT_SID,
+      repository: harness.repo,
+      authority: new VoiceAccessAuthorityService(
+        new VoiceAccessRepository(env.DB),
+        new CapabilityRegistry({ installed: ["conversation.basic", "access.manage"] }),
+        new GuestPinProofIssuer(),
+      ),
+      activation: null,
+      ownerAccess: null,
+      conversation,
+      relay: {
+        close: vi.fn(),
+        sendNeutralText: async () => undefined,
+        sendToken: async () => undefined,
+        finish: async () => undefined,
+        cancelOutput: async () => undefined,
+      },
+      now: () => new Date("2026-08-30T12:30:00.000Z"),
+    } as never);
+
+    await expect(restarted.handleRelayEvent({
+      type: "prompt",
+      final: true,
+      language: "en-US",
+      text: "too late",
+    })).rejects.toThrow("call_authority_expired");
+    expect(restarted.phase).toBe("expired");
+    expect(await storedPhase(active.sessionId)).toBe("expired");
+    expect(conversation.handleTurn).not.toHaveBeenCalled();
+  });
+
+  it("clears active authority and transient interaction state on terminal callback invalidation", async () => {
+    const harness = await accessHarness("owner", undefined, true);
+    const invalidate = vi.spyOn(harness.authority, "invalidate");
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+
+    await harness.instance.terminate("completed");
+
+    expect(harness.instance.phase).toBe("completed");
+    expect(invalidate).toHaveBeenCalledOnce();
+    await harness.instance.handleRelayEvent({
+      type: "prompt",
+      final: true,
+      language: "en-US",
+      text: "confirm",
+    });
+    expect(harness.conversation.handleTurn).not.toHaveBeenCalled();
+  });
+
+  it("does not start a conversation turn when termination wins during authorization", async () => {
+    const harness = await accessHarness("owner");
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    let release!: () => void;
+    let started!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    vi.spyOn(harness.authority, "authorize").mockImplementation(async (value) => {
+      const authority = harness.authority.snapshot(value);
+      started();
+      await gate;
+      return authority;
+    });
+
+    const prompt = harness.instance.handleRelayEvent({
+      type: "prompt",
+      final: true,
+      language: "en-US",
+      text: "do not start this turn",
+    });
+    await entered;
+    await harness.instance.terminate("completed");
+    release();
+
+    await expect(prompt).rejects.toThrow("call_session_terminal");
+    expect(harness.conversation.handleTurn).not.toHaveBeenCalled();
+  });
+
+  it("reserves no budget for partial or cleared input and accepts strict final spoken digits", async () => {
+    const harness = await accessHarness("guest");
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    await sendDigits(harness.instance, "482*");
+    await harness.instance.handleRelayEvent({
+      type: "prompt",
+      final: false,
+      language: "en-US",
+      text: "four eight two seven",
+    });
+    expect(await reservationCount()).toBe(0);
+    expect(harness.instance.phase).toBe("pre_auth");
+    expect(harness.conversation.handleTurn).not.toHaveBeenCalled();
+
+    await harness.instance.handleRelayEvent({
+      type: "prompt",
+      final: true,
+      language: "en-US",
+      text: "hello four eight two seven",
+    });
+    expect(await reservationCount()).toBe(0);
+    expect(harness.conversation.handleTurn).not.toHaveBeenCalled();
+
+    await harness.instance.handleRelayEvent({
+      type: "prompt",
+      final: true,
+      language: "en-US",
+      text: "four eight two seven",
+    });
+    expect(harness.instance.phase).toBe("active");
+    expect(await reservationCount()).toBe(1);
+  });
+
+  it("discards a partial guest PIN across a core restart", async () => {
+    const harness = await accessHarness("guest");
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    await sendDigits(harness.instance, "48");
+    const preAuth = await harness.repo.getCallSession(harness.stored.sessionId);
+    if (preAuth === null || preAuth.phase !== "pre_auth") throw new Error("pre_auth_fixture_missing");
+    const restarted = new CallSessionCore({
+      session: preAuth,
+      expectedAccountSid: ACCOUNT_SID,
+      repository: harness.repo,
+      authority: harness.authority,
+      guestAuthentication: harness.guestAuthentication,
+      activation: null,
+      ownerAccess: null,
+      conversation: harness.conversation,
+      relay: {
+        close: harness.close,
+        sendNeutralText: harness.sendNeutralText,
+        sendToken: async () => undefined,
+        finish: async () => undefined,
+        cancelOutput: async () => undefined,
+      },
+      now: () => new Date(NOW),
+    } as never);
+
+    await sendDigits(restarted, "27");
+    expect(harness.authenticate).not.toHaveBeenCalled();
+    expect(await reservationCount()).toBe(0);
+    await sendDigits(restarted, "*");
+    await sendDigits(restarted, "4827");
+    expect(harness.authenticate).toHaveBeenCalledOnce();
+    expect(restarted.phase).toBe("active");
+  });
+
+  it("rejects the call after three complete bad guest candidates", async () => {
+    const harness = await accessHarness("guest");
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+
+    await sendDigits(harness.instance, "000000000000");
+
+    expect(harness.instance.phase).toBe("rejected");
+    expect(await reservationCount()).toBe(3);
+    expect(harness.conversation.handleTurn).not.toHaveBeenCalled();
+    const owner = await env.DB.prepare("SELECT status FROM principals WHERE principal_id = 'principal:owner'")
+      .first<{ status: string }>();
+    expect(owner?.status).toBe("active");
+  });
+
+  it("fails closed before a second guest PBKDF2 when the Task 4 budget is exhausted", async () => {
+    const harness = await accessHarness("guest", 1);
+    const deriveBits = vi.spyOn(crypto.subtle, "deriveBits");
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    await sendDigits(harness.instance, "0000");
+
+    await sendDigits(harness.instance, "4827");
+
+    expect(harness.instance.phase).toBe("rejected");
+    expect(await reservationCount()).toBe(1);
+    expect(deriveBits).toHaveBeenCalledTimes(1);
+  });
+
+  it("executes a recognized owner access draft only after explicit PIN selection and exact confirmation", async () => {
+    const harness = await accessHarness("owner", undefined, true);
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+
+    await harness.instance.handleRelayEvent({
+      type: "prompt",
+      final: true,
+      language: "en-US",
+      text: `allow ${GUEST_E164} with conversation`,
+    });
+    expect(harness.conversation.handleTurn).not.toHaveBeenCalled();
+    await sendDigits(harness.instance, "2468");
+    await harness.instance.handleRelayEvent({
+      type: "prompt",
+      final: true,
+      language: "en-US",
+      text: "confirm",
+    });
+
+    const grant = await env.DB.prepare(`SELECT grant_row.status, identity.provider_subject
+      FROM voice_access_grants grant_row
+      JOIN channel_identities identity ON identity.identity_id = grant_row.identity_id`)
+      .first<{ status: string; provider_subject: string }>();
+    expect(grant).toEqual({ status: "pending", provider_subject: GUEST_E164 });
+    expect(harness.conversation.handleTurn).not.toHaveBeenCalled();
+    expect(JSON.stringify(harness.sendNeutralText.mock.calls)).not.toMatch(/\+14165550111|2468/u);
+  });
+
+  it("keeps ordinary confirm in conversation when no issued owner proposal is current", async () => {
+    const harness = await accessHarness("owner", undefined, true);
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+
+    await harness.instance.handleRelayEvent({
+      type: "prompt",
+      final: true,
+      language: "en-US",
+      text: "confirm",
+    });
+
+    expect(harness.conversation.handleTurn).toHaveBeenCalledOnce();
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM voice_access_grants").first())
+      .toEqual({ count: 0 });
+  });
+
+  it("invalidates an interrupted proposal and clears partial owner PIN input before a replacement", async () => {
+    const harness = await accessHarness("owner", undefined, true);
+    if (harness.ownerAccess === null) throw new Error("fixture_owner_access_missing");
+    const invalidate = vi.spyOn(harness.ownerAccess, "invalidate");
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    await harness.instance.handleRelayEvent({
+      type: "prompt",
+      final: true,
+      language: "en-US",
+      text: `allow ${GUEST_E164} with conversation`,
+    });
+    await sendDigits(harness.instance, "24");
+    await harness.instance.handleRelayEvent({ type: "interrupt" });
+    expect(invalidate).toHaveBeenCalled();
+
+    await harness.instance.handleRelayEvent({
+      type: "prompt",
+      final: true,
+      language: "en-US",
+      text: "allow +14165550112 with conversation",
+    });
+    await sendDigits(harness.instance, "68");
+    await harness.instance.handleRelayEvent({
+      type: "prompt",
+      final: true,
+      language: "en-US",
+      text: "confirm",
+    });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM voice_access_grants").first())
+      .toEqual({ count: 0 });
+
+    await sendDigits(harness.instance, "1357");
+    await harness.instance.handleRelayEvent({
+      type: "prompt",
+      final: true,
+      language: "en-US",
+      text: "confirm",
+    });
+    const target = await env.DB.prepare("SELECT provider_subject FROM channel_identities WHERE principal_id != 'principal:owner'")
+      .first<{ provider_subject: string }>();
+    expect(target?.provider_subject).toBe("+14165550112");
+  });
+
+  it("drops an issued owner proposal and partial PIN across a core restart", async () => {
+    const harness = await accessHarness("owner", undefined, true);
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    await harness.instance.handleRelayEvent({
+      type: "prompt",
+      final: true,
+      language: "en-US",
+      text: `allow ${GUEST_E164} with conversation`,
+    });
+    await sendDigits(harness.instance, "13");
+    const active = await harness.repo.getCallSession(harness.stored.sessionId);
+    if (active === null || active.phase !== "active") throw new Error("active_session_fixture_missing");
+    const restarted = new CallSessionCore({
+      session: active,
+      expectedAccountSid: ACCOUNT_SID,
+      repository: harness.repo,
+      authority: harness.authority,
+      guestAuthentication: null,
+      activation: null,
+      ownerAccess: harness.ownerAccess,
+      conversation: harness.conversation,
+      relay: {
+        close: harness.close,
+        sendNeutralText: harness.sendNeutralText,
+        sendToken: async () => undefined,
+        finish: async () => undefined,
+        cancelOutput: async () => undefined,
+      },
+      now: () => new Date(NOW),
+    } as never);
+
+    await restarted.handleRelayEvent({ type: "prompt", final: true, language: "en-US", text: "confirm" });
+    expect(harness.conversation.handleTurn).toHaveBeenCalledOnce();
+    expect(await env.DB.prepare("SELECT COUNT(*) AS count FROM voice_access_grants").first())
+      .toEqual({ count: 0 });
+  });
+});
+
+describe("CallSessionCore access, enrollment, and conversation", () => {
   beforeEach(async () => {
     await applyFoundationMigration();
     await clearFixture();
@@ -439,7 +1155,7 @@ describe("CallSessionCore PIN authentication", () => {
 
   afterEach(clearFixture);
 
-  it("rejects a structural PIN-authentication lookalike before relay processing", async () => {
+  it("rejects a structural access-authority lookalike before relay processing", async () => {
     const repo = repository();
     const stored = await createInboundSession(repo);
     const relay = {
@@ -454,10 +1170,7 @@ describe("CallSessionCore PIN authentication", () => {
       session: stored,
       expectedAccountSid: ACCOUNT_SID,
       repository: repo,
-      authentication: {
-        authenticate: vi.fn(async () => Object.freeze({ authenticated: true })),
-        snapshotProof: vi.fn((proof) => proof),
-      } as never,
+      authority: { mintOwner: vi.fn(async () => Object.freeze({ kind: "owner" })) } as never,
       activation: null,
       conversation: null,
       relay,
@@ -476,93 +1189,20 @@ describe("CallSessionCore PIN authentication", () => {
     expect(await storedPhase(stored.sessionId)).toBe("created");
   });
 
-  it("does not authenticate or reserve budget for an incomplete PIN candidate", async () => {
-    const repo = repository();
-    const stored = await createInboundSession(repo);
-    const { instance } = makeCore({ session: stored, repo });
-    await instance.handleRelayEvent(relaySetup(stored));
-
-    await sendDigits(instance, "1234567");
-
-    expect(instance.phase).toBe("pre_auth");
-    expect(await reservationCount()).toBe(0);
-  });
-
-  it("clears an incomplete candidate on star before accepting a fresh exact PIN", async () => {
-    const repo = repository();
-    const stored = await createInboundSession(repo);
-    const { instance } = makeCore({ session: stored, repo });
-    await instance.handleRelayEvent(relaySetup(stored));
-    await sendDigits(instance, "1234567*");
-
-    await sendDigits(instance, "12345678");
-
-    expect(instance.phase).toBe("active");
-    expect(await reservationCount()).toBe(1);
-    expect(await storedPhase(stored.sessionId)).toBe("active");
-  });
-
-  it("uses the nominal Task 4 proof to enter active without persisting PIN digits", async () => {
-    const repo = repository();
-    const stored = await createInboundSession(repo);
-    const { instance } = makeCore({ session: stored, repo });
-    await instance.handleRelayEvent(relaySetup(stored));
-
-    await sendDigits(instance, "12345678");
-
-    expect(instance.phase).toBe("active");
-    const reservations = await env.DB.prepare("SELECT * FROM authentication_attempt_reservations").all<Record<string, unknown>>();
-    const sessions = await env.DB.prepare("SELECT * FROM call_sessions").all<Record<string, unknown>>();
-    expect(JSON.stringify([reservations.results, sessions.results])).not.toContain("12345678");
-  });
-
-  it("rejects only this call after three completed bad PIN candidates", async () => {
-    const repo = repository();
-    const stored = await createInboundSession(repo);
-    const { instance } = makeCore({ session: stored, repo });
-    await instance.handleRelayEvent(relaySetup(stored));
-
-    await sendDigits(instance, "876543218765432187654321");
-
-    expect(instance.phase).toBe("rejected");
-    expect(await reservationCount()).toBe(3);
-    expect(await storedPhase(stored.sessionId)).toBe("rejected");
-    const principal = await env.DB.prepare("SELECT status FROM principals WHERE principal_id = 'principal:owner'")
-      .first<{ status: string }>();
-    expect(principal?.status).toBe("active");
-  });
-
-  it("fails closed before a second PBKDF2 when the real Task 4 budget is exhausted", async () => {
-    const repo = repository();
-    const stored = await createInboundSession(repo);
-    const budgets = new AuthenticationAttemptBudget(env.DB, PEPPER, { callSidLimit: 1 });
-    const { instance } = makeCore({ session: stored, repo, budgets });
-    const deriveBits = vi.spyOn(crypto.subtle, "deriveBits");
-    await instance.handleRelayEvent(relaySetup(stored));
-    await sendDigits(instance, "87654321");
-
-    await sendDigits(instance, "12345678");
-
-    expect(instance.phase).toBe("rejected");
-    expect(await reservationCount()).toBe(1);
-    expect(deriveBits).toHaveBeenCalledTimes(1);
-  });
-
-  it("activates a pending phone only after PIN plus one separately budgeted challenge response", async () => {
+  it("activates a pending phone after only one separately budgeted signed challenge response", async () => {
     const harness = await activationHarness();
     await harness.instance.handleRelayEvent(relaySetup(harness.stored));
 
-    await sendDigits(harness.instance, "12345678");
-    expect(harness.instance.phase).toBe("authenticated");
-    expect(await reservationKinds()).toEqual(["pin"]);
+    expect(harness.instance.phase).toBe("pre_auth");
+    expect(await reservationKinds()).toEqual([]);
     await sendDigits(harness.instance, CHALLENGE_RESPONSE.slice(0, -1));
-    expect(await reservationKinds()).toEqual(["pin"]);
+    expect(await reservationKinds()).toEqual([]);
 
     await sendDigits(harness.instance, CHALLENGE_RESPONSE.at(-1) ?? "");
 
     expect(harness.instance.phase).toBe("completed");
     expect(await storedPhase(harness.stored.sessionId)).toBe("completed");
-    expect(await reservationKinds()).toEqual(["pin", "activation"]);
+    expect(await reservationKinds()).toEqual(["activation"]);
     expect(await identityState()).toEqual({ status: "active", verified_at: NOW.toISOString() });
     expect(await challengeConsumedAt()).toBe(NOW.toISOString());
     expect(harness.sendNeutralText.mock.calls.map(([text]) => text)).toEqual([
@@ -574,22 +1214,21 @@ describe("CallSessionCore PIN authentication", () => {
       env.DB.prepare("SELECT * FROM call_sessions"),
       env.DB.prepare("SELECT * FROM identity_challenges"),
     ]);
-    expect(JSON.stringify(durable.flatMap((result) => result.results ?? []))).not.toMatch(/12345678|482913/u);
+    expect(JSON.stringify(durable.flatMap((result) => result.results ?? []))).not.toContain(CHALLENGE_RESPONSE);
   });
 
   it("fails one wrong activation response once and never retries it inside the call", async () => {
     const harness = await activationHarness();
     await harness.instance.handleRelayEvent(relaySetup(harness.stored));
-    await sendDigits(harness.instance, "12345678");
 
     await sendDigits(harness.instance, "000000");
 
     expect(harness.instance.phase).toBe("failed");
     expect(await identityState()).toEqual({ status: "pending", verified_at: null });
     expect(await challengeConsumedAt()).toBeNull();
-    expect(await reservationKinds()).toEqual(["pin", "activation"]);
+    expect(await reservationKinds()).toEqual(["activation"]);
     await sendDigits(harness.instance, CHALLENGE_RESPONSE);
-    expect(await reservationKinds()).toEqual(["pin", "activation"]);
+    expect(await reservationKinds()).toEqual(["activation"]);
     expect(harness.sendNeutralText.mock.calls.map(([text]) => text)).toEqual([
       "Enter the one-time phone enrollment challenge shown in your local Jarvis CLI.",
       "Phone verification could not be completed.",
@@ -600,42 +1239,27 @@ describe("CallSessionCore PIN authentication", () => {
     const harness = await activationHarness({ challengeLimit: 1 });
     expect(await harness.budgets.reserveActivationAttempt({ binding: harness.stored.binding, now: NOW })).toBe(true);
     await harness.instance.handleRelayEvent(relaySetup(harness.stored));
-    await sendDigits(harness.instance, "12345678");
 
     await sendDigits(harness.instance, CHALLENGE_RESPONSE);
 
     expect(harness.instance.phase).toBe("failed");
     expect(await identityState()).toEqual({ status: "pending", verified_at: null });
     expect(await challengeConsumedAt()).toBeNull();
-    expect(await reservationKinds()).toEqual(["activation", "pin"]);
+    expect(await reservationKinds()).toEqual(["activation"]);
   });
 
-  it("rejects forged and cross-session PIN proofs before activation authority is reserved", async () => {
+  it("rejects a cross-session enrollment confirmation before activation authority is reserved", async () => {
     const harness = await activationHarness();
-    const proof = await harness.authentication.authenticate({
-      pinDigits: "12345678",
-      sessionId: harness.stored.sessionId,
-      binding: harness.stored.binding,
-      now: NOW,
-    });
-    if (proof === null) throw new Error("fixture_pin_proof_missing");
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
 
     await expect(harness.activation.confirm({
       sessionId: OTHER_SESSION_ID,
       binding: harness.stored.binding,
-      pinProof: proof,
       response: CHALLENGE_RESPONSE,
       now: NOW,
-    })).rejects.toThrow("pin_authentication_proof_invalid");
-    await expect(harness.activation.confirm({
-      sessionId: harness.stored.sessionId,
-      binding: harness.stored.binding,
-      pinProof: Object.freeze({ proofId: proof.proofId, authenticated: true }),
-      response: CHALLENGE_RESPONSE,
-      now: NOW,
-    })).rejects.toThrow("pin_authentication_proof_invalid");
+    } as never)).rejects.toThrow("phone_activation_session_invalid");
 
-    expect(await reservationKinds()).toEqual(["pin"]);
+    expect(await reservationKinds()).toEqual([]);
     expect(await identityState()).toEqual({ status: "pending", verified_at: null });
   });
 
@@ -827,6 +1451,9 @@ describe("CallSession Durable Object boundary", () => {
   beforeEach(async () => {
     await applyFoundationMigration();
     await clearFixture();
+    await runInDurableObject(callSessionStub(SESSION_ID), async (_instance, state) => {
+      await state.storage.deleteAll();
+    });
     await seedActiveVoiceIdentity();
   });
 
@@ -848,6 +1475,290 @@ describe("CallSession Durable Object boundary", () => {
       expect(stored).toEqual(initialization);
       expect(JSON.stringify(stored)).not.toMatch(/purpose|memory|private message:/iu);
     });
+  });
+
+  it("terminalizes through the exact idempotent callback RPC and rejects conflicting replay", async () => {
+    const harness = await accessHarness("owner");
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    const initialization: CallSessionInitialization = Object.freeze({
+      sessionId: harness.stored.sessionId,
+      binding: harness.stored.binding,
+      relaySetupExpiresAt: harness.stored.relaySetupExpiresAt,
+    });
+    const stub = callSessionStub(initialization.sessionId);
+    await stub.initialize(initialization);
+    const termination = Object.freeze({
+      sessionId: initialization.sessionId,
+      phase: "completed" as const,
+      reason: "provider_callback" as const,
+    });
+
+    await expect(stub.terminate(termination)).resolves.toEqual({
+      sessionId: initialization.sessionId,
+      terminalPhase: "completed",
+      invalidated: true,
+      outcome: "applied",
+    });
+    await expect(stub.terminate(termination)).resolves.toEqual({
+      sessionId: initialization.sessionId,
+      terminalPhase: "completed",
+      invalidated: false,
+      outcome: "replayed",
+    });
+    await runInDurableObject(stub, async (instance) => {
+      await expect(instance.terminate({
+        sessionId: initialization.sessionId,
+        phase: "failed",
+        reason: "provider_callback",
+      })).rejects.toThrow("call_session_termination_conflict");
+    });
+    expect(await storedPhase(initialization.sessionId)).toBe("completed");
+    await expect(harness.repo.countActiveSessions({
+      principalId: harness.stored.binding.principalId,
+      now: NOW,
+    })).resolves.toBe(0);
+    await expect(new VoiceAccessAuthorityService(
+      new VoiceAccessRepository(env.DB),
+      new CapabilityRegistry({ installed: ["conversation.basic", "access.manage"] }),
+    ).rehydrate({ sessionId: initialization.sessionId, binding: initialization.binding, now: NOW }))
+      .rejects.toThrow("call_authority_invalid");
+    await runInDurableObject(stub, async (_instance, state) => {
+      expect(await state.storage.get("call-session.termination.v1")).toMatchObject({
+        ...termination,
+        callSid: initialization.binding.callSid,
+        providerSessionId: PROVIDER_SESSION_ID,
+        durablePhase: "completed",
+        cleanupState: "complete",
+      });
+    });
+  });
+
+  it("fails closed before a tombstone when initialization does not exactly match the durable relay binding", async () => {
+    const repo = repository();
+    const stored = await createInboundSession(repo);
+    await repo.bindRelaySession({
+      sessionId: stored.sessionId,
+      callSid: stored.callSid,
+      providerSessionId: PROVIDER_SESSION_ID,
+      relayNonce: stored.binding.relayNonce,
+      direction: "inbound",
+      now: NOW,
+    });
+    const initialization: CallSessionInitialization = Object.freeze({
+      sessionId: stored.sessionId,
+      binding: Object.freeze({ ...stored.binding, callSid: `CA${"8".repeat(32)}` }),
+      relaySetupExpiresAt: stored.relaySetupExpiresAt,
+    });
+    const stub = callSessionStub(stored.sessionId);
+    await stub.initialize(initialization);
+
+    await runInDurableObject(stub, async (instance) => {
+      await expect(instance.terminate({
+        sessionId: stored.sessionId,
+        phase: "failed",
+        reason: "provider_callback",
+      })).rejects.toThrow("call_session_termination_binding_mismatch");
+    });
+    expect(await storedPhase(stored.sessionId)).toBe("created");
+    await runInDurableObject(stub, async (_instance, state) => {
+      expect(await state.storage.get("call-session.termination.v1")).toBeUndefined();
+    });
+  });
+
+  it.each(["rejected", "expired"] as const)(
+    "cleans up a live core already durably %s and replays without double provider cleanup",
+    async (durablePhase) => {
+      const harness = await accessHarness("guest");
+      const initialization: CallSessionInitialization = Object.freeze({
+        sessionId: harness.stored.sessionId,
+        binding: harness.stored.binding,
+        relaySetupExpiresAt: harness.stored.relaySetupExpiresAt,
+      });
+      const stub = callSessionStub(harness.stored.sessionId);
+      const relay = fakeSocket(harness.stored.sessionId);
+      const cancelOutput = vi.fn(async () => undefined);
+      const factory = vi.fn<CallSessionRuntimeFactory>((input) => new CallSessionCore({
+        session: input.session,
+        expectedAccountSid: ACCOUNT_SID,
+        repository: harness.repo,
+        authority: harness.authority,
+        guestAuthentication: harness.guestAuthentication,
+        activation: null,
+        conversation: null,
+        relay: {
+          close: vi.fn(),
+          sendNeutralText: async () => undefined,
+          sendToken: async () => undefined,
+          finish: async () => undefined,
+          cancelOutput,
+        },
+        now: () => new Date(NOW),
+      }));
+      const frame = JSON.stringify({
+        type: "setup",
+        sessionId: PROVIDER_SESSION_ID,
+        accountSid: ACCOUNT_SID,
+        callSid: harness.stored.callSid,
+        direction: "inbound",
+        customParameters: { relayNonce: harness.stored.binding.relayNonce },
+      });
+
+      await runInDurableObject(stub, async (_instance, state) => {
+        await state.storage.deleteAll();
+        const object = new CallSession(state, env, factory);
+        await object.initialize(initialization);
+        await object.webSocketMessage(relay.socket, frame);
+        expect(await storedPhase(harness.stored.sessionId)).toBe("pre_auth");
+        await harness.repo.transitionCallSession({
+          sessionId: harness.stored.sessionId,
+          expectedPhase: "pre_auth",
+          nextPhase: durablePhase,
+          now: NOW,
+        });
+        const termination = Object.freeze({
+          sessionId: harness.stored.sessionId,
+          phase: "failed" as const,
+          reason: "provider_callback" as const,
+        });
+        await expect(object.terminate(termination)).resolves.toMatchObject({
+          terminalPhase: "failed",
+          invalidated: true,
+          outcome: "applied",
+        });
+        await expect(object.terminate(termination)).resolves.toMatchObject({
+          terminalPhase: "failed",
+          invalidated: false,
+          outcome: "replayed",
+        });
+      });
+
+      expect(await storedPhase(harness.stored.sessionId)).toBe(durablePhase);
+      expect(cancelOutput).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("keeps cleanup pending on provider failure, retries once, and never cleans twice after completion", async () => {
+    const harness = await accessHarness("guest");
+    const initialization: CallSessionInitialization = Object.freeze({
+      sessionId: harness.stored.sessionId,
+      binding: harness.stored.binding,
+      relaySetupExpiresAt: harness.stored.relaySetupExpiresAt,
+    });
+    const stub = callSessionStub(harness.stored.sessionId);
+    const relay = fakeSocket(harness.stored.sessionId);
+    const cancelOutput = vi.fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error("provider_cleanup_failed"))
+      .mockResolvedValue(undefined);
+    const factory = vi.fn<CallSessionRuntimeFactory>((input) => new CallSessionCore({
+      session: input.session,
+      expectedAccountSid: ACCOUNT_SID,
+      repository: harness.repo,
+      authority: harness.authority,
+      guestAuthentication: harness.guestAuthentication,
+      activation: null,
+      conversation: null,
+      relay: {
+        close: vi.fn(),
+        sendNeutralText: async () => undefined,
+        sendToken: async () => undefined,
+        finish: async () => undefined,
+        cancelOutput,
+      },
+      now: () => new Date(NOW),
+    }));
+    const termination = Object.freeze({
+      sessionId: harness.stored.sessionId,
+      phase: "failed" as const,
+      reason: "provider_callback" as const,
+    });
+
+    await runInDurableObject(stub, async (_instance, state) => {
+      await state.storage.deleteAll();
+      const object = new CallSession(state, env, factory);
+      await object.initialize(initialization);
+      await object.webSocketMessage(relay.socket, JSON.stringify({
+        type: "setup",
+        sessionId: PROVIDER_SESSION_ID,
+        accountSid: ACCOUNT_SID,
+        callSid: harness.stored.callSid,
+        direction: "inbound",
+        customParameters: { relayNonce: harness.stored.binding.relayNonce },
+      }));
+      await expect(object.terminate(termination)).rejects.toThrow("call_session_termination_cleanup_failed");
+      expect(await state.storage.get("call-session.termination.v1")).toMatchObject({ cleanupState: "pending" });
+      const recovered = object.terminate(termination);
+      const duplicate = object.terminate(termination);
+      await expect(object.terminate({ ...termination, phase: "completed" }))
+        .rejects.toThrow("call_session_termination_conflict");
+      await expect(Promise.all([recovered, duplicate])).resolves.toEqual([
+        expect.objectContaining({ invalidated: false, outcome: "recovered" }),
+        expect.objectContaining({ invalidated: false, outcome: "recovered" }),
+      ]);
+      await expect(object.terminate(termination)).resolves.toMatchObject({ outcome: "replayed" });
+      expect(await state.storage.get("call-session.termination.v1")).toMatchObject({ cleanupState: "complete" });
+    });
+
+    expect(await storedPhase(harness.stored.sessionId)).toBe("failed");
+    expect(cancelOutput).toHaveBeenCalledTimes(2);
+  });
+
+  it("finishes a durable pending cleanup after object restart", async () => {
+    const harness = await accessHarness("guest");
+    const initialization: CallSessionInitialization = Object.freeze({
+      sessionId: harness.stored.sessionId,
+      binding: harness.stored.binding,
+      relaySetupExpiresAt: harness.stored.relaySetupExpiresAt,
+    });
+    const stub = callSessionStub(harness.stored.sessionId);
+    const relay = fakeSocket(harness.stored.sessionId);
+    const cancelOutput = vi.fn(async () => { throw new Error("provider_cleanup_failed"); });
+    const factory = vi.fn<CallSessionRuntimeFactory>((input) => new CallSessionCore({
+      session: input.session,
+      expectedAccountSid: ACCOUNT_SID,
+      repository: harness.repo,
+      authority: harness.authority,
+      guestAuthentication: harness.guestAuthentication,
+      activation: null,
+      conversation: null,
+      relay: {
+        close: vi.fn(),
+        sendNeutralText: async () => undefined,
+        sendToken: async () => undefined,
+        finish: async () => undefined,
+        cancelOutput,
+      },
+      now: () => new Date(NOW),
+    }));
+    const termination = Object.freeze({
+      sessionId: harness.stored.sessionId,
+      phase: "failed" as const,
+      reason: "provider_callback" as const,
+    });
+
+    await runInDurableObject(stub, async (_instance, state) => {
+      await state.storage.deleteAll();
+      const first = new CallSession(state, env, factory);
+      await first.initialize(initialization);
+      await first.webSocketMessage(relay.socket, JSON.stringify({
+        type: "setup",
+        sessionId: PROVIDER_SESSION_ID,
+        accountSid: ACCOUNT_SID,
+        callSid: harness.stored.callSid,
+        direction: "inbound",
+        customParameters: { relayNonce: harness.stored.binding.relayNonce },
+      }));
+      await expect(first.terminate(termination)).rejects.toThrow("call_session_termination_cleanup_failed");
+
+      const restarted = new CallSession(state, env, null);
+      await expect(restarted.terminate(termination)).resolves.toMatchObject({
+        invalidated: false,
+        outcome: "recovered",
+      });
+      expect(await state.storage.get("call-session.termination.v1")).toMatchObject({ cleanupState: "complete" });
+    });
+
+    expect(cancelOutput).toHaveBeenCalledOnce();
+    expect(await storedPhase(harness.stored.sessionId)).toBe("failed");
   });
 
   it("rejects a changed or structurally extended Task 7 pre-authentication contract", async () => {
@@ -985,12 +1896,10 @@ describe("CallSession Durable Object boundary", () => {
     const stub = callSessionStub(stored.sessionId);
     const relay = fakeSocket(stored.sessionId);
     const factory = vi.fn<CallSessionRuntimeFactory>((input) => {
-      const budgets = new AuthenticationAttemptBudget(env.DB, PEPPER);
       return new CallSessionCore({
         session: input.session,
         expectedAccountSid: ACCOUNT_SID,
         repository: repo,
-        authentication: new PinAuthenticationService(budgets, decodePinVerifierRecord(PIN_RECORD_JSON)),
         activation: null,
         conversation: null,
         relay: input.relay,

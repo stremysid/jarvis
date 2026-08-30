@@ -1,5 +1,7 @@
 import {
+  canonicalJson,
   GUEST_CAPABILITY_IDS,
+  sha256Hex,
   type GuestCapabilityId,
   type RelayBinding,
   type Sha256Hex,
@@ -132,6 +134,25 @@ export interface MintGuestAuthorityInput {
   readonly now: Date;
 }
 
+export interface VoiceAccessDocumentVerificationInput {
+  readonly providerE164: string;
+  readonly capabilityIds: readonly GuestCapabilityId[];
+  readonly resourceScopes: VoiceResourceScopesV1;
+  readonly accessDocumentHash: Sha256Hex;
+}
+
+export type VoiceAccessDocumentVerifier = (
+  document: VoiceAccessDocumentVerificationInput,
+) => boolean | Promise<boolean>;
+
+export interface VoiceAccessRepositoryHooks {
+  readonly beforeEventWrite?: () => void | Promise<void>;
+  readonly batchFault?: (
+    operation: "create" | "replace" | "rotate" | "revoke" | "activate",
+  ) => D1PreparedStatement | null;
+  readonly accessDocumentVerifier?: VoiceAccessDocumentVerifier;
+}
+
 interface GrantRow {
   grant_id: string;
   principal_id: string;
@@ -166,6 +187,15 @@ interface IdentityRow {
   owner_identity_id: string | null;
 }
 
+interface ConfiguredOwnerRow {
+  principal_id: string;
+  identity_id: string;
+  principal_type: string;
+  principal_status: string;
+  identity_status: string;
+  verified_at: string | null;
+}
+
 interface ChallengeRow {
   challenge_id: string;
 }
@@ -187,6 +217,7 @@ interface AuthorityRow {
   access_document_hash: string | null;
   authenticated_at: string;
   expires_at: string;
+  provider_connected_at: string | null;
   phase: string;
   call_sid: string;
   destination_identity_id: string;
@@ -224,6 +255,7 @@ interface SessionLineageRow {
   guest_grant_id: string | null;
   guest_grant_version: number | null;
   access_document_hash: string | null;
+  provider_connected_at: string | null;
 }
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
@@ -234,6 +266,13 @@ const RELAY_NONCE = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$/u;
 const TERMINAL_PHASES = new Set(["completed", "rejected", "failed", "expired"]);
 const GUEST_CAPABILITIES = new Set<string>(GUEST_CAPABILITY_IDS);
+const RESOURCE_CAPABILITIES = new Set<GuestCapabilityId>([
+  "calendar.read",
+  "calendar.manage",
+  "files.read",
+  "files.write",
+  "pc.control",
+]);
 const CAPABILITY_ORDER = new Map(GUEST_CAPABILITY_IDS.map((value, index) => [value, index]));
 const SCOPE_FIELDS = new Set(["schemaVersion", "calendarConnectionIds", "fileRootIds", "pcActionIds"]);
 const AUTHORITY_FIELDS = new Set([
@@ -289,6 +328,13 @@ function safeId(value: unknown): value is string {
 function dateIso(value: unknown): string {
   if (!(value instanceof Date) || !Number.isFinite(value.valueOf())) invalidInput();
   return value.toISOString();
+}
+
+function providerAuthorityDeadline(value: string | null): string | null {
+  if (value === null) return null;
+  const connectedAt = new Date(value);
+  if (!Number.isFinite(connectedAt.valueOf()) || connectedAt.toISOString() !== value) return null;
+  return new Date(connectedAt.valueOf() + 1_800_000).toISOString();
 }
 
 function hash(value: unknown): Sha256Hex {
@@ -531,6 +577,7 @@ const AUTHORITY_SELECT = `SELECT
   authority.session_id, authority.authority_kind, authority.principal_id, authority.identity_id,
   authority.grant_id, authority.grant_version, authority.access_document_hash,
   authority.authenticated_at, authority.expires_at,
+  session.provider_connected_at,
   session.phase, session.call_sid, session.destination_identity_id, session.relay_nonce,
   session.direction, session.activation_only, session.activation_challenge_id,
   session.access_kind, session.guest_grant_id AS session_grant_id,
@@ -552,25 +599,70 @@ export class VoiceAccessRepository {
   readonly #database: D1Database;
   readonly #transactions: TransactionRunner;
   readonly #beforeEventWrite: (() => void | Promise<void>) | undefined;
+  readonly #batchFault: VoiceAccessRepositoryHooks["batchFault"];
+  readonly #accessDocumentVerifier: VoiceAccessDocumentVerifier | undefined;
   readonly #issuedAuthorities = new WeakSet<object>();
 
-  constructor(database: D1Database, hooks: Readonly<{ beforeEventWrite?: () => void | Promise<void> }> = {}) {
+  constructor(database: D1Database, hooks: Readonly<VoiceAccessRepositoryHooks> = {}) {
     if (database === null || typeof database !== "object") invalidInput();
-    const hookFields = new Set(["beforeEventWrite"]);
+    const allowedHookFields = new Set(["beforeEventWrite", "batchFault", "accessDocumentVerifier"]);
     let beforeEventWrite: (() => void | Promise<void>) | undefined;
-    if (Reflect.ownKeys(hooks).length > 0) {
-      const captured = captureExact(hooks, hookFields);
+    let batchFault: VoiceAccessRepositoryHooks["batchFault"];
+    let accessDocumentVerifier: VoiceAccessDocumentVerifier | undefined;
+    const hookKeys = Reflect.ownKeys(hooks);
+    if (hookKeys.length > 0) {
+      if (hookKeys.some((key) => typeof key !== "string" || !allowedHookFields.has(key))) invalidInput();
+      const captured = captureExact(hooks, new Set(hookKeys as string[]));
       if (captured.beforeEventWrite !== undefined && typeof captured.beforeEventWrite !== "function") invalidInput();
+      if (captured.batchFault !== undefined && typeof captured.batchFault !== "function") invalidInput();
+      if (captured.accessDocumentVerifier !== undefined && typeof captured.accessDocumentVerifier !== "function") invalidInput();
       beforeEventWrite = captured.beforeEventWrite as (() => void | Promise<void>) | undefined;
+      batchFault = captured.batchFault as VoiceAccessRepositoryHooks["batchFault"];
+      accessDocumentVerifier = captured.accessDocumentVerifier as VoiceAccessDocumentVerifier | undefined;
     }
     this.#database = database;
     this.#transactions = new TransactionRunner(database);
     this.#beforeEventWrite = beforeEventWrite;
+    this.#batchFault = batchFault;
+    this.#accessDocumentVerifier = accessDocumentVerifier;
+  }
+
+  #faultStatement(operation: "create" | "replace" | "rotate" | "revoke" | "activate"): D1PreparedStatement | null {
+    const statement = this.#batchFault?.(operation) ?? null;
+    if (statement !== null && typeof statement !== "object") invalidInput();
+    return statement;
+  }
+
+  async #verifyAccessDocument(document: VoiceAccessDocumentVerificationInput): Promise<void> {
+    const computedHash = await sha256Hex(canonicalJson({
+      capabilityIds: document.capabilityIds,
+      resourceScopes: document.resourceScopes,
+    }));
+    if (computedHash !== document.accessDocumentHash) throw new Error("voice_access_document_invalid");
+    const hasResourceScope = document.resourceScopes.calendarConnectionIds.length > 0
+      || document.resourceScopes.fileRootIds.length > 0
+      || document.resourceScopes.pcActionIds.length > 0;
+    const requiresTargetVerification = hasResourceScope
+      || document.capabilityIds.some((capability) => RESOURCE_CAPABILITIES.has(capability));
+    if (this.#accessDocumentVerifier === undefined) {
+      if (requiresTargetVerification) throw new Error("voice_access_document_invalid");
+      return;
+    }
+    try {
+      if (await this.#accessDocumentVerifier(Object.freeze({ ...document })) !== true) {
+        throw new Error("voice_access_document_invalid");
+      }
+    } catch {
+      throw new Error("voice_access_document_invalid");
+    }
   }
 
   async #grant(grantId: string): Promise<GuestGrantSnapshot | null> {
     const row = await this.#database.prepare(`${GRANT_SELECT} WHERE grant_row.grant_id = ?`).bind(grantId).first<GrantRow>();
-    return row === null ? null : decodeGrantRow(row);
+    if (row === null) return null;
+    const grant = decodeGrantRow(row);
+    await this.#verifyAccessDocument(grant);
+    return grant;
   }
 
   async getGuestGrant(grantIdValue: string): Promise<GuestGrantSnapshot | null> {
@@ -584,7 +676,35 @@ export class VoiceAccessRepository {
       WHERE identity.channel = 'voice' AND identity.provider_subject = ?
       ORDER BY grant_row.grant_version DESC LIMIT 1`)
       .bind(providerE164Value).first<GrantRow>();
-    return row === null ? null : decodeGrantRow(row);
+    if (row === null) return null;
+    const grant = decodeGrantRow(row);
+    await this.#verifyAccessDocument(grant);
+    return grant;
+  }
+
+  async #configuredOwner(ownerIdentityId: string): Promise<ConfiguredOwnerRow | null> {
+    const row = await this.#database.prepare(`SELECT
+      owner.principal_id, owner.identity_id, principal.principal_type,
+      principal.status AS principal_status, identity.status AS identity_status, identity.verified_at
+    FROM voice_owner_identity owner
+    JOIN principals principal ON principal.principal_id = owner.principal_id
+    JOIN channel_identities identity
+      ON identity.identity_id = owner.identity_id
+      AND identity.principal_id = owner.principal_id
+      AND identity.channel = 'voice'
+    WHERE owner.singleton_id = 1 AND owner.identity_id = ?`)
+      .bind(ownerIdentityId).first<ConfiguredOwnerRow>();
+    if (
+      row === null || row.identity_id !== ownerIdentityId || row.principal_type !== "human"
+      || row.principal_status !== "active"
+      || !(
+        row.identity_status === "active" && row.verified_at !== null
+        || row.identity_status === "pending" && row.verified_at === null
+      )
+    ) {
+      return null;
+    }
+    return row;
   }
 
   async #eventReplay(
@@ -610,6 +730,9 @@ export class VoiceAccessRepository {
     ownerIdentityIdValue: unknown,
     nowValue: unknown,
   ): Promise<PersistedCallAuthority> {
+    if (value === null || typeof value !== "object" || !this.#issuedAuthorities.has(value)) {
+      throw new Error("owner_authority_required");
+    }
     const authority = persistedAuthority(value);
     const ownerIdentityId = ownerIdentityIdValue;
     const nowIso = dateIso(nowValue);
@@ -646,6 +769,8 @@ export class VoiceAccessRepository {
       invalidInput();
     }
     const nowIso = dateIso(captured.now);
+    const configuredOwner = await this.#configuredOwner(captured.ownerIdentityId as string);
+    if (configuredOwner === null) return null;
     const identity = await this.#database.prepare(`SELECT
       principal.principal_id, identity.identity_id, identity.provider_subject,
       identity.status AS identity_status, identity.verified_at,
@@ -659,7 +784,11 @@ export class VoiceAccessRepository {
     if (identity === null || identity.principal_status !== "active") return null;
 
     if (identity.identity_id === captured.ownerIdentityId) {
-      if (identity.owner_identity_id !== captured.ownerIdentityId || identity.owner_principal_id !== identity.principal_id) return null;
+      if (
+        identity.owner_identity_id !== configuredOwner.identity_id
+        || identity.owner_principal_id !== configuredOwner.principal_id
+        || identity.principal_id !== configuredOwner.principal_id
+      ) return null;
       if (identity.identity_status === "active" && identity.verified_at !== null) {
         return Object.freeze({
           kind: "owner",
@@ -693,6 +822,7 @@ export class VoiceAccessRepository {
       });
     }
 
+    if (configuredOwner.identity_status !== "active" || configuredOwner.verified_at === null) return null;
     if (!["pending", "active"].includes(identity.identity_status)) return null;
     const row = await this.#database.prepare(`${GRANT_SELECT}
       WHERE grant_row.identity_id = ? AND grant_row.principal_id = ? AND grant_row.status IN ('pending', 'active')
@@ -700,6 +830,7 @@ export class VoiceAccessRepository {
       .bind(identity.identity_id, identity.principal_id).first<GrantRow>();
     if (row === null) return null;
     const grant = decodeGrantRow(row);
+    await this.#verifyAccessDocument(grant);
     return Object.freeze({
       kind: "guest",
       principalId: grant.principalId,
@@ -720,6 +851,8 @@ export class VoiceAccessRepository {
     const captured = captureExact(input, new Set(["identityId", "ownerIdentityId", "now"]));
     if (!safeId(captured.identityId) || !safeId(captured.ownerIdentityId)) invalidInput();
     dateIso(captured.now);
+    const configuredOwner = await this.#configuredOwner(captured.ownerIdentityId as string);
+    if (configuredOwner === null) return null;
     const identity = await this.#database.prepare(`SELECT
       principal.principal_id, identity.identity_id, identity.provider_subject,
       identity.status AS identity_status, identity.verified_at,
@@ -733,8 +866,9 @@ export class VoiceAccessRepository {
     if (identity === null || identity.principal_status !== "active") return null;
     if (identity.identity_id === captured.ownerIdentityId) {
       if (
-        identity.owner_identity_id !== captured.ownerIdentityId
-        || identity.owner_principal_id !== identity.principal_id
+        identity.owner_identity_id !== configuredOwner.identity_id
+        || identity.owner_principal_id !== configuredOwner.principal_id
+        || identity.principal_id !== configuredOwner.principal_id
         || identity.identity_status !== "active" || identity.verified_at === null
       ) {
         return null;
@@ -746,6 +880,7 @@ export class VoiceAccessRepository {
         activationChallengeId: null,
       });
     }
+    if (configuredOwner.identity_status !== "active" || configuredOwner.verified_at === null) return null;
     if (!["pending", "active"].includes(identity.identity_status)) return null;
     const row = await this.#database.prepare(`${GRANT_SELECT}
       WHERE grant_row.identity_id = ? AND grant_row.principal_id = ? AND grant_row.status IN ('pending', 'active')
@@ -753,6 +888,7 @@ export class VoiceAccessRepository {
       .bind(identity.identity_id, identity.principal_id).first<GrantRow>();
     if (row === null) return null;
     const grant = decodeGrantRow(row);
+    await this.#verifyAccessDocument(grant);
     return Object.freeze({
       kind: "guest",
       principalId: grant.principalId,
@@ -787,11 +923,17 @@ export class VoiceAccessRepository {
     const resourceScopes = scopes(captured.resourceScopes);
     const accessDocumentHash = hash(captured.accessDocumentHash);
     const pinVerifier = verifier(captured.pinVerifier);
+    await this.#verifyAccessDocument({
+      providerE164: captured.providerE164,
+      capabilityIds,
+      resourceScopes,
+      accessDocumentHash,
+    });
     await this.#requireOwnerAuthority(captured.ownerAuthority, captured.ownerIdentityId, captured.now);
     const replay = await this.#eventReplay(mutationId, requestHash, grantId, "created");
     if (replay !== null) return replay;
     await this.#beforeEventWrite?.();
-    await this.#transactions.batch([
+    const statements = [
       this.#database.prepare(`INSERT INTO principals
         (principal_id, principal_type, status, display_name, created_at, updated_at)
         VALUES (?, 'human', 'active', 'voice guest', ?, ?)`)
@@ -817,7 +959,10 @@ export class VoiceAccessRepository {
         capability_ids_json, access_document_hash, created_at
       ) VALUES (?, ?, 1, 'created', ?, ?, ?, ?, ?)`)
         .bind(mutationId, grantId, captured.ownerIdentityId, requestHash, JSON.stringify(capabilityIds), accessDocumentHash, nowIso),
-    ]);
+    ];
+    const fault = this.#faultStatement("create");
+    if (fault !== null) statements.splice(3, 0, fault);
+    await this.#transactions.batch(statements);
     const created = await this.#grant(grantId);
     if (created === null) throw new Error("voice_access_write_failed");
     return created;
@@ -844,9 +989,15 @@ export class VoiceAccessRepository {
     if (current === null || current.status === "revoked" || current.grantVersion !== expectedVersion) {
       throw new Error("voice_access_grant_stale");
     }
+    await this.#verifyAccessDocument({
+      providerE164: current.providerE164,
+      capabilityIds,
+      resourceScopes,
+      accessDocumentHash,
+    });
     const nextVersion = expectedVersion + 1;
     await this.#beforeEventWrite?.();
-    const results = await this.#transactions.batch([
+    const statements = [
       this.#database.prepare(`UPDATE voice_access_grants
         SET grant_version = ?, capability_ids_json = ?, resource_scopes_json = ?, access_document_hash = ?, updated_at = ?
         WHERE grant_id = ? AND grant_version = ? AND status IN ('pending', 'active')`)
@@ -862,7 +1013,10 @@ export class VoiceAccessRepository {
           JSON.stringify(capabilityIds), accessDocumentHash, nowIso,
           grantId, nextVersion, accessDocumentHash,
         ),
-    ]);
+    ];
+    const fault = this.#faultStatement("replace");
+    if (fault !== null) statements.splice(1, 0, fault);
+    const results = await this.#transactions.batch(statements);
     if ((results[0]?.meta.changes ?? 0) !== 1 || (results[1]?.meta.changes ?? 0) !== 1) {
       throw new Error("voice_access_grant_stale");
     }
@@ -892,7 +1046,7 @@ export class VoiceAccessRepository {
     }
     const nextVersion = expectedVersion + 1;
     await this.#beforeEventWrite?.();
-    const results = await this.#transactions.batch([
+    const statements = [
       this.#database.prepare(`UPDATE voice_access_grants
         SET grant_version = ?, pin_salt_base64 = ?, pin_digest_base64 = ?, updated_at = ?
         WHERE grant_id = ? AND grant_version = ? AND status IN ('pending', 'active')`)
@@ -908,7 +1062,10 @@ export class VoiceAccessRepository {
           JSON.stringify(current.capabilityIds), current.accessDocumentHash, nowIso,
           grantId, nextVersion, pinVerifier.saltBase64, pinVerifier.digestBase64,
         ),
-    ]);
+    ];
+    const fault = this.#faultStatement("rotate");
+    if (fault !== null) statements.splice(1, 0, fault);
+    const results = await this.#transactions.batch(statements);
     if ((results[0]?.meta.changes ?? 0) !== 1 || (results[1]?.meta.changes ?? 0) !== 1) {
       throw new Error("voice_access_grant_stale");
     }
@@ -936,7 +1093,7 @@ export class VoiceAccessRepository {
     }
     const nextVersion = expectedVersion + 1;
     await this.#beforeEventWrite?.();
-    const results = await this.#transactions.batch([
+    const statements = [
       this.#database.prepare(`UPDATE voice_access_grants
         SET grant_version = ?, status = 'revoked', updated_at = ?, revoked_at = ?
         WHERE grant_id = ? AND grant_version = ? AND status IN ('pending', 'active')`)
@@ -953,7 +1110,10 @@ export class VoiceAccessRepository {
           mutationId, grantId, nextVersion, captured.ownerIdentityId, requestHash,
           JSON.stringify(current.capabilityIds), current.accessDocumentHash, nowIso, grantId, nextVersion,
         ),
-    ]);
+    ];
+    const fault = this.#faultStatement("revoke");
+    if (fault !== null) statements.splice(2, 0, fault);
+    const results = await this.#transactions.batch(statements);
     if ((results[0]?.meta.changes ?? 0) !== 1 || (results[1]?.meta.changes ?? 0) !== 1 || (results[2]?.meta.changes ?? 0) !== 1) {
       throw new Error("voice_access_grant_stale");
     }
@@ -973,8 +1133,9 @@ export class VoiceAccessRepository {
       WHERE grant_row.status IN ('pending', 'active')
       ORDER BY grant_row.created_at, grant_row.grant_id`)
       .all<GrantRow>();
-    return Object.freeze(rows.results.map((row) => {
+    return Object.freeze(await Promise.all(rows.results.map(async (row) => {
       const grant = decodeGrantRow(row);
+      await this.#verifyAccessDocument(grant);
       return Object.freeze({
         identityId: grant.identityId,
         status: grant.status,
@@ -982,13 +1143,14 @@ export class VoiceAccessRepository {
         capabilityIds: grant.capabilityIds,
         maskedNumber: maskNumber(grant.providerE164),
       });
-    }));
+    })));
   }
 
   async #session(sessionId: Ulid): Promise<SessionLineageRow | null> {
     return this.#database.prepare(`SELECT session_id, call_sid, principal_id, identity_id,
       destination_identity_id, relay_nonce, direction, activation_only, activation_challenge_id,
-      phase, created_at, access_kind, guest_grant_id, guest_grant_version, access_document_hash
+      phase, created_at, access_kind, guest_grant_id, guest_grant_version, access_document_hash,
+      provider_connected_at
       FROM call_sessions WHERE session_id = ?`).bind(sessionId).first<SessionLineageRow>();
   }
 
@@ -1018,6 +1180,67 @@ export class VoiceAccessRepository {
     return authority;
   }
 
+  #authorityMatchesBinding(row: AuthorityRow, relayBinding: RelayBinding, nowIso: string): boolean {
+    const providerDeadline = providerAuthorityDeadline(row.provider_connected_at);
+    if (
+      row.session_id === ""
+      || row.call_sid !== relayBinding.callSid
+      || row.principal_id !== relayBinding.principalId
+      || row.identity_id !== relayBinding.identityId
+      || row.destination_identity_id !== relayBinding.destinationIdentityId
+      || row.relay_nonce !== relayBinding.relayNonce
+      || row.direction !== relayBinding.direction
+      || Number(relayBinding.activationOnly) !== row.activation_only
+      || row.activation_challenge_id !== relayBinding.activationChallengeId
+      || row.access_kind !== relayBinding.accessKind
+      || row.session_grant_id !== relayBinding.guestGrantId
+      || row.session_grant_version !== relayBinding.guestGrantVersion
+      || row.session_access_document_hash !== relayBinding.accessDocumentHash
+      || row.authority_kind !== relayBinding.accessKind
+      || !["authenticated", "active"].includes(row.phase)
+      || TERMINAL_PHASES.has(row.phase)
+      || row.expires_at <= nowIso
+      || providerDeadline === null
+      || row.authenticated_at < row.provider_connected_at!
+      || row.expires_at !== providerDeadline
+      || row.principal_status !== "active"
+      || row.identity_status !== "active"
+      || row.verified_at === null
+    ) {
+      return false;
+    }
+    if (row.authority_kind === "owner") {
+      return row.grant_id === null
+        && row.grant_version === null
+        && row.access_document_hash === null
+        && row.owner_principal_id === row.principal_id
+        && row.owner_identity_id === row.identity_id;
+    }
+    return row.grant_id === relayBinding.guestGrantId
+      && row.grant_version === relayBinding.guestGrantVersion
+      && row.access_document_hash === relayBinding.accessDocumentHash
+      && row.current_grant_status === "active"
+      && row.current_grant_version === row.grant_version
+      && row.current_access_document_hash === row.access_document_hash;
+  }
+
+  async rehydrateAuthority(input: {
+    sessionId: Ulid;
+    binding: RelayBinding;
+    now: Date;
+  }): Promise<PersistedCallAuthority> {
+    const captured = captureExact(input, new Set(["sessionId", "binding", "now"]));
+    const sessionId = ulid(captured.sessionId);
+    const relayBinding = binding(captured.binding);
+    const nowIso = dateIso(captured.now);
+    const row = await this.#existingAuthority(sessionId);
+    if (row !== null && row.expires_at <= nowIso) throw new Error("call_authority_expired");
+    if (row === null || !this.#authorityMatchesBinding(row, relayBinding, nowIso)) {
+      throw new Error("call_authority_invalid");
+    }
+    return this.#nominalAuthority(row);
+  }
+
   async mintOwnerAuthority(input: MintOwnerAuthorityInput): Promise<PersistedCallAuthority> {
     const captured = captureExact(input, new Set(["sessionId", "binding", "now"]));
     const sessionId = ulid(captured.sessionId);
@@ -1026,14 +1249,20 @@ export class VoiceAccessRepository {
     if (relayBinding.accessKind !== "owner") throw new Error("call_authority_invalid");
     const existing = await this.#existingAuthority(sessionId);
     if (existing !== null) {
-      if (existing.authority_kind !== "owner" || existing.expires_at <= nowIso) throw new Error("call_authority_invalid");
+      if (!this.#authorityMatchesBinding(existing, relayBinding, nowIso)) {
+        throw new Error("call_authority_invalid");
+      }
       return this.#nominalAuthority(existing);
     }
     const session = await this.#session(sessionId);
     if (session === null || session.phase !== "pre_auth" || !this.#bindingMatchesSession(relayBinding, session)) {
       throw new Error("call_authority_invalid");
     }
-    const expiresAt = new Date((captured.now as Date).valueOf() + 1_800_000).toISOString();
+    const expiresAt = providerAuthorityDeadline(session.provider_connected_at);
+    if (expiresAt === null || session.provider_connected_at === null || nowIso < session.provider_connected_at) {
+      throw new Error("call_authority_invalid");
+    }
+    if (nowIso >= expiresAt) throw new Error("call_authority_expired");
     await this.#transactions.batch([
       this.#database.prepare(`INSERT INTO call_session_authorities (
         session_id, authority_kind, principal_id, identity_id, grant_id, grant_version,
@@ -1062,7 +1291,9 @@ export class VoiceAccessRepository {
     }
     const existing = await this.#existingAuthority(sessionId);
     if (existing !== null) {
-      if (existing.authority_kind !== "guest" || existing.expires_at <= nowIso) throw new Error("call_authority_invalid");
+      if (!this.#authorityMatchesBinding(existing, relayBinding, nowIso)) {
+        throw new Error("call_authority_invalid");
+      }
       return this.#nominalAuthority(existing);
     }
     const session = await this.#session(sessionId);
@@ -1076,7 +1307,12 @@ export class VoiceAccessRepository {
     ) {
       throw new Error("call_authority_stale");
     }
-    const expiresAt = new Date((captured.now as Date).valueOf() + 1_800_000).toISOString();
+    const expiresAt = session === null ? null : providerAuthorityDeadline(session.provider_connected_at);
+    if (
+      expiresAt === null || session === null || session.provider_connected_at === null
+      || nowIso < session.provider_connected_at
+    ) throw new Error("call_authority_invalid");
+    if (nowIso >= expiresAt) throw new Error("call_authority_expired");
     const statements: D1PreparedStatement[] = [];
     if (current.status === "pending") {
       const replay = await this.#eventReplay(activationEventId, activationRequestHash, current.grantId, "activated");
@@ -1102,6 +1338,8 @@ export class VoiceAccessRepository {
               nowIso, current.grantId, current.grantVersion,
             ),
         );
+        const fault = this.#faultStatement("activate");
+        if (fault !== null) statements.push(fault);
       }
     }
     statements.push(

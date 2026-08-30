@@ -57,6 +57,9 @@ async function mintOtherOwnerAuthority(authorities: VoiceAccessAuthorityService)
       now,
       now,
     ).run();
+  await env.DB.prepare(`UPDATE call_sessions
+    SET provider_session_id = ?, provider_connected_at = ?, updated_at = ? WHERE session_id = ?`)
+    .bind(`VX${"6".repeat(32)}`, now, now, OTHER_OWNER_SESSION_ID).run();
   await env.DB.prepare("UPDATE call_sessions SET phase = 'connecting', updated_at = ? WHERE session_id = ?")
     .bind(now, OTHER_OWNER_SESSION_ID).run();
   await env.DB.prepare("UPDATE call_sessions SET phase = 'pre_auth', updated_at = ? WHERE session_id = ?")
@@ -78,8 +81,8 @@ describe("owner access security", () => {
 
   beforeEach(async () => {
     await clearVoiceAccessFixture(env.DB);
-    await seedOwnerAuthority(env.DB);
     repository = new VoiceAccessRepository(env.DB);
+    await seedOwnerAuthority(env.DB, repository);
     registry = new CapabilityRegistry({
       installed: ["conversation.basic", "research.web", "access.manage"],
     });

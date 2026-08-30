@@ -10,6 +10,7 @@ import {
 } from "../../../../packages/contracts/src/index.js";
 import {
   type GuestGrantSnapshot,
+  type VoiceAccessDocumentVerifier,
   VoiceAccessRepository,
 } from "../persistence/voice-access-repository.js";
 import { GuestPinVerifier } from "../security/guest-pin-verifier.js";
@@ -336,6 +337,37 @@ export class TargetGuestResourceScopeResolver {
       pcActionIds: select(needsPc, requested?.pcActionIds ?? null, owned.pcActionIds),
     });
   }
+}
+
+/** Reconstructible production verifier binding one canonical document to the target guest's owned scopes. */
+export function createTargetGuestAccessDocumentVerifier(
+  registry: CapabilityRegistry,
+  resolver: TargetGuestResourceScopeResolver,
+): VoiceAccessDocumentVerifier {
+  if (!(registry instanceof CapabilityRegistry) || !(resolver instanceof TargetGuestResourceScopeResolver)) {
+    throw new TypeError("voice_access_document_verifier_invalid");
+  }
+  return async (document) => {
+    try {
+      const capabilityIds = registry.resolve(document.capabilityIds);
+      const resourceScopes = resolver.resolve(
+        document.providerE164,
+        capabilityIds,
+        document.resourceScopes,
+      );
+      const snapshot = await registry.snapshot(capabilityIds, resourceScopes);
+      return snapshot.accessDocumentHash === document.accessDocumentHash
+        && canonicalJson({
+          capabilityIds: snapshot.capabilityIds,
+          resourceScopes: snapshot.resourceScopes,
+        }) === canonicalJson({
+          capabilityIds: document.capabilityIds,
+          resourceScopes: document.resourceScopes,
+        });
+    } catch {
+      return false;
+    }
+  };
 }
 
 function dateEpoch(value: unknown): number {

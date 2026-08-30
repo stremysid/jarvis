@@ -10,6 +10,7 @@ import { VoiceAccessRepository } from "../../src/persistence/voice-access-reposi
 import { GuestPinVerifier } from "../../src/security/guest-pin-verifier.js";
 import { CapabilityRegistry } from "../../src/voice/capability-registry.js";
 import {
+  createTargetGuestAccessDocumentVerifier,
   OwnerAccessService,
   TargetGuestResourceScopeResolver,
 } from "../../src/voice/owner-access-service.js";
@@ -61,8 +62,8 @@ describe("OwnerAccessService", () => {
 
   beforeEach(async () => {
     await clearVoiceAccessFixture(env.DB);
-    await seedOwnerAuthority(env.DB);
     repository = new VoiceAccessRepository(env.DB);
+    await seedOwnerAuthority(env.DB, repository);
     registry = new CapabilityRegistry({
       installed: ["conversation.basic", "research.web", "calls.place", "access.manage"],
     });
@@ -313,12 +314,6 @@ describe("OwnerAccessService", () => {
       fileRootIds: ["file-root:owner", "file-root:guest-a", "file-root:guest-b"],
       pcActionIds: ["pc-action:owner", "pc-action:guest-a", "pc-action:guest-b"],
     });
-    const scopedAuthorities = new VoiceAccessAuthorityService(repository, scopedRegistry);
-    const scopedOwner = await scopedAuthorities.mintOwner({
-      sessionId: OWNER_SESSION_ID,
-      binding: ownerBinding(),
-      now: NOW,
-    });
     const scopeResolver = new TargetGuestResourceScopeResolver([
       {
         providerE164: "+14165550110",
@@ -339,8 +334,17 @@ describe("OwnerAccessService", () => {
         },
       },
     ]);
+    const scopedRepository = new VoiceAccessRepository(env.DB, {
+      accessDocumentVerifier: createTargetGuestAccessDocumentVerifier(scopedRegistry, scopeResolver),
+    });
+    const scopedAuthorities = new VoiceAccessAuthorityService(scopedRepository, scopedRegistry);
+    const scopedOwner = await scopedAuthorities.mintOwner({
+      sessionId: OWNER_SESSION_ID,
+      binding: ownerBinding(),
+      now: NOW,
+    });
     const service = new OwnerAccessService({
-      repository,
+      repository: scopedRepository,
       registry: scopedRegistry,
       authorities: scopedAuthorities,
       verifier,

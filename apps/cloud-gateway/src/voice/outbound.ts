@@ -47,7 +47,7 @@ const BINDING_FIELDS = new Set([
 ]);
 const SESSION_FIELDS = new Set([
   "sessionId", "callSid", "expectedAttemptId", "direction", "phase", "nonceExpiresAt",
-  "relaySetupExpiresAt", "providerSessionId", "createdAt", "updatedAt", "binding",
+  "relaySetupExpiresAt", "providerSessionId", "providerConnectedAt", "createdAt", "updatedAt", "binding",
 ]);
 const DISPATCH_DEPENDENCY_FIELDS = new Set(["policy", "dispatcher"]);
 const TWIML_DEPENDENCY_FIELDS = new Set([
@@ -276,6 +276,8 @@ function snapshotOutboundSession(
     || !canonicalTimestamp(session.nonceExpiresAt)
     || session.relaySetupExpiresAt !== null
     || session.providerSessionId !== null && (typeof session.providerSessionId !== "string" || !PROVIDER_SESSION_ID.test(session.providerSessionId))
+    || (session.providerSessionId === null) !== (session.providerConnectedAt === null)
+    || session.providerConnectedAt !== null && !canonicalTimestamp(session.providerConnectedAt)
     || !canonicalTimestamp(session.createdAt)
     || !canonicalTimestamp(session.updatedAt)
     || session.updatedAt < session.createdAt
@@ -291,6 +293,7 @@ function snapshotOutboundSession(
     nonceExpiresAt: session.nonceExpiresAt,
     relaySetupExpiresAt: null,
     providerSessionId: session.providerSessionId as string | null,
+    providerConnectedAt: session.providerConnectedAt as string | null,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     binding,

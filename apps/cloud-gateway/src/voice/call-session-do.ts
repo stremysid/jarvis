@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { newUlid, type RelayBinding, type Ulid } from "../../../../packages/contracts/src/index.js";
+import { newUlid, type CallPhase, type RelayBinding, type Ulid } from "../../../../packages/contracts/src/index.js";
 import type { Env } from "../env.js";
 import {
   createVoiceStreamDelivery,
@@ -13,16 +13,25 @@ import {
   type StoredCallSession,
 } from "../persistence/call-repository.js";
 import { EventRepository } from "../persistence/event-repository.js";
+import { VoiceAccessRepository } from "../persistence/voice-access-repository.js";
+import { GuestPinVerifier } from "../security/guest-pin-verifier.js";
 import {
   IdentityChallengeService,
   VerifiedChannelObservationAuthority,
 } from "../sync/identity-challenge.js";
 import {
   AuthenticationAttemptBudget,
-  PinAuthenticationService,
   evaluatePinAttempt,
-  type PinAuthenticationProof,
 } from "./inbound-auth.js";
+import { parseOwnerAccessIntent, type OwnerAccessDraft } from "./owner-access-intent.js";
+import { OwnerAccessService, type OwnerPinSelection, type PreparedOwnerAccessProposal } from "./owner-access-service.js";
+import { FourDigitPinCapture, normalizeSpokenPin } from "./pin-capture.js";
+import {
+  GuestPinProofIssuer,
+  type GuestPinAuthenticationProof,
+  type VoiceCallAuthority,
+  VoiceAccessAuthorityService,
+} from "./voice-access-authority.js";
 import {
   OUTBOUND_VOICEMAIL_MESSAGE,
   type OutboundPreAuthenticationContract,
@@ -40,27 +49,34 @@ const ACTIVATION_RESPONSE = /^\d{6}$/u;
 const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const MAX_RELAY_FRAME_BYTES = 64 * 1024;
 const INITIALIZATION_KEY = "call-session.initialization.v1";
+const TERMINATION_KEY = "call-session.termination.v1";
 const BINDING_FIELDS = new Set([
   "callSid", "principalId", "identityId", "destinationIdentityId", "relayNonce",
   "direction", "activationOnly", "activationChallengeId",
   "accessKind", "guestGrantId", "guestGrantVersion", "accessDocumentHash",
 ]);
 const ACTIVATION_DEPENDENCY_FIELDS = new Set([
-  "database", "authentication", "budgets", "observations", "challenges",
+  "database", "budgets", "observations", "challenges",
 ]);
-const ACTIVATION_INPUT_FIELDS = new Set(["sessionId", "binding", "pinProof", "response", "now"]);
+const ACTIVATION_INPUT_FIELDS = new Set(["sessionId", "binding", "response", "now"]);
 const PRE_AUTHENTICATION_FIELDS = new Set(["voicemailMessage"]);
 const INBOUND_INITIALIZATION_FIELDS = new Set(["sessionId", "binding", "relaySetupExpiresAt"]);
 const OUTBOUND_INITIALIZATION_FIELDS = new Set([
   "sessionId", "binding", "relaySetupExpiresAt", "preAuthentication",
 ]);
 const SOCKET_ATTACHMENT_FIELDS = new Set(["sessionId"]);
+const TERMINATION_FIELDS = new Set(["sessionId", "phase", "reason"]);
+const TERMINATION_RECORD_FIELDS = new Set([
+  "sessionId", "phase", "reason", "callSid", "providerSessionId", "durablePhase", "cleanupState",
+]);
+const GUEST_AUTHENTICATION_DEPENDENCY_FIELDS = new Set(["repository", "budgets", "verifier", "proofs"]);
+const GUEST_AUTHENTICATION_INPUT_FIELDS = new Set(["pinDigits", "sessionId", "binding", "now"]);
 const encoder = new TextEncoder();
 
-const snapshotPinProof = PinAuthenticationService.prototype.snapshotProof;
 const reserveActivationAttempt = AuthenticationAttemptBudget.prototype.reserveActivationAttempt;
 const issueObservation = VerifiedChannelObservationAuthority.prototype.issue;
 const confirmIdentityChallenge = IdentityChallengeService.prototype.confirm;
+const reserveGuestPinAttempt = AuthenticationAttemptBudget.prototype.reservePinAttempt;
 
 function exactDataRecord(value: unknown, fields: ReadonlySet<string>, error: string): Record<string, unknown> {
   let prototype: object | null;
@@ -171,6 +187,46 @@ export interface InboundCallSessionInitialization {
 }
 
 export type CallSessionInitialization = InboundCallSessionInitialization | OutboundSessionInitialization;
+
+export type CallSessionTerminalPhase = "completed" | "failed";
+
+export interface CallSessionTermination {
+  readonly sessionId: Ulid;
+  readonly phase: CallSessionTerminalPhase;
+  readonly reason: "provider_callback";
+}
+
+export interface CallSessionTerminationResult {
+  readonly sessionId: Ulid;
+  readonly terminalPhase: CallSessionTerminalPhase;
+  readonly invalidated: boolean;
+  readonly outcome: "applied" | "replayed" | "recovered";
+}
+
+export type CallSessionTerminationErrorCode =
+  | "call_session_object_mismatch"
+  | "call_session_termination_uninitialized"
+  | "call_session_termination_binding_mismatch"
+  | "call_session_termination_state_conflict"
+  | "call_session_termination_conflict"
+  | "call_session_termination_corrupt"
+  | "call_session_termination_cleanup_failed";
+
+export class CallSessionTerminationError extends Error {
+  constructor(readonly code: CallSessionTerminationErrorCode) {
+    super(code);
+    this.name = "CallSessionTerminationError";
+  }
+}
+
+type DurableCallSessionTerminalPhase = Extract<CallPhase, "completed" | "rejected" | "failed" | "expired">;
+
+interface StoredCallSessionTermination extends CallSessionTermination {
+  readonly callSid: string;
+  readonly providerSessionId: string;
+  readonly durablePhase: DurableCallSessionTerminalPhase;
+  readonly cleanupState: "pending" | "complete";
+}
 
 function canonicalTimestamp(value: unknown): value is string {
   if (typeof value !== "string" || !UTC_MILLISECONDS.test(value)) return false;
@@ -283,16 +339,15 @@ function fixedResponse(body: string, status: number): Response {
 
 interface PhoneActivationChallengeConfirmerSetup {
   readonly database: D1Database;
-  readonly authentication: PinAuthenticationService;
   readonly budgets: AuthenticationAttemptBudget;
   readonly observations: VerifiedChannelObservationAuthority;
   readonly challenges: IdentityChallengeService;
 }
 
-/** Bridges a nominal PIN proof into the real Task 4 phone-observation authority. */
+/** Binds the signed local challenge to the exact relay session before confirming it. */
 export class PhoneActivationChallengeConfirmer {
+  readonly #database: D1Database;
   readonly #repository: DeviceRepository;
-  readonly #authentication: PinAuthenticationService;
   readonly #budgets: AuthenticationAttemptBudget;
   readonly #observations: VerifiedChannelObservationAuthority;
   readonly #challenges: IdentityChallengeService;
@@ -306,15 +361,14 @@ export class PhoneActivationChallengeConfirmer {
     if (
       input.database === null
       || typeof input.database !== "object"
-      || !(input.authentication instanceof PinAuthenticationService)
       || !(input.budgets instanceof AuthenticationAttemptBudget)
       || !(input.observations instanceof VerifiedChannelObservationAuthority)
       || !(input.challenges instanceof IdentityChallengeService)
     ) {
       throw new TypeError("phone_activation_configuration_invalid");
     }
+    this.#database = input.database as D1Database;
     this.#repository = new DeviceRepository(input.database as D1Database);
-    this.#authentication = input.authentication;
     this.#budgets = input.budgets;
     this.#observations = input.observations;
     this.#challenges = input.challenges;
@@ -323,7 +377,6 @@ export class PhoneActivationChallengeConfirmer {
   async confirm(rawInput: {
     readonly sessionId: Ulid;
     readonly binding: RelayBinding;
-    readonly pinProof: PinAuthenticationProof;
     readonly response: string;
     readonly now: Date;
   }): Promise<{ readonly identityId: string; readonly state: "active" }> {
@@ -336,19 +389,28 @@ export class PhoneActivationChallengeConfirmer {
       || typeof response !== "string" || !ACTIVATION_RESPONSE.test(response)) {
       throw new TypeError("phone_activation_input_invalid");
     }
-    const proof = snapshotPinProof.call(this.#authentication, input.pinProof);
-    if (
-      proof.sessionId !== sessionId
-      || proof.callSid !== binding.callSid
-      || proof.principalId !== binding.principalId
-      || proof.identityId !== binding.identityId
-      || proof.direction !== binding.direction
-      || proof.activationChallengeId !== binding.activationChallengeId
-      || !binding.activationOnly
-      || binding.activationChallengeId === null
-    ) {
-      throw new TypeError("pin_authentication_proof_invalid");
+    if (!binding.activationOnly || binding.activationChallengeId === null || binding.accessKind !== "owner") {
+      throw new TypeError("phone_activation_input_invalid");
     }
+    const session = await this.#database.prepare(`SELECT 1 AS valid
+      FROM call_sessions
+      WHERE session_id = ? AND call_sid = ? AND principal_id = ? AND identity_id = ?
+        AND destination_identity_id = ? AND relay_nonce = ? AND direction = ?
+        AND activation_only = 1 AND activation_challenge_id = ? AND access_kind = 'owner'
+        AND guest_grant_id IS NULL AND guest_grant_version IS NULL AND access_document_hash IS NULL
+        AND provider_session_id IS NOT NULL AND phase = 'pre_auth'`)
+      .bind(
+        sessionId,
+        binding.callSid,
+        binding.principalId,
+        binding.identityId,
+        binding.destinationIdentityId,
+        binding.relayNonce,
+        binding.direction,
+        binding.activationChallengeId,
+      )
+      .first<{ valid: number }>();
+    if (session?.valid !== 1) throw new Error("phone_activation_session_invalid");
     if (!await reserveActivationAttempt.call(this.#budgets, { binding, now })) {
       throw new Error("authentication_budget_exhausted");
     }
@@ -384,12 +446,172 @@ export interface CallSessionRelay {
   cancelOutput(): Promise<void>;
 }
 
+function snapshotTermination(value: unknown): Readonly<CallSessionTermination> {
+  const captured = exactDataRecord(value, TERMINATION_FIELDS, "call_session_termination_invalid");
+  if (
+    typeof captured.sessionId !== "string" || !ULID.test(captured.sessionId)
+    || captured.phase !== "completed" && captured.phase !== "failed"
+    || captured.reason !== "provider_callback"
+  ) throw new TypeError("call_session_termination_invalid");
+  return Object.freeze({
+    sessionId: captured.sessionId as Ulid,
+    phase: captured.phase,
+    reason: captured.reason,
+  });
+}
+
+function terminationFailure(code: CallSessionTerminationErrorCode): CallSessionTerminationError {
+  return new CallSessionTerminationError(code);
+}
+
+function sameTermination(
+  left: Readonly<CallSessionTermination>,
+  right: Readonly<CallSessionTermination>,
+): boolean {
+  return left.sessionId === right.sessionId
+    && left.phase === right.phase
+    && left.reason === right.reason;
+}
+
+function snapshotTerminationRecord(value: unknown): Readonly<StoredCallSessionTermination> {
+  const captured = exactDataRecord(value, TERMINATION_RECORD_FIELDS, "call_session_termination_corrupt");
+  if (
+    typeof captured.sessionId !== "string" || !ULID.test(captured.sessionId)
+    || captured.phase !== "completed" && captured.phase !== "failed"
+    || captured.reason !== "provider_callback"
+    || typeof captured.callSid !== "string" || !CALL_SID.test(captured.callSid)
+    || typeof captured.providerSessionId !== "string" || !/^VX[0-9A-Fa-f]{32}$/u.test(captured.providerSessionId)
+    || captured.durablePhase !== "completed" && captured.durablePhase !== "rejected"
+      && captured.durablePhase !== "failed" && captured.durablePhase !== "expired"
+    || captured.cleanupState !== "pending" && captured.cleanupState !== "complete"
+  ) {
+    throw terminationFailure("call_session_termination_corrupt");
+  }
+  return Object.freeze({
+    sessionId: captured.sessionId as Ulid,
+    phase: captured.phase,
+    reason: captured.reason,
+    callSid: captured.callSid,
+    providerSessionId: captured.providerSessionId,
+    durablePhase: captured.durablePhase,
+    cleanupState: captured.cleanupState,
+  });
+}
+
+export interface GuestCallAuthenticationSetup {
+  readonly repository: VoiceAccessRepository;
+  readonly budgets: AuthenticationAttemptBudget;
+  readonly verifier: GuestPinVerifier;
+  readonly proofs: GuestPinProofIssuer;
+}
+
+/** Reserves the Task 4 budget, verifies only the bound grant, and issues one nominal proof. */
+export class GuestCallAuthentication {
+  readonly #repository: VoiceAccessRepository;
+  readonly #budgets: AuthenticationAttemptBudget;
+  readonly #verifier: GuestPinVerifier;
+  readonly #proofs: GuestPinProofIssuer;
+
+  constructor(value: GuestCallAuthenticationSetup) {
+    const input = exactDataRecord(
+      value,
+      GUEST_AUTHENTICATION_DEPENDENCY_FIELDS,
+      "guest_call_authentication_configuration_invalid",
+    );
+    if (
+      !(input.repository instanceof VoiceAccessRepository)
+      || !(input.budgets instanceof AuthenticationAttemptBudget)
+      || !(input.verifier instanceof GuestPinVerifier)
+      || !(input.proofs instanceof GuestPinProofIssuer)
+    ) {
+      throw new TypeError("guest_call_authentication_configuration_invalid");
+    }
+    this.#repository = input.repository;
+    this.#budgets = input.budgets;
+    this.#verifier = input.verifier;
+    this.#proofs = input.proofs;
+  }
+
+  async authenticate(value: {
+    readonly pinDigits: Uint8Array;
+    readonly sessionId: Ulid;
+    readonly binding: RelayBinding;
+    readonly now: Date;
+  }): Promise<GuestPinAuthenticationProof | null> {
+    const input = exactDataRecord(
+      value,
+      GUEST_AUTHENTICATION_INPUT_FIELDS,
+      "guest_call_authentication_input_invalid",
+    );
+    if (typeof input.sessionId !== "string" || !ULID.test(input.sessionId)) {
+      throw new TypeError("guest_call_authentication_input_invalid");
+    }
+    const binding = snapshotBinding(input.binding);
+    const now = snapshotDate(input.now);
+    const pinDigits = input.pinDigits;
+    if (
+      !(pinDigits instanceof Uint8Array)
+      || pinDigits.byteLength !== 4
+      || binding.accessKind !== "guest"
+      || binding.guestGrantId === null
+      || binding.guestGrantVersion === null
+      || binding.accessDocumentHash === null
+    ) {
+      if (pinDigits instanceof Uint8Array) pinDigits.fill(0);
+      throw new TypeError("guest_call_authentication_input_invalid");
+    }
+    const reserved = await reserveGuestPinAttempt.call(this.#budgets, { binding, now });
+    if (!reserved) {
+      pinDigits.fill(0);
+      throw new Error("authentication_budget_exhausted");
+    }
+    const grant = await this.#repository.getGuestGrant(binding.guestGrantId);
+    if (
+      grant === null
+      || !["pending", "active"].includes(grant.status)
+      || grant.principalId !== binding.principalId
+      || grant.identityId !== binding.identityId
+      || grant.grantVersion !== binding.guestGrantVersion
+      || grant.accessDocumentHash !== binding.accessDocumentHash
+    ) {
+      pinDigits.fill(0);
+      throw new Error("call_authority_stale");
+    }
+    if (!await this.#verifier.verify(grant.grantId, pinDigits, grant.pinVerifier)) return null;
+    return this.#proofs.issue({
+      sessionId: input.sessionId as Ulid,
+      callSid: binding.callSid,
+      relayNonce: binding.relayNonce,
+      direction: binding.direction,
+      principalId: binding.principalId,
+      identityId: binding.identityId,
+      grantId: grant.grantId,
+      grantVersion: grant.grantVersion,
+      accessDocumentHash: grant.accessDocumentHash,
+      authenticatedAt: now,
+    });
+  }
+}
+
+type CallInteraction =
+  | Readonly<{ kind: "owner_enrollment" }>
+  | Readonly<{ kind: "guest_pin" }>
+  | Readonly<{ kind: "conversation" }>
+  | Readonly<{ kind: "owner_access_pin"; proposal: PreparedOwnerAccessProposal }>
+  | Readonly<{
+    kind: "owner_access_confirmation";
+    proposal: PreparedOwnerAccessProposal;
+    pinSelection: OwnerPinSelection | null;
+  }>;
+
 export interface CallSessionCoreSetup {
   readonly session: StoredCallSession;
   readonly expectedAccountSid: string;
   readonly repository: CallRepository;
-  readonly authentication: PinAuthenticationService;
+  readonly authority?: VoiceAccessAuthorityService | null;
+  readonly guestAuthentication?: GuestCallAuthentication | null;
   readonly activation?: PhoneActivationChallengeConfirmer | null;
+  readonly ownerAccess?: OwnerAccessService | null;
   readonly conversation?: ConversationService | null;
   readonly preAuthentication?: OutboundPreAuthenticationContract;
   readonly relay: CallSessionRelay;
@@ -406,8 +628,10 @@ export class CallSessionCore {
   #session: StoredCallSession;
   readonly #expectedAccountSid: string;
   readonly #repository: CallRepository;
-  readonly #authentication: PinAuthenticationService;
+  readonly #authorityService: VoiceAccessAuthorityService | null;
+  readonly #guestAuthentication: GuestCallAuthentication | null;
   readonly #activation: PhoneActivationChallengeConfirmer | null;
+  readonly #ownerAccess: OwnerAccessService | null;
   readonly #conversation: ConversationService | null;
   readonly #preAuthentication: OutboundPreAuthenticationContract | null;
   readonly #relay: CallSessionCoreSetup["relay"];
@@ -415,21 +639,31 @@ export class CallSessionCore {
   readonly #now: () => Date;
   #relaySetupVerified: boolean;
   #setupHandledInThisInstance = false;
-  #pinDigits = "";
+  readonly #guestPin = new FourDigitPinCapture();
+  readonly #ownerAccessPin = new FourDigitPinCapture();
   #activationDigits = "";
-  #pinProof: PinAuthenticationProof | null = null;
   #activationAttempted = false;
   #failedPinAttempts = 0;
   #activeTurnAbort: AbortController | null = null;
   #lastSentAssistantEventId: Ulid | null = null;
   #socketClosed = false;
+  #authority: VoiceCallAuthority | null = null;
+  #interaction: CallInteraction;
+  #lifecycleGeneration = 0;
+  #terminationCleanupComplete = false;
+  #terminationCleanupInFlight: Promise<void> | null = null;
 
   constructor(input: CallSessionCoreSetup) {
     if (
       !(input.repository instanceof CallRepository)
-      || !(input.authentication instanceof PinAuthenticationService)
+      || input.authority !== undefined && input.authority !== null
+        && !(input.authority instanceof VoiceAccessAuthorityService)
+      || input.guestAuthentication !== undefined && input.guestAuthentication !== null
+        && !(input.guestAuthentication instanceof GuestCallAuthentication)
       || input.activation !== undefined && input.activation !== null
         && !(input.activation instanceof PhoneActivationChallengeConfirmer)
+      || input.ownerAccess !== undefined && input.ownerAccess !== null
+        && !(input.ownerAccess instanceof OwnerAccessService)
       || typeof input.expectedAccountSid !== "string"
       || !ACCOUNT_SID.test(input.expectedAccountSid)
     ) {
@@ -438,8 +672,10 @@ export class CallSessionCore {
     this.#session = input.session;
     this.#expectedAccountSid = input.expectedAccountSid;
     this.#repository = input.repository;
-    this.#authentication = input.authentication;
+    this.#authorityService = input.authority ?? null;
+    this.#guestAuthentication = input.guestAuthentication ?? null;
     this.#activation = input.activation ?? null;
+    this.#ownerAccess = input.ownerAccess ?? null;
     this.#conversation = input.conversation ?? null;
     this.#preAuthentication = input.preAuthentication === undefined
       ? null
@@ -451,6 +687,15 @@ export class CallSessionCore {
     this.#newTurnId = input.newTurnId ?? newUlid;
     this.#now = input.now;
     this.#relaySetupVerified = input.session.providerSessionId !== null;
+    this.#interaction = Object.freeze({
+      kind: input.session.phase === "authenticated" || input.session.phase === "active"
+        ? "conversation"
+        : input.session.binding.accessKind === "guest"
+        ? "guest_pin"
+        : input.session.binding.activationOnly
+          ? "owner_enrollment"
+          : "conversation",
+    }) as CallInteraction;
   }
 
   get phase(): StoredCallSession["phase"] {
@@ -471,15 +716,16 @@ export class CallSessionCore {
   }
 
   async handleRelayEvent(event: RelayEvent): Promise<void> {
+    if (this.#socketClosed) return;
     if (event.type === "setup") {
       await this.#handleRelaySetup(event);
       return;
     }
     if (!this.#relaySetupVerified) throw new Error("relay_setup_required");
-    if (this.#socketClosed) return;
     if (this.#session.phase === "created" || this.#session.phase === "connecting") {
       await this.#resumeBoundPreAuthentication(this.#now());
     }
+    await this.#rehydrateAuthority(this.#now());
     switch (event.type) {
       case "dtmf":
         await this.#handleDtmf(event);
@@ -563,22 +809,199 @@ export class CallSessionCore {
     if (enteredPreAuthentication && this.#preAuthentication !== null) {
       await this.#relay.sendNeutralText(this.#preAuthentication.voicemailMessage);
     }
+    if (this.#session.phase === "pre_auth") {
+      if (this.#session.binding.activationOnly) {
+        this.#interaction = Object.freeze({ kind: "owner_enrollment" });
+        if (enteredPreAuthentication) {
+          await this.#relay.sendNeutralText(
+            "Enter the one-time phone enrollment challenge shown in your local Jarvis CLI.",
+          );
+        }
+      } else if (this.#authorityService !== null && this.#session.binding.accessKind === "owner") {
+        this.#authority = await this.#authorityService.mintOwner({
+          sessionId: this.#session.sessionId,
+          binding: this.#session.binding,
+          now: observedAt,
+        });
+        const authenticated = await this.#repository.getCallSession(this.#session.sessionId);
+        if (authenticated === null || authenticated.phase !== "authenticated") {
+          throw new Error("call_authority_write_failed");
+        }
+        this.#session = authenticated;
+        await this.#transition("active", observedAt);
+        this.#interaction = Object.freeze({ kind: "conversation" });
+      } else if (this.#authorityService !== null && this.#session.binding.accessKind === "guest") {
+        this.#interaction = Object.freeze({ kind: "guest_pin" });
+        if (enteredPreAuthentication) await this.#relay.sendNeutralText("Enter your four digit PIN.");
+      }
+    }
+  }
+
+  async #rehydrateAuthority(observedAt: Date): Promise<void> {
+    if (
+      this.#authority !== null
+      || this.#authorityService === null
+      || this.#session.binding.activationOnly
+      || this.#session.phase !== "authenticated" && this.#session.phase !== "active"
+    ) return;
+    try {
+      this.#authority = await this.#authorityService.rehydrate({
+        sessionId: this.#session.sessionId,
+        binding: this.#session.binding,
+        now: observedAt,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === "call_authority_expired") {
+        await this.#transition("expired", observedAt);
+      }
+      throw error;
+    }
+    this.#interaction = Object.freeze({ kind: "conversation" });
   }
 
   #clearAuthenticationState(): void {
-    this.#pinDigits = "";
+    this.#guestPin.clear();
     this.#activationDigits = "";
-    this.#pinProof = null;
+  }
+
+  #clearOwnerAccessState(): void {
+    const interaction = this.#interaction;
+    if (interaction.kind === "owner_access_confirmation" && interaction.pinSelection?.kind === "explicit") {
+      interaction.pinSelection.digits.fill(0);
+    }
+    if (interaction.kind === "owner_access_pin" || interaction.kind === "owner_access_confirmation") {
+      this.#ownerAccess?.invalidate(interaction.proposal);
+      this.#interaction = Object.freeze({ kind: "conversation" });
+    }
+    this.#ownerAccessPin.clear();
+  }
+
+  async #beginOwnerAccess(draft: OwnerAccessDraft, observedAt: Date): Promise<void> {
+    if (this.#ownerAccess === null || this.#authorityService === null || this.#authority?.kind !== "owner") {
+      throw new Error("owner_access_unavailable");
+    }
+    this.#clearOwnerAccessState();
+    await this.#authorityService.authorize(this.#authority, "access.manage", observedAt);
+    const proposal = await this.#ownerAccess.prepare({
+      ownerAuthority: this.#authority,
+      sessionId: this.#session.sessionId,
+      draft,
+      now: observedAt,
+    });
+    if (proposal.operation === "add" || proposal.operation === "rotate_pin") {
+      this.#interaction = Object.freeze({ kind: "owner_access_pin", proposal });
+      await this.#relay.sendNeutralText(
+        `Enter four digits or say use the default for ${proposal.maskedTarget ?? "the caller"}.`,
+      );
+      return;
+    }
+    this.#interaction = Object.freeze({
+      kind: "owner_access_confirmation",
+      proposal,
+      pinSelection: null,
+    });
+    await this.#relay.sendNeutralText("Say confirm to apply this access change, or cancel.");
+  }
+
+  async #captureOwnerAccessPin(event: Extract<RelayEvent, { type: "prompt" }>): Promise<void> {
+    if (this.#interaction.kind !== "owner_access_pin") return;
+    let pinSelection: OwnerPinSelection;
+    if (event.text === "use the default") {
+      pinSelection = Object.freeze({ kind: "default" });
+    } else {
+      const digits = normalizeSpokenPin(event.text);
+      if (digits === null) {
+        await this.#relay.sendNeutralText("Use the keypad, say exactly four digits, or say use the default.");
+        return;
+      }
+      pinSelection = Object.freeze({ kind: "explicit", digits });
+    }
+    this.#interaction = Object.freeze({
+      kind: "owner_access_confirmation",
+      proposal: this.#interaction.proposal,
+      pinSelection,
+    });
+    await this.#relay.sendNeutralText("Say confirm to apply this access change, or cancel.");
+  }
+
+  async #confirmOwnerAccess(text: string, observedAt: Date): Promise<void> {
+    if (this.#interaction.kind !== "owner_access_confirmation") return;
+    if (text === "cancel") {
+      this.#clearOwnerAccessState();
+      await this.#relay.sendNeutralText("Access change cancelled.");
+      return;
+    }
+    if (text !== "confirm") {
+      await this.#relay.sendNeutralText("Say confirm to apply this access change, or cancel.");
+      return;
+    }
+    if (this.#ownerAccess === null || this.#authority?.kind !== "owner") {
+      this.#clearOwnerAccessState();
+      throw new Error("owner_access_unavailable");
+    }
+    const interaction = this.#interaction;
+    try {
+      const result = await this.#ownerAccess.execute({
+        proposal: interaction.proposal,
+        ownerAuthority: this.#authority,
+        pinSelection: interaction.pinSelection,
+        now: observedAt,
+      });
+      await this.#relay.sendNeutralText(result.speech);
+    } finally {
+      this.#clearOwnerAccessState();
+    }
   }
 
   async #handlePrompt(event: Extract<RelayEvent, { type: "prompt" }>): Promise<void> {
+    if (
+      this.#authorityService !== null
+      && this.#interaction.kind === "guest_pin"
+      && this.#session.phase === "pre_auth"
+    ) {
+      if (!event.final) return;
+      const candidate = normalizeSpokenPin(event.text);
+      if (candidate === null) {
+        await this.#relay.sendNeutralText("Use the keypad to enter four digits.");
+        return;
+      }
+      await this.#authenticateGuest(candidate);
+      return;
+    }
     if (!event.final || this.#session.phase !== "active" || event.text.length === 0) return;
     if (event.language !== "en-US") throw new Error("turn_language_unsupported");
     if (Array.from(event.text).length > 8_000 || encoder.encode(event.text).byteLength > 65_536) {
       throw new Error("turn_too_large");
     }
     if (this.#activeTurnAbort !== null) throw new Error("turn_in_progress");
+    if (this.#authority?.kind === "owner" && this.#ownerAccess !== null) {
+      const draft = parseOwnerAccessIntent(event.text);
+      if (draft !== null) {
+        await this.#beginOwnerAccess(draft, this.#now());
+        return;
+      }
+      if (this.#interaction.kind === "owner_access_pin") {
+        await this.#captureOwnerAccessPin(event);
+        return;
+      }
+      if (this.#interaction.kind === "owner_access_confirmation") {
+        await this.#confirmOwnerAccess(event.text, this.#now());
+        return;
+      }
+    }
+
     if (this.#conversation === null) throw new Error("conversation_unavailable");
+    const lifecycleGeneration = this.#lifecycleGeneration;
+    if (this.#authorityService !== null) {
+      await this.#authorityService.authorize(this.#authority, "conversation.basic", this.#now());
+    }
+    if (
+      lifecycleGeneration !== this.#lifecycleGeneration
+      || this.#socketClosed
+      || this.#session.phase !== "active"
+    ) {
+      throw new Error("call_session_terminal");
+    }
 
     const turnId = this.#newTurnId();
     const controller = new AbortController();
@@ -613,71 +1036,84 @@ export class CallSessionCore {
   }
 
   async #handleDtmf(event: RelayDtmfEvent): Promise<void> {
-    if (this.#session.phase === "authenticated" && this.#session.binding.activationOnly) {
+    if (
+      this.#authorityService !== null
+      && this.#interaction.kind === "guest_pin"
+      && this.#session.phase === "pre_auth"
+    ) {
+      const status = this.#guestPin.pushDtmf(event.digit);
+      if (status !== "complete") return;
+      const candidate = this.#guestPin.take();
+      if (candidate === null) throw new Error("guest_pin_capture_failed");
+      await this.#authenticateGuest(candidate);
+      return;
+    }
+    if (this.#session.phase === "active" && this.#interaction.kind === "owner_access_pin") {
+      const status = this.#ownerAccessPin.pushDtmf(event.digit);
+      if (status !== "complete") return;
+      const digits = this.#ownerAccessPin.take();
+      if (digits === null) throw new Error("owner_access_pin_capture_failed");
+      this.#interaction = Object.freeze({
+        kind: "owner_access_confirmation",
+        proposal: this.#interaction.proposal,
+        pinSelection: Object.freeze({ kind: "explicit", digits }),
+      });
+      await this.#relay.sendNeutralText("Say confirm to apply this access change, or cancel.");
+      return;
+    }
+    if (
+      this.#session.phase === "pre_auth"
+      && this.#interaction.kind === "owner_enrollment"
+      && this.#session.binding.activationOnly
+    ) {
       await this.#handleActivationDtmf(event);
       return;
     }
-    if (this.#session.phase !== "pre_auth") return;
-    if (event.digit === "*" || event.digit === "#") {
-      this.#pinDigits = "";
-      return;
-    }
-    if (!/^\d$/u.test(event.digit)) {
-      this.#pinDigits = "";
-      return;
-    }
-    this.#pinDigits += event.digit;
-    if (this.#pinDigits.length < 8) return;
+  }
 
-    const candidate = this.#pinDigits;
-    this.#pinDigits = "";
+  async #authenticateGuest(candidate: Uint8Array): Promise<void> {
     const observedAt = this.#now();
-    let proof;
     try {
-      proof = await this.#authentication.authenticate({
-        pinDigits: candidate,
+      if (this.#guestAuthentication === null || this.#authorityService === null) {
+        throw new Error("guest_authentication_unavailable");
+      }
+      let proof: GuestPinAuthenticationProof | null;
+      try {
+        proof = await this.#guestAuthentication.authenticate({
+          pinDigits: candidate,
+          sessionId: this.#session.sessionId,
+          binding: this.#session.binding,
+          now: observedAt,
+        });
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== "authentication_budget_exhausted") throw error;
+        await this.#transition("rejected", observedAt);
+        return;
+      }
+      if (proof === null) {
+        const result = evaluatePinAttempt({ failedAttempts: this.#failedPinAttempts, pinMatches: false });
+        this.#failedPinAttempts = result.nextFailedAttempts;
+        if (result.terminateCall) await this.#transition("rejected", observedAt);
+        return;
+      }
+      this.#authority = await this.#authorityService.mintGuest({
         sessionId: this.#session.sessionId,
         binding: this.#session.binding,
+        pinProof: proof,
         now: observedAt,
       });
-    } catch (error) {
-      if (!(error instanceof Error) || error.message !== "authentication_budget_exhausted") throw error;
-      await this.#transition("rejected", observedAt);
-      return;
-    }
-
-    if (proof === null) {
-      const result = evaluatePinAttempt({ failedAttempts: this.#failedPinAttempts, pinMatches: false });
-      this.#failedPinAttempts = result.nextFailedAttempts;
-      if (result.terminateCall) await this.#transition("rejected", observedAt);
-      return;
-    }
-
-    const authenticated = this.#authentication.snapshotProof(proof);
-    if (
-      authenticated.sessionId !== this.#session.sessionId
-      || authenticated.callSid !== this.#session.callSid
-      || authenticated.principalId !== this.#session.binding.principalId
-      || authenticated.identityId !== this.#session.binding.identityId
-      || authenticated.direction !== this.#session.direction
-      || authenticated.activationChallengeId !== this.#session.binding.activationChallengeId
-    ) {
-      throw new Error("pin_authentication_proof_invalid");
-    }
-    this.#failedPinAttempts = 0;
-    await this.#transition("authenticated", observedAt);
-    if (!this.#session.binding.activationOnly) {
+      const authenticated = await this.#repository.getCallSession(this.#session.sessionId);
+      if (authenticated === null || authenticated.phase !== "authenticated") {
+        throw new Error("call_authority_write_failed");
+      }
+      this.#session = authenticated;
+      this.#failedPinAttempts = 0;
       await this.#transition("active", observedAt);
-      return;
+      this.#interaction = Object.freeze({ kind: "conversation" });
+    } finally {
+      candidate.fill(0);
+      this.#guestPin.clear();
     }
-    if (this.#activation === null) {
-      await this.#transition("failed", observedAt);
-      return;
-    }
-    this.#pinProof = proof;
-    await this.#relay.sendNeutralText(
-      "Enter the one-time phone enrollment challenge shown in your local Jarvis CLI.",
-    );
   }
 
   async #handleActivationDtmf(event: RelayDtmfEvent): Promise<void> {
@@ -694,12 +1130,10 @@ export class CallSessionCore {
     if (this.#activationDigits.length < 6) return;
 
     const response = this.#activationDigits;
-    const proof = this.#pinProof;
     this.#activationDigits = "";
-    this.#pinProof = null;
     this.#activationAttempted = true;
     const observedAt = this.#now();
-    if (this.#activation === null || proof === null) {
+    if (this.#activation === null) {
       await this.#transition("failed", observedAt);
       await this.#relay.sendNeutralText("Phone verification could not be completed.");
       return;
@@ -708,7 +1142,6 @@ export class CallSessionCore {
       await this.#activation.confirm({
         sessionId: this.#session.sessionId,
         binding: this.#session.binding,
-        pinProof: proof,
         response,
         now: observedAt,
       });
@@ -717,6 +1150,7 @@ export class CallSessionCore {
       await this.#relay.sendNeutralText("Phone verification could not be completed.");
       return;
     }
+    await this.#transition("authenticated", observedAt);
     await this.#transition("ending", observedAt);
     await this.#transition("completed", observedAt);
     await this.#relay.sendNeutralText("Phone verification complete. Please call again to use Jarvis.");
@@ -726,15 +1160,14 @@ export class CallSessionCore {
     this.#activeTurnAbort?.abort();
     await this.#relay.cancelOutput();
     this.#lastSentAssistantEventId = null;
+    this.#clearOwnerAccessState();
   }
 
   async handleSocketClose(reason: "socket_closed" | "provider_error" = "socket_closed"): Promise<void> {
     if (this.#socketClosed) return;
     this.#socketClosed = true;
     await this.#cancelCurrentOutput();
-    this.#pinDigits = "";
     this.#activationDigits = "";
-    this.#pinProof = null;
     const observedAt = this.#now();
     if (this.#session.phase === "completed" || this.#session.phase === "rejected"
       || this.#session.phase === "failed" || this.#session.phase === "expired") return;
@@ -755,6 +1188,36 @@ export class CallSessionCore {
     await this.#transition("failed", observedAt);
   }
 
+  async terminate(phase: DurableCallSessionTerminalPhase): Promise<void> {
+    if (!TERMINAL_PHASES.has(phase)) throw new TypeError("call_session_termination_invalid");
+    if (this.#terminationCleanupComplete) return;
+    if (this.#terminationCleanupInFlight !== null) return this.#terminationCleanupInFlight;
+    const cleanup = this.#terminateOnce(phase);
+    this.#terminationCleanupInFlight = cleanup;
+    try { await cleanup; }
+    finally {
+      if (this.#terminationCleanupInFlight === cleanup) this.#terminationCleanupInFlight = null;
+    }
+  }
+
+  async #terminateOnce(phase: DurableCallSessionTerminalPhase): Promise<void> {
+    this.#lifecycleGeneration += 1;
+    this.#socketClosed = true;
+    this.#activeTurnAbort?.abort();
+    this.#activeTurnAbort = null;
+    this.#lastSentAssistantEventId = null;
+    this.#activationDigits = "";
+    this.#activationAttempted = false;
+    this.#failedPinAttempts = 0;
+    this.#clearOwnerAccessState();
+    this.#clearAuthenticationState();
+    this.#authorityService?.invalidate(this.#authority);
+    this.#authority = null;
+    this.#session = Object.freeze({ ...this.#session, phase });
+    await this.#relay.cancelOutput();
+    this.#terminationCleanupComplete = true;
+  }
+
   async #transition(nextPhase: StoredCallSession["phase"], now: Date): Promise<void> {
     this.#session = await this.#repository.transitionCallSession({
       sessionId: this.#session.sessionId,
@@ -762,6 +1225,13 @@ export class CallSessionCore {
       nextPhase,
       now,
     });
+    if (TERMINAL_PHASES.has(nextPhase)) {
+      this.#lifecycleGeneration += 1;
+      this.#authorityService?.invalidate(this.#authority);
+      this.#authority = null;
+      this.#clearOwnerAccessState();
+      this.#clearAuthenticationState();
+    }
   }
 }
 
@@ -804,8 +1274,12 @@ const TERMINAL_PHASES = new Set(["completed", "rejected", "failed", "expired"]);
 /** Hibernation-safe per-session storage and WebSocket boundary. */
 export class CallSession extends DurableObject<Env> {
   readonly #runtimeFactory: CallSessionRuntimeFactory | null;
-  readonly #cores = new WeakMap<WebSocket, CallSessionCore>();
+  readonly #cores = new Map<WebSocket, CallSessionCore>();
   readonly #policyClosedSockets = new WeakSet<WebSocket>();
+  #terminationInFlight: Readonly<{
+    termination: Readonly<CallSessionTermination>;
+    promise: Promise<CallSessionTerminationResult>;
+  }> | null = null;
 
   constructor(
     state: DurableObjectState,
@@ -836,9 +1310,192 @@ export class CallSession extends DurableObject<Env> {
     });
   }
 
+  async terminate(value: CallSessionTermination): Promise<CallSessionTerminationResult> {
+    const termination = snapshotTermination(value);
+    if (this.ctx.id.name !== termination.sessionId) {
+      throw terminationFailure("call_session_object_mismatch");
+    }
+    if (this.#terminationInFlight !== null) {
+      if (!sameTermination(this.#terminationInFlight.termination, termination)) {
+        throw terminationFailure("call_session_termination_conflict");
+      }
+      return this.#terminationInFlight.promise;
+    }
+    const promise = this.#terminateOnce(termination);
+    this.#terminationInFlight = Object.freeze({ termination, promise });
+    try { return await promise; }
+    finally {
+      if (this.#terminationInFlight?.promise === promise) this.#terminationInFlight = null;
+    }
+  }
+
+  async #terminateOnce(
+    termination: Readonly<CallSessionTermination>,
+  ): Promise<CallSessionTerminationResult> {
+    const initialization = await this.#readInitialization();
+    if (initialization === null) throw terminationFailure("call_session_termination_uninitialized");
+    const repository = new CallRepository(this.env.DB, new EventRepository(this.env.DB));
+    let session = await repository.getCallSession(termination.sessionId);
+    this.#requireExactTerminationSession(initialization, session);
+
+    const storedValue = await this.ctx.storage.get<unknown>(TERMINATION_KEY);
+    let record: Readonly<StoredCallSessionTermination>;
+    let outcome: CallSessionTerminationResult["outcome"];
+    if (storedValue === undefined) {
+      const durablePhase = await this.#terminalizeDurableSession(
+        repository,
+        initialization,
+        session as StoredCallSession,
+        termination.phase,
+      );
+      session = await repository.getCallSession(termination.sessionId);
+      this.#requireExactTerminationSession(initialization, session);
+      if (session?.phase !== durablePhase) throw terminationFailure("call_session_termination_state_conflict");
+      record = Object.freeze({
+        ...termination,
+        callSid: session.callSid,
+        providerSessionId: session.providerSessionId as string,
+        durablePhase,
+        cleanupState: "pending",
+      });
+      await this.ctx.storage.transaction(async (transaction) => {
+        const existing = await transaction.get<unknown>(TERMINATION_KEY);
+        if (existing !== undefined) {
+          const concurrent = snapshotTerminationRecord(existing);
+          if (!sameTermination(concurrent, termination)) {
+            throw terminationFailure("call_session_termination_conflict");
+          }
+          record = concurrent;
+          return;
+        }
+        await transaction.put(TERMINATION_KEY, record);
+      });
+      outcome = record.cleanupState === "pending" ? "applied" : "replayed";
+    } else {
+      record = snapshotTerminationRecord(storedValue);
+      if (!sameTermination(record, termination)) {
+        throw terminationFailure("call_session_termination_conflict");
+      }
+      outcome = record.cleanupState === "complete" ? "replayed" : "recovered";
+    }
+
+    this.#requireTerminationRecordMatchesSession(record, session as StoredCallSession);
+    if (record.cleanupState === "complete") {
+      return this.#terminationResult(termination, false, "replayed");
+    }
+
+    let cleanupFailed = false;
+    for (const core of new Set(this.#cores.values())) {
+      try { await core.terminate(record.durablePhase); }
+      catch { cleanupFailed = true; }
+    }
+    if (cleanupFailed) throw terminationFailure("call_session_termination_cleanup_failed");
+
+    this.#cores.clear();
+    for (const socket of this.ctx.getWebSockets()) closeSocket(socket, 1000, "call ended");
+    await this.ctx.storage.transaction(async (transaction) => {
+      const currentValue = await transaction.get<unknown>(TERMINATION_KEY);
+      if (currentValue === undefined) throw terminationFailure("call_session_termination_corrupt");
+      const current = snapshotTerminationRecord(currentValue);
+      if (!sameTermination(current, termination)
+        || current.callSid !== record.callSid
+        || current.providerSessionId !== record.providerSessionId
+        || current.durablePhase !== record.durablePhase) {
+        throw terminationFailure("call_session_termination_conflict");
+      }
+      if (current.cleanupState === "pending") {
+        await transaction.put(TERMINATION_KEY, Object.freeze({ ...current, cleanupState: "complete" }));
+      }
+    });
+    return this.#terminationResult(termination, outcome === "applied", outcome);
+  }
+
+  #terminationResult(
+    termination: Readonly<CallSessionTermination>,
+    invalidated: boolean,
+    outcome: CallSessionTerminationResult["outcome"],
+  ): CallSessionTerminationResult {
+    return Object.freeze({
+      sessionId: termination.sessionId,
+      terminalPhase: termination.phase,
+      invalidated,
+      outcome,
+    });
+  }
+
+  #requireExactTerminationSession(
+    initialization: Readonly<CallSessionInitialization>,
+    session: Readonly<StoredCallSession> | null,
+  ): asserts session is Readonly<StoredCallSession> {
+    if (
+      session === null
+      || !initializationMatchesSession(initialization, session)
+      || session.providerSessionId === null
+      || session.providerConnectedAt === null
+    ) {
+      throw terminationFailure("call_session_termination_binding_mismatch");
+    }
+  }
+
+  #requireTerminationRecordMatchesSession(
+    record: Readonly<StoredCallSessionTermination>,
+    session: Readonly<StoredCallSession>,
+  ): void {
+    if (
+      record.callSid !== session.callSid
+      || record.providerSessionId !== session.providerSessionId
+      || record.durablePhase !== session.phase
+      || !TERMINAL_PHASES.has(session.phase)
+    ) {
+      throw terminationFailure("call_session_termination_state_conflict");
+    }
+  }
+
+  async #terminalizeDurableSession(
+    repository: CallRepository,
+    initialization: Readonly<CallSessionInitialization>,
+    initial: StoredCallSession,
+    requestedPhase: CallSessionTerminalPhase,
+  ): Promise<DurableCallSessionTerminalPhase> {
+    let current = initial;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      if (TERMINAL_PHASES.has(current.phase)) {
+        if ((current.phase === "completed" || current.phase === "failed") && current.phase !== requestedPhase) {
+          throw terminationFailure("call_session_termination_state_conflict");
+        }
+        return current.phase as DurableCallSessionTerminalPhase;
+      }
+      let nextPhase: CallPhase;
+      if (requestedPhase === "failed") {
+        nextPhase = "failed";
+      } else if (current.phase === "active" || current.phase === "authenticated") {
+        nextPhase = "ending";
+      } else if (current.phase === "ending") {
+        nextPhase = "completed";
+      } else {
+        throw terminationFailure("call_session_termination_state_conflict");
+      }
+      const transitionAt = new Date(Math.max(Date.now(), new Date(current.updatedAt).valueOf()));
+      try {
+        current = await repository.transitionCallSession({
+          sessionId: current.sessionId,
+          expectedPhase: current.phase,
+          nextPhase,
+          now: transitionAt,
+        });
+      } catch {
+        const refreshed = await repository.getCallSession(current.sessionId);
+        this.#requireExactTerminationSession(initialization, refreshed);
+        current = refreshed;
+      }
+    }
+    throw terminationFailure("call_session_termination_state_conflict");
+  }
+
   override async fetch(request: Request): Promise<Response> {
     const initialization = await this.#readInitialization();
     if (initialization === null) return fixedResponse("Not implemented", 501);
+    if (await this.ctx.storage.get(TERMINATION_KEY) !== undefined) return fixedResponse("call ended", 410);
     if (request.method !== "GET" || request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       return fixedResponse("upgrade required", 426);
     }
@@ -919,6 +1576,7 @@ export class CallSession extends DurableObject<Env> {
     if (cached !== undefined) return { kind: "ready", core: cached };
     const socketSessionId = snapshotSocketSessionId(socket);
     const initialization = await this.#readInitialization();
+    if (await this.ctx.storage.get(TERMINATION_KEY) !== undefined) return { kind: "mismatch" };
     if (socketSessionId === null || initialization === null || socketSessionId !== initialization.sessionId) {
       return { kind: "mismatch" };
     }

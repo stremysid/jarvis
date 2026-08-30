@@ -3,11 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RelayEvent } from "../../src/providers/conversation-relay.js";
 import { CallRepository, type StoredCallSession } from "../../src/persistence/call-repository.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
-import {
-  AuthenticationAttemptBudget,
-  PinAuthenticationService,
-  decodePinVerifierRecord,
-} from "../../src/voice/inbound-auth.js";
 import { CallSessionCore } from "../../src/voice/call-session-do.js";
 import {
   OUTBOUND_VOICEMAIL_MESSAGE,
@@ -32,13 +27,6 @@ const OTHER_CALL_SID = `CA${"9".repeat(32)}`;
 const PROVIDER_SESSION_ID = `VX${"2".repeat(32)}`;
 const ACCOUNT_SID = `AC${"3".repeat(32)}`;
 const RELAY_NONCE = `${"A".repeat(42)}A`;
-const PIN_RECORD_JSON = JSON.stringify({
-  schemaVersion: "1.0",
-  algorithm: "pbkdf2-hmac-sha256",
-  iterations: 600_000,
-  saltBase64: "AAAAAAAAAAAAAAAAAAAAAA==",
-  digestBase64: "SEQMsb6DRNNigkTZFNlCnQLLXSwB1jfsvHCYVO4ib2w=",
-});
 
 async function clearFixture(): Promise<void> {
   await env.DB.prepare("DELETE FROM provider_events").run();
@@ -151,10 +139,6 @@ function core(
 ) {
   const close = vi.fn<(code: number) => void>();
   const sendNeutralText = vi.fn<(text: string) => Promise<void>>(async () => undefined);
-  const authentication = new PinAuthenticationService(
-    new AuthenticationAttemptBudget(env.DB, new Uint8Array(32).fill(7)),
-    decodePinVerifierRecord(PIN_RECORD_JSON),
-  );
   return {
     close,
     sendNeutralText,
@@ -162,7 +146,6 @@ function core(
       session,
       expectedAccountSid: ACCOUNT_SID,
       repository: repo,
-      authentication,
       activation: null,
       conversation: null,
       preAuthentication,

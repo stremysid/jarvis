@@ -644,6 +644,10 @@ function insertInboundVoiceSession(input: Readonly<{
 }
 
 async function moveSessionToPreAuth(sessionId: string): Promise<void> {
+  await env.DB.prepare(`UPDATE call_sessions
+    SET provider_session_id = 'VX' || substr(call_sid, 3), provider_connected_at = ?, updated_at = ?
+    WHERE session_id = ?`)
+    .bind(timestamp, timestamp, sessionId).run();
   await env.DB.prepare("UPDATE call_sessions SET phase = 'connecting', updated_at = ? WHERE session_id = ?")
     .bind(timestamp, sessionId).run();
   await env.DB.prepare("UPDATE call_sessions SET phase = 'pre_auth', updated_at = ? WHERE session_id = ?")
@@ -692,8 +696,12 @@ describe("voice access migration constraints", () => {
       ) ORDER BY name`).all<{ name: string }>();
     expect(triggers.results.map((row) => row.name)).toEqual([
       "call_session_authorities_delete_forbidden",
+      "call_session_authorities_guest_owner_required",
       "call_session_authorities_immutable",
+      "call_session_authorities_provider_lifetime",
       "call_session_authorities_require_current_lineage",
+      "call_sessions_voice_access_guest_owner_bind_required",
+      "call_sessions_voice_access_guest_owner_required",
       "call_sessions_voice_access_immutable",
       "call_sessions_voice_access_required",
       "voice_access_grant_events_delete_forbidden",
@@ -710,6 +718,22 @@ describe("voice access migration constraints", () => {
 
     const violations = await env.DB.prepare("PRAGMA foreign_key_check").all();
     expect(violations.results).toEqual([]);
+  });
+
+  it("persists one immutable provider-connected instant and caps authority lifetime from it", async () => {
+    const columns = await env.DB.prepare("PRAGMA table_info(call_sessions)").all<{ name: string }>();
+    expect(columns.results.map((column) => column.name)).toContain("provider_connected_at");
+    const triggers = await env.DB.prepare(`SELECT name FROM sqlite_master
+      WHERE type = 'trigger' AND name IN (
+        'call_sessions_provider_connected_at_required',
+        'call_sessions_provider_connected_at_immutable',
+        'call_session_authorities_provider_lifetime'
+      ) ORDER BY name`).all<{ name: string }>();
+    expect(triggers.results.map((row) => row.name)).toEqual([
+      "call_session_authorities_provider_lifetime",
+      "call_sessions_provider_connected_at_immutable",
+      "call_sessions_provider_connected_at_required",
+    ]);
   });
 
   it("enforces one owner plus append-only grant and event lineage", async () => {
