@@ -36,4 +36,15 @@ describe("Redactor", () => {
     });
     if (result.ok) expect(result.text).not.toContain("secret");
   });
+
+  it.each(["api key = whitespace-secret", "api   key = whitespace-secret"])("redacts whitespace-separated API-key labels", (input) => {
+    const result = new Redactor().redactText(input);
+
+    expect(result).toMatchObject({
+      ok: true,
+      text: "[REDACTED_CREDENTIAL]",
+      markers: ["credential"],
+    });
+    if (result.ok) expect(result.text).not.toContain("whitespace-secret");
+  });
 });

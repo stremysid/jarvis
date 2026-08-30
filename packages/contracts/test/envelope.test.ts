@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canonicalJson, createEnvelope, validateEnvelope, type CreateEnvelopeInput } from "../src";
+import { canonicalJson, createEnvelope, sha256Hex, validateEnvelope, type CreateEnvelopeInput } from "../src";
 import { Redactor } from "../../../apps/cloud-gateway/src/security/redaction";
 
 function redacted(text: string) {
@@ -112,6 +112,44 @@ describe("event envelopes", () => {
     });
     expect(envelope.redaction).toEqual({ status: "redacted", markers: ["authentication_digits"] });
     expect(canonicalJson(envelope.payload)).not.toContain("123456");
+  });
+
+  it("does not retain whitespace-separated API-key credentials in materialized payloads", async () => {
+    const credential = redacted("api key = whitespace-secret");
+    const envelope = await createEnvelope({ ...input, payload: { credential } } as never);
+
+    expect(envelope.payload).toEqual({ credential: "[REDACTED_CREDENTIAL]" });
+    expect(canonicalJson(envelope.payload)).not.toContain("whitespace-secret");
+  });
+
+  it.each([
+    ["a top-level authorization header", { "Authorization: Basic secret": redacted("safe") }],
+    ["a top-level raw message", { "raw message 123456": redacted("safe") }],
+    ["a nested authorization header", { nested: { "Authorization: Basic secret": redacted("safe") } }],
+    ["a nested raw message", { nested: { "raw message 123456": redacted("safe") } }],
+  ])("rejects %s as a producer payload key", async (_label, payload) => {
+    await expect(createEnvelope({ ...input, payload } as never)).rejects.toThrow("payload key");
+  });
+
+  it("accepts camelCase and snake_case keys at nested payload levels", async () => {
+    const safe = redacted("safe");
+    await expect(createEnvelope({
+      ...input,
+      payload: { camelCase: safe, snake_case: { nestedKey: safe, nested_key: safe } },
+    } as never)).resolves.toMatchObject({
+      payload: { camelCase: "safe", snake_case: { nestedKey: "safe", nested_key: "safe" } },
+    });
+  });
+
+  it("rejects unsafe payload keys in received envelopes even with a matching hash", async () => {
+    const envelope = await createEnvelope(input);
+    const payload = { "Authorization: Basic secret": "materialized text" };
+
+    await expect(validateEnvelope({
+      ...envelope,
+      payload,
+      contentHash: await sha256Hex(canonicalJson(payload)),
+    })).rejects.toThrow("payload key");
   });
 
   it("rejects an envelope whose hash does not match its payload", async () => {

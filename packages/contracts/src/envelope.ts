@@ -50,6 +50,7 @@ const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const SCHEMA_VERSION = /^(\d+)\.(\d+)$/;
+const PAYLOAD_KEY = /^[a-z][A-Za-z0-9_]{0,63}$/;
 const CREATE_FIELDS = new Set([
   "schemaVersion", "eventId", "eventSequence", "eventType", "source", "subjectId", "occurredAt", "receivedAt",
   "correlationId", "causationId", "contentType", "payload", "producerVersion",
@@ -94,6 +95,22 @@ function requireRedaction(value: unknown): void {
   }
 }
 
+function requirePayloadKey(key: string, path: string): void {
+  if (!PAYLOAD_KEY.test(key)) throw new TypeError(`${path} payload key is not a schema identifier`);
+}
+
+function validatePayloadKeys(value: JsonValue, path = "payload"): void {
+  if (value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => validatePayloadKeys(item, `${path}[${index}]`));
+    return;
+  }
+  for (const key of Object.keys(value)) {
+    requirePayloadKey(key, path);
+    validatePayloadKeys(value[key], `${path}.${key}`);
+  }
+}
+
 function materializePayload(value: unknown, markers: Set<string>, path = "payload"): JsonValue {
   if (isIssuedRedaction(value)) {
     for (const marker of value.markers) markers.add(marker);
@@ -120,7 +137,10 @@ function materializePayload(value: unknown, markers: Set<string>, path = "payloa
   const record = value as Record<string, unknown>;
   if (record.ok === true && Object.hasOwn(record, "text")) throw new TypeError(`${path} contains a forged redaction token`);
   const materialized: Record<string, JsonValue> = Object.create(null) as Record<string, JsonValue>;
-  for (const key of Object.keys(record)) materialized[key] = materializePayload(record[key], markers, `${path}.${key}`);
+  for (const key of Object.keys(record)) {
+    requirePayloadKey(key, path);
+    materialized[key] = materializePayload(record[key], markers, `${path}.${key}`);
+  }
   return materialized;
 }
 
@@ -162,6 +182,7 @@ export async function validateEnvelope(value: unknown): Promise<EventEnvelopeV1>
   if (envelope.contentType !== "application/json") throw new TypeError("contentType must be application/json");
   if (typeof envelope.contentHash !== "string" || !SHA256.test(envelope.contentHash)) throw new TypeError("contentHash must be a lowercase SHA-256 hash");
   requireRedaction(envelope.redaction);
+  validatePayloadKeys(envelope.payload);
 
   const computedHash = await sha256Hex(canonicalJson(envelope.payload));
   if (computedHash !== envelope.contentHash) throw new TypeError("contentHash does not match payload");

@@ -4,7 +4,7 @@ const redactionToken = Symbol("redactionToken");
 const issuedRedactions = new WeakSet<object>();
 const AUTHENTICATION_DIGITS = /(?<!\d)\d{6}(?!\d)/g;
 const AUTHORIZATION_HEADER = /\bauthorization\s*:\s*[^\r\n]*/gi;
-const CREDENTIALS = /\b(?:api[_-]?key\s*[=:]|password\s*[=:])\s*[^\s,;]+/gi;
+const CREDENTIALS = /\b(?:api(?:[_-]|\s+)?key\s*[=:]|password\s*[=:])\s*[^\s,;]+/gi;
 
 export interface OutboundCallCommand {
   commandId: Ulid;
