@@ -78,7 +78,7 @@ describe("D1TwilioCallbackRecorder", () => {
       callSid: CALL_SID,
       callbackSource: "call-progress-events",
       sequenceNumber: 2,
-      callStatus: "completed",
+      callStatus: "initiated",
       requestHash: REQUEST_HASH,
     }));
 
@@ -99,7 +99,7 @@ describe("D1TwilioCallbackRecorder", () => {
     expect(stored?.subject_id).toBe("principal:owner");
     expect(JSON.parse(stored?.envelope_json ?? "null")).toMatchObject({
       correlationId: COMMAND_ID,
-      payload: { callStatus: "completed", sequenceNumber: 2 },
+      payload: { callStatus: "initiated", sequenceNumber: 2 },
     });
     await expect(repository.resolveDispatchIntent(COMMAND_ID)).resolves.toMatchObject({
       kind: "existing",

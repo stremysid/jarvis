@@ -50,11 +50,12 @@ describe("calling entrypoint boundary", () => {
     );
   });
 
-  it("fails closed before Task 6 installs Worker routes", async () => {
+  it("fails closed when voice route dependencies are unavailable", async () => {
     const response = await SELF.fetch("https://jarvis.test/voice/inbound", { method: "POST", body: "untrusted" });
 
-    expect(response.status).toBe(501);
-    expect(await response.text()).toBe("Not implemented");
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.text()).toBe("unavailable");
   });
 
   it("exports the correctly bound Durable Object as a fail-closed skeleton", async () => {

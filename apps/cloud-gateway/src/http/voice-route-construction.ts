@@ -1,4 +1,5 @@
 import type { TwilioRequestVerifier } from "../providers/provider-types.js";
+import type { CapacityGuard } from "../archive/capacity-guard.js";
 import { snapshotTrustedPublicOrigin } from "../security/trusted-public-origin.js";
 import {
   handleInboundVoiceWebhook,
@@ -20,10 +21,12 @@ export type InboundVoiceRoutePorts = Omit<
   "twilio" | "exactInboundWebhookUrl" | "publicOrigin"
 >;
 export type OutboundVoiceRoutePorts = Omit<OutboundTwiMLDependencies, "twilio" | "publicOrigin">;
+type CapacityGuardPort = Pick<CapacityGuard, "assertAcceptingNewTurn">;
 
 export interface VoiceRouteConstruction {
   publicOrigin: URL;
   twilio: TwilioRequestVerifier;
+  capacity?: CapacityGuardPort;
   inbound?: InboundVoiceRoutePorts;
   outbound?: OutboundVoiceRoutePorts;
   callbacks?: TwilioCallbackRecorder;
@@ -42,10 +45,39 @@ function notImplemented(): Promise<Response> {
   return Promise.resolve(new Response("Not implemented", { status: 501 }));
 }
 
+function method(value: unknown, name: string): { receiver: object; call: (...args: never[]) => unknown } | null {
+  if (value === null || typeof value !== "object") return null;
+  let descriptor: PropertyDescriptor | undefined;
+  try {
+    descriptor = Object.getOwnPropertyDescriptor(value, name);
+    if (descriptor === undefined) {
+      const prototype = Object.getPrototypeOf(value) as object | null;
+      if (prototype !== null) descriptor = Object.getOwnPropertyDescriptor(prototype, name);
+    }
+  } catch {
+    return null;
+  }
+  return descriptor !== undefined && "value" in descriptor && typeof descriptor.value === "function"
+    ? { receiver: value, call: descriptor.value as (...args: never[]) => unknown }
+    : null;
+}
+
+const unavailableCapacity: CapacityGuardPort = Object.freeze({
+  assertAcceptingNewTurn: async () => { throw new Error("capacity_unavailable"); },
+});
+
 /** Builds route adapters without activating dependencies that have not been supplied. */
 export function createVoiceRouteDependencies(input: VoiceRouteConstruction): VoiceRouteDependencies {
   const publicOrigin = ownData(input, "publicOrigin") as URL;
   const twilio = ownData(input, "twilio") as TwilioRequestVerifier;
+  const capacitySnapshot = method(ownData(input, "capacity"), "assertAcceptingNewTurn");
+  const capacity: CapacityGuardPort = capacitySnapshot === null
+    ? unavailableCapacity
+    : Object.freeze({
+      assertAcceptingNewTurn: async () => {
+        await capacitySnapshot.call.call(capacitySnapshot.receiver);
+      },
+    });
   const trustedOrigin = snapshotTrustedPublicOrigin(publicOrigin);
   const inboundPorts = ownData(input, "inbound") as InboundVoiceRoutePorts | undefined;
   const outboundPorts = ownData(input, "outbound") as OutboundVoiceRoutePorts | undefined;
@@ -92,5 +124,5 @@ export function createVoiceRouteDependencies(input: VoiceRouteConstruction): Voi
     ? (request, sessionId) => relay.call(input, request, sessionId) as Promise<Response>
     : notImplemented;
 
-  return Object.freeze({ publicOrigin, twilio, inbound, outbound, status, relayEnded, relaySession });
+  return Object.freeze({ publicOrigin, twilio, capacity, inbound, outbound, status, relayEnded, relaySession });
 }

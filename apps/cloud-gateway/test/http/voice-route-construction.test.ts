@@ -19,7 +19,7 @@ async function signedPost(fake: FakeTwilioProvider, exactUrl: string, fields: st
 }
 
 describe("createVoiceRouteDependencies", () => {
-  it("preserves signed 501 route boundaries while Task 6 integrations are absent", async () => {
+  it("fails inbound capacity closed while preserving other signed 501 boundaries", async () => {
     const fake = new FakeTwilioProvider();
     const dependencies = createVoiceRouteDependencies({
       publicOrigin: new URL("https://jarvis.example/"),
@@ -52,15 +52,19 @@ describe("createVoiceRouteDependencies", () => {
       "/voice/relay-ended",
       `/voice/relay/${ATTEMPT_ID}`,
     ];
+    const expectedStatuses = [503, 501, 501, 501, 501];
 
     for (let index = 0; index < requests.length; index += 1) {
       const request = requests[index];
       const path = paths[index];
-      if (request === undefined || path === undefined) throw new Error("fixture_request_missing");
+      const expectedStatus = expectedStatuses[index];
+      if (request === undefined || path === undefined || expectedStatus === undefined) {
+        throw new Error("fixture_request_missing");
+      }
       const routed = new Request(`https://worker.internal${path}`, request);
       const response = await routeVoiceRequest(routed, dependencies);
-      expect(response.status, path).toBe(501);
-      expect(await response.text(), path).toBe("Not implemented");
+      expect(response.status, path).toBe(expectedStatus);
+      expect(await response.text(), path).toBe(expectedStatus === 503 ? "unavailable" : "Not implemented");
     }
   });
 

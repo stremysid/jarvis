@@ -41,6 +41,23 @@ async function exactResponse(response: Response) {
 }
 
 describe("Twilio callback handlers", () => {
+  it("accepts Twilio's valid initiated callback status", async () => {
+    const records: TwilioCallbackRecord[] = [];
+    const response = await handleTwilioStatusCallback(
+      ATTEMPT_ID,
+      await verifiedForm(`https://jarvis.example/voice/status/${ATTEMPT_ID}`, [
+        ["CallSid", CALL_SID],
+        ["CallbackSource", "call-progress-events"],
+        ["SequenceNumber", "0"],
+        ["CallStatus", "initiated"],
+      ]),
+      { record: async (input) => { records.push(input); } },
+    );
+
+    expect(response.status).toBe(204);
+    expect(records).toEqual([expect.objectContaining({ callStatus: "initiated" })]);
+  });
+
   it("records one frozen allowlisted status fact set from a genuine verified form", async () => {
     const pairs: Pair[] = [
       ["SequenceNumber", "2"],
