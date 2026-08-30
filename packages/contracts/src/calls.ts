@@ -1,4 +1,5 @@
 import type { Sha256Hex, Ulid } from "./ids.js";
+import type { VoiceAccessBinding } from "./voice-access.js";
 
 const redactionToken = Symbol("redactionToken");
 const issuedRedactions = new WeakSet<object>();
@@ -43,7 +44,7 @@ export interface ExpectedOutboundCall {
   idempotencyKey: string;
 }
 
-export interface RelayBinding {
+export interface RelayBinding extends VoiceAccessBinding {
   callSid: string;
   principalId: string;
   identityId: string;

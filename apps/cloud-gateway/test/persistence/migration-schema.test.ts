@@ -12,6 +12,7 @@ import {
   clearCallSessionsForTest,
   clearConversationDataForTest,
   clearOutboundCallAttemptsForTest,
+  clearVoiceAccessDataForTest,
 } from "./migration.js";
 
 const validHash = "0".repeat(64);
@@ -113,6 +114,7 @@ describe("foundation migration constraints", () => {
     await clearCallSessionsForTest();
     await clearAuthenticationAttemptReservationsForTest();
     await clearOutboundCallAttemptsForTest();
+    await clearVoiceAccessDataForTest();
     await env.DB.batch([
       env.DB.prepare("DELETE FROM policy_decisions"),
       env.DB.prepare("DELETE FROM sync_ack_receipts"), env.DB.prepare("DELETE FROM sync_snapshots"), env.DB.prepare("DELETE FROM request_nonces"), env.DB.prepare("DELETE FROM identity_challenges"),
@@ -279,7 +281,7 @@ describe("foundation migration constraints", () => {
     await env.DB.prepare("INSERT INTO events (event_id, event_type, source, subject_id, occurred_at, received_at, content_hash, envelope_json, created_at) VALUES ('event', 'type', 'source', 'subject', ?, ?, ?, '{}', ?)").bind(timestamp, timestamp, validHash, timestamp).run();
     await expect(env.DB.prepare("INSERT INTO idempotency_records (scope, key, request_hash, event_sequence, created_at) VALUES ('scope', 'key', ?, 1, ?)").bind(invalidHash, timestamp).run()).rejects.toThrow();
 
-    await env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at) VALUES ('principal', 'human', 'active', 'test', '1.0', 'PIN_VERIFIER_JSON', ?, ?)").bind(timestamp, timestamp).run();
+    await env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('principal', 'human', 'active', 'test', ?, ?)").bind(timestamp, timestamp).run();
     await expect(env.DB.prepare("INSERT INTO bootstrap_tokens (bootstrap_token_id, token_hash, expires_at, issued_at, issued_by) VALUES ('bootstrap', ?, ?, ?, 'test')").bind(invalidHash, timestamp, timestamp).run()).rejects.toThrow();
 
     await env.DB.prepare("INSERT INTO device_keys (device_id, principal_id, key_id, public_key_base64, key_fingerprint, key_generation, algorithm, status, device_label, bootstrap_metadata_hash, created_at) VALUES ('device', 'principal', 'key', ?, ?, 1, 'ed25519', 'active', 'test', ?, ?)").bind(`${"A".repeat(43)}=`, validHash, validHash, timestamp).run();
@@ -348,11 +350,11 @@ describe("foundation migration constraints", () => {
       .toMatch(/SEARCH m USING INDEX archive_manifests_overlap_seek_idx \(end_sequence>\? AND end_sequence<\?\)/u);
   });
 
-  it("enforces exactly one canonical human while allowing service principals", async () => {
-    await env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at) VALUES ('human:one', 'human', 'active', 'one', '1.0', 'PIN_VERIFIER_JSON', ?, ?)").bind(timestamp, timestamp).run();
-    await expect(env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, pin_verifier_version, pin_verifier_secret_ref, created_at, updated_at) VALUES ('human:two', 'human', 'active', 'two', '1.0', 'PIN_VERIFIER_JSON', ?, ?)").bind(timestamp, timestamp).run()).rejects.toThrow();
+  it("allows separate PIN-free human principals plus service principals", async () => {
+    await env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('human:one', 'human', 'active', 'one', ?, ?)").bind(timestamp, timestamp).run();
+    await expect(env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('human:two', 'human', 'active', 'two', ?, ?)").bind(timestamp, timestamp).run()).resolves.toMatchObject({ success: true });
     await env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('service:one', 'service', 'active', 'service', ?, ?)").bind(timestamp, timestamp).run();
-    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM principals").first<{ count: number }>())?.count).toBe(2);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM principals").first<{ count: number }>())?.count).toBe(3);
   });
 
   it("rejects a sync snapshot whose device belongs to a different principal and accepts the exact pair", async () => {
@@ -528,5 +530,347 @@ describe("foundation migration constraints", () => {
     const details = plan.results.map((step) => step.detail).join("\n");
     expect(details).toMatch(/SEARCH o USING COVERING INDEX outbox_archive_reconcile_idx \(status=\? AND event_sequence<\?\)/u);
     expect(details).not.toMatch(/SCAN m/u);
+  });
+});
+
+const ownerPrincipalId = "principal:voice-owner";
+const ownerIdentityId = "identity:voice-owner";
+const guestPrincipalId = "principal:voice-guest";
+const guestIdentityId = "identity:voice-guest";
+const servicePrincipalId = "principal:voice-service";
+const serviceIdentityId = "identity:voice-service";
+const guestGrantId = "01k3w1t4000000000000000200";
+const secondGuestGrantId = "01k3w1t4000000000000000201";
+const ownerSessionId = "01k3w1t4000000000000000300";
+const guestSessionId = "01k3w1t4000000000000000301";
+const outboundSessionId = "01k3w1t4000000000000000302";
+const emptyResourceScopes = JSON.stringify({
+  calendarConnectionIds: [],
+  fileRootIds: [],
+  pcActionIds: [],
+  schemaVersion: "1.0",
+});
+const verifierSalt = "AAAAAAAAAAAAAAAAAAAAAA==";
+const rotatedVerifierSalt = "AQEBAQEBAQEBAQEBAQEBAQ==";
+const verifierDigest = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+const rotatedVerifierDigest = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
+
+async function seedVoiceAccessIdentities(): Promise<void> {
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES (?, 'human', 'active', 'owner', ?, ?)")
+      .bind(ownerPrincipalId, timestamp, timestamp),
+    env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES (?, 'human', 'active', 'guest', ?, ?)")
+      .bind(guestPrincipalId, timestamp, timestamp),
+    env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES (?, 'service', 'active', 'service', ?, ?)")
+      .bind(servicePrincipalId, timestamp, timestamp),
+    env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES (?, ?, 'voice', '+14165550101', 'active', ?, ?)")
+      .bind(ownerIdentityId, ownerPrincipalId, timestamp, timestamp),
+    env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES (?, ?, 'voice', '+14165550102', 'active', ?, ?)")
+      .bind(guestIdentityId, guestPrincipalId, timestamp, timestamp),
+    env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES (?, ?, 'voice', '+14165550103', 'active', ?, ?)")
+      .bind(serviceIdentityId, servicePrincipalId, timestamp, timestamp),
+  ]);
+}
+
+function insertOwnerIdentity(principalId = ownerPrincipalId, identityId = ownerIdentityId): Promise<D1Result<unknown>> {
+  return env.DB.prepare(
+    "INSERT INTO voice_owner_identity (singleton_id, principal_id, identity_id, created_at) VALUES (1, ?, ?, ?)",
+  ).bind(principalId, identityId, timestamp).run();
+}
+
+function insertGuestGrant(input: Readonly<{
+  grantId?: string;
+  principalId?: string;
+  identityId?: string;
+  status?: "pending" | "active";
+}> = {}): Promise<D1Result<unknown>> {
+  const status = input.status ?? "pending";
+  return env.DB.prepare(`INSERT INTO voice_access_grants (
+    grant_id, principal_id, identity_id, grant_version, capability_ids_json, resource_scopes_json,
+    access_document_hash, pin_schema_version, pin_algorithm, pin_pepper_version, pin_iterations,
+    pin_salt_base64, pin_digest_base64, status, created_by_identity_id, created_at, activated_at,
+    updated_at, revoked_at
+  ) VALUES (?, ?, ?, 1, ?, ?, ?, '2.0', 'hmac-sha256-pepper+pbkdf2-hmac-sha256', 'v1', 600000,
+    ?, ?, ?, ?, ?, ?, ?, NULL)`)
+    .bind(
+      input.grantId ?? guestGrantId,
+      input.principalId ?? guestPrincipalId,
+      input.identityId ?? guestIdentityId,
+      JSON.stringify(["conversation.basic"]),
+      emptyResourceScopes,
+      "a".repeat(64),
+      verifierSalt,
+      verifierDigest,
+      status,
+      ownerIdentityId,
+      timestamp,
+      status === "active" ? timestamp : null,
+      timestamp,
+    ).run();
+}
+
+function insertInboundVoiceSession(input: Readonly<{
+  sessionId: string;
+  callHex: string;
+  principalId: string;
+  identityId: string;
+  accessKind: "owner" | "guest" | null;
+  guestGrantId?: string | null;
+  guestGrantVersion?: number | null;
+  accessDocumentHash?: string | null;
+}>): Promise<D1Result<unknown>> {
+  return env.DB.prepare(`INSERT INTO call_sessions (
+    session_id, call_sid, expected_attempt_id, principal_id, identity_id, destination_identity_id,
+    direction, activation_only, activation_challenge_id, activation_hmac_key_version, relay_nonce,
+    nonce_expires_at, relay_setup_expires_at, provider_session_id, phase, created_at, updated_at,
+    access_kind, guest_grant_id, guest_grant_version, access_document_hash
+  ) VALUES (?, ?, NULL, ?, ?, ?, 'inbound', 0, NULL, NULL, ?, ?, ?, NULL, 'created', ?, ?, ?, ?, ?, ?)`)
+    .bind(
+      input.sessionId,
+      `CA${input.callHex.repeat(32)}`,
+      input.principalId,
+      input.identityId,
+      input.identityId,
+      `${input.callHex.repeat(42)}A`,
+      futureTimestamp,
+      futureTimestamp,
+      timestamp,
+      timestamp,
+      input.accessKind,
+      input.guestGrantId ?? null,
+      input.guestGrantVersion ?? null,
+      input.accessDocumentHash ?? null,
+    ).run();
+}
+
+async function moveSessionToPreAuth(sessionId: string): Promise<void> {
+  await env.DB.prepare("UPDATE call_sessions SET phase = 'connecting', updated_at = ? WHERE session_id = ?")
+    .bind(timestamp, sessionId).run();
+  await env.DB.prepare("UPDATE call_sessions SET phase = 'pre_auth', updated_at = ? WHERE session_id = ?")
+    .bind(timestamp, sessionId).run();
+}
+
+describe("voice access migration constraints", () => {
+  beforeEach(async () => {
+    await applyFoundationMigration();
+    await clearCallSessionsForTest();
+    await clearOutboundCallAttemptsForTest();
+    await clearVoiceAccessDataForTest();
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM policy_decisions"),
+      env.DB.prepare("DELETE FROM channel_identities"),
+      env.DB.prepare("DELETE FROM principals"),
+    ]);
+  });
+
+  it("installs the PIN-free access schema, lineage columns, and every named guard", async () => {
+    const principalColumns = await env.DB.prepare("PRAGMA table_info(principals)").all<{ name: string }>();
+    expect(principalColumns.results.map((column) => column.name)).toEqual([
+      "principal_id", "principal_type", "status", "display_name", "created_at", "updated_at",
+    ]);
+
+    const sessionColumns = await env.DB.prepare("PRAGMA table_info(call_sessions)").all<{ name: string }>();
+    expect(sessionColumns.results.map((column) => column.name)).toEqual(expect.arrayContaining([
+      "access_kind", "guest_grant_id", "guest_grant_version", "access_document_hash",
+    ]));
+
+    const tables = await env.DB.prepare(`SELECT name FROM sqlite_master
+      WHERE type = 'table' AND name IN (
+        'voice_owner_identity', 'voice_access_grants', 'voice_access_grant_events', 'call_session_authorities'
+      ) ORDER BY name`).all<{ name: string }>();
+    expect(tables.results.map((row) => row.name)).toEqual([
+      "call_session_authorities", "voice_access_grant_events", "voice_access_grants", "voice_owner_identity",
+    ]);
+
+    const triggers = await env.DB.prepare(`SELECT name FROM sqlite_master
+      WHERE type = 'trigger' AND (
+        name LIKE 'voice_owner_identity_%'
+        OR name LIKE 'voice_access_grants_%'
+        OR name LIKE 'voice_access_grant_events_%'
+        OR name LIKE 'call_sessions_voice_access_%'
+        OR name LIKE 'call_session_authorities_%'
+      ) ORDER BY name`).all<{ name: string }>();
+    expect(triggers.results.map((row) => row.name)).toEqual([
+      "call_session_authorities_delete_forbidden",
+      "call_session_authorities_immutable",
+      "call_session_authorities_require_current_lineage",
+      "call_sessions_voice_access_immutable",
+      "call_sessions_voice_access_required",
+      "voice_access_grant_events_delete_forbidden",
+      "voice_access_grant_events_immutable",
+      "voice_access_grants_delete_forbidden",
+      "voice_access_grants_immutable_lineage",
+      "voice_access_grants_require_guest_identity",
+      "voice_access_grants_status_invalid",
+      "voice_access_grants_version_invalid",
+      "voice_owner_identity_delete_forbidden",
+      "voice_owner_identity_immutable",
+      "voice_owner_identity_requires_voice_human",
+    ]);
+
+    const violations = await env.DB.prepare("PRAGMA foreign_key_check").all();
+    expect(violations.results).toEqual([]);
+  });
+
+  it("enforces one owner plus append-only grant and event lineage", async () => {
+    await seedVoiceAccessIdentities();
+    await expect(insertOwnerIdentity(servicePrincipalId, serviceIdentityId))
+      .rejects.toThrow(/voice_owner_identity_requires_voice_human/u);
+    await insertOwnerIdentity();
+    await expect(insertOwnerIdentity(guestPrincipalId, guestIdentityId)).rejects.toThrow();
+    await expect(env.DB.prepare("UPDATE voice_owner_identity SET identity_id = ? WHERE singleton_id = 1")
+      .bind(guestIdentityId).run()).rejects.toThrow(/voice_owner_identity_immutable/u);
+    await expect(env.DB.prepare("DELETE FROM voice_owner_identity WHERE singleton_id = 1").run())
+      .rejects.toThrow(/voice_owner_identity_delete_forbidden/u);
+
+    await insertGuestGrant();
+    await expect(insertGuestGrant({ grantId: secondGuestGrantId, principalId: ownerPrincipalId, identityId: ownerIdentityId }))
+      .rejects.toThrow(/voice_access_grant_requires_guest_identity/u);
+    await expect(insertGuestGrant({ grantId: secondGuestGrantId }))
+      .rejects.toThrow();
+    await expect(env.DB.prepare("UPDATE voice_access_grants SET identity_id = ? WHERE grant_id = ?")
+      .bind(ownerIdentityId, guestGrantId).run()).rejects.toThrow(/voice_access_grant_immutable_lineage/u);
+    await expect(env.DB.prepare("UPDATE voice_access_grants SET grant_version = 3 WHERE grant_id = ?")
+      .bind(guestGrantId).run()).rejects.toThrow(/voice_access_grant_version_invalid/u);
+
+    await env.DB.prepare(`UPDATE voice_access_grants
+      SET grant_version = 2, capability_ids_json = ?, access_document_hash = ?, updated_at = ?
+      WHERE grant_id = ?`)
+      .bind(JSON.stringify(["conversation.basic", "research.web"]), "b".repeat(64), timestamp, guestGrantId).run();
+    await env.DB.prepare(`UPDATE voice_access_grants
+      SET grant_version = 3, pin_salt_base64 = ?, pin_digest_base64 = ?, updated_at = ?
+      WHERE grant_id = ?`)
+      .bind(rotatedVerifierSalt, rotatedVerifierDigest, timestamp, guestGrantId).run();
+
+    await env.DB.prepare(`INSERT INTO voice_access_grant_events (
+      event_id, grant_id, grant_version, event_type, owner_identity_id, request_hash,
+      capability_ids_json, access_document_hash, created_at
+    ) VALUES (?, ?, 3, 'pin_rotated', ?, ?, ?, ?, ?)`)
+      .bind("01k3w1t4000000000000000210", guestGrantId, ownerIdentityId, "c".repeat(64),
+        JSON.stringify(["conversation.basic", "research.web"]), "b".repeat(64), timestamp).run();
+    await expect(env.DB.prepare("UPDATE voice_access_grant_events SET event_type = 'revoked' WHERE event_id = ?")
+      .bind("01k3w1t4000000000000000210").run()).rejects.toThrow(/voice_access_grant_event_immutable/u);
+    await expect(env.DB.prepare("DELETE FROM voice_access_grant_events WHERE event_id = ?")
+      .bind("01k3w1t4000000000000000210").run()).rejects.toThrow(/voice_access_grant_event_delete_forbidden/u);
+
+    await env.DB.prepare(`UPDATE voice_access_grants
+      SET grant_version = 4, status = 'revoked', revoked_at = ?, updated_at = ? WHERE grant_id = ?`)
+      .bind(timestamp, timestamp, guestGrantId).run();
+    await expect(env.DB.prepare(`UPDATE voice_access_grants
+      SET grant_version = 5, status = 'active', revoked_at = NULL, activated_at = ?, updated_at = ? WHERE grant_id = ?`)
+      .bind(timestamp, timestamp, guestGrantId).run()).rejects.toThrow(/voice_access_grant_status_invalid/u);
+    await expect(env.DB.prepare("DELETE FROM voice_access_grants WHERE grant_id = ?").bind(guestGrantId).run())
+      .rejects.toThrow(/voice_access_grant_delete_forbidden/u);
+  });
+
+  it("requires immutable current owner or guest authority on every admitted session", async () => {
+    await seedVoiceAccessIdentities();
+    await insertOwnerIdentity();
+    await insertGuestGrant({ status: "active" });
+
+    await expect(insertInboundVoiceSession({
+      sessionId: "01k3w1t4000000000000000399",
+      callHex: "9",
+      principalId: ownerPrincipalId,
+      identityId: ownerIdentityId,
+      accessKind: null,
+    })).rejects.toThrow(/call_session_voice_access_required/u);
+
+    await insertInboundVoiceSession({
+      sessionId: ownerSessionId,
+      callHex: "1",
+      principalId: ownerPrincipalId,
+      identityId: ownerIdentityId,
+      accessKind: "owner",
+    });
+    await expect(env.DB.prepare("UPDATE call_sessions SET access_kind = 'guest' WHERE session_id = ?")
+      .bind(ownerSessionId).run()).rejects.toThrow(/call_session_voice_access_immutable/u);
+    await moveSessionToPreAuth(ownerSessionId);
+
+    await env.DB.prepare(`INSERT INTO call_session_authorities (
+      session_id, authority_kind, principal_id, identity_id, grant_id, grant_version,
+      access_document_hash, authenticated_at, expires_at
+    ) VALUES (?, 'owner', ?, ?, NULL, NULL, NULL, ?, '2026-08-30T00:30:00.000Z')`)
+      .bind(ownerSessionId, ownerPrincipalId, ownerIdentityId, timestamp).run();
+    await expect(env.DB.prepare("UPDATE call_session_authorities SET identity_id = ? WHERE session_id = ?")
+      .bind(guestIdentityId, ownerSessionId).run()).rejects.toThrow(/call_session_authority_immutable/u);
+    await expect(env.DB.prepare("DELETE FROM call_session_authorities WHERE session_id = ?")
+      .bind(ownerSessionId).run()).rejects.toThrow(/call_session_authority_delete_forbidden/u);
+
+    await insertInboundVoiceSession({
+      sessionId: guestSessionId,
+      callHex: "2",
+      principalId: guestPrincipalId,
+      identityId: guestIdentityId,
+      accessKind: "guest",
+      guestGrantId,
+      guestGrantVersion: 1,
+      accessDocumentHash: "a".repeat(64),
+    });
+    await moveSessionToPreAuth(guestSessionId);
+    await expect(env.DB.prepare(`INSERT INTO call_session_authorities (
+      session_id, authority_kind, principal_id, identity_id, grant_id, grant_version,
+      access_document_hash, authenticated_at, expires_at
+    ) VALUES (?, 'guest', ?, ?, ?, 1, ?, ?, '2026-08-30T00:30:00.000Z')`)
+      .bind(guestSessionId, guestPrincipalId, guestIdentityId, guestGrantId, "f".repeat(64), timestamp).run())
+      .rejects.toThrow(/call_session_authority_requires_current_lineage/u);
+    await env.DB.prepare(`INSERT INTO call_session_authorities (
+      session_id, authority_kind, principal_id, identity_id, grant_id, grant_version,
+      access_document_hash, authenticated_at, expires_at
+    ) VALUES (?, 'guest', ?, ?, ?, 1, ?, ?, '2026-08-30T00:30:00.000Z')`)
+      .bind(guestSessionId, guestPrincipalId, guestIdentityId, guestGrantId, "a".repeat(64), timestamp).run();
+  });
+
+  it("keeps the outbound actor separate from the guest destination principal", async () => {
+    await seedVoiceAccessIdentities();
+    await insertOwnerIdentity();
+    await insertGuestGrant({ status: "active" });
+    await env.DB.prepare(`INSERT INTO policy_decisions (
+      decision_id, principal_id, policy_version, input_hash, outcome, reason_code, decided_at
+    ) VALUES (?, ?, 'voice-access-test', ?, 'allow', 'test', ?)`)
+      .bind("01k3w1t4000000000000000400", ownerPrincipalId, "d".repeat(64), timestamp).run();
+    await env.DB.prepare(`INSERT INTO outbound_call_attempts (
+      attempt_id, command_id, attempt_ordinal, principal_id, destination_identity_id,
+      command_idempotency_key, relay_nonce, nonce_expires_at, authorization_expires_at,
+      provider_dispatch_state, provider_dispatch_claimed_at, provider_dispatch_resolved_at,
+      provider_call_sid, relay_call_sid, relay_claimed_at, created_at
+    ) VALUES (?, ?, 0, ?, ?, 'voice-access-test', ?, ?, ?, 'dispatched', ?, ?, ?, ?, ?, ?)`)
+      .bind(
+        outboundSessionId,
+        "01k3w1t4000000000000000400",
+        ownerPrincipalId,
+        guestIdentityId,
+        `${"3".repeat(42)}A`,
+        futureTimestamp,
+        futureTimestamp,
+        timestamp,
+        timestamp,
+        `CA${"4".repeat(32)}`,
+        `CA${"3".repeat(32)}`,
+        timestamp,
+        timestamp,
+      ).run();
+
+    await expect(env.DB.prepare(`INSERT INTO call_sessions (
+      session_id, call_sid, expected_attempt_id, principal_id, identity_id, destination_identity_id,
+      direction, activation_only, activation_challenge_id, activation_hmac_key_version, relay_nonce,
+      nonce_expires_at, relay_setup_expires_at, provider_session_id, phase, created_at, updated_at,
+      access_kind, guest_grant_id, guest_grant_version, access_document_hash
+    ) VALUES (?, ?, ?, ?, ?, ?, 'outbound', 0, NULL, NULL, ?, ?, NULL, NULL, 'created', ?, ?,
+      'guest', ?, 1, ?)`)
+      .bind(
+        outboundSessionId,
+        `CA${"3".repeat(32)}`,
+        outboundSessionId,
+        guestPrincipalId,
+        guestIdentityId,
+        guestIdentityId,
+        `${"3".repeat(42)}A`,
+        futureTimestamp,
+        timestamp,
+        timestamp,
+        guestGrantId,
+        "a".repeat(64),
+      ).run()).resolves.toMatchObject({ success: true });
   });
 });

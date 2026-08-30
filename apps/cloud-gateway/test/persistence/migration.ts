@@ -4,6 +4,7 @@ import foundationHardeningSql from "../../src/persistence/migrations/0002_founda
 import callingSql from "../../src/persistence/migrations/0003_calling.sql?raw";
 import callSessionsSql from "../../src/persistence/migrations/0004_call_sessions.sql?raw";
 import conversationSql from "../../src/persistence/migrations/0005_conversation.sql?raw";
+import voiceAccessSql from "../../src/persistence/migrations/0006_voice_access.sql?raw";
 
 let migrated: Promise<void> | undefined;
 
@@ -43,6 +44,10 @@ export function applyFoundationMigration(): Promise<void> {
       name: "0005_conversation.sql",
       queries: splitMigration(conversationSql),
     },
+    {
+      name: "0006_voice_access.sql",
+      queries: splitMigration(voiceAccessSql),
+    },
   ]);
   return migrated;
 }
@@ -64,14 +69,56 @@ export async function clearOutboundCallAttemptsForTest(): Promise<void> {
 
 /** Test-only reset for immutable session tombstones. */
 export async function clearCallSessionsForTest(): Promise<void> {
+  await env.DB.prepare("DROP TRIGGER IF EXISTS call_session_authorities_delete_forbidden").run();
   await env.DB.prepare("DROP TRIGGER IF EXISTS call_sessions_reject_delete").run();
   try {
+    await env.DB.prepare("DELETE FROM call_session_authorities").run();
     await env.DB.prepare("DELETE FROM call_sessions").run();
   } finally {
     await env.DB.prepare(`CREATE TRIGGER call_sessions_reject_delete
       BEFORE DELETE ON call_sessions
       BEGIN
         SELECT RAISE(ABORT, 'call_session_delete_forbidden');
+      END`).run();
+    await env.DB.prepare(`CREATE TRIGGER call_session_authorities_delete_forbidden
+      BEFORE DELETE ON call_session_authorities
+      BEGIN
+        SELECT RAISE(ABORT, 'call_session_authority_delete_forbidden');
+      END`).run();
+  }
+}
+
+/** Test-only reset for append-only owner, grant, event, and call-authority state. */
+export async function clearVoiceAccessDataForTest(): Promise<void> {
+  await env.DB.prepare("DROP TRIGGER IF EXISTS call_session_authorities_delete_forbidden").run();
+  await env.DB.prepare("DROP TRIGGER IF EXISTS voice_access_grant_events_delete_forbidden").run();
+  await env.DB.prepare("DROP TRIGGER IF EXISTS voice_access_grants_delete_forbidden").run();
+  await env.DB.prepare("DROP TRIGGER IF EXISTS voice_owner_identity_delete_forbidden").run();
+  try {
+    await env.DB.prepare("DELETE FROM call_session_authorities").run();
+    await env.DB.prepare("DELETE FROM voice_access_grant_events").run();
+    await env.DB.prepare("DELETE FROM voice_access_grants").run();
+    await env.DB.prepare("DELETE FROM voice_owner_identity").run();
+  } finally {
+    await env.DB.prepare(`CREATE TRIGGER call_session_authorities_delete_forbidden
+      BEFORE DELETE ON call_session_authorities
+      BEGIN
+        SELECT RAISE(ABORT, 'call_session_authority_delete_forbidden');
+      END`).run();
+    await env.DB.prepare(`CREATE TRIGGER voice_access_grant_events_delete_forbidden
+      BEFORE DELETE ON voice_access_grant_events
+      BEGIN
+        SELECT RAISE(ABORT, 'voice_access_grant_event_delete_forbidden');
+      END`).run();
+    await env.DB.prepare(`CREATE TRIGGER voice_access_grants_delete_forbidden
+      BEFORE DELETE ON voice_access_grants
+      BEGIN
+        SELECT RAISE(ABORT, 'voice_access_grant_delete_forbidden');
+      END`).run();
+    await env.DB.prepare(`CREATE TRIGGER voice_owner_identity_delete_forbidden
+      BEFORE DELETE ON voice_owner_identity
+      BEGIN
+        SELECT RAISE(ABORT, 'voice_owner_identity_delete_forbidden');
       END`).run();
   }
 }
