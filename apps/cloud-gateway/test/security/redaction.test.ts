@@ -59,6 +59,14 @@ describe("Redactor", () => {
     if (result.ok) expect(result.text).not.toContain("12345678");
   });
 
+  it("redacts a four-digit voice PIN by field context without redacting a year", () => {
+    const redactor = new Redactor();
+    expect(redactor.redact({ text: "4827", channel: "voice", field: "guest.pin" }))
+      .toEqual({ ok: true, text: "[REDACTED_AUTH_DIGITS]", markers: ["authentication_digits"] });
+    expect(redactor.redact({ text: "Roadmap review in 2026", channel: "voice", field: "prompt.text" }))
+      .toEqual({ ok: true, text: "Roadmap review in 2026", markers: [] });
+  });
+
   it.each([
     ["a bare Bearer JWT", "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.c2lnbmF0dXJl", "[REDACTED_AUTHORIZATION]", "authorization"],
     ["a token assignment", "token=sk-test_0123456789abcdefghijklmnopqrstuvwxyz", "[REDACTED_CREDENTIAL]", "credential"],

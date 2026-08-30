@@ -371,6 +371,14 @@ export class VoiceAccessAuthorityService {
     return authority;
   }
 
+  async authorizeOwnerManagement(value: unknown, now: Date): Promise<PersistedCallAuthority> {
+    const authority = await this.authorize(value, "access.manage", now);
+    if (authority.kind !== "owner") invalidAuthority();
+    const issued = this.#issued.get(authority);
+    if (issued === undefined || issued.value !== authority) invalidAuthority();
+    return issued.persisted;
+  }
+
   invalidate(value: unknown): void {
     if (value !== null && typeof value === "object") this.#issued.delete(value);
   }

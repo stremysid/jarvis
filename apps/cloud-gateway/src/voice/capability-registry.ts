@@ -225,4 +225,14 @@ export class CapabilityRegistry {
       accessDocumentHash: await sha256Hex(canonicalDocument),
     });
   }
+
+  async snapshotConfigured(requested: readonly string[] | "everything"): Promise<CapabilitySnapshot> {
+    const capabilityIds = this.resolve(requested);
+    return this.snapshot(capabilityIds, {
+      schemaVersion: "1.0",
+      calendarConnectionIds: needsCalendar(capabilityIds) ? [...this.#calendarConnectionIds] : [],
+      fileRootIds: needsFiles(capabilityIds) ? [...this.#fileRootIds] : [],
+      pcActionIds: needsPc(capabilityIds) ? [...this.#pcActionIds] : [],
+    });
+  }
 }

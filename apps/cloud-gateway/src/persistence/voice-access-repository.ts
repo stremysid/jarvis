@@ -578,6 +578,15 @@ export class VoiceAccessRepository {
     return this.#grant(grantId);
   }
 
+  async getGuestGrantByProviderE164(providerE164Value: string): Promise<GuestGrantSnapshot | null> {
+    if (typeof providerE164Value !== "string" || !E164.test(providerE164Value)) invalidInput();
+    const row = await this.#database.prepare(`${GRANT_SELECT}
+      WHERE identity.channel = 'voice' AND identity.provider_subject = ?
+      ORDER BY grant_row.grant_version DESC LIMIT 1`)
+      .bind(providerE164Value).first<GrantRow>();
+    return row === null ? null : decodeGrantRow(row);
+  }
+
   async #eventReplay(
     eventId: Ulid,
     requestHash: Sha256Hex,
