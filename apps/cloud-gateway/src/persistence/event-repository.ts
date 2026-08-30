@@ -62,6 +62,7 @@ export class EventRepository implements EventRepositoryContract {
     requireUtf8Limit(input.key, 256, "key");
     if (!SHA256.test(input.requestHash)) throw new TypeError("requestHash must be a lowercase SHA-256 hash");
     if (!isPersistableEventEnvelope(input.envelope)) throw new TypeError("envelope must be a persistable envelope");
+    if (input.envelope.eventSequence !== undefined) throw new TypeError("producer envelope must not include eventSequence");
     await validateEnvelope(input.envelope);
     const envelopeJson = canonicalJson(input.envelope);
     requireUtf8Limit(envelopeJson, 262144, "envelope");

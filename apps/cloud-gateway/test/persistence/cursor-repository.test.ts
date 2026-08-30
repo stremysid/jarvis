@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { canonicalJson, createEnvelope, newUlid, sha256Hex, type EventEnvelopeV1, type Sha256Hex } from "../../../../packages/contracts/src/index.js";
+import { canonicalJson, createEnvelope, newUlid, sha256Hex, type PersistableEventEnvelopeV1, type Sha256Hex } from "../../../../packages/contracts/src/index.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { CursorRepository } from "../../src/persistence/cursor-repository.js";
@@ -8,7 +8,7 @@ import { applyFoundationMigration } from "./migration.js";
 
 const timestamp = "2026-08-29T12:00:00.000Z";
 
-async function fixture(label: string): Promise<EventEnvelopeV1> {
+async function fixture(label: string): Promise<PersistableEventEnvelopeV1> {
   const token = new Redactor().redact({ text: `api key = ${label}-secret`, channel: "telegram", field: "message.text" });
   if (!token.ok) throw new Error("fixture redaction failed");
   return createEnvelope({

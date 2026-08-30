@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { canonicalJson, createEnvelope, newUlid, sha256Hex, type EventEnvelopeV1, type PersistableEventEnvelopeV1, type Sha256Hex } from "../../../../packages/contracts/src/index.js";
+import { canonicalJson, createEnvelope, newUlid, sha256Hex, type CreateEnvelopeInput, type EventEnvelopeV1, type PersistableEventEnvelopeV1, type Sha256Hex } from "../../../../packages/contracts/src/index.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { EventRepository, IdempotencyConflict } from "../../src/persistence/event-repository.js";
 import { applyFoundationMigration } from "./migration.js";
@@ -106,6 +106,41 @@ describe("EventRepository", () => {
       requestHash: await requestHash("forged"),
     })).rejects.toThrow("persistable envelope");
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events").first<{ count: number }>())?.count).toBe(0);
+  });
+
+  it("rejects a producer-supplied sequence before an issued envelope or ledger rows exist", async () => {
+    const token = new Redactor().redact({ text: "safe producer text", channel: "telegram", field: "message.text" });
+    if (!token.ok) throw new Error("fixture redaction failed");
+    const producerInput = {
+      schemaVersion: "1.0" as const,
+      eventId: newUlid(),
+      eventSequence: 7,
+      eventType: "telegram.update",
+      source: "telegram",
+      subjectId: "principal:test",
+      occurredAt: timestamp,
+      receivedAt: timestamp,
+      correlationId: newUlid(),
+      contentType: "application/json" as const,
+      payload: { message: token },
+      producerVersion: "test",
+    };
+
+    await expect(createEnvelope(producerInput as unknown as CreateEnvelopeInput)).rejects.toThrow("unsupported producer field: eventSequence");
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events").first<{ count: number }>())?.count).toBe(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM idempotency_records").first<{ count: number }>())?.count).toBe(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM outbox").first<{ count: number }>())?.count).toBe(0);
+  });
+
+  it("rejects a forged sequence-bearing copy of an otherwise issued envelope before persistence", async () => {
+    const repository = new EventRepository(env.DB);
+    const issued = await eventFixture("poisoned-sequence");
+    const forged = { ...issued, eventSequence: 7 } as unknown as PersistableEventEnvelopeV1;
+
+    await expect(repository.append({ envelope: forged, scope: "telegram:update", key: "poisoned-sequence", requestHash: await requestHash("poisoned-sequence") })).rejects.toThrow();
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events").first<{ count: number }>())?.count).toBe(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM idempotency_records").first<{ count: number }>())?.count).toBe(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM outbox").first<{ count: number }>())?.count).toBe(0);
   });
 
   it("refuses a copy with an unknown top-level field even when its contents validate", async () => {
