@@ -830,7 +830,15 @@ export class DefaultConversationService implements ConversationService {
       catch { /* Sanitizer cleanup failures never replace fixed settlement metadata. */ }
       let stored: StoredConversationTurn;
       try {
-        if (signalIsAborted(captured.signal)
+        if (error instanceof ModelAdapterError
+          && (error.code === "model_admission_unknown" || error.code === "model_cancel_unknown")) {
+          stored = snapshotStoredTurn(await call<ReturnType<ConversationRepositoryPort["recordTurnFailed"]>>(this.recordTurnFailed, {
+            claim: capability,
+            failureCode: "model_outcome_unknown",
+            failureCategory: "ambiguous",
+            now: snapshotDate(this.clock()),
+          }), "conversation_model_settlement_invalid");
+        } else if (signalIsAborted(captured.signal)
           || error instanceof ModelAdapterError && error.code === "model_aborted") {
           stored = snapshotStoredTurn(await call<ReturnType<ConversationRepositoryPort["recordTurnCancelled"]>>(this.recordTurnCancelled, {
             claim: capability,
@@ -854,7 +862,8 @@ export class DefaultConversationService implements ConversationService {
         });
       }
       const terminal = resultFromTurn(stored);
-      if (terminal === null || terminal.outcome !== "cancelled" && terminal.outcome !== "failed") {
+      if (terminal === null || terminal.outcome !== "cancelled" && terminal.outcome !== "failed"
+        && terminal.outcome !== "model_outcome_unknown") {
         throw new Error("conversation_model_settlement_invalid");
       }
       return terminal;
