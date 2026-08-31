@@ -28,11 +28,11 @@ $env:GIT_ATTR_NOSYSTEM = '1'
 foreach ($name in @('GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_ASKPASS', 'SSH_ASKPASS', 'SSH_ASKPASS_REQUIRE')) { Remove-Item -LiteralPath ("Env:" + $name) -ErrorAction SilentlyContinue }
 
 function Assert-VerifiedSource {
-  param([string]$Candidate)
-  Assert-HermesSourceDirectory $root $Candidate $lock
+  param([string]$Candidate, [string]$GitStore = '')
+  Assert-HermesSourceDirectory $root $Candidate $lock $GitStore
 }
 
-if ($VerifyOnly) { Assert-VerifiedSource $source; exit 0 }
+if ($VerifyOnly) { Assert-VerifiedSource $source (Join-Path $release 'git'); exit 0 }
 if (Test-Path -LiteralPath $release) { throw 'Pinned release target already exists; acquisition refuses reuse.' }
 if (-not (Test-Path -LiteralPath $root)) { New-Item -ItemType Directory -Path $root | Out-Null }
 if ((Get-Item -LiteralPath $root -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'RuntimeRoot is a reparse point.' }
@@ -70,14 +70,15 @@ try {
   $gitRunner = { param([string[]]$Arguments) Invoke-GitChecked $git $Arguments }
   Assert-HermesGitTranscript $lock $gitDir $workTree $gitRunner
   if (@(Get-ChildItem -LiteralPath $workTree -Force -Recurse | Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }).Count -ne 0) { throw 'Pinned source contains a reparse point.' }
-  Remove-Item -LiteralPath $gitDir -Force -Recurse
   $stagedRelease = Assert-ChildPath $root (Join-Path $staging 'release')
   New-Item -ItemType Directory -Path $stagedRelease | Out-Null
   $stagedSource = Assert-ChildPath $root (Join-Path $stagedRelease 'source')
+  $stagedGit = Assert-ChildPath $root (Join-Path $stagedRelease 'git')
   Move-Item -LiteralPath $workTree -Destination $stagedSource
-  Assert-VerifiedSource $stagedSource
+  Move-Item -LiteralPath $gitDir -Destination $stagedGit
+  Assert-VerifiedSource $stagedSource $stagedGit
   Promote-StagedDirectory $root $stagedRelease $release
-  Assert-VerifiedSource $source
+  Assert-VerifiedSource $source (Join-Path $release 'git')
 } finally {
   if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Force -Recurse -ErrorAction SilentlyContinue }
   foreach ($name in $savedGitEnvironment.Keys) {

@@ -64,6 +64,18 @@ function Invoke-GitChecked {
   return @($result | ForEach-Object { $_.ToString().Trim() })
 }
 
+function Get-HermesGitTreePaths {
+  param([string]$Git, [string]$GitDirectory, [string]$Commit)
+  $start = [Diagnostics.ProcessStartInfo]::new(); $start.FileName = $Git; $start.UseShellExecute = $false; $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
+  foreach ($argument in @((Get-HermesGitIsolationOptions) + @('--git-dir', $GitDirectory, 'ls-tree', '-r', '-z', '--name-only', $Commit))) { [void]$start.ArgumentList.Add($argument) }
+  $process = [Diagnostics.Process]::new(); $process.StartInfo = $start; if (-not $process.Start()) { throw 'Unable to start Git tree verification.' }
+  $bytes = [IO.MemoryStream]::new(); $process.StandardOutput.BaseStream.CopyTo($bytes); $error = $process.StandardError.ReadToEnd(); $process.WaitForExit()
+  if ($process.ExitCode -ne 0) { throw "Git tree verification failed: $error" }
+  $records = [Text.Encoding]::UTF8.GetString($bytes.ToArray()).Split([char]0, [StringSplitOptions]::RemoveEmptyEntries)
+  foreach ($path in $records) { if (Test-UnsafeArchiveMember $path) { throw 'Pinned Git tree has an unsafe path.' } }
+  return @($records)
+}
+
 function Test-UnsafeArchiveMember {
   param([string]$Member)
   return [string]::IsNullOrWhiteSpace($Member) -or $Member.StartsWith('/') -or $Member.StartsWith('\\') -or $Member -match '(^|[\\/])\.\.([\\/]|$)' -or $Member -match '^[A-Za-z]:'
@@ -87,12 +99,21 @@ function Assert-HermesGitTranscript {
 }
 
 function Assert-HermesSourceDirectory {
-  param([string]$RuntimeRoot, [string]$Candidate, [hashtable]$Lock)
+  param([string]$RuntimeRoot, [string]$Candidate, [hashtable]$Lock, [string]$GitDirectory = '')
   $root = Assert-LiteralRuntimeRoot $RuntimeRoot; $source = Assert-ChildPath $root $Candidate
   if (-not (Test-Path -LiteralPath $source -PathType Container)) { throw 'Pinned Hermes source is absent.' }
   if (Test-Path -LiteralPath (Join-Path $source '.git')) { throw 'Pinned source must be a detached export without a worktree repository.' }
   foreach ($name in @('LICENSE', 'pyproject.toml', 'uv.lock')) { $path = Assert-ChildPath $root (Join-Path $source $name); if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Pinned source file is absent: $name" }; Assert-ExactHash $path $Lock.rawFileSha256[$name] "Pinned source $name" }
   if (@(Get-ChildItem -LiteralPath $source -Force -Recurse | Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }).Count -ne 0) { throw 'Pinned source contains a reparse point.' }
+  if (-not [string]::IsNullOrEmpty($GitDirectory)) {
+    $store = Assert-ChildPath $root $GitDirectory; if (-not (Test-Path -LiteralPath $store -PathType Container)) { throw 'Pinned source Git object store is absent.' }
+    $git = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1 -ExpandProperty Source
+    if ((Invoke-GitChecked $git @('--git-dir', $store, 'rev-parse', ("{0}^{{tree}}" -f $Lock.sourceCommit))) -ne $Lock.sourceTree) { throw 'Pinned source Git tree mismatch.' }
+    $expected = Get-HermesGitTreePaths $git $store $Lock.sourceCommit
+    $actual = @(Get-ChildItem -LiteralPath $source -Force -File -Recurse | ForEach-Object { $_.FullName.Substring($source.Length).TrimStart('\').Replace('\','/') } | Sort-Object)
+    if ($expected.Count -ne $actual.Count -or (Compare-Object $expected $actual)) { throw 'Pinned source path set drift.' }
+    [void](Invoke-GitChecked $git @('--git-dir', $store, '--work-tree', $source, 'diff', '--no-ext-diff', '--exit-code', $Lock.sourceCommit, '--', '.'))
+  }
 }
 
 function Assert-ArtifactHttpHop {
@@ -185,4 +206,4 @@ function Promote-StagedDirectories {
   }
 }
 
-Export-ModuleMember -Function Assert-LiteralRuntimeRoot, Assert-ChildPath, Get-Sha256Hex, Assert-ExactHash, Get-Manifest, Assert-HermesSourceLock, Assert-HermesArtifactLock, Invoke-GitChecked, Test-UnsafeArchiveMember, Get-HermesGitIsolationOptions, Assert-HermesGitTranscript, Assert-HermesSourceDirectory, Assert-ArtifactHttpHop, Assert-SafeCpythonMembers, Assert-SafeUvMembers, Assert-SafeCpythonArchive, Assert-SafeUvArchive, Promote-StagedDirectory, Promote-StagedDirectories
+Export-ModuleMember -Function Assert-LiteralRuntimeRoot, Assert-ChildPath, Get-Sha256Hex, Assert-ExactHash, Get-Manifest, Assert-HermesSourceLock, Assert-HermesArtifactLock, Invoke-GitChecked, Get-HermesGitTreePaths, Test-UnsafeArchiveMember, Get-HermesGitIsolationOptions, Assert-HermesGitTranscript, Assert-HermesSourceDirectory, Assert-ArtifactHttpHop, Assert-SafeCpythonMembers, Assert-SafeUvMembers, Assert-SafeCpythonArchive, Assert-SafeUvArchive, Promote-StagedDirectory, Promote-StagedDirectories

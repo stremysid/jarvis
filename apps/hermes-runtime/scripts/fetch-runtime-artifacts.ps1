@@ -67,6 +67,29 @@ function Assert-WinSwAmd64 {
   } finally { $stream.Dispose() }
 }
 
+function Assert-DirectoryTreeEqual {
+  param([string]$Expected, [string]$Actual, [string]$Label)
+  foreach ($path in @($Expected, $Actual)) { if (@(Get-ChildItem -LiteralPath $path -Force -Recurse | Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }).Count) { throw "$Label contains a reparse point." } }
+  $expectedFiles = @((Get-ChildItem -LiteralPath $Expected -File -Recurse | ForEach-Object { $_.FullName.Substring($Expected.Length).TrimStart('\').Replace('\','/') }) | Sort-Object)
+  $actualFiles = @((Get-ChildItem -LiteralPath $Actual -File -Recurse | ForEach-Object { $_.FullName.Substring($Actual.Length).TrimStart('\').Replace('\','/') }) | Sort-Object)
+  if ($expectedFiles.Count -ne $actualFiles.Count -or (Compare-Object $expectedFiles $actualFiles)) { throw "$Label path set drift." }
+  foreach ($relative in $expectedFiles) { $expectedPath = Join-Path $Expected $relative.Replace('/','\'); $actualPath = Join-Path $Actual $relative.Replace('/','\'); if ((Get-Item -LiteralPath $expectedPath).Length -ne (Get-Item -LiteralPath $actualPath).Length) { throw "$Label byte count drift." }; if ((Get-Sha256Hex $expectedPath) -ne (Get-Sha256Hex $actualPath)) { throw "$Label content drift." } }
+}
+
+function Assert-InstalledPayloads {
+  param([string]$Root, [hashtable]$ArtifactLock, [string]$CpythonPath, [string]$UvPath)
+  $scratch = Assert-ChildPath $Root (Join-Path $Root ('.verify-' + [guid]::NewGuid().ToString('N')))
+  try {
+    New-Item -ItemType Directory -Path $scratch | Out-Null
+    $pyArchive = Join-Path $CpythonPath $ArtifactLock.cpython.fileName; Assert-SafeCpythonArchive $pyArchive
+    $pyExpected = Join-Path $scratch 'cpython'; New-Item -ItemType Directory -Path $pyExpected | Out-Null; & tar.exe -xf $pyArchive -C $pyExpected; if ($LASTEXITCODE -ne 0) { throw 'CPython verification extraction failed.' }
+    Assert-DirectoryTreeEqual (Join-Path $pyExpected 'python') (Join-Path $CpythonPath 'python') 'CPython extracted payload'
+    $uvArchive = Join-Path $UvPath $ArtifactLock.uv.fileName; Assert-SafeUvArchive $uvArchive
+    $uvExpected = Join-Path $scratch 'uv'; Expand-Archive -LiteralPath $uvArchive -DestinationPath $uvExpected -Force
+    Assert-DirectoryTreeEqual $uvExpected (Join-Path $UvPath 'payload') 'uv extracted payload'
+  } finally { if (Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue } }
+}
+
 $cpython = Assert-ChildPath $root (Join-Path $root 'toolchain\cpython-3.11.16')
 $uv = Assert-ChildPath $root (Join-Path $root 'toolchain\uv-0.12.7')
 $winsw = Assert-ChildPath $root (Join-Path $root 'service-host\winsw-2.12.0')
@@ -76,6 +99,7 @@ if ($VerifyOnly) {
   Assert-WinSwAmd64 (Join-Path $winsw $lock.winsw.fileName)
   $rollup = Join-Path $license 'python-licenses.rst'; if (-not (Test-Path -LiteralPath $rollup)) { throw 'python-build-standalone license rollup is absent.' }; if ((Get-Item -LiteralPath $rollup).Length -ne [int64]$lock.pythonBuildStandaloneLicenses.size) { throw 'python-build-standalone license size drift.' }; Assert-ExactHash $rollup $lock.pythonBuildStandaloneLicenses.sha256 'python-build-standalone license rollup'
   if (-not (Test-Path -LiteralPath (Join-Path $cpython 'python\LICENSE.txt') -PathType Leaf)) { throw 'CPython artifact LICENSE.txt is absent.' }
+  Assert-InstalledPayloads $root $lock $cpython $uv
   exit 0
 }
 foreach ($target in @($cpython, $uv, $winsw, $license)) { if (Test-Path -LiteralPath $target) { throw 'Runtime artifact target already exists; acquisition refuses reuse.' } }
