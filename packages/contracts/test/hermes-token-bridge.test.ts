@@ -176,6 +176,7 @@ describe("H1 token bridge contract", () => {
     const frames = sseFixtureRaw.split("\n\n").slice(0, -1).map((frame) => new TextEncoder().encode(`${frame}\n\n`));
 
     expect(new TextDecoder().decode(canonicalize(requestBody))).toBe(requestFixture.canonicalRequestBody);
+    expect(readinessFixtureRaw).toBe('{"brainSchemaMajor":1,"configurationHash":"0000000000000000000000000000000000000000000000000000000000000000","enabledProfileIds":["jarvis-voice-safe"],"health":"ready","releaseCommit":"5fc308a70719a83cccdbba4c0e39c23f5a8239d5","runsEventContractHash":"655b3829a8f5cc41c9f128e05a1375fd0cdfbfe03b0bde611732d71e94e3f44b"}\n');
     expect(new TextDecoder().decode(nativeInput)).toBe("JARVIS-H1-INPUT-V1\n5\nhello\n1\npersonal\n10\nremembered\n");
     expect(await sha256Hex(nativeInput)).toBe(requestFixture.nativeInputSha256);
     expect(toHex(sessionDigest)).toBe(requestFixture.sessionHmacSha256);

@@ -1,8 +1,1 @@
-{
-  "releaseCommit": "5fc308a70719a83cccdbba4c0e39c23f5a8239d5",
-  "configurationHash": "0000000000000000000000000000000000000000000000000000000000000000",
-  "brainSchemaMajor": 1,
-  "runsEventContractHash": "655b3829a8f5cc41c9f128e05a1375fd0cdfbfe03b0bde611732d71e94e3f44b",
-  "enabledProfileIds": ["jarvis-voice-safe"],
-  "health": "ready"
-}
+{"brainSchemaMajor":1,"configurationHash":"0000000000000000000000000000000000000000000000000000000000000000","enabledProfileIds":["jarvis-voice-safe"],"health":"ready","releaseCommit":"5fc308a70719a83cccdbba4c0e39c23f5a8239d5","runsEventContractHash":"655b3829a8f5cc41c9f128e05a1375fd0cdfbfe03b0bde611732d71e94e3f44b"}
