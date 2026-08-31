@@ -74,4 +74,49 @@ describe("Hermes H1 source locks", () => {
     expect(result.code).not.toBe(0);
     expect(result.stderr).toMatch(/RuntimeRoot|UNC|unsafe/i);
   });
+
+  it("promotes only complete staging directories and never replaces or creates a partial final target", async () => {
+    const temp = await mkdtemp(join(tmpdir(), "jarvis-hermes-promotion-"));
+    const module = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url));
+    const escapedRoot = temp.replace(/'/g, "''");
+    const escapedModule = module.replace(/'/g, "''");
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const program = [
+          `$root = '${escapedRoot}'`,
+          `Import-Module '${escapedModule}' -Force`,
+          "$stage = Join-Path $root '.s\\complete'",
+          "New-Item -ItemType Directory -Path $stage -Force | Out-Null",
+          "Set-Content -LiteralPath (Join-Path $stage 'payload.txt') -Value 'verified' -NoNewline",
+          "$final = Join-Path $root 'releases\\complete'",
+          "Promote-StagedDirectory $root $stage $final",
+          "if (-not (Test-Path -LiteralPath (Join-Path $final 'payload.txt'))) { throw 'promotion_missing_payload' }",
+          "$badStage = Join-Path $root '.s\\bad'",
+          "New-Item -ItemType Directory -Path $badStage -Force | Out-Null",
+          "Set-Content -LiteralPath (Join-Path $badStage 'payload.txt') -Value 'unverified' -NoNewline",
+          "$blocked = Join-Path $root 'releases\\blocked'",
+          "try { Assert-ExactHash (Join-Path $badStage 'payload.txt') ('0' * 64) 'fixture'; throw 'unexpected_validation_pass' } catch { }",
+          "if (Test-Path -LiteralPath $blocked) { throw 'partial_final_after_validation_failure' }",
+          "New-Item -ItemType Directory -Path $blocked -Force | Out-Null",
+          "Set-Content -LiteralPath (Join-Path $blocked 'sentinel.txt') -Value 'existing' -NoNewline",
+          "try { Promote-StagedDirectory $root $badStage $blocked; throw 'unexpected_replacement' } catch { }",
+          "if (-not (Test-Path -LiteralPath $badStage)) { throw 'staging_lost_after_refused_replacement' }",
+          "if ((Get-Content -LiteralPath (Join-Path $blocked 'sentinel.txt') -Raw) -ne 'existing') { throw 'existing_final_changed' }",
+          "'ATOMIC_PROMOTION_OK'",
+        ].join("; ");
+        const child = spawn("pwsh", ["-NoProfile", "-NonInteractive", "-Command", program], { windowsHide: true });
+        let stdout = "";
+        let stderr = "";
+        child.stdout.on("data", (data) => { stdout += data; });
+        child.stderr.on("data", (data) => { stderr += data; });
+        child.on("error", reject);
+        child.on("close", (code) => resolve({ code, stdout, stderr }));
+      });
+      expect(result.code).toBe(0);
+      expect(result.stdout).toContain("ATOMIC_PROMOTION_OK");
+      expect(result.stderr).toBe("");
+    } finally {
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
 });

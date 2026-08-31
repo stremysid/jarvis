@@ -60,12 +60,27 @@ function Assert-Installed {
   Assert-ExactHash $raw $Artifact.sha256 $Label
 }
 
+function Assert-WinSwAmd64 {
+  param([string]$Path)
+  $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+  try {
+    $header = [byte[]]::new(64)
+    if ($stream.Read($header, 0, $header.Length) -ne $header.Length -or $header[0] -ne 0x4d -or $header[1] -ne 0x5a) { throw 'WinSW must be a PE image.' }
+    $offset = [BitConverter]::ToInt32($header, 0x3c)
+    if ($offset -lt 64 -or $offset -gt 1048576) { throw 'WinSW PE header offset is invalid.' }
+    $stream.Position = $offset
+    $coff = [byte[]]::new(6)
+    if ($stream.Read($coff, 0, $coff.Length) -ne $coff.Length -or $coff[0] -ne 0x50 -or $coff[1] -ne 0x45 -or [BitConverter]::ToUInt16($coff, 4) -ne 0x8664) { throw 'WinSW must be AMD64 PE.' }
+  } finally { $stream.Dispose() }
+}
+
 $cpython = Assert-ChildPath $root (Join-Path $root 'toolchain\cpython-3.11.16')
 $uv = Assert-ChildPath $root (Join-Path $root 'toolchain\uv-0.12.7')
 $winsw = Assert-ChildPath $root (Join-Path $root 'service-host\winsw-2.12.0')
 $license = Assert-ChildPath $root (Join-Path $root 'licenses\python-build-standalone\20260825')
 if ($VerifyOnly) {
   Assert-Installed $lock.cpython $cpython 'CPython'; Assert-Installed $lock.uv $uv 'uv'; Assert-Installed $lock.winsw $winsw 'WinSW'
+  Assert-WinSwAmd64 (Join-Path $winsw $lock.winsw.fileName)
   $rollup = Join-Path $license 'python-licenses.rst'; if (-not (Test-Path -LiteralPath $rollup)) { throw 'python-build-standalone license rollup is absent.' }; if ((Get-Item -LiteralPath $rollup).Length -ne [int64]$lock.pythonBuildStandaloneLicenses.size) { throw 'python-build-standalone license size drift.' }; Assert-ExactHash $rollup $lock.pythonBuildStandaloneLicenses.sha256 'python-build-standalone license rollup'
   if (-not (Test-Path -LiteralPath (Join-Path $cpython 'python\LICENSE.txt') -PathType Leaf)) { throw 'CPython artifact LICENSE.txt is absent.' }
   exit 0
@@ -84,8 +99,20 @@ try {
   if (-not (Test-Path -LiteralPath (Join-Path $pyStage 'python\LICENSE.txt') -PathType Leaf)) { throw 'CPython artifact LICENSE.txt is absent.' }
   $uvStage = Join-Path $stage 'uv'; Expand-Archive -LiteralPath (Join-Path $downloads $lock.uv.fileName) -DestinationPath $uvStage -Force
   $winStage = Join-Path $stage 'winsw'; New-Item -ItemType Directory -Path $winStage | Out-Null; Copy-Item -LiteralPath (Join-Path $downloads $lock.winsw.fileName) -Destination (Join-Path $winStage $lock.winsw.fileName)
-  foreach ($pair in @(@($pyStage, $cpython), @($uvStage, $uv), @($winStage, $winsw))) { New-Item -ItemType Directory -Path $pair[1] | Out-Null; Move-Item -LiteralPath $pair[0] -Destination (Join-Path $pair[1] 'payload') }
-  Copy-Item -LiteralPath (Join-Path $downloads $lock.cpython.fileName) -Destination (Join-Path $cpython $lock.cpython.fileName); Copy-Item -LiteralPath (Join-Path $downloads $lock.uv.fileName) -Destination (Join-Path $uv $lock.uv.fileName); Copy-Item -LiteralPath (Join-Path $downloads $lock.winsw.fileName) -Destination (Join-Path $winsw $lock.winsw.fileName)
-  New-Item -ItemType Directory -Path $license | Out-Null; Move-Item -LiteralPath (Join-Path $downloads 'python-licenses.rst') -Destination (Join-Path $license 'python-licenses.rst')
+  $promote = Join-Path $stage 'promote'; New-Item -ItemType Directory -Path $promote | Out-Null
+  $stageCpython = Join-Path $promote 'cpython-3.11.16'; $stageUv = Join-Path $promote 'uv-0.12.7'; $stageWinsw = Join-Path $promote 'winsw-2.12.0'; $stageLicense = Join-Path $promote '20260825'
+  foreach ($target in @($stageCpython, $stageUv, $stageWinsw, $stageLicense)) { New-Item -ItemType Directory -Path $target | Out-Null }
+  Move-Item -LiteralPath (Join-Path $pyStage 'python') -Destination (Join-Path $stageCpython 'python')
+  Move-Item -LiteralPath $uvStage -Destination (Join-Path $stageUv 'payload')
+  Move-Item -LiteralPath $winStage -Destination (Join-Path $stageWinsw 'payload')
+  Copy-Item -LiteralPath (Join-Path $downloads $lock.cpython.fileName) -Destination (Join-Path $stageCpython $lock.cpython.fileName); Copy-Item -LiteralPath (Join-Path $downloads $lock.uv.fileName) -Destination (Join-Path $stageUv $lock.uv.fileName); Copy-Item -LiteralPath (Join-Path $downloads $lock.winsw.fileName) -Destination (Join-Path $stageWinsw $lock.winsw.fileName)
+  Move-Item -LiteralPath (Join-Path $downloads 'python-licenses.rst') -Destination (Join-Path $stageLicense 'python-licenses.rst')
+  Assert-Installed $lock.cpython $stageCpython 'CPython'; Assert-Installed $lock.uv $stageUv 'uv'; Assert-Installed $lock.winsw $stageWinsw 'WinSW'
+  Assert-WinSwAmd64 (Join-Path $stageWinsw $lock.winsw.fileName)
+  Promote-StagedDirectory $root $stageCpython $cpython
+  Promote-StagedDirectory $root $stageUv $uv
+  Promote-StagedDirectory $root $stageWinsw $winsw
+  Promote-StagedDirectory $root $stageLicense $license
   Assert-Installed $lock.cpython $cpython 'CPython'; Assert-Installed $lock.uv $uv 'uv'; Assert-Installed $lock.winsw $winsw 'WinSW'
+  Assert-WinSwAmd64 (Join-Path $winsw $lock.winsw.fileName)
 } finally { if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Force -Recurse -ErrorAction SilentlyContinue } }

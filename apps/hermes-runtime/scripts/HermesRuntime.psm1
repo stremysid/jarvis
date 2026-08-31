@@ -55,4 +55,18 @@ function Test-UnsafeArchiveMember {
   return [string]::IsNullOrWhiteSpace($Member) -or $Member.StartsWith('/') -or $Member.StartsWith('\\') -or $Member -match '(^|[\\/])\.\.([\\/]|$)' -or $Member -match '^[A-Za-z]:'
 }
 
-Export-ModuleMember -Function Assert-LiteralRuntimeRoot, Assert-ChildPath, Get-Sha256Hex, Assert-ExactHash, Get-Manifest, Invoke-GitChecked, Test-UnsafeArchiveMember
+function Promote-StagedDirectory {
+  param([string]$RuntimeRoot, [string]$StagedDirectory, [string]$FinalDirectory)
+  $root = Assert-LiteralRuntimeRoot $RuntimeRoot
+  $staged = Assert-ChildPath $root $StagedDirectory
+  $final = Assert-ChildPath $root $FinalDirectory
+  if (-not (Test-Path -LiteralPath $staged -PathType Container)) { throw 'Verified staging directory is absent.' }
+  if (Test-Path -LiteralPath $final) { throw 'Final target already exists; promotion refuses replacement.' }
+  $parent = [IO.Directory]::GetParent($final).FullName
+  if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent | Out-Null }
+  [void](Assert-LiteralRuntimeRoot $parent)
+  Move-Item -LiteralPath $staged -Destination $final
+  if (-not (Test-Path -LiteralPath $final -PathType Container)) { throw 'Atomic promotion did not create the final target.' }
+}
+
+Export-ModuleMember -Function Assert-LiteralRuntimeRoot, Assert-ChildPath, Get-Sha256Hex, Assert-ExactHash, Get-Manifest, Invoke-GitChecked, Test-UnsafeArchiveMember, Promote-StagedDirectory
