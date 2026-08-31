@@ -1,0 +1,8 @@
+{
+  "control": "\u0000",
+  "scalarNearLimit": 65536,
+  "scalarOverLimit": 65537,
+  "utf8NearLimit": 16384,
+  "utf8OverLimit": 16385,
+  "escapedNearLimitFrameBytes": 393343
+}

@@ -91,7 +91,7 @@ function exactRecord(value: unknown, expectedKeys: readonly string[]): PlainReco
   if (Object.getOwnPropertySymbols(value).length !== 0) fail("must not contain symbol fields");
 
   const descriptors = Object.getOwnPropertyDescriptors(value);
-  const actualKeys = Object.keys(descriptors).sort();
+  const actualKeys = Object.getOwnPropertyNames(value).sort();
   const sortedExpected = [...expectedKeys].sort();
   if (actualKeys.length !== sortedExpected.length || actualKeys.some((key, index) => key !== sortedExpected[index])) {
     fail("must contain exactly the required fields");
@@ -121,7 +121,7 @@ function exactArray(value: unknown, label: string): unknown[] {
     const descriptor = descriptors[String(index)];
     if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) fail(`${label} must not be sparse or contain accessors`);
   }
-  if (Object.keys(descriptors).some((key) => key !== "length" && !/^(0|[1-9][0-9]*)$/.test(key))) fail(`${label} must not contain extra fields`);
+  if (Object.getOwnPropertyNames(value).some((key) => key !== "length" && !/^(0|[1-9][0-9]*)$/.test(key))) fail(`${label} must not contain extra fields`);
   return Array.from({ length: value.length }, (_, index) => descriptors[String(index)].value);
 }
 
@@ -144,6 +144,19 @@ function requireSha256(value: unknown, label: string): Sha256Hex {
 function requireInteger(value: unknown, label: string, minimum: number, maximum = Number.MAX_SAFE_INTEGER): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < minimum || value > maximum) fail(`${label} is out of bounds`);
   return value;
+}
+
+function requireOutputText(value: unknown): string {
+  const text = requireNfcString(value, "token text");
+  let scalars = 0;
+  let utf8Bytes = 0;
+  for (const scalar of text) {
+    scalars += 1;
+    const codePoint = scalar.codePointAt(0) as number;
+    utf8Bytes += codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4;
+    if (scalars > MAX_OUTPUT || utf8Bytes > MAX_OUTPUT) fail("output exceeds Unicode-scalar or UTF-8-byte bounds");
+  }
+  return text;
 }
 
 function freeze<T>(value: T): Readonly<T> {
@@ -204,10 +217,13 @@ export async function createJarvisTokenBridgeRequestV1(
   return freeze({ ...request, requestHash }) as Readonly<JarvisTokenBridgeRequestV1>;
 }
 
-export function parseJarvisTokenBridgeRequestV1(value: unknown): Readonly<JarvisTokenBridgeRequestV1> {
+export async function parseJarvisTokenBridgeRequestV1(value: unknown): Promise<Readonly<JarvisTokenBridgeRequestV1>> {
   const record = exactRecord(value, [...REQUEST_KEYS, "requestHash"]);
   const request = parseRequestMaterial(Object.fromEntries(REQUEST_KEYS.map((key) => [key, record[key]])));
-  return freeze({ ...request, requestHash: requireSha256(record.requestHash, "requestHash") }) as Readonly<JarvisTokenBridgeRequestV1>;
+  const requestHash = requireSha256(record.requestHash, "requestHash");
+  const computedHash = await sha256Hex(canonicalize(request));
+  if (!constantTimeEqual(requestHash, computedHash)) fail("requestHash does not match request material");
+  return freeze({ ...request, requestHash }) as Readonly<JarvisTokenBridgeRequestV1>;
 }
 
 export function parseJarvisTokenBridgeEventV1(value: unknown): Readonly<JarvisTokenBridgeEventV1> {
@@ -215,7 +231,7 @@ export function parseJarvisTokenBridgeEventV1(value: unknown): Readonly<JarvisTo
   if (type === "token") {
     const record = exactRecord(value, ["schemaVersion", "requestId", "eventIndex", "type", "tokenIndex", "text"]);
     if (record.schemaVersion !== "1.0") fail("schemaVersion is unsupported");
-    return freeze({ schemaVersion: "1.0" as const, requestId: requireUlid(record.requestId, "requestId"), eventIndex: requireInteger(record.eventIndex, "eventIndex", 0), type: "token" as const, tokenIndex: requireInteger(record.tokenIndex, "tokenIndex", 0), text: requireNfcString(record.text, "token text") });
+    return freeze({ schemaVersion: "1.0" as const, requestId: requireUlid(record.requestId, "requestId"), eventIndex: requireInteger(record.eventIndex, "eventIndex", 0), type: "token" as const, tokenIndex: requireInteger(record.tokenIndex, "tokenIndex", 0), text: requireOutputText(record.text) });
   }
   if (type === "completed") {
     const record = exactRecord(value, ["schemaVersion", "requestId", "eventIndex", "type", "outputHash"]);
@@ -324,4 +340,13 @@ function hexBytes(value: Sha256Hex): Uint8Array {
   const bytes = new Uint8Array(32);
   for (let index = 0; index < bytes.length; index += 1) bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
   return bytes;
+}
+
+function constantTimeEqual(left: string, right: string): boolean {
+  let difference = left.length ^ right.length;
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    difference |= (left.charCodeAt(index) || 0) ^ (right.charCodeAt(index) || 0);
+  }
+  return difference === 0;
 }

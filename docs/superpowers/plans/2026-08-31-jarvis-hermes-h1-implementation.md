@@ -321,9 +321,9 @@ Export:
       input: Readonly<JarvisTokenBridgeRequestHashMaterialV1>,
     ): Promise<Readonly<JarvisTokenBridgeRequestV1>>;
 
-    export function parseJarvisTokenBridgeRequestV1(
+    export async function parseJarvisTokenBridgeRequestV1(
       value: unknown,
-    ): Readonly<JarvisTokenBridgeRequestV1>;
+    ): Promise<Readonly<JarvisTokenBridgeRequestV1>>;
 
 Reuse `canonicalize` and `sha256Hex`. Do not import an application type into `@jarvis/contracts`; the adapter performs the app-to-contract mapping. Do not normalize malformed input into validity; reject non-NFC at the parser boundary.
 

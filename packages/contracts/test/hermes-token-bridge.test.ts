@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+import requestFixtureRaw from "../../../tests/fixtures/hermes-h1/token-request-golden-v1.json?raw";
+import readinessFixtureRaw from "../../../tests/fixtures/hermes-h1/readiness-golden-v1.json?raw";
+import eventsFixtureRaw from "../../../tests/fixtures/hermes-h1/token-events-golden-v1.ndjson?raw";
+import sseFixtureRaw from "../../../tests/fixtures/hermes-h1/token-events-golden-v1.sse?raw";
+import boundaryFixtureRaw from "../../../tests/fixtures/hermes-h1/token-events-boundary-v1.json?raw";
 import {
   createJarvisTokenBridgeRequestV1,
   createJarvisTokenBridgeEventChainV1,
@@ -13,6 +18,7 @@ import {
   type JarvisTokenBridgeRequestHashMaterialV1,
 } from "../src/hermes-token-bridge.js";
 import type { Sha256Hex } from "../src/ids.js";
+import { canonicalize, sha256Hex } from "../src/canonical-json.js";
 
 const requestId = "01k3s6k8000000000000000003";
 const requestMaterial: JarvisTokenBridgeRequestHashMaterialV1 = {
@@ -43,21 +49,37 @@ describe("H1 token bridge contract", () => {
     expect(request.context[0].text).toBe("remembered");
   });
 
-  it("requires exact plain request records without accessors, non-NFC text, identity mismatches, or invalid channels", () => {
+  it("requires exact plain request records without accessors, non-NFC text, identity mismatches, or invalid channels", async () => {
     const parsed = { ...requestMaterial, requestHash: "235efcf5927ba250ad8ea078c9c5ed6e951084f3aec2e7d643e0904021aa5ac3" };
-    expect(parseJarvisTokenBridgeRequestV1(parsed)).toEqual(parsed);
-    expect(() => parseJarvisTokenBridgeRequestV1({ ...parsed, extra: true })).toThrow();
+    await expect(parseJarvisTokenBridgeRequestV1(parsed)).resolves.toEqual(parsed);
+    await expect(parseJarvisTokenBridgeRequestV1({ ...parsed, extra: true })).rejects.toThrow();
     const missing = { ...parsed } as Record<string, unknown>;
     delete missing.userText;
-    expect(() => parseJarvisTokenBridgeRequestV1(missing)).toThrow();
-    expect(() => parseJarvisTokenBridgeRequestV1({ ...parsed, correlationId: "01k3s6k8000000000000000004" })).toThrow();
-    expect(() => parseJarvisTokenBridgeRequestV1({ ...parsed, requestId: "invalid" })).toThrow();
-    expect(() => parseJarvisTokenBridgeRequestV1({ ...parsed, userText: "e\u0301" })).toThrow("NFC");
-    expect(() => parseJarvisTokenBridgeRequestV1({ ...parsed, channel: "chat" })).toThrow();
-    expect(() => parseJarvisTokenBridgeRequestV1({ ...parsed, timeoutMs: 0 })).toThrow();
-    expect(() => parseJarvisTokenBridgeRequestV1(Object.create(parsed, {
-      principalId: { enumerable: true, get: () => "principal:sid" },
-    }))).toThrow();
+    await expect(parseJarvisTokenBridgeRequestV1(missing)).rejects.toThrow();
+    await expect(parseJarvisTokenBridgeRequestV1({ ...parsed, correlationId: "01k3s6k8000000000000000004" })).rejects.toThrow();
+    await expect(parseJarvisTokenBridgeRequestV1({ ...parsed, requestId: "invalid" })).rejects.toThrow();
+    await expect(parseJarvisTokenBridgeRequestV1({ ...parsed, userText: "e\u0301" })).rejects.toThrow("NFC");
+    await expect(parseJarvisTokenBridgeRequestV1({ ...parsed, channel: "chat" })).rejects.toThrow();
+    await expect(parseJarvisTokenBridgeRequestV1({ ...parsed, timeoutMs: 0 })).rejects.toThrow();
+    const accessor = { ...parsed };
+    Object.defineProperty(accessor, "principalId", { enumerable: true, get: () => "principal:sid" });
+    await expect(parseJarvisTokenBridgeRequestV1(accessor)).rejects.toThrow("data field");
+  });
+
+  it("rejects forged request hashes and every hidden own record or array field", async () => {
+    const parsed = { ...requestMaterial, requestHash: "235efcf5927ba250ad8ea078c9c5ed6e951084f3aec2e7d643e0904021aa5ac3" };
+    await expect(parseJarvisTokenBridgeRequestV1({ ...parsed, userText: "forged" })).rejects.toThrow("requestHash");
+    const hiddenRecord = { ...parsed };
+    Object.defineProperty(hiddenRecord, "hidden", { value: true });
+    await expect(parseJarvisTokenBridgeRequestV1(hiddenRecord)).rejects.toThrow("exactly");
+    await expect(parseJarvisTokenBridgeRequestV1({ ...parsed, [Symbol("hidden")]: true })).rejects.toThrow("symbol");
+    const hiddenArray = [...parsed.context];
+    Object.defineProperty(hiddenArray, "hidden", { value: true });
+    await expect(parseJarvisTokenBridgeRequestV1({ ...parsed, context: hiddenArray })).rejects.toThrow("extra");
+    const accessorArray = [...parsed.context];
+    Object.defineProperty(accessorArray, "0", { enumerable: true, get: () => parsed.context[0] });
+    await expect(parseJarvisTokenBridgeRequestV1({ ...parsed, context: accessorArray })).rejects.toThrow("accessors");
+    await expect(parseJarvisTokenBridgeRequestV1({ ...parsed, context: Object.assign([...parsed.context], { [Symbol("hidden")]: true }) })).rejects.toThrow("plain array");
   });
 
   it("hashes changed material under the same request identity differently", async () => {
@@ -133,4 +155,74 @@ describe("H1 token bridge contract", () => {
       ],
     });
   });
+
+  it("consumes the committed request, native/session, readiness, NDJSON, and raw SSE vectors", async () => {
+    const requestFixture = JSON.parse(requestFixtureRaw) as Record<string, string>;
+    const readinessFixture = JSON.parse(readinessFixtureRaw);
+    const requestBody = JSON.parse(requestFixture.canonicalRequestBody);
+    const nativeInput = hexBytes(requestFixture.nativeInputUtf8Hex);
+    const sessionMessage = hexBytes(requestFixture.sessionHmacMessageHex);
+    const sessionKey = await crypto.subtle.importKey("raw", ownedBuffer(hexBytes(requestFixture.publicProfileKeyHex)), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    const sessionDigest = new Uint8Array(await crypto.subtle.sign("HMAC", sessionKey, ownedBuffer(sessionMessage)));
+    const ndjsonLines = eventsFixtureRaw.trimEnd().split("\n");
+    const ndjsonEvents = ndjsonLines.map((line) => parseJarvisTokenBridgeEventV1(JSON.parse(line)));
+    const rawSse = new TextEncoder().encode(sseFixtureRaw);
+    const frames = sseFixtureRaw.split("\n\n").slice(0, -1).map((frame) => new TextEncoder().encode(`${frame}\n\n`));
+
+    expect(new TextDecoder().decode(canonicalize(requestBody))).toBe(requestFixture.canonicalRequestBody);
+    expect(new TextDecoder().decode(nativeInput)).toBe("JARVIS-H1-INPUT-V1\n5\nhello\n1\npersonal\n10\nremembered\n");
+    expect(await sha256Hex(nativeInput)).toBe(requestFixture.nativeInputSha256);
+    expect(toHex(sessionDigest)).toBe(requestFixture.sessionHmacSha256);
+    expect(`jv1_${toBase64Url(sessionDigest)}`).toBe(requestFixture.sessionId);
+    await expect(parseJarvisTokenBridgeRequestV1({ ...requestBody, requestHash: requestFixture.requestHash })).resolves.toMatchObject(requestBody);
+    expect(parseJarvisTokenBridgeReadinessV1(readinessFixture)).toEqual(readinessFixture);
+    expect(ndjsonEvents.map((event) => new TextDecoder().decode(canonicalize(event)))).toEqual(ndjsonLines);
+    expect(ndjsonEvents.map((event) => event.eventIndex)).toEqual([0, 1, 2]);
+    expect(ndjsonEvents.filter((event) => event.type !== "token")).toHaveLength(1);
+    expect(ndjsonEvents.at(-1)?.type).toBe("completed");
+    expect(rawSse.slice(0, 3)).not.toEqual(new Uint8Array([0xef, 0xbb, 0xbf]));
+    expect(rawSse).not.toContain(0x0d);
+    expect(sseFixtureRaw.endsWith("\n\n")).toBe(true);
+    expect(frames).toEqual(ndjsonEvents.map(encodeJarvisTokenBridgeEventSseFrameV1));
+    expect(frames.map(parseJarvisTokenBridgeEventSseFrameV1)).toHaveLength(3);
+    await expect(createJarvisTokenBridgeEventChainV1(requestFixture.requestHash as Sha256Hex, frames)).resolves.toEqual((JSON.parse(requestFixtureRaw) as { eventChain: unknown }).eventChain);
+  });
+
+  it("enforces independent Unicode-scalar, UTF-8-byte, and escaped-frame boundaries from the committed vector", () => {
+    const boundary = JSON.parse(boundaryFixtureRaw) as {
+      control: string;
+      scalarNearLimit: number;
+      scalarOverLimit: number;
+      utf8NearLimit: number;
+      utf8OverLimit: number;
+      escapedNearLimitFrameBytes: number;
+    };
+    const controlText = boundary.control.repeat(boundary.scalarNearLimit);
+    const emojiText = "😀".repeat(boundary.utf8NearLimit);
+
+    expect(encodeJarvisTokenBridgeEventSseFrameV1({ schemaVersion: "1.0", requestId, eventIndex: 0, type: "token", tokenIndex: 0, text: controlText }).byteLength).toBe(boundary.escapedNearLimitFrameBytes);
+    expect(() => encodeJarvisTokenBridgeEventSseFrameV1({ schemaVersion: "1.0", requestId, eventIndex: 0, type: "token", tokenIndex: 0, text: boundary.control.repeat(boundary.scalarOverLimit) })).toThrow("output");
+    expect(() => encodeJarvisTokenBridgeEventSseFrameV1({ schemaVersion: "1.0", requestId, eventIndex: 0, type: "token", tokenIndex: 0, text: "😀".repeat(boundary.utf8OverLimit) })).toThrow("output");
+    expect(encodeJarvisTokenBridgeEventSseFrameV1({ schemaVersion: "1.0", requestId, eventIndex: 0, type: "token", tokenIndex: 0, text: emojiText }).byteLength).toBeGreaterThan(0);
+  });
 });
+
+function hexBytes(value: string): Uint8Array {
+  const bytes = new Uint8Array(value.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+  return bytes;
+}
+
+function toHex(bytes: Uint8Array): string {
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function toBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
+function ownedBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.slice().buffer as ArrayBuffer;
+}
