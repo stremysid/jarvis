@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { access, copyFile, link, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import Ajv2020 from "ajv/dist/2020.js";
 import { canonicalize, sha256Hex, validateHermesManifests, validateRunsWireArtifacts } from "../src/validate-manifests.mjs";
+import { loadCanonicalJsonFile } from "../src/canonical-json.mjs";
 import { validateRunsWire } from "../src/validate-runs-wire.mjs";
 import { markerApplies, wheelRank } from "../src/generate-sbom.mjs";
 
@@ -26,9 +27,9 @@ async function pathExists(path) {
   }
 }
 
-async function runPowerShellFile(script, args, timeout = 120_000) {
+async function runPowerShellFile(script, args, timeout = 120_000, env = process.env) {
   return new Promise((resolve, reject) => {
-    const child = spawn("pwsh", ["-NoProfile", "-NonInteractive", "-File", script, ...args], { windowsHide: true });
+    const child = spawn("pwsh", ["-NoProfile", "-NonInteractive", "-File", script, ...args], { windowsHide: true, env });
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {
@@ -93,7 +94,8 @@ describe("Hermes H1 source locks", () => {
   it("binds the source lock and Task 1 readiness fixture to the canonical Runs event contract", async () => {
     const source = await loadJson("hermes-source-lock.json");
     const contract = await loadJson("contracts/hermes-runs-api-v2026.8.27.json");
-    const readiness = JSON.parse(await readFile(new URL("../../../tests/fixtures/hermes-h1/readiness-golden-v1.json", import.meta.url), "utf8"));
+    const readinessFile = await loadCanonicalJsonFile(new URL("../../../tests/fixtures/hermes-h1/readiness-golden-v1.json", import.meta.url), "Task 1 readiness fixture");
+    const readiness = readinessFile.value;
     const hash = await sha256Hex(canonicalize(contract));
 
     expect(source.runsEventContractHash).toBe(hash);
@@ -141,12 +143,12 @@ describe("Hermes H1 source locks", () => {
     const installed = sbom.components.filter((component) => component.purl?.startsWith("pkg:pypi/"));
     const archives = installed.filter((component) => component.hashes);
     expect(installed).toHaveLength(66); expect(archives).toHaveLength(65);
-    expect(archives.reduce((sum, component) => sum + Number(component.properties[0].value), 0)).toBe(41_363_526);
+    expect(archives.reduce((sum, component) => sum + Number(component.properties[0].value), 0)).toBe(41_417_102);
     const archiveRecords = archives.map((component) => ({ name: component.name, version: component.version, url: component.externalReferences[0].url, size: Number(component.properties[0].value), sha256: component.hashes[0].content })).sort((left, right) => left.name.localeCompare(right.name));
     const byRef = new Map(installed.map((component) => [component.purl, component]));
     const dependencyRecords = sbom.dependencies.map((dependency) => ({ name: byRef.get(dependency.ref).name, version: byRef.get(dependency.ref).version, dependsOn: dependency.dependsOn.map((reference) => byRef.get(reference).name).sort() })).sort((left, right) => left.name.localeCompare(right.name));
     await expect(sha256Hex(canonicalize(installed.map((component) => `${component.name}==${component.version}`).sort()))).resolves.toBe("3de6c3eeb3148f4b49cf48c5e8973487e82acbecd95131b8a50fc141276242a8");
-    await expect(sha256Hex(canonicalize(archiveRecords))).resolves.toBe("f3a08e3bf08e9d10d0e79338049028a89aa14b85a3d0120a86187e5578041d52");
+    await expect(sha256Hex(canonicalize(archiveRecords))).resolves.toBe("5433972607296e6ace1155482d1af15575f2aae75821781a67409f60147eb31a");
     await expect(sha256Hex(canonicalize(dependencyRecords))).resolves.toBe("8efcb478f48ae732c7d9f2432599425283c34c4dd972f43de1854f3271618f27");
     for (const name of ["nemo-relay", "socksio", "httptools", "watchfiles"]) expect(installed.some((component) => component.name === name)).toBe(true);
     expect(markerApplies("sys_platform == 'win32' and python_full_version >= '3.11'", new Set())).toBe(true); expect(markerApplies("sys_platform != 'win32' or extra == 'socks'", new Set())).toBe(false); expect(markerApplies("extra == 'socks'", new Set(["socks"]))).toBe(true); expect(() => markerApplies("evil == 'x'", new Set())).toThrow();
@@ -197,6 +199,7 @@ describe("Hermes H1 source locks", () => {
     validateRunsWire("request", golden.request); validateRunsWire("admission", golden.admission); validateRunsWire("stop", golden.stop); validateRunsWire("notFound", golden.notFound);
     for (const value of golden.events) validateRunsWire("event", value); for (const value of golden.get) validateRunsWire("get", value);
     for (const model_options of [{ reasoning: { enabled: false } }, { reasoning: { enabled: true, effort: "low" } }, { reasoning: { enabled: true, effort: "high" } }, { reasoning: { enabled: true, effort: "max" } }]) validateRunsWire("request", { ...golden.request, model_options });
+    for (const input of ["\ud800", "\udfff"]) expect(() => validateRunsWire("request", { ...golden.request, input })).toThrow(/well-formed Unicode/);
     for (const [kind, value] of [["event", { ...golden.events[0], event: "tool.called" }], ["event", { ...golden.events[2], usage: { input_tokens: -1, output_tokens: 0, total_tokens: 0 } }], ["event", { ...golden.events[0], timestamp: "1700000000" }], ["event", { ...golden.events[0], timestamp: Number.NaN }], ["event", { ...golden.events[0], timestamp: Number.POSITIVE_INFINITY }], ["admission", { ...golden.admission, run_id: "run_ABC" }], ["get", { ...golden.get[3], last_event: "reasoning.available" }], ["get", { ...golden.get[0], pending_steer: true }], ["request", { ...golden.request, profile: "tools" }], ["request", { ...golden.request, provider: "openrouter" }], ["request", { ...golden.request, model_options: { reasoning: { enabled: true, effort: "medium" } } }], ["request", { ...golden.request, model_options: { reasoning: { enabled: false, effort: "low" } } }], ["notFound", { error: { ...golden.notFound.error, message: "Run not found: run_other" } }]]) expect(() => validateRunsWire(kind, value)).toThrow();
   });
 
@@ -270,6 +273,223 @@ describe("Hermes H1 source locks", () => {
     }
   }, 120_000);
 
+  it("binds the only recoverable artifact stage to the exact publication journal and rejects unbound residue", async () => {
+    const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const fixture = join(runtimeRoot, "artifact-operations.json");
+    await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
+    try {
+      const crashed = await runPowerShellFile(script, [
+        "-RuntimeRoot", runtimeRoot,
+        "-TestOperationFixture", fixture,
+        "-TestCrashAfterPromotion", "1",
+      ]);
+      expect(crashed.code).not.toBe(0);
+      expect(await pathExists(join(runtimeRoot, ".hermes-runtime-publication.json")), crashed.stderr).toBe(true);
+      const journal = JSON.parse(await readFile(join(runtimeRoot, ".hermes-runtime-publication.json"), "utf8"));
+      expect(journal).toEqual(expect.objectContaining({
+        schemaVersion: 2,
+        state: "promoting",
+        transactionId: expect.stringMatching(/^[a-f0-9]{32}$/),
+        commonStage: expect.stringMatching(/\\\.artifact-stage-[a-f0-9]{32}$/i),
+      }));
+      expect(journal.promotions).toHaveLength(4);
+      expect(new Set(journal.promotions.map(({ staged }) => staged.slice(0, staged.lastIndexOf("\\"))))).toEqual(new Set([join(journal.commonStage, "promote")]));
+      expect((await readdir(runtimeRoot)).filter((name) => name.startsWith(".artifact-stage-"))).toEqual([journal.commonStage.slice(journal.commonStage.lastIndexOf("\\") + 1)]);
+
+      await writeFile(join(runtimeRoot, ".artifact-stage-unbound"), "hostile", "utf8");
+      const verify = await runPowerShellFile(script, [
+        "-RuntimeRoot", runtimeRoot,
+        "-VerifyOnly",
+        "-TestOperationFixture", fixture,
+      ]);
+      expect(verify.code).not.toBe(0);
+      expect(verify.stderr).toMatch(/unbound|residue/i);
+    } finally {
+      await rm(runtimeRoot, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("serializes simultaneous artifact workflows with an OS-released exclusive lock", async () => {
+    const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const fixture = join(runtimeRoot, "artifact-operations.json");
+    const loserEffects = join(runtimeRoot, "loser-effects.log");
+    await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
+    try {
+      const winner = runPowerShellFile(script, [
+        "-RuntimeRoot", runtimeRoot,
+        "-TestOperationFixture", fixture,
+        "-TestHoldLockMilliseconds", "1500",
+      ]);
+      for (let index = 0; index < 40 && !await pathExists(join(runtimeRoot, ".hermes-runtime.workflow.lock")); index++) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const loser = await runPowerShellFile(script, [
+        "-RuntimeRoot", runtimeRoot,
+        "-TestOperationFixture", fixture,
+        "-TestEffectLog", loserEffects,
+      ]);
+      expect(loser.code).not.toBe(0);
+      expect(loser.stderr).toMatch(/exclusive|workflow lock/i);
+      expect(await pathExists(loserEffects)).toBe(false);
+      const won = await winner;
+      expect(won.code, won.stderr).toBe(0);
+      expect(await pathExists(join(runtimeRoot, ".hermes-runtime-publication.ready.json"))).toBe(true);
+    } finally {
+      await rm(runtimeRoot, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("rejects nonempty, hardlinked, and ADS-bearing workflow lock files before effects", async () => {
+    const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
+    for (const mutation of ["nonempty", "hardlink", "ads"]) {
+      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const fixture = join(runtimeRoot, "artifact-operations.json");
+      const effects = join(runtimeRoot, "effects.log");
+      const lockPath = join(runtimeRoot, ".hermes-runtime.workflow.lock");
+      await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
+      try {
+        if (mutation === "nonempty") await writeFile(lockPath, "forged", "utf8");
+        if (mutation === "hardlink") {
+          const origin = join(runtimeRoot, "lock-origin"); await writeFile(origin, "", "utf8"); await link(origin, lockPath);
+        }
+        if (mutation === "ads") { await writeFile(lockPath, "", "utf8"); await writeFile(`${lockPath}:hostile`, "hostile", "utf8"); }
+        const before = await snapshotTree(runtimeRoot);
+        const result = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture, "-TestEffectLog", effects]);
+        expect(result.code, `${mutation} lock accepted`).not.toBe(0);
+        expect(result.stderr, mutation).toMatch(/workflow lock|hardlink|alternate stream|identity|exactly empty/i);
+        expect(await pathExists(effects)).toBe(false);
+        expect(await snapshotTree(runtimeRoot)).toEqual(before);
+      } finally {
+        await rm(runtimeRoot, { recursive: true, force: true });
+      }
+    }
+  }, 120_000);
+
+  it("rejects hardlinked and ADS-bearing journal and ready state before recovery or verification effects", async () => {
+    const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
+    for (const [state, mutation] of [["journal", "hardlink"], ["journal", "ads"], ["ready", "hardlink"], ["ready", "ads"]]) {
+      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const fixture = join(runtimeRoot, "artifact-operations.json");
+      const effects = join(runtimeRoot, "effects.log");
+      await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
+      try {
+        if (state === "journal") {
+          const crashed = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture, "-TestCrashAfterPromotion", "1"]);
+          expect(crashed.code).not.toBe(0);
+        } else {
+          const acquired = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture]);
+          expect(acquired.code, acquired.stderr).toBe(0);
+        }
+        const statePath = join(runtimeRoot, state === "journal" ? ".hermes-runtime-publication.json" : ".hermes-runtime-publication.ready.json");
+        if (mutation === "hardlink") await link(statePath, `${statePath}.hardlink`);
+        else await writeFile(`${statePath}:hostile`, "hostile", "utf8");
+        const before = await snapshotTree(runtimeRoot);
+        const args = ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture, "-TestEffectLog", effects];
+        if (state === "ready") args.push("-VerifyOnly");
+        const result = await runPowerShellFile(script, args);
+        expect(result.code, `${state}-${mutation} accepted`).not.toBe(0);
+        expect(result.stderr).toMatch(/hardlink|alternate stream|identity|journal|marker/i);
+        expect(await pathExists(effects)).toBe(false);
+        expect(await snapshotTree(runtimeRoot)).toEqual(before);
+      } finally {
+        await rm(runtimeRoot, { recursive: true, force: true });
+      }
+    }
+  }, 120_000);
+
+  it("fails closed without state mutation for torn, duplicate-key, forged, reordered, and overlapping journals", async () => {
+    const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
+    const mutations = [
+      ["torn", () => "{\n"],
+      ["duplicate-key", (record, raw) => `{"schemaVersion":2,${raw.slice(1)}`],
+      ["extra-key", (record) => `${JSON.stringify({ ...record, extra: true })}\n`],
+      ["case-key", (record) => { const { schemaVersion, ...rest } = record; return `${JSON.stringify({ SchemaVersion: schemaVersion, ...rest })}\n`; }],
+      ["promotion-case-key", (record) => `${JSON.stringify({ ...record, promotions: record.promotions.map((item, index) => index === 0 ? { Staged: item.staged, final: item.final, digest: item.digest } : item) })}\n`],
+      ["transaction", (record) => `${JSON.stringify({ ...record, transactionId: "f".repeat(32) })}\n`],
+      ["common-stage", (record) => `${JSON.stringify({ ...record, commonStage: join(record.commonStage, "nested") })}\n`],
+      ["reordered", (record) => `${JSON.stringify({ ...record, promotions: [...record.promotions].reverse() })}\n`],
+      ["overlap", (record) => `${JSON.stringify({ ...record, promotions: record.promotions.map((item, index) => index === 0 ? { ...item, final: record.promotions[1].final } : item) })}\n`],
+    ];
+    for (const [label, mutate] of mutations) {
+      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const fixture = join(runtimeRoot, "artifact-operations.json");
+      const effects = join(runtimeRoot, "retry-effects.log");
+      const journalPath = join(runtimeRoot, ".hermes-runtime-publication.json");
+      await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
+      try {
+        const crashed = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture, "-TestCrashAfterPromotion", "1"]);
+        expect(crashed.code, label).not.toBe(0);
+        const raw = await readFile(journalPath, "utf8");
+        const record = JSON.parse(raw);
+        await writeFile(journalPath, mutate(record, raw), "utf8");
+        const before = await snapshotTree(runtimeRoot);
+        const retry = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture, "-TestEffectLog", effects]);
+        expect(retry.code, `${label} was accepted`).not.toBe(0);
+        expect(retry.stderr, label).toMatch(/journal|canonical|duplicate|forged|schema|bound|promotion/i);
+        expect(await pathExists(effects), label).toBe(false);
+        expect(await snapshotTree(runtimeRoot), label).toEqual(before);
+      } finally {
+        await rm(runtimeRoot, { recursive: true, force: true });
+      }
+    }
+  }, 120_000);
+
+  it("rejects forged and duplicate-key ready markers before VerifyOnly effects and preserves the full RuntimeRoot", async () => {
+    const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
+    for (const mutation of [
+      (record) => `${JSON.stringify({ ...record, transactionId: "f".repeat(32) })}\n`,
+      (record, raw) => `{"schemaVersion":2,${raw.slice(1)}`,
+      (record) => { const { schemaVersion, ...rest } = record; return `${JSON.stringify({ SchemaVersion: schemaVersion, ...rest })}\n`; },
+      (record) => `${JSON.stringify({ ...record, promotions: record.promotions.map((item, index) => index === 0 ? { Staged: item.staged, final: item.final, digest: item.digest } : item) })}\n`,
+      (record) => `${JSON.stringify({ ...record, promotions: record.promotions.map((item, index) => index === 0 ? { ...item, digest: "0".repeat(64) } : item) })}\n`,
+    ]) {
+      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const fixture = join(runtimeRoot, "artifact-operations.json");
+      const effects = join(runtimeRoot, "verify-effects.log");
+      const readyPath = join(runtimeRoot, ".hermes-runtime-publication.ready.json");
+      await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
+      try {
+        const acquired = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture]);
+        expect(acquired.code, acquired.stderr).toBe(0);
+        const raw = await readFile(readyPath, "utf8");
+        const record = JSON.parse(raw);
+        await writeFile(readyPath, mutation(record, raw), "utf8");
+        const before = await snapshotTree(runtimeRoot);
+        const verify = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-VerifyOnly", "-TestOperationFixture", fixture, "-TestEffectLog", effects]);
+        expect(verify.code).not.toBe(0);
+        expect(verify.stderr).toMatch(/marker|canonical|duplicate|forged|digest|schema|bound/i);
+        expect(await pathExists(effects)).toBe(false);
+        expect(await snapshotTree(runtimeRoot)).toEqual(before);
+      } finally {
+        await rm(runtimeRoot, { recursive: true, force: true });
+      }
+    }
+  }, 120_000);
+
+  it("keeps two marker-backed VerifyOnly passes bit-for-bit nonmutating across the full RuntimeRoot", async () => {
+    const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const fixture = join(runtimeRoot, "artifact-operations.json");
+    await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
+    try {
+      const acquired = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture]);
+      expect(acquired.code, acquired.stderr).toBe(0);
+      const before = await snapshotTree(runtimeRoot);
+      const scratchBefore = new Set((await readdir(tmpdir())).filter((name) => name.startsWith("jarvis-hermes-verify-")));
+      for (let pass = 0; pass < 2; pass++) {
+        const verify = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-VerifyOnly", "-TestOperationFixture", fixture]);
+        expect(verify.code, verify.stderr).toBe(0);
+      }
+      expect(await snapshotTree(runtimeRoot)).toEqual(before);
+      expect(new Set((await readdir(tmpdir())).filter((name) => name.startsWith("jarvis-hermes-verify-")))).toEqual(scratchBefore);
+    } finally {
+      await rm(runtimeRoot, { recursive: true, force: true });
+    }
+  }, 120_000);
+
   it("rolls back every injected promotion fault before a clean real-entrypoint rerun", async () => {
     const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
     const finals = [
@@ -303,6 +523,88 @@ describe("Hermes H1 source locks", () => {
         ]);
         expect(rerun.code, rerun.stderr).toBe(0);
         for (const final of finals) expect(await pathExists(join(runtimeRoot, final))).toBe(true);
+      } finally {
+        await rm(runtimeRoot, { recursive: true, force: true });
+      }
+    }
+  }, 120_000);
+
+  it("fails closed without moving or deleting a crash-bound tree whose recorded digest drifts", async () => {
+    const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
+    for (const drift of [
+      { crashAfter: 1, promotion: 0, relative: ["python", "python.exe"] },
+      { crashAfter: 1, promotion: 3, relative: ["python-licenses.rst"] },
+      { crashAfter: 4, promotion: 0, relative: ["python", "python.exe"] },
+    ]) {
+      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const fixture = join(runtimeRoot, "artifact-operations.json");
+      const effects = join(runtimeRoot, "retry-effects.log");
+      const journalPath = join(runtimeRoot, ".hermes-runtime-publication.json");
+      await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
+      try {
+        const crashed = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture, "-TestCrashAfterPromotion", String(drift.crashAfter)]);
+        expect(crashed.code).not.toBe(0);
+        const journal = JSON.parse(await readFile(journalPath, "utf8"));
+        const promotion = journal.promotions[drift.promotion];
+        const present = await pathExists(promotion.final) ? promotion.final : promotion.staged;
+        await writeFile(join(present, ...drift.relative), "drifted-after-crash", "utf8");
+        const journalBefore = await readFile(journalPath);
+        const before = await snapshotTree(runtimeRoot);
+
+        const retry = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture, "-TestEffectLog", effects]);
+        expect(retry.code).not.toBe(0);
+        expect(retry.stderr).toMatch(/digest|drift/i);
+        expect(await pathExists(effects)).toBe(false);
+        expect(await readFile(journalPath)).toEqual(journalBefore);
+        expect(await snapshotTree(runtimeRoot)).toEqual(before);
+      } finally {
+        await rm(runtimeRoot, { recursive: true, force: true });
+      }
+    }
+  }, 120_000);
+
+  it("verifies the exact license rollup at staging, post-promotion, ready-rerun, and VerifyOnly boundaries", async () => {
+    const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
+    for (const scenario of ["license-stage-drift", "license-postmove-drift"]) {
+      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const fixture = join(runtimeRoot, "artifact-operations.json");
+      const effects = join(runtimeRoot, "effects.log");
+      await writeFile(fixture, `${JSON.stringify({ schemaVersion: 1, workflow: "runtime-artifacts", scenario })}\n`, "utf8");
+      try {
+        const result = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture, "-TestEffectLog", effects]);
+        expect(result.code).not.toBe(0);
+        expect(result.stderr).toMatch(/license|digest|drift/i);
+        expect(await pathExists(join(runtimeRoot, ".hermes-runtime-publication.ready.json"))).toBe(false);
+        if (scenario === "license-stage-drift") {
+          expect(await pathExists(join(runtimeRoot, ".hermes-runtime-publication.json"))).toBe(false);
+          expect(await readFile(effects, "utf8")).not.toContain("staged-full-tree-verified\n");
+        } else {
+          expect(await pathExists(join(runtimeRoot, ".hermes-runtime-publication.json"))).toBe(true);
+          expect(await readFile(effects, "utf8")).toContain("all-moves-complete\n");
+        }
+      } finally {
+        await rm(runtimeRoot, { recursive: true, force: true });
+      }
+    }
+
+    for (const mode of ["ready-rerun", "verify-only"]) {
+      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const fixture = join(runtimeRoot, "artifact-operations.json");
+      const effects = join(runtimeRoot, "effects.log");
+      await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
+      try {
+        const acquired = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture]);
+        expect(acquired.code, acquired.stderr).toBe(0);
+        const license = join(runtimeRoot, "licenses", "python-build-standalone", "20260825", "python-licenses.rst");
+        await writeFile(license, "drifted-after-ready", "utf8");
+        const args = ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture, "-TestEffectLog", effects];
+        if (mode === "verify-only") args.push("-VerifyOnly");
+        const rejected = await runPowerShellFile(script, args);
+        expect(rejected.code).not.toBe(0);
+        expect(rejected.stderr).toMatch(/marker|license|digest|drift/i);
+        expect(await pathExists(effects)).toBe(false);
+        expect(await readFile(license, "utf8")).toBe("drifted-after-ready");
+        expect(await pathExists(join(runtimeRoot, ".hermes-runtime-publication.ready.json"))).toBe(true);
       } finally {
         await rm(runtimeRoot, { recursive: true, force: true });
       }
@@ -507,6 +809,140 @@ describe("Hermes H1 source locks", () => {
     }
   }, 120_000);
 
+  it("runs every real Git probe with a closed child environment despite hostile inherited Git controls", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const script = fileURLToPath(new URL("../scripts/fetch-hermes.ps1", import.meta.url));
+    const fixture = join(runtimeRoot, "source-operations.json");
+    const hostile = join(runtimeRoot, "hostile");
+    await writeFile(fixture, '{"schemaVersion":1,"workflow":"source","scenario":"git-hostile-environment"}\n', "utf8");
+    await mkdir(hostile, { recursive: true });
+    const hostileConfig = join(hostile, "gitconfig");
+    await writeFile(hostileConfig, "[core]\n\thooksPath = C:/hostile-hooks\n", "utf8");
+    const env = {
+      ...process.env,
+      GIT_EXEC_PATH: join(hostile, "exec"),
+      GIT_OBJECT_DIRECTORY: join(hostile, "objects"),
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: join(hostile, "alternates"),
+      GIT_INDEX_FILE: join(hostile, "index"),
+      GIT_DIR: join(hostile, "gitdir"),
+      GIT_WORK_TREE: join(hostile, "worktree"),
+      GIT_COMMON_DIR: join(hostile, "common"),
+      GIT_TEMPLATE_DIR: join(hostile, "templates"),
+      GIT_CONFIG_GLOBAL: hostileConfig,
+      GIT_CONFIG_SYSTEM: hostileConfig,
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "core.hooksPath",
+      GIT_CONFIG_VALUE_0: "C:/hostile-hooks",
+      GIT_CONFIG_PARAMETERS: "'core.hooksPath'='C:/hostile-hooks'",
+      GIT_ASKPASS: join(hostile, "askpass.exe"),
+      SSH_ASKPASS: join(hostile, "ssh-askpass.exe"),
+    };
+    try {
+      const result = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture], 120_000, env);
+      expect(result.code, result.stderr).toBe(0);
+      expect(await pathExists(join(runtimeRoot, "releases", "5fc308a70719a83cccdbba4c0e39c23f5a8239d5", "source"))).toBe(true);
+      expect(await pathExists(join(hostile, "objects"))).toBe(false);
+      expect(await pathExists(join(hostile, "index"))).toBe(false);
+    } finally {
+      await rm(runtimeRoot, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("uses one RuntimeRoot lock across source and artifact entrypoints", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const artifactScript = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
+    const sourceScript = fileURLToPath(new URL("../scripts/fetch-hermes.ps1", import.meta.url));
+    const artifactFixture = join(runtimeRoot, "artifact-operations.json");
+    const sourceFixture = join(runtimeRoot, "source-operations.json");
+    const sourceEffects = join(runtimeRoot, "source-effects.log");
+    await writeFile(artifactFixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
+    await writeFile(sourceFixture, '{"schemaVersion":1,"workflow":"source","scenario":"success"}\n', "utf8");
+    try {
+      const artifact = runPowerShellFile(artifactScript, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", artifactFixture, "-TestHoldLockMilliseconds", "1500"]);
+      for (let index = 0; index < 40 && !await pathExists(join(runtimeRoot, ".hermes-runtime.workflow.lock")); index++) await new Promise((resolve) => setTimeout(resolve, 25));
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const source = await runPowerShellFile(sourceScript, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", sourceFixture, "-TestEffectLog", sourceEffects]);
+      expect(source.code).not.toBe(0);
+      expect(source.stderr).toMatch(/exclusive|workflow lock/i);
+      expect(await pathExists(sourceEffects)).toBe(false);
+      expect(await pathExists(join(runtimeRoot, "releases"))).toBe(false);
+      const acquired = await artifact;
+      expect(acquired.code, acquired.stderr).toBe(0);
+    } finally {
+      await rm(runtimeRoot, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("rolls back a fault after the source move and removes every source stage", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const script = fileURLToPath(new URL("../scripts/fetch-hermes.ps1", import.meta.url));
+    const fixture = join(runtimeRoot, "source-operations.json");
+    await writeFile(fixture, '{"schemaVersion":1,"workflow":"source","scenario":"success"}\n', "utf8");
+    try {
+      const result = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture, "-FailAfterEffect", "move-complete"]);
+      expect(result.code).not.toBe(0);
+      expect(await pathExists(join(runtimeRoot, "releases"))).toBe(true);
+      expect(await readdir(join(runtimeRoot, "releases"))).toEqual([]);
+      expect(await pathExists(join(runtimeRoot, ".s"))).toBe(false);
+      const rerun = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture]);
+      expect(rerun.code, rerun.stderr).toBe(0);
+    } finally {
+      await rm(runtimeRoot, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("rejects unbound source staging before effects and keeps two source VerifyOnly passes fully nonmutating", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const script = fileURLToPath(new URL("../scripts/fetch-hermes.ps1", import.meta.url));
+    const fixture = join(runtimeRoot, "source-operations.json");
+    const effects = join(runtimeRoot, "effects.log");
+    await writeFile(fixture, '{"schemaVersion":1,"workflow":"source","scenario":"success"}\n', "utf8");
+    await mkdir(join(runtimeRoot, ".s", "unbound"), { recursive: true });
+    await writeFile(join(runtimeRoot, ".s", "unbound", "payload"), "hostile", "utf8");
+    try {
+      const rejected = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture, "-TestEffectLog", effects]);
+      expect(rejected.code).not.toBe(0);
+      expect(rejected.stderr).toMatch(/unbound|residue/i);
+      expect(await pathExists(effects)).toBe(false);
+      await rm(join(runtimeRoot, ".s"), { recursive: true, force: true });
+      const acquired = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture]);
+      expect(acquired.code, acquired.stderr).toBe(0);
+      const before = await snapshotTree(runtimeRoot);
+      for (let pass = 0; pass < 2; pass++) {
+        const verified = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-VerifyOnly", "-TestOperationFixture", fixture]);
+        expect(verified.code, verified.stderr).toBe(0);
+      }
+      expect(await snapshotTree(runtimeRoot)).toEqual(before);
+    } finally {
+      await rm(runtimeRoot, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("rejects case-aliased NTFS workflow residue before either real entrypoint emits an effect", async () => {
+    for (const [workflow, residue, child] of [
+      ["runtime-artifacts", ".ARTIFACT-STAGE-unbound", "payload"],
+      ["runtime-artifacts", ".VERIFY-unbound", "payload"],
+      ["source", ".S", "unbound/payload"],
+    ]) {
+      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const fixture = join(runtimeRoot, `${workflow}-operations.json`);
+      const effects = join(runtimeRoot, "effects.log");
+      const script = fileURLToPath(new URL(workflow === "source" ? "../scripts/fetch-hermes.ps1" : "../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
+      await writeFile(fixture, `${JSON.stringify({ schemaVersion: 1, workflow, scenario: "success" })}\n`, "utf8");
+      await mkdir(join(runtimeRoot, residue, ...child.split("/").slice(0, -1)), { recursive: true });
+      await writeFile(join(runtimeRoot, residue, ...child.split("/")), "hostile", "utf8");
+      try {
+        const rejected = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture, "-TestEffectLog", effects]);
+        expect(rejected.code, `${workflow}:${residue} was accepted`).not.toBe(0);
+        expect(rejected.stderr).toMatch(/unbound|residue/i);
+        expect(await pathExists(effects)).toBe(false);
+        expect(await pathExists(join(runtimeRoot, residue, ...child.split("/")))).toBe(true);
+      } finally {
+        await rm(runtimeRoot, { recursive: true, force: true });
+      }
+    }
+  }, 120_000);
+
   it("rejects injected source and artifact manifest drift before the first workflow effect", async () => {
     for (const workflow of ["source", "runtime-artifacts"]) {
       const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
@@ -598,6 +1034,9 @@ describe("Hermes H1 source locks", () => {
       ["http-content-length-drift", /content length drift/i, "validated-before-root-effect\nfilesystem-stage\ndownload-CPython\n"],
       ["body-hash-drift", /body hash mismatch/i, "validated-before-root-effect\nfilesystem-stage\ndownload-CPython\n"],
       ["archive-case-collision", /case-colliding/i, "validated-before-root-effect\nfilesystem-stage\ndownload-CPython\ndownload-uv\ndownload-WinSW\ndownload-license\n"],
+      ["archive-ancestor-forward", /ancestor/i, "validated-before-root-effect\nfilesystem-stage\ndownload-CPython\ndownload-uv\ndownload-WinSW\ndownload-license\n"],
+      ["archive-ancestor-reverse", /ancestor/i, "validated-before-root-effect\nfilesystem-stage\ndownload-CPython\ndownload-uv\ndownload-WinSW\ndownload-license\n"],
+      ["archive-separator-collision", /separator/i, "validated-before-root-effect\nfilesystem-stage\ndownload-CPython\ndownload-uv\ndownload-WinSW\ndownload-license\n"],
       ["archive-extract-reparse", /reparse point/i, "validated-before-root-effect\nfilesystem-stage\ndownload-CPython\ndownload-uv\ndownload-WinSW\ndownload-license\n"],
       ["filesystem-stage-fault", /filesystem fault/i, "validated-before-root-effect\nfilesystem-stage\n"],
     ];
@@ -626,25 +1065,117 @@ describe("Hermes H1 source locks", () => {
     }
   }, 120_000);
 
+  it("rejects real NTFS hardlinks and alternate streams in both staged workflows before promotion", async () => {
+    const cases = [
+      ["runtime-artifacts", "stage-hardlink", /hardlink|identity/i],
+      ["runtime-artifacts", "stage-ads", /alternate stream|identity/i],
+      ["source", "source-stage-hardlink", /hardlink|identity/i],
+      ["source", "source-stage-ads", /alternate stream|identity/i],
+    ];
+    for (const [workflow, scenario, error] of cases) {
+      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const fixture = join(runtimeRoot, `${workflow}-operations.json`);
+      const script = fileURLToPath(new URL(workflow === "source" ? "../scripts/fetch-hermes.ps1" : "../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
+      await writeFile(fixture, `${JSON.stringify({ schemaVersion: 1, workflow, scenario })}\n`, "utf8");
+      try {
+        const result = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture]);
+        expect(result.code, `${scenario} passed`).not.toBe(0);
+        expect(result.stderr, scenario).toMatch(error);
+        expect(await pathExists(join(runtimeRoot, "releases", "5fc308a70719a83cccdbba4c0e39c23f5a8239d5"))).toBe(false);
+        expect(await pathExists(join(runtimeRoot, ".hermes-runtime-publication.json"))).toBe(false);
+        expect(await pathExists(join(runtimeRoot, ".hermes-runtime-publication.ready.json"))).toBe(false);
+        expect((await readdir(runtimeRoot)).filter((name) => name.startsWith(".artifact-stage-") || name === ".s")).toEqual([]);
+      } finally {
+        await rm(runtimeRoot, { recursive: true, force: true });
+      }
+    }
+  }, 120_000);
 
-  it("fails closed for root, escape, and nonempty release paths and isolates every Git config layer", async () => {
-    const module = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url)).replace(/'/g, "''");
-    const script = await readFile(file("scripts/fetch-hermes.ps1"), "utf8");
-    expect(script).toContain("GIT_CONFIG_NOSYSTEM = '1'");
-    expect(script).toContain("GIT_CONFIG_GLOBAL = 'NUL'");
-    expect(script).toContain("GIT_CONFIG_SYSTEM = 'NUL'");
-    expect(script).toContain("GIT_ATTR_NOSYSTEM = '1'");
-    const result = await new Promise((resolve, reject) => {
-      const program = [
-        `Import-Module '${module}' -Force`,
-        "if ((@(Get-HermesGitIsolationOptions) -join ';') -ne '-c;core.hooksPath=NUL;-c;core.autocrlf=false;-c;core.safecrlf=true;-c;filter.lfs.smudge=;-c;filter.lfs.process=;-c;filter.lfs.required=false;-c;credential.helper=') { throw 'git_isolation_options_drift' }; foreach ($candidate in @('\\\\server\\share\\x','C:\\','')) { try { Assert-LiteralRuntimeRoot $candidate; throw 'unsafe_root_accepted' } catch { if ($_.Exception.Message -match 'unsafe_root_accepted') { throw } } }",
-        "$root = Join-Path ([IO.Path]::GetTempPath()) ('hermes-path-' + [guid]::NewGuid().ToString('N')); New-Item -ItemType Directory -Path $root | Out-Null; try { Assert-ChildPath $root (Join-Path $root '..\\outside'); throw 'escape_accepted' } catch { if ($_.Exception.Message -match 'escape_accepted') { throw } }; $junction=Join-Path $root 'junction'; New-Item -ItemType Junction -Path $junction -Target $root | Out-Null; try { Assert-LiteralRuntimeRoot $junction; throw 'reparse_accepted' } catch { if ($_.Exception.Message -match 'reparse_accepted') { throw } }; $safe=Join-Path $root 'safe';New-Item -ItemType Directory -Path $safe|Out-Null;$toolchain=Join-Path $root 'toolchain';New-Item -ItemType Junction -Path $toolchain -Target $safe|Out-Null;foreach($candidate in @((Join-Path $toolchain 'cpython-3.11.16'),$toolchain)){try{Assert-ChildPath $root $candidate;throw 'ancestor_reparse_accepted'}catch{if($_.Exception.Message -match 'ancestor_reparse_accepted'){throw}}}; 'HOSTILE_PATHS_REJECTED'",
-      ].join("; ");
-      const child = spawn("pwsh", ["-NoProfile", "-NonInteractive", "-Command", program], { windowsHide: true }); let stdout = ""; let stderr = "";
-      child.stdout.on("data", (data) => { stdout += data; }); child.stderr.on("data", (data) => { stderr += data; }); child.on("error", reject); child.on("close", (code) => resolve({ code, stdout, stderr }));
-    });
-    expect(result.code, result.stderr).toBe(0); expect(result.stdout).toContain("HOSTILE_PATHS_REJECTED"); expect(result.stderr).toBe("");
-  });
+  it("rejects post-publication NTFS hardlinks, ADS, and byte-identical identity replacement before VerifyOnly effects", async () => {
+    const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
+    for (const mutation of ["hardlink", "ads", "replace"]) {
+      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const fixture = join(runtimeRoot, "artifact-operations.json");
+      const effects = join(runtimeRoot, "effects.log");
+      await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
+      try {
+        const acquired = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture]);
+        expect(acquired.code, acquired.stderr).toBe(0);
+        const python = join(runtimeRoot, "toolchain", "cpython-3.11.16", "python", "python.exe");
+        if (mutation === "hardlink") await link(python, join(runtimeRoot, "toolchain", "cpython-3.11.16", "python", "python-hardlink.exe"));
+        if (mutation === "ads") await writeFile(`${python}:hostile`, "hostile", "utf8");
+        if (mutation === "replace") {
+          const replacement = `${python}.replacement`;
+          await copyFile(python, replacement); await unlink(python); await rename(replacement, python);
+        }
+        const before = await snapshotTree(runtimeRoot);
+        const verified = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-VerifyOnly", "-TestOperationFixture", fixture, "-TestEffectLog", effects]);
+        expect(verified.code, `${mutation} passed`).not.toBe(0);
+        expect(verified.stderr, mutation).toMatch(/hardlink|alternate stream|identity|digest|drift/i);
+        expect(await pathExists(effects)).toBe(false);
+        expect(await snapshotTree(runtimeRoot)).toEqual(before);
+      } finally {
+        await rm(runtimeRoot, { recursive: true, force: true });
+      }
+    }
+  }, 120_000);
+
+  it("fails closed on an injected external VerifyOnly scratch cleanup error and leaves no scratch residue", async () => {
+    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
+    const fixture = join(runtimeRoot, "artifact-operations.json");
+    await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
+    try {
+      const acquired = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture]);
+      expect(acquired.code, acquired.stderr).toBe(0);
+      await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"verify-cleanup-fault"}\n', "utf8");
+      const scratchBefore = new Set((await readdir(tmpdir())).filter((name) => name.startsWith("jarvis-hermes-verify-")));
+      const verified = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-VerifyOnly", "-TestOperationFixture", fixture]);
+      expect(verified.code).not.toBe(0);
+      expect(verified.stderr).toMatch(/scratch cleanup failed closed/i);
+      expect(new Set((await readdir(tmpdir())).filter((name) => name.startsWith("jarvis-hermes-verify-")))).toEqual(scratchBefore);
+      expect((await readdir(runtimeRoot)).filter((name) => name.startsWith(".verify-"))).toEqual([]);
+    } finally {
+      await rm(runtimeRoot, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("rejects relative, drive-relative, device, alias, and forward-slash RuntimeRoot forms", async () => {
+    const script = fileURLToPath(new URL("../scripts/fetch-hermes.ps1", import.meta.url));
+    for (const candidate of [".", "relative", "C:relative", "\\\\?\\C:\\Windows\\Temp\\hermes", "\\\\.\\C:\\Windows\\Temp\\hermes", "C:\\Windows\\Temp\\..\\hermes", "C:/Windows/Temp/hermes"]) {
+      const result = await runPowerShellFile(script, ["-RuntimeRoot", candidate, "-VerifyOnly"]);
+      expect(result.code, `${candidate} accepted`).not.toBe(0);
+      expect(result.stderr, candidate).toMatch(/RuntimeRoot|drive-absolute|canonical|device|local path/i);
+    }
+  }, 120_000);
+
+  it("rejects RuntimeRoot and target-ancestor junctions through the real artifact entrypoint before effects", async () => {
+    const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
+    const targetRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const junctionRoot = join(tmpdir(), `jarvis-hermes-workflow-fixture-${Date.now()}-junction`);
+    const fixture = join(targetRoot, "artifact-operations.json");
+    await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
+    try {
+      await symlink(targetRoot, junctionRoot, "junction");
+      const rootEffects = join(targetRoot, "root-effects.log");
+      const rootResult = await runPowerShellFile(script, ["-RuntimeRoot", junctionRoot, "-TestOperationFixture", join(junctionRoot, "artifact-operations.json"), "-TestEffectLog", join(junctionRoot, "root-effects.log")]);
+      expect(rootResult.code).not.toBe(0);
+      expect(rootResult.stderr).toMatch(/reparse|junction|RuntimeRoot/i);
+      expect(await pathExists(rootEffects)).toBe(false);
+      await rm(junctionRoot, { recursive: true, force: true });
+
+      const safe = join(targetRoot, "safe-target"); await mkdir(safe);
+      await symlink(safe, join(targetRoot, "toolchain"), "junction");
+      const ancestorEffects = join(targetRoot, "ancestor-effects.log");
+      const ancestorResult = await runPowerShellFile(script, ["-RuntimeRoot", targetRoot, "-TestOperationFixture", fixture, "-TestEffectLog", ancestorEffects]);
+      expect(ancestorResult.code).not.toBe(0);
+      expect(ancestorResult.stderr).toMatch(/reparse|junction|traverses/i);
+      expect(await pathExists(ancestorEffects)).toBe(false);
+    } finally {
+      await rm(junctionRoot, { recursive: true, force: true });
+      await rm(targetRoot, { recursive: true, force: true });
+    }
+  }, 120_000);
 
   it("promotes only complete staging directories and never replaces or creates a partial final target", async () => {
     const temp = await mkdtemp(join(tmpdir(), "jarvis-hermes-promotion-"));
@@ -689,51 +1220,6 @@ describe("Hermes H1 source locks", () => {
     } finally {
       await rm(temp, { recursive: true, force: true });
     }
-  });
-
-  it("rolls back a faulted multi-directory promotion with no partial runtime targets", async () => {
-    const temp = await mkdtemp(join(tmpdir(), "jarvis-hermes-batch-promotion-"));
-    const module = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url));
-    const escapedRoot = temp.replace(/'/g, "''");
-    const escapedModule = module.replace(/'/g, "''");
-    try {
-      const result = await new Promise((resolve, reject) => {
-        const program = [
-          `$root = '${escapedRoot}'`, `Import-Module '${escapedModule}' -Force`,
-          "foreach ($name in @('one','two','three','four')) { $stage = Join-Path $root ('.s\\' + $name); New-Item -ItemType Directory -Path $stage -Force | Out-Null; Set-Content -LiteralPath (Join-Path $stage 'payload.txt') -Value $name -NoNewline }",
-          "$items = @('one','two','three','four' | ForEach-Object { [pscustomobject]@{ StagedDirectory = (Join-Path $root ('.s\\' + $_)); FinalDirectory = (Join-Path $root ('final\\' + $_)) } })",
-          "try { Promote-StagedDirectories $root $items 2; throw 'fault_not_injected' } catch { if ($_.Exception.Message -notmatch 'Injected promotion fault') { throw } }",
-          "foreach ($name in @('one','two','three','four')) { if (Test-Path -LiteralPath (Join-Path $root ('final\\' + $name))) { throw 'partial_final' }; if (-not (Test-Path -LiteralPath (Join-Path $root ('.s\\' + $name + '\\payload.txt')))) { throw 'staging_not_restored' } }",
-          "'BATCH_PROMOTION_ROLLBACK_OK'",
-        ].join("; ");
-        const child = spawn("pwsh", ["-NoProfile", "-NonInteractive", "-Command", program], { windowsHide: true });
-        let stdout = ""; let stderr = "";
-        child.stdout.on("data", (data) => { stdout += data; }); child.stderr.on("data", (data) => { stderr += data; });
-        child.on("error", reject); child.on("close", (code) => resolve({ code, stdout, stderr }));
-      });
-      expect(result.code, result.stderr).toBe(0); expect(result.stdout).toContain("BATCH_PROMOTION_ROLLBACK_OK"); expect(result.stderr).toBe("");
-    } finally { await rm(temp, { recursive: true, force: true }); }
-  });
-
-  it("journals an interrupted runtime publication, rejects it until recovery, and commits only after verification", async () => {
-    const temp = await mkdtemp(join(tmpdir(), "jarvis-hermes-publication-"));
-    const module = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url)).replace(/'/g, "''");
-    const escapedRoot = temp.replace(/'/g, "''");
-    try {
-      const result = await new Promise((resolve, reject) => {
-        const program = [
-          `$root='${escapedRoot}'`, `Import-Module '${module}' -Force`,
-          "$items=@(); foreach($name in @('one','two','three','four')){$stage=Join-Path $root ('.stage\\\\'+$name);New-Item -ItemType Directory -Path $stage -Force|Out-Null;Set-Content -LiteralPath (Join-Path $stage 'payload.txt') -Value $name -NoNewline;$items += [pscustomobject]@{StagedDirectory=$stage;FinalDirectory=(Join-Path $root ('final\\\\'+$name))}}",
-          "try { Promote-StagedDirectories $root $items 0 2; throw 'crash_not_injected' } catch { if ($_.Exception.Message -match 'crash_not_injected') { throw } }",
-          "if (-not (Test-Path -LiteralPath (Get-HermesPublicationJournalPath $root))) { throw 'journal_missing_after_crash' }; try { Assert-HermesPublicationReady $root; throw 'partial_ready' } catch { if ($_.Exception.Message -match 'partial_ready') { throw } }",
-          "Recover-StagedDirectories $root; foreach($item in $items){if(Test-Path -LiteralPath $item.FinalDirectory){throw 'partial_final_after_recovery'};if(-not(Test-Path -LiteralPath $item.StagedDirectory)){throw 'stage_not_restored'}}",
-          "Promote-StagedDirectories $root $items; try { Assert-HermesPublicationReady $root; throw 'unverified_ready' } catch { if ($_.Exception.Message -match 'unverified_ready') { throw } }; Complete-StagedDirectories $root; Assert-HermesPublicationReady $root; 'JOURNALED_PUBLICATION_OK'",
-        ].join("; ");
-        const child = spawn("pwsh", ["-NoProfile", "-NonInteractive", "-Command", program], { windowsHide: true }); let stdout = ""; let stderr = "";
-        child.stdout.on("data", (data) => { stdout += data; }); child.stderr.on("data", (data) => { stderr += data; }); child.on("error", reject); child.on("close", (code) => resolve({ code, stdout, stderr }));
-      });
-      expect(result.code, result.stderr).toBe(0); expect(result.stdout).toContain("JOURNALED_PUBLICATION_OK"); expect(result.stderr).toBe("");
-    } finally { await rm(temp, { recursive: true, force: true }); }
   });
 
   it("rejects hostile tar members and zip members before runtime extraction", async () => {
@@ -794,21 +1280,4 @@ describe("Hermes H1 source locks", () => {
     } finally { await rm(temp, { recursive: true, force: true }); }
   });
 
-  it("rejects hostile HTTPS, archive, and each batch-promotion failure without reading or leaving partial payloads", async () => {
-    const temp = await mkdtemp(join(tmpdir(), "jarvis-hermes-hostile-runtime-"));
-    const module = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url)).replace(/'/g, "''"); const escapedRoot = temp.replace(/'/g, "''");
-    try {
-      const result = await new Promise((resolve, reject) => {
-        const program = [
-          `$root='${escapedRoot}'`, `Import-Module '${module}' -Force`, "$a=@{url='https://github.com/example/a';size=7;sha256=('a'*64)}",
-          "foreach($case in @('http','offhost','redirect','length')){try{switch($case){'http'{Assert-ArtifactHttpHop $a ([Uri]'http://github.com/a') 200 $null 7};'offhost'{Assert-ArtifactHttpHop $a ([Uri]'https://github.com/a') 302 ([Uri]'https://evil.invalid/a') $null};'redirect'{Assert-ArtifactHttpHop $a ([Uri]'https://github.com/a') 302 $null $null};'length'{Assert-ArtifactHttpHop $a ([Uri]'https://github.com/a') 200 $null 8}};throw ('accepted_'+$case)}catch{if($_.Exception.Message -match ('accepted_'+$case)){throw}}}",
-          "foreach($name in @('../x','/x','C:\\x','\\x','python/../x')){try{Assert-SafeCpythonMembers @([pscustomobject]@{Name=$name;Type='-'});throw 'unsafe_member_accepted'}catch{if($_.Exception.Message -match 'unsafe_member_accepted'){throw}}}; foreach($type in @('l','h','r')){try{Assert-SafeCpythonMembers @([pscustomobject]@{Name='python/link';Type=$type});throw 'link_accepted'}catch{if($_.Exception.Message -match 'link_accepted'){throw}}}; foreach($name in @('../x','/x','C:\\x','dir/uv.exe')){try{Assert-SafeUvMembers @([pscustomobject]@{Name='uv.exe';Link=$false},[pscustomobject]@{Name='uvw.exe';Link=$false},[pscustomobject]@{Name='uvx.exe';Link=$false},[pscustomobject]@{Name=$name;Link=$false});throw 'zip_member_accepted'}catch{if($_.Exception.Message -match 'zip_member_accepted'){throw}}}; try{Assert-SafeUvMembers @([pscustomobject]@{Name='uv.exe';Link=$true},[pscustomobject]@{Name='uvw.exe';Link=$false},[pscustomobject]@{Name='uvx.exe';Link=$false});throw 'zip_link_accepted'}catch{if($_.Exception.Message -match 'zip_link_accepted'){throw}}",
-          "foreach($fault in 1..4){$items=@();foreach($n in 1..4){$s=Join-Path $root ('.s\\'+$fault+'-'+$n);New-Item -ItemType Directory -Path $s -Force|Out-Null;Set-Content -LiteralPath (Join-Path $s 'x') -Value $n -NoNewline;$items += [pscustomobject]@{StagedDirectory=$s;FinalDirectory=(Join-Path $root ('final\\'+$fault+'-'+$n))}};try{Promote-StagedDirectories $root $items $fault;throw 'fault_accepted'}catch{if($_.Exception.Message -match 'fault_accepted'){throw}};foreach($i in $items){if(Test-Path -LiteralPath $i.FinalDirectory){throw 'partial_final'}};Promote-StagedDirectories $root $items;Complete-StagedDirectories $root;foreach($i in $items){if(-not(Test-Path -LiteralPath $i.FinalDirectory)){throw 'rerun_failed'}};Remove-Item -LiteralPath (Get-HermesPublicationReadyPath $root) -Force}",
-          "'HTTPS_ARCHIVE_PROMOTION_MATRIX_OK'",
-        ].join("; ");
-        const child=spawn("pwsh",["-NoProfile","-NonInteractive","-Command",program],{windowsHide:true});let stdout="";let stderr="";child.stdout.on("data",d=>{stdout+=d;});child.stderr.on("data",d=>{stderr+=d;});child.on("error",reject);child.on("close",code=>resolve({code,stdout,stderr}));
-      });
-      expect(result.code, result.stderr).toBe(0); expect(result.stdout).toContain("HTTPS_ARCHIVE_PROMOTION_MATRIX_OK");
-    } finally { await rm(temp, { recursive: true, force: true }); }
-  });
 });

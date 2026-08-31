@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,6 +42,18 @@ async function runValidator(root) {
   });
 }
 
+async function runGenerator(sourceRoot) {
+  const generator = runtimeFile("src/generate-sbom.mjs");
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [generator, `--source-root=${sourceRoot}`, "--check"], { windowsHide: true });
+    let stdout = ""; let stderr = "";
+    child.stdout.on("data", (value) => { stdout += value; });
+    child.stderr.on("data", (value) => { stderr += value; });
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ code, stdout, stderr }));
+  });
+}
+
 function pypiRecords(sbom) {
   const components = sbom.components.filter((component) => component.purl?.startsWith("pkg:pypi/"));
   const byRef = new Map(components.map((component) => [component.purl, component]));
@@ -73,6 +85,22 @@ afterEach(async () => {
 });
 
 describe("Task 2 round-2 SBOM and committed-manifest integrity", () => {
+  it("rejects a fabricated release-shaped source root through the real generator before reading lock inputs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "jarvis-hermes-sbom-source-root-"));
+    temporaryRoots.push(root);
+    const source = join(root, "releases", "5fc308a70719a83cccdbba4c0e39c23f5a8239d5", "source");
+    await mkdir(source, { recursive: true });
+    await mkdir(join(root, "releases", "5fc308a70719a83cccdbba4c0e39c23f5a8239d5", "git"));
+    await writeFile(join(root, ".hermes-runtime.workflow.lock"), "");
+    await writeFile(join(source, "uv.lock"), "version = 1\n");
+    await writeFile(join(source, "pyproject.toml"), '[project]\nname = "hermes-agent"\nversion = "0.20.6"\n');
+    await writeFile(join(source, "LICENSE"), "fabricated\n");
+    const result = await runGenerator(source);
+    expect(result.code).not.toBe(0);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("--source-root failed the complete locked source VerifyOnly boundary\n");
+  });
+
   it("uses the uv-compatible CPython 3.11 Windows wheel for charset-normalizer", async () => {
     const selected = selectArchive({
       name: "charset-normalizer",

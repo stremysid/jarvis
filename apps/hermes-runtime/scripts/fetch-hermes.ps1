@@ -4,6 +4,7 @@ param(
   [switch]$VerifyOnly,
   [string]$TestEffectLog = '',
   [string]$TestOperationFixture = '',
+  [ValidateRange(0,10000)][int]$TestHoldLockMilliseconds = 0,
   [ValidateSet('', 'validated-before-root-effect', 'git-init', 'staged-full-tree-verified', 'move-complete', 'postverify-complete')][string]$FailAfterEffect = ''
 )
 Set-StrictMode -Version Latest
@@ -12,18 +13,18 @@ Import-Module (Join-Path $PSScriptRoot 'HermesRuntime.psm1') -Force
 
 $repoRoot = [IO.Directory]::GetParent($PSScriptRoot).FullName
 $lockPath = Join-Path $repoRoot 'hermes-source-lock.json'
-Assert-ExactHash $lockPath 'f3a875f0ec2a622d5939e6c41c0fb271a30dfc4627d6bccac4023ab85c5e568d' 'Hermes source lock'
+Assert-ExactHash $lockPath '6aa215fb987a36173f106b45dcba2ba72825dd32e18ebb3fb7ca648682fcb8d1' 'Hermes source lock'
 $lock = Get-Manifest $lockPath
 Assert-HermesSourceLock $lock
 $root = Assert-LiteralRuntimeRoot $RuntimeRoot
 $testOperations = $null
-if ([string]::IsNullOrEmpty($TestOperationFixture) -and (-not [string]::IsNullOrEmpty($TestEffectLog) -or -not [string]::IsNullOrEmpty($FailAfterEffect))) { throw 'Test hooks require a closed operation fixture.' }
+if ([string]::IsNullOrEmpty($TestOperationFixture) -and (-not [string]::IsNullOrEmpty($TestEffectLog) -or -not [string]::IsNullOrEmpty($FailAfterEffect) -or $TestHoldLockMilliseconds -ne 0)) { throw 'Test hooks require a closed operation fixture.' }
 if (-not [string]::IsNullOrEmpty($TestOperationFixture)) {
   $fixturePath = Assert-ChildPath $root $TestOperationFixture
   if (-not (Test-Path -LiteralPath $fixturePath -PathType Leaf)) { throw 'Test operation fixture is absent.' }
   $testOperations = Get-Manifest $fixturePath
   $fixtureKeys = @($testOperations.Keys | Sort-Object)
-  $sourceFixtureScenarios = @('success', 'manifest-drift', 'git-remote-drift', 'git-tag-drift', 'git-peeled-drift', 'git-tree-drift', 'git-unsafe-member', 'source-hash-drift', 'git-dirty')
+  $sourceFixtureScenarios = @('success', 'manifest-drift', 'git-hostile-environment', 'git-remote-drift', 'git-tag-drift', 'git-peeled-drift', 'git-tree-drift', 'git-unsafe-member', 'source-hash-drift', 'source-stage-hardlink', 'source-stage-ads', 'git-dirty')
   if (($fixtureKeys -join ',') -ne 'scenario,schemaVersion,workflow' -or $testOperations.schemaVersion -ne 1 -or $testOperations.workflow -ne 'source' -or $testOperations.scenario -notin $sourceFixtureScenarios) { throw 'Test operation fixture is not a closed source fixture.' }
   [void](Assert-HermesTestFixtureRoot $root)
   if (-not [string]::IsNullOrEmpty($TestEffectLog)) { [void](Assert-ChildPath $root $TestEffectLog) }
@@ -31,17 +32,8 @@ if (-not [string]::IsNullOrEmpty($TestOperationFixture)) {
 }
 $release = Assert-ChildPath $root (Join-Path $root (Join-Path 'releases' $lock.sourceCommit))
 $source = Assert-ChildPath $root (Join-Path $release 'source')
-$git = if ($null -eq $testOperations) { Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1 -ExpandProperty Source } else { 'synthetic-git' }
-$savedGitEnvironment = @{}
-foreach ($name in @('GIT_CONFIG_NOSYSTEM', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_ATTR_NOSYSTEM', 'GIT_TERMINAL_PROMPT', 'GIT_ASKPASS', 'SSH_ASKPASS', 'SSH_ASKPASS_REQUIRE')) {
-  $item = Get-Item -LiteralPath ("Env:" + $name) -ErrorAction SilentlyContinue
-  $savedGitEnvironment[$name] = if ($null -eq $item) { $null } else { $item.Value }
-}
-$env:GIT_CONFIG_NOSYSTEM = '1'
-$env:GIT_CONFIG_GLOBAL = 'NUL'
-$env:GIT_CONFIG_SYSTEM = 'NUL'
-$env:GIT_ATTR_NOSYSTEM = '1'
-foreach ($name in @('GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_ASKPASS', 'SSH_ASKPASS', 'SSH_ASKPASS_REQUIRE')) { Remove-Item -LiteralPath ("Env:" + $name) -ErrorAction SilentlyContinue }
+$resolvedGit = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1 -ExpandProperty Source
+$git = if ($null -eq $testOperations) { $resolvedGit } else { 'synthetic-git' }
 function Invoke-WorkflowEffect { param([string]$Name); if (-not [string]::IsNullOrEmpty($TestEffectLog)) { [IO.File]::AppendAllText($TestEffectLog, ($Name + "`n"), [Text.UTF8Encoding]::new($false)) }; if ($FailAfterEffect -eq $Name) { throw "Injected workflow failure: $Name" } }
 
 function Invoke-SourceGit {
@@ -97,9 +89,13 @@ function Assert-VerifiedSource {
   Assert-HermesSourceDirectory $root $Candidate $lock $GitStore $sourceHashRunner $sourceGitRunner $sourceTreeRunner
 }
 
-if ($VerifyOnly) { Invoke-WorkflowEffect 'verify-only-start'; Assert-VerifiedSource $source (Join-Path $release 'git'); Invoke-WorkflowEffect 'verify-only-complete'; exit 0 }
-if (Test-Path -LiteralPath $release) { throw 'Pinned release target already exists; acquisition refuses reuse.' }
 if (-not (Test-Path -LiteralPath $root)) { New-Item -ItemType Directory -Path $root | Out-Null }
+$workflowLock = Enter-HermesWorkflowLock $root
+try {
+if ($TestHoldLockMilliseconds -gt 0) { Start-Sleep -Milliseconds $TestHoldLockMilliseconds }
+Assert-NoHermesWorkflowResidue $root
+if ($VerifyOnly) { Assert-VerifiedSource $source (Join-Path $release 'git'); Invoke-WorkflowEffect 'verify-only-start'; Invoke-WorkflowEffect 'verify-only-complete'; exit 0 }
+if (Test-Path -LiteralPath $release) { throw 'Pinned release target already exists; acquisition refuses reuse.' }
 Invoke-WorkflowEffect 'validated-before-root-effect'
 if ((Get-Item -LiteralPath $root -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'RuntimeRoot is a reparse point.' }
 
@@ -108,8 +104,15 @@ if (-not (Test-Path -LiteralPath $stagingParent)) { New-Item -ItemType Directory
 [void](Assert-LiteralRuntimeRoot $stagingParent)
 $staging = Assert-ChildPath $root (Join-Path $stagingParent ([guid]::NewGuid().ToString('N')))
 if (Test-Path -LiteralPath $staging) { throw 'Fresh staging path already exists.' }
+$releasePromoted = $false
 try {
   New-Item -ItemType Directory -Path $staging | Out-Null
+  if ($null -ne $testOperations -and $testOperations.scenario -eq 'git-hostile-environment') {
+    $probe = Join-Path $staging 'closed-environment-probe.git'
+    [void](Invoke-GitChecked $resolvedGit @('init', '--bare', $probe))
+    if (-not (Test-Path -LiteralPath $probe -PathType Container)) { throw 'Closed Git environment probe did not create its contained object store.' }
+    Remove-Item -LiteralPath $probe -Recurse -Force
+  }
   $gitDir = Join-Path $staging 'git'
   $workTree = Join-Path $staging 'source'
   Invoke-WorkflowEffect 'git-init'; Invoke-SourceGit @((Get-HermesGitIsolationOptions) + @('init','--bare',$gitDir)) | Out-Null
@@ -138,10 +141,12 @@ try {
   New-Item -ItemType Directory -Path $workTree | Out-Null
   Invoke-WorkflowEffect 'git-checkout'
   Invoke-SourceGit @('-c','core.longpaths=true','--git-dir',$gitDir,'--work-tree',$workTree,'checkout','--detach','--force',$lock.sourceCommit) | Out-Null
+  if ($null -ne $testOperations -and $testOperations.scenario -eq 'source-stage-hardlink') { Remove-Item -LiteralPath (Join-Path $workTree 'hermes.txt') -Force; New-Item -ItemType HardLink -Path (Join-Path $workTree 'hermes.txt') -Target (Join-Path $workTree 'LICENSE') | Out-Null }
+  if ($null -ne $testOperations -and $testOperations.scenario -eq 'source-stage-ads') { Set-Content -LiteralPath (Join-Path $workTree 'hermes.txt') -Stream hostile -Value 'hostile' -NoNewline }
   foreach ($name in @('LICENSE', 'pyproject.toml', 'uv.lock')) { Assert-SourceFileHash (Join-Path $workTree $name) $lock.rawFileSha256[$name] "Raw checkout $name" }
   Invoke-WorkflowEffect 'git-verify'
   Assert-HermesGitTranscript $lock $gitDir $workTree $sourceGitRunner $treeEntries
-  if (@(Get-ChildItem -LiteralPath $workTree -Force -Recurse | Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }).Count -ne 0) { throw 'Pinned source contains a reparse point.' }
+  Assert-HermesSafeTree $root $workTree 'Pinned source checkout'
   $stagedRelease = Assert-ChildPath $root (Join-Path $staging 'release')
   New-Item -ItemType Directory -Path $stagedRelease | Out-Null
   $stagedSource = Assert-ChildPath $root (Join-Path $stagedRelease 'source')
@@ -151,12 +156,19 @@ try {
   Assert-VerifiedSource $stagedSource $stagedGit
   Invoke-WorkflowEffect 'staged-full-tree-verified'
   Promote-StagedDirectory $root $stagedRelease $release
+  $releasePromoted = $true
   Invoke-WorkflowEffect 'move-complete'
   Assert-VerifiedSource $source (Join-Path $release 'git')
   Invoke-WorkflowEffect 'postverify-complete'
+} catch {
+  $original = $_
+  if ($releasePromoted -and (Test-Path -LiteralPath $release)) { Remove-Item -LiteralPath $release -Recurse -Force; if (Test-Path -LiteralPath $release) { throw 'Faulted source promotion rollback failed.' } }
+  throw $original
 } finally {
-  if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Force -Recurse -ErrorAction SilentlyContinue }
-  foreach ($name in $savedGitEnvironment.Keys) {
-    if ($null -eq $savedGitEnvironment[$name]) { Remove-Item -LiteralPath ("Env:" + $name) -ErrorAction SilentlyContinue } else { Set-Item -LiteralPath ("Env:" + $name) -Value $savedGitEnvironment[$name] }
+  if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Force -Recurse; if (Test-Path -LiteralPath $staging) { throw 'Source staging cleanup failed.' } }
+  if (Test-Path -LiteralPath $stagingParent) {
+    if (@(Get-ChildItem -LiteralPath $stagingParent -Force).Count -eq 0) { Remove-Item -LiteralPath $stagingParent -Force }
+    if (Test-Path -LiteralPath $stagingParent) { if (@(Get-ChildItem -LiteralPath $stagingParent -Force).Count -eq 0) { throw 'Empty source staging parent cleanup failed.' } }
   }
 }
+} finally { $workflowLock.Dispose() }

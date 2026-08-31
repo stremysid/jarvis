@@ -1,7 +1,8 @@
 import TOML from "@iarna/toml";
-import { readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { spawn } from "node:child_process";
+import { lstat, readFile, realpath, writeFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { canonicalJsonFileBytes, canonicalize, loadCanonicalJsonFile, sha256Hex } from "./canonical-json.mjs";
 
 const output = new URL("../sbom/hermes-agent-v2026.8.27-windows-x86_64-cpython-3.11.16.cdx.json", import.meta.url);
@@ -11,6 +12,37 @@ const patchQueuePath = new URL("../patches/series.json", import.meta.url);
 const noticesPath = new URL("../THIRD_PARTY_NOTICES.md", import.meta.url);
 const sha256 = /^[a-f0-9]{64}$/;
 const target = Object.freeze({ implementation_name: "cpython", implementation_version: "3.11.16", os_name: "nt", platform_machine: "AMD64", platform_python_implementation: "CPython", platform_system: "Windows", platform_release: "", python_full_version: "3.11.16", python_version: "3.11", sys_platform: "win32" });
+const sourceVerifier = fileURLToPath(new URL("../scripts/fetch-hermes.ps1", import.meta.url));
+
+export async function verifyAcquiredSourceRoot(inputRoot) {
+  if (typeof inputRoot !== "string" || inputRoot.length === 0 || !isAbsolute(inputRoot) || inputRoot.startsWith("\\\\") || inputRoot.startsWith("\\\\?\\") || inputRoot.startsWith("\\\\.\\") || inputRoot.includes("/")) throw new Error("--source-root must be an exact drive-absolute acquired source path");
+  const sourceRoot = resolve(inputRoot);
+  if (sourceRoot !== inputRoot || basename(sourceRoot) !== "source") throw new Error("--source-root must be the canonical acquired release source path");
+  const release = dirname(sourceRoot);
+  const sourceLock = (await loadCanonicalJsonFile(sourceLockPath, "Hermes source lock")).value;
+  if (basename(release) !== sourceLock.sourceCommit || basename(dirname(release)) !== "releases") throw new Error("--source-root is not bound to the pinned acquired release");
+  const runtimeRoot = dirname(dirname(release));
+  const [sourceInfo, gitInfo, lockInfo, sourceReal, runtimeReal] = await Promise.all([
+    lstat(sourceRoot),
+    lstat(join(release, "git")),
+    lstat(join(runtimeRoot, ".hermes-runtime.workflow.lock")),
+    realpath(sourceRoot),
+    realpath(runtimeRoot),
+  ]).catch(() => { throw new Error("--source-root is not a complete acquired release"); });
+  const expectedRealSource = join(runtimeReal, "releases", sourceLock.sourceCommit, "source");
+  if (!sourceInfo.isDirectory() || sourceInfo.isSymbolicLink() || !gitInfo.isDirectory() || gitInfo.isSymbolicLink() || !lockInfo.isFile() || lockInfo.isSymbolicLink() || lockInfo.size !== 0 || sourceReal !== expectedRealSource) throw new Error("--source-root is not a literal complete acquired release");
+  const environment = Object.fromEntries(Object.entries(process.env).filter(([name, value]) => value !== undefined && !/^(?:GIT|SSH|GCM_)/i.test(name)));
+  const result = await new Promise((resolveChild, rejectChild) => {
+    const child = spawn("pwsh", ["-NoProfile", "-NonInteractive", "-File", sourceVerifier, "-RuntimeRoot", runtimeRoot, "-VerifyOnly"], { windowsHide: true, env: environment });
+    let stdout = ""; let stderr = "";
+    child.stdout.on("data", (value) => { stdout += value; });
+    child.stderr.on("data", (value) => { stderr += value; });
+    child.on("error", rejectChild);
+    child.on("close", (code) => resolveChild({ code, stdout, stderr }));
+  });
+  if (result.code !== 0) throw new Error("--source-root failed the complete locked source VerifyOnly boundary");
+  return Object.freeze({ sourceRoot, runtimeRoot });
+}
 
 export function normalizedName(name) { if (typeof name !== "string" || !/^[A-Za-z0-9_.-]+$/.test(name)) throw new TypeError("invalid normalized package name"); return name.toLowerCase().replace(/[_.-]+/g, "-"); }
 
@@ -96,10 +128,10 @@ function provenanceComponent(name, version, properties) { return { type: "file",
 
 export async function generateSbom({ sourceRoot: inputRoot, check = false, outputUrl = output }) {
   if (typeof inputRoot !== "string" || inputRoot.length === 0) throw new Error("--source-root must name a verified acquired source directory");
-  const sourceRoot = resolve(inputRoot);
-const [sourceManifest, artifactManifest, patchManifest, lockBytes, projectBytes, noticeBytes] = await Promise.all([loadCanonicalJsonFile(sourceLockPath, "Hermes source lock"), loadCanonicalJsonFile(runtimeLockPath, "runtime artifacts lock"), loadCanonicalJsonFile(patchQueuePath, "patch queue"), readFile(resolve(sourceRoot, "uv.lock")), readFile(resolve(sourceRoot, "pyproject.toml")), readFile(noticesPath)]);
+  const { sourceRoot } = await verifyAcquiredSourceRoot(inputRoot);
+const [sourceManifest, artifactManifest, patchManifest, lockBytes, projectBytes, licenseBytes, noticeBytes] = await Promise.all([loadCanonicalJsonFile(sourceLockPath, "Hermes source lock"), loadCanonicalJsonFile(runtimeLockPath, "runtime artifacts lock"), loadCanonicalJsonFile(patchQueuePath, "patch queue"), readFile(resolve(sourceRoot, "uv.lock")), readFile(resolve(sourceRoot, "pyproject.toml")), readFile(resolve(sourceRoot, "LICENSE")), readFile(noticesPath)]);
 const sourceLock = sourceManifest.value; const artifacts = artifactManifest.value; const patches = patchManifest.value;
-if (await sha256Hex(lockBytes) !== sourceLock.rawFileSha256["uv.lock"]) throw new Error("pinned uv.lock drift"); if (await sha256Hex(projectBytes) !== sourceLock.rawFileSha256["pyproject.toml"]) throw new Error("pinned pyproject.toml drift");
+if (await sha256Hex(lockBytes) !== sourceLock.rawFileSha256["uv.lock"]) throw new Error("pinned uv.lock drift"); if (await sha256Hex(projectBytes) !== sourceLock.rawFileSha256["pyproject.toml"]) throw new Error("pinned pyproject.toml drift"); if (await sha256Hex(licenseBytes) !== sourceLock.rawFileSha256.LICENSE) throw new Error("pinned LICENSE drift");
 const project = TOML.parse(new TextDecoder().decode(projectBytes)); if (project.project?.name !== "hermes-agent" || project.project?.version !== sourceLock.packageVersion) throw new Error("pinned pyproject identity drift");
 const packages = selectedClosure(TOML.parse(new TextDecoder().decode(lockBytes))); const byName = new Map(packages.map((item) => [item.name, item])); const archives = new Map(packages.filter((item) => item.name !== "hermes-agent").map((item) => [item.name, selectArchive(item)]));
 const archiveRecords = packages.filter((item) => archives.has(item.name)).map((item) => ({ name: item.name, version: item.version, url: archives.get(item.name).url, size: archives.get(item.name).size, sha256: archives.get(item.name).hash })).sort((left, right) => left.name.localeCompare(right.name) || left.version.localeCompare(right.version));

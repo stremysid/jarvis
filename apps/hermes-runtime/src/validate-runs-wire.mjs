@@ -8,7 +8,7 @@ function record(value, keys, label) {
   const actual = Object.keys(value).sort(); const expected = [...keys].sort();
   if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) fail(`${label} has missing or extra fields`);
 }
-function text(value, label, { nonempty = false } = {}) { if (typeof value !== "string" || (nonempty && !value) || value !== value.normalize("NFC")) fail(`${label} must be an NFC ${nonempty ? "nonempty " : ""}string`); }
+function text(value, label, { nonempty = false } = {}) { if (typeof value !== "string" || !value.isWellFormed() || (nonempty && !value) || value !== value.normalize("NFC")) fail(`${label} must be a well-formed Unicode NFC ${nonempty ? "nonempty " : ""}string`); }
 function runId(value, label = "run_id") { if (typeof value !== "string" || !RUN_ID.test(value)) fail(`${label} must be run_ plus 32 lowercase hexadecimal characters`); }
 function sessionId(value, label = "session_id") { if (typeof value !== "string" || !SESSION_ID.test(value)) fail(`${label} must be a derived jv1 session identifier`); }
 function timestamp(value, label) { if (typeof value !== "number" || !Number.isFinite(value) || value < 0) fail(`${label} must be a finite nonnegative number`); }

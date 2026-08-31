@@ -4,6 +4,7 @@ param(
   [switch]$VerifyOnly,
   [string]$TestEffectLog = '',
   [string]$TestOperationFixture = '',
+  [ValidateRange(0,10000)][int]$TestHoldLockMilliseconds = 0,
   [ValidateSet('', 'validated-before-root-effect', 'filesystem-stage', 'download-CPython', 'download-uv', 'download-WinSW', 'download-license', 'staged-full-tree-verified', 'promotion-1', 'promotion-2', 'promotion-3', 'promotion-4', 'all-moves-complete', 'postverify-complete', 'marker-written', 'marker-validated', 'marker-complete')][string]$FailAfterEffect = '',
   [ValidateSet('', 'postverify-complete', 'marker-written', 'marker-validated')][string]$TestCrashAfterEffect = '',
   [ValidateRange(0,4)][int]$TestFaultAfterPromotion = 0,
@@ -15,19 +16,19 @@ Import-Module (Join-Path $PSScriptRoot 'HermesRuntime.psm1') -Force
 
 $repoRoot = [IO.Directory]::GetParent($PSScriptRoot).FullName
 $lockPath = Join-Path $repoRoot 'runtime-artifacts-lock.json'
-Assert-ExactHash $lockPath '8b4cb370fe0a25f879c4bc44e27bbcc73bbc518a8b0543b8854c76acabc15673' 'Runtime artifact lock'
+Assert-ExactHash $lockPath 'c82f94702c037a0890b8f155cf70a81efb7e82fd213c6cba597cc1ea8a90d2d7' 'Runtime artifact lock'
 $lock = Get-Manifest $lockPath
 Assert-HermesArtifactLock $lock
 $root = Assert-LiteralRuntimeRoot $RuntimeRoot
 $allowedHosts = @('github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com', 'raw.githubusercontent.com')
 $testOperations = $null
-if ([string]::IsNullOrEmpty($TestOperationFixture) -and (-not [string]::IsNullOrEmpty($TestEffectLog) -or -not [string]::IsNullOrEmpty($FailAfterEffect) -or -not [string]::IsNullOrEmpty($TestCrashAfterEffect) -or $TestFaultAfterPromotion -ne 0 -or $TestCrashAfterPromotion -ne 0)) { throw 'Test hooks require a closed operation fixture.' }
+if ([string]::IsNullOrEmpty($TestOperationFixture) -and (-not [string]::IsNullOrEmpty($TestEffectLog) -or -not [string]::IsNullOrEmpty($FailAfterEffect) -or -not [string]::IsNullOrEmpty($TestCrashAfterEffect) -or $TestFaultAfterPromotion -ne 0 -or $TestCrashAfterPromotion -ne 0 -or $TestHoldLockMilliseconds -ne 0)) { throw 'Test hooks require a closed operation fixture.' }
 if (-not [string]::IsNullOrEmpty($TestOperationFixture)) {
   $fixturePath = Assert-ChildPath $root $TestOperationFixture
   if (-not (Test-Path -LiteralPath $fixturePath -PathType Leaf)) { throw 'Test operation fixture is absent.' }
   $testOperations = Get-Manifest $fixturePath
   $fixtureKeys = @($testOperations.Keys | Sort-Object)
-  $artifactFixtureScenarios = @('success', 'manifest-drift', 'torn-ready', 'http-off-host', 'http-content-length-drift', 'body-hash-drift', 'archive-case-collision', 'archive-extract-reparse', 'filesystem-stage-fault')
+  $artifactFixtureScenarios = @('success', 'manifest-drift', 'torn-ready', 'http-off-host', 'http-content-length-drift', 'body-hash-drift', 'archive-case-collision', 'archive-ancestor-forward', 'archive-ancestor-reverse', 'archive-separator-collision', 'archive-extract-reparse', 'stage-hardlink', 'stage-ads', 'filesystem-stage-fault', 'verify-cleanup-fault', 'license-stage-drift', 'license-postmove-drift')
   if (($fixtureKeys -join ',') -ne 'scenario,schemaVersion,workflow' -or $testOperations.schemaVersion -ne 1 -or $testOperations.workflow -ne 'runtime-artifacts' -or $testOperations.scenario -notin $artifactFixtureScenarios) { throw 'Test operation fixture is not a closed runtime-artifact fixture.' }
   [void](Assert-HermesTestFixtureRoot $root)
   if (-not [string]::IsNullOrEmpty($TestEffectLog)) { [void](Assert-ChildPath $root $TestEffectLog) }
@@ -113,6 +114,20 @@ function Assert-Installed {
   Assert-ExactHash $raw $Artifact.sha256 $Label
 }
 
+function Assert-LicenseRollup {
+  param([hashtable]$ArtifactLock, [string]$LicensePath)
+  Assert-NoReparseTree $LicensePath 'python-build-standalone license directory'
+  $files = @(Get-ChildItem -LiteralPath $LicensePath -Force -File -Recurse)
+  if ($files.Count -ne 1 -or $files[0].FullName -cne (Join-Path $LicensePath 'python-licenses.rst')) { throw 'python-build-standalone license rollup path set drift.' }
+  if ($null -ne $testOperations) {
+    if ($files[0].Length -ne 24) { throw 'Synthetic python-build-standalone license rollup size drift.' }
+    Assert-ExactHash $files[0].FullName '76c57fee441d9fbb53edb414da4e46d47c9518bac930127df9629bd42d887099' 'Synthetic python-build-standalone license rollup'
+  } else {
+    if ($files[0].Length -ne [int64]$ArtifactLock.pythonBuildStandaloneLicenses.size) { throw 'python-build-standalone license size drift.' }
+    Assert-ExactHash $files[0].FullName $ArtifactLock.pythonBuildStandaloneLicenses.sha256 'python-build-standalone license rollup'
+  }
+}
+
 function Assert-WinSwAmd64 {
   param([string]$Path)
   $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
@@ -129,17 +144,22 @@ function Assert-WinSwAmd64 {
 
 function Assert-NoReparseTree {
   param([string]$Path, [string]$Label)
-  if (-not (Test-Path -LiteralPath $Path -PathType Container) -or ((Get-Item -LiteralPath $Path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -or @(Get-ChildItem -LiteralPath $Path -Force -Recurse | Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }).Count -ne 0) { throw "$Label contains a reparse point or is absent." }
+  $pathFull = [IO.Path]::GetFullPath($Path); $rootFull = [IO.Path]::GetFullPath($root).TrimEnd('\')
+  $identityRoot = if ($pathFull.StartsWith(($rootFull + '\'), [StringComparison]::OrdinalIgnoreCase)) { $root } else { $pathFull }
+  Assert-HermesSafeTree $identityRoot $pathFull $Label
 }
 
 function Assert-WorkflowCpythonArchive {
   param([string]$Archive)
-  if ($null -ne $testOperations -and $testOperations.scenario -eq 'archive-case-collision') {
-    Assert-SafeCpythonMembers @(
-      [pscustomobject]@{ Name = 'python/Foo'; Type = '-' },
-      [pscustomobject]@{ Name = 'python/foo'; Type = '-' }
-    )
-    return
+  if ($null -ne $testOperations) {
+    $members = switch ($testOperations.scenario) {
+      'archive-case-collision' { @([pscustomobject]@{ Name = 'python/Foo'; Type = '-' }, [pscustomobject]@{ Name = 'python/foo'; Type = '-' }) }
+      'archive-ancestor-forward' { @([pscustomobject]@{ Name = 'python/conf'; Type = '-' }, [pscustomobject]@{ Name = 'python/conf/settings'; Type = '-' }) }
+      'archive-ancestor-reverse' { @([pscustomobject]@{ Name = 'python/conf/settings'; Type = '-' }, [pscustomobject]@{ Name = 'python/conf'; Type = '-' }) }
+      'archive-separator-collision' { @([pscustomobject]@{ Name = 'python/conf/settings'; Type = '-' }, [pscustomobject]@{ Name = 'python\conf\settings'; Type = '-' }) }
+      default { $null }
+    }
+    if ($null -ne $members) { Assert-SafeCpythonMembers $members; return }
   }
   Assert-SafeCpythonArchive $Archive
 }
@@ -157,7 +177,8 @@ function Expand-WorkflowCpythonArchive {
 
 function Assert-DirectoryTreeEqual {
   param([string]$Expected, [string]$Actual, [string]$Label)
-  foreach ($path in @($Expected, $Actual)) { if (-not (Test-Path -LiteralPath $path -PathType Container) -or ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -or @(Get-ChildItem -LiteralPath $path -Force -Recurse | Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }).Count) { throw "$Label contains a reparse point or is absent." } }
+  Assert-HermesSafeTree $Expected $Expected $Label
+  Assert-HermesSafeTree $root $Actual $Label
   $expectedFiles = @((Get-ChildItem -LiteralPath $Expected -Force -File -Recurse | ForEach-Object { $_.FullName.Substring($Expected.Length).TrimStart('\').Replace('\','/') }) | Sort-Object)
   $actualFiles = @((Get-ChildItem -LiteralPath $Actual -Force -File -Recurse | ForEach-Object { $_.FullName.Substring($Actual.Length).TrimStart('\').Replace('\','/') }) | Sort-Object)
   if ($expectedFiles.Count -ne $actualFiles.Count -or (Compare-Object $expectedFiles $actualFiles)) { throw "$Label path set drift." }
@@ -169,7 +190,11 @@ function Assert-DirectoryTreeEqual {
 
 function Assert-InstalledPayloads {
   param([string]$Root, [hashtable]$ArtifactLock, [string]$CpythonPath, [string]$UvPath, [string]$WinSwPath, [string]$LicensePath)
-  $scratch = Assert-ChildPath $Root (Join-Path $Root ('.verify-' + [guid]::NewGuid().ToString('N')))
+  Assert-LicenseRollup $ArtifactLock $LicensePath
+  $scratch = Join-Path ([IO.Path]::GetTempPath()) ('jarvis-hermes-verify-' + [guid]::NewGuid().ToString('N'))
+  [void](Assert-LiteralRuntimeRoot $scratch)
+  if ([IO.Path]::GetFullPath($scratch).StartsWith(([IO.Path]::GetFullPath($Root).TrimEnd('\') + '\'), [StringComparison]::OrdinalIgnoreCase)) { throw 'VerifyOnly scratch must be external to RuntimeRoot.' }
+  $cleanupBlocker = $null
   try {
     New-Item -ItemType Directory -Path $scratch | Out-Null
     $pyArchive = Join-Path $CpythonPath $ArtifactLock.cpython.fileName; Assert-WorkflowCpythonArchive $pyArchive
@@ -179,26 +204,44 @@ function Assert-InstalledPayloads {
     $uvExpected = Join-Path $scratch 'uv'; New-Item -ItemType Directory -Path $uvExpected | Out-Null; $uvPayload = Join-Path $uvExpected 'payload'; Expand-Archive -LiteralPath $uvArchive -DestinationPath $uvPayload -Force; Copy-Item -LiteralPath $uvArchive -Destination (Join-Path $uvExpected $ArtifactLock.uv.fileName)
     Assert-DirectoryTreeEqual $uvExpected $UvPath 'uv installed tree'
     $winswExpected = Join-Path $scratch 'winsw'; New-Item -ItemType Directory -Path $winswExpected | Out-Null; Copy-Item -LiteralPath (Join-Path $WinSwPath $ArtifactLock.winsw.fileName) -Destination (Join-Path $winswExpected $ArtifactLock.winsw.fileName); New-Item -ItemType Directory -Path (Join-Path $winswExpected 'payload') | Out-Null; Copy-Item -LiteralPath (Join-Path $WinSwPath $ArtifactLock.winsw.fileName) -Destination (Join-Path $winswExpected ('payload\' + $ArtifactLock.winsw.fileName)); Assert-DirectoryTreeEqual $winswExpected $WinSwPath 'WinSW installed tree'
-    $licenseExpected = Join-Path $scratch 'licenses'; New-Item -ItemType Directory -Path $licenseExpected | Out-Null; Copy-Item -LiteralPath (Join-Path $LicensePath 'python-licenses.rst') -Destination (Join-Path $licenseExpected 'python-licenses.rst'); Assert-DirectoryTreeEqual $licenseExpected $LicensePath 'license installed tree'
-  } finally { if (Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue } }
+    if ($null -ne $testOperations -and $testOperations.scenario -eq 'verify-cleanup-fault') {
+      $held = Join-Path $scratch 'cleanup-held.tmp'; [IO.File]::WriteAllText($held, 'held', [Text.UTF8Encoding]::new($false)); $cleanupBlocker = [IO.File]::Open($held, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
+    }
+  } finally {
+    $cleanupFailure = $null
+    if (Test-Path -LiteralPath $scratch) { try { Remove-Item -LiteralPath $scratch -Recurse -Force } catch { $cleanupFailure = $_ } }
+    if ($null -ne $cleanupBlocker) { $cleanupBlocker.Dispose() }
+    if ($null -ne $cleanupFailure) {
+      if (Test-Path -LiteralPath $scratch) { Remove-Item -LiteralPath $scratch -Recurse -Force }
+      throw 'External VerifyOnly scratch cleanup failed closed.'
+    }
+    if (Test-Path -LiteralPath $scratch) { throw 'External VerifyOnly scratch residue remains.' }
+  }
 }
 
 $cpython = Assert-ChildPath $root (Join-Path $root 'toolchain\cpython-3.11.16')
 $uv = Assert-ChildPath $root (Join-Path $root 'toolchain\uv-0.12.7')
 $winsw = Assert-ChildPath $root (Join-Path $root 'service-host\winsw-2.12.0')
 $license = Assert-ChildPath $root (Join-Path $root 'licenses\python-build-standalone\20260825')
+if (-not (Test-Path -LiteralPath $root)) { New-Item -ItemType Directory -Path $root | Out-Null }
+$workflowLock = Enter-HermesWorkflowLock $root
+try {
+if ($TestHoldLockMilliseconds -gt 0) { Start-Sleep -Milliseconds $TestHoldLockMilliseconds }
+$journalRecord = Get-HermesPublicationJournalRecord $root
+Assert-NoHermesWorkflowResidue $root $(if ($null -eq $journalRecord) { '' } else { [string]$journalRecord.commonStage })
 if ($VerifyOnly) {
-  Invoke-WorkflowEffect 'verify-only-ready'
   Assert-HermesPublicationReady $root
   Assert-Installed $lock.cpython $cpython 'CPython'; Assert-Installed $lock.uv $uv 'uv'; Assert-Installed $lock.winsw $winsw 'WinSW'
   Assert-WinSwAmd64 (Join-Path $winsw $lock.winsw.fileName)
-  $rollup = Join-Path $license 'python-licenses.rst'; if (-not (Test-Path -LiteralPath $rollup)) { throw 'python-build-standalone license rollup is absent.' }; if ($null -eq $testOperations) { if ((Get-Item -LiteralPath $rollup).Length -ne [int64]$lock.pythonBuildStandaloneLicenses.size) { throw 'python-build-standalone license size drift.' }; Assert-ExactHash $rollup $lock.pythonBuildStandaloneLicenses.sha256 'python-build-standalone license rollup' } elseif ((Get-Item -LiteralPath $rollup).Length -lt 1) { throw 'Synthetic python-build-standalone license rollup is empty.' }
+  Assert-LicenseRollup $lock $license
   if (-not (Test-Path -LiteralPath (Join-Path $cpython 'python\LICENSE.txt') -PathType Leaf)) { throw 'CPython artifact LICENSE.txt is absent.' }
   Assert-InstalledPayloads $root $lock $cpython $uv $winsw $license
+  Invoke-WorkflowEffect 'verify-only-ready'
   Invoke-WorkflowEffect 'verify-only-complete'
   exit 0
 }
 Recover-StagedDirectories $root
+Assert-NoHermesWorkflowResidue $root
 if (Test-Path -LiteralPath (Get-HermesPublicationReadyPath $root) -PathType Leaf) {
   Assert-HermesPublicationReady $root
   Assert-Installed $lock.cpython $cpython 'CPython'; Assert-Installed $lock.uv $uv 'uv'; Assert-Installed $lock.winsw $winsw 'WinSW'
@@ -207,7 +250,6 @@ if (Test-Path -LiteralPath (Get-HermesPublicationReadyPath $root) -PathType Leaf
   exit 0
 }
 foreach ($target in @($cpython, $uv, $winsw, $license)) { if (Test-Path -LiteralPath $target) { throw 'Runtime artifact target already exists; acquisition refuses reuse.' } }
-if (-not (Test-Path -LiteralPath $root)) { New-Item -ItemType Directory -Path $root | Out-Null }
 Invoke-WorkflowEffect 'validated-before-root-effect'
 $stage = Assert-ChildPath $root (Join-Path $root ('.artifact-stage-' + [guid]::NewGuid().ToString('N')))
 $publicationStarted = $false
@@ -234,6 +276,9 @@ try {
   Move-Item -LiteralPath $winStage -Destination (Join-Path $stageWinsw 'payload')
   Copy-Item -LiteralPath (Join-Path $downloads $lock.cpython.fileName) -Destination (Join-Path $stageCpython $lock.cpython.fileName); Copy-Item -LiteralPath (Join-Path $downloads $lock.uv.fileName) -Destination (Join-Path $stageUv $lock.uv.fileName); Copy-Item -LiteralPath (Join-Path $downloads $lock.winsw.fileName) -Destination (Join-Path $stageWinsw $lock.winsw.fileName)
   Move-Item -LiteralPath (Join-Path $downloads 'python-licenses.rst') -Destination (Join-Path $stageLicense 'python-licenses.rst')
+  if ($null -ne $testOperations -and $testOperations.scenario -eq 'license-stage-drift') { [IO.File]::WriteAllText((Join-Path $stageLicense 'python-licenses.rst'), 'drifted-at-stage', [Text.UTF8Encoding]::new($false)) }
+  if ($null -ne $testOperations -and $testOperations.scenario -eq 'stage-hardlink') { New-Item -ItemType HardLink -Path (Join-Path $stageCpython 'python\python-hardlink.exe') -Target (Join-Path $stageCpython 'python\python.exe') | Out-Null }
+  if ($null -ne $testOperations -and $testOperations.scenario -eq 'stage-ads') { Set-Content -LiteralPath (Join-Path $stageCpython 'python\python.exe') -Stream hostile -Value 'hostile' -NoNewline }
   foreach ($verifiedTree in @($stageCpython, $stageUv, $stageWinsw, $stageLicense)) { Assert-NoReparseTree $verifiedTree 'Staged runtime artifact tree' }
   Assert-Installed $lock.cpython $stageCpython 'CPython'; Assert-Installed $lock.uv $stageUv 'uv'; Assert-Installed $lock.winsw $stageWinsw 'WinSW'
   Assert-WinSwAmd64 (Join-Path $stageWinsw $lock.winsw.fileName)
@@ -247,6 +292,7 @@ try {
     [pscustomobject]@{ StagedDirectory = $stageLicense; FinalDirectory = $license }
   ) $TestFaultAfterPromotion $TestCrashAfterPromotion { param([string]$Name) Invoke-WorkflowEffect $Name }
   Invoke-WorkflowEffect 'all-moves-complete'
+  if ($null -ne $testOperations -and $testOperations.scenario -eq 'license-postmove-drift') { [IO.File]::WriteAllText((Join-Path $license 'python-licenses.rst'), 'drifted-after-promotion', [Text.UTF8Encoding]::new($false)) }
   Assert-Installed $lock.cpython $cpython 'CPython'; Assert-Installed $lock.uv $uv 'uv'; Assert-Installed $lock.winsw $winsw 'WinSW'
   Assert-WinSwAmd64 (Join-Path $winsw $lock.winsw.fileName)
   Assert-InstalledPayloads $root $lock $cpython $uv $winsw $license
@@ -262,6 +308,9 @@ try {
   Invoke-WorkflowEffect 'marker-complete'
 } catch {
   $original = $_
-  if ($original.Exception.Message -eq 'Injected publication crash.' -or $original.Exception.Message.StartsWith('Injected workflow crash:', [StringComparison]::Ordinal)) { $preserveStage = $true } elseif ($publicationStarted) { Recover-StagedDirectories $root }
+  if ($original.Exception.Message -eq 'Injected publication crash.' -or $original.Exception.Message.StartsWith('Injected workflow crash:', [StringComparison]::Ordinal)) { $preserveStage = $true } elseif ($publicationStarted) { $preserveStage = $true; Recover-StagedDirectories $root; $preserveStage = $false }
   throw $original
-} finally { if (-not $preserveStage -and (Test-Path -LiteralPath $stage)) { Remove-Item -LiteralPath $stage -Force -Recurse -ErrorAction SilentlyContinue } }
+} finally { if (-not $preserveStage -and (Test-Path -LiteralPath $stage)) { Remove-Item -LiteralPath $stage -Force -Recurse; if (Test-Path -LiteralPath $stage) { throw 'Runtime artifact staging cleanup failed.' } } }
+} finally {
+  $workflowLock.Dispose()
+}
