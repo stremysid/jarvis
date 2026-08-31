@@ -138,6 +138,93 @@ describe("PreAdmissionModelAdapter", () => {
     expect(directCalls).toBe(1);
   });
 
+  it("falls back when the Hermes iterator factory raises the nominal marker", async () => {
+    let directCalls = 0;
+    const selected = new PreAdmissionModelAdapter({
+      direct: adapter(async function* () { directCalls += 1; yield Object.freeze({ index: 0, text: "direct" }); }),
+      hermes: adapter(() => ({
+        [Symbol.asyncIterator](): AsyncIterator<ModelToken> { throw modelProviderNotStartedError(); },
+      })),
+      hermesState: () => "ready",
+    });
+
+    await expect(collect(selected.stream(input()))).resolves.toEqual([{ index: 0, text: "direct" }]);
+    expect(directCalls).toBe(1);
+  });
+
+  it("propagates a nonnominal Hermes iterator-factory error unchanged", async () => {
+    const primary = new ModelAdapterError("model_protocol_invalid");
+    let directCalls = 0;
+    const selected = new PreAdmissionModelAdapter({
+      direct: adapter(async function* () { directCalls += 1; yield Object.freeze({ index: 0, text: "direct" }); }),
+      hermes: adapter(() => ({
+        [Symbol.asyncIterator](): AsyncIterator<ModelToken> { throw primary; },
+      })),
+      hermesState: () => "ready",
+    });
+
+    await expect(collect(selected.stream(input()))).rejects.toBe(primary);
+    expect(directCalls).toBe(0);
+  });
+
+  it("preserves a primary nonnominal Hermes error when asynchronous cleanup rejects", async () => {
+    const primary = new ModelAdapterError("model_protocol_invalid");
+    const cleanup = new Error("cleanup_failure");
+    const selected = new PreAdmissionModelAdapter({
+      direct: adapter(async function* () { throw new Error("unexpected_direct"); }),
+      hermes: adapter(() => ({
+        [Symbol.asyncIterator](): AsyncIterator<ModelToken> {
+          return {
+            async next(): Promise<IteratorResult<ModelToken>> { throw primary; },
+            return: () => Promise.reject(cleanup),
+          };
+        },
+      })),
+      hermesState: () => "ready",
+    });
+
+    await expect(collect(selected.stream(input()))).rejects.toBe(primary);
+  });
+
+  it("does not invoke a throwing cleanup after natural Hermes exhaustion", async () => {
+    let returnCalls = 0;
+    const selected = new PreAdmissionModelAdapter({
+      direct: adapter(async function* () { throw new Error("unexpected_direct"); }),
+      hermes: adapter(() => ({
+        [Symbol.asyncIterator](): AsyncIterator<ModelToken> {
+          return {
+            async next(): Promise<IteratorResult<ModelToken>> { return { done: true, value: undefined }; },
+            return: () => { returnCalls += 1; throw new Error("synchronous_cleanup_failure"); },
+          };
+        },
+      })),
+      hermesState: () => "ready",
+    });
+
+    await expect(collect(selected.stream(input()))).resolves.toEqual([]);
+    expect(returnCalls).toBe(0);
+  });
+
+  it("fails closed when nominal fallback cleanup rejects", async () => {
+    let directCalls = 0;
+    const cleanup = new Error("cleanup_failure");
+    const selected = new PreAdmissionModelAdapter({
+      direct: adapter(async function* () { directCalls += 1; yield Object.freeze({ index: 0, text: "direct" }); }),
+      hermes: adapter(() => ({
+        [Symbol.asyncIterator](): AsyncIterator<ModelToken> {
+          return {
+            async next(): Promise<IteratorResult<ModelToken>> { throw modelProviderNotStartedError(); },
+            return: () => Promise.reject(cleanup),
+          };
+        },
+      })),
+      hermesState: () => "ready",
+    });
+
+    await expect(collect(selected.stream(input()))).rejects.toBe(cleanup);
+    expect(directCalls).toBe(0);
+  });
+
   it.each([
     "model_provider_failure",
     "model_admission_unknown",

@@ -36,8 +36,11 @@ export class PreAdmissionModelAdapter implements ModelAdapter {
       return;
     }
 
-    let iterable: AsyncIterable<ModelToken>;
-    try { iterable = this.options.hermes.stream(input); }
+    let iterator: AsyncIterator<ModelToken>;
+    try {
+      const iterable = this.options.hermes.stream(input);
+      iterator = iterable[Symbol.asyncIterator]();
+    }
     catch (error) {
       if (isModelProviderNotStartedError(error)) {
         yield* this.options.direct.stream(input);
@@ -45,8 +48,8 @@ export class PreAdmissionModelAdapter implements ModelAdapter {
       }
       throw error;
     }
-    const iterator = iterable[Symbol.asyncIterator]();
     let tokenObserved = false;
+    let completed = false;
     let closed = false;
     const close = async (): Promise<void> => {
       if (closed) return;
@@ -56,7 +59,10 @@ export class PreAdmissionModelAdapter implements ModelAdapter {
     try {
       while (true) {
         const next = await iterator.next();
-        if (next.done) return;
+        if (next.done) {
+          completed = true;
+          return;
+        }
         tokenObserved = true;
         yield next.value;
       }
@@ -66,9 +72,11 @@ export class PreAdmissionModelAdapter implements ModelAdapter {
         yield* this.options.direct.stream(input);
         return;
       }
+      try { await close(); }
+      catch { /* A cleanup failure must not replace the primary Hermes outcome. */ }
       throw error;
     } finally {
-      await close();
+      if (!completed && !closed) await close();
     }
   }
 }
