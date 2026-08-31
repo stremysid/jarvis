@@ -3,7 +3,7 @@
   "path": "/v1/runs",
   "outboundRequestFields": ["input", "session_id", "instructions", "model", "provider", "model_options"],
   "wireArtifacts": {
-    "schema": {"file": "schemas/hermes-runs-wire-v2026.8.27.schema.json", "canonicalSha256": "99b0b37677b3bd223758f6019e026358326a3117d550923292cc0b21d93d03de"},
+    "schema": {"file": "schemas/hermes-runs-wire-v2026.8.27.schema.json", "canonicalSha256": "7b416b295f07ffb2d69314a3420fac3c31b0e1b6e9721498c7cf3efcba1422bb"},
     "golden": {"file": "test/fixtures/runs-wire-golden-v1.json", "canonicalSha256": "e6e60e6c82fa7becf8ce7ff6a054634f86a92033218a915e466623d67d523544"}
   },
   "modelOptions": {"none": {"reasoning": {"enabled": false}}, "low": {"reasoning": {"enabled": true, "effort": "low"}}, "high": {"reasoning": {"enabled": true, "effort": "high"}}, "max": {"reasoning": {"enabled": true, "effort": "max"}}},

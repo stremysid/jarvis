@@ -88,6 +88,15 @@ describe("Hermes H1 source locks", () => {
     expect(result.code).not.toBe(0); expect(result.stderr).toContain("--source-root");
   });
 
+  it("runs the manifest validator CLI over the committed artifact set", async () => {
+    const validator = fileURLToPath(new URL("../src/validate-manifests.mjs", import.meta.url));
+    const result = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [validator], { windowsHide: true }); let stdout = ""; let stderr = "";
+      child.stdout.on("data", (data) => { stdout += data; }); child.stderr.on("data", (data) => { stderr += data; }); child.on("error", reject); child.on("close", (code) => resolve({ code, stdout, stderr }));
+    });
+    expect(result.code, result.stderr).toBe(0); expect(result.stdout).toBe("Hermes H1 manifests valid\n"); expect(result.stderr).toBe("");
+  });
+
   it("rejects noncanonical contract fields, forbidden tool events, and source-lock hash embedding in the SBOM", async () => {
     const source = await loadJson("hermes-source-lock.json");
     const artifacts = await loadJson("runtime-artifacts-lock.json");
@@ -116,6 +125,9 @@ describe("Hermes H1 source locks", () => {
     await expect(validateRunsWireArtifacts({ contract, wireSchema: { ...schema, title: "drift" }, wireGolden: golden })).rejects.toThrow(/wire schema/);
     await expect(validateRunsWireArtifacts({ contract, wireSchema: schema, wireGolden: { ...golden, request: { ...golden.request, provider: "other" } } })).rejects.toThrow(/wire golden/);
     const ajv = new Ajv2020({ allErrors: true, strict: true }); ajv.addSchema({ ...schema, $id: "hermes-runs-wire-v2026.8.27" });
+    const whole = ajv.getSchema("hermes-runs-wire-v2026.8.27"); expect(whole, "whole Runs fixture schema missing").toBeTypeOf("function"); expect(whole(golden), `whole fixture: ${whole.errors?.toString()}`).toBe(true);
+    expect(whole({ ...golden, events: golden.events.slice(1) })).toBe(false); expect(whole({ ...golden, get: [...golden.get, golden.get[0]] })).toBe(false);
+    expect(whole({ ...golden, get: [golden.get[0], golden.get[2], golden.get[1], ...golden.get.slice(3)] })).toBe(false); expect(whole({ ...golden, get: [...golden.get.slice(0, 2), { ...golden.get[2], last_event: undefined }, ...golden.get.slice(3)] })).toBe(false);
     for (const [kind, value] of [["request", golden.request], ["admission", golden.admission], ["stop", golden.stop], ["notFound", golden.notFound], ...golden.events.map((body) => ["event", body]), ...golden.get.map((body) => ["get", body])]) { const validate = ajv.getSchema(`hermes-runs-wire-v2026.8.27#/$defs/${kind}`); expect(validate, `${kind} schema missing`).toBeTypeOf("function"); expect(validate(value), `${kind}: ${validate.errors?.toString()}`).toBe(true); }
     validateRunsWire("request", golden.request); validateRunsWire("admission", golden.admission); validateRunsWire("stop", golden.stop); validateRunsWire("notFound", golden.notFound);
     for (const value of golden.events) validateRunsWire("event", value); for (const value of golden.get) validateRunsWire("get", value);
@@ -224,6 +236,27 @@ describe("Hermes H1 source locks", () => {
     } finally { await rm(temp, { recursive: true, force: true }); }
   });
 
+  it("journals an interrupted runtime publication, rejects it until recovery, and commits only after verification", async () => {
+    const temp = await mkdtemp(join(tmpdir(), "jarvis-hermes-publication-"));
+    const module = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url)).replace(/'/g, "''");
+    const escapedRoot = temp.replace(/'/g, "''");
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const program = [
+          `$root='${escapedRoot}'`, `Import-Module '${module}' -Force`,
+          "$items=@(); foreach($name in @('one','two','three','four')){$stage=Join-Path $root ('.stage\\\\'+$name);New-Item -ItemType Directory -Path $stage -Force|Out-Null;Set-Content -LiteralPath (Join-Path $stage 'payload.txt') -Value $name -NoNewline;$items += [pscustomobject]@{StagedDirectory=$stage;FinalDirectory=(Join-Path $root ('final\\\\'+$name))}}",
+          "try { Promote-StagedDirectories $root $items 0 2; throw 'crash_not_injected' } catch { if ($_.Exception.Message -match 'crash_not_injected') { throw } }",
+          "if (-not (Test-Path -LiteralPath (Get-HermesPublicationJournalPath $root))) { throw 'journal_missing_after_crash' }; try { Assert-HermesPublicationReady $root; throw 'partial_ready' } catch { if ($_.Exception.Message -match 'partial_ready') { throw } }",
+          "Recover-StagedDirectories $root; foreach($item in $items){if(Test-Path -LiteralPath $item.FinalDirectory){throw 'partial_final_after_recovery'};if(-not(Test-Path -LiteralPath $item.StagedDirectory)){throw 'stage_not_restored'}}",
+          "Promote-StagedDirectories $root $items; try { Assert-HermesPublicationReady $root; throw 'unverified_ready' } catch { if ($_.Exception.Message -match 'unverified_ready') { throw } }; Complete-StagedDirectories $root; Assert-HermesPublicationReady $root; 'JOURNALED_PUBLICATION_OK'",
+        ].join("; ");
+        const child = spawn("pwsh", ["-NoProfile", "-NonInteractive", "-Command", program], { windowsHide: true }); let stdout = ""; let stderr = "";
+        child.stdout.on("data", (data) => { stdout += data; }); child.stderr.on("data", (data) => { stderr += data; }); child.on("error", reject); child.on("close", (code) => resolve({ code, stdout, stderr }));
+      });
+      expect(result.code, result.stderr).toBe(0); expect(result.stdout).toContain("JOURNALED_PUBLICATION_OK"); expect(result.stderr).toBe("");
+    } finally { await rm(temp, { recursive: true, force: true }); }
+  });
+
   it("rejects hostile tar members and zip members before runtime extraction", async () => {
     const temp = await mkdtemp(join(tmpdir(), "jarvis-hermes-archive-"));
     const module = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url));
@@ -243,6 +276,22 @@ describe("Hermes H1 source locks", () => {
       });
       expect(result.code, result.stderr).toBe(0); expect(result.stdout).toContain("HOSTILE_ARCHIVE_REJECTED"); expect(result.stderr).toBe("");
     } finally { await rm(temp, { recursive: true, force: true }); }
+  });
+
+  it("rejects Windows ADS, device, and case-collision archive members before extraction", async () => {
+    const module = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url)).replace(/'/g, "''");
+    const program = [
+      `Import-Module '${module}' -Force`,
+      "foreach($name in @('python/file:stream','python/CON','python/LPT1.txt','python/trailing. ')){try{Assert-SafeCpythonMembers @([pscustomobject]@{Name=$name;Type='-'});throw 'windows_member_accepted'}catch{if($_.Exception.Message -match 'windows_member_accepted'){throw}}}",
+      "try{Assert-SafeCpythonMembers @([pscustomobject]@{Name='python/Foo';Type='-'},[pscustomobject]@{Name='python/foo';Type='-'});throw 'case_collision_accepted'}catch{if($_.Exception.Message -match 'case_collision_accepted'){throw}}",
+      "try{Assert-SafeUvMembers @([pscustomobject]@{Name='uv.exe';Link=$false},[pscustomobject]@{Name='uvw.exe';Link=$false},[pscustomobject]@{Name='UV.EXE';Link=$false});throw 'zip_case_collision_accepted'}catch{if($_.Exception.Message -match 'zip_case_collision_accepted'){throw}}",
+      "'WINDOWS_ARCHIVE_BOUNDARIES_OK'",
+    ].join("; ");
+    const result = await new Promise((resolve, reject) => {
+      const child = spawn("pwsh", ["-NoProfile", "-NonInteractive", "-Command", program], { windowsHide: true }); let stdout = ""; let stderr = "";
+      child.stdout.on("data", (data) => { stdout += data; }); child.stderr.on("data", (data) => { stderr += data; }); child.on("error", reject); child.on("close", (code) => resolve({ code, stdout, stderr }));
+    });
+    expect(result.code, result.stderr).toBe(0); expect(result.stdout).toContain("WINDOWS_ARCHIVE_BOUNDARIES_OK"); expect(result.stderr).toBe("");
   });
 
   it("rejects every hostile injected Git transcript and source-directory drift before promotion", async () => {
@@ -275,7 +324,7 @@ describe("Hermes H1 source locks", () => {
           `$root='${escapedRoot}'`, `Import-Module '${module}' -Force`, "$a=@{url='https://github.com/example/a';size=7;sha256=('a'*64)}",
           "foreach($case in @('http','offhost','redirect','length')){try{switch($case){'http'{Assert-ArtifactHttpHop $a ([Uri]'http://github.com/a') 200 $null 7};'offhost'{Assert-ArtifactHttpHop $a ([Uri]'https://github.com/a') 302 ([Uri]'https://evil.invalid/a') $null};'redirect'{Assert-ArtifactHttpHop $a ([Uri]'https://github.com/a') 302 $null $null};'length'{Assert-ArtifactHttpHop $a ([Uri]'https://github.com/a') 200 $null 8}};throw ('accepted_'+$case)}catch{if($_.Exception.Message -match ('accepted_'+$case)){throw}}}",
           "foreach($name in @('../x','/x','C:\\x','\\x','python/../x')){try{Assert-SafeCpythonMembers @([pscustomobject]@{Name=$name;Type='-'});throw 'unsafe_member_accepted'}catch{if($_.Exception.Message -match 'unsafe_member_accepted'){throw}}}; foreach($type in @('l','h','r')){try{Assert-SafeCpythonMembers @([pscustomobject]@{Name='python/link';Type=$type});throw 'link_accepted'}catch{if($_.Exception.Message -match 'link_accepted'){throw}}}; foreach($name in @('../x','/x','C:\\x','dir/uv.exe')){try{Assert-SafeUvMembers @([pscustomobject]@{Name='uv.exe';Link=$false},[pscustomobject]@{Name='uvw.exe';Link=$false},[pscustomobject]@{Name='uvx.exe';Link=$false},[pscustomobject]@{Name=$name;Link=$false});throw 'zip_member_accepted'}catch{if($_.Exception.Message -match 'zip_member_accepted'){throw}}}; try{Assert-SafeUvMembers @([pscustomobject]@{Name='uv.exe';Link=$true},[pscustomobject]@{Name='uvw.exe';Link=$false},[pscustomobject]@{Name='uvx.exe';Link=$false});throw 'zip_link_accepted'}catch{if($_.Exception.Message -match 'zip_link_accepted'){throw}}",
-          "foreach($fault in 1..4){$items=@();foreach($n in 1..4){$s=Join-Path $root ('.s\\'+$fault+'-'+$n);New-Item -ItemType Directory -Path $s -Force|Out-Null;Set-Content -LiteralPath (Join-Path $s 'x') -Value $n -NoNewline;$items += [pscustomobject]@{StagedDirectory=$s;FinalDirectory=(Join-Path $root ('final\\'+$fault+'-'+$n))}};try{Promote-StagedDirectories $root $items $fault;throw 'fault_accepted'}catch{if($_.Exception.Message -match 'fault_accepted'){throw}};foreach($i in $items){if(Test-Path -LiteralPath $i.FinalDirectory){throw 'partial_final'}};Promote-StagedDirectories $root $items;foreach($i in $items){if(-not(Test-Path -LiteralPath $i.FinalDirectory)){throw 'rerun_failed'}}}",
+          "foreach($fault in 1..4){$items=@();foreach($n in 1..4){$s=Join-Path $root ('.s\\'+$fault+'-'+$n);New-Item -ItemType Directory -Path $s -Force|Out-Null;Set-Content -LiteralPath (Join-Path $s 'x') -Value $n -NoNewline;$items += [pscustomobject]@{StagedDirectory=$s;FinalDirectory=(Join-Path $root ('final\\'+$fault+'-'+$n))}};try{Promote-StagedDirectories $root $items $fault;throw 'fault_accepted'}catch{if($_.Exception.Message -match 'fault_accepted'){throw}};foreach($i in $items){if(Test-Path -LiteralPath $i.FinalDirectory){throw 'partial_final'}};Promote-StagedDirectories $root $items;Complete-StagedDirectories $root;foreach($i in $items){if(-not(Test-Path -LiteralPath $i.FinalDirectory)){throw 'rerun_failed'}};Remove-Item -LiteralPath (Get-HermesPublicationReadyPath $root) -Force}",
           "'HTTPS_ARCHIVE_PROMOTION_MATRIX_OK'",
         ].join("; ");
         const child=spawn("pwsh",["-NoProfile","-NonInteractive","-Command",program],{windowsHide:true});let stdout="";let stderr="";child.stdout.on("data",d=>{stdout+=d;});child.stderr.on("data",d=>{stderr+=d;});child.on("error",reject);child.on("close",code=>resolve({code,stdout,stderr}));

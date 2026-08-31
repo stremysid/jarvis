@@ -9,7 +9,7 @@ Import-Module (Join-Path $PSScriptRoot 'HermesRuntime.psm1') -Force
 
 $repoRoot = [IO.Directory]::GetParent($PSScriptRoot).FullName
 $lockPath = Join-Path $repoRoot 'hermes-source-lock.json'
-Assert-ExactHash $lockPath '82ed1b5dafa8e017b68d086766d02881aeb14ae418a51c985140fde1b546807c' 'Hermes source lock'
+Assert-ExactHash $lockPath 'e5ca2590d31333a2dcd47e4a212ce875ad5df91f292cedaa8a0a6ba74adfc033' 'Hermes source lock'
 $lock = Get-Manifest $lockPath
 Assert-HermesSourceLock $lock
 $root = Assert-LiteralRuntimeRoot $RuntimeRoot

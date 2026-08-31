@@ -1,9 +1,11 @@
+import { readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import { canonicalize, sha256Hex } from "./canonical-json.mjs";
 
 const H0 = "814535de21df37e6abac1f63e5953d693b78e003";
 const SHA256 = /^[a-f0-9]{64}$/;
 const GIT = /^[a-f0-9]{40}$/;
-const CONTRACT_SHA256 = "cb5bc9c4beeacff3c0b4dd0e11134b4c7fedf58e5b307f45471ddf29930e2ed2";
+const CONTRACT_SHA256 = "b4878d91425e21f7ee212df2808644c18801b754674e8c2ab1a6c44e70c745c0";
 const OFFICIAL = new Set([
   "https://github.com/NousResearch/hermes-agent.git",
   "https://github.com/astral-sh/python-build-standalone/releases/download/20260825/cpython-3.11.16%2B20260825-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
@@ -108,3 +110,26 @@ export async function validateRunsWireArtifacts({ contract, wireSchema, wireGold
 }
 
 export { canonicalize, sha256Hex };
+
+async function loadCommittedJson(relativePath) {
+  return JSON.parse(await readFile(new URL(relativePath, import.meta.url), "utf8"));
+}
+
+async function runCli() {
+  const [source, artifacts, contract, patches, sbom, wireSchema, wireGolden] = await Promise.all([
+    loadCommittedJson("../hermes-source-lock.json"),
+    loadCommittedJson("../runtime-artifacts-lock.json"),
+    loadCommittedJson("../contracts/hermes-runs-api-v2026.8.27.json"),
+    loadCommittedJson("../patches/series.json"),
+    loadCommittedJson("../sbom/hermes-agent-v2026.8.27-windows-x86_64-cpython-3.11.16.cdx.json"),
+    loadCommittedJson("../schemas/hermes-runs-wire-v2026.8.27.schema.json"),
+    loadCommittedJson("../test/fixtures/runs-wire-golden-v1.json"),
+  ]);
+  await validateHermesManifests({ source, artifacts, contract, patches, sbom });
+  await validateRunsWireArtifacts({ contract, wireSchema, wireGolden });
+  process.stdout.write("Hermes H1 manifests valid\n");
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  runCli().catch(() => { process.stderr.write("Hermes H1 manifest validation failed\n"); process.exitCode = 1; });
+}

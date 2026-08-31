@@ -69,10 +69,13 @@ function Assert-WinSwAmd64 {
 
 function Assert-DirectoryTreeEqual {
   param([string]$Expected, [string]$Actual, [string]$Label)
-  foreach ($path in @($Expected, $Actual)) { if (@(Get-ChildItem -LiteralPath $path -Force -Recurse | Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }).Count) { throw "$Label contains a reparse point." } }
+  foreach ($path in @($Expected, $Actual)) { if (-not (Test-Path -LiteralPath $path -PathType Container) -or ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -or @(Get-ChildItem -LiteralPath $path -Force -Recurse | Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }).Count) { throw "$Label contains a reparse point or is absent." } }
   $expectedFiles = @((Get-ChildItem -LiteralPath $Expected -File -Recurse | ForEach-Object { $_.FullName.Substring($Expected.Length).TrimStart('\').Replace('\','/') }) | Sort-Object)
   $actualFiles = @((Get-ChildItem -LiteralPath $Actual -File -Recurse | ForEach-Object { $_.FullName.Substring($Actual.Length).TrimStart('\').Replace('\','/') }) | Sort-Object)
   if ($expectedFiles.Count -ne $actualFiles.Count -or (Compare-Object $expectedFiles $actualFiles)) { throw "$Label path set drift." }
+  $expectedDirectories = @((Get-ChildItem -LiteralPath $Expected -Directory -Recurse | ForEach-Object { $_.FullName.Substring($Expected.Length).TrimStart('\').Replace('\','/') }) | Sort-Object)
+  $actualDirectories = @((Get-ChildItem -LiteralPath $Actual -Directory -Recurse | ForEach-Object { $_.FullName.Substring($Actual.Length).TrimStart('\').Replace('\','/') }) | Sort-Object)
+  if ($expectedDirectories.Count -ne $actualDirectories.Count -or (Compare-Object $expectedDirectories $actualDirectories)) { throw "$Label directory set drift." }
   foreach ($relative in $expectedFiles) { $expectedPath = Join-Path $Expected $relative.Replace('/','\'); $actualPath = Join-Path $Actual $relative.Replace('/','\'); if ((Get-Item -LiteralPath $expectedPath).Length -ne (Get-Item -LiteralPath $actualPath).Length) { throw "$Label byte count drift." }; if ((Get-Sha256Hex $expectedPath) -ne (Get-Sha256Hex $actualPath)) { throw "$Label content drift." } }
 }
 
@@ -95,6 +98,7 @@ $uv = Assert-ChildPath $root (Join-Path $root 'toolchain\uv-0.12.7')
 $winsw = Assert-ChildPath $root (Join-Path $root 'service-host\winsw-2.12.0')
 $license = Assert-ChildPath $root (Join-Path $root 'licenses\python-build-standalone\20260825')
 if ($VerifyOnly) {
+  Assert-HermesPublicationReady $root
   Assert-Installed $lock.cpython $cpython 'CPython'; Assert-Installed $lock.uv $uv 'uv'; Assert-Installed $lock.winsw $winsw 'WinSW'
   Assert-WinSwAmd64 (Join-Path $winsw $lock.winsw.fileName)
   $rollup = Join-Path $license 'python-licenses.rst'; if (-not (Test-Path -LiteralPath $rollup)) { throw 'python-build-standalone license rollup is absent.' }; if ((Get-Item -LiteralPath $rollup).Length -ne [int64]$lock.pythonBuildStandaloneLicenses.size) { throw 'python-build-standalone license size drift.' }; Assert-ExactHash $rollup $lock.pythonBuildStandaloneLicenses.sha256 'python-build-standalone license rollup'
@@ -102,9 +106,11 @@ if ($VerifyOnly) {
   Assert-InstalledPayloads $root $lock $cpython $uv
   exit 0
 }
+Recover-StagedDirectories $root
 foreach ($target in @($cpython, $uv, $winsw, $license)) { if (Test-Path -LiteralPath $target) { throw 'Runtime artifact target already exists; acquisition refuses reuse.' } }
 if (-not (Test-Path -LiteralPath $root)) { New-Item -ItemType Directory -Path $root | Out-Null }
 $stage = Assert-ChildPath $root (Join-Path $root ('.artifact-stage-' + [guid]::NewGuid().ToString('N')))
+$publicationStarted = $false
 try {
   New-Item -ItemType Directory -Path $stage | Out-Null
   $downloads = Join-Path $stage 'downloads'; New-Item -ItemType Directory -Path $downloads | Out-Null
@@ -133,6 +139,13 @@ try {
     [pscustomobject]@{ StagedDirectory = $stageWinsw; FinalDirectory = $winsw },
     [pscustomobject]@{ StagedDirectory = $stageLicense; FinalDirectory = $license }
   )
+  $publicationStarted = $true
   Assert-Installed $lock.cpython $cpython 'CPython'; Assert-Installed $lock.uv $uv 'uv'; Assert-Installed $lock.winsw $winsw 'WinSW'
   Assert-WinSwAmd64 (Join-Path $winsw $lock.winsw.fileName)
+  Assert-InstalledPayloads $root $lock $cpython $uv
+  Complete-StagedDirectories $root
+} catch {
+  $original = $_
+  if ($publicationStarted) { Recover-StagedDirectories $root }
+  throw $original
 } finally { if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Force -Recurse -ErrorAction SilentlyContinue } }

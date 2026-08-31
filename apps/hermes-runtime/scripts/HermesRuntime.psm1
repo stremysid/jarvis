@@ -78,7 +78,12 @@ function Get-HermesGitTreePaths {
 
 function Test-UnsafeArchiveMember {
   param([string]$Member)
-  return [string]::IsNullOrWhiteSpace($Member) -or $Member.StartsWith('/') -or $Member.StartsWith('\\') -or $Member -match '(^|[\\/])\.\.([\\/]|$)' -or $Member -match '^[A-Za-z]:'
+  $candidate = if ($null -eq $Member) { '' } else { $Member.TrimEnd([char[]]@([char]'/', [char]'\')) }
+  if ([string]::IsNullOrWhiteSpace($candidate) -or $candidate.StartsWith('/') -or $candidate.StartsWith('\\') -or $candidate -match '(^|[\\/])\.\.([\\/]|$)' -or $candidate -match ':') { return $true }
+  foreach ($segment in ($candidate -split '[\\/]')) {
+    if ([string]::IsNullOrWhiteSpace($segment) -or $segment -match '[<>"|?*]' -or $segment -match '[. ]$' -or $segment -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$') { return $true }
+  }
+  return $false
 }
 
 function Get-HermesGitIsolationOptions {
@@ -102,11 +107,12 @@ function Assert-HermesSourceDirectory {
   param([string]$RuntimeRoot, [string]$Candidate, [hashtable]$Lock, [string]$GitDirectory = '')
   $root = Assert-LiteralRuntimeRoot $RuntimeRoot; $source = Assert-ChildPath $root $Candidate
   if (-not (Test-Path -LiteralPath $source -PathType Container)) { throw 'Pinned Hermes source is absent.' }
+  if ((Get-Item -LiteralPath $source -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Pinned Hermes source is a reparse point.' }
   if (Test-Path -LiteralPath (Join-Path $source '.git')) { throw 'Pinned source must be a detached export without a worktree repository.' }
   foreach ($name in @('LICENSE', 'pyproject.toml', 'uv.lock')) { $path = Assert-ChildPath $root (Join-Path $source $name); if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Pinned source file is absent: $name" }; Assert-ExactHash $path $Lock.rawFileSha256[$name] "Pinned source $name" }
   if (@(Get-ChildItem -LiteralPath $source -Force -Recurse | Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }).Count -ne 0) { throw 'Pinned source contains a reparse point.' }
   if (-not [string]::IsNullOrEmpty($GitDirectory)) {
-    $store = Assert-ChildPath $root $GitDirectory; if (-not (Test-Path -LiteralPath $store -PathType Container)) { throw 'Pinned source Git object store is absent.' }
+    $store = Assert-ChildPath $root $GitDirectory; if (-not (Test-Path -LiteralPath $store -PathType Container)) { throw 'Pinned source Git object store is absent.' }; if ((Get-Item -LiteralPath $store -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Pinned source Git object store is a reparse point.' }
     $git = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1 -ExpandProperty Source
     if ((Invoke-GitChecked $git @('--git-dir', $store, 'rev-parse', ("{0}^{{tree}}" -f $Lock.sourceCommit))) -ne $Lock.sourceTree) { throw 'Pinned source Git tree mismatch.' }
     $entries = Get-HermesGitTreePaths $git $store $Lock.sourceCommit; $expected = @($entries | ForEach-Object Path | Sort-Object)
@@ -131,14 +137,21 @@ function Assert-ArtifactHttpHop {
 
 function Assert-SafeCpythonMembers {
   param([object[]]$Members)
-  foreach ($member in $Members) { if ($member.Type -notin @('-', 'd')) { throw 'CPython archive contains a link or unsupported member type.' }; if ((Test-UnsafeArchiveMember ([string]$member.Name)) -or -not ([string]$member.Name).StartsWith('python/')) { throw 'CPython archive has an unsafe or unexpected member.' } }
+  $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+  foreach ($member in $Members) {
+    $name = [string]$member.Name
+    if (-not $seen.Add($name)) { throw 'CPython archive has duplicate or case-colliding members.' }
+    if ($member.Type -notin @('-', 'd')) { throw 'CPython archive contains a link or unsupported member type.' }
+    if ((Test-UnsafeArchiveMember $name) -or -not $name.StartsWith('python/')) { throw 'CPython archive has an unsafe or unexpected member.' }
+  }
 }
 
 function Assert-SafeUvMembers {
   param([object[]]$Members)
   $expected = @('uv.exe', 'uvw.exe', 'uvx.exe'); $names = @($Members | ForEach-Object { [string]$_.Name } | Sort-Object)
   if ($names.Count -ne $expected.Count -or (Compare-Object $names $expected)) { throw 'uv archive has an unexpected member set.' }
-  foreach ($member in $Members) { if ((Test-UnsafeArchiveMember ([string]$member.Name)) -or ([string]$member.Name) -match '[\\/]' -or [bool]$member.Link) { throw 'uv archive has an unsafe member.' } }
+  $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+  foreach ($member in $Members) { if (-not $seen.Add([string]$member.Name) -or (Test-UnsafeArchiveMember ([string]$member.Name)) -or ([string]$member.Name) -match '[\\/]' -or [bool]$member.Link) { throw 'uv archive has an unsafe member.' } }
 }
 
 function Assert-SafeCpythonArchive {
@@ -173,11 +186,91 @@ function Promote-StagedDirectory {
   if (-not (Test-Path -LiteralPath $final -PathType Container)) { throw 'Atomic promotion did not create the final target.' }
 }
 
+function Get-HermesPublicationJournalPath {
+  param([string]$RuntimeRoot)
+  $root = Assert-LiteralRuntimeRoot $RuntimeRoot
+  return Assert-ChildPath $root (Join-Path $root '.hermes-runtime-publication.json')
+}
+
+function Get-HermesPublicationReadyPath {
+  param([string]$RuntimeRoot)
+  $root = Assert-LiteralRuntimeRoot $RuntimeRoot
+  return Assert-ChildPath $root (Join-Path $root '.hermes-runtime-publication.ready.json')
+}
+
+function Write-HermesPublicationJournal {
+  param([string]$RuntimeRoot, [object[]]$Promotions)
+  $journal = Get-HermesPublicationJournalPath $RuntimeRoot
+  if (Test-Path -LiteralPath $journal) { throw 'Runtime publication journal already exists.' }
+  $record = [ordered]@{ schemaVersion = 1; state = 'promoting'; promotions = @($Promotions | ForEach-Object { [ordered]@{ staged = $_.StagedDirectory; final = $_.FinalDirectory } }) }
+  [IO.File]::WriteAllText($journal, ($record | ConvertTo-Json -Compress -Depth 8), [Text.UTF8Encoding]::new($false))
+  return $journal
+}
+
+function Assert-HermesPublicationReady {
+  param([string]$RuntimeRoot)
+  $root = Assert-LiteralRuntimeRoot $RuntimeRoot
+  $journal = Get-HermesPublicationJournalPath $root
+  if (Test-Path -LiteralPath $journal) { throw 'Runtime publication is incomplete or recovery is required.' }
+  $ready = Get-HermesPublicationReadyPath $root
+  if (-not (Test-Path -LiteralPath $ready -PathType Leaf)) { throw 'Runtime publication has no verified commit marker.' }
+  $record = Get-Manifest $ready
+  if ($record.schemaVersion -ne 1 -or $record.state -ne 'committed' -or $record.promotions.Count -lt 1) { throw 'Runtime publication commit marker is invalid.' }
+  foreach ($promotion in $record.promotions) {
+    $final = Assert-ChildPath $root ([string]$promotion.final)
+    if (-not (Test-Path -LiteralPath $final -PathType Container) -or ((Get-Item -LiteralPath $final -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Runtime publication commit marker references an unsafe final directory.' }
+  }
+}
+
+function Complete-StagedDirectories {
+  param([string]$RuntimeRoot)
+  $root = Assert-LiteralRuntimeRoot $RuntimeRoot
+  $journal = Get-HermesPublicationJournalPath $root
+  if (-not (Test-Path -LiteralPath $journal -PathType Leaf)) { throw 'Runtime publication journal is absent.' }
+  $record = Get-Manifest $journal
+  if ($record.schemaVersion -ne 1 -or $record.state -ne 'promoting' -or $record.promotions.Count -lt 1) { throw 'Runtime publication journal is invalid.' }
+  foreach ($promotion in $record.promotions) {
+    $stage = Assert-ChildPath $root ([string]$promotion.staged); $final = Assert-ChildPath $root ([string]$promotion.final)
+    if (Test-Path -LiteralPath $stage) { throw 'Runtime publication has unpromoted staging.' }
+    if (-not (Test-Path -LiteralPath $final -PathType Container)) { throw 'Runtime publication final directory is absent.' }
+  }
+  $ready = Get-HermesPublicationReadyPath $root
+  if (Test-Path -LiteralPath $ready) { throw 'Runtime publication commit marker already exists.' }
+  $record.state = 'committed'
+  [IO.File]::WriteAllText($ready, ($record | ConvertTo-Json -Compress -Depth 8), [Text.UTF8Encoding]::new($false))
+  Remove-Item -LiteralPath $journal -Force
+}
+
+function Recover-StagedDirectories {
+  param([string]$RuntimeRoot)
+  $root = Assert-LiteralRuntimeRoot $RuntimeRoot
+  $journal = Get-HermesPublicationJournalPath $root
+  if (-not (Test-Path -LiteralPath $journal -PathType Leaf)) { return }
+  $record = Get-Manifest $journal
+  if ($record.schemaVersion -ne 1 -or $record.state -ne 'promoting' -or $record.promotions.Count -lt 1) { throw 'Runtime publication journal is invalid.' }
+  $ready = Get-HermesPublicationReadyPath $root
+  if (Test-Path -LiteralPath $ready) {
+    foreach ($promotion in $record.promotions) { if (-not (Test-Path -LiteralPath (Assert-ChildPath $root ([string]$promotion.final)) -PathType Container)) { throw 'Committed publication recovery found a missing final directory.' } }
+    Remove-Item -LiteralPath $journal -Force
+    return
+  }
+  foreach ($promotion in @($record.promotions)[($record.promotions.Count - 1)..0]) {
+    $stage = Assert-ChildPath $root ([string]$promotion.staged); $final = Assert-ChildPath $root ([string]$promotion.final)
+    if (Test-Path -LiteralPath $final) {
+      if (Test-Path -LiteralPath $stage) { throw 'Runtime publication recovery found both staging and final directories.' }
+      $parent = [IO.Directory]::GetParent($stage).FullName; if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent | Out-Null }
+      Move-Item -LiteralPath $final -Destination $stage
+    } elseif (-not (Test-Path -LiteralPath $stage -PathType Container)) { throw 'Runtime publication recovery found neither staging nor final directory.' }
+  }
+  Remove-Item -LiteralPath $journal -Force
+}
+
 function Promote-StagedDirectories {
   param(
     [string]$RuntimeRoot,
     [object[]]$Promotions,
-    [int]$FaultAfterPromotion = 0
+    [int]$FaultAfterPromotion = 0,
+    [int]$CrashAfterPromotion = 0
   )
   $root = Assert-LiteralRuntimeRoot $RuntimeRoot
   if ($Promotions.Count -lt 1) { throw 'At least one staged promotion is required.' }
@@ -190,23 +283,27 @@ function Promote-StagedDirectories {
     if (Test-Path -LiteralPath $final) { throw 'Final target already exists; promotion refuses replacement.' }
     $checked += [pscustomobject]@{ StagedDirectory = $staged; FinalDirectory = $final }
   }
+  [void](Write-HermesPublicationJournal $root $checked)
   $promoted = @()
   try {
     foreach ($promotion in $checked) {
       Promote-StagedDirectory $root $promotion.StagedDirectory $promotion.FinalDirectory
       $promoted += $promotion
+      if ($CrashAfterPromotion -gt 0 -and $promoted.Count -ge $CrashAfterPromotion) { throw 'Injected publication crash.' }
       if ($FaultAfterPromotion -gt 0 -and $promoted.Count -ge $FaultAfterPromotion) { throw 'Injected promotion fault.' }
     }
   } catch {
     $original = $_
+    if ($original.Exception.Message -eq 'Injected publication crash.') { throw $original }
     [array]::Reverse($promoted)
     foreach ($promotion in $promoted) {
       if ((Test-Path -LiteralPath $promotion.FinalDirectory -PathType Container) -and -not (Test-Path -LiteralPath $promotion.StagedDirectory)) {
         Move-Item -LiteralPath $promotion.FinalDirectory -Destination $promotion.StagedDirectory
       }
     }
+    Remove-Item -LiteralPath (Get-HermesPublicationJournalPath $root) -Force -ErrorAction SilentlyContinue
     throw $original
   }
 }
 
-Export-ModuleMember -Function Assert-LiteralRuntimeRoot, Assert-ChildPath, Get-Sha256Hex, Assert-ExactHash, Get-Manifest, Assert-HermesSourceLock, Assert-HermesArtifactLock, Invoke-GitChecked, Get-HermesGitTreePaths, Test-UnsafeArchiveMember, Get-HermesGitIsolationOptions, Assert-HermesGitTranscript, Assert-HermesSourceDirectory, Assert-ArtifactHttpHop, Assert-SafeCpythonMembers, Assert-SafeUvMembers, Assert-SafeCpythonArchive, Assert-SafeUvArchive, Promote-StagedDirectory, Promote-StagedDirectories
+Export-ModuleMember -Function Assert-LiteralRuntimeRoot, Assert-ChildPath, Get-Sha256Hex, Assert-ExactHash, Get-Manifest, Assert-HermesSourceLock, Assert-HermesArtifactLock, Invoke-GitChecked, Get-HermesGitTreePaths, Test-UnsafeArchiveMember, Get-HermesGitIsolationOptions, Assert-HermesGitTranscript, Assert-HermesSourceDirectory, Assert-ArtifactHttpHop, Assert-SafeCpythonMembers, Assert-SafeUvMembers, Assert-SafeCpythonArchive, Assert-SafeUvArchive, Promote-StagedDirectory, Get-HermesPublicationJournalPath, Get-HermesPublicationReadyPath, Assert-HermesPublicationReady, Complete-StagedDirectories, Recover-StagedDirectories, Promote-StagedDirectories
