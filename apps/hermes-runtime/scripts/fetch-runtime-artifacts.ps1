@@ -20,16 +20,13 @@ function Invoke-PinnedDownload {
   $client = [Net.Http.HttpClient]::new($handler)
   try {
     for ($hop = 0; $hop -lt 4; $hop++) {
-      if ($uri.Scheme -ne 'https' -or $uri.Host -notin $allowedHosts) { throw "$Label redirect is not an approved HTTPS host." }
       $response = $client.GetAsync($uri, [Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
       if ([int]$response.StatusCode -in 301,302,303,307,308) {
         $location = $response.Headers.Location
-        if ($null -eq $location) { throw "$Label redirect lacks Location." }
-        $uri = [Uri]::new($uri, $location)
+        $uri = Assert-ArtifactHttpHop $Artifact $uri ([int]$response.StatusCode) $(if ($null -eq $location) { $null } else { [Uri]::new($uri, $location) }) $null
         $response.Dispose(); continue
       }
-      if (-not $response.IsSuccessStatusCode) { throw "$Label download returned $($response.StatusCode)." }
-      if ($response.Content.Headers.ContentLength -ne $null -and [int64]$response.Content.Headers.ContentLength -ne [int64]$Artifact.size) { throw "$Label content length drift." }
+      [void](Assert-ArtifactHttpHop $Artifact $uri ([int]$response.StatusCode) $null $response.Content.Headers.ContentLength)
       $input = $response.Content.ReadAsStream(); $output = [IO.File]::Open($Destination, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
       try {
         $buffer = [byte[]]::new(131072); [int64]$total = 0
@@ -43,13 +40,6 @@ function Invoke-PinnedDownload {
     }
     throw "$Label exceeded redirect limit."
   } finally { $client.Dispose(); $handler.Dispose() }
-}
-
-function Assert-NoUnsafeArchiveEntries {
-  param([string]$Archive)
-  $entries = & tar.exe -tf $Archive 2>&1
-  if ($LASTEXITCODE -ne 0) { throw 'CPython archive listing failed.' }
-  foreach ($entry in $entries) { if (Test-UnsafeArchiveMember $entry) { throw 'CPython archive has an unsafe member.' } }
 }
 
 function Assert-Installed {
@@ -94,7 +84,8 @@ try {
   foreach ($entry in @(@($lock.cpython, $cpython, 'CPython'), @($lock.uv, $uv, 'uv'), @($lock.winsw, $winsw, 'WinSW'))) { Invoke-PinnedDownload $entry[0] (Join-Path $downloads $entry[0].fileName) $entry[2] }
   $rollupArtifact = @{ url = $lock.pythonBuildStandaloneLicenses.url; size = $lock.pythonBuildStandaloneLicenses.size; sha256 = $lock.pythonBuildStandaloneLicenses.sha256 }
   Invoke-PinnedDownload $rollupArtifact (Join-Path $downloads 'python-licenses.rst') 'python-build-standalone license rollup'
-  Assert-NoUnsafeArchiveEntries (Join-Path $downloads $lock.cpython.fileName)
+  Assert-SafeCpythonArchive (Join-Path $downloads $lock.cpython.fileName)
+  Assert-SafeUvArchive (Join-Path $downloads $lock.uv.fileName)
   $pyStage = Join-Path $stage 'cpython'; New-Item -ItemType Directory -Path $pyStage | Out-Null; & tar.exe -xf (Join-Path $downloads $lock.cpython.fileName) -C $pyStage; if ($LASTEXITCODE -ne 0) { throw 'CPython archive extraction failed.' }
   if (-not (Test-Path -LiteralPath (Join-Path $pyStage 'python\LICENSE.txt') -PathType Leaf)) { throw 'CPython artifact LICENSE.txt is absent.' }
   $uvStage = Join-Path $stage 'uv'; Expand-Archive -LiteralPath (Join-Path $downloads $lock.uv.fileName) -DestinationPath $uvStage -Force
@@ -109,10 +100,12 @@ try {
   Move-Item -LiteralPath (Join-Path $downloads 'python-licenses.rst') -Destination (Join-Path $stageLicense 'python-licenses.rst')
   Assert-Installed $lock.cpython $stageCpython 'CPython'; Assert-Installed $lock.uv $stageUv 'uv'; Assert-Installed $lock.winsw $stageWinsw 'WinSW'
   Assert-WinSwAmd64 (Join-Path $stageWinsw $lock.winsw.fileName)
-  Promote-StagedDirectory $root $stageCpython $cpython
-  Promote-StagedDirectory $root $stageUv $uv
-  Promote-StagedDirectory $root $stageWinsw $winsw
-  Promote-StagedDirectory $root $stageLicense $license
+  Promote-StagedDirectories $root @(
+    [pscustomobject]@{ StagedDirectory = $stageCpython; FinalDirectory = $cpython },
+    [pscustomobject]@{ StagedDirectory = $stageUv; FinalDirectory = $uv },
+    [pscustomobject]@{ StagedDirectory = $stageWinsw; FinalDirectory = $winsw },
+    [pscustomobject]@{ StagedDirectory = $stageLicense; FinalDirectory = $license }
+  )
   Assert-Installed $lock.cpython $cpython 'CPython'; Assert-Installed $lock.uv $uv 'uv'; Assert-Installed $lock.winsw $winsw 'WinSW'
   Assert-WinSwAmd64 (Join-Path $winsw $lock.winsw.fileName)
 } finally { if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Force -Recurse -ErrorAction SilentlyContinue } }

@@ -68,7 +68,17 @@ function checkSource(source) {
   record(source.rawFileSha256, ["LICENSE", "pyproject.toml", "uv.lock"], "rawFileSha256"); literal(hash(source.rawFileSha256.LICENSE, "LICENSE"), "821556e6336796450ab852d375117b48a4887e71d255794fd6318d99982a5ab6", "LICENSE"); literal(hash(source.rawFileSha256["pyproject.toml"], "pyproject.toml"), "9b6d41aca6d908e5af2f90a335b1c2b7eeaf8e3ce667b5a823a73e8643c56c75", "pyproject.toml"); literal(hash(source.rawFileSha256["uv.lock"], "uv.lock"), "5a9276183671e997c2213ede18b9cda4920e1cf57616219a3b08ddebda3281ab", "uv.lock");
   literal(source.acquisitionMethod, "git-detached", "acquisitionMethod"); if (array(source.submodules, "submodules").length) fail("submodules must be empty"); literal(source.model, "deepseek-v4-pro", "model"); literal(source.pythonVersion, "3.11.16", "pythonVersion"); hash(source.runsEventContractHash, "runsEventContractHash");
   record(source.patchQueue, ["file", "sha256"], "patchQueue"); literal(source.patchQueue.file, "patches/series.json", "patch queue file"); hash(source.patchQueue.sha256, "patch queue hash");
-  record(source.licenses, ["files"], "licenses"); if (array(source.licenses.files, "licenses.files").length !== 5) fail("licenses must reference all reviewed notices");
+  record(source.licenses, ["files"], "licenses");
+  record(source.licenses.files, ["licenses/CPython-LICENSE", "licenses/Hermes-Agent-LICENSE", "licenses/WinSW-LICENSE", "licenses/python-build-standalone-licenses.rst", "licenses/uv-APACHE-LICENSE", "licenses/uv-LICENSE"], "licenses.files");
+  const reviewedLicenseHashes = {
+    "licenses/CPython-LICENSE": "886a0ead2d89030ee62dbff52b04e47ab91998341295bb9c56fb952b4e081c7a",
+    "licenses/Hermes-Agent-LICENSE": "821556e6336796450ab852d375117b48a4887e71d255794fd6318d99982a5ab6",
+    "licenses/WinSW-LICENSE": "1cdf703c10a70e5973bf3acf2a5eeabe7746237155b92db2034aeae26fdf7802",
+    "licenses/python-build-standalone-licenses.rst": "e43fb936c6655d7996dba480d7ebdea492d6040ec388eb8ed9d1000f72de8cab",
+    "licenses/uv-APACHE-LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+    "licenses/uv-LICENSE": "860e3d7a86b84e6a7012c7a635fc64df475cebc6cce34dfeb73a5982ec58176c",
+  };
+  for (const [path, expected] of Object.entries(reviewedLicenseHashes)) literal(hash(source.licenses.files[path], path), expected, path);
   record(source.sbom, ["file", "format"], "sbom"); literal(source.sbom.file, "sbom/hermes-agent-v2026.8.27-windows-x86_64-cpython-3.11.16.cdx.json", "SBOM file"); literal(source.sbom.format, "CycloneDX-1.6", "SBOM format"); hash(source.sbomSha256, "sbomSha256");
 }
 function checkArtifact(artifact, name, expected) {
@@ -82,7 +92,26 @@ function checkArtifacts(artifacts) {
   record(artifacts.pythonBuildStandaloneLicenses, ["url", "size", "sha256"], "python-build-standalone licenses"); url(artifacts.pythonBuildStandaloneLicenses.url, "python-build-standalone license URL"); literal(artifacts.pythonBuildStandaloneLicenses.size, 105875, "python-build-standalone license size"); literal(hash(artifacts.pythonBuildStandaloneLicenses.sha256, "python-build-standalone license hash"), "e43fb936c6655d7996dba480d7ebdea492d6040ec388eb8ed9d1000f72de8cab", "python-build-standalone license hash");
 }
 function checkPatches(patches) { record(patches, ["schemaVersion", "baseCommit", "patches"], "patch queue"); literal(patches.schemaVersion, "1", "patch queue schema"); literal(git(patches.baseCommit, "patch queue base"), "5fc308a70719a83cccdbba4c0e39c23f5a8239d5", "patch queue base"); if (array(patches.patches, "patches").length) fail("H1 patch queue must be empty"); }
-function checkSbom(sbom, source) { record(sbom, ["bomFormat", "specVersion", "serialNumber", "metadata", "components", "dependencies"], "SBOM"); literal(sbom.bomFormat, "CycloneDX", "SBOM bomFormat"); literal(sbom.specVersion, "1.6", "SBOM specVersion"); if (JSON.stringify(sbom).includes(source.sbomSha256)) fail("SBOM must not embed source lock hash"); }
+function checkSbom(sbom, source) {
+  record(sbom, ["bomFormat", "specVersion", "serialNumber", "metadata", "components", "dependencies"], "SBOM"); literal(sbom.bomFormat, "CycloneDX", "SBOM bomFormat"); literal(sbom.specVersion, "1.6", "SBOM specVersion");
+  const serialized = JSON.stringify(sbom);
+  if (serialized.includes(source.sbomSha256) || /sourceLockHash|timestamp|[A-Za-z]:\\|\/Users\//.test(serialized)) fail("SBOM contains a forbidden digest, timestamp, or host path");
+  record(sbom.metadata, ["component", "properties"], "SBOM metadata");
+  const properties = array(sbom.metadata.properties, "SBOM metadata properties");
+  const propertyMap = new Map(properties.map((property) => [property?.name, property?.value]));
+  if (propertyMap.get("jarvis:source-commit") !== source.sourceCommit || propertyMap.get("jarvis:source-tree") !== source.sourceTree || propertyMap.get("jarvis:target") !== "windows-x86_64-cpython-3.11.16" || propertyMap.get("jarvis:extras") !== "") fail("SBOM target provenance drift");
+  const components = array(sbom.components, "SBOM components"); const dependencies = array(sbom.dependencies, "SBOM dependencies");
+  if (components.length !== 62 || dependencies.length !== 62) fail("SBOM does not contain the complete selected Windows closure");
+  const refs = new Set();
+  for (const component of components) {
+    record(component, component.name === "hermes-agent" ? ["name", "purl", "type", "version"] : ["externalReferences", "hashes", "name", "purl", "type", "version"], "SBOM component");
+    if (typeof component.purl !== "string" || !component.purl.startsWith("pkg:pypi/") || refs.has(component.purl)) fail("SBOM has a duplicate or invalid component"); refs.add(component.purl);
+    if (component.name !== "hermes-agent") { if (array(component.hashes, "SBOM archive hashes").length !== 1 || component.hashes[0]?.alg !== "SHA-256" || !SHA256.test(component.hashes[0]?.content) || array(component.externalReferences, "SBOM archive reference").length !== 1 || component.externalReferences[0]?.type !== "distribution" || !String(component.externalReferences[0]?.url).startsWith("https://files.pythonhosted.org/")) fail("SBOM archive selection drift"); }
+  }
+  const seenDependencies = new Set();
+  for (const dependency of dependencies) { record(dependency, ["dependsOn", "ref"], "SBOM dependency"); if (!refs.has(dependency.ref) || seenDependencies.has(dependency.ref)) fail("SBOM has duplicate or unknown dependency references"); seenDependencies.add(dependency.ref); for (const ref of array(dependency.dependsOn, "SBOM dependsOn")) if (!refs.has(ref)) fail("SBOM dependency escapes selected closure"); }
+  if (seenDependencies.size !== refs.size || !refs.has("pkg:pypi/hermes-agent@0.20.6")) fail("SBOM closure is incomplete");
+}
 
 export async function validateHermesManifests({ source, artifacts, contract, patches, sbom }) {
   checkSource(source); checkArtifacts(artifacts); checkContract(contract); checkPatches(patches); checkSbom(sbom, source);

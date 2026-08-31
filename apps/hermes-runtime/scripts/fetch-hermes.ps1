@@ -13,17 +13,19 @@ $lock = Get-Manifest (Join-Path $repoRoot 'hermes-source-lock.json')
 $release = Assert-ChildPath $root (Join-Path $root (Join-Path 'releases' $lock.sourceCommit))
 $source = Assert-ChildPath $root (Join-Path $release 'source')
 $git = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1 -ExpandProperty Source
+$savedGitEnvironment = @{}
+foreach ($name in @('GIT_CONFIG_NOSYSTEM', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_ATTR_NOSYSTEM', 'GIT_TERMINAL_PROMPT')) {
+  $item = Get-Item -LiteralPath ("Env:" + $name) -ErrorAction SilentlyContinue
+  $savedGitEnvironment[$name] = if ($null -eq $item) { $null } else { $item.Value }
+}
+$env:GIT_CONFIG_NOSYSTEM = '1'
+$env:GIT_CONFIG_GLOBAL = 'NUL'
+$env:GIT_CONFIG_SYSTEM = 'NUL'
+$env:GIT_ATTR_NOSYSTEM = '1'
 
 function Assert-VerifiedSource {
   param([string]$Candidate)
-  if (-not (Test-Path -LiteralPath $Candidate -PathType Container)) { throw 'Pinned Hermes source is absent.' }
-  if (Test-Path -LiteralPath (Join-Path $Candidate '.git')) { throw 'Pinned source must be a detached export without a worktree repository.' }
-  foreach ($name in @('LICENSE', 'pyproject.toml', 'uv.lock')) {
-    $path = Assert-ChildPath $root (Join-Path $Candidate $name)
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Pinned source file is absent: $name" }
-    Assert-ExactHash $path $lock.rawFileSha256[$name] "Pinned source $name"
-  }
-  if (@(Get-ChildItem -LiteralPath $Candidate -Force -Recurse | Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }).Count -ne 0) { throw 'Pinned source contains a reparse point.' }
+  Assert-HermesSourceDirectory $root $Candidate $lock
 }
 
 if ($VerifyOnly) { Assert-VerifiedSource $source; exit 0 }
@@ -40,7 +42,7 @@ try {
   New-Item -ItemType Directory -Path $staging | Out-Null
   $gitDir = Join-Path $staging 'git'
   $workTree = Join-Path $staging 'source'
-  Invoke-GitChecked $git @('-c','core.hooksPath=NUL','-c','core.autocrlf=false','-c','core.safecrlf=true','-c','filter.lfs.smudge=','-c','filter.lfs.process=','-c','filter.lfs.required=false','-c','credential.helper=','init','--bare',$gitDir) | Out-Null
+  Invoke-GitChecked $git @((Get-HermesGitIsolationOptions) + @('init','--bare',$gitDir)) | Out-Null
   Invoke-GitChecked $git @('--git-dir',$gitDir,'config','core.hooksPath','NUL') | Out-Null
   Invoke-GitChecked $git @('--git-dir',$gitDir,'config','core.bare','false') | Out-Null
   Invoke-GitChecked $git @('--git-dir',$gitDir,'config','core.longpaths','true') | Out-Null
@@ -58,24 +60,11 @@ try {
   } finally {
     $env:GIT_TERMINAL_PROMPT = $previousPrompt
   }
-  $tagType = Invoke-GitChecked $git @('--git-dir',$gitDir,'cat-file','-t',("refs/tags/{0}" -f $lock.tag))
-  if ($tagType -ne 'tag') { throw 'Pinned tag is not annotated.' }
-  $tagObject = Invoke-GitChecked $git @('--git-dir',$gitDir,'rev-parse',("refs/tags/{0}^{{tag}}" -f $lock.tag))
-  if ($tagObject -ne $lock.tagObject) { throw 'Pinned tag object mismatch.' }
-  $peeledCommit = Invoke-GitChecked $git @('--git-dir',$gitDir,'rev-parse',("refs/tags/{0}^{{}}" -f $lock.tag))
-  if ($peeledCommit -ne $lock.sourceCommit) { throw 'Pinned tag was retargeted.' }
-  $treeHash = Invoke-GitChecked $git @('--git-dir',$gitDir,'rev-parse',("{0}^{{tree}}" -f $lock.sourceCommit))
-  if ($treeHash -ne $lock.sourceTree) { throw 'Pinned source tree mismatch.' }
-  $remotes = @(Invoke-GitChecked $git @('--git-dir',$gitDir,'remote'))
-  if ($remotes.Count -ne 1 -or $remotes[0] -ne 'origin') { throw 'Unexpected Git remote.' }
-  $tree = @(Invoke-GitChecked $git @('--git-dir',$gitDir,'ls-tree','-r',$lock.sourceCommit))
-  if ($tree | Where-Object { $_ -match '^160000 ' }) { throw 'Pinned source contains a gitlink.' }
-  if ($tree | Where-Object { $_ -match ' .gitmodules$' }) { throw 'Pinned source contains submodule metadata.' }
   New-Item -ItemType Directory -Path $workTree | Out-Null
   Invoke-GitChecked $git @('-c','core.longpaths=true','--git-dir',$gitDir,'--work-tree',$workTree,'checkout','--detach','--force',$lock.sourceCommit) | Out-Null
   foreach ($name in @('LICENSE', 'pyproject.toml', 'uv.lock')) { Assert-ExactHash (Join-Path $workTree $name) $lock.rawFileSha256[$name] "Raw checkout $name" }
-  $status = @(Invoke-GitChecked $git @('-c','core.longpaths=true','--git-dir',$gitDir,'--work-tree',$workTree,'status','--porcelain'))
-  if ($status.Count -ne 0) { throw "Pinned checkout is dirty or untracked: $($status -join ';')" }
+  $gitRunner = { param([string[]]$Arguments) Invoke-GitChecked $git $Arguments }
+  Assert-HermesGitTranscript $lock $gitDir $workTree $gitRunner
   if (@(Get-ChildItem -LiteralPath $workTree -Force -Recurse | Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }).Count -ne 0) { throw 'Pinned source contains a reparse point.' }
   Remove-Item -LiteralPath $gitDir -Force -Recurse
   $stagedRelease = Assert-ChildPath $root (Join-Path $staging 'release')
@@ -87,4 +76,7 @@ try {
   Assert-VerifiedSource $source
 } finally {
   if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Force -Recurse -ErrorAction SilentlyContinue }
+  foreach ($name in $savedGitEnvironment.Keys) {
+    if ($null -eq $savedGitEnvironment[$name]) { Remove-Item -LiteralPath ("Env:" + $name) -ErrorAction SilentlyContinue } else { Set-Item -LiteralPath ("Env:" + $name) -Value $savedGitEnvironment[$name] }
+  }
 }

@@ -1,1 +1,7 @@
 tests/fixtures/hermes-h1/token-events-golden-v1.sse -text whitespace=-blank-at-eof
+apps/hermes-runtime/licenses/CPython-LICENSE -text whitespace=-trailing-space,-blank-at-eof conflict-marker-size=4096
+apps/hermes-runtime/licenses/Hermes-Agent-LICENSE -text whitespace=-trailing-space,-blank-at-eof conflict-marker-size=4096
+apps/hermes-runtime/licenses/WinSW-LICENSE -text whitespace=-trailing-space,-blank-at-eof conflict-marker-size=4096
+apps/hermes-runtime/licenses/python-build-standalone-licenses.rst -text whitespace=-trailing-space,-blank-at-eof conflict-marker-size=4096
+apps/hermes-runtime/licenses/uv-APACHE-LICENSE -text whitespace=-trailing-space,-blank-at-eof conflict-marker-size=4096
+apps/hermes-runtime/licenses/uv-LICENSE -text whitespace=-trailing-space,-blank-at-eof conflict-marker-size=4096

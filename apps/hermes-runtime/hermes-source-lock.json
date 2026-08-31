@@ -18,7 +18,7 @@
   "pythonVersion": "3.11.16",
   "runsEventContractHash": "82b9a5fc26a624ff09da1c7fcc125c1d489647e00174c22a5e6e880269ff6b28",
   "patchQueue": {"file": "patches/series.json", "sha256": "1d4737670634f5e39a497e9784c06a3179261cc00f8bf4dbbe49f0404c0ec456"},
-  "licenses": {"files": ["licenses/Hermes-Agent-LICENSE", "licenses/CPython-LICENSE", "licenses/python-build-standalone-licenses.rst", "licenses/uv-LICENSE", "licenses/WinSW-LICENSE"]},
+  "licenses": {"files": {"licenses/CPython-LICENSE": "886a0ead2d89030ee62dbff52b04e47ab91998341295bb9c56fb952b4e081c7a", "licenses/Hermes-Agent-LICENSE": "821556e6336796450ab852d375117b48a4887e71d255794fd6318d99982a5ab6", "licenses/WinSW-LICENSE": "1cdf703c10a70e5973bf3acf2a5eeabe7746237155b92db2034aeae26fdf7802", "licenses/python-build-standalone-licenses.rst": "e43fb936c6655d7996dba480d7ebdea492d6040ec388eb8ed9d1000f72de8cab", "licenses/uv-APACHE-LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4", "licenses/uv-LICENSE": "860e3d7a86b84e6a7012c7a635fc64df475cebc6cce34dfeb73a5982ec58176c"}},
   "sbom": {"file": "sbom/hermes-agent-v2026.8.27-windows-x86_64-cpython-3.11.16.cdx.json", "format": "CycloneDX-1.6"},
-  "sbomSha256": "c62400fc802173df1b1266d19eadc7204436872c4e2bbc0c965c57941dd924a7"
+  "sbomSha256": "5ed45c317f2e03bfb4f0f3a34cfa710aa5d7704237566cd0bc42468b9a65638a"
 }
