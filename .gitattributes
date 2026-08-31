@@ -1,1 +1,2 @@
 tests/fixtures/hermes-h1/token-events-golden-v1.sse -text whitespace=-blank-at-eof
+tests/fixtures/hermes-h1/token-events-golden-v1.ndjson -text
