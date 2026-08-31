@@ -225,6 +225,43 @@ describe("PreAdmissionModelAdapter", () => {
     expect(directCalls).toBe(0);
   });
 
+  it("fails closed when nominal fallback has no Hermes iterator return", async () => {
+    let directCalls = 0;
+    const selected = new PreAdmissionModelAdapter({
+      direct: adapter(async function* () { directCalls += 1; yield Object.freeze({ index: 0, text: "direct" }); }),
+      hermes: adapter(() => ({
+        [Symbol.asyncIterator](): AsyncIterator<ModelToken> {
+          return {
+            async next(): Promise<IteratorResult<ModelToken>> { throw modelProviderNotStartedError(); },
+          };
+        },
+      })),
+      hermesState: () => "ready",
+    });
+
+    await expect(collect(selected.stream(input()))).rejects.toMatchObject({ code: "model_protocol_invalid" });
+    expect(directCalls).toBe(0);
+  });
+
+  it("fails closed when nominal fallback Hermes return is not terminal", async () => {
+    let directCalls = 0;
+    const selected = new PreAdmissionModelAdapter({
+      direct: adapter(async function* () { directCalls += 1; yield Object.freeze({ index: 0, text: "direct" }); }),
+      hermes: adapter(() => ({
+        [Symbol.asyncIterator](): AsyncIterator<ModelToken> {
+          return {
+            async next(): Promise<IteratorResult<ModelToken>> { throw modelProviderNotStartedError(); },
+            async return(): Promise<IteratorResult<ModelToken>> { return { done: false, value: undefined as never }; },
+          };
+        },
+      })),
+      hermesState: () => "ready",
+    });
+
+    await expect(collect(selected.stream(input()))).rejects.toMatchObject({ code: "model_protocol_invalid" });
+    expect(directCalls).toBe(0);
+  });
+
   it.each([
     "model_provider_failure",
     "model_admission_unknown",

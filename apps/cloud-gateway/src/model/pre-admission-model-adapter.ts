@@ -1,5 +1,6 @@
 import {
   isModelProviderNotStartedError,
+  ModelAdapterError,
   snapshotModelAdapterStreamInput,
   type ModelAdapter,
   type ModelAdapterStreamInput,
@@ -54,7 +55,16 @@ export class PreAdmissionModelAdapter implements ModelAdapter {
     const close = async (): Promise<void> => {
       if (closed) return;
       closed = true;
-      if (typeof iterator.return === "function") await iterator.return();
+      if (typeof iterator.return !== "function") throw new ModelAdapterError("model_protocol_invalid");
+      const result = await iterator.return();
+      try {
+        if (result === null || typeof result !== "object" || Array.isArray(result) || result.done !== true) {
+          throw new ModelAdapterError("model_protocol_invalid");
+        }
+      } catch (error) {
+        if (error instanceof ModelAdapterError) throw error;
+        throw new ModelAdapterError("model_protocol_invalid");
+      }
     };
     try {
       while (true) {
