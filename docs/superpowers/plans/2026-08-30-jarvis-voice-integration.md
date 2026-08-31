@@ -90,7 +90,7 @@ Expected: route findings are fixed while `apps/cloud-gateway/src/index.ts` conti
 
 - [ ] **Step 5: Run the focused route and fake-acceptance tests**
 
-Run: `pnpm vitest run apps/cloud-gateway/test/http/voice-routes.test.ts apps/cloud-gateway/test/http/voice-callback-recorder.test.ts apps/cloud-gateway/test/http/voice-callbacks.test.ts apps/cloud-gateway/test/http/voice-route-construction.test.ts apps/cloud-gateway/test/http/worker-voice-routes.test.ts apps/cloud-gateway/test/voice/outbound-recipient-lookup.test.ts tests/acceptance/fake/voice-call-path.test.ts`
+Run: `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/http/voice-routes.test.ts apps/cloud-gateway/test/http/voice-callback-recorder.test.ts apps/cloud-gateway/test/http/voice-callbacks.test.ts apps/cloud-gateway/test/http/voice-route-construction.test.ts apps/cloud-gateway/test/http/worker-voice-routes.test.ts apps/cloud-gateway/test/voice/outbound-recipient-lookup.test.ts tests/acceptance/fake/voice-call-path.test.ts`
 
 Expected: all route, callback, recipient, Worker wiring, and fake acceptance assertions pass without credentials.
 
@@ -171,7 +171,7 @@ Expected: only plan, route integration, fake acceptance, and smoke-contract path
 
 - [ ] **Step 4: Verify the Worker entrypoint preserves both integrations**
 
-Run: `pnpm vitest run apps/cloud-gateway/test/http/worker-voice-routes.test.ts apps/cloud-gateway/test/voice/call-session-do.test.ts`
+Run: `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/http/worker-voice-routes.test.ts apps/cloud-gateway/test/voice/call-session-do.test.ts`
 
 Expected: Worker route construction and the Task 6 Durable Object session suite both pass.
 
@@ -204,7 +204,7 @@ Expected: all workspace projects typecheck and lint with zero errors.
 
 - [ ] **Step 4: Run the focused security and dependency gates**
 
-Run: `pnpm vitest run apps/cloud-gateway/test/security tests/acceptance/live/voice-smoke.test.ts && pnpm audit --audit-level high`
+Run: `pnpm exec vitest --config vitest.workspace.ts run apps/cloud-gateway/test/security tests/acceptance/live/voice-smoke.test.ts && pnpm audit --audit-level high`
 
 Expected: all security and evidence-privacy assertions pass and no high-or-critical dependency vulnerability is reported.
 
