@@ -8,7 +8,9 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'HermesRuntime.psm1') -Force
 
 $repoRoot = [IO.Directory]::GetParent($PSScriptRoot).FullName
-$lock = Get-Manifest (Join-Path $repoRoot 'runtime-artifacts-lock.json')
+$lockPath = Join-Path $repoRoot 'runtime-artifacts-lock.json'
+Assert-ExactHash $lockPath '8b4cb370fe0a25f879c4bc44e27bbcc73bbc518a8b0543b8854c76acabc15673' 'Runtime artifact lock'
+$lock = Get-Manifest $lockPath
 Assert-HermesArtifactLock $lock
 $root = Assert-LiteralRuntimeRoot $RuntimeRoot
 $allowedHosts = @('github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com', 'raw.githubusercontent.com')

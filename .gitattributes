@@ -6,3 +6,7 @@ apps/hermes-runtime/licenses/python-build-standalone-licenses.rst -text whitespa
 apps/hermes-runtime/licenses/uv-APACHE-LICENSE -text whitespace=-trailing-space,-blank-at-eof conflict-marker-size=4096
 apps/hermes-runtime/licenses/uv-LICENSE -text whitespace=-trailing-space,-blank-at-eof conflict-marker-size=4096
 apps/hermes-runtime/sbom/*.json -text
+apps/hermes-runtime/hermes-source-lock.json -text
+apps/hermes-runtime/runtime-artifacts-lock.json -text
+apps/hermes-runtime/contracts/*.json -text
+apps/hermes-runtime/patches/*.json -text

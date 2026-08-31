@@ -8,7 +8,9 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'HermesRuntime.psm1') -Force
 
 $repoRoot = [IO.Directory]::GetParent($PSScriptRoot).FullName
-$lock = Get-Manifest (Join-Path $repoRoot 'hermes-source-lock.json')
+$lockPath = Join-Path $repoRoot 'hermes-source-lock.json'
+Assert-ExactHash $lockPath '9f7b3b26d00e5b4522782d216aa9f0c20812d7e82f5122423b6542ad01c4331d' 'Hermes source lock'
+$lock = Get-Manifest $lockPath
 Assert-HermesSourceLock $lock
 $root = Assert-LiteralRuntimeRoot $RuntimeRoot
 $release = Assert-ChildPath $root (Join-Path $root (Join-Path 'releases' $lock.sourceCommit))
