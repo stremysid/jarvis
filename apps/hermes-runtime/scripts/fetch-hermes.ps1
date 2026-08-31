@@ -64,6 +64,7 @@ try {
   } finally {
     $env:GIT_TERMINAL_PROMPT = $previousPrompt
   }
+  [void](Get-HermesGitTreePaths $git $gitDir $lock.sourceCommit)
   New-Item -ItemType Directory -Path $workTree | Out-Null
   Invoke-GitChecked $git @('-c','core.longpaths=true','--git-dir',$gitDir,'--work-tree',$workTree,'checkout','--detach','--force',$lock.sourceCommit) | Out-Null
   foreach ($name in @('LICENSE', 'pyproject.toml', 'uv.lock')) { Assert-ExactHash (Join-Path $workTree $name) $lock.rawFileSha256[$name] "Raw checkout $name" }

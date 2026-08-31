@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import Ajv2020 from "ajv/dist/2020.js";
 import { canonicalize, sha256Hex, validateHermesManifests } from "../src/validate-manifests.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -74,6 +75,8 @@ describe("Hermes H1 source locks", () => {
     expect(sourceSchema.properties.rawFileSha256.additionalProperties).toBe(false);
     expect(artifactSchema.$defs.artifact.additionalProperties).toBe(false);
     const source = await loadJson("hermes-source-lock.json"); const artifacts = await loadJson("runtime-artifacts-lock.json"); const contract = await loadJson("contracts/hermes-runs-api-v2026.8.27.json"); const patches = await loadJson("patches/series.json"); const sbom = await loadJson("sbom/hermes-agent-v2026.8.27-windows-x86_64-cpython-3.11.16.cdx.json");
+    const ajv = new Ajv2020({ allErrors: true, strict: true }); const validateSource = ajv.compile(sourceSchema); const validateArtifacts = ajv.compile(artifactSchema); expect(validateSource(source), ajv.errors?.toString()).toBe(true); expect(validateArtifacts(artifacts), ajv.errors?.toString()).toBe(true);
+    const scalarDrift = structuredClone(source); scalarDrift.sourceCommit = 7; expect(validateSource(scalarDrift)).toBe(false);
     const drift = structuredClone(artifacts); drift.uv.licenses.push("unexpected"); await expect(validateHermesManifests({ source, artifacts: drift, contract, patches, sbom })).rejects.toThrow(/exact array/);
     const attributes = await readFile(new URL("../../../.gitattributes", import.meta.url), "utf8"); expect(attributes).toContain("apps/hermes-runtime/hermes-source-lock.json -text"); expect(attributes).toContain("apps/hermes-runtime/runtime-artifacts-lock.json -text");
   });

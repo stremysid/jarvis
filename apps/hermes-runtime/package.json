@@ -7,5 +7,8 @@
     "lint": "node --check src/canonical-json.mjs && node --check src/validate-manifests.mjs && node --check src/generate-sbom.mjs",
     "typecheck": "node --check src/canonical-json.mjs && node --check src/validate-manifests.mjs && node --check src/generate-sbom.mjs",
     "test": "vitest run test"
+  },
+  "devDependencies": {
+    "ajv": "8.17.1"
   }
 }

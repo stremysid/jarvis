@@ -67,13 +67,13 @@ function Invoke-GitChecked {
 function Get-HermesGitTreePaths {
   param([string]$Git, [string]$GitDirectory, [string]$Commit)
   $start = [Diagnostics.ProcessStartInfo]::new(); $start.FileName = $Git; $start.UseShellExecute = $false; $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
-  foreach ($argument in @((Get-HermesGitIsolationOptions) + @('--git-dir', $GitDirectory, 'ls-tree', '-r', '-z', '--name-only', $Commit))) { [void]$start.ArgumentList.Add($argument) }
+  foreach ($argument in @((Get-HermesGitIsolationOptions) + @('--git-dir', $GitDirectory, 'ls-tree', '-r', '-z', $Commit))) { [void]$start.ArgumentList.Add($argument) }
   $process = [Diagnostics.Process]::new(); $process.StartInfo = $start; if (-not $process.Start()) { throw 'Unable to start Git tree verification.' }
   $bytes = [IO.MemoryStream]::new(); $process.StandardOutput.BaseStream.CopyTo($bytes); $error = $process.StandardError.ReadToEnd(); $process.WaitForExit()
   if ($process.ExitCode -ne 0) { throw "Git tree verification failed: $error" }
   $records = [Text.Encoding]::UTF8.GetString($bytes.ToArray()).Split([char]0, [StringSplitOptions]::RemoveEmptyEntries)
-  foreach ($path in $records) { if (Test-UnsafeArchiveMember $path) { throw 'Pinned Git tree has an unsafe path.' } }
-  return @($records)
+  $entries = @(); foreach ($record in $records) { $parts = $record.Split([char]9, 2); if ($parts.Count -ne 2 -or $parts[0] -notmatch '^(?<mode>[0-7]{6}) (?<type>blob|tree|commit) (?<object>[a-f0-9]{40})$') { throw 'Pinned Git tree record is malformed.' }; $entry = [pscustomobject]@{ Mode = $Matches.mode; Type = $Matches.type; Object = $Matches.object; Path = $parts[1] }; if ((Test-UnsafeArchiveMember $entry.Path) -or $entry.Path -eq '.gitmodules' -or $entry.Mode -in @('120000','160000') -or $entry.Type -ne 'blob') { throw 'Pinned Git tree has a forbidden member.' }; $entries += $entry }
+  return @($entries)
 }
 
 function Test-UnsafeArchiveMember {
@@ -109,9 +109,12 @@ function Assert-HermesSourceDirectory {
     $store = Assert-ChildPath $root $GitDirectory; if (-not (Test-Path -LiteralPath $store -PathType Container)) { throw 'Pinned source Git object store is absent.' }
     $git = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1 -ExpandProperty Source
     if ((Invoke-GitChecked $git @('--git-dir', $store, 'rev-parse', ("{0}^{{tree}}" -f $Lock.sourceCommit))) -ne $Lock.sourceTree) { throw 'Pinned source Git tree mismatch.' }
-    $expected = Get-HermesGitTreePaths $git $store $Lock.sourceCommit
+    $entries = Get-HermesGitTreePaths $git $store $Lock.sourceCommit; $expected = @($entries | ForEach-Object Path | Sort-Object)
     $actual = @(Get-ChildItem -LiteralPath $source -Force -File -Recurse | ForEach-Object { $_.FullName.Substring($source.Length).TrimStart('\').Replace('\','/') } | Sort-Object)
     if ($expected.Count -ne $actual.Count -or (Compare-Object $expected $actual)) { throw 'Pinned source path set drift.' }
+    $expectedDirectories = @($expected | ForEach-Object { $parts = $_ -split '/'; for ($index = 1; $index -lt $parts.Count; $index++) { ($parts[0..($index - 1)] -join '/') } } | Sort-Object -Unique)
+    $actualDirectories = @(Get-ChildItem -LiteralPath $source -Force -Directory -Recurse | ForEach-Object { $_.FullName.Substring($source.Length).TrimStart('\').Replace('\','/') } | Sort-Object)
+    if ($expectedDirectories.Count -ne $actualDirectories.Count -or (Compare-Object $expectedDirectories $actualDirectories)) { throw 'Pinned source directory set drift.' }
     [void](Invoke-GitChecked $git @('--git-dir', $store, '--work-tree', $source, 'diff', '--no-ext-diff', '--exit-code', $Lock.sourceCommit, '--', '.'))
   }
 }
