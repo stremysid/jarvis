@@ -485,12 +485,11 @@ export class HermesTokenAdapter implements ModelAdapter {
           if (error instanceof StreamDisconnected) disconnected = true;
           else throw error;
         }
-        if (terminalObserved && !disconnected) {
+        if (terminalObserved && !disconnected && frameIndex === persistedFrames.length) {
           terminalReceived = true;
           if (terminalError !== null) throw terminalError;
           return;
         }
-        if (!disconnected && frameIndex < persistedFrames.length) throw failure("model_protocol_invalid");
         if (attempt + 1 === MAXIMUM_STREAM_ATTEMPTS) throw failure("model_provider_failure");
       }
     } finally {

@@ -335,6 +335,41 @@ describe("HermesTokenAdapter strict incremental SSE", () => {
   });
 
   it.each([
+    ["empty", new Uint8Array()],
+    ["partial", rawFrames([tokenEvent(0, 0, "hello")])],
+  ] as const)("does not trust %s clean EOF after a dirty full-terminal attempt", async (_kind, replayBytes) => {
+    const terminalBytes = new TextEncoder().encode(rawGoldenSse);
+    let runCalls = 0;
+    let cancelCalls = 0;
+    const fetcher = async (url: RequestInfo | URL): Promise<Response> => {
+      if (new URL(String(url)).pathname.endsWith("/cancel")) {
+        cancelCalls += 1;
+        return cancelResponse("cancelled");
+      }
+      runCalls += 1;
+      if (runCalls > 1) {
+        return new Response(replayBytes, { status: 200, headers: { "content-type": "text/event-stream" } });
+      }
+      let delivered = false;
+      return new Response(new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (!delivered) {
+            delivered = true;
+            controller.enqueue(terminalBytes);
+          } else {
+            controller.error(new TypeError("dirty close after terminal"));
+          }
+        },
+      }), { status: 200, headers: { "content-type": "text/event-stream" } });
+    };
+
+    await expect(collect(new HermesTokenAdapter({ clientCredential: credential, fetch: fetcher }).stream(input())))
+      .rejects.toMatchObject({ code: "model_provider_failure" });
+    expect(runCalls).toBe(3);
+    expect(cancelCalls).toBe(1);
+  });
+
+  it.each([
     ["comment", new TextEncoder().encode(": keepalive\n\n")],
     ["event field", new TextEncoder().encode("event: token\ndata: {}\n\n")],
     ["multiline data", new TextEncoder().encode("data: {}\ndata: {}\n\n")],
