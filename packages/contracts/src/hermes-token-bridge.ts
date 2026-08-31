@@ -121,7 +121,9 @@ function exactArray(value: unknown, label: string): unknown[] {
     const descriptor = descriptors[String(index)];
     if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) fail(`${label} must not be sparse or contain accessors`);
   }
-  if (Object.getOwnPropertyNames(value).some((key) => key !== "length" && !/^(0|[1-9][0-9]*)$/.test(key))) fail(`${label} must not contain extra fields`);
+  if (Object.getOwnPropertyNames(value).some((key) => key !== "length" && (!Number.isSafeInteger(Number(key)) || Number(key) < 0 || Number(key) >= value.length || String(Number(key)) !== key))) {
+    fail(`${label} must not contain extra fields`);
+  }
   return Array.from({ length: value.length }, (_, index) => descriptors[String(index)].value);
 }
 

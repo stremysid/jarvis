@@ -76,6 +76,12 @@ describe("H1 token bridge contract", () => {
     const hiddenArray = [...parsed.context];
     Object.defineProperty(hiddenArray, "hidden", { value: true });
     await expect(parseJarvisTokenBridgeRequestV1({ ...parsed, context: hiddenArray })).rejects.toThrow("extra");
+    const uint32NonIndex = [...parsed.context];
+    Object.defineProperty(uint32NonIndex, "4294967295", { value: parsed.context[0] });
+    await expect(parseJarvisTokenBridgeRequestV1({ ...parsed, context: uint32NonIndex })).rejects.toThrow("extra");
+    const outsideLengthNumeric = [...parsed.context];
+    Object.defineProperty(outsideLengthNumeric, "4294967296", { value: parsed.context[0] });
+    await expect(parseJarvisTokenBridgeRequestV1({ ...parsed, context: outsideLengthNumeric })).rejects.toThrow("extra");
     const accessorArray = [...parsed.context];
     Object.defineProperty(accessorArray, "0", { enumerable: true, get: () => parsed.context[0] });
     await expect(parseJarvisTokenBridgeRequestV1({ ...parsed, context: accessorArray })).rejects.toThrow("accessors");
