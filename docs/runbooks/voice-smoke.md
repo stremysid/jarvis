@@ -1,6 +1,6 @@
 # Credentialed voice smoke gate
 
-This runbook defines the Task 9 handoff contract. The checked-in harness is intentionally incapable of placing a call: it validates deterministic fake observations, gates future live execution, writes only strict redacted evidence through an injected driver/store, audits retained evidence, and cleans generated evidence. Reviewed Task 5 is present at `0c81fee573778b4164488808d85b318dfa576bd4`; Tasks 6–8 remain unconsumed prerequisites, as do the local CLI, deployed routes, and enrolled-operator evidence query.
+This runbook defines the Task 9 handoff contract. The checked-in harness is intentionally incapable of placing a call: it validates deterministic fake observations, gates future live execution, writes only strict redacted evidence through an injected driver/store, audits retained evidence, and cleans generated evidence. Reviewed Tasks 5–8 are present on the voice integration branch; the local CLI, deployed routes, and enrolled-operator evidence query remain prerequisites for live execution.
 
 ## Offline developer workflow
 
@@ -55,7 +55,7 @@ These fields validate Task 5 only. They do not assert route wiring, call-session
 
 ## Operator sequence and rollback boundary
 
-After Tasks 6–8 and the release tooling land, the operator sequence is: run fake gates; run `jarvis doctor`; verify authenticated readiness; obtain explicit authorization for each paid scenario; run each scenario once; query only aggregate evidence as the enrolled operator; validate and atomically retain the five redacted records; then run `pnpm release:voice-gate` before release-manifest aggregation.
+With Tasks 6–8 integrated, the later release tooling must implement this operator sequence: run fake gates; run `jarvis doctor`; verify authenticated readiness; obtain explicit authorization for each paid scenario; run each scenario once; query only aggregate evidence as the enrolled operator; validate and atomically retain the five redacted records; then run `pnpm release:voice-gate` before release-manifest aggregation.
 
 On any failure, stop the release, preserve the last known-good deployment identifier, and do not retry an indeterminate outbound dispatch. Task 10 owns deployment and rollback. Worker rollback must use an explicit schema-compatible known-good version and does not roll back D1, R2, or Durable Object state; migrations remain forward-only or require the separately proven encrypted restore procedure. This Task 9 harness never deploys or rolls back anything.
 
