@@ -2,7 +2,7 @@
   "releaseCommit": "5fc308a70719a83cccdbba4c0e39c23f5a8239d5",
   "configurationHash": "0000000000000000000000000000000000000000000000000000000000000000",
   "brainSchemaMajor": 1,
-  "runsEventContractHash": "82b9a5fc26a624ff09da1c7fcc125c1d489647e00174c22a5e6e880269ff6b28",
+  "runsEventContractHash": "cb5bc9c4beeacff3c0b4dd0e11134b4c7fedf58e5b307f45471ddf29930e2ed2",
   "enabledProfileIds": ["jarvis-voice-safe"],
   "health": "ready"
 }

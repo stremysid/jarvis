@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "lint": "node --check src/canonical-json.mjs && node --check src/validate-manifests.mjs && node --check src/generate-sbom.mjs",
-    "typecheck": "node --check src/canonical-json.mjs && node --check src/validate-manifests.mjs && node --check src/generate-sbom.mjs",
+    "lint": "node --check src/canonical-json.mjs && node --check src/validate-manifests.mjs && node --check src/validate-runs-wire.mjs && node --check src/generate-sbom.mjs",
+    "typecheck": "node --check src/canonical-json.mjs && node --check src/validate-manifests.mjs && node --check src/validate-runs-wire.mjs && node --check src/generate-sbom.mjs",
     "test": "vitest run test"
   },
   "devDependencies": {

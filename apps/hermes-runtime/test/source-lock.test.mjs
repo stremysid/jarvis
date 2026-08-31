@@ -6,7 +6,8 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import Ajv2020 from "ajv/dist/2020.js";
-import { canonicalize, sha256Hex, validateHermesManifests } from "../src/validate-manifests.mjs";
+import { canonicalize, sha256Hex, validateHermesManifests, validateRunsWireArtifacts } from "../src/validate-manifests.mjs";
+import { validateRunsWire } from "../src/validate-runs-wire.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const file = (path) => new URL(`../${path}`, import.meta.url);
@@ -105,6 +106,21 @@ describe("Hermes H1 source locks", () => {
     for (const event of Object.keys(contract.events.allowed)) { const drift = structuredClone(contract); drift.events.allowed[event] = drift.events.allowed[event].slice(1); await expect(validateHermesManifests({ source, artifacts, patches, sbom, contract: drift })).rejects.toThrow(); }
     for (const status of Object.keys(contract.get.statuses)) { const drift = structuredClone(contract); drift.get.statuses[status] = [["last_event", "tool.called"]]; await expect(validateHermesManifests({ source, artifacts, patches, sbom, contract: drift })).rejects.toThrow(); }
     for (const forbidden of ["pending_steer", "tool.called", "approval.requested", "subagent.started", "steer.received"]) { const drift = structuredClone(contract); drift.events.allowed[forbidden] = ["event"]; await expect(validateHermesManifests({ source, artifacts, patches, sbom, contract: drift })).rejects.toThrow(); }
+  });
+
+  it("machine-validates exact Runs request, response, event, and GET golden bodies", async () => {
+    const golden = await loadJson("test/fixtures/runs-wire-golden-v1.json"); const schema = await loadJson("schemas/hermes-runs-wire-v2026.8.27.schema.json"); const contract = await loadJson("contracts/hermes-runs-api-v2026.8.27.json");
+    const tokenVector = JSON.parse(await readFile(new URL("../../../tests/fixtures/hermes-h1/token-request-golden-v1.json", import.meta.url), "utf8"));
+    expect(Buffer.from(golden.request.input, "utf8").toString("hex")).toBe(tokenVector.nativeInputUtf8Hex); expect(golden.request.session_id).toBe(tokenVector.sessionId);
+    await expect(validateRunsWireArtifacts({ contract, wireSchema: schema, wireGolden: golden })).resolves.toBeUndefined();
+    await expect(validateRunsWireArtifacts({ contract, wireSchema: { ...schema, title: "drift" }, wireGolden: golden })).rejects.toThrow(/wire schema/);
+    await expect(validateRunsWireArtifacts({ contract, wireSchema: schema, wireGolden: { ...golden, request: { ...golden.request, provider: "other" } } })).rejects.toThrow(/wire golden/);
+    const ajv = new Ajv2020({ allErrors: true, strict: true }); ajv.addSchema({ ...schema, $id: "hermes-runs-wire-v2026.8.27" });
+    for (const [kind, value] of [["request", golden.request], ["admission", golden.admission], ["stop", golden.stop], ["notFound", golden.notFound], ...golden.events.map((body) => ["event", body]), ...golden.get.map((body) => ["get", body])]) { const validate = ajv.getSchema(`hermes-runs-wire-v2026.8.27#/$defs/${kind}`); expect(validate, `${kind} schema missing`).toBeTypeOf("function"); expect(validate(value), `${kind}: ${validate.errors?.toString()}`).toBe(true); }
+    validateRunsWire("request", golden.request); validateRunsWire("admission", golden.admission); validateRunsWire("stop", golden.stop); validateRunsWire("notFound", golden.notFound);
+    for (const value of golden.events) validateRunsWire("event", value); for (const value of golden.get) validateRunsWire("get", value);
+    for (const model_options of [{ reasoning: { enabled: false } }, { reasoning: { enabled: true, effort: "low" } }, { reasoning: { enabled: true, effort: "high" } }, { reasoning: { enabled: true, effort: "max" } }]) validateRunsWire("request", { ...golden.request, model_options });
+    for (const [kind, value] of [["event", { ...golden.events[0], event: "tool.called" }], ["event", { ...golden.events[2], usage: { input_tokens: -1, output_tokens: 0, total_tokens: 0 } }], ["event", { ...golden.events[0], timestamp: "1700000000" }], ["event", { ...golden.events[0], timestamp: Number.NaN }], ["event", { ...golden.events[0], timestamp: Number.POSITIVE_INFINITY }], ["admission", { ...golden.admission, run_id: "run_ABC" }], ["get", { ...golden.get[3], last_event: "reasoning.available" }], ["get", { ...golden.get[0], pending_steer: true }], ["request", { ...golden.request, profile: "tools" }], ["request", { ...golden.request, provider: "openrouter" }], ["request", { ...golden.request, model_options: { reasoning: { enabled: true, effort: "medium" } } }], ["request", { ...golden.request, model_options: { reasoning: { enabled: false, effort: "low" } } }], ["notFound", { error: { ...golden.notFound.error, message: "Run not found: run_other" } }]]) expect(() => validateRunsWire(kind, value)).toThrow();
   });
 
   it("refuses an unsafe UNC runtime root before any source acquisition command", async () => {

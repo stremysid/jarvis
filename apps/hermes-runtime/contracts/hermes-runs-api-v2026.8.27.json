@@ -1,8 +1,13 @@
 {
   "schemaVersion": "2026.8.27",
   "path": "/v1/runs",
-  "outboundRequestFields": ["input", "model", "profile", "session_id", "stream", "timeout_ms"],
-  "admission": {"status": 202, "contentType": "application/json; charset=utf-8", "body": {"run_id": "string", "status": "started"}},
+  "outboundRequestFields": ["input", "session_id", "instructions", "model", "provider", "model_options"],
+  "wireArtifacts": {
+    "schema": {"file": "schemas/hermes-runs-wire-v2026.8.27.schema.json", "canonicalSha256": "99b0b37677b3bd223758f6019e026358326a3117d550923292cc0b21d93d03de"},
+    "golden": {"file": "test/fixtures/runs-wire-golden-v1.json", "canonicalSha256": "e6e60e6c82fa7becf8ce7ff6a054634f86a92033218a915e466623d67d523544"}
+  },
+  "modelOptions": {"none": {"reasoning": {"enabled": false}}, "low": {"reasoning": {"enabled": true, "effort": "low"}}, "high": {"reasoning": {"enabled": true, "effort": "high"}}, "max": {"reasoning": {"enabled": true, "effort": "max"}}},
+  "admission": {"status": 202, "contentType": "application/json; charset=utf-8", "body": {"run_id": "run_[0-9a-f]{32}", "status": "started"}},
   "events": {
     "status": 200,
     "contentType": "text/event-stream",
@@ -15,9 +20,9 @@
       "run.cancelled": ["event", "run_id", "timestamp"]
     },
     "discardOnly": ["reasoning.available"],
-    "usageFields": ["completion_tokens", "prompt_tokens", "total_tokens"]
+    "usageFields": ["input_tokens", "output_tokens", "total_tokens"]
   },
-  "stop": {"path": "/v1/runs/{run_id}/stop", "status": 200, "contentType": "application/json; charset=utf-8", "body": {"run_id": "string", "status": "stopping"}},
+  "stop": {"path": "/v1/runs/{run_id}/stop", "status": 200, "contentType": "application/json; charset=utf-8", "body": {"run_id": "run_[0-9a-f]{32}", "status": "stopping"}},
   "get": {
     "path": "/v1/runs/{run_id}",
     "status": 200,
@@ -32,5 +37,5 @@
       "cancelled": [["last_event", "run.cancelled"]]
     }
   },
-  "notFound": {"status": 404, "contentType": "application/json; charset=utf-8", "body": {"error": "run_not_found"}}
+  "notFound": {"status": 404, "contentType": "application/json; charset=utf-8", "body": {"error": {"message": "Run not found: run_<32 lowercase hex>", "type": "invalid_request_error", "param": null, "code": "run_not_found"}}}
 }

@@ -3,6 +3,7 @@ import { canonicalize, sha256Hex } from "./canonical-json.mjs";
 const H0 = "814535de21df37e6abac1f63e5953d693b78e003";
 const SHA256 = /^[a-f0-9]{64}$/;
 const GIT = /^[a-f0-9]{40}$/;
+const CONTRACT_SHA256 = "cb5bc9c4beeacff3c0b4dd0e11134b4c7fedf58e5b307f45471ddf29930e2ed2";
 const OFFICIAL = new Set([
   "https://github.com/NousResearch/hermes-agent.git",
   "https://github.com/astral-sh/python-build-standalone/releases/download/20260825/cpython-3.11.16%2B20260825-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
@@ -30,37 +31,8 @@ function literal(value, expected, label) { if (value !== expected) fail(`${label
 function url(value, label) { if (typeof value !== "string" || !value.startsWith("https://") || !OFFICIAL.has(value)) fail(`${label} must be an exact official HTTPS URL`); }
 function positiveInteger(value, label) { if (!Number.isSafeInteger(value) || value < 1) fail(`${label} must be a positive integer`); }
 
-const CONTRACT = {
-  schemaVersion: "2026.8.27",
-  path: "/v1/runs",
-  outboundRequestFields: ["input", "model", "profile", "session_id", "stream", "timeout_ms"],
-  admission: { status: 202, contentType: "application/json; charset=utf-8", body: { run_id: "string", status: "started" } },
-  events: {
-    status: 200, contentType: "text/event-stream", framing: { dataOnly: true, ordinaryJson: true, preterminalComment: ": keepalive", postterminalComment: ": stream closed" },
-    allowed: {
-      "message.delta": ["event", "run_id", "timestamp", "delta"],
-      "reasoning.available": ["event", "run_id", "timestamp", "text"],
-      "run.completed": ["event", "run_id", "timestamp", "output", "usage"],
-      "run.failed": ["event", "run_id", "timestamp", "error"],
-      "run.cancelled": ["event", "run_id", "timestamp"],
-    },
-    discardOnly: ["reasoning.available"],
-    usageFields: ["completion_tokens", "prompt_tokens", "total_tokens"],
-  },
-  stop: { path: "/v1/runs/{run_id}/stop", status: 200, contentType: "application/json; charset=utf-8", body: { run_id: "string", status: "stopping" } },
-  get: {
-    path: "/v1/runs/{run_id}", status: 200, contentType: "application/json; charset=utf-8",
-    baseFields: ["object", "run_id", "status", "updated_at", "created_at", "session_id", "model"],
-    statuses: {
-      queued: [], running: [[], ["last_event", "reasoning.available"]], stopping: [["last_event", "run.stopping"]],
-      completed: [["last_event", "run.completed", "output", "usage"]], failed: [["last_event", "run.failed", "error"]], cancelled: [["last_event", "run.cancelled"]],
-    },
-  },
-  notFound: { status: 404, contentType: "application/json; charset=utf-8", body: { error: "run_not_found" } },
-};
-
-function checkContract(contract) {
-  if (new TextDecoder().decode(canonicalize(contract)) !== new TextDecoder().decode(canonicalize(CONTRACT))) fail("Runs contract drifted from the closed profile");
+async function checkContract(contract) {
+  if (await sha256Hex(canonicalize(contract)) !== CONTRACT_SHA256) fail("Runs contract drifted from the closed profile");
 }
 function checkSource(source) {
   record(source, ["schemaVersion", "jarvisH0Commit", "remote", "tag", "tagObject", "sourceCommit", "sourceTree", "packageVersion", "rawFileSha256", "acquisitionMethod", "submodules", "model", "pythonVersion", "runsEventContractHash", "patchQueue", "licenses", "sbom", "sbomSha256"], "source lock");
@@ -114,7 +86,7 @@ function checkSbom(sbom, source) {
 }
 
 export async function validateHermesManifests({ source, artifacts, contract, patches, sbom }) {
-  checkSource(source); checkArtifacts(artifacts); checkContract(contract); checkPatches(patches); checkSbom(sbom, source);
+  checkSource(source); checkArtifacts(artifacts); await checkContract(contract); checkPatches(patches); checkSbom(sbom, source);
   const contractHash = await sha256Hex(canonicalize(contract));
   if (source.runsEventContractHash !== contractHash) fail("Runs contract hash does not bind source lock");
   const patchHash = await sha256Hex(canonicalize(patches));
@@ -122,6 +94,17 @@ export async function validateHermesManifests({ source, artifacts, contract, pat
   const sbomHash = await sha256Hex(canonicalize(sbom));
   if (source.sbomSha256 !== sbomHash) fail("SBOM hash does not bind source lock");
   return Object.freeze({ jarvisH0Commit: source.jarvisH0Commit, sourceCommit: source.sourceCommit, runsEventContractHash: contractHash });
+}
+
+export async function validateRunsWireArtifacts({ contract, wireSchema, wireGolden }) {
+  await checkContract(contract);
+  record(contract.wireArtifacts, ["schema", "golden"], "Runs wire artifact bindings");
+  for (const [name, value] of Object.entries({ schema: wireSchema, golden: wireGolden })) {
+    const binding = contract.wireArtifacts[name];
+    record(binding, ["file", "canonicalSha256"], `Runs wire ${name} binding`);
+    hash(binding.canonicalSha256, `Runs wire ${name} canonical hash`);
+    if (await sha256Hex(canonicalize(value)) !== binding.canonicalSha256) fail(`Runs wire ${name} does not match its contract binding`);
+  }
 }
 
 export { canonicalize, sha256Hex };
