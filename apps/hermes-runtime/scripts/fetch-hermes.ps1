@@ -7,14 +7,15 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'HermesRuntime.psm1') -Force
 
-$root = Assert-LiteralRuntimeRoot $RuntimeRoot
 $repoRoot = [IO.Directory]::GetParent($PSScriptRoot).FullName
 $lock = Get-Manifest (Join-Path $repoRoot 'hermes-source-lock.json')
+Assert-HermesSourceLock $lock
+$root = Assert-LiteralRuntimeRoot $RuntimeRoot
 $release = Assert-ChildPath $root (Join-Path $root (Join-Path 'releases' $lock.sourceCommit))
 $source = Assert-ChildPath $root (Join-Path $release 'source')
 $git = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1 -ExpandProperty Source
 $savedGitEnvironment = @{}
-foreach ($name in @('GIT_CONFIG_NOSYSTEM', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_ATTR_NOSYSTEM', 'GIT_TERMINAL_PROMPT')) {
+foreach ($name in @('GIT_CONFIG_NOSYSTEM', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_ATTR_NOSYSTEM', 'GIT_TERMINAL_PROMPT', 'GIT_ASKPASS', 'SSH_ASKPASS', 'SSH_ASKPASS_REQUIRE')) {
   $item = Get-Item -LiteralPath ("Env:" + $name) -ErrorAction SilentlyContinue
   $savedGitEnvironment[$name] = if ($null -eq $item) { $null } else { $item.Value }
 }
@@ -22,6 +23,7 @@ $env:GIT_CONFIG_NOSYSTEM = '1'
 $env:GIT_CONFIG_GLOBAL = 'NUL'
 $env:GIT_CONFIG_SYSTEM = 'NUL'
 $env:GIT_ATTR_NOSYSTEM = '1'
+foreach ($name in @('GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS', 'GIT_ASKPASS', 'SSH_ASKPASS', 'SSH_ASKPASS_REQUIRE')) { Remove-Item -LiteralPath ("Env:" + $name) -ErrorAction SilentlyContinue }
 
 function Assert-VerifiedSource {
   param([string]$Candidate)

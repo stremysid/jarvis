@@ -43,9 +43,23 @@ function Get-Manifest {
   return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json -AsHashtable -Depth 32
 }
 
+function Assert-HermesSourceLock {
+  param([hashtable]$Lock)
+  if ($null -eq $Lock -or $Lock.schemaVersion -ne '1' -or $Lock.remote -ne 'https://github.com/NousResearch/hermes-agent.git' -or $Lock.tag -ne 'v2026.8.27' -or $Lock.tagObject -ne 'fcebd62163497e77e5de00d26d2ed86cb4ef8761' -or $Lock.sourceCommit -ne '5fc308a70719a83cccdbba4c0e39c23f5a8239d5' -or $Lock.sourceTree -ne '222ec43b5237deb643277bc2f64fa4b873dd7f28' -or $Lock.acquisitionMethod -ne 'git-detached' -or $Lock.submodules.Count -ne 0) { throw 'Hermes source lock is not the reviewed canonical lock.' }
+  foreach ($name in @('LICENSE','pyproject.toml','uv.lock')) { if ($Lock.rawFileSha256[$name] -notmatch '^[a-f0-9]{64}$') { throw 'Hermes source lock raw-file hashes are invalid.' } }
+}
+
+function Assert-HermesArtifactLock {
+  param([hashtable]$Lock)
+  $expected = @{ cpython = 'cpython-3.11.16+20260825-x86_64-pc-windows-msvc-install_only_stripped.tar.gz'; uv = 'uv-x86_64-pc-windows-msvc.zip'; winsw = 'WinSW-x64.exe' }
+  if ($null -eq $Lock -or $Lock.schemaVersion -ne '1') { throw 'Runtime artifact lock is not canonical.' }
+  foreach ($name in $expected.Keys) { $artifact = $Lock[$name]; if ($null -eq $artifact -or $artifact.fileName -ne $expected[$name] -or $artifact.url -notmatch '^https://github\.com/' -or $artifact.size -lt 1 -or $artifact.sha256 -notmatch '^[a-f0-9]{64}$') { throw 'Runtime artifact lock is not canonical.' } }
+  if ($Lock.pythonBuildStandaloneLicenses.url -ne 'https://raw.githubusercontent.com/astral-sh/python-build-standalone/20260825/python-licenses.rst' -or $Lock.pythonBuildStandaloneLicenses.size -lt 1 -or $Lock.pythonBuildStandaloneLicenses.sha256 -notmatch '^[a-f0-9]{64}$') { throw 'Runtime artifact lock is not canonical.' }
+}
+
 function Invoke-GitChecked {
   param([string]$Git, [string[]]$Arguments)
-  $result = & $Git @Arguments 2>&1
+  $result = & $Git @(Get-HermesGitIsolationOptions) @Arguments 2>&1
   if ($LASTEXITCODE -ne 0) { throw "git command failed: $($result -join "`n")" }
   return @($result | ForEach-Object { $_.ToString().Trim() })
 }
@@ -171,4 +185,4 @@ function Promote-StagedDirectories {
   }
 }
 
-Export-ModuleMember -Function Assert-LiteralRuntimeRoot, Assert-ChildPath, Get-Sha256Hex, Assert-ExactHash, Get-Manifest, Invoke-GitChecked, Test-UnsafeArchiveMember, Get-HermesGitIsolationOptions, Assert-HermesGitTranscript, Assert-HermesSourceDirectory, Assert-ArtifactHttpHop, Assert-SafeCpythonMembers, Assert-SafeUvMembers, Assert-SafeCpythonArchive, Assert-SafeUvArchive, Promote-StagedDirectory, Promote-StagedDirectories
+Export-ModuleMember -Function Assert-LiteralRuntimeRoot, Assert-ChildPath, Get-Sha256Hex, Assert-ExactHash, Get-Manifest, Assert-HermesSourceLock, Assert-HermesArtifactLock, Invoke-GitChecked, Test-UnsafeArchiveMember, Get-HermesGitIsolationOptions, Assert-HermesGitTranscript, Assert-HermesSourceDirectory, Assert-ArtifactHttpHop, Assert-SafeCpythonMembers, Assert-SafeUvMembers, Assert-SafeCpythonArchive, Assert-SafeUvArchive, Promote-StagedDirectory, Promote-StagedDirectories

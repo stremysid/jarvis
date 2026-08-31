@@ -4,8 +4,9 @@ import { canonicalize, sha256Hex } from "./canonical-json.mjs";
 
 const output = new URL("../sbom/hermes-agent-v2026.8.27-windows-x86_64-cpython-3.11.16.cdx.json", import.meta.url);
 const sourceLockPath = new URL("../hermes-source-lock.json", import.meta.url);
-const defaultSource = "C:/Users/Ksid1/AppData/Local/Jarvis/Hermes-H1-Test/releases/5fc308a70719a83cccdbba4c0e39c23f5a8239d5/source";
-const sourceRoot = resolve(process.argv.find((argument) => argument.startsWith("--source-root="))?.slice("--source-root=".length) ?? defaultSource);
+const sourceArgument = process.argv.find((argument) => argument.startsWith("--source-root="))?.slice("--source-root=".length);
+if (!sourceArgument) throw new Error("--source-root must name a verified acquired source directory");
+const sourceRoot = resolve(sourceArgument);
 const sha256 = /^[a-f0-9]{64}$/;
 
 function normalizedName(name) { return name.toLowerCase().replace(/[_.-]+/g, "-"); }

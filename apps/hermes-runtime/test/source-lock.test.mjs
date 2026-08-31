@@ -68,6 +68,21 @@ describe("Hermes H1 source locks", () => {
     for (const change of [{ url: "https://evil.invalid/a" }, { size: 1 }, { sha256: "0".repeat(64) }]) { const drift = structuredClone(artifacts); Object.assign(drift.cpython, change); await expect(validateHermesManifests({ source, artifacts: drift, contract, patches, sbom })).rejects.toThrow(); }
   });
 
+  it("keeps both strict schemas valid and rejects non-exact artifact license arrays", async () => {
+    const sourceSchema = JSON.parse(await readFile(file("schemas/hermes-source-lock-v1.schema.json"), "utf8"));
+    const artifactSchema = JSON.parse(await readFile(file("schemas/runtime-artifacts-lock-v1.schema.json"), "utf8"));
+    expect(sourceSchema.properties.rawFileSha256.additionalProperties).toBe(false);
+    expect(artifactSchema.$defs.artifact.additionalProperties).toBe(false);
+    const source = await loadJson("hermes-source-lock.json"); const artifacts = await loadJson("runtime-artifacts-lock.json"); const contract = await loadJson("contracts/hermes-runs-api-v2026.8.27.json"); const patches = await loadJson("patches/series.json"); const sbom = await loadJson("sbom/hermes-agent-v2026.8.27-windows-x86_64-cpython-3.11.16.cdx.json");
+    const drift = structuredClone(artifacts); drift.uv.licenses.push("unexpected"); await expect(validateHermesManifests({ source, artifacts: drift, contract, patches, sbom })).rejects.toThrow(/exact array/);
+  });
+
+  it("requires an explicit source root for deterministic SBOM generation", async () => {
+    const generator = fileURLToPath(new URL("../src/generate-sbom.mjs", import.meta.url));
+    const result = await new Promise((resolve, reject) => { const child = spawn(process.execPath, [generator], { windowsHide: true }); let stderr = ""; child.stderr.on("data", (data) => { stderr += data; }); child.on("error", reject); child.on("close", (code) => resolve({ code, stderr })); });
+    expect(result.code).not.toBe(0); expect(result.stderr).toContain("--source-root");
+  });
+
   it("rejects noncanonical contract fields, forbidden tool events, and source-lock hash embedding in the SBOM", async () => {
     const source = await loadJson("hermes-source-lock.json");
     const artifacts = await loadJson("runtime-artifacts-lock.json");

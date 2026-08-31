@@ -7,9 +7,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'HermesRuntime.psm1') -Force
 
-$root = Assert-LiteralRuntimeRoot $RuntimeRoot
 $repoRoot = [IO.Directory]::GetParent($PSScriptRoot).FullName
 $lock = Get-Manifest (Join-Path $repoRoot 'runtime-artifacts-lock.json')
+Assert-HermesArtifactLock $lock
+$root = Assert-LiteralRuntimeRoot $RuntimeRoot
 $allowedHosts = @('github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com', 'raw.githubusercontent.com')
 
 function Invoke-PinnedDownload {
