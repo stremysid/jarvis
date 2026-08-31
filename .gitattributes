@@ -7,9 +7,11 @@ apps/hermes-runtime/licenses/python-build-standalone-licenses.rst -text whitespa
 apps/hermes-runtime/licenses/uv-APACHE-LICENSE -text whitespace=-trailing-space,-blank-at-eof conflict-marker-size=4096
 apps/hermes-runtime/licenses/uv-LICENSE -text whitespace=-trailing-space,-blank-at-eof conflict-marker-size=4096
 apps/hermes-runtime/sbom/*.json -text
+apps/hermes-runtime/THIRD_PARTY_NOTICES.md -text
 apps/hermes-runtime/hermes-source-lock.json -text
 apps/hermes-runtime/contracts/hermes-runs-api-v2026.8.27.json -text
 apps/hermes-runtime/schemas/hermes-runs-wire-v2026.8.27.schema.json -text
+apps/hermes-runtime/schemas/*.json -text
 apps/hermes-runtime/test/fixtures/runs-wire-golden-v1.json -text
 apps/hermes-runtime/runtime-artifacts-lock.json -text
 apps/hermes-runtime/contracts/*.json -text
