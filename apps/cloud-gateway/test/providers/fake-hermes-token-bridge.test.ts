@@ -6,6 +6,7 @@ import {
   type JarvisTokenBridgeEventV1,
   type JarvisTokenBridgeRequestHashMaterialV1,
 } from "../../../../packages/contracts/src/index.js";
+import { HERMES_TOKEN_BRIDGE_REQUEST_LIMITS } from "../../src/model/hermes-token-bridge-limits.js";
 import { FakeHermesTokenBridge } from "../../src/providers/fake-hermes-token-bridge.js";
 
 const credential = "synthetic-bridge-credential";
@@ -25,6 +26,28 @@ async function requestBody(userText = "hello"): Promise<Uint8Array> {
       sensitivity: "personal",
     }],
     reasoningEffort: "low",
+    firstTokenTimeoutMs: 8_000,
+    timeoutMs: 30_000,
+    contextTokenBudget: 32_000,
+    maxOutputCharacters: 65_536,
+  });
+  return canonicalize(request);
+}
+
+async function maximumRequestBody(): Promise<Uint8Array> {
+  const request = await createJarvisTokenBridgeRequestV1({
+    schemaVersion: "1.0",
+    requestId,
+    correlationId: requestId,
+    principalId: "\u0000".repeat(256),
+    channel: "voice",
+    userText: "\u0000".repeat(8_000),
+    context: Array.from({ length: 128 }, () => ({
+      sourceEventId: "01k3s6k8000000000000000004" as JarvisTokenBridgeRequestHashMaterialV1["requestId"],
+      text: "\u0000".repeat(250),
+      sensitivity: "restricted" as const,
+    })),
+    reasoningEffort: "high",
     firstTokenTimeoutMs: 8_000,
     timeoutMs: 30_000,
     contextTokenBudget: 32_000,
@@ -53,6 +76,22 @@ const events: readonly JarvisTokenBridgeEventV1[] = Object.freeze([
 ]);
 
 describe("FakeHermesTokenBridge", () => {
+  it("accepts the exact shared request boundary and rejects one byte over it", async () => {
+    const bridge = new FakeHermesTokenBridge({
+      clientCredential: credential,
+      runScripts: [{ kind: "not_started" }],
+    });
+    const exact = await maximumRequestBody();
+    const over = new Uint8Array(exact.byteLength + 1);
+    over.set(exact);
+    over[over.byteLength - 1] = 0x20;
+
+    expect(exact.byteLength).toBe(HERMES_TOKEN_BRIDGE_REQUEST_LIMITS.maximumCanonicalBytes);
+    expect((await bridge.fetch("http://127.0.0.1:8790/v1/token-runs", init(exact))).status).toBe(503);
+    expect((await bridge.fetch("http://127.0.0.1:8790/v1/token-runs", init(over))).status).toBe(400);
+    expect(bridge.requestLog).toHaveLength(1);
+  });
+
   it("validates a canonical authenticated request and replays it without a second logical run", async () => {
     const bridge = new FakeHermesTokenBridge({
       clientCredential: credential,

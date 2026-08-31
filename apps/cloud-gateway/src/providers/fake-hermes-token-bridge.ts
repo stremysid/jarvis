@@ -7,10 +7,10 @@ import {
   type JarvisTokenBridgeEventV1,
   type JarvisTokenBridgeRequestV1,
 } from "../../../../packages/contracts/src/index.js";
+import { HERMES_TOKEN_BRIDGE_REQUEST_LIMITS } from "../model/hermes-token-bridge-limits.js";
 
 const BRIDGE_ORIGIN = "http://127.0.0.1:8790/";
 const REQUEST_PATH = "/v1/token-runs";
-const MAXIMUM_CONTROL_BODY_BYTES = 131_072;
 const CANCEL_PATH = /^\/v1\/token-runs\/([0-7][0-9a-hjkmnp-tv-z]{25})\/cancel$/u;
 
 export type FakeHermesTokenBridgeRunScript =
@@ -117,7 +117,7 @@ async function readBoundedBody(request: Request): Promise<Uint8Array | null> {
       const result = await reader.read();
       if (result.done) break;
       size += result.value.byteLength;
-      if (size > MAXIMUM_CONTROL_BODY_BYTES) {
+      if (size > HERMES_TOKEN_BRIDGE_REQUEST_LIMITS.maximumCanonicalBytes) {
         await reader.cancel();
         return null;
       }

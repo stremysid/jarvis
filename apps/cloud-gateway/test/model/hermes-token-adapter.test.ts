@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import rawGoldenSse from "../../../../tests/fixtures/hermes-h1/token-events-golden-v1.sse?raw";
 import {
   canonicalize,
+  createJarvisTokenBridgeRequestV1,
   encodeJarvisTokenBridgeEventSseFrameV1,
   type JarvisTokenBridgeEventV1,
 } from "../../../../packages/contracts/src/index.js";
@@ -93,6 +94,44 @@ describe("HermesTokenAdapter construction and admission", () => {
     expect(() => hermes.stream(input({ channel: "telegram" })))
       .toThrow(expect.objectContaining({ code: "model_input_invalid" }));
     expect(bridge.requestLog).toHaveLength(0);
+  });
+
+  it("admits the maximum canonical request allowed by the shared model seam", async () => {
+    const maximalContext = Object.freeze(Array.from({ length: 128 }, () => Object.freeze({
+      sourceEventId: "01k3s6k8000000000000000004" as ModelAdapterStreamInput["correlationId"],
+      text: "\u0000".repeat(250),
+      sensitivity: "restricted" as const,
+    })));
+    const maximal = input({
+      principalId: "\u0000".repeat(256),
+      userText: "\u0000".repeat(8_000),
+      context: maximalContext,
+      reasoningEffort: "high",
+      contextTokenBudget: 32_000,
+    });
+    const contractRequest = await createJarvisTokenBridgeRequestV1({
+      schemaVersion: "1.0",
+      requestId,
+      correlationId: requestId,
+      principalId: maximal.principalId,
+      channel: "voice",
+      userText: maximal.userText,
+      context: maximal.context,
+      reasoningEffort: maximal.reasoningEffort,
+      firstTokenTimeoutMs: maximal.firstTokenTimeoutMs,
+      timeoutMs: maximal.timeoutMs,
+      contextTokenBudget: maximal.contextTokenBudget,
+      maxOutputCharacters: maximal.maxOutputCharacters,
+    });
+    expect(canonicalize(contractRequest).byteLength).toBe(252_664);
+    const bridge = new FakeHermesTokenBridge({ clientCredential: credential, runScripts: [{ kind: "not_started" }] });
+    let observed: unknown;
+
+    try { await collect(adapter(bridge).stream(maximal)); }
+    catch (error) { observed = error; }
+
+    expect(isModelProviderNotStartedError(observed)).toBe(true);
+    expect(bridge.requestLog).toHaveLength(1);
   });
 
   it.each([
@@ -194,6 +233,33 @@ describe("HermesTokenAdapter strict incremental SSE", () => {
       .resolves.toEqual([{ index: 0, text: "hello" }, { index: 1, text: " world" }]);
   });
 
+  it("retains an exact-cap delimiter-free frame in bounded segments under bytewise delivery", async () => {
+    const frameByteCount = 524_288;
+    let produced = 0;
+    let cancelCalls = 0;
+    const fetcher = async (url: RequestInfo | URL): Promise<Response> => {
+      if (new URL(String(url)).pathname.endsWith("/cancel")) {
+        cancelCalls += 1;
+        return cancelResponse("cancelled");
+      }
+      return new Response(new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (produced === frameByteCount) {
+            controller.close();
+            return;
+          }
+          produced += 1;
+          controller.enqueue(Uint8Array.of(0x20));
+        },
+      }), { status: 200, headers: { "content-type": "text/event-stream" } });
+    };
+
+    await expect(collect(new HermesTokenAdapter({ clientCredential: credential, fetch: fetcher }).stream(input())))
+      .rejects.toMatchObject({ code: "model_protocol_invalid" });
+    expect(produced).toBe(frameByteCount);
+    expect(cancelCalls).toBe(1);
+  }, 5_000);
+
   it("replays a byte-identical persisted prefix and yields only the suffix", async () => {
     const events: readonly JarvisTokenBridgeEventV1[] = [
       tokenEvent(0, 0, "hello"),
@@ -211,6 +277,61 @@ describe("HermesTokenAdapter strict incremental SSE", () => {
     ]);
     expect(bridge.logicalRunCount).toBe(1);
     expect(bridge.requestLog).toHaveLength(2);
+  });
+
+  it("does not trust a terminal frame until replay reaches clean EOF", async () => {
+    const bytes = new TextEncoder().encode(rawGoldenSse);
+    let runCalls = 0;
+    const fetcher = async (): Promise<Response> => {
+      runCalls += 1;
+      if (runCalls === 1) {
+        let delivered = false;
+        return new Response(new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (!delivered) {
+              delivered = true;
+              controller.enqueue(bytes);
+            } else {
+              controller.error(new TypeError("dirty close after terminal"));
+            }
+          },
+        }), { status: 200, headers: { "content-type": "text/event-stream" } });
+      }
+      return new Response(bytes, { status: 200, headers: { "content-type": "text/event-stream" } });
+    };
+
+    await expect(collect(new HermesTokenAdapter({ clientCredential: credential, fetch: fetcher }).stream(input())))
+      .resolves.toEqual([{ index: 0, text: "hello" }, { index: 1, text: " world" }]);
+    expect(runCalls).toBe(2);
+  });
+
+  it("cancels when every replay closes transport after the canonical terminal", async () => {
+    const bytes = new TextEncoder().encode(rawGoldenSse);
+    let runCalls = 0;
+    let cancelCalls = 0;
+    const fetcher = async (url: RequestInfo | URL): Promise<Response> => {
+      if (new URL(String(url)).pathname.endsWith("/cancel")) {
+        cancelCalls += 1;
+        return cancelResponse("cancelled");
+      }
+      runCalls += 1;
+      let delivered = false;
+      return new Response(new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (!delivered) {
+            delivered = true;
+            controller.enqueue(bytes);
+          } else {
+            controller.error(new TypeError("dirty close after terminal"));
+          }
+        },
+      }), { status: 200, headers: { "content-type": "text/event-stream" } });
+    };
+
+    await expect(collect(new HermesTokenAdapter({ clientCredential: credential, fetch: fetcher }).stream(input())))
+      .rejects.toMatchObject({ code: "model_provider_failure" });
+    expect(runCalls).toBe(3);
+    expect(cancelCalls).toBe(1);
   });
 
   it.each([
@@ -415,6 +536,56 @@ describe("HermesTokenAdapter deadlines, abort, and cancellation", () => {
 
     await expect(pending).rejects.toMatchObject({ code: "model_aborted" });
     expect(runCalls).toBe(1);
+    expect(cancelCalls).toBe(1);
+  });
+
+  it("starts one cancellation immediately when caller aborts while suspended at a yielded token", async () => {
+    const controller = new AbortController();
+    let cancelCalls = 0;
+    const fetcher = async (url: RequestInfo | URL): Promise<Response> => {
+      if (new URL(String(url)).pathname.endsWith("/cancel")) {
+        cancelCalls += 1;
+        return cancelResponse("cancelled");
+      }
+      return new Response(rawGoldenSse, { status: 200, headers: { "content-type": "text/event-stream" } });
+    };
+    const iterator = new HermesTokenAdapter({ clientCredential: credential, fetch: fetcher })
+      .stream(input({ signal: controller.signal }))[Symbol.asyncIterator]();
+    await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { text: "hello" } });
+
+    controller.abort();
+    await Promise.resolve();
+    const callsBeforeResume = cancelCalls;
+    await iterator.return?.();
+
+    expect(callsBeforeResume).toBe(1);
+    expect(cancelCalls).toBe(1);
+  });
+
+  it("anchors cancellation expiry to a total timeout while suspended at a yielded token", async () => {
+    vi.useFakeTimers();
+    let cancelCalls = 0;
+    let allowTerminal = false;
+    const fetcher = async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      if (!new URL(String(url)).pathname.endsWith("/cancel")) {
+        return new Response(rawGoldenSse, { status: 200, headers: { "content-type": "text/event-stream" } });
+      }
+      cancelCalls += 1;
+      if (allowTerminal) return cancelResponse("cancelled");
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => { reject(new DOMException("cancel deadline", "AbortError")); }, { once: true });
+      });
+    };
+    const iterator = new HermesTokenAdapter({ clientCredential: credential, fetch: fetcher })
+      .stream(input({ firstTokenTimeoutMs: 20, timeoutMs: 30 }))[Symbol.asyncIterator]();
+    await expect(iterator.next()).resolves.toMatchObject({ done: false, value: { text: "hello" } });
+
+    await vi.advanceTimersByTimeAsync(30);
+    expect(cancelCalls).toBe(1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    allowTerminal = true;
+
+    await expect(iterator.return?.()).rejects.toMatchObject({ code: "model_cancel_unknown" });
     expect(cancelCalls).toBe(1);
   });
 

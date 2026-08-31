@@ -17,6 +17,7 @@ import type {
   ModelAdapterStreamInput,
   ModelToken,
 } from "./model-types.js";
+import { HERMES_TOKEN_BRIDGE_REQUEST_LIMITS } from "./hermes-token-bridge-limits.js";
 
 const BRIDGE_ORIGIN = "http://127.0.0.1:8790/";
 const RUNS_URL = `${BRIDGE_ORIGIN}v1/token-runs`;
@@ -25,6 +26,7 @@ const MAXIMUM_SSE_FRAME_BYTES = 524_288;
 const MAXIMUM_OUTPUT_SCALARS = 65_536;
 const MAXIMUM_OUTPUT_BYTES = 65_536;
 const MAXIMUM_STREAM_ATTEMPTS = 3;
+const FRAME_SEGMENT_BYTES = 4_096;
 const CANCELLATION_TIMEOUT_MS = 30_000;
 const CANCELLATION_POLL_DELAY_MS = 10;
 const encoder = new TextEncoder();
@@ -43,6 +45,10 @@ type ClockOutcome =
   | { readonly kind: "aborted" }
   | { readonly kind: "first_timeout" }
   | { readonly kind: "total_timeout" };
+
+type CancellationTaskOutcome =
+  | { readonly kind: "settled" }
+  | { readonly kind: "unknown" };
 
 class StreamDisconnected extends Error {}
 
@@ -100,6 +106,48 @@ function scalarCount(text: string): number {
   return count;
 }
 
+class BoundedFrameSegments {
+  private segments: Uint8Array[] = [];
+  private size = 0;
+
+  get byteLength(): number { return this.size; }
+
+  get endsWithLf(): boolean {
+    if (this.size === 0) return false;
+    const final = this.segments[this.segments.length - 1];
+    const finalLength = this.size % FRAME_SEGMENT_BYTES || FRAME_SEGMENT_BYTES;
+    return final?.[finalLength - 1] === 0x0a;
+  }
+
+  append(bytes: Uint8Array): void {
+    if (this.size + bytes.byteLength > MAXIMUM_SSE_FRAME_BYTES) throw failure("model_protocol_invalid");
+    let offset = 0;
+    while (offset < bytes.byteLength) {
+      const segmentOffset = this.size % FRAME_SEGMENT_BYTES;
+      if (segmentOffset === 0) this.segments.push(new Uint8Array(FRAME_SEGMENT_BYTES));
+      const segment = this.segments[this.segments.length - 1];
+      if (segment === undefined) throw failure("model_protocol_invalid");
+      const copied = Math.min(FRAME_SEGMENT_BYTES - segmentOffset, bytes.byteLength - offset);
+      segment.set(bytes.subarray(offset, offset + copied), segmentOffset);
+      this.size += copied;
+      offset += copied;
+    }
+  }
+
+  finish(): Uint8Array {
+    const frame = new Uint8Array(this.size);
+    let offset = 0;
+    for (const segment of this.segments) {
+      const copied = Math.min(segment.byteLength, frame.byteLength - offset);
+      frame.set(segment.subarray(0, copied), offset);
+      offset += copied;
+    }
+    this.segments = [];
+    this.size = 0;
+    return frame;
+  }
+}
+
 class StreamClock {
   readonly signal: AbortSignal;
   private readonly controller = new AbortController();
@@ -109,11 +157,13 @@ class StreamClock {
   private readonly totalTimer: ReturnType<typeof setTimeout>;
   private readonly callerSignal: AbortSignal;
   private readonly onCallerAbort: () => void;
+  private readonly onStop: (outcome: ClockOutcome) => void;
   private outcome: ClockOutcome | null = null;
 
-  constructor(input: Readonly<ModelAdapterStreamInput>) {
+  constructor(input: Readonly<ModelAdapterStreamInput>, onStop: (outcome: ClockOutcome) => void) {
     this.signal = this.controller.signal;
     this.callerSignal = input.signal;
+    this.onStop = onStop;
     this.abortOutcome = new Promise((resolve) => { this.resolveAbort = resolve; });
     this.onCallerAbort = () => { this.stop({ kind: "aborted" }); };
     this.callerSignal.addEventListener("abort", this.onCallerAbort, { once: true });
@@ -155,6 +205,7 @@ class StreamClock {
   private stop(outcome: ClockOutcome): void {
     if (this.outcome !== null) return;
     this.outcome = outcome;
+    this.onStop(outcome);
     this.controller.abort();
     this.resolveAbort(outcome);
   }
@@ -249,7 +300,7 @@ function admissionError(response: Response, bytes: Uint8Array, requestId: string
 async function* frames(response: Response, clock: StreamClock): AsyncIterable<Uint8Array> {
   if (response.body === null) throw failure("model_protocol_invalid");
   const reader = response.body.getReader();
-  let buffered: Uint8Array<ArrayBufferLike> = new Uint8Array();
+  const buffered = new BoundedFrameSegments();
   try {
     while (true) {
       let result: ReadableStreamReadResult<Uint8Array>;
@@ -266,10 +317,9 @@ async function* frames(response: Response, clock: StreamClock): AsyncIterable<Ui
       const chunk = result.value;
       let offset = 0;
       while (offset < chunk.byteLength) {
-        if (buffered.at(-1) === 0x0a && chunk[offset] === 0x0a) {
-          if (buffered.byteLength + 1 > MAXIMUM_SSE_FRAME_BYTES) throw failure("model_protocol_invalid");
-          yield concatBytes([buffered, chunk.slice(offset, offset + 1)]);
-          buffered = new Uint8Array();
+        if (buffered.endsWithLf && chunk[offset] === 0x0a) {
+          buffered.append(chunk.subarray(offset, offset + 1));
+          yield buffered.finish();
           offset += 1;
           continue;
         }
@@ -281,19 +331,11 @@ async function* frames(response: Response, clock: StreamClock): AsyncIterable<Ui
           }
         }
         if (delimiter < 0) {
-          const tail = chunk.slice(offset);
-          if (buffered.byteLength + tail.byteLength > MAXIMUM_SSE_FRAME_BYTES) {
-            throw failure("model_protocol_invalid");
-          }
-          buffered = concatBytes([buffered, tail]);
+          buffered.append(chunk.subarray(offset));
           break;
         }
-        const piece = chunk.slice(offset, delimiter + 2);
-        if (buffered.byteLength + piece.byteLength > MAXIMUM_SSE_FRAME_BYTES) {
-          throw failure("model_protocol_invalid");
-        }
-        yield concatBytes([buffered, piece]);
-        buffered = new Uint8Array();
+        buffered.append(chunk.subarray(offset, delimiter + 2));
+        yield buffered.finish();
         offset = delimiter + 2;
       }
     }
@@ -340,9 +382,21 @@ export class HermesTokenAdapter implements ModelAdapter {
     });
     if (input.signal.aborted) throw failure("model_aborted");
     const body = canonicalize(request);
-    const clock = new StreamClock(input);
+    if (body.byteLength > HERMES_TOKEN_BRIDGE_REQUEST_LIMITS.maximumCanonicalBytes) {
+      throw failure("model_input_invalid");
+    }
     let bound = false;
     let terminalReceived = false;
+    let cancellationTask: Promise<CancellationTaskOutcome> | null = null;
+    const ensureCancellation = (): Promise<CancellationTaskOutcome> | null => {
+      if (!bound || terminalReceived) return null;
+      cancellationTask ??= this.cancelBoundRun(request).then(
+        () => Object.freeze({ kind: "settled" as const }),
+        () => Object.freeze({ kind: "unknown" as const }),
+      );
+      return cancellationTask;
+    };
+    const clock = new StreamClock(input, () => { ensureCancellation(); });
     try {
       const persistedFrames: Uint8Array[] = [];
       const outputParts: string[] = [];
@@ -431,7 +485,7 @@ export class HermesTokenAdapter implements ModelAdapter {
           if (error instanceof StreamDisconnected) disconnected = true;
           else throw error;
         }
-        if (terminalObserved) {
+        if (terminalObserved && !disconnected) {
           terminalReceived = true;
           if (terminalError !== null) throw terminalError;
           return;
@@ -441,7 +495,8 @@ export class HermesTokenAdapter implements ModelAdapter {
       }
     } finally {
       clock.close();
-      if (bound && !terminalReceived) await this.cancelBoundRun(request);
+      const task = ensureCancellation();
+      if (task !== null && (await task).kind === "unknown") throw failure("model_cancel_unknown");
     }
   }
 
