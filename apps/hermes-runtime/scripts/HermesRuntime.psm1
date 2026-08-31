@@ -25,7 +25,29 @@ function Assert-ChildPath {
   $rootFull = [IO.Path]::GetFullPath($Root).TrimEnd('\')
   $pathFull = [IO.Path]::GetFullPath($Path)
   if (-not $pathFull.StartsWith("$rootFull\", [StringComparison]::OrdinalIgnoreCase)) { throw 'Resolved path escapes RuntimeRoot.' }
+  $relative = $pathFull.Substring($rootFull.Length).TrimStart('\')
+  if (Test-UnsafeArchiveMember $relative) { throw 'Resolved child path has an unsafe Windows path component.' }
+  $cursor = $rootFull
+  if (Test-Path -LiteralPath $cursor) {
+    $rootItem = Get-Item -LiteralPath $cursor -Force
+    if (($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or -not $rootItem.PSIsContainer) { throw 'RuntimeRoot is not a literal directory.' }
+  }
+  foreach ($segment in ($relative -split '\\')) {
+    $cursor = Join-Path $cursor $segment
+    if (Test-Path -LiteralPath $cursor) {
+      $item = Get-Item -LiteralPath $cursor -Force
+      if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Resolved child path traverses or names a reparse point.' }
+    }
+  }
   return $pathFull
+}
+
+function Assert-HermesTestFixtureRoot {
+  param([string]$RuntimeRoot)
+  $root = Assert-LiteralRuntimeRoot $RuntimeRoot
+  $temporaryRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+  if (-not $root.StartsWith(($temporaryRoot + '\'), [StringComparison]::OrdinalIgnoreCase) -or -not [IO.Path]::GetFileName($root.TrimEnd('\')).StartsWith('jarvis-hermes-workflow-fixture-', [StringComparison]::Ordinal)) { throw 'Synthetic operations require an exact ephemeral fixture root.' }
+  return $root
 }
 
 function Get-Sha256Hex {
@@ -91,7 +113,7 @@ function Get-HermesGitIsolationOptions {
 }
 
 function Assert-HermesGitTranscript {
-  param([hashtable]$Lock, [string]$GitDirectory, [string]$WorkTree, [scriptblock]$InvokeGit)
+  param([hashtable]$Lock, [string]$GitDirectory, [string]$WorkTree, [scriptblock]$InvokeGit, [object[]]$TreeEntries)
   $call = { param([string[]]$Arguments) @(& $InvokeGit $Arguments) }
   $tag = "refs/tags/{0}" -f $Lock.tag
   if ((& $call @('--git-dir', $GitDirectory, 'cat-file', '-t', $tag)) -ne 'tag') { throw 'Pinned tag is not annotated.' }
@@ -99,29 +121,46 @@ function Assert-HermesGitTranscript {
   if ((& $call @('--git-dir', $GitDirectory, 'rev-parse', ("{0}^{{}}" -f $tag))) -ne $Lock.sourceCommit) { throw 'Pinned tag was retargeted.' }
   if ((& $call @('--git-dir', $GitDirectory, 'rev-parse', ("{0}^{{tree}}" -f $Lock.sourceCommit))) -ne $Lock.sourceTree) { throw 'Pinned source tree mismatch.' }
   $remotes = @(& $call @('--git-dir', $GitDirectory, 'remote')); if ($remotes.Count -ne 1 -or $remotes[0] -ne 'origin') { throw 'Unexpected Git remote.' }
-  $tree = @(& $call @('--git-dir', $GitDirectory, 'ls-tree', '-r', $Lock.sourceCommit)); if ($tree | Where-Object { $_ -match '^160000 ' }) { throw 'Pinned source contains a gitlink.' }; if ($tree | Where-Object { $_ -match ' .gitmodules$' }) { throw 'Pinned source contains submodule metadata.' }
+  if ($null -eq $TreeEntries -or $TreeEntries.Count -lt 1) { throw 'Pinned source tree records are absent.' }
+  foreach ($entry in $TreeEntries) {
+    if ($null -eq $entry -or [string]$entry.Mode -notmatch '^[0-7]{6}$' -or [string]$entry.Type -ne 'blob' -or [string]$entry.Object -notmatch '^[a-f0-9]{40}$' -or (Test-UnsafeArchiveMember ([string]$entry.Path)) -or [string]$entry.Path -eq '.gitmodules' -or [string]$entry.Mode -in @('120000','160000')) { throw 'Pinned source tree has a forbidden member.' }
+  }
   $status = @(& $call @('-c', 'core.longpaths=true', '--git-dir', $GitDirectory, '--work-tree', $WorkTree, 'status', '--porcelain')); if ($status.Count -ne 0) { throw "Pinned checkout is dirty or untracked: $($status -join ';')" }
 }
 
 function Assert-HermesSourceDirectory {
-  param([string]$RuntimeRoot, [string]$Candidate, [hashtable]$Lock, [string]$GitDirectory = '')
+  param(
+    [string]$RuntimeRoot,
+    [string]$Candidate,
+    [hashtable]$Lock,
+    [string]$GitDirectory = '',
+    [scriptblock]$AssertFileHash = $null,
+    [scriptblock]$InvokeGit = $null,
+    [scriptblock]$GetTreeEntries = $null
+  )
   $root = Assert-LiteralRuntimeRoot $RuntimeRoot; $source = Assert-ChildPath $root $Candidate
   if (-not (Test-Path -LiteralPath $source -PathType Container)) { throw 'Pinned Hermes source is absent.' }
   if ((Get-Item -LiteralPath $source -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Pinned Hermes source is a reparse point.' }
   if (Test-Path -LiteralPath (Join-Path $source '.git')) { throw 'Pinned source must be a detached export without a worktree repository.' }
-  foreach ($name in @('LICENSE', 'pyproject.toml', 'uv.lock')) { $path = Assert-ChildPath $root (Join-Path $source $name); if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Pinned source file is absent: $name" }; Assert-ExactHash $path $Lock.rawFileSha256[$name] "Pinned source $name" }
+  foreach ($name in @('LICENSE', 'pyproject.toml', 'uv.lock')) {
+    $path = Assert-ChildPath $root (Join-Path $source $name)
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Pinned source file is absent: $name" }
+    if ($null -eq $AssertFileHash) { Assert-ExactHash $path $Lock.rawFileSha256[$name] "Pinned source $name" } else { & $AssertFileHash $path $Lock.rawFileSha256[$name] "Pinned source $name" }
+  }
   if (@(Get-ChildItem -LiteralPath $source -Force -Recurse | Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 }).Count -ne 0) { throw 'Pinned source contains a reparse point.' }
   if (-not [string]::IsNullOrEmpty($GitDirectory)) {
     $store = Assert-ChildPath $root $GitDirectory; if (-not (Test-Path -LiteralPath $store -PathType Container)) { throw 'Pinned source Git object store is absent.' }; if ((Get-Item -LiteralPath $store -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Pinned source Git object store is a reparse point.' }
-    $git = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1 -ExpandProperty Source
-    if ((Invoke-GitChecked $git @('--git-dir', $store, 'rev-parse', ("{0}^{{tree}}" -f $Lock.sourceCommit))) -ne $Lock.sourceTree) { throw 'Pinned source Git tree mismatch.' }
-    $entries = Get-HermesGitTreePaths $git $store $Lock.sourceCommit; $expected = @($entries | ForEach-Object Path | Sort-Object)
+    $git = if ($null -eq $InvokeGit) { Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1 -ExpandProperty Source } else { '' }
+    $treeResult = if ($null -eq $InvokeGit) { Invoke-GitChecked $git @('--git-dir', $store, 'rev-parse', ("{0}^{{tree}}" -f $Lock.sourceCommit)) } else { @(& $InvokeGit @('--git-dir', $store, 'rev-parse', ("{0}^{{tree}}" -f $Lock.sourceCommit))) }
+    if ($treeResult -ne $Lock.sourceTree) { throw 'Pinned source Git tree mismatch.' }
+    $entries = if ($null -eq $GetTreeEntries) { Get-HermesGitTreePaths $git $store $Lock.sourceCommit } else { @(& $GetTreeEntries $store $Lock.sourceCommit) }
+    $expected = @($entries | ForEach-Object Path | Sort-Object)
     $actual = @(Get-ChildItem -LiteralPath $source -Force -File -Recurse | ForEach-Object { $_.FullName.Substring($source.Length).TrimStart('\').Replace('\','/') } | Sort-Object)
     if ($expected.Count -ne $actual.Count -or (Compare-Object $expected $actual)) { throw 'Pinned source path set drift.' }
     $expectedDirectories = @($expected | ForEach-Object { $parts = $_ -split '/'; for ($index = 1; $index -lt $parts.Count; $index++) { ($parts[0..($index - 1)] -join '/') } } | Sort-Object -Unique)
     $actualDirectories = @(Get-ChildItem -LiteralPath $source -Force -Directory -Recurse | ForEach-Object { $_.FullName.Substring($source.Length).TrimStart('\').Replace('\','/') } | Sort-Object)
     if ($expectedDirectories.Count -ne $actualDirectories.Count -or (Compare-Object $expectedDirectories $actualDirectories)) { throw 'Pinned source directory set drift.' }
-    [void](Invoke-GitChecked $git @('--git-dir', $store, '--work-tree', $source, 'diff', '--no-ext-diff', '--exit-code', $Lock.sourceCommit, '--', '.'))
+    if ($null -eq $InvokeGit) { [void](Invoke-GitChecked $git @('--git-dir', $store, '--work-tree', $source, 'diff', '--no-ext-diff', '--exit-code', $Lock.sourceCommit, '--', '.')) } else { [void](& $InvokeGit @('--git-dir', $store, '--work-tree', $source, 'diff', '--no-ext-diff', '--exit-code', $Lock.sourceCommit, '--', '.')) }
   }
 }
 
@@ -131,7 +170,7 @@ function Assert-ArtifactHttpHop {
   if ($RequestUri.Scheme -ne 'https' -or $RequestUri.Host -notin $allowed) { throw 'Artifact URL is not an approved HTTPS host.' }
   if ($StatusCode -in 301,302,303,307,308) { if ($null -eq $Location -or $Location.Scheme -ne 'https' -or $Location.Host -notin $allowed) { throw 'Artifact redirect is not an approved HTTPS host.' }; return $Location }
   if ($StatusCode -lt 200 -or $StatusCode -gt 299) { throw 'Artifact download returned a non-success status.' }
-  if ($ContentLength.HasValue -and $ContentLength.Value -ne [int64]$Artifact.size) { throw 'Artifact content length drift.' }
+  if ($null -ne $ContentLength -and [int64]$ContentLength -ne [int64]$Artifact.size) { throw 'Artifact content length drift.' }
   return $null
 }
 
@@ -140,9 +179,11 @@ function Assert-SafeCpythonMembers {
   $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
   foreach ($member in $Members) {
     $name = [string]$member.Name
-    if (-not $seen.Add($name)) { throw 'CPython archive has duplicate or case-colliding members.' }
+    $canonical = $name.TrimEnd([char[]]@([char]'/', [char]'\'))
+    if (-not $seen.Add($canonical)) { throw 'CPython archive has duplicate, case-colliding, or file-directory alias members.' }
     if ($member.Type -notin @('-', 'd')) { throw 'CPython archive contains a link or unsupported member type.' }
-    if ((Test-UnsafeArchiveMember $name) -or -not $name.StartsWith('python/')) { throw 'CPython archive has an unsafe or unexpected member.' }
+    if ((Test-UnsafeArchiveMember $name) -or ($canonical -ne 'python' -and -not $canonical.StartsWith('python/'))) { throw 'CPython archive has an unsafe or unexpected member.' }
+    if ($canonical -eq 'python' -and $member.Type -ne 'd') { throw 'CPython archive root must be a directory.' }
   }
 }
 
@@ -207,23 +248,41 @@ function Write-HermesPublicationJournal {
   return $journal
 }
 
+function Assert-HermesPublicationMarker {
+  param([string]$RuntimeRoot)
+  $root = Assert-LiteralRuntimeRoot $RuntimeRoot
+  $ready = Get-HermesPublicationReadyPath $root
+  if (-not (Test-Path -LiteralPath $ready -PathType Leaf)) { throw 'Runtime publication has no verified commit marker.' }
+  try { $record = Get-Manifest $ready } catch { throw 'Runtime publication commit marker is malformed.' }
+  if ($record.schemaVersion -ne 1 -or $record.state -ne 'committed' -or $record.promotions.Count -lt 1) { throw 'Runtime publication commit marker is invalid.' }
+  foreach ($promotion in $record.promotions) {
+    $final = Assert-ChildPath $root ([string]$promotion.final)
+    $stage = Assert-ChildPath $root ([string]$promotion.staged)
+    if ((Test-Path -LiteralPath $stage) -or -not (Test-Path -LiteralPath $final -PathType Container) -or ((Get-Item -LiteralPath $final -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Runtime publication commit marker references an unsafe final directory.' }
+  }
+}
+
 function Assert-HermesPublicationReady {
   param([string]$RuntimeRoot)
   $root = Assert-LiteralRuntimeRoot $RuntimeRoot
   $journal = Get-HermesPublicationJournalPath $root
   if (Test-Path -LiteralPath $journal) { throw 'Runtime publication is incomplete or recovery is required.' }
-  $ready = Get-HermesPublicationReadyPath $root
-  if (-not (Test-Path -LiteralPath $ready -PathType Leaf)) { throw 'Runtime publication has no verified commit marker.' }
-  $record = Get-Manifest $ready
-  if ($record.schemaVersion -ne 1 -or $record.state -ne 'committed' -or $record.promotions.Count -lt 1) { throw 'Runtime publication commit marker is invalid.' }
-  foreach ($promotion in $record.promotions) {
-    $final = Assert-ChildPath $root ([string]$promotion.final)
-    if (-not (Test-Path -LiteralPath $final -PathType Container) -or ((Get-Item -LiteralPath $final -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Runtime publication commit marker references an unsafe final directory.' }
-  }
+  Assert-HermesPublicationMarker $root
+}
+
+function Write-HermesPublicationReady {
+  param([string]$RuntimeRoot, [hashtable]$Record)
+  $root = Assert-LiteralRuntimeRoot $RuntimeRoot; $ready = Get-HermesPublicationReadyPath $root
+  if (Test-Path -LiteralPath $ready) { throw 'Runtime publication commit marker already exists.' }
+  $temporary = Assert-ChildPath $root (Join-Path $root ('.hermes-runtime-publication.ready-' + [guid]::NewGuid().ToString('N') + '.tmp'))
+  $bytes = [Text.UTF8Encoding]::new($false).GetBytes(($Record | ConvertTo-Json -Compress -Depth 8))
+  $stream = [IO.File]::Open($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+  try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
+  try { Move-Item -LiteralPath $temporary -Destination $ready; if (-not (Test-Path -LiteralPath $ready -PathType Leaf)) { throw 'Atomic publication marker promotion failed.' } } finally { if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue } }
 }
 
 function Complete-StagedDirectories {
-  param([string]$RuntimeRoot)
+  param([string]$RuntimeRoot, [scriptblock]$Boundary = $null)
   $root = Assert-LiteralRuntimeRoot $RuntimeRoot
   $journal = Get-HermesPublicationJournalPath $root
   if (-not (Test-Path -LiteralPath $journal -PathType Leaf)) { throw 'Runtime publication journal is absent.' }
@@ -234,10 +293,11 @@ function Complete-StagedDirectories {
     if (Test-Path -LiteralPath $stage) { throw 'Runtime publication has unpromoted staging.' }
     if (-not (Test-Path -LiteralPath $final -PathType Container)) { throw 'Runtime publication final directory is absent.' }
   }
-  $ready = Get-HermesPublicationReadyPath $root
-  if (Test-Path -LiteralPath $ready) { throw 'Runtime publication commit marker already exists.' }
   $record.state = 'committed'
-  [IO.File]::WriteAllText($ready, ($record | ConvertTo-Json -Compress -Depth 8), [Text.UTF8Encoding]::new($false))
+  Write-HermesPublicationReady $root $record
+  if ($null -ne $Boundary) { & $Boundary 'marker-written' }
+  Assert-HermesPublicationMarker $root
+  if ($null -ne $Boundary) { & $Boundary 'marker-validated' }
   Remove-Item -LiteralPath $journal -Force
 }
 
@@ -250,7 +310,7 @@ function Recover-StagedDirectories {
   if ($record.schemaVersion -ne 1 -or $record.state -ne 'promoting' -or $record.promotions.Count -lt 1) { throw 'Runtime publication journal is invalid.' }
   $ready = Get-HermesPublicationReadyPath $root
   if (Test-Path -LiteralPath $ready) {
-    foreach ($promotion in $record.promotions) { if (-not (Test-Path -LiteralPath (Assert-ChildPath $root ([string]$promotion.final)) -PathType Container)) { throw 'Committed publication recovery found a missing final directory.' } }
+    Assert-HermesPublicationMarker $root
     Remove-Item -LiteralPath $journal -Force
     return
   }
@@ -270,7 +330,8 @@ function Promote-StagedDirectories {
     [string]$RuntimeRoot,
     [object[]]$Promotions,
     [int]$FaultAfterPromotion = 0,
-    [int]$CrashAfterPromotion = 0
+    [int]$CrashAfterPromotion = 0,
+    [scriptblock]$Boundary = $null
   )
   $root = Assert-LiteralRuntimeRoot $RuntimeRoot
   if ($Promotions.Count -lt 1) { throw 'At least one staged promotion is required.' }
@@ -289,6 +350,7 @@ function Promote-StagedDirectories {
     foreach ($promotion in $checked) {
       Promote-StagedDirectory $root $promotion.StagedDirectory $promotion.FinalDirectory
       $promoted += $promotion
+      if ($null -ne $Boundary) { & $Boundary ("promotion-{0}" -f $promoted.Count) }
       if ($CrashAfterPromotion -gt 0 -and $promoted.Count -ge $CrashAfterPromotion) { throw 'Injected publication crash.' }
       if ($FaultAfterPromotion -gt 0 -and $promoted.Count -ge $FaultAfterPromotion) { throw 'Injected promotion fault.' }
     }
@@ -306,4 +368,4 @@ function Promote-StagedDirectories {
   }
 }
 
-Export-ModuleMember -Function Assert-LiteralRuntimeRoot, Assert-ChildPath, Get-Sha256Hex, Assert-ExactHash, Get-Manifest, Assert-HermesSourceLock, Assert-HermesArtifactLock, Invoke-GitChecked, Get-HermesGitTreePaths, Test-UnsafeArchiveMember, Get-HermesGitIsolationOptions, Assert-HermesGitTranscript, Assert-HermesSourceDirectory, Assert-ArtifactHttpHop, Assert-SafeCpythonMembers, Assert-SafeUvMembers, Assert-SafeCpythonArchive, Assert-SafeUvArchive, Promote-StagedDirectory, Get-HermesPublicationJournalPath, Get-HermesPublicationReadyPath, Assert-HermesPublicationReady, Complete-StagedDirectories, Recover-StagedDirectories, Promote-StagedDirectories
+Export-ModuleMember -Function Assert-LiteralRuntimeRoot, Assert-ChildPath, Assert-HermesTestFixtureRoot, Get-Sha256Hex, Assert-ExactHash, Get-Manifest, Assert-HermesSourceLock, Assert-HermesArtifactLock, Invoke-GitChecked, Get-HermesGitTreePaths, Test-UnsafeArchiveMember, Get-HermesGitIsolationOptions, Assert-HermesGitTranscript, Assert-HermesSourceDirectory, Assert-ArtifactHttpHop, Assert-SafeCpythonMembers, Assert-SafeUvMembers, Assert-SafeCpythonArchive, Assert-SafeUvArchive, Promote-StagedDirectory, Get-HermesPublicationJournalPath, Get-HermesPublicationReadyPath, Assert-HermesPublicationReady, Complete-StagedDirectories, Recover-StagedDirectories, Promote-StagedDirectories

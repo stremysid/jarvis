@@ -9,6 +9,7 @@
     "test": "vitest run test"
   },
   "devDependencies": {
+    "@iarna/toml": "2.2.5",
     "ajv": "8.17.1"
   }
 }

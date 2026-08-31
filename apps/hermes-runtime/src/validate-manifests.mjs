@@ -37,7 +37,7 @@ async function checkContract(contract) {
   if (await sha256Hex(canonicalize(contract)) !== CONTRACT_SHA256) fail("Runs contract drifted from the closed profile");
 }
 function checkSource(source) {
-  record(source, ["schemaVersion", "jarvisH0Commit", "remote", "tag", "tagObject", "sourceCommit", "sourceTree", "packageVersion", "rawFileSha256", "acquisitionMethod", "submodules", "model", "pythonVersion", "runsEventContractHash", "patchQueue", "licenses", "sbom", "sbomSha256"], "source lock");
+  record(source, ["schemaVersion", "jarvisH0Commit", "remote", "tag", "tagObject", "sourceCommit", "sourceTree", "packageVersion", "rawFileSha256", "acquisitionMethod", "submodules", "model", "pythonVersion", "runsEventContractHash", "patchQueue", "licenses", "thirdPartyNotices", "sbom", "sbomSha256", "sbomFileSha256"], "source lock");
   literal(source.schemaVersion, "1", "source lock schemaVersion"); literal(source.jarvisH0Commit, H0, "jarvisH0Commit"); url(source.remote, "source remote"); literal(source.tag, "v2026.8.27", "source tag"); literal(git(source.tagObject, "tagObject"), "fcebd62163497e77e5de00d26d2ed86cb4ef8761", "tagObject"); literal(git(source.sourceCommit, "sourceCommit"), "5fc308a70719a83cccdbba4c0e39c23f5a8239d5", "sourceCommit"); literal(git(source.sourceTree, "sourceTree"), "222ec43b5237deb643277bc2f64fa4b873dd7f28", "sourceTree"); literal(source.packageVersion, "0.20.6", "packageVersion");
   record(source.rawFileSha256, ["LICENSE", "pyproject.toml", "uv.lock"], "rawFileSha256"); literal(hash(source.rawFileSha256.LICENSE, "LICENSE"), "821556e6336796450ab852d375117b48a4887e71d255794fd6318d99982a5ab6", "LICENSE"); literal(hash(source.rawFileSha256["pyproject.toml"], "pyproject.toml"), "9b6d41aca6d908e5af2f90a335b1c2b7eeaf8e3ce667b5a823a73e8643c56c75", "pyproject.toml"); literal(hash(source.rawFileSha256["uv.lock"], "uv.lock"), "5a9276183671e997c2213ede18b9cda4920e1cf57616219a3b08ddebda3281ab", "uv.lock");
   literal(source.acquisitionMethod, "git-detached", "acquisitionMethod"); if (array(source.submodules, "submodules").length) fail("submodules must be empty"); literal(source.model, "deepseek-v4-pro", "model"); literal(source.pythonVersion, "3.11.16", "pythonVersion"); hash(source.runsEventContractHash, "runsEventContractHash");
@@ -53,7 +53,8 @@ function checkSource(source) {
     "licenses/uv-LICENSE": "860e3d7a86b84e6a7012c7a635fc64df475cebc6cce34dfeb73a5982ec58176c",
   };
   for (const [path, expected] of Object.entries(reviewedLicenseHashes)) literal(hash(source.licenses.files[path], path), expected, path);
-  record(source.sbom, ["file", "format"], "sbom"); literal(source.sbom.file, "sbom/hermes-agent-v2026.8.27-windows-x86_64-cpython-3.11.16.cdx.json", "SBOM file"); literal(source.sbom.format, "CycloneDX-1.6", "SBOM format"); hash(source.sbomSha256, "sbomSha256");
+  record(source.thirdPartyNotices, ["file", "sha256"], "thirdPartyNotices"); literal(source.thirdPartyNotices.file, "THIRD_PARTY_NOTICES.md", "third party notice file"); literal(hash(source.thirdPartyNotices.sha256, "third party notices hash"), "52e851ebf6bf6844566798c59085dcee17c3ad1226dcb426879443b5a18d1f41", "third party notices hash");
+  record(source.sbom, ["file", "format"], "sbom"); literal(source.sbom.file, "sbom/hermes-agent-v2026.8.27-windows-x86_64-cpython-3.11.16.cdx.json", "SBOM file"); literal(source.sbom.format, "CycloneDX-1.6", "SBOM format"); hash(source.sbomSha256, "sbomSha256"); hash(source.sbomFileSha256, "sbomFileSha256");
 }
 function checkArtifact(artifact, name, expected) {
   record(artifact, ["version", "fileName", "url", "architecture", "size", "sha256", "licenses"], name); literal(artifact.version, expected.version, `${name}.version`); literal(artifact.fileName, expected.fileName, `${name}.fileName`); url(artifact.url, `${name}.url`); literal(artifact.architecture, expected.architecture, `${name}.architecture`); literal(artifact.size, expected.size, `${name}.size`); literal(hash(artifact.sha256, `${name}.sha256`), expected.sha256, `${name}.sha256`); const licenses = array(artifact.licenses, `${name}.licenses`); if (licenses.length !== expected.licenses.length || licenses.some((license, index) => license !== expected.licenses[index])) fail(`${name}.licenses is not the reviewed exact array`);
@@ -73,18 +74,29 @@ function checkSbom(sbom, source) {
   record(sbom.metadata, ["component", "properties"], "SBOM metadata");
   const properties = array(sbom.metadata.properties, "SBOM metadata properties");
   const propertyMap = new Map(properties.map((property) => [property?.name, property?.value]));
-  if (propertyMap.get("jarvis:source-commit") !== source.sourceCommit || propertyMap.get("jarvis:source-tree") !== source.sourceTree || propertyMap.get("jarvis:target") !== "windows-x86_64-cpython-3.11.16" || propertyMap.get("jarvis:extras") !== "") fail("SBOM target provenance drift");
+  const expectedProperties = {
+    "jarvis:source-remote": source.remote, "jarvis:source-tag": source.tag, "jarvis:source-tag-object": source.tagObject, "jarvis:source-commit": source.sourceCommit, "jarvis:source-tree": source.sourceTree, "jarvis:source-acquisition": source.acquisitionMethod,
+    "jarvis:source-license-sha256": source.rawFileSha256.LICENSE, "jarvis:source-pyproject-sha256": source.rawFileSha256["pyproject.toml"], "jarvis:source-uv-lock-sha256": source.rawFileSha256["uv.lock"],
+    "jarvis:target": "windows-x86_64-cpython-3.11.16", "jarvis:extras": "", "jarvis:dev-mode": "false", "jarvis:install-mode": "runtime",
+    "jarvis:closure-name-version-sha256": "3de6c3eeb3148f4b49cf48c5e8973487e82acbecd95131b8a50fc141276242a8", "jarvis:archive-records-sha256": "f3a08e3bf08e9d10d0e79338049028a89aa14b85a3d0120a86187e5578041d52", "jarvis:dependency-records-sha256": "8efcb478f48ae732c7d9f2432599425283c34c4dd972f43de1854f3271618f27",
+  };
+  if (properties.length !== Object.keys(expectedProperties).length || Object.entries(expectedProperties).some(([name, value]) => propertyMap.get(name) !== value)) fail("SBOM target provenance drift");
   const components = array(sbom.components, "SBOM components"); const dependencies = array(sbom.dependencies, "SBOM dependencies");
-  if (components.length !== 62 || dependencies.length !== 62) fail("SBOM does not contain the complete selected Windows closure");
+  const pypi = components.filter((component) => typeof component?.purl === "string" && component.purl.startsWith("pkg:pypi/"));
+  if (pypi.length !== 66 || components.length !== 80 || dependencies.length !== 66) fail("SBOM does not contain the complete selected Windows closure and provenance");
   const refs = new Set();
-  for (const component of components) {
-    record(component, component.name === "hermes-agent" ? ["name", "purl", "type", "version"] : ["externalReferences", "hashes", "name", "purl", "type", "version"], "SBOM component");
+  for (const component of pypi) {
+    record(component, component.name === "hermes-agent" ? ["name", "purl", "type", "version"] : ["externalReferences", "hashes", "name", "properties", "purl", "type", "version"], "SBOM component");
     if (typeof component.purl !== "string" || !component.purl.startsWith("pkg:pypi/") || refs.has(component.purl)) fail("SBOM has a duplicate or invalid component"); refs.add(component.purl);
-    if (component.name !== "hermes-agent") { if (array(component.hashes, "SBOM archive hashes").length !== 1 || component.hashes[0]?.alg !== "SHA-256" || !SHA256.test(component.hashes[0]?.content) || array(component.externalReferences, "SBOM archive reference").length !== 1 || component.externalReferences[0]?.type !== "distribution" || !String(component.externalReferences[0]?.url).startsWith("https://files.pythonhosted.org/")) fail("SBOM archive selection drift"); }
+    if (component.name !== "hermes-agent") { if (array(component.hashes, "SBOM archive hashes").length !== 1 || component.hashes[0]?.alg !== "SHA-256" || !SHA256.test(component.hashes[0]?.content) || array(component.externalReferences, "SBOM archive reference").length !== 1 || component.externalReferences[0]?.type !== "distribution" || !String(component.externalReferences[0]?.url).startsWith("https://files.pythonhosted.org/") || array(component.properties, "SBOM archive properties").length !== 1 || component.properties[0]?.name !== "jarvis:archive-size" || !/^[1-9][0-9]*$/.test(component.properties[0]?.value ?? "")) fail("SBOM archive selection drift"); }
   }
   const seenDependencies = new Set();
   for (const dependency of dependencies) { record(dependency, ["dependsOn", "ref"], "SBOM dependency"); if (!refs.has(dependency.ref) || seenDependencies.has(dependency.ref)) fail("SBOM has duplicate or unknown dependency references"); seenDependencies.add(dependency.ref); for (const ref of array(dependency.dependsOn, "SBOM dependsOn")) if (!refs.has(ref)) fail("SBOM dependency escapes selected closure"); }
   if (seenDependencies.size !== refs.size || !refs.has("pkg:pypi/hermes-agent@0.20.6")) fail("SBOM closure is incomplete");
+  const provenanceNames = components.filter((component) => !component?.purl).map((component) => component?.name).sort();
+  const expectedProvenance = ["hermes-source", "patch-queue", "python-build-standalone-license-rollup", "runtime-artifacts-lock", "runtime-cpython", "runtime-uv", "runtime-winsw", "third-party-notices", "notice-CPython-LICENSE", "notice-Hermes-Agent-LICENSE", "notice-WinSW-LICENSE", "notice-python-build-standalone-licenses.rst", "notice-uv-APACHE-LICENSE", "notice-uv-LICENSE"].sort();
+  if (provenanceNames.length !== expectedProvenance.length || provenanceNames.some((name, index) => name !== expectedProvenance[index])) fail("SBOM provenance component set drift");
+  for (const component of components.filter((component) => !component?.purl)) { record(component, ["name", "properties", "type", "version"], "SBOM provenance component"); if (component.type !== "file" || !Array.isArray(component.properties) || component.properties.some((entry) => typeof entry?.name !== "string" || typeof entry?.value !== "string")) fail("SBOM provenance shape drift"); }
 }
 
 export async function validateHermesManifests({ source, artifacts, contract, patches, sbom }) {
@@ -127,6 +139,7 @@ async function runCli() {
   ]);
   await validateHermesManifests({ source, artifacts, contract, patches, sbom });
   await validateRunsWireArtifacts({ contract, wireSchema, wireGolden });
+  if (await sha256Hex(await readFile(new URL("../sbom/hermes-agent-v2026.8.27-windows-x86_64-cpython-3.11.16.cdx.json", import.meta.url))) !== source.sbomFileSha256) fail("SBOM LF file digest does not bind source lock");
   process.stdout.write("Hermes H1 manifests valid\n");
 }
 
