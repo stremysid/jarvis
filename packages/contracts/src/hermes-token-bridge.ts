@@ -7,6 +7,20 @@ const MAX_OUTPUT = 65_536;
 const MAX_SSE_FRAME_BYTES = 524_288;
 const REQUEST_KEYS = ["schemaVersion", "requestId", "correlationId", "principalId", "channel", "userText", "context", "reasoningEffort", "firstTokenTimeoutMs", "timeoutMs", "contextTokenBudget", "maxOutputCharacters"] as const;
 
+export const JARVIS_TOKEN_BRIDGE_REQUEST_LIMITS_V1 = Object.freeze({
+  principalId: Object.freeze({ maximumUnicodeScalars: 256, maximumUtf8Bytes: 1_024 }),
+  userText: Object.freeze({ maximumUnicodeScalars: 8_000, maximumUtf8Bytes: 65_536 }),
+  context: Object.freeze({
+    maximumItems: 128,
+    text: Object.freeze({ maximumUnicodeScalars: 65_536, maximumUtf8Bytes: 65_536 }),
+  }),
+  firstTokenTimeoutMs: Object.freeze({ minimum: 1, maximum: 8_000 }),
+  timeoutMs: Object.freeze({ minimum: 1, maximum: 30_000 }),
+  contextTokenBudget: Object.freeze({ minimum: 1, maximum: 32_000 }),
+  maxOutputCharacters: Object.freeze({ minimum: 1, maximum: 65_536 }),
+  maximumCanonicalBytes: 252_664,
+});
+
 export interface JarvisTokenBridgeRequestHashMaterialV1 {
   readonly schemaVersion: "1.0";
   readonly requestId: Ulid;
@@ -133,6 +147,25 @@ function requireNfcString(value: unknown, label: string, { nonEmpty = false } = 
   return value;
 }
 
+function requireBoundedRequestText(
+  value: unknown,
+  label: string,
+  limits: Readonly<{ maximumUnicodeScalars: number; maximumUtf8Bytes: number }>,
+): Readonly<{ text: string; utf8Bytes: number }> {
+  const text = requireNfcString(value, label, { nonEmpty: true });
+  let unicodeScalars = 0;
+  let utf8Bytes = 0;
+  for (const scalar of text) {
+    unicodeScalars += 1;
+    const codePoint = scalar.codePointAt(0) as number;
+    utf8Bytes += codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4;
+    if (unicodeScalars > limits.maximumUnicodeScalars || utf8Bytes > limits.maximumUtf8Bytes) {
+      fail(`${label} exceeds Unicode-scalar or UTF-8-byte bounds`);
+    }
+  }
+  return { text, utf8Bytes };
+}
+
 function requireUlid(value: unknown, label: string): Ulid {
   if (typeof value !== "string" || !ULID.test(value)) fail(`${label} must be a lowercase ULID`);
   return value as Ulid;
@@ -170,17 +203,24 @@ function freeze<T>(value: T): Readonly<T> {
   return Object.freeze(value);
 }
 
-function parseContext(value: unknown): readonly JarvisTokenBridgeRequestHashMaterialV1["context"][number][] {
+function parseContext(value: unknown, contextTokenBudget: number): readonly JarvisTokenBridgeRequestHashMaterialV1["context"][number][] {
   const context = exactArray(value, "context");
-  return freeze(context.map((item) => {
+  if (context.length > JARVIS_TOKEN_BRIDGE_REQUEST_LIMITS_V1.context.maximumItems) fail("context exceeds item bound");
+  let cumulativeUtf8Bytes = 0;
+  const parsed: JarvisTokenBridgeRequestHashMaterialV1["context"][number][] = [];
+  for (const item of context) {
     const record = exactRecord(item, ["sourceEventId", "text", "sensitivity"]);
     if (record.sensitivity !== "personal" && record.sensitivity !== "restricted") fail("context sensitivity is unsupported");
-    return freeze({
+    const text = requireBoundedRequestText(record.text, "context text", JARVIS_TOKEN_BRIDGE_REQUEST_LIMITS_V1.context.text);
+    cumulativeUtf8Bytes += text.utf8Bytes;
+    if (cumulativeUtf8Bytes > contextTokenBudget) fail("context exceeds contextTokenBudget");
+    parsed.push(freeze({
       sourceEventId: requireUlid(record.sourceEventId, "context sourceEventId"),
-      text: requireNfcString(record.text, "context text"),
+      text: text.text,
       sensitivity: record.sensitivity,
-    });
-  }));
+    }));
+  }
+  return freeze(parsed);
 }
 
 function parseRequestMaterial(value: unknown): Readonly<JarvisTokenBridgeRequestHashMaterialV1> {
@@ -192,23 +232,58 @@ function parseRequestMaterial(value: unknown): Readonly<JarvisTokenBridgeRequest
   const requestId = requireUlid(record.requestId, "requestId");
   const correlationId = requireUlid(record.correlationId, "correlationId");
   if (requestId !== correlationId) fail("requestId and correlationId must be identical");
-  const firstTokenTimeoutMs = requireInteger(record.firstTokenTimeoutMs, "firstTokenTimeoutMs", 1);
-  const timeoutMs = requireInteger(record.timeoutMs, "timeoutMs", firstTokenTimeoutMs);
+  const principalId = requireBoundedRequestText(record.principalId, "principalId", JARVIS_TOKEN_BRIDGE_REQUEST_LIMITS_V1.principalId).text;
+  if (principalId.includes("\r") || principalId.includes("\n")) fail("principalId must not contain CR or LF");
+  const userText = requireBoundedRequestText(record.userText, "userText", JARVIS_TOKEN_BRIDGE_REQUEST_LIMITS_V1.userText).text;
+  const firstTokenTimeoutMs = requireInteger(
+    record.firstTokenTimeoutMs,
+    "firstTokenTimeoutMs",
+    JARVIS_TOKEN_BRIDGE_REQUEST_LIMITS_V1.firstTokenTimeoutMs.minimum,
+    JARVIS_TOKEN_BRIDGE_REQUEST_LIMITS_V1.firstTokenTimeoutMs.maximum,
+  );
+  const timeoutMs = requireInteger(
+    record.timeoutMs,
+    "timeoutMs",
+    firstTokenTimeoutMs,
+    JARVIS_TOKEN_BRIDGE_REQUEST_LIMITS_V1.timeoutMs.maximum,
+  );
+  const contextTokenBudget = requireInteger(
+    record.contextTokenBudget,
+    "contextTokenBudget",
+    JARVIS_TOKEN_BRIDGE_REQUEST_LIMITS_V1.contextTokenBudget.minimum,
+    JARVIS_TOKEN_BRIDGE_REQUEST_LIMITS_V1.contextTokenBudget.maximum,
+  );
 
   return freeze({
     schemaVersion: "1.0",
     requestId,
     correlationId,
-    principalId: requireNfcString(record.principalId, "principalId", { nonEmpty: true }),
+    principalId,
     channel: "voice",
-    userText: requireNfcString(record.userText, "userText"),
-    context: parseContext(record.context),
+    userText,
+    context: parseContext(record.context, contextTokenBudget),
     reasoningEffort: record.reasoningEffort,
     firstTokenTimeoutMs,
     timeoutMs,
-    contextTokenBudget: requireInteger(record.contextTokenBudget, "contextTokenBudget", 0),
-    maxOutputCharacters: requireInteger(record.maxOutputCharacters, "maxOutputCharacters", 0, MAX_OUTPUT),
+    contextTokenBudget,
+    maxOutputCharacters: requireInteger(
+      record.maxOutputCharacters,
+      "maxOutputCharacters",
+      JARVIS_TOKEN_BRIDGE_REQUEST_LIMITS_V1.maxOutputCharacters.minimum,
+      JARVIS_TOKEN_BRIDGE_REQUEST_LIMITS_V1.maxOutputCharacters.maximum,
+    ),
   });
+}
+
+function finalizeRequest(
+  request: Readonly<JarvisTokenBridgeRequestHashMaterialV1>,
+  requestHash: Sha256Hex,
+): Readonly<JarvisTokenBridgeRequestV1> {
+  const finalized = { ...request, requestHash };
+  if (canonicalize(finalized).byteLength > JARVIS_TOKEN_BRIDGE_REQUEST_LIMITS_V1.maximumCanonicalBytes) {
+    fail("request exceeds canonical byte bound");
+  }
+  return freeze(finalized) as Readonly<JarvisTokenBridgeRequestV1>;
 }
 
 export async function createJarvisTokenBridgeRequestV1(
@@ -216,7 +291,7 @@ export async function createJarvisTokenBridgeRequestV1(
 ): Promise<Readonly<JarvisTokenBridgeRequestV1>> {
   const request = parseRequestMaterial(input);
   const requestHash = await sha256Hex(canonicalize(request));
-  return freeze({ ...request, requestHash }) as Readonly<JarvisTokenBridgeRequestV1>;
+  return finalizeRequest(request, requestHash);
 }
 
 export async function parseJarvisTokenBridgeRequestV1(value: unknown): Promise<Readonly<JarvisTokenBridgeRequestV1>> {
@@ -225,7 +300,7 @@ export async function parseJarvisTokenBridgeRequestV1(value: unknown): Promise<R
   const requestHash = requireSha256(record.requestHash, "requestHash");
   const computedHash = await sha256Hex(canonicalize(request));
   if (!constantTimeEqual(requestHash, computedHash)) fail("requestHash does not match request material");
-  return freeze({ ...request, requestHash }) as Readonly<JarvisTokenBridgeRequestV1>;
+  return finalizeRequest(request, requestHash);
 }
 
 export function parseJarvisTokenBridgeEventV1(value: unknown): Readonly<JarvisTokenBridgeEventV1> {

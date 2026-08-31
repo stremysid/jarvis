@@ -4,6 +4,8 @@ import readinessFixtureRaw from "../../../tests/fixtures/hermes-h1/readiness-gol
 import eventsFixtureRaw from "../../../tests/fixtures/hermes-h1/token-events-golden-v1.ndjson?raw";
 import sseFixtureRaw from "../../../tests/fixtures/hermes-h1/token-events-golden-v1.sse?raw";
 import boundaryFixtureRaw from "../../../tests/fixtures/hermes-h1/token-events-boundary-v1.json?raw";
+import * as contractsIndex from "../src/index.js";
+import * as hermesTokenBridgeContract from "../src/hermes-token-bridge.js";
 import {
   createJarvisTokenBridgeRequestV1,
   createJarvisTokenBridgeEventChainV1,
@@ -47,6 +49,109 @@ describe("H1 token bridge contract", () => {
     expect(Object.isFrozen(request.context[0])).toBe(true);
     expect(() => { (request.context as unknown as { text: string }[])[0].text = "changed"; }).toThrow();
     expect(request.context[0].text).toBe("remembered");
+  });
+
+  it("exports one deeply frozen versioned request-limits authority through the package index", () => {
+    const direct = Reflect.get(hermesTokenBridgeContract, "JARVIS_TOKEN_BRIDGE_REQUEST_LIMITS_V1") as unknown;
+    const barrel = Reflect.get(contractsIndex, "JARVIS_TOKEN_BRIDGE_REQUEST_LIMITS_V1") as unknown;
+
+    expect(direct).toEqual({
+      principalId: { maximumUnicodeScalars: 256, maximumUtf8Bytes: 1_024 },
+      userText: { maximumUnicodeScalars: 8_000, maximumUtf8Bytes: 65_536 },
+      context: {
+        maximumItems: 128,
+        text: { maximumUnicodeScalars: 65_536, maximumUtf8Bytes: 65_536 },
+      },
+      firstTokenTimeoutMs: { minimum: 1, maximum: 8_000 },
+      timeoutMs: { minimum: 1, maximum: 30_000 },
+      contextTokenBudget: { minimum: 1, maximum: 32_000 },
+      maxOutputCharacters: { minimum: 1, maximum: 65_536 },
+      maximumCanonicalBytes: 252_664,
+    });
+    expect(barrel).toBe(direct);
+    expect(Object.isFrozen(direct)).toBe(true);
+    expect(Object.isFrozen(Reflect.get(direct as object, "principalId"))).toBe(true);
+    expect(Object.isFrozen(Reflect.get(direct as object, "userText"))).toBe(true);
+    expect(Object.isFrozen(Reflect.get(direct as object, "context"))).toBe(true);
+    expect(Object.isFrozen(Reflect.get(Reflect.get(direct as object, "context") as object, "text"))).toBe(true);
+    expect(Object.isFrozen(Reflect.get(direct as object, "firstTokenTimeoutMs"))).toBe(true);
+    expect(Object.isFrozen(Reflect.get(direct as object, "timeoutMs"))).toBe(true);
+    expect(Object.isFrozen(Reflect.get(direct as object, "contextTokenBudget"))).toBe(true);
+    expect(Object.isFrozen(Reflect.get(direct as object, "maxOutputCharacters"))).toBe(true);
+  });
+
+  it.each([
+    ["empty principal IDs", { principalId: "" }, "principalId"],
+    ["empty user text", { userText: "" }, "userText"],
+    ["empty context text", { context: [{ ...requestMaterial.context[0], text: "" }] }, "context text"],
+    ["principal IDs above 256 Unicode scalars", { principalId: "p".repeat(257) }, "principalId"],
+    ["user text above 8,000 Unicode scalars", { userText: "u".repeat(8_001) }, "userText"],
+    ["context text above 65,536 Unicode scalars", { context: [{ ...requestMaterial.context[0], text: "c".repeat(65_537) }] }, "context text"],
+    ["principal IDs containing CR", { principalId: "principal\rsid" }, "principalId"],
+    ["principal IDs containing LF", { principalId: "principal\nsid" }, "principalId"],
+    ["zero first-token timeouts", { firstTokenTimeoutMs: 0 }, "firstTokenTimeoutMs"],
+    ["first-token timeouts above 8,000 ms", { firstTokenTimeoutMs: 8_001 }, "firstTokenTimeoutMs"],
+    ["total timeouts below the first-token timeout", { timeoutMs: 7_999 }, "timeoutMs"],
+    ["total timeouts above 30,000 ms", { timeoutMs: 30_001 }, "timeoutMs"],
+    ["zero context token budgets", { contextTokenBudget: 0 }, "contextTokenBudget"],
+    ["context token budgets above 32,000", { contextTokenBudget: 32_001 }, "contextTokenBudget"],
+    ["zero maximum output characters", { maxOutputCharacters: 0 }, "maxOutputCharacters"],
+    ["maximum output characters above 65,536", { maxOutputCharacters: 65_537 }, "maxOutputCharacters"],
+    ["129 context items", { context: Array.from({ length: 129 }, () => ({ ...requestMaterial.context[0] })) }, "context"],
+  ] satisfies readonly [string, Partial<JarvisTokenBridgeRequestHashMaterialV1>, string][])(
+    "rejects %s during both construction and parsing",
+    async (_name, overrides, label) => {
+      await expectInvalidRequestMaterial({ ...requestMaterial, ...overrides }, label);
+    },
+  );
+
+  it("counts supplementary characters as Unicode scalars and cumulative context in UTF-8 bytes", async () => {
+    const exactUtf8Context = [{
+      ...requestMaterial.context[0],
+      text: "😀".repeat(8_000),
+    }];
+    const valid = await createJarvisTokenBridgeRequestV1({
+      ...requestMaterial,
+      principalId: "😀".repeat(256),
+      userText: "😀".repeat(8_000),
+      context: exactUtf8Context,
+      contextTokenBudget: 32_000,
+    });
+
+    await expect(parseJarvisTokenBridgeRequestV1(valid)).resolves.toEqual(valid);
+    await expectInvalidRequestMaterial({
+      ...requestMaterial,
+      context: [{ ...requestMaterial.context[0], text: "😀".repeat(8_001) }],
+      contextTokenBudget: 32_000,
+    }, "contextTokenBudget");
+  });
+
+  it("rejects cumulative context UTF-8 bytes above the positive request budget", async () => {
+    await expectInvalidRequestMaterial({
+      ...requestMaterial,
+      context: [
+        { ...requestMaterial.context[0], text: "é" },
+        { ...requestMaterial.context[0], text: "é", sensitivity: "restricted" },
+      ],
+      contextTokenBudget: 3,
+    }, "contextTokenBudget");
+  });
+
+  it("accepts the exact maximum 252,664-byte canonical request in construction and parsing", async () => {
+    const maximum = await createJarvisTokenBridgeRequestV1({
+      ...requestMaterial,
+      principalId: "\u0000".repeat(256),
+      userText: "\u0000".repeat(8_000),
+      context: Array.from({ length: 128 }, () => ({
+        ...requestMaterial.context[0],
+        text: "\u0000".repeat(250),
+        sensitivity: "restricted" as const,
+      })),
+      reasoningEffort: "high",
+    });
+
+    expect(canonicalize(maximum).byteLength).toBe(252_664);
+    await expect(parseJarvisTokenBridgeRequestV1(maximum)).resolves.toEqual(maximum);
   });
 
   it("requires exact plain request records without accessors, non-NFC text, identity mismatches, or invalid channels", async () => {
@@ -231,4 +336,13 @@ function toBase64Url(bytes: Uint8Array): string {
 
 function ownedBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.slice().buffer as ArrayBuffer;
+}
+
+async function expectInvalidRequestMaterial(
+  material: JarvisTokenBridgeRequestHashMaterialV1,
+  label: string,
+): Promise<void> {
+  const requestHash = await sha256Hex(canonicalize(material));
+  await expect(parseJarvisTokenBridgeRequestV1({ ...material, requestHash })).rejects.toThrow(label);
+  await expect(createJarvisTokenBridgeRequestV1(material)).rejects.toThrow(label);
 }
