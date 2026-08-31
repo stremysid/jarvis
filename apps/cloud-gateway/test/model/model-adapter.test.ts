@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DefaultModelAdapter,
+  ModelAdapterError,
+  isModelProviderNotStartedError,
+  modelProviderNotStartedError,
+  snapshotModelAdapterStreamInput,
   type ModelAdapterStreamInput,
   type ModelToken,
 } from "../../src/model/model-adapter.js";
@@ -301,6 +305,36 @@ describe("DefaultModelAdapter deadlines and abort", () => {
 });
 
 describe("DefaultModelAdapter capture boundary", () => {
+  it("exports one detached frozen provider-neutral input snapshot", () => {
+    const controller = new AbortController();
+    const request = input({ signal: controller.signal });
+
+    const snapshot = snapshotModelAdapterStreamInput(request);
+    (request as { userText: string }).userText = "mutated";
+    (request.context as { text: string }[])[0]!.text = "mutated";
+
+    expect(snapshot).toMatchObject({
+      correlationId: "01k3s6k8000000000000000003",
+      userText: "hello",
+      context: [{ sourceEventId: "01k3s6k8000000000000000004", text: "remembered" }],
+      signal: controller.signal,
+    });
+    expect(Object.isFrozen(snapshot)).toBe(true);
+    expect(Object.isFrozen(snapshot.context)).toBe(true);
+    expect(Object.isFrozen(snapshot.context[0])).toBe(true);
+  });
+
+  it("marks only issued proven-not-started failures as fallback-safe", () => {
+    const issued = modelProviderNotStartedError();
+
+    expect(issued).toMatchObject({ code: "model_provider_failure" });
+    expect(isModelProviderNotStartedError(issued)).toBe(true);
+    expect(isModelProviderNotStartedError(new ModelAdapterError("model_provider_failure"))).toBe(false);
+    expect(isModelProviderNotStartedError(new ModelAdapterError("model_admission_unknown"))).toBe(false);
+    expect(isModelProviderNotStartedError(new ModelAdapterError("model_cancel_unknown"))).toBe(false);
+    expect(isModelProviderNotStartedError({ code: "model_provider_failure" })).toBe(false);
+  });
+
   it("captures input and indexed context before returning its iterable while retaining the original live signal", async () => {
     const original = new AbortController();
     const replacement = new AbortController();

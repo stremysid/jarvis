@@ -1,9 +1,22 @@
 import type {
   ModelChunk,
-  ModelContextItem,
   ModelProvider,
   ModelStreamTextInput,
 } from "../providers/provider-types.js";
+import type {
+  ModelAdapter,
+  ModelAdapterStreamInput,
+  ModelToken,
+  RetrievedContext,
+} from "./model-types.js";
+import type { Ulid } from "../../../../packages/contracts/src/index.js";
+
+export type {
+  ModelAdapter,
+  ModelAdapterStreamInput,
+  ModelToken,
+  RetrievedContext,
+} from "./model-types.js";
 
 const INPUT_FIELDS = new Set([
   "correlationId",
@@ -33,35 +46,6 @@ const MAXIMUM_INPUT_BYTES = 65_536;
 const MAXIMUM_CONTEXT_ITEMS = 128;
 const encoder = new TextEncoder();
 
-export interface ModelToken {
-  readonly index: number;
-  readonly text: string;
-}
-
-export interface RetrievedContext {
-  readonly sourceEventId: string;
-  readonly text: string;
-  readonly sensitivity: "personal" | "restricted";
-}
-
-export interface ModelAdapterStreamInput {
-  readonly correlationId: string;
-  readonly principalId: string;
-  readonly channel: "voice" | "telegram";
-  readonly userText: string;
-  readonly context: readonly RetrievedContext[];
-  readonly reasoningEffort: "none" | "low" | "high" | "max";
-  readonly firstTokenTimeoutMs: number;
-  readonly timeoutMs: number;
-  readonly contextTokenBudget: number;
-  readonly maxOutputCharacters: number;
-  readonly signal: AbortSignal;
-}
-
-export interface ModelAdapter {
-  stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken>;
-}
-
 export type ModelAdapterErrorCode =
   | "model_input_invalid"
   | "model_context_invalid"
@@ -70,7 +54,9 @@ export type ModelAdapterErrorCode =
   | "model_total_timeout"
   | "model_output_limit"
   | "model_aborted"
-  | "model_provider_failure";
+  | "model_provider_failure"
+  | "model_admission_unknown"
+  | "model_cancel_unknown";
 
 /** Fixed metadata for a failed model attempt; provider values are never retained. */
 export class ModelAdapterError extends Error {
@@ -83,14 +69,24 @@ export class ModelAdapterError extends Error {
   }
 }
 
+const providerNotStartedErrors = new WeakSet<ModelAdapterError>();
+
+export function modelProviderNotStartedError(): ModelAdapterError {
+  const error = new ModelAdapterError("model_provider_failure");
+  providerNotStartedErrors.add(error);
+  return error;
+}
+
+export function isModelProviderNotStartedError(error: unknown): error is ModelAdapterError {
+  return error instanceof ModelAdapterError && providerNotStartedErrors.has(error);
+}
+
 interface CapturedMethod {
   readonly receiver: object;
   readonly method: (...args: never[]) => unknown;
 }
 
-interface CapturedInput extends Omit<ModelAdapterStreamInput, "context"> {
-  readonly context: readonly Readonly<ModelContextItem>[];
-}
+type CapturedInput = Readonly<ModelAdapterStreamInput>;
 
 interface CapturedIteratorResult {
   readonly done: boolean;
@@ -177,6 +173,10 @@ function boundedPositiveInteger(value: unknown, maximum: number): value is numbe
   return Number.isSafeInteger(value) && (value as number) > 0 && (value as number) <= maximum;
 }
 
+function isUlid(value: unknown): value is Ulid {
+  return typeof value === "string" && ULID.test(value);
+}
+
 function signalAborted(value: unknown): boolean | null {
   if (value === null || typeof value !== "object") return null;
   try {
@@ -189,7 +189,7 @@ function signalAborted(value: unknown): boolean | null {
   }
 }
 
-function snapshotContext(value: unknown, budget: number): readonly Readonly<ModelContextItem>[] {
+function snapshotContext(value: unknown, budget: number): readonly Readonly<RetrievedContext>[] {
   if (!Array.isArray(value)) throw failure("model_context_invalid");
   let prototype: object | null;
   let keys: readonly PropertyKey[];
@@ -213,7 +213,7 @@ function snapshotContext(value: unknown, budget: number): readonly Readonly<Mode
   })) throw failure("model_context_invalid");
 
   let contextBytes = 0;
-  const copied: Readonly<ModelContextItem>[] = [];
+  const copied: Readonly<RetrievedContext>[] = [];
   for (let index = 0; index < length; index += 1) {
     let descriptor: PropertyDescriptor | undefined;
     try { descriptor = Object.getOwnPropertyDescriptor(value, String(index)); }
@@ -222,7 +222,7 @@ function snapshotContext(value: unknown, budget: number): readonly Readonly<Mode
       throw failure("model_context_invalid");
     }
     const item = exactDataRecord(descriptor.value, CONTEXT_FIELDS);
-    if (item === null || typeof item.sourceEventId !== "string" || !ULID.test(item.sourceEventId)
+    if (item === null || !isUlid(item.sourceEventId)
       || !safeText(item.text, MAXIMUM_OUTPUT_CHARACTERS, MAXIMUM_OUTPUT_BYTES)
       || item.sensitivity !== "personal" && item.sensitivity !== "restricted") {
       throw failure("model_context_invalid");
@@ -238,7 +238,7 @@ function snapshotContext(value: unknown, budget: number): readonly Readonly<Mode
   return Object.freeze(copied);
 }
 
-function snapshotInput(value: unknown): CapturedInput {
+export function snapshotModelAdapterStreamInput(value: unknown): Readonly<ModelAdapterStreamInput> {
   const record = exactDataRecord(value, INPUT_FIELDS);
   if (record === null) throw failure("model_input_invalid");
   if (typeof record.correlationId !== "string" || !ULID.test(record.correlationId)
@@ -320,7 +320,7 @@ export class DefaultModelAdapter implements ModelAdapter {
   }
 
   stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
-    const captured = snapshotInput(input);
+    const captured = snapshotModelAdapterStreamInput(input);
     return this.streamCaptured(captured);
   }
 
