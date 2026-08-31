@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1",
+  "jarvisH0Commit": "814535de21df37e6abac1f63e5953d693b78e003",
+  "remote": "https://github.com/NousResearch/hermes-agent.git",
+  "tag": "v2026.8.27",
+  "tagObject": "fcebd62163497e77e5de00d26d2ed86cb4ef8761",
+  "sourceCommit": "5fc308a70719a83cccdbba4c0e39c23f5a8239d5",
+  "sourceTree": "222ec43b5237deb643277bc2f64fa4b873dd7f28",
+  "packageVersion": "0.20.6",
+  "rawFileSha256": {
+    "LICENSE": "821556e6336796450ab852d375117b48a4887e71d255794fd6318d99982a5ab6",
+    "pyproject.toml": "9b6d41aca6d908e5af2f90a335b1c2b7eeaf8e3ce667b5a823a73e8643c56c75",
+    "uv.lock": "5a9276183671e997c2213ede18b9cda4920e1cf57616219a3b08ddebda3281ab"
+  },
+  "acquisitionMethod": "git-detached",
+  "submodules": [],
+  "model": "deepseek-v4-pro",
+  "pythonVersion": "3.11.16",
+  "runsEventContractHash": "82b9a5fc26a624ff09da1c7fcc125c1d489647e00174c22a5e6e880269ff6b28",
+  "patchQueue": {"file": "patches/series.json", "sha256": "1d4737670634f5e39a497e9784c06a3179261cc00f8bf4dbbe49f0404c0ec456"},
+  "licenses": {"files": ["licenses/Hermes-Agent-LICENSE", "licenses/CPython-LICENSE", "licenses/python-build-standalone-licenses.rst", "licenses/uv-LICENSE", "licenses/WinSW-LICENSE"]},
+  "sbom": {"file": "sbom/hermes-agent-v2026.8.27-windows-x86_64-cpython-3.11.16.cdx.json", "format": "CycloneDX-1.6"},
+  "sbomSha256": "c62400fc802173df1b1266d19eadc7204436872c4e2bbc0c965c57941dd924a7"
+}

@@ -1,0 +1,9 @@
+Python Software Foundation License Version 2 and CNRI-Python notices
+
+The pinned python-build-standalone CPython 3.11.16 artifact is distributed
+under Python-2.0, CNRI-Python, and bundled-component licenses. Acquisition
+requires and preserves the artifact's `python/LICENSE.txt` and the exact,
+hash-pinned upstream `python-licenses.rst` rollup. The canonical full notice is
+the fetched, immutable rollup retained under the runtime root; this repository
+notice identifies the applicable SPDX license IDs without duplicating an
+unverified generated artifact.

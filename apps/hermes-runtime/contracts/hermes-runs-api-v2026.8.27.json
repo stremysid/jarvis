@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "2026.8.27",
+  "path": "/v1/runs",
+  "outboundRequestFields": ["input", "model", "profile", "session_id", "stream", "timeout_ms"],
+  "admission": {"status": 202, "contentType": "application/json; charset=utf-8", "body": {"run_id": "string", "status": "started"}},
+  "events": {
+    "status": 200,
+    "contentType": "text/event-stream",
+    "framing": {"dataOnly": true, "ordinaryJson": true, "preterminalComment": ": keepalive", "postterminalComment": ": stream closed"},
+    "allowed": {
+      "message.delta": ["event", "run_id", "timestamp", "delta"],
+      "reasoning.available": ["event", "run_id", "timestamp", "text"],
+      "run.completed": ["event", "run_id", "timestamp", "output", "usage"],
+      "run.failed": ["event", "run_id", "timestamp", "error"],
+      "run.cancelled": ["event", "run_id", "timestamp"]
+    },
+    "discardOnly": ["reasoning.available"],
+    "usageFields": ["completion_tokens", "prompt_tokens", "total_tokens"]
+  },
+  "stop": {"path": "/v1/runs/{run_id}/stop", "status": 200, "contentType": "application/json; charset=utf-8", "body": {"run_id": "string", "status": "stopping"}},
+  "get": {
+    "path": "/v1/runs/{run_id}",
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "baseFields": ["object", "run_id", "status", "updated_at", "created_at", "session_id", "model"],
+    "statuses": {
+      "queued": [],
+      "running": [[], ["last_event", "reasoning.available"]],
+      "stopping": [["last_event", "run.stopping"]],
+      "completed": [["last_event", "run.completed", "output", "usage"]],
+      "failed": [["last_event", "run.failed", "error"]],
+      "cancelled": [["last_event", "run.cancelled"]]
+    }
+  },
+  "notFound": {"status": 404, "contentType": "application/json; charset=utf-8", "body": {"error": "run_not_found"}}
+}

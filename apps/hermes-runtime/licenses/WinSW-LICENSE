@@ -1,0 +1,6 @@
+MIT License
+
+WinSW is distributed under the MIT License. Its pinned release is
+`WinSW-x64.exe` version 2.12.0 from the official WinSW release URL recorded in
+`runtime-artifacts-lock.json`; acquisition verifies its exact SHA-256 before
+installation and retains this notice with the runtime receipt.

@@ -1,0 +1,10 @@
+[
+  { "jarvisH0Commit": "814535de21df37e6abac1f63e5953d693b78e000" },
+  { "remote": "https://example.invalid/hermes-agent.git" },
+  { "tag": "main" },
+  { "sourceCommit": "5fc308a7" },
+  { "acquisitionMethod": "git-clone" },
+  { "model": "deepseek-chat" },
+  { "submodules": ["unexpected"] },
+  { "sbomSha256": "not-a-hash" }
+]

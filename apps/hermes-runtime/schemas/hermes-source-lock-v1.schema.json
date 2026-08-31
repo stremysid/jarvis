@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"required":["schemaVersion","jarvisH0Commit","remote","tag","tagObject","sourceCommit","sourceTree","packageVersion","rawFileSha256","acquisitionMethod","submodules","model","pythonVersion","runsEventContractHash","patchQueue","licenses","sbom","sbomSha256"]}
