@@ -1,0 +1,19 @@
+{
+  "canonicalRequestBody": "{\"channel\":\"voice\",\"context\":[{\"sensitivity\":\"personal\",\"sourceEventId\":\"01k3s6k8000000000000000004\",\"text\":\"remembered\"}],\"contextTokenBudget\":32000,\"correlationId\":\"01k3s6k8000000000000000003\",\"firstTokenTimeoutMs\":8000,\"maxOutputCharacters\":65536,\"principalId\":\"principal:sid\",\"reasoningEffort\":\"low\",\"requestId\":\"01k3s6k8000000000000000003\",\"schemaVersion\":\"1.0\",\"timeoutMs\":30000,\"userText\":\"hello\"}",
+  "requestHash": "235efcf5927ba250ad8ea078c9c5ed6e951084f3aec2e7d643e0904021aa5ac3",
+  "nativeInputUtf8Hex": "4a41525649532d48312d494e5055542d56310a350a68656c6c6f0a310a706572736f6e616c0a31300a72656d656d62657265640a",
+  "nativeInputSha256": "7b37a62a8fa9e2d5ec5fb89f1a9ffd131de2a69ccb816b35205afe8441310654",
+  "publicProfileKeyHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "profileId": "jarvis-voice-safe",
+  "sessionHmacMessageHex": "4a41525649532d48312d53455353494f4e2d563100000000116a61727669732d766f6963652d736166650000001a30316b3373366b38303030303030303030303030303030303033",
+  "sessionHmacSha256": "45de3de6d67f5a4bf9b3a16d7dec6cd5659b077abcaaaca7b2c4bab208f1f2f9",
+  "sessionId": "jv1_Rd495tZ_Wkv5s6Ftfexs1WWbB3q8qqynssS6sgjx8vk",
+  "eventChain": {
+    "initialHash": "df718845b3909c8dca4579963529bdd13f09b5a442385bbde0495a93882960d8",
+    "frameHashes": [
+      "70e3fb27873101bb2a8916644c10bebc4c7e6493d8553e203e15e7274c7cbe74",
+      "66d5aad25747040635b5602cae415f2d8a115f0b39163bba3665da3da9a1d7d1",
+      "6c1a5f70a948f32c0039d7f0d12b0064d0b046e8bd7189aaaf450bcaaa9e4ddf"
+    ]
+  }
+}

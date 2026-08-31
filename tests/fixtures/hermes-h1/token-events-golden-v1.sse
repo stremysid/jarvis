@@ -1,0 +1,6 @@
+data: {"eventIndex":0,"requestId":"01k3s6k8000000000000000003","schemaVersion":"1.0","text":"hello","tokenIndex":0,"type":"token"}
+
+data: {"eventIndex":1,"requestId":"01k3s6k8000000000000000003","schemaVersion":"1.0","text":" world","tokenIndex":1,"type":"token"}
+
+data: {"eventIndex":2,"outputHash":"b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9","requestId":"01k3s6k8000000000000000003","schemaVersion":"1.0","type":"completed"}
+

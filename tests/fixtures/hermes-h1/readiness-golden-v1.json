@@ -1,0 +1,8 @@
+{
+  "releaseCommit": "5fc308a70719a83cccdbba4c0e39c23f5a8239d5",
+  "configurationHash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "brainSchemaMajor": 1,
+  "runsEventContractHash": "1111111111111111111111111111111111111111111111111111111111111111",
+  "enabledProfileIds": ["jarvis-voice-safe"],
+  "health": "ready"
+}

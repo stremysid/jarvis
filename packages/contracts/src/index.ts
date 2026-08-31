@@ -1,6 +1,26 @@
 export { canonicalize, canonicalJson, normalizeJsonText, sha256Hex, type JsonValue } from "./canonical-json.js";
 export { newUlid, type Sha256Hex, type Ulid } from "./ids.js";
 export {
+  createJarvisTokenBridgeEventChainV1,
+  createJarvisTokenBridgeRequestV1,
+  encodeJarvisTokenBridgeEventSseFrameV1,
+  parseJarvisTokenBridgeAdmissionFailureV1,
+  parseJarvisTokenBridgeCancelRequestV1,
+  parseJarvisTokenBridgeCancelResponseV1,
+  parseJarvisTokenBridgeEventSseFrameV1,
+  parseJarvisTokenBridgeEventV1,
+  parseJarvisTokenBridgeReadinessV1,
+  parseJarvisTokenBridgeRequestV1,
+  type JarvisTokenBridgeAdmissionFailureV1,
+  type JarvisTokenBridgeCancelRequestV1,
+  type JarvisTokenBridgeCancelResponseV1,
+  type JarvisTokenBridgeEventChainV1,
+  type JarvisTokenBridgeEventV1,
+  type JarvisTokenBridgeReadinessV1,
+  type JarvisTokenBridgeRequestHashMaterialV1,
+  type JarvisTokenBridgeRequestV1,
+} from "./hermes-token-bridge.js";
+export {
   GUEST_CAPABILITY_IDS,
   type GuestCapabilityId,
   type VoiceAccessBinding,
