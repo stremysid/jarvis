@@ -287,7 +287,7 @@ Expected: one H0 merge commit whose first parent is the reviewed voice head and 
 
 Replace `H0_COMMIT_AFTER_TASK_0` below with the full H0 merge hash, rerun `pnpm test` and `git diff --check`, and commit only that plan binding as `docs(hermes): bind H1 plan to H0 base`. All H1 worktrees branch from this binding commit; the recorded H0 hash remains their immutable production-base prerequisite.
 
-**Verified H0 base:** `H0_COMMIT_AFTER_TASK_0`
+**Verified H0 base:** `814535de21df37e6abac1f63e5953d693b78e003`
 
 ---
 
