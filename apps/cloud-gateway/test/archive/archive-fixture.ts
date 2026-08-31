@@ -1,7 +1,11 @@
 import { env } from "cloudflare:test";
 import { canonicalJson, createEnvelope, newUlid, sha256Hex, type PersistableEventEnvelopeV1 } from "../../../../packages/contracts/src/index.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
-import { applyFoundationMigration, clearOutboundCallAttemptsForTest } from "../persistence/migration.js";
+import {
+  applyFoundationMigration,
+  clearOutboundCallAttemptsForTest,
+  clearVoiceAccessDataForTest,
+} from "../persistence/migration.js";
 
 const eventTimestamp = "2026-08-29T12:00:00.000Z";
 
@@ -20,6 +24,7 @@ export async function resetArchiveFixture(): Promise<void> {
     env.DB.prepare("DELETE FROM provider_events"),
   ]);
   await clearOutboundCallAttemptsForTest();
+  await clearVoiceAccessDataForTest();
   await env.DB.batch([
     env.DB.prepare("DELETE FROM outbox"),
     env.DB.prepare("DELETE FROM idempotency_records"),

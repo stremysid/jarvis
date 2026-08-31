@@ -11,6 +11,7 @@ import {
   GUEST_PRINCIPAL_ID,
   NOW,
   OWNER_IDENTITY_ID,
+  OWNER_SESSION_ID,
   REPLACED_DOCUMENT_HASH,
   ROTATED_RECORD,
   seedOwnerAuthority,
@@ -116,6 +117,71 @@ describe("voice access transaction faults", () => {
       env.DB.prepare("SELECT COUNT(*) AS count FROM voice_access_grant_events").first<{ count: number }>(),
     ]);
     expect([principals?.count, identities?.count, grants?.count, events?.count]).toEqual([0, 0, 0, 0]);
+  });
+
+  it.each([
+    ["create", async (repository: VoiceAccessRepository, ownerAuthority: Awaited<ReturnType<typeof seedOwnerAuthority>>) => {
+      await repository.createGuestGrant(validCreateInput(ownerAuthority));
+    }],
+    ["replace", async (repository: VoiceAccessRepository, ownerAuthority: Awaited<ReturnType<typeof seedOwnerAuthority>>) => {
+      await repository.replacePermissions({
+        mutationId: "01k3w1t4000000000000000581" as Ulid,
+        requestHash: "5".repeat(64) as Sha256Hex,
+        ownerAuthority,
+        ownerIdentityId: OWNER_IDENTITY_ID,
+        grantId: GRANT_ID,
+        expectedGrantVersion: 1,
+        capabilityIds: ["conversation.basic", "research.web"],
+        resourceScopes: EMPTY_SCOPES,
+        accessDocumentHash: REPLACED_DOCUMENT_HASH,
+        now: NOW,
+      });
+    }],
+    ["rotate", async (repository: VoiceAccessRepository, ownerAuthority: Awaited<ReturnType<typeof seedOwnerAuthority>>) => {
+      await repository.rotatePin({
+        mutationId: "01k3w1t4000000000000000582" as Ulid,
+        requestHash: "6".repeat(64) as Sha256Hex,
+        ownerAuthority,
+        ownerIdentityId: OWNER_IDENTITY_ID,
+        grantId: GRANT_ID,
+        expectedGrantVersion: 1,
+        pinVerifier: ROTATED_RECORD,
+        now: NOW,
+      });
+    }],
+    ["revoke", async (repository: VoiceAccessRepository, ownerAuthority: Awaited<ReturnType<typeof seedOwnerAuthority>>) => {
+      await repository.revokeGrant({
+        mutationId: "01k3w1t4000000000000000583" as Ulid,
+        requestHash: "7".repeat(64) as Sha256Hex,
+        ownerAuthority,
+        ownerIdentityId: OWNER_IDENTITY_ID,
+        grantId: GRANT_ID,
+        expectedGrantVersion: 1,
+        now: NOW,
+      });
+    }],
+  ] as const)("atomically rejects %s when the owner session terminalizes before its batch", async (operation, mutate) => {
+    let terminalizeBeforeBatch = false;
+    const repository = new VoiceAccessRepository(env.DB, {
+      beforeEventWrite: async () => {
+        if (!terminalizeBeforeBatch) return;
+        await env.DB.prepare(`UPDATE call_sessions SET phase = 'failed', updated_at = ?
+          WHERE session_id = ? AND phase IN ('authenticated', 'active')`)
+          .bind(NOW.toISOString(), OWNER_SESSION_ID).run();
+      },
+    });
+    const ownerAuthority = await seedOwnerAuthority(env.DB, repository);
+    if (operation !== "create") await repository.createGuestGrant(validCreateInput(ownerAuthority));
+    terminalizeBeforeBatch = true;
+
+    await expect(mutate(repository, ownerAuthority)).rejects.toThrow("owner_authority_required");
+    if (operation === "create") {
+      const guestRows = await env.DB.prepare(`SELECT COUNT(*) AS count FROM principals
+        WHERE principal_id = ?`).bind(GUEST_PRINCIPAL_ID).first<{ count: number }>();
+      expect(guestRows?.count).toBe(0);
+    } else {
+      await expectPendingGrant();
+    }
   });
 
   it.each([

@@ -4,6 +4,14 @@ ALTER TABLE call_sessions ADD COLUMN provider_connected_at TEXT
     OR strftime('%Y-%m-%dT%H:%M:%fZ', provider_connected_at) IS provider_connected_at
   );
 
+-- Pre-0007 rows did not retain the first provider-bind instant. Backfill from
+-- the immutable session creation time so upgrades fail closed without ever
+-- extending an existing authority beyond a later guessed connection time.
+UPDATE call_sessions
+SET provider_connected_at = created_at
+WHERE provider_session_id IS NOT NULL
+  AND provider_connected_at IS NULL;
+
 CREATE TRIGGER call_sessions_provider_connected_at_required
 BEFORE INSERT ON call_sessions
 WHEN NOT (

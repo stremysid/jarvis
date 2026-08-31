@@ -1315,6 +1315,60 @@ describe("CallSessionCore access, enrollment, and conversation", () => {
     });
   });
 
+  it.each(["token", "finish"] as const)(
+    "blocks a late relay %s when a turn ignores abort and emits after termination",
+    async (lateDelivery) => {
+      const repo = repository();
+      const stored = await createInboundSession(repo);
+      let release!: () => void;
+      let started!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      const entered = new Promise<void>((resolve) => { started = resolve; });
+      const conversation = {
+        handleTurn: vi.fn<ConversationService["handleTurn"]>(async (input) => {
+          if (input.channel !== "voice") throw new Error("voice_delivery_expected");
+          if (lateDelivery === "finish") await input.onToken({ index: 0, text: "before" });
+          started();
+          await gate;
+          if (lateDelivery === "token") await input.onToken({ index: 0, text: "late" });
+          else await input.finish("before");
+          return {
+            outcome: "voice_sent",
+            committedUserEventId: TURN_ID,
+            sentAssistantEventId: NEXT_TURN_ID,
+            deliveredAssistantEventId: null,
+            deliveryId: null,
+          };
+        }),
+        stageSystemNotice: vi.fn(),
+      } as ConversationService;
+      const harness = makeCore({ session: stored, repo, conversation });
+      await harness.instance.handleRelayEvent(relaySetup(stored));
+      expect(harness.instance.phase).toBe("active");
+
+      const pending = harness.instance.handleRelayEvent({
+        type: "prompt",
+        text: "emit only while active",
+        language: "en-US",
+        final: true,
+      });
+      const observed = pending.then(
+        () => ({ kind: "resolved" as const }),
+        (error: unknown) => ({ kind: "rejected" as const, error }),
+      );
+      await entered;
+      expect(harness.sendToken).toHaveBeenCalledTimes(lateDelivery === "finish" ? 1 : 0);
+      await harness.instance.terminate("completed");
+      release();
+
+      const result = await observed;
+      expect(result.kind).toBe("rejected");
+      if (result.kind === "rejected") expect(result.error).toEqual(expect.any(Error));
+      expect(harness.sendToken).toHaveBeenCalledTimes(lateDelivery === "finish" ? 1 : 0);
+      expect(harness.finish).not.toHaveBeenCalled();
+    },
+  );
+
   it("rejects an unsupported language or oversized final prompt before turn admission", async () => {
     const repo = repository();
     const stored = await createInboundSession(repo);
@@ -1528,6 +1582,45 @@ describe("CallSession Durable Object boundary", () => {
         callSid: initialization.binding.callSid,
         providerSessionId: PROVIDER_SESSION_ID,
         durablePhase: "completed",
+        cleanupState: "complete",
+      });
+    });
+  });
+
+  it("treats a provider-completed pre-authentication hangup as rejected and releases capacity", async () => {
+    const harness = await accessHarness("guest");
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    expect(await storedPhase(harness.stored.sessionId)).toBe("pre_auth");
+    await expect(harness.repo.countActiveSessions({
+      principalId: harness.stored.binding.principalId,
+      now: NOW,
+    })).resolves.toBe(1);
+    const initialization: CallSessionInitialization = Object.freeze({
+      sessionId: harness.stored.sessionId,
+      binding: harness.stored.binding,
+      relaySetupExpiresAt: harness.stored.relaySetupExpiresAt,
+    });
+    const stub = callSessionStub(initialization.sessionId);
+    await stub.initialize(initialization);
+
+    await expect(stub.terminate({
+      sessionId: initialization.sessionId,
+      phase: "completed",
+      reason: "provider_callback",
+    })).resolves.toMatchObject({
+      terminalPhase: "completed",
+      invalidated: true,
+      outcome: "applied",
+    });
+
+    expect(await storedPhase(initialization.sessionId)).toBe("rejected");
+    await expect(harness.repo.countActiveSessions({
+      principalId: harness.stored.binding.principalId,
+      now: NOW,
+    })).resolves.toBe(0);
+    await runInDurableObject(stub, async (_instance, state) => {
+      expect(await state.storage.get("call-session.termination.v1")).toMatchObject({
+        durablePhase: "rejected",
         cleanupState: "complete",
       });
     });

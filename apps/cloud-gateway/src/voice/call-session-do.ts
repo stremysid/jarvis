@@ -953,6 +953,17 @@ export class CallSessionCore {
     }
   }
 
+  #isActiveTurn(lifecycleGeneration: number, controller: AbortController): boolean {
+    return lifecycleGeneration === this.#lifecycleGeneration
+      && !this.#socketClosed
+      && this.#session.phase === "active"
+      && this.#activeTurnAbort === controller;
+  }
+
+  #requireActiveTurn(lifecycleGeneration: number, controller: AbortController): void {
+    if (!this.#isActiveTurn(lifecycleGeneration, controller)) throw new Error("call_session_terminal");
+  }
+
   async #handlePrompt(event: Extract<RelayEvent, { type: "prompt" }>): Promise<void> {
     if (
       this.#authorityService !== null
@@ -1009,8 +1020,14 @@ export class CallSessionCore {
     const delivery = createVoiceStreamDelivery({
       sessionId: this.#session.sessionId,
       turnId,
-      sendToken: (token) => this.#relay.sendToken(token),
-      finish: (finalText) => this.#relay.finish(finalText),
+      sendToken: async (token) => {
+        this.#requireActiveTurn(lifecycleGeneration, controller);
+        await this.#relay.sendToken(token);
+      },
+      finish: async (finalText) => {
+        this.#requireActiveTurn(lifecycleGeneration, controller);
+        await this.#relay.finish(finalText);
+      },
     });
     try {
       const result = await this.#conversation.handleTurn({
@@ -1021,6 +1038,17 @@ export class CallSessionCore {
         signal: controller.signal,
         ...delivery,
       });
+      if (!this.#isActiveTurn(lifecycleGeneration, controller)) {
+        if (
+          result.outcome === "voice_sent"
+          || result.sentAssistantEventId !== null
+          || result.deliveredAssistantEventId !== null
+          || result.deliveryId !== null
+        ) {
+          throw new Error("call_session_terminal");
+        }
+        return;
+      }
       if (result.deliveredAssistantEventId !== null || result.deliveryId !== null) {
         throw new Error("conversation_voice_result_invalid");
       }
@@ -1472,6 +1500,8 @@ export class CallSession extends DurableObject<Env> {
         nextPhase = "ending";
       } else if (current.phase === "ending") {
         nextPhase = "completed";
+      } else if (current.phase === "created" || current.phase === "connecting" || current.phase === "pre_auth") {
+        nextPhase = "rejected";
       } else {
         throw terminationFailure("call_session_termination_state_conflict");
       }

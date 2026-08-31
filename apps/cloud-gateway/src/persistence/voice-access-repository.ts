@@ -595,6 +595,67 @@ JOIN channel_identities identity ON identity.identity_id = authority.identity_id
 LEFT JOIN voice_owner_identity owner ON owner.singleton_id = 1
 LEFT JOIN voice_access_grants current_grant ON current_grant.grant_id = authority.grant_id`;
 
+const OWNER_MUTATION_AUTHORITY_GUARD = `EXISTS (
+  SELECT 1
+  FROM call_session_authorities mutation_authority
+  JOIN call_sessions mutation_session
+    ON mutation_session.session_id = mutation_authority.session_id
+    AND mutation_session.principal_id = mutation_authority.principal_id
+    AND mutation_session.identity_id = mutation_authority.identity_id
+  JOIN voice_owner_identity mutation_owner
+    ON mutation_owner.singleton_id = 1
+    AND mutation_owner.principal_id = mutation_authority.principal_id
+    AND mutation_owner.identity_id = mutation_authority.identity_id
+  JOIN principals mutation_principal
+    ON mutation_principal.principal_id = mutation_authority.principal_id
+  JOIN channel_identities mutation_identity
+    ON mutation_identity.identity_id = mutation_authority.identity_id
+    AND mutation_identity.principal_id = mutation_authority.principal_id
+    AND mutation_identity.channel = 'voice'
+  WHERE mutation_authority.session_id = ?
+    AND mutation_authority.authority_kind = 'owner'
+    AND mutation_authority.principal_id = ?
+    AND mutation_authority.identity_id = ?
+    AND mutation_authority.grant_id IS NULL
+    AND mutation_authority.grant_version IS NULL
+    AND mutation_authority.access_document_hash IS NULL
+    AND mutation_authority.authenticated_at = ?
+    AND mutation_authority.expires_at = ?
+    AND mutation_authority.expires_at > ?
+    AND mutation_session.phase IN ('authenticated', 'active')
+    AND mutation_session.access_kind = 'owner'
+    AND mutation_session.guest_grant_id IS NULL
+    AND mutation_session.guest_grant_version IS NULL
+    AND mutation_session.access_document_hash IS NULL
+    AND mutation_session.provider_session_id IS NOT NULL
+    AND mutation_session.provider_connected_at IS NOT NULL
+    AND mutation_authority.authenticated_at >= mutation_session.provider_connected_at
+    AND mutation_authority.expires_at = strftime(
+      '%Y-%m-%dT%H:%M:%fZ', mutation_session.provider_connected_at, '+1800 seconds'
+    )
+    AND mutation_owner.identity_id = ?
+    AND mutation_principal.principal_type = 'human'
+    AND mutation_principal.status = 'active'
+    AND mutation_identity.status = 'active'
+    AND mutation_identity.verified_at IS NOT NULL
+)`;
+
+function ownerMutationGuardBindings(
+  authority: PersistedCallAuthority,
+  ownerIdentityId: string,
+  nowIso: string,
+) {
+  return [
+    authority.sessionId,
+    authority.principalId,
+    authority.identityId,
+    authority.authenticatedAt,
+    authority.expiresAt,
+    nowIso,
+    ownerIdentityId,
+  ] as const;
+}
+
 export class VoiceAccessRepository {
   readonly #database: D1Database;
   readonly #transactions: TransactionRunner;
@@ -929,40 +990,65 @@ export class VoiceAccessRepository {
       resourceScopes,
       accessDocumentHash,
     });
-    await this.#requireOwnerAuthority(captured.ownerAuthority, captured.ownerIdentityId, captured.now);
+    const ownerAuthority = await this.#requireOwnerAuthority(
+      captured.ownerAuthority,
+      captured.ownerIdentityId,
+      captured.now,
+    );
+    const ownerGuard = ownerMutationGuardBindings(
+      ownerAuthority,
+      captured.ownerIdentityId as string,
+      nowIso,
+    );
     const replay = await this.#eventReplay(mutationId, requestHash, grantId, "created");
     if (replay !== null) return replay;
     await this.#beforeEventWrite?.();
     const statements = [
       this.#database.prepare(`INSERT INTO principals
         (principal_id, principal_type, status, display_name, created_at, updated_at)
-        VALUES (?, 'human', 'active', 'voice guest', ?, ?)`)
-        .bind(captured.guestPrincipalId, nowIso, nowIso),
+        SELECT ?, 'human', 'active', 'voice guest', ?, ? WHERE ${OWNER_MUTATION_AUTHORITY_GUARD}`)
+        .bind(captured.guestPrincipalId, nowIso, nowIso, ...ownerGuard),
       this.#database.prepare(`INSERT INTO channel_identities
         (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at, enrolled_by_device_id)
-        VALUES (?, ?, 'voice', ?, 'pending', NULL, ?, NULL)`)
-        .bind(captured.guestIdentityId, captured.guestPrincipalId, captured.providerE164, nowIso),
+        SELECT ?, ?, 'voice', ?, 'pending', NULL, ?, NULL WHERE ${OWNER_MUTATION_AUTHORITY_GUARD}`)
+        .bind(captured.guestIdentityId, captured.guestPrincipalId, captured.providerE164, nowIso, ...ownerGuard),
       this.#database.prepare(`INSERT INTO voice_access_grants (
         grant_id, principal_id, identity_id, grant_version, capability_ids_json, resource_scopes_json,
         access_document_hash, pin_schema_version, pin_algorithm, pin_pepper_version, pin_iterations,
         pin_salt_base64, pin_digest_base64, status, created_by_identity_id, created_at,
         activated_at, updated_at, revoked_at
-      ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, NULL, ?, NULL)`)
+      ) SELECT ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, NULL, ?, NULL
+        WHERE ${OWNER_MUTATION_AUTHORITY_GUARD}`)
         .bind(
           grantId, captured.guestPrincipalId, captured.guestIdentityId,
           JSON.stringify(capabilityIds), JSON.stringify(resourceScopes), accessDocumentHash,
           pinVerifier.schemaVersion, pinVerifier.algorithm, pinVerifier.pepperVersion, pinVerifier.iterations,
           pinVerifier.saltBase64, pinVerifier.digestBase64, captured.ownerIdentityId, nowIso, nowIso,
+          ...ownerGuard,
         ),
       this.#database.prepare(`INSERT INTO voice_access_grant_events (
         event_id, grant_id, grant_version, event_type, owner_identity_id, request_hash,
         capability_ids_json, access_document_hash, created_at
-      ) VALUES (?, ?, 1, 'created', ?, ?, ?, ?, ?)`)
-        .bind(mutationId, grantId, captured.ownerIdentityId, requestHash, JSON.stringify(capabilityIds), accessDocumentHash, nowIso),
+      ) SELECT ?, ?, 1, 'created', ?, ?, ?, ?, ? WHERE ${OWNER_MUTATION_AUTHORITY_GUARD}`)
+        .bind(
+          mutationId,
+          grantId,
+          captured.ownerIdentityId,
+          requestHash,
+          JSON.stringify(capabilityIds),
+          accessDocumentHash,
+          nowIso,
+          ...ownerGuard,
+        ),
     ];
     const fault = this.#faultStatement("create");
+    const eventResultIndex = fault === null ? 3 : 4;
     if (fault !== null) statements.splice(3, 0, fault);
-    await this.#transactions.batch(statements);
+    const results = await this.#transactions.batch(statements);
+    if ([0, 1, 2, eventResultIndex].some((index) => (results[index]?.meta.changes ?? 0) !== 1)) {
+      await this.#requireOwnerAuthority(ownerAuthority, captured.ownerIdentityId, captured.now);
+      throw new Error("voice_access_write_failed");
+    }
     const created = await this.#grant(grantId);
     if (created === null) throw new Error("voice_access_write_failed");
     return created;
@@ -982,7 +1068,16 @@ export class VoiceAccessRepository {
     const capabilityIds = capabilities(captured.capabilityIds);
     const resourceScopes = scopes(captured.resourceScopes);
     const accessDocumentHash = hash(captured.accessDocumentHash);
-    await this.#requireOwnerAuthority(captured.ownerAuthority, captured.ownerIdentityId, captured.now);
+    const ownerAuthority = await this.#requireOwnerAuthority(
+      captured.ownerAuthority,
+      captured.ownerIdentityId,
+      captured.now,
+    );
+    const ownerGuard = ownerMutationGuardBindings(
+      ownerAuthority,
+      captured.ownerIdentityId as string,
+      nowIso,
+    );
     const replay = await this.#eventReplay(mutationId, requestHash, grantId, "permissions_replaced");
     if (replay !== null) return replay;
     const current = await this.#grant(grantId);
@@ -1000,24 +1095,38 @@ export class VoiceAccessRepository {
     const statements = [
       this.#database.prepare(`UPDATE voice_access_grants
         SET grant_version = ?, capability_ids_json = ?, resource_scopes_json = ?, access_document_hash = ?, updated_at = ?
-        WHERE grant_id = ? AND grant_version = ? AND status IN ('pending', 'active')`)
-        .bind(nextVersion, JSON.stringify(capabilityIds), JSON.stringify(resourceScopes), accessDocumentHash, nowIso, grantId, expectedVersion),
+        WHERE grant_id = ? AND grant_version = ? AND status IN ('pending', 'active')
+          AND ${OWNER_MUTATION_AUTHORITY_GUARD}`)
+        .bind(
+          nextVersion,
+          JSON.stringify(capabilityIds),
+          JSON.stringify(resourceScopes),
+          accessDocumentHash,
+          nowIso,
+          grantId,
+          expectedVersion,
+          ...ownerGuard,
+        ),
       this.#database.prepare(`INSERT INTO voice_access_grant_events (
         event_id, grant_id, grant_version, event_type, owner_identity_id, request_hash,
         capability_ids_json, access_document_hash, created_at
       ) SELECT ?, ?, ?, 'permissions_replaced', ?, ?, ?, ?, ?
         WHERE EXISTS (SELECT 1 FROM voice_access_grants WHERE grant_id = ? AND grant_version = ?
-          AND access_document_hash = ? AND status IN ('pending', 'active'))`)
+          AND access_document_hash = ? AND status IN ('pending', 'active'))
+          AND ${OWNER_MUTATION_AUTHORITY_GUARD}`)
         .bind(
           mutationId, grantId, nextVersion, captured.ownerIdentityId, requestHash,
           JSON.stringify(capabilityIds), accessDocumentHash, nowIso,
           grantId, nextVersion, accessDocumentHash,
+          ...ownerGuard,
         ),
     ];
     const fault = this.#faultStatement("replace");
+    const eventResultIndex = fault === null ? 1 : 2;
     if (fault !== null) statements.splice(1, 0, fault);
     const results = await this.#transactions.batch(statements);
-    if ((results[0]?.meta.changes ?? 0) !== 1 || (results[1]?.meta.changes ?? 0) !== 1) {
+    if ((results[0]?.meta.changes ?? 0) !== 1 || (results[eventResultIndex]?.meta.changes ?? 0) !== 1) {
+      await this.#requireOwnerAuthority(ownerAuthority, captured.ownerIdentityId, captured.now);
       throw new Error("voice_access_grant_stale");
     }
     const updated = await this.#grant(grantId);
@@ -1037,7 +1146,16 @@ export class VoiceAccessRepository {
     if (!safeId(captured.ownerIdentityId)) invalidInput();
     const nowIso = dateIso(captured.now);
     const pinVerifier = verifier(captured.pinVerifier);
-    await this.#requireOwnerAuthority(captured.ownerAuthority, captured.ownerIdentityId, captured.now);
+    const ownerAuthority = await this.#requireOwnerAuthority(
+      captured.ownerAuthority,
+      captured.ownerIdentityId,
+      captured.now,
+    );
+    const ownerGuard = ownerMutationGuardBindings(
+      ownerAuthority,
+      captured.ownerIdentityId as string,
+      nowIso,
+    );
     const replay = await this.#eventReplay(mutationId, requestHash, grantId, "pin_rotated");
     if (replay !== null) return replay;
     const current = await this.#grant(grantId);
@@ -1049,24 +1167,37 @@ export class VoiceAccessRepository {
     const statements = [
       this.#database.prepare(`UPDATE voice_access_grants
         SET grant_version = ?, pin_salt_base64 = ?, pin_digest_base64 = ?, updated_at = ?
-        WHERE grant_id = ? AND grant_version = ? AND status IN ('pending', 'active')`)
-        .bind(nextVersion, pinVerifier.saltBase64, pinVerifier.digestBase64, nowIso, grantId, expectedVersion),
+        WHERE grant_id = ? AND grant_version = ? AND status IN ('pending', 'active')
+          AND ${OWNER_MUTATION_AUTHORITY_GUARD}`)
+        .bind(
+          nextVersion,
+          pinVerifier.saltBase64,
+          pinVerifier.digestBase64,
+          nowIso,
+          grantId,
+          expectedVersion,
+          ...ownerGuard,
+        ),
       this.#database.prepare(`INSERT INTO voice_access_grant_events (
         event_id, grant_id, grant_version, event_type, owner_identity_id, request_hash,
         capability_ids_json, access_document_hash, created_at
       ) SELECT ?, ?, ?, 'pin_rotated', ?, ?, ?, ?, ?
         WHERE EXISTS (SELECT 1 FROM voice_access_grants WHERE grant_id = ? AND grant_version = ?
-          AND pin_salt_base64 = ? AND pin_digest_base64 = ? AND status IN ('pending', 'active'))`)
+          AND pin_salt_base64 = ? AND pin_digest_base64 = ? AND status IN ('pending', 'active'))
+          AND ${OWNER_MUTATION_AUTHORITY_GUARD}`)
         .bind(
           mutationId, grantId, nextVersion, captured.ownerIdentityId, requestHash,
           JSON.stringify(current.capabilityIds), current.accessDocumentHash, nowIso,
           grantId, nextVersion, pinVerifier.saltBase64, pinVerifier.digestBase64,
+          ...ownerGuard,
         ),
     ];
     const fault = this.#faultStatement("rotate");
+    const eventResultIndex = fault === null ? 1 : 2;
     if (fault !== null) statements.splice(1, 0, fault);
     const results = await this.#transactions.batch(statements);
-    if ((results[0]?.meta.changes ?? 0) !== 1 || (results[1]?.meta.changes ?? 0) !== 1) {
+    if ((results[0]?.meta.changes ?? 0) !== 1 || (results[eventResultIndex]?.meta.changes ?? 0) !== 1) {
+      await this.#requireOwnerAuthority(ownerAuthority, captured.ownerIdentityId, captured.now);
       throw new Error("voice_access_grant_stale");
     }
     const updated = await this.#grant(grantId);
@@ -1084,7 +1215,16 @@ export class VoiceAccessRepository {
     const expectedVersion = positiveVersion(captured.expectedGrantVersion);
     if (!safeId(captured.ownerIdentityId)) invalidInput();
     const nowIso = dateIso(captured.now);
-    await this.#requireOwnerAuthority(captured.ownerAuthority, captured.ownerIdentityId, captured.now);
+    const ownerAuthority = await this.#requireOwnerAuthority(
+      captured.ownerAuthority,
+      captured.ownerIdentityId,
+      captured.now,
+    );
+    const ownerGuard = ownerMutationGuardBindings(
+      ownerAuthority,
+      captured.ownerIdentityId as string,
+      nowIso,
+    );
     const replay = await this.#eventReplay(mutationId, requestHash, grantId, "revoked");
     if (replay !== null) return replay;
     const current = await this.#grant(grantId);
@@ -1096,25 +1236,32 @@ export class VoiceAccessRepository {
     const statements = [
       this.#database.prepare(`UPDATE voice_access_grants
         SET grant_version = ?, status = 'revoked', updated_at = ?, revoked_at = ?
-        WHERE grant_id = ? AND grant_version = ? AND status IN ('pending', 'active')`)
-        .bind(nextVersion, nowIso, nowIso, grantId, expectedVersion),
+        WHERE grant_id = ? AND grant_version = ? AND status IN ('pending', 'active')
+          AND ${OWNER_MUTATION_AUTHORITY_GUARD}`)
+        .bind(nextVersion, nowIso, nowIso, grantId, expectedVersion, ...ownerGuard),
       this.#database.prepare(`UPDATE channel_identities SET status = 'disabled'
-        WHERE identity_id = ? AND principal_id = ? AND channel = 'voice' AND status IN ('pending', 'active')`)
-        .bind(current.identityId, current.principalId),
+        WHERE identity_id = ? AND principal_id = ? AND channel = 'voice' AND status IN ('pending', 'active')
+          AND ${OWNER_MUTATION_AUTHORITY_GUARD}`)
+        .bind(current.identityId, current.principalId, ...ownerGuard),
       this.#database.prepare(`INSERT INTO voice_access_grant_events (
         event_id, grant_id, grant_version, event_type, owner_identity_id, request_hash,
         capability_ids_json, access_document_hash, created_at
       ) SELECT ?, ?, ?, 'revoked', ?, ?, ?, ?, ?
-        WHERE EXISTS (SELECT 1 FROM voice_access_grants WHERE grant_id = ? AND grant_version = ? AND status = 'revoked')`)
+        WHERE EXISTS (SELECT 1 FROM voice_access_grants WHERE grant_id = ? AND grant_version = ? AND status = 'revoked')
+          AND ${OWNER_MUTATION_AUTHORITY_GUARD}`)
         .bind(
           mutationId, grantId, nextVersion, captured.ownerIdentityId, requestHash,
           JSON.stringify(current.capabilityIds), current.accessDocumentHash, nowIso, grantId, nextVersion,
+          ...ownerGuard,
         ),
     ];
     const fault = this.#faultStatement("revoke");
+    const eventResultIndex = fault === null ? 2 : 3;
     if (fault !== null) statements.splice(2, 0, fault);
     const results = await this.#transactions.batch(statements);
-    if ((results[0]?.meta.changes ?? 0) !== 1 || (results[1]?.meta.changes ?? 0) !== 1 || (results[2]?.meta.changes ?? 0) !== 1) {
+    if ((results[0]?.meta.changes ?? 0) !== 1 || (results[1]?.meta.changes ?? 0) !== 1
+      || (results[eventResultIndex]?.meta.changes ?? 0) !== 1) {
+      await this.#requireOwnerAuthority(ownerAuthority, captured.ownerIdentityId, captured.now);
       throw new Error("voice_access_grant_stale");
     }
     const updated = await this.#grant(grantId);

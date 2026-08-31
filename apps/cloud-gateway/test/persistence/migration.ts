@@ -9,7 +9,7 @@ import voiceAccessBoundariesSql from "../../src/persistence/migrations/0007_voic
 
 let migrated: Promise<void> | undefined;
 
-function splitMigration(sql: string): string[] {
+export function splitMigration(sql: string): string[] {
   const triggers: string[] = [];
   const statements = sql.replace(/CREATE TRIGGER\b[\s\S]*?\nEND;/giu, (trigger) => {
     const marker = `__JARVIS_TRIGGER_${triggers.length}__`;
@@ -22,37 +22,25 @@ function splitMigration(sql: string): string[] {
   });
 }
 
+export const voiceAccessBaseMigrations = Object.freeze([
+  { name: "0001_foundation.sql", queries: splitMigration(foundationSql) },
+  { name: "0002_foundation_hardening.sql", queries: splitMigration(foundationHardeningSql) },
+  { name: "0003_calling.sql", queries: splitMigration(callingSql) },
+  { name: "0004_call_sessions.sql", queries: splitMigration(callSessionsSql) },
+  { name: "0005_conversation.sql", queries: splitMigration(conversationSql) },
+  { name: "0006_voice_access.sql", queries: splitMigration(voiceAccessSql) },
+]);
+
+export const voiceAccessBoundariesMigration = Object.freeze({
+  name: "0007_voice_access_boundaries.sql",
+  queries: splitMigration(voiceAccessBoundariesSql),
+});
+
 /** Applies the deployable Wrangler migration to the actual D1 test binding once. */
 export function applyFoundationMigration(): Promise<void> {
   migrated ??= applyD1Migrations(env.DB, [
-    {
-      name: "0001_foundation.sql",
-      queries: splitMigration(foundationSql),
-    },
-    {
-      name: "0002_foundation_hardening.sql",
-      queries: splitMigration(foundationHardeningSql),
-    },
-    {
-      name: "0003_calling.sql",
-      queries: splitMigration(callingSql),
-    },
-    {
-      name: "0004_call_sessions.sql",
-      queries: splitMigration(callSessionsSql),
-    },
-    {
-      name: "0005_conversation.sql",
-      queries: splitMigration(conversationSql),
-    },
-    {
-      name: "0006_voice_access.sql",
-      queries: splitMigration(voiceAccessSql),
-    },
-    {
-      name: "0007_voice_access_boundaries.sql",
-      queries: splitMigration(voiceAccessBoundariesSql),
-    },
+    ...voiceAccessBaseMigrations,
+    voiceAccessBoundariesMigration,
   ]);
   return migrated;
 }
