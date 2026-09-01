@@ -1,6 +1,7 @@
 export { canonicalize, canonicalJson, normalizeJsonText, sha256Hex, type JsonValue } from "./canonical-json.js";
 export { newUlid, type Sha256Hex, type Ulid } from "./ids.js";
 export {
+  JARVIS_TOKEN_BRIDGE_REQUEST_LIMITS_V1,
   createJarvisTokenBridgeEventChainV1,
   createJarvisTokenBridgeRequestV1,
   encodeJarvisTokenBridgeEventSseFrameV1,
