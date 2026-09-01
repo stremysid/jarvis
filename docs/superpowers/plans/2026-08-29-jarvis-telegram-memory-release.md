@@ -26,7 +26,20 @@
 - Archive backups use a random key protected by DPAPI, a versioned manifest, and integrity hashes. FTS/vector indexes are always rebuildable from the raw archive.
 - The semantic baseline is `onnxruntime==1.29.0` running the offline `sentence-transformers/all-MiniLM-L6-v2` ONNX artifact pinned to an immutable model revision. `model-lock.json` records the revision, source URL, license metadata, and exact SHA-256/size of every required artifact; an explicit acquisition script verifies a temporary download before atomically populating the ignored `apps/local-agent/vendor/all-MiniLM-L6-v2/artifacts/` cache. The release bundle includes those verified artifacts so installed inference is offline. If the SQLite vector candidate fails, this same locked model writes little-endian float32 embeddings to SQLite BLOBs and ranks by deterministic in-process cosine similarity.
 - Commit only variable names and setup instructions. `jarvis doctor` exits 0 when ready, 2 for missing credentials, 3 for invalid configuration, and 4 for failed dependencies without printing values, fingerprints, lengths, or derivatives.
-- No PC-control, browser, file-editing, payment, scheduling, vehicle, third-party calling, Telegram voice-note, arbitrary-file, PWA, HUD, tray, hotword, or knock-detection capability belongs in this plan.
+- No PC-control, browser, general or arbitrary file-editing, payment, scheduling, vehicle, third-party calling, Telegram voice-note, arbitrary-file, PWA, HUD, tray, hotword, or knock-detection capability belongs in this plan. The separately approved Obsidian design may amend this plan only with a dedicated internal memory adapter confined to one configured vault; it does not create a model-visible filesystem tool.
+
+## Hard Execution and Release Block: Superseding Obsidian Plan Required
+
+This plan predates the approved Obsidian memory scope and **must not be executed, resumed, marked complete, used to certify the full foundation, or used to tag/release `0.1.0`** until a superseding Obsidian implementation plan has been written, independently reviewed, and explicitly approved. That superseding plan must integrate exact work cards and dependencies for all of the following into the release path:
+
+- versioned vault-observation contracts and cloud ingestion endpoints, including authenticated sequencing and idempotency;
+- the root-confined local Obsidian adapter, durable write journal, reconciliation crawl, watcher recovery, current-document heads, and tombstones;
+- local and cloud storage/migrations for observation provenance, authority decisions, correction/retraction state, cloud-ingest policy, and plaintext-export policy;
+- safe Obsidian installation/vault setup, configuration, bootstrap, diagnostics, backup/restore, and operator runbooks;
+- unit, integration, security, crash-recovery, offline-reconciliation, retrieval, policy, setup, and end-to-end acceptance tests; and
+- release-manifest fields plus audit rules requiring passed Obsidian evidence before certification.
+
+Until that approved plan exists and its work and evidence have passed, every checkbox and passing command below is evidence for the pre-Obsidian baseline only. The `REQUIRED_EVIDENCE` example, synthetic complete manifest, Task 10 audit, and legacy checklist are structurally incapable of certifying the current approved Jarvis scope on their own. This block may be removed only by the approved superseding implementation plan that supplies those missing contracts, work cards, tests, and release gates; editing this legacy plan or checking its boxes is not sufficient.
 
 ## File Structure
 
@@ -1059,6 +1072,8 @@ def audit_release_manifest(path: Path) -> None:
     if evidence["dependency_audit"]["critical_or_high"] and not evidence["dependency_audit"].get("approved_time_bounded_exception"): raise ReleaseAuditError("critical_or_high_vulnerability")
 ```
 
+The sample `REQUIRED_EVIDENCE` set and validator above specify only the pre-Obsidian baseline. They must not be implemented or accepted as the current release certificate until the approved superseding Obsidian implementation plan extends them with its required evidence and audit failures. A passing result from this legacy validator, including against `complete-passed-manifest.json`, cannot clear the hard execution and release block.
+
 Every production script supports `-DryRun`, validates that it is executing from the repository root, uses argument arrays instead of shell-built command strings, exits nonzero on the first failed provider command, and emits only command names, resource aliases, HTTP status classes, deployment/version IDs, and redacted result codes. `-DryRun` performs no network or filesystem mutation. Actual external mutation requires the explicit `-Execute` switch; the release runbook treats that switch as the operator's cost/external-state checkpoint.
 
 The scripts own these exact operations:
@@ -1090,6 +1105,8 @@ git commit -m "chore(release): add telegram memory deployment audit"
 
 ## Release Execution Checklist
 
+- [ ] Approve the superseding Obsidian implementation plan and complete its contracts, endpoints, root-confined adapter/reconciliation, authority/export storage and migrations, setup/diagnostics, tests, and release-manifest audit work; until all resulting evidence is `passed`, this entire legacy checklist remains non-certifying and `0.1.0` is blocked.
+- [ ] Verify `scripts/release-audit.ps1` and the real manifest schema require the Obsidian evidence defined by that approved plan. The legacy `REQUIRED_EVIDENCE` set and synthetic complete fixture must fail current-scope certification when that evidence is absent.
 - [ ] Deploy and verify the D1 migrations for Telegram rate/idempotency state, per-device cursors, memory projection versions, and transactional outbox rows; execute the documented rollback in an isolated D1 database before production.
 - [ ] Store `DEEPSEEK_API_KEY`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, and `PIN_VERIFIER_JSON` only in Cloudflare secret storage. Store only the 15-minute bootstrap-token hash/expiry in D1; keep its plaintext and device/backup keys only in Windows-protected transient or persistent storage as appropriate.
 - [ ] Accept Twilio's Predictive and Generative AI/ML Features Addendum, verify no TwiML App or trunk overrides the selected number's direct Voice URL, and prove generated TwiML includes the opaque relay-nonce `<Parameter>` plus signed relay-ended callback.
@@ -1105,12 +1122,12 @@ git commit -m "chore(release): add telegram memory deployment audit"
 
 ## Self-Review
 
-**Spec coverage:** Task 2 enforces Telegram text-only handling, header validation, allowlisting, rejection minimization, limits, and idempotency. Tasks 4–6 implement protected local credentials, signed replication, append-only archive, canonical hash verification, and idempotent cursor behavior. Tasks 7–8 implement mandatory full-text/semantic retrieval, Windows compatibility fallback, source-linked fact states, safe promotion, cloud-only model distillation, and atomic projection. Task 9 covers offline continuity, SID-restricted CLI transport, recovery, backup, and 1,000-event catch-up. Task 10 covers secrets, deployment, clean setup, live smoke, required docs, and release evidence. The calling plan remains the authoritative implementation of voice paths while its permanent gate is explicitly required before release.
+**Spec coverage:** This plan does not claim full coverage of the current approved foundation. It covers only the pre-Obsidian baseline: Task 2 enforces Telegram text-only handling, header validation, allowlisting, rejection minimization, limits, and idempotency. Tasks 4–6 implement protected local credentials, signed replication, append-only archive, canonical hash verification, and idempotent cursor behavior. Tasks 7–8 implement mandatory full-text/semantic retrieval, Windows compatibility fallback, source-linked fact states, safe promotion, cloud-only model distillation, and atomic projection. Task 9 covers offline continuity, SID-restricted CLI transport, recovery, backup, and 1,000-event catch-up. Task 10 covers the legacy secrets, deployment, clean setup, live smoke, required docs, and release evidence. The calling plan remains authoritative for voice paths. Full foundation and release coverage additionally requires the approved superseding Obsidian implementation plan and passed evidence enumerated by the hard block above.
 
-**Placeholder scan:** This plan contains no deferred work markers, unnamed tests, implicit interfaces, or unbounded implementation instructions. Each task names files, public symbols, a failing test, an expected failing command, minimal implementation code, a passing command, and a commit.
+**Boundedness review:** Each legacy task names files, public symbols, a failing test, an expected failing command, minimal implementation code, a passing command, and a commit. That internal boundedness is not a completeness claim: the Obsidian work is an explicit blocked prerequisite that must be specified in a separately approved superseding plan before any execution or certification.
 
 **Type consistency:** `SyncEventsRequestV1`, `MemoryDistillRequestV1`, and `MemoryFactProjectV1` are introduced in Task 1, verified in Task 5, and consumed unchanged in Task 8. `ArchiveRepository.insert_event_if_absent` is introduced in Task 6 and used by the Task 5 replicator. `LocalMemoryRetriever.search` is introduced in Task 8 and used by Task 9 acceptance flows. `run_compatibility_gate` is defined in Task 7 and used by Task 10 setup.
 
 ## Execution Handoff
 
-Approved execution mode: use `superpowers:subagent-driven-development` in the same isolated feature worktree after foundation and calling pass, dispatch one fresh implementer per task, and require independent spec-compliance and code-quality review before advancing. Automated dry-run and fake-provider gates run autonomously; resource creation, webhook mutation, credential entry, deployment, and paid live smoke remain explicit release checkpoints.
+Execution status: **BLOCKED pending the independently reviewed and explicitly approved superseding Obsidian implementation plan required above.** After that plan integrates this legacy work into the current scope, use its approved execution mode (expected to be `superpowers:subagent-driven-development` in the same isolated feature worktree), dispatch one fresh implementer per task, and require independent spec-compliance and code-quality review before advancing. Automated dry-run and fake-provider gates may run autonomously only after the block is cleared; resource creation, webhook mutation, credential entry, deployment, and paid live smoke remain explicit release checkpoints.

@@ -34,10 +34,11 @@ Live calling is foundational. Version 0.1.0 and every later release must support
 6. The local agent replicates cloud events into a permanent archive, distills facts with source references, and provides full-text plus semantic retrieval.
 7. Jarvis continues handling calls and Telegram while the Windows machine is off because accepted events are retained in cloud storage. If durable cloud persistence is unavailable or near exhaustion, Jarvis fails closed before accepting a conversation rather than responding without an auditable record.
 8. Missing credentials are reported by `jarvis doctor`, which names missing variable identifiers without printing values or derived fingerprints. It exits 0 when ready, 2 for missing credentials, 3 for invalid configuration, and 4 for failed dependency checks.
+9. The Windows local agent exposes the two-tier memory through the required, dedicated, root-confined Obsidian adapter defined in `docs/superpowers/specs/2026-08-30-jarvis-obsidian-memory-design.md`. That adapter is version 0.1.0 memory infrastructure, not a model-visible filesystem tool. The Obsidian desktop process may be closed at runtime, but adapter implementation, setup, diagnostics, and acceptance evidence are release requirements.
 
 ### 3.2 Explicit non-goals
 
-- PC control, file editing, browser errands, payments, customer or vendor communication, calendar mutation, school scraping, Tesla control, and autonomous project changes.
+- PC control, general or arbitrary file editing outside the dedicated Obsidian memory adapter, browser errands, payments, customer or vendor communication, calendar mutation, school scraping, Tesla control, and autonomous project changes.
 - Telegram voice notes or arbitrary audio/file ingestion.
 - A fullscreen HUD, tray UI, mobile PWA, hotword, or knock detection.
 - Calling arbitrary third parties without a separately approved policy and confirmation flow.
@@ -90,7 +91,7 @@ The Python local agent runs as a background process under Sid's Windows user acc
 
 Device enrollment creates an Ed25519 key pair on the Windows machine. The private key is non-exportable when the Windows cryptography provider supports it and otherwise is encrypted with DPAPI for Sid's Windows account. The first device uses a 256-bit bootstrap token created during cloud setup, accepted once, and expired after 15 minutes. That token authorizes exactly one atomic bootstrap transaction: create Sid's canonical `principal_id`, bind the first device, install the initial PIN verifier, and register the initial phone and Telegram identities in `pending_verification` state. The phone becomes verified only after a neutral enrollment call in which Sid enters the PIN plus a one-time DTMF challenge displayed by the local CLI. Telegram becomes verified only when the pending account sends `/enroll` with a one-time challenge displayed locally. No personal context or normal channel action is available while an identity is pending. The bootstrap token is consumed whether the transaction succeeds or fails after commit begins; recovery requires a newly generated setup token. Later enrollment, PIN rotation, and identity changes require confirmation through an already enrolled channel. Enrollment binds the public key to a `device_id` and Sid's canonical `principal_id`. Sync requests include an audience, UTC timestamp, nonce, body hash, and signature. The gateway enforces device status, subject binding, a five-minute clock window, one-time nonces, key rotation, and immediate revocation. A device cannot supply or advance another device's cursor.
 
-The local agent exposes no PC-control tools in version 0.1.0. Future tools must be separate adapters registered through the policy layer.
+The local agent exposes no model-visible PC-control or general filesystem tools in version 0.1.0. Its dedicated Obsidian memory adapter is confined to one configured vault, exposes no arbitrary path argument, and follows the separate approved design. Future tools must be separate adapters registered through the policy layer.
 
 ### 4.4 Shared contracts
 
@@ -273,8 +274,9 @@ The local repository can be created without external credentials. Creating the p
 5. Telegram text path.
 6. Local archive replication, distilled memory, and retrieval.
 7. Cross-channel context and offline synchronization.
-8. Production secret setup, Cloudflare deployment, Twilio/Telegram configuration, and real smoke tests.
-9. Version 0.1.0 release audit against every acceptance criterion.
+8. Root-confined Obsidian adapter, versioned vault contracts, local-only retrieval, safe setup, backup/restore, and synthetic plus credential-free acceptance tests.
+9. Production secret setup, Cloudflare deployment, Twilio/Telegram configuration, and real smoke tests.
+10. Version 0.1.0 release audit against every acceptance criterion, including the Obsidian evidence defined by its approved implementation plan.
 
 This sequence keeps paid credentials out of the critical path until the same flows pass against fakes, while ensuring calling is implemented before Telegram and remains the defining release gate.
 
@@ -286,5 +288,6 @@ This sequence keeps paid credentials out of the critical path until the same flo
 - Telegram Bot API.
 - Python runtime and SQLite for the Windows agent.
 - A local embedding model and SQLite-compatible vector extension selected during implementation planning after compatibility tests.
+- Obsidian desktop for setup and human note editing on Windows; the local adapter itself remains functional when the Obsidian process is closed.
 
 Provider versions are pinned during implementation and upgraded only through tested dependency changes. No provider-specific object crosses the internal model, channel, memory, or policy interfaces.
