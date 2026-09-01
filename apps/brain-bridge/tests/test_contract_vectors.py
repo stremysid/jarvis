@@ -384,6 +384,8 @@ def test_readiness_encoder_revalidates_directly_constructed_values() -> None:
     )
     for invalid in invalid_values:
         with pytest.raises(ContractError):
+            readiness_to_dict(invalid)
+        with pytest.raises(ContractError):
             encode_readiness_v1(invalid)
 
 

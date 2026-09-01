@@ -584,9 +584,7 @@ def parse_readiness_v1(value: object) -> ReadinessV1:
     )
 
 
-def readiness_to_dict(value: ReadinessV1) -> dict[str, object]:
-    """Convert validated readiness to its exact wire body."""
-
+def _readiness_to_dict_unchecked(value: ReadinessV1) -> dict[str, object]:
     return {
         "releaseCommit": value.release_commit,
         "configurationHash": value.configuration_hash,
@@ -597,13 +595,22 @@ def readiness_to_dict(value: ReadinessV1) -> dict[str, object]:
     }
 
 
+def readiness_to_dict(value: ReadinessV1) -> dict[str, object]:
+    """Revalidate readiness and convert it to its exact wire body."""
+
+    if not isinstance(value, ReadinessV1):
+        _fail("readiness must be an immutable ReadinessV1")
+    validated = parse_readiness_v1(_readiness_to_dict_unchecked(value))
+    return _readiness_to_dict_unchecked(validated)
+
+
 def encode_readiness_v1(value: object) -> bytes:
     """Revalidate and encode one exact canonical readiness body."""
 
     if isinstance(value, ReadinessV1):
         value = readiness_to_dict(value)
     readiness = parse_readiness_v1(value)
-    return canonical_json_bytes(readiness_to_dict(readiness))
+    return canonical_json_bytes(_readiness_to_dict_unchecked(readiness))
 
 
 def build_native_input_v1(request: JarvisTokenBridgeRequestV1) -> bytes:
