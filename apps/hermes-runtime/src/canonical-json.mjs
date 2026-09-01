@@ -5,9 +5,32 @@ function fail(message) {
   throw new TypeError(`invalid canonical JSON: ${message}`);
 }
 
+export function compareOrdinal(left, right) {
+  if (typeof left !== "string" || typeof right !== "string") fail("ordinal comparison requires strings");
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function stringifyString(value) {
   if (!value.isWellFormed()) fail("strings and record keys must be well-formed Unicode");
   return JSON.stringify(value);
+}
+
+function exactArrayValues(value) {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) fail("arrays must be plain");
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const keys = Reflect.ownKeys(descriptors);
+  if (keys.some((key) => typeof key === "symbol")) fail("arrays must not contain symbol or extra fields");
+  const lengthDescriptor = descriptors.length;
+  if (lengthDescriptor === undefined || !("value" in lengthDescriptor) || lengthDescriptor.enumerable || !Number.isInteger(lengthDescriptor.value) || lengthDescriptor.value < 0 || lengthDescriptor.value > 0xffffffff) fail("arrays must have an exact length data field");
+  const length = lengthDescriptor.value;
+  if (keys.length !== length + 1) fail("arrays must not be sparse or contain extra fields");
+  const values = new Array(length);
+  for (let index = 0; index < length; index += 1) {
+    const descriptor = descriptors[String(index)];
+    if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) fail("arrays must be dense enumerable data fields without accessors");
+    values[index] = descriptor.value;
+  }
+  return values;
 }
 
 function stringify(value) {
@@ -17,12 +40,18 @@ function stringify(value) {
     if (!Number.isFinite(value) || Object.is(value, -0)) fail("numbers must be finite JSON numbers");
     return JSON.stringify(value);
   }
-  if (Array.isArray(value)) return `[${value.map(stringify).join(",")}]`;
+  if (Array.isArray(value)) return `[${exactArrayValues(value).map(stringify).join(",")}]`;
   if (typeof value !== "object") fail("value is not JSON");
   if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) fail("records must be plain");
-  const keys = Object.keys(value).sort();
-  if (keys.length !== Object.getOwnPropertyNames(value).length || Object.getOwnPropertySymbols(value).length !== 0) fail("records must have enumerable string data fields only");
-  return `{${keys.map((key) => `${stringifyString(key)}:${stringify(value[key])}`).join(",")}}`;
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const ownKeys = Reflect.ownKeys(descriptors);
+  if (ownKeys.some((key) => typeof key === "symbol")) fail("records must have enumerable string data fields only");
+  const keys = ownKeys.sort(compareOrdinal);
+  for (const key of keys) {
+    const descriptor = descriptors[key];
+    if (descriptor === undefined || !("value" in descriptor) || !descriptor.enumerable) fail("records must have enumerable string data fields only");
+  }
+  return `{${keys.map((key) => `${stringifyString(key)}:${stringify(descriptors[key].value)}`).join(",")}}`;
 }
 
 export function canonicalize(value) {

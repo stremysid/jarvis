@@ -1,20 +1,37 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { canonicalize, sha256Hex } from "../src/canonical-json.mjs";
-import { selectArchive } from "../src/generate-sbom.mjs";
+import { runVerifierProcess, selectArchive } from "../src/generate-sbom.mjs";
 import * as manifestValidation from "../src/validate-manifests.mjs";
 
 const runtimeRoot = fileURLToPath(new URL("..", import.meta.url));
 const temporaryRoots = [];
 
+function ordinalCompare(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function runtimeFile(path) {
   return join(runtimeRoot, ...path.split("/"));
+}
+
+function extractJavaScriptFunction(source, name) {
+  const start = source.search(new RegExp(`^async function\\s+${name}\\s*\\(`, "m"));
+  expect(start, `${name} function is missing`).toBeGreaterThanOrEqual(0);
+  const bodyStart = source.indexOf("{", start);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") depth -= 1;
+    if (depth === 0) return source.slice(start, index + 1);
+  }
+  throw new Error(`${name} function body is unterminated`);
 }
 
 async function loadJson(path, root = runtimeRoot) {
@@ -42,8 +59,7 @@ async function runValidator(root) {
   });
 }
 
-async function runGenerator(sourceRoot) {
-  const generator = runtimeFile("src/generate-sbom.mjs");
+async function runGenerator(sourceRoot, generator = runtimeFile("src/generate-sbom.mjs")) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [generator, `--source-root=${sourceRoot}`, "--check"], { windowsHide: true });
     let stdout = ""; let stderr = "";
@@ -54,29 +70,55 @@ async function runGenerator(sourceRoot) {
   });
 }
 
+function spawnVerifierTreeFixture(pidFile, stream) {
+  const descendantProgram = [
+    "setTimeout(() => process.exit(0), 1_500);",
+  ].join("\n");
+  const parentProgram = [
+    'import { spawn } from "node:child_process";',
+    'import { writeFileSync } from "node:fs";',
+    `const descendantProgram = ${JSON.stringify(descendantProgram)};`,
+    'const descendant = spawn(process.execPath, ["--input-type=module", "--eval", descendantProgram], { windowsHide: true, stdio: "ignore" });',
+    "writeFileSync(process.argv[1], String(descendant.pid));",
+    "descendant.unref();",
+    stream === "stdout" ? 'process.stdout.write("x".repeat(4_096));' : stream === "stderr" ? 'process.stderr.write("x".repeat(4_096));' : "",
+    "setTimeout(() => process.exit(0), 1_500);",
+  ].filter(Boolean).join("\n");
+  const environment = Object.fromEntries(["ComSpec", "SystemRoot", "WINDIR"].flatMap((name) => process.env[name] === undefined ? [] : [[name, process.env[name]]]));
+  return spawn(process.execPath, ["--input-type=module", "--eval", parentProgram, pidFile], { windowsHide: true, env: environment });
+}
+
+async function expectVerifierTreeTerminated(pidFile) {
+  const pid = Number(await readFile(pidFile, "utf8"));
+  expect(pid).toBeGreaterThan(0);
+  let running = true;
+  try { process.kill(pid, 0); } catch (error) { if (error.code === "ESRCH") running = false; else throw error; }
+  expect(running, `verifier descendant ${pid} survived process-tree termination`).toBe(false);
+}
+
 function pypiRecords(sbom) {
-  const components = sbom.components.filter((component) => component.purl?.startsWith("pkg:pypi/"));
-  const byRef = new Map(components.map((component) => [component.purl, component]));
+  const components = [sbom.metadata.component, ...sbom.components.filter((component) => component.purl?.startsWith("pkg:pypi/"))];
+  const byRef = new Map(components.map((component) => [component["bom-ref"], component]));
   return {
-    closure: components.map((component) => `${component.name}==${component.version}`).sort(),
+    closure: components.map((component) => `${component.name}==${component.version}`).sort(ordinalCompare),
     distributions: components.map((component) => ({
       name: component.name,
       version: component.version,
       type: component.type,
       purl: component.purl,
-    })).sort((left, right) => left.name.localeCompare(right.name) || left.version.localeCompare(right.version)),
+    })).sort((left, right) => ordinalCompare(left.name, right.name) || ordinalCompare(left.version, right.version)),
     archives: components.filter((component) => component.hashes).map((component) => ({
       name: component.name,
       version: component.version,
       url: component.externalReferences[0].url,
       size: Number(component.properties[0].value),
       sha256: component.hashes[0].content,
-    })).sort((left, right) => left.name.localeCompare(right.name) || left.version.localeCompare(right.version)),
+    })).sort((left, right) => ordinalCompare(left.name, right.name) || ordinalCompare(left.version, right.version)),
     dependencies: sbom.dependencies.map((dependency) => ({
       name: byRef.get(dependency.ref).name,
       version: byRef.get(dependency.ref).version,
-      dependsOn: dependency.dependsOn.map((reference) => byRef.get(reference).name).sort(),
-    })).sort((left, right) => left.name.localeCompare(right.name) || left.version.localeCompare(right.version)),
+      dependsOn: dependency.dependsOn.map((reference) => byRef.get(reference).name).sort(ordinalCompare),
+    })).sort((left, right) => ordinalCompare(left.name, right.name) || ordinalCompare(left.version, right.version)),
   };
 }
 
@@ -85,9 +127,85 @@ afterEach(async () => {
 });
 
 describe("Task 2 round-2 SBOM and committed-manifest integrity", () => {
-  it("rejects a fabricated release-shaped source root through the real generator before reading lock inputs", async () => {
-    const root = await mkdtemp(join(tmpdir(), "jarvis-hermes-sbom-source-root-"));
+  it("validates the reviewed SBOM with ordinal records even when the host comparison locale is Czech", async () => {
+    const [source, artifacts, patches, sbom] = await Promise.all([
+      loadJson("hermes-source-lock.json"),
+      loadJson("runtime-artifacts-lock.json"),
+      loadJson("patches/series.json"),
+      loadJson("sbom/hermes-agent-v2026.8.27-windows-x86_64-cpython-3.11.16.cdx.json"),
+    ]);
+    const original = String.prototype.localeCompare;
+    const czech = new Intl.Collator("cs");
+    String.prototype.localeCompare = function localeCompare(other) { return czech.compare(String(this), String(other)); };
+    try {
+      await expect(manifestValidation.validateSbomIntegrity({ source, artifacts, patches, sbom })).resolves.toBeUndefined();
+    } finally {
+      String.prototype.localeCompare = original;
+    }
+  });
+
+  it("selects equal-rank archives by ordinal URL even when the host comparison locale is Czech", () => {
+    const charset = "https://files.pythonhosted.org/packages/charset-1.0-py3-none-any.whl";
+    const click = "https://files.pythonhosted.org/packages/click-1.0-py3-none-any.whl";
+    const original = String.prototype.localeCompare;
+    const czech = new Intl.Collator("cs");
+    String.prototype.localeCompare = function localeCompare(other) { return czech.compare(String(this), String(other)); };
+    try {
+      const hash = `sha256:${"0".repeat(64)}`;
+      expect(selectArchive({ name: "fixture", version: "1.0", wheels: [{ url: click, hash, size: 1 }, { url: charset, hash, size: 1 }] }).url).toBe(charset);
+    } finally {
+      String.prototype.localeCompare = original;
+    }
+  });
+
+  it("rejects a stalled real verifier by its deadline and terminates its descendant process", async () => {
+    const root = await mkdtemp(join(tmpdir(), "jarvis-hermes-verifier-deadline-"));
     temporaryRoots.push(root);
+    const pidFile = join(root, "descendant.pid");
+    const child = spawnVerifierTreeFixture(pidFile, "none");
+
+    await expect(runVerifierProcess(child, { deadlineMs: 500, maxOutputBytes: 1_024 })).rejects.toThrow("locked source verifier exceeded its 500ms deadline");
+    await expectVerifierTreeTerminated(pidFile);
+  }, 10_000);
+
+  it.each(["stdout", "stderr"])("rejects real verifier %s overflow and terminates its descendant process", async (stream) => {
+    const root = await mkdtemp(join(tmpdir(), `jarvis-hermes-verifier-${stream}-`));
+    temporaryRoots.push(root);
+    const pidFile = join(root, "descendant.pid");
+    const child = spawnVerifierTreeFixture(pidFile, stream);
+
+    await expect(runVerifierProcess(child, { deadlineMs: 5_000, maxOutputBytes: 1_024 })).rejects.toThrow(`locked source verifier ${stream} exceeded its 1024-byte limit`);
+    await expectVerifierTreeTerminated(pidFile);
+  }, 10_000);
+
+  it("runs the locked source verifier without an unanchored sibling workspace", async () => {
+    const source = await readFile(runtimeFile("src/generate-sbom.mjs"), "utf8");
+    const verifier = extractJavaScriptFunction(source, "runLockedSourceVerifier");
+    expect(verifier, "locked verifier must not create a pathname-only sibling workspace").not.toMatch(/\bmkdtemp\s*\(/);
+    expect(verifier, "locked verifier must not create unleased child directories").not.toMatch(/\bmkdir\s*\(/);
+    expect(verifier, "locked verifier must not recursively clean an unleased sibling pathname").not.toMatch(/\brm\s*\([^\r\n]*recursive\s*:\s*true/);
+    expect(verifier).not.toContain(".jarvis-hermes-sbom-verify-");
+    expect(verifier, "closed verifier must still execute the trusted PowerShell host").toContain("spawn(powerShellHost");
+    expect(verifier, "closed verifier must not use the reconstructing PowerShell -File startup route").not.toMatch(/spawn\(powerShellHost,[\s\S]*?"-File"/);
+    expect(verifier, "closed verifier must use its fixed bootstrap command").toContain('"-Command", bootstrap');
+    expect(verifier, "closed verifier must pass RuntimeRoot without command interpolation").toContain("JARVIS_HERMES_RUNTIME_ROOT: runtimeRoot");
+    expect(verifier, "closed verifier must pass the verifier path without command interpolation").toContain("JARVIS_HERMES_SOURCE_VERIFIER: sourceVerifier");
+    expect(verifier, "bootstrap must close module discovery before invoking the verifier").toContain("$env:PSModulePath = 'NUL'");
+    expect(verifier, "bootstrap must invoke only the environment-bound verifier and RuntimeRoot").toContain("& $env:JARVIS_HERMES_SOURCE_VERIFIER -RuntimeRoot $env:JARVIS_HERMES_RUNTIME_ROOT -VerifyOnly");
+    expect(verifier, "closed verifier must validate and bind the trusted module tree before startup").toContain("PSModulePath: closedModulesDirectory");
+    expect(verifier).toContain('PSModuleAnalysisCachePath: "NUL"');
+    expect(verifier).toContain('PSDisableModuleAnalysisCacheCleanup: "1"');
+    expect(verifier).toContain('POWERSHELL_UPDATECHECK: "Off"');
+    expect(verifier).toContain("APPDATA: closedHostDirectory");
+    expect(verifier).toContain("LOCALAPPDATA: closedHostDirectory");
+    expect(verifier, "closed verifier child cwd must be the validated host directory").toContain("cwd: closedHostDirectory");
+  });
+
+  it("rejects a fabricated release-shaped source root through the real generator before reading lock inputs", async () => {
+    const container = await mkdtemp(join(tmpdir(), "jarvis-hermes-sbom-source-root-"));
+    temporaryRoots.push(container);
+    const root = join(container, "runtime");
+    await mkdir(root);
     const source = join(root, "releases", "5fc308a70719a83cccdbba4c0e39c23f5a8239d5", "source");
     await mkdir(source, { recursive: true });
     await mkdir(join(root, "releases", "5fc308a70719a83cccdbba4c0e39c23f5a8239d5", "git"));
@@ -95,10 +213,53 @@ describe("Task 2 round-2 SBOM and committed-manifest integrity", () => {
     await writeFile(join(source, "uv.lock"), "version = 1\n");
     await writeFile(join(source, "pyproject.toml"), '[project]\nname = "hermes-agent"\nversion = "0.20.6"\n');
     await writeFile(join(source, "LICENSE"), "fabricated\n");
+    const siblingsBefore = (await readdir(container)).filter((name) => name.startsWith(".jarvis-hermes-sbom-verify-"));
     const result = await runGenerator(source);
+    const siblingsAfter = (await readdir(container)).filter((name) => name.startsWith(".jarvis-hermes-sbom-verify-"));
+    expect(siblingsBefore).toEqual([]);
+    expect(siblingsAfter, "real closed-host verification left a sibling scratch workspace").toEqual([]);
     expect(result.code).not.toBe(0);
     expect(result.stdout).toBe("");
     expect(result.stderr).toBe("--source-root failed the complete locked source VerifyOnly boundary\n");
+  });
+
+  it("closes PowerShell module discovery inside the real locked-source verifier child", async () => {
+    const copy = await copyRuntimeTree();
+    const closedHostDirectory = String.raw`C:\Program Files\PowerShell\7`;
+    const closedHostEntriesBefore = (await readdir(closedHostDirectory)).sort(ordinalCompare);
+    const sourceLock = await loadJson("hermes-source-lock.json", copy);
+    const release = join(copy, "releases", sourceLock.sourceCommit);
+    const source = join(release, "source");
+    const probe = join(copy, "scripts", "closed-module-environment.txt");
+    await mkdir(source, { recursive: true });
+    await mkdir(join(release, "git"));
+    await writeFile(join(copy, ".hermes-runtime.workflow.lock"), "");
+    await writeFile(join(copy, "scripts", "fetch-hermes.ps1"), String.raw`param([string]$RuntimeRoot, [switch]$VerifyOnly)
+$values = @(
+  [string]$env:PSModulePath,
+  [string]$env:PSModuleAnalysisCachePath,
+  [string]$env:PSDisableModuleAnalysisCacheCleanup,
+  [string]$env:POWERSHELL_UPDATECHECK,
+  [IO.Directory]::GetCurrentDirectory(),
+  [string]$env:APPDATA,
+  [string]$env:LOCALAPPDATA
+)
+[IO.File]::WriteAllLines([IO.Path]::Combine($PSScriptRoot, 'closed-module-environment.txt'), $values, [Text.UTF8Encoding]::new($false))
+exit 23
+`, "utf8");
+
+    const result = await runGenerator(source, join(copy, "src", "generate-sbom.mjs"));
+    const [modulePath, analysisCachePath, disableCacheCleanup, updateCheck, childCwd, appData, localAppData] = (await readFile(probe, "utf8")).trimEnd().split(/\r?\n/);
+    const closedHostEntriesAfter = (await readdir(closedHostDirectory)).sort(ordinalCompare);
+    expect(result.code).not.toBe(0);
+    expect(modulePath, "PowerShell reconstructed user or all-users module discovery before the verifier script").toBe("NUL");
+    expect(analysisCachePath, "PowerShell module-analysis cache was not disabled inside the closed verifier child").toBe("NUL");
+    expect(disableCacheCleanup, "PowerShell module-analysis cache cleanup was not disabled").toBe("1");
+    expect(updateCheck, "PowerShell update checks were not disabled").toBe("Off");
+    expect(childCwd.toLowerCase(), "closed verifier child inherited an untrusted working directory").toBe(closedHostDirectory.toLowerCase());
+    expect(appData.toLowerCase(), "closed verifier child retained user APPDATA").toBe(closedHostDirectory.toLowerCase());
+    expect(localAppData.toLowerCase(), "closed verifier child retained user LOCALAPPDATA").toBe(closedHostDirectory.toLowerCase());
+    expect(closedHostEntriesAfter, "closed verifier startup left module-analysis or profile residue in its bounded host directory").toEqual(closedHostEntriesBefore);
   });
 
   it("uses the uv-compatible CPython 3.11 Windows wheel for charset-normalizer", async () => {
@@ -151,9 +312,10 @@ describe("Task 2 round-2 SBOM and committed-manifest integrity", () => {
     const driftedIdnaPurl = "pkg:pypi/idna@3.17";
     distribution.components.find((component) => component.name === "idna").version = "3.17";
     distribution.components.find((component) => component.name === "idna").purl = driftedIdnaPurl;
+    distribution.components.find((component) => component.name === "idna")["bom-ref"] = driftedIdnaPurl;
     for (const dependencyRecord of distribution.dependencies) {
       if (dependencyRecord.ref === originalIdnaPurl) dependencyRecord.ref = driftedIdnaPurl;
-      dependencyRecord.dependsOn = dependencyRecord.dependsOn.map((reference) => reference === originalIdnaPurl ? driftedIdnaPurl : reference).sort();
+      dependencyRecord.dependsOn = dependencyRecord.dependsOn.map((reference) => reference === originalIdnaPurl ? driftedIdnaPurl : reference).sort(ordinalCompare);
     }
     drifts.push([distribution, /closure record hash/]);
 

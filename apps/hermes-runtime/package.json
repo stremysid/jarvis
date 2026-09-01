@@ -1,15 +1,1 @@
-{
-  "name": "@jarvis/hermes-runtime",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "lint": "node --check src/canonical-json.mjs && node --check src/validate-manifests.mjs && node --check src/validate-runs-wire.mjs && node --check src/generate-sbom.mjs",
-    "typecheck": "node --check src/canonical-json.mjs && node --check src/validate-manifests.mjs && node --check src/validate-runs-wire.mjs && node --check src/generate-sbom.mjs",
-    "test": "vitest run test"
-  },
-  "devDependencies": {
-    "@iarna/toml": "2.2.5",
-    "ajv": "8.17.1"
-  }
-}
+{"devDependencies":{"@iarna/toml":"2.2.5","ajv":"8.17.1"},"name":"@jarvis/hermes-runtime","private":true,"scripts":{"lint":"node --check src/canonical-json.mjs && node --check src/validate-manifests.mjs && node --check src/validate-runs-wire.mjs && node --check src/generate-sbom.mjs","test":"vitest run test","typecheck":"node --check src/canonical-json.mjs && node --check src/validate-manifests.mjs && node --check src/validate-runs-wire.mjs && node --check src/generate-sbom.mjs"},"type":"module","version":"0.1.0"}
