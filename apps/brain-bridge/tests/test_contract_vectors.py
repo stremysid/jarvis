@@ -19,6 +19,7 @@ from jarvis_brain_bridge.contracts import (
     create_request_v1,
     derive_session_id_v1,
     encode_event_sse_frame_v1,
+    encode_readiness_v1,
     event_to_dict,
     parse_admission_failure_v1,
     parse_cancel_request_v1,
@@ -168,6 +169,20 @@ def test_request_parser_rejects_changed_hash_material_under_same_identity() -> N
     assert changed.request_hash != request_fixture()["requestHash"]
 
 
+def test_json_integral_float_spellings_match_typescript_safe_integer_semantics() -> None:
+    expected_request = create_request_v1(valid_material())
+    request_json = json.dumps(request_to_dict(expected_request), ensure_ascii=False, separators=(",", ":"))
+    request_json = request_json.replace('"firstTokenTimeoutMs":8000', '"firstTokenTimeoutMs":8e3')
+    request_json = request_json.replace('"timeoutMs":30000', '"timeoutMs":30000.0')
+
+    assert parse_request_json_bytes_v1(request_json.encode()) == expected_request
+
+    readiness = load_fixture_bytes("readiness-golden-v1.json").replace(
+        b'"brainSchemaMajor": 1', b'"brainSchemaMajor": 1.0'
+    )
+    assert parse_readiness_v1(decode_json_bytes(readiness)).brain_schema_major == 1
+
+
 def test_committed_ndjson_and_sse_vectors_have_identical_canonical_frames_and_chain() -> None:
     ndjson = load_fixture_bytes("token-events-golden-v1.ndjson")
     sse = load_fixture_bytes("token-events-golden-v1.sse")
@@ -210,6 +225,40 @@ def test_committed_ndjson_and_sse_vectors_have_identical_canonical_frames_and_ch
 def test_event_parser_rejects_unknown_fields_indices_hashes_and_types(value: dict[str, Any]) -> None:
     with pytest.raises(ContractError):
         parse_event_v1(value)
+
+
+@pytest.mark.parametrize("shape", [[], {}])
+@pytest.mark.parametrize(
+    "site",
+    ["reasoning", "sensitivity", "failure", "admission", "cancellation", "health"],
+)
+def test_malformed_enum_container_shapes_always_raise_contract_error(site: str, shape: object) -> None:
+    def parse_case() -> object:
+        if site == "reasoning":
+            return create_request_v1({**valid_material(), "reasoningEffort": shape})
+        if site == "sensitivity":
+            material = valid_material()
+            return create_request_v1({**material, "context": [{**material["context"][0], "sensitivity": shape}]})
+        if site == "failure":
+            return parse_event_v1(
+                {
+                    "schemaVersion": "1.0",
+                    "requestId": REQUEST_ID,
+                    "eventIndex": 0,
+                    "type": "failed",
+                    "code": shape,
+                }
+            )
+        if site == "admission":
+            return parse_admission_failure_v1({"schemaVersion": "1.0", "requestId": REQUEST_ID, "code": shape})
+        if site == "cancellation":
+            return parse_cancel_response_v1({"schemaVersion": "1.0", "requestId": REQUEST_ID, "status": shape})
+        readiness = load_fixture("readiness-golden-v1.json")
+        assert isinstance(readiness, dict)
+        return parse_readiness_v1({**readiness, "health": shape})
+
+    with pytest.raises(ContractError):
+        parse_case()
 
 
 def test_boundary_fixture_enforces_scalar_utf8_and_escaped_frame_limits() -> None:
@@ -320,6 +369,22 @@ def test_readiness_fixture_and_closed_control_bodies_are_exact_and_immutable() -
         )
     with pytest.raises(ContractError):
         parse_cancel_response_v1({"schemaVersion": "1.0", "requestId": REQUEST_ID, "status": "unknown"})
+
+
+def test_readiness_encoder_revalidates_directly_constructed_values() -> None:
+    readiness_value = load_fixture("readiness-golden-v1.json")
+    readiness = parse_readiness_v1(readiness_value)
+
+    assert encode_readiness_v1(readiness) == canonical_json_bytes(readiness_value)
+
+    invalid_values = (
+        replace(readiness, configuration_hash="invalid"),
+        replace(readiness, runs_event_contract_hash="invalid"),
+        replace(readiness, enabled_profile_ids=()),
+    )
+    for invalid in invalid_values:
+        with pytest.raises(ContractError):
+            encode_readiness_v1(invalid)
 
 
 def test_session_contract_rejects_wrong_key_length_and_noncanonical_identifiers() -> None:

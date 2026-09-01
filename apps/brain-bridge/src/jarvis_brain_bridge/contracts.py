@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import math
 import re
 import unicodedata
 from collections.abc import Mapping, Sequence
@@ -223,9 +224,15 @@ def _require_sha256(value: object, label: str) -> str:
 
 
 def _require_integer(value: object, label: str, minimum: int, maximum: int = MAX_SAFE_INTEGER) -> int:
-    if type(value) is not int or not minimum <= value <= maximum:
+    if type(value) is int:
+        integer = value
+    elif type(value) is float and math.isfinite(value) and value.is_integer() and abs(value) <= MAX_SAFE_INTEGER:
+        integer = int(value)
+    else:
         _fail(f"{label} is out of bounds")
-    return value
+    if not minimum <= integer <= maximum:
+        _fail(f"{label} is out of bounds")
+    return integer
 
 
 def _parse_context(value: object, context_token_budget: int) -> tuple[RequestContextV1, ...]:
@@ -236,7 +243,7 @@ def _parse_context(value: object, context_token_budget: int) -> tuple[RequestCon
     parsed: list[RequestContextV1] = []
     for item in items:
         record = _exact_record(item, ("sourceEventId", "text", "sensitivity"))
-        if record["sensitivity"] not in {"personal", "restricted"}:
+        if record["sensitivity"] not in ("personal", "restricted"):
             _fail("context sensitivity is unsupported")
         text, utf8_bytes = _require_bounded_text(record["text"], "context text", 65_536, 65_536)
         cumulative_utf8_bytes += utf8_bytes
@@ -258,7 +265,7 @@ def _parse_request_material(value: object) -> dict[str, object]:
         _fail("schemaVersion is unsupported")
     if record["channel"] != "voice":
         _fail("channel must be voice")
-    if record["reasoningEffort"] not in {"none", "low", "high", "max"}:
+    if record["reasoningEffort"] not in ("none", "low", "high", "max"):
         _fail("reasoningEffort is unsupported")
     request_id = _require_ulid(record["requestId"], "requestId")
     correlation_id = _require_ulid(record["correlationId"], "correlationId")
@@ -402,7 +409,7 @@ def parse_event_v1(value: object) -> JarvisTokenBridgeEventV1:
     if event_type == "failed":
         record = _exact_record(value, ("schemaVersion", "requestId", "eventIndex", "type", "code"))
         _require_schema(record)
-        if record["code"] not in {"model_provider_failure", "model_protocol_invalid"}:
+        if record["code"] not in ("model_provider_failure", "model_protocol_invalid"):
             _fail("failure code is unsupported")
         return FailedEventV1(
             "1.0",
@@ -490,13 +497,13 @@ def parse_admission_failure_v1(value: object) -> AdmissionFailureV1:
 
     record = _exact_record(value, ("schemaVersion", "requestId", "code"))
     _require_schema(record)
-    allowed = {
+    allowed = (
         "not_started",
         "ledger_capacity_exhausted",
         "model_admission_unknown",
         "request_conflict",
         "request_invalid",
-    }
+    )
     if record["code"] not in allowed:
         _fail("admission failure code is unsupported")
     return AdmissionFailureV1(
@@ -532,7 +539,7 @@ def parse_cancel_response_v1(value: object) -> CancelResponseV1:
 
     record = _exact_record(value, ("schemaVersion", "requestId", "status"))
     _require_schema(record)
-    allowed = {"cancel_requested", "stop_accepted", "cancelled", "completed", "failed", "model_cancel_unknown"}
+    allowed = ("cancel_requested", "stop_accepted", "cancelled", "completed", "failed", "model_cancel_unknown")
     if record["status"] not in allowed:
         _fail("cancellation status is unsupported")
     return CancelResponseV1(
@@ -559,16 +566,13 @@ def parse_readiness_v1(value: object) -> ReadinessV1:
             "health",
         ),
     )
-    if (
-        record["releaseCommit"] != RELEASE_COMMIT
-        or type(record["brainSchemaMajor"]) is not int
-        or record["brainSchemaMajor"] != 1
-    ):
+    if record["releaseCommit"] != RELEASE_COMMIT:
         _fail("readiness version is unsupported")
+    _require_integer(record["brainSchemaMajor"], "readiness version", 1, 1)
     profiles = _exact_array(record["enabledProfileIds"], "enabledProfileIds")
     if profiles != [PROFILE_ID]:
         _fail("enabledProfileIds is unsupported")
-    if record["health"] not in {"ready", "not_ready"}:
+    if record["health"] not in ("ready", "not_ready"):
         _fail("health is unsupported")
     return ReadinessV1(
         RELEASE_COMMIT,
@@ -591,6 +595,15 @@ def readiness_to_dict(value: ReadinessV1) -> dict[str, object]:
         "enabledProfileIds": list(value.enabled_profile_ids),
         "health": value.health,
     }
+
+
+def encode_readiness_v1(value: object) -> bytes:
+    """Revalidate and encode one exact canonical readiness body."""
+
+    if isinstance(value, ReadinessV1):
+        value = readiness_to_dict(value)
+    readiness = parse_readiness_v1(value)
+    return canonical_json_bytes(readiness_to_dict(readiness))
 
 
 def build_native_input_v1(request: JarvisTokenBridgeRequestV1) -> bytes:
