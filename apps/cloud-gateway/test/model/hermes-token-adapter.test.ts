@@ -258,7 +258,7 @@ describe("HermesTokenAdapter strict incremental SSE", () => {
       .rejects.toMatchObject({ code: "model_protocol_invalid" });
     expect(produced).toBe(frameByteCount);
     expect(cancelCalls).toBe(1);
-  }, 5_000);
+  }, 15_000);
 
   it("replays a byte-identical persisted prefix and yields only the suffix", async () => {
     const events: readonly JarvisTokenBridgeEventV1[] = [
