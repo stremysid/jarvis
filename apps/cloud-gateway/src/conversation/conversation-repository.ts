@@ -985,7 +985,7 @@ export class ConversationRepository {
     const claim = captured.claim as ModelStreamClaimCapability;
     const observedAt = snapshotDate(captured.now, "model_terminal_now");
     const binding = state === "model_outcome_unknown"
-      ? this.settleUnbegunModelClaim(claim)
+      ? this.settleAmbiguousModelClaim(claim)
       : this.settleModelClaim(claim);
     const envelope = await this.createConversationEnvelope({
       eventId: requireUlid(this.eventIdFactory(), "conversation_event_id"),
@@ -1038,9 +1038,9 @@ export class ConversationRepository {
     return binding;
   }
 
-  private settleUnbegunModelClaim(claim: ModelStreamClaimCapability): ModelClaimBinding {
+  private settleAmbiguousModelClaim(claim: ModelStreamClaimCapability): ModelClaimBinding {
     const binding = this.modelClaimBindings.get(claim);
-    if (binding === undefined || this.begunModelClaims.has(claim) || this.settledModelClaims.has(claim)) {
+    if (binding === undefined || this.settledModelClaims.has(claim)) {
       throw new Error("model_stream_claim_invalid");
     }
     this.settledModelClaims.add(claim);

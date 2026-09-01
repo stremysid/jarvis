@@ -348,6 +348,44 @@ describe("ConversationRepository", () => {
     });
   });
 
+  it("atomically settles a begun model claim as terminal unknown and exact replay agrees", async () => {
+    const repo = repository();
+    const admission = await repo.getOrCreateTurn({
+      turnId: TURN_ID,
+      sessionId: "session:telegram:44112233",
+      principalId: "principal:owner",
+      channel: "telegram",
+      userText: redacted("hello"),
+      now: NOW,
+    });
+    const claim = await repo.claimModelTurn({
+      turnId: TURN_ID,
+      requestHash: admission.turn.requestHash,
+      now: NOW,
+    });
+    if (claim.kind !== "claimed") throw new Error("test_claim_missing");
+    repo.beginModelStream(claim.capability, TURN_ID, admission.turn.requestHash);
+
+    await expect(repo.recordTurnFailed({
+      claim: claim.capability,
+      failureCode: "model_outcome_unknown",
+      failureCategory: "ambiguous",
+      now: LATER,
+    })).resolves.toMatchObject({
+      state: "model_outcome_unknown",
+      failureCode: "model_outcome_unknown",
+      failureCategory: "ambiguous",
+    });
+    await expect(repo.getOrCreateTurn({
+      turnId: TURN_ID,
+      sessionId: "session:telegram:44112233",
+      principalId: "principal:owner",
+      channel: "telegram",
+      userText: redacted("hello"),
+      now: LATER,
+    })).resolves.toMatchObject({ replayed: true, turn: { state: "model_outcome_unknown" } });
+  });
+
   it("stages redacted assistant text and its delivery atomically for one active exact-principal Telegram identity", async () => {
     const repo = repository();
     const { admission, staged } = await stagedDelivery(repo);

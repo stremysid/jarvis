@@ -852,4 +852,87 @@ describe("DefaultConversationService", () => {
       deliveredAssistantEventId: null,
     });
   });
+
+  it.each([
+    ["model_admission_unknown", false],
+    ["model_admission_unknown", true],
+    ["model_cancel_unknown", false],
+    ["model_cancel_unknown", true],
+  ] as const)("settles %s as durable ambiguity before abort handling (aborted: %s)", async (code, aborted) => {
+    const turnId = newUlid();
+    const admitted = storedTurn({
+      turnId,
+      sessionId: "voice-session-ambiguous",
+      principalId: "principal:voice-owner",
+      channel: "voice",
+    });
+    const claimed = Object.freeze({ ...admitted, state: "model_claimed" as const });
+    const terminal = Object.freeze({
+      ...claimed,
+      state: "model_outcome_unknown" as const,
+      resolvedAt: nowIso,
+      failureCode: "model_outcome_unknown" as const,
+      failureCategory: "ambiguous" as const,
+    });
+    const capability = Object.freeze({ turnId, requestHash }) as ModelStreamClaimCapability;
+    let durable = admitted;
+    let contextCalls = 0;
+    let modelCalls = 0;
+    let tokenCalls = 0;
+    let settlementCalls = 0;
+    const controller = new AbortController();
+    if (aborted) controller.abort();
+    const repository = {
+      async getOrCreateTurn() { return Object.freeze({ turn: durable, replayed: durable === terminal }); },
+      async claimModelTurn() { return Object.freeze({ kind: "claimed" as const, capability, turn: claimed }); },
+      beginModelStream(): void {},
+      async recordTurnFailed(received: unknown) {
+        expect(received).toEqual({
+          claim: capability,
+          failureCode: "model_outcome_unknown",
+          failureCategory: "ambiguous",
+          now: new Date(nowIso),
+        });
+        settlementCalls += 1;
+        durable = terminal;
+        return terminal;
+      },
+      async recordTurnCancelled(): Promise<never> { throw new Error("unexpected_cancel"); },
+      async recordVoiceSent(): Promise<never> { throw new Error("unexpected_voice"); },
+      async stageAssistantDelivery(): Promise<never> { throw new Error("unexpected_stage"); },
+      async recordIngestFailure(): Promise<never> { throw new Error("unexpected_ingest_failure"); },
+      async stageSystemNotice(): Promise<never> { throw new Error("unexpected_system_notice"); },
+    };
+    const service = new DefaultConversationService({
+      repository,
+      model: { async *stream() { modelCalls += 1; throw new ModelAdapterError(code); } },
+      context: { async retrieve() { contextCalls += 1; return Object.freeze([]); } },
+      dispatcher: { async dispatch(): Promise<never> { throw new Error("unexpected_dispatch"); } },
+      redactor: new Redactor(),
+      now: () => new Date(nowIso),
+    } as never);
+    const delivery = createVoiceStreamDelivery({
+      sessionId: admitted.sessionId,
+      turnId,
+      sendToken: async () => { tokenCalls += 1; },
+      finish: async () => { throw new Error("unexpected_finish"); },
+    });
+    const turnInput = {
+      sessionId: admitted.sessionId,
+      principalId: admitted.principalId,
+      turnId,
+      text: "hello",
+      signal: controller.signal,
+      ...delivery,
+    } as const;
+
+    await expect(service.handleTurn(turnInput)).resolves.toMatchObject({ outcome: "model_outcome_unknown" });
+    await expect(service.handleTurn(turnInput)).resolves.toMatchObject({ outcome: "model_outcome_unknown" });
+    expect({ contextCalls, modelCalls, tokenCalls, settlementCalls }).toEqual({
+      contextCalls: 1,
+      modelCalls: 1,
+      tokenCalls: 0,
+      settlementCalls: 1,
+    });
+  });
 });
