@@ -1,0 +1,40 @@
+[project]
+name = "jarvis-brain-bridge"
+version = "0.1.0"
+description = "Strict local Brain Bridge contracts for Jarvis Hermes H1"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+  "aiohttp==3.14.3",
+  "rfc8785==0.1.4",
+]
+
+[dependency-groups]
+dev = [
+  "mypy==2.3.1",
+  "pytest==9.1.1",
+  "pytest-asyncio==1.3.0",
+  "ruff==0.15.10",
+]
+
+[build-system]
+requires = ["uv-build==0.12.7"]
+build-backend = "uv_build"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+pythonpath = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["ANN", "B", "C4", "E", "F", "I", "N", "PIE", "RUF", "S", "SIM", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["ANN401", "S101"]
