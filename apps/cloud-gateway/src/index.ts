@@ -119,17 +119,18 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
     const text = answer.trim();
     if (text.length === 0) return;
 
-    // Recorded before sending. A reply present in history but not delivered is
-    // recoverable; one delivered but absent from history would make Jarvis
-    // contradict itself on the next turn.
-    await recordTurn(recorder, {
-      principalId: accepted.principalId,
-      channel: "telegram",
-      role: "assistant",
-      text,
-      turnKey: `${accepted.eventId}:assistant`,
-    });
-
+    // The assistant turn is deliberately NOT recorded here.
+    //
+    // conversation.assistant_delivered is guarded by a database trigger that
+    // requires a matching conversation_deliveries row in `claimed` state, so
+    // it cannot be written directly -- only through the staging and delivery
+    // flow that ConversationRepository and DefaultConversationService
+    // implement. Writing it directly aborts the transaction and, because this
+    // runs after the user turn is stored, took the reply down with it.
+    //
+    // The consequence today: Jarvis recalls what you said but not what it
+    // answered. Wiring the real conversation service removes that asymmetry
+    // and is the next piece of work.
     await new TelegramRestProvider({ botToken }).sendMessage({
       chatId: accepted.chatId,
       text,
