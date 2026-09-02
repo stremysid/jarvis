@@ -19,3 +19,6 @@ apps/hermes-runtime/test/fixtures/invalid-source-locks.json -text
 apps/hermes-runtime/runtime-artifacts-lock.json -text
 apps/hermes-runtime/contracts/*.json -text
 apps/hermes-runtime/patches/*.json -text
+apps/hermes-runtime/*.json -text
+apps/hermes-runtime/test/fixtures/*.json -text
+apps/hermes-runtime/profiles/** -text
