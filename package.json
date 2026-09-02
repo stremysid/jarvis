@@ -16,7 +16,9 @@
     "test:voice-smoke": "vitest --config vitest.workspace.ts run tests/acceptance/live/voice-smoke.test.ts",
     "smoke:voice": "node tests/acceptance/live/voice-smoke-cli.mjs",
     "release:voice-gate": "node tests/acceptance/live/voice-smoke-cli.mjs --audit-evidence",
-    "clean:voice-smoke-evidence": "node tests/acceptance/live/voice-smoke-cli.mjs --cleanup-evidence"
+    "clean:voice-smoke-evidence": "node tests/acceptance/live/voice-smoke-cli.mjs --cleanup-evidence",
+    "test:runtime": "pnpm --filter @jarvis/hermes-runtime test",
+    "test:all": "pnpm test && pnpm test:runtime"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",

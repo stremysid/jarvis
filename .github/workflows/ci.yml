@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Cloud gateway, contracts and acceptance. These run under the Cloudflare
+  # Workers pool, so they are platform-independent and live on Linux.
+  workspace:
+    name: workspace suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  # apps/hermes-runtime cannot run under the Workers pool, so `pnpm test`
+  # never covered it. It MUST run on Windows: this package pins byte-exact
+  # canonical files, and a .gitattributes gap silently rewrote them to CRLF
+  # on checkout, breaking attestation on the only platform it targets. A
+  # Linux-only job would have stayed green through that entire failure.
+  hermes-runtime:
+    name: hermes-runtime suite (windows)
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:runtime
+
+  # Fails if a byte-exact file would change on checkout. Catches the CRLF
+  # class of bug directly rather than waiting for a downstream test to
+  # notice, and reports every offender at once.
+  line-endings:
+    name: byte-exact files unchanged by checkout
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      # Compare on-disk bytes to the committed blob. Do NOT just grep for CR:
+      # some -text files (e.g. licenses/CPython-LICENSE) legitimately contain
+      # CRLF upstream, and -text exists precisely to preserve those bytes.
+      # The real invariant is that checkout changed nothing.
+      - name: Assert -text files match their committed blob
+        shell: bash
+        run: |
+          status=0
+          for f in $(git ls-files); do
+            attr=$(git check-attr text -- "$f" | sed 's/.*text: //')
+            [ "$attr" = "unset" ] || continue
+            blob=$(git show "HEAD:$f" | sha256sum | cut -d' ' -f1)
+            disk=$(sha256sum "$f" | cut -d' ' -f1)
+            if [ "$blob" != "$disk" ]; then
+              echo "::error file=$f::marked -text but checkout altered its bytes"
+              status=1
+            fi
+          done
+          exit $status
