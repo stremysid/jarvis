@@ -1,0 +1,1 @@
+"""Permanent append-only archive."""

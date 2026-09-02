@@ -49,6 +49,31 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:runtime
 
+  # The Windows local agent. Runs on both platforms deliberately: it targets
+  # Windows, but the POSIX permission assertions on the device key file are
+  # only meaningful on Linux, where st_mode actually reflects the mode.
+  local-agent:
+    name: local-agent (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.7"
+      - run: uv sync --locked
+        working-directory: apps/local-agent
+      - run: uv run ruff check .
+        working-directory: apps/local-agent
+      - run: uv run mypy jarvis_local
+        working-directory: apps/local-agent
+      - run: uv run pytest -q
+        working-directory: apps/local-agent
+
   # Fails if a byte-exact file would change on checkout. Catches the CRLF
   # class of bug directly rather than waiting for a downstream test to
   # notice, and reports every offender at once.
