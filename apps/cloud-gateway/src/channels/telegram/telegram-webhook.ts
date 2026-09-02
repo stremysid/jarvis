@@ -52,6 +52,27 @@ export interface TelegramWebhookDependencies {
   readonly limiter: TelegramRateLimiter;
   readonly now?: () => Date;
   readonly ulid?: (now: Date) => Ulid;
+
+  /**
+   * Called once an update has been accepted AND durably stored.
+   *
+   * Deliberately not awaited. Answering means calling a model and then
+   * Telegram, which can take tens of seconds; holding the webhook response
+   * open that long invites Telegram to time out and redeliver, producing a
+   * second reply to one message. The caller schedules the work instead --
+   * under Workers, with ctx.waitUntil.
+   *
+   * Not called for a replayed update, so a redelivery never answers twice.
+   */
+  readonly onAccepted?: (accepted: AcceptedTelegramUpdate) => void;
+}
+
+export interface AcceptedTelegramUpdate {
+  readonly eventId: string;
+  readonly principalId: string;
+  readonly chatId: string;
+  readonly messageId: number;
+  readonly text: string;
 }
 
 const encoder = new TextEncoder();
@@ -241,7 +262,19 @@ export async function handleTelegramWebhook(
 
   // Recorded only for an update that was genuinely admitted and stored, so a
   // refused or replayed message never consumes allowance.
-  if (!appended.replayed) dependencies.limiter.record(authenticated.principalId, now.getTime());
+  if (!appended.replayed) {
+    dependencies.limiter.record(authenticated.principalId, now.getTime());
+    dependencies.onAccepted?.({
+      eventId: appended.envelope.eventId,
+      principalId: authenticated.principalId,
+      chatId: update.chatId,
+      messageId: update.messageId,
+      // The original text, not the stored token: the model needs what was
+      // actually said. It has already passed the redactor, so nothing
+      // sensitive survives into this path either.
+      text: update.text,
+    });
+  }
 
   return new Response("", { status: 200 });
 }
