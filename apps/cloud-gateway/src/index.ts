@@ -21,8 +21,18 @@ const TELEGRAM_WEBHOOK_PATH = "/telegram/webhook";
 
 /** Telegram replies are text; the design calls for brief, direct answers. */
 const REPLY_MAX_CHARACTERS = 3_000;
-const FIRST_TOKEN_TIMEOUT_MS = 15_000;
-const TOTAL_TIMEOUT_MS = 45_000;
+/**
+ * Generous compared with voice, deliberately.
+ *
+ * On a call, silence past a few seconds is indistinguishable from a dead line,
+ * so the voice path needs a tight first-token deadline. Telegram has no such
+ * constraint: the message is already acknowledged and the reply arrives when
+ * it arrives. The earlier 15s deadline aborted any question that required
+ * reasoning over retrieved history -- "hi" answered fine, "what was my first
+ * message" did not.
+ */
+const FIRST_TOKEN_TIMEOUT_MS = 40_000;
+const TOTAL_TIMEOUT_MS = 90_000;
 /** Byte budget for retrieved history, not a token count. */
 const CONTEXT_BUDGET_BYTES = 4_000;
 

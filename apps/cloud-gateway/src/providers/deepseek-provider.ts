@@ -152,11 +152,26 @@ export class DeepSeekModelAdapter implements ModelAdapter {
 
 function buildMessages(input: ModelAdapterStreamInput): readonly ChatMessage[] {
   const messages: ChatMessage[] = [{ role: "system", content: SYSTEM_PROMPT }];
-  for (const item of input.context) {
-    // The source id travels with the excerpt so an answer can be traced back
-    // to the archived event it came from.
-    messages.push({ role: "system", content: `Context [${item.sourceEventId}]: ${item.text}` });
+
+  if (input.context.length > 0) {
+    // Framed as one block of past messages rather than several loose system
+    // messages. Individually they read as separate instructions, and the model
+    // answers an older one instead of the current question -- especially now,
+    // when history holds only the user's side and so looks like a queue of
+    // unanswered questions.
+    const history = input.context
+      .map((item) => `- ${item.text}  [${item.sourceEventId}]`)
+      .join("\n");
+    messages.push({
+      role: "system",
+      content:
+        "Earlier messages from this user, oldest first, for reference only. "
+        + "Do not answer them; answer only the final user message. Each line "
+        + "ends with the id of the archived event it came from.\n"
+        + history,
+    });
   }
+
   messages.push({ role: "user", content: input.userText });
   return messages;
 }
