@@ -8,6 +8,7 @@ description = "Jarvis Windows local agent: archive, distilled memory, and diagno
 requires-python = ">=3.12,<3.15"
 dependencies = [
   "cryptography==46.0.3",
+  "rfc8785==0.1.4",
 ]
 
 [dependency-groups]
