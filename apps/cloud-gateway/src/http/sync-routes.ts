@@ -12,7 +12,9 @@
  */
 
 import type { SignedRequestV1 } from "../../../../packages/contracts/src/index.js";
+import { DeepSeekModelAdapter } from "../providers/deepseek-provider.js";
 import { EventRepository } from "../persistence/event-repository.js";
+import { DISTILL_PATH, distil, validateExcerpts } from "../sync/memory-distill.js";
 import { DeviceRequestVerifier } from "../sync/signed-request.js";
 import { SyncService } from "../sync/sync-service.js";
 import type { Env } from "../env.js";
@@ -28,7 +30,7 @@ export const SYNC_AUDIENCE = "jarvis-local-agent";
 const MAX_BODY_BYTES = 65_536;
 
 export function isSyncPath(pathname: string): boolean {
-  return pathname === SYNC_PULL_PATH || pathname === SYNC_ACK_PATH;
+  return pathname === SYNC_PULL_PATH || pathname === SYNC_ACK_PATH || pathname === DISTILL_PATH;
 }
 
 function refuse(status: number, code: string): Response {
@@ -108,6 +110,9 @@ export async function handleSyncRequest(request: Request, env: Env): Promise<Res
   });
 
   try {
+    if (pathname === DISTILL_PATH) {
+      return await handleDistill(envelope, body, rawBody, env);
+    }
     const result = pathname === SYNC_PULL_PATH
       ? await service.pull(envelope, body as never, rawBody)
       : await service.acknowledgeDurableReceipt(envelope, body as never, rawBody);
@@ -120,4 +125,52 @@ export async function handleSyncRequest(request: Request, env: Env): Promise<Res
     console.error("sync_request_failed", { path: pathname, reason });
     return refuse(statusFor(reason), "sync_request_rejected");
   }
+}
+
+/**
+ * Distillation over a signed request.
+ *
+ * Verified through the same DeviceRequestVerifier as the sync routes, so this
+ * consumes a nonce and is bound to method, path and body exactly as they are.
+ * The excerpts are validated before the model is called, so a malformed
+ * submission costs nothing but a signature check.
+ */
+async function handleDistill(
+  envelope: SignedRequestV1,
+  body: unknown,
+  rawBody: Uint8Array,
+  env: Env,
+): Promise<Response> {
+  const apiKey = env.DEEPSEEK_API_KEY;
+  if (apiKey === undefined) return refuse(503, "model_not_configured");
+
+  const verifier = new DeviceRequestVerifier({ database: env.DB, audience: SYNC_AUDIENCE });
+  const verified = await verifier.verify(
+    envelope,
+    "POST",
+    DISTILL_PATH,
+    body,
+    rawBody,
+    new Date(),
+    (value) => value,
+  );
+
+  const submitted = (verified.body as { excerpts?: unknown }).excerpts;
+  const excerpts = validateExcerpts(submitted);
+  if (excerpts === null) return refuse(400, "excerpts_invalid");
+
+  const controller = new AbortController();
+  const proposals = await distil(
+    excerpts,
+    {
+      model: new DeepSeekModelAdapter({ apiKey, model: env.DEEPSEEK_MODEL }),
+      principalId: verified.principalId,
+    },
+    controller.signal,
+  );
+
+  return new Response(JSON.stringify({ schemaVersion: "1.0", proposals }), {
+    status: 200,
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+  });
 }

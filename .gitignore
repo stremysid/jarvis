@@ -19,3 +19,8 @@ dist/
 coverage/
 .tmp-*/
 apps/local-agent/vendor/all-MiniLM-L6-v2/artifacts/
+
+# The Obsidian vault is Jarvis's local memory: the owner's own notes, and
+# eventually distilled facts about them. It lives beside the code for
+# convenience and must never be committed with it.
+/Jarvis/
