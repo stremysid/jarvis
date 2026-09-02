@@ -6,12 +6,29 @@ import callSessionsSql from "../../src/persistence/migrations/0004_call_sessions
 import conversationSql from "../../src/persistence/migrations/0005_conversation.sql?raw";
 import voiceAccessSql from "../../src/persistence/migrations/0006_voice_access.sql?raw";
 import voiceAccessBoundariesSql from "../../src/persistence/migrations/0007_voice_access_boundaries.sql?raw";
+import autonomySql from "../../src/persistence/migrations/0008_autonomy.sql?raw";
+import decisionsSql from "../../src/persistence/migrations/0009_decisions.sql?raw";
+import projectsSql from "../../src/persistence/migrations/0010_projects.sql?raw";
+import deadlinesSql from "../../src/persistence/migrations/0011_deadlines.sql?raw";
+import livenessSql from "../../src/persistence/migrations/0012_liveness.sql?raw";
 
 let migrated: Promise<void> | undefined;
 
+/**
+ * Split a migration into the statements D1 applies one at a time.
+ *
+ * Triggers are lifted out first because their bodies contain the semicolons
+ * this otherwise splits on. Any comment lines directly above a trigger are
+ * lifted with it: left behind, they would be a fragment that no longer
+ * resolves to the trigger marker, and the trigger would be applied as its own
+ * literal text.
+ *
+ * Semicolons inside comments elsewhere still cut a statement in half, which
+ * surfaces as `incomplete input` from D1. Migrations avoid them.
+ */
 export function splitMigration(sql: string): string[] {
   const triggers: string[] = [];
-  const statements = sql.replace(/CREATE TRIGGER\b[\s\S]*?\nEND;/giu, (trigger) => {
+  const statements = sql.replace(/(?:^[^\S\n]*--[^\n]*\n)*CREATE TRIGGER\b[\s\S]*?\nEND;/gimu, (trigger) => {
     const marker = `__JARVIS_TRIGGER_${triggers.length}__`;
     triggers.push(trigger.slice(0, -1));
     return `${marker};`;
@@ -36,11 +53,26 @@ export const voiceAccessBoundariesMigration = Object.freeze({
   queries: splitMigration(voiceAccessBoundariesSql),
 });
 
+/**
+ * Everything after the voice-access boundary. Kept separate from
+ * `voiceAccessBaseMigrations` because those two exports name the exact point
+ * the voice-access tests reconstruct, and appending here would silently
+ * change what they are testing.
+ */
+export const assistantMigrations = Object.freeze([
+  { name: "0008_autonomy.sql", queries: splitMigration(autonomySql) },
+  { name: "0009_decisions.sql", queries: splitMigration(decisionsSql) },
+  { name: "0010_projects.sql", queries: splitMigration(projectsSql) },
+  { name: "0011_deadlines.sql", queries: splitMigration(deadlinesSql) },
+  { name: "0012_liveness.sql", queries: splitMigration(livenessSql) },
+]);
+
 /** Applies the deployable Wrangler migration to the actual D1 test binding once. */
 export function applyFoundationMigration(): Promise<void> {
   migrated ??= applyD1Migrations(env.DB, [
     ...voiceAccessBaseMigrations,
     voiceAccessBoundariesMigration,
+    ...assistantMigrations,
   ]);
   return migrated;
 }
