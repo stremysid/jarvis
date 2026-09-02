@@ -40,6 +40,16 @@ export interface Env {
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
 
+  /**
+   * 32 random bytes, base64. Signs the snapshot continuation tokens the
+   * local agent quotes back when acknowledging a page, so a token cannot be
+   * forged to claim a view of the log the cloud never issued.
+   *
+   * Rotating it invalidates outstanding tokens; the agent recovers by
+   * pulling a fresh page.
+   */
+  SYNC_CONTINUATION_SECRET?: string;
+
   /** Model provider for all Jarvis reasoning. */
   DEEPSEEK_API_KEY?: string;
 

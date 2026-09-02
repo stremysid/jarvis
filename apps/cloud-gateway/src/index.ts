@@ -13,6 +13,7 @@ import {
 } from "./conversation/outbox-dispatcher.js";
 import type { Env } from "./env.js";
 import { createVoiceRouteDependencies } from "./http/voice-route-construction.js";
+import { handleSyncRequest, isSyncPath } from "./http/sync-routes.js";
 import { routeVoiceRequest } from "./http/voice-routes.js";
 import { DeviceRepository } from "./persistence/device-repository.js";
 import { EventRepository } from "./persistence/event-repository.js";
@@ -159,6 +160,9 @@ export default {
         onAccepted: (accepted) => ctx.waitUntil(replyTo(env, accepted)),
       });
     }
+
+    // Device-signed; authentication is the signature, not the path.
+    if (isSyncPath(pathname)) return handleSyncRequest(request, env);
 
     if (isVoicePath(request)) return routeVoiceRequest(request, unavailableVoiceRoutes);
     return notImplemented();
