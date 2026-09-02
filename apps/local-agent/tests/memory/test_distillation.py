@@ -1,0 +1,227 @@
+"""A model's output is a claim, never a result.
+
+Every test here is about refusing to take one at face value. A fact is
+something Jarvis will later state as true, so a proposal that cannot be
+verified is dropped rather than repaired -- repairing it would mean guessing
+what the model meant.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator, Sequence
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from jarvis_local.archive.archive_repository import ArchiveRepository
+from jarvis_local.memory.distillation import (
+    DistillationCoordinator,
+    Excerpt,
+    promote_new_facts,
+)
+from jarvis_local.memory.facts import FactOrigin, FactRepository, FactState
+
+PRINCIPAL = "principal-a"
+OCCURRED_AT = "2026-09-02T12:00:00.000Z"
+
+
+def event(sequence: int, text: str, event_type: str = "conversation.user_committed") -> dict[str, object]:
+    return {
+        "event_id": f"event_{sequence:026d}",
+        "event_sequence": sequence,
+        "event_type": event_type,
+        "principal_id": PRINCIPAL,
+        "session_id": "session-a",
+        "canonical_text": text,
+        "occurred_at": OCCURRED_AT,
+        "producer_version": "conversation-v1",
+    }
+
+
+class FakeClient:
+    """Returns pre-baked proposals and records what it was asked to distill."""
+
+    def __init__(self, proposals: Sequence[dict[str, Any]]) -> None:
+        self.proposals = list(proposals)
+        self.submitted: list[Sequence[Excerpt]] = []
+
+    def distill(self, excerpts: Sequence[Excerpt]) -> Sequence[dict[str, Any]]:
+        self.submitted.append(list(excerpts))
+        return self.proposals
+
+
+@pytest.fixture
+def archive(tmp_path: Path) -> Iterator[ArchiveRepository]:
+    repository = ArchiveRepository.open(tmp_path / "archive.sqlite3")
+    yield repository
+    repository.close()
+
+
+@pytest.fixture
+def facts(tmp_path: Path) -> Iterator[FactRepository]:
+    repository = FactRepository.open(tmp_path / "memory.sqlite3")
+    yield repository
+    repository.close()
+
+
+def coordinator(archive: ArchiveRepository, facts: FactRepository, client: FakeClient) -> DistillationCoordinator:
+    return DistillationCoordinator(archive, facts, client, principal_id=PRINCIPAL)
+
+
+def proposal(**overrides: Any) -> dict[str, Any]:
+    base = {"text": "Sid likes coffee", "sourceEventIds": [f"event_{1:026d}"]}
+    base.update(overrides)
+    return base
+
+
+def test_records_a_well_formed_proposal(archive: ArchiveRepository, facts: FactRepository) -> None:
+    archive.insert_event_if_absent(event(1, "I like coffee"))
+    client = FakeClient([proposal()])
+
+    progress = coordinator(archive, facts, client).run_once()
+
+    assert progress.excerpts_submitted == 1
+    assert progress.proposals_recorded == 1
+    assert facts.count() == 1
+
+
+def test_a_model_proposal_is_always_recorded_as_model_origin(
+    archive: ArchiveRepository, facts: FactRepository
+) -> None:
+    """Even when the response claims otherwise.
+
+    A model returning `origin: authenticated_first_person` would otherwise
+    promote itself straight past the boundary that exists to stop exactly that.
+    """
+    archive.insert_event_if_absent(event(1, "I like coffee"))
+    client = FakeClient([proposal(origin="authenticated_first_person")])
+
+    coordinator(archive, facts, client).run_once()
+
+    stored = facts.active_facts(PRINCIPAL)
+    assert stored == []  # not promotable, so not active
+    rows = facts.connection.execute("SELECT origin, state FROM fact").fetchall()
+    assert rows == [(FactOrigin.MODEL.value, FactState.PROPOSED.value)]
+
+
+def test_a_proposal_citing_an_unsubmitted_source_is_dropped(
+    archive: ArchiveRepository, facts: FactRepository
+) -> None:
+    """Either a hallucination or an attempt to attach a claim to unrelated
+    evidence. Provenance is the whole basis on which a fact is later trusted."""
+    archive.insert_event_if_absent(event(1, "I like coffee"))
+    client = FakeClient([proposal(sourceEventIds=["event_00000000000000000000000999"])])
+
+    progress = coordinator(archive, facts, client).run_once()
+
+    assert progress.proposals_recorded == 0
+    assert progress.proposals_rejected == 1
+    assert facts.count() == 0
+
+
+def test_a_proposal_with_no_sources_is_dropped(archive: ArchiveRepository, facts: FactRepository) -> None:
+    archive.insert_event_if_absent(event(1, "I like coffee"))
+    client = FakeClient([proposal(sourceEventIds=[])])
+    assert coordinator(archive, facts, client).run_once().proposals_rejected == 1
+
+
+@pytest.mark.parametrize(
+    "key", ["tool", "tool_call", "function", "function_call", "action", "command", "state"]
+)
+def test_a_proposal_shaped_like_an_action_is_refused(
+    archive: ArchiveRepository, facts: FactRepository, key: str
+) -> None:
+    # The model tried to act rather than observe.
+    archive.insert_event_if_absent(event(1, "I like coffee"))
+    client = FakeClient([proposal(**{key: "anything"})])
+
+    progress = coordinator(archive, facts, client).run_once()
+    assert progress.proposals_recorded == 0
+    assert facts.count() == 0
+
+
+@pytest.mark.parametrize("text", ["", "   ", None, 42, ["a"]])
+def test_unusable_text_is_dropped(archive: ArchiveRepository, facts: FactRepository, text: Any) -> None:
+    archive.insert_event_if_absent(event(1, "I like coffee"))
+    client = FakeClient([proposal(text=text)])
+    assert coordinator(archive, facts, client).run_once().proposals_recorded == 0
+
+
+@pytest.mark.parametrize("confidence", [-0.1, 1.1, "high", True, None])
+def test_a_confidence_outside_a_probability_is_dropped(
+    archive: ArchiveRepository, facts: FactRepository, confidence: Any
+) -> None:
+    archive.insert_event_if_absent(event(1, "I like coffee"))
+    client = FakeClient([proposal(confidence=confidence)])
+    assert coordinator(archive, facts, client).run_once().proposals_recorded == 0
+
+
+def test_one_bad_proposal_does_not_discard_the_good_ones(
+    archive: ArchiveRepository, facts: FactRepository
+) -> None:
+    archive.insert_event_if_absent(event(1, "I like coffee"))
+    client = FakeClient([proposal(), proposal(sourceEventIds=[]), proposal(text="Sid drinks tea")])
+
+    progress = coordinator(archive, facts, client).run_once()
+
+    assert (progress.proposals_recorded, progress.proposals_rejected) == (2, 1)
+
+
+def test_only_conversation_events_are_submitted(archive: ArchiveRepository, facts: FactRepository) -> None:
+    """An allowlist: a new event type is ignored until someone decides what a
+    fact drawn from it would mean."""
+    archive.insert_event_if_absent(event(1, "I like coffee"))
+    archive.insert_event_if_absent(event(2, "{}", "telegram.message.rejected"))
+    archive.insert_event_if_absent(event(3, "and tea", "conversation.assistant_delivered"))
+    client = FakeClient([])
+
+    coordinator(archive, facts, client).run_once()
+
+    submitted = [excerpt.text for excerpt in client.submitted[0]]
+    assert submitted == ["I like coffee", "and tea"]
+
+
+def test_the_cursor_advances_past_skipped_events(
+    archive: ArchiveRepository, facts: FactRepository
+) -> None:
+    """Otherwise every future run re-examines events it has already decided to
+    ignore."""
+    archive.insert_event_if_absent(event(1, "I like coffee"))
+    archive.insert_event_if_absent(event(2, "{}", "telegram.message.rejected"))
+    client = FakeClient([])
+
+    progress = coordinator(archive, facts, client).run_once()
+    assert progress.through_sequence == 2
+
+
+def test_a_second_run_does_not_resubmit_the_same_events(
+    archive: ArchiveRepository, facts: FactRepository
+) -> None:
+    archive.insert_event_if_absent(event(1, "I like coffee"))
+    client = FakeClient([])
+    coordinate = coordinator(archive, facts, client)
+
+    coordinate.run_once()
+    second = coordinate.run_once()
+
+    assert second.excerpts_submitted == 0
+    assert len(client.submitted) == 1
+
+
+def test_nothing_to_distill_is_not_an_error(archive: ArchiveRepository, facts: FactRepository) -> None:
+    client = FakeClient([])
+    progress = coordinator(archive, facts, client).run_once()
+    assert progress == type(progress)(0, 0, 0, 0)
+
+
+def test_distilled_facts_are_not_promoted_automatically(
+    archive: ArchiveRepository, facts: FactRepository
+) -> None:
+    """The whole point of the boundary: a model's inference stays proposed
+    until Sid confirms it."""
+    archive.insert_event_if_absent(event(1, "I like coffee"))
+    coordinator(archive, facts, FakeClient([proposal()])).run_once()
+
+    assert promote_new_facts(facts, PRINCIPAL) == []
+    assert facts.active_facts(PRINCIPAL) == []
