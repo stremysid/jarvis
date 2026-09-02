@@ -38,3 +38,20 @@ No Windows service bootstrap, gateway join, live verification, or release
 certification exists. The `Jarvis/` Obsidian vault at the repository root is
 untracked by design; the memory design names it an unsupported source vault
 that Jarvis must never write.
+
+## Rate limiting and the circuit breaker are per-isolate
+
+`telegramLimiter` and `providerCircuitBreaker` in `apps/cloud-gateway/src/index.ts`
+live at module scope, which survives between requests in ONE isolate.
+Cloudflare may run several isolates for one Worker, so the configured 30/min
+is a per-isolate 30/min and the breaker sees only its own isolate's failures.
+Both belong in a Durable Object -- the mechanism already used for call
+sessions -- before either becomes load-bearing.
+
+## The autonomy repository's read-back guards are untested
+
+`isAutonomyTier` and `isAutonomyMode` in `autonomy-repository.ts` validate
+values read back out of D1. They are defence in depth against a row that the
+CHECK constraints make unwriteable, so a mutant planted in either would
+survive the suite. Testing them needs the table rebuilt without its
+constraints, which was judged too invasive for what it proves.
