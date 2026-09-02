@@ -10,6 +10,8 @@ import { routeVoiceRequest } from "./http/voice-routes.js";
 import { DeviceRepository } from "./persistence/device-repository.js";
 import { EventRepository } from "./persistence/event-repository.js";
 import { PolicyService } from "./policy/policy-service.js";
+import { D1ContextRetriever } from "./conversation/context-retriever.js";
+import { recordTurn } from "./conversation/turn-recorder.js";
 import { collectStream, DeepSeekModelAdapter } from "./providers/deepseek-provider.js";
 import { TelegramRestProvider } from "./providers/telegram-provider.js";
 import { Redactor } from "./security/redaction.js";
@@ -21,6 +23,8 @@ const TELEGRAM_WEBHOOK_PATH = "/telegram/webhook";
 const REPLY_MAX_CHARACTERS = 3_000;
 const FIRST_TOKEN_TIMEOUT_MS = 15_000;
 const TOTAL_TIMEOUT_MS = 45_000;
+/** Byte budget for retrieved history, not a token count. */
+const CONTEXT_BUDGET_BYTES = 4_000;
 
 function notImplemented(): Response {
   return new Response("Not implemented", { status: 501 });
@@ -73,7 +77,28 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
   if (apiKey === undefined || botToken === undefined) return;
 
   const controller = new AbortController();
+  const recorder = { events: new EventRepository(env.DB), redactor: new Redactor() };
   try {
+    // Retrieved BEFORE the new turn is recorded, so the current message is not
+    // duplicated -- it is already passed separately as userText.
+    const context = await new D1ContextRetriever(env.DB).retrieve({
+      principalId: accepted.principalId,
+      channel: "telegram",
+      purpose: "conversation",
+      query: accepted.text,
+      maxTokens: CONTEXT_BUDGET_BYTES,
+    });
+
+    // Recorded before the model is called, so what was said survives even if
+    // the answer never arrives.
+    await recordTurn(recorder, {
+      principalId: accepted.principalId,
+      channel: "telegram",
+      role: "user",
+      text: accepted.text,
+      turnKey: `${accepted.eventId}:user`,
+    });
+
     const model = new DeepSeekModelAdapter({ apiKey, model: env.DEEPSEEK_MODEL });
     const answer = await collectStream(
       model.stream({
@@ -81,9 +106,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         principalId: accepted.principalId,
         channel: "telegram",
         userText: accepted.text,
-        // Memory retrieval is not wired yet, so replies are context-free for
-        // now. The local agent supplies this once its projection lands.
-        context: [],
+        context,
         reasoningEffort: "low",
         firstTokenTimeoutMs: FIRST_TOKEN_TIMEOUT_MS,
         timeoutMs: TOTAL_TIMEOUT_MS,
@@ -95,6 +118,17 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
 
     const text = answer.trim();
     if (text.length === 0) return;
+
+    // Recorded before sending. A reply present in history but not delivered is
+    // recoverable; one delivered but absent from history would make Jarvis
+    // contradict itself on the next turn.
+    await recordTurn(recorder, {
+      principalId: accepted.principalId,
+      channel: "telegram",
+      role: "assistant",
+      text,
+      turnKey: `${accepted.eventId}:assistant`,
+    });
 
     await new TelegramRestProvider({ botToken }).sendMessage({
       chatId: accepted.chatId,
