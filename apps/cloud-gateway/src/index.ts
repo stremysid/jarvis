@@ -4,37 +4,26 @@ import {
   handleTelegramWebhook,
   type AcceptedTelegramUpdate,
 } from "./channels/telegram/telegram-webhook.js";
+import { D1ContextRetriever } from "./conversation/context-retriever.js";
+import { ConversationRepository } from "./conversation/conversation-repository.js";
+import { DefaultConversationService } from "./conversation/conversation-service.js";
+import {
+  D1TelegramIdentityResolver,
+  DefaultOutboxDispatcher,
+} from "./conversation/outbox-dispatcher.js";
 import type { Env } from "./env.js";
 import { createVoiceRouteDependencies } from "./http/voice-route-construction.js";
 import { routeVoiceRequest } from "./http/voice-routes.js";
 import { DeviceRepository } from "./persistence/device-repository.js";
 import { EventRepository } from "./persistence/event-repository.js";
 import { PolicyService } from "./policy/policy-service.js";
-import { D1ContextRetriever } from "./conversation/context-retriever.js";
-import { recordTurn } from "./conversation/turn-recorder.js";
-import { collectStream, DeepSeekModelAdapter } from "./providers/deepseek-provider.js";
+import { DeepSeekModelAdapter } from "./providers/deepseek-provider.js";
+import { ProviderCircuitBreaker } from "./providers/provider-circuit-breaker.js";
 import { TelegramRestProvider } from "./providers/telegram-provider.js";
 import { Redactor } from "./security/redaction.js";
 export { CallSession } from "./voice/call-session-do.js";
 
 const TELEGRAM_WEBHOOK_PATH = "/telegram/webhook";
-
-/** Telegram replies are text; the design calls for brief, direct answers. */
-const REPLY_MAX_CHARACTERS = 3_000;
-/**
- * Generous compared with voice, deliberately.
- *
- * On a call, silence past a few seconds is indistinguishable from a dead line,
- * so the voice path needs a tight first-token deadline. Telegram has no such
- * constraint: the message is already acknowledged and the reply arrives when
- * it arrives. The earlier 15s deadline aborted any question that required
- * reasoning over retrieved history -- "hi" answered fine, "what was my first
- * message" did not.
- */
-const FIRST_TOKEN_TIMEOUT_MS = 40_000;
-const TOTAL_TIMEOUT_MS = 90_000;
-/** Byte budget for retrieved history, not a token count. */
-const CONTEXT_BUDGET_BYTES = 4_000;
 
 function notImplemented(): Response {
   return new Response("Not implemented", { status: 501 });
@@ -58,15 +47,15 @@ const unavailableVoiceRoutes = createVoiceRouteDependencies({
 });
 
 /**
- * Module scope, so admission counts survive between requests in one isolate.
+ * Module scope, so state survives between requests in one isolate.
  *
- * Per-isolate, not global: Cloudflare may run several isolates for a Worker,
- * so the effective ceiling is the limit times the number of live isolates.
- * For a limit whose purpose is bounding cost that is a real weakening; the fix
- * is a Durable Object counter, the same mechanism already used for call
- * sessions.
+ * Per-isolate, not global: Cloudflare may run several isolates for one Worker,
+ * so rate limiting is weaker than configured and the circuit breaker sees only
+ * one isolate's failures. Both belong in a Durable Object -- the mechanism
+ * already used for call sessions -- before either becomes load-bearing.
  */
 const telegramLimiter = new TelegramRateLimiter();
+const providerCircuitBreaker = new ProviderCircuitBreaker();
 
 function isVoicePath(request: Request): boolean {
   const pathname = new URL(request.url).pathname;
@@ -74,12 +63,17 @@ function isVoicePath(request: Request): boolean {
 }
 
 /**
- * Answer an accepted message.
+ * Answer an accepted message through the conversation service.
  *
- * Runs after the webhook has already returned 200, so a slow model cannot
- * cause Telegram to time out and redeliver. Every failure is swallowed: the
- * message is already durably stored, and throwing here would only produce an
- * unhandled rejection in a context with no one to report it to.
+ * The service owns the entire turn: it commits the user event, claims the
+ * turn, streams the model, stages the assistant delivery and dispatches it.
+ * That matters because the database enforces those transitions with triggers
+ * -- a delivery cannot be recorded without the staging that proves it
+ * happened. Writing those events directly, as an earlier version did, aborts
+ * the transaction and takes the reply down with it.
+ *
+ * Runs under ctx.waitUntil, after the webhook has already returned 200, so a
+ * slow model cannot cause Telegram to time out and redeliver.
  */
 async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void> {
   const apiKey = env.DEEPSEEK_API_KEY;
@@ -87,72 +81,57 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
   if (apiKey === undefined || botToken === undefined) return;
 
   const controller = new AbortController();
-  const recorder = { events: new EventRepository(env.DB), redactor: new Redactor() };
   try {
-    // Retrieved BEFORE the new turn is recorded, so the current message is not
-    // duplicated -- it is already passed separately as userText.
-    const context = await new D1ContextRetriever(env.DB).retrieve({
-      principalId: accepted.principalId,
-      channel: "telegram",
-      purpose: "conversation",
-      query: accepted.text,
-      maxTokens: CONTEXT_BUDGET_BYTES,
-    });
-
-    // Recorded before the model is called, so what was said survives even if
-    // the answer never arrives.
-    await recordTurn(recorder, {
-      principalId: accepted.principalId,
-      channel: "telegram",
-      role: "user",
-      text: accepted.text,
-      turnKey: `${accepted.eventId}:user`,
-    });
-
-    const model = new DeepSeekModelAdapter({ apiKey, model: env.DEEPSEEK_MODEL });
-    const answer = await collectStream(
-      model.stream({
-        correlationId: newUlid(),
-        principalId: accepted.principalId,
-        channel: "telegram",
-        userText: accepted.text,
-        context,
-        reasoningEffort: "low",
-        firstTokenTimeoutMs: FIRST_TOKEN_TIMEOUT_MS,
-        timeoutMs: TOTAL_TIMEOUT_MS,
-        contextTokenBudget: 4_000,
-        maxOutputCharacters: REPLY_MAX_CHARACTERS,
-        signal: controller.signal,
-      }),
+    // The delivery target is the channel identity, not the chat. Resolving it
+    // here also re-confirms the identity is still active: authentication
+    // happened when the message arrived, and this runs afterwards.
+    const identity = await new DeviceRepository(env.DB).findActiveVerifiedTelegramIdentity(
+      accepted.telegramUserId,
     );
+    if (identity === null) return;
 
-    const text = answer.trim();
-    if (text.length === 0) return;
+    const events = new EventRepository(env.DB);
+    const repository = new ConversationRepository(env.DB, events);
 
-    // The assistant turn is deliberately NOT recorded here.
-    //
-    // conversation.assistant_delivered is guarded by a database trigger that
-    // requires a matching conversation_deliveries row in `claimed` state, so
-    // it cannot be written directly -- only through the staging and delivery
-    // flow that ConversationRepository and DefaultConversationService
-    // implement. Writing it directly aborts the transaction and, because this
-    // runs after the user turn is stored, took the reply down with it.
-    //
-    // The consequence today: Jarvis recalls what you said but not what it
-    // answered. Wiring the real conversation service removes that asymmetry
-    // and is the next piece of work.
-    await new TelegramRestProvider({ botToken }).sendMessage({
-      chatId: accepted.chatId,
-      text,
-      replyToMessageId: accepted.messageId,
-      // The event id: one reply per stored message, and traceable to it.
-      idempotencyKey: accepted.eventId,
+    const service = new DefaultConversationService({
+      repository,
+      model: new DeepSeekModelAdapter({ apiKey, model: env.DEEPSEEK_MODEL }),
+      context: new D1ContextRetriever(env.DB),
+      dispatcher: new DefaultOutboxDispatcher({
+        repository,
+        identityResolver: new D1TelegramIdentityResolver(env.DB),
+        channels: new Map([["telegram", new TelegramRestProvider({ botToken })]]),
+        circuitBreaker: providerCircuitBreaker,
+      }),
+      redactor: new Redactor(),
     });
+
+    const result = await service.handleTurn({
+      // One conversation per chat, so separate chats do not share a thread.
+      sessionId: `telegram:${accepted.chatId}`,
+      principalId: accepted.principalId,
+      turnId: newUlid(),
+      text: accepted.text,
+      signal: controller.signal,
+      channel: "telegram",
+      kind: "outbox",
+      targetIdentityId: identity.identityId,
+      replyToMessageId: accepted.messageId,
+    });
+
+    // Anything other than delivered is worth seeing. The turn is durably
+    // recorded either way, but silence here is what made the earlier failures
+    // so hard to find.
+    if (result.outcome !== "telegram_delivered") {
+      console.log("telegram_turn_outcome", {
+        eventId: accepted.eventId,
+        outcome: result.outcome,
+        deliveryId: result.deliveryId,
+      });
+    }
   } catch (error) {
-    // The failure is contained -- the inbound message is already archived, so
-    // this is a delivery problem rather than data loss -- but it must not be
-    // invisible. A silent catch here made a wrong model id look identical to
-    // the model never being called at all.
+    // Contained, not hidden: the inbound message is already archived, so this
+    // is a delivery problem rather than data loss.
     console.error("telegram_reply_failed", {
       eventId: accepted.eventId,
       reason: error instanceof Error ? error.message : String(error),
