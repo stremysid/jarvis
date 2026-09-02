@@ -9,6 +9,22 @@ required = ["PIN_VERIFIER_JSON"]
 type = "durable-object"
 storage = "sqlite"
 
+# Three cadences, not one.
+#
+# The frequent tick drains work that is already owed -- queued deliveries,
+# decision expiry -- and must stay cheap enough to run every five minutes
+# forever. Polling is hourly because a repository's status documents do not
+# change faster than that and the plan is explicit that a hardened school
+# tenant should see a sane cadence rather than continuous requests. The digest
+# is once daily, at the hour the owner actually reads it.
+#
+# Times are UTC. 11:30 UTC is 07:30 Eastern in daylight time, which is the
+# boot time the plan fixes the morning rhythm to. It drifts an hour in winter,
+# which is the cost of Cloudflare crons having no timezone -- the handler
+# corrects for it rather than the schedule.
+[triggers]
+crons = ["*/5 * * * *", "0 * * * *", "30 11 * * *"]
+
 [[d1_databases]]
 binding = "DB"
 database_name = "jarvis"

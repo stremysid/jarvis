@@ -59,4 +59,54 @@ export interface Env {
    * rather than a redeploy.
    */
   DEEPSEEK_MODEL?: string;
+
+  /**
+   * The principal every scheduled job acts for and delivers to.
+   *
+   * Scheduled work has no request to derive an identity from, so it needs one
+   * named up front. Without it the digest has nobody to send to, and the
+   * handler declines to run rather than picking a principal out of the
+   * database and guessing it meant the owner.
+   */
+  OWNER_PRINCIPAL_ID?: string;
+
+  /**
+   * IANA zone the daily digest is composed for, e.g. "America/Toronto".
+   *
+   * Cloudflare crons fire on UTC and have no notion of a timezone, so the
+   * schedule drifts an hour across a daylight-saving boundary. Correcting it
+   * here rather than in the cron means the digest keeps saying "today" about
+   * the right day in March and November.
+   */
+  DIGEST_TIMEZONE?: string;
+
+  /**
+   * Fine-grained personal access token, read-only, for the tracked
+   * repositories only. The project poller reads four status documents and the
+   * latest commit; nothing in this system needs write access to a repository,
+   * so a token that has it is a token that can be stolen for more than it was
+   * issued for.
+   */
+  GITHUB_TOKEN?: string;
+
+  /**
+   * Google Classroom, via the owner's own account. The refresh token is the
+   * long-lived credential -- access tokens are minted from it per run, so a
+   * leaked access token expires on its own and a compromised refresh token is
+   * revocable in one place.
+   */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  GOOGLE_REFRESH_TOKEN?: string;
+
+  /**
+   * The watchdog's heartbeat endpoint and its shared secret.
+   *
+   * Deliberately a URL rather than a service binding: the watchdog is a
+   * separate Worker precisely so the failure that kills this one cannot kill
+   * the thing meant to report it, and a binding would couple their
+   * deployments back together.
+   */
+  WATCHDOG_HEARTBEAT_URL?: string;
+  WATCHDOG_HEARTBEAT_SECRET?: string;
 }
