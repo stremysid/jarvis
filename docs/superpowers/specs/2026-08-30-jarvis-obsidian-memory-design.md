@@ -1,7 +1,7 @@
 # Jarvis Obsidian Memory Integration Design
 
 **Date:** 2026-08-30
-**Status:** Approved; implementation planning in progress
+**Status:** Approved base; privileged-journal amendment under independent review
 **Scope:** Personal and project knowledge on Sid's Windows machine
 
 ## 1. Purpose
@@ -95,8 +95,11 @@ memory understandable and editable. Selected.
 
 ## 4. Architecture
 
-The planned Windows local agent owns all vault access. Cloudflare Workers never
-mount, enumerate, or write the Windows filesystem.
+The planned Windows local subsystem owns all vault access. The ordinary local
+agent performs parsing, stable reads, indexing, synchronization, and writes as
+Sid's unprivileged account. A separate minimal Windows broker performs only the
+USN-journal and VSS operations that Windows restricts to administrators.
+Cloudflare Workers never mount, enumerate, or write the Windows filesystem.
 
 The integration adds four isolated local components:
 
@@ -113,6 +116,67 @@ The integration adds four isolated local components:
 
 These components depend on narrow archive and memory interfaces. They do not
 call DeepSeek directly, evaluate permissions, or execute tools.
+
+### 4.1 Privileged Windows broker boundary
+
+Microsoft requires membership in the Administrators group for
+[all change-journal operations](https://learn.microsoft.com/en-us/windows/win32/fileio/using-the-change-journal-identifier).
+Jarvis therefore does not run the Python agent, model provider, conversation
+service, Telegram/Twilio adapters, deterministic retrieval, or projection logic
+as administrator. Installation creates a separate `JarvisVaultBroker` Windows
+service from the same signed and hash-locked native release. It runs under
+`LocalSystem`, has a service-specific outbound-network deny rule, and exposes
+only these closed operations:
+
+- register or revoke one reviewed owned-vault binding during an explicitly
+  elevated setup transaction;
+- query one bound volume's USN journal checkpoint;
+- read one bounded, root-filtered journal page;
+- create, inspect, duplicate read-only handles from, and release one coordinated
+  VSS snapshot set for the exact registered component volumes.
+
+The broker cannot create, resize, disable, or delete a USN journal. It exposes no
+general filesystem read/write, process launch, command execution, network,
+credential, provider, model, archive, indexing, or projection interface. Normal
+handle-confined enumeration, stable note reads, and create-new publication stay
+inside the unprivileged native extension.
+
+The broker named pipe rejects remote clients and has an SDDL ACL limited to
+`SYSTEM` and Sid's recorded SID. For every connection it impersonates the
+caller, verifies that SID, rejects AppContainer/remote/session-mismatched tokens,
+and verifies a nonce-protected request signed by the already enrolled device
+key. Its machine-protected registration record binds the owner SID, enrolled
+device public key, principal and vault IDs, ownership-receipt hash, root and
+volume identities, allowed component-volume GUIDs, schema version, and an
+append-only registration generation. It stores no raw note text, provider
+credential, account identity, phone number, or model input. Only the explicitly
+elevated registration path may change that binding; an ordinary request cannot
+supply a path or volume.
+
+The broker seeds and maintains a root-descendant file-ID map from one
+handle-confined enumeration. A journal page is filtered inside the privileged
+process before crossing the pipe. It may return only records whose file ID or
+known parent identity belongs to the registered vault. A new identity joins the
+map only beneath a known registered parent; a move outside removes it. An
+unknown parent, rename ambiguity, journal reset/wrap, lost registration, or map
+gap returns `vault_journal_mapping_incomplete` and forces a fresh elevated
+root-bound baseline instead of returning volume-wide filenames or guessing.
+Pages are bounded by record count and encoded bytes and carry journal ID, start
+USN, next USN, upper bound, and completion status.
+
+VSS requests name only registered logical component IDs. The broker resolves
+their pre-registered volume identities, creates one snapshot set, and duplicates
+read-only shadow-root handles into the authenticated client process. Each lease
+has one random ID, exact snapshot-set ID, allowed volume list, owner process,
+expiry, and idempotent release; disconnect, process exit, service restart, or
+expiry cleans it up. Raw shadow device paths do not cross the pipe.
+
+If the broker, its registration, its outbound firewall rule, or its signature
+is unavailable or mismatched, the adapter reports
+`vault_privileged_broker_unavailable`, advances no durable journal watermark,
+creates no absence-derived tombstone, and labels no backup coordinated. Ordinary
+Jarvis memory remains available. There is no watcher-only or unprivileged USN
+fallback that claims lossless reconciliation.
 
 ## 5. Vault layout
 
@@ -685,6 +749,15 @@ verifies the installed publisher and executable path. Installation failure does
 not corrupt or disable Jarvis memory; it leaves the integration unavailable with
 an actionable doctor result.
 
+The same bootstrap verifies the hash/signature of the native release and uses
+one explicit UAC-elevated step to install `JarvisVaultBroker`, its owner-only
+pipe ACL, machine-protected registration store, recovery policy, and
+service-specific outbound deny rule. It verifies the effective service account,
+binary path, DACL, firewall rule, and disabled network surface before allowing
+vault registration. Updating or uninstalling the broker is a separate elevated,
+journaled operation; a normal Jarvis process cannot replace its binary or
+configuration.
+
 If Obsidian is already installed or signed in, setup neither records the account
 identity nor changes account, Sync, publishing, or plugin settings. The adapter
 continues to use the local filesystem and does not depend on Obsidian account
@@ -692,17 +765,32 @@ state.
 
 The bootstrap script creates the vault directories and README only after the
 resolved target is confirmed local, handle-confined, and not an existing
-non-Jarvis directory. It then registers or opens the vault through Obsidian's
-supported desktop flow.
+non-Jarvis directory. Obsidian's documented way to register an existing folder
+is the interactive **Open folder as vault** flow. Jarvis does not edit
+Obsidian's vault registry or auto-enable its CLI setting. Setup therefore stops
+at `vault_ready_to_register`, launches or focuses only the verified Obsidian
+application when Sid requests the handoff, and displays the owned path through
+the authenticated local CLI so Sid can select that one folder. This bounded
+selection is the only manual step.
 The path is stored in protected local configuration as
 `JARVIS_OBSIDIAN_VAULT_PATH`; the value is never supplied by model output.
 
+After Sid confirms the selection through the authenticated local CLI, Jarvis
+records a local registration-attestation event bound to the current ownership
+receipt, the verified Obsidian process image/signature, and the confirmation
+time. Later opens may use the documented `obsidian://open?vault=Jarvis%20Vault`
+URI only after that attestation; `obsidian://open?path=` is not treated as a
+registration mechanism because it only searches already registered vaults.
+The optional Obsidian CLI also targets known vaults and requires a user-enabled
+setting, so Jarvis neither depends on it nor changes that setting.
+
 An existing vault beneath the repository is reported as
-`vault_unsupported_location` and left untouched. Setup creates and registers the
-new owned vault at the approved Profile/fallback root but does not launch,
-switch, or control a running Obsidian process. An authenticated closed-app
-handoff may open the new vault through Obsidian's supported desktop flow; until
-then doctor reports `vault_ready_to_open`. Jarvis does not move, copy, merge,
+`vault_unsupported_location` and left untouched. Setup creates the new owned
+vault at the approved Profile/fallback root but does not switch or
+control a running Obsidian process. The authenticated handoff refuses while
+Obsidian is running, then launches the signed application without filesystem
+write commands; until Sid completes the selection doctor reports
+`vault_ready_to_register`. Jarvis does not move, copy, merge,
 overwrite, or delete the unsupported vault. A later import, if needed, is a
 separate authenticated operation with its own design and is outside this first
 release.
@@ -865,6 +953,11 @@ overlays, switches to, or deletes the currently active vault.
 - Namespace fence unavailable or lost: retry within the bounded operation
   budget, then report `vault_namespace_busy`; create, publish, setup activation,
   and backup fencing remain refused.
+- Privileged broker unavailable, unsigned, unregistered, remotely reachable,
+  firewall-misconfigured, or bound to different owner/root/volume evidence:
+  report `vault_privileged_broker_unavailable`, invalidate the reconciliation
+  generation, advance no watermark, infer no tombstone, and create no
+  coordinated-backup label.
 - Repository/worktree or protected-data root: report
   `vault_unsupported_location`, preserve it unchanged, and create no adapter
   state or write until setup selects the approved Profile/fallback root.
@@ -944,6 +1037,11 @@ Required coverage includes:
   overflow before, during, and after crawl; crash recovery; and proof that an
   incomplete generation advances no head, watermark, or absence-derived
   tombstone;
+- privileged-broker installation/signature/firewall checks; remote-client,
+  wrong-SID, forged-signature, nonce-replay, wrong-session, arbitrary-path,
+  unregistered-volume, and stale-registration rejection; root-only USN page
+  filtering with bounded pagination and zero volume-wide filename disclosure;
+  broker disconnect/restart/expiry cleanup for USN and VSS leases;
 - malformed frontmatter, hostile Markdown, credential redaction, oversized
   files, and unsupported encoding;
 - user-edit versus projection conflicts with no lost user text;
@@ -988,7 +1086,9 @@ Required coverage includes:
   local queue saturation, restart-safe backpressure, ordered drain, and retained
   cloud-capacity exhaustion with no lost or falsely bound observation;
 - installation detection, idempotent vault creation, uninstall/missing-app
-  behavior, and `jarvis doctor` diagnostics;
+  behavior, interactive **Open folder as vault** registration attestation,
+  refusal to edit Obsidian registry/CLI settings, and `jarvis doctor`
+  diagnostics;
 - coordinated-backup inclusion and exclusion, exact manifest hashes, 24-hour
   RPO diagnostics from the snapshot fence, one snapshot-set ID across included
   volumes, provider-unavailable failure, completed-generation/USN fencing,
@@ -1026,7 +1126,9 @@ Markdown and are never removed automatically.
 
 ## 14. Success criteria
 
-- Obsidian opens the new Jarvis vault on Windows.
+- Obsidian opens the new Jarvis vault on Windows after one bounded user folder
+  selection; Jarvis does not edit Obsidian's registry or settings to fake
+  registration.
 - The configured vault is outside the Git repository and worktrees; Jarvis
   leaves the unsupported `C:\javis\Jarvis` seed contents untouched and
   untracked, and waits for a closed-app handoff before opening the new vault.
