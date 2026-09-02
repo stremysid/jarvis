@@ -54,7 +54,12 @@ export class DeepSeekModelAdapter implements ModelAdapter {
   constructor(options: DeepSeekAdapterOptions) {
     if (options.apiKey.length === 0) throw new TypeError("deepseek_api_key_invalid");
     this.#apiKey = options.apiKey;
-    this.#fetch = options.fetchImplementation ?? fetch;
+    // Bound to globalThis. The Workers runtime rejects native fetch called
+    // with any other `this`, and storing it as a class field then calling
+    // this.#fetch(...) supplies the instance -- raising "Illegal
+    // invocation" at runtime. Node has no such restriction, so this passes
+    // every test and fails only in production.
+    this.#fetch = options.fetchImplementation ?? globalThis.fetch.bind(globalThis);
     this.#baseUrl = options.baseUrl ?? API_ORIGIN;
     this.#model = options.model ?? DEFAULT_MODEL;
   }
@@ -88,7 +93,12 @@ export class DeepSeekModelAdapter implements ModelAdapter {
     } catch (error) {
       clearTimeout(overall);
       input.signal.removeEventListener("abort", abort);
-      throw new Error("model_unavailable", { cause: error });
+      // Carry the underlying reason in the message, not just as `cause`.
+      // A DNS failure, a refused connection and an abort are all thrown by
+      // fetch, and "model_unavailable" alone cannot distinguish them -- which
+      // is exactly what made this failure opaque the first time.
+      const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      throw new Error(`model_unavailable: ${detail}`, { cause: error });
     }
 
     if (!response.ok || response.body === null) {

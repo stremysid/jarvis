@@ -68,7 +68,12 @@ export class TelegramRestProvider implements TelegramProvider {
   constructor(options: TelegramRestProviderOptions) {
     if (!BOT_TOKEN.test(options.botToken)) throw new TypeError("telegram_bot_token_invalid");
     this.#botToken = options.botToken;
-    this.#fetch = options.fetchImplementation ?? fetch;
+    // Bound to globalThis. The Workers runtime rejects native fetch called
+    // with any other `this`, and storing it as a class field then calling
+    // this.#fetch(...) supplies the instance -- raising "Illegal
+    // invocation" at runtime. Node has no such restriction, so this passes
+    // every test and fails only in production.
+    this.#fetch = options.fetchImplementation ?? globalThis.fetch.bind(globalThis);
     this.#timeoutMs = options.timeoutMs ?? 10_000;
   }
 
