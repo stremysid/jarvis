@@ -28,6 +28,14 @@ SCHEMA_VERSION = "1.0"
 DEFAULT_PAGE_SIZE = 128
 DEFAULT_TIMEOUT_SECONDS = 30.0
 
+#: Identifies the agent to the gateway.
+#:
+#: Not cosmetic. urllib's default (`Python-urllib/x.y`) is rejected by
+#: Cloudflare's edge bot protection with a 403 that never reaches the
+#: Worker -- so it appears as an authentication failure with no matching
+#: entry in the Worker logs, which is a genuinely confusing place to land.
+USER_AGENT = "jarvis-local-agent/0.1.0"
+
 
 class CloudSyncError(RuntimeError):
     """The gateway refused a request or answered unusably."""
@@ -168,6 +176,7 @@ class HttpCloudClient:
             method="POST",
             headers={
                 "content-type": "application/json",
+                "user-agent": USER_AGENT,
                 "x-jarvis-signed-request": json.dumps(signed.envelope, separators=(",", ":")),
             },
         )
