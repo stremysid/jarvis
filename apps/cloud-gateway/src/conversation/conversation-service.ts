@@ -9,6 +9,7 @@ import { StreamingOutputRedactor } from "../security/streaming-output-redactor.j
 import type {
   AssistantStageResult,
   ContextRetriever,
+  ConversationChannel,
   ConversationDeliveryId,
   ConversationHandleTurnInput,
   ModelStreamClaimCapability,
@@ -152,6 +153,25 @@ type ConversationRepositoryPort = Pick<ConversationRepository,
   | "stageSystemNotice"
 >;
 
+export interface ModelBudget {
+  readonly firstTokenTimeoutMs: number;
+  readonly timeoutMs: number;
+}
+
+/**
+ * Per-channel model deadlines.
+ *
+ * Voice and Telegram have genuinely different tolerances. On a call, silence
+ * past a few seconds is indistinguishable from a dead line, so the first-token
+ * deadline must be tight. Telegram acknowledges the message immediately and
+ * the reply arrives when it arrives, so a deadline short enough for voice
+ * simply aborts any question that needs reasoning over retrieved history.
+ */
+export const DEFAULT_MODEL_BUDGETS: Readonly<Record<ConversationChannel, ModelBudget>> = Object.freeze({
+  voice: Object.freeze({ firstTokenTimeoutMs: 8_000, timeoutMs: 30_000 }),
+  telegram: Object.freeze({ firstTokenTimeoutMs: 40_000, timeoutMs: 90_000 }),
+});
+
 export interface ConversationServiceDependencies {
   readonly repository: ConversationRepositoryPort;
   readonly model: ModelAdapter;
@@ -159,6 +179,7 @@ export interface ConversationServiceDependencies {
   readonly dispatcher: OutboxDispatcher;
   readonly redactor: RedactorContract;
   readonly now?: () => Date;
+  readonly modelBudgets?: Readonly<Record<ConversationChannel, ModelBudget>>;
 }
 
 type CapturedTurn = Readonly<ConversationHandleTurnInput>;
@@ -620,9 +641,10 @@ export class DefaultConversationService implements ConversationService {
   private readonly redact: CapturedMethod;
   private readonly outputRedactor: RedactorContract;
   private readonly clock: () => Date;
+  private readonly modelBudgets: Readonly<Record<ConversationChannel, ModelBudget>>;
 
   constructor(dependencies: ConversationServiceDependencies) {
-    const fields = new Set(["repository", "model", "context", "dispatcher", "redactor", "now"]);
+    const fields = new Set(["repository", "model", "context", "dispatcher", "redactor", "now", "modelBudgets"]);
     const required = new Set(["repository", "model", "context", "dispatcher", "redactor"]);
     let descriptors: PropertyDescriptorMap;
     try { descriptors = Object.getOwnPropertyDescriptors(dependencies); }
@@ -673,6 +695,26 @@ export class DefaultConversationService implements ConversationService {
     const now = descriptors.now?.value ?? (() => new Date());
     if (typeof now !== "function") throw new TypeError("conversation_dependency_invalid");
     this.clock = now as () => Date;
+
+    const budgets = descriptors.modelBudgets?.value ?? DEFAULT_MODEL_BUDGETS;
+    // Validated rather than trusted: a missing or non-positive deadline would
+    // either abort every turn instantly or remove the bound entirely, and both
+    // failures are silent at the point of configuration.
+    if (
+      budgets === null
+      || typeof budgets !== "object"
+      || (["voice", "telegram"] as const).some((channel) => {
+        const budget = (budgets as Record<string, unknown>)[channel];
+        if (budget === null || typeof budget !== "object") return true;
+        const { firstTokenTimeoutMs, timeoutMs } = budget as Partial<ModelBudget>;
+        return !Number.isSafeInteger(firstTokenTimeoutMs) || (firstTokenTimeoutMs as number) <= 0
+          || !Number.isSafeInteger(timeoutMs) || (timeoutMs as number) <= 0
+          || (timeoutMs as number) < (firstTokenTimeoutMs as number);
+      })
+    ) {
+      throw new TypeError("conversation_dependency_invalid");
+    }
+    this.modelBudgets = budgets as Readonly<Record<ConversationChannel, ModelBudget>>;
   }
 
   async handleTurn(input: ConversationHandleTurnInput): Promise<ConversationTurnResult> {
@@ -799,6 +841,7 @@ export class DefaultConversationService implements ConversationService {
     });
     let finalText: SuccessfulRedaction;
     let voiceReceipt: VoiceSentReceipt | null = null;
+    const budget = this.modelBudgets[captured.channel];
     try {
       call<void>(this.beginModelStream, capability, captured.turnId, admission.turn.requestHash);
       const stream = call<AsyncIterable<ModelToken>>(this.modelStream, Object.freeze({
@@ -808,8 +851,8 @@ export class DefaultConversationService implements ConversationService {
         userText: userText.text,
         context,
         reasoningEffort: "low",
-        firstTokenTimeoutMs: 8_000,
-        timeoutMs: 30_000,
+        firstTokenTimeoutMs: budget.firstTokenTimeoutMs,
+        timeoutMs: budget.timeoutMs,
         contextTokenBudget: 32_000,
         maxOutputCharacters: MAX_OUTPUT_SCALARS,
         signal: captured.signal,
