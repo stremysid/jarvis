@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-30
 
-**Status:** Draft reflecting the owner's approved in-chat design; pending written-spec review
+**Status:** Approved by the owner for autonomous implementation on 2026-08-30
 
 **Scope:** Amend Jarvis voice authentication so the owner's enrolled number is PIN-free and the owner can provision, change, and revoke per-number guest access during an owner call.
 
