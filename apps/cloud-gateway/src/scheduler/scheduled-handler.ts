@@ -1,0 +1,143 @@
+/**
+ * Running what a cron firing asked for.
+ *
+ * The handler is deliberately thin and knows nothing about digests, polling
+ * or deadlines. It does four things in an order that matters:
+ *
+ *   route the cron -> claim the run -> run the job -> record the outcome
+ *
+ * and then, only if something actually ran, reports a heartbeat.
+ *
+ * The ordering is the substance. Claiming before running is what makes an
+ * at-least-once trigger safe. Heartbeating after running is what stops the
+ * watchdog being told "alive" for an invocation that then failed -- a
+ * heartbeat sent first converts "I would have noticed" into "I was told it
+ * was fine", which is the one failure a watchdog cannot recover from.
+ *
+ * Jobs are injected rather than imported. That keeps this file from being the
+ * place every subsystem meets, and lets the ordering above be tested without
+ * a GitHub token, a Google account or a Telegram bot.
+ */
+
+import { routeCron, type ScheduledJob } from "./cron-router.js";
+import {
+  reportHeartbeat,
+  type HeartbeatConfiguration,
+  type HeartbeatOutcome,
+} from "./heartbeat-reporter.js";
+import type { RunClaim, ScheduledRunRepository } from "./scheduled-run-repository.js";
+
+/** The gateway's own name in the watchdog's liveness table. */
+export const COMPONENT = "cloud-gateway";
+
+/**
+ * How long silence from the gateway is normal.
+ *
+ * Fifteen minutes, not five. The frequent tick runs every five, so a
+ * threshold of five alarms on the first missed beat -- and a single missed
+ * beat is a retryable blip, not an outage. Three missed ticks is a pattern.
+ */
+export const EXPECTED_INTERVAL_SECONDS = 900;
+
+export type JobOutcome = { ok: true; detail?: string } | { ok: false; failure: string };
+
+export type JobTable = Readonly<Partial<Record<ScheduledJob, () => Promise<JobOutcome>>>>;
+
+export interface ScheduledDependencies {
+  readonly runs: ScheduledRunRepository;
+  readonly jobs: JobTable;
+  readonly timeZone: string;
+  readonly heartbeat: HeartbeatConfiguration | null;
+  readonly fetcher: typeof fetch;
+}
+
+export interface JobReport {
+  readonly job: ScheduledJob;
+  readonly runKey: string;
+  readonly result: "ran" | "skipped_duplicate" | "skipped_unconfigured" | "failed";
+  readonly detail?: string;
+}
+
+export interface ScheduledReport {
+  readonly cron: string;
+  readonly jobs: readonly JobReport[];
+  readonly heartbeat: HeartbeatOutcome | null;
+}
+
+async function runOne(
+  job: ScheduledJob,
+  runKey: string,
+  dependencies: ScheduledDependencies,
+): Promise<JobReport> {
+  const run = dependencies.jobs[job];
+  // A job the deployment has not configured -- no GitHub token, no Google
+  // account -- is skipped WITHOUT claiming its key. Claiming it would record
+  // the hour as done and stop the poll from ever running once the credential
+  // arrives.
+  if (run === undefined) return { job, runKey, result: "skipped_unconfigured" };
+
+  const claim: RunClaim = { job, runKey };
+  const claimed = await dependencies.runs.claim(claim);
+  if (claimed === null) return { job, runKey, result: "skipped_duplicate" };
+
+  let outcome: JobOutcome;
+  try {
+    outcome = await run();
+  } catch (error) {
+    // A job that throws is a failed run, not a failed invocation. Letting it
+    // propagate would abandon the claim in flight and skip every job after it
+    // in the same firing.
+    outcome = { ok: false, failure: error instanceof Error ? error.message : String(error) };
+  }
+
+  if (outcome.ok) {
+    await dependencies.runs.finish(claim);
+    return { job, runKey, result: "ran", ...(outcome.detail === undefined ? {} : { detail: outcome.detail }) };
+  }
+
+  // Recording the failure is itself allowed to fail -- D1 may be the reason
+  // the job failed in the first place. The report still says what happened,
+  // which is the part the operator reads.
+  try {
+    await dependencies.runs.fail(claim, outcome.failure);
+  } catch {
+    // Deliberately swallowed. There is no third place to write this, and
+    // throwing here would replace a job failure with a bookkeeping failure.
+  }
+  return { job, runKey, result: "failed", detail: outcome.failure };
+}
+
+export async function handleScheduled(
+  cron: string,
+  instant: Date,
+  dependencies: ScheduledDependencies,
+): Promise<ScheduledReport> {
+  const work = routeCron(cron, instant, dependencies.timeZone);
+  const reports: JobReport[] = [];
+
+  // Sequential, not concurrent. These jobs share one D1 database and a
+  // Worker's CPU budget, and two of them contending is a slower way to do the
+  // same work. There is never more than one per firing today in any case.
+  for (const item of work) {
+    reports.push(await runOne(item.job, item.runKey, dependencies));
+  }
+
+  // A firing that routed to nothing -- the half of the daily pair that landed
+  // on the wrong local hour -- does not heartbeat. It proves the cron fired,
+  // not that the Worker can do its work, and a Worker whose every job is
+  // failing would otherwise look healthy on the strength of its no-ops.
+  const ran = reports.some((report) => report.result === "ran");
+  const heartbeat = ran
+    ? await reportHeartbeat(
+        {
+          component: COMPONENT,
+          expectedIntervalSeconds: EXPECTED_INTERVAL_SECONDS,
+          detail: reports.filter((report) => report.result === "ran").map((report) => report.job).join(","),
+        },
+        dependencies.heartbeat,
+        dependencies.fetcher,
+      )
+    : null;
+
+  return { cron, jobs: reports, heartbeat };
+}
