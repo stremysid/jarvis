@@ -158,6 +158,10 @@ class HttpCloudClient:
             "producer_version": envelope["producerVersion"],
         }
 
+    def post_signed(self, path: str, body: Any) -> dict[str, Any]:  # noqa: ANN401 - per-endpoint shape
+        """Sign and send one request. Public so other endpoints share this transport."""
+        return self._post(path, body)
+
     def _post(self, path: str, body: Any) -> dict[str, Any]:  # noqa: ANN401 - per-endpoint shape
         signed = build_signed_request(
             self.key,
