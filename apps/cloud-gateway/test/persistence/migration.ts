@@ -11,6 +11,7 @@ import decisionsSql from "../../src/persistence/migrations/0009_decisions.sql?ra
 import projectsSql from "../../src/persistence/migrations/0010_projects.sql?raw";
 import deadlinesSql from "../../src/persistence/migrations/0011_deadlines.sql?raw";
 import livenessSql from "../../src/persistence/migrations/0012_liveness.sql?raw";
+import scheduledRunsSql from "../../src/persistence/migrations/0013_scheduled_runs.sql?raw";
 
 let migrated: Promise<void> | undefined;
 
@@ -65,6 +66,7 @@ export const assistantMigrations = Object.freeze([
   { name: "0010_projects.sql", queries: splitMigration(projectsSql) },
   { name: "0011_deadlines.sql", queries: splitMigration(deadlinesSql) },
   { name: "0012_liveness.sql", queries: splitMigration(livenessSql) },
+  { name: "0013_scheduled_runs.sql", queries: splitMigration(scheduledRunsSql) },
 ]);
 
 /** Applies the deployable Wrangler migration to the actual D1 test binding once. */
