@@ -12,7 +12,7 @@ storage = "sqlite"
 [[d1_databases]]
 binding = "DB"
 database_name = "jarvis"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "3239834d-ef6c-4853-86b8-31ea74037c8a"
 migrations_dir = "src/persistence/migrations"
 
 [[r2_buckets]]
