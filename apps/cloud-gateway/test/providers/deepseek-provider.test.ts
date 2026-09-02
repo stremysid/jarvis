@@ -17,7 +17,7 @@ import {
 
 const API_KEY = "sk-test-key";
 
-function sseResponse(chunks: readonly string[], { status = 200 } = {}): Response {
+function sseResponse(chunks: readonly string[], { status = 200, errorBody = "" } = {}): Response {
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -25,7 +25,9 @@ function sseResponse(chunks: readonly string[], { status = 200 } = {}): Response
       controller.close();
     },
   });
-  return { ok: status < 400, status, body } as unknown as Response;
+  // `text` is needed because failures now read the provider's own explanation:
+  // a wrong model id and an expired key are both plain 4xx otherwise.
+  return { ok: status < 400, status, body, text: async () => errorBody } as unknown as Response;
 }
 
 function frame(content: string): string {
@@ -112,6 +114,30 @@ describe("DeepSeekModelAdapter", () => {
     await expect(
       collectStream(adapterWith(fetchMock as unknown as typeof fetch).stream(input())),
     ).rejects.toThrow("model_authentication_failed");
+  });
+
+  it("includes the provider's explanation in the error", async () => {
+    // A wrong model id and an expired key are both plain 4xx responses. Without
+    // the body they are indistinguishable, which is exactly the situation that
+    // made a silent reply failure impossible to diagnose.
+    const fetchMock = vi.fn(async () =>
+      sseResponse([], { status: 400, errorBody: '{"error":{"message":"Model Not Exist"}}' }),
+    );
+    await expect(
+      collectStream(adapterWith(fetchMock as unknown as typeof fetch).stream(input())),
+    ).rejects.toThrow("Model Not Exist");
+  });
+
+  it("uses an overridden model id when given", async () => {
+    const fetchMock = vi.fn(async () => sseResponse([frame("x"), "data: [DONE]\n\n"]));
+    const adapter = new DeepSeekModelAdapter({
+      apiKey: API_KEY,
+      fetchImplementation: fetchMock as unknown as typeof fetch,
+      model: "deepseek-chat",
+    });
+    await collectStream(adapter.stream(input()));
+    const [, init] = fetchMock.mock.calls[0]! as unknown as [string, RequestInit];
+    expect(JSON.parse(init.body as string).model).toBe("deepseek-chat");
   });
 
   it("reports a network failure as unavailable", async () => {

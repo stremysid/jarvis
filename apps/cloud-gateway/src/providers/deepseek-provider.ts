@@ -20,7 +20,13 @@ import type {
  */
 
 const API_ORIGIN = "https://api.deepseek.com";
-const MODEL = "deepseek-v4-pro";
+/**
+ * Default from the foundation design. DeepSeek's published ids have
+ * historically been names like deepseek-chat, so this is overridable
+ * without a code change -- a wrong model id returns 400 and, with replies
+ * failing silently, looks exactly like the model never being called.
+ */
+export const DEFAULT_MODEL = "deepseek-v4-pro";
 
 /** Never sent to the model. Retrieval decides what is allowed in a prompt. */
 const SYSTEM_PROMPT =
@@ -31,6 +37,7 @@ export interface DeepSeekAdapterOptions {
   readonly apiKey: string;
   readonly fetchImplementation?: typeof fetch;
   readonly baseUrl?: string;
+  readonly model?: string;
 }
 
 interface ChatMessage {
@@ -42,12 +49,14 @@ export class DeepSeekModelAdapter implements ModelAdapter {
   readonly #apiKey: string;
   readonly #fetch: typeof fetch;
   readonly #baseUrl: string;
+  readonly #model: string;
 
   constructor(options: DeepSeekAdapterOptions) {
     if (options.apiKey.length === 0) throw new TypeError("deepseek_api_key_invalid");
     this.#apiKey = options.apiKey;
     this.#fetch = options.fetchImplementation ?? fetch;
     this.#baseUrl = options.baseUrl ?? API_ORIGIN;
+    this.#model = options.model ?? DEFAULT_MODEL;
   }
 
   async *stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
@@ -69,7 +78,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
           authorization: `Bearer ${this.#apiKey}`,
         },
         body: JSON.stringify({
-          model: MODEL,
+          model: this.#model,
           messages,
           stream: true,
           reasoning_effort: input.reasoningEffort,
@@ -85,7 +94,12 @@ export class DeepSeekModelAdapter implements ModelAdapter {
     if (!response.ok || response.body === null) {
       clearTimeout(overall);
       input.signal.removeEventListener("abort", abort);
-      throw new Error(response.status === 401 ? "model_authentication_failed" : "model_unavailable");
+      // Include the provider's own message. A wrong model id or an expired key
+      // are both plain 4xx responses, and without the body they are
+      // indistinguishable from every other failure.
+      const detail = await response.text().catch(() => "");
+      const reason = response.status === 401 ? "model_authentication_failed" : "model_unavailable";
+      throw new Error(`${reason}: HTTP ${response.status} ${detail.slice(0, 300)}`);
     }
 
     // Fires only until the first token arrives; a provider that connects and

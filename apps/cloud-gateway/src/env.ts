@@ -42,4 +42,11 @@ export interface Env {
 
   /** Model provider for all Jarvis reasoning. */
   DEEPSEEK_API_KEY?: string;
+
+  /**
+   * Overrides the model id. The foundation design pins deepseek-v4-pro;
+   * this exists so a provider rename can be corrected with a secret change
+   * rather than a redeploy.
+   */
+  DEEPSEEK_MODEL?: string;
 }

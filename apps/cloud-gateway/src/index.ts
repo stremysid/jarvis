@@ -74,7 +74,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
 
   const controller = new AbortController();
   try {
-    const model = new DeepSeekModelAdapter({ apiKey });
+    const model = new DeepSeekModelAdapter({ apiKey, model: env.DEEPSEEK_MODEL });
     const answer = await collectStream(
       model.stream({
         correlationId: newUlid(),
@@ -103,9 +103,15 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
       // The event id: one reply per stored message, and traceable to it.
       idempotencyKey: accepted.eventId,
     });
-  } catch {
-    // Intentionally silent. The inbound message is already archived; a failed
-    // reply is a delivery problem, not a data-loss one.
+  } catch (error) {
+    // The failure is contained -- the inbound message is already archived, so
+    // this is a delivery problem rather than data loss -- but it must not be
+    // invisible. A silent catch here made a wrong model id look identical to
+    // the model never being called at all.
+    console.error("telegram_reply_failed", {
+      eventId: accepted.eventId,
+      reason: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
