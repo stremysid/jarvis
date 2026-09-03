@@ -55,3 +55,25 @@ values read back out of D1. They are defence in depth against a row that the
 CHECK constraints make unwriteable, so a mutant planted in either would
 survive the suite. Testing them needs the table rebuilt without its
 constraints, which was judged too invasive for what it proves.
+
+## The cloud-gateway tests were never typechecked, and 117 errors remain
+
+`apps/cloud-gateway/tsconfig.json` includes only `src/**`, so `pnpm typecheck`
+walked past every test in the app. Vitest transpiles without checking types,
+so a test could carry a genuine type error and still run green. Two agents
+working in different subsystems hit this independently on the same afternoon,
+which is how it was found.
+
+`tsconfig.test.json` now covers the test tree and `pnpm --filter
+@jarvis/cloud-gateway typecheck:tests` runs it. It reports **117 errors**, all
+in test directories written before it existed: `providers`, `sync`, `voice`,
+`policy`, `model`, `security`, `archive`, `conversation`, `calls`, `http`, and
+one each in `observability` and `channels`. They are mostly implicit `any` on
+callback parameters, casts through insufficiently-overlapping types, and
+`string` passed where a branded `Ulid` is required.
+
+It is deliberately NOT wired into CI yet, because it would fail on the first
+run for reasons that have nothing to do with the change being tested. The
+newer subsystems -- autonomy, decisions, projects, deadlines, scheduler,
+digest -- typecheck clean, so the backlog is bounded and does not grow with
+new work. Clear it, then make the script a gate.

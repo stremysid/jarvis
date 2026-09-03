@@ -6,7 +6,8 @@
   "scripts": {
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "vitest --config ../../vitest.workspace.ts run apps/cloud-gateway/test"
+    "test": "vitest --config ../../vitest.workspace.ts run apps/cloud-gateway/test",
+    "typecheck:tests": "tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
     "fflate": "0.8.2"

@@ -1,0 +1,19 @@
+{
+  // The tests were never typechecked.
+  //
+  // tsconfig.json includes only `src/**`, so `pnpm typecheck` walked straight
+  // past every test in this app. Vitest transpiles without checking types, so
+  // a test could hold a genuine type error and still run green -- and one
+  // did, found the first time this config was pointed at them.
+  //
+  // Separate from tsconfig.json rather than merged into it because tests need
+  // two module shapes production code must not see: the `cloudflare:test`
+  // runtime and the `?raw` SQL imports. Widening the main include would put
+  // both on the build config.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}
