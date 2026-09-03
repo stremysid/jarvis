@@ -18,6 +18,15 @@ EFFECTFUL_COMMANDS: frozenset[str] = frozenset({"call-me"})
 # Commands that only read local state. Safe from any session.
 LOCAL_ONLY_COMMANDS: frozenset[str] = frozenset({"doctor", "status", "sync"})
 
+# Commands that steer the background loop on this machine and nothing beyond
+# it: run a cycle now, stop waking. Deliberately not in EFFECTFUL_COMMANDS,
+# which gates things that reach another person and therefore demand a console
+# and a confirmation. The boundary that protects these is the pipe's ACL --
+# whoever can open the channel is already the owner of the agent they would be
+# steering -- so requiring an interactive console here would only break
+# `jarvis stop` from a shutdown script while protecting nobody.
+SERVICE_CONTROL_COMMANDS: frozenset[str] = frozenset({"run-once", "stop"})
+
 INTERACTIVE_LOCAL_SESSION_REQUIRED = "interactive_local_session_required"
 CONFIRMATION_REQUIRED = "confirmation_required"
 UNKNOWN_COMMAND = "unknown_command"

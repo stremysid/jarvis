@@ -153,3 +153,31 @@ The watchdog imports nothing from the gateway, deliberately. The cost is that
 the wire shape in `apps/watchdog/test/heartbeat.test.ts` duplicates
 `heartbeat-reporter.ts`. Both say so in their own comments. Nothing fails
 until production does.
+
+## The named pipe's DACL is proven against anonymous, reasoned about for a second user
+
+`transport/pipe_server.py` builds an explicit security descriptor, because
+the default is genuinely unsafe: a pipe created with a null descriptor reads
+back granting FILE_GENERIC_READ to Everyone and Anonymous.
+
+Two separate things are measured. That the descriptor is **applied** -- read
+back off the live handle, with a default-descriptor pipe created alongside as
+a control, since asserting `WD` is absent proves nothing until the same
+instrument has been shown finding it present. And that it is **enforced** --
+an anonymous-impersonation knock opens the default pipe and is refused by the
+restricted one. A DACL that is present but never consulted passes the first
+and fails the second.
+
+**What is not established: that a second logged-in Windows user is refused.**
+That principal cannot be created without changing the machine. It is denied
+by the same DACL through the same access check that demonstrably refuses
+anonymous, but that step is reasoned rather than measured.
+
+## `service.py` has no process bootstrap
+
+`RunLoop`, `ServiceState`, `control_handlers` and
+`NamedPipeServer.serve_forever` exist and are tested, and nothing starts them.
+There is no `jarvis service` command and no Windows service host. That is
+Task 10 of the release plan, and wiring `EventReplicator`,
+`DistillationCoordinator` and the device keys together needs the deployment
+decisions that task carries.
