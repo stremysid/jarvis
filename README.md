@@ -65,6 +65,9 @@ do, what is built but unwired, and what is genuinely unbuilt.
 - [docs/plan/2026-08-jarvis-expansion-plan.md](docs/plan/2026-08-jarvis-expansion-plan.md)
   — the source of truth for scope. Everything in the list above traces to a
   numbered section of it.
+- [docs/plan/2026-09-03-jarvis-roadmap.md](docs/plan/2026-09-03-jarvis-roadmap.md)
+  — the roadmap: every feature wanted, its real state, the decisions that
+  remain, and the milestones in dependency order.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — a map of the code, and the
   rules that recur across it.
 - `docs/superpowers/specs/` and `docs/superpowers/plans/` — detailed

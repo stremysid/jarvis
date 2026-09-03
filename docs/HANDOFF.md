@@ -5,9 +5,13 @@ before trusting anything below — this file has been badly stale before.
 
 ## State
 
-Everything in
-[the expansion plan](plan/2026-08-jarvis-expansion-plan.md) is built and
-tested **except** live calling, which is the v1.0 release gate.
+The cloud-side features of
+[the expansion plan](plan/2026-08-jarvis-expansion-plan.md) are built and
+tested **except** live calling, which is the v1.0 release gate. The local
+agent has no process bootstrap, facts never reach the phone, and the later
+build-order items (errands, Tesla, PWA, voice notes, Brightspace) are not
+started. [The roadmap](plan/2026-09-03-jarvis-roadmap.md) has the full
+table and the milestone order.
 
 Nothing built after 2026-09-01 is deployed. Production still runs an older
 Worker.
