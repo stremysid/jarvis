@@ -77,3 +77,31 @@ run for reasons that have nothing to do with the change being tested. The
 newer subsystems -- autonomy, decisions, projects, deadlines, scheduler,
 digest -- typecheck clean, so the backlog is bounded and does not grow with
 new work. Clear it, then make the script a gate.
+
+## Google Classroom due dates: UTC or the course's local day
+
+`classroom-client.ts` converts Classroom's separate `dueDate` and `dueTime`
+fields into one instant. The API reference says both are UTC; the project's
+own expansion plan assumes local. The two readings differ by four or five
+hours in every reminder Jarvis sends -- large enough to matter for a deadline
+at 23:59, and systematic enough that nobody would notice it was consistently
+wrong.
+
+The documented contract is the default and the alternative is a setting
+(`interpretDueFieldsAs`), with both readings under test.
+`DEFAULT_CLASSROOM_TIME_ZONE` is a guess about the owner, not a fact about the
+API. **Looking at one real assignment with a known due time settles this**,
+and until someone does, the reminder times are unverified.
+
+## Nothing moves a deadline out of `open`
+
+`deadlines.status` supports `submitted`, `missed` and `cancelled`, and nothing
+sets any of them. A deadline that has passed stays `open` forever. The
+grade/missing-work watch described in the plan is what closes this, and it
+needs the Classroom grades endpoint and the Brightspace grades scrape.
+
+A deadline that stops appearing in a sweep is deliberately NOT cancelled: a
+Brightspace scrape that half-succeeds because the page markup moved returns
+fewer items and is indistinguishable from a teacher deleting one. One bad
+scrape would cancel a term of real deadlines. It stays open and is reported as
+disappeared instead.
