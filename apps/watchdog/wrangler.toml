@@ -1,0 +1,31 @@
+# The watchdog is a separate Worker on purpose. It shares the D1 database with
+# the cloud gateway and shares nothing else: no code, no package, no binding
+# beyond the one table pair, and a Telegram bot that is deliberately not the
+# gateway's. A deploy, a bad migration, or a crash loop that takes the gateway
+# down must not take down the thing whose job is to say so.
+
+name = "jarvis-watchdog"
+main = "src/index.ts"
+compatibility_date = "2026-08-22"
+
+# Every five minutes. The interval is not a threshold: how long silence is
+# allowed is per component, in component_liveness.expected_interval_seconds.
+# This only bounds how late an alert can be.
+[triggers]
+crons = ["*/5 * * * *"]
+
+# The same database the gateway writes. No migrations_dir: the watchdog never
+# migrates this database and must not be able to. The schema it depends on is
+# created by the gateway's 0012_liveness.sql, and the watchdog's copy of that
+# shape lives in its own test setup so the two are never linked by an import.
+[[d1_databases]]
+binding = "DB"
+database_name = "jarvis"
+database_id = "3239834d-ef6c-4853-86b8-31ea74037c8a"
+
+[env.test]
+
+[[env.test.d1_databases]]
+binding = "DB"
+database_name = "jarvis_test"
+database_id = "00000000-0000-0000-0000-000000000000"

@@ -39,6 +39,8 @@ importers:
         specifier: 8.17.1
         version: 8.17.1
 
+  apps/watchdog: {}
+
   packages/contracts: {}
 
   tests/acceptance: {}

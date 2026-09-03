@@ -105,3 +105,51 @@ Brightspace scrape that half-succeeds because the page markup moved returns
 fewer items and is indistinguishable from a teacher deleting one. One bad
 scrape would cancel a term of real deadlines. It stays open and is reported as
 disappeared instead.
+
+## A component that never registers is never watched
+
+`assessLiveness` iterates the rows in `component_liveness`. No row means no
+verdict, which means no alert. So if the gateway's heartbeat reporter is
+misconfigured from the day it deploys, it returns `not_configured` and only
+logs, the table never gains a `cloud-gateway` row, and the watchdog reports
+nothing at all about the component it was deployed to watch. Both sides are
+quiet and the system looks healthy.
+
+Closing this needs a configured list of components that MUST be present, which
+is a decision about what is deployed rather than a bug in the checker. It is
+the first thing to add to the watchdog.
+
+## Nothing watches the watchdog
+
+If the watchdog's own cron stops firing, no code is running to notice. Each
+cycle writes its own row after the assessment and `GET /health` returns 503
+once that row is older than 900s -- **but that only helps if an external
+uptime monitor polls it, and no such monitor exists.** Until one does, the
+watchdog is unwatched. A second timer inside the same Worker would share the
+fate of the first.
+
+The one self-check that does work: because the self-row is written after the
+check, a cycle that does run finds its own stale row and alerts. That catches
+intermittent cycle failure and can never catch total failure.
+
+## The watchdog's alert path can be configured and still broken
+
+`/health` reports `alert_channel_not_configured` only when settings are
+missing. A revoked bot token or a blocked chat produces alerts that are
+retried and never delivered while `/health` still reports the channel as
+configured.
+
+## One shared heartbeat secret for every component
+
+Anything holding `WATCHDOG_HEARTBEAT_SECRET` can heartbeat as any component
+name, including creating new ones and including `watchdog` itself. A
+compromised local agent could mask a gateway outage. Per-component credentials
+would fix it.
+
+## Two transcribed copies must be kept in step by hand
+
+The watchdog imports nothing from the gateway, deliberately. The cost is that
+`apps/watchdog/test/liveness-schema.ts` duplicates `0012_liveness.sql`, and
+the wire shape in `apps/watchdog/test/heartbeat.test.ts` duplicates
+`heartbeat-reporter.ts`. Both say so in their own comments. Nothing fails
+until production does.

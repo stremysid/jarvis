@@ -28,6 +28,26 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
 
+  # The watchdog is a separate Worker on purpose -- the failure that kills the
+  # gateway must not kill the thing meant to report it -- so it has its own
+  # wrangler.toml and its own vitest config. The root `pnpm test` uses a
+  # single Workers pool pinned to the gateway's config and cannot run it, and
+  # registering it there would recouple the two: a change to the gateway's
+  # test bindings would break the watchdog's suite, which is the exact
+  # coupling the app exists to avoid.
+  watchdog:
+    name: watchdog suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:watchdog
+
   # apps/hermes-runtime cannot run under the Workers pool, so `pnpm test`
   # never covered it. It MUST run on Windows: this package pins byte-exact
   # canonical files, and a .gitattributes gap silently rewrote them to CRLF

@@ -18,7 +18,8 @@
     "release:voice-gate": "node tests/acceptance/live/voice-smoke-cli.mjs --audit-evidence",
     "clean:voice-smoke-evidence": "node tests/acceptance/live/voice-smoke-cli.mjs --cleanup-evidence",
     "test:runtime": "pnpm --filter @jarvis/hermes-runtime test",
-    "test:all": "pnpm test && pnpm test:runtime"
+    "test:all": "pnpm test && pnpm test:runtime && pnpm test:watchdog",
+    "test:watchdog": "pnpm --filter @jarvis/watchdog test"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",
