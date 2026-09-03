@@ -41,6 +41,17 @@ export interface Env {
   TELEGRAM_WEBHOOK_SECRET?: string;
 
   /**
+   * The bot's own @name, without the @.
+   *
+   * Only needed in a group, where Telegram appends `@botname` to a command
+   * and every bot in the chat receives it. Without this the bot cannot tell a
+   * command aimed at it from one aimed at another bot, so it answers both. In
+   * a private chat commands arrive bare and this is unused, which is why it
+   * is optional rather than required.
+   */
+  TELEGRAM_BOT_USERNAME?: string;
+
+  /**
    * 32 random bytes, base64. Signs the snapshot continuation tokens the
    * local agent quotes back when acknowledging a page, so a token cannot be
    * forged to claim a view of the log the cloud never issued.

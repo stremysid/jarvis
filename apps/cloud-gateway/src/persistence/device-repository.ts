@@ -210,6 +210,38 @@ export class DeviceRepository {
     return Object.freeze({ identityId: row.identity_id, principalId: row.principal_id, principalType: row.principal_type });
   }
 
+  /**
+   * Where to send a message the owner did not ask for.
+   *
+   * Scheduled work -- the morning digest, an escalation -- has no inbound
+   * message to reply to, so it has to look the destination up from the
+   * principal instead.
+   *
+   * The returned value is the Telegram user id. For a private chat that is
+   * also the chat id, which is what makes this usable as a delivery target
+   * at all; it would NOT be correct for a group. Jarvis only ever addresses
+   * the owner directly, so the equivalence holds for every use here, and a
+   * group destination would need a chat id stored explicitly rather than
+   * inferred.
+   *
+   * Returns null rather than picking one when the principal has several
+   * verified Telegram identities. Sending the owner's day to whichever row
+   * sorted first is a worse outcome than a job that fails and says why.
+   */
+  async findOwnerTelegramChat(principalId: string): Promise<string | null> {
+    const rows = await this.database.prepare(
+      `SELECT ci.provider_subject
+       FROM channel_identities ci
+       JOIN principals p ON p.principal_id = ci.principal_id
+       WHERE ci.channel = 'telegram' AND ci.principal_id = ?
+         AND ci.status = 'active' AND ci.verified_at IS NOT NULL
+         AND p.status = 'active'
+       LIMIT 2`,
+    ).bind(principalId).all<{ provider_subject: string }>();
+    if (rows.results.length !== 1) return null;
+    return rows.results[0]?.provider_subject ?? null;
+  }
+
   async isCurrentDevice(verified: VerifiedDeviceRequest): Promise<boolean> {
     const row = await this.database.prepare(
       `SELECT 1 AS active

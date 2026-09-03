@@ -1,9 +1,23 @@
 import { newUlid } from "../../../packages/contracts/src/index.js";
+import { AutonomyRepository } from "./autonomy/autonomy-repository.js";
+import { runCommand, type CommandContext } from "./channels/telegram/command-handler.js";
+import { COMMAND_HELP, parseCommand } from "./channels/telegram/telegram-commands.js";
 import { TelegramRateLimiter } from "./channels/telegram/telegram-rate-limit.js";
 import {
   handleTelegramWebhook,
+  type AcceptedTelegramButtonTap,
   type AcceptedTelegramUpdate,
 } from "./channels/telegram/telegram-webhook.js";
+import { DeadlineRepository } from "./deadlines/deadline-repository.js";
+import { ProjectRepository } from "./projects/project-repository.js";
+import { QuietWindowService } from "./deadlines/quiet-windows.js";
+import { DecisionRepository } from "./decisions/decision-repository.js";
+import { DecisionService } from "./decisions/decision-service.js";
+import { parseDecisionCallbackData } from "./decisions/telegram-keyboard.js";
+import { assembleDigest } from "./jobs/digest-job.js";
+import { buildJobTable, buildScheduledRuns } from "./jobs/job-table.js";
+import { handleScheduled } from "./scheduler/scheduled-handler.js";
+import { heartbeatConfiguration } from "./scheduler/heartbeat-reporter.js";
 import { D1ContextRetriever } from "./conversation/context-retriever.js";
 import { ConversationRepository } from "./conversation/conversation-repository.js";
 import { DefaultConversationService } from "./conversation/conversation-service.js";
@@ -140,6 +154,159 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
   }
 }
 
+/**
+ * The Telegram provider, or null when there is no token to use it with.
+ *
+ * Returned rather than thrown so a deployment missing the token still serves
+ * the webhook and records what arrived -- it simply cannot answer. Losing the
+ * inbound message as well would be a worse failure than being unable to
+ * reply to it.
+ */
+function telegramSender(env: Env): ((chatId: string, text: string) => Promise<void>) | null {
+  const botToken = env.TELEGRAM_BOT_TOKEN;
+  if (botToken === undefined) return null;
+  const provider = new TelegramRestProvider({ botToken });
+  return async (chatId, text) => {
+    // A fresh key per send. These are one-off replies, not outbox deliveries
+    // with a stored identity to key on -- a reused key would make a second
+    // command's answer collide with the first's.
+    await provider.sendMessage({ chatId, text, idempotencyKey: newUlid() });
+  };
+}
+
+/** What the command handlers are allowed to reach. */
+function commandContext(env: Env, principalId: string): CommandContext {
+  const clock = { now: () => new Date() };
+  const deadlines = new DeadlineRepository(env.DB);
+  const quiet = new QuietWindowService({ repository: deadlines, now: () => clock.now() });
+  return {
+    principalId,
+    autonomy: new AutonomyRepository(env.DB),
+    decisions: new DecisionService({ repository: new DecisionRepository(env.DB), now: () => clock.now() }),
+    scheduler: buildScheduledRuns({
+      env,
+      clock,
+      delivery: { send: async () => undefined },
+      fetcher: globalThis.fetch.bind(globalThis),
+    }),
+    quietWindows: {
+      // Adapted rather than passed through: the service answers "is this
+      // suppressed", and the command needs to open and close a window. Both
+      // reach the same table.
+      open: async (reason, from, to) => {
+        void quiet;
+        await deadlines.createQuietWindow({ reason, startsAt: from, endsAt: to, now: from });
+      },
+      closeManual: async (at) => {
+        const open = await deadlines.listQuietWindows({ from: at, to: at });
+        let closed = 0;
+        for (const window of open) {
+          // Only the ones a person opened. An exam window is derived from a
+          // deadline and comes back on the next sweep, so cancelling it here
+          // would look like it did nothing.
+          if (window.reason !== "manual") continue;
+          if (await deadlines.cancelQuietWindow(window.windowId, at)) closed += 1;
+        }
+        return closed;
+      },
+    },
+    // The digest is assembled but NOT sent here: /digest answers in the chat
+    // the owner typed it in, and sending it separately would deliver it twice.
+    runDigestNow: async () => {
+      const digest = await assembleDigest("daily", {
+        sources: {
+          readDeadlines: async (withinDays) =>
+            new DeadlineRepository(env.DB).listDueWithin({
+              from: clock.now(),
+              to: new Date(clock.now().getTime() + withinDays * 86_400_000),
+            }),
+          readProjectStatuses: async () => new ProjectRepository(env.DB).readActiveProjectStatuses(),
+          readOpenDecisions: async () =>
+            new DecisionService({ repository: new DecisionRepository(env.DB) }).queue(principalId),
+        },
+        delivery: { send: async () => undefined },
+        clock,
+        timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
+      });
+      return digest.text;
+    },
+    now: () => clock.now(),
+  };
+}
+
+/**
+ * Answer a slash command.
+ *
+ * Runs instead of the model, not before it: a command that reached DeepSeek
+ * would come back as a confident paragraph about a thing that did not happen.
+ */
+async function runTelegramCommand(
+  env: Env,
+  accepted: AcceptedTelegramUpdate,
+  name: Parameters<typeof runCommand>[0],
+  argument: string,
+): Promise<void> {
+  const send = telegramSender(env);
+  if (send === null) return;
+  const replies = await runCommand(name, argument, commandContext(env, accepted.principalId));
+  const decisions = new DecisionService({ repository: new DecisionRepository(env.DB) });
+  for (const reply of replies) {
+    await send(accepted.chatId, reply.text);
+    // Recorded only after the send succeeded. Marking delivery first would
+    // let a failed send leave a question the owner never saw but which the
+    // system believes it asked.
+    if (reply.decisionId !== undefined) await decisions.markDelivered(reply.decisionId);
+  }
+}
+
+/**
+ * Resolve a decision from a button tap.
+ *
+ * The identity is resolved again here rather than trusted from the tap. The
+ * webhook authenticated the Telegram user; what writes the response row is
+ * the channel identity, and the decision service checks that identity against
+ * the principal that owns the question.
+ */
+async function answerFromTap(env: Env, tap: AcceptedTelegramButtonTap): Promise<void> {
+  const send = telegramSender(env);
+  const callback = parseDecisionCallbackData(tap.data);
+  // Not ours, or malformed. Nothing to do and nothing to say -- a tap on a
+  // stale keyboard is ordinary, not an error worth reporting.
+  if (callback === null) return;
+
+  try {
+    const identity = await new DeviceRepository(env.DB).findActiveVerifiedTelegramIdentity(
+      tap.telegramUserId,
+    );
+    if (identity === null) return;
+
+    const result = await new DecisionService({
+      repository: new DecisionRepository(env.DB),
+    }).answer({
+      decisionId: callback.decisionId,
+      answeredByIdentityId: identity.identityId,
+      optionKey: callback.optionKey,
+    });
+
+    if (send === null) return;
+    // Every outcome gets an answer. A tap that produced silence is
+    // indistinguishable from a bot that has stopped working.
+    const message = result.outcome === "recorded"
+      ? "Got it."
+      : result.outcome === "already_answered"
+        ? "That one is already answered."
+        : result.outcome === "not_owner"
+          ? "That question is not yours to answer."
+          : "That question is no longer open.";
+    await send(tap.chatId, message);
+  } catch (error) {
+    console.error("telegram_callback_failed", {
+      eventId: tap.eventId,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export default {
   async fetch(request, env, ctx): Promise<Response> {
     const pathname = new URL(request.url).pathname;
@@ -157,7 +324,27 @@ export default {
         redactor: new Redactor(),
         events: new EventRepository(env.DB),
         limiter: telegramLimiter,
-        onAccepted: (accepted) => ctx.waitUntil(replyTo(env, accepted)),
+        onAccepted: (accepted) => {
+          // The split happens here, before any model call. A command must not
+          // reach DeepSeek and come back as prose about a thing that did not
+          // happen.
+          const parsed = parseCommand(accepted.text, env.TELEGRAM_BOT_USERNAME ?? null);
+          if (parsed.kind === "command") {
+            ctx.waitUntil(runTelegramCommand(env, accepted, parsed.name, parsed.argument));
+            return;
+          }
+          if (parsed.kind === "unknown_command") {
+            const send = telegramSender(env);
+            if (send !== null) {
+              ctx.waitUntil(send(accepted.chatId, `No such command.
+
+${COMMAND_HELP}`));
+            }
+            return;
+          }
+          ctx.waitUntil(replyTo(env, accepted));
+        },
+        onCallback: (tap) => ctx.waitUntil(answerFromTap(env, tap)),
       });
     }
 
@@ -166,5 +353,54 @@ export default {
 
     if (isVoicePath(request)) return routeVoiceRequest(request, unavailableVoiceRoutes);
     return notImplemented();
+  },
+  /**
+   * Cron. Four expressions, routed in `cron-router.ts`.
+   *
+   * Awaited rather than run under waitUntil: a scheduled invocation's whole
+   * purpose is the work, and returning early would let the platform tear the
+   * isolate down mid-job. The handler already contains every failure, so
+   * awaiting it cannot make the invocation throw.
+   */
+  async scheduled(controller, env, ctx): Promise<void> {
+    const clock = { now: () => new Date(controller.scheduledTime) };
+    const send = telegramSender(env);
+    const principalId = env.OWNER_PRINCIPAL_ID;
+
+    const context = {
+      env,
+      clock,
+      delivery: {
+        send: async (text: string) => {
+          // No sender and no owner means no way to deliver. Raising here
+          // records it as a job failure rather than reporting a digest that
+          // went nowhere as sent.
+          if (send === null) throw new Error("TELEGRAM_BOT_TOKEN is not set");
+          if (principalId === undefined) throw new Error("OWNER_PRINCIPAL_ID is not set");
+          const identity = await new DeviceRepository(env.DB).findOwnerTelegramChat(principalId);
+          if (identity === null) throw new Error("no verified Telegram identity for the owner");
+          await send(identity, text);
+        },
+      },
+      fetcher: globalThis.fetch.bind(globalThis),
+    };
+
+    const report = await handleScheduled(controller.cron, clock.now(), {
+      runs: buildScheduledRuns(context),
+      jobs: buildJobTable(context),
+      timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
+      heartbeat: heartbeatConfiguration(env.WATCHDOG_HEARTBEAT_URL, env.WATCHDOG_HEARTBEAT_SECRET),
+      fetcher: context.fetcher,
+    });
+
+    // Logged unconditionally. A cron that silently did nothing and one that
+    // silently succeeded look identical in the dashboard, and the difference
+    // is the whole question when a digest fails to arrive.
+    console.log("scheduled", {
+      cron: report.cron,
+      jobs: report.jobs,
+      heartbeat: report.heartbeat,
+    });
+    void ctx;
   },
 } satisfies ExportedHandler<Env>;
