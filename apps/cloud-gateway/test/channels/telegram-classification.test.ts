@@ -68,7 +68,7 @@ describe("classifying a Telegram update", () => {
     expect(result.kind).toBe("rejected");
   });
 
-  it.each(["edited_message", "channel_post", "callback_query", "inline_query"])(
+  it.each(["edited_message", "channel_post", "inline_query"])(
     "rejects %s as unsupported rather than treating it as an error",
     (kind) => {
       const result = classifyTelegramUpdate({ update_id: 71, [kind]: { message_id: 1 } });

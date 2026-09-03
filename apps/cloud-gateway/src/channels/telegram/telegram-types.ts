@@ -28,8 +28,37 @@ export interface AcceptedTelegramText {
   readonly text: string;
 }
 
+/**
+ * A tap on an inline-keyboard button.
+ *
+ * Carried separately from text rather than flattened into it, because the two
+ * differ in what they authorise. Text is a message to answer; a tap is an
+ * answer to a question Jarvis asked, and it resolves a decision. Collapsing
+ * them would let a typed message that happened to look like callback data
+ * resolve a decision, which is precisely the confusion the decision queue's
+ * append-only response row exists to prevent.
+ *
+ * `data` is untrusted: it is whatever arrived in the update, bounded but not
+ * yet parsed. Only `parseDecisionCallbackData` decides whether it means
+ * anything.
+ */
+export interface AcceptedTelegramCallback {
+  readonly updateId: number;
+  readonly telegramUserId: string;
+  readonly chatId: string;
+  /** Telegram requires this to be answered, or the client spins. */
+  readonly callbackQueryId: string;
+  /** The message carrying the keyboard, so the reply can edit it. */
+  readonly messageId: number;
+  readonly data: string;
+}
+
+/** Callback data is capped at 64 bytes by Telegram; anything longer is not ours. */
+export const MAX_CALLBACK_DATA_BYTES = 64;
+
 export type TelegramClassification =
   | { readonly kind: "text"; readonly value: AcceptedTelegramText }
+  | { readonly kind: "callback"; readonly value: AcceptedTelegramCallback }
   | { readonly kind: "rejected"; readonly updateId: number; readonly reason: TelegramRejectionReason };
 
 /**
@@ -80,6 +109,70 @@ function wellFormedText(value: unknown): string | null {
 }
 
 /**
+ * Classify a callback_query, or reject it.
+ *
+ * Deliberately narrow. A tap resolves a decision, so the fields that decide
+ * WHOSE tap it was and WHICH question it answers are the only ones read, and
+ * nothing else survives -- not the keyboard, not the message text the button
+ * was attached to, not `chat_instance`.
+ *
+ * `game_short_name` is a callback that is not a button tap at all. Accepting
+ * it would hand a value to the decision parser that never came from a
+ * keyboard Jarvis built.
+ */
+function classifyCallbackQuery(raw: unknown, updateId: number): TelegramClassification {
+  if (!isPlainObject(raw)) return { kind: "rejected", updateId, reason: "malformed" };
+  if ("game_short_name" in raw) return { kind: "rejected", updateId, reason: "unsupported_content" };
+
+  const from = raw.from;
+  if (!isPlainObject(from)) return { kind: "rejected", updateId, reason: "malformed" };
+  const telegramUserId = subjectId(from.id);
+
+  // The id Telegram wants answered. Without it the sender's client shows a
+  // spinner until it times out, so an unanswerable callback is not something
+  // to accept and quietly drop.
+  const callbackQueryId = typeof raw.id === "string" && raw.id.length > 0 && raw.id.length <= 64
+    ? raw.id
+    : null;
+
+  // The message the keyboard is attached to. Absent when it is too old for
+  // Telegram to still have it, in which case the tap cannot be acted on --
+  // there is nothing to edit and no chat to answer in.
+  const message = raw.message;
+  if (!isPlainObject(message)) return { kind: "rejected", updateId, reason: "unsupported_content" };
+  const chat = message.chat;
+  if (!isPlainObject(chat)) return { kind: "rejected", updateId, reason: "malformed" };
+  const resolvedChatId = chatId(chat.id);
+  const messageId = positiveInteger(message.message_id);
+
+  if (telegramUserId === null || callbackQueryId === null || resolvedChatId === null || messageId === null) {
+    return { kind: "rejected", updateId, reason: "malformed" };
+  }
+
+  const data = raw.data;
+  if (typeof data !== "string" || !data.isWellFormed() || data.length === 0) {
+    return { kind: "rejected", updateId, reason: "unsupported_content" };
+  }
+  // Telegram's own cap. Longer than this did not come from a keyboard
+  // Telegram accepted from us, so it is not a tap on one of our buttons.
+  if (encoder.encode(data).byteLength > MAX_CALLBACK_DATA_BYTES) {
+    return { kind: "rejected", updateId, reason: "unsupported_content" };
+  }
+
+  return {
+    kind: "callback",
+    value: Object.freeze({
+      updateId,
+      telegramUserId,
+      chatId: resolvedChatId,
+      callbackQueryId,
+      messageId,
+      data,
+    }),
+  };
+}
+
+/**
  * Classify one raw webhook body.
  *
  * Returns only what an accepted text update needs, or an update id and a
@@ -91,8 +184,13 @@ export function classifyTelegramUpdate(raw: unknown): TelegramClassification {
   const updateId = positiveInteger(raw.update_id);
   if (updateId === null) return { kind: "rejected", updateId: 0, reason: "malformed" };
 
-  // Only `message` is handled. edited_message, channel_post, callback_query and
-  // the rest are content Jarvis does not accept, not errors.
+  // A tap on a decision button. Handled before `message` because a
+  // callback_query update carries no top-level `message` of its own -- the
+  // message it names is the one the keyboard is attached to.
+  if ("callback_query" in raw) return classifyCallbackQuery(raw.callback_query, updateId);
+
+  // Only `message` and `callback_query` are handled. edited_message,
+  // channel_post and the rest are content Jarvis does not accept, not errors.
   const message = raw.message;
   if (!isPlainObject(message)) return { kind: "rejected", updateId, reason: "unsupported_content" };
 
