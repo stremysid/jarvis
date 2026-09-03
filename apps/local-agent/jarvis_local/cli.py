@@ -4,6 +4,13 @@ Only locally-answerable commands live here. Anything with an external effect
 (`jarvis call-me`, enrollment approval) must go through the background service
 over the SID-restricted named pipe and be revalidated by the cloud policy
 service, so the CLI is never a privileged bypass. Those arrive with Task 9.
+
+The service-control commands below are the thin half of that pipe. They carry
+no logic: they put a command on the channel, print what comes back, and turn
+the answer into an exit code. The one thing they do add is a sentence for the
+case the transport cannot distinguish -- a service that is not running looks
+like a missing file, and printing that errno at someone who typed
+`jarvis status` tells them nothing about what to do next.
 """
 
 from __future__ import annotations
@@ -18,6 +25,18 @@ from jarvis_local.crypto.device_keys import DeviceKeyStore, WindowsCng
 from jarvis_local.crypto.dpapi import WindowsDpapi
 from jarvis_local.doctor import run_doctor
 from jarvis_local.enrollment import bootstrap_metadata_hash, enrollment_material
+from jarvis_local.transport.cli_protocol import OK, CliCommand
+from jarvis_local.transport.pipe_server import (
+    DEFAULT_PIPE_NAME,
+    ServiceNotRunningError,
+    send_control_request,
+)
+from jarvis_local.vault.cli_commands import VAULT_COMMAND, add_vault_subcommands, run_vault_command
+
+#: The service is a dependency like any other, so a missing one reports the
+#: code `jarvis doctor` already uses for a failed dependency check.
+EXIT_SERVICE_UNAVAILABLE = 4
+EXIT_REFUSED = 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,6 +49,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="print this device's public enrollment material (no secrets)",
     )
     enroll.add_argument("--device-label", default="jarvis-local-agent")
+
+    for name, description in (
+        ("status", "report what the background service has been doing"),
+        ("run-once", "ask the background service to run a cycle now"),
+        ("stop", "ask the background service to finish its cycle and stop"),
+    ):
+        control = subcommands.add_parser(name, help=description)
+        control.add_argument("--pipe-name", default=DEFAULT_PIPE_NAME)
+
+    add_vault_subcommands(subcommands)
     return parser
 
 
@@ -70,12 +99,34 @@ def _enroll(config: JarvisLocalConfig, device_label: str) -> int:
     return 0
 
 
+CONTROL_SUBCOMMANDS: frozenset[str] = frozenset({"status", "run-once", "stop"})
+
+
+def _control(name: str, pipe_name: str) -> int:
+    try:
+        response = send_control_request(CliCommand(name), pipe_name)
+    except ServiceNotRunningError:
+        # Deliberately not the OS error. "No such file" is true and useless.
+        print("the Jarvis background service is not running on this machine")
+        return EXIT_SERVICE_UNAVAILABLE
+    for line in response.lines:
+        print(line)
+    if response.code != OK:
+        print(response.code)
+        return EXIT_REFUSED
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
     if arguments.command == "doctor":
         return _doctor()
     if arguments.command == "enroll":
         return _enroll(JarvisLocalConfig.from_environment(), arguments.device_label)
+    if arguments.command in CONTROL_SUBCOMMANDS:
+        return _control(arguments.command, arguments.pipe_name)
+    if arguments.command == VAULT_COMMAND:
+        return run_vault_command(arguments)
     # argparse enforces `required=True`, so this is unreachable in practice.
     _unreachable(arguments.command)
     return 1

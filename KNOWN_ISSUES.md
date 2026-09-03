@@ -181,3 +181,71 @@ There is no `jarvis service` command and no Windows service host. That is
 Task 10 of the release plan, and wiring `EventReplicator`,
 `DistillationCoordinator` and the device keys together needs the deployment
 decisions that task carries.
+
+## Vault observations are NOT upload-ready: no redactor runs
+
+This is the most important gap in the vault adapter. `RedactionV1` is always
+`status="none"` with no markers, and note text is stored verbatim. The design
+requires the foundation classifier and redactor to run over every observation
+and to REFUSE a note whose secrets it cannot remove.
+
+It is safe today only because there is no sync client: nothing uploads a
+vault observation anywhere. **Building the upload path before the redactor
+would ship the owner's notes to the gateway unredacted.** The redactor is a
+prerequisite for O2/O3/O4, not a follow-up to them.
+
+`display_label` has the same status: it is guaranteed not to be path-shaped,
+which is not the same as being redacted.
+
+## Vault write-once is create-new-only, not fenced
+
+`O_EXCL` is a real kernel guarantee that no existing file was overwritten.
+It is not the plan's guarantee. Specifically:
+
+- It does not guarantee the file landed in the directory that was validated.
+  A junction swapped in between the containment check and `os.open` redirects
+  it. There are no retained handles, so **every location check is
+  time-of-check-to-time-of-use**: the Git, cloud-sync, reparse and drive-type
+  checks describe the filesystem at the instant `inspect()` returned.
+- There is no no-delete-sharing fence, so another process can delete or
+  rename a published file between creation and receipt.
+- Torn-read detection is stat-bracketing (size, mtime_ns, file index, before
+  and after) rather than a share-mode fence plus USN validation. A writer that
+  completes wholly between the two stats with all three unchanged is
+  undetectable.
+- Projection recovery matches by content hash, because no object identity is
+  available. A pre-existing byte-identical file would be adopted as the
+  operation's output.
+
+All of these close when the Rust/PyO3 bridge lands. Until then the adapter
+meets a weaker guarantee than the plan states, and it must not be described
+as meeting the plan's.
+
+## Vault: no USN journal, so every sync is a full walk
+
+No watcher, no generations, no lower/upper watermarks, no durable change
+hints, no replay. A rename is always tombstone-plus-new-document -- the plan's
+fallback, never its file-identity path. Root identity is `st_dev:st_ino` from
+`os.stat` rather than a 128-bit NTFS file id from a held handle, so
+`jarvis vault doctor` can NOTICE a moved or replaced root. Noticing is not
+preventing.
+
+## Vault: `project()` has no authority gate
+
+The write path exists and nothing but tests calls it. There is no
+`VerifiedExportDecision`, no active-fact recheck and no capture decision in
+front of it. Wire a caller to it and facts reach the vault unauthorized.
+
+## Vault: NTFS enforcement is Windows-only, cloud-sync detection is heuristic
+
+Off Windows the filesystem probe reports nothing and the policy accepts the
+root. Cloud-sync detection uses directory names, marker files and environment
+variables -- there is no Cloud Files placeholder or reparse-tag check, so a
+renamed sync folder or an unlisted client is not detected.
+
+## Vault: a file Jarvis published is re-observed as user-authored
+
+Origin is always `user_authored`. The models and schema enforce that a
+`jarvis_projection` observation must cite a receipt, so nothing states a
+falsehood -- but the reconciler does not consult the receipt store, so
+Jarvis's own notes come back through reconciliation attributed to the owner.
