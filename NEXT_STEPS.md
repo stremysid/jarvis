@@ -1,5 +1,9 @@
 # Next steps
 
+The milestone order, the full feature catalogue and the decisions still
+open are in [the roadmap](docs/plan/2026-09-03-jarvis-roadmap.md). This
+file is the short list for the current milestone, M0.
+
 ## What Sid has to do before any of this runs
 
 Nothing below works until these are done. They need a person.
