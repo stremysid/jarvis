@@ -1,5 +1,41 @@
 # Known issues
 
+## CI on `main` has been red on every push since 2026-09-02
+
+Three jobs fail, none for a product defect. Each is a test encoding an
+assumption about the machine it runs on:
+
+- `local-agent (ubuntu-latest)`: mypy reports Windows-only symbols
+  (`ctypes.get_last_error`, the pipe server's Win32 calls) as missing.
+  TESTING.md already notes a Linux run would need `--platform win32`.
+- `local-agent (windows-latest)`: `test_the_pipe_is_not_readable_by_everyone`
+  asserts the raw SID of the current user appears in the pipe's DACL. The
+  GitHub runner is the built-in Administrator, whose entry reads back as the
+  `LA` alias, so the assertion fails on a DACL that is in fact correct.
+- `hermes-runtime suite (windows)`: `workflow-containment-review5.test.mjs`
+  rejects the runner's temp directory because the path contains an 8.3 short
+  name (`RUNNER~1`).
+
+Until these are fixed a red check carries no information. Fixing them is the
+first item of milestone M0 in the roadmap.
+
+## The local agent does not typecheck or fully test on Linux
+
+On Linux, `mypy` reports 25 errors across `crypto/dpapi.py`,
+`transport/pipe_server.py` and `vault/setup.py`, and three vault tests fail
+(`test_cli.py::test_the_guard_against_touching_the_real_profile_is_actually_watching_something`,
+`test_setup.py::test_a_path_inside_the_seed_vault_is_refused_too`,
+`test_setup.py::test_the_preferred_root_is_the_profile_known_folder`). All
+depend on Windows known folders or Win32 APIs. The Windows run is the one
+that counts; the Linux CI job should either skip these or be narrowed.
+
+## `README.md` says vector search; the vector is not semantic
+
+The embedder in `memory/embeddings.py` is a hashed lexical feature vector
+and says so in its docstring. The vector index it feeds is never consulted
+by retrieval, which is full-text only. Replacing the embedder with a pinned
+real model is milestone M2.
+
 ## hermes-profile-lock.json records a stale sourceLockHash
 
 `hermes-profile-lock.json` carries `sourceLockHash`

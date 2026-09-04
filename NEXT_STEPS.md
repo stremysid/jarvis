@@ -1,16 +1,8 @@
 # Next steps
 
-## R0 stopped before item 1 (2026-09-04)
-
-The requested `docs/BUILDING.md` and
-`docs/plan/2026-09-03-jarvis-roadmap.md` are absent from `main` at
-`aadd5b2b02000633e969bfbfbe9ea8c6d55ef06d`. Both direct reads failed, and
-neither file appears in the tracked-file or working-tree inventory.
-
-Make the already-written files available at those paths before beginning
-R0. Its seven items and exit test cannot be established from this checkout.
-No implementation attempt or exit test ran. The older backlog below does
-not substitute for the requested authoritative roadmap.
+The milestone order, the full feature catalogue and the decisions still
+open are in [the roadmap](docs/plan/2026-09-03-jarvis-roadmap.md). This
+file is the short list for the current milestone, M0.
 
 ## What Sid has to do before any of this runs
 

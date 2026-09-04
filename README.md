@@ -65,6 +65,9 @@ do, what is built but unwired, and what is genuinely unbuilt.
 - [docs/plan/2026-08-jarvis-expansion-plan.md](docs/plan/2026-08-jarvis-expansion-plan.md)
   — the source of truth for scope. Everything in the list above traces to a
   numbered section of it.
+- [docs/plan/2026-09-03-jarvis-roadmap.md](docs/plan/2026-09-03-jarvis-roadmap.md)
+  — the roadmap: every feature wanted, its real state, Sid's decisions of
+  2026-09-03, and the milestones in dependency order.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — a map of the code, and the
   rules that recur across it.
 - `docs/superpowers/specs/` and `docs/superpowers/plans/` — detailed
@@ -82,6 +85,8 @@ repos precisely because they are reliable. So they are kept accurate:
   anything.** It records where a guarantee is weaker than its name suggests.
 - [NEXT_STEPS.md](NEXT_STEPS.md)
 - [CHANGELOG.md](CHANGELOG.md)
+- [docs/BUILDING.md](docs/BUILDING.md) — who builds each milestone, who
+  reviews it, and when a stuck session must stop and escalate.
 - [docs/continuity/](docs/continuity/README.md) — session ledgers: what each
   working session decided, tried and rejected. Checkpoints, not scripture;
   verify them against the code.
