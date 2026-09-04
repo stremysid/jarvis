@@ -377,7 +377,9 @@ Mark each superseded by this file rather than deleting it.
 ## 7. Milestones, in dependency order
 
 Each has an exit test a person can perform. Effort is a rough
-builder-session estimate.
+builder-session estimate. [BUILDING.md](../BUILDING.md) says which model
+builds and reviews each one, and when a stuck session must stop and escalate
+rather than grind.
 
 ### R0. Green and deployed
 

@@ -4,6 +4,12 @@ For anyone, human or model, changing this code. Read
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first for the shape; this file
 is the traps.
 
+**If you are building a milestone, read
+[docs/BUILDING.md](docs/BUILDING.md) before you start.** It says which model
+builds and which reviews, and — more importantly — when to stop and ask for
+a more capable one instead of grinding. Grinding is the failure this project
+has already had.
+
 ## Traps that have actually cost time here
 
 Every one of these was hit at least once.
