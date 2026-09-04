@@ -38,3 +38,32 @@ every operation, and the native bridge replaces those checks afterwards
 without changing the interface above them. Until it does, the adapter must not
 be described as meeting the plan's write-once guarantee -- it meets a weaker
 one, and the difference is recorded in KNOWN_ISSUES.md.
+
+## Decisions taken with Sid on 2026-09-03
+
+Recorded from a planning session; the reasoning is in
+`docs/plan/2026-09-03-jarvis-roadmap.md`, section 5.
+
+- **Phone first, PC optional.** Jarvis must work from the iPhone with every
+  computer off. Everything not tied to a machine runs in the cloud: the
+  gateway and watchdog, plus one small always-on server (the home node) for
+  Hermes and the memory work. The laptop, home gaming PC and St. Remy office
+  PC run thin device agents and are optional.
+- **Hermes is the hands, not a caged sidecar and not a replacement.** It runs
+  on the home node with tools, browser, skills and cron; the Cloudflare
+  gateway stays the front door; the Codex sidecar plan is retired.
+- **Models.** DeepSeek until the prepaid balance is spent, then Opus 5 or
+  GPT-5.6 Terra for reasoning with GPT-5.6 Luna for cheap high-volume work,
+  routed per task.
+- **Memory and Obsidian.** Jarvis's own two-tier memory is the source of
+  truth. Obsidian is the readable, editable window, synced as a git-backed
+  vault so notes reach every device with the PCs off. The native bridge is
+  deferred.
+- **Calling is in the first release.** The Twilio number and credentials
+  already exist.
+- **St. Remy is no longer off limits.** Full control of the office PC and all
+  St. Remy systems on Sid's command, with a tap for anything touching
+  production, money or other people. This overrules the builder prompt's
+  rule. The office PC runs only the thin device agent.
+- **Send on command.** Email, texts from Jarvis's number, and an iMessage
+  handoff, with read-back and a confirm before anyone else is contacted.
