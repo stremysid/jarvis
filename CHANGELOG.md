@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### 2026-09-04 -- R0 blocked on missing required documents
+
+Recorded the first R0 session's blocker in NEXT_STEPS.md and docs/HANDOFF.md:
+`docs/BUILDING.md` and `docs/plan/2026-09-03-jarvis-roadmap.md` are missing
+from the specified `main` checkout. Work stopped before item 1. No
+implementation, tests, secret rotations, migrations, or deployment ran;
+the R0 exit test remains unexecuted.
+
 ### 2026-09-02 / 2026-09-03 -- the expansion plan, built
 
 Every capability in `docs/plan/2026-08-jarvis-expansion-plan.md` now exists
