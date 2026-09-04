@@ -85,6 +85,8 @@ repos precisely because they are reliable. So they are kept accurate:
   anything.** It records where a guarantee is weaker than its name suggests.
 - [NEXT_STEPS.md](NEXT_STEPS.md)
 - [CHANGELOG.md](CHANGELOG.md)
+- [docs/BUILDING.md](docs/BUILDING.md) — who builds each milestone, who
+  reviews it, and when a stuck session must stop and escalate.
 - [docs/continuity/](docs/continuity/README.md) — session ledgers: what each
   working session decided, tried and rejected. Checkpoints, not scripture;
   verify them against the code.
