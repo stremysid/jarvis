@@ -1,10 +1,13 @@
 import { access, chmod, link, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import { realpath } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { promisify } from "node:util";
+import { describe, expect, it, vi } from "vitest";
 
+const nativeRealpath = promisify(realpath.native);
 const artifactEntrypoint = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
 const sourceEntrypoint = fileURLToPath(new URL("../scripts/fetch-hermes.ps1", import.meta.url));
 const runtimeModule = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url));
@@ -352,7 +355,7 @@ async function getTreeManifestNoFollow(root, relative = "") {
 }
 
 async function createClosedFixture(workflow, label, scenario = "success") {
-  const parent = await mkdtemp(join(tmpdir(), "jarvis-hermes-containment-review5-"));
+  const parent = await mkdtemp(join(await nativeRealpath(tmpdir()), "jarvis-hermes-containment-review5-"));
   const externalTemp = join(parent, "t");
   const runtimeRoot = join(externalTemp, `jarvis-hermes-workflow-fixture-${label}`);
   const outside = join(parent, `outside-${label}`);
@@ -540,6 +543,38 @@ async function expectSyntheticSourceInstalled(runtimeRoot) {
 }
 
 describe("Hermes H1 workflow write containment review 5", () => {
+  it("canonicalizes an 8.3 temporary path while the raw RuntimeRoot stays rejected", async () => {
+    const base = await nativeRealpath(tmpdir());
+    const sandbox = await mkdtemp(join(base, "jarvis-hermes-short-temp-"));
+    let context;
+    try {
+      const shortProbe = await launchPowerShellCommand(`$fso = New-Object -ComObject Scripting.FileSystemObject; [Console]::Write($fso.GetFolder('${sandbox.replaceAll("'", "''")}').ShortPath)`).result;
+      expect(shortProbe.code, shortProbe.stderr).toBe(0);
+      const short = shortProbe.stdout.trim();
+      expect(short).not.toBe(sandbox);
+      expect(await nativeRealpath(short)).toBe(sandbox);
+      vi.stubEnv("TEMP", short);
+      vi.stubEnv("TMP", short);
+      expect(tmpdir()).toBe(short);
+
+      context = await createClosedFixture("runtime-artifacts", "short-temp");
+      const rawRoot = join(short, relative(sandbox, await nativeRealpath(context.runtimeRoot)));
+      for (const [candidate, expected] of [[rawRoot, 1], [context.runtimeRoot, 0]]) {
+        const result = await launchPowerShellCommand(`Import-Module '${runtimeModule.replaceAll("'", "''")}' -Force; try { Assert-LiteralRuntimeRoot '${candidate.replaceAll("'", "''")}' | Out-Null; exit 0 } catch { [Console]::Error.Write($_.Exception.Message); exit 1 }`).result;
+        expect(result.code, result.stderr).toBe(expected);
+        if (expected === 1) expect(result.stderr).toContain("without relative or alias segments");
+      }
+    } finally {
+      vi.unstubAllEnvs();
+      if (context) {
+        expect(dirname(await nativeRealpath(context.parent))).toBe(sandbox);
+        await cleanupFixture(context);
+      }
+      expect(dirname(await nativeRealpath(sandbox))).toBe(base);
+      await rm(sandbox, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it("blocks a downloads rename-and-junction substitution before the first real artifact write", async () => {
     const context = await createClosedFixture("runtime-artifacts", "artifact-downloads");
     try {
@@ -713,7 +748,7 @@ describe("Hermes H1 workflow write containment review 5", () => {
   });
 
   it("kills the real Git descendant tree when its owning PowerShell workflow terminates abruptly", async () => {
-    const parent = await mkdtemp(join(tmpdir(), "jarvis-hermes-containment-review5-process-tree-"));
+    const parent = await mkdtemp(join(await nativeRealpath(tmpdir()), "jarvis-hermes-containment-review5-process-tree-"));
     const runtimeRoot = join(parent, "jarvis-hermes-workflow-fixture-process-tree");
     const outside = join(parent, "outside");
     const marker = join(runtimeRoot, "git-start.marker");
@@ -992,7 +1027,7 @@ throw 'Long-running Git descendant probe returned unexpectedly.'`;
   });
 
   it("materializes and verifies raw Git blobs without executing hostile clean or smudge filters", async () => {
-    const parent = await mkdtemp(join(tmpdir(), "jarvis-hermes-filter-proof-"));
+    const parent = await mkdtemp(join(await nativeRealpath(tmpdir()), "jarvis-hermes-filter-proof-"));
     const runtimeRoot = join(parent, "runtime");
     const seed = join(runtimeRoot, "seed");
     const gitStore = join(runtimeRoot, "git");
@@ -1234,7 +1269,7 @@ try {
     expect(fetchInvocation).toContain("'--no-write-fetch-head','--no-recurse-submodules','--refmap='");
     expect(fetchInvocation).not.toContain("--depth");
 
-    const parent = await mkdtemp(join(tmpdir(), "jarvis-hermes-containment-review5-pack-fetch-"));
+    const parent = await mkdtemp(join(await nativeRealpath(tmpdir()), "jarvis-hermes-containment-review5-pack-fetch-"));
     const origin = join(parent, "origin");
     const control = join(parent, "control.git");
     const hardened = join(parent, "hardened.git");
@@ -1821,7 +1856,7 @@ try {
   }, 120_000);
 
   it("keeps the RuntimeRoot parent anchored while a workflow is paused", async () => {
-    const container = await mkdtemp(join(tmpdir(), "jarvis-hermes-containment-review5-ancestor-"));
+    const container = await mkdtemp(join(await nativeRealpath(tmpdir()), "jarvis-hermes-containment-review5-ancestor-"));
     const ancestor = join(container, "runtime-parent");
     const displaced = join(container, "runtime-parent.review5-displaced");
     const runtimeRoot = join(ancestor, "jarvis-hermes-workflow-fixture-anchored-runtime-parent");
@@ -1949,7 +1984,7 @@ try {
   }, 120_000);
 
   it("allows sibling RuntimeRoots to progress while one workflow is intentionally paused", async () => {
-    const parent = await mkdtemp(join(tmpdir(), "jarvis-hermes-containment-review5-siblings-"));
+    const parent = await mkdtemp(join(await nativeRealpath(tmpdir()), "jarvis-hermes-containment-review5-siblings-"));
     const artifactRoot = join(parent, "jarvis-hermes-workflow-fixture-sibling-artifact");
     const sourceRoot = join(parent, "jarvis-hermes-workflow-fixture-sibling-source");
     const artifactFixture = join(artifactRoot, "artifact-operations.json");

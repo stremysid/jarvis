@@ -1,0 +1,37 @@
+name: Hermes extended tests
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extended:
+    name: ${{ matrix.suite }} (windows)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [source-lock, workflow-containment-review5]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      # RuntimeRoot deliberately rejects aliases. The runner's inherited
+      # TEMP can contain RUNNER~1, so resolve the test parent before using it.
+      - name: Use a canonical temporary directory
+        shell: pwsh
+        run: |
+          $testTemp = node --input-type=module -e "import { realpathSync } from 'node:fs'; process.stdout.write(realpathSync.native(process.env.RUNNER_TEMP));"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "TEMP=$testTemp" >> $env:GITHUB_ENV
+          "TMP=$testTemp" >> $env:GITHUB_ENV
+      - run: pnpm --filter @jarvis/hermes-runtime exec vitest run test/${{ matrix.suite }}.test.mjs

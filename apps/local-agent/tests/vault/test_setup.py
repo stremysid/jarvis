@@ -89,7 +89,7 @@ def test_the_repository_seed_vault_is_refused_by_name_without_being_touched() ->
 
 def test_a_path_inside_the_seed_vault_is_refused_too() -> None:
     probe = RefusingProbe()
-    verdict = VaultRootPolicy(probe=probe).inspect(Path(r"C:\javis\Jarvis\00 Inbox\deeper"))
+    verdict = VaultRootPolicy(probe=probe).inspect(Path(r"C:\javis\Jarvis") / "00 Inbox" / "deeper")
     assert verdict.code is VaultRootCode.SEED_VAULT
     assert probe.calls == []
 
@@ -209,11 +209,10 @@ def test_a_host_that_cannot_name_its_filesystem_is_accepted_and_that_is_a_weaken
     assert silent.inspect(tmp_path).code is VaultRootCode.NOT_NTFS
 
 
-def test_the_preferred_root_is_the_profile_known_folder() -> None:
-    """The reference machine's `C:\\Users\\Ksid1\\Jarvis Vault`, from a stub."""
-    folders = StubKnownFolders(Path(r"C:\Users\Ksid1"), Path(r"C:\Users\Ksid1\AppData\Local"))
-    assert preferred_vault_root(folders) == Path(r"C:\Users\Ksid1\Jarvis Vault")
-    assert fallback_vault_root(folders) == Path(r"C:\Users\Ksid1\AppData\Local\Jarvis\Vault")
+def test_the_preferred_root_is_the_profile_known_folder(tmp_path: Path) -> None:
+    folders = StubKnownFolders(tmp_path / "profile", tmp_path / "localappdata")
+    assert preferred_vault_root(folders) == tmp_path / "profile" / "Jarvis Vault"
+    assert fallback_vault_root(folders) == tmp_path / "localappdata" / "Jarvis" / "Vault"
 
 
 def test_setup_creates_the_approved_layout_and_binds_the_root(

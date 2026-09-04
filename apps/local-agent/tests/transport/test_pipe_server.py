@@ -245,15 +245,44 @@ def test_a_sid_that_could_rewrite_the_descriptor_is_refused(candidate: str) -> N
         owner_only_sddl(candidate)
 
 
+def windows_sddl_token_for_sid(sid: str) -> str:
+    """Windows may render a trustee as an alias, including LA for Administrator."""
+    server = NamedPipeServer(
+        ControlServer(RecordingDispatcher()),
+        pipe_name=unique_pipe_name(),
+        sddl=f"D:P(A;;GA;;;{sid})",
+    )
+    handle = server.create_instance(first=True)
+    try:
+        rendered = pipe_sddl(handle)
+    finally:
+        close(handle)
+
+    token = rendered.rsplit(";;;", maxsplit=1)[1]
+    assert token.endswith(")"), rendered
+    return token[:-1]
+
+
 @windows_only
-def test_the_pipe_is_not_readable_by_everyone() -> None:
+@pytest.mark.parametrize(
+    ("sid", "expected"),
+    [("S-1-5-18", "SY"), ("S-1-5-21-1-2-3-1001", "S-1-5-21-1-2-3-1001")],
+)
+def test_windows_sddl_normalization_keeps_the_same_trustee(sid: str, expected: str) -> None:
+    assert windows_sddl_token_for_sid(sid) == expected
+
+
+@windows_only
+@pytest.mark.parametrize("owner_sid", [None, "S-1-5-18"], ids=["current-user", "system-alias"])
+def test_the_pipe_is_not_readable_by_everyone(owner_sid: str | None, monkeypatch: pytest.MonkeyPatch) -> None:
     """The claim the whole module rests on, read back off the live object.
 
     A descriptor that was passed to `CreateNamedPipe` but not applied looks
     exactly like one that was, so this asks Windows what the pipe actually
     carries rather than what it was handed.
     """
-    sid = current_user_sid()
+    sid = owner_sid or current_user_sid()
+    monkeypatch.setattr("jarvis_local.transport.pipe_server.current_user_sid", lambda: sid)
     server = NamedPipeServer(ControlServer(RecordingDispatcher()), pipe_name=unique_pipe_name())
     handle = server.create_instance(first=True)
     try:
@@ -264,7 +293,7 @@ def test_the_pipe_is_not_readable_by_everyone() -> None:
     assert "P" in applied.split("(")[0], applied  # protected: nothing inherited in
     assert ";;;WD)" not in applied, applied  # Everyone
     assert ";;;AN)" not in applied, applied  # anonymous
-    assert f";;;{sid})" in applied, applied  # and the owner can still get in
+    assert f";;;{windows_sddl_token_for_sid(sid)})" in applied, applied
 
 
 @windows_only

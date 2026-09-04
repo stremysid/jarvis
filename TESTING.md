@@ -76,7 +76,9 @@ Notes:
   real vault under the user profile. It exists because an early run created
   three empty directories there.
 - The named-pipe tests are Windows-only and skip elsewhere. A mypy run on
-  Linux would need `--platform win32` for `transport/pipe_server.py`.
+  Linux uses `--platform win32` because this application still targets Windows.
+  The live Windows-profile guard check also skips on Linux; the portable
+  vault tests still run there.
 
 ## The watchdog
 
@@ -91,6 +93,20 @@ It has its own vitest config and its own CI job, deliberately — see
 
 ```bash
 pnpm test:runtime
+```
+
+The regular CI job excludes `source-lock.test.mjs` and
+`workflow-containment-review5.test.mjs`, each of which can take fifty minutes.
+Run those through the **Hermes extended tests** manual workflow, or run the
+full command above locally. The manual workflow runs each file in its own
+Windows job. The containment fixtures resolve the temporary parent through
+Windows native realpath before constructing RuntimeRoot; the control still
+rejects raw alias paths.
+
+To run the regular CI selection locally:
+
+```bash
+pnpm --filter @jarvis/hermes-runtime exec vitest run test --exclude test/source-lock.test.mjs --exclude test/workflow-containment-review5.test.mjs
 ```
 
 Must run on **Windows**. It pins byte-exact canonical files, and a

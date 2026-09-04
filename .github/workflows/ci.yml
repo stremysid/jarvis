@@ -67,7 +67,10 @@ jobs:
           python-version: "3.11"
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test:runtime
+      - run: >-
+          pnpm --filter @jarvis/hermes-runtime exec vitest run test
+          --exclude test/source-lock.test.mjs
+          --exclude test/workflow-containment-review5.test.mjs
 
   # The Windows local agent. Runs on both platforms deliberately: it targets
   # Windows, but the POSIX permission assertions on the device key file are
@@ -89,7 +92,8 @@ jobs:
         working-directory: apps/local-agent
       - run: uv run ruff check .
         working-directory: apps/local-agent
-      - run: uv run mypy jarvis_local
+      # The application targets Windows even when portable tests run on Linux.
+      - run: uv run mypy --platform win32 jarvis_local
         working-directory: apps/local-agent
       - run: uv run pytest -q
         working-directory: apps/local-agent
