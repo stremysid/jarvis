@@ -11,6 +11,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  deployment-scripts:
+    name: deployment scripts (windows)
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - run: node --test scripts/test/deploy.test.mjs
+
   # Cloud gateway, contracts and acceptance. These run under the Cloudflare
   # Workers pool, so they are platform-independent and live on Linux.
   workspace:

@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+### 2026-09-05 -- R0 local CI and deployment preparation
+
+- Corrected Windows DACL and canonical-temp test assumptions and the Linux
+  mypy target in `d9d59f9`. Moved the two extended Hermes files into a manual
+  workflow. Runtime path validation is unchanged.
+- Declared exactly the four non-optional `env.ts` string bindings in the
+  gateway's production and test required-secret lists. Documented optional
+  capability settings separately and supplied public synthetic test values.
+- Removed the retired `PIN_VERIFIER_JSON` declaration and its two generator
+  scripts. The stored secret is retained until after the item 5 gateway
+  deploy; the legacy verifier implementation remains for R1.
+- Added `scripts/deploy.ps1`, `scripts/deploy-watchdog.ps1`, and the deploy
+  runbook. Scripts default to dry-run and explicitly select the top-level
+  production environment with an empty native argument. Publishing requires
+  confirmation. Added credential-free shell tests to Windows CI.
+- Owner confirmed Wrangler login, rotation of the three peppers and
+  DeepSeek key on production, and revocation of the old DeepSeek key.
+
+Validation: 234 focused gateway tests, then all 1,935 workspace tests across
+105 files; 2 deployment script tests;
+both script tests rejected a mutation that dropped the empty argument;
+both real Wrangler dry-runs exited 0 with no environment warning or stderr;
+lint and source typecheck passed. Item 1's earlier local evidence: 113
+watchdog tests, 107 regular Hermes tests, and 515 local
+agent tests with 1 skipped. The full extended Hermes suites remain unrun.
+
+No R0 deployment or migration is claimed. Claude Opus 5 high review, remote
+CI, Telegram commands, cron heartbeat, and the morning digest remain
+unverified. Items 5-7 are still open.
+
 ### 2026-09-02 / 2026-09-03 -- the expansion plan, built
 
 Every capability in `docs/plan/2026-08-jarvis-expansion-plan.md` now exists

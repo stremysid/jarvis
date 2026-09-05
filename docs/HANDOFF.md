@@ -1,6 +1,6 @@
 # Handoff
 
-Current as of **2026-09-03**. If this date is old, verify against the code
+Current as of **2026-09-05**. If this date is old, verify against the code
 before trusting anything below — this file has been badly stale before.
 
 ## State
@@ -13,30 +13,53 @@ build-order items (errands, Tesla, PWA, voice notes, Brightspace) are not
 started. [The roadmap](plan/2026-09-03-jarvis-roadmap.md) has the full
 table and the milestone order.
 
-Nothing built after 2026-09-01 is deployed. Production still runs an older
-Worker.
+R0 is in progress on `main` in the shared `C:/javis` checkout. Item 1's local
+CI corrections are committed in `d9d59f9`; remote CI is unverified. Items 3
+and 4 are implemented locally: exact four-name required-secret lists in
+both gateway environments, retired PIN generators, synthetic test bindings,
+and named deployment scripts with a [runbook](runbooks/deploy.md).
+
+Both scripts passed native argument checks and real Wrangler dry-runs,
+including explicit empty production environment selection. A mutation to
+legacy PowerShell argument passing failed both tests because it dropped the
+empty value. Lint and source typecheck pass. The four-name configuration
+passed 234 focused gateway tests, followed by all 1,935 workspace tests
+across 105 files. No missing-required-secret warnings remained in that run.
+
+No Worker deployment or migration was performed by this R0 session. No
+Telegram exit check, cron heartbeat, morning digest, or remote CI check has
+been completed. R0 is not complete and v1.0 is not released.
 
 | Suite | Count |
 |---|---|
 | `apps/cloud-gateway` | 1833 |
-| `apps/local-agent` | 512 (1 skipped) |
+| `apps/local-agent` | 515 (1 skipped), item 1 local run |
 | `apps/watchdog` | 113 |
 | contracts + acceptance | 102 |
 
 `ruff`, `mypy --strict` and `tsc` are clean. `typecheck:tests` on the gateway
 reports 117 pre-existing errors in older test files — see KNOWN_ISSUES.
 
-## What is blocked on a person
+## Next gate and owner decisions
 
-1. **Rotate the compromised credentials.** Three peppers, the DeepSeek key
-   and the PIN verifier were pasted into a chat transcript. Pipe replacements
-   straight into `wrangler secret put`.
-2. **Deploy.** Apply migrations 0008–0013 and deploy the gateway, then deploy
-   the watchdog with its **own** Telegram bot and chat.
-3. **Set `OWNER_PRINCIPAL_ID`.** Scheduled work has no request to derive an
-   identity from, so without it the digest has nobody to send to and the job
-   fails rather than guessing.
-4. **Buy the Twilio number and credentials** for live calling.
+**Item 2 is complete by owner confirmation:** Wrangler login, the three
+pepper rotations and DeepSeek key rotation on production
+`jarvis-cloud-gateway`, plus revocation of the old DeepSeek key. Values were
+never shared. Do not request them or repeat the rotation request.
+
+`PIN_VERIFIER_JSON` is removed from configuration now. That only removes a
+pre-deploy existence check; it does not affect the stored secret or the live
+Worker. Keep the stored secret until after the item 5 gateway deploy, then
+delete it as a separate confirmed operation. The legacy verifier module
+stays until R1.
+
+The next gate is **Claude Opus 5 at high effort** reviewing the complete R0
+diff from `db2b3a5`, including `d9d59f9`. No callable Claude reviewer was
+available in the building session, and no cross-vendor approval is claimed.
+After review, follow NEXT_STEPS and the runbook for production confirmation,
+migrations, capability settings, deployment, health/monitor wiring, hourly
+archival, and real exit evidence. Calling remains R1; the roadmap records
+that the Twilio number and credentials already exist.
 
 ## What is built but not wired
 
@@ -69,8 +92,9 @@ Two, both in [DECISIONS.md](../DECISIONS.md) with reasoning:
 
 ## Session history
 
-Detailed continuity ledgers live outside the repository, at
-`~/.claude/continuity/tasks/`, per the owner's standing preference. They are
+Detailed continuity ledgers live outside the repository, under each
+assistant's continuity directory (`~/.codex/continuity/tasks/` for Codex),
+per the owner's standing preference. They are
 not required to understand the code — this file, ARCHITECTURE.md,
 KNOWN_ISSUES.md and NEXT_STEPS.md are meant to be sufficient on their own. If
 they are not, that is a bug in them.

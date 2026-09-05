@@ -1,6 +1,6 @@
 # Known issues
 
-## CI on `main` has been red on every push since 2026-09-02
+## R0 CI corrections pass locally; remote CI remains unverified
 
 Three jobs fail, none for a product defect. Each is a test encoding an
 assumption about the machine it runs on:
@@ -16,8 +16,11 @@ assumption about the machine it runs on:
   rejects the runner's temp directory because the path contains an 8.3 short
   name (`RUNNER~1`).
 
-Until these are fixed a red check carries no information. Fixing them is the
-first item of milestone M0 in the roadmap.
+Commit `d9d59f9` corrects these three assumptions locally. It uses a Windows
+mypy target, normalized DACL trustees with an independent reference pipe,
+and native canonical temp parents. A real 8.3 alias is rejected while its
+canonical path is accepted; `Assert-LiteralRuntimeRoot` is unchanged.
+Remote CI on the fix has not been verified, so item 1 is not closed yet.
 
 ## The local agent does not typecheck or fully test on Linux
 
@@ -26,8 +29,10 @@ On Linux, `mypy` reports 25 errors across `crypto/dpapi.py`,
 (`test_cli.py::test_the_guard_against_touching_the_real_profile_is_actually_watching_something`,
 `test_setup.py::test_a_path_inside_the_seed_vault_is_refused_too`,
 `test_setup.py::test_the_preferred_root_is_the_profile_known_folder`). All
-depend on Windows known folders or Win32 APIs. The Windows run is the one
-that counts; the Linux CI job should either skip these or be narrowed.
+depend on Windows known folders or Win32 APIs. `d9d59f9` now targets Windows
+for mypy, skips the live Windows-profile guard on Linux, and constructs
+portable paths in the other two vault tests. The Windows full suite passes
+locally; the changed Linux job still needs remote CI evidence.
 
 ## `README.md` says vector search; the vector is not semantic
 
@@ -65,8 +70,10 @@ neither the default command nor any CI.
 ## The hermes-runtime suite is slow
 
 `source-lock.test.mjs` and `workflow-containment-review5.test.mjs` each took
-roughly 50 minutes under parallel load. This is why the suite is rarely run
-by hand. Not yet investigated.
+roughly 50 minutes under parallel load. They now run in the manual
+**Hermes extended tests** workflow, each in its own Windows job, and are
+excluded from regular CI. The runtime cause is not yet investigated, and
+the full extended suites have not been run for the R0 correction.
 
 ## Tasks 10-13 are unimplemented
 

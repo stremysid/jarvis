@@ -89,6 +89,20 @@ pnpm test:watchdog
 It has its own vitest config and its own CI job, deliberately — see
 [AGENTS.md](AGENTS.md).
 
+## Deployment scripts
+
+With PowerShell 7.3+ (`pwsh`) installed:
+
+```bash
+node --test scripts/test/deploy.test.mjs
+```
+
+These tests run the scripts against a synthetic native CLI, checking the
+empty production environment argument, dry-run default, confirmation bypass
+only when explicitly requested, WhatIf behavior, and failure propagation.
+They never deploy. [The deployment runbook](docs/runbooks/deploy.md) has the
+local bundle checks and the separately confirmed production commands.
+
 ## Hermes runtime
 
 ```bash

@@ -3,7 +3,25 @@ main = "src/index.ts"
 compatibility_date = "2026-08-22"
 
 [secrets]
-required = ["PIN_VERIFIER_JSON"]
+required = [
+  "OWNER_VOICE_IDENTITY_ID",
+  "GUEST_PIN_PEPPER_V1",
+  "AUTHENTICATION_BUDGET_PEPPER",
+  "IDENTITY_CHALLENGE_HMAC_PEPPER",
+]
+
+# Optional bindings read by src/env.ts. Wrangler has no optional-secret list;
+# set these with `wrangler secret put` only for the capability being enabled.
+# Telegram: TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, TELEGRAM_BOT_USERNAME.
+# Sync: SYNC_CONTINUATION_SECRET. Model: DEEPSEEK_API_KEY.
+# Scheduled jobs: OWNER_PRINCIPAL_ID, DIGEST_TIMEZONE.
+# Heartbeats: WATCHDOG_HEARTBEAT_URL, WATCHDOG_HEARTBEAT_SECRET.
+# DEEPSEEK_MODEL: model override. GITHUB_TOKEN: private project polling.
+# R1 calling: PUBLIC_ORIGIN, TWILIO_ACCOUNT_SID, TWILIO_API_KEY_SID,
+# TWILIO_API_KEY_SECRET, TWILIO_AUTH_TOKEN, TWILIO_FROM_E164,
+# DEFAULT_GUEST_PIN (guest bootstrap).
+# Classroom ingestion: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
+# GOOGLE_REFRESH_TOKEN.
 
 [exports.CallSession]
 type = "durable-object"
@@ -49,7 +67,13 @@ class_name = "CallSession"
 [env.test]
 
 [env.test.secrets]
-required = ["PIN_VERIFIER_JSON"]
+# Vitest supplies these four bindings with synthetic values.
+required = [
+  "OWNER_VOICE_IDENTITY_ID",
+  "GUEST_PIN_PEPPER_V1",
+  "AUTHENTICATION_BUDGET_PEPPER",
+  "IDENTITY_CHALLENGE_HMAC_PEPPER",
+]
 
 [[env.test.d1_databases]]
 binding = "DB"
