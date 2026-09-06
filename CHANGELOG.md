@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+### 2026-09-06 -- keep the Hermes temp-path regression in PR CI
+
+Moved the fast 8.3 regression from the excluded containment suite into
+`temp-path.test.mjs`. Both files import the same extracted fixture builder,
+whose implementation is unchanged. `Assert-LiteralRuntimeRoot` is unchanged.
+
+The focused test passes. Removing native normalization from the shared
+helper makes it fail with the expected alias-path rejection; the helper was
+restored afterward. The excluded file still collects its 61 remaining tests.
+The captured regular Hermes run finished with **107 passed, 1 failed**;
+the moved regression passed. The failure is `EBUSY` unlinking
+`.hermes-runtime.workflow.lock` in the unchanged
+`sbom-integrity-round2.test.mjs` fabricated-source-root test. A previous
+run showed failure markers but lost its final output through the tool;
+it is not counted as a completed validation result. No full extended-suite
+run is claimed. The builder did not rerun Python for this test-only move. The
+reviewer independently reports pytest and mypy clean; the predecessor's
+Python results are recorded in the earlier entry and continuity ledger.
+
+The owner reports PR #4 approved for items 1, 3 and 4 with this recommendation
+and will run item 5's deploy. Items 5, 6 and 7 remain open, and R0's external
+exit evidence is still missing.
+
+Remote CI on the earlier PR head `8de35e7` was checked: both local-agent
+jobs, watchdog, and byte-exact checkout passed; deployment scripts, Hermes,
+and workspace failed. This is not green CI. Per BUILDING.md, stop and
+escalate the unrelated Hermes failure before starting items 6 and 7.
+
 ### 2026-09-05 -- R0 local CI and deployment preparation
 
 - Corrected Windows DACL and canonical-temp test assumptions and the Linux

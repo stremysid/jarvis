@@ -117,6 +117,10 @@ Windows job. The containment fixtures resolve the temporary parent through
 Windows native realpath before constructing RuntimeRoot; the control still
 rejects raw alias paths.
 
+The fast `temp-path.test.mjs` regression stays in the regular PR job. It
+imports the same fixture builder as the excluded containment suite and
+proves raw 8.3 alias rejection plus canonical-path acceptance there.
+
 To run the regular CI selection locally:
 
 ```bash

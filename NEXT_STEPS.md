@@ -5,12 +5,14 @@ open are in [the roadmap](docs/plan/2026-09-03-jarvis-roadmap.md). This
 file is the short list for the current milestone, R0. Planning is finished;
 do not start R1 or resume superseded implementation plans.
 
-## R0 checkpoint, 2026-09-05
+## R0 checkpoint, 2026-09-06
 
 1. **CI corrections are locally validated and committed in `d9d59f9`.**
    Windows DACL assertions use normalized trustees, temp fixtures resolve
    native canonical paths, and the Linux job typechecks for Windows. The
-   two extended Hermes files run in a manual workflow. Remote CI on this
+   two extended Hermes files run in a manual workflow. The fast 8.3
+   regression now lives in `temp-path.test.mjs`, included in PR CI and
+   sharing the containment fixture builder. Remote CI on this
    change and the full extended suites remain unverified.
 2. **Credential rotation is done by owner confirmation.** Wrangler is
    logged in; the three peppers and DeepSeek key were rotated on production
@@ -30,10 +32,22 @@ do not start R1 or resume superseded implementation plans.
 
 ## Next gate and remaining work
 
-**Claude Opus 5, high review is required before publication.** No callable
-Claude reviewer was available in the building session. Review the complete
-R0 diff from `db2b3a5`, including `d9d59f9`, before pushing or deploying.
-Local test results are not cross-vendor approval or green remote CI.
+The owner reports **PR #4 approved for items 1, 3 and 4**, with the fast
+8.3 regression moved into regular CI as the recommendation. The owner also
+reports independent pytest and mypy runs clean. Those are reviewer results;
+they were not rerun by the builder during this test-move follow-up.
+
+The test move passes focused and regular-suite execution, but the complete
+regular Hermes run is **107 passed, 1 failed**: the unchanged SBOM integrity
+test cannot unlink `.hermes-runtime.workflow.lock` (`EBUSY`). No unmerged
+fix for that test was found among the available branches. Escalate this
+failure to Claude Opus 5 high under BUILDING.md before starting items 6/7.
+Remote CI on `8de35e7` also has failures in deployment scripts, Hermes and
+workspace; the two local-agent jobs and watchdog pass.
+
+Push the test move to `claude/r0-green-and-deployed` for the reviewer. The
+owner will run the item 5 deployment. No push to
+`main`, merge, production operation, or completed R0 exit is implied.
 
 5. Inventory and apply pending migrations 0008-0013, configure the R0
    capability settings, deploy the gateway, and deploy the watchdog with

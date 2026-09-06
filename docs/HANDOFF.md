@@ -1,6 +1,6 @@
 # Handoff
 
-Current as of **2026-09-05**. If this date is old, verify against the code
+Current as of **2026-09-06**. If this date is old, verify against the code
 before trusting anything below — this file has been badly stale before.
 
 ## State
@@ -13,7 +13,8 @@ build-order items (errands, Tesla, PWA, voice notes, Brightspace) are not
 started. [The roadmap](plan/2026-09-03-jarvis-roadmap.md) has the full
 table and the milestone order.
 
-R0 is in progress on `main` in the shared `C:/javis` checkout. Item 1's local
+R0 is in progress on `claude/r0-green-and-deployed` in the shared `C:/javis`
+checkout, with draft PR #4 targeting `main`. Item 1's local
 CI corrections are committed in `d9d59f9`; remote CI is unverified. Items 3
 and 4 are implemented locally: exact four-name required-secret lists in
 both gateway environments, retired PIN generators, synthetic test bindings,
@@ -37,8 +38,11 @@ been completed. R0 is not complete and v1.0 is not released.
 | `apps/watchdog` | 113 |
 | contracts + acceptance | 102 |
 
-`ruff`, `mypy --strict` and `tsc` are clean. `typecheck:tests` on the gateway
-reports 117 pre-existing errors in older test files — see KNOWN_ISSUES.
+The item 1 predecessor ran ruff and Windows-target mypy successfully. This
+builder ran lint and source typecheck for items 3/4; the reviewer separately
+reports pytest and mypy clean. Neither Python check was rerun by this
+builder for the test move. `typecheck:tests` on the gateway has a documented
+117-error backlog in older test files — see KNOWN_ISSUES.
 
 ## Next gate and owner decisions
 
@@ -53,13 +57,31 @@ Worker. Keep the stored secret until after the item 5 gateway deploy, then
 delete it as a separate confirmed operation. The legacy verifier module
 stays until R1.
 
-The next gate is **Claude Opus 5 at high effort** reviewing the complete R0
-diff from `db2b3a5`, including `d9d59f9`. No callable Claude reviewer was
-available in the building session, and no cross-vendor approval is claimed.
-After review, follow NEXT_STEPS and the runbook for production confirmation,
-migrations, capability settings, deployment, health/monitor wiring, hourly
-archival, and real exit evidence. Calling remains R1; the roadmap records
-that the Twilio number and credentials already exist.
+The owner reports PR #4 approved for items 1, 3 and 4, with one
+recommendation: keep the fast 8.3 regression in regular PR CI. It now lives
+in `test/temp-path.test.mjs` and uses the same extracted fixture builder as
+the excluded containment file. Raw alias rejection and canonical acceptance
+are still measured against the unchanged runtime module.
+
+The moved test passed alone and in the regular Hermes selection. A mutation
+removing shared-fixture normalization failed as intended and was restored.
+Regular Hermes finished **107 passed, 1 failed**: the unchanged SBOM
+integrity fabricated-source-root test fails cleanup with `EBUSY` unlinking
+`.hermes-runtime.workflow.lock`. Its final report is preserved outside the
+repository. The earlier streamed run lost its final tool output. The two
+extended suites were not run; the excluded containment file collects 61
+tests after extraction.
+
+PR CI on `8de35e7`: both local-agent jobs, watchdog and byte-exact checkout
+passed; deployment scripts, Hermes and workspace failed. Do not treat prior
+local workspace results or owner approval as green CI. BUILDING.md's stop
+rule requires escalating the unchanged SBOM test failure to Claude Opus 5
+high; no unmerged fix to that test exists among the available branches.
+
+The owner will perform item 5's deployment. After the blocker is resolved,
+continue items 6 and 7 locally, then verify deployed behavior. No main push or
+merge was requested. Calling remains R1; the roadmap records that the
+Twilio number and credentials already exist.
 
 ## What is built but not wired
 

@@ -1,5 +1,23 @@
 # Known issues
 
+## R0 review follow-up: Hermes cleanup fails outside the changed test
+
+The regular Hermes selection with the moved 8.3 regression finished with
+107 passed and 1 failed on 2026-09-06. The new `temp-path.test.mjs` passes.
+`sbom-integrity-round2.test.mjs` fails in "rejects a fabricated release-shaped
+source root through the real generator before reading lock inputs": cleanup
+cannot unlink `.hermes-runtime.workflow.lock` and returns `EBUSY`.
+
+Neither that test nor its production code changed in the follow-up, and no
+unmerged change to that test was found on the available branches. Its cause
+has not been established. BUILDING.md requires stopping and escalating to
+Claude Opus 5 high rather than changing unrelated runtime code speculatively.
+The two extended Hermes suites were not run.
+
+PR #4's earlier head `8de35e7` also has remote failures in deployment
+scripts, Hermes and workspace. Both local-agent jobs, watchdog and
+byte-exact checkout passed. The remote failure causes remain untriaged.
+
 ## R0 CI corrections pass locally; remote CI remains unverified
 
 Three jobs fail, none for a product defect. Each is a test encoding an

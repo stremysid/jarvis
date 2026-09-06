@@ -78,6 +78,7 @@ jobs:
           python-version: "3.11"
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      # temp-path.test.mjs stays here so PR CI exercises the Windows temp fix.
       - run: >-
           pnpm --filter @jarvis/hermes-runtime exec vitest run test
           --exclude test/source-lock.test.mjs
