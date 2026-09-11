@@ -54,4 +54,6 @@ export interface Env {
    * Worker vars arrive as strings.
    */
   WATCHDOG_SELF_INTERVAL_SECONDS?: string;
+  /** Comma-separated deployed component names; defaults to cloud-gateway for R0. */
+  WATCHDOG_REQUIRED_COMPONENTS?: string;
 }

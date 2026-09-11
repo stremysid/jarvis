@@ -96,6 +96,14 @@ The watchdog has its own settings and must use its own bot and chat:
 | Independent alert channel | `WATCHDOG_TELEGRAM_BOT_TOKEN`, `WATCHDOG_TELEGRAM_CHAT_ID` |
 | Authenticated heartbeat reception | `WATCHDOG_HEARTBEAT_SECRET` |
 | Optional self-monitoring overrides | `WATCHDOG_SELF_COMPONENT`, `WATCHDOG_SELF_INTERVAL_SECONDS` |
+| Must-report components | `WATCHDOG_REQUIRED_COMPONENTS` (non-secret var, R0: `cloud-gateway`) |
+
+The must-report list is comma-separated component names, not URLs. Its R0
+default and checked-in value are `cloud-gateway`. Add local nodes only when
+their later milestone deploys them. Missing rows alert without fabricating
+heartbeats; duplicate names are assessed once. Empty names or malformed
+lists make watchdog health return 503 and prevent a healthy cycle record.
+Verify the effective dashboard value too: deployment preserves existing vars.
 
 The gateway owns D1 migrations. The watchdog binds the same `jarvis`
 database and never applies migrations. The gateway also binds the
@@ -109,6 +117,12 @@ the **stored** secret alone until the new gateway has deployed in item 5;
 the previously live version might still read it.
 
 ## R0 item 5: migrate, then deploy
+
+**Owner-blocked as of 2026-09-10.** Sid inspected the live Cloudflare account:
+the gateway's last modification was 2026-09-02 and the watchdog had never
+been deployed. Do not assume the R0 settings are live or migrations
+0008-0013 have been applied. Inventory them below; their absence has not
+been independently established by a migration query in this build session.
 
 1. Finish local checks and the required cross-vendor review. Record the
    commit, the current deployed version IDs, and the D1 recovery point in a
@@ -155,11 +169,54 @@ the previously live version might still read it.
    Do not run this during item 3 or recreate the retired verifier. A
    rollback to an older version that reads it needs separate assessment.
 
+## R0 item 6: owner action, external watchdog monitor
+
+1. After item 5, record the watchdog URL returned by the first deployment.
+   The URL to monitor is
+   `https://jarvis-watchdog.<sid-subdomain>.workers.dev/health`.
+   Replace the placeholder at deploy time; there is no deployed watchdog
+   URL to fill in beforehand. Do not use the gateway's `/health` here.
+2. In Sid's UptimeRobot account, create an HTTPS monitor using **HTTP GET**
+   every **5 minutes**. Accept **200 only**. Alert on any non-200 response
+   (including 503), timeout, DNS failure, or TLS failure. No body keyword or
+   JSON parsing is needed. The free-tier monitor is the selected service.
+3. Select **Sid's verified UptimeRobot notification destination** and verify
+   delivery using the service's test notification. Keep the address or
+   other private destination details in the account, not repository evidence.
+   Record the monitor name, interval, and test-delivery outcome only.
+4. Verify GET returns 503 before a first cycle is recorded or when required
+   configuration is missing, and 200 after the configured watchdog records
+   a healthy, recent cycle. The default self-heartbeat age allowance is
+   900 seconds; stale self state returns 503. Confirm the monitor sees a
+   successful check and that the watchdog's independent Telegram channel
+   can deliver an alert. An absent gateway heartbeat should produce its
+   must-report alert. Do not fabricate a heartbeat to make this check pass.
+5. Record external-monitor completion separately from deployment. Until
+   these actions are observed complete, **nothing watches the watchdog**.
+   A timer inside the same Worker is not a substitute.
+
+## R0 items 6/7: code behavior to verify after deployment
+
+The gateway now routes GET `/health` to its existing coarse liveness handler
+and supports a bodyless HEAD. It reveals no private readiness snapshot and
+does not query D1. Its independent per-isolate allowance is 30 requests per
+minute (429 when exhausted). It proves the HTTP process answers, not that
+scheduled work or dependencies are healthy.
+
+The existing `0 * * * *` job now calls `ArchivalWorker`/`ArchivalService`
+once per claimed hour, even without GitHub configuration. It publishes at
+most one new segment of 24 events, plus the service's existing bounded
+reconciliation. Retention, verified R2 readback, sealing, circuit checks,
+and delivered-only D1 purge are unchanged. Old undelivered events may be
+copied but remain in D1; young events are retained. A failed upload records
+a failed hourly run rather than a successful heartbeat. GitHub polling
+runs afterward when configured; adding its credential after an hour has
+already been claimed takes effect on the next hour.
+
 ## Exit evidence and recovery
 
-R0 items 6 and 7 still require the gateway health route, watchdog must-report
-list and external monitor, and hourly R2 archival. Do not infer these from a
-successful deploy of items 3 and 4.
+Items 6/7 code is implemented but requires cross-vendor review, merge and
+deployment. The external-monitor owner actions above remain pending.
 
 Record the exact commit and deployed versions, migration outcomes, and UTC
 times for CI green on `main`, owner Telegram `/status` and `/queue` replies,

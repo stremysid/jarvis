@@ -102,6 +102,7 @@ export interface LivenessAssessmentInput {
   readonly rows: readonly ComponentLivenessRow[];
   readonly openAlerts: readonly OpenLivenessAlert[];
   readonly now: Date;
+  readonly requiredComponents?: readonly string[];
 }
 
 /**
@@ -167,7 +168,15 @@ export function assessLiveness(input: LivenessAssessmentInput): readonly Livenes
   const openByComponent = indexOpenAlerts(input.openAlerts);
   const verdicts: LivenessVerdict[] = [];
 
-  for (const row of input.rows) {
+  const rows = [...input.rows];
+  const present = new Set(rows.map((row) => row.component));
+  for (const component of new Set(input.requiredComponents ?? [])) {
+    if (!present.has(component)) rows.push({
+      component, lastSeenAt: "never", expectedIntervalSeconds: 1, detail: null, suppressedUntil: null,
+    });
+  }
+  // Synthetic missing rows are assessment input only, never invented heartbeats.
+  for (const row of rows) {
     const open = openByComponent.get(row.component);
     const lastSeenMs = readInstant(row.lastSeenAt);
     const interval = row.expectedIntervalSeconds;

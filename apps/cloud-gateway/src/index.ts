@@ -26,6 +26,7 @@ import {
   DefaultOutboxDispatcher,
 } from "./conversation/outbox-dispatcher.js";
 import type { Env } from "./env.js";
+import { handleLiveness } from "./http/health.js";
 import { createVoiceRouteDependencies } from "./http/voice-route-construction.js";
 import { handleSyncRequest, isSyncPath } from "./http/sync-routes.js";
 import { routeVoiceRequest } from "./http/voice-routes.js";
@@ -70,6 +71,8 @@ const unavailableVoiceRoutes = createVoiceRouteDependencies({
  * already used for call sessions -- before either becomes load-bearing.
  */
 const telegramLimiter = new TelegramRateLimiter();
+// Separate allowance: monitoring traffic must never consume Telegram admission.
+const livenessLimiter = new TelegramRateLimiter(30, 43_200);
 const providerCircuitBreaker = new ProviderCircuitBreaker();
 
 function isVoicePath(request: Request): boolean {
@@ -310,6 +313,17 @@ async function answerFromTap(env: Env, tap: AcceptedTelegramButtonTap): Promise<
 export default {
   async fetch(request, env, ctx): Promise<Response> {
     const pathname = new URL(request.url).pathname;
+    if (pathname === "/health") {
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return new Response("Method not allowed", { status: 405, headers: { allow: "GET, HEAD", "cache-control": "no-store" } });
+      }
+      // Process liveness only. No database probes or private readiness snapshot.
+      const response = await handleLiveness({
+        rateLimiter: { allow: () => livenessLimiter.admit("liveness", Date.now()).allowed },
+        availability: "available",
+      });
+      return request.method === "HEAD" ? new Response(null, response) : response;
+    }
 
     if (pathname === TELEGRAM_WEBHOOK_PATH) {
       const webhookSecret = env.TELEGRAM_WEBHOOK_SECRET;

@@ -51,6 +51,28 @@ describe("scheduled", () => {
     expect(await alertRows()).toEqual([]);
   });
 
+  it("requires the gateway by default even before its first heartbeat", async () => {
+    await runScheduled({ DB: testEnv.DB });
+    expect((await componentRows())[0]?.detail).toBe("sent=0 undelivered=1 faults=1");
+    expect(await alertRows()).toEqual([]);
+  });
+
+  it("honours and deduplicates a configured must-report list", async () => {
+    await runScheduled({ DB: testEnv.DB, WATCHDOG_REQUIRED_COMPONENTS: "cloud-gateway, node-test, cloud-gateway" });
+    expect((await componentRows())[0]?.detail).toBe("sent=0 undelivered=2 faults=2");
+  });
+
+  it("rejects an empty or malformed must-report list without a healthy self heartbeat", async () => {
+    for (const list of ["", "cloud-gateway,", "bad name"]) {
+      const environment = { DB: testEnv.DB, WATCHDOG_REQUIRED_COMPONENTS: list };
+      await runScheduled(environment);
+      expect(await componentRows()).toEqual([]);
+      const response = await worker.fetch(new Request("https://watchdog.example/health"), environment);
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ ok: false, reason: "must_report_list_invalid" });
+    }
+  });
+
   it("does not throw when nothing at all is configured", async () => {
     // A scheduled handler that rejects leaves a platform error and nothing
     // else -- no alert, no record. That is the shape of a watchdog that has

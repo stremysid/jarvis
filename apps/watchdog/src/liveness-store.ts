@@ -100,7 +100,9 @@ const SELECT_OPEN_ALERTS = `
 `;
 
 /**
- * Insert under the caller's deterministic alert id, ignoring a collision.
+ * Insert under the caller's deterministic alert id, ignoring an open collision.
+ * A missing-row alert can recur with the same sentinel after recovery if its
+ * heartbeat row is deleted. Reopen that closed alert so it can deduplicate.
  *
  * Two cron invocations overlapping would otherwise open two alerts for one
  * outage, and closing one on recovery would leave the other open forever --
@@ -111,7 +113,8 @@ const SELECT_OPEN_ALERTS = `
 const INSERT_ALERT = `
   INSERT INTO liveness_alerts (alert_id, component, last_seen_at, alerted_at, recovered_at)
   VALUES (?, ?, ?, ?, NULL)
-  ON CONFLICT(alert_id) DO NOTHING
+  ON CONFLICT(alert_id) DO UPDATE SET alerted_at = excluded.alerted_at, recovered_at = NULL
+  WHERE liveness_alerts.last_seen_at = 'never' AND liveness_alerts.recovered_at IS NOT NULL
 `;
 
 /** By component, not by alert id, so a stray duplicate cannot outlive the outage. */

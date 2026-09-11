@@ -61,6 +61,7 @@ export interface WatchdogDependencies {
    */
   readonly self: SelfHeartbeatConfig | null;
   readonly maxAlertsPerCycle?: number;
+  readonly requiredComponents?: readonly string[];
 }
 
 export interface WatchdogCycleResult {
@@ -86,6 +87,7 @@ const PRIORITY: Readonly<Record<string, number>> = Object.freeze({
 export function describeVerdict(verdict: LivenessVerdict): string {
   switch (verdict.status) {
     case "newly_overdue":
+      if (verdict.lastSeenAt === "never") return `DOWN ${verdict.component}\nrequired component has never reported`;
       return [
         `DOWN ${verdict.component}`,
         `last seen ${verdict.lastSeenAt}`,
@@ -95,6 +97,7 @@ export function describeVerdict(verdict: LivenessVerdict): string {
           : `overdue by ${verdict.overdueBySeconds}s`,
       ].join("\n");
     case "overdue_again":
+      if (verdict.lastSeenAt === "never") return `DOWN AGAIN ${verdict.component}\nrequired component has no heartbeat record`;
       return [
         `DOWN AGAIN ${verdict.component}`,
         `last seen ${verdict.lastSeenAt}`,
@@ -123,11 +126,18 @@ type StoreRead =
   | { readonly ok: false; readonly reason: string };
 
 /** Both reads together, because a cycle that has one half of the state can conclude nothing. */
-async function readState(store: LivenessStore): Promise<StoreRead> {
+async function readState(store: LivenessStore, required: readonly string[]): Promise<StoreRead> {
   try {
     const components = await store.readComponents();
+    const rows = [...components.rows];
+    // A required row outside the bounded page is not a missing heartbeat.
+    for (const component of new Set(required)) {
+      if (rows.some((row) => row.component === component)) continue;
+      const row = await store.readComponent(component);
+      if (row !== null) rows.push(row);
+    }
     const openAlerts = await store.readOpenAlerts();
-    return { ok: true, rows: components.rows, openAlerts, truncated: components.truncated };
+    return { ok: true, rows, openAlerts, truncated: components.truncated };
   } catch (error) {
     return { ok: false, reason: error instanceof Error ? error.message : String(error) };
   }
@@ -148,7 +158,8 @@ export async function runWatchdogCycle(
   const ranAt = now.toISOString();
   const faults: string[] = [];
 
-  const read = await readState(dependencies.store);
+  const requiredComponents = dependencies.requiredComponents ?? [];
+  const read = await readState(dependencies.store, requiredComponents);
   if (!read.ok) {
     // A failed read does suppress every liveness alert this cycle, and there
     // is no way around that: without the rows the watchdog does not know who
@@ -186,7 +197,7 @@ export async function runWatchdogCycle(
     );
   }
 
-  const verdicts = assessLiveness({ rows, openAlerts, now });
+  const verdicts = assessLiveness({ rows, openAlerts, now, requiredComponents });
 
   const actionable = verdicts
     .filter(isActionable)

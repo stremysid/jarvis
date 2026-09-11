@@ -24,7 +24,7 @@ describe("cloud gateway Worker voice routes", () => {
   });
 
   it("preserves the existing 501 skeleton outside the voice route namespace", async () => {
-    const response = await dispatch(new Request("https://worker.internal/health"));
+    const response = await dispatch(new Request("https://worker.internal/not-implemented"));
 
     expect(response.status).toBe(501);
     await expect(response.text()).resolves.toBe("Not implemented");

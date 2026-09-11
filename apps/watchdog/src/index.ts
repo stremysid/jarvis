@@ -40,6 +40,12 @@ const DEFAULT_SELF_COMPONENT = "watchdog";
  */
 const DEFAULT_SELF_INTERVAL_SECONDS = 900;
 
+function requiredComponents(env: Env): readonly string[] | null {
+  const names = (env.WATCHDOG_REQUIRED_COMPONENTS ?? "cloud-gateway").split(",").map((name) => name.trim());
+  if (names.length > 500 || names.some((name) => !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(name))) return null;
+  return [...new Set(names)];
+}
+
 function selfIntervalSeconds(env: Env): number {
   const configured = Number(env.WATCHDOG_SELF_INTERVAL_SECONDS ?? "");
   // A misconfigured value falls back rather than throwing. Refusing to start
@@ -72,6 +78,12 @@ export function resolveAlertChannel(env: Env): AlertChannel {
 }
 
 async function runCycle(env: Env, cron: string): Promise<void> {
+  const required = requiredComponents(env);
+  if (required === null) {
+    await resolveAlertChannel(env).send("WATCHDOG DEGRADED\nmust-report list is invalid; no component was checked");
+    console.error("watchdog_cycle_skipped", { cron, reason: "must_report_list_invalid" });
+    return;
+  }
   const db = env.DB;
   if (db === undefined) {
     // Nothing else to do, and nothing to alert with either: the alert channel
@@ -86,6 +98,7 @@ async function runCycle(env: Env, cron: string): Promise<void> {
     alerts: resolveAlertChannel(env),
     clock: systemClock,
     self: selfHeartbeat(env),
+    requiredComponents: required,
   });
 
   // Structural only: counts and fault labels, never a component's detail text.
@@ -134,6 +147,7 @@ export default {
       if (request.method !== "GET" && request.method !== "HEAD") {
         return new Response("Method not allowed", { status: 405 });
       }
+      if (requiredComponents(env) === null) return unavailable("must_report_list_invalid");
       const db = env.DB;
       return handleHealth({
         store: db === undefined ? null : new D1LivenessStore(db),

@@ -1,90 +1,83 @@
 # Handoff
 
-Current as of **2026-09-06**. If this date is old, verify against the code
-before trusting anything below — this file has been badly stale before.
+Current as of **2026-09-10**. Verify the current branch and checks before
+using this checkpoint. R0 is not complete; calling remains R1.
 
-## State
+## Current branch and review
 
-The cloud-side features of
-[the expansion plan](plan/2026-08-jarvis-expansion-plan.md) are built and
-tested **except** live calling, which is the v1.0 release gate. The local
-agent has no process bootstrap, facts never reach the phone, and the later
-build-order items (errands, Tesla, PWA, voice notes, Brightspace) are not
-started. [The roadmap](plan/2026-09-03-jarvis-roadmap.md) has the full
-table and the milestone order.
+Work is in [draft PR #6](https://github.com/ksid1229-ops/jarvis/pull/6),
+branch `codex/r0-health-hourly-archive`, based on PR #5's exact head
+`edac2723fe61fa9e4f623123d9f45f0c18feeee0`. The old `C:/javis` checkout
+is not present on this machine; the active checkout is under the current
+Codex task's `work/jarvis` directory. No main push or merge is authorized.
 
-R0 is in progress on `claude/r0-green-and-deployed` in the shared `C:/javis`
-checkout, with draft PR #4 targeting `main`. Item 1's local
-CI corrections are committed in `d9d59f9`; remote CI is unverified. Items 3
-and 4 are implemented locally: exact four-name required-secret lists in
-both gateway environments, retired PIN generators, synthetic test bindings,
-and named deployment scripts with a [runbook](runbooks/deploy.md).
+Codex completed the cross-vendor review of Claude's PR #5 escalation:
+**no merge blocker**. See the [immutable-head review](reviews/r0-pr5-edac272.md)
+for security, temp-path equivalence, cleanup-handle evidence and the exact
+uv interpreter pin. CI run 34553801860 was observed green on that head:
+seven jobs, Hermes 108, workspace 1,935, watchdog 113. Manual extended
+Hermes suites remain unrun. These results supersede the old CI blocker.
 
-Both scripts passed native argument checks and real Wrangler dry-runs,
-including explicit empty production environment selection. A mutation to
-legacy PowerShell argument passing failed both tests because it dropped the
-empty value. Lint and source typecheck pass. The four-name configuration
-passed 234 focused gateway tests, followed by all 1,935 workspace tests
-across 105 files. No missing-required-secret warnings remained in that run.
+## R0 items 6 and 7 implementation
 
-No Worker deployment or migration was performed by this R0 session. No
-Telegram exit check, cron heartbeat, morning digest, or remote CI check has
-been completed. R0 is not complete and v1.0 is not released.
+- Gateway GET `/health` now calls the existing coarse liveness handler;
+  HEAD is bodyless. An independent existing limiter supplies 30 probes per
+  minute per isolate. No private readiness snapshot or D1 read is exposed.
+- Watchdog `WATCHDOG_REQUIRED_COMPONENTS` defaults to `cloud-gateway`.
+  Missing rows enter the existing alert/recovery flow without invented
+  heartbeats. Invalid lists fail configuration health. Required names outside
+  a bounded component page are looked up before being declared missing.
+- The existing hourly `poll` job calls the existing archival service for
+  one bounded segment before optional GitHub work. It runs without GitHub
+  configuration. Retention, verified readback, sealing and purge checks stay
+  in that service. An upload failure fails the hourly run.
+- [The deployment runbook](runbooks/deploy.md) includes the separate numbered
+  UptimeRobot owner actions: HTTPS GET on the watchdog URL, every five
+  minutes, non-200 alerts to Sid's verified notification destination.
 
-| Suite | Count |
-|---|---|
-| `apps/cloud-gateway` | 1833 |
-| `apps/local-agent` | 515 (1 skipped), item 1 local run |
-| `apps/watchdog` | 113 |
-| contracts + acceptance | 102 |
+No new service, cron expression, schema, runtime pin, security bypass, or
+gateway import in the watchdog was added. The three old unrelated-route
+tests retain their 501 assertions on an unknown path; explicit health-route
+tests now cover the intended change.
 
-The item 1 predecessor ran ruff and Windows-target mypy successfully. This
-builder ran lint and source typecheck for items 3/4; the reviewer separately
-reports pytest and mypy clean. Neither Python check was rerun by this
-builder for the test move. `typecheck:tests` on the gateway has a documented
-117-error backlog in older test files — see KNOWN_ISSUES.
+## Validation and next gate
 
-## Next gate and owner decisions
+Lint and source typechecking pass. Workspace 1,942/1,942 (107 files) and
+watchdog 119/119 (8 files) pass. Both named deployment scripts completed
+local Wrangler dry-runs successfully; neither published. Mutation checks
+remove the health route, archival call and
+must-report argument in turn: 3, 3 and 2 tests fail respectively. All
+mutations are restored. Follow-up CI is tracked in
+[PR #6 checks](https://github.com/ksid1229-ops/jarvis/pull/6/checks); verify
+the newest head there. PR #5's green run is not evidence for this branch.
+The gateway test-type command reports **122**
+errors on both this branch and an isolated checkout of `edac272`, with
+none in the changed files. The earlier 117 count is stale.
 
-**Item 2 is complete by owner confirmation:** Wrangler login, the three
-pepper rotations and DeepSeek key rotation on production
-`jarvis-cloud-gateway`, plus revocation of the old DeepSeek key. Values were
-never shared. Do not request them or repeat the rotation request.
+The new implementation needs **Claude Opus 5 at high effort** for the
+BUILDING.md cross-vendor gate. Our review of Claude's PR #5 does not approve
+our subsequent implementation. Sid merges PR #5 and this follow-up.
 
-`PIN_VERIFIER_JSON` is removed from configuration now. That only removes a
-pre-deploy existence check; it does not affect the stored secret or the live
-Worker. Keep the stored secret until after the item 5 gateway deploy, then
-delete it as a separate confirmed operation. The legacy verifier module
-stays until R1.
+## Owner deployment and live acceptance are pending
 
-The owner reports PR #4 approved for items 1, 3 and 4, with one
-recommendation: keep the fast 8.3 regression in regular PR CI. It now lives
-in `test/temp-path.test.mjs` and uses the same extracted fixture builder as
-the excluded containment file. Raw alias rejection and canonical acceptance
-are still measured against the unchanged runtime module.
+**Item 5 has not happened.** Sid verified the live Cloudflare account on
+2026-09-10: `jarvis-cloud-gateway` was last modified 2026-09-02, predating
+R0 configuration, and `jarvis-watchdog` had never been deployed. Assume
+no R0 deployment state exists; inventory migrations 0008-0013 and effective
+vars before applying/deploying. Migration absence was not directly queried
+by this builder. There is no watchdog URL until Sid deploys it.
 
-The escalation that stopped the builder on 2026-09-06 is triaged and fixed.
-Claude Opus 5 high (BUILDING.md rung 2) found one root cause behind 23 of the
-26 remote failures: only one test file had been canonicalized against the
-runner's 8.3 temp alias, leaving 75 raw `mkdtemp` sites across nine more
-Hermes files and `scripts/test/deploy.test.mjs`. The remaining three were the
-Windows launcher failing to resolve `Astral/CPython3.11.16`, which is a
-uv-managed PEP 514 tag that `actions/setup-python` does not register. The
-`EBUSY` was a cleanup race against a PowerShell handle opened with no
-`FILE_SHARE_DELETE`; it never surfaced in CI because the alias check rejected
-those paths before the lock was opened. See KNOWN_ISSUES.md for the detail.
+Item 2's rotations remain complete by owner confirmation; do not request
+them again. `PIN_VERIFIER_JSON` is absent from config but its stored secret
+stays until item 5's gateway deployment, then requires separate owner
+confirmation to delete. Never request, print or commit a secret value.
 
-The fix is test and CI only. No runtime code, no security control and no
-share flag changed. The regular selection still collects 108 tests and
-`source-lock` 77, so nothing was dropped. Windows execution is verified by
-CI, not locally: this triage ran on Linux, where the suites cannot execute.
-
-Do not treat prior local workspace results or owner approval as green CI.
-
-The owner will perform item 5's deployment. After the blocker is resolved,
-continue items 6 and 7 locally, then verify deployed behavior. No main push or
-merge was requested. Calling remains R1; the roadmap records that the
-Twilio number and credentials already exist.
+The external UptimeRobot monitor is **owner-blocked**, not configured.
+Fill its URL at deploy time using the runbook. No Worker deployment,
+migration, production deletion, live Telegram check, heartbeat or morning
+digest was performed here. **R0 exit remains unverified:** green CI on
+`main`, Telegram `/status` and `/queue` replies, a real cron recorded by
+the watchdog, and the scheduled morning digest saying "nothing due".
 
 ## What is built but not wired
 
