@@ -90,6 +90,16 @@ class MemoryProjectionUploader:
         if pending is None:
             return ProjectionResult(False, len(self._facts.active_facts(self._cloud.principal_id)))
 
+        return self._publish(pending)
+
+    def resume_pending(self) -> ProjectionResult | None:
+        """Retry an owed immutable snapshot without capturing current fact state."""
+        pending = self._load_pending()
+        if pending is None:
+            return None
+        return self._publish(pending)
+
+    def _publish(self, pending: _Pending) -> ProjectionResult:
         for page in pending.pages:
             if self._should_stop():
                 return ProjectionResult(False, pending.fact_count, stopped=True)

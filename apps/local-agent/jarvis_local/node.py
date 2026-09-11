@@ -1,8 +1,8 @@
 """Foreground bootstrap for the Linux home node.
 
 This module only assembles components that already own the work: signed cloud
-replication, distillation, promotion policy, scheduling, and the local control
-socket.  The run loop stays on the main thread.  The control thread can only
+replication, distillation, promotion policy, fact projection, scheduling, and
+the local control socket.  The run loop stays on the main thread.  The control thread can only
 read status or set the loop's wake/stop flags, so it cannot open a second
 database transaction beside an active cycle.
 """
@@ -34,6 +34,7 @@ from jarvis_local.service import LocalAgentService, RunLoop, ServiceState, contr
 from jarvis_local.sync.cloud_client import HttpCloudClient
 from jarvis_local.sync.distill_client import HttpDistillationClient
 from jarvis_local.sync.event_replicator import EventReplicator
+from jarvis_local.sync.memory_projection import MemoryProjectionUploader
 from jarvis_local.transport.pipe_server import ControlServer
 from jarvis_local.transport.unix_socket import (
     CONTROL_SOCKET_ENVIRONMENT,
@@ -280,10 +281,19 @@ def _safe_node_cycle(
     distiller: DistillationCoordinator,
     facts: FactRepository,
     principal_id: str,
+    projector: MemoryProjectionUploader,
+    should_stop: Callable[[], bool],
 ) -> CycleResult:
     """Keep exception text out of the status channel while preserving its class."""
     try:
-        result = run_cycle(replicator, distiller, facts, principal_id)
+        result = run_cycle(
+            replicator,
+            distiller,
+            facts,
+            principal_id,
+            projector=projector,
+            should_stop=should_stop,
+        )
     except Exception:
         return CycleResult(0, 0, 0, 0, failure="cycle: failed")
     failure = result.failure
@@ -295,6 +305,8 @@ def _safe_node_cycle(
         safe = "sync: request failed"
     elif failure.startswith("distillation:"):
         safe = "distillation: request failed"
+    elif failure.startswith("projection:"):
+        safe = "projection: request failed"
     else:
         safe = "cycle: failed"
     return replace(result, failure=safe)
@@ -306,7 +318,7 @@ def build_node(
     opener: Any = None,  # noqa: ANN401
     control_factory: ControlFactory = _control_endpoint,
 ) -> NodeRuntime:
-    """Open stores and assemble the signed replication/distillation cycle."""
+    """Open stores and assemble the signed replication, distillation, and projection cycle."""
     _validate_distinct_store_paths(settings.archive_path, settings.memory_path)
     _validate_existing_device_key(settings.device_key_path)
     try:
@@ -343,8 +355,21 @@ def build_node(
                 HttpDistillationClient(cloud),
                 principal_id=settings.principal_id,
             )
+            projector = MemoryProjectionUploader(
+                facts,
+                archive,
+                cloud,
+                should_stop=state.stop_requested,
+            )
             loop = RunLoop(
-                lambda: _safe_node_cycle(replicator, distiller, facts, settings.principal_id),
+                lambda: _safe_node_cycle(
+                    replicator,
+                    distiller,
+                    facts,
+                    settings.principal_id,
+                    projector,
+                    state.stop_requested,
+                ),
                 state=state,
             )
             return NodeRuntime(loop, state, control, archive, facts)

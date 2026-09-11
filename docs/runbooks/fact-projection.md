@@ -5,10 +5,10 @@ snapshot. Cloud retrieval continues to use the previously published version
 until every page of its replacement has been validated and the commit is
 accepted. Publishing an empty snapshot retracts the device's earlier facts.
 
-This draft contains the cloud endpoint, cloud retrieval, and local uploader
-library. The foreground node does not call the uploader until PR 13 is merged
-and the node-composition patch lands. Do not treat the uploader library's
-presence as running publication.
+The foreground node retries an owed immutable snapshot after event sync and
+before new distillation work. It captures and publishes the current active-fact
+snapshot only after promotion finishes. A stop between requests leaves the
+pending snapshot durable for the next node process.
 
 ## Rollout order
 

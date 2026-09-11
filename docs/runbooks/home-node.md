@@ -3,7 +3,14 @@
 This runbook installs the existing Python memory agent as one foreground Linux
 process supervised by systemd. It opens the archive and memory stores, pulls
 cloud events with the enrolled Ed25519 identity, submits distillation requests,
-and serves `status`, `run-once`, and `stop` on a private Unix socket.
+publishes the complete active-fact snapshot, and serves `status`, `run-once`,
+and `stop` on a private Unix socket.
+
+Before starting this node version, the owner must apply D1 migration
+`0014_memory_projection.sql` and deploy the updated gateway. Follow the
+[fact projection rollout and acceptance steps](fact-projection.md). Local
+memory migration `0003_cloud_projection.sql` runs when the node opens its
+memory store; it adds the durable publication cursor and pending pages.
 
 ## Prepare the account and files
 
@@ -86,6 +93,11 @@ and exit. Each HTTP operation has a 30-second socket timeout. An expired ACK
 recovery can make three sync requests before the next stage, with stop checks
 between requests, so the unit allows 180 seconds for shutdown before systemd
 escalates the stop.
+
+Fact projection also checks the stop flag before every page and before its
+commit request. A stop therefore leaves the immutable pending snapshot in the
+memory database for the next process and does not start another 30-second
+request after the current request returns.
 
 The current node stores each new pending sync acknowledgement with its snapshot
 boundary and gateway, device, and principal owner. If an archive upgraded from

@@ -3,7 +3,7 @@
 Current as of **2026-09-11**. Verify the current branch and checks before
 using this checkpoint. R0 passed on September 11; calling remains R1.
 
-## R2 item 3 checkpoint
+## R2 item 3 review candidate
 
 Item 2 merged through [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13)
 at `94575fb`, including the client lifecycle fixes and direct completed-token
@@ -14,7 +14,7 @@ publishes a complete manifest atomically. The Python uploader persists an
 immutable snapshot before HTTP and resends every page after interruption,
 advancing only on an exact commit receipt. Local memory migration `0003`
 adds its durable pending pages and publication cursor. Full Python validation
-is 531 passed / 5 Windows skips, with Ruff and win32 mypy clean. Cloud context
+is 582 passed / 20 Windows skips, with Ruff and win32 mypy clean. Cloud context
 now combines matching published facts with recent turns, enforces active
 principal/device ownership and a shared byte/item budget, and keeps the most
 restrictive sensitivity across device duplicates. Full workspace validation
@@ -23,7 +23,17 @@ publication predicates exposes staged facts and fails the regression; removing
 the device-status predicate exposes a revoked fact and also fails. All guards
 were restored before the full suite.
 
-Node composition is now unblocked and in progress on the merged bootstrap.
+The merged bootstrap now runs the uploader. An owed immutable projection is
+retried after event sync/ACK recovery and before new distillation. The current
+active snapshot is published after promotion. Node tests verify signed wire
+requests, unchanged later cycles, exact retry after process reconstruction,
+and shutdown with a pending page. Disabling the node binding, retry call, or
+stop callback fails those boundary tests. Authentication rejection stops the
+service; transient failure keeps pending work durable for retry. The reviewed
+ACK recovery implementation remains unchanged.
+
+Current-head checks and review status are recorded on PR #16. Item 4 semantic
+search is a separate future PR and is not included here.
 See the [fact projection runbook](runbooks/fact-projection.md) for rollout and
 owner acceptance. The earlier sections below are historical R0 evidence.
 

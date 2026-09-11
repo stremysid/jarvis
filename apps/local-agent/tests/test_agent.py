@@ -15,10 +15,11 @@ import pytest
 from jarvis_local.agent import CycleResult, run_cycle
 from jarvis_local.archive.archive_repository import ArchiveRepository
 from jarvis_local.memory.distillation import DistillationCoordinator
-from jarvis_local.memory.facts import FactRepository
+from jarvis_local.memory.facts import FactOrigin, FactProposal, FactRepository
 from jarvis_local.sync.cloud_client import CloudAuthError, CloudSyncError
 from jarvis_local.sync.cursor_store import PendingSyncAck
 from jarvis_local.sync.event_replicator import EventPage, EventReplicator, SyncAckPending
+from jarvis_local.sync.memory_projection import ProjectionResult
 
 PRINCIPAL = "principal-a"
 
@@ -69,6 +70,37 @@ class FakeDistiller:
         if self.error is not None:
             raise self.error
         return self.proposals
+
+
+class FakeProjector:
+    def __init__(
+        self,
+        facts: FactRepository,
+        *,
+        pending: bool = False,
+        resume_error: Exception | None = None,
+        project_error: Exception | None = None,
+    ) -> None:
+        self.facts = facts
+        self.pending = pending
+        self.resume_error = resume_error
+        self.project_error = project_error
+        self.resume_calls = 0
+        self.project_calls = 0
+        self.active_when_projected = -1
+
+    def resume_pending(self) -> ProjectionResult | None:
+        self.resume_calls += 1
+        if self.resume_error is not None:
+            raise self.resume_error
+        return ProjectionResult(True, 0) if self.pending else None
+
+    def project(self) -> ProjectionResult:
+        self.project_calls += 1
+        self.active_when_projected = len(self.facts.active_facts(PRINCIPAL))
+        if self.project_error is not None:
+            raise self.project_error
+        return ProjectionResult(True, self.active_when_projected)
 
 
 @pytest.fixture
@@ -225,3 +257,82 @@ def test_replication_runs_before_distillation(
     # Both freshly replicated events were visible to distillation in the same
     # cycle that fetched them.
     assert (result.events_replicated, result.excerpts_distilled) == (2, 2)
+
+
+def test_projection_runs_after_an_eligible_fact_is_promoted(
+    stores: tuple[ArchiveRepository, FactRepository],
+) -> None:
+    archive, facts = stores
+    facts.record_proposal(
+        FactProposal(
+            principal_id=PRINCIPAL,
+            text="Likes coffee",
+            origin=FactOrigin.AUTHENTICATED_FIRST_PERSON,
+            source_event_ids=(f"event_{1:026d}",),
+        )
+    )
+    replicator, distiller = build(archive, facts, FakeCloud([]), FakeDistiller())
+    projector = FakeProjector(facts)
+
+    result = run_cycle(replicator, distiller, facts, PRINCIPAL, projector=projector)
+
+    assert result.facts_promoted == 1
+    assert projector.active_when_projected == 1
+
+
+def test_an_owed_projection_is_retried_before_fresh_distillation(
+    stores: tuple[ArchiveRepository, FactRepository],
+) -> None:
+    archive, facts = stores
+    replicator, distiller = build(
+        archive,
+        facts,
+        FakeCloud([EventPage(events=(event(1),), highest_sequence=1)]),
+        FakeDistiller(error=RuntimeError("model unavailable")),
+    )
+    projector = FakeProjector(facts, pending=True)
+
+    result = run_cycle(replicator, distiller, facts, PRINCIPAL, projector=projector)
+
+    assert projector.resume_calls == 1
+    assert projector.project_calls == 0
+    assert result.failure is not None and result.failure.startswith("distillation:")
+
+
+def test_projection_authentication_failure_preserves_earlier_cycle_counts(
+    stores: tuple[ArchiveRepository, FactRepository],
+) -> None:
+    archive, facts = stores
+    replicator, distiller = build(
+        archive,
+        facts,
+        FakeCloud([EventPage(events=(event(1),), highest_sequence=1)]),
+        FakeDistiller(),
+    )
+    projector = FakeProjector(facts, project_error=CloudAuthError("device revoked"))
+
+    result = run_cycle(replicator, distiller, facts, PRINCIPAL, projector=projector)
+
+    assert result.events_replicated == 1
+    assert result.excerpts_distilled == 1
+    assert result.failure is not None and result.failure.startswith("authentication:")
+
+
+def test_stop_after_sync_prevents_another_cloud_stage(
+    stores: tuple[ArchiveRepository, FactRepository],
+) -> None:
+    archive, facts = stores
+    replicator, distiller = build(archive, facts, FakeCloud([]), FakeDistiller())
+    projector = FakeProjector(facts, pending=True)
+
+    result = run_cycle(
+        replicator,
+        distiller,
+        facts,
+        PRINCIPAL,
+        projector=projector,
+        should_stop=lambda: True,
+    )
+
+    assert result == CycleResult(0, 0, 0, 0)
+    assert projector.resume_calls == projector.project_calls == 0

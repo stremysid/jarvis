@@ -12,9 +12,11 @@ wire regression. The separate
 `codex/r2-fact-projection` branch starts from main and contains the signed
 page upload, atomic D1 publication, and durable Python uploader checkpoints.
 Cloud context now retrieves published facts alongside recent turns under a
-shared budget. Compose the uploader into the merged node bootstrap,
-preserving its durable ACK recovery and shutdown behavior. Then finish item-3
-review and the owner acceptance in the fact projection runbook. Keep one PR
+shared budget. The merged node bootstrap now resumes an owed projection after
+event sync and before new distillation, then publishes active facts after
+promotion. Durable ACK recovery remains unchanged, and shutdown preserves
+pending projection pages. Finish item-3 review and the owner acceptance in
+the fact projection runbook. Keep one PR
 per milestone item and push tested checkpoints. Item 4 semantic search stays
 in its own later PR and is not part of #16.
 

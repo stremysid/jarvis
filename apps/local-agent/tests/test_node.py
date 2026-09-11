@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import io
 import json
 import os
@@ -11,16 +13,19 @@ import sys
 import threading
 import time
 import urllib.error
+from email.message import Message
 from pathlib import Path
 from typing import Any
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from jarvis_local.agent import CycleResult, open_stores
 from jarvis_local.archive.archive_repository import ArchiveRepository
 from jarvis_local.config import JarvisLocalConfig
 from jarvis_local.crypto.device_keys import platform_device_key_store
-from jarvis_local.memory.facts import FactRepository, FactState
+from jarvis_local.crypto.signed_request import signature_text
+from jarvis_local.memory.facts import FactOrigin, FactProposal, FactRepository, FactState
 from jarvis_local.node import (
     EXIT_NODE_AUTHENTICATION,
     NodeConfigurationError,
@@ -30,7 +35,7 @@ from jarvis_local.node import (
     build_node,
     run_node,
 )
-from jarvis_local.scheduler import STOP_AUTHENTICATION
+from jarvis_local.scheduler import STOP_AUTHENTICATION, SchedulerState
 from jarvis_local.service import LocalAgentService, RunLoop, ServiceState, control_handlers
 from jarvis_local.transport.cli_protocol import OK, CliCommand
 from jarvis_local.transport.pipe_server import ControlServer
@@ -292,7 +297,7 @@ class SignedFlowOpener:
                     {
                         "eventSequence": 1,
                         "envelope": {
-                            "eventId": "event_00000000000000000000000001",
+                            "eventId": "01k3w1t4000000000000000110",
                             "eventType": "conversation.user_committed",
                             "subjectId": "principal-1",
                             "correlationId": "session-1",
@@ -308,7 +313,7 @@ class SignedFlowOpener:
                 "proposals": [
                     {
                         "text": "Likes coffee",
-                        "sourceEventIds": ["event_00000000000000000000000001"],
+                        "sourceEventIds": ["01k3w1t4000000000000000110"],
                     }
                 ]
             },
@@ -316,10 +321,97 @@ class SignedFlowOpener:
 
     def __call__(self, request: Any, timeout: float | None = None) -> FakeResponse:
         self.requests.append(request)
+        if request.full_url.endswith("/sync/memory/project"):
+            body = json.loads(request.data.decode("utf-8"))
+            is_page = body["operation"] == "page"
+            return FakeResponse(
+                json.dumps(
+                    {
+                        "schemaVersion": "1.0",
+                        "projectionVersion": body["projectionVersion"],
+                        "manifestHash": body["manifestHash"],
+                        "pageIndex": body["pageIndex"] if is_page else None,
+                        "pageHash": body["pageHash"] if is_page else None,
+                        "published": not is_page,
+                        "replayed": False,
+                    }
+                ).encode("utf-8")
+            )
         response = self.responses.pop(0)
         if isinstance(response, Exception):
             raise response
         return FakeResponse(json.dumps(response).encode("utf-8"))
+
+
+class EmptyCycleOpener:
+    def __init__(
+        self,
+        projection_actions: list[Any] | None = None,
+        on_projection: Any = None,
+        distill_action: BaseException | None = None,
+    ) -> None:
+        self.requests: list[Any] = []
+        self.projection_actions = list(projection_actions or [])
+        self.on_projection = on_projection
+        self.distill_action = distill_action
+
+    def __call__(self, request: Any, timeout: float | None = None) -> FakeResponse:
+        self.requests.append(request)
+        body = json.loads(request.data.decode("utf-8"))
+        if request.full_url.endswith("/sync/pull"):
+            after = body["afterSequence"]
+            return FakeResponse(
+                json.dumps(
+                    {
+                        "snapshotId": f"empty-{len(self.requests)}",
+                        "snapshotToken": f"empty-token-{len(self.requests)}",
+                        "fromSequence": after,
+                        "toSequence": after,
+                        "hasMore": False,
+                        "events": [],
+                    }
+                ).encode("utf-8")
+            )
+        if request.full_url.endswith("/memory/distill"):
+            if self.distill_action is not None:
+                raise self.distill_action
+            return FakeResponse(b'{"proposals":[]}')
+        if request.full_url.endswith("/sync/memory/project"):
+            if self.on_projection is not None:
+                self.on_projection(body)
+            if self.projection_actions:
+                action = self.projection_actions.pop(0)
+                if isinstance(action, BaseException):
+                    raise action
+                if action is not None:
+                    return FakeResponse(json.dumps(action).encode("utf-8"))
+            is_page = body["operation"] == "page"
+            return FakeResponse(
+                json.dumps(
+                    {
+                        "schemaVersion": "1.0",
+                        "projectionVersion": body["projectionVersion"],
+                        "manifestHash": body["manifestHash"],
+                        "pageIndex": body["pageIndex"] if is_page else None,
+                        "pageHash": body["pageHash"] if is_page else None,
+                        "published": not is_page,
+                        "replayed": False,
+                    }
+                ).encode("utf-8")
+            )
+        raise AssertionError(f"unexpected request: {request.full_url}")
+
+    @property
+    def paths(self) -> list[str]:
+        return [request.full_url.removeprefix("https://gateway.example") for request in self.requests]
+
+    @property
+    def projection_bodies(self) -> list[dict[str, Any]]:
+        return [
+            json.loads(request.data.decode("utf-8"))
+            for request in self.requests
+            if request.full_url.endswith("/sync/memory/project")
+        ]
 
 
 def settings_at(
@@ -337,6 +429,33 @@ def settings_at(
         memory_path=memory or root / "memory.sqlite3",
         control_socket_path=root / "control.sock",
     )
+
+
+def record_promotable_fact(runtime: NodeRuntime) -> str:
+    assert isinstance(runtime.archive, ArchiveRepository)
+    assert isinstance(runtime.facts, FactRepository)
+    event_id = "01k3w1t4000000000000000220"
+    runtime.archive.insert_event_if_absent(
+        {
+            "event_id": event_id,
+            "event_sequence": 20,
+            "event_type": "conversation.user_committed",
+            "principal_id": "principal-1",
+            "session_id": "session-projection",
+            "canonical_text": "My favorite tea is jasmine",
+            "occurred_at": "2026-09-11T12:00:00.000Z",
+            "producer_version": "conversation-v1",
+        }
+    )
+    fact = runtime.facts.record_proposal(
+        FactProposal(
+            principal_id="principal-1",
+            text="Favorite tea is jasmine",
+            origin=FactOrigin.AUTHENTICATED_FIRST_PERSON,
+            source_event_ids=(event_id,),
+        )
+    )
+    return fact.fact_id
 
 
 def test_bootstrap_wires_signed_replication_then_distillation_on_real_stores(tmp_path: Path) -> None:
@@ -361,11 +480,226 @@ def test_bootstrap_wires_signed_replication_then_distillation_on_real_stores(tmp
         ["sync", "pull"],
         ["sync", "ack"],
         ["memory", "distill"],
+        ["memory", "project"],
+        ["memory", "project"],
     ]
+    assert json.loads(opener.requests[3].data.decode("utf-8"))["facts"] == []
     signed = json.loads(opener.requests[0].headers["X-jarvis-signed-request"])
     assert signed["audience"] == "jarvis-local-agent"
     assert control.started == 1
     assert control.closed == 1
+
+
+def test_node_projects_promoted_facts_once_across_two_cycles(tmp_path: Path) -> None:
+    settings = settings_at(tmp_path)
+    platform_device_key_store(settings.device_key_path).load_or_create()
+    opener = EmptyCycleOpener()
+    runtime = build_node(settings, opener=opener, control_factory=lambda *_: FakeControl())
+    try:
+        fact_id = record_promotable_fact(runtime)
+        assert isinstance(runtime.loop, RunLoop)
+        first = runtime.loop.run_cycle()
+        second = runtime.loop.run_cycle()
+    finally:
+        runtime.close()
+
+    assert first.facts_promoted == 1
+    assert first.failure is None
+    assert second.facts_promoted == 0
+    assert second.failure is None
+    assert len(opener.projection_bodies) == 2
+    assert opener.projection_bodies[0]["operation"] == "page"
+    assert opener.projection_bodies[0]["facts"][0]["factId"] == fact_id
+    assert opener.projection_bodies[1]["operation"] == "commit"
+    signing_key = platform_device_key_store(settings.device_key_path).load_existing()
+    assert isinstance(signing_key, Ed25519PrivateKey)
+    public_key = signing_key.public_key()
+    for request in opener.requests:
+        if request.full_url.endswith("/sync/memory/project"):
+            signed = json.loads(request.headers["X-jarvis-signed-request"])
+            assert signed["principalId"] == "principal-1"
+            assert signed["deviceId"] == "device-1"
+            assert signed["audience"] == "jarvis-local-agent"
+            assert signed["bodyHash"] == hashlib.sha256(request.data).hexdigest()
+            public_key.verify(
+                base64.b64decode(signed["signatureBase64"]),
+                signature_text(
+                    method="POST",
+                    path="/sync/memory/project",
+                    device_id=signed["deviceId"],
+                    principal_id=signed["principalId"],
+                    audience=signed["audience"],
+                    issued_at=signed["issuedAt"],
+                    nonce=signed["nonce"],
+                    body_hash=signed["bodyHash"],
+                ),
+            )
+
+
+def test_pending_projection_is_retried_by_a_reconstructed_node_before_distillation(
+    tmp_path: Path,
+) -> None:
+    settings = settings_at(tmp_path)
+    platform_device_key_store(settings.device_key_path).load_or_create()
+    first_opener = EmptyCycleOpener(
+        projection_actions=[None, urllib.error.URLError("commit response lost")]
+    )
+    first_runtime = build_node(
+        settings, opener=first_opener, control_factory=lambda *_: FakeControl()
+    )
+    try:
+        record_promotable_fact(first_runtime)
+        assert isinstance(first_runtime.loop, RunLoop)
+        failed = first_runtime.loop.run_cycle()
+        assert isinstance(first_runtime.facts, FactRepository)
+        assert first_runtime.facts.connection.execute(
+            "SELECT COUNT(*) FROM memory_projection_pending"
+        ).fetchone() == (1,)
+        first_projection_bodies = first_opener.projection_bodies
+    finally:
+        first_runtime.close()
+
+    second_opener = EmptyCycleOpener(
+        distill_action=urllib.error.URLError("fresh model request unavailable")
+    )
+    second_runtime = build_node(
+        settings, opener=second_opener, control_factory=lambda *_: FakeControl()
+    )
+    try:
+        assert isinstance(second_runtime.archive, ArchiveRepository)
+        second_runtime.archive.insert_event_if_absent(
+            {
+                "event_id": "01k3w1t4000000000000000330",
+                "event_sequence": 21,
+                "event_type": "conversation.user_committed",
+                "principal_id": "principal-1",
+                "session_id": "session-recovery",
+                "canonical_text": "A new event needs distillation",
+                "occurred_at": "2026-09-11T12:01:00.000Z",
+                "producer_version": "conversation-v1",
+            }
+        )
+        assert isinstance(second_runtime.loop, RunLoop)
+        recovered = second_runtime.loop.run_cycle()
+        assert isinstance(second_runtime.facts, FactRepository)
+        pending = second_runtime.facts.connection.execute(
+            "SELECT COUNT(*) FROM memory_projection_pending"
+        ).fetchone()
+        cursor = second_runtime.facts.connection.execute(
+            "SELECT published_version FROM memory_projection_cursor"
+        ).fetchone()
+    finally:
+        second_runtime.close()
+
+    assert failed.failure == "projection: request failed"
+    assert recovered.failure == "distillation: request failed"
+    assert second_opener.paths[:4] == [
+        "/sync/pull",
+        "/sync/memory/project",
+        "/sync/memory/project",
+        "/memory/distill",
+    ]
+    assert second_opener.projection_bodies == first_projection_bodies
+    assert pending == (0,)
+    assert cursor == (1,)
+
+
+def test_pending_projection_authentication_rejection_stops_before_distillation(
+    tmp_path: Path,
+) -> None:
+    settings = settings_at(tmp_path)
+    platform_device_key_store(settings.device_key_path).load_or_create()
+    first_opener = EmptyCycleOpener(
+        projection_actions=[None, urllib.error.URLError("commit response lost")]
+    )
+    first_runtime = build_node(
+        settings, opener=first_opener, control_factory=lambda *_: FakeControl()
+    )
+    try:
+        record_promotable_fact(first_runtime)
+        assert isinstance(first_runtime.loop, RunLoop)
+        assert first_runtime.loop.run_cycle().failure == "projection: request failed"
+    finally:
+        first_runtime.close()
+
+    rejected = urllib.error.HTTPError(
+        "https://gateway.example/sync/memory/project", 403, "forbidden", Message(), None
+    )
+    second_opener = EmptyCycleOpener(projection_actions=[rejected])
+    second_runtime = build_node(
+        settings, opener=second_opener, control_factory=lambda *_: FakeControl()
+    )
+    try:
+        assert isinstance(second_runtime.loop, RunLoop)
+        result = second_runtime.loop.run_cycle()
+        decision = second_runtime.loop.scheduler.after(SchedulerState(), result)
+        assert isinstance(second_runtime.facts, FactRepository)
+        pending = second_runtime.facts.connection.execute(
+            "SELECT COUNT(*) FROM memory_projection_pending"
+        ).fetchone()
+    finally:
+        second_runtime.close()
+
+    assert result.failure == "authentication: device rejected"
+    assert decision.keep_running is False
+    assert decision.reason == STOP_AUTHENTICATION
+    assert second_opener.paths == ["/sync/pull", "/sync/memory/project"]
+    assert pending == (1,)
+
+
+def test_node_stop_between_projection_page_and_commit_leaves_pending_snapshot(
+    tmp_path: Path,
+) -> None:
+    settings = settings_at(tmp_path)
+    platform_device_key_store(settings.device_key_path).load_or_create()
+    runtime_holder: list[NodeRuntime] = []
+
+    def stop_after_page(body: dict[str, Any]) -> None:
+        if body["operation"] == "page":
+            runtime_holder[0].state.request_stop()
+
+    opener = EmptyCycleOpener(on_projection=stop_after_page)
+    runtime = build_node(settings, opener=opener, control_factory=lambda *_: FakeControl())
+    runtime_holder.append(runtime)
+    try:
+        record_promotable_fact(runtime)
+        assert isinstance(runtime.loop, RunLoop)
+        result = runtime.loop.run_cycle()
+        assert isinstance(runtime.facts, FactRepository)
+        pending = runtime.facts.connection.execute(
+            "SELECT COUNT(*) FROM memory_projection_pending"
+        ).fetchone()
+    finally:
+        runtime.close()
+
+    assert result.failure is None
+    assert [body["operation"] for body in opener.projection_bodies] == ["page"]
+    assert pending == (1,)
+
+
+def test_projection_authentication_failure_stops_the_real_node(tmp_path: Path) -> None:
+    settings = settings_at(tmp_path)
+    platform_device_key_store(settings.device_key_path).load_or_create()
+    rejected = urllib.error.HTTPError(
+        "https://gateway.example/sync/memory/project", 403, "forbidden", Message(), None
+    )
+    opener = EmptyCycleOpener(projection_actions=[rejected])
+    runtime = build_node(settings, opener=opener, control_factory=lambda *_: FakeControl())
+    try:
+        record_promotable_fact(runtime)
+        assert isinstance(runtime.loop, RunLoop)
+        reason = runtime.loop.run()
+        report = "\n".join(runtime.state.report())
+        assert isinstance(runtime.facts, FactRepository)
+        pending = runtime.facts.connection.execute(
+            "SELECT COUNT(*) FROM memory_projection_pending"
+        ).fetchone()
+    finally:
+        runtime.close()
+
+    assert reason == STOP_AUTHENTICATION
+    assert "authentication: device rejected" in report
+    assert pending == (1,)
 
 
 def test_bootstrap_gives_replication_a_live_stop_check(

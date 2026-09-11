@@ -46,6 +46,23 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 18:08 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
+
+PR #16 now wires fact projection into the real node from merged main
+`94575fb`, incorporated by merge `7f6e8d5`. An owed immutable snapshot resumes
+after event sync/ACK recovery and before new distillation, then current active
+facts publish after promotion. Reconstructed-runtime tests verify the exact
+retry before a failing model call, valid signed page/commit requests, no
+unchanged-cycle upload, stop with a pending page, and authentication shutdown
+on both new and resumed uploads. Disabling the node binding, retry call, or
+stop callback fails those tests. Restored full Python: 582 passed / 20 Windows
+skips, Ruff and win32 mypy clean. The merged baseline also passed 1,966
+workspace tests and all seven CI jobs. Migration `0014`, its paired ordering
+regression, and the fact-ID constraint are unchanged; the paired mutation was
+rerun and caught. Final-head CI precedes readiness for Sid's high-effort
+review. The PR and installation runbooks call out the live D1 migration before
+gateway/node rollout. No production operation was run; item 4 stays separate.
+
 ## 2026-09-11 17:45 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
 
 PR #16's cloud retriever now reads matching published facts alongside recent
