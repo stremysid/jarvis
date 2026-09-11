@@ -448,14 +448,13 @@ That principal cannot be created without changing the machine. It is denied
 by the same DACL through the same access check that demonstrably refuses
 anonymous, but that step is reasoned rather than measured.
 
-## `service.py` has no process bootstrap
+## The Windows agent still has no service host
 
-`RunLoop`, `ServiceState`, `control_handlers` and
-`NamedPipeServer.serve_forever` exist and are tested, and nothing starts them.
-There is no `jarvis service` command and no Windows service host. That is
-Task 10 of the release plan, and wiring `EventReplicator`,
-`DistillationCoordinator` and the device keys together needs the deployment
-decisions that task carries.
+There is no `jarvis service` command or Windows service host. The Linux
+foreground `jarvis node` bootstrap and Unix control transport are the R2
+item 2 candidate in [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13).
+That work composes the existing memory cycle; it does not install a Windows
+service or establish live operation on the owner's Linux server.
 
 ## Vault observations are NOT upload-ready: no redactor runs
 

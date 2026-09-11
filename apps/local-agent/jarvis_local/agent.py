@@ -55,6 +55,8 @@ def run_cycle(
 
     try:
         progress = distiller.run_once()
+    except CloudAuthError as error:
+        return CycleResult(replicated, 0, 0, 0, failure=f"authentication: {error}")
     except Exception as error:
         # Replication already committed. Reporting rather than raising keeps
         # that work rather than discarding a good cycle for a bad model call.
@@ -75,4 +77,10 @@ def open_stores(archive_path: Path, memory_path: Path) -> tuple[ArchiveRepositor
     The archive forbids every UPDATE; memory must permit state transitions
     while protecting content and provenance.
     """
-    return ArchiveRepository.open(archive_path), FactRepository.open(memory_path)
+    archive = ArchiveRepository.open(archive_path)
+    try:
+        facts = FactRepository.open(memory_path)
+    except BaseException:
+        archive.close()
+        raise
+    return archive, facts

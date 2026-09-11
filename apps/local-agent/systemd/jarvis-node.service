@@ -1,0 +1,40 @@
+[Unit]
+Description=Jarvis home node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jarvis
+Group=jarvis
+WorkingDirectory=/opt/jarvis/local-agent
+EnvironmentFile=/etc/jarvis/node.env
+ExecStart=/opt/jarvis/local-agent/.venv/bin/jarvis node
+RuntimeDirectory=jarvis
+RuntimeDirectoryMode=0700
+StateDirectory=jarvis
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+MemoryDenyWriteExecute=true
+LockPersonality=true
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=180s
+# Configuration and authentication need a person; restarting repeats them.
+RestartPreventExitStatus=3 5
+
+[Install]
+WantedBy=multi-user.target

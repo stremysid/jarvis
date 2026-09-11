@@ -68,14 +68,20 @@ class FakeOpener:
         return [body for _, body, _ in self.requests]
 
 
-def page(from_sequence: int, to_sequence: int, *, snapshot: str = "snap-1") -> dict[str, Any]:
+def page(
+    from_sequence: int,
+    to_sequence: int,
+    *,
+    snapshot: str = "snap-1",
+    has_more: bool = False,
+) -> dict[str, Any]:
     return {
         "snapshotId": snapshot,
         "snapshotToken": f"token-{snapshot}",
-        "fromSequence": from_sequence,
+        "fromSequence": from_sequence - 1,
         "toSequence": to_sequence,
         "events": [envelope(n) for n in range(from_sequence, to_sequence + 1)],
-        "hasMore": False,
+        "hasMore": has_more,
     }
 
 
@@ -103,6 +109,13 @@ def test_pull_returns_events_flattened_for_the_archive(key: Ed25519PrivateKey) -
     assert [event["event_sequence"] for event in result.events] == [1, 2]
     assert result.events[0]["canonical_text"] == "hello"
     assert result.events[0]["event_type"] == "conversation.user_committed"
+
+
+def test_pull_refuses_a_page_whose_exclusive_start_boundary_changed(key: Ed25519PrivateKey) -> None:
+    changed = page(1, 2)
+    changed["fromSequence"] = 1
+    with pytest.raises(CloudSyncError, match="invalid sync page"):
+        client(key, FakeOpener([changed])).pull(0)
 
 
 def test_consumer_id_is_bound_to_the_signing_device(key: Ed25519PrivateKey) -> None:
@@ -138,13 +151,30 @@ def test_acknowledging_without_a_pull_is_refused(key: Ed25519PrivateKey) -> None
 
 
 def test_snapshot_token_is_carried_into_the_next_pull(key: Ed25519PrivateKey) -> None:
-    opener = FakeOpener([page(1, 2), page(3, 4, snapshot="snap-2")])
+    opener = FakeOpener([page(1, 2, has_more=True), page(3, 4, snapshot="snap-2")])
     sync = client(key, opener)
     sync.pull(0)
     sync.pull(2)
 
     assert opener.bodies[0]["snapshotToken"] is None
     assert opener.bodies[1]["snapshotToken"] == "token-snap-1"
+
+
+def test_terminal_nonempty_page_token_is_not_reused_before_ack(
+    key: Ed25519PrivateKey,
+) -> None:
+    opener = FakeOpener(
+        [page(1, 2, has_more=False), page(3, 4, snapshot="fresh-snapshot")]
+    )
+    sync = client(key, opener)
+
+    first = sync.pull(0)
+    assert first.highest_sequence == 2
+    assert len(first.events) == 2
+    sync.pull(first.highest_sequence)
+
+    assert opener.bodies[1]["afterSequence"] == 2
+    assert opener.bodies[1]["snapshotToken"] is None
 
 
 def test_requests_are_signed_and_body_is_the_canonical_bytes(key: Ed25519PrivateKey) -> None:

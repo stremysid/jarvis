@@ -6,17 +6,17 @@ implementation plans.
 
 ## R2 item 3: fact projection
 
-Item 2 is in [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13).
-Its client lifecycle fixes and direct completed-token wire regression are
-at `719d4ee`, awaiting review acceptance and Sid's merge. Add no item-3 work
-there. The separate
+Item 2 merged through [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13)
+at `94575fb`, including the client lifecycle fixes and direct completed-token
+wire regression. The separate
 `codex/r2-fact-projection` branch starts from main and contains the signed
 page upload, atomic D1 publication, and durable Python uploader checkpoints.
 Cloud context now retrieves published facts alongside recent turns under a
-shared budget. Compose the uploader into the node once item 2 is on main,
+shared budget. Compose the uploader into the merged node bootstrap,
 preserving its durable ACK recovery and shutdown behavior. Then finish item-3
 review and the owner acceptance in the fact projection runbook. Keep one PR
-per milestone item and push tested checkpoints.
+per milestone item and push tested checkpoints. Item 4 semantic search stays
+in its own later PR and is not part of #16.
 
 This item adds `0014_memory_projection.sql`, including projection tables,
 publication guards and an FTS index. Owner deployment must apply this new
@@ -72,6 +72,31 @@ inbound harness is the first and largest piece of work, and the pass
 criteria already exist in `tests/acceptance/live/voice-smoke.ts` and should
 be mirrored rather than reinvented. Do not flip the voice switch in
 `apps/cloud-gateway/src/index.ts` until the fake scenarios pass.
+
+## R2 item 2 continuation
+
+PR #12's Linux device-key storage is merged. The Unix control socket and
+foreground `jarvis node` bootstrap continue in
+[PR #13](https://github.com/ksid1229-ops/jarvis/pull/13), on
+`codex/r2-unix-node`. Keep this work in that one PR and obtain Claude Opus 5
+high review before Sid merges it. The node's owner-run systemd check belongs
+on the provisioned Linux server; follow the
+[home-node runbook](docs/runbooks/home-node.md). Local tests and Ubuntu CI do
+not establish that live acceptance.
+
+The confirmed snapshot-continuation and restart-ACK P1s are fixed, including
+expired ACK recovery through an exact refetch of the already archived range.
+Full Python validation passes (556 tests, 20 Windows platform skips), and
+mutation checks cover the lifecycle, archive comparison and boundary guards.
+The final fixes still need current-head CI and Claude Opus 5 high review
+before Sid merges. Legacy pending rows without snapshot metadata require
+owner repair; the node must not delete them or reset the cursor.
+Item 3 continues separately in [draft PR #16](https://github.com/ksid1229-ops/jarvis/pull/16).
+
+R2's remaining work is server provisioning/private networking, fact upload
+and cloud retrieval, semantic search, the guarded vault adapter, and encrypted
+backups with node heartbeat. The roadmap's full R2 exit still requires the
+phone/Telegram/Obsidian scenario with the PCs off. R1 remains open separately.
 
 ## Next gate
 
@@ -165,5 +190,5 @@ the pinning mechanism and do not resume Tasks 10-13 in R0.
 - Move the Telegram rate limiter and the provider circuit breaker into a
   Durable Object. Both are per-isolate today.
 - Complete the owner-blocked external monitor action above after deployment.
-- A process bootstrap for the local agent: there is no `jarvis service`
-  command and no Windows service host, so the run loop cannot be started.
+- A Windows service host is still outstanding. R2 item 2's Linux foreground
+  node bootstrap is tracked in PR #13 above.

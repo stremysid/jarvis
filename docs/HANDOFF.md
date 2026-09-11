@@ -5,10 +5,9 @@ using this checkpoint. R0 passed on September 11; calling remains R1.
 
 ## R2 item 3 checkpoint
 
-Item 2 is isolated in [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13),
-with the client lifecycle fixes and direct completed-token wire regression
-at `719d4ee`. Review acceptance and Sid's merge remain there. Item 3 is on a
-fresh branch from main,
+Item 2 merged through [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13)
+at `94575fb`, including the client lifecycle fixes and direct completed-token
+wire regression. That main commit is incorporated into
 `codex/r2-fact-projection`. The gateway accepts signed, bounded active-fact
 pages, validates their source events in D1 or the verified R2 archive, and
 publishes a complete manifest atomically. The Python uploader persists an
@@ -24,7 +23,7 @@ publication predicates exposes staged facts and fails the regression; removing
 the device-status predicate exposes a revoked fact and also fails. All guards
 were restored before the full suite.
 
-Node composition follows item 2's merge to main and remains unfinished.
+Node composition is now unblocked and in progress on the merged bootstrap.
 See the [fact projection runbook](runbooks/fact-projection.md) for rollout and
 owner acceptance. The earlier sections below are historical R0 evidence.
 
@@ -35,7 +34,39 @@ migration on live D1 before publishing the gateway and enabling the uploader.
 Merging, production migration, deployment, and live acceptance remain Sid's;
 local D1 tests establish none of those actions.
 
-## Current branch and review
+## R2 item 2 merged baseline
+
+PR #12 is merged at `7414ab1`. Its Linux device-key implementation is the
+base for [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13),
+`codex/r2-unix-node`, which continues the Unix control socket and foreground
+`jarvis node` bootstrap. Transport code was pushed early after local checks;
+Ubuntu CI passed 525 Python tests (14 skipped) at transport checkpoint
+`1ce74d1`. This is evidence for that checkpoint, not a claim about the final
+bootstrap or the provisioned server. See PR #13 for current-head validation.
+
+Review at `996e6ec` confirmed two merge-blocking client lifecycle defects:
+completed snapshot reuse on later cycles, and pending ACKs that could not be
+sent by a reconstructed client. Core fixes stage snapshot identity with the
+events and cursor and validate the ACK receipt before clearing it. Boundary
+tests cover terminal, empty and nonterminal pages across cycles and a disk
+archive reopened with a new signed client. Expired ACK recovery now retries
+the original ACK first, refetches exactly its range on refusal, compares every
+archived field, and commits replacement metadata before sending the new ACK.
+The cursor and events remain unchanged, and stop checks preserve a pending ACK
+between requests. A direct HTTP-client regression also makes two pulls without
+an intervening ACK and checks that a completed nonempty page's token is absent
+from the second request. Replacing the `has_more` guard with `True` fails that
+wire assertion. Python validation is 557 passed / 20 Windows platform skips,
+with Ruff and win32 mypy clean. All seven CI jobs passed at `719d4ee` before
+Sid merged PR #13 at `94575fb`.
+
+GPT-5.6 Sol high built this item. Sid retains the live systemd check.
+Item 3 is isolated in
+[draft PR #16](https://github.com/ksid1229-ops/jarvis/pull/16), including its
+D1 migration and version-order regression. No production operation was run.
+R0's observed exit evidence below remains valid and R1 remains open.
+
+## Earlier R0 branch and review
 
 [PR #6](https://github.com/ksid1229-ops/jarvis/pull/6) was reviewed by Claude
 Opus 5 high at `fab6d25`, retargeted to main, and merged by Sid as
