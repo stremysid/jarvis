@@ -31,17 +31,17 @@ stop.
 
 | Milestone | Build with | Review with |
 |---|---|---|
-| R0 Deploy what exists | GPT-6 Astra, xhigh | Claude Opus 5, high |
+| R0 Deploy what exists | GPT-6 Astra, xhigh | Claude Opus 5, xhigh |
 | R1 Calling (v1.0) | GPT-6 Astra, xhigh | **Claude Opus 5, max** |
-| R2 Home node and memory | GPT-6 Astra, xhigh | Claude Opus 5, high |
-| R3 Hermes and PC control | GPT-6 Astra, xhigh | Claude Opus 5, high |
+| R2 Home node and memory | GPT-6 Astra, xhigh | Claude Opus 5, xhigh |
+| R3 Hermes and PC control | GPT-6 Astra, xhigh | Claude Opus 5, xhigh |
 | R4 St. Remy | **Claude Opus 5, max** | GPT-6 Astra, xhigh |
-| R5 Deadlines | GPT-6 Astra, xhigh | Claude Opus 5, high |
-| R6 Send on command, Siri | GPT-6 Astra, xhigh | Claude Opus 5, high |
-| R7 Profile and manager | GPT-6 Astra, xhigh | Claude Opus 5, high |
-| R8 Errands, Tesla, wake word | GPT-6 Astra, xhigh | Claude Opus 5, high |
-| R9 Dashboard, voice notes | GPT-6 Astra, xhigh | Claude Opus 5, high |
-| R10 Later | GPT-6 Astra, xhigh | Claude Opus 5, high |
+| R5 Deadlines | GPT-6 Astra, xhigh | Claude Opus 5, xhigh |
+| R6 Send on command, Siri | GPT-6 Astra, xhigh | Claude Opus 5, xhigh |
+| R7 Profile and manager | GPT-6 Astra, xhigh | Claude Opus 5, xhigh |
+| R8 Errands, Tesla, wake word | GPT-6 Astra, xhigh | Claude Opus 5, xhigh |
+| R9 Dashboard, voice notes | GPT-6 Astra, xhigh | Claude Opus 5, xhigh |
+| R10 Later | GPT-6 Astra, xhigh | Claude Opus 5, xhigh |
 
 Two milestones are not on the default setting, and both for the same
 reason — a quiet mistake there is expensive and hard to notice:
@@ -49,6 +49,11 @@ reason — a quiet mistake there is expensive and hard to notice:
 - **R1** is the release gate. Its review runs at max.
 - **R4** touches a real business and a machine Sid's parents rely on. Claude
   builds it and GPT reviews, the reverse of everywhere else.
+
+One kind of change is not on the default either, whatever milestone it lands
+in: **a PR that applies a migration to live data gets reviewed at max.** Code
+can be reverted. A migration that has already run on the production database
+cannot, and its damage is silent until something reads the wrong rows back.
 
 **Never let the same model build and review the same work.** That is the
 cross-vendor gate from
@@ -103,7 +108,7 @@ effort** — and that ordering is deliberate.
 | Rung | Who | Effort |
 |---|---|---|
 | 1 | GPT-6 Astra | xhigh |
-| 2 | Claude Opus 5 | high |
+| 2 | Claude Opus 5 | xhigh |
 | 3 | Claude Opus 5 | max |
 | 4 | Claude Fable 5.1 | high |
 
