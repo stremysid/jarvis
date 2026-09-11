@@ -24,7 +24,9 @@ This item adds `0014_memory_projection.sql`, including projection tables,
 publication guards and an FTS index. Owner deployment must apply this new
 migration to live D1 before publishing the updated gateway or starting the
 uploader. Check the pending migration list and recovery point first using
-the deployment runbook. The builder must not merge, migrate or deploy.
+the deployment runbook. Under `docs/BUILDING.md`, this live-data migration
+requires Claude Opus 5 at max for review. The builder must not merge, migrate
+or deploy.
 
 ## R0 checkpoint, 2026-09-11
 
@@ -63,9 +65,9 @@ the deployment runbook. The builder must not merge, migrate or deploy.
 
 ## R1 is the next milestone
 
-Build it per the roadmap's section 7 and `docs/BUILDING.md`: GPT-5.6 Sol at
-high builds, **Claude Opus 5 at max** reviews, because R1 is the v1.0
-release gate rather than the usual high. The cross-vendor gate holds -- the
+Build it per the roadmap's section 7 and `docs/BUILDING.md`: GPT-6 Astra at
+xhigh builds, **Claude Opus 5 at max** reviews, because R1 is the v1.0
+release gate rather than the usual xhigh. The cross-vendor gate holds -- the
 same model never builds and reviews the same work.
 
 Read the R1 acceptance audit in `docs/AGENT_LOG.md` before planning item 2.

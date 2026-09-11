@@ -40,7 +40,9 @@ stop callback fails those boundary tests. Authentication rejection stops the
 service; transient failure keeps pending work durable for retry. The reviewed
 ACK recovery implementation remains unchanged.
 
-Current-head checks and review status are recorded on PR #16. Item 4 semantic
+Current-head checks and review status are recorded on PR #16. Its live-data
+migration requires Claude Opus 5 at max under the current BUILDING rules.
+Item 4 semantic
 search is a separate future PR and is not included here.
 See the [fact projection runbook](runbooks/fact-projection.md) for rollout and
 owner acceptance. The earlier sections below are historical R0 evidence.
@@ -78,9 +80,10 @@ wire assertion. Python validation is 557 passed / 20 Windows platform skips,
 with Ruff and win32 mypy clean. All seven CI jobs passed at `719d4ee` before
 Sid merged PR #13 at `94575fb`.
 
-GPT-5.6 Sol high built this item. Sid retains the live systemd check.
-Item 3 is isolated in
-[draft PR #16](https://github.com/ksid1229-ops/jarvis/pull/16), including its
+GPT-5.6 Sol high built the merged item 2. Current BUILDING rules assign later
+R2 work to GPT-6 Astra xhigh and migration review to Claude Opus 5 max.
+Sid retains merging and the live systemd check. Item 3 is isolated in
+[PR #16](https://github.com/ksid1229-ops/jarvis/pull/16), including its
 D1 migration and version-order regression. No production operation was run.
 R0's observed exit evidence below remains valid and R1 remains open.
 

@@ -46,6 +46,16 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 20:45 UTC — GPT-6 coordinator
+
+Main advanced to `3059d42` through PR #17 while the tested SQL fixes were
+being pushed at `aa369fe`. Its documentation change conflicted with the
+historical item-2 handoff and prevented PR CI from starting. The merge keeps
+the actual builder history and adopts the new GPT-6 Astra xhigh builder
+assignment plus Claude Opus 5 max review for live-data migrations. PR #16
+therefore needs max review. Application and test files are unchanged from
+the tested SQL checkpoint. No merge of PR #16 or production action occurred.
+
 ## 2026-09-11 20:41 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
 
 PR #16 closes the three direct-SQL publication holes in migration `0014`.
