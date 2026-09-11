@@ -17,6 +17,7 @@ import { ArchiveRepository } from "../../src/archive/archive-repository.js";
 import { TieredEventReader } from "../../src/archive/tiered-event-reader.js";
 import { EventRepository, type AppendedEvent, type SyncEventReader } from "../../src/persistence/event-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
+import { D1ContextRetriever } from "../../src/conversation/context-retriever.js";
 import {
   MEMORY_PROJECTION_PATH,
   MemoryProjectionService,
@@ -361,6 +362,17 @@ describe("signed active-fact projection", () => {
     await expect(project(target, built.commit)).resolves.toMatchObject({ published: true, replayed: false });
     expect(await publishedVersion()).toBe(1);
     expect(await currentFactCount()).toBe(2);
+    await expect(new D1ContextRetriever(env.DB).retrieve({
+      principalId: identity.principalId,
+      channel: "voice",
+      purpose: "conversation",
+      query: "coffee",
+      maxTokens: 1_024,
+    })).resolves.toEqual([
+      { sourceEventId: first.sources[0]!.eventId, text: first.text, sensitivity: "personal" },
+      { sourceEventId: firstSource.envelope.eventId, text: "I like coffee", sensitivity: "personal" },
+      { sourceEventId: secondSource.envelope.eventId, text: "I work on Tuesdays", sensitivity: "personal" },
+    ]);
 
     await expect(project(target, { ...built.commit, totalFactCount: 1 })).rejects.toThrow(
       "memory_projection_commit_mismatch",

@@ -176,6 +176,7 @@ describe("DeepSeekModelAdapter", () => {
     const [, init] = fetchMock.mock.calls[0]! as unknown as [string, RequestInit];
     const body = JSON.parse(init.body as string);
     const contextMessage = body.messages.find((m: ChatLike) => m.content.includes("likes coffee"));
+    expect(contextMessage.content).toContain("Relevant facts and conversation history");
     expect(contextMessage.content).toContain("01m1hh9h1yxaeyjgbhfzm4nnth");
   });
 

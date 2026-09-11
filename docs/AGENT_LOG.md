@@ -46,6 +46,21 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 17:45 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
+
+PR #16's cloud retriever now reads matching published facts alongside recent
+turns, with active principal/device checks, canonical provenance validation,
+literal FTS terms and a shared context budget. Duplicate devices cannot lower
+sensitivity. Removing both publication predicates exposes staged facts and
+fails the regression; removing the device-status predicate exposes a revoked
+fact and also fails. Guards restored, 42 focused tests and all 1,966 workspace
+tests passed, with lint and source types clean. Test-only types retain 121
+unrelated diagnostics after fixing the touched fixture's existing cast. The
+runbook states that node composition is still pending PR #13's merge to main,
+and separates owner migration/offline-recall/retraction acceptance from these
+local checks. PR #13 at `719d4ee` and the earlier uploader checkpoint have all
+seven CI jobs green. Nothing was merged or deployed.
+
 ## 2026-09-11 17:28 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
 
 PR #16 now includes the durable Python active-fact uploader and local memory

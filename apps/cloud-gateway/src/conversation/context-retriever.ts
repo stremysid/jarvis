@@ -1,4 +1,10 @@
-import { validateEnvelope, type Ulid } from "../../../../packages/contracts/src/index.js";
+import {
+  canonicalJson,
+  sha256Hex,
+  validateEnvelope,
+  type JsonValue,
+  type Ulid,
+} from "../../../../packages/contracts/src/index.js";
 import { Redactor } from "../security/redaction.js";
 import {
   CONVERSATION_EVENT_PRODUCER_VERSION,
@@ -20,11 +26,18 @@ const HISTORY_PAYLOAD_FIELDS = new Set([
 ]);
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const MAX_CANDIDATES = 128;
+const MAX_FACT_CANDIDATES = 128;
+const MAX_FACT_ITEMS = 32;
 const MAX_RETURNED_ITEMS = 64;
 const MAX_CONTEXT_BYTES = 32_000;
 const MAX_QUERY_CHARACTERS = 8_000;
 const MAX_QUERY_BYTES = 65_536;
 const MAX_DECODED_ENVELOPE_BYTES = 1_048_576;
+const MAX_DECODED_FACT_BYTES = 1_048_576;
+const MAX_FTS_TERMS = 16;
+const MAX_FTS_TERM_BYTES = 128;
+const SHA256 = /^[a-f0-9]{64}$/u;
+const FACT_ID = /^fact_[a-f0-9]{32}$/u;
 const encoder = new TextEncoder();
 const redactor = new Redactor();
 
@@ -36,6 +49,48 @@ interface StoredHistoryRow {
   readonly content_hash: string;
   readonly envelope_json: string;
 }
+
+interface StoredFactRow {
+  readonly principal_id: string;
+  readonly device_id: string;
+  readonly projection_version: number;
+  readonly fact_id: string;
+  readonly text: string;
+  readonly origin: string;
+  readonly sensitivity: string;
+  readonly confidence: number;
+  readonly distiller_version: string;
+  readonly distilled_at: string;
+  readonly content_hash: string;
+  readonly primary_event_id: string;
+  readonly primary_event_sequence: number;
+  readonly sources_json: string;
+  readonly fact_json: string;
+  readonly relevance: number;
+  readonly any_sensitive: number;
+  readonly content_hash_count: number;
+}
+
+interface FactCandidate {
+  readonly factId: string;
+  readonly item: RetrievedContext;
+  readonly bytes: number;
+}
+
+const FACT_ROW_FIELDS = new Set([
+  "principal_id", "device_id", "projection_version", "fact_id", "text", "origin",
+  "sensitivity", "confidence", "distiller_version", "distilled_at", "content_hash",
+  "primary_event_id", "primary_event_sequence", "sources_json", "fact_json", "relevance",
+  "any_sensitive", "content_hash_count",
+]);
+const FACT_FIELDS = new Set([
+  "factId", "text", "origin", "sensitivity", "confidence", "distillerVersion",
+  "distilledAt", "contentHash", "sources",
+]);
+const SOURCE_FIELDS = new Set(["eventId", "eventSequence", "excerpt"]);
+const FACT_ORIGINS = new Set([
+  "authenticated_first_person", "deterministic_observation", "model", "third_party",
+]);
 
 function exactDataRecord(value: unknown, fields: ReadonlySet<string>, error: string): Record<string, unknown> {
   let prototype: object | null;
@@ -124,6 +179,133 @@ function snapshotRows(value: unknown): readonly StoredHistoryRow[] {
   return Object.freeze(rows);
 }
 
+function snapshotFactRows(value: unknown): readonly StoredFactRow[] {
+  if (!Array.isArray(value) || value.length > MAX_FACT_CANDIDATES) {
+    throw new TypeError("context_fact_rows_invalid");
+  }
+  const rows: StoredFactRow[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.hasOwn(value, index)) throw new TypeError("context_fact_rows_invalid");
+    const row = exactDataRecord(value[index], FACT_ROW_FIELDS, "context_fact_row_invalid");
+    if (typeof row.principal_id !== "string" || typeof row.device_id !== "string"
+      || !Number.isSafeInteger(row.projection_version) || (row.projection_version as number) < 1
+      || typeof row.fact_id !== "string" || !FACT_ID.test(row.fact_id)
+      || typeof row.text !== "string" || typeof row.origin !== "string"
+      || typeof row.sensitivity !== "string" || typeof row.confidence !== "number"
+      || !Number.isFinite(row.confidence) || typeof row.distiller_version !== "string"
+      || typeof row.distilled_at !== "string" || typeof row.content_hash !== "string"
+      || typeof row.primary_event_id !== "string" || !ULID.test(row.primary_event_id)
+      || !Number.isSafeInteger(row.primary_event_sequence) || (row.primary_event_sequence as number) < 1
+      || typeof row.sources_json !== "string" || typeof row.fact_json !== "string"
+      || typeof row.relevance !== "number" || !Number.isFinite(row.relevance)
+      || row.any_sensitive !== 0 && row.any_sensitive !== 1
+      || !Number.isSafeInteger(row.content_hash_count) || (row.content_hash_count as number) < 1) {
+      throw new TypeError("context_fact_row_invalid");
+    }
+    rows.push(Object.freeze(row as unknown as StoredFactRow));
+  }
+  return Object.freeze(rows);
+}
+
+function parseTimestamp(value: unknown, error: string): string {
+  const timestamp = requireText(value, error, 32);
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(timestamp)) throw new TypeError(error);
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.valueOf()) || parsed.toISOString() !== timestamp) throw new TypeError(error);
+  return timestamp;
+}
+
+function literalFtsQuery(query: string): string | null {
+  const terms: string[] = [];
+  const seen = new Set<string>();
+  for (const match of query.matchAll(/[\p{L}\p{N}]+/gu)) {
+    const term = match[0].normalize("NFC");
+    const folded = term.toLowerCase();
+    if (encoder.encode(term).byteLength > MAX_FTS_TERM_BYTES || seen.has(folded)) continue;
+    seen.add(folded);
+    terms.push(`"${term}"`);
+    if (terms.length === MAX_FTS_TERMS) break;
+  }
+  return terms.length === 0 ? null : terms.join(" OR ");
+}
+
+async function factCandidate(row: StoredFactRow, principalId: string): Promise<FactCandidate> {
+  let parsedFact: unknown;
+  let parsedSources: unknown;
+  try {
+    parsedFact = JSON.parse(row.fact_json) as unknown;
+    parsedSources = JSON.parse(row.sources_json) as unknown;
+  } catch {
+    throw new TypeError("context_fact_invalid");
+  }
+  const fact = exactDataRecord(parsedFact, FACT_FIELDS, "context_fact_invalid");
+  if (!Array.isArray(parsedSources) || !Array.isArray(fact.sources)
+    || parsedSources.length < 1 || parsedSources.length > 8
+    || fact.sources.length !== parsedSources.length) {
+    throw new TypeError("context_fact_invalid");
+  }
+  const sources: Record<string, unknown>[] = [];
+  const eventIds = new Set<string>();
+  const sequences = new Set<number>();
+  for (let index = 0; index < fact.sources.length; index += 1) {
+    const source = exactDataRecord(fact.sources[index], SOURCE_FIELDS, "context_fact_source_invalid");
+    const stored = exactDataRecord(parsedSources[index], SOURCE_FIELDS, "context_fact_source_invalid");
+    if (canonicalJson(source as JsonValue) !== canonicalJson(stored as JsonValue)
+      || typeof source.eventId !== "string" || !ULID.test(source.eventId)
+      || !Number.isSafeInteger(source.eventSequence) || (source.eventSequence as number) < 1) {
+      throw new TypeError("context_fact_source_invalid");
+    }
+    const excerpt = requireText(source.excerpt, "context_fact_source_invalid", 4_096);
+    const safeExcerpt = redactor.redactText(excerpt);
+    if (!safeExcerpt.ok || safeExcerpt.text !== excerpt) throw new TypeError("context_fact_source_invalid");
+    eventIds.add(source.eventId);
+    sequences.add(source.eventSequence as number);
+    sources.push(source);
+  }
+  if (eventIds.size !== sources.length || sequences.size !== sources.length) {
+    throw new TypeError("context_fact_source_invalid");
+  }
+  const text = requireText(fact.text, "context_fact_invalid", 4_096);
+  const safeText = redactor.redactText(text);
+  if (!safeText.ok || safeText.text !== text
+    || typeof fact.factId !== "string" || !FACT_ID.test(fact.factId)
+    || typeof fact.origin !== "string" || !FACT_ORIGINS.has(fact.origin)
+    || fact.sensitivity !== "normal" && fact.sensitivity !== "sensitive"
+    || typeof fact.confidence !== "number" || !Number.isFinite(fact.confidence)
+    || fact.confidence < 0 || fact.confidence > 1
+    || requireText(fact.distillerVersion, "context_fact_invalid", 128) !== fact.distillerVersion
+    || parseTimestamp(fact.distilledAt, "context_fact_invalid") !== fact.distilledAt
+    || typeof fact.contentHash !== "string" || !SHA256.test(fact.contentHash)
+    || canonicalJson(fact as JsonValue) !== row.fact_json
+    || canonicalJson(fact.sources as JsonValue) !== row.sources_json
+    || row.principal_id !== principalId || row.fact_id !== fact.factId || row.text !== text
+    || row.origin !== fact.origin || row.sensitivity !== fact.sensitivity
+    || row.confidence !== fact.confidence || row.distiller_version !== fact.distillerVersion
+    || row.distilled_at !== fact.distilledAt || row.content_hash !== fact.contentHash
+    || row.primary_event_id !== sources[0]?.eventId
+    || row.primary_event_sequence !== sources[0]?.eventSequence
+    || row.content_hash_count !== 1) {
+    throw new TypeError("context_fact_invalid");
+  }
+  const expectedHash = await sha256Hex(canonicalJson({
+    principal_id: principalId,
+    sources: [...eventIds].sort(),
+    text,
+  }));
+  if (fact.contentHash !== expectedHash || fact.factId !== `fact_${expectedHash.slice(0, 32)}`) {
+    throw new TypeError("context_fact_invalid");
+  }
+  return Object.freeze({
+    factId: fact.factId,
+    bytes: encoder.encode(text).byteLength,
+    item: Object.freeze({
+      sourceEventId: row.primary_event_id as Ulid,
+      text,
+      sensitivity: row.any_sensitive === 1 ? "restricted" as const : "personal" as const,
+    }),
+  });
+}
+
 function snapshotResultRows(value: unknown): unknown {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new TypeError("context_result_invalid");
@@ -150,13 +332,81 @@ function historyText(payload: unknown, eventType: string): string {
   return text;
 }
 
-/** Reads only recent, authenticated-principal conversational history from D1. */
+/** Reads published projected facts and recent authenticated-principal history from D1. */
 export class D1ContextRetriever implements ContextRetriever {
   constructor(private readonly database: D1Database) {}
 
   async retrieve(input: ContextRetrieverInput): Promise<readonly RetrievedContext[]> {
     const captured = captureInput(input);
-    const result = await this.database.prepare(`SELECT sequence, event_id, event_type, subject_id, content_hash, envelope_json
+    const selectedFacts: RetrievedContext[] = [];
+    const deferredFacts: FactCandidate[] = [];
+    let returnedBytes = 0;
+    const ftsQuery = literalFtsQuery(captured.query);
+    if (ftsQuery !== null) {
+      const factResult = await this.database.prepare(`WITH eligible AS (
+        SELECT f.principal_id, f.device_id, f.projection_version, f.fact_id, f.text,
+               f.origin, f.sensitivity, f.confidence, f.distiller_version, f.distilled_at,
+               f.content_hash, f.primary_event_id, f.primary_event_sequence,
+               f.sources_json, f.fact_json, memory_fact_projection_fts.rank AS relevance
+        FROM memory_fact_projection_fts
+        JOIN memory_fact_projection_facts f
+          ON f.projection_fact_rowid = memory_fact_projection_fts.rowid
+        JOIN memory_fact_projection_heads h
+          ON h.principal_id = f.principal_id AND h.device_id = f.device_id
+         AND h.published_version = f.projection_version
+        JOIN memory_fact_projection_versions v
+          ON v.principal_id = f.principal_id AND v.device_id = f.device_id
+         AND v.projection_version = f.projection_version AND v.status = 'published'
+        JOIN device_keys d
+          ON d.device_id = f.device_id AND d.principal_id = f.principal_id AND d.status = 'active'
+        JOIN principals p ON p.principal_id = f.principal_id AND p.status = 'active'
+        WHERE memory_fact_projection_fts MATCH ?1 AND f.principal_id = ?2
+      ), aggregate_flags AS (
+        SELECT fact_id,
+               MAX(CASE WHEN sensitivity = 'sensitive' THEN 1 ELSE 0 END) AS any_sensitive,
+               COUNT(DISTINCT content_hash) AS content_hash_count
+        FROM eligible GROUP BY fact_id
+      ), ranked AS (
+        SELECT e.*, a.any_sensitive, a.content_hash_count,
+               ROW_NUMBER() OVER (
+                 PARTITION BY e.fact_id
+                 ORDER BY e.distilled_at DESC, e.projection_version DESC, e.device_id ASC
+               ) AS candidate_rank
+        FROM eligible e JOIN aggregate_flags a ON a.fact_id = e.fact_id
+      )
+      SELECT principal_id, device_id, projection_version, fact_id, text, origin,
+             sensitivity, confidence, distiller_version, distilled_at, content_hash,
+             primary_event_id, primary_event_sequence, sources_json, fact_json,
+             relevance, any_sensitive, content_hash_count
+      FROM ranked WHERE candidate_rank = 1
+      ORDER BY relevance ASC, distilled_at DESC, fact_id ASC, device_id ASC
+      LIMIT ?3`)
+        .bind(ftsQuery, captured.principalId, MAX_FACT_CANDIDATES)
+        .all<StoredFactRow>();
+      const factRows = snapshotFactRows(snapshotResultRows(factResult));
+      let decodedFactBytes = 0;
+      const candidates: FactCandidate[] = [];
+      for (const row of factRows) {
+        decodedFactBytes += encoder.encode(row.fact_json).byteLength
+          + encoder.encode(row.sources_json).byteLength;
+        if (decodedFactBytes > MAX_DECODED_FACT_BYTES) {
+          throw new RangeError("context_fact_budget_exceeded");
+        }
+        candidates.push(await factCandidate(row, captured.principalId));
+      }
+      const factByteBudget = Math.floor(captured.maxTokens / 2);
+      for (const candidate of candidates) {
+        if (selectedFacts.length >= MAX_FACT_ITEMS) break;
+        if (returnedBytes + candidate.bytes > factByteBudget) {
+          deferredFacts.push(candidate);
+          continue;
+        }
+        returnedBytes += candidate.bytes;
+        selectedFacts.push(candidate.item);
+      }
+    }
+
+    const historyResult = await this.database.prepare(`SELECT sequence, event_id, event_type, subject_id, content_hash, envelope_json
       FROM events INDEXED BY events_subject_sequence_idx
       WHERE subject_id = ?1
         AND event_type IN ('conversation.user_committed', 'conversation.assistant_delivered')
@@ -164,9 +414,8 @@ export class D1ContextRetriever implements ContextRetriever {
       LIMIT ?2`)
       .bind(captured.principalId, MAX_CANDIDATES)
       .all<StoredHistoryRow>();
-    const rows = snapshotRows(snapshotResultRows(result));
+    const rows = snapshotRows(snapshotResultRows(historyResult));
     let decodedBytes = 0;
-    let returnedBytes = 0;
     const selectedNewestFirst: RetrievedContext[] = [];
 
     for (const row of rows) {
@@ -185,7 +434,8 @@ export class D1ContextRetriever implements ContextRetriever {
       }
       const text = historyText(envelope.payload, row.event_type);
       const textBytes = encoder.encode(text).byteLength;
-      if (selectedNewestFirst.length >= MAX_RETURNED_ITEMS || returnedBytes + textBytes > captured.maxTokens) break;
+      if (selectedFacts.length + selectedNewestFirst.length >= MAX_RETURNED_ITEMS) break;
+      if (returnedBytes + textBytes > captured.maxTokens) continue;
       returnedBytes += textBytes;
       selectedNewestFirst.push(Object.freeze({
         sourceEventId: row.event_id as Ulid,
@@ -194,6 +444,14 @@ export class D1ContextRetriever implements ContextRetriever {
       }));
     }
 
-    return Object.freeze(selectedNewestFirst.reverse());
+    for (const candidate of deferredFacts) {
+      if (selectedFacts.length >= MAX_FACT_ITEMS
+        || selectedFacts.length + selectedNewestFirst.length >= MAX_RETURNED_ITEMS) break;
+      if (returnedBytes + candidate.bytes > captured.maxTokens) continue;
+      returnedBytes += candidate.bytes;
+      selectedFacts.push(candidate.item);
+    }
+
+    return Object.freeze([...selectedFacts, ...selectedNewestFirst.reverse()]);
   }
 }
