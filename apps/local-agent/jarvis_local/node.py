@@ -50,6 +50,11 @@ EXIT_NODE_STARTUP = 4
 EXIT_NODE_AUTHENTICATION = 5
 
 
+def _is_linux() -> bool:
+    # Behind a function so mypy cannot erase the branch on a win32 run.
+    return sys.platform.startswith("linux")
+
+
 class NodeConfigurationError(RuntimeError):
     """The node environment is absent, malformed, or unsafe for Linux."""
 
@@ -169,7 +174,7 @@ def _validate_existing_device_key(path: Path) -> None:
         raise NodeStartupError("the enrolled device key is missing") from error
     if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
         raise NodeStartupError("the enrolled device key is not a regular file")
-    if sys.platform.startswith("linux"):
+    if _is_linux():
         if metadata.st_uid != os.geteuid():  # type: ignore[attr-defined,unused-ignore]
             raise NodeStartupError("the enrolled device key has an unexpected owner")
         if metadata.st_mode & 0o077:

@@ -41,6 +41,11 @@ _SO_PEERCRED_BYTES = struct.calcsize("3i")
 _AF_UNIX = int(getattr(socket, "AF_UNIX", -1))
 
 
+def _is_linux() -> bool:
+    # Behind a function so mypy cannot erase the branch on a win32 run.
+    return sys.platform.startswith("linux")
+
+
 class UnixSocketSecurityError(RuntimeError):
     """The configured local endpoint does not meet the private-channel policy."""
 
@@ -100,7 +105,7 @@ def _validate_private_parent(parent: Path, expected_uid: int) -> None:
         raise UnixSocketSecurityError("the control socket parent is a symlink")
     if not stat.S_ISDIR(info.st_mode):
         raise UnixSocketSecurityError("the control socket parent is not a real directory")
-    if sys.platform.startswith("linux") and info.st_uid != expected_uid:
+    if _is_linux() and info.st_uid != expected_uid:
         raise UnixSocketSecurityError("the control socket parent has an unexpected owner")
     if stat.S_IMODE(info.st_mode) != 0o700:
         raise UnixSocketSecurityError("the control socket parent must have mode 0700")
@@ -124,7 +129,7 @@ def _socket_identity(path: Path, expected_uid: int) -> tuple[int, int]:
         raise UnixSocketSecurityError("the control socket endpoint is missing") from error
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISSOCK(info.st_mode):
         raise UnixSocketSecurityError("the control socket endpoint is not a socket")
-    if sys.platform.startswith("linux") and info.st_uid != expected_uid:
+    if _is_linux() and info.st_uid != expected_uid:
         raise UnixSocketSecurityError("the control socket endpoint has an unexpected owner")
     if stat.S_IMODE(info.st_mode) != 0o600:
         raise UnixSocketSecurityError("the control socket endpoint must have mode 0600")
@@ -194,7 +199,7 @@ class UnixSocketServer:
         self.expected_uid = _effective_uid() if expected_uid is None else expected_uid
         self.accept_timeout = accept_timeout
         self.io_timeout = io_timeout
-        self.peer_uid = peer_uid or (_linux_peer_uid if sys.platform.startswith("linux") else None)
+        self.peer_uid = peer_uid or (_linux_peer_uid if _is_linux() else None)
         self._listener: socket.socket | None = None
         self._identity: tuple[int, int] | None = None
 
@@ -208,6 +213,9 @@ class UnixSocketServer:
 
         listener = socket.socket(_AF_UNIX, socket.SOCK_STREAM)
         try:
+            # The packaged unit's UMask=0077 closes the bind-to-chmod window.
+            # For manual runs, the validated 0700 parent protects the endpoint
+            # until chmod applies its final mode.
             listener.bind(os.fspath(self.socket_path))
             initial = self.socket_path.lstat()
             self._identity = (int(initial.st_dev), int(initial.st_ino))
@@ -293,7 +301,7 @@ def connect_to_unix_socket(
     connection.settimeout(timeout)
     try:
         connection.connect(os.fspath(path))
-        if sys.platform.startswith("linux") and _linux_peer_uid(connection) != owner:
+        if _is_linux() and _linux_peer_uid(connection) != owner:
             raise UnixSocketSecurityError("the control socket server has an unexpected owner")
         if _socket_identity(path, owner) != before:
             raise UnixSocketSecurityError("the control socket endpoint changed while connecting")

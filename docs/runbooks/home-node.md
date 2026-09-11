@@ -50,6 +50,18 @@ device-enrollment process before starting the node. Keep both `device.key` and
 ```sh
 sudo install -o root -g root -m 0644 systemd/jarvis-node.service /etc/systemd/system/jarvis-node.service
 sudo systemctl daemon-reload
+```
+
+Before enabling the service, inspect the effective sandbox on the target host:
+
+```sh
+sudo systemd-analyze security jarvis-node.service
+```
+
+This is a local systemd configuration analysis. It does not prove that the node
+is running or that the cloud has accepted it.
+
+```sh
 sudo systemctl enable --now jarvis-node.service
 ```
 
