@@ -25,7 +25,8 @@ from typing import Protocol
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from jarvis_local.crypto.dpapi import DpapiProtector
+from jarvis_local.crypto.dpapi import DpapiProtector, WindowsDpapi
+from jarvis_local.crypto.file_key import FILE_KEY_PREFIX, FileKeyProtector
 
 # Marks a file as sealed. Its absence means something wrote unprotected
 # material, which is refused rather than trusted.
@@ -60,14 +61,32 @@ class CngDeviceKey:
         self.handle = handle
 
 
+class UnavailableCng:
+    """The Linux home node has no non-exportable CNG provider."""
+
+    supports_non_exportable = False
+
+    def create_non_exportable_key(self, name: str) -> bytes:
+        raise RuntimeError(f"non-exportable key provider unavailable for {name}")
+
+
 class DeviceKeyStore:
     """Loads the device key, creating and protecting it on first use."""
 
-    def __init__(self, path: Path, cng: CngProvider, dpapi: DpapiProtector, *, key_name: str = "jarvis-device") -> None:
+    def __init__(
+        self,
+        path: Path,
+        cng: CngProvider,
+        dpapi: DpapiProtector,
+        *,
+        key_name: str = "jarvis-device",
+        sealed_prefix: bytes = DPAPI_PREFIX,
+    ) -> None:
         self.path = Path(path)
         self.cng = cng
         self.dpapi = dpapi
         self.key_name = key_name
+        self.sealed_prefix = sealed_prefix
 
     def load_or_create(self) -> Ed25519PrivateKey | CngDeviceKey:
         if self.cng.supports_non_exportable:
@@ -79,13 +98,13 @@ class DeviceKeyStore:
 
     def _load_sealed(self) -> Ed25519PrivateKey:
         sealed = self.path.read_bytes()
-        if not sealed.startswith(DPAPI_PREFIX):
+        if not sealed.startswith(self.sealed_prefix):
             # An unsealed file means some other writer put raw material here.
             # Refuse it; do not silently overwrite, which would revoke the
             # device's enrollment without anyone noticing.
-            raise ValueError(f"{self.path} is not DPAPI-sealed")
+            raise ValueError(f"{self.path} does not use the configured sealing mechanism")
         try:
-            raw = self.dpapi.unprotect(sealed[len(DPAPI_PREFIX) :])
+            raw = self.dpapi.unprotect(sealed[len(self.sealed_prefix) :])
         except Exception as error:
             raise ValueError(f"{self.path} could not be unsealed") from error
         try:
@@ -95,7 +114,7 @@ class DeviceKeyStore:
 
     def _create_sealed(self) -> Ed25519PrivateKey:
         key = Ed25519PrivateKey.generate()
-        sealed = DPAPI_PREFIX + self.dpapi.protect(key.private_bytes_raw())
+        sealed = self.sealed_prefix + self.dpapi.protect(key.private_bytes_raw())
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # Create with owner-only permissions before any bytes are written, so
         # the key is never briefly world-readable. O_BINARY is essential on
@@ -109,3 +128,23 @@ class DeviceKeyStore:
         finally:
             os.close(descriptor)
         return key
+
+
+def platform_device_key_store(path: Path) -> DeviceKeyStore:
+    """Select the OS sealing boundary without importing a Windows stub on Linux."""
+    path = Path(path)
+    if _is_windows():
+        return DeviceKeyStore(path, WindowsCng(), WindowsDpapi())
+    wrapping_key = path.with_name(f"{path.name}.seal-key")
+    return DeviceKeyStore(
+        path,
+        UnavailableCng(),
+        FileKeyProtector(wrapping_key),
+        sealed_prefix=FILE_KEY_PREFIX,
+    )
+
+
+def _is_windows() -> bool:
+    # Kept behind a function so both platform-specific branches remain
+    # typechecked instead of mypy erasing one from each platform run.
+    return sys.platform == "win32"
