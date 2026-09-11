@@ -92,7 +92,9 @@ def _validate_private_parent(parent: Path, expected_uid: int) -> None:
         info = parent.lstat()
     except FileNotFoundError as error:
         raise UnixSocketSecurityError("the control socket parent does not exist") from error
-    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+    if stat.S_ISLNK(info.st_mode):
+        raise UnixSocketSecurityError("the control socket parent is a symlink")
+    if not stat.S_ISDIR(info.st_mode):
         raise UnixSocketSecurityError("the control socket parent is not a real directory")
     if sys.platform.startswith("linux") and info.st_uid != expected_uid:
         raise UnixSocketSecurityError("the control socket parent has an unexpected owner")

@@ -140,6 +140,24 @@ def test_a_symlink_in_the_endpoint_path_is_refused() -> None:
 
 
 @linux_only
+def test_a_symlink_above_the_private_parent_is_refused() -> None:
+    temporary = tempfile.TemporaryDirectory(prefix="jarvis-sock-")
+    root = Path(temporary.name)
+    real = root / "real"
+    real.mkdir(mode=0o700)
+    private = real / "private"
+    private.mkdir(mode=0o700)
+    alias = root / "alias"
+    alias.symlink_to(real, target_is_directory=True)
+    try:
+        server = UnixSocketServer(ControlServer(RecordingDispatcher()), alias / "private" / "control.sock")
+        with pytest.raises(UnixSocketSecurityError, match="ancestor is a symlink"):
+            server.start()
+    finally:
+        temporary.cleanup()
+
+
+@linux_only
 def test_a_real_status_request_round_trips_over_the_unix_socket() -> None:
     temporary, path = private_socket_path()
     state = ServiceState()
