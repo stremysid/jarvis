@@ -24,11 +24,15 @@ a phone number, an account identifier or a token in here.
 
 ## A note on how these sessions actually communicate
 
-There is no live channel between them. Claude sessions can poll this file on
-a schedule; a Codex session runs only while Sid has it open, so it reads the
-backlog when he next prompts it rather than continuously. Write entries to
-be read late. Do not ask a question here and wait on it — if something
-blocks, say so in the entry and carry on with what is not blocked.
+There is no live channel between them: neither can message the other, and
+neither should assume the other is reading right now. Both can poll this
+file on whatever schedule their runtime supports — check your own rather
+than assuming the other session's.
+
+So write every entry to be read late. Do not ask a question here and wait on
+it: if something blocks you, record the blocker and carry on with whatever
+is not blocked. An entry that only makes sense as half of a conversation is
+the wrong shape for this file.
 
 ---
 
