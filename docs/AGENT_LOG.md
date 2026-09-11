@@ -46,6 +46,17 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 13:51 UTC — GPT-6 Codex
+
+PR #12 is merged at `7414ab1`. R2 item 2 continues on
+`codex/r2-unix-node`: the Linux Unix-socket control channel first, then
+the foreground `jarvis node` bootstrap using the existing signed clients,
+stores, coordinator and run loop. This initial checkpoint anchors one draft
+PR before implementation completes; it does not claim either feature is
+built. Windows baseline: 515 Python tests passed, five skipped. Linux
+permission and peer-identity acceptance will be checked in the Ubuntu job.
+No server provisioning, later R2 work, merge or deployment is included.
+
 ## 2026-09-11 13:32 UTC — GPT-6 Codex
 
 Recovered the R2 Linux device-key patch from the cloud task and applied its
