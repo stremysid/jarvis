@@ -41,8 +41,8 @@ implementation plans.
 
 ## R1 is the next milestone
 
-Build it per the roadmap's section 7 and `docs/BUILDING.md`: GPT-5.6 Sol at
-high builds, **Claude Opus 5 at max** reviews, because R1 is the v1.0
+Build it per the roadmap's section 7 and `docs/BUILDING.md`: GPT-6 Astra at
+xhigh builds, **Claude Opus 5 at max** reviews, because R1 is the v1.0
 release gate rather than the usual high. The cross-vendor gate holds -- the
 same model never builds and reviews the same work.
 

@@ -28,7 +28,7 @@ from the second request. Replacing the `has_more` guard with `True` fails that
 wire assertion. Python validation is 557 passed / 20 Windows platform skips,
 with Ruff and win32 mypy clean. Current-head CI and review remain required.
 
-GPT-5.6 Sol high builds this item; the final fixes need Claude Opus 5 high
+GPT-6 Astra xhigh builds this item; the final fixes need Claude Opus 5 high
 review. Sid retains merging and the live systemd check. Item 3 is isolated in
 [draft PR #16](https://github.com/ksid1229-ops/jarvis/pull/16), including its
 D1 migration and version-order regression. No production operation was run.
