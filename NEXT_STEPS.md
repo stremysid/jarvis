@@ -31,24 +31,33 @@ R0 only; do not start R1 or resume superseded implementation plans.
    UptimeRobot actions in [the runbook](docs/runbooks/deploy.md), against the
    watchdog's `/health` and never the gateway's. Until that is observed,
    nothing watches the watchdog.
-8. **R0 exit is unverified by observation.** Telegram `/status` and `/queue`,
-   a cron recorded by the watchdog, and the morning digest saying "nothing
-   due". Green CI on `main` is the one condition already met. Do not start R1
-   until the rest are seen.
+8. **R0 exit is incomplete.** Telegram `/status` and `/queue`, gateway cron
+   heartbeat delivery recorded by the watchdog, and the morning digest
+   saying "nothing due" remain unverified. Read-only D1 checks at 05:11 UTC
+   found successful drain/poll runs and a fresh watchdog self-row, but no
+   gateway heartbeat row. Green CI on current main `2b506c8` is verified.
+   Do not start R1 until the remaining evidence is observed.
 
 ## Next gate
 
-[Draft PR #6](https://github.com/ksid1229-ops/jarvis/pull/6), branch
-`codex/r0-health-hourly-archive`, is stacked on PR #5 at `edac272`.
-Local workspace 1,942 and watchdog 119 tests, lint, source typechecking and
-both deployment dry-runs pass. Verify the newest PR #6 head's remote checks.
-Have **Claude Opus 5 high** review items 6/7 under BUILDING.md. Sid merges;
-retarget the follow-up to main after PR #5 lands and verify its CI again.
-Our independent PR #5 review is not approval of our own implementation.
+[PR #6](https://github.com/ksid1229-ops/jarvis/pull/6) passed Claude Opus 5
+high review and is merged; PR #7 is also merged. No code-review or initial
+deployment hold remains. Continue live acceptance, not another wiring pass.
+Do not repeat migrations or clear the must-report list to silence the
+unresolved gateway alert. At 05:15:20 UTC the real gateway heartbeat POST
+returned `rejected: status 404`; an external unauthenticated POST to the
+public `/heartbeat` endpoint returned 401. A shared-secret mismatch is not
+established. Sid must verify the configured URL first; the runbook separates
+that check from Worker-to-Worker routing and authentication diagnosis.
 
-**R0 exit remains unverified:** CI green on `main`, Telegram `/status`
-and `/queue`, a real cron followed by its watchdog heartbeat, and the
-actual morning digest saying "nothing due". No release is declared.
+**Remaining evidence:** Telegram `/status` and `/queue`, gateway heartbeat
+receipt after a real cron, and the scheduled morning digest saying "nothing
+due". The current default schedule is 07:30 America/Toronto, September 11
+at 11:30 UTC. External UptimeRobot monitoring also remains owner-blocked.
+No release is declared. Sid authorizes roadmap building without approvals
+between items, but production, secrets, merging and consequential actions
+remain his. After R0 passes, R1 requires Claude Opus 5 **max** review under
+BUILDING.md; the cross-vendor gate and stop rules remain in force.
 
 ## Built and unwired
 

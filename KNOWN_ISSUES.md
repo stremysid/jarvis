@@ -22,23 +22,33 @@ isolated `edac272` checkout with the same installed dependencies, and the
 same on this branch. No changed file adds a diagnostic. The historical 117
 count below must not be used as the current baseline.
 
-**Owner-blocked:** item 5 not deployed, watchdog never deployed, external
-monitor absent. Sid verified the live account (gateway modified 2026-09-02).
-Migrations and effective vars need an inventory; they are not assumed live.
-Use [the runbook](docs/runbooks/deploy.md) for the numbered UptimeRobot owner
-actions. Nothing watches the watchdog until the external step is complete.
+**Deployment is complete; live acceptance is not.** PRs #5-#7 are merged;
+current main `2b506c8` has green CI. Read-only checks verified migrations
+0008-0013 and newer deployed versions listed in HANDOFF. Successful gateway
+cron runs and a current watchdog self-row were observed at 05:11 UTC,
+but no `cloud-gateway` heartbeat row existed and its DOWN alert remained
+open. The real 05:15 cron's heartbeat returned `rejected: status 404` at
+05:15:20 UTC. An external unauthenticated POST to the public `/heartbeat`
+endpoint returned 401 at 05:19:30 UTC. Do not diagnose a secret mismatch
+from the unauthenticated probe: the gateway received a different status.
+Verify the configured URL, then investigate Worker-to-Worker routing as
+described in the runbook. No routing/configuration fix is yet established.
+Telegram command replies and the scheduled morning digest remain untested.
+The external UptimeRobot monitor remains owner-blocked; follow
+[the runbook](docs/runbooks/deploy.md). Nothing watches the watchdog until
+that external step is complete.
 
 ## Historical checkpoints (superseded where noted above)
 
 ## Expect one DOWN alert on a first watchdog deployment
 
 The watchdog treats a required component it has never seen as immediately
-overdue, and the gateway cannot heartbeat until `WATCHDOG_HEARTBEAT_URL`
-names a watchdog that exists. On a first deployment that ordering is
-unavoidable, so the watchdog's first cycle alerts `DOWN cloud-gateway --
-required component has never reported`, and recovers once the heartbeat
-settings are in place. Observed on 2026-09-11. This is correct behaviour,
-not a fault, and no configuration should be undone in response to it.
+overdue. If its first check precedes a successful gateway heartbeat, it
+alerts `DOWN cloud-gateway -- required component has never reported`.
+That startup alert was observed on 2026-09-11. Recovery requires an actual
+heartbeat and a subsequent watchdog assessment. The continued absence
+documented above is a delivery failure to investigate, not a startup alert
+to ignore or suppress by weakening the must-report list.
 
 ## A must-report list cannot be empty
 
@@ -235,13 +245,14 @@ fewer items and is indistinguishable from a teacher deleting one. One bad
 scrape would cancel a term of real deadlines. It stays open and is reported as
 disappeared instead.
 
-## Must-report gap: fixed in code, pending deployment
+## Must-report gap: deployed, gateway delivery still needs verification
 
 R0 item 6 adds `WATCHDOG_REQUIRED_COMPONENTS`, default `cloud-gateway`.
 It alerts on absent heartbeat rows, deduplicates delivered alerts and
 recovers on first heartbeat. Invalid configuration returns 503; no synthetic
-liveness row is written. Code and regression tests are on
-`codex/r0-health-hourly-archive`; production remains unfixed until deployed.
+liveness row is written. PR #6's code and tests are reviewed, merged and
+deployed. A missing gateway row now raises a real alert rather than staying
+silent; it is not evidence that the gateway reporter is delivering.
 
 ## Nothing watches the watchdog
 
