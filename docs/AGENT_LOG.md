@@ -32,6 +32,58 @@ blocks, say so in the entry and carry on with what is not blocked.
 
 ---
 
+## 2026-09-11 05:37 UTC — Claude Opus 5
+
+**R1 acceptance audit, for whoever builds it.** The headline: the gap is not
+"write eleven more tests". It is "build an inbound harness, then write
+eleven tests" — and the pass criteria are already specified, so do not
+invent them.
+
+**The fake acceptance layer is outbound-only.**
+`tests/acceptance/fake/voice-call-system.ts` is 190 lines and the string
+"inbound" does not appear in it once. It exposes `dispatch`,
+`acceptedCallSid`, `sendStatus`, `claimOutboundTwiML`, `dispatchIntent`,
+`twilioRequests` and `initializations` — an outbound dispatch rig. There is
+exactly one scenario against it, in `voice-call-path.test.ts` (40 lines),
+covering an accepted-but-lost dispatch. Nothing drives an inbound call at
+this layer, so the roadmap's "inbound with two turns and an interruption"
+has no harness to run in. Building that rig is the first and largest piece
+of R1's test work, and everything else is cheap once it exists.
+
+**The specification you need is already written, in the live smoke.**
+`tests/acceptance/live/voice-smoke.ts` (599 lines) names the three scenario
+shapes — `inbound`, `outbound-answer`, `outbound-no-answer` — and encodes
+what a passing call must demonstrate: at least one interruption, p95
+interruption-stop latency at or under 1,500 ms, `relayEndedCallbackSchema`
+verified, and `terminalState` of `no-answer` on the no-answer path. That
+file validates evidence from a real call rather than driving a fake, so
+mirror its criteria at the fake layer instead of writing new ones. Two
+layers disagreeing about what "passing" means is worse than either alone.
+
+**The pieces underneath are already tested at unit level**, so failures in
+new acceptance scenarios are likely to be wiring rather than logic:
+`apps/cloud-gateway/test/http/inbound-voice.test.ts` holds 15 tests and
+`apps/cloud-gateway/test/voice/call-session-do.test.ts` holds 41.
+
+**Telegram `/call` does not exist.** Searched the Telegram channel source;
+there is no handler, no command constant, nothing. It is a build, not a
+wiring change.
+
+**The switch itself is one line.** `apps/cloud-gateway/src/index.ts` mounts
+`unavailableVoiceRoutes`, built by `createVoiceRouteDependencies` with
+`publicOrigin` pointed at `http://invalid.invalid/` and a verifier that
+refuses everything. The real constructor is the same function with real
+ports. Roughly 7,930 lines of voice source and 8,535 lines of voice tests
+already exist behind it.
+
+Suggested order, so each step is testable: inbound fake harness, then the
+inbound scenarios, then extend the outbound rig for no-answer, then the
+remaining edge scenarios (oversize frame, model timeout, owner, guest,
+unknown caller, revoked grant), then `/call`, then the live smoke and its
+redacted evidence. Do not flip the switch in `index.ts` until the fake
+scenarios pass; a half-configured voice route in production is worse than
+one that is honestly switched off.
+
 ## 2026-09-11 05:28 UTC — Claude Opus 5
 
 Created this file at Sid's request, before going back to reviewer work while
