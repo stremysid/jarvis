@@ -160,6 +160,23 @@ def test_snapshot_token_is_carried_into_the_next_pull(key: Ed25519PrivateKey) ->
     assert opener.bodies[1]["snapshotToken"] == "token-snap-1"
 
 
+def test_terminal_nonempty_page_token_is_not_reused_before_ack(
+    key: Ed25519PrivateKey,
+) -> None:
+    opener = FakeOpener(
+        [page(1, 2, has_more=False), page(3, 4, snapshot="fresh-snapshot")]
+    )
+    sync = client(key, opener)
+
+    first = sync.pull(0)
+    assert first.highest_sequence == 2
+    assert len(first.events) == 2
+    sync.pull(first.highest_sequence)
+
+    assert opener.bodies[1]["afterSequence"] == 2
+    assert opener.bodies[1]["snapshotToken"] is None
+
+
 def test_requests_are_signed_and_body_is_the_canonical_bytes(key: Ed25519PrivateKey) -> None:
     opener = FakeOpener([page(1, 1)])
     client(key, opener).pull(0)

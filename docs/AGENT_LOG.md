@@ -46,6 +46,17 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 17:25 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
+
+PR #13 now tests the completed-page guard directly on the wire: two pulls,
+with a nonempty `hasMore: false` response and no ACK between them, must send
+`snapshotToken: null` on the second request. Replacing `continuation.has_more`
+with `True` makes that assertion fail with the stale token. Earlier cycle
+tests cleared the snapshot during ACK and missed this guard. Restored full
+Python: 557 passed / 20 Windows skips, Ruff and win32 mypy clean. This changes
+tests only; current-head CI and reviewer acceptance still belong on the PR.
+Item 3 remains separate in draft PR #16. No merge or deployment was performed.
+
 ## 2026-09-11 17:13 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
 
 PR #13's lifecycle fixes now include expired ACK recovery using the existing
