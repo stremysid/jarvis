@@ -1,6 +1,6 @@
 # Handoff
 
-Current as of **2026-09-10**. Verify the current branch and checks before
+Current as of **2026-09-11**. Verify the current branch and checks before
 using this checkpoint. R0 is not complete; calling remains R1.
 
 ## Current branch and review
@@ -58,26 +58,52 @@ The new implementation needs **Claude Opus 5 at high effort** for the
 BUILDING.md cross-vendor gate. Our review of Claude's PR #5 does not approve
 our subsequent implementation. Sid merges PR #5 and this follow-up.
 
-## Owner deployment and live acceptance are pending
+## R0 item 5 is done: both Workers are deployed
 
-**Item 5 has not happened.** Sid verified the live Cloudflare account on
-2026-09-10: `jarvis-cloud-gateway` was last modified 2026-09-02, predating
-R0 configuration, and `jarvis-watchdog` had never been deployed. Assume
-no R0 deployment state exists; inventory migrations 0008-0013 and effective
-vars before applying/deploying. Migration absence was not directly queried
-by this builder. There is no watchdog URL until Sid deploys it.
+**2026-09-11.** Sid merged PR #5 and PR #6. CI on `main` at `ffa3ecd` is
+green across all seven jobs -- the first green `main` since 2026-09-02.
+
+Migrations `0008`-`0013` were applied to the production `jarvis` database at
+04:39 UTC and verified by querying `d1_migrations` directly. `0001`-`0007`
+were already applied on 2026-09-02; there was no partial or unexpected
+state. Every one of the six is purely additive, so no existing row was at
+risk.
+
+Both Workers are published from the reviewed commit:
+
+| Worker | Version | Triggers |
+|---|---|---|
+| `jarvis-cloud-gateway` | `daffbf21-9310-41c5-8cfe-14a5dac606ff` | `*/5 * * * *`, `0 * * * *`, and the two daily pairs |
+| `jarvis-watchdog` | `a6c743df-02c0-44f0-96c9-3e9da50e01f4` | `*/5 * * * *` |
+
+Gateway liveness was verified against the live deployment: `GET /health`
+returns 200 `ok`, `HEAD` returns 200, and any other method returns 405. It
+returned 501 before this deployment.
+
+Watchdog liveness returned 503 `no_cycle_recorded` immediately after
+deployment, which is correct before its first cron. That response also
+confirmed `database: bound` and `alertChannel: configured`, so its own bot
+token and chat id are valid.
+
+The watchdog has its own Telegram bot, separate from the gateway's, and its
+heartbeat secret is set on both Workers.
+
+## What is still owner-blocked
+
+The **UptimeRobot monitor is not configured.** Until it is, nothing watches
+the watchdog. Follow the numbered actions in the runbook, against the
+watchdog's `/health`, never the gateway's.
+
+**R0 exit remains unverified by observation:** Telegram `/status` and
+`/queue` replies, a real cron recorded by the watchdog, and the morning
+digest saying "nothing due". CI green on `main` is the one exit condition
+already met.
 
 Item 2's rotations remain complete by owner confirmation; do not request
-them again. `PIN_VERIFIER_JSON` is absent from config but its stored secret
-stays until item 5's gateway deployment, then requires separate owner
-confirmation to delete. Never request, print or commit a secret value.
-
-The external UptimeRobot monitor is **owner-blocked**, not configured.
-Fill its URL at deploy time using the runbook. No Worker deployment,
-migration, production deletion, live Telegram check, heartbeat or morning
-digest was performed here. **R0 exit remains unverified:** green CI on
-`main`, Telegram `/status` and `/queue` replies, a real cron recorded by
-the watchdog, and the scheduled morning digest saying "nothing due".
+them again. `PIN_VERIFIER_JSON` is absent from config; now that item 5's
+gateway deployment has happened, its stored secret may be deleted as a
+separate, explicitly confirmed operation. Never request, print or commit a
+secret value.
 
 ## What is built but not wired
 
