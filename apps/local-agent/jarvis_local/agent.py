@@ -15,7 +15,7 @@ otherwise would mean losing replication work because distillation failed.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
@@ -24,11 +24,15 @@ from jarvis_local.memory.distillation import DistillationCoordinator, promote_ne
 from jarvis_local.memory.facts import FactRepository
 from jarvis_local.sync.cloud_client import CloudAuthError, CloudSyncError
 from jarvis_local.sync.event_replicator import EventReplicator, SyncAckPending
+from jarvis_local.sync.memory_projection import ProjectionRecoveryError
 
 
 class ProjectionAttempt(Protocol):
     @property
     def stopped(self) -> bool: ...
+
+    @property
+    def quarantined(self) -> int: ...
 
 
 class FactProjector(Protocol):
@@ -72,15 +76,20 @@ def run_cycle(
     if should_stop():
         return CycleResult(replicated, 0, 0, 0)
 
+    quarantined = 0
     if projector is not None:
         try:
             resumed = projector.resume_pending()
         except CloudAuthError as error:
             return CycleResult(replicated, 0, 0, 0, failure=f"authentication: {error}")
+        except ProjectionRecoveryError:
+            return CycleResult(replicated, 0, 0, 0, failure="projection_recovery: pending")
         except CloudSyncError as error:
             return CycleResult(replicated, 0, 0, 0, failure=f"projection: {error}")
         if resumed is not None and resumed.stopped:
             return CycleResult(replicated, 0, 0, 0)
+        if resumed is not None:
+            quarantined = resumed.quarantined
 
     if should_stop():
         return CycleResult(replicated, 0, 0, 0)
@@ -104,7 +113,10 @@ def run_cycle(
     if projector is None or should_stop():
         return result
     try:
-        projector.project()
+        projected = projector.project()
+        quarantined = max(quarantined, projected.quarantined)
+    except ProjectionRecoveryError:
+        return replace(result, failure="projection_recovery: pending")
     except CloudAuthError as error:
         return CycleResult(
             replicated,
@@ -121,7 +133,7 @@ def run_cycle(
             len(promoted),
             failure=f"projection: {error}",
         )
-    return result
+    return replace(result, failure="projection_quarantined: facts excluded") if quarantined else result
 
 
 def open_stores(archive_path: Path, memory_path: Path) -> tuple[ArchiveRepository, FactRepository]:

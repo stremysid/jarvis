@@ -36,6 +36,7 @@ from jarvis_local.memory.facts import (
     FactRepository,
     Sensitivity,
 )
+from jarvis_local.memory.projection_policy import MAX_SOURCES_PER_FACT, representable_fact_text
 from jarvis_local.sync.cursor_store import CursorStore
 
 DISTILLER = "distiller"
@@ -178,11 +179,11 @@ class DistillationCoordinator:
         text = raw.get("text")
         if not isinstance(text, str) or not text.strip():
             return None
-        if len(text) > MAX_EXCERPT_CHARACTERS:
+        if not representable_fact_text(text):
             return None
 
         sources = raw.get("sourceEventIds")
-        if not isinstance(sources, list) or not sources:
+        if not isinstance(sources, list) or not 1 <= len(sources) <= MAX_SOURCES_PER_FACT:
             # A fact with no provenance is an assertion with no evidence.
             return None
         if any(not isinstance(source, str) for source in sources):

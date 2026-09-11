@@ -17,6 +17,8 @@
 
 import type { ModelAdapter } from "../model/model-types.js";
 import { newUlid } from "../../../../packages/contracts/src/index.js";
+import { sanitizeRedaction } from "../../../../packages/contracts/src/calls.js";
+import { MAX_MEMORY_FACT_BYTES, MAX_MEMORY_FACT_SOURCES } from "../../../../packages/contracts/src/memory-projection.js";
 import { collectStream } from "../providers/deepseek-provider.js";
 
 export const DISTILL_PATH = "/memory/distill";
@@ -104,9 +106,12 @@ export function validateProposal(
 
   const { text, sourceEventIds, confidence } = value;
   if (typeof text !== "string" || text.trim().length === 0) return null;
-  if (text.length > MAX_EXCERPT_CHARACTERS) return null;
+  if (new TextEncoder().encode(text).byteLength > MAX_MEMORY_FACT_BYTES) return null;
+  const checked = sanitizeRedaction(text);
+  if (!checked.ok || checked.text !== text) return null;
 
-  if (!Array.isArray(sourceEventIds) || sourceEventIds.length === 0) return null;
+  if (!Array.isArray(sourceEventIds) || sourceEventIds.length === 0
+    || sourceEventIds.length > MAX_MEMORY_FACT_SOURCES) return null;
   if (sourceEventIds.some((id) => typeof id !== "string" || !supplied.has(id))) return null;
 
   const score = confidence === undefined ? 1 : confidence;

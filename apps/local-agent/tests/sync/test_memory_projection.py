@@ -177,9 +177,7 @@ def test_the_python_wire_form_matches_the_independent_rfc8785_vector(
                 "distillerVersion": "vector-v1",
                 "distilledAt": "2026-09-11T12:00:00.000Z",
                 "contentHash": CONTENT_HASH,
-                "sources": [
-                    {"eventId": EVENT_ID, "eventSequence": 1, "excerpt": "Mon café préféré est le moka."}
-                ],
+                "sources": [{"eventId": EVENT_ID, "eventSequence": 1, "excerpt": "Mon café préféré est le moka."}],
             }
         ],
     }
@@ -230,9 +228,7 @@ def test_lost_commit_response_restarts_with_the_same_pages_and_version(
 ) -> None:
     archive, facts, memory_path = stores
     record_vector_fact(archive, facts)
-    first = ProjectionOpener(
-        [receipt(page=True), urllib.error.URLError("response lost after commit")]
-    )
+    first = ProjectionOpener([receipt(page=True), urllib.error.URLError("response lost after commit")])
 
     with pytest.raises(CloudSyncError):
         MemoryProjectionUploader(facts, archive, cloud(first)).project()
@@ -241,9 +237,7 @@ def test_lost_commit_response_restarts_with_the_same_pages_and_version(
 
     restarted = FactRepository.open(memory_path)
     try:
-        second = ProjectionOpener(
-            [receipt(page=True, replayed=True), receipt(page=False, replayed=True)]
-        )
+        second = ProjectionOpener([receipt(page=True, replayed=True), receipt(page=False, replayed=True)])
         result = MemoryProjectionUploader(restarted, archive, cloud(second)).project()
         cursor = restarted.connection.execute(
             "SELECT published_version, published_digest FROM memory_projection_cursor"
@@ -330,8 +324,12 @@ def test_stop_between_pages_leaves_the_pending_snapshot_for_restart(
     assert all(len(request.data) <= 65_536 for request in restarted.requests)
 
 
-def test_oversized_active_fact_fails_without_creating_a_partial_snapshot(
+@pytest.mark.parametrize(
+    "poison", ["x" * 4097, "é" * 2049, "Order " + "6" * 6], ids=["ascii-bytes", "utf8-bytes", "redaction"]
+)
+def test_an_unrepresentable_active_fact_is_quarantined_while_healthy_facts_publish(
     stores: tuple[ArchiveRepository, FactRepository, Path],
+    poison: str,
 ) -> None:
     archive, facts, _ = stores
     archive.insert_event_if_absent(
@@ -346,14 +344,232 @@ def test_oversized_active_fact_fails_without_creating_a_partial_snapshot(
             "producer_version": "conversation-v1",
         }
     )
-    fact = facts.record_proposal(
-        FactProposal(PRINCIPAL, "x" * 4097, FactOrigin.AUTHENTICATED_FIRST_PERSON, (EVENT_ID,))
-    )
+    fact = facts.record_proposal(FactProposal(PRINCIPAL, poison, FactOrigin.AUTHENTICATED_FIRST_PERSON, (EVENT_ID,)))
     PromotionEngine(facts).promote(fact)
 
-    with pytest.raises(MemoryProjectionError, match="represented safely"):
-        MemoryProjectionUploader(facts, archive, cloud(BindingOpener())).project()
-    assert facts.connection.execute("SELECT COUNT(*) FROM memory_projection_pending").fetchone()[0] == 0
+    good = facts.record_proposal(
+        FactProposal(PRINCIPAL, "A healthy fact", FactOrigin.AUTHENTICATED_FIRST_PERSON, (EVENT_ID,))
+    )
+    PromotionEngine(facts).promote(good)
+    opener = BindingOpener()
+    uploader = MemoryProjectionUploader(facts, archive, cloud(opener))
+    result = uploader.project()
+    assert result.published and result.fact_count == 1 and result.quarantined == 1
+    assert [item["factId"] for item in opener.bodies[0]["facts"]] == [good.fact_id]
+    assert uploader.project().published is False
+    assert facts.get(fact.fact_id).state is FactState.ACTIVE
+
+
+def test_a_foreign_source_is_never_copied_into_the_upload(
+    stores: tuple[ArchiveRepository, FactRepository, Path],
+) -> None:
+    archive, facts, _ = stores
+    record_vector_fact(archive, facts)
+    foreign_id = "01k3w1t4000000000000000111"
+    archive.insert_event_if_absent(
+        {
+            "event_id": foreign_id,
+            "event_sequence": 2,
+            "event_type": "conversation.user_committed",
+            "principal_id": "principal:other",
+            "session_id": "foreign",
+            "canonical_text": "Another person's conversation",
+            "occurred_at": "2026-09-11T12:00:00.000Z",
+            "producer_version": "conversation-v1",
+        }
+    )
+    bad = facts.record_proposal(
+        FactProposal(PRINCIPAL, "Foreign citation", FactOrigin.AUTHENTICATED_FIRST_PERSON, (foreign_id,))
+    )
+    PromotionEngine(facts).promote(bad)
+    opener = BindingOpener()
+    result = MemoryProjectionUploader(facts, archive, cloud(opener)).project()
+    assert result.fact_count == 1 and result.quarantined == 1
+    assert all(b"Another person's conversation" not in request.data for request in opener.requests)
+
+
+def rejection(code: str = "memory_projection_content_rejected") -> urllib.error.HTTPError:
+    return urllib.error.HTTPError(BASE, 400, "rejected", {}, io.BytesIO(json.dumps({"error": code}).encode()))  # type: ignore[arg-type]
+
+
+def test_a_legacy_fact_with_nine_sources_does_not_block_an_eight_source_fact(
+    stores: tuple[ArchiveRepository, FactRepository, Path],
+) -> None:
+    archive, facts, _ = stores
+    ids = []
+    for sequence in range(1, 10):
+        event_id = f"01k3w1t4{sequence:018d}"
+        ids.append(event_id)
+        archive.insert_event_if_absent(
+            {
+                "event_id": event_id,
+                "event_sequence": sequence,
+                "event_type": "conversation.user_committed",
+                "principal_id": PRINCIPAL,
+                "session_id": "sources",
+                "canonical_text": "A source",
+                "occurred_at": "2026-09-11T12:00:00.000Z",
+                "producer_version": "conversation-v1",
+            }
+        )
+    for count in (8, 9):
+        fact = facts.record_proposal(
+            FactProposal(
+                PRINCIPAL,
+                f"Has {count} sources",
+                FactOrigin.AUTHENTICATED_FIRST_PERSON,
+                tuple(ids[:count]),
+            )
+        )
+        PromotionEngine(facts).promote(fact)
+    opener = BindingOpener()
+    source_reads: list[str] = []
+    archive.connection.set_trace_callback(
+        lambda sql: source_reads.append(sql) if "FROM archive_event WHERE event_id" in sql else None
+    )
+    result = MemoryProjectionUploader(facts, archive, cloud(opener)).project()
+    archive.connection.set_trace_callback(None)
+    assert result.fact_count == 1 and result.quarantined == 1
+    assert [item["text"] for item in opener.bodies[0]["facts"]] == ["Has 8 sources"]
+    # Refuse the oversized source set before reading any of its excerpts.
+    assert len(source_reads) == 8
+
+
+def test_a_rejected_pending_page_is_abandoned_and_new_facts_publish_after_restart(
+    stores: tuple[ArchiveRepository, FactRepository, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    archive, facts, memory_path = stores
+    record_vector_fact(archive, facts)
+    facts.set_state(f"fact_{CONTENT_HASH[:32]}", FactState.SUPERSEDED)
+    poison = facts.record_proposal(
+        FactProposal(
+            PRINCIPAL,
+            "Order " + "6" * 6,
+            FactOrigin.AUTHENTICATED_FIRST_PERSON,
+            (EVENT_ID,),
+        )
+    )
+    PromotionEngine(facts).promote(poison)
+    # First preserve a durable pending snapshot, as produced by the old agent.
+    lost = ProjectionOpener([urllib.error.URLError("offline")])
+    with monkeypatch.context() as legacy:
+        legacy.setattr("jarvis_local.sync.memory_projection.redaction_would_change", lambda _: False)
+        with pytest.raises(CloudSyncError):
+            MemoryProjectionUploader(facts, archive, cloud(lost)).project()
+    assert lost.bodies[0]["facts"][0]["text"] == poison.text
+    abandoned = {**receipt(page=False), "manifestHash": lost.bodies[0]["manifestHash"], "published": False}
+    first = ProjectionOpener([rejection(), urllib.error.URLError("abandon response lost")])
+    with pytest.raises(CloudSyncError):
+        MemoryProjectionUploader(facts, archive, cloud(first)).resume_pending()
+    assert [body["operation"] for body in first.bodies] == ["page", "abandon"]
+    assert facts.connection.execute("SELECT published_version FROM memory_projection_cursor").fetchone() == (0,)
+    facts.close()
+    restarted = FactRepository.open(memory_path)
+    try:
+        second = ProjectionOpener([{**abandoned, "replayed": True}])
+        result = MemoryProjectionUploader(restarted, archive, cloud(second)).resume_pending()
+        assert result is not None and result.quarantined == 1 and not result.published
+        assert second.bodies == [first.bodies[1]]
+        assert restarted.connection.execute("SELECT COUNT(*) FROM memory_projection_pending").fetchone() == (0,)
+        restarted.set_state(poison.fact_id, FactState.SUPERSEDED)
+        good = restarted.record_proposal(
+            FactProposal(PRINCIPAL, "A new healthy fact", FactOrigin.AUTHENTICATED_FIRST_PERSON, (EVENT_ID,))
+        )
+        PromotionEngine(restarted).promote(good)
+        third = BindingOpener()
+        assert MemoryProjectionUploader(restarted, archive, cloud(third)).project().published
+        assert third.bodies[0]["projectionVersion"] == 1
+        assert [item["factId"] for item in third.bodies[0]["facts"]] == [good.fact_id]
+    finally:
+        restarted.close()
+
+
+@pytest.mark.parametrize("code", ["sync_request_rejected", "memory_projection_source_missing"])
+def test_an_unknown_http_400_preserves_pending_without_quarantining(
+    stores: tuple[ArchiveRepository, FactRepository, Path],
+    code: str,
+) -> None:
+    archive, facts, _ = stores
+    record_vector_fact(archive, facts)
+    opener = ProjectionOpener([rejection(code)])
+    with pytest.raises(CloudSyncError):
+        MemoryProjectionUploader(facts, archive, cloud(opener)).project()
+    assert len(opener.requests) == 1
+    assert facts.connection.execute("SELECT COUNT(*) FROM memory_projection_pending").fetchone() == (1,)
+    assert facts.connection.execute("SELECT COUNT(*) FROM memory_projection_quarantine").fetchone() == (0,)
+    assert facts.connection.execute("SELECT COUNT(*) FROM memory_projection_rejection").fetchone() == (0,)
+
+
+@pytest.mark.parametrize("published", [False, True])
+def test_only_an_exact_abandon_receipt_can_clear_pending_or_advance(
+    stores: tuple[ArchiveRepository, FactRepository, Path],
+    published: bool,
+) -> None:
+    archive, facts, _ = stores
+    record_vector_fact(archive, facts)
+    bad = {**receipt(page=False), "published": published, "manifestHash": "0" * 64}
+    with pytest.raises(CloudSyncError):
+        MemoryProjectionUploader(facts, archive, cloud(ProjectionOpener([rejection(), bad]))).project()
+    assert facts.connection.execute("SELECT published_version FROM memory_projection_cursor").fetchone() == (0,)
+    assert facts.connection.execute("SELECT COUNT(*) FROM memory_projection_pending").fetchone() == (1,)
+    good = {**receipt(page=False), "published": published}
+    result = MemoryProjectionUploader(facts, archive, cloud(ProjectionOpener([good]))).resume_pending()
+    assert result is not None and result.published is published
+    assert facts.connection.execute("SELECT published_version FROM memory_projection_cursor").fetchone() == (
+        int(published),
+    )
+    assert facts.connection.execute("SELECT COUNT(*) FROM memory_projection_quarantine").fetchone() == (
+        0 if published else 1,
+    )
+
+
+@pytest.mark.parametrize("phase", ["page", "commit"])
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("manifestHash", "0" * 64),
+        ("projectionVersion", 2),
+        ("pageIndex", 7),
+        ("published", "flip"),
+        ("replayed", 1),
+    ],
+)
+def test_each_receipt_binding_keeps_the_cursor_and_pending_on_mismatch(
+    stores: tuple[ArchiveRepository, FactRepository, Path],
+    phase: str,
+    field: str,
+    value: Any,
+) -> None:
+    archive, facts, _ = stores
+    record_vector_fact(archive, facts)
+    page = phase == "page"
+    malformed = {**receipt(page=page), field: page if value == "flip" else value}
+    opener = ProjectionOpener([malformed] if page else [receipt(page=True), malformed])
+    with pytest.raises(MemoryProjectionError, match="receipt"):
+        MemoryProjectionUploader(facts, archive, cloud(opener)).project()
+    assert facts.connection.execute("SELECT published_version FROM memory_projection_cursor").fetchone() == (0,)
+    assert facts.connection.execute("SELECT COUNT(*) FROM memory_projection_pending").fetchone() == (1,)
+
+
+def test_equal_timestamp_facts_keep_the_same_digest_when_database_order_changes(
+    stores: tuple[ArchiveRepository, FactRepository, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    archive, facts, _ = stores
+    record_vector_fact(archive, facts)
+    second = facts.record_proposal(
+        FactProposal(PRINCIPAL, "Another fact", FactOrigin.AUTHENTICATED_FIRST_PERSON, (EVENT_ID,)),
+        now="2026-09-11T12:00:00.000Z",
+    )
+    PromotionEngine(facts).promote(second)
+    original = facts.active_facts
+    opener = BindingOpener()
+    uploader = MemoryProjectionUploader(facts, archive, cloud(opener))
+    assert uploader.project().published
+    monkeypatch.setattr(facts, "active_facts", lambda principal: list(reversed(original(principal))))
+    assert uploader.project().published is False
+    assert len(opener.requests) == 2
 
 
 def test_receipt_booleans_are_not_accepted_as_truthy_numbers(
@@ -390,9 +606,7 @@ def test_corrupt_persisted_page_is_refused_before_any_request(
     first = ProjectionOpener([{**receipt(page=True), "pageHash": "0" * 64}])
     with pytest.raises(MemoryProjectionError):
         MemoryProjectionUploader(facts, archive, cloud(first)).project()
-    page = json.loads(
-        facts.connection.execute("SELECT page_json FROM memory_projection_pending_page").fetchone()[0]
-    )
+    page = json.loads(facts.connection.execute("SELECT page_json FROM memory_projection_pending_page").fetchone()[0])
     page["unexpected"] = "not covered by the page hash"
     facts.connection.execute(
         "UPDATE memory_projection_pending_page SET page_json = ?",
@@ -433,9 +647,7 @@ def test_malformed_persisted_json_is_refused_before_any_request(
     first = ProjectionOpener([{**receipt(page=True), "pageHash": "0" * 64}])
     with pytest.raises(MemoryProjectionError):
         MemoryProjectionUploader(facts, archive, cloud(first)).project()
-    page = json.loads(
-        facts.connection.execute("SELECT page_json FROM memory_projection_pending_page").fetchone()[0]
-    )
+    page = json.loads(facts.connection.execute("SELECT page_json FROM memory_projection_pending_page").fetchone()[0])
     if corruption == "boolean-page-index":
         page["pageIndex"] = False
     else:
@@ -483,9 +695,7 @@ def test_only_active_facts_are_projected_and_confirmed_origins_are_allowed(
             "producer_version": "conversation-v1",
         }
     )
-    model = facts.record_proposal(
-        FactProposal(PRINCIPAL, "model proposal", FactOrigin.MODEL, (EVENT_ID,))
-    )
+    model = facts.record_proposal(FactProposal(PRINCIPAL, "model proposal", FactOrigin.MODEL, (EVENT_ID,)))
     third_party = facts.record_proposal(
         FactProposal(PRINCIPAL, "third-party proposal", FactOrigin.THIRD_PARTY, (EVENT_ID,))
     )

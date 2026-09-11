@@ -1,5 +1,9 @@
 import type { Sha256Hex, Ulid } from "./ids.js";
 
+/** Also enforced by local-agent/memory/projection_policy.py before storage. */
+export const MAX_MEMORY_FACT_BYTES = 4_096;
+export const MAX_MEMORY_FACT_SOURCES = 8;
+
 export type MemoryFactOriginV1 =
   | "authenticated_first_person"
   | "deterministic_observation"
@@ -57,4 +61,8 @@ export interface MemoryFactProjectionReceiptV1 {
   readonly replayed: boolean;
 }
 
-export type MemoryFactProjectBodyV1 = MemoryFactProjectionPageV1 | MemoryFactProjectionCommitV1;
+export interface MemoryFactProjectionAbandonV1 extends Omit<MemoryFactProjectionCommitV1, "operation"> {
+  readonly operation: "abandon";
+}
+
+export type MemoryFactProjectBodyV1 = MemoryFactProjectionPageV1 | MemoryFactProjectionCommitV1 | MemoryFactProjectionAbandonV1;

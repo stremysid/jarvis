@@ -86,9 +86,40 @@ def test_records_a_well_formed_proposal(archive: ArchiveRepository, facts: FactR
     assert facts.count() == 1
 
 
-def test_a_model_proposal_is_always_recorded_as_model_origin(
-    archive: ArchiveRepository, facts: FactRepository
+@pytest.mark.parametrize("text", ["é" * 2049, "Order " + "6" * 6])
+def test_unprojectable_model_text_is_rejected_without_losing_a_good_proposal(
+    archive: ArchiveRepository,
+    facts: FactRepository,
+    text: str,
 ) -> None:
+    archive.insert_event_if_absent(event(1, "I like coffee"))
+    progress = coordinator(archive, facts, FakeClient([proposal(text=text), proposal()])).run_once()
+    assert (progress.proposals_recorded, progress.proposals_rejected) == (1, 1)
+    assert facts.connection.execute("SELECT text FROM fact").fetchall() == [("Sid likes coffee",)]
+
+
+def test_proposals_share_the_projection_byte_and_source_boundaries(
+    archive: ArchiveRepository,
+    facts: FactRepository,
+) -> None:
+    for sequence in range(1, 10):
+        archive.insert_event_if_absent(event(sequence, "source"))
+    sources = [str(event(sequence, "source")["event_id"]) for sequence in range(1, 10)]
+    progress = coordinator(
+        archive,
+        facts,
+        FakeClient(
+            [
+                proposal(text="é" * 2048, sourceEventIds=sources[:8]),
+                proposal(text="Too many sources", sourceEventIds=sources),
+            ]
+        ),
+    ).run_once()
+    assert (progress.proposals_recorded, progress.proposals_rejected) == (1, 1)
+    assert facts.connection.execute("SELECT text FROM fact").fetchall() == [("é" * 2048,)]
+
+
+def test_a_model_proposal_is_always_recorded_as_model_origin(archive: ArchiveRepository, facts: FactRepository) -> None:
     """Even when the response claims otherwise.
 
     A model returning `origin: authenticated_first_person` would otherwise
@@ -105,9 +136,7 @@ def test_a_model_proposal_is_always_recorded_as_model_origin(
     assert rows == [(FactOrigin.MODEL.value, FactState.PROPOSED.value)]
 
 
-def test_a_proposal_citing_an_unsubmitted_source_is_dropped(
-    archive: ArchiveRepository, facts: FactRepository
-) -> None:
+def test_a_proposal_citing_an_unsubmitted_source_is_dropped(archive: ArchiveRepository, facts: FactRepository) -> None:
     """Either a hallucination or an attempt to attach a claim to unrelated
     evidence. Provenance is the whole basis on which a fact is later trusted."""
     archive.insert_event_if_absent(event(1, "I like coffee"))
@@ -126,9 +155,7 @@ def test_a_proposal_with_no_sources_is_dropped(archive: ArchiveRepository, facts
     assert coordinator(archive, facts, client).run_once().proposals_rejected == 1
 
 
-@pytest.mark.parametrize(
-    "key", ["tool", "tool_call", "function", "function_call", "action", "command", "state"]
-)
+@pytest.mark.parametrize("key", ["tool", "tool_call", "function", "function_call", "action", "command", "state"])
 def test_a_proposal_shaped_like_an_action_is_refused(
     archive: ArchiveRepository, facts: FactRepository, key: str
 ) -> None:
@@ -157,9 +184,7 @@ def test_a_confidence_outside_a_probability_is_dropped(
     assert coordinator(archive, facts, client).run_once().proposals_recorded == 0
 
 
-def test_one_bad_proposal_does_not_discard_the_good_ones(
-    archive: ArchiveRepository, facts: FactRepository
-) -> None:
+def test_one_bad_proposal_does_not_discard_the_good_ones(archive: ArchiveRepository, facts: FactRepository) -> None:
     archive.insert_event_if_absent(event(1, "I like coffee"))
     client = FakeClient([proposal(), proposal(sourceEventIds=[]), proposal(text="Sid drinks tea")])
 
@@ -182,9 +207,7 @@ def test_only_conversation_events_are_submitted(archive: ArchiveRepository, fact
     assert submitted == ["I like coffee", "and tea"]
 
 
-def test_the_cursor_advances_past_skipped_events(
-    archive: ArchiveRepository, facts: FactRepository
-) -> None:
+def test_the_cursor_advances_past_skipped_events(archive: ArchiveRepository, facts: FactRepository) -> None:
     """Otherwise every future run re-examines events it has already decided to
     ignore."""
     archive.insert_event_if_absent(event(1, "I like coffee"))
@@ -195,9 +218,7 @@ def test_the_cursor_advances_past_skipped_events(
     assert progress.through_sequence == 2
 
 
-def test_a_second_run_does_not_resubmit_the_same_events(
-    archive: ArchiveRepository, facts: FactRepository
-) -> None:
+def test_a_second_run_does_not_resubmit_the_same_events(archive: ArchiveRepository, facts: FactRepository) -> None:
     archive.insert_event_if_absent(event(1, "I like coffee"))
     client = FakeClient([])
     coordinate = coordinator(archive, facts, client)
@@ -215,9 +236,7 @@ def test_nothing_to_distill_is_not_an_error(archive: ArchiveRepository, facts: F
     assert progress == type(progress)(0, 0, 0, 0)
 
 
-def test_distilled_facts_are_not_promoted_automatically(
-    archive: ArchiveRepository, facts: FactRepository
-) -> None:
+def test_distilled_facts_are_not_promoted_automatically(archive: ArchiveRepository, facts: FactRepository) -> None:
     """The whole point of the boundary: a model's inference stays proposed
     until Sid confirms it."""
     archive.insert_event_if_absent(event(1, "I like coffee"))

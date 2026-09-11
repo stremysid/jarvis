@@ -18,7 +18,7 @@ import { TieredEventReader } from "../archive/tiered-event-reader.js";
 import { DeepSeekModelAdapter } from "../providers/deepseek-provider.js";
 import { EventRepository } from "../persistence/event-repository.js";
 import { DISTILL_PATH, distil, validateExcerpts } from "../sync/memory-distill.js";
-import { MEMORY_PROJECTION_PATH, MemoryProjectionService } from "../sync/memory-projection.js";
+import { MEMORY_PROJECTION_PATH, MemoryProjectionService, ProjectionContentRejectedError } from "../sync/memory-projection.js";
 import { DeviceRequestVerifier } from "../sync/signed-request.js";
 import { SyncService } from "../sync/sync-service.js";
 import type { Env } from "../env.js";
@@ -170,6 +170,9 @@ export async function handleSyncRequest(request: Request, env: Env): Promise<Res
       headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
     });
   } catch (error) {
+    if (pathname === MEMORY_PROJECTION_PATH && error instanceof ProjectionContentRejectedError) {
+      return refuse(400, "memory_projection_content_rejected");
+    }
     const reason = error instanceof Error ? error.message : String(error);
     console.error("sync_request_failed", { path: pathname, reason });
     return refuse(statusFor(reason), "sync_request_rejected");

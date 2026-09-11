@@ -82,6 +82,7 @@ export function applyFoundationMigration(): Promise<void> {
 }
 
 const MEMORY_PROJECTION_DELETE_GUARDS = Object.freeze([
+  "memory_fact_projection_abandoned_no_delete",
   "memory_fact_projection_commits_immutable_delete",
   "memory_fact_projection_heads_delete_guard",
   "memory_fact_projection_versions_delete_guard",
@@ -98,6 +99,7 @@ export async function clearMemoryProjectionDataForTest(): Promise<void> {
     await env.DB.prepare(`DROP TRIGGER IF EXISTS ${name}`).run();
   }
   try {
+    await env.DB.prepare("DELETE FROM memory_fact_projection_abandoned").run();
     await env.DB.prepare("DELETE FROM memory_fact_projection_commits").run();
     await env.DB.prepare("DELETE FROM memory_fact_projection_heads").run();
     await env.DB.prepare("DELETE FROM memory_fact_projection_versions").run();

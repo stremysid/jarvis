@@ -46,6 +46,22 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 21:35 UTC — GPT-6 Astra
+
+PR #16 now isolates unrepresentable facts and recovers explicit content rejection:
+both distillation producers enforce the projection byte/source limits and refuse
+text requiring redaction. Local `0004` stores quarantine and pending recovery;
+the signed abandon operation uses immutable D1 receipts in `0014` to discard
+only the exact staged manifest and fence delayed requests. The node distinguishes
+quarantine/recovery from transient failures. A further read-to-batch race required
+binding fact inserts to the exact page JSON, proved by a failing regression.
+All 37 targeted mutations are caught, including the reported principal, receipt,
+ordering, identity and source guards. Full local validation: 620 Python tests
+passed / 20 Windows skips, 2,007 workspace tests / 108 files, lint/source types
+clean. Test-only gateway types retain 119 unrelated diagnostics, none in changed
+files. Run the required Claude Opus 5 max review against the pushed head before
+owner merge or rollout; no migration, deployment or merge was performed here.
+
 ## 2026-09-11 20:45 UTC — GPT-6 coordinator
 
 Main advanced to `3059d42` through PR #17 while the tested SQL fixes were

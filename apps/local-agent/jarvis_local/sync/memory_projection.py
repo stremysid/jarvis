@@ -17,16 +17,24 @@ from jarvis_local.archive.archive_repository import ArchiveRepository
 from jarvis_local.archive.content_store import normalize_nfc
 from jarvis_local.clock import utc_now_iso
 from jarvis_local.memory.facts import Fact, FactRepository, fact_content_hash
-from jarvis_local.sync.cloud_client import CloudSyncError, HttpCloudClient
+from jarvis_local.memory.projection_policy import (
+    MAX_FACT_BYTES,
+    MAX_SOURCES_PER_FACT,
+    redaction_would_change,
+)
+from jarvis_local.sync.cloud_client import (
+    CloudAuthError,
+    CloudProjectionRejectedError,
+    CloudSyncError,
+    HttpCloudClient,
+)
 
 MEMORY_PROJECTION_PATH = "/sync/memory/project"
 MAX_REQUEST_BYTES = 65_536
 MAX_PROJECTION_PAGES = 32
 MAX_FACTS_PER_PAGE = 32
 MAX_PROJECTION_FACTS = 1_024
-MAX_SOURCES_PER_FACT = 8
 MAX_UNIQUE_SOURCES_PER_PAGE = 32
-MAX_FACT_BYTES = 4_096
 MAX_EXCERPT_BYTES = 4_096
 MAX_VERSION_BYTES = 128
 
@@ -50,11 +58,16 @@ class MemoryProjectionError(CloudSyncError):
     """The local snapshot or the gateway receipt is unsafe to publish."""
 
 
+class ProjectionRecoveryError(CloudSyncError):
+    """Content was rejected, but abandonment has not yet been acknowledged."""
+
+
 @dataclass(frozen=True, slots=True)
 class ProjectionResult:
     published: bool
     fact_count: int
     stopped: bool = False
+    quarantined: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +101,9 @@ class MemoryProjectionUploader:
         if pending is None:
             pending = self._prepare_pending()
         if pending is None:
-            return ProjectionResult(False, len(self._facts.active_facts(self._cloud.principal_id)))
+            count = len(self._facts.active_facts(self._cloud.principal_id))
+            excluded = self._quarantine_count()
+            return ProjectionResult(False, count - excluded, quarantined=excluded)
 
         return self._publish(pending)
 
@@ -100,10 +115,24 @@ class MemoryProjectionUploader:
         return self._publish(pending)
 
     def _publish(self, pending: _Pending) -> ProjectionResult:
+        rejected = self._facts.connection.execute(
+            "SELECT page_index FROM memory_projection_rejection "
+            "WHERE gateway_origin = ? AND principal_id = ? AND device_id = ?",
+            self._owner,
+        ).fetchone()
+        if rejected is not None:
+            return self._abandon(pending, int(rejected[0]))
         for page in pending.pages:
             if self._should_stop():
                 return ProjectionResult(False, pending.fact_count, stopped=True)
-            receipt = self._cloud.post_signed(MEMORY_PROJECTION_PATH, page)
+            try:
+                receipt = self._cloud.post_signed(MEMORY_PROJECTION_PATH, page)
+            except CloudProjectionRejectedError:
+                self._facts.connection.execute(
+                    "INSERT INTO memory_projection_rejection VALUES (?, ?, ?, ?)",
+                    (*self._owner, page["pageIndex"]),
+                )
+                return self._abandon(pending, page["pageIndex"])
             self._validate_receipt(receipt, pending, page=page)
 
         if self._should_stop():
@@ -119,7 +148,38 @@ class MemoryProjectionUploader:
         receipt = self._cloud.post_signed(MEMORY_PROJECTION_PATH, commit)
         self._validate_receipt(receipt, pending, page=None)
         self._record_published(pending)
-        return ProjectionResult(True, pending.fact_count)
+        return ProjectionResult(True, pending.fact_count, quarantined=self._quarantine_count())
+
+    def _abandon(self, pending: _Pending, page_index: int) -> ProjectionResult:
+        if self._should_stop():
+            return ProjectionResult(False, pending.fact_count, stopped=True)
+        try:
+            receipt = self._cloud.post_signed(MEMORY_PROJECTION_PATH, {
+                "schemaVersion": "1.0", "operation": "abandon", "projectionVersion": pending.version,
+                "pageCount": pending.page_count, "totalFactCount": pending.fact_count,
+                "manifestHash": pending.manifest_hash,
+            })
+            self._validate_receipt(receipt, pending, page=None, abandoning=True)
+        except CloudAuthError:
+            raise
+        except CloudSyncError as error:
+            raise ProjectionRecoveryError("permanent rejection recovery pending") from error
+        if receipt["published"]:
+            # A commit response can be lost before policy changes reject a
+            # replayed page. Reconcile publication, never overwrite its version.
+            self._record_published(pending)
+            return ProjectionResult(True, pending.fact_count, quarantined=self._quarantine_count())
+        connection = self._facts.connection
+        connection.execute("BEGIN")
+        try:
+            for fact in pending.pages[page_index]["facts"]:
+                self._quarantine(fact["factId"], "gateway_rejected")
+            self._delete_pending(pending)
+        except BaseException:
+            connection.execute("ROLLBACK")
+            raise
+        connection.execute("COMMIT")
+        return ProjectionResult(False, 0, quarantined=self._quarantine_count())
 
     @property
     def _owner(self) -> tuple[str, str, str]:
@@ -257,11 +317,39 @@ class MemoryProjectionUploader:
 
     def _capture_facts(self) -> list[dict[str, Any]]:
         active = sorted(self._facts.active_facts(self._cloud.principal_id), key=lambda fact: fact.fact_id)
-        if len(active) > MAX_PROJECTION_FACTS:
+        excluded = {str(row[0]) for row in self._facts.connection.execute(
+            "SELECT fact_id FROM memory_projection_quarantine "
+            "WHERE gateway_origin = ? AND principal_id = ? AND device_id = ?",
+            self._owner,
+        )}
+        captured: list[dict[str, Any]] = []
+        for fact in active:
+            if fact.fact_id in excluded:
+                continue
+            try:
+                captured.append(self._capture_fact(fact))
+            except MemoryProjectionError:
+                self._quarantine(fact.fact_id, "unrepresentable")
+        if len(captured) > MAX_PROJECTION_FACTS:
             raise MemoryProjectionError("the active fact snapshot exceeds the projection limit")
-        return [self._capture_fact(fact) for fact in active]
+        return captured
+
+    def _quarantine(self, fact_id: str, reason: str) -> None:
+        self._facts.connection.execute(
+            "INSERT OR IGNORE INTO memory_projection_quarantine VALUES (?, ?, ?, ?, ?, ?)",
+            (*self._owner, fact_id, reason, utc_now_iso()),
+        )
+
+    def _quarantine_count(self) -> int:
+        return int(self._facts.connection.execute(
+            """SELECT COUNT(*) FROM memory_projection_quarantine q JOIN fact f ON f.fact_id = q.fact_id
+               WHERE q.gateway_origin = ? AND q.principal_id = ? AND q.device_id = ? AND f.state = 'active'""",
+            self._owner,
+        ).fetchone()[0])
 
     def _capture_fact(self, fact: Fact) -> dict[str, Any]:
+        if redaction_would_change(fact.text):
+            raise MemoryProjectionError("an active fact requires redaction")
         if not 1 <= len(fact.source_event_ids) <= MAX_SOURCES_PER_FACT:
             raise MemoryProjectionError("an active fact cannot be represented safely")
         sources = [self._capture_source(source_id, fact) for source_id in fact.source_event_ids]
@@ -418,7 +506,8 @@ class MemoryProjectionUploader:
 
     @staticmethod
     def _validate_receipt(
-        receipt: dict[str, Any], pending: _Pending, *, page: dict[str, Any] | None
+        receipt: dict[str, Any], pending: _Pending, *, page: dict[str, Any] | None,
+        abandoning: bool = False,
     ) -> None:
         expected_published = page is None
         if set(receipt) != {
@@ -436,7 +525,7 @@ class MemoryProjectionUploader:
             or (page is not None and type(receipt.get("pageIndex")) is not int)
             or receipt.get("pageIndex") != expected_index
             or receipt.get("pageHash") != expected_hash
-            or receipt.get("published") is not expected_published
+            or (not abandoning and receipt.get("published") is not expected_published)
         ):
             raise MemoryProjectionError("the gateway returned an invalid projection receipt")
 
@@ -462,20 +551,21 @@ class MemoryProjectionUploader:
             )
             if changed.rowcount != 1:
                 raise MemoryProjectionError("the local projection cursor changed unexpectedly")
-            deleted = connection.execute(
-                """
-                DELETE FROM memory_projection_pending
-                WHERE gateway_origin = ? AND principal_id = ? AND device_id = ?
-                  AND projection_version = ? AND manifest_hash = ?
-                """,
-                (*self._owner, pending.version, pending.manifest_hash),
-            )
-            if deleted.rowcount != 1:
-                raise MemoryProjectionError("the pending projection changed unexpectedly")
+            self._delete_pending(pending)
         except BaseException:
             connection.execute("ROLLBACK")
             raise
         connection.execute("COMMIT")
+
+    def _delete_pending(self, pending: _Pending) -> None:
+        deleted = self._facts.connection.execute(
+            """DELETE FROM memory_projection_pending
+               WHERE gateway_origin = ? AND principal_id = ? AND device_id = ?
+                 AND projection_version = ? AND manifest_hash = ?""",
+            (*self._owner, pending.version, pending.manifest_hash),
+        )
+        if deleted.rowcount != 1:
+            raise MemoryProjectionError("the pending projection changed unexpectedly")
 
 
 def _partition(facts: Sequence[dict[str, Any]], version: int) -> list[list[dict[str, Any]]]:

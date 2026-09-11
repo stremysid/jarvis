@@ -60,6 +60,18 @@ describe("excerpt validation, before any model call", () => {
 });
 
 describe("proposal validation", () => {
+  it.each(["é".repeat(2049), `Order ${"6".repeat(6)}`])("rejects unprojectable model text", (text) => {
+    expect(validateProposal({ text, sourceEventIds: ["event-1"] }, supplied)).toBeNull();
+  });
+
+  it("accepts the byte and source limits and rejects a ninth source", () => {
+    const sources = Array.from({ length: 9 }, (_, index) => `event-${index}`);
+    const allowed = new Set(sources);
+    expect(validateProposal({ text: "é".repeat(2048), sourceEventIds: sources.slice(0, 8) }, allowed))
+      .toEqual({ text: "é".repeat(2048), sourceEventIds: sources.slice(0, 8), confidence: 1 });
+    expect(validateProposal({ text: "Too many sources", sourceEventIds: sources }, allowed)).toBeNull();
+  });
+
   it("accepts a proposal citing submitted sources", () => {
     expect(
       validateProposal({ text: "Likes coffee", sourceEventIds: ["event-1"], confidence: 0.9 }, supplied),
@@ -147,12 +159,12 @@ describe("distillation", () => {
   it("passes every excerpt id to the model and no retrieved memory", async () => {
     // Empty context is deliberate: giving distillation existing facts would
     // let them reinforce themselves into new ones with no new evidence.
-    const stream = vi.fn(async function* (): AsyncIterable<ModelToken> {
+    const stream = vi.fn(async function* (..._args: Parameters<ModelAdapter["stream"]>): AsyncIterable<ModelToken> {
       yield { index: 0, text: "[]" };
     });
     await distil(EXCERPTS, deps({ stream } as unknown as ModelAdapter), new AbortController().signal);
 
-    const input = stream.mock.calls[0]![0] as { userText: string; context: unknown[]; reasoningEffort: string };
+    const input = stream.mock.calls[0]![0];
     expect(input.userText).toContain("event-1");
     expect(input.userText).toContain("event-2");
     expect(input.context).toEqual([]);

@@ -5,6 +5,7 @@ import {
   type JsonValue,
   type EventEnvelope,
   type MemoryFactProjectionCommitV1,
+  type MemoryFactProjectionAbandonV1,
   type MemoryFactProjectionPageV1,
   type MemoryFactProjectionReceiptV1,
   type MemoryFactProjectionV1,
@@ -13,6 +14,7 @@ import {
   type SignedRequestV1,
 } from "../../../../packages/contracts/src/index.js";
 import type { AppendedEvent, SyncEventReader } from "../persistence/event-repository.js";
+import { MAX_MEMORY_FACT_BYTES, MAX_MEMORY_FACT_SOURCES } from "../../../../packages/contracts/src/memory-projection.js";
 import {
   CONVERSATION_EVENT_PRODUCER_VERSION,
   CONVERSATION_EVENT_SOURCE,
@@ -27,11 +29,11 @@ export const MEMORY_PROJECTION_PATH = "/sync/memory/project";
 export const MAX_PROJECTION_PAGES = 32;
 export const MAX_FACTS_PER_PAGE = 32;
 export const MAX_PROJECTION_FACTS = 1_024;
-export const MAX_SOURCES_PER_FACT = 8;
+export const MAX_SOURCES_PER_FACT = MAX_MEMORY_FACT_SOURCES;
 export const MAX_UNIQUE_SOURCES_PER_PAGE = 32;
 
 const STAGING_LIFETIME_MS = 3_600_000;
-const MAX_FACT_BYTES = 4_096;
+const MAX_FACT_BYTES = MAX_MEMORY_FACT_BYTES;
 const MAX_EXCERPT_BYTES = 4_096;
 const MAX_VERSION_BYTES = 128;
 const SHA256 = /^[a-f0-9]{64}$/u;
@@ -59,7 +61,10 @@ const ORIGINS = new Set([
 const encoder = new TextEncoder();
 const redactor = new Redactor();
 
-type ProjectionBody = MemoryFactProjectionPageV1 | MemoryFactProjectionCommitV1;
+type ProjectionBody = MemoryFactProjectionPageV1 | MemoryFactProjectionCommitV1 | MemoryFactProjectionAbandonV1;
+
+/** Only explicit content validation failures authorize discarding a staged page. */
+export class ProjectionContentRejectedError extends Error {}
 
 interface StoredHead {
   readonly published_version: number;
@@ -229,6 +234,10 @@ export function validateProjectionBody(value: unknown): ProjectionBody {
   const operation = value !== null && typeof value === "object"
     ? Object.getOwnPropertyDescriptor(value, "operation")?.value
     : undefined;
+  if (operation === "abandon") {
+    const body = exactRecord(value, COMMIT_FIELDS, "memory_projection_abandon_invalid");
+    return Object.freeze({ ...validateCommit({ ...body, operation: "commit" }), operation: "abandon" });
+  }
   return operation === "page" ? validatePage(value) : validateCommit(value);
 }
 
@@ -255,7 +264,7 @@ async function requireFactIdentity(principalId: string, fact: MemoryFactProjecti
     throw new Error("memory_projection_fact_identity_invalid");
   }
   const checked = redactor.redactText(fact.text);
-  if (!checked.ok || checked.text !== fact.text) throw new Error("memory_projection_redaction_invalid");
+  if (!checked.ok || checked.text !== fact.text) throw new ProjectionContentRejectedError("memory_projection_redaction_invalid");
 }
 
 function sourceText(envelope: EventEnvelope): string {
@@ -263,19 +272,21 @@ function sourceText(envelope: EventEnvelope): string {
     && envelope.eventType !== "conversation.assistant_delivered"
     || envelope.source !== CONVERSATION_EVENT_SOURCE
     || envelope.producerVersion !== CONVERSATION_EVENT_PRODUCER_VERSION) {
-    throw new Error("memory_projection_source_invalid");
+    throw new ProjectionContentRejectedError("memory_projection_source_invalid");
   }
-  const payload = exactRecord(envelope.payload, HISTORY_PAYLOAD_FIELDS, "memory_projection_source_invalid");
+  let payload: Record<string, unknown>;
+  try { payload = exactRecord(envelope.payload, HISTORY_PAYLOAD_FIELDS, "memory_projection_source_invalid"); }
+  catch { throw new ProjectionContentRejectedError("memory_projection_source_invalid"); }
   if (payload.schemaCode !== 1 || payload.sensitivityCode !== 1 || payload.historyEligible !== true
     || envelope.eventType === "conversation.assistant_delivered" && payload.channelCode !== 2
     || envelope.eventType === "conversation.user_committed"
       && payload.channelCode !== 1 && payload.channelCode !== 2) {
-    throw new Error("memory_projection_source_invalid");
+    throw new ProjectionContentRejectedError("memory_projection_source_invalid");
   }
   const candidate = payload.text;
-  if (typeof candidate !== "string") throw new Error("memory_projection_source_invalid");
+  if (typeof candidate !== "string") throw new ProjectionContentRejectedError("memory_projection_source_invalid");
   const checked = redactor.redactText(candidate);
-  if (!checked.ok || checked.text !== candidate) throw new Error("memory_projection_redaction_invalid");
+  if (!checked.ok || checked.text !== candidate) throw new ProjectionContentRejectedError("memory_projection_redaction_invalid");
   return candidate;
 }
 
@@ -299,7 +310,7 @@ async function verifyPageSources(
       const envelope = await validateEnvelope(event.envelope);
       if (event.eventSequence !== source.eventSequence || envelope.eventId !== source.eventId
         || envelope.subjectId !== principalId || !sourceText(envelope).startsWith(source.excerpt)) {
-        throw new Error("memory_projection_source_invalid");
+        throw new ProjectionContentRejectedError("memory_projection_source_invalid");
       }
     }
   }
@@ -420,6 +431,8 @@ class MemoryProjectionRepository {
     for (let position = 0; position < page.facts.length; position += 1) {
       const fact = page.facts[position]!;
       const primary = fact.sources[0]!;
+      // Abandonment may replace this coordinate after our reads. Facts may
+      // attach only to the exact immutable page this request validated.
       statements.push(this.database.prepare(
         `INSERT INTO memory_fact_projection_facts
          (principal_id, device_id, projection_version, page_index, fact_position, fact_id, text,
@@ -428,13 +441,14 @@ class MemoryProjectionRepository {
          SELECT p.principal_id, p.device_id, p.projection_version, p.page_index,
           ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
          FROM memory_fact_projection_pages p
-         WHERE p.principal_id = ? AND p.device_id = ? AND p.projection_version = ? AND p.page_index = ?`,
+         WHERE p.principal_id = ? AND p.device_id = ? AND p.projection_version = ? AND p.page_index = ?
+           AND p.page_json = ?`,
       ).bind(
         position, fact.factId, fact.text, fact.origin, fact.sensitivity, fact.confidence,
         fact.distillerVersion, fact.distilledAt, fact.contentHash, primary.eventId,
         primary.eventSequence, canonicalJson(fact.sources as unknown as JsonValue),
         canonicalJson(fact as unknown as JsonValue), verified.principalId, verified.deviceId,
-        page.projectionVersion, page.pageIndex,
+        page.projectionVersion, page.pageIndex, pageJson,
       ));
     }
     try {
@@ -525,6 +539,45 @@ class MemoryProjectionRepository {
       throw error;
     }
     return this.receipt(commit, true, false);
+  }
+
+  async abandon(
+    verified: VerifiedDeviceRequest<MemoryFactProjectionAbandonV1>, now: Date,
+  ): Promise<MemoryFactProjectionReceiptV1> {
+    const body = verified.body;
+    const head = await this.head(verified);
+    if (head !== null && body.projectionVersion <= head.published_version) {
+      // Reuse exact commit reconciliation if publication beat abandonment.
+      return this.commit({ ...verified, body: { ...body, operation: "commit" } }, now);
+    }
+    const existing = await this.database.prepare(
+      `SELECT page_count, total_fact_count FROM memory_fact_projection_abandoned
+       WHERE principal_id = ? AND device_id = ? AND projection_version = ? AND manifest_hash = ?`,
+    ).bind(verified.principalId, verified.deviceId, body.projectionVersion, body.manifestHash)
+      .first<{ page_count: number; total_fact_count: number }>();
+    if (existing !== null) {
+      if (existing.page_count !== body.pageCount || existing.total_fact_count !== body.totalFactCount) {
+        throw new Error("memory_projection_abandon_conflict");
+      }
+      return this.receipt(body, false, true);
+    }
+    try {
+      await this.database.prepare(
+        `INSERT INTO memory_fact_projection_abandoned
+         (principal_id, device_id, projection_version, manifest_hash, page_count, total_fact_count,
+          key_id, key_fingerprint, key_generation, abandoned_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(verified.principalId, verified.deviceId, body.projectionVersion, body.manifestHash,
+        body.pageCount, body.totalFactCount, verified.keyId, verified.keyFingerprint,
+        verified.keyGeneration, now.toISOString()).run();
+    } catch (error) {
+      const raced = await this.head(verified);
+      if (raced?.published_version === body.projectionVersion && raced.manifest_hash === body.manifestHash) {
+        return this.commit({ ...verified, body: { ...body, operation: "commit" } }, now);
+      }
+      throw error;
+    }
+    return this.receipt(body, false, false);
   }
 
   private receipt(
@@ -626,6 +679,9 @@ export class MemoryProjectionService {
         verified as VerifiedDeviceRequest<MemoryFactProjectionPageV1>,
         now,
       );
+    }
+    if (verified.body.operation === "abandon") {
+      return this.repository.abandon(verified as VerifiedDeviceRequest<MemoryFactProjectionAbandonV1>, now);
     }
     await this.dependencies.beforePublish?.();
     return this.repository.commit(

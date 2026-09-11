@@ -1,5 +1,70 @@
 PRAGMA foreign_keys = ON;
 
+-- A timed-out old page must never resurrect an abandoned manifest.
+CREATE TABLE memory_fact_projection_abandoned (
+  principal_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  projection_version INTEGER NOT NULL CHECK (typeof(projection_version) = 'integer' AND projection_version BETWEEN 1 AND 2147483647),
+  manifest_hash TEXT NOT NULL CHECK (length(manifest_hash) = 64 AND manifest_hash NOT GLOB '*[^0-9a-f]*'),
+  page_count INTEGER NOT NULL CHECK (typeof(page_count) = 'integer' AND page_count BETWEEN 1 AND 32),
+  total_fact_count INTEGER NOT NULL CHECK (typeof(total_fact_count) = 'integer' AND total_fact_count BETWEEN 0 AND 1024),
+  key_id TEXT NOT NULL,
+  key_fingerprint TEXT NOT NULL,
+  key_generation INTEGER NOT NULL,
+  abandoned_at TEXT NOT NULL CHECK (strftime('%Y-%m-%dT%H:%M:%fZ', abandoned_at) IS abandoned_at),
+  PRIMARY KEY (principal_id, device_id, projection_version, manifest_hash),
+  FOREIGN KEY (device_id, principal_id) REFERENCES device_keys(device_id, principal_id) ON DELETE RESTRICT
+) WITHOUT ROWID;
+
+CREATE TRIGGER memory_fact_projection_abandoned_insert_guard
+BEFORE INSERT ON memory_fact_projection_abandoned
+WHEN EXISTS (
+    SELECT 1 FROM memory_fact_projection_abandoned a
+    WHERE a.principal_id = NEW.principal_id AND a.device_id = NEW.device_id
+      AND a.projection_version = NEW.projection_version AND a.manifest_hash = NEW.manifest_hash
+  )
+  OR NOT EXISTS (
+    SELECT 1 FROM device_keys d JOIN principals p ON p.principal_id = d.principal_id
+    WHERE d.principal_id = NEW.principal_id AND d.device_id = NEW.device_id
+      AND d.key_id = NEW.key_id AND d.key_fingerprint = NEW.key_fingerprint AND d.key_generation = NEW.key_generation
+      AND d.status = 'active' AND p.status = 'active'
+  )
+  OR NEW.projection_version <> COALESCE((
+    SELECT h.published_version + 1 FROM memory_fact_projection_heads h
+    WHERE h.principal_id = NEW.principal_id AND h.device_id = NEW.device_id
+  ), 1)
+  OR EXISTS (
+    SELECT 1 FROM memory_fact_projection_versions v
+    WHERE v.principal_id = NEW.principal_id AND v.device_id = NEW.device_id
+      AND v.projection_version = NEW.projection_version
+      AND (v.status <> 'staged' OR v.manifest_hash <> NEW.manifest_hash
+        OR v.page_count <> NEW.page_count OR v.total_fact_count <> NEW.total_fact_count)
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'memory_projection_abandon_conflict');
+END;
+
+CREATE TRIGGER memory_fact_projection_abandoned_cleanup
+AFTER INSERT ON memory_fact_projection_abandoned
+BEGIN
+  DELETE FROM memory_fact_projection_versions
+  WHERE principal_id = NEW.principal_id AND device_id = NEW.device_id
+    AND projection_version = NEW.projection_version AND manifest_hash = NEW.manifest_hash
+    AND status = 'staged' AND page_count = NEW.page_count AND total_fact_count = NEW.total_fact_count;
+END;
+
+CREATE TRIGGER memory_fact_projection_abandoned_no_update
+BEFORE UPDATE ON memory_fact_projection_abandoned
+BEGIN
+  SELECT RAISE(ABORT, 'memory_projection_abandon_immutable');
+END;
+
+CREATE TRIGGER memory_fact_projection_abandoned_no_delete
+BEFORE DELETE ON memory_fact_projection_abandoned
+BEGIN
+  SELECT RAISE(ABORT, 'memory_projection_abandon_immutable');
+END;
+
 -- WITHOUT ROWID removes an alternate rowid conflict target from composite-key projection tables.
 CREATE TABLE memory_fact_projection_heads (
   principal_id TEXT NOT NULL,
@@ -72,6 +137,11 @@ CREATE TRIGGER memory_fact_projection_versions_insert_guard
 BEFORE INSERT ON memory_fact_projection_versions
 WHEN NEW.status <> 'staged'
   OR NEW.published_at IS NOT NULL
+  OR EXISTS (
+    SELECT 1 FROM memory_fact_projection_abandoned a
+    WHERE a.principal_id = NEW.principal_id AND a.device_id = NEW.device_id
+      AND a.projection_version = NEW.projection_version AND a.manifest_hash = NEW.manifest_hash
+  )
   OR EXISTS (
     SELECT 1 FROM memory_fact_projection_versions v
     WHERE v.principal_id = NEW.principal_id AND v.device_id = NEW.device_id

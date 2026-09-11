@@ -21,7 +21,8 @@ per milestone item and push tested checkpoints. Item 4 semantic search stays
 in its own later PR and is not part of #16.
 
 This item adds `0014_memory_projection.sql`, including projection tables,
-publication guards and an FTS index. Owner deployment must apply this new
+publication/abandonment guards and an FTS index. Local migration `0004` adds
+quarantine and restart-safe rejection recovery. Owner deployment must apply this new
 migration to live D1 before publishing the updated gateway or starting the
 uploader. Check the pending migration list and recovery point first using
 the deployment runbook. Under `docs/BUILDING.md`, this live-data migration

@@ -5,6 +5,17 @@ using this checkpoint. R0 passed on September 11; calling remains R1.
 
 ## R2 item 3 review candidate
 
+The follow-up addresses permanently stalled projection: distillation now shares
+the 4,096 UTF-8-byte/eight-source bounds and refuses text requiring redaction.
+Legacy unrepresentable facts are quarantined individually. Definitive gateway
+content rejection records durable local recovery and signs an exact-manifest
+abandonment, leaving published memory intact. D1 abandonment receipts prevent
+delayed pages from resurrecting the rejected stage. Unknown HTTP 400/network
+errors remain resumable. Quarantine and pending recovery have distinct node
+status messages. Local migration `0004` stores the quarantine/recovery metadata;
+cloud migration `0014` also includes the abandonment guards. Current validation
+and the pending independent review are recorded on PR #16.
+
 Item 2 merged through [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13)
 at `94575fb`, including the client lifecycle fixes and direct completed-token
 wire regression. That main commit is incorporated into
@@ -19,14 +30,14 @@ The Python uploader persists an
 immutable snapshot before HTTP and resends every page after interruption,
 advancing only on an exact commit receipt. Local memory migration `0003`
 adds its durable pending pages and publication cursor. Full Python validation
-is 582 passed / 20 Windows skips, with Ruff and win32 mypy clean. Cloud context
+is 620 passed / 20 Windows skips, with Ruff and win32 mypy clean. Cloud context
 now combines matching published facts with recent turns, enforces active
 principal/device ownership and a shared byte/item budget, and keeps the most
 restrictive sensitivity across device duplicates. History stops at the first
 over-budget turn to preserve its contiguous newest suffix; deferred facts can
 use the remaining space and skip independent oversized candidates. Keyword
 mutations fail the three regressions for these boundaries. Full workspace
-validation is 1,980 passed / 108 files, with lint and source types clean. Removing both
+validation is 2,007 passed / 108 files, with lint and source types clean. Removing both
 publication predicates exposes staged facts and fails the regression; removing
 the device-status predicate exposes a revoked fact and also fails. All guards
 were restored before the full suite.

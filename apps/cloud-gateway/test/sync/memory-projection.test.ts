@@ -186,7 +186,9 @@ describe("signed active-fact projection", () => {
       historyEligible: boolean;
       sensitivityCode: number;
       channelCode: number;
+      schemaCode: number;
     }> = {},
+    persist = true,
   ): Promise<AppendedEvent> {
     const issued = redactor.redactText(text);
     if (!issued.ok) throw new Error("fixture redaction failed");
@@ -201,7 +203,7 @@ describe("signed active-fact projection", () => {
       correlationId: newUlid(),
       contentType: "application/json",
       payload: {
-        schemaCode: 1,
+        schemaCode: overrides.schemaCode ?? 1,
         channelCode: overrides.channelCode ?? 2,
         sensitivityCode: overrides.sensitivityCode ?? 1,
         historyEligible: overrides.historyEligible ?? true,
@@ -209,6 +211,7 @@ describe("signed active-fact projection", () => {
       },
       producerVersion: overrides.producerVersion ?? "conversation-v1",
     });
+    if (!persist) return { eventSequence: 1, envelope: JSON.parse(JSON.stringify(envelope)) as typeof envelope, replayed: false };
     return events.append({
       envelope,
       scope: "projection:source",
@@ -666,6 +669,152 @@ describe("signed active-fact projection", () => {
     expect(await env.DB.prepare(
       "SELECT status FROM memory_fact_projection_versions WHERE projection_version = 6",
     ).first<string>("status")).toBe("staged");
+  });
+
+  it.each(["contentHash", "factId"] as const)("binds the fact identity's %s independently", async (field) => {
+    const event = await appendSource("I like coffee");
+    const valid = await fact("Likes coffee", [source(event, "I like coffee")]);
+    const bad = { ...valid, [field]: field === "factId" ? `fact_${"0".repeat(32)}` : "0".repeat(64) };
+    const built = await snapshot(1, [bad]);
+    await expect(project(service(), built.pages[0]!)).rejects.toThrow("memory_projection_fact_identity_invalid");
+    expect(await publishedVersion()).toBe(-1);
+  });
+
+  it("accepts an eligible source returned by the serialized archive reader", async () => {
+    const event = await appendSource("I like coffee", identity.principalId, {}, false);
+    const built = await snapshot(1, [await fact("Likes coffee", [source(event, "I like coffee")])]);
+    const reader: SyncEventReader = { latestSequence: async () => 1, readRange: async () => [event] };
+    await expect(project(service(reader), built.pages[0]!)).resolves.toMatchObject({ published: false });
+  });
+
+  it.each([
+    { eventType: "other.event" }, { source: "other" }, { producerVersion: "other-v1" },
+    { schemaCode: 2 }, { sensitivityCode: 2 }, { historyEligible: false },
+    { eventType: "conversation.assistant_delivered", channelCode: 1 }, { channelCode: 3 },
+  ])("rejects an ineligible source independently: %j", async (overrides) => {
+    // The archive reader is a separate boundary: the live event append guard
+    // must not mask the retriever's own source-eligibility checks.
+    const event = await appendSource("I like coffee", identity.principalId, overrides, false);
+    const built = await snapshot(1, [await fact("Likes coffee", [source(event, "I like coffee")])]);
+    const reader: SyncEventReader = { latestSequence: async () => 1, readRange: async () => [event] };
+    await expect(project(service(reader), built.pages[0]!)).rejects.toThrow("memory_projection_source_invalid");
+    expect(await publishedVersion()).toBe(-1);
+  });
+
+  it("abandons a partially staged rejected snapshot and publishes a healthy replacement at the same version", async () => {
+    const event = await appendSource("I like coffee");
+    const good = await fact("Likes coffee", [source(event, "I like coffee")]);
+    await publishSnapshot(1, [good]);
+    const bad = await fact(`Order ${"6".repeat(6)}`, [source(event, "I like coffee")]);
+    const built = await snapshot(2, [good, bad], 1);
+    await project(service(), built.pages[0]!);
+    await expect(project(service(), built.pages[1]!)).rejects.toThrow("memory_projection_redaction_invalid");
+    const abandon = { ...built.commit, operation: "abandon" } as never;
+    await expect(project(service(), abandon)).resolves.toMatchObject({ published: false });
+    expect(await publishedVersion()).toBe(1);
+    expect(await currentFactCount()).toBe(1);
+    await expect(project(service(), abandon)).resolves.toMatchObject({ published: false, replayed: true });
+    await publishSnapshot(2, [good]);
+    expect(await publishedVersion()).toBe(2);
+  });
+
+  it("fences a delayed page at the database after abandonment", async () => {
+    const built = await snapshot(1, []);
+    const target = service(events, undefined, async () => {
+      await project(service(), { ...built.commit, operation: "abandon" } as never);
+    });
+    await expect(project(target, built.pages[0]!)).rejects.toThrow();
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM memory_fact_projection_versions").first("n")).toBe(0);
+  });
+
+  it("does not attach an old request's facts to a replacement page during the batch race", async () => {
+    const event = await appendSource("I like coffee");
+    const built = await snapshot(1, [
+      await fact("Likes coffee", [source(event, "I like coffee")]),
+      await fact("Drinks coffee", [source(event, "I like coffee")]),
+    ], 1);
+    await project(service(), built.pages[1]!);
+    const replacement = await snapshot(1, []);
+    const database = {
+      prepare: env.DB.prepare.bind(env.DB),
+      batch: async (statements: D1PreparedStatement[]) => {
+        await project(service(), { ...built.commit, operation: "abandon" } as never);
+        await project(service(), replacement.pages[0]!);
+        return env.DB.batch(statements);
+      },
+    } as unknown as D1Database;
+    const delayed = new MemoryProjectionService({
+      database, verifier: new DeviceRequestVerifier({ database: env.DB, audience }),
+      events, now: () => new Date(currentNow),
+    });
+    await expect(project(delayed, built.pages[0]!)).rejects.toThrow();
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM memory_fact_projection_facts").first("n")).toBe(0);
+    await expect(project(service(), replacement.commit)).resolves.toMatchObject({ published: true });
+  });
+
+  it.each(["UPDATE", "DELETE", "REPLACE"])("prevents %s from rewriting an abandonment receipt", async (operation) => {
+    const built = await snapshot(1, []);
+    await project(service(), { ...built.commit, operation: "abandon" } as never);
+    const statement = operation === "UPDATE"
+      ? "UPDATE memory_fact_projection_abandoned SET page_count = 2"
+      : operation === "DELETE" ? "DELETE FROM memory_fact_projection_abandoned"
+        : "INSERT OR REPLACE INTO memory_fact_projection_abandoned SELECT principal_id, device_id, projection_version, manifest_hash, 2, total_fact_count, key_id, key_fingerprint, key_generation, abandoned_at FROM memory_fact_projection_abandoned";
+    await expect(env.DB.prepare(statement).run()).rejects.toThrow();
+    expect(await env.DB.prepare("SELECT page_count FROM memory_fact_projection_abandoned").first("page_count")).toBe(1);
+  });
+
+  it("rechecks active keys before abandonment can delete staged pages", async () => {
+    const built = await snapshot(1, []);
+    await project(service(), built.pages[0]!);
+    await env.DB.prepare(`CREATE TRIGGER test_abandon_revoke AFTER INSERT ON request_nonces
+      BEGIN UPDATE device_keys SET status = 'revoked', revoked_at = NEW.consumed_at WHERE device_id = NEW.device_id; END`).run();
+    try {
+      await expect(project(service(), { ...built.commit, operation: "abandon" } as never)).rejects.toThrow();
+      expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM memory_fact_projection_versions").first("n")).toBe(1);
+      expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM memory_fact_projection_abandoned").first("n")).toBe(0);
+    } finally {
+      await env.DB.prepare("DROP TRIGGER test_abandon_revoke").run();
+    }
+  });
+
+  it.each([false, true])("distinguishes content rejection from internal failure over HTTP (%s)", async (internal) => {
+    currentNow = new Date();
+    const event = await appendSource("I like coffee");
+    const candidate = await fact(internal ? "Likes coffee" : `Order ${"6".repeat(6)}`, [source(event, "I like coffee")]);
+    const built = await snapshot(1, [candidate]);
+    if (internal) await env.DB.prepare(`CREATE TRIGGER test_projection_internal BEFORE INSERT ON memory_fact_projection_heads
+      BEGIN SELECT RAISE(ABORT, 'temporary_storage_failure'); END`).run();
+    try {
+      const wire = await signed(built.pages[0]!);
+      const response = await handleSyncRequest(new Request(`https://worker.internal${MEMORY_PROJECTION_PATH}`, {
+        method: "POST", headers: { [SIGNED_REQUEST_HEADER]: JSON.stringify(wire.request) }, body: wire.rawBody,
+      }), { ...env, SYNC_CONTINUATION_SECRET: base64(new Uint8Array(32).fill(7)) });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: internal ? "sync_request_rejected" : "memory_projection_content_rejected" });
+    } finally {
+      if (internal) await env.DB.prepare("DROP TRIGGER test_projection_internal").run();
+    }
+  });
+
+  it("reconciles commit before abandon and refuses commit after abandon", async () => {
+    const published = await publishSnapshot(1);
+    await expect(project(service(), { ...published.commit, operation: "abandon" } as never))
+      .resolves.toMatchObject({ published: true, replayed: true });
+    expect(await publishedVersion()).toBe(1);
+    const next = await snapshot(2, []);
+    await project(service(), next.pages[0]!);
+    await project(service(), { ...next.commit, operation: "abandon" } as never);
+    await expect(project(service(), next.commit)).rejects.toThrow();
+    expect(await publishedVersion()).toBe(1);
+  });
+
+  it.each(["manifestHash", "pageCount", "totalFactCount"] as const)("refuses abandon with different %s", async (field) => {
+    const built = await snapshot(1, []);
+    await project(service(), built.pages[0]!);
+    await expect(project(service(), {
+      ...built.commit, operation: "abandon", [field]: field === "manifestHash" ? "1".repeat(64) : 2,
+    } as never)).rejects.toThrow();
+    await expect(project(service(), built.commit)).resolves.toMatchObject({ published: true });
   });
 
   it("blocks a direct staged-to-published version transition", async () => {

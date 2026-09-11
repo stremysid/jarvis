@@ -47,6 +47,7 @@ export type {
   MemoryFactOriginV1,
   MemoryFactProjectBodyV1,
   MemoryFactProjectionCommitV1,
+  MemoryFactProjectionAbandonV1,
   MemoryFactProjectionPageV1,
   MemoryFactProjectionReceiptV1,
   MemoryFactProjectionV1,

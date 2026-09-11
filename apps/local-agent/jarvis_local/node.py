@@ -305,6 +305,10 @@ def _safe_node_cycle(
         safe = "sync: request failed"
     elif failure.startswith("distillation:"):
         safe = "distillation: request failed"
+    elif failure.startswith("projection_quarantined:"):
+        safe = "projection: facts quarantined"
+    elif failure.startswith("projection_recovery:"):
+        safe = "projection: permanent rejection; recovery pending"
     elif failure.startswith("projection:"):
         safe = "projection: request failed"
     else:

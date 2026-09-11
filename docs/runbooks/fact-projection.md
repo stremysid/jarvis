@@ -1,6 +1,6 @@
 # Home-node fact projection
 
-The home node publishes its complete active-fact view as a signed, versioned
+The home node publishes its eligible active-fact view as a signed, versioned
 snapshot. Cloud retrieval continues to use the previously published version
 until every page of its replacement has been validated and the commit is
 accepted. Publishing an empty snapshot retracts the device's earlier facts.
@@ -35,14 +35,62 @@ discarded and uploaded again.
 
 A snapshot is limited to 1,024 active facts in at most 32 pages. Each page is
 at most 65,536 canonical UTF-8 bytes and 32 facts, with at most eight sources
-per fact and 32 distinct source sequences per page. Exceeding a bound refuses
-the whole local snapshot; it does not silently omit facts.
+per fact and 32 distinct source sequences per page. Fact text is limited to
+4,096 UTF-8 bytes. Both distillation producers enforce the byte/source limits
+and reject text requiring redaction before recording a proposal. They do not
+truncate or rewrite claims. Aggregate snapshot/page bounds still fail the
+snapshot explicitly.
+
+An existing active fact that cannot be represented is excluded individually
+and recorded in local `memory_projection_quarantine`; other facts continue to
+publish. Its local text, provenance and active state are retained. Local memory
+migration `0004_projection_quarantine.sql` adds this record and the durable
+pending-rejection marker. Status reports `projection: facts quarantined`,
+including on later cycles while quarantined active facts remain.
 
 The node persists the complete page set before the first request. A stopped or
 restarted upload resends every immutable page with fresh signed-request nonces,
 then retries the commit. Duplicate receipts are safe only when their version,
 manifest, page coordinate, and page hash match exactly. A malformed receipt or
-upload failure leaves the local pending snapshot unchanged.
+transient upload failure leaves the local pending snapshot unchanged. A generic
+HTTP 400 is also retryable: the older route can use that status for internal
+database/archive failures. Only the exact authenticated content-rejection
+response starts abandonment.
+
+On explicit content rejection, the node records which pending page was refused,
+then signs an `abandon` request for the exact manifest, version and counts. The
+gateway atomically records an immutable abandonment receipt and removes only
+that matching staged version. This also prevents delayed old requests from
+restaging the abandoned manifest, including after key rotation. Existing
+published memory remains available. If publication already won the race, the
+gateway returns the exact published receipt and the node reconciles its cursor.
+
+Only an exact abandonment receipt clears the pending snapshot without advancing
+the cursor. The rejected page's facts are quarantined locally, and the next
+capture can publish the remaining facts at the same version. The rejection
+response does not identify which fact caused the failure, so every fact on that page
+is quarantined; this is recorded, never silently treated as a complete view.
+An interrupted recovery retries abandonment after restart, not the old pages.
+Status reports `projection: permanent rejection; recovery pending` until the
+recovery receipt arrives. Authentication failures still stop the service.
+
+Inspect quarantine metadata on the node without copying fact text into logs:
+
+```sql
+SELECT q.fact_id, q.reason, q.created_at, f.state
+FROM memory_projection_quarantine q JOIN fact f ON f.fact_id = q.fact_id
+WHERE q.principal_id = '<owner-principal>' AND q.device_id = '<home-device>';
+```
+
+Review the rejected page locally. Correcting a claim creates a new fact identity
+and can be projected normally; superseding an excluded fact clears its active
+warning. To retry an unchanged fact after fixing its source or the gateway,
+first allow a healthy or empty replacement snapshot to commit, then stop the
+node and remove only that reviewed fact's quarantine entry, scoped to
+gateway origin, principal and device, then restart. Do not alter pending pages,
+publication cursors or cloud abandonment receipts. Retrying an unchanged poison
+will quarantine it again. An abandoned manifest cannot be reused at its old
+version; the committed replacement is what makes the next version available.
 
 ## Retrieval behavior
 

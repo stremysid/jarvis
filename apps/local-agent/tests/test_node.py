@@ -66,9 +66,7 @@ def test_node_configuration_rejects_a_windows_path_on_linux() -> None:
 
 def test_archive_and_memory_must_be_different_before_they_are_opened() -> None:
     same = "/var/lib/jarvis/data.sqlite3"
-    config = JarvisLocalConfig.load(
-        linux_environment(JARVIS_ARCHIVE_PATH=same, JARVIS_MEMORY_PATH=same)
-    )
+    config = JarvisLocalConfig.load(linux_environment(JARVIS_ARCHIVE_PATH=same, JARVIS_MEMORY_PATH=same))
     with pytest.raises(NodeConfigurationError, match="separate"):
         NodeSettings.from_config(config, platform="linux")
 
@@ -240,9 +238,7 @@ def test_duplicate_socket_refusal_happens_before_any_store_is_opened(
     assert control.started == 1
 
 
-def test_a_second_store_open_failure_closes_the_first_store(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_second_store_open_failure_closes_the_first_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     archive = FakeClosable()
     monkeypatch.setattr("jarvis_local.agent.ArchiveRepository.open", lambda _: archive)
 
@@ -332,7 +328,7 @@ class SignedFlowOpener:
                         "manifestHash": body["manifestHash"],
                         "pageIndex": body["pageIndex"] if is_page else None,
                         "pageHash": body["pageHash"] if is_page else None,
-                        "published": not is_page,
+                        "published": body["operation"] == "commit",
                         "replayed": False,
                     }
                 ).encode("utf-8")
@@ -394,7 +390,7 @@ class EmptyCycleOpener:
                         "manifestHash": body["manifestHash"],
                         "pageIndex": body["pageIndex"] if is_page else None,
                         "pageHash": body["pageHash"] if is_page else None,
-                        "published": not is_page,
+                        "published": body["operation"] == "commit",
                         "replayed": False,
                     }
                 ).encode("utf-8")
@@ -541,30 +537,22 @@ def test_pending_projection_is_retried_by_a_reconstructed_node_before_distillati
 ) -> None:
     settings = settings_at(tmp_path)
     platform_device_key_store(settings.device_key_path).load_or_create()
-    first_opener = EmptyCycleOpener(
-        projection_actions=[None, urllib.error.URLError("commit response lost")]
-    )
-    first_runtime = build_node(
-        settings, opener=first_opener, control_factory=lambda *_: FakeControl()
-    )
+    first_opener = EmptyCycleOpener(projection_actions=[None, urllib.error.URLError("commit response lost")])
+    first_runtime = build_node(settings, opener=first_opener, control_factory=lambda *_: FakeControl())
     try:
         record_promotable_fact(first_runtime)
         assert isinstance(first_runtime.loop, RunLoop)
         failed = first_runtime.loop.run_cycle()
         assert isinstance(first_runtime.facts, FactRepository)
-        assert first_runtime.facts.connection.execute(
-            "SELECT COUNT(*) FROM memory_projection_pending"
-        ).fetchone() == (1,)
+        assert first_runtime.facts.connection.execute("SELECT COUNT(*) FROM memory_projection_pending").fetchone() == (
+            1,
+        )
         first_projection_bodies = first_opener.projection_bodies
     finally:
         first_runtime.close()
 
-    second_opener = EmptyCycleOpener(
-        distill_action=urllib.error.URLError("fresh model request unavailable")
-    )
-    second_runtime = build_node(
-        settings, opener=second_opener, control_factory=lambda *_: FakeControl()
-    )
+    second_opener = EmptyCycleOpener(distill_action=urllib.error.URLError("fresh model request unavailable"))
+    second_runtime = build_node(settings, opener=second_opener, control_factory=lambda *_: FakeControl())
     try:
         assert isinstance(second_runtime.archive, ArchiveRepository)
         second_runtime.archive.insert_event_if_absent(
@@ -582,9 +570,7 @@ def test_pending_projection_is_retried_by_a_reconstructed_node_before_distillati
         assert isinstance(second_runtime.loop, RunLoop)
         recovered = second_runtime.loop.run_cycle()
         assert isinstance(second_runtime.facts, FactRepository)
-        pending = second_runtime.facts.connection.execute(
-            "SELECT COUNT(*) FROM memory_projection_pending"
-        ).fetchone()
+        pending = second_runtime.facts.connection.execute("SELECT COUNT(*) FROM memory_projection_pending").fetchone()
         cursor = second_runtime.facts.connection.execute(
             "SELECT published_version FROM memory_projection_cursor"
         ).fetchone()
@@ -604,17 +590,60 @@ def test_pending_projection_is_retried_by_a_reconstructed_node_before_distillati
     assert cursor == (1,)
 
 
+def test_the_node_reports_quarantined_facts_and_keeps_publishing_later_cycles(tmp_path: Path) -> None:
+    settings = settings_at(tmp_path)
+    platform_device_key_store(settings.device_key_path).load_or_create()
+    rejected = urllib.error.HTTPError(
+        "https://gateway.example",
+        400,
+        "rejected",
+        Message(),
+        io.BytesIO(b'{"error":"memory_projection_content_rejected"}'),
+    )
+    opener = EmptyCycleOpener(projection_actions=[rejected])
+    runtime = build_node(settings, opener=opener, control_factory=lambda *_: FakeControl())
+    try:
+        record_promotable_fact(runtime)
+        assert isinstance(runtime.loop, RunLoop)
+        assert isinstance(runtime.facts, FactRepository)
+        assert runtime.loop.run_cycle().failure == "projection: facts quarantined"
+        assert runtime.loop.run_cycle().failure == "projection: facts quarantined"
+        assert [body["operation"] for body in opener.projection_bodies] == ["page", "abandon", "page", "commit"]
+        assert opener.projection_bodies[-2]["facts"] == []
+        assert runtime.facts.connection.execute(
+            "SELECT published_version FROM memory_projection_cursor"
+        ).fetchone() == (1,)
+    finally:
+        runtime.close()
+
+
+def test_the_node_distinguishes_pending_recovery_from_transient_projection_failure(tmp_path: Path) -> None:
+    settings = settings_at(tmp_path)
+    platform_device_key_store(settings.device_key_path).load_or_create()
+    rejected = urllib.error.HTTPError(
+        "https://gateway.example",
+        400,
+        "rejected",
+        Message(),
+        io.BytesIO(b'{"error":"memory_projection_content_rejected"}'),
+    )
+    opener = EmptyCycleOpener(projection_actions=[rejected, urllib.error.URLError("unavailable")])
+    runtime = build_node(settings, opener=opener, control_factory=lambda *_: FakeControl())
+    try:
+        record_promotable_fact(runtime)
+        assert isinstance(runtime.loop, RunLoop)
+        assert runtime.loop.run_cycle().failure == "projection: permanent rejection; recovery pending"
+    finally:
+        runtime.close()
+
+
 def test_pending_projection_authentication_rejection_stops_before_distillation(
     tmp_path: Path,
 ) -> None:
     settings = settings_at(tmp_path)
     platform_device_key_store(settings.device_key_path).load_or_create()
-    first_opener = EmptyCycleOpener(
-        projection_actions=[None, urllib.error.URLError("commit response lost")]
-    )
-    first_runtime = build_node(
-        settings, opener=first_opener, control_factory=lambda *_: FakeControl()
-    )
+    first_opener = EmptyCycleOpener(projection_actions=[None, urllib.error.URLError("commit response lost")])
+    first_runtime = build_node(settings, opener=first_opener, control_factory=lambda *_: FakeControl())
     try:
         record_promotable_fact(first_runtime)
         assert isinstance(first_runtime.loop, RunLoop)
@@ -622,21 +651,15 @@ def test_pending_projection_authentication_rejection_stops_before_distillation(
     finally:
         first_runtime.close()
 
-    rejected = urllib.error.HTTPError(
-        "https://gateway.example/sync/memory/project", 403, "forbidden", Message(), None
-    )
+    rejected = urllib.error.HTTPError("https://gateway.example/sync/memory/project", 403, "forbidden", Message(), None)
     second_opener = EmptyCycleOpener(projection_actions=[rejected])
-    second_runtime = build_node(
-        settings, opener=second_opener, control_factory=lambda *_: FakeControl()
-    )
+    second_runtime = build_node(settings, opener=second_opener, control_factory=lambda *_: FakeControl())
     try:
         assert isinstance(second_runtime.loop, RunLoop)
         result = second_runtime.loop.run_cycle()
         decision = second_runtime.loop.scheduler.after(SchedulerState(), result)
         assert isinstance(second_runtime.facts, FactRepository)
-        pending = second_runtime.facts.connection.execute(
-            "SELECT COUNT(*) FROM memory_projection_pending"
-        ).fetchone()
+        pending = second_runtime.facts.connection.execute("SELECT COUNT(*) FROM memory_projection_pending").fetchone()
     finally:
         second_runtime.close()
 
@@ -666,9 +689,7 @@ def test_node_stop_between_projection_page_and_commit_leaves_pending_snapshot(
         assert isinstance(runtime.loop, RunLoop)
         result = runtime.loop.run_cycle()
         assert isinstance(runtime.facts, FactRepository)
-        pending = runtime.facts.connection.execute(
-            "SELECT COUNT(*) FROM memory_projection_pending"
-        ).fetchone()
+        pending = runtime.facts.connection.execute("SELECT COUNT(*) FROM memory_projection_pending").fetchone()
     finally:
         runtime.close()
 
@@ -680,9 +701,7 @@ def test_node_stop_between_projection_page_and_commit_leaves_pending_snapshot(
 def test_projection_authentication_failure_stops_the_real_node(tmp_path: Path) -> None:
     settings = settings_at(tmp_path)
     platform_device_key_store(settings.device_key_path).load_or_create()
-    rejected = urllib.error.HTTPError(
-        "https://gateway.example/sync/memory/project", 403, "forbidden", Message(), None
-    )
+    rejected = urllib.error.HTTPError("https://gateway.example/sync/memory/project", 403, "forbidden", Message(), None)
     opener = EmptyCycleOpener(projection_actions=[rejected])
     runtime = build_node(settings, opener=opener, control_factory=lambda *_: FakeControl())
     try:
@@ -691,9 +710,7 @@ def test_projection_authentication_failure_stops_the_real_node(tmp_path: Path) -
         reason = runtime.loop.run()
         report = "\n".join(runtime.state.report())
         assert isinstance(runtime.facts, FactRepository)
-        pending = runtime.facts.connection.execute(
-            "SELECT COUNT(*) FROM memory_projection_pending"
-        ).fetchone()
+        pending = runtime.facts.connection.execute("SELECT COUNT(*) FROM memory_projection_pending").fetchone()
     finally:
         runtime.close()
 
@@ -702,15 +719,11 @@ def test_projection_authentication_failure_stops_the_real_node(tmp_path: Path) -
     assert pending == (1,)
 
 
-def test_bootstrap_gives_replication_a_live_stop_check(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_bootstrap_gives_replication_a_live_stop_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     settings = settings_at(tmp_path)
     platform_device_key_store(settings.device_key_path).load_or_create()
     captured: list[Any] = []
-    real_replicator = __import__(
-        "jarvis_local.sync.event_replicator", fromlist=["EventReplicator"]
-    ).EventReplicator
+    real_replicator = __import__("jarvis_local.sync.event_replicator", fromlist=["EventReplicator"]).EventReplicator
 
     def build_replicator(*args: object, **kwargs: Any) -> Any:
         built = real_replicator(*args, **kwargs)
