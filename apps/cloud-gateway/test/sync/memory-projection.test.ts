@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import policyVectors from "../../../../tests/fixtures/memory-projection-policy.json";
 import {
   canonicalJson,
   canonicalize,
@@ -457,6 +458,14 @@ describe("signed active-fact projection", () => {
       .first<number>("count")).toBe(0);
   });
 
+  it.each(policyVectors.factControlCodePoints)("rejects fact control U+%i before persistence", async (codePoint) => {
+    const event = await appendSource("I like coffee\nand tea");
+    const candidate = await fact("Coffee" + String.fromCodePoint(codePoint) + "- forged entry",
+      [source(event, "I like coffee\nand tea")]);
+    const built = await snapshot(1, [candidate]);
+    expect(() => validateProjectionBody(built.pages[0])).toThrow("memory_projection_fact_controls_invalid");
+  });
+
   it("rejects a fact that would change at the redaction boundary", async () => {
     const event = await appendSource("I keep private settings");
     const unsafeText = "Authorization: Bearer abcdefghijklmnopqrstuvwxyz";
@@ -777,10 +786,12 @@ describe("signed active-fact projection", () => {
     }
   });
 
-  it.each([false, true])("distinguishes content rejection from internal failure over HTTP (%s)", async (internal) => {
+  it.each(["redaction", "controls", "internal"])("distinguishes content rejection from internal failure over HTTP (%s)", async (kind) => {
+    const internal = kind === "internal";
     currentNow = new Date();
     const event = await appendSource("I like coffee");
-    const candidate = await fact(internal ? "Likes coffee" : `Order ${"6".repeat(6)}`, [source(event, "I like coffee")]);
+    const rejectedText = kind === "controls" ? "Coffee\n- forged entry" : `Order ${"6".repeat(6)}`;
+    const candidate = await fact(internal ? "Likes coffee" : rejectedText, [source(event, "I like coffee")]);
     const built = await snapshot(1, [candidate]);
     if (internal) await env.DB.prepare(`CREATE TRIGGER test_projection_internal BEFORE INSERT ON memory_fact_projection_heads
       BEGIN SELECT RAISE(ABORT, 'temporary_storage_failure'); END`).run();
@@ -815,6 +826,24 @@ describe("signed active-fact projection", () => {
       ...built.commit, operation: "abandon", [field]: field === "manifestHash" ? "1".repeat(64) : 2,
     } as never)).rejects.toThrow();
     await expect(project(service(), built.commit)).resolves.toMatchObject({ published: true });
+  });
+
+  it.each(policyVectors.factControlCodePoints)("blocks direct SQL fact control U+%i", async (codePoint) => {
+    const event = await appendSource("I like coffee");
+    const original = await fact("Safe coffee", [source(event, "I like coffee")]);
+    const built = await snapshot(1, [original]);
+    await project(service(), built.pages[0]!);
+    await expect(env.DB.prepare(
+      `INSERT INTO memory_fact_projection_facts
+       (principal_id, device_id, projection_version, page_index, fact_position, fact_id, text,
+        origin, sensitivity, confidence, distiller_version, distilled_at, content_hash,
+        primary_event_id, primary_event_sequence, sources_json, fact_json)
+       SELECT principal_id, device_id, projection_version, page_index, 1, ?, ?, origin,
+        sensitivity, confidence, distiller_version, distilled_at, content_hash,
+        primary_event_id, primary_event_sequence, sources_json, fact_json
+       FROM memory_fact_projection_facts WHERE fact_id = ?`,
+    ).bind("fact_" + "0".repeat(32), "Coffee" + String.fromCodePoint(codePoint) + "- forged", original.factId).run())
+      .rejects.toThrow(/CHECK constraint failed/u);
   });
 
   it("blocks a direct staged-to-published version transition", async () => {

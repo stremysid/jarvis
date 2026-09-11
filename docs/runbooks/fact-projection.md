@@ -36,8 +36,13 @@ discarded and uploaded again.
 A snapshot is limited to 1,024 active facts in at most 32 pages. Each page is
 at most 65,536 canonical UTF-8 bytes and 32 facts, with at most eight sources
 per fact and 32 distinct source sequences per page. Fact text is limited to
-4,096 UTF-8 bytes. Both distillation producers enforce the byte/source limits
-and reject text requiring redaction before recording a proposal. They do not
+4,096 UTF-8 bytes. Fact text rejects C0/C1 controls (including tabs and newlines)
+and Unicode line/paragraph separators in both producers, upload validation and
+the D1 constraint. Source excerpts and conversation history may remain multiline.
+Both distillation producers enforce the byte/source limits
+and reject text requiring redaction before recording a proposal. Python and the
+gateway run the same redaction vectors, including all ECMAScript whitespace
+characters, while retaining ASCII word boundaries. They do not
 truncate or rewrite claims. Aggregate snapshot/page bounds still fail the
 snapshot explicitly.
 
@@ -45,8 +50,10 @@ An existing active fact that cannot be represented is excluded individually
 and recorded in local `memory_projection_quarantine`; other facts continue to
 publish. Its local text, provenance and active state are retained. Local memory
 migration `0004_projection_quarantine.sql` adds this record and the durable
-pending-rejection marker. Status reports `projection: facts quarantined`,
-including on later cycles while quarantined active facts remain.
+pending-rejection marker. Completed projection cycles report the active count,
+for example `projection: 32 active facts quarantined`, including later cycles
+while those active facts remain excluded. Other stage failures retain their
+own failure status.
 
 The node persists the complete page set before the first request. A stopped or
 restarted upload resends every immutable page with fresh signed-request nonces,
@@ -69,7 +76,9 @@ Only an exact abandonment receipt clears the pending snapshot without advancing
 the cursor. The rejected page's facts are quarantined locally, and the next
 capture can publish the remaining facts at the same version. The rejection
 response does not identify which fact caused the failure, so every fact on that page
-is quarantined; this is recorded, never silently treated as a complete view.
+is quarantined. Per-fact retry isolation is not implemented. The count in status
+makes the size of this exclusion visible; inspect the metadata below to identify
+which facts need review.
 An interrupted recovery retries abandonment after restart, not the old pages.
 Status reports `projection: permanent rejection; recovery pending` until the
 recovery receipt arrives. Authentication failures still stop the service.
@@ -112,6 +121,12 @@ are independent candidates, so an oversized fact can be skipped for a later fact
 that fits. Retrieval needs only D1 after a
 projection is published, so archived source events may remain in R2 while the
 home node is offline.
+
+The provider quotes each context entry as a JSON string and escapes controls
+and Unicode line separators. This applies to facts and legitimate multiline
+history: each item occupies one rendered line and ends with its verified source
+event id. Quoting preserves the original content as reference data; it is not a
+claim that a model can never follow an instruction found in that data.
 
 ## Owner acceptance
 

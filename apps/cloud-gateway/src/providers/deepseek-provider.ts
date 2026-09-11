@@ -158,7 +158,13 @@ function buildMessages(input: ModelAdapterStreamInput): readonly ChatMessage[] {
     // messages. Individually they read as separate instructions, and the model
     // can answer an older history entry instead of the current question.
     const history = input.context
-      .map((item) => `- ${item.text}  [${item.sourceEventId}]`)
+      .map((item) => {
+        // History legitimately spans lines. Quote it as data and escape the line
+        // separators JSON leaves literal so its contents cannot forge another entry.
+        const quoted = JSON.stringify(item.text).replace(/[\u007f-\u009f\u2028\u2029]/gu,
+          (character) => "\\u" + character.charCodeAt(0).toString(16).padStart(4, "0"));
+        return `- ${quoted}  [${item.sourceEventId}]`;
+      })
       .join("\n");
     messages.push({
       role: "system",

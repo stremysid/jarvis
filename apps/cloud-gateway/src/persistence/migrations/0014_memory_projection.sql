@@ -203,7 +203,11 @@ CREATE TABLE memory_fact_projection_facts (
   fact_id TEXT NOT NULL
     CHECK (length(fact_id) = 37 AND fact_id GLOB 'fact_*'
       AND substr(fact_id, 6) NOT GLOB '*[^0-9a-f]*'),
-  text TEXT NOT NULL CHECK (length(CAST(text AS BLOB)) BETWEEN 1 AND 4096),
+  text TEXT NOT NULL CHECK (length(CAST(text AS BLOB)) BETWEEN 1 AND 4096)
+    -- NUL terminates GLOB's input, so it needs its own test.
+    CHECK (instr(text, char(0)) = 0)
+    CHECK (text NOT GLOB ('*[' || char(1) || '-' || char(31)
+      || char(127) || '-' || char(159) || char(8232) || char(8233) || ']*')),
   origin TEXT NOT NULL CHECK (origin IN (
     'authenticated_first_person', 'deterministic_observation', 'model', 'third_party'
   )),

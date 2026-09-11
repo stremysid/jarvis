@@ -14,7 +14,7 @@ import {
   type SignedRequestV1,
 } from "../../../../packages/contracts/src/index.js";
 import type { AppendedEvent, SyncEventReader } from "../persistence/event-repository.js";
-import { MAX_MEMORY_FACT_BYTES, MAX_MEMORY_FACT_SOURCES } from "../../../../packages/contracts/src/memory-projection.js";
+import { hasFactTextControls, MAX_MEMORY_FACT_BYTES, MAX_MEMORY_FACT_SOURCES } from "../../../../packages/contracts/src/memory-projection.js";
 import {
   CONVERSATION_EVENT_PRODUCER_VERSION,
   CONVERSATION_EVENT_SOURCE,
@@ -114,10 +114,14 @@ function exactRecord(value: unknown, fields: ReadonlySet<string>, code: string):
   return record;
 }
 
-function text(value: unknown, maximumBytes: number, code: string): string {
+function text(value: unknown, maximumBytes: number, code: string, singleLine = false): string {
   if (typeof value !== "string" || value.length === 0 || !value.isWellFormed()
     || value !== value.normalize("NFC") || encoder.encode(value).byteLength > maximumBytes) {
     throw new TypeError(code);
+  }
+  if (singleLine && hasFactTextControls(value)) {
+    // Old pending pages must reach signed abandonment instead of retrying forever.
+    throw new ProjectionContentRejectedError("memory_projection_fact_controls_invalid");
   }
   return value;
 }
@@ -170,7 +174,7 @@ function captureFact(value: unknown): MemoryFactProjectionV1 {
   }
   return Object.freeze({
     factId: fact.factId,
-    text: text(fact.text, MAX_FACT_BYTES, "memory_projection_fact_invalid"),
+    text: text(fact.text, MAX_FACT_BYTES, "memory_projection_fact_invalid", true),
     origin: fact.origin as MemoryFactProjectionV1["origin"],
     sensitivity: fact.sensitivity,
     confidence: fact.confidence,

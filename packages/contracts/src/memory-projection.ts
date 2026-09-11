@@ -4,6 +4,11 @@ import type { Sha256Hex, Ulid } from "./ids.js";
 export const MAX_MEMORY_FACT_BYTES = 4_096;
 export const MAX_MEMORY_FACT_SOURCES = 8;
 
+/** Facts must not introduce another rendered entry, including Unicode line breaks. */
+export function hasFactTextControls(text: string): boolean {
+  return /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(text);
+}
+
 export type MemoryFactOriginV1 =
   | "authenticated_first_person"
   | "deterministic_observation"

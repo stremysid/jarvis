@@ -51,6 +51,7 @@ class CycleResult:
     #: so a scheduler can decide whether to back off without parsing an
     #: exception.
     failure: str | None = None
+    facts_quarantined: int = 0
 
 
 def run_cycle(
@@ -114,7 +115,7 @@ def run_cycle(
         return result
     try:
         projected = projector.project()
-        quarantined = max(quarantined, projected.quarantined)
+        quarantined = projected.quarantined
     except ProjectionRecoveryError:
         return replace(result, failure="projection_recovery: pending")
     except CloudAuthError as error:
@@ -133,7 +134,9 @@ def run_cycle(
             len(promoted),
             failure=f"projection: {error}",
         )
-    return replace(result, failure="projection_quarantined: facts excluded") if quarantined else result
+    return replace(
+        result, failure="projection_quarantined: facts excluded", facts_quarantined=quarantined,
+    ) if quarantined else result
 
 
 def open_stores(archive_path: Path, memory_path: Path) -> tuple[ArchiveRepository, FactRepository]:

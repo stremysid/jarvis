@@ -590,7 +590,10 @@ def test_pending_projection_is_retried_by_a_reconstructed_node_before_distillati
     assert cursor == (1,)
 
 
-def test_the_node_reports_quarantined_facts_and_keeps_publishing_later_cycles(tmp_path: Path) -> None:
+@pytest.mark.parametrize("fact_count", [1, 32])
+def test_the_node_reports_quarantine_count_and_keeps_publishing_later_cycles(
+    tmp_path: Path, fact_count: int,
+) -> None:
     settings = settings_at(tmp_path)
     platform_device_key_store(settings.device_key_path).load_or_create()
     rejected = urllib.error.HTTPError(
@@ -606,8 +609,24 @@ def test_the_node_reports_quarantined_facts_and_keeps_publishing_later_cycles(tm
         record_promotable_fact(runtime)
         assert isinstance(runtime.loop, RunLoop)
         assert isinstance(runtime.facts, FactRepository)
-        assert runtime.loop.run_cycle().failure == "projection: facts quarantined"
-        assert runtime.loop.run_cycle().failure == "projection: facts quarantined"
+        for index in range(1, fact_count):
+            runtime.facts.record_proposal(FactProposal(
+                principal_id="principal-1",
+                text=f"Healthy preference {index}",
+                origin=FactOrigin.AUTHENTICATED_FIRST_PERSON,
+                source_event_ids=("01k3w1t4000000000000000220",),
+            ))
+        def stop_after_two_cycles(_seconds: float) -> None:
+            if len(runtime.state.recent()) == 2:
+                runtime.state.request_stop()
+
+        runtime.loop.sleep = stop_after_two_cycles
+        assert runtime.loop.run() == "stopped"
+        report = control_handlers(runtime.state)["status"](CliCommand("status"))
+        cycle_lines = [line for line in report.lines if line.startswith("cycle ")]
+        assert len(cycle_lines) == 2
+        assert all(f"projection: {fact_count} active facts quarantined" in line for line in cycle_lines)
+        assert len(opener.projection_bodies[0]["facts"]) == fact_count
         assert [body["operation"] for body in opener.projection_bodies] == ["page", "abandon", "page", "commit"]
         assert opener.projection_bodies[-2]["facts"] == []
         assert runtime.facts.connection.execute(

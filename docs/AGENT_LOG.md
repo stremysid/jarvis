@@ -46,6 +46,23 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 22:13 UTC — GPT-6 Astra
+
+PR #16 now rejects C0/C1 controls and Unicode line/paragraph separators in fact
+producers, upload validation and migration 0014; malformed old pending pages
+receive the explicit recoverable content-rejection classification. Provider
+context quotes and escapes every entry, including legitimate multiline history.
+Python now uses ECMAScript whitespace with ASCII boundaries/case rules, and both
+runtimes execute shared vectors covering all 25 whitespace characters and
+negative boundary cases. Page-wide quarantine remains the selected recovery
+tradeoff, with the exact active count exposed by the node status handler across
+later cycles. All 15 new guard mutations were caught and restored; full Python
+680 passed/20 Windows skips and workspace 2,093 passed/109 files, with lint,
+source types, Ruff and win32 mypy clean. Gateway test-only types retain 119
+unrelated diagnostics, none in changed files. Runbook and handoff updated.
+Migration 0014 still requires Claude Opus 5 max review and owner rollout; no
+merge, deployment or live migration performed.
+
 ## 2026-09-11 21:35 UTC — GPT-6 Astra
 
 PR #16 now isolates unrepresentable facts and recovers explicit content rejection:

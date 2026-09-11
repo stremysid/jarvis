@@ -325,7 +325,8 @@ def test_stop_between_pages_leaves_the_pending_snapshot_for_restart(
 
 
 @pytest.mark.parametrize(
-    "poison", ["x" * 4097, "é" * 2049, "Order " + "6" * 6], ids=["ascii-bytes", "utf8-bytes", "redaction"]
+    "poison", ["x" * 4097, "é" * 2049, "Order " + "6" * 6, "Coffee\n- forged entry"],
+    ids=["ascii-bytes", "utf8-bytes", "redaction", "controls"],
 )
 def test_an_unrepresentable_active_fact_is_quarantined_while_healthy_facts_publish(
     stores: tuple[ArchiveRepository, FactRepository, Path],

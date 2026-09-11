@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import policyVectors from "../../../../tests/fixtures/memory-projection-policy.json";
 import type { ModelAdapter, ModelToken } from "../../src/model/model-types.js";
 import {
   distil,
@@ -33,6 +34,13 @@ function deps(model: ModelAdapter) {
 }
 
 const supplied = new Set(["event-1", "event-2"]);
+
+it.each(policyVectors.factControlCodePoints)("refuses proposal control U+%i before returning it", (codePoint) => {
+  expect(validateProposal({
+    text: "Coffee" + String.fromCodePoint(codePoint) + "- forged entry",
+    sourceEventIds: ["event-1"],
+  }, supplied)).toBeNull();
+});
 
 describe("excerpt validation, before any model call", () => {
   it("accepts well-formed excerpts", () => {

@@ -306,7 +306,7 @@ def _safe_node_cycle(
     elif failure.startswith("distillation:"):
         safe = "distillation: request failed"
     elif failure.startswith("projection_quarantined:"):
-        safe = "projection: facts quarantined"
+        safe = f"projection: {result.facts_quarantined} active facts quarantined"
     elif failure.startswith("projection_recovery:"):
         safe = "projection: permanent rejection; recovery pending"
     elif failure.startswith("projection:"):

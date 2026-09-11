@@ -5,6 +5,14 @@ using this checkpoint. R0 passed on September 11; calling remains R1.
 
 ## R2 item 3 review candidate
 
+Fact text now rejects controls and Unicode line separators at both producers,
+upload validation and the D1 boundary. Provider context quotes/escapes each
+entry, including multiline history, so content cannot add a rendered entry.
+Python and TypeScript execute one shared redaction-vector file covering
+ECMAScript whitespace and ASCII boundary/case semantics. Page rejection still
+quarantines the page as a unit; completed projection cycles expose the exact
+active quarantine count through node status.
+
 The follow-up addresses permanently stalled projection: distillation now shares
 the 4,096 UTF-8-byte/eight-source bounds and refuses text requiring redaction.
 Legacy unrepresentable facts are quarantined individually. Definitive gateway
@@ -30,14 +38,14 @@ The Python uploader persists an
 immutable snapshot before HTTP and resends every page after interruption,
 advancing only on an exact commit receipt. Local memory migration `0003`
 adds its durable pending pages and publication cursor. Full Python validation
-is 620 passed / 20 Windows skips, with Ruff and win32 mypy clean. Cloud context
+is 680 passed / 20 Windows skips, with Ruff and win32 mypy clean. Cloud context
 now combines matching published facts with recent turns, enforces active
 principal/device ownership and a shared byte/item budget, and keeps the most
 restrictive sensitivity across device duplicates. History stops at the first
 over-budget turn to preserve its contiguous newest suffix; deferred facts can
 use the remaining space and skip independent oversized candidates. Keyword
 mutations fail the three regressions for these boundaries. Full workspace
-validation is 2,007 passed / 108 files, with lint and source types clean. Removing both
+validation is 2,093 passed / 109 files, with lint and source types clean. Removing both
 publication predicates exposes staged facts and fails the regression; removing
 the device-status predicate exposes a revoked fact and also fails. All guards
 were restored before the full suite.

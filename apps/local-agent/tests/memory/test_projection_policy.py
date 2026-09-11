@@ -1,8 +1,35 @@
 """Refusal uses the gateway's redaction categories without rewriting facts."""
 
+import json
+from pathlib import Path
+
 import pytest
 
-from jarvis_local.memory.projection_policy import redaction_would_change
+from jarvis_local.memory.projection_policy import redaction_would_change, representable_fact_text
+
+VECTORS = json.loads(
+    (Path(__file__).resolve().parents[4] / "tests/fixtures/memory-projection-policy.json").read_text("utf-8")
+)
+
+
+def expand(text: str) -> str:
+    return text.replace("<six>", "6" * 6).replace("<eight>", "7" * 8).replace("<bearer>", "a" * 15 + "1")
+
+
+@pytest.mark.parametrize("case", VECTORS["redactionCases"], ids=lambda case: case["name"])
+def test_shared_redaction_decisions(case: dict[str, object]) -> None:
+    assert redaction_would_change(expand(str(case["text"]))) is case["refuse"]
+
+
+@pytest.mark.parametrize("code_point", VECTORS["jsWhitespaceCodePoints"])
+def test_shared_ecmascript_whitespace(code_point: int) -> None:
+    for template in VECTORS["spaceTemplates"]:
+        assert redaction_would_change(expand(template.replace("<space>", chr(code_point))))
+
+
+@pytest.mark.parametrize("code_point", VECTORS["factControlCodePoints"])
+def test_fact_controls_are_refused_without_rewriting(code_point: int) -> None:
+    assert not representable_fact_text("Coffee" + chr(code_point) + "- forged entry")
 
 
 @pytest.mark.parametrize(

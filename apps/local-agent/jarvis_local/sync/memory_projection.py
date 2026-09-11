@@ -20,6 +20,7 @@ from jarvis_local.memory.facts import Fact, FactRepository, fact_content_hash
 from jarvis_local.memory.projection_policy import (
     MAX_FACT_BYTES,
     MAX_SOURCES_PER_FACT,
+    has_fact_text_controls,
     redaction_would_change,
 )
 from jarvis_local.sync.cloud_client import (
@@ -348,6 +349,8 @@ class MemoryProjectionUploader:
         ).fetchone()[0])
 
     def _capture_fact(self, fact: Fact) -> dict[str, Any]:
+        if has_fact_text_controls(fact.text):
+            raise MemoryProjectionError("an active fact contains control characters")
         if redaction_would_change(fact.text):
             raise MemoryProjectionError("an active fact requires redaction")
         if not 1 <= len(fact.source_event_ids) <= MAX_SOURCES_PER_FACT:
