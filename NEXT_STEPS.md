@@ -31,12 +31,14 @@ R0 only; do not start R1 or resume superseded implementation plans.
    UptimeRobot actions in [the runbook](docs/runbooks/deploy.md), against the
    watchdog's `/health` and never the gateway's. Until that is observed,
    nothing watches the watchdog.
-8. **R0 exit is incomplete.** Telegram `/status` and `/queue`, gateway cron
-   heartbeat delivery recorded by the watchdog, and the morning digest
-   saying "nothing due" remain unverified. Read-only D1 checks at 05:11 UTC
-   found successful drain/poll runs and a fresh watchdog self-row, but no
-   gateway heartbeat row. Green CI on current main `2b506c8` is verified.
-   Do not start R1 until the remaining evidence is observed.
+8. **R0 exit is incomplete.** Telegram `/status` and `/queue` and the morning
+   digest saying "nothing due" remain unverified. Green CI on current main
+   `2b506c8` is verified. Do not start R1 until those three are observed.
+   Gateway heartbeat delivery **is no longer on this list**: Sid removed it
+   on 2026-09-11, and the amendment below is the authority. Read-only D1
+   checks at 05:11 UTC found successful drain/poll runs and a fresh watchdog
+   self-row but no gateway heartbeat row, which is recorded as a known issue
+   rather than an exit condition.
 
 ## Next gate
 

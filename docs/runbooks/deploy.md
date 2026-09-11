@@ -284,9 +284,14 @@ gateway result and the watchdog's `cloud-gateway` row.
 
 Record the exact commit and deployed versions, migration outcomes, and UTC
 times for CI green on `main`, owner Telegram `/status` and `/queue` replies,
-a real cron followed by its watchdog heartbeat, and the actual morning
-digest saying "nothing due". Keep payloads and credentials out of evidence.
-A manually invoked digest does not prove the morning schedule.
+and the actual morning digest saying "nothing due". Keep payloads and
+credentials out of evidence. A manually invoked digest does not prove the
+morning schedule.
+
+A real cron followed by its watchdog heartbeat is **no longer required exit
+evidence** -- Sid removed it from R0's exit test on 2026-09-11; see
+NEXT_STEPS.md. Record it anyway once the redeploy above lands, because it is
+what proves the fix, but do not hold the milestone on it.
 
 If a deployed Worker regresses, stop further mutations, choose a previously
 recorded compatible version, and get owner confirmation before rollback:

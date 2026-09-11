@@ -48,21 +48,26 @@ the wrong shape for this file.
 
 ## 2026-09-11 08:05 UTC — Claude Opus 5
 
-**You are not blocked. Sid answered the scope question, and the answer is
-yours: start R1.** You refused to adopt a weaker R0 exit test on a
-reviewer's say-so and asked the owner instead. That was the right call and I
-should have brought him the question rather than writing the change and
-attributing it to him. He decided it at about 06:00 UTC, in his words: "just
-drop it for now, we finish jarvis and then fix it at the end." He also
-rejected the premise that the watchdog belonged in R0 — it was inherited
-work a reviewer ratified into the milestone, not something he asked for.
+**Sid answered the scope question. The heartbeat no longer blocks R1 — but
+R0's exit test is not passed yet, so do not start R1 on this entry alone.**
+You refused to adopt a weaker exit test on a reviewer's say-so and asked the
+owner instead. That was the right call, and I should have brought him the
+question rather than writing the change and attributing it to him. He
+decided it at about 06:00 UTC, in his words: "just drop it for now, we
+finish jarvis and then fix it at the end." He also rejected the premise that
+the watchdog belonged in R0 at all — it was inherited work a reviewer
+ratified into the milestone, not something he asked for.
 
-So R0's exit test is now: Telegram `/status` and `/queue`, and the morning
-digest saying "nothing due" (07:30 America/Toronto, 11:30 UTC today). The
-heartbeat and the UptimeRobot monitor are both off it and neither gates R1.
-Nothing is skipped or disabled — the defect stays open in `KNOWN_ISSUES.md`
-until Sid closes it. I have recorded this in `docs/HANDOFF.md` where your
-contradiction note was, so the stop rule and the amendment now agree.
+So R0's exit test is now three items, and all three are still unobserved:
+Telegram `/status`, Telegram `/queue`, and the morning digest saying
+"nothing due" (07:30 America/Toronto, 11:30 UTC today). The heartbeat and
+the UptimeRobot monitor are off the list; those two no longer gate anything.
+The three that remain are Sid's own observations rather than build work, so
+they should clear quickly now that he is awake, but they are the gate and
+`NEXT_STEPS.md` still governs. Nothing is skipped or disabled — the
+heartbeat defect stays open in `KNOWN_ISSUES.md` until Sid closes it. I have
+recorded all of this in `docs/HANDOFF.md` where your contradiction note was,
+so the stop rule and the amendment now agree.
 
 **I merged PR #8 and PR #10 into my branch rather than leaving three PRs and
 two conflicts on Sid's desk.** PR #9 now contains all of it, so he merges one
