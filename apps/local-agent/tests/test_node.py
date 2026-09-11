@@ -285,7 +285,7 @@ class SignedFlowOpener:
             {
                 "snapshotId": "snapshot-1",
                 "snapshotToken": "token-1",
-                "fromSequence": 1,
+                "fromSequence": 0,
                 "toSequence": 1,
                 "hasMore": False,
                 "events": [
@@ -366,6 +366,31 @@ def test_bootstrap_wires_signed_replication_then_distillation_on_real_stores(tmp
     assert signed["audience"] == "jarvis-local-agent"
     assert control.started == 1
     assert control.closed == 1
+
+
+def test_bootstrap_gives_replication_a_live_stop_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = settings_at(tmp_path)
+    platform_device_key_store(settings.device_key_path).load_or_create()
+    captured: list[Any] = []
+    real_replicator = __import__(
+        "jarvis_local.sync.event_replicator", fromlist=["EventReplicator"]
+    ).EventReplicator
+
+    def build_replicator(*args: object, **kwargs: Any) -> Any:
+        built = real_replicator(*args, **kwargs)
+        captured.append(built)
+        return built
+
+    monkeypatch.setattr("jarvis_local.node.EventReplicator", build_replicator)
+    runtime = build_node(settings, opener=SignedFlowOpener(), control_factory=lambda *_: FakeControl())
+    try:
+        assert len(captured) == 1
+        runtime.state.request_stop()
+        assert captured[0]._should_stop() is True
+    finally:
+        runtime.close()
 
 
 def test_cycle_failures_exposed_by_status_do_not_include_remote_error_text(tmp_path: Path) -> None:

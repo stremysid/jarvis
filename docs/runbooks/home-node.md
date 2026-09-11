@@ -10,10 +10,14 @@ and serves `status`, `run-once`, and `stop` on a private Unix socket.
 Install the local-agent checkout at `/opt/jarvis/local-agent`, create its locked
 environment, and install the console command:
 
+Install a supported Python 3.12-3.14 interpreter at `/usr/bin/python3`. The
+service sandbox cannot use a uv-managed interpreter under an operator's home
+because `ProtectHome=true` hides that path.
+
 ```sh
 getent passwd jarvis >/dev/null || sudo useradd --system --user-group --home /var/lib/jarvis --shell /usr/sbin/nologin jarvis
 cd /opt/jarvis/local-agent
-uv sync --locked
+uv sync --locked --python /usr/bin/python3 --no-managed-python
 sudo install -d -o jarvis -g jarvis -m 0700 /var/lib/jarvis
 sudo install -d -o root -g jarvis -m 0750 /etc/jarvis
 sudo touch /etc/jarvis/node.env
@@ -78,8 +82,17 @@ Exit status 3 means configuration needs correction. Exit status 5 means the
 device identity, enrollment, or signed-request clock needs attention; systemd
 does not restart either failure in a loop. `SIGTERM` requests a graceful stop
 after the active cycle: close both stores, remove only this process's socket,
-and exit. Each HTTP operation has a 30-second socket timeout; the unit allows
-120 seconds for shutdown before systemd escalates the stop.
+and exit. Each HTTP operation has a 30-second socket timeout. An expired ACK
+recovery can make three sync requests before the next stage, with stop checks
+between requests, so the unit allows 180 seconds for shutdown before systemd
+escalates the stop.
+
+The current node stores each new pending sync acknowledgement with its snapshot
+boundary and gateway, device, and principal owner. If an archive upgraded from
+an older version already has a `pending_sync_ack` row without that metadata,
+the node fails closed because it cannot reconstruct a safe signed ACK. Stop and
+obtain owner-directed repair; do not delete the owed row, reset the cursor, or
+claim the archive is synchronized.
 
 After startup, the owner smoke is a successful `status` as `jarvis`. A status
 attempt as another ordinary account must be refused by the socket permissions

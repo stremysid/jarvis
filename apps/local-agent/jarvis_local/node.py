@@ -336,7 +336,7 @@ def build_node(
                 key=key,
                 opener=opener,
             )
-            replicator = EventReplicator(cloud, archive)
+            replicator = EventReplicator(cloud, archive, should_stop=state.stop_requested)
             distiller = DistillationCoordinator(
                 archive,
                 facts,

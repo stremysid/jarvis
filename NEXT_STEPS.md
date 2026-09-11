@@ -64,10 +64,13 @@ on the provisioned Linux server; follow the
 [home-node runbook](docs/runbooks/home-node.md). Local tests and Ubuntu CI do
 not establish that live acceptance.
 
-The confirmed snapshot-continuation and restart-ACK P1s block merging.
-Core boundary fixes and tests are implemented; finish the expired unaccepted
-ACK recovery before requesting final review. Keep the durable cursor and
-events unchanged during recovery and never clear an ACK on a refused receipt.
+The confirmed snapshot-continuation and restart-ACK P1s are fixed, including
+expired ACK recovery through an exact refetch of the already archived range.
+Full Python validation passes (556 tests, 20 Windows platform skips), and
+mutation checks cover the lifecycle, archive comparison and boundary guards.
+The final fixes still need current-head CI and Claude Opus 5 high review
+before Sid merges. Legacy pending rows without snapshot metadata require
+owner repair; the node must not delete them or reset the cursor.
 Item 3 continues separately in [draft PR #16](https://github.com/ksid1229-ops/jarvis/pull/16).
 
 R2's remaining work is server provisioning/private networking, fact upload

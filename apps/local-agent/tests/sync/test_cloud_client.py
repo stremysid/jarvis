@@ -78,7 +78,7 @@ def page(
     return {
         "snapshotId": snapshot,
         "snapshotToken": f"token-{snapshot}",
-        "fromSequence": from_sequence,
+        "fromSequence": from_sequence - 1,
         "toSequence": to_sequence,
         "events": [envelope(n) for n in range(from_sequence, to_sequence + 1)],
         "hasMore": has_more,
@@ -109,6 +109,13 @@ def test_pull_returns_events_flattened_for_the_archive(key: Ed25519PrivateKey) -
     assert [event["event_sequence"] for event in result.events] == [1, 2]
     assert result.events[0]["canonical_text"] == "hello"
     assert result.events[0]["event_type"] == "conversation.user_committed"
+
+
+def test_pull_refuses_a_page_whose_exclusive_start_boundary_changed(key: Ed25519PrivateKey) -> None:
+    changed = page(1, 2)
+    changed["fromSequence"] = 1
+    with pytest.raises(CloudSyncError, match="invalid sync page"):
+        client(key, FakeOpener([changed])).pull(0)
 
 
 def test_consumer_id_is_bound_to_the_signing_device(key: Ed25519PrivateKey) -> None:

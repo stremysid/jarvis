@@ -51,6 +51,10 @@ class CloudAuthError(CloudSyncError):
     """
 
 
+class CloudAckRejectedError(CloudSyncError):
+    """A well-formed acknowledgement was refused with HTTP 400."""
+
+
 @dataclass(frozen=True, slots=True)
 class SnapshotCursor:
     """The snapshot a page came from, needed to acknowledge it."""
@@ -101,6 +105,36 @@ class HttpCloudClient:
 
     def pull(self, after_sequence: int) -> EventPage:
         continuation = self._snapshot
+        return self._pull_page(
+            after_sequence,
+            page_size=self.page_size,
+            snapshot_token=(
+                continuation.snapshot_token
+                if continuation is not None
+                and continuation.has_more
+                and after_sequence == continuation.through_sequence
+                else None
+            ),
+        )
+
+    def recover_ack_page(self, acknowledgement: PendingSyncAck) -> EventPage:
+        """Fetch a fresh root page for exactly one durable, rejected ACK range."""
+        pending = self._pending_ack(acknowledgement)
+        expected = pending.expected_current
+        if expected is None:
+            raise CloudSyncError("pending acknowledgement has no durable boundary")
+        page_size = pending.through_sequence - expected
+        if page_size < 1 or page_size > self.page_size:
+            raise CloudSyncError("pending acknowledgement range is invalid")
+        return self._pull_page(expected, page_size=page_size, snapshot_token=None)
+
+    def _pull_page(
+        self,
+        after_sequence: int,
+        *,
+        page_size: int,
+        snapshot_token: str | None,
+    ) -> EventPage:
         body = {
             "schemaVersion": SCHEMA_VERSION,
             # The gateway requires this to equal `device:<deviceId>` exactly,
@@ -108,24 +142,21 @@ class HttpCloudClient:
             # device advance another's position.
             "consumerId": f"device:{self.device_id}",
             "afterSequence": after_sequence,
-            "pageSize": self.page_size,
-            "snapshotToken": (
-                continuation.snapshot_token
-                if continuation is not None
-                and continuation.has_more
-                and after_sequence == continuation.through_sequence
-                else None
-            ),
+            "pageSize": page_size,
+            "snapshotToken": snapshot_token,
         }
         page = self._post(PULL_PATH, body)
 
         raw_events = page.get("events")
+        returned_from = page.get("fromSequence")
         through = page.get("toSequence")
         snapshot_id = page.get("snapshotId")
         snapshot_token = page.get("snapshotToken")
         has_more = page.get("hasMore")
         if (
             not isinstance(raw_events, list)
+            or type(returned_from) is not int
+            or returned_from != after_sequence
             or type(through) is not int
             or through < after_sequence
             or not isinstance(snapshot_id, str)
@@ -278,6 +309,8 @@ class HttpCloudClient:
         except urllib.error.HTTPError as error:
             if error.code in (401, 403):
                 raise CloudAuthError(f"gateway rejected the device: HTTP {error.code}") from error
+            if path == ACK_PATH and error.code == 400:
+                raise CloudAckRejectedError("gateway rejected the acknowledgement") from error
             raise CloudSyncError(f"gateway returned HTTP {error.code}") from error
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
             raise CloudSyncError(f"gateway unreachable or unusable: {error}") from error

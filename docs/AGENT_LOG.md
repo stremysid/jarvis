@@ -46,6 +46,19 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 17:13 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
+
+PR #13's lifecycle fixes now include expired ACK recovery using the existing
+signed protocol: retry the original receipt first, then refetch only the owed
+range, compare all archived fields, and atomically replace the ACK identity
+before sending it. Neither cursor nor event rows move during recovery.
+Authentication still stops the node; stop checks preserve owed work between
+requests. Full Python: 556 passed / 20 Windows skips, Ruff and win32 mypy clean.
+Removing the archived-field comparison allowed the bad ACK and failed its
+regression; the paired recovery-boundary mutation failed too. Final-head CI
+and Claude review are next. Legacy pending rows missing metadata still need
+owner repair, as the runbook states. Item 3 remains separate in draft PR #16.
+
 ## 2026-09-11 17:00 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
 
 The two bot P1s at `996e6ec` are confirmed and supersede the earlier

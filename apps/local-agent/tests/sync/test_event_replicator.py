@@ -21,7 +21,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from jarvis_local.archive.archive_repository import ArchiveRepository
-from jarvis_local.sync.cloud_client import HttpCloudClient
+from jarvis_local.sync.cloud_client import CloudAuthError, HttpCloudClient
 from jarvis_local.sync.cursor_store import CursorStore, PendingSyncAck
 from jarvis_local.sync.event_replicator import (
     EventPage,
@@ -138,6 +138,25 @@ def http_client(opener: QueuedOpener) -> HttpCloudClient:
         key=Ed25519PrivateKey.from_private_bytes(bytes(range(32))),
         opener=opener,
     )
+
+
+def stage_real_pending(path: Path, *, snapshot: str = "expired-snapshot") -> PendingSyncAck:
+    opener = QueuedOpener(
+        [
+            http_page(1, 2, snapshot=snapshot),
+            urllib.error.URLError("response lost after local commit"),
+        ]
+    )
+    repository = ArchiveRepository.open(path)
+    try:
+        replicator = EventReplicator(http_client(opener), repository)
+        with pytest.raises(SyncAckPending):
+            replicator.sync_once()
+        pending = replicator.cursors.pending_ack()
+        assert pending is not None
+        return pending
+    finally:
+        repository.close()
 
 
 @pytest.fixture
@@ -426,3 +445,208 @@ def test_an_invalid_ack_receipt_keeps_the_durable_ack(archive: ArchiveRepository
     pending = replicator.cursors.pending_ack()
     assert pending is not None
     assert pending.snapshot_id == "receipt-snapshot"
+
+
+def test_an_expired_ack_rebinds_only_after_the_exact_archived_page_is_refetched(tmp_path: Path) -> None:
+    path = tmp_path / "archive.sqlite3"
+    original = stage_real_pending(path)
+    opener = QueuedOpener(
+        [
+            urllib.error.HTTPError(BASE, 400, "expired", {}, None),  # type: ignore[arg-type]
+            http_page(1, 2, snapshot="replacement-snapshot"),
+            {"schemaVersion": "1.0", "currentSequence": 2, "replayed": False},
+        ]
+    )
+    repository = ArchiveRepository.open(path)
+    try:
+        replicator = EventReplicator(http_client(opener), repository)
+        before_count = repository.count_events()
+        before_cursor = replicator.cursor()
+        replicator.sync_once()
+        pending = replicator.cursors.pending_ack()
+        after_count = repository.count_events()
+        after_cursor = replicator.cursor()
+    finally:
+        repository.close()
+
+    assert original.snapshot_id == "expired-snapshot"
+    assert pending is None
+    assert [request.full_url for request in opener.requests] == [
+        f"{BASE}/sync/ack",
+        f"{BASE}/sync/pull",
+        f"{BASE}/sync/ack",
+    ]
+    assert opener.bodies[1]["afterSequence"] == 0
+    assert opener.bodies[1]["pageSize"] == 2
+    assert opener.bodies[1]["snapshotToken"] is None
+    assert opener.bodies[2]["snapshotId"] == "replacement-snapshot"
+    assert before_count == 2
+    assert before_cursor == 2
+    assert after_count == before_count
+    assert after_cursor == before_cursor
+
+
+def test_expiry_recovery_refuses_a_tampered_field_under_the_same_event_id(tmp_path: Path) -> None:
+    path = tmp_path / "archive.sqlite3"
+    original = stage_real_pending(path)
+    changed = http_page(1, 2, snapshot="replacement-snapshot")
+    changed["events"][0]["envelope"]["producerVersion"] = "tampered-v2"
+    opener = QueuedOpener(
+        [
+            urllib.error.HTTPError(BASE, 400, "expired", {}, None),  # type: ignore[arg-type]
+            changed,
+            {"schemaVersion": "1.0", "currentSequence": 2, "replayed": False},
+        ]
+    )
+    repository = ArchiveRepository.open(path)
+    try:
+        replicator = EventReplicator(http_client(opener), repository)
+        with pytest.raises(SyncAckPending):
+            replicator.sync_once()
+        pending = replicator.cursors.pending_ack()
+        count = repository.count_events()
+        cursor = replicator.cursor()
+    finally:
+        repository.close()
+
+    assert pending == original
+    assert count == 2
+    assert cursor == 2
+    assert len(opener.requests) == 2
+
+
+def test_expiry_recovery_refuses_a_changed_page_boundary(tmp_path: Path) -> None:
+    path = tmp_path / "archive.sqlite3"
+    original = stage_real_pending(path)
+    opener = QueuedOpener(
+        [
+            urllib.error.HTTPError(BASE, 400, "expired", {}, None),  # type: ignore[arg-type]
+            http_page(1, 1, snapshot="replacement-snapshot", has_more=True),
+            {"schemaVersion": "1.0", "currentSequence": 2, "replayed": False},
+        ]
+    )
+    repository = ArchiveRepository.open(path)
+    try:
+        replicator = EventReplicator(http_client(opener), repository)
+        with pytest.raises(SyncAckPending):
+            replicator.sync_once()
+        pending = replicator.cursors.pending_ack()
+    finally:
+        repository.close()
+    assert pending == original
+
+
+def test_a_lost_successful_ack_response_replays_without_a_recovery_pull(tmp_path: Path) -> None:
+    path = tmp_path / "archive.sqlite3"
+    stage_real_pending(path)
+    opener = QueuedOpener(
+        [{"schemaVersion": "1.0", "currentSequence": 2, "replayed": True}]
+    )
+    repository = ArchiveRepository.open(path)
+    try:
+        replicator = EventReplicator(http_client(opener), repository)
+        replicator.sync_once()
+        pending = replicator.cursors.pending_ack()
+    finally:
+        repository.close()
+
+    assert pending is None
+    assert len(opener.requests) == 1
+    assert opener.requests[0].full_url == f"{BASE}/sync/ack"
+
+
+def test_authentication_failure_does_not_attempt_expiry_recovery(tmp_path: Path) -> None:
+    path = tmp_path / "archive.sqlite3"
+    original = stage_real_pending(path)
+    opener = QueuedOpener(
+        [urllib.error.HTTPError(BASE, 403, "revoked", {}, None)]  # type: ignore[arg-type]
+    )
+    repository = ArchiveRepository.open(path)
+    try:
+        replicator = EventReplicator(http_client(opener), repository)
+        with pytest.raises(CloudAuthError, match="HTTP 403"):
+            replicator.sync_once()
+        pending = replicator.cursors.pending_ack()
+    finally:
+        repository.close()
+    assert pending == original
+    assert len(opener.requests) == 1
+
+
+def test_owner_mismatch_does_not_send_or_rebind_the_pending_ack(tmp_path: Path) -> None:
+    path = tmp_path / "archive.sqlite3"
+    original = stage_real_pending(path)
+    opener = QueuedOpener([])
+    other = HttpCloudClient(
+        base_url=BASE,
+        device_id="device-other",
+        principal_id=PRINCIPAL,
+        audience=AUDIENCE,
+        key=Ed25519PrivateKey.from_private_bytes(bytes(range(32))),
+        opener=opener,
+    )
+    repository = ArchiveRepository.open(path)
+    try:
+        replicator = EventReplicator(other, repository)
+        with pytest.raises(SyncAckPending):
+            replicator.sync_once()
+        pending = replicator.cursors.pending_ack()
+    finally:
+        repository.close()
+    assert pending == original
+    assert opener.requests == []
+
+
+def test_a_crash_during_ack_rebind_rolls_back_to_the_original_pending_identity(tmp_path: Path) -> None:
+    path = tmp_path / "archive.sqlite3"
+    original = stage_real_pending(path)
+    opener = QueuedOpener(
+        [
+            urllib.error.HTTPError(BASE, 400, "expired", {}, None),  # type: ignore[arg-type]
+            http_page(1, 2, snapshot="replacement-snapshot"),
+        ]
+    )
+
+    def crash() -> None:
+        raise SimulatedCrash("before ack rebind commit")
+
+    repository = ArchiveRepository.open(path)
+    try:
+        replicator = EventReplicator(http_client(opener), repository, crash_after_ack_rebind=crash)
+        with pytest.raises(SyncAckPending):
+            replicator.sync_once()
+        pending = replicator.cursors.pending_ack()
+    finally:
+        repository.close()
+    assert pending == original
+    assert len(opener.requests) == 2
+
+
+def test_stop_after_rebind_leaves_the_replacement_ack_durable_for_restart(tmp_path: Path) -> None:
+    path = tmp_path / "archive.sqlite3"
+    stage_real_pending(path)
+    opener = QueuedOpener(
+        [
+            urllib.error.HTTPError(BASE, 400, "expired", {}, None),  # type: ignore[arg-type]
+            http_page(1, 2, snapshot="replacement-snapshot"),
+        ]
+    )
+    checks = 0
+
+    def stop_before_second_ack() -> bool:
+        nonlocal checks
+        checks += 1
+        return checks > 1
+
+    repository = ArchiveRepository.open(path)
+    try:
+        replicator = EventReplicator(http_client(opener), repository, should_stop=stop_before_second_ack)
+        with pytest.raises(SyncAckPending, match="not accepted"):
+            replicator.sync_once()
+        pending = replicator.cursors.pending_ack()
+    finally:
+        repository.close()
+
+    assert pending is not None
+    assert pending.snapshot_id == "replacement-snapshot"
+    assert len(opener.requests) == 2

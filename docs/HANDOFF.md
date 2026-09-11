@@ -18,8 +18,12 @@ completed snapshot reuse on later cycles, and pending ACKs that could not be
 sent by a reconstructed client. Core fixes stage snapshot identity with the
 events and cursor and validate the ACK receipt before clearing it. Boundary
 tests cover terminal, empty and nonterminal pages across cycles and a disk
-archive reopened with a new signed client. Recovery when an unaccepted ACK
-expires during the normal retry delay remains in progress; do not merge yet.
+archive reopened with a new signed client. Expired ACK recovery now retries
+the original ACK first, refetches exactly its range on refusal, compares every
+archived field, and commits replacement metadata before sending the new ACK.
+The cursor and events remain unchanged, and stop checks preserve a pending ACK
+between requests. Python validation is 556 passed / 20 Windows platform skips,
+with Ruff and win32 mypy clean. Current-head CI and review remain required.
 
 GPT-5.6 Sol high builds this item; the final fixes need Claude Opus 5 high
 review. Sid retains merging and the live systemd check. Item 3 is isolated in

@@ -28,15 +28,19 @@ class PendingSyncAck:
     principal_id: str | None = None
 
     def has_snapshot_identity(self) -> bool:
-        return all(
-            value is not None
-            for value in (
-                self.snapshot_id,
-                self.expected_current,
-                self.gateway_origin,
-                self.device_id,
-                self.principal_id,
-            )
+        expected_current = self.expected_current
+        return (
+            isinstance(self.snapshot_id, str)
+            and bool(self.snapshot_id)
+            and isinstance(expected_current, int)
+            and not isinstance(expected_current, bool)
+            and expected_current >= 0
+            and isinstance(self.gateway_origin, str)
+            and bool(self.gateway_origin)
+            and isinstance(self.device_id, str)
+            and bool(self.device_id)
+            and isinstance(self.principal_id, str)
+            and bool(self.principal_id)
         )
 
 
@@ -141,3 +145,58 @@ class CursorStore:
     def clear_pending_ack(self, consumer: str = LOCAL_AGENT) -> None:
         """Called only after the cloud has accepted the acknowledgement."""
         self.connection.execute("DELETE FROM pending_sync_ack WHERE consumer = ?", (consumer,))
+
+    def replace_pending_ack_identity(
+        self,
+        original: PendingSyncAck,
+        replacement: SyncAckIdentity,
+        *,
+        now: str | None = None,
+    ) -> PendingSyncAck:
+        """CAS a rejected snapshot identity while leaving its durable range fixed."""
+        if (
+            original.expected_current != replacement.expected_current
+            or original.gateway_origin != replacement.gateway_origin
+            or original.device_id != replacement.device_id
+            or original.principal_id != replacement.principal_id
+        ):
+            raise ValueError("replacement acknowledgement changed its owner or boundary")
+        stamp = now or utc_now_iso()
+        changed = self.connection.execute(
+            """
+            UPDATE pending_sync_ack
+            SET snapshot_id = ?, expected_current = ?, gateway_origin = ?,
+                device_id = ?, principal_id = ?, staged_at = ?
+            WHERE consumer = ? AND through_sequence = ? AND staged_at = ?
+              AND snapshot_id IS ? AND expected_current IS ? AND gateway_origin IS ?
+              AND device_id IS ? AND principal_id IS ?
+            """,
+            (
+                replacement.snapshot_id,
+                replacement.expected_current,
+                replacement.gateway_origin,
+                replacement.device_id,
+                replacement.principal_id,
+                stamp,
+                original.consumer,
+                original.through_sequence,
+                original.staged_at,
+                original.snapshot_id,
+                original.expected_current,
+                original.gateway_origin,
+                original.device_id,
+                original.principal_id,
+            ),
+        )
+        if changed.rowcount != 1:
+            raise RuntimeError("pending acknowledgement changed during recovery")
+        return PendingSyncAck(
+            consumer=original.consumer,
+            through_sequence=original.through_sequence,
+            staged_at=stamp,
+            snapshot_id=replacement.snapshot_id,
+            expected_current=replacement.expected_current,
+            gateway_origin=replacement.gateway_origin,
+            device_id=replacement.device_id,
+            principal_id=replacement.principal_id,
+        )

@@ -32,7 +32,7 @@ SystemCallArchitectures=native
 CapabilityBoundingSet=
 Restart=on-failure
 RestartSec=10s
-TimeoutStopSec=120s
+TimeoutStopSec=180s
 # Configuration and authentication need a person; restarting repeats them.
 RestartPreventExitStatus=3 5
 
