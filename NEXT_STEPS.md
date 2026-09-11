@@ -7,13 +7,14 @@ implementation plans.
 ## R2 item 3: fact projection
 
 Item 2 is in [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13).
-Review found two merge-blocking client lifecycle defects at `996e6ec`:
-completed snapshot reuse and pending ACK recovery after restart. Fix those
-on item 2, with regressions across those boundaries. Add no item-3 work there. The separate
+Its client lifecycle fixes and direct completed-token wire regression are
+at `719d4ee`, awaiting review acceptance and Sid's merge. Add no item-3 work
+there. The separate
 `codex/r2-fact-projection` branch starts from main and contains the signed
-page upload and atomic D1 publication checkpoint. The durable Python uploader
-and cloud context retrieval of facts alongside recent turns are still being
-completed. Keep one PR per milestone item and push tested checkpoints.
+page upload, atomic D1 publication, and durable Python uploader checkpoints.
+Finish cloud context retrieval of facts alongside recent turns, then compose
+the uploader into the node once item 2 is on main. Keep one PR per milestone
+item and push tested checkpoints.
 
 This item adds `0014_memory_projection.sql`, including projection tables,
 publication guards and an FTS index. Owner deployment must apply this new

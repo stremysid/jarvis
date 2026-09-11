@@ -6,13 +6,18 @@ using this checkpoint. R0 passed on September 11; calling remains R1.
 ## R2 item 3 checkpoint
 
 Item 2 is isolated in [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13),
-with two merge-blocking client lifecycle findings at `996e6ec`: completed
-snapshot reuse and pending ACK recovery after restart. Those fixes stay in
-item 2. Item 3 is on a fresh branch from main,
+with the client lifecycle fixes and direct completed-token wire regression
+at `719d4ee`. Review acceptance and Sid's merge remain there. Item 3 is on a
+fresh branch from main,
 `codex/r2-fact-projection`. The gateway accepts signed, bounded active-fact
 pages, validates their source events in D1 or the verified R2 archive, and
-publishes a complete manifest atomically. Python upload and cloud retrieval
-remain in progress. The earlier sections below are historical R0 evidence.
+publishes a complete manifest atomically. The Python uploader persists an
+immutable snapshot before HTTP and resends every page after interruption,
+advancing only on an exact commit receipt. Local memory migration `0003`
+adds its durable pending pages and publication cursor. Full Python validation
+is 531 passed / 5 Windows skips, with Ruff and win32 mypy clean. Cloud context
+retrieval remains in progress; node composition follows item 2's merge to
+main. The earlier sections below are historical R0 evidence.
 
 **Production schema change:** `0014_memory_projection.sql` adds projection
 storage, publication triggers and FTS indexing. It does not backfill facts

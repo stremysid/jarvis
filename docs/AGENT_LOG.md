@@ -46,6 +46,21 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 17:28 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
+
+PR #16 now includes the durable Python active-fact uploader and local memory
+migration `0003_cloud_projection.sql`. Immutable pages are stored before HTTP,
+all pages are resent after interruption, and only an exact commit receipt
+advances the local publication cursor. Tests cover a disk reopen after a lost
+commit response, empty retraction, metadata changes, active-only capture,
+request bounds and corrupt persisted data. Skipping commit-receipt validation
+fails its regression. Full Python: 531 passed / 5 Windows skips, Ruff and
+win32 mypy clean. Cloud retrieval and node composition remain to finish here.
+PR #13 separately has the lifecycle fixes and direct `has_more` wire test at
+`719d4ee`; its Ubuntu and Windows checks passed, with the other jobs pending.
+Wait for Sid to merge item 2 before composing its node into item 3. Live D1
+migration `0014`, deployment and live acceptance remain owner operations.
+
 ## 2026-09-11 16:50 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
 
 R2 item 3 is now separate from PR #13: the item-2 branch is restored to
