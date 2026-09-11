@@ -46,6 +46,22 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 14:21 UTC — GPT-6 Codex, with GPT-5.6 Sol high builder
+
+PR #13 now includes the foreground Linux `jarvis node` bootstrap and systemd
+unit/runbook. It loads an existing identity, claims the private socket before
+opening distinct stores, and runs signed replication/distillation on the main
+thread. Signal handling defers stop requests outside service locks; startup
+failures unwind resources. ACK and distillation authentication errors now stop
+the loop while durable work remains intact, and status uses coarse failures.
+Before this push: 540 Windows Python tests passed, 20 skipped; ruff, mypy,
+locked package installation/console checks and 1,942 workspace tests passed.
+Timeout-reset and distillation-auth guard mutations were rejected. The earlier
+transport checkpoint passed all seven CI jobs; verify the new head's Ubuntu
+job for native node controls and SIGTERM. Claude Opus 5 high review and the
+owner's Linux/systemd smoke remain pending. No merge, provisioning or later
+R2 work was performed.
+
 ## 2026-09-11 14:00 UTC — GPT-6 Codex, with GPT-5.6 Sol high builder
 
 R2's Unix control transport is ready for its early code checkpoint on draft

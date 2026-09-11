@@ -119,3 +119,9 @@ def test_the_existing_commands_still_parse() -> None:
     them."""
     assert build_parser().parse_args(["doctor"]).command == "doctor"
     assert build_parser().parse_args(["enroll"]).device_label == "jarvis-local-agent"
+    assert build_parser().parse_args(["node"]).command == "node"
+
+
+def test_node_accepts_an_explicit_control_socket() -> None:
+    arguments = build_parser().parse_args(["node", "--socket-path", "/run/jarvis/control.sock"])
+    assert arguments.socket_path == Path("/run/jarvis/control.sock")

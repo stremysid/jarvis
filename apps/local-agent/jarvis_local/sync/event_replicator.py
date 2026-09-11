@@ -97,11 +97,19 @@ class EventReplicator:
     # -- internals --------------------------------------------------------
 
     def _drain_pending_ack(self) -> None:
+        # Function-local because cloud_client imports EventPage from this
+        # module. By now both modules are fully loaded.
+        from jarvis_local.sync.cloud_client import CloudAuthError
+
         pending = self.cursors.pending_ack(self.consumer)
         if pending is None:
             return
         try:
             self.cloud.acknowledge(pending.through_sequence)
+        except CloudAuthError:
+            # Keep the staged acknowledgement, but preserve the one failure
+            # class the scheduler must stop retrying immediately.
+            raise
         except Exception as error:
             raise SyncAckPending(
                 f"acknowledgement through {pending.through_sequence} was not accepted"

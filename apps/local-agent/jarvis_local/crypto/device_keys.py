@@ -96,6 +96,14 @@ class DeviceKeyStore:
             return self._load_sealed()
         return self._create_sealed()
 
+    def load_existing(self) -> Ed25519PrivateKey | CngDeviceKey:
+        """Load an enrolled identity without silently creating a replacement."""
+        if self.cng.supports_non_exportable:
+            raise RuntimeError("loading an existing CNG identity is not implemented")
+        if not self.path.exists():
+            raise FileNotFoundError("the enrolled device key is missing")
+        return self._load_sealed()
+
     def _load_sealed(self) -> Ed25519PrivateKey:
         sealed = self.path.read_bytes()
         if not sealed.startswith(self.sealed_prefix):

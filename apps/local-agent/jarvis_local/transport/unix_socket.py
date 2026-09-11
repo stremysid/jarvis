@@ -36,6 +36,7 @@ from jarvis_local.transport.pipe_server import (
 
 DEFAULT_ACCEPT_TIMEOUT_SECONDS = 0.25
 DEFAULT_IO_TIMEOUT_SECONDS = 2.0
+CONTROL_SOCKET_ENVIRONMENT = "JARVIS_CONTROL_SOCKET"
 _SO_PEERCRED_BYTES = struct.calcsize("3i")
 _AF_UNIX = int(getattr(socket, "AF_UNIX", -1))
 
@@ -54,6 +55,9 @@ def default_unix_socket_path(
 ) -> Path:
     """Return an absolute endpoint inside a private, per-user directory."""
     values = os.environ if environment is None else environment
+    configured = values.get(CONTROL_SOCKET_ENVIRONMENT, "").strip()
+    if configured:
+        return Path(configured)
     runtime = values.get("XDG_RUNTIME_DIR", "").strip()
     owner = _effective_uid() if uid is None else uid
     base = Path(runtime) if runtime else Path(tempfile.gettempdir()) / f"jarvis-{owner}"

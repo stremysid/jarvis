@@ -93,6 +93,13 @@ def test_the_default_socket_uses_the_callers_runtime_directory() -> None:
     )
 
 
+def test_an_explicit_socket_environment_value_overrides_the_runtime_directory() -> None:
+    assert default_unix_socket_path(
+        {"JARVIS_CONTROL_SOCKET": "/run/jarvis/control.sock", "XDG_RUNTIME_DIR": "/run/user/123"},
+        uid=123,
+    ) == Path("/run/jarvis/control.sock")
+
+
 @linux_only
 def test_an_existing_endpoint_is_refused_and_preserved() -> None:
     temporary, path = private_socket_path()

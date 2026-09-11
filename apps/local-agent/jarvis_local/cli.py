@@ -1,11 +1,12 @@
 """`jarvis` command surface.
 
-Only locally-answerable commands live here. Anything with an external effect
-(`jarvis call-me`, enrollment approval) must go through the background service
-over the SID-restricted named pipe and be revalidated by the cloud policy
-service, so the CLI is never a privileged bypass. Those arrive with Task 9.
+The foreground `node` command owns the Linux memory service. Control commands
+reach that process through an owner-only Unix socket on Linux and the existing
+SID-restricted named pipe on Windows. Anything with an external effect
+(`jarvis call-me`, enrollment approval) must still be revalidated by the cloud
+policy service, so the CLI is never a privileged bypass. Those arrive later.
 
-The service-control commands below are the thin half of that pipe. They carry
+The service-control commands below are the thin half of that channel. They carry
 no logic: they put a command on the channel, print what comes back, and turn
 the answer into an exit code. The one thing they do add is a sentence for the
 case the transport cannot distinguish -- a service that is not running looks
@@ -25,6 +26,7 @@ from jarvis_local.config import JarvisLocalConfig
 from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.doctor import run_doctor
 from jarvis_local.enrollment import bootstrap_metadata_hash, enrollment_material
+from jarvis_local.node import run_node
 from jarvis_local.transport.cli_protocol import OK, CliCommand
 from jarvis_local.transport.pipe_server import (
     DEFAULT_PIPE_NAME,
@@ -51,6 +53,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="print this device's public enrollment material (no secrets)",
     )
     enroll.add_argument("--device-label", default="jarvis-local-agent")
+
+    node = subcommands.add_parser("node", help="run the Linux home node in the foreground")
+    node.add_argument("--socket-path", type=Path)
 
     for name, description in (
         ("status", "report what the background service has been doing"),
@@ -135,6 +140,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _doctor()
     if arguments.command == "enroll":
         return _enroll(JarvisLocalConfig.from_environment(), arguments.device_label)
+    if arguments.command == "node":
+        return run_node(JarvisLocalConfig.from_environment(), socket_path=arguments.socket_path)
     if arguments.command in CONTROL_SUBCOMMANDS:
         return _control(arguments.command, arguments.pipe_name, arguments.socket_path)
     if arguments.command == VAULT_COMMAND:

@@ -1,9 +1,24 @@
 # Handoff
 
 Current as of **2026-09-11**. Verify the current branch and checks before
-using this checkpoint. R0 is not complete; calling remains R1.
+using this checkpoint. R0 passed; calling remains R1.
 
-## Current branch and review
+## R2 item 2 candidate
+
+PR #12 is merged at `7414ab1`. Its Linux device-key implementation is the
+base for [draft PR #13](https://github.com/ksid1229-ops/jarvis/pull/13),
+`codex/r2-unix-node`, which continues the Unix control socket and foreground
+`jarvis node` bootstrap. Transport code was pushed early after local checks;
+Ubuntu CI passed 525 Python tests (14 skipped) at transport checkpoint
+`1ce74d1`. This is evidence for that checkpoint, not a claim about the final
+bootstrap or the provisioned server. See PR #13 for current-head validation.
+
+GPT-5.6 Sol high builds this item; Claude Opus 5 high review is still needed.
+Sid retains merging and the live systemd check. No later R2 item or production
+operation is included. R0's observed exit evidence below remains valid and
+R1 remains open.
+
+## Earlier R0 branch and review
 
 [PR #6](https://github.com/ksid1229-ops/jarvis/pull/6) was reviewed by Claude
 Opus 5 high at `fab6d25`, retargeted to main, and merged by Sid as

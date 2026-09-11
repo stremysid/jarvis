@@ -1,15 +1,18 @@
 [project]
 name = "jarvis-local-agent"
 version = "0.1.0"
-description = "Jarvis Windows local agent: archive, distilled memory, and diagnostics"
+description = "Jarvis local agent and Linux home node: archive, distilled memory, and diagnostics"
 # The Obsidian memory implementation plan pins this range; the reference
-# machine runs 3.14.x. Deliberately wider than brain-bridge's 3.11 pin, which
-# exists only to match the Hermes runtime.
+# Windows machine runs 3.14.x. Deliberately wider than brain-bridge's 3.11
+# pin, which exists only to match the Hermes runtime.
 requires-python = ">=3.12,<3.15"
 dependencies = [
   "cryptography==46.0.3",
   "rfc8785==0.1.4",
 ]
+
+[project.scripts]
+jarvis = "jarvis_local.cli:main"
 
 [dependency-groups]
 dev = [
