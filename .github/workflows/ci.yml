@@ -73,9 +73,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24.19.0
-      - uses: actions/setup-python@v5
+      # The attestation tests resolve the interpreter the source lock pins,
+      # through the Windows launcher as `py -V:Astral/CPython3.11.16`. That
+      # tag is a uv-managed install registered under PEP 514; a setup-python
+      # interpreter is not registered and the launcher reports "No suitable
+      # Python runtime found".
+      - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.11"
+          version: "0.12.7"
+      - run: uv python install 3.11.16
+      - name: The pinned interpreter is resolvable through the launcher
+        shell: pwsh
+        run: py -V:Astral/CPython3.11.16 -c "import sys; print(sys.version)"
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       # temp-path.test.mjs stays here so PR CI exercises the Windows temp fix.

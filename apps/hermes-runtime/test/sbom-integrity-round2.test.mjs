@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { canonicalTmpdir } from "./fixtures/temp-root.mjs";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
@@ -39,7 +39,7 @@ async function loadJson(path, root = runtimeRoot) {
 }
 
 async function copyRuntimeTree() {
-  const parent = await mkdtemp(join(tmpdir(), "jarvis-hermes-sbom-round2-"));
+  const parent = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-sbom-round2-"));
   temporaryRoots.push(parent);
   const copy = join(parent, basename(runtimeRoot));
   await cp(runtimeRoot, copy, { recursive: true });
@@ -123,7 +123,7 @@ function pypiRecords(sbom) {
 }
 
 afterEach(async () => {
-  await Promise.all(temporaryRoots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+  await Promise.all(temporaryRoots.splice(0).map((path) => rm(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })));
 });
 
 describe("Task 2 round-2 SBOM and committed-manifest integrity", () => {
@@ -159,7 +159,7 @@ describe("Task 2 round-2 SBOM and committed-manifest integrity", () => {
   });
 
   it("rejects a stalled real verifier by its deadline and terminates its descendant process", async () => {
-    const root = await mkdtemp(join(tmpdir(), "jarvis-hermes-verifier-deadline-"));
+    const root = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-verifier-deadline-"));
     temporaryRoots.push(root);
     const pidFile = join(root, "descendant.pid");
     const child = spawnVerifierTreeFixture(pidFile, "none");
@@ -169,7 +169,7 @@ describe("Task 2 round-2 SBOM and committed-manifest integrity", () => {
   }, 10_000);
 
   it.each(["stdout", "stderr"])("rejects real verifier %s overflow and terminates its descendant process", async (stream) => {
-    const root = await mkdtemp(join(tmpdir(), `jarvis-hermes-verifier-${stream}-`));
+    const root = await mkdtemp(join(canonicalTmpdir, `jarvis-hermes-verifier-${stream}-`));
     temporaryRoots.push(root);
     const pidFile = join(root, "descendant.pid");
     const child = spawnVerifierTreeFixture(pidFile, stream);
@@ -202,7 +202,7 @@ describe("Task 2 round-2 SBOM and committed-manifest integrity", () => {
   });
 
   it("rejects a fabricated release-shaped source root through the real generator before reading lock inputs", async () => {
-    const container = await mkdtemp(join(tmpdir(), "jarvis-hermes-sbom-source-root-"));
+    const container = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-sbom-source-root-"));
     temporaryRoots.push(container);
     const root = join(container, "runtime");
     await mkdir(root);

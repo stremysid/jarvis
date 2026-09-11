@@ -1,5 +1,5 @@
 import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { canonicalTmpdir } from "./fixtures/temp-root.mjs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -26,7 +26,7 @@ const reviewedPackage = {
 };
 
 afterEach(async () => {
-  await Promise.all(sandboxes.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+  await Promise.all(sandboxes.splice(0).map((path) => rm(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })));
 });
 
 describe("Hermes H1 committed canonical JSON closure", () => {
@@ -49,7 +49,7 @@ describe("Hermes H1 committed canonical JSON closure", () => {
   });
 
   it("makes the manifest CLI reject exact package.json drift", async () => {
-    const sandbox = await mkdtemp(join(tmpdir(), "hermes-package-review3-"));
+    const sandbox = await mkdtemp(join(canonicalTmpdir, "hermes-package-review3-"));
     sandboxes.push(sandbox);
     const copiedRuntime = join(sandbox, "hermes-runtime");
     await cp(runtimeRoot, copiedRuntime, { recursive: true });

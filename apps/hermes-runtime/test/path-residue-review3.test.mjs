@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { access, mkdtemp, rm, symlink, unlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { canonicalTmpdir } from "./fixtures/temp-root.mjs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -74,7 +74,7 @@ describe("Hermes review-3 Windows path and residue boundaries", () => {
   });
 
   it("rejects wrong-case and trailing-separator aliases of an existing RuntimeRoot", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-runtime-root-case-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-runtime-root-case-"));
     const escapedModule = modulePath.replaceAll("'", "''");
     try {
       for (const candidate of [runtimeRoot.toUpperCase(), `${runtimeRoot}\\`]) {
@@ -89,12 +89,12 @@ describe("Hermes review-3 Windows path and residue boundaries", () => {
         expect(result.stderr, candidate).toMatch(/RuntimeRoot|case|canonical|separator|local path/i);
       }
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 30_000);
 
   it("accepts a canonical nonexistent RuntimeRoot directly below the fixed drive root", async () => {
-    const driveRoot = tmpdir().match(/^[A-Za-z]:\\/i)?.[0];
+    const driveRoot = canonicalTmpdir.match(/^[A-Za-z]:\\/i)?.[0];
     expect(driveRoot).toBeTruthy();
     const candidate = join(driveRoot, `jarvis-hermes-direct-root-${randomUUID()}`);
     const escapedModule = modulePath.replaceAll("'", "''");
@@ -112,8 +112,8 @@ describe("Hermes review-3 Windows path and residue boundaries", () => {
   }, 30_000);
 
   it("rejects an empty unbound .s junction before VerifyOnly can certify the source", async () => {
-    const root = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
-    const junctionTarget = await mkdtemp(join(tmpdir(), "jarvis-hermes-review3-junction-target-"));
+    const root = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
+    const junctionTarget = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-review3-junction-target-"));
     const fixture = join(root, "source-operations.json");
     const junction = join(root, ".s");
     await writeFile(fixture, '{"schemaVersion":1,"workflow":"source","scenario":"success"}\n', "utf8");
@@ -130,8 +130,8 @@ describe("Hermes review-3 Windows path and residue boundaries", () => {
       expect(await exists(junction)).toBe(true);
     } finally {
       if (await exists(junction)) await unlink(junction);
-      await rm(root, { recursive: true, force: true });
-      await rm(junctionTarget, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+      await rm(junctionTarget, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 });

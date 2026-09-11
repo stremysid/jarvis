@@ -1,5 +1,5 @@
 import { access, copyFile, link, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { canonicalTmpdir } from "./fixtures/temp-root.mjs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -281,7 +281,7 @@ describe("Hermes H1 source locks", () => {
 
   it.each([1, 2, 3, 4])("recovers the real artifact entrypoint after a process-level crash following promotion %i", async (crashAfter) => {
     const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
-      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
       const fixture = join(runtimeRoot, "artifact-operations.json");
       const effects = join(runtimeRoot, "effects.log");
       await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
@@ -330,13 +330,13 @@ describe("Hermes H1 source locks", () => {
           "licenses/python-build-standalone/20260825",
         ]) expect(await pathExists(join(runtimeRoot, final))).toBe(true);
       } finally {
-        await rm(runtimeRoot, { recursive: true, force: true });
+        await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       }
   }, 120_000);
 
   it("binds the only recoverable artifact stage to the exact publication journal and rejects unbound residue", async () => {
     const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
     const fixture = join(runtimeRoot, "artifact-operations.json");
     await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
     try {
@@ -367,13 +367,13 @@ describe("Hermes H1 source locks", () => {
       expect(verify.code).not.toBe(0);
       expect(verify.stderr).toMatch(/unbound|residue/i);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("serializes simultaneous artifact workflows with an OS-released exclusive lock", async () => {
     const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
     const fixture = join(runtimeRoot, "artifact-operations.json");
     const loserEffects = join(runtimeRoot, "loser-effects.log");
     await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
@@ -399,14 +399,14 @@ describe("Hermes H1 source locks", () => {
       expect(won.code, won.stderr).toBe(0);
       expect(await pathExists(join(runtimeRoot, ".hermes-runtime-publication.ready.json"))).toBe(true);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("rejects nonempty, hardlinked, and ADS-bearing workflow lock files before effects", async () => {
     const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
     for (const mutation of ["nonempty", "hardlink", "ads"]) {
-      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
       const fixture = join(runtimeRoot, "artifact-operations.json");
       const effects = join(runtimeRoot, "effects.log");
       const lockPath = join(runtimeRoot, ".hermes-runtime.workflow.lock");
@@ -424,7 +424,7 @@ describe("Hermes H1 source locks", () => {
         expect(await pathExists(effects)).toBe(false);
         expect(await snapshotTree(runtimeRoot)).toEqual(before);
       } finally {
-        await rm(runtimeRoot, { recursive: true, force: true });
+        await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       }
     }
   }, 120_000);
@@ -432,7 +432,7 @@ describe("Hermes H1 source locks", () => {
   it("rejects hardlinked and ADS-bearing journal and ready state before recovery or verification effects", async () => {
     const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
     for (const [state, mutation] of [["journal", "hardlink"], ["journal", "ads"], ["ready", "hardlink"], ["ready", "ads"]]) {
-      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
       const fixture = join(runtimeRoot, "artifact-operations.json");
       const effects = join(runtimeRoot, "effects.log");
       await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
@@ -456,7 +456,7 @@ describe("Hermes H1 source locks", () => {
         expect(await pathExists(effects)).toBe(false);
         expect(await snapshotTree(runtimeRoot)).toEqual(before);
       } finally {
-        await rm(runtimeRoot, { recursive: true, force: true });
+        await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       }
     }
   }, 120_000);
@@ -475,7 +475,7 @@ describe("Hermes H1 source locks", () => {
       ["overlap", (record) => `${JSON.stringify({ ...record, promotions: record.promotions.map((item, index) => index === 0 ? { ...item, final: record.promotions[1].final } : item) })}\n`],
     ];
     for (const [label, mutate] of mutations) {
-      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
       const fixture = join(runtimeRoot, "artifact-operations.json");
       const effects = join(runtimeRoot, "retry-effects.log");
       const journalPath = join(runtimeRoot, ".hermes-runtime-publication.json");
@@ -493,7 +493,7 @@ describe("Hermes H1 source locks", () => {
         expect(await pathExists(effects), label).toBe(false);
         expect(await snapshotTree(runtimeRoot), label).toEqual(before);
       } finally {
-        await rm(runtimeRoot, { recursive: true, force: true });
+        await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       }
     }
   }, 120_000);
@@ -507,7 +507,7 @@ describe("Hermes H1 source locks", () => {
       (record) => `${JSON.stringify({ ...record, promotions: record.promotions.map((item, index) => index === 0 ? { Staged: item.staged, final: item.final, digest: item.digest } : item) })}\n`,
       (record) => `${JSON.stringify({ ...record, promotions: record.promotions.map((item, index) => index === 0 ? { ...item, digest: "0".repeat(64) } : item) })}\n`,
     ]) {
-      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
       const fixture = join(runtimeRoot, "artifact-operations.json");
       const effects = join(runtimeRoot, "verify-effects.log");
       const readyPath = join(runtimeRoot, ".hermes-runtime-publication.ready.json");
@@ -525,29 +525,29 @@ describe("Hermes H1 source locks", () => {
         expect(await pathExists(effects)).toBe(false);
         expect(await snapshotTree(runtimeRoot)).toEqual(before);
       } finally {
-        await rm(runtimeRoot, { recursive: true, force: true });
+        await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       }
     }
   }, 120_000);
 
   it("keeps the persistent RuntimeRoot tree bit-for-bit unchanged across two marker-backed VerifyOnly passes", async () => {
     const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
     const fixture = join(runtimeRoot, "artifact-operations.json");
     await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
     try {
       const acquired = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture]);
       expect(acquired.code, acquired.stderr).toBe(0);
       const before = await snapshotTree(runtimeRoot);
-      const scratchBefore = new Set((await readdir(tmpdir())).filter((name) => name.startsWith("jarvis-hermes-verify-")));
+      const scratchBefore = new Set((await readdir(canonicalTmpdir)).filter((name) => name.startsWith("jarvis-hermes-verify-")));
       for (let pass = 0; pass < 2; pass++) {
         const verify = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-VerifyOnly", "-TestOperationFixture", fixture]);
         expect(verify.code, verify.stderr).toBe(0);
       }
       expect(await snapshotTree(runtimeRoot)).toEqual(before);
-      expect(new Set((await readdir(tmpdir())).filter((name) => name.startsWith("jarvis-hermes-verify-")))).toEqual(scratchBefore);
+      expect(new Set((await readdir(canonicalTmpdir)).filter((name) => name.startsWith("jarvis-hermes-verify-")))).toEqual(scratchBefore);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
@@ -557,7 +557,7 @@ describe("Hermes H1 source locks", () => {
       { script: "fetch-runtime-artifacts.ps1", workflow: "runtime-artifacts", purpose: "payload" },
     ];
     for (const workflow of workflows) {
-      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
       const script = fileURLToPath(new URL(`../scripts/${workflow.script}`, import.meta.url));
       const fixture = join(runtimeRoot, `${workflow.workflow}-operations.json`);
       const effects = join(runtimeRoot, "verify-effects.log");
@@ -579,7 +579,7 @@ describe("Hermes H1 source locks", () => {
         expect(await snapshotTree(runtimeRoot)).toEqual(before);
         expect(await pathExists(effects)).toBe(false);
       } finally {
-        await rm(runtimeRoot, { recursive: true, force: true });
+        await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       }
     }
   }, 180_000);
@@ -593,7 +593,7 @@ describe("Hermes H1 source locks", () => {
       "licenses/python-build-standalone/20260825",
     ];
     for (const faultAfter of [1, 2, 3, 4]) {
-      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
       const fixture = join(runtimeRoot, "artifact-operations.json");
       const effects = join(runtimeRoot, "effects.log");
       await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
@@ -618,7 +618,7 @@ describe("Hermes H1 source locks", () => {
         expect(rerun.code, rerun.stderr).toBe(0);
         for (const final of finals) expect(await pathExists(join(runtimeRoot, final))).toBe(true);
       } finally {
-        await rm(runtimeRoot, { recursive: true, force: true });
+        await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       }
     }
   }, 180_000);
@@ -630,7 +630,7 @@ describe("Hermes H1 source locks", () => {
       { crashAfter: 1, promotion: 3, relative: ["python-licenses.rst"] },
       { crashAfter: 4, promotion: 0, relative: ["python", "python.exe"] },
     ]) {
-      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
       const fixture = join(runtimeRoot, "artifact-operations.json");
       const effects = join(runtimeRoot, "retry-effects.log");
       const journalPath = join(runtimeRoot, ".hermes-runtime-publication.json");
@@ -652,7 +652,7 @@ describe("Hermes H1 source locks", () => {
         expect(await readFile(journalPath)).toEqual(journalBefore);
         expect(await snapshotTree(runtimeRoot)).toEqual(before);
       } finally {
-        await rm(runtimeRoot, { recursive: true, force: true });
+        await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       }
     }
   }, 120_000);
@@ -660,7 +660,7 @@ describe("Hermes H1 source locks", () => {
   it("verifies the exact license rollup at staging, post-promotion, ready-rerun, and VerifyOnly boundaries", async () => {
     const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
     for (const scenario of ["license-stage-drift", "license-postmove-drift"]) {
-      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
       const fixture = join(runtimeRoot, "artifact-operations.json");
       const effects = join(runtimeRoot, "effects.log");
       await writeFile(fixture, `${JSON.stringify({ schemaVersion: 1, workflow: "runtime-artifacts", scenario })}\n`, "utf8");
@@ -677,12 +677,12 @@ describe("Hermes H1 source locks", () => {
           expect(await readFile(effects, "utf8")).toContain("all-moves-complete\n");
         }
       } finally {
-        await rm(runtimeRoot, { recursive: true, force: true });
+        await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       }
     }
 
     for (const mode of ["ready-rerun", "verify-only"]) {
-      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
       const fixture = join(runtimeRoot, "artifact-operations.json");
       const effects = join(runtimeRoot, "effects.log");
       await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
@@ -700,13 +700,13 @@ describe("Hermes H1 source locks", () => {
         expect(await readFile(license, "utf8")).toBe("drifted-after-ready");
         expect(await pathExists(join(runtimeRoot, ".hermes-runtime-publication.ready.json"))).toBe(true);
       } finally {
-        await rm(runtimeRoot, { recursive: true, force: true });
+        await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       }
     }
   }, 120_000);
 
   it("rolls back an injected postverify fault without publishing a ready marker", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
     const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
     const fixture = join(runtimeRoot, "artifact-operations.json");
     const effects = join(runtimeRoot, "effects.log");
@@ -730,14 +730,14 @@ describe("Hermes H1 source locks", () => {
       for (const final of ["toolchain/cpython-3.11.16", "toolchain/uv-0.12.7", "service-host/winsw-2.12.0", "licenses/python-build-standalone/20260825"]) expect(await pathExists(join(runtimeRoot, final))).toBe(false);
       expect((await readdir(runtimeRoot)).filter((name) => name.startsWith(".artifact-stage-"))).toEqual([]);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("preserves recoverable publication evidence at postverify and marker crash boundaries", async () => {
     const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
     for (const boundary of ["postverify-complete", "marker-written", "marker-validated"]) {
-      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
       const fixture = join(runtimeRoot, "artifact-operations.json");
       const effects = join(runtimeRoot, "effects.log");
       await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
@@ -770,7 +770,7 @@ describe("Hermes H1 source locks", () => {
         expect(await pathExists(journalPath)).toBe(false);
         expect(await pathExists(readyPath)).toBe(true);
       } finally {
-        await rm(runtimeRoot, { recursive: true, force: true });
+        await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       }
     }
   }, 120_000);
@@ -778,7 +778,7 @@ describe("Hermes H1 source locks", () => {
   it("keeps a fully committed publication after injected marker write and validation faults", async () => {
     const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
     for (const boundary of ["marker-written", "marker-validated"]) {
-      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
       const fixture = join(runtimeRoot, "artifact-operations.json");
       const effects = join(runtimeRoot, "effects.log");
       await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
@@ -799,13 +799,13 @@ describe("Hermes H1 source locks", () => {
         const after = await Promise.all(before.map(async ({ target }) => ({ target, tree: await snapshotTree(join(runtimeRoot, target)) })));
         expect(after).toEqual(before);
       } finally {
-        await rm(runtimeRoot, { recursive: true, force: true });
+        await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       }
     }
   }, 120_000);
 
   it("retains the journal and fails closed when the ready marker is torn", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
     const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
     const fixture = join(runtimeRoot, "artifact-operations.json");
     const effects = join(runtimeRoot, "effects.log");
@@ -835,12 +835,12 @@ describe("Hermes H1 source locks", () => {
       expect(await readFile(effects)).toEqual(effectsBefore);
       expect(await pathExists(readyPath)).toBe(true);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("runs marker-backed VerifyOnly in exact order without changing installed paths, bytes, hashes, or mtimes", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
     const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
     const fixture = join(runtimeRoot, "artifact-operations.json");
     const acquireEffects = join(runtimeRoot, "acquire-effects.log");
@@ -867,12 +867,12 @@ describe("Hermes H1 source locks", () => {
       expect(after).toEqual(before);
       expect(await readFile(verifyEffects, "utf8")).toBe("verify-only-ready\nverify-only-complete\nverify-only-ready\nverify-only-complete\n");
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("rejects a case-only installed artifact final-root rename before VerifyOnly effects", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
     const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
     const fixture = join(runtimeRoot, "artifact-operations.json");
     const effects = join(runtimeRoot, "case-verify-effects.log");
@@ -893,12 +893,12 @@ describe("Hermes H1 source locks", () => {
       expect(await pathExists(effects), "case-aliased artifact verification emitted success effects").toBe(false);
       expect(await snapshotTree(runtimeRoot), "failed artifact verification changed installed state").toEqual(beforeVerify);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("runs the real source entrypoint through a closed Git fixture and preserves the detached tree during VerifyOnly", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
     const script = fileURLToPath(new URL("../scripts/fetch-hermes.ps1", import.meta.url));
     const fixture = join(runtimeRoot, "source-operations.json");
     const acquireEffects = join(runtimeRoot, "source-acquire-effects.log");
@@ -937,12 +937,12 @@ describe("Hermes H1 source locks", () => {
       expect(verifiedHead.code, verifiedHead.stderr).toBe(0);
       expect(verifiedHead.stdout.trim()).toBe("5fc308a70719a83cccdbba4c0e39c23f5a8239d5");
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("rejects a case-only source path rename during real VerifyOnly", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
     const script = fileURLToPath(new URL("../scripts/fetch-hermes.ps1", import.meta.url));
     const fixture = join(runtimeRoot, "source-operations.json");
     await writeFile(fixture, '{"schemaVersion":1,"workflow":"source","scenario":"success"}\n', "utf8");
@@ -962,12 +962,12 @@ describe("Hermes H1 source locks", () => {
       expect(verified.stderr).toMatch(/case|path set|source.*drift/i);
       expect(await snapshotTree(source), "failed source verification changed the pinned source tree").toEqual(beforeVerify);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("rejects a case-only source final-root rename during real VerifyOnly", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
     const script = fileURLToPath(new URL("../scripts/fetch-hermes.ps1", import.meta.url));
     const fixture = join(runtimeRoot, "source-operations.json");
     await writeFile(fixture, '{"schemaVersion":1,"workflow":"source","scenario":"success"}\n', "utf8");
@@ -987,12 +987,12 @@ describe("Hermes H1 source locks", () => {
       expect(verified.stderr).toMatch(/case|path|source.*drift/i);
       expect(await snapshotTree(caseAliased), "failed source-root verification changed pinned source bytes").toEqual(beforeVerify);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("compares every relative source directory component with ordinal casing", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
     const module = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url));
     const command = String.raw`$ErrorActionPreference = 'Stop'
 Import-Module $env:JARVIS_CASE_MODULE -Force
@@ -1028,12 +1028,12 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       expect(result.code, result.stderr).toBe(0);
       expect(result.stdout).toContain("ORDINAL_SOURCE_COMPONENT_REJECTED");
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 30_000);
 
   it("rejects a symbolic Git HEAD at the exact pinned commit during real VerifyOnly", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
     const script = fileURLToPath(new URL("../scripts/fetch-hermes.ps1", import.meta.url));
     const fixture = join(runtimeRoot, "source-operations.json");
     const sourceCommit = "5fc308a70719a83cccdbba4c0e39c23f5a8239d5";
@@ -1068,12 +1068,12 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       expect(verifiedHead.code, verifiedHead.stderr).toBe(0);
       expect(verifiedHead.stdout.trim()).toBe(sourceCommit);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("runs every real Git probe with a closed child environment despite hostile inherited Git controls", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
     const script = fileURLToPath(new URL("../scripts/fetch-hermes.ps1", import.meta.url));
     const fixture = join(runtimeRoot, "source-operations.json");
     const hostile = join(runtimeRoot, "hostile");
@@ -1107,12 +1107,12 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       expect(await pathExists(join(hostile, "objects"))).toBe(false);
       expect(await pathExists(join(hostile, "index"))).toBe(false);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("uses one RuntimeRoot lock across source and artifact entrypoints", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
     const artifactScript = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
     const sourceScript = fileURLToPath(new URL("../scripts/fetch-hermes.ps1", import.meta.url));
     const artifactFixture = join(runtimeRoot, "artifact-operations.json");
@@ -1132,12 +1132,12 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       const acquired = await artifact;
       expect(acquired.code, acquired.stderr).toBe(0);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("rolls back a fault after the source move and removes every source stage", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
     const script = fileURLToPath(new URL("../scripts/fetch-hermes.ps1", import.meta.url));
     const fixture = join(runtimeRoot, "source-operations.json");
     await writeFile(fixture, '{"schemaVersion":1,"workflow":"source","scenario":"success"}\n', "utf8");
@@ -1150,12 +1150,12 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       const rerun = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture]);
       expect(rerun.code, rerun.stderr).toBe(0);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("preserves uncertain source state when final validation and exact rollback both fail", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
     const script = fileURLToPath(new URL("../scripts/fetch-hermes.ps1", import.meta.url));
     const fixture = join(runtimeRoot, "source-operations.json");
     const sourceLock = await loadJson("hermes-source-lock.json");
@@ -1179,12 +1179,12 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       expect(await snapshotTree(retainedRelease)).toEqual(releaseBeforeRetry);
       expect(await snapshotTree(retainedStage)).toEqual(stageBeforeRetry);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("rejects unbound source staging before effects and keeps two source VerifyOnly passes fully nonmutating", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
     const script = fileURLToPath(new URL("../scripts/fetch-hermes.ps1", import.meta.url));
     const fixture = join(runtimeRoot, "source-operations.json");
     const effects = join(runtimeRoot, "effects.log");
@@ -1196,7 +1196,7 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       expect(rejected.code).not.toBe(0);
       expect(rejected.stderr).toMatch(/unbound|residue/i);
       expect(await pathExists(effects)).toBe(false);
-      await rm(join(runtimeRoot, ".s"), { recursive: true, force: true });
+      await rm(join(runtimeRoot, ".s"), { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       const acquired = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture]);
       expect(acquired.code, acquired.stderr).toBe(0);
       const before = await snapshotTree(runtimeRoot);
@@ -1206,7 +1206,7 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       }
       expect(await snapshotTree(runtimeRoot)).toEqual(before);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
@@ -1216,7 +1216,7 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       ["runtime-artifacts", ".VERIFY-unbound", "payload"],
       ["source", ".S", "unbound/payload"],
     ]) {
-      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
       const fixture = join(runtimeRoot, `${workflow}-operations.json`);
       const effects = join(runtimeRoot, "effects.log");
       const script = fileURLToPath(new URL(workflow === "source" ? "../scripts/fetch-hermes.ps1" : "../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
@@ -1230,14 +1230,14 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
         expect(await pathExists(effects)).toBe(false);
         expect(await pathExists(join(runtimeRoot, residue, ...child.split("/")))).toBe(true);
       } finally {
-        await rm(runtimeRoot, { recursive: true, force: true });
+        await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       }
     }
   }, 120_000);
 
   it("rejects injected source and artifact manifest drift before the first workflow effect", async () => {
     for (const workflow of ["source", "runtime-artifacts"]) {
-      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
       const fixture = join(runtimeRoot, `${workflow}-operations.json`);
       const effects = join(runtimeRoot, "effects.log");
       const script = fileURLToPath(new URL(workflow === "source" ? "../scripts/fetch-hermes.ps1" : "../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
@@ -1252,7 +1252,7 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
         expect(await pathExists(join(runtimeRoot, ".hermes-runtime-publication.json"))).toBe(false);
         expect(await pathExists(join(runtimeRoot, ".hermes-runtime-publication.ready.json"))).toBe(false);
       } finally {
-        await rm(runtimeRoot, { recursive: true, force: true });
+        await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       }
     }
   }, 120_000);
@@ -1260,7 +1260,7 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
   it("keeps synthetic operation hooks closed to exact ephemeral fixture roots and schemas", async () => {
     const artifactScript = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
     const sourceScript = fileURLToPath(new URL("../scripts/fetch-hermes.ps1", import.meta.url));
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-not-a-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-not-a-workflow-fixture-"));
     const artifactFixture = join(runtimeRoot, "artifact-operations.json");
     const sourceFixture = join(runtimeRoot, "source-operations.json");
     const effects = join(runtimeRoot, "effects.log");
@@ -1282,7 +1282,7 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       expect(ungated.stderr).toMatch(/require a closed operation fixture/i);
       expect(await pathExists(effects)).toBe(false);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
@@ -1300,7 +1300,7 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       ["git-dirty", /path set/i, [...throughCheckout, "git-verify"]],
     ];
     for (const [scenario, error, expectedEffects] of cases) {
-      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
       const fixture = join(runtimeRoot, "source-operations.json");
       const effects = join(runtimeRoot, "effects.log");
       await writeFile(fixture, `${JSON.stringify({ schemaVersion: 1, workflow: "source", scenario })}\n`, "utf8");
@@ -1315,7 +1315,7 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
         const staging = join(runtimeRoot, ".s");
         if (await pathExists(staging)) expect(await readdir(staging)).toEqual([]);
       } finally {
-        await rm(runtimeRoot, { recursive: true, force: true });
+        await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       }
     }
   }, 120_000);
@@ -1334,7 +1334,7 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       ["filesystem-stage-fault", /filesystem fault/i, "validated-before-root-effect\nfilesystem-stage\n"],
     ];
     for (const [scenario, error, expectedEffects] of cases) {
-      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
       const fixture = join(runtimeRoot, "artifact-operations.json");
       const effects = join(runtimeRoot, "effects.log");
       await writeFile(fixture, `${JSON.stringify({ schemaVersion: 1, workflow: "runtime-artifacts", scenario })}\n`, "utf8");
@@ -1372,7 +1372,7 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
           expect(stages, `${scenario} left ordinary artifact staging residue`).toEqual([]);
         }
       } finally {
-        await rm(runtimeRoot, { recursive: true, force: true });
+        await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       }
     }
   }, 120_000);
@@ -1385,7 +1385,7 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       ["source", "source-stage-ads", /alternate stream|identity|safe regular object/i, true],
     ];
     for (const [workflow, scenario, error, retainedAds] of cases) {
-      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
       const fixture = join(runtimeRoot, `${workflow}-operations.json`);
       const script = fileURLToPath(new URL(workflow === "source" ? "../scripts/fetch-hermes.ps1" : "../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
       await writeFile(fixture, `${JSON.stringify({ schemaVersion: 1, workflow, scenario })}\n`, "utf8");
@@ -1421,7 +1421,7 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
           expect(residue, `${scenario} left residue even though the hardlink mutation was denied`).toEqual([]);
         }
       } finally {
-        await rm(runtimeRoot, { recursive: true, force: true });
+        await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       }
     }
   }, 120_000);
@@ -1429,7 +1429,7 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
   it("rejects post-publication NTFS hardlinks, ADS, and byte-identical identity replacement before VerifyOnly effects", async () => {
     const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
     for (const mutation of ["hardlink", "ads", "replace"]) {
-      const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+      const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
       const fixture = join(runtimeRoot, "artifact-operations.json");
       const effects = join(runtimeRoot, "effects.log");
       await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
@@ -1450,13 +1450,13 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
         expect(await pathExists(effects)).toBe(false);
         expect(await snapshotTree(runtimeRoot)).toEqual(before);
       } finally {
-        await rm(runtimeRoot, { recursive: true, force: true });
+        await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
       }
     }
   }, 120_000);
 
   it("fails closed on an injected external VerifyOnly scratch cleanup error and leaves no scratch residue", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
     const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
     const fixture = join(runtimeRoot, "artifact-operations.json");
     await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
@@ -1464,14 +1464,14 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       const acquired = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-TestOperationFixture", fixture]);
       expect(acquired.code, acquired.stderr).toBe(0);
       await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"verify-cleanup-fault"}\n', "utf8");
-      const scratchBefore = new Set((await readdir(tmpdir())).filter((name) => name.startsWith("jarvis-hermes-verify-")));
+      const scratchBefore = new Set((await readdir(canonicalTmpdir)).filter((name) => name.startsWith("jarvis-hermes-verify-")));
       const verified = await runPowerShellFile(script, ["-RuntimeRoot", runtimeRoot, "-VerifyOnly", "-TestOperationFixture", fixture]);
       expect(verified.code).not.toBe(0);
       expect(verified.stderr).toMatch(/scratch cleanup failed closed/i);
-      expect(new Set((await readdir(tmpdir())).filter((name) => name.startsWith("jarvis-hermes-verify-")))).toEqual(scratchBefore);
+      expect(new Set((await readdir(canonicalTmpdir)).filter((name) => name.startsWith("jarvis-hermes-verify-")))).toEqual(scratchBefore);
       expect((await readdir(runtimeRoot)).filter((name) => name.startsWith(".verify-"))).toEqual([]);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
@@ -1486,8 +1486,8 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
 
   it("rejects RuntimeRoot and target-ancestor junctions through the real artifact entrypoint before effects", async () => {
     const script = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
-    const targetRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
-    const junctionRoot = join(tmpdir(), `jarvis-hermes-workflow-fixture-${Date.now()}-junction`);
+    const targetRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
+    const junctionRoot = join(canonicalTmpdir, `jarvis-hermes-workflow-fixture-${Date.now()}-junction`);
     const fixture = join(targetRoot, "artifact-operations.json");
     await writeFile(fixture, '{"schemaVersion":1,"workflow":"runtime-artifacts","scenario":"success"}\n', "utf8");
     try {
@@ -1497,7 +1497,7 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       expect(rootResult.code).not.toBe(0);
       expect(rootResult.stderr).toMatch(/reparse|junction|RuntimeRoot/i);
       expect(await pathExists(rootEffects)).toBe(false);
-      await rm(junctionRoot, { recursive: true, force: true });
+      await rm(junctionRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
 
       const safe = join(targetRoot, "safe-target"); await mkdir(safe);
       await symlink(safe, join(targetRoot, "toolchain"), "junction");
@@ -1507,13 +1507,13 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       expect(ancestorResult.stderr).toMatch(/reparse|junction|traverses/i);
       expect(await pathExists(ancestorEffects)).toBe(false);
     } finally {
-      await rm(junctionRoot, { recursive: true, force: true });
-      await rm(targetRoot, { recursive: true, force: true });
+      await rm(junctionRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+      await rm(targetRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("promotes only complete staging directories and never replaces or creates a partial final target", async () => {
-    const temp = await mkdtemp(join(tmpdir(), "jarvis-hermes-promotion-"));
+    const temp = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-promotion-"));
     const module = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url));
     const escapedRoot = temp.replace(/'/g, "''");
     const escapedModule = module.replace(/'/g, "''");
@@ -1553,12 +1553,12 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       expect(result.stdout).toContain("ATOMIC_PROMOTION_OK");
       expect(result.stderr).toBe("");
     } finally {
-      await rm(temp, { recursive: true, force: true });
+      await rm(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   });
 
   it("rolls an exact handle rename back when post-move tree validation fails", async () => {
-    const temp = await mkdtemp(join(tmpdir(), "jarvis-hermes-promotion-rollback-"));
+    const temp = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-promotion-rollback-"));
     const module = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url));
     try {
       const result = await runPowerShellCommand(`
@@ -1585,12 +1585,12 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       expect(result.code, result.stderr).toBe(0);
       expect(result.stdout).toContain("POST_MOVE_VALIDATION_ROLLBACK_OK");
     } finally {
-      await rm(temp, { recursive: true, force: true });
+      await rm(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 30_000);
 
   it("retains each child file against a same-size rewrite after its post-move hash", async () => {
-    const temp = await mkdtemp(join(tmpdir(), "jarvis-hermes-promotion-child-guard-"));
+    const temp = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-promotion-child-guard-"));
     const module = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url));
     try {
       const result = await runPowerShellCommand(`
@@ -1638,12 +1638,12 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       expect(result.code, result.stderr).toBe(0);
       expect(result.stdout).toContain("POST_HASH_CHILD_GUARD_OK");
     } finally {
-      await rm(temp, { recursive: true, force: true });
+      await rm(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 30_000);
 
   it("moves an exact nonempty directory through its write-through identity handle", async () => {
-    const temp = await mkdtemp(join(tmpdir(), "jarvis-hermes-write-through-directory-"));
+    const temp = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-write-through-directory-"));
     const module = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url));
     try {
       const result = await runPowerShellCommand(`
@@ -1669,12 +1669,12 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       expect(result.code, result.stderr).toBe(0);
       expect(result.stdout).toContain("WRITE_THROUGH_NONEMPTY_MOVE_OK");
     } finally {
-      await rm(temp, { recursive: true, force: true });
+      await rm(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 30_000);
 
   it("preserves the publication journal when post-move validation and exact rollback both fail", async () => {
-    const temp = await mkdtemp(join(tmpdir(), "jarvis-hermes-promotion-rollback-failure-"));
+    const temp = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-promotion-rollback-failure-"));
     const module = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url));
     try {
       const result = await runPowerShellCommand(`
@@ -1720,12 +1720,12 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       expect(result.code, result.stderr).toBe(0);
       expect(result.stdout).toContain("ROLLBACK_FAILURE_JOURNAL_OK");
     } finally {
-      await rm(temp, { recursive: true, force: true });
+      await rm(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 30_000);
 
   it("preserves the publication journal when the actual outer reverse move fails", async () => {
-    const temp = await mkdtemp(join(tmpdir(), "jarvis-hermes-outer-rollback-failure-"));
+    const temp = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-outer-rollback-failure-"));
     const module = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url));
     try {
       const result = await runPowerShellCommand(`
@@ -1785,12 +1785,12 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       expect(result.code, result.stderr).toBe(0);
       expect(result.stdout).toContain("OUTER_ROLLBACK_FAILURE_JOURNAL_OK");
     } finally {
-      await rm(temp, { recursive: true, force: true });
+      await rm(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 45_000);
 
   it("rejects a movable request for an already retained non-movable directory lease", async () => {
-    const temp = await mkdtemp(join(tmpdir(), "jarvis-hermes-movable-upgrade-"));
+    const temp = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-movable-upgrade-"));
     const module = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url));
     try {
       const result = await runPowerShellCommand(`
@@ -1812,12 +1812,12 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
       expect(result.code, result.stderr).toBe(0);
       expect(result.stdout).toContain("NON_MOVABLE_LEASE_REJECTED_OK");
     } finally {
-      await rm(temp, { recursive: true, force: true });
+      await rm(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 30_000);
 
   it("rejects hostile tar members and zip members before runtime extraction", async () => {
-    const temp = await mkdtemp(join(tmpdir(), "jarvis-hermes-archive-"));
+    const temp = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-archive-"));
     const module = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url));
     const escapedRoot = temp.replace(/'/g, "''"); const escapedModule = module.replace(/'/g, "''");
     try {
@@ -1834,7 +1834,7 @@ if ($accepted) { throw 'case-aliased relative source directory was accepted' }
         child.stdout.on("data", (data) => { stdout += data; }); child.stderr.on("data", (data) => { stderr += data; }); child.on("error", reject); child.on("close", (code) => resolve({ code, stdout, stderr }));
       });
       expect(result.code, result.stderr).toBe(0); expect(result.stdout).toContain("HOSTILE_ARCHIVE_REJECTED"); expect(result.stderr).toBe("");
-    } finally { await rm(temp, { recursive: true, force: true }); }
+    } finally { await rm(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); }
   });
 
   it.each([
@@ -1929,7 +1929,7 @@ if ($accepted.Count -ne 0) { throw ('Ordinal archive member contracts accepted: 
   });
 
   it("rejects every hostile injected Git transcript and source-directory drift before promotion", async () => {
-    const temp = await mkdtemp(join(tmpdir(), "jarvis-hermes-git-runner-"));
+    const temp = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-git-runner-"));
     const module = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url)).replace(/'/g, "''");
     const escapedRoot = temp.replace(/'/g, "''");
     try {
@@ -1950,7 +1950,7 @@ if ($accepted.Count -ne 0) { throw ('Ordinal archive member contracts accepted: 
         child.stdout.on("data", (data)=>{stdout+=data;}); child.stderr.on("data",(data)=>{stderr+=data;}); child.on("error",reject); child.on("close",(code)=>resolve({code,stdout,stderr}));
       });
       expect(result.code, result.stderr).toBe(0); expect(result.stdout).toContain("GIT_TRANSCRIPT_MATRIX_OK");
-    } finally { await rm(temp, { recursive: true, force: true }); }
+    } finally { await rm(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); }
   });
 
 });

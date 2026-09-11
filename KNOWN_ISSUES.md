@@ -1,22 +1,42 @@
 # Known issues
 
-## R0 review follow-up: Hermes cleanup fails outside the changed test
+## R0 review follow-up: triaged, one root cause in ten test files
 
-The regular Hermes selection with the moved 8.3 regression finished with
-107 passed and 1 failed on 2026-09-06. The new `temp-path.test.mjs` passes.
-`sbom-integrity-round2.test.mjs` fails in "rejects a fabricated release-shaped
-source root through the real generator before reading lock inputs": cleanup
-cannot unlink `.hermes-runtime.workflow.lock` and returns `EBUSY`.
+Claude Opus 5 high triaged the escalation of 2026-09-06 (BUILDING.md rung 2).
+Every failure was one of two environment assumptions. No product defect.
 
-Neither that test nor its production code changed in the follow-up, and no
-unmerged change to that test was found on the available branches. Its cause
-has not been established. BUILDING.md requires stopping and escalating to
-Claude Opus 5 high rather than changing unrelated runtime code speculatively.
-The two extended Hermes suites were not run.
+**The 8.3 alias, 21 of the 24 remote Hermes failures and both deployment
+failures.** `d9d59f9` fixed this in `workflow-containment-review5.test.mjs`
+only; the other nine Hermes test files and `scripts/test/deploy.test.mjs`
+still handed a raw `mkdtemp(join(tmpdir(), ...))` path to the runtime, which
+`Assert-LiteralRuntimeRoot` correctly rejects when TEMP resolves through an
+8.3 alias (`C:\Users\RUNNER~1\...`). 75 call sites. The tests were feeding
+aliased input to a correct check.
 
-PR #4's earlier head `8de35e7` also has remote failures in deployment
-scripts, Hermes and workspace. Both local-agent jobs, watchdog and
-byte-exact checkout passed. The remote failure causes remain untriaged.
+**The launcher tag, the remaining 3.** `attestation-contract.test.mjs`
+resolves the interpreter the source lock pins as `py -V:Astral/CPython3.11.16`.
+That PEP 514 tag belongs to a uv-managed install; `actions/setup-python`
+registers nothing under it, so the launcher reported "No suitable Python
+runtime found".
+
+**The `EBUSY`, which never appeared in CI.** The fabricated release directory
+is named for the pinned `sourceCommit`, so the test passes its binding checks
+and really does reach `runLockedSourceVerifier`. PowerShell then opens
+`.hermes-runtime.workflow.lock` through `NativeFileGuard.OpenWorkflowLock`
+with `dwShareMode = 0` — no `FILE_SHARE_DELETE` — and cleanup using Node's
+default `maxRetries: 0` loses the race with Windows handle teardown. It
+reproduced only on the owner's machine because on a runner the alias check
+rejects the path *before* the lock is ever opened. Canonicalizing without
+adding the retry would have traded alias failures for cleanup flakes.
+
+All three are fixed in the branch that carries this note: a shared
+`test/fixtures/temp-root.mjs`, `maxRetries` on cleanup deletes, and CI
+installing the pinned interpreter through uv. `Assert-LiteralRuntimeRoot`,
+`OpenWorkflowLock` and every share flag are unchanged.
+
+Still open: the fabricated-source-root test now reaches the behaviour it
+names rather than passing on the alias rejection, so its assertions are
+exercised for the first time on CI. Watch it.
 
 ## R0 CI corrections pass locally; remote CI remains unverified
 

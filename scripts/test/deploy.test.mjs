@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,7 +9,10 @@ import { test } from 'node:test';
 const scripts = fileURLToPath(new URL('../', import.meta.url));
 for (const [script, app] of [['deploy.ps1', 'cloud-gateway'], ['deploy-watchdog.ps1', 'watchdog']]) {
   test(`${script} preserves production targeting across the real PowerShell native boundary`, () => {
-    const root = mkdtempSync(join(tmpdir(), 'jarvis deploy test '));
+    // PowerShell reports the real directory, so an 8.3 alias in TEMP
+    // (a runner's C:\Users\RUNNER~1\...) would never match the argv it
+    // captures. Compare against the same canonical path the shell sees.
+    const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'jarvis deploy test ')));
     try {
       const entry = join(root, 'scripts', script);
       const cli = join(root, 'node_modules/wrangler/bin/wrangler.js');

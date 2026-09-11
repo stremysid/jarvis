@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { canonicalTmpdir } from "./fixtures/temp-root.mjs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -21,7 +21,7 @@ function runPowerShell(command, env) {
 
 describe("Task 2 publication security review 4", () => {
   it("produces the same publication digest under English and Czech cultures", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-publication-locale-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-publication-locale-"));
     const payload = join(runtimeRoot, "payload");
     await mkdir(payload);
     try {
@@ -55,12 +55,12 @@ describe("Task 2 publication security review 4", () => {
       const [english, czech] = JSON.parse(result.stdout.trim());
       expect(czech, "publication digest changed with process culture").toBe(english);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 30_000);
 
   it("rejects coercive or case-folded publication record scalars", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-publication-schema-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-publication-schema-"));
     try {
       const command = [
         "$module = Import-Module $env:JARVIS_TEST_HERMES_MODULE -Force -PassThru -DisableNameChecking -WarningAction SilentlyContinue",
@@ -110,12 +110,12 @@ describe("Task 2 publication security review 4", () => {
         digestCase: false,
       });
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 30_000);
 
   it("never leaves a same-size pathname replacement as reusable publication state", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-publication-state-race-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-publication-state-race-"));
     try {
       const command = [
         "$module = Import-Module $env:JARVIS_TEST_HERMES_MODULE -Force -PassThru -DisableNameChecking -WarningAction SilentlyContinue",
@@ -176,12 +176,12 @@ describe("Task 2 publication security review 4", () => {
       expect(outcome.destinationIsForged, "the forged state record remained reusable").toBe(false);
       expect(outcome.destinationIsLegitimate, "the state destination did not preserve the caller's exact bytes").toBe(true);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 30_000);
 
   it("never accepts a same-size replacement before establishing its move baseline", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-publication-state-baseline-race-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-publication-state-baseline-race-"));
     try {
       const command = [
         "$module = Import-Module $env:JARVIS_TEST_HERMES_MODULE -Force -PassThru -DisableNameChecking -WarningAction SilentlyContinue",
@@ -242,12 +242,12 @@ describe("Task 2 publication security review 4", () => {
       expect(outcome.destinationIsForged, "the pre-baseline forged state record was accepted").toBe(false);
       expect(outcome.destinationIsLegitimate, "the state destination did not preserve the caller's exact bytes").toBe(true);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 30_000);
 
   it("never deletes a pathname replacement after releasing the exact state handle", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-publication-cleanup-race-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-publication-cleanup-race-"));
     try {
       const command = [
         "$module = Import-Module $env:JARVIS_TEST_HERMES_MODULE -Force -PassThru -DisableNameChecking -WarningAction SilentlyContinue",
@@ -310,7 +310,7 @@ describe("Task 2 publication security review 4", () => {
       expect(outcome.replacementIsExact, "the foreign pathname replacement was altered").toBe(true);
       expect(outcome.originalQuarantined, "the original state identity escaped handle-bound cleanup").toBe(false);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 30_000);
 });

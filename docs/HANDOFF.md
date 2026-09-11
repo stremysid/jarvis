@@ -63,20 +63,23 @@ in `test/temp-path.test.mjs` and uses the same extracted fixture builder as
 the excluded containment file. Raw alias rejection and canonical acceptance
 are still measured against the unchanged runtime module.
 
-The moved test passed alone and in the regular Hermes selection. A mutation
-removing shared-fixture normalization failed as intended and was restored.
-Regular Hermes finished **107 passed, 1 failed**: the unchanged SBOM
-integrity fabricated-source-root test fails cleanup with `EBUSY` unlinking
-`.hermes-runtime.workflow.lock`. Its final report is preserved outside the
-repository. The earlier streamed run lost its final tool output. The two
-extended suites were not run; the excluded containment file collects 61
-tests after extraction.
+The escalation that stopped the builder on 2026-09-06 is triaged and fixed.
+Claude Opus 5 high (BUILDING.md rung 2) found one root cause behind 23 of the
+26 remote failures: only one test file had been canonicalized against the
+runner's 8.3 temp alias, leaving 75 raw `mkdtemp` sites across nine more
+Hermes files and `scripts/test/deploy.test.mjs`. The remaining three were the
+Windows launcher failing to resolve `Astral/CPython3.11.16`, which is a
+uv-managed PEP 514 tag that `actions/setup-python` does not register. The
+`EBUSY` was a cleanup race against a PowerShell handle opened with no
+`FILE_SHARE_DELETE`; it never surfaced in CI because the alias check rejected
+those paths before the lock was opened. See KNOWN_ISSUES.md for the detail.
 
-PR CI on `8de35e7`: both local-agent jobs, watchdog and byte-exact checkout
-passed; deployment scripts, Hermes and workspace failed. Do not treat prior
-local workspace results or owner approval as green CI. BUILDING.md's stop
-rule requires escalating the unchanged SBOM test failure to Claude Opus 5
-high; no unmerged fix to that test exists among the available branches.
+The fix is test and CI only. No runtime code, no security control and no
+share flag changed. The regular selection still collects 108 tests and
+`source-lock` 77, so nothing was dropped. Windows execution is verified by
+CI, not locally: this triage ran on Linux, where the suites cannot execute.
+
+Do not treat prior local workspace results or owner approval as green CI.
 
 The owner will perform item 5's deployment. After the blocker is resolved,
 continue items 6 and 7 locally, then verify deployed behavior. No main push or
