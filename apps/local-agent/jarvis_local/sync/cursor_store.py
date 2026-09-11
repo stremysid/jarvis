@@ -21,6 +21,32 @@ class PendingSyncAck:
     consumer: str
     through_sequence: int
     staged_at: str
+    snapshot_id: str | None = None
+    expected_current: int | None = None
+    gateway_origin: str | None = None
+    device_id: str | None = None
+    principal_id: str | None = None
+
+    def has_snapshot_identity(self) -> bool:
+        return all(
+            value is not None
+            for value in (
+                self.snapshot_id,
+                self.expected_current,
+                self.gateway_origin,
+                self.device_id,
+                self.principal_id,
+            )
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SyncAckIdentity:
+    snapshot_id: str
+    expected_current: int
+    gateway_origin: str
+    device_id: str
+    principal_id: str
 
 
 class CursorStore:
@@ -46,6 +72,7 @@ class CursorStore:
         *,
         consumer: str = LOCAL_AGENT,
         now: str | None = None,
+        acknowledgement: SyncAckIdentity | None = None,
     ) -> None:
         """Move the cursor and record that an acknowledgement is owed.
 
@@ -69,21 +96,47 @@ class CursorStore:
         )
         self.connection.execute(
             """
-            INSERT INTO pending_sync_ack (consumer, through_sequence, staged_at)
-            VALUES (?, ?, ?)
+            INSERT INTO pending_sync_ack
+                (consumer, through_sequence, staged_at, snapshot_id, expected_current,
+                 gateway_origin, device_id, principal_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(consumer) DO UPDATE SET
                 through_sequence = excluded.through_sequence,
-                staged_at = excluded.staged_at
+                staged_at = excluded.staged_at,
+                snapshot_id = excluded.snapshot_id,
+                expected_current = excluded.expected_current,
+                gateway_origin = excluded.gateway_origin,
+                device_id = excluded.device_id,
+                principal_id = excluded.principal_id
             """,
-            (consumer, int(through_sequence), stamp),
+            (
+                consumer,
+                int(through_sequence),
+                stamp,
+                acknowledgement.snapshot_id if acknowledgement else None,
+                acknowledgement.expected_current if acknowledgement else None,
+                acknowledgement.gateway_origin if acknowledgement else None,
+                acknowledgement.device_id if acknowledgement else None,
+                acknowledgement.principal_id if acknowledgement else None,
+            ),
         )
 
     def pending_ack(self, consumer: str = LOCAL_AGENT) -> PendingSyncAck | None:
         row = self.connection.execute(
-            "SELECT consumer, through_sequence, staged_at FROM pending_sync_ack WHERE consumer = ?",
+            """
+            SELECT consumer, through_sequence, staged_at, snapshot_id, expected_current,
+                   gateway_origin, device_id, principal_id
+            FROM pending_sync_ack WHERE consumer = ?
+            """,
             (consumer,),
         ).fetchone()
-        return PendingSyncAck(row[0], int(row[1]), row[2]) if row else None
+        return (
+            PendingSyncAck(
+                row[0], int(row[1]), row[2], row[3],
+                None if row[4] is None else int(row[4]), row[5], row[6], row[7],
+            )
+            if row else None
+        )
 
     def clear_pending_ack(self, consumer: str = LOCAL_AGENT) -> None:
         """Called only after the cloud has accepted the acknowledgement."""

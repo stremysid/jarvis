@@ -6,17 +6,26 @@ using this checkpoint. R0 passed; calling remains R1.
 ## R2 item 2 candidate
 
 PR #12 is merged at `7414ab1`. Its Linux device-key implementation is the
-base for [draft PR #13](https://github.com/ksid1229-ops/jarvis/pull/13),
+base for [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13),
 `codex/r2-unix-node`, which continues the Unix control socket and foreground
 `jarvis node` bootstrap. Transport code was pushed early after local checks;
 Ubuntu CI passed 525 Python tests (14 skipped) at transport checkpoint
 `1ce74d1`. This is evidence for that checkpoint, not a claim about the final
 bootstrap or the provisioned server. See PR #13 for current-head validation.
 
-GPT-5.6 Sol high builds this item; Claude Opus 5 high review is still needed.
-Sid retains merging and the live systemd check. No later R2 item or production
-operation is included. R0's observed exit evidence below remains valid and
-R1 remains open.
+Review at `996e6ec` confirmed two merge-blocking client lifecycle defects:
+completed snapshot reuse on later cycles, and pending ACKs that could not be
+sent by a reconstructed client. Core fixes stage snapshot identity with the
+events and cursor and validate the ACK receipt before clearing it. Boundary
+tests cover terminal, empty and nonterminal pages across cycles and a disk
+archive reopened with a new signed client. Recovery when an unaccepted ACK
+expires during the normal retry delay remains in progress; do not merge yet.
+
+GPT-5.6 Sol high builds this item; the final fixes need Claude Opus 5 high
+review. Sid retains merging and the live systemd check. Item 3 is isolated in
+[draft PR #16](https://github.com/ksid1229-ops/jarvis/pull/16), including its
+D1 migration and version-order regression. No production operation was run.
+R0's observed exit evidence below remains valid and R1 remains open.
 
 ## Earlier R0 branch and review
 

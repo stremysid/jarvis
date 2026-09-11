@@ -57,12 +57,18 @@ be mirrored rather than reinvented. Do not flip the voice switch in
 
 PR #12's Linux device-key storage is merged. The Unix control socket and
 foreground `jarvis node` bootstrap continue in
-[draft PR #13](https://github.com/ksid1229-ops/jarvis/pull/13), on
+[PR #13](https://github.com/ksid1229-ops/jarvis/pull/13), on
 `codex/r2-unix-node`. Keep this work in that one PR and obtain Claude Opus 5
 high review before Sid merges it. The node's owner-run systemd check belongs
 on the provisioned Linux server; follow the
 [home-node runbook](docs/runbooks/home-node.md). Local tests and Ubuntu CI do
 not establish that live acceptance.
+
+The confirmed snapshot-continuation and restart-ACK P1s block merging.
+Core boundary fixes and tests are implemented; finish the expired unaccepted
+ACK recovery before requesting final review. Keep the durable cursor and
+events unchanged during recovery and never clear an ACK on a refused receipt.
+Item 3 continues separately in [draft PR #16](https://github.com/ksid1229-ops/jarvis/pull/16).
 
 R2's remaining work is server provisioning/private networking, fact upload
 and cloud retrieval, semantic search, the guarded vault adapter, and encrypted

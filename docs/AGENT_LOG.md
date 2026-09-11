@@ -46,6 +46,19 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 17:00 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
+
+The two bot P1s at `996e6ec` are confirmed and supersede the earlier
+ready-to-merge assessment. PR #13 now has an early lifecycle fix: snapshot
+identity is committed with pending ACKs, reconstructed clients send that
+exact ACK, and completed, empty and acknowledged pages no longer leave a
+continuation for the next scheduled cycle. Four real-client boundary tests
+failed before the fix; a local rollback retry has its own regression too.
+An unaccepted ACK can expire during normal backoff, so exact-page rebinding
+is the next required slice before final review. Do not merge yet. Item 3 and
+its version-order regression are now isolated in draft PR #16, whose body
+calls out migration `0014` and the owner's live D1 deployment step.
+
 ## 2026-09-11 16:05 UTC — GPT-5.6 Sol builder / GPT-6 coordinator
 
 Applied both PR #13 review follow-ups after bringing in PR #14: the four Unix-socket Linux guards and the node key-permission guard now use `_is_linux()`, with all five injected type errors rejected by the existing win32 mypy invocation. Added the requested systemd sandbox, documented the bind/UMask dependency, and put `systemd-analyze security` in the home-node runbook. Local Python checks pass (540 tests, 20 platform skips, Ruff and mypy). The two reviewed item-2 slices have no merge-blocking findings; these follow-ups and subsequent fact-projection work remain on the same draft PR for review. No host installation, security score, deployment or live R2 acceptance is claimed.

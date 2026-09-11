@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from jarvis_local.archive.archive_repository import ArchiveRepository
-from jarvis_local.sync.cursor_store import LOCAL_AGENT, CursorStore
+from jarvis_local.sync.cursor_store import LOCAL_AGENT, CursorStore, PendingSyncAck, SyncAckIdentity
 
 
 class SyncAckPending(RuntimeError):  # noqa: N818 - name fixed by the plan's interface
@@ -39,6 +39,7 @@ class SyncAckPending(RuntimeError):  # noqa: N818 - name fixed by the plan's int
 class EventPage:
     events: tuple[dict[str, Any], ...]
     highest_sequence: int
+    acknowledgement: SyncAckIdentity | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +53,7 @@ class CloudClient(Protocol):
 
     def pull(self, after_sequence: int) -> EventPage: ...
 
-    def acknowledge(self, through_sequence: int) -> None: ...
+    def acknowledge(self, acknowledgement: PendingSyncAck) -> None: ...
 
 
 class EventReplicator:
@@ -105,7 +106,7 @@ class EventReplicator:
         if pending is None:
             return
         try:
-            self.cloud.acknowledge(pending.through_sequence)
+            self.cloud.acknowledge(pending)
         except CloudAuthError:
             # Keep the staged acknowledgement, but preserve the one failure
             # class the scheduler must stop retrying immediately.
@@ -121,7 +122,11 @@ class EventReplicator:
         connection.execute("BEGIN")
         try:
             written = self._write_events(page.events)
-            self.cursors.advance_and_stage_ack(page.highest_sequence, consumer=self.consumer)
+            self.cursors.advance_and_stage_ack(
+                page.highest_sequence,
+                consumer=self.consumer,
+                acknowledgement=page.acknowledgement,
+            )
             if self._crash_after_event_write is not None:
                 # Everything above is inside the transaction, so whatever this
                 # raises must leave the database exactly as it was.

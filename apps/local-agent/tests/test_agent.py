@@ -17,6 +17,7 @@ from jarvis_local.archive.archive_repository import ArchiveRepository
 from jarvis_local.memory.distillation import DistillationCoordinator
 from jarvis_local.memory.facts import FactRepository
 from jarvis_local.sync.cloud_client import CloudAuthError, CloudSyncError
+from jarvis_local.sync.cursor_store import PendingSyncAck
 from jarvis_local.sync.event_replicator import EventPage, EventReplicator, SyncAckPending
 
 PRINCIPAL = "principal-a"
@@ -53,7 +54,7 @@ class FakeCloud:
             return EventPage(events=(), highest_sequence=after_sequence)
         return self.pages.pop(0)
 
-    def acknowledge(self, through_sequence: int) -> None:
+    def acknowledge(self, acknowledgement: PendingSyncAck) -> None:
         if self.ack_error is not None:
             raise self.ack_error
         return None

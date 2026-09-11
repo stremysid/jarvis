@@ -68,14 +68,20 @@ class FakeOpener:
         return [body for _, body, _ in self.requests]
 
 
-def page(from_sequence: int, to_sequence: int, *, snapshot: str = "snap-1") -> dict[str, Any]:
+def page(
+    from_sequence: int,
+    to_sequence: int,
+    *,
+    snapshot: str = "snap-1",
+    has_more: bool = False,
+) -> dict[str, Any]:
     return {
         "snapshotId": snapshot,
         "snapshotToken": f"token-{snapshot}",
         "fromSequence": from_sequence,
         "toSequence": to_sequence,
         "events": [envelope(n) for n in range(from_sequence, to_sequence + 1)],
-        "hasMore": False,
+        "hasMore": has_more,
     }
 
 
@@ -138,7 +144,7 @@ def test_acknowledging_without_a_pull_is_refused(key: Ed25519PrivateKey) -> None
 
 
 def test_snapshot_token_is_carried_into_the_next_pull(key: Ed25519PrivateKey) -> None:
-    opener = FakeOpener([page(1, 2), page(3, 4, snapshot="snap-2")])
+    opener = FakeOpener([page(1, 2, has_more=True), page(3, 4, snapshot="snap-2")])
     sync = client(key, opener)
     sync.pull(0)
     sync.pull(2)

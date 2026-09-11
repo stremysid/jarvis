@@ -30,6 +30,7 @@ from jarvis_local.scheduler import (
     SchedulerState,
 )
 from jarvis_local.sync.cloud_client import CloudAuthError, CloudSyncError
+from jarvis_local.sync.cursor_store import PendingSyncAck
 from jarvis_local.sync.event_replicator import EventPage, EventReplicator
 
 MOMENT = datetime(2026, 9, 2, 9, 0, 0, tzinfo=UTC)
@@ -299,7 +300,7 @@ class _RefusingCloud:
     def pull(self, after_sequence: int) -> EventPage:
         raise self.error
 
-    def acknowledge(self, through_sequence: int) -> None:
+    def acknowledge(self, acknowledgement: PendingSyncAck) -> None:
         return None
 
 
