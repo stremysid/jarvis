@@ -147,19 +147,33 @@ The **UptimeRobot monitor is not configured.** Until it is, nothing watches
 the watchdog. Follow the numbered actions in the runbook, against the
 watchdog's `/health`, never the gateway's.
 
-**R0 exit remains incomplete:** Telegram `/status` and `/queue` replies, and
-the morning digest saying "nothing due". CI green on `main` is verified.
+**R0 exit PASSED on 2026-09-11.** All five conditions observed by Sid, with
+the evidence below. R1 is unblocked.
+
+| Condition | Evidence | UTC |
+|---|---|---|
+| CI green on `main` | `577c6a0`, seven jobs | 13:13 |
+| A real cron firing and being recorded | `drain` every five minutes, `poll` hourly, `failure` NULL throughout | through 13:15 |
+| The scheduled morning digest saying "nothing due" | `scheduled_runs` row `digest` / `2026-09-11`, started and finished 11:30:40, `failure` NULL; delivered to Telegram as "Digest -- 2026-09-11 / Nothing due, nothing changed, nothing waiting on you." | 11:30:40 |
+| Telegram `/status` replies | "Autonomy: shadow since 2026-09-02 (reporting, not acting)" with `drain: ok at 13:15`, `poll: ok at 13:00`, `digest: ok at 11:30` | 13:16 |
+| Telegram `/queue` replies | "Nothing waiting on you." — the empty-queue answer, not a failure | 13:17 |
+
+The digest is the load-bearing one: it fired on its own schedule at the
+America/Toronto 07:30 boundary with no `DIGEST_TIMEZONE` override, and a
+manually invoked digest would not have proved that. `/status` independently
+reported the same 11:30 digest time that D1 holds, so two paths agree.
+
+An unknown command (`/staus`) answered "No such command." and listed the
+seven real ones, which was not required evidence but is worth recording.
+
 Gateway heartbeat delivery was removed from this list by Sid on 2026-09-11;
-see the scope note below. With no
-`DIGEST_TIMEZONE` override in the current gateway bindings, the code's
-America/Toronto default targets 07:30 local (11:30 UTC on September 11).
-A manually invoked digest would not prove that schedule.
+see the scope note below.
 
 Sid authorizes building through roadmap items without individual approvals.
 Merging, production operations, secrets and the consequential actions in
 DECISIONS.md remain owner actions. The stop rules and cross-vendor review
-remain mandatory. After R0 passes, build R1 and obtain Claude Opus 5 **max**
-review for its v1.0 release gate; do not begin it on these incomplete results.
+remain mandatory. R0 has passed, so build R1 and obtain Claude Opus 5 **max**
+review for its v1.0 release gate.
 
 **Scope: the heartbeat is off R0's exit test, by Sid's own decision.** The
 GPT-6 Codex session was right to refuse a weaker gate on a reviewer's say-so

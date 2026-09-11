@@ -1,7 +1,8 @@
 # Next steps
 
 The milestone order is in [the roadmap](docs/plan/2026-09-03-jarvis-roadmap.md).
-R0 only; do not start R1 or resume superseded implementation plans.
+**R0 passed on 2026-09-11 and R1 is open.** Do not resume superseded
+implementation plans.
 
 ## R0 checkpoint, 2026-09-11
 
@@ -31,14 +32,26 @@ R0 only; do not start R1 or resume superseded implementation plans.
    UptimeRobot actions in [the runbook](docs/runbooks/deploy.md), against the
    watchdog's `/health` and never the gateway's. Until that is observed,
    nothing watches the watchdog.
-8. **R0 exit is incomplete.** Telegram `/status` and `/queue` and the morning
-   digest saying "nothing due" remain unverified. Green CI on current main
-   `2b506c8` is verified. Do not start R1 until those three are observed.
-   Gateway heartbeat delivery **is no longer on this list**: Sid removed it
-   on 2026-09-11, and the amendment below is the authority. Read-only D1
-   checks at 05:11 UTC found successful drain/poll runs and a fresh watchdog
-   self-row but no gateway heartbeat row, which is recorded as a known issue
-   rather than an exit condition.
+8. **R0 exit PASSED, 2026-09-11.** All five conditions observed; the
+   evidence table with UTC times is in `docs/HANDOFF.md`. The digest fired on
+   its own America/Toronto 07:30 schedule at 11:30:40 UTC, `/status` and
+   `/queue` both answered, `drain` and `poll` are clean, and CI is green on
+   `577c6a0`. Gateway heartbeat delivery was removed from this list by Sid
+   before the pass and is a known issue, not an exit condition.
+
+## R1 is the next milestone
+
+Build it per the roadmap's section 7 and `docs/BUILDING.md`: GPT-5.6 Sol at
+high builds, **Claude Opus 5 at max** reviews, because R1 is the v1.0
+release gate rather than the usual high. The cross-vendor gate holds -- the
+same model never builds and reviews the same work.
+
+Read the R1 acceptance audit in `docs/AGENT_LOG.md` before planning item 2.
+The short version: the fake acceptance layer is outbound-only, so the
+inbound harness is the first and largest piece of work, and the pass
+criteria already exist in `tests/acceptance/live/voice-smoke.ts` and should
+be mirrored rather than reinvented. Do not flip the voice switch in
+`apps/cloud-gateway/src/index.ts` until the fake scenarios pass.
 
 ## Next gate
 
@@ -54,11 +67,10 @@ first; the runbook separates that controlled change from Worker-to-Worker
 routing and authentication diagnosis. A continued 404 after the URL reset
 must not be treated as proof of another URL typo.
 
-**R0 exit, as amended on 2026-09-11.** CI green on `main` -- met. A real
-cron firing and being recorded -- met, `drain` every five minutes and the
-hourly archival clean. Remaining: Telegram `/status` and `/queue`, and the
-morning digest saying "nothing due". The digest's default schedule is 07:30
-America/Toronto, which on 2026-09-11 is 11:30 UTC.
+**R0 exit, as amended on 2026-09-11 and passed the same day.** CI green on
+`main`, a real cron firing and being recorded, the scheduled morning digest,
+and both Telegram commands -- all five met. The digest's schedule is 07:30
+America/Toronto, 11:30 UTC on 2026-09-11, and it fired there unprompted.
 
 **The gateway heartbeat is no longer part of this exit test.** Sid deferred
 it at about 06:00 UTC on 2026-09-11, while it was still an open-ended hunt,
