@@ -114,10 +114,11 @@ A filtered trace of the real 05:15 gateway cron reported
 No request headers, bodies or credential values were retained. An external
 unauthenticated POST to the correct public `/heartbeat` endpoint returned
 401 at 05:19:30 UTC. This does **not** establish a shared-secret mismatch:
-the configured request receives a different status. First have Sid verify
-the configured URL exactly matches the public `/heartbeat` URL. If it does,
-investigate Worker-to-Worker routing before rotating secrets or changing
-code; see the runbook. No attempted production fix was made here.
+the configured request receives a different status. Worker secrets cannot
+be read back. First have Sid re-set the URL to the known public `/heartbeat`
+URL, then observe the next real cron. If 404 persists, investigate
+Worker-to-Worker routing before rotating secrets or changing code; see the
+runbook. No attempted production fix was made here.
 
 Independent HTTP checks at 05:16 UTC found gateway `/health` 200 and watchdog
 `/health` 200 with no reasons and a 05:15:19 UTC self-cycle. The watchdog URL

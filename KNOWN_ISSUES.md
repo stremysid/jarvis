@@ -31,8 +31,10 @@ open. The real 05:15 cron's heartbeat returned `rejected: status 404` at
 05:15:20 UTC. An external unauthenticated POST to the public `/heartbeat`
 endpoint returned 401 at 05:19:30 UTC. Do not diagnose a secret mismatch
 from the unauthenticated probe: the gateway received a different status.
-Verify the configured URL, then investigate Worker-to-Worker routing as
-described in the runbook. No routing/configuration fix is yet established.
+Worker secrets cannot be read back: Sid re-sets the known public URL, then
+observes the next real cron. If 404 persists, investigate Worker-to-Worker
+routing as described in the runbook; external path probes alone cannot
+distinguish these causes. No routing/configuration fix is yet established.
 Telegram command replies and the scheduled morning digest remain untested.
 The external UptimeRobot monitor remains owner-blocked; follow
 [the runbook](docs/runbooks/deploy.md). Nothing watches the watchdog until

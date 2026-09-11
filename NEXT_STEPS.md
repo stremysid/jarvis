@@ -47,8 +47,10 @@ Do not repeat migrations or clear the must-report list to silence the
 unresolved gateway alert. At 05:15:20 UTC the real gateway heartbeat POST
 returned `rejected: status 404`; an external unauthenticated POST to the
 public `/heartbeat` endpoint returned 401. A shared-secret mismatch is not
-established. Sid must verify the configured URL first; the runbook separates
-that check from Worker-to-Worker routing and authentication diagnosis.
+established. Since secrets cannot be read back, Sid re-sets the public URL
+first; the runbook separates that controlled change from Worker-to-Worker
+routing and authentication diagnosis. A continued 404 after the URL reset
+must not be treated as proof of another URL typo.
 
 **Remaining evidence:** Telegram `/status` and `/queue`, gateway heartbeat
 receipt after a real cron, and the scheduled morning digest saying "nothing

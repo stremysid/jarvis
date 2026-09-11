@@ -194,11 +194,18 @@ POST to the public endpoint returned 401 at 05:19:30 UTC. These are different
 requests and statuses; the latter does not prove that the two Workers hold
 different secrets.
 
-1. Sid verifies locally that `WATCHDOG_HEARTBEAT_URL` exactly matches
-   `https://jarvis-watchdog.twilight-tree-70b1.workers.dev/heartbeat`, without
-   an extra path, trailing slash or whitespace. Report only whether it
-   matches or was corrected; never copy credential values into evidence.
-2. If the URL matches and a real cron still gets 404, investigate the
+1. Worker secrets cannot be read back. Sid re-sets `WATCHDOG_HEARTBEAT_URL`
+   to the exact public endpoint below, then observes the next real cron.
+   This publishes a production setting and is an owner action. The literal
+   is a public URL, not an authentication credential; never substitute a
+   credential into a command like this. With the PowerShell setup above:
+
+   ```powershell
+   'https://jarvis-watchdog.twilight-tree-70b1.workers.dev/heartbeat' |
+     & node $wrangler secret put WATCHDOG_HEARTBEAT_URL --config $gateway --env ''
+   ```
+
+2. If a real cron still gets 404 after that URL reset, investigate the
    gateway's outbound Worker-to-Worker routing. The checked-in gateway has
    no `global_fetch_strictly_public` flag or watchdog service binding.
    Cloudflare's [fetch documentation](https://developers.cloudflare.com/workers/runtime-apis/fetch/)
