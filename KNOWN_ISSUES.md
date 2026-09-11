@@ -9,7 +9,8 @@ the inherited Linux skip/manual extended suites and an independent persistent
 Windows-handle retry probe. The transient race explanation is plausible,
 not a locally reproduced root cause.
 
-Items 6/7 wiring is implemented on `codex/r0-health-hourly-archive` and
+Items 6/7 wiring is implemented in [draft PR #6](https://github.com/ksid1229-ops/jarvis/pull/6),
+on `codex/r0-health-hourly-archive`, and
 requires cross-vendor review. No security check or existing assertion was
 loosened. Gateway health is coarse HTTP liveness with a per-isolate rate
 limit; it is not dependency readiness. The hourly archive run claims its

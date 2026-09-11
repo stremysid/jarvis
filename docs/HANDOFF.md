@@ -5,7 +5,8 @@ using this checkpoint. R0 is not complete; calling remains R1.
 
 ## Current branch and review
 
-Work is on `codex/r0-health-hourly-archive`, based on PR #5's exact head
+Work is in [draft PR #6](https://github.com/ksid1229-ops/jarvis/pull/6),
+branch `codex/r0-health-hourly-archive`, based on PR #5's exact head
 `edac2723fe61fa9e4f623123d9f45f0c18feeee0`. The old `C:/javis` checkout
 is not present on this machine; the active checkout is under the current
 Codex task's `work/jarvis` directory. No main push or merge is authorized.
@@ -46,8 +47,10 @@ watchdog 119/119 (8 files) pass. Both named deployment scripts completed
 local Wrangler dry-runs successfully; neither published. Mutation checks
 remove the health route, archival call and
 must-report argument in turn: 3, 3 and 2 tests fail respectively. All
-mutations are restored. Follow-up CI is pending the push; PR #5's green run
-is not evidence for this branch. The gateway test-type command reports **122**
+mutations are restored. Follow-up CI is tracked in
+[PR #6 checks](https://github.com/ksid1229-ops/jarvis/pull/6/checks); verify
+the newest head there. PR #5's green run is not evidence for this branch.
+The gateway test-type command reports **122**
 errors on both this branch and an isolated checkout of `edac272`, with
 none in the changed files. The earlier 117 count is stale.
 

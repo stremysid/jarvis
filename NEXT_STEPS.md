@@ -33,7 +33,10 @@ R0 only; do not start R1 or resume superseded implementation plans.
 
 ## Next gate
 
-`codex/r0-health-hourly-archive` is stacked on PR #5 at `edac272`.
+[Draft PR #6](https://github.com/ksid1229-ops/jarvis/pull/6), branch
+`codex/r0-health-hourly-archive`, is stacked on PR #5 at `edac272`.
+Local workspace 1,942 and watchdog 119 tests, lint, source typechecking and
+both deployment dry-runs pass. Verify the newest PR #6 head's remote checks.
 Have **Claude Opus 5 high** review items 6/7 under BUILDING.md. Sid merges;
 retarget the follow-up to main after PR #5 lands and verify its CI again.
 Our independent PR #5 review is not approval of our own implementation.
