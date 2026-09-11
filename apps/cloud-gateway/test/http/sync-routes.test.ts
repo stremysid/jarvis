@@ -6,6 +6,7 @@ import {
   SYNC_PULL_PATH,
   isSyncPath,
 } from "../../src/http/sync-routes.js";
+import { MEMORY_PROJECTION_PATH } from "../../src/sync/memory-projection.js";
 import worker from "../../src/index.js";
 
 /**
@@ -42,9 +43,10 @@ function syncRequest(
 }
 
 describe("sync routes", () => {
-  it("recognizes only the two sync paths", () => {
+  it("recognizes only the signed sync paths", () => {
     expect(isSyncPath(SYNC_PULL_PATH)).toBe(true);
     expect(isSyncPath(SYNC_ACK_PATH)).toBe(true);
+    expect(isSyncPath(MEMORY_PROJECTION_PATH)).toBe(true);
     expect(isSyncPath("/sync")).toBe(false);
     expect(isSyncPath("/sync/pull/extra")).toBe(false);
   });
@@ -84,6 +86,25 @@ describe("sync routes", () => {
       SYNC_CONTINUATION_SECRET: SECRET,
     });
     expect(response.status).toBe(400);
+  });
+
+  it("cancels a streaming request as soon as its body exceeds the signed limit", async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(65_536));
+        controller.enqueue(new Uint8Array([1]));
+      },
+      cancel() { cancelled = true; },
+    });
+    const response = await dispatch(new Request(`https://worker.internal${MEMORY_PROJECTION_PATH}`, {
+      method: "POST",
+      headers: { [SIGNED_REQUEST_HEADER]: "{}" },
+      body,
+      duplex: "half",
+    } as RequestInit), { SYNC_CONTINUATION_SECRET: SECRET });
+    expect(response.status).toBe(413);
+    expect(cancelled).toBe(true);
   });
 
   it.each(["GET", "PUT", "DELETE"])("refuses %s", async (method) => {

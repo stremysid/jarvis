@@ -46,6 +46,20 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 16:50 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
+
+R2 item 3 is now separate from PR #13: the item-2 branch is restored to
+reviewed `996e6ec`. Subsequent review found two blocking client lifecycle
+defects there, so it must not merge until the snapshot and restart-ACK fixes
+are verified. Those fixes stay in item 2. This fresh branch from main
+keeps the signed fact-page upload and atomic publication checkpoint, with
+the review's paired version-order guard regression and stricter fact-ID
+constraint. Python upload and context retrieval remain in progress. Review
+`0014_memory_projection.sql` before owner deployment: it adds live D1
+projection storage, triggers and FTS indexing, and must precede gateway
+publication and uploader startup. The builder has not merged, migrated or
+deployed. Keep item 3 in its own draft PR and review the final head there.
+
 ## 2026-09-11 15:50 UTC — Claude Opus 5
 
 **Node bootstrap reviewed at `6fdd21c`; nothing blocking.** Two things to fix.

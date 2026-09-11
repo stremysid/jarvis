@@ -12,6 +12,7 @@ import projectsSql from "../../src/persistence/migrations/0010_projects.sql?raw"
 import deadlinesSql from "../../src/persistence/migrations/0011_deadlines.sql?raw";
 import livenessSql from "../../src/persistence/migrations/0012_liveness.sql?raw";
 import scheduledRunsSql from "../../src/persistence/migrations/0013_scheduled_runs.sql?raw";
+import memoryProjectionSql from "../../src/persistence/migrations/0014_memory_projection.sql?raw";
 
 let migrated: Promise<void> | undefined;
 
@@ -67,6 +68,7 @@ export const assistantMigrations = Object.freeze([
   { name: "0011_deadlines.sql", queries: splitMigration(deadlinesSql) },
   { name: "0012_liveness.sql", queries: splitMigration(livenessSql) },
   { name: "0013_scheduled_runs.sql", queries: splitMigration(scheduledRunsSql) },
+  { name: "0014_memory_projection.sql", queries: splitMigration(memoryProjectionSql) },
 ]);
 
 /** Applies the deployable Wrangler migration to the actual D1 test binding once. */
@@ -77,6 +79,22 @@ export function applyFoundationMigration(): Promise<void> {
     ...assistantMigrations,
   ]);
   return migrated;
+}
+
+/** Test-only reset for fact projection versions whose commit receipts are immutable in production. */
+export async function clearMemoryProjectionDataForTest(): Promise<void> {
+  await env.DB.prepare("DROP TRIGGER IF EXISTS memory_fact_projection_commits_immutable_delete").run();
+  try {
+    await env.DB.prepare("DELETE FROM memory_fact_projection_commits").run();
+    await env.DB.prepare("DELETE FROM memory_fact_projection_heads").run();
+    await env.DB.prepare("DELETE FROM memory_fact_projection_versions").run();
+  } finally {
+    await env.DB.prepare(`CREATE TRIGGER memory_fact_projection_commits_immutable_delete
+      BEFORE DELETE ON memory_fact_projection_commits
+      BEGIN
+        SELECT RAISE(ABORT, 'memory_projection_commit_immutable');
+      END`).run();
+  }
 }
 
 /** Test-only reset that restores the production delete guard immediately after clearing isolated D1 state. */

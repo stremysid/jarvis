@@ -4,6 +4,23 @@ The milestone order is in [the roadmap](docs/plan/2026-09-03-jarvis-roadmap.md).
 **R0 passed on 2026-09-11 and R1 is open.** Do not resume superseded
 implementation plans.
 
+## R2 item 3: fact projection
+
+Item 2 is in [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13).
+Review found two merge-blocking client lifecycle defects at `996e6ec`:
+completed snapshot reuse and pending ACK recovery after restart. Fix those
+on item 2, with regressions across those boundaries. Add no item-3 work there. The separate
+`codex/r2-fact-projection` branch starts from main and contains the signed
+page upload and atomic D1 publication checkpoint. The durable Python uploader
+and cloud context retrieval of facts alongside recent turns are still being
+completed. Keep one PR per milestone item and push tested checkpoints.
+
+This item adds `0014_memory_projection.sql`, including projection tables,
+publication guards and an FTS index. Owner deployment must apply this new
+migration to live D1 before publishing the updated gateway or starting the
+uploader. Check the pending migration list and recovery point first using
+the deployment runbook. The builder must not merge, migrate or deploy.
+
 ## R0 checkpoint, 2026-09-11
 
 1. **PR #5 at edac272 reviewed: no merge blocker.** Seven CI jobs observed

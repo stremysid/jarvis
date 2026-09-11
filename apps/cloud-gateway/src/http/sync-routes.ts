@@ -12,9 +12,13 @@
  */
 
 import type { SignedRequestV1 } from "../../../../packages/contracts/src/index.js";
+import { ArchivalService } from "../archive/archival-service.js";
+import { ArchiveRepository } from "../archive/archive-repository.js";
+import { TieredEventReader } from "../archive/tiered-event-reader.js";
 import { DeepSeekModelAdapter } from "../providers/deepseek-provider.js";
 import { EventRepository } from "../persistence/event-repository.js";
 import { DISTILL_PATH, distil, validateExcerpts } from "../sync/memory-distill.js";
+import { MEMORY_PROJECTION_PATH, MemoryProjectionService } from "../sync/memory-projection.js";
 import { DeviceRequestVerifier } from "../sync/signed-request.js";
 import { SyncService } from "../sync/sync-service.js";
 import type { Env } from "../env.js";
@@ -29,8 +33,37 @@ export const SYNC_AUDIENCE = "jarvis-local-agent";
 /** Bounded so an unauthenticated caller cannot make us buffer arbitrarily. */
 const MAX_BODY_BYTES = 65_536;
 
+async function readBoundedBody(request: Request): Promise<Uint8Array | null> {
+  if (request.body === null) return new Uint8Array();
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_BODY_BYTES) {
+        await reader.cancel("payload_too_large");
+        return null;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+}
+
 export function isSyncPath(pathname: string): boolean {
-  return pathname === SYNC_PULL_PATH || pathname === SYNC_ACK_PATH || pathname === DISTILL_PATH;
+  return pathname === SYNC_PULL_PATH || pathname === SYNC_ACK_PATH
+    || pathname === DISTILL_PATH || pathname === MEMORY_PROJECTION_PATH;
 }
 
 function refuse(status: number, code: string): Response {
@@ -92,8 +125,8 @@ export async function handleSyncRequest(request: Request, env: Env): Promise<Res
     return refuse(400, "signed_request_malformed");
   }
 
-  const rawBody = new Uint8Array(await request.arrayBuffer());
-  if (rawBody.byteLength > MAX_BODY_BYTES) return refuse(413, "payload_too_large");
+  const rawBody = await readBoundedBody(request);
+  if (rawBody === null) return refuse(413, "payload_too_large");
 
   let body: unknown;
   try {
@@ -102,17 +135,33 @@ export async function handleSyncRequest(request: Request, env: Env): Promise<Res
     return refuse(400, "body_malformed");
   }
 
-  const service = new SyncService({
-    database: env.DB,
-    verifier: new DeviceRequestVerifier({ database: env.DB, audience: SYNC_AUDIENCE }),
-    events: new EventRepository(env.DB),
-    continuationSecret,
-  });
-
   try {
     if (pathname === DISTILL_PATH) {
       return await handleDistill(envelope, body, rawBody, env);
     }
+    if (pathname === MEMORY_PROJECTION_PATH) {
+      const live = new EventRepository(env.DB);
+      const projection = new MemoryProjectionService({
+        database: env.DB,
+        verifier: new DeviceRequestVerifier({ database: env.DB, audience: SYNC_AUDIENCE }),
+        events: new TieredEventReader({
+          live,
+          archive: new ArchivalService({ database: env.DB, bucket: env.ARCHIVE }),
+          state: new ArchiveRepository(env.DB),
+        }),
+      });
+      const result = await projection.project(envelope, body, rawBody);
+      return new Response(JSON.stringify(result), {
+        status: 200,
+        headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
+      });
+    }
+    const service = new SyncService({
+      database: env.DB,
+      verifier: new DeviceRequestVerifier({ database: env.DB, audience: SYNC_AUDIENCE }),
+      events: new EventRepository(env.DB),
+      continuationSecret,
+    });
     const result = pathname === SYNC_PULL_PATH
       ? await service.pull(envelope, body as never, rawBody)
       : await service.acknowledgeDurableReceipt(envelope, body as never, rawBody);
