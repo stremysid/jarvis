@@ -30,32 +30,39 @@ actions. Nothing watches the watchdog until the external step is complete.
 
 ## Historical checkpoints (superseded where noted above)
 
-## The gateway heartbeat 404s, and is deliberately left broken
+## The gateway heartbeat 404s: cause found, fix pending deployment
 
 Every gateway cron since deployment logs
-`heartbeat: { sent: false, reason: 'rejected', detail: 'status 404' }`,
-confirmed by tail at 05:40, 05:45 and 05:50 UTC on 2026-09-11. No
-`cloud-gateway` row exists in `component_liveness`, and
-`liveness:cloud-gateway:never` is open and will stay open.
+`heartbeat: { sent: false, reason: 'rejected', detail: 'status 404' }`.
 
-A 404 means the request never reached the handler, so the bearer credential
-is not the cause: the stored `WATCHDOG_HEARTBEAT_URL` is not the watchdog's
-`/heartbeat` path. Both an interactive and a piped re-set produced the same
-404, which argues against the entry method and for the value itself being
-wrong — most likely the hostname rather than the path, since a wrong
-subdomain 404s at Cloudflare's edge and looks identical from the sender.
+**The cause is Worker-to-Worker fetch routing, not a wrong URL.** Cloudflare's
+documentation: without the `global_fetch_strictly_public` compatibility flag,
+a `fetch()` to a URL on the Worker's own zone is routed to the zone's origin
+server, *ignoring any Workers mapped to that URL*. The gateway's request
+never reached the watchdog's handler, so the 404 came from something that is
+not the watchdog and the bearer credential was never evaluated.
 
-**The next diagnostic is one command**, and it has not been run:
-`wrangler tail jarvis-watchdog`. If a request appears, the hostname is right
-and the path is wrong. If nothing appears at all, the request is not reaching
-the watchdog and the hostname is wrong. Do not guess between those; the tail
-distinguishes them in one cron boundary.
+This reconciles what looked contradictory: an unauthenticated
+`POST /heartbeat` from outside the account returns 401 because it enters
+through the front door, while the gateway's fetch to the identical URL
+returns 404 because it never arrives. It also explains why an interactive
+and a piped re-set of the URL failed identically — the stored value was
+never the variable.
+
+An earlier version of this entry claimed the stored URL was wrong and named
+tailing the watchdog as the next step. **That was incorrect**, asserted with
+more confidence than the evidence supported, and is corrected here.
+
+The fix is one line in `apps/cloud-gateway/wrangler.toml` enabling the flag.
+It is **configuration, not a secret**, so it requires a redeploy rather than
+a `secret put`, and only a real cron after that deployment proves recovery.
 
 Deferred on Sid's decision of 2026-09-11 and removed from R0's exit test.
-What it costs while broken: one stale DOWN notification, and the watchdog not
-actually watching the gateway. Everything else — the watchdog's own health,
-its alert delivery, the gateway's crons and hourly archival — is unaffected
-and working.
+That decision was made while this was an open-ended hunt; it is now a known
+one-line change, but whether to act now or at the end of the project remains
+his call. While it stays broken it costs one stale DOWN notification and the
+watchdog not actually watching the gateway. The watchdog's own health, its
+alert delivery, the gateway's crons and the hourly archival are unaffected.
 
 ## Two real Windows defects in the compatibility stub, seen as flaky CI
 
