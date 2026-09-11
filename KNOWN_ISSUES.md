@@ -30,6 +30,32 @@ actions. Nothing watches the watchdog until the external step is complete.
 
 ## Historical checkpoints (superseded where noted above)
 
+## A real race in the compatibility stub, seen as a random CI failure
+
+`test/compatibility-model-stub.test.mjs` "is deterministic: request values do
+not affect output" can fail with the second response coming back as
+`{"error":{"code":"concurrency_limit"}}` instead of matching the first.
+Observed on 2026-09-11 on a documentation-only pull request, which is the
+clue: the diff could not possibly reach a Hermes model stub.
+
+It is not mystery flakiness. `launchers/openai_compatibility_stub.py`
+acquires its concurrency gate before handling a request and releases it in a
+`finally` that runs *after* the response body has been written to the
+socket. The test awaits the first response and reads its body, then issues
+the second immediately. A client can finish reading before the server's
+handler unwinds far enough to release, so with the profile's
+`maxConcurrentRequests` of 1 the second request is refused. The window is
+narrow, which is why it passes almost always and fails occasionally.
+
+Re-running is enough to get past it and the same commit passed on a re-run.
+Do not spend time hunting a cause in whatever diff happened to be in flight
+when it fired. A durable fix belongs in the stub or the test rather than in
+the suite around it: release the gate before the response is written, or
+have the test wait for the server to be idle rather than only for its own
+response to arrive. Left unfixed deliberately -- it is maintenance no
+milestone names, and it should be someone's deliberate change rather than a
+drive-by.
+
 ## Expect one DOWN alert on a first watchdog deployment
 
 The watchdog treats a required component it has never seen as immediately
