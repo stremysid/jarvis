@@ -22,23 +22,108 @@ isolated `edac272` checkout with the same installed dependencies, and the
 same on this branch. No changed file adds a diagnostic. The historical 117
 count below must not be used as the current baseline.
 
-**Owner-blocked:** item 5 not deployed, watchdog never deployed, external
-monitor absent. Sid verified the live account (gateway modified 2026-09-02).
-Migrations and effective vars need an inventory; they are not assumed live.
-Use [the runbook](docs/runbooks/deploy.md) for the numbered UptimeRobot owner
-actions. Nothing watches the watchdog until the external step is complete.
+**Deployment is complete; live acceptance is not.** PRs #5-#7 are merged;
+current main `2b506c8` has green CI. Read-only checks verified migrations
+0008-0013 and newer deployed versions listed in HANDOFF. Successful gateway
+cron runs and a current watchdog self-row were observed at 05:11 UTC,
+but no `cloud-gateway` heartbeat row existed and its DOWN alert remained
+open. The real 05:15 cron's heartbeat returned `rejected: status 404` at
+05:15:20 UTC, an external unauthenticated POST to the public `/heartbeat`
+endpoint returned 401 at 05:19:30 UTC, and the 05:30 cron still returned 404
+after both settings had been re-set. Deployed metadata had no public-fetch
+flag and no watchdog service binding. **Those two status codes have a single
+cause, and it is not the URL and not the secret** -- see the section below.
+Sid deferred the whole issue at about 06:00 UTC and took it off R0's exit
+test. PR #8 carries the one-line fix and passed Claude Opus 5 high review;
+it needs a gateway redeploy, and only a real cron after that proves recovery,
+since local mocks cannot establish Cloudflare's same-zone routing behaviour.
+Telegram command replies and the scheduled morning digest remain untested.
+The external UptimeRobot monitor remains owner-blocked; follow
+[the runbook](docs/runbooks/deploy.md). Nothing watches the watchdog until
+that external step is complete.
 
 ## Historical checkpoints (superseded where noted above)
+
+## The gateway heartbeat 404s: cause found, fix pending deployment
+
+Every gateway cron since deployment logs
+`heartbeat: { sent: false, reason: 'rejected', detail: 'status 404' }`.
+
+**The cause is Worker-to-Worker fetch routing, not a wrong URL.** Cloudflare's
+documentation: without the `global_fetch_strictly_public` compatibility flag,
+a `fetch()` to a URL on the Worker's own zone is routed to the zone's origin
+server, *ignoring any Workers mapped to that URL*. The gateway's request
+never reached the watchdog's handler, so the 404 came from something that is
+not the watchdog and the bearer credential was never evaluated.
+
+This reconciles what looked contradictory: an unauthenticated
+`POST /heartbeat` from outside the account returns 401 because it enters
+through the front door, while the gateway's fetch to the identical URL
+returns 404 because it never arrives. It also explains why an interactive
+and a piped re-set of the URL failed identically — the stored value was
+never the variable.
+
+An earlier version of this entry claimed the stored URL was wrong and named
+tailing the watchdog as the next step. **That was incorrect**, asserted with
+more confidence than the evidence supported, and is corrected here.
+
+The fix is one line in `apps/cloud-gateway/wrangler.toml` enabling the flag.
+It is **configuration, not a secret**, so it requires a redeploy rather than
+a `secret put`, and only a real cron after that deployment proves recovery.
+
+Deferred on Sid's decision of 2026-09-11 and removed from R0's exit test.
+That decision was made while this was an open-ended hunt; it is now a known
+one-line change, but whether to act now or at the end of the project remains
+his call. While it stays broken it costs one stale DOWN notification and the
+watchdog not actually watching the gateway. The watchdog's own health, its
+alert delivery, the gateway's crons and the hourly archival are unaffected.
+
+## Two real Windows defects in the compatibility stub, seen as flaky CI
+
+`test/compatibility-model-stub.test.mjs` failed two of the three runs on a
+documentation-only pull request on 2026-09-11, in two different tests with
+two different symptoms. The diff was markdown, so neither failure could be
+the change under test. Both are real defects in
+`launchers/openai_compatibility_stub.py`, and both are specific to Windows,
+which is the only platform this suite runs on.
+
+**One: an oversize body is refused by closing an unread socket.**
+`rejects a body over the size limit` failed with `TypeError: terminated`,
+caused by `read ECONNRESET`. In `_read_body`, a `Content-Length` above
+`maxBodyBytes` sets `close_connection = True` and returns without reading the
+body -- the comment says "too large to drain safely: refuse and close rather
+than read it". On Windows, closing a socket that still has unread inbound
+data sends an RST rather than a FIN, so the client loses the 413 the server
+just wrote and sees a connection reset instead. The reasoning is sound on
+Linux and wrong here. A fix drains a bounded amount before closing, or
+half-closes so the written response survives.
+
+**Two: the concurrency gate is released after the response is written.**
+`is deterministic: request values do not affect output` failed with the
+second of two responses coming back as
+`{"error":{"code":"concurrency_limit"}}`. The gate is acquired before
+handling and released in a `finally` that runs after the body reaches the
+socket. The test reads the first response fully, then issues the second at
+once, so a client can finish before the handler unwinds to that release.
+With the profile's `maxConcurrentRequests` of 1, the second is refused.
+
+Neither is fixed here. They are maintenance no milestone names, and the
+stub's connection handling deserves a deliberate change rather than a
+drive-by at the end of an unrelated pull request. But they are not rare:
+on the evidence of one night they fail roughly a third of runs, they will
+land on somebody's unrelated pull request, and the first instinct will be to
+audit an innocent diff. Recognise them and re-run; then fix them properly
+when there is room.
 
 ## Expect one DOWN alert on a first watchdog deployment
 
 The watchdog treats a required component it has never seen as immediately
-overdue, and the gateway cannot heartbeat until `WATCHDOG_HEARTBEAT_URL`
-names a watchdog that exists. On a first deployment that ordering is
-unavoidable, so the watchdog's first cycle alerts `DOWN cloud-gateway --
-required component has never reported`, and recovers once the heartbeat
-settings are in place. Observed on 2026-09-11. This is correct behaviour,
-not a fault, and no configuration should be undone in response to it.
+overdue. If its first check precedes a successful gateway heartbeat, it
+alerts `DOWN cloud-gateway -- required component has never reported`.
+That startup alert was observed on 2026-09-11. Recovery requires an actual
+heartbeat and a subsequent watchdog assessment. The continued absence
+documented above is a delivery failure to investigate, not a startup alert
+to ignore or suppress by weakening the must-report list.
 
 ## A must-report list cannot be empty
 
@@ -235,13 +320,14 @@ fewer items and is indistinguishable from a teacher deleting one. One bad
 scrape would cancel a term of real deadlines. It stays open and is reported as
 disappeared instead.
 
-## Must-report gap: fixed in code, pending deployment
+## Must-report gap: deployed, gateway delivery still needs verification
 
 R0 item 6 adds `WATCHDOG_REQUIRED_COMPONENTS`, default `cloud-gateway`.
 It alerts on absent heartbeat rows, deduplicates delivered alerts and
 recovers on first heartbeat. Invalid configuration returns 503; no synthetic
-liveness row is written. Code and regression tests are on
-`codex/r0-health-hourly-archive`; production remains unfixed until deployed.
+liveness row is written. PR #6's code and tests are reviewed, merged and
+deployed. A missing gateway row now raises a real alert rather than staying
+silent; it is not evidence that the gateway reporter is delivering.
 
 ## Nothing watches the watchdog
 

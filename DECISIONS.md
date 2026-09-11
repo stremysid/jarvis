@@ -67,3 +67,14 @@ Recorded from a planning session; the reasoning is in
   rule. The office PC runs only the thin device agent.
 - **Send on command.** Email, texts from Jarvis's number, and an iMessage
   handoff, with read-back and a confirm before anyone else is contacted.
+
+## 2026-09-11
+
+- **The gateway heartbeat is deferred to the end of the project.** It has
+  failed every cron since deployment with a 404 from the watchdog, and
+  diagnosing it further was consuming more attention than it is worth. Sid's
+  call, and the right one: the watchdog is inherited scope from an earlier
+  plan rather than something he asked for, its own health is fine, and it has
+  already proved it can reach his phone. **It is removed from R0's exit test**
+  so it cannot block R1. Fix it once Jarvis is finished.
+

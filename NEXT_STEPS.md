@@ -31,24 +31,59 @@ R0 only; do not start R1 or resume superseded implementation plans.
    UptimeRobot actions in [the runbook](docs/runbooks/deploy.md), against the
    watchdog's `/health` and never the gateway's. Until that is observed,
    nothing watches the watchdog.
-8. **R0 exit is unverified by observation.** Telegram `/status` and `/queue`,
-   a cron recorded by the watchdog, and the morning digest saying "nothing
-   due". Green CI on `main` is the one condition already met. Do not start R1
-   until the rest are seen.
+8. **R0 exit is incomplete.** Telegram `/status` and `/queue` and the morning
+   digest saying "nothing due" remain unverified. Green CI on current main
+   `2b506c8` is verified. Do not start R1 until those three are observed.
+   Gateway heartbeat delivery **is no longer on this list**: Sid removed it
+   on 2026-09-11, and the amendment below is the authority. Read-only D1
+   checks at 05:11 UTC found successful drain/poll runs and a fresh watchdog
+   self-row but no gateway heartbeat row, which is recorded as a known issue
+   rather than an exit condition.
 
 ## Next gate
 
-[Draft PR #6](https://github.com/ksid1229-ops/jarvis/pull/6), branch
-`codex/r0-health-hourly-archive`, is stacked on PR #5 at `edac272`.
-Local workspace 1,942 and watchdog 119 tests, lint, source typechecking and
-both deployment dry-runs pass. Verify the newest PR #6 head's remote checks.
-Have **Claude Opus 5 high** review items 6/7 under BUILDING.md. Sid merges;
-retarget the follow-up to main after PR #5 lands and verify its CI again.
-Our independent PR #5 review is not approval of our own implementation.
+[PR #6](https://github.com/ksid1229-ops/jarvis/pull/6) passed Claude Opus 5
+high review and is merged; PR #7 is also merged. No code-review or initial
+deployment hold remains. Continue live acceptance, not another wiring pass.
+Do not repeat migrations or clear the must-report list to silence the
+unresolved gateway alert. At 05:15:20 UTC the real gateway heartbeat POST
+returned `rejected: status 404`; an external unauthenticated POST to the
+public `/heartbeat` endpoint returned 401. A shared-secret mismatch is not
+established. Since secrets cannot be read back, Sid re-sets the public URL
+first; the runbook separates that controlled change from Worker-to-Worker
+routing and authentication diagnosis. A continued 404 after the URL reset
+must not be treated as proof of another URL typo.
 
-**R0 exit remains unverified:** CI green on `main`, Telegram `/status`
-and `/queue`, a real cron followed by its watchdog heartbeat, and the
-actual morning digest saying "nothing due". No release is declared.
+**R0 exit, as amended on 2026-09-11.** CI green on `main` -- met. A real
+cron firing and being recorded -- met, `drain` every five minutes and the
+hourly archival clean. Remaining: Telegram `/status` and `/queue`, and the
+morning digest saying "nothing due". The digest's default schedule is 07:30
+America/Toronto, which on 2026-09-11 is 11:30 UTC.
+
+**The gateway heartbeat is no longer part of this exit test.** Sid deferred
+it at about 06:00 UTC on 2026-09-11, while it was still an open-ended hunt,
+and confirmed it in the words "just drop it for now, we finish jarvis and
+then fix it at the end". It must not block R1. The external UptimeRobot
+monitor is likewise owner-blocked and not a gate on starting the next
+milestone. See DECISIONS.md and KNOWN_ISSUES.md.
+
+**The cause was found after that deferral, so the fix is cheap now.** PR #8
+adds the documented `global_fetch_strictly_public` compatibility flag: without
+it, the gateway's fetch to a URL on its own zone is routed to the zone origin
+and never reaches the watchdog Worker, which is why an external POST answered
+401 and the gateway's identical POST answered 404. That earlier reading --
+"404 means the URL, 401 means the secret" -- was too narrow and is withdrawn.
+PR #8 passed Claude Opus 5 high review. It takes a gateway **redeploy**, not a
+secret update, because `compatibility_flags` lives in `wrangler.toml`; local
+tests and a clean dry-run are regression and config checks, not proof that
+live routing recovers. Verifying it is a one-cron observation whenever Sid
+next deploys -- it stays off the exit test either way, and only he decides
+when the deferral lifts.
+
+No release is declared. Sid authorizes roadmap building without approvals
+between items, but production, secrets, merging and consequential actions
+remain his. After R0 passes, R1 requires Claude Opus 5 **max** review under
+BUILDING.md; the cross-vendor gate and stop rules remain in force.
 
 ## Built and unwired
 
