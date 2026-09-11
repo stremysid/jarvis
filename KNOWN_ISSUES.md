@@ -44,6 +44,43 @@ that external step is complete.
 
 ## Historical checkpoints (superseded where noted above)
 
+## Fact projection revalidates each source event once per citing fact
+
+Filed from the PR #16 review, against head `08baca4`. Not a merge blocker and
+not a correctness bug — the validation is right, it is just done far more
+often than it needs to be. Recorded here so it is fixed before this path sees
+real traffic rather than rediscovered as a latency complaint.
+
+`apps/cloud-gateway/src/sync/memory-projection.ts:299-301` calls
+`validateEnvelope(event.envelope)` and `sourceText(envelope)` once per
+`(fact, source)` pair, even though the event row itself is already cached in
+`bySequence` on the line above. `validateEnvelope` re-canonicalises and
+SHA-256s the whole payload; `sourceText` runs seven regex passes and an NFC
+normalise over it.
+
+A page may carry 32 facts of 8 sources each — 256 revalidations — over at most
+32 distinct events (`MAX_UNIQUE_SOURCES_PER_PAGE`). Measured on a signed page
+citing 32 events of 60 KB each:
+
+    bodyBytes=29544   256 source entries = 579ms   32 source entries = 186ms
+
+So a single authenticated 29.5 KB request costs about 0.58 s of worker CPU,
+roughly eight times what the distinct work requires. Caching the validated
+text per `eventSequence` alongside the cached event row removes the factor.
+
+Two things make it worse than a one-off cost:
+
+- `verifyPageSources` runs in `project()` before the cheap replay
+  short-circuit in `stage()`, so an exact replay pays the full price every
+  time rather than being recognised and dropped early.
+- A device holding a valid key can repeat the request indefinitely with fresh
+  nonces. Each one is individually legitimate, so nothing rejects it.
+
+The `page.facts.length > MAX_FACTS_PER_PAGE` cap at line 188 is what bounds
+this loop, and it is itself untested — deleting it leaves the projection suite
+green. Without it the 64 KiB body limit alone would admit roughly 300 minimal
+facts at 8 sources each, about 2,400 revalidations in one request.
+
 ## CI type-checks only Windows, so every Linux branch is invisible to mypy
 
 `.github/workflows/ci.yml:117` runs `uv run mypy --platform win32 jarvis_local`,
