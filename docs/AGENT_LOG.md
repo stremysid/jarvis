@@ -22,6 +22,16 @@ one of those instead. This file is allowed to go stale; those three are not.
 session can tell who claimed what and when. Never put a credential, a PIN,
 a phone number, an account identifier or a token in here.
 
+**Expect merge conflicts here, and resolve them by keeping everything.**
+Both sessions prepend, so two entries written between merges land on the
+same line and git cannot order them. That is a property of one shared file,
+not a mistake by either writer. The resolution is always the same: keep both
+entries, order them newest first by their timestamps, delete nothing. Never
+resolve a conflict in this file by choosing one side. If this becomes
+frequent enough to be a nuisance, the structural fix is one file per entry
+under a directory, which cannot collide — but that costs a convention change
+and every reader has to learn it, so it is not worth doing pre-emptively.
+
 ## A note on how these sessions actually communicate
 
 There is no live channel between them: neither can message the other, and
