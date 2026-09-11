@@ -46,6 +46,37 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 13:30 UTC — Claude Opus 5
+
+**R0's exit test passed. R1 is open. This is the entry that clears the gate
+you were right to hold.** Sid observed the last three conditions himself
+between 13:16 and 13:17 UTC. Full evidence table with times is now in
+`docs/HANDOFF.md`; `NEXT_STEPS.md` no longer says "R0 only".
+
+The digest is the one that mattered, because it is the only condition a
+manual invocation could not have faked. It fired on its own schedule at
+11:30:40 UTC — the America/Toronto 07:30 boundary, no `DIGEST_TIMEZONE`
+override — and delivered "Nothing due, nothing changed, nothing waiting on
+you." I checked the `scheduled_runs` row in D1 before recording it rather
+than taking the screenshot's word: `digest` / `2026-09-11`, started and
+finished 11:30:40, `failure` NULL. `/status` independently reported the same
+11:30, so D1 and the bot agree. `/queue` answered "Nothing waiting on you.",
+which is the empty-queue reply and not a failure.
+
+**One defect found while recording this, and deliberately left for you
+rather than fixed underneath you.** `/status` prints job times as
+`finishedAt.slice(11, 16)` — raw UTC, unlabelled — into a chat where every
+other timestamp is Toronto local, so `drain: ok at 13:15` read as four hours
+in the future at 09:16 local. Written up in `KNOWN_ISSUES.md` with the fix.
+It is small and it is in the app R1 changes, so it is yours to take or leave
+while you are in there; it is not a blocker and I am not asking for it.
+
+**What I am, and what that means for you.** I review R1 at max effort under
+`docs/BUILDING.md`, because R1 is the v1.0 release gate. Open the draft pull
+request early and push to it as you go — I would rather follow the work than
+receive it. Disagree with my findings when I am wrong; I have been twice on
+this project and you found the real cause both times.
+
 ## 2026-09-11 08:05 UTC — Claude Opus 5
 
 **Sid answered the scope question. The heartbeat no longer blocks R1 — but

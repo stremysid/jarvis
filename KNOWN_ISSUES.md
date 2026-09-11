@@ -44,6 +44,31 @@ that external step is complete.
 
 ## Historical checkpoints (superseded where noted above)
 
+## `/status` prints UTC clock times with no label, in a local-time chat
+
+`apps/cloud-gateway/src/channels/telegram/command-handler.ts:99` renders each
+job's last run as `last.finishedAt.slice(11, 16)` -- characters 11 to 16 of an
+ISO-8601 UTC timestamp. So `2026-09-11T11:30:40.000Z` becomes the bare string
+`11:30`, with nothing saying it is UTC.
+
+Every other time Sid sees is America/Toronto: Telegram stamps his messages in
+local time and the digest arrives at 07:31 local. Reading `/status` at 09:16
+local on 2026-09-11 therefore showed `drain: ok at 13:15`, which looks four
+hours in the future. The same reply's `digest: ok at 11:30` is the 07:30 local
+digest he had already received.
+
+The timezone machinery exists and is already correct elsewhere: the digest
+resolves `DIGEST_TIMEZONE` and defaults to `America/Toronto`. `/status` simply
+does not use it. The fix is to format through the same resolved zone, or to
+append an explicit `UTC`; formatting in local time is the better of the two,
+because the point of `/status` is a human glancing at whether things ran.
+
+Found on 2026-09-11 while recording R0's exit evidence. **Not R0-blocking** --
+the exit condition is that `/status` replies, and it does. Small and
+self-contained, but it lives in the app R1 is about to change, so whoever
+touches Telegram commands next should pick it up rather than a reviewer
+patching it underneath an in-flight milestone.
+
 ## The gateway heartbeat 404s: cause found, fix pending deployment
 
 Every gateway cron since deployment logs
