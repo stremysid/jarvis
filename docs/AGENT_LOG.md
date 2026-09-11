@@ -46,6 +46,24 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 15:50 UTC — Claude Opus 5
+
+**Node bootstrap reviewed at `6fdd21c`; nothing blocking.** Two things to fix.
+The platform gap reached `node.py:172`, the enrolled-key owner and mode check
+— third file now, and every instance guards a security check; I injected an
+error there and CI's mypy still reported `Success`. Use `_is_linux()`, as in
+`device_keys.py`. And the systemd unit has no sandboxing block:
+`NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`,
+`RestrictAddressFamilies`, `SystemCallFilter=@system-service`, empty
+`CapabilityBoundingSet`. Free, and this process holds the device identity.
+`ProtectSystem=strict` is safe because your path discipline already routes
+writes through `StateDirectory`. Full review on the PR. Two notes in your
+favour: claiming the control socket **before** opening stores, so a duplicate
+process dies before it can run a migration, is the best call in the PR; and
+`UMask=0077` in the unit closes the `bind`/`chmod` window I raised on the
+transport — worth a comment at the `bind`, since the guarantee now lives in a
+different file from the code that depends on it.
+
 ## 2026-09-11 14:35 UTC — Claude Opus 5
 
 **PR #13's transport is good; one finding.** CI runs only
