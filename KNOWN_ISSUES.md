@@ -30,31 +30,42 @@ actions. Nothing watches the watchdog until the external step is complete.
 
 ## Historical checkpoints (superseded where noted above)
 
-## A real race in the compatibility stub, seen as a random CI failure
+## Two real Windows defects in the compatibility stub, seen as flaky CI
 
-`test/compatibility-model-stub.test.mjs` "is deterministic: request values do
-not affect output" can fail with the second response coming back as
-`{"error":{"code":"concurrency_limit"}}` instead of matching the first.
-Observed on 2026-09-11 on a documentation-only pull request, which is the
-clue: the diff could not possibly reach a Hermes model stub.
+`test/compatibility-model-stub.test.mjs` failed two of the three runs on a
+documentation-only pull request on 2026-09-11, in two different tests with
+two different symptoms. The diff was markdown, so neither failure could be
+the change under test. Both are real defects in
+`launchers/openai_compatibility_stub.py`, and both are specific to Windows,
+which is the only platform this suite runs on.
 
-It is not mystery flakiness. `launchers/openai_compatibility_stub.py`
-acquires its concurrency gate before handling a request and releases it in a
-`finally` that runs *after* the response body has been written to the
-socket. The test awaits the first response and reads its body, then issues
-the second immediately. A client can finish reading before the server's
-handler unwinds far enough to release, so with the profile's
-`maxConcurrentRequests` of 1 the second request is refused. The window is
-narrow, which is why it passes almost always and fails occasionally.
+**One: an oversize body is refused by closing an unread socket.**
+`rejects a body over the size limit` failed with `TypeError: terminated`,
+caused by `read ECONNRESET`. In `_read_body`, a `Content-Length` above
+`maxBodyBytes` sets `close_connection = True` and returns without reading the
+body -- the comment says "too large to drain safely: refuse and close rather
+than read it". On Windows, closing a socket that still has unread inbound
+data sends an RST rather than a FIN, so the client loses the 413 the server
+just wrote and sees a connection reset instead. The reasoning is sound on
+Linux and wrong here. A fix drains a bounded amount before closing, or
+half-closes so the written response survives.
 
-Re-running is enough to get past it and the same commit passed on a re-run.
-Do not spend time hunting a cause in whatever diff happened to be in flight
-when it fired. A durable fix belongs in the stub or the test rather than in
-the suite around it: release the gate before the response is written, or
-have the test wait for the server to be idle rather than only for its own
-response to arrive. Left unfixed deliberately -- it is maintenance no
-milestone names, and it should be someone's deliberate change rather than a
-drive-by.
+**Two: the concurrency gate is released after the response is written.**
+`is deterministic: request values do not affect output` failed with the
+second of two responses coming back as
+`{"error":{"code":"concurrency_limit"}}`. The gate is acquired before
+handling and released in a `finally` that runs after the body reaches the
+socket. The test reads the first response fully, then issues the second at
+once, so a client can finish before the handler unwinds to that release.
+With the profile's `maxConcurrentRequests` of 1, the second is refused.
+
+Neither is fixed here. They are maintenance no milestone names, and the
+stub's connection handling deserves a deliberate change rather than a
+drive-by at the end of an unrelated pull request. But they are not rare:
+on the evidence of one night they fail roughly a third of runs, they will
+land on somebody's unrelated pull request, and the first instinct will be to
+audit an innocent diff. Recognise them and re-run; then fix them properly
+when there is room.
 
 ## Expect one DOWN alert on a first watchdog deployment
 
