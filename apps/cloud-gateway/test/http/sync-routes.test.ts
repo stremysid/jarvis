@@ -106,6 +106,6 @@ describe("sync routes", () => {
   });
 
   it("leaves other routes unchanged", async () => {
-    expect((await dispatch(new Request("https://worker.internal/health"))).status).toBe(501);
+    expect((await dispatch(new Request("https://worker.internal/not-implemented"))).status).toBe(501);
   });
 });

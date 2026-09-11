@@ -1,18 +1,14 @@
 /**
- * Building the scheduled jobs this deployment can actually run.
- *
- * A job is present only when its credentials are. That is not defensive
- * coding: the scheduled handler skips a missing job WITHOUT claiming its run
- * key, so a deployment that has no GitHub token yet will poll properly the
- * first hour after the token arrives. A job that existed but failed would
- * have claimed the key and recorded the hour as done.
- *
- * The digest is the exception in one direction: it needs no third-party
- * credential beyond Telegram, so it runs from the first deploy and reports
- * whatever it can read, naming whatever it cannot.
+ * Building the scheduled jobs. Hourly archival needs only the D1 and R2
+ * bindings, so the hourly run exists even without GitHub configuration.
+ * Project polling joins that run when configured. Installing its credential
+ * after an hour was claimed takes effect at the next hourly firing.
  */
 
 import type { Env } from "../env.js";
+import { ArchivalService } from "../archive/archival-service.js";
+import { ArchivalWorker } from "../archive/archival-worker.js";
+import { ARCHIVE_SEGMENT_LIMITS } from "../archive/segment-codec.js";
 import { DeadlineRepository } from "../deadlines/deadline-repository.js";
 import { DecisionRepository } from "../decisions/decision-repository.js";
 import { DecisionService } from "../decisions/decision-service.js";
@@ -37,7 +33,8 @@ function describe(error: unknown): string {
 /**
  * The hourly reach-out.
  *
- * Only the project poll today. The Classroom sweep belongs in this same job
+ * Archives one bounded segment before the optional project poll.
+ * The Classroom sweep belongs in this same job
  * -- same cadence, same run key, same "reach out to other people's systems"
  * shape -- and is not wired in because it needs the Google OAuth credentials
  * that no deployment holds yet. `deadline_sources` therefore has nothing
@@ -45,8 +42,13 @@ function describe(error: unknown): string {
  * than stale.
  */
 async function poll(context: JobEnvironment): Promise<JobOutcome> {
+  // Reuse the archive's retention, readback, sealing and purge checks unchanged.
+  // A missing GitHub credential must not disable local D1-to-R2 maintenance.
+  const archive = new ArchivalWorker(new ArchivalService({ database: context.env.DB, bucket: context.env.ARCHIVE }));
+  const segment = await archive.run(context.clock.now(), ARCHIVE_SEGMENT_LIMITS.maxEventCount);
+  const archived = segment === null ? "nothing eligible for archival" : `${segment.eventCount} archived`;
   const token = context.env.GITHUB_TOKEN;
-  if (token === undefined) return { ok: false, failure: "GITHUB_TOKEN is not set" };
+  if (token === undefined) return { ok: true, detail: `${archived}; project poll not configured` };
 
   const poller = new ProjectPoller({
     projects: new ProjectRepository(context.env.DB),
@@ -60,8 +62,8 @@ async function poll(context: JobEnvironment): Promise<JobOutcome> {
   // six is a fact about that repository; failing the whole job would claim
   // the other five were not polled either.
   return failed.length === 0
-    ? { ok: true, detail: `${outcomes.length} polled` }
-    : { ok: true, detail: `${outcomes.length - failed.length} polled, ${failed.length} failed` };
+    ? { ok: true, detail: `${archived}; ${outcomes.length} polled` }
+    : { ok: true, detail: `${archived}; ${outcomes.length - failed.length} polled, ${failed.length} failed` };
 }
 
 async function digest(
@@ -133,10 +135,8 @@ export function buildJobTable(context: JobEnvironment): JobTable {
     drain: () => drain(context),
     digest: () => digest("daily", context),
     retro: () => digest("retro", context),
+    poll: () => poll(context),
   };
-  // Omitted rather than present-and-failing when there is no token, so the
-  // hour is not claimed and the first poll after the token arrives runs.
-  if (context.env.GITHUB_TOKEN !== undefined) jobs["poll"] = () => poll(context);
   return jobs as JobTable;
 }
 

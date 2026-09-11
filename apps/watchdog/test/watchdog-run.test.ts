@@ -38,6 +38,50 @@ describe("runWatchdogCycle", () => {
     await clearLivenessTables();
   });
 
+  it("alerts once for a required component that never reported, recovers, and detects a deleted heartbeat", async () => {
+    const alerts = new RecordingAlertChannel();
+    const required = { requiredComponents: ["cloud-gateway", "cloud-gateway"], self: null };
+    await runWatchdogCycle(dependencies(alerts, "2026-09-02T12:00:00.000Z", required));
+    await runWatchdogCycle(dependencies(alerts, "2026-09-02T12:05:00.000Z", required));
+    expect(alerts.sent).toEqual(["DOWN cloud-gateway\nrequired component has never reported"]);
+    expect(await componentRows()).toEqual([]);
+    expect(await alertRows()).toHaveLength(1);
+    await seedComponent({ component: "cloud-gateway", lastSeenAt: "2026-09-02T12:06:00.000Z" });
+    await runWatchdogCycle(dependencies(alerts, "2026-09-02T12:07:00.000Z", required));
+    expect(alerts.sent[1]).toContain("RECOVERED cloud-gateway");
+    expect((await alertRows())[0]?.recovered_at).toBe("2026-09-02T12:07:00.000Z");
+    await env.DB.prepare("DELETE FROM component_liveness WHERE component = 'cloud-gateway'").run();
+    await runWatchdogCycle(dependencies(alerts, "2026-09-02T12:10:00.000Z", required));
+    await runWatchdogCycle(dependencies(alerts, "2026-09-02T12:15:00.000Z", required));
+    expect(alerts.sent).toHaveLength(3);
+    expect((await alertRows())[0]?.recovered_at).toBeNull();
+  });
+
+  it("retries an undelivered never-reported alert instead of recording it", async () => {
+    const alerts = new RecordingAlertChannel(() => ({ delivered: false, reason: "unavailable" }));
+    const required = { requiredComponents: ["cloud-gateway"], self: null };
+    await runWatchdogCycle(dependencies(alerts, "2026-09-02T12:00:00.000Z", required));
+    await runWatchdogCycle(dependencies(alerts, "2026-09-02T12:05:00.000Z", required));
+    expect(alerts.sent).toHaveLength(2);
+    expect(await alertRows()).toEqual([]);
+    expect(await componentRows()).toEqual([]);
+  });
+
+  it("reads a required component beyond the bounded page rather than declaring it missing", async () => {
+    await seedComponent({ component: "cloud-gateway", lastSeenAt: "2026-09-02T11:59:00.000Z" });
+    const store = new D1LivenessStore(env.DB);
+    // Model a page that ended before this name. The point lookup still uses D1.
+    store.readComponents = async () => ({ rows: [], truncated: true });
+    const alerts = new RecordingAlertChannel();
+    const result = await runWatchdogCycle(dependencies(alerts, "2026-09-02T12:00:00.000Z", {
+      store, requiredComponents: ["cloud-gateway"], self: null,
+    }));
+    expect(result.verdicts).toEqual([{ component: "cloud-gateway", status: "live" }]);
+    expect(alerts.sent).toHaveLength(1);
+    expect(alerts.sent[0]).toContain("WATCHDOG DEGRADED");
+    expect(await alertRows()).toEqual([]);
+  });
+
   it("says nothing about a component that is reporting on schedule", async () => {
     await seedComponent({ component: "agent", lastSeenAt: "2026-09-02T11:59:00.000Z" });
     const alerts = new RecordingAlertChannel();

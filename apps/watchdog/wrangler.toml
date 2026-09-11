@@ -8,6 +8,10 @@ name = "jarvis-watchdog"
 main = "src/index.ts"
 compatibility_date = "2026-08-22"
 
+[vars]
+# Only the R0 gateway is required. Add the home node when R2 deploys it.
+WATCHDOG_REQUIRED_COMPONENTS = "cloud-gateway"
+
 # Every five minutes. The interval is not a threshold: how long silence is
 # allowed is per component, in component_liveness.expected_interval_seconds.
 # This only bounds how late an alert can be.
@@ -24,6 +28,9 @@ database_name = "jarvis"
 database_id = "3239834d-ef6c-4853-86b8-31ea74037c8a"
 
 [env.test]
+
+[env.test.vars]
+WATCHDOG_REQUIRED_COMPONENTS = "cloud-gateway"
 
 [[env.test.d1_databases]]
 binding = "DB"

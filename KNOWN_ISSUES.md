@@ -1,5 +1,35 @@
 # Known issues
 
+## Current R0 checkpoint, 2026-09-10
+
+PR #5 `edac272` supersedes the historical CI failures below. Codex reviewed
+the exact head and found no merge blocker; all seven jobs were observed
+green. [Review and limitations](docs/reviews/r0-pr5-edac272.md), including
+the inherited Linux skip/manual extended suites and an independent persistent
+Windows-handle retry probe. The transient race explanation is plausible,
+not a locally reproduced root cause.
+
+Items 6/7 wiring is implemented on `codex/r0-health-hourly-archive` and
+requires cross-vendor review. No security check or existing assertion was
+loosened. Gateway health is coarse HTTP liveness with a per-isolate rate
+limit; it is not dependency readiness. The hourly archive run claims its
+hour without GitHub configuration, so a credential added later in that
+hour is picked up on the next hour. Archive errors fail that run; normal
+five-minute gateway heartbeats do not certify hourly archive success.
+
+The baseline gateway test-type backlog is **122 errors**, reproduced in an
+isolated `edac272` checkout with the same installed dependencies, and the
+same on this branch. No changed file adds a diagnostic. The historical 117
+count below must not be used as the current baseline.
+
+**Owner-blocked:** item 5 not deployed, watchdog never deployed, external
+monitor absent. Sid verified the live account (gateway modified 2026-09-02).
+Migrations and effective vars need an inventory; they are not assumed live.
+Use [the runbook](docs/runbooks/deploy.md) for the numbered UptimeRobot owner
+actions. Nothing watches the watchdog until the external step is complete.
+
+## Historical checkpoints (superseded where noted above)
+
 ## R0 review follow-up: triaged, one root cause in ten test files
 
 Claude Opus 5 high triaged the escalation of 2026-09-06 (BUILDING.md rung 2).
@@ -187,18 +217,13 @@ fewer items and is indistinguishable from a teacher deleting one. One bad
 scrape would cancel a term of real deadlines. It stays open and is reported as
 disappeared instead.
 
-## A component that never registers is never watched
+## Must-report gap: fixed in code, pending deployment
 
-`assessLiveness` iterates the rows in `component_liveness`. No row means no
-verdict, which means no alert. So if the gateway's heartbeat reporter is
-misconfigured from the day it deploys, it returns `not_configured` and only
-logs, the table never gains a `cloud-gateway` row, and the watchdog reports
-nothing at all about the component it was deployed to watch. Both sides are
-quiet and the system looks healthy.
-
-Closing this needs a configured list of components that MUST be present, which
-is a decision about what is deployed rather than a bug in the checker. It is
-the first thing to add to the watchdog.
+R0 item 6 adds `WATCHDOG_REQUIRED_COMPONENTS`, default `cloud-gateway`.
+It alerts on absent heartbeat rows, deduplicates delivered alerts and
+recovers on first heartbeat. Invalid configuration returns 503; no synthetic
+liveness row is written. Code and regression tests are on
+`codex/r0-health-hourly-archive`; production remains unfixed until deployed.
 
 ## Nothing watches the watchdog
 
