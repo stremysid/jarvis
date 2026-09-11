@@ -44,6 +44,46 @@ that external step is complete.
 
 ## Historical checkpoints (superseded where noted above)
 
+## CI type-checks only Windows, so every Linux branch is invisible to mypy
+
+`.github/workflows/ci.yml:117` runs `uv run mypy --platform win32 jarvis_local`,
+and that is the only type check the local agent gets. mypy narrows
+`sys.platform` under `--platform`, including the `.startswith("linux")` form,
+so **any body guarded by a Linux platform test is treated as unreachable and is
+never checked.**
+
+Proven rather than reasoned about: putting `broken: int = "..."` inside a
+`sys.platform.startswith("linux")` branch in
+`jarvis_local/transport/unix_socket.py` still yields
+`Success: no issues found in 51 source files`.
+
+This matters more with every R2 commit, because R2 is the Linux milestone and
+the guarded branches are the security checks — socket and parent ownership,
+`SO_PEERCRED` peer identity, the Linux file-key sealing path.
+
+**The cheap fix, per call site, is to put the platform test behind a function**
+so mypy cannot narrow it and both branches stay checked under either platform.
+`jarvis_local/crypto/device_keys.py` already does this and it works:
+
+```python
+def _is_windows() -> bool:
+    # Kept behind a function so both platform-specific branches remain
+    # typechecked instead of mypy erasing one from each platform run.
+    return sys.platform == "win32"
+```
+
+Verified: with the equivalent `_is_linux()` indirection, the same injected
+error is caught under `--platform win32`.
+
+**Adding a `--platform linux` CI job is the real fix and is not free.** Current
+`main` fails that invocation with 25 errors across 3 files, 21 of them in
+`jarvis_local/transport/pipe_server.py` — Windows named-pipe code that reads as
+unreachable on Linux. Getting that job to green is its own cleanup, and it
+should not be smuggled into a feature PR.
+
+Raised on PR #12, recurred in PR #13 the same afternoon, which is why it is
+written down here instead of being mentioned a third time.
+
 ## `/status` prints UTC clock times with no label, in a local-time chat
 
 `apps/cloud-gateway/src/channels/telegram/command-handler.ts:99` renders each
