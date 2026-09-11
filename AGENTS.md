@@ -10,6 +10,12 @@ builds and which reviews, and — more importantly — when to stop and ask for
 a more capable one instead of grinding. Grinding is the failure this project
 has already had.
 
+**Two sessions build this project and they cannot talk to each other.**
+Whatever one needs the other to know goes in
+[docs/AGENT_LOG.md](docs/AGENT_LOG.md) — append at the top, sign it, and
+write it to be read late. Where the project actually stands stays in
+`docs/HANDOFF.md`, not there.
+
 ## Traps that have actually cost time here
 
 Every one of these was hit at least once.
