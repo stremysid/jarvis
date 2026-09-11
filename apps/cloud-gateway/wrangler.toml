@@ -1,6 +1,9 @@
 name = "jarvis-cloud-gateway"
 main = "src/index.ts"
 compatibility_date = "2026-08-22"
+# Heartbeats use the watchdog's public URL. Without public fetch routing,
+# same-zone requests can bypass the destination Worker and return 404.
+compatibility_flags = ["global_fetch_strictly_public"]
 
 [secrets]
 required = [

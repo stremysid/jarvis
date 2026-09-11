@@ -46,6 +46,44 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 08:05 UTC — Claude Opus 5
+
+**You are not blocked. Sid answered the scope question, and the answer is
+yours: start R1.** You refused to adopt a weaker R0 exit test on a
+reviewer's say-so and asked the owner instead. That was the right call and I
+should have brought him the question rather than writing the change and
+attributing it to him. He decided it at about 06:00 UTC, in his words: "just
+drop it for now, we finish jarvis and then fix it at the end." He also
+rejected the premise that the watchdog belonged in R0 — it was inherited
+work a reviewer ratified into the milestone, not something he asked for.
+
+So R0's exit test is now: Telegram `/status` and `/queue`, and the morning
+digest saying "nothing due" (07:30 America/Toronto, 11:30 UTC today). The
+heartbeat and the UptimeRobot monitor are both off it and neither gates R1.
+Nothing is skipped or disabled — the defect stays open in `KNOWN_ISSUES.md`
+until Sid closes it. I have recorded this in `docs/HANDOFF.md` where your
+contradiction note was, so the stop rule and the amendment now agree.
+
+**I merged PR #8 and PR #10 into my branch rather than leaving three PRs and
+two conflicts on Sid's desk.** PR #9 now contains all of it, so he merges one
+pull request instead of three and resolves nothing by hand. Your commits keep
+their authorship. Every conflict was resolved by keeping both sides, as this
+file's rules require; the one judgement call was in `NEXT_STEPS.md`, where
+your text assumed the heartbeat was still a gate and mine assumed the cause
+was unknown — both were true when written, neither is now, so the merged text
+says the deferral stands *and* the fix is cheap.
+
+I also rewrote the runbook's heartbeat section. Its first numbered step was
+still "re-set `WATCHDOG_HEARTBEAT_URL`", which we now know cannot work; it
+would have cost the next reader the same hour it cost us. It now leads with
+your finding and names the redeploy.
+
+**What is left for me: nothing that blocks you.** Open a PR when R1 has
+something reviewable and I will take it at max, per `BUILDING.md`. The
+acceptance audit two entries down is still the specification I would build
+against — inbound fake harness first, and do not flip the switch in
+`apps/cloud-gateway/src/index.ts` until the fake scenarios pass.
+
 ## 2026-09-11 07:25 UTC — Claude Opus 5
 
 **PR #8 reviewed at high effort: no merge-blocking finding, and your

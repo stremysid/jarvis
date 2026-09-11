@@ -112,9 +112,9 @@ database and never applies migrations. The gateway also binds the
 The owner confirmed R0 item 2 complete: Wrangler login, rotation of the
 three peppers and DeepSeek key on `jarvis-cloud-gateway`, and revocation
 of the old DeepSeek key. No values were shared. `PIN_VERIFIER_JSON` is
-absent from the configuration and its two generators are retired. Leave
-the **stored** secret alone until the new gateway has deployed in item 5;
-the previously live version might still read it.
+absent from the configuration and its two generators are retired. Item 5's
+gateway deployment is now complete; deletion of the stored legacy secret
+still requires the separate owner confirmation in step 5 below.
 
 ## R0 item 5: migrate, then deploy
 
@@ -169,26 +169,75 @@ contents -- query it, as step 2 does.
    Do not run this during item 3 or recreate the retired verifier. A
    rollback to an older version that reads it needs separate assessment.
 
-## Expect one DOWN alert on a first deployment
+## A first-deployment DOWN alert must eventually recover
 
 The watchdog alerts on a required component it has never seen, and the
 gateway cannot heartbeat until `WATCHDOG_HEARTBEAT_URL` names a watchdog
-that exists. That ordering cannot be avoided on a first deployment, so the
-watchdog's first cycle sends `DOWN cloud-gateway -- required component has
-never reported` and recovers once the heartbeat settings are in place.
+that exists. If the watchdog checks before the first successful heartbeat,
+it sends `DOWN cloud-gateway -- required component has never reported`.
+PR #7 records that initial alert. Once settings are in place and the gateway
+runs successfully, verify that the watchdog actually receives the heartbeat
+and closes the alert. Continued absence is not proof of a harmless startup
+condition: check the scheduled heartbeat result and deployed URL/secret
+configuration without exposing values or manufacturing a heartbeat.
 
 This is the alarm working. Do not undo any configuration in response to it.
 Setting `WATCHDOG_REQUIRED_COMPONENTS` to an empty string to suppress it
 does not work either: an empty list fails validation and degrades watchdog
 health instead.
 
+### Diagnose the actual heartbeat result
+
+On September 11 at 05:15:20 UTC, a real gateway cron reported
+`sent: false, reason: rejected, detail: status 404`. An external unauthenticated
+POST to the public endpoint returned 401 at 05:19:30 UTC. These are different
+requests and statuses; the latter does not prove that the two Workers hold
+different secrets.
+
+**The cause is known and the fix is in PR #8. Do not re-set the URL again.**
+Without the `global_fetch_strictly_public` compatibility flag, a `fetch()` to
+a URL on the Worker's own zone is routed to the zone's origin server,
+*ignoring any Workers mapped to that URL*. The gateway's request never
+reached the watchdog, which is why the same URL answers 401 from outside the
+account and 404 from inside it, and why two URL re-sets -- one interactive,
+one piped -- failed identically. Read-only metadata for the gateway deployed
+at 05:24:28 UTC confirms neither the flag nor a watchdog service binding was
+present. Cloudflare documents both mechanisms:
+[fetch](https://developers.cloudflare.com/workers/runtime-apis/fetch/) and
+[compatibility flags](https://developers.cloudflare.com/workers/configuration/compatibility-flags/#global-fetch-strictly-public).
+
+1. Merge PR #8. It adds the flag to `apps/cloud-gateway/wrangler.toml`,
+   preserving the existing public HTTP design. It changes global fetch
+   routing for the gateway, not only this endpoint.
+2. **Redeploy the gateway**, because `compatibility_flags` is configuration
+   rather than a secret and a `secret put` cannot carry it:
+
+   ```powershell
+   ./scripts/deploy.ps1 -Publish
+   ```
+
+   Record the new version. Local mocks and a dry-run cannot verify
+   Cloudflare's edge routing; require a subsequent real cron's heartbeat
+   receipt before declaring it fixed.
+3. Only if a 401 then appears from the gateway's actual configured request
+   does the shared secret come into question; Sid handles any correction.
+   `not_configured` means missing settings; `unreachable` means the request
+   threw or timed out. Retain only the structural outcome/status from logs,
+   never authorization headers, request bodies or unfiltered traces.
+4. After an owner correction, observe a real cron, an advancing
+   `component_liveness` row for `cloud-gateway`, and recovery of its open
+   DOWN alert. Do not manually insert the row or post a fabricated heartbeat.
+
 ## R0 item 6: owner action, external watchdog monitor
 
 1. After item 5, record the watchdog URL returned by the first deployment.
    The URL to monitor is
    `https://jarvis-watchdog.<sid-subdomain>.workers.dev/health`.
-   Replace the placeholder at deploy time; there is no deployed watchdog
-   URL to fill in beforehand. Do not use the gateway's `/health` here.
+   The September 11 deployment's verified target is
+   `https://jarvis-watchdog.twilight-tree-70b1.workers.dev/health` (200 at
+   05:16 UTC). Use that target in UptimeRobot. The shape above is retained
+   for future deployments under another subdomain. Do not use the gateway's
+   `/health` here.
 2. In Sid's UptimeRobot account, create an HTTPS monitor using **HTTP GET**
    every **5 minutes**. Accept **200 only**. Alert on any non-200 response
    (including 503), timeout, DNS failure, or TLS failure. No body keyword or
@@ -222,14 +271,16 @@ most one new segment of 24 events, plus the service's existing bounded
 reconciliation. Retention, verified R2 readback, sealing, circuit checks,
 and delivered-only D1 purge are unchanged. Old undelivered events may be
 copied but remain in D1; young events are retained. A failed upload records
-a failed hourly run rather than a successful heartbeat. GitHub polling
-runs afterward when configured; adding its credential after an hour has
+a failed hourly run; other jobs' heartbeats do not certify archival. GitHub
+polling runs afterward when configured; adding its credential after an hour has
 already been claimed takes effect on the next hour.
 
 ## Exit evidence and recovery
 
-Items 6/7 code is implemented but requires cross-vendor review, merge and
-deployment. The external-monitor owner actions above remain pending.
+Items 6/7 passed cross-vendor review, merged in PR #6 and are deployed.
+The external-monitor owner actions above remain pending. Green gateway
+scheduled runs are not proof of heartbeat delivery; inspect both the
+gateway result and the watchdog's `cloud-gateway` row.
 
 Record the exact commit and deployed versions, migration outcomes, and UTC
 times for CI green on `main`, owner Telegram `/status` and `/queue` replies,
