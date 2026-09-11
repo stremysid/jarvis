@@ -1,10 +1,14 @@
 import { access, chmod, link, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import { realpath } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+import { createClosedFixture } from "./fixtures/closed-workflow.mjs";
 
+const nativeRealpath = promisify(realpath.native);
 const artifactEntrypoint = fileURLToPath(new URL("../scripts/fetch-runtime-artifacts.ps1", import.meta.url));
 const sourceEntrypoint = fileURLToPath(new URL("../scripts/fetch-hermes.ps1", import.meta.url));
 const runtimeModule = fileURLToPath(new URL("../scripts/HermesRuntime.psm1", import.meta.url));
@@ -349,21 +353,6 @@ async function getTreeManifestNoFollow(root, relative = "") {
     } else manifest.push(`file:${relativeChild}:${metadata.size}`);
   }
   return manifest.sort();
-}
-
-async function createClosedFixture(workflow, label, scenario = "success") {
-  const parent = await mkdtemp(join(tmpdir(), "jarvis-hermes-containment-review5-"));
-  const externalTemp = join(parent, "t");
-  const runtimeRoot = join(externalTemp, `jarvis-hermes-workflow-fixture-${label}`);
-  const outside = join(parent, `outside-${label}`);
-  const fixture = join(runtimeRoot, `${workflow}-operations.json`);
-  const effects = join(runtimeRoot, "effects.log");
-  const ack = join(runtimeRoot, "containment.ack");
-  await mkdir(externalTemp);
-  await mkdir(runtimeRoot);
-  await mkdir(outside);
-  await writeFile(fixture, `${JSON.stringify({ schemaVersion: 1, workflow, scenario })}\n`, "utf8");
-  return { parent, runtimeRoot, outside, externalTemp, fixture, effects, ack, createdJunctions: [], convertedJunctions: [], running: undefined };
 }
 
 async function cleanupFixture(context) {
@@ -713,7 +702,7 @@ describe("Hermes H1 workflow write containment review 5", () => {
   });
 
   it("kills the real Git descendant tree when its owning PowerShell workflow terminates abruptly", async () => {
-    const parent = await mkdtemp(join(tmpdir(), "jarvis-hermes-containment-review5-process-tree-"));
+    const parent = await mkdtemp(join(await nativeRealpath(tmpdir()), "jarvis-hermes-containment-review5-process-tree-"));
     const runtimeRoot = join(parent, "jarvis-hermes-workflow-fixture-process-tree");
     const outside = join(parent, "outside");
     const marker = join(runtimeRoot, "git-start.marker");
@@ -992,7 +981,7 @@ throw 'Long-running Git descendant probe returned unexpectedly.'`;
   });
 
   it("materializes and verifies raw Git blobs without executing hostile clean or smudge filters", async () => {
-    const parent = await mkdtemp(join(tmpdir(), "jarvis-hermes-filter-proof-"));
+    const parent = await mkdtemp(join(await nativeRealpath(tmpdir()), "jarvis-hermes-filter-proof-"));
     const runtimeRoot = join(parent, "runtime");
     const seed = join(runtimeRoot, "seed");
     const gitStore = join(runtimeRoot, "git");
@@ -1234,7 +1223,7 @@ try {
     expect(fetchInvocation).toContain("'--no-write-fetch-head','--no-recurse-submodules','--refmap='");
     expect(fetchInvocation).not.toContain("--depth");
 
-    const parent = await mkdtemp(join(tmpdir(), "jarvis-hermes-containment-review5-pack-fetch-"));
+    const parent = await mkdtemp(join(await nativeRealpath(tmpdir()), "jarvis-hermes-containment-review5-pack-fetch-"));
     const origin = join(parent, "origin");
     const control = join(parent, "control.git");
     const hardened = join(parent, "hardened.git");
@@ -1821,7 +1810,7 @@ try {
   }, 120_000);
 
   it("keeps the RuntimeRoot parent anchored while a workflow is paused", async () => {
-    const container = await mkdtemp(join(tmpdir(), "jarvis-hermes-containment-review5-ancestor-"));
+    const container = await mkdtemp(join(await nativeRealpath(tmpdir()), "jarvis-hermes-containment-review5-ancestor-"));
     const ancestor = join(container, "runtime-parent");
     const displaced = join(container, "runtime-parent.review5-displaced");
     const runtimeRoot = join(ancestor, "jarvis-hermes-workflow-fixture-anchored-runtime-parent");
@@ -1949,7 +1938,7 @@ try {
   }, 120_000);
 
   it("allows sibling RuntimeRoots to progress while one workflow is intentionally paused", async () => {
-    const parent = await mkdtemp(join(tmpdir(), "jarvis-hermes-containment-review5-siblings-"));
+    const parent = await mkdtemp(join(await nativeRealpath(tmpdir()), "jarvis-hermes-containment-review5-siblings-"));
     const artifactRoot = join(parent, "jarvis-hermes-workflow-fixture-sibling-artifact");
     const sourceRoot = join(parent, "jarvis-hermes-workflow-fixture-sibling-source");
     const artifactFixture = join(artifactRoot, "artifact-operations.json");

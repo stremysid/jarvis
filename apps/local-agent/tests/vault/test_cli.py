@@ -7,6 +7,7 @@ there -- `cli.py` is shared with another change landing at the same time.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,7 @@ def environment(tmp_path: Path, vault_cli_root: Path, monkeypatch: pytest.Monkey
     return archive
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="the guarded profile locations are Windows known folders")
 def test_the_guard_against_touching_the_real_profile_is_actually_watching_something() -> None:
     """The guard must have a subject, or it passes for the wrong reason.
 

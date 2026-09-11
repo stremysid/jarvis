@@ -1,5 +1,5 @@
 import { access, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { canonicalTmpdir } from "./fixtures/temp-root.mjs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -58,7 +58,7 @@ async function compileMarkerExecutable(executable, marker) {
 
 describe("review 3 trusted Git host", () => {
   it("never executes a PATH-shadowed git.exe during the direct source acquisition entrypoint", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-"));
     const hostileDirectory = join(runtimeRoot, "hostile-bin");
     const hostileGit = join(hostileDirectory, "git.exe");
     const marker = join(runtimeRoot, "ambient-git-executed.txt");
@@ -81,12 +81,12 @@ describe("review 3 trusted Git host", () => {
       expect(result.code, result.stderr).toBe(0);
       expect(await exists(join(runtimeRoot, "releases", sourceCommit, "source"))).toBe(true);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("never resolves PATH git.exe in the default locked-source verifier", async () => {
-    const runtimeRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-trusted-git-review3-"));
+    const runtimeRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-trusted-git-review3-"));
     const source = join(runtimeRoot, "source");
     const gitStore = join(runtimeRoot, "git");
     const hostileDirectory = join(runtimeRoot, "hostile-bin");
@@ -143,7 +143,7 @@ describe("review 3 trusted Git host", () => {
       expect(await exists(marker), await exists(marker) ? await readFile(marker, "utf8") : "").toBe(false);
       expect(result.code, result.stderr).toBe(0);
     } finally {
-      await rm(runtimeRoot, { recursive: true, force: true });
+      await rm(runtimeRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 });

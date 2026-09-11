@@ -1,6 +1,6 @@
 import { access, mkdtemp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { tmpdir } from "node:os";
+import { canonicalTmpdir } from "./fixtures/temp-root.mjs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -67,7 +67,7 @@ function sha256(value) {
 
 describe("review 3 local Git configuration hardening", () => {
   it("rejects common-directory redirection before Git can load alternate config or attributes", async () => {
-    const testRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-common-dir-review3-"));
+    const testRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-common-dir-review3-"));
     try {
       const gitStore = join(testRoot, "git");
       const runner = join(testRoot, "validate-git-store.ps1");
@@ -86,12 +86,12 @@ describe("review 3 local Git configuration hardening", () => {
       expect(result.code).not.toBe(0);
       expect(result.stderr).toMatch(/local Git (?:configuration|metadata) drift/i);
     } finally {
-      await rm(testRoot, { recursive: true, force: true });
+      await rm(testRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it.each(["--skip-worktree", "--assume-unchanged"])("validates source with a fresh index instead of trusting stored index flag %s", async (indexFlag) => {
-    const testRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-index-review3-"));
+    const testRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-index-review3-"));
     try {
       const source = join(testRoot, "source");
       const gitStore = join(testRoot, "git");
@@ -142,12 +142,12 @@ describe("review 3 local Git configuration hardening", () => {
       expect(result.code).not.toBe(0);
       expect(result.stderr).toMatch(/source Git blob mismatch/i);
     } finally {
-      await rm(testRoot, { recursive: true, force: true });
+      await rm(testRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("ignores repository replacement refs when reading the locked tree", async () => {
-    const testRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-replace-review3-"));
+    const testRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-replace-review3-"));
     try {
       const repo = join(testRoot, "repo");
       const runner = join(testRoot, "read-locked-tree.ps1");
@@ -188,12 +188,12 @@ describe("review 3 local Git configuration hardening", () => {
       expect(result.code, result.stderr).toBe(0);
       expect(result.stdout.trim().split(/\r?\n/u).at(-1)).toBe(reviewedBlob);
     } finally {
-      await rm(testRoot, { recursive: true, force: true });
+      await rm(testRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("neutralizes repository-local fsmonitor execution in every closed Git process", async () => {
-    const testRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-fsmonitor-review3-"));
+    const testRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-fsmonitor-review3-"));
     try {
       const repo = join(testRoot, "repo");
       const marker = join(testRoot, "fsmonitor-invoked.txt");
@@ -224,12 +224,12 @@ describe("review 3 local Git configuration hardening", () => {
       expect(result.code, result.stderr).toBe(0);
       expect(await exists(marker)).toBe(false);
     } finally {
-      await rm(testRoot, { recursive: true, force: true });
+      await rm(testRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("fails VerifyOnly before accepting a tampered acquired git/config", async () => {
-    const testRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-review3-"));
+    const testRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-review3-"));
     try {
       const fixture = join(testRoot, "source-operations.json");
       const effects = join(testRoot, "verify-effects.log");
@@ -254,12 +254,12 @@ describe("review 3 local Git configuration hardening", () => {
       expect(await exists(marker)).toBe(false);
       expect(await exists(effects) ? await readFile(effects, "utf8") : "").not.toContain("verify-only-start");
     } finally {
-      await rm(testRoot, { recursive: true, force: true });
+      await rm(testRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 
   it("fails VerifyOnly when the persisted locked-tag ref drifts", async () => {
-    const testRoot = await mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-tag-review3-"));
+    const testRoot = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-tag-review3-"));
     try {
       const fixture = join(testRoot, "source-operations.json");
       const effects = join(testRoot, "verify-effects.log");
@@ -275,7 +275,7 @@ describe("review 3 local Git configuration hardening", () => {
       expect(verified.stderr).toMatch(/tag|provenance|object|drift/i);
       expect(await exists(effects) ? await readFile(effects, "utf8") : "").not.toContain("verify-only-start");
     } finally {
-      await rm(testRoot, { recursive: true, force: true });
+      await rm(testRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   }, 120_000);
 });

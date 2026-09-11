@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { canonicalTmpdir } from "./fixtures/temp-root.mjs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -46,12 +46,12 @@ async function makeZeroExitPowerShellShadow(directory, marker) {
 }
 
 afterEach(async () => {
-  await Promise.all(temporaryRoots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+  await Promise.all(temporaryRoots.splice(0).map((path) => rm(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })));
 });
 
 describe("Task 2 final SBOM security boundaries", () => {
   it("does not execute or trust a zero-exit pwsh shadow from inherited PATH", async () => {
-    const parent = await mkdtemp(join(tmpdir(), "jarvis-hermes-shadow-pwsh-"));
+    const parent = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-shadow-pwsh-"));
     temporaryRoots.push(parent);
     const release = join(parent, "releases", reviewedCommit);
     const source = join(release, "source");

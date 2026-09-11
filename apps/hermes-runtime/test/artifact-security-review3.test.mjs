@@ -1,5 +1,5 @@
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { canonicalTmpdir } from "./fixtures/temp-root.mjs";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -171,7 +171,7 @@ namespace HermesHttpDeadlineTest {
   }, 30_000);
 
   it("rejects a manifest pathname replacement between an earlier hash check and the exact bytes it parses", async () => {
-    const root = await mkdtemp(join(tmpdir(), "jarvis-hermes-manifest-swap-"));
+    const root = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-manifest-swap-"));
     const manifest = join(root, "reviewed-lock.json");
     try {
       await writeFile(manifest, '{"schemaVersion":"1"}\n', "utf8");
@@ -194,12 +194,12 @@ namespace HermesHttpDeadlineTest {
       `);
       expect({ code: result.code, stdout: result.stdout, stderr: result.stderr }).toEqual({ code: 0, stdout: "manifest_swap_rejected\r\n", stderr: "" });
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   });
 
   it("extracts a bounded archive snapshot even when its source pathname is swapped", async () => {
-    const root = await mkdtemp(join(tmpdir(), "jarvis-hermes-artifact-identity-"));
+    const root = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-artifact-identity-"));
     const safeArchive = join(root, "leaf-stage", "downloads", "candidate.tar");
     const maliciousArchive = join(root, "link-traversal.tar");
     const extractionStage = join(root, "tar-extraction-stage");
@@ -384,12 +384,12 @@ namespace HermesHttpDeadlineTest {
       expect(await readFile(join(destination, "python", "safe.txt"), "utf8")).toBe("identity-stable");
       expect(await pathExists(join(outside, "pwned.txt"))).toBe(false);
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   });
 
   it("fails closed when payload data cannot be flushed and orders the barrier before the commit marker", async () => {
-    const root = await mkdtemp(join(tmpdir(), "jarvis-hermes-artifact-durability-"));
+    const root = await mkdtemp(join(canonicalTmpdir, "jarvis-hermes-artifact-durability-"));
     const payload = join(root, "payload");
     const result = await runPowerShell(`
       $ErrorActionPreference = 'Stop'
@@ -428,14 +428,14 @@ namespace HermesHttpDeadlineTest {
       expect(containedMove).toContain("Get-HermesDirectoryDigest $root $destinationFull");
       expect(source).toContain("$stream.Flush($true)");
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
   });
 
   it("keeps concurrent VerifyOnly extraction leases scoped to each verifier scratch root", async () => {
     const roots = await Promise.all([
-      mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-")),
-      mkdtemp(join(tmpdir(), "jarvis-hermes-workflow-fixture-")),
+      mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-")),
+      mkdtemp(join(canonicalTmpdir, "jarvis-hermes-workflow-fixture-")),
     ]);
     try {
       for (const root of roots) {
@@ -457,7 +457,7 @@ namespace HermesHttpDeadlineTest {
         expect(await pathExists(join(roots[index], ".hermes-runtime-publication.ready.json"))).toBe(true);
       }
     } finally {
-      await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true })));
+      await Promise.all(roots.map((root) => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })));
     }
   }, 120_000);
 });

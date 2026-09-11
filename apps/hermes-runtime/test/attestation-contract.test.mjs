@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { canonicalTmpdir } from "./fixtures/temp-root.mjs";
 import { dirname, join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -61,7 +61,7 @@ async function filesUnder(root) {
 }
 
 async function buildRuntime(mode, { distributionName = "hermes-agent" } = {}) {
-  const root = await mkdtemp(join(tmpdir(), "jarvis-runtime-attestation-"));
+  const root = await mkdtemp(join(canonicalTmpdir, "jarvis-runtime-attestation-"));
   temporary.push(root);
   const lock = await json("hermes-profile-lock.json");
   const source = await json("hermes-source-lock.json");

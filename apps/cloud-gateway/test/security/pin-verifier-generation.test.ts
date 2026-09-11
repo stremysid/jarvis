@@ -6,12 +6,9 @@ import {
 } from "../../src/security/pin-verifier.js";
 
 /**
- * Pins the exact derivation `scripts/new-pin-verifier.ps1` performs.
- *
- * The script produces PIN_VERIFIER_JSON on the owner's machine so the PIN is
- * never transmitted. If its parameters drift from what the worker expects, the
- * failure is silent and total: every PIN is simply rejected, with nothing to
- * indicate the verifier itself is wrong. These tests fail loudly instead.
+ * Keeps the retained legacy verifier compatible with synthetic PBKDF2 records.
+ * R0 retires its generators and runtime binding; the verifier itself remains
+ * until R1 removes it. Parameter drift would reject every legacy record.
  */
 
 const PIN = "12345678";
