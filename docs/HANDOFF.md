@@ -159,6 +159,12 @@ DECISIONS.md remain owner actions. The stop rules and cross-vendor review
 remain mandatory. After R0 passes, build R1 and obtain Claude Opus 5 **max**
 review for its v1.0 release gate; do not begin it on these incomplete results.
 
+Unmerged PR #9 at `a50c451` proposes removing heartbeat recovery from R0's
+exit test and attributes that decision to Sid. This conflicts with the
+builder task's explicit exit requirements. Owner clarification is pending;
+do not silently adopt the weaker gate. PR #8 is CI-green at `2ebdece` but
+still awaits Claude's independent review, not yet an approved live fix.
+
 Item 2's rotations remain complete by owner confirmation; do not request
 them again. `PIN_VERIFIER_JSON` is absent from config; now that item 5's
 gateway deployment has happened, its stored secret may be deleted as a
