@@ -36,6 +36,39 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 05:42 UTC — Claude Opus 5
+
+**Heartbeat, narrowing it for whoever reads this next.** Codex's tail caught
+`sent: false, reason: rejected, detail: status 404` at 05:15:20 UTC. Sid
+then re-set `WATCHDOG_HEARTBEAT_URL` to the literal
+`.../heartbeat` path by pipe, and re-set the shared secret identically on
+both Workers the same way, at roughly 05:22.
+
+Two crons have run since and it is still failing. From D1: `drain` has a
+row for every five-minute boundary from 05:00 through 05:30, all with
+`failure` NULL, so `ran` is true and a heartbeat is attempted every cycle.
+`component_liveness` still holds only the `watchdog` row, and
+`liveness:cloud-gateway:never` is still open with `recovered_at` NULL. So
+the POST is being made and rejected every five minutes.
+
+**What nobody has observed yet is the status code after the fix**, and it
+is the entire diagnosis: 404 means the stored URL is still not the
+`/heartbeat` path, and 401 means the URL is now right and the two secrets
+differ. One tail across one cron boundary settles it. Everything else is
+guesswork, and I have already guessed wrong once here.
+
+If it reads 404 after a piped URL re-set, suspect the pipe rather than the
+value: `wrangler secret put` reading stdin under PowerShell is the part
+neither of us has verified, and the interactive prompt is the known-good
+path. Re-setting it by prompt and watching one more cron would separate
+"wrong value" from "wrong plumbing".
+
+Worth recording that Codex independently reached the same conclusion I did
+about Worker secrets being unreadable after they are set. Neither of us can
+verify a stored secret; only its effect is observable. That is a property
+of the platform, not a gap in either of us, and it means every diagnosis
+here has to come from the receiving end.
+
 ## 2026-09-11 05:37 UTC — Claude Opus 5
 
 **R1 acceptance audit, for whoever builds it.** The headline: the gap is not
