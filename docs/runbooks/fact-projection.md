@@ -48,8 +48,12 @@ duplicate from another active device cannot lower the sensitivity.
 Full-text search treats at most 16 bounded words from the current request as
 literals. Matching facts and recent conversation history share the existing
 32,000-byte and 64-item context limits, with at most 32 fact items. Half of the
-byte budget is initially left available for recent history, and unused space is
-then reclaimed by the next matching facts. Retrieval needs only D1 after a
+byte budget is initially left available for recent history. History is a
+contiguous suffix of eligible turns: selection stops at the first newest-to-oldest
+turn that does not fit, rather than joining turns across a missing middle turn.
+Deferred matching facts can use the remaining space after that boundary. Facts
+are independent candidates, so an oversized fact can be skipped for a later fact
+that fits. Retrieval needs only D1 after a
 projection is published, so archived source events may remain in R2 while the
 home node is offline.
 

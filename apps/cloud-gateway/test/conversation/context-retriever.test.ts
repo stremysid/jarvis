@@ -381,6 +381,120 @@ describe("D1ContextRetriever", () => {
     }]);
   });
 
+  it("keeps newest history contiguous when an older turn exceeds the byte budget", async () => {
+    const events = new EventRepository(env.DB);
+    const principalId = "principal:contiguous-history";
+    const older = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 1,
+      historyEligible: true,
+      text: "A".repeat(50),
+    });
+    const middle = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 1,
+      historyEligible: true,
+      text: "B".repeat(500),
+    });
+    const newest = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 1,
+      historyEligible: true,
+      text: "C".repeat(50),
+    });
+    await append(events, older);
+    await append(events, middle);
+    await append(events, newest);
+
+    await expect(new D1ContextRetriever(env.DB).retrieve({
+      principalId,
+      channel: "voice",
+      purpose: "conversation",
+      query: "current request",
+      maxTokens: 200,
+    })).resolves.toEqual([{
+      sourceEventId: newest.eventId,
+      text: "C".repeat(50),
+      sensitivity: "personal",
+    }]);
+  });
+
+  it("gives a deferred fact the budget left by a contiguous history suffix", async () => {
+    const events = new EventRepository(env.DB);
+    const principalId = "principal:deferred-fact-history";
+    const factText = `needle ${"f".repeat(113)}`;
+    const fact = await insertProjection({
+      principalId,
+      deviceId: "device:deferred-fact-history",
+      text: factText,
+    });
+    const older = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 1,
+      historyEligible: true,
+      text: "A".repeat(50),
+    });
+    const middle = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 1,
+      historyEligible: true,
+      text: "B".repeat(500),
+    });
+    const newest = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 1,
+      historyEligible: true,
+      text: "C".repeat(50),
+    });
+    await append(events, older);
+    await append(events, middle);
+    await append(events, newest);
+
+    await expect(new D1ContextRetriever(env.DB).retrieve({
+      principalId,
+      channel: "voice",
+      purpose: "conversation",
+      query: "needle",
+      maxTokens: 200,
+    })).resolves.toEqual([
+      { sourceEventId: fact.sources[0]!.eventId, text: factText, sensitivity: "personal" },
+      { sourceEventId: newest.eventId, text: "C".repeat(50), sensitivity: "personal" },
+    ]);
+  });
+
+  it("skips one oversized deferred fact so a later fitting fact remains available", async () => {
+    const principalId = "principal:independent-deferred-facts";
+    await insertProjection({
+      principalId,
+      deviceId: "device:dominant-deferred-fact",
+      text: `${"dominant secondary ".repeat(12)}x`,
+    });
+    const fittingText = `dominant ${"f".repeat(111)}`;
+    const fitting = await insertProjection({
+      principalId,
+      deviceId: "device:fitting-deferred-fact",
+      text: fittingText,
+    });
+
+    await expect(new D1ContextRetriever(env.DB).retrieve({
+      principalId,
+      channel: "voice",
+      purpose: "conversation",
+      query: "dominant secondary",
+      maxTokens: 200,
+    })).resolves.toEqual([{
+      sourceEventId: fitting.sources[0]!.eventId,
+      text: fittingText,
+      sensitivity: "personal",
+    }]);
+  });
+
   it("caps the combined result at 32 facts and 64 total items", async () => {
     const events = new EventRepository(env.DB);
     const principalId = "principal:combined-item-limit";

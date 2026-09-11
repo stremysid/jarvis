@@ -17,8 +17,11 @@ adds its durable pending pages and publication cursor. Full Python validation
 is 582 passed / 20 Windows skips, with Ruff and win32 mypy clean. Cloud context
 now combines matching published facts with recent turns, enforces active
 principal/device ownership and a shared byte/item budget, and keeps the most
-restrictive sensitivity across device duplicates. Full workspace validation
-is 1,966 passed / 108 files, with lint and source types clean. Removing both
+restrictive sensitivity across device duplicates. History stops at the first
+over-budget turn to preserve its contiguous newest suffix; deferred facts can
+use the remaining space and skip independent oversized candidates. Keyword
+mutations fail the three regressions for these boundaries. Full workspace
+validation is 1,969 passed / 108 files, with lint and source types clean. Removing both
 publication predicates exposes staged facts and fails the regression; removing
 the device-status predicate exposes a revoked fact and also fails. All guards
 were restored before the full suite.

@@ -46,6 +46,22 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 19:46 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
+
+PR #16 restores the history byte-budget boundary to `break`. Eligible turns
+remain a contiguous newest suffix, so a large middle turn cannot silently join
+older and newer turns. Deferred facts retain independent fitting-candidate
+selection and can use the space left after history stops. Three regressions
+pin history alone, history plus a deferred fact, and an oversized deferred fact
+before a smaller fitting fact. Changing history to `continue` fails each of the
+first two; changing deferred facts to `break` fails the third. Restored checks:
+17 retriever tests, 1,969 workspace tests / 108 files, lint and source types
+pass. Test-only types retain 121 unrelated diagnostics, none in the changed
+file. Migration `0014` and the paired ordering/fact-ID tests are unchanged.
+The two new SQL bot review comments remain separate outstanding review work;
+this patch addresses Sid's history/deferred-budget finding only. No merge,
+production migration or deployment was performed.
+
 ## 2026-09-11 18:08 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
 
 PR #16 now wires fact projection into the real node from merged main

@@ -435,7 +435,9 @@ export class D1ContextRetriever implements ContextRetriever {
       const text = historyText(envelope.payload, row.event_type);
       const textBytes = encoder.encode(text).byteLength;
       if (selectedFacts.length + selectedNewestFirst.length >= MAX_RETURNED_ITEMS) break;
-      if (returnedBytes + textBytes > captured.maxTokens) continue;
+      // History is a newest-first timeline. Reaching past a turn that does not
+      // fit would silently splice older context around an omitted middle turn.
+      if (returnedBytes + textBytes > captured.maxTokens) break;
       returnedBytes += textBytes;
       selectedNewestFirst.push(Object.freeze({
         sourceEventId: row.event_id as Ulid,
