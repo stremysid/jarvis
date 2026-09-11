@@ -1,6 +1,6 @@
 # Known issues
 
-## Current R0 checkpoint, 2026-09-10
+## Current R0 checkpoint, 2026-09-11
 
 PR #5 `edac272` supersedes the historical CI failures below. Codex reviewed
 the exact head and found no merge blocker; all seven jobs were observed
@@ -9,9 +9,8 @@ the inherited Linux skip/manual extended suites and an independent persistent
 Windows-handle retry probe. The transient race explanation is plausible,
 not a locally reproduced root cause.
 
-Items 6/7 wiring is implemented in [draft PR #6](https://github.com/ksid1229-ops/jarvis/pull/6),
-on `codex/r0-health-hourly-archive`, and
-requires cross-vendor review. No security check or existing assertion was
+Items 6/7 wiring was reviewed by Claude Opus 5 at high effort, merged in
+PR #6, and is now deployed. No security check or existing assertion was
 loosened. Gateway health is coarse HTTP liveness with a per-isolate rate
 limit; it is not dependency readiness. The hourly archive run claims its
 hour without GitHub configuration, so a credential added later in that
@@ -30,6 +29,24 @@ Use [the runbook](docs/runbooks/deploy.md) for the numbered UptimeRobot owner
 actions. Nothing watches the watchdog until the external step is complete.
 
 ## Historical checkpoints (superseded where noted above)
+
+## Expect one DOWN alert on a first watchdog deployment
+
+The watchdog treats a required component it has never seen as immediately
+overdue, and the gateway cannot heartbeat until `WATCHDOG_HEARTBEAT_URL`
+names a watchdog that exists. On a first deployment that ordering is
+unavoidable, so the watchdog's first cycle alerts `DOWN cloud-gateway --
+required component has never reported`, and recovers once the heartbeat
+settings are in place. Observed on 2026-09-11. This is correct behaviour,
+not a fault, and no configuration should be undone in response to it.
+
+## A must-report list cannot be empty
+
+`WATCHDOG_REQUIRED_COMPONENTS` unset defaults to `cloud-gateway`; set to an
+empty string it fails validation, so watchdog health returns 503 and no
+cycle is recorded. There is therefore no way to require zero components.
+That is deliberate for R0 -- the gateway must report -- but it means the
+lever for changing the list is editing it, never clearing it.
 
 ## R0 review follow-up: triaged, one root cause in ten test files
 

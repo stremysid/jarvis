@@ -118,11 +118,11 @@ the previously live version might still read it.
 
 ## R0 item 5: migrate, then deploy
 
-**Owner-blocked as of 2026-09-10.** Sid inspected the live Cloudflare account:
-the gateway's last modification was 2026-09-02 and the watchdog had never
-been deployed. Do not assume the R0 settings are live or migrations
-0008-0013 have been applied. Inventory them below; their absence has not
-been independently established by a migration query in this build session.
+**Done 2026-09-11.** Migrations `0008`-`0013` applied at 04:39 UTC and
+verified against `d1_migrations`; both Workers published from the reviewed
+commit. The steps below remain the procedure for any later deployment, and
+for reconstructing what was done. Never assume live state from repository
+contents -- query it, as step 2 does.
 
 1. Finish local checks and the required cross-vendor review. Record the
    commit, the current deployed version IDs, and the D1 recovery point in a
@@ -168,6 +168,19 @@ been independently established by a migration query in this build session.
 
    Do not run this during item 3 or recreate the retired verifier. A
    rollback to an older version that reads it needs separate assessment.
+
+## Expect one DOWN alert on a first deployment
+
+The watchdog alerts on a required component it has never seen, and the
+gateway cannot heartbeat until `WATCHDOG_HEARTBEAT_URL` names a watchdog
+that exists. That ordering cannot be avoided on a first deployment, so the
+watchdog's first cycle sends `DOWN cloud-gateway -- required component has
+never reported` and recovers once the heartbeat settings are in place.
+
+This is the alarm working. Do not undo any configuration in response to it.
+Setting `WATCHDOG_REQUIRED_COMPONENTS` to an empty string to suppress it
+does not work either: an empty list fails validation and degrades watchdog
+health instead.
 
 ## R0 item 6: owner action, external watchdog monitor
 

@@ -3,7 +3,7 @@
 The milestone order is in [the roadmap](docs/plan/2026-09-03-jarvis-roadmap.md).
 R0 only; do not start R1 or resume superseded implementation plans.
 
-## R0 checkpoint, 2026-09-10
+## R0 checkpoint, 2026-09-11
 
 1. **PR #5 at edac272 reviewed: no merge blocker.** Seven CI jobs observed
    green, Hermes 108/108. See [the review](docs/reviews/r0-pr5-edac272.md).
@@ -17,19 +17,24 @@ R0 only; do not start R1 or resume superseded implementation plans.
 4. **Deployment scripts implemented in PR #5.** Dry-run by default, explicit
    production environment selection, publishing confirmation. See
    [the runbook](docs/runbooks/deploy.md).
-5. **OWNER-BLOCKED: item 5 deployment has not happened.** Sid inspected the
-   live account: gateway last modified 2026-09-02; watchdog never deployed.
-   Inventory migrations 0008-0013 and effective configuration, apply pending
-   migrations, then deploy the reviewed Workers. Do not assume the vars or
-   migration state from repository contents.
-6. **Code implemented; review and deployment pending.** Gateway health is
-   routed and watchdog must-report defaults to `cloud-gateway`.
-   **OWNER-BLOCKED external monitor:** after item 5, follow the numbered
-   UptimeRobot actions in the runbook. Fill the actual watchdog URL then;
-   HTTPS GET every 5 minutes, 200 only, alerts to Sid's verified destination.
-   Until that is observed, nothing watches the watchdog.
-7. **Code implemented; review and deployment pending.** Existing hourly job
-   invokes bounded R2 archival without requiring GitHub configuration.
+5. **Item 5 is done.** PR #5 and PR #6 are merged; `main` is green at
+   `ffa3ecd`. Migrations `0008`-`0013` were applied 2026-09-11 04:39 UTC and
+   verified against `d1_migrations`. Both Workers are published from the
+   reviewed commit, the gateway with all four cron triggers and the watchdog
+   with its own five-minute trigger. Gateway `/health` answers 200 in
+   production; it answered 501 before.
+6. **Items 6 and 7 are deployed.** Health is routed, the hourly job archives,
+   and the watchdog's must-report list defaults to `cloud-gateway`. Its
+   heartbeat secret is set on both Workers and it alerts through its own
+   Telegram bot.
+7. **STILL OWNER-BLOCKED: the external monitor.** Follow the numbered
+   UptimeRobot actions in [the runbook](docs/runbooks/deploy.md), against the
+   watchdog's `/health` and never the gateway's. Until that is observed,
+   nothing watches the watchdog.
+8. **R0 exit is unverified by observation.** Telegram `/status` and `/queue`,
+   a cron recorded by the watchdog, and the morning digest saying "nothing
+   due". Green CI on `main` is the one condition already met. Do not start R1
+   until the rest are seen.
 
 ## Next gate
 
