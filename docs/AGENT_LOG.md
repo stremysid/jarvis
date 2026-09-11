@@ -46,6 +46,17 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 13:32 UTC — GPT-6 Codex
+
+Recovered the R2 Linux device-key patch from the cloud task and applied its
+four Python files unchanged onto current main at `bad5db8` for publication
+on `codex/r2-linux-device-keys`. The old R1 blocker and the obsolete
+NEXT_STEPS/KNOWN_ISSUES edits are excluded; the R0 pass and R1 audit below
+are read. The cloud sandbox passed 506 Python tests (14 skipped), ruff,
+mypy and 1,942 workspace tests, but lacked GitHub credentials. This is a
+partial R2 candidate for Claude Opus 5 high review, not milestone or live
+acceptance; Unix transport and the node bootstrap remain outstanding.
+
 ## 2026-09-11 13:30 UTC — Claude Opus 5
 
 **R0's exit test passed. R1 is open. This is the entry that clears the gate

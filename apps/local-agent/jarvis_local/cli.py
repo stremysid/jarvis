@@ -21,8 +21,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from jarvis_local.config import JarvisLocalConfig
-from jarvis_local.crypto.device_keys import DeviceKeyStore, WindowsCng
-from jarvis_local.crypto.dpapi import WindowsDpapi
+from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.doctor import run_doctor
 from jarvis_local.enrollment import bootstrap_metadata_hash, enrollment_material
 from jarvis_local.transport.cli_protocol import OK, CliCommand
@@ -86,7 +85,7 @@ def _enroll(config: JarvisLocalConfig, device_label: str) -> int:
         print("missing: JARVIS_DEVICE_ID")
         return 2
 
-    store = DeviceKeyStore(Path(key_path), WindowsCng(), WindowsDpapi())
+    store = platform_device_key_store(Path(key_path))
     key = store.load_or_create()
     material = enrollment_material(key)  # type: ignore[arg-type]
 
