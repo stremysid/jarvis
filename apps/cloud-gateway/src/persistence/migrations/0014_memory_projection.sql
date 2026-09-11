@@ -1,5 +1,6 @@
 PRAGMA foreign_keys = ON;
 
+-- WITHOUT ROWID removes an alternate rowid conflict target from composite-key projection tables.
 CREATE TABLE memory_fact_projection_heads (
   principal_id TEXT NOT NULL,
   device_id TEXT NOT NULL,
@@ -16,7 +17,25 @@ CREATE TABLE memory_fact_projection_heads (
     (published_version = 0 AND manifest_hash IS NULL AND published_at IS NULL)
     OR (published_version > 0 AND manifest_hash IS NOT NULL AND published_at IS NOT NULL)
   )
-);
+) WITHOUT ROWID;
+
+CREATE TRIGGER memory_fact_projection_heads_insert_guard
+BEFORE INSERT ON memory_fact_projection_heads
+WHEN NEW.published_version <> 0
+  OR NEW.manifest_hash IS NOT NULL
+  OR NEW.published_at IS NOT NULL
+  OR EXISTS (
+    SELECT 1 FROM memory_fact_projection_heads h
+    WHERE h.principal_id = NEW.principal_id AND h.device_id = NEW.device_id
+  )
+  OR NOT EXISTS (
+    SELECT 1 FROM device_keys d JOIN principals p ON p.principal_id = d.principal_id
+    WHERE d.device_id = NEW.device_id AND d.principal_id = NEW.principal_id
+      AND d.status = 'active' AND p.status = 'active'
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'memory_projection_head_insert_invalid');
+END;
 
 CREATE TABLE memory_fact_projection_versions (
   principal_id TEXT NOT NULL,
@@ -47,7 +66,25 @@ CREATE TABLE memory_fact_projection_versions (
     (status = 'staged' AND published_at IS NULL)
     OR (status = 'published' AND published_at IS NOT NULL)
   )
-);
+) WITHOUT ROWID;
+
+CREATE TRIGGER memory_fact_projection_versions_insert_guard
+BEFORE INSERT ON memory_fact_projection_versions
+WHEN NEW.status <> 'staged'
+  OR NEW.published_at IS NOT NULL
+  OR EXISTS (
+    SELECT 1 FROM memory_fact_projection_versions v
+    WHERE v.principal_id = NEW.principal_id AND v.device_id = NEW.device_id
+      AND v.projection_version = NEW.projection_version
+  )
+  OR NOT EXISTS (
+    SELECT 1 FROM memory_fact_projection_heads h
+    WHERE h.principal_id = NEW.principal_id AND h.device_id = NEW.device_id
+      AND NEW.projection_version > h.published_version
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'memory_projection_version_insert_invalid');
+END;
 
 CREATE TABLE memory_fact_projection_pages (
   principal_id TEXT NOT NULL,
@@ -67,7 +104,23 @@ CREATE TABLE memory_fact_projection_pages (
   FOREIGN KEY (principal_id, device_id, projection_version)
     REFERENCES memory_fact_projection_versions(principal_id, device_id, projection_version)
     ON DELETE CASCADE
-);
+) WITHOUT ROWID;
+
+CREATE TRIGGER memory_fact_projection_pages_insert_guard
+BEFORE INSERT ON memory_fact_projection_pages
+WHEN EXISTS (
+    SELECT 1 FROM memory_fact_projection_pages p
+    WHERE p.principal_id = NEW.principal_id AND p.device_id = NEW.device_id
+      AND p.projection_version = NEW.projection_version AND p.page_index = NEW.page_index
+  )
+  OR NOT EXISTS (
+    SELECT 1 FROM memory_fact_projection_versions v
+    WHERE v.principal_id = NEW.principal_id AND v.device_id = NEW.device_id
+      AND v.projection_version = NEW.projection_version AND v.status = 'staged'
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'memory_projection_page_insert_invalid');
+END;
 
 CREATE TABLE memory_fact_projection_facts (
   projection_fact_rowid INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -129,6 +182,26 @@ BEGIN
   VALUES ('delete', OLD.projection_fact_rowid, OLD.text);
 END;
 
+CREATE TRIGGER memory_fact_projection_facts_insert_guard
+BEFORE INSERT ON memory_fact_projection_facts
+WHEN NOT EXISTS (
+    SELECT 1 FROM memory_fact_projection_versions v
+    WHERE v.principal_id = NEW.principal_id AND v.device_id = NEW.device_id
+      AND v.projection_version = NEW.projection_version AND v.status = 'staged'
+  )
+  OR EXISTS (
+    SELECT 1 FROM memory_fact_projection_facts f
+    WHERE f.projection_fact_rowid = NEW.projection_fact_rowid
+       OR (f.principal_id = NEW.principal_id AND f.device_id = NEW.device_id
+         AND f.projection_version = NEW.projection_version AND f.fact_id = NEW.fact_id)
+       OR (f.principal_id = NEW.principal_id AND f.device_id = NEW.device_id
+         AND f.projection_version = NEW.projection_version AND f.page_index = NEW.page_index
+         AND f.fact_position = NEW.fact_position)
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'memory_projection_fact_insert_invalid');
+END;
+
 CREATE TRIGGER memory_fact_projection_pages_immutable
 BEFORE UPDATE ON memory_fact_projection_pages
 BEGIN
@@ -158,8 +231,83 @@ WHEN OLD.principal_id IS NOT NEW.principal_id
   OR NEW.status <> 'published'
   OR OLD.published_at IS NOT NULL
   OR NEW.published_at IS NULL
+  OR NOT EXISTS (
+    SELECT 1 FROM memory_fact_projection_commits c
+    WHERE c.principal_id = NEW.principal_id AND c.device_id = NEW.device_id
+      AND c.projection_version = NEW.projection_version
+      AND c.manifest_hash = NEW.manifest_hash
+      AND c.key_id = NEW.key_id AND c.key_fingerprint = NEW.key_fingerprint
+      AND c.key_generation = NEW.key_generation AND c.committed_at = NEW.published_at
+  )
 BEGIN
   SELECT RAISE(ABORT, 'memory_projection_version_immutable');
+END;
+
+CREATE TRIGGER memory_fact_projection_heads_update_guard
+BEFORE UPDATE ON memory_fact_projection_heads
+WHEN OLD.principal_id IS NOT NEW.principal_id
+  OR OLD.device_id IS NOT NEW.device_id
+  OR NEW.published_version <= OLD.published_version
+  OR NOT EXISTS (
+    SELECT 1
+    FROM memory_fact_projection_versions v
+    JOIN memory_fact_projection_commits c
+      ON c.principal_id = v.principal_id AND c.device_id = v.device_id
+     AND c.projection_version = v.projection_version
+     AND c.manifest_hash = v.manifest_hash
+     AND c.key_id = v.key_id AND c.key_fingerprint = v.key_fingerprint
+     AND c.key_generation = v.key_generation AND c.committed_at = v.published_at
+    WHERE v.principal_id = NEW.principal_id AND v.device_id = NEW.device_id
+      AND v.projection_version = NEW.published_version AND v.status = 'published'
+      AND v.manifest_hash = NEW.manifest_hash AND v.published_at = NEW.published_at
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'memory_projection_head_update_invalid');
+END;
+
+CREATE TRIGGER memory_fact_projection_heads_delete_guard
+BEFORE DELETE ON memory_fact_projection_heads
+BEGIN
+  SELECT RAISE(ABORT, 'memory_projection_head_delete_invalid');
+END;
+
+CREATE TRIGGER memory_fact_projection_versions_delete_guard
+BEFORE DELETE ON memory_fact_projection_versions
+WHEN OLD.status = 'published'
+  AND NOT EXISTS (
+    SELECT 1
+    FROM memory_fact_projection_heads h
+    JOIN memory_fact_projection_commits c
+      ON c.principal_id = h.principal_id AND c.device_id = h.device_id
+     AND c.projection_version = h.published_version
+     AND c.manifest_hash = h.manifest_hash AND c.committed_at = h.published_at
+    WHERE h.principal_id = OLD.principal_id AND h.device_id = OLD.device_id
+      AND h.published_version > OLD.projection_version
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'memory_projection_published_version_delete_invalid');
+END;
+
+CREATE TRIGGER memory_fact_projection_pages_delete_guard
+BEFORE DELETE ON memory_fact_projection_pages
+WHEN EXISTS (
+  SELECT 1 FROM memory_fact_projection_versions v
+  WHERE v.principal_id = OLD.principal_id AND v.device_id = OLD.device_id
+    AND v.projection_version = OLD.projection_version AND v.status = 'published'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'memory_projection_published_page_delete_invalid');
+END;
+
+CREATE TRIGGER memory_fact_projection_facts_delete_guard
+BEFORE DELETE ON memory_fact_projection_facts
+WHEN EXISTS (
+  SELECT 1 FROM memory_fact_projection_versions v
+  WHERE v.principal_id = OLD.principal_id AND v.device_id = OLD.device_id
+    AND v.projection_version = OLD.projection_version AND v.status = 'published'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'memory_projection_published_fact_delete_invalid');
 END;
 
 CREATE TABLE memory_fact_projection_commits (
@@ -175,10 +323,11 @@ CREATE TABLE memory_fact_projection_commits (
   committed_at TEXT NOT NULL
     CHECK (strftime('%Y-%m-%dT%H:%M:%fZ', committed_at) IS committed_at),
   PRIMARY KEY (principal_id, device_id, projection_version)
-);
+) WITHOUT ROWID;
 
+-- AFTER INSERT exposes the immutable receipt to transition guards and ABORT rolls receipt and publication back together.
 CREATE TRIGGER memory_fact_projection_commit_publish
-BEFORE INSERT ON memory_fact_projection_commits
+AFTER INSERT ON memory_fact_projection_commits
 BEGIN
   SELECT CASE WHEN NOT EXISTS (
     SELECT 1 FROM device_keys d JOIN principals p ON p.principal_id = d.principal_id

@@ -93,7 +93,6 @@ describe("D1ContextRetriever", () => {
     principalStatus?: "active" | "disabled";
     deviceStatus?: "active" | "revoked";
     versionStatus?: "staged" | "published";
-    headVersion?: number;
     distilledAt?: string;
     storedContentHash?: string;
   }): Promise<MemoryFactProjectionV1> {
@@ -101,7 +100,6 @@ describe("D1ContextRetriever", () => {
     const sourceSequence = input.sourceSequence ?? 1;
     const sensitivity = input.sensitivity ?? "normal";
     const versionStatus = input.versionStatus ?? "published";
-    const headVersion = input.headVersion ?? 1;
     const digest = new Uint8Array(await crypto.subtle.digest(
       "SHA-256", new TextEncoder().encode(input.deviceId),
     ));
@@ -131,32 +129,25 @@ describe("D1ContextRetriever", () => {
     await env.DB.batch([
       env.DB.prepare(`INSERT OR IGNORE INTO principals
         (principal_id, principal_type, status, display_name, created_at, updated_at)
-        VALUES (?, 'human', ?, 'Context owner', ?, ?)`)
-        .bind(input.principalId, input.principalStatus ?? "active", observedAt, observedAt),
+        VALUES (?, 'human', 'active', 'Context owner', ?, ?)`)
+        .bind(input.principalId, observedAt, observedAt),
       env.DB.prepare(`INSERT INTO device_keys
         (device_id, principal_id, key_id, public_key_base64, key_fingerprint, key_generation,
          algorithm, status, device_label, bootstrap_metadata_hash, created_at, revoked_at)
         VALUES (?, ?, ?, ?, ?, 1, 'ed25519', ?, 'context test', ?, ?, ?)`)
-        .bind(
-          input.deviceId, input.principalId, `key:${input.deviceId}`, publicKey, fingerprint,
-          input.deviceStatus ?? "active", await sha256Hex(`bootstrap:${input.deviceId}`), observedAt,
-          input.deviceStatus === "revoked" ? observedAt : null,
-        ),
+        .bind(input.deviceId, input.principalId, `key:${input.deviceId}`, publicKey, fingerprint,
+          "active", await sha256Hex(`bootstrap:${input.deviceId}`), observedAt, null),
       env.DB.prepare(`INSERT INTO memory_fact_projection_heads
         (principal_id, device_id, published_version, manifest_hash, published_at)
-        VALUES (?, ?, ?, ?, ?)`)
-        .bind(
-          input.principalId, input.deviceId, headVersion,
-          headVersion === 0 ? null : manifest, headVersion === 0 ? null : observedAt,
-        ),
+        VALUES (?, ?, 0, NULL, NULL)`)
+        .bind(input.principalId, input.deviceId),
       env.DB.prepare(`INSERT INTO memory_fact_projection_versions
         (principal_id, device_id, projection_version, manifest_hash, page_count, total_fact_count,
          key_id, key_fingerprint, key_generation, status, created_at, expires_at, published_at)
-        VALUES (?, ?, 1, ?, 1, 1, ?, ?, 1, ?, ?, ?, ?)`)
+        VALUES (?, ?, 1, ?, 1, 1, ?, ?, 1, 'staged', ?, ?, NULL)`)
         .bind(
           input.principalId, input.deviceId, manifest, `key:${input.deviceId}`, fingerprint,
-          versionStatus, observedAt, "2026-09-11T13:00:00.000Z",
-          versionStatus === "published" ? observedAt : null,
+          observedAt, "2026-09-11T13:00:00.000Z",
         ),
       env.DB.prepare(`INSERT INTO memory_fact_projection_pages
         (principal_id, device_id, projection_version, page_index, page_hash, fact_count,
@@ -174,7 +165,42 @@ describe("D1ContextRetriever", () => {
           sourceEventId, sourceSequence, canonicalJson(fact.sources as never), canonicalJson(fact as never),
         ),
     ]);
+    if (versionStatus === "published") {
+      await env.DB.prepare(`INSERT INTO memory_fact_projection_commits
+        (principal_id, device_id, projection_version, manifest_hash, key_id,
+         key_fingerprint, key_generation, committed_at)
+        VALUES (?, ?, 1, ?, ?, ?, 1, ?)`)
+        .bind(input.principalId, input.deviceId, manifest, `key:${input.deviceId}`, fingerprint,
+          observedAt).run();
+    }
+    if (input.deviceStatus === "revoked") {
+      await env.DB.prepare(
+        "UPDATE device_keys SET status = 'revoked', revoked_at = ? WHERE device_id = ?",
+      ).bind(observedAt, input.deviceId).run();
+    }
+    if (input.principalStatus === "disabled") {
+      await env.DB.prepare(
+        "UPDATE principals SET status = 'disabled', updated_at = ? WHERE principal_id = ?",
+      ).bind(observedAt, input.principalId).run();
+    }
     return fact;
+  }
+
+  async function movePublishedHeadForCorruptFixture(deviceId: string, publishedVersion: number): Promise<void> {
+    const guard = await env.DB.prepare(
+      `SELECT sql FROM sqlite_schema
+       WHERE type = 'trigger' AND name = 'memory_fact_projection_heads_update_guard'`,
+    ).first<string>("sql");
+    if (guard === null) throw new Error("fixture requires the production head-update guard");
+    await env.DB.prepare("DROP TRIGGER memory_fact_projection_heads_update_guard").run();
+    try {
+      await env.DB.prepare(
+        `UPDATE memory_fact_projection_heads SET published_version = ?, manifest_hash = ?, published_at = ?
+         WHERE device_id = ?`,
+      ).bind(publishedVersion, "c".repeat(64), observedAt, deviceId).run();
+    } finally {
+      await env.DB.prepare(guard).run();
+    }
   }
 
   it("returns only the authenticated subject's committed history in chronological order", async () => {
@@ -265,11 +291,14 @@ describe("D1ContextRetriever", () => {
     });
     await insertProjection({
       principalId, deviceId: "device:staged", text: "staged needle fact",
-      versionStatus: "staged", headVersion: 1,
+      versionStatus: "staged",
     });
     await insertProjection({
-      principalId, deviceId: "device:old", text: "old needle fact", headVersion: 2,
+      principalId, deviceId: "device:old", text: "old needle fact",
     });
+    // Production cannot create this mismatch. The fixture intentionally moves only the
+    // head so the retriever's published-head predicate has an independently valid row to exclude.
+    await movePublishedHeadForCorruptFixture("device:old", 2);
     await insertProjection({
       principalId, deviceId: "device:revoked", text: "revoked needle fact", deviceStatus: "revoked",
     });

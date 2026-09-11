@@ -319,13 +319,17 @@ class MemoryProjectionRepository {
        WHERE principal_id = ? AND device_id = ? AND status = 'staged' AND expires_at <= ?`,
     ).bind(verified.principalId, verified.deviceId, now.toISOString()).run();
     await this.database.prepare(
-      `INSERT OR IGNORE INTO memory_fact_projection_heads
+      `INSERT INTO memory_fact_projection_heads
        (principal_id, device_id, published_version, manifest_hash, published_at)
        SELECT d.principal_id, d.device_id, 0, NULL, NULL
        FROM device_keys d JOIN principals p ON p.principal_id = d.principal_id
        WHERE d.device_id = ? AND d.principal_id = ? AND d.key_id = ?
          AND d.key_fingerprint = ? AND d.key_generation = ?
-         AND d.status = 'active' AND p.status = 'active'`,
+         AND d.status = 'active' AND p.status = 'active'
+         AND NOT EXISTS (
+           SELECT 1 FROM memory_fact_projection_heads h
+           WHERE h.principal_id = d.principal_id AND h.device_id = d.device_id
+         )`,
     ).bind(
       verified.deviceId, verified.principalId, verified.keyId,
       verified.keyFingerprint, verified.keyGeneration,

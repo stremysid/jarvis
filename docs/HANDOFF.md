@@ -10,7 +10,12 @@ at `94575fb`, including the client lifecycle fixes and direct completed-token
 wire regression. That main commit is incorporated into
 `codex/r2-fact-projection`. The gateway accepts signed, bounded active-fact
 pages, validates their source events in D1 or the verified R2 archive, and
-publishes a complete manifest atomically. The Python uploader persists an
+publishes a complete manifest atomically. SQL version/head transitions require
+the exact immutable commit receipt; published contents reject direct additions,
+edits, deletion and replacement, including replacement by fact rowid. Cleanup
+after a newer commit and staged expiry/key rotation remain permitted. Removing
+each of ten guards and the fact-rowid predicate fails its direct-SQL regression.
+The Python uploader persists an
 immutable snapshot before HTTP and resends every page after interruption,
 advancing only on an exact commit receipt. Local memory migration `0003`
 adds its durable pending pages and publication cursor. Full Python validation
@@ -21,7 +26,7 @@ restrictive sensitivity across device duplicates. History stops at the first
 over-budget turn to preserve its contiguous newest suffix; deferred facts can
 use the remaining space and skip independent oversized candidates. Keyword
 mutations fail the three regressions for these boundaries. Full workspace
-validation is 1,969 passed / 108 files, with lint and source types clean. Removing both
+validation is 1,980 passed / 108 files, with lint and source types clean. Removing both
 publication predicates exposes staged facts and fails the regression; removing
 the device-status predicate exposes a revoked fact and also fails. All guards
 were restored before the full suite.

@@ -81,19 +81,28 @@ export function applyFoundationMigration(): Promise<void> {
   return migrated;
 }
 
-/** Test-only reset for fact projection versions whose commit receipts are immutable in production. */
+const MEMORY_PROJECTION_DELETE_GUARDS = Object.freeze([
+  "memory_fact_projection_commits_immutable_delete",
+  "memory_fact_projection_heads_delete_guard",
+  "memory_fact_projection_versions_delete_guard",
+]);
+
+/** Test-only reset that restores exactly the production guards present before cleanup. */
 export async function clearMemoryProjectionDataForTest(): Promise<void> {
-  await env.DB.prepare("DROP TRIGGER IF EXISTS memory_fact_projection_commits_immutable_delete").run();
+  const result = await env.DB.prepare(
+    `SELECT name, sql FROM sqlite_schema
+     WHERE type = 'trigger' AND name IN (${MEMORY_PROJECTION_DELETE_GUARDS.map(() => "?").join(", ")})`,
+  ).bind(...MEMORY_PROJECTION_DELETE_GUARDS).all<{ name: string; sql: string }>();
+  const guards = result.results.filter((row) => typeof row.sql === "string");
+  for (const name of MEMORY_PROJECTION_DELETE_GUARDS) {
+    await env.DB.prepare(`DROP TRIGGER IF EXISTS ${name}`).run();
+  }
   try {
     await env.DB.prepare("DELETE FROM memory_fact_projection_commits").run();
     await env.DB.prepare("DELETE FROM memory_fact_projection_heads").run();
     await env.DB.prepare("DELETE FROM memory_fact_projection_versions").run();
   } finally {
-    await env.DB.prepare(`CREATE TRIGGER memory_fact_projection_commits_immutable_delete
-      BEFORE DELETE ON memory_fact_projection_commits
-      BEGIN
-        SELECT RAISE(ABORT, 'memory_projection_commit_immutable');
-      END`).run();
+    for (const guard of guards) await env.DB.prepare(guard.sql).run();
   }
 }
 

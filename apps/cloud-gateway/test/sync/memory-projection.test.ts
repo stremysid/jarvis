@@ -300,6 +300,24 @@ describe("signed active-fact projection", () => {
     ).first<number>("count") ?? -1;
   }
 
+  async function keyFingerprint(): Promise<string> {
+    const fingerprint = await env.DB.prepare(
+      "SELECT key_fingerprint FROM device_keys WHERE device_id = ? AND principal_id = ?",
+    ).bind(identity.deviceId, identity.principalId).first<string>("key_fingerprint");
+    if (fingerprint === null) throw new Error("fixture key missing");
+    return fingerprint;
+  }
+
+  async function publishSnapshot(
+    projectionVersion: number,
+    facts: readonly MemoryFactProjectionV1[] = [],
+  ): Promise<{ pages: MemoryFactProjectionPageV1[]; commit: MemoryFactProjectionCommitV1 }> {
+    const built = await snapshot(projectionVersion, facts);
+    for (const page of built.pages) await project(service(), page);
+    await project(service(), built.commit);
+    return built;
+  }
+
   it("matches the independent RFC 8785 projection wire vector", async () => {
     const vectorFact: MemoryFactProjectionV1 = {
       factId: "fact_4d88ae4f8b685f140ef9103221b46a9f",
@@ -609,43 +627,28 @@ describe("signed active-fact projection", () => {
       "SELECT key_fingerprint FROM device_keys WHERE device_id = ? AND principal_id = ?",
     ).bind(identity.deviceId, identity.principalId).first<string>("key_fingerprint");
     if (fingerprint === null) throw new Error("fixture key missing");
+    for (let version = 1; version <= 4; version += 1) {
+      const built = await snapshot(version, [existing]);
+      await project(service(), built.pages[0]!);
+      await project(service(), built.commit);
+    }
     await env.DB.batch([
-      env.DB.prepare(
-        `INSERT INTO memory_fact_projection_heads
-         (principal_id, device_id, published_version, manifest_hash, published_at)
-         VALUES (?, ?, 4, ?, ?)`,
-      ).bind(identity.principalId, identity.deviceId, "4".repeat(64), initialNow.toISOString()),
-      ...[4, 5, 6].map((version) => env.DB.prepare(
+      ...[5, 6].map((version) => env.DB.prepare(
         `INSERT INTO memory_fact_projection_versions
          (principal_id, device_id, projection_version, manifest_hash, page_count, total_fact_count,
           key_id, key_fingerprint, key_generation, status, created_at, expires_at, published_at)
-         VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, 1, 0, ?, ?, ?, 'staged', ?, ?, NULL)`,
       ).bind(
         identity.principalId, identity.deviceId, version, String(version).repeat(64),
-        version === 4 ? 1 : 0, identity.keyId, fingerprint, identity.generation,
-        version === 4 ? "published" : "staged", initialNow.toISOString(), expiresAt,
-        version === 4 ? initialNow.toISOString() : null,
+        identity.keyId, fingerprint, identity.generation, initialNow.toISOString(), expiresAt,
       )),
-      ...[4, 5, 6].map((version) => env.DB.prepare(
+      ...[5, 6].map((version) => env.DB.prepare(
         `INSERT INTO memory_fact_projection_pages
          (principal_id, device_id, projection_version, page_index, page_hash, fact_count, page_json, created_at)
-         VALUES (?, ?, ?, 0, ?, ?, '{}', ?)`,
+         VALUES (?, ?, ?, 0, ?, 0, '{}', ?)`,
       ).bind(
-        identity.principalId, identity.deviceId, version, String(version).repeat(64),
-        version === 4 ? 1 : 0, initialNow.toISOString(),
+        identity.principalId, identity.deviceId, version, String(version).repeat(64), initialNow.toISOString(),
       )),
-      env.DB.prepare(
-        `INSERT INTO memory_fact_projection_facts
-         (principal_id, device_id, projection_version, page_index, fact_position, fact_id, text,
-          origin, sensitivity, confidence, distiller_version, distilled_at, content_hash,
-          primary_event_id, primary_event_sequence, sources_json, fact_json)
-         VALUES (?, ?, 4, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).bind(
-        identity.principalId, identity.deviceId, existing.factId, existing.text, existing.origin,
-        existing.sensitivity, existing.confidence, existing.distillerVersion, existing.distilledAt,
-        existing.contentHash, existing.sources[0]!.eventId, existing.sources[0]!.eventSequence,
-        JSON.stringify(existing.sources), JSON.stringify(existing),
-      ),
     ]);
 
     await expect(env.DB.prepare(
@@ -663,6 +666,247 @@ describe("signed active-fact projection", () => {
     expect(await env.DB.prepare(
       "SELECT status FROM memory_fact_projection_versions WHERE projection_version = 6",
     ).first<string>("status")).toBe("staged");
+  });
+
+  it("blocks a direct staged-to-published version transition", async () => {
+    const built = await snapshot(1, []);
+    await project(service(), built.pages[0]!);
+
+    await expect(env.DB.prepare(
+      `UPDATE memory_fact_projection_versions
+       SET status = 'published', published_at = ?
+       WHERE principal_id = ? AND device_id = ? AND projection_version = 1`,
+    ).bind(currentNow.toISOString(), identity.principalId, identity.deviceId).run()).rejects.toThrow();
+
+    expect(await env.DB.prepare(
+      "SELECT status FROM memory_fact_projection_versions WHERE principal_id = ? AND device_id = ?",
+    ).bind(identity.principalId, identity.deviceId).first<string>("status")).toBe("staged");
+    expect(await publishedVersion()).toBe(0);
+  });
+
+  it("blocks direct head advancement and deletion", async () => {
+    await publishSnapshot(1);
+
+    await expect(env.DB.prepare(
+      `UPDATE memory_fact_projection_heads
+       SET published_version = 2, manifest_hash = ?, published_at = ?
+       WHERE principal_id = ? AND device_id = ?`,
+    ).bind(
+      "2".repeat(64), "2026-09-11T12:00:00.001Z", identity.principalId, identity.deviceId,
+    ).run()).rejects.toThrow();
+    expect(await publishedVersion()).toBe(1);
+
+    await expect(env.DB.prepare(
+      "DELETE FROM memory_fact_projection_heads WHERE principal_id = ? AND device_id = ?",
+    ).bind(identity.principalId, identity.deviceId).run()).rejects.toThrow();
+    expect(await publishedVersion()).toBe(1);
+  });
+
+  it("blocks nonzero and replacement head inserts", async () => {
+    const other = await insertIdentity("principal:other-head", "device:other-head", "key:other", 1);
+    await expect(env.DB.prepare(
+      `INSERT INTO memory_fact_projection_heads
+       (principal_id, device_id, published_version, manifest_hash, published_at)
+       VALUES (?, ?, 1, ?, ?)`,
+    ).bind(other.principalId, other.deviceId, "1".repeat(64), currentNow.toISOString()).run())
+      .rejects.toThrow();
+    expect(await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM memory_fact_projection_heads WHERE device_id = ?",
+    ).bind(other.deviceId).first<number>("count")).toBe(0);
+
+    await publishSnapshot(1);
+    await expect(env.DB.prepare(
+      `INSERT OR REPLACE INTO memory_fact_projection_heads
+       (principal_id, device_id, published_version, manifest_hash, published_at)
+       VALUES (?, ?, 0, NULL, NULL)`,
+    ).bind(identity.principalId, identity.deviceId).run()).rejects.toThrow();
+    expect(await publishedVersion()).toBe(1);
+  });
+
+  it("blocks direct published-version insertion", async () => {
+    const first = await snapshot(1, []);
+    await project(service(), first.pages[0]!);
+    const fingerprint = await keyFingerprint();
+    await expect(env.DB.prepare(
+      `INSERT INTO memory_fact_projection_versions
+       (principal_id, device_id, projection_version, manifest_hash, page_count, total_fact_count,
+        key_id, key_fingerprint, key_generation, status, created_at, expires_at, published_at)
+       VALUES (?, ?, 2, ?, 1, 0, ?, ?, ?, 'published', ?, ?, ?)`,
+    ).bind(
+      identity.principalId, identity.deviceId, "2".repeat(64), identity.keyId, fingerprint,
+      identity.generation, currentNow.toISOString(), "2026-09-11T13:00:00.000Z",
+      currentNow.toISOString(),
+    ).run()).rejects.toThrow();
+    expect(await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM memory_fact_projection_versions WHERE projection_version = 2",
+    ).first<number>("count")).toBe(0);
+  });
+
+  it("blocks replacement of a published parent version", async () => {
+    const built = await publishSnapshot(1);
+    const fingerprint = await keyFingerprint();
+    await expect(env.DB.prepare(
+      `INSERT OR REPLACE INTO memory_fact_projection_versions
+       (principal_id, device_id, projection_version, manifest_hash, page_count, total_fact_count,
+        key_id, key_fingerprint, key_generation, status, created_at, expires_at, published_at)
+       VALUES (?, ?, 1, ?, 1, 0, ?, ?, ?, 'staged', ?, ?, NULL)`,
+    ).bind(
+      identity.principalId, identity.deviceId, built.commit.manifestHash, identity.keyId, fingerprint,
+      identity.generation, currentNow.toISOString(), "2026-09-11T13:00:00.000Z",
+    ).run()).rejects.toThrow();
+    expect(await env.DB.prepare(
+      "SELECT status FROM memory_fact_projection_versions WHERE projection_version = 1",
+    ).first<string>("status")).toBe("published");
+    expect(await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM memory_fact_projection_pages WHERE projection_version = 1",
+    ).first<number>("count")).toBe(1);
+  });
+
+  it("blocks inserts and replacements under a published page set", async () => {
+    const built = await publishSnapshot(1);
+    await expect(env.DB.prepare(
+      `INSERT INTO memory_fact_projection_pages
+       (principal_id, device_id, projection_version, page_index, page_hash, fact_count, page_json, created_at)
+       VALUES (?, ?, 1, 1, ?, 0, '{}', ?)`,
+    ).bind(identity.principalId, identity.deviceId, "1".repeat(64), currentNow.toISOString()).run())
+      .rejects.toThrow();
+    await expect(env.DB.prepare(
+      `INSERT OR REPLACE INTO memory_fact_projection_pages
+       (principal_id, device_id, projection_version, page_index, page_hash, fact_count, page_json, created_at)
+       VALUES (?, ?, 1, 0, ?, 0, '{}', ?)`,
+    ).bind(identity.principalId, identity.deviceId, "f".repeat(64), currentNow.toISOString()).run())
+      .rejects.toThrow();
+    expect(await env.DB.prepare(
+      "SELECT page_hash FROM memory_fact_projection_pages WHERE projection_version = 1 AND page_index = 0",
+    ).first<string>("page_hash")).toBe(built.pages[0]!.pageHash);
+    expect(await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM memory_fact_projection_pages WHERE projection_version = 1",
+    ).first<number>("count")).toBe(1);
+  });
+
+  it("blocks deletion of an empty published page", async () => {
+    await publishSnapshot(1);
+    await expect(env.DB.prepare(
+      `DELETE FROM memory_fact_projection_pages
+       WHERE principal_id = ? AND device_id = ? AND projection_version = 1 AND page_index = 0`,
+    ).bind(identity.principalId, identity.deviceId).run()).rejects.toThrow();
+    expect(await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM memory_fact_projection_pages WHERE projection_version = 1",
+    ).first<number>("count")).toBe(1);
+  });
+
+  it("blocks fact insertion and replacement under a published version", async () => {
+    const event = await appendSource("I like coffee");
+    const existing = await fact("Sid likes coffee", [source(event, "I like coffee")]);
+    await publishSnapshot(1, [existing]);
+    await expect(env.DB.prepare(
+      `INSERT INTO memory_fact_projection_facts
+       (principal_id, device_id, projection_version, page_index, fact_position, fact_id, text,
+        origin, sensitivity, confidence, distiller_version, distilled_at, content_hash,
+        primary_event_id, primary_event_sequence, sources_json, fact_json)
+       SELECT principal_id, device_id, projection_version, page_index, 1, ?, 'added directly',
+        origin, sensitivity, confidence, distiller_version, distilled_at, ?,
+        primary_event_id, primary_event_sequence, sources_json, fact_json
+       FROM memory_fact_projection_facts WHERE fact_id = ?`,
+    ).bind(`fact_${"b".repeat(32)}`, "b".repeat(64), existing.factId).run()).rejects.toThrow();
+    await expect(env.DB.prepare(
+      `INSERT OR REPLACE INTO memory_fact_projection_facts
+       (projection_fact_rowid, principal_id, device_id, projection_version, page_index,
+        fact_position, fact_id, text, origin, sensitivity, confidence, distiller_version,
+        distilled_at, content_hash, primary_event_id, primary_event_sequence, sources_json, fact_json)
+       SELECT projection_fact_rowid, principal_id, device_id, projection_version, page_index,
+        fact_position, fact_id, 'replaced directly', origin, sensitivity, confidence, distiller_version,
+        distilled_at, content_hash, primary_event_id, primary_event_sequence, sources_json, fact_json
+       FROM memory_fact_projection_facts WHERE fact_id = ?`,
+    ).bind(existing.factId).run()).rejects.toThrow();
+    expect(await env.DB.prepare(
+      "SELECT text FROM memory_fact_projection_facts WHERE fact_id = ?",
+    ).bind(existing.factId).first<string>("text")).toBe(existing.text);
+    expect(await currentFactCount()).toBe(1);
+  });
+
+  it("blocks a staged fact from replacing a published fact by rowid", async () => {
+    const publishedEvent = await appendSource("I like coffee");
+    const published = await fact("Sid likes coffee", [source(publishedEvent, "I like coffee")]);
+    await publishSnapshot(1, [published]);
+    const staged = await snapshot(2, []);
+    await project(service(), staged.pages[0]!);
+    const publishedRowid = await env.DB.prepare(
+      "SELECT projection_fact_rowid FROM memory_fact_projection_facts WHERE fact_id = ?",
+    ).bind(published.factId).first<number>("projection_fact_rowid");
+    if (publishedRowid === null) throw new Error("published fixture fact missing");
+    const replacementEvent = await appendSource("I like tea");
+    const replacementSource = source(replacementEvent, "I like tea");
+    const replacement = await fact("Sid likes tea", [replacementSource]);
+
+    await expect(env.DB.prepare(
+      `INSERT OR REPLACE INTO memory_fact_projection_facts
+       (projection_fact_rowid, principal_id, device_id, projection_version, page_index,
+        fact_position, fact_id, text, origin, sensitivity, confidence, distiller_version,
+        distilled_at, content_hash, primary_event_id, primary_event_sequence, sources_json, fact_json)
+       VALUES (?, ?, ?, 2, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      publishedRowid, identity.principalId, identity.deviceId, replacement.factId, replacement.text,
+      replacement.origin, replacement.sensitivity, replacement.confidence,
+      replacement.distillerVersion, replacement.distilledAt, replacement.contentHash,
+      replacementSource.eventId, replacementSource.eventSequence,
+      canonicalJson(replacement.sources as never), canonicalJson(replacement as never),
+    ).run()).rejects.toThrow();
+
+    expect(await env.DB.prepare(
+      `SELECT projection_fact_rowid, text FROM memory_fact_projection_facts
+       WHERE principal_id = ? AND device_id = ? AND projection_version = 1`,
+    ).bind(identity.principalId, identity.deviceId).first<{ projection_fact_rowid: number; text: string }>())
+      .toEqual({ projection_fact_rowid: publishedRowid, text: published.text });
+    expect(await env.DB.prepare(
+      "SELECT text FROM memory_fact_projection_fts WHERE rowid = ?",
+    ).bind(publishedRowid).first<string>("text")).toBe(published.text);
+    expect(await env.DB.prepare(
+      `SELECT COUNT(*) AS count FROM memory_fact_projection_facts
+       WHERE principal_id = ? AND device_id = ? AND projection_version = 2`,
+    ).bind(identity.principalId, identity.deviceId).first<number>("count")).toBe(0);
+  });
+
+  it("blocks deletion of a published fact and its current parent version", async () => {
+    const event = await appendSource("I like coffee");
+    const existing = await fact("Sid likes coffee", [source(event, "I like coffee")]);
+    await publishSnapshot(1, [existing]);
+    await expect(env.DB.prepare(
+      "DELETE FROM memory_fact_projection_facts WHERE fact_id = ?",
+    ).bind(existing.factId).run()).rejects.toThrow();
+    expect(await currentFactCount()).toBe(1);
+
+    await expect(env.DB.prepare(
+      `DELETE FROM memory_fact_projection_versions
+       WHERE principal_id = ? AND device_id = ? AND projection_version = 1`,
+    ).bind(identity.principalId, identity.deviceId).run()).rejects.toThrow();
+    expect(await env.DB.prepare(
+      "SELECT status FROM memory_fact_projection_versions WHERE projection_version = 1",
+    ).first<string>("status")).toBe("published");
+    expect(await currentFactCount()).toBe(1);
+  });
+
+  it("rolls back a replacement of an immutable published receipt", async () => {
+    const built = await publishSnapshot(1);
+    const fingerprint = await keyFingerprint();
+    const original = await env.DB.prepare(
+      `SELECT committed_at FROM memory_fact_projection_commits
+       WHERE principal_id = ? AND device_id = ? AND projection_version = 1`,
+    ).bind(identity.principalId, identity.deviceId).first<string>("committed_at");
+    await expect(env.DB.prepare(
+      `INSERT OR REPLACE INTO memory_fact_projection_commits
+       (principal_id, device_id, projection_version, manifest_hash, key_id,
+        key_fingerprint, key_generation, committed_at)
+       VALUES (?, ?, 1, ?, ?, ?, ?, ?)`,
+    ).bind(
+      identity.principalId, identity.deviceId, built.commit.manifestHash, identity.keyId,
+      fingerprint, identity.generation, "2026-09-11T12:00:00.001Z",
+    ).run()).rejects.toThrow();
+    expect(await env.DB.prepare(
+      `SELECT committed_at FROM memory_fact_projection_commits
+       WHERE principal_id = ? AND device_id = ? AND projection_version = 1`,
+    ).bind(identity.principalId, identity.deviceId).first<string>("committed_at")).toBe(original);
+    expect(await publishedVersion()).toBe(1);
   });
 
   it("rejects a fact id whose 32-character suffix is not lowercase hexadecimal", async () => {

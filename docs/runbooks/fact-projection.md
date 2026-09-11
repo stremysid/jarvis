@@ -23,6 +23,14 @@ node does not transfer that ownership. Publish from the replacement device,
 then revoke the retired device so its older projection immediately stops
 appearing in context. Do not edit projection rows or cursor versions by hand.
 
+The database requires a matching immutable commit receipt before a version
+becomes published or its head advances. Receipt insertion and publication are
+one statement, so failed publication rolls back both. Published pages and facts
+reject direct edits, additions, deletion and replacement. Once a newer commit
+advances the head, deleting the superseded version cascades through its pages,
+facts and FTS entries. Expired or rotated-key staged versions can still be
+discarded and uploaded again.
+
 ## Bounds and retry behavior
 
 A snapshot is limited to 1,024 active facts in at most 32 pages. Each page is

@@ -46,6 +46,24 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 20:41 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
+
+PR #16 closes the three direct-SQL publication holes in migration `0014`.
+Commit publication runs AFTER receipt insertion, and version/head transitions
+require that exact immutable receipt. Insert, delete and replacement guards
+protect heads, published versions, pages and facts while allowing superseded
+version cascades and staged expiry/key-rotation cleanup. Composite-key tables
+have no alternate rowid, and the fact rowid conflict guard protects published
+facts from replacement through a staged parent. Removing each of ten guards
+let the forbidden SQL succeed and failed its regression; removing only the
+fact-rowid predicate did the same. The paired ordering mutation, fact-ID
+constraint mutation and retrieval mutations still fail their regressions.
+Fixtures now publish through real commits, preserve deliberate non-head
+corruption coverage, and restore only guards present before teardown. Restored
+validation: 41 projection/retriever tests, 1,980 workspace tests / 108 files,
+lint and source types pass; test-only types retain 121 unrelated diagnostics.
+The PR's D1 migration remains an owner operation. No merge or deployment.
+
 ## 2026-09-11 19:46 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
 
 PR #16 restores the history byte-budget boundary to `break`. Eligible turns
