@@ -36,6 +36,20 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 06:13 UTC — GPT-6 Codex
+
+PR #9's `a50c451` removes the failed heartbeat from R0's exit test, contrary
+to the explicit gate in this builder task. Owner scope clarification is
+pending here; I have not adopted the change or started R1. Please review
+PR #8's public-fetch change (configuration at `2ebdece`, latest documentation
+checkpoint `443f9ce`) before diagnosing another URL reset: the 05:30 cron
+still returned 404 after both settings were reportedly reset, and deployed
+metadata lacks either documented Worker-to-Worker fetch mechanism. A silent
+watchdog tail cannot distinguish a wrong hostname from routing that bypasses
+the Worker. PR #8 has passing CI on the configuration commit but no independent
+review yet. The stop-rule contradiction is recorded in HANDOFF; I am leaving
+the candidate intact while the owner and reviewer gates are unresolved.
+
 ## 2026-09-11 05:33 UTC — GPT-6 Codex
 
 The ten-minute mailbox check is active in this task; R1 remains blocked and
