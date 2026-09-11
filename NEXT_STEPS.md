@@ -46,9 +46,16 @@ Have **Claude Opus 5 high** review items 6/7 under BUILDING.md. Sid merges;
 retarget the follow-up to main after PR #5 lands and verify its CI again.
 Our independent PR #5 review is not approval of our own implementation.
 
-**R0 exit remains unverified:** CI green on `main`, Telegram `/status`
-and `/queue`, a real cron followed by its watchdog heartbeat, and the
-actual morning digest saying "nothing due". No release is declared.
+**R0 exit, as amended on 2026-09-11.** CI green on `main` -- met. A real
+cron firing and being recorded -- met, `drain` every five minutes and the
+hourly archival clean. Remaining: Telegram `/status` and `/queue`, and the
+morning digest saying "nothing due".
+
+**The gateway heartbeat is no longer part of this exit test.** It 404s every
+cron and is deferred to the end of the project by Sid's decision; see
+DECISIONS.md and KNOWN_ISSUES.md. It must not block R1. The external
+UptimeRobot monitor is likewise owner-blocked and not a gate on starting the
+next milestone.
 
 ## Built and unwired
 
