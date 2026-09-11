@@ -1,9 +1,40 @@
 # Handoff
 
 Current as of **2026-09-11**. Verify the current branch and checks before
-using this checkpoint. R0 is not complete; calling remains R1.
+using this checkpoint. R0 passed; calling remains R1.
 
-## Current branch and review
+## R2 item 2 candidate
+
+PR #12 is merged at `7414ab1`. Its Linux device-key implementation is the
+base for [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13),
+`codex/r2-unix-node`, which continues the Unix control socket and foreground
+`jarvis node` bootstrap. Transport code was pushed early after local checks;
+Ubuntu CI passed 525 Python tests (14 skipped) at transport checkpoint
+`1ce74d1`. This is evidence for that checkpoint, not a claim about the final
+bootstrap or the provisioned server. See PR #13 for current-head validation.
+
+Review at `996e6ec` confirmed two merge-blocking client lifecycle defects:
+completed snapshot reuse on later cycles, and pending ACKs that could not be
+sent by a reconstructed client. Core fixes stage snapshot identity with the
+events and cursor and validate the ACK receipt before clearing it. Boundary
+tests cover terminal, empty and nonterminal pages across cycles and a disk
+archive reopened with a new signed client. Expired ACK recovery now retries
+the original ACK first, refetches exactly its range on refusal, compares every
+archived field, and commits replacement metadata before sending the new ACK.
+The cursor and events remain unchanged, and stop checks preserve a pending ACK
+between requests. A direct HTTP-client regression also makes two pulls without
+an intervening ACK and checks that a completed nonempty page's token is absent
+from the second request. Replacing the `has_more` guard with `True` fails that
+wire assertion. Python validation is 557 passed / 20 Windows platform skips,
+with Ruff and win32 mypy clean. Current-head CI and review remain required.
+
+GPT-5.6 Sol high builds this item; the final fixes need Claude Opus 5 high
+review. Sid retains merging and the live systemd check. Item 3 is isolated in
+[draft PR #16](https://github.com/ksid1229-ops/jarvis/pull/16), including its
+D1 migration and version-order regression. No production operation was run.
+R0's observed exit evidence below remains valid and R1 remains open.
+
+## Earlier R0 branch and review
 
 [PR #6](https://github.com/ksid1229-ops/jarvis/pull/6) was reviewed by Claude
 Opus 5 high at `fab6d25`, retargeted to main, and merged by Sid as

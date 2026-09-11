@@ -46,6 +46,47 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 17:25 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
+
+PR #13 now tests the completed-page guard directly on the wire: two pulls,
+with a nonempty `hasMore: false` response and no ACK between them, must send
+`snapshotToken: null` on the second request. Replacing `continuation.has_more`
+with `True` makes that assertion fail with the stale token. Earlier cycle
+tests cleared the snapshot during ACK and missed this guard. Restored full
+Python: 557 passed / 20 Windows skips, Ruff and win32 mypy clean. This changes
+tests only; current-head CI and reviewer acceptance still belong on the PR.
+Item 3 remains separate in draft PR #16. No merge or deployment was performed.
+
+## 2026-09-11 17:13 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
+
+PR #13's lifecycle fixes now include expired ACK recovery using the existing
+signed protocol: retry the original receipt first, then refetch only the owed
+range, compare all archived fields, and atomically replace the ACK identity
+before sending it. Neither cursor nor event rows move during recovery.
+Authentication still stops the node; stop checks preserve owed work between
+requests. Full Python: 556 passed / 20 Windows skips, Ruff and win32 mypy clean.
+Removing the archived-field comparison allowed the bad ACK and failed its
+regression; the paired recovery-boundary mutation failed too. Final-head CI
+and Claude review are next. Legacy pending rows missing metadata still need
+owner repair, as the runbook states. Item 3 remains separate in draft PR #16.
+
+## 2026-09-11 17:00 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
+
+The two bot P1s at `996e6ec` are confirmed and supersede the earlier
+ready-to-merge assessment. PR #13 now has an early lifecycle fix: snapshot
+identity is committed with pending ACKs, reconstructed clients send that
+exact ACK, and completed, empty and acknowledged pages no longer leave a
+continuation for the next scheduled cycle. Four real-client boundary tests
+failed before the fix; a local rollback retry has its own regression too.
+An unaccepted ACK can expire during normal backoff, so exact-page rebinding
+is the next required slice before final review. Do not merge yet. Item 3 and
+its version-order regression are now isolated in draft PR #16, whose body
+calls out migration `0014` and the owner's live D1 deployment step.
+
+## 2026-09-11 16:05 UTC — GPT-5.6 Sol builder / GPT-6 coordinator
+
+Applied both PR #13 review follow-ups after bringing in PR #14: the four Unix-socket Linux guards and the node key-permission guard now use `_is_linux()`, with all five injected type errors rejected by the existing win32 mypy invocation. Added the requested systemd sandbox, documented the bind/UMask dependency, and put `systemd-analyze security` in the home-node runbook. Local Python checks pass (540 tests, 20 platform skips, Ruff and mypy). The two reviewed item-2 slices have no merge-blocking findings; these follow-ups and subsequent fact-projection work remain on the same draft PR for review. No host installation, security score, deployment or live R2 acceptance is claimed.
+
 ## 2026-09-11 15:50 UTC — Claude Opus 5
 
 **Node bootstrap reviewed at `6fdd21c`; nothing blocking.** Two things to fix.
@@ -78,6 +119,44 @@ branches. Do **not** add a `--platform linux` job instead — `main` already
 fails that with 25 errors, 21 in `pipe_server.py`, and that cleanup is not
 yours to carry inside a feature PR. Full review is on the pull request; the
 durable write-up is in `KNOWN_ISSUES.md`.
+## 2026-09-11 14:21 UTC — GPT-6 Codex, with GPT-5.6 Sol high builder
+
+PR #13 now includes the foreground Linux `jarvis node` bootstrap and systemd
+unit/runbook. It loads an existing identity, claims the private socket before
+opening distinct stores, and runs signed replication/distillation on the main
+thread. Signal handling defers stop requests outside service locks; startup
+failures unwind resources. ACK and distillation authentication errors now stop
+the loop while durable work remains intact, and status uses coarse failures.
+Before this push: 540 Windows Python tests passed, 20 skipped; ruff, mypy,
+locked package installation/console checks and 1,942 workspace tests passed.
+Timeout-reset and distillation-auth guard mutations were rejected. The earlier
+transport checkpoint passed all seven CI jobs; verify the new head's Ubuntu
+job for native node controls and SIGTERM. Claude Opus 5 high review and the
+owner's Linux/systemd smoke remain pending. No merge, provisioning or later
+R2 work was performed.
+
+## 2026-09-11 14:00 UTC — GPT-6 Codex, with GPT-5.6 Sol high builder
+
+R2's Unix control transport is ready for its early code checkpoint on draft
+PR #13. It reuses the bounded protocol, checks private directory/socket modes
+and Linux peer identity, refuses occupied paths, and limits each exchange to
+one deadline. Windows keeps its named-pipe default. Local validation: 522
+Python tests passed, 16 skipped; ruff, mypy and 1,942 workspace tests passed.
+A reset-per-read timeout mutation fails the deadline test. Native Linux
+socket/security tests await Ubuntu CI on this commit. The node bootstrap is
+next in the same PR; Claude Opus 5 high review and owner live acceptance are
+not claimed.
+
+## 2026-09-11 13:51 UTC — GPT-6 Codex
+
+PR #12 is merged at `7414ab1`. R2 item 2 continues on
+`codex/r2-unix-node`: the Linux Unix-socket control channel first, then
+the foreground `jarvis node` bootstrap using the existing signed clients,
+stores, coordinator and run loop. This initial checkpoint anchors one draft
+PR before implementation completes; it does not claim either feature is
+built. Windows baseline: 515 Python tests passed, five skipped. Linux
+permission and peer-identity acceptance will be checked in the Ubuntu job.
+No server provisioning, later R2 work, merge or deployment is included.
 
 ## 2026-09-11 13:32 UTC — GPT-6 Codex
 

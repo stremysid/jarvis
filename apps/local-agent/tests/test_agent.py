@@ -17,6 +17,7 @@ from jarvis_local.archive.archive_repository import ArchiveRepository
 from jarvis_local.memory.distillation import DistillationCoordinator
 from jarvis_local.memory.facts import FactRepository
 from jarvis_local.sync.cloud_client import CloudAuthError, CloudSyncError
+from jarvis_local.sync.cursor_store import PendingSyncAck
 from jarvis_local.sync.event_replicator import EventPage, EventReplicator, SyncAckPending
 
 PRINCIPAL = "principal-a"
@@ -36,9 +37,15 @@ def event(sequence: int, text: str = "I like coffee") -> dict[str, object]:
 
 
 class FakeCloud:
-    def __init__(self, pages: list[EventPage], error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        pages: list[EventPage],
+        error: Exception | None = None,
+        ack_error: Exception | None = None,
+    ) -> None:
         self.pages = pages
         self.error = error
+        self.ack_error = ack_error
 
     def pull(self, after_sequence: int) -> EventPage:
         if self.error is not None:
@@ -47,7 +54,9 @@ class FakeCloud:
             return EventPage(events=(), highest_sequence=after_sequence)
         return self.pages.pop(0)
 
-    def acknowledge(self, through_sequence: int) -> None:
+    def acknowledge(self, acknowledgement: PendingSyncAck) -> None:
+        if self.ack_error is not None:
+            raise self.ack_error
         return None
 
 
@@ -119,6 +128,25 @@ def test_a_failed_distillation_keeps_the_replicated_events(
     assert archive.count_events() == 1
 
 
+def test_an_authentication_failure_during_distillation_stops_retrying(
+    stores: tuple[ArchiveRepository, FactRepository],
+) -> None:
+    archive, facts = stores
+    page = EventPage(events=(event(1),), highest_sequence=1)
+    replicator, distiller = build(
+        archive,
+        facts,
+        FakeCloud([page]),
+        FakeDistiller(error=CloudAuthError("device rejected")),
+    )
+
+    result = run_cycle(replicator, distiller, facts, PRINCIPAL)
+
+    assert result.events_replicated == 1
+    assert result.failure is not None and result.failure.startswith("authentication:")
+    assert archive.count_events() == 1
+
+
 def test_an_authentication_failure_is_reported_distinctly(
     stores: tuple[ArchiveRepository, FactRepository],
 ) -> None:
@@ -131,6 +159,25 @@ def test_an_authentication_failure_is_reported_distinctly(
 
     result = run_cycle(replicator, distiller, facts, PRINCIPAL)
     assert result.failure is not None and result.failure.startswith("authentication")
+
+
+def test_an_authentication_failure_during_ack_stays_staged_and_stops_retrying(
+    stores: tuple[ArchiveRepository, FactRepository],
+) -> None:
+    archive, facts = stores
+    cloud = FakeCloud(
+        [EventPage(events=(event(1),), highest_sequence=1)],
+        ack_error=CloudAuthError("device rejected"),
+    )
+    replicator, distiller = build(archive, facts, cloud, FakeDistiller())
+
+    result = run_cycle(replicator, distiller, facts, PRINCIPAL)
+
+    assert result.events_replicated == 0
+    assert result.failure is not None and result.failure.startswith("authentication")
+    assert archive.count_events() == 1
+    pending = replicator.cursors.pending_ack()
+    assert pending is not None and pending.through_sequence == 1
 
 
 def test_a_transient_sync_failure_is_reported_as_sync(
