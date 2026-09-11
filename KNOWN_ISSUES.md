@@ -34,7 +34,12 @@ from the unauthenticated probe: the gateway received a different status.
 Worker secrets cannot be read back: Sid re-sets the known public URL, then
 observes the next real cron. If 404 persists, investigate Worker-to-Worker
 routing as described in the runbook; external path probes alone cannot
-distinguish these causes. No routing/configuration fix is yet established.
+distinguish these causes. The 05:30 cron still returned 404 after the
+mailbox's report of both settings being re-set. Deployed metadata has no
+public-fetch flag or watchdog service binding. PR #8 adds the documented
+`global_fetch_strictly_public` flag; cross-vendor review, owner deployment
+and real heartbeat recovery remain pending. Local mocks cannot establish
+Cloudflare's same-zone routing behavior.
 Telegram command replies and the scheduled morning digest remain untested.
 The external UptimeRobot monitor remains owner-blocked; follow
 [the runbook](docs/runbooks/deploy.md). Nothing watches the watchdog until

@@ -206,14 +206,19 @@ different secrets.
    ```
 
 2. If a real cron still gets 404 after that URL reset, investigate the
-   gateway's outbound Worker-to-Worker routing. The checked-in gateway has
-   no `global_fetch_strictly_public` flag or watchdog service binding.
+   gateway's outbound Worker-to-Worker routing. This occurred again at
+   05:30:19 UTC after the mailbox reported both settings re-set. Read-only
+   metadata for the gateway deployed at 05:24:28 UTC shows no
+   `global_fetch_strictly_public` flag or watchdog service binding.
    Cloudflare's [fetch documentation](https://developers.cloudflare.com/workers/runtime-apis/fetch/)
    requires one of those mechanisms for Worker-to-Worker fetch; its
    [compatibility-flag documentation](https://developers.cloudflare.com/workers/configuration/compatibility-flags/#global-fetch-strictly-public)
-   explains how the flag sends requests through public routing. This is a
-   routing hypothesis, not a verified cause of this 404. Prepare any needed
-   configuration change for cross-vendor review and owner deployment.
+   explains how the flag sends requests through public routing. PR #8 adds
+   that flag to the gateway, preserving the existing HTTP design. It changes
+   global fetch routing for the gateway. After cross-vendor review, Sid
+   deploys it through the existing gateway script and records the version.
+   Local mocks and a dry-run cannot verify Cloudflare's edge routing; require
+   a subsequent real cron's heartbeat receipt before declaring it fixed.
 3. A 401 from the gateway's actual configured request supports checking the
    shared secret on both Workers; Sid handles any required correction.
    `not_configured` means missing settings; `unreachable` means the request

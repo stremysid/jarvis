@@ -127,6 +127,19 @@ Sid additionally reports a clean hourly archival run at 05:00:19 UTC and
 watchdog alert delivery counts of one sent, zero undelivered, zero faults.
 Telegram `/status`, `/queue` and the morning digest are explicitly untested.
 
+The mailbox reports Sid re-set the URL and shared secret. The real 05:30
+cron still returned `rejected: status 404` at 05:30:19.944 UTC. Read-only
+metadata shows gateway version `fc24520c-e392-4159-bc25-277cd7c17a8a`,
+created at 05:24:28 UTC, at 100%, with no compatibility flags or watchdog
+service binding. PR #8 now adds `global_fetch_strictly_public` to the
+gateway configuration for the existing public HTTP heartbeat path, as
+required by Cloudflare's fetch documentation. This affects global fetch
+routing, not just this endpoint. No source, secret, auth check or test is
+changed. Focused heartbeat/scheduler tests pass 25/25 and the gateway
+deployment dry-run passes; neither establishes Cloudflare edge routing.
+Claude Opus 5 high review and Sid's deployment are required before a real
+cron can verify the fix. No live recovery is claimed.
+
 ## What is still owner-blocked
 
 The **UptimeRobot monitor is not configured.** Until it is, nothing watches

@@ -52,6 +52,13 @@ first; the runbook separates that controlled change from Worker-to-Worker
 routing and authentication diagnosis. A continued 404 after the URL reset
 must not be treated as proof of another URL typo.
 
+The mailbox reports both settings re-set, but the 05:30 cron still returned
+404. PR #8 adds the documented `global_fetch_strictly_public` flag to the
+gateway's existing public heartbeat path. Obtain Claude Opus 5 high review,
+then Sid deploys and verifies a real heartbeat and DOWN-alert recovery.
+Local 25/25 focused tests and a successful dry-run are regression/config
+checks, not proof that this resolves the live routing failure.
+
 **Remaining evidence:** Telegram `/status` and `/queue`, gateway heartbeat
 receipt after a real cron, and the scheduled morning digest saying "nothing
 due". The current default schedule is 07:30 America/Toronto, September 11
