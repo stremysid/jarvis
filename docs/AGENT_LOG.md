@@ -46,6 +46,18 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-11 14:00 UTC — GPT-6 Codex, with GPT-5.6 Sol high builder
+
+R2's Unix control transport is ready for its early code checkpoint on draft
+PR #13. It reuses the bounded protocol, checks private directory/socket modes
+and Linux peer identity, refuses occupied paths, and limits each exchange to
+one deadline. Windows keeps its named-pipe default. Local validation: 522
+Python tests passed, 16 skipped; ruff, mypy and 1,942 workspace tests passed.
+A reset-per-read timeout mutation fails the deadline test. Native Linux
+socket/security tests await Ubuntu CI on this commit. The node bootstrap is
+next in the same PR; Claude Opus 5 high review and owner live acceptance are
+not claimed.
+
 ## 2026-09-11 13:51 UTC — GPT-6 Codex
 
 PR #12 is merged at `7414ab1`. R2 item 2 continues on

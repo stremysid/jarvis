@@ -10,10 +10,14 @@ from __future__ import annotations
 
 import os
 import uuid
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from jarvis_local.cli import EXIT_SERVICE_UNAVAILABLE, build_parser, main
+from jarvis_local.cli import EXIT_SERVICE_UNAVAILABLE, _control, build_parser, main
+from jarvis_local.transport.cli_protocol import OK, CliResponse
+from jarvis_local.transport.pipe_server import TruncatedFrameError
 
 
 def absent_pipe_name() -> str:
@@ -45,9 +49,69 @@ def test_a_missing_service_does_not_surface_as_a_traceback() -> None:
 def test_the_parser_exposes_each_control_command(command: str) -> None:
     arguments = build_parser().parse_args([command])
     assert arguments.command == command
-    # Defaulted rather than required: the name is a detail of the install, and
-    # nobody should have to know it to ask how their agent is doing.
-    assert arguments.pipe_name.startswith(r"\\.\pipe")
+    # The platform default is chosen at execution time; nobody should have to
+    # know which local transport the installed node uses.
+    assert arguments.pipe_name is None
+    assert arguments.socket_path is None
+
+
+def test_an_explicit_pipe_name_keeps_the_windows_transport(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    def send(command: object, pipe_name: str) -> CliResponse:
+        calls.append(pipe_name)
+        return CliResponse(OK)
+
+    monkeypatch.setattr("jarvis_local.cli.send_control_request", send)
+    monkeypatch.setattr("jarvis_local.cli.send_unix_control_request", lambda *_: pytest.fail("used Unix socket"))
+
+    assert _control("status", r"\\.\pipe\explicit", None) == 0
+    assert calls == [r"\\.\pipe\explicit"]
+
+
+def test_posix_defaults_to_the_unix_socket(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[Path | None] = []
+
+    def send(command: object, socket_path: Path | None) -> CliResponse:
+        calls.append(socket_path)
+        return CliResponse(OK)
+
+    monkeypatch.setattr("jarvis_local.cli.os", SimpleNamespace(name="posix"))
+    monkeypatch.setattr("jarvis_local.cli.send_unix_control_request", send)
+    monkeypatch.setattr("jarvis_local.cli.send_control_request", lambda *_: pytest.fail("used named pipe"))
+
+    assert _control("status", None, None) == 0
+    assert calls == [None]
+
+
+def test_windows_defaults_to_the_named_pipe(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    def send(command: object, pipe_name: str) -> CliResponse:
+        calls.append(pipe_name)
+        return CliResponse(OK)
+
+    monkeypatch.setattr("jarvis_local.cli.os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr("jarvis_local.cli.send_control_request", send)
+    monkeypatch.setattr("jarvis_local.cli.send_unix_control_request", lambda *_: pytest.fail("used Unix socket"))
+
+    assert _control("status", None, None) == 0
+    assert calls == [r"\\.\pipe\jarvis-local-agent"]
+
+
+def test_a_malformed_service_response_is_sanitized(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def malformed(*_: object) -> CliResponse:
+        raise TruncatedFrameError("secret response details")
+
+    monkeypatch.setattr("jarvis_local.cli.send_control_request", malformed)
+    code = _control("status", "pipe", None)
+
+    assert code != 0
+    printed = capsys.readouterr().out
+    assert "invalid control response" in printed
+    assert "secret response details" not in printed
 
 
 def test_the_existing_commands_still_parse() -> None:

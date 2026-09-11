@@ -16,6 +16,7 @@ like a missing file, and printing that errno at someone who typed
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -27,9 +28,11 @@ from jarvis_local.enrollment import bootstrap_metadata_hash, enrollment_material
 from jarvis_local.transport.cli_protocol import OK, CliCommand
 from jarvis_local.transport.pipe_server import (
     DEFAULT_PIPE_NAME,
+    ControlProtocolError,
     ServiceNotRunningError,
     send_control_request,
 )
+from jarvis_local.transport.unix_socket import send_unix_control_request
 from jarvis_local.vault.cli_commands import VAULT_COMMAND, add_vault_subcommands, run_vault_command
 
 #: The service is a dependency like any other, so a missing one reports the
@@ -55,7 +58,9 @@ def build_parser() -> argparse.ArgumentParser:
         ("stop", "ask the background service to finish its cycle and stop"),
     ):
         control = subcommands.add_parser(name, help=description)
-        control.add_argument("--pipe-name", default=DEFAULT_PIPE_NAME)
+        endpoint = control.add_mutually_exclusive_group()
+        endpoint.add_argument("--pipe-name")
+        endpoint.add_argument("--socket-path", type=Path)
 
     add_vault_subcommands(subcommands)
     return parser
@@ -101,13 +106,21 @@ def _enroll(config: JarvisLocalConfig, device_label: str) -> int:
 CONTROL_SUBCOMMANDS: frozenset[str] = frozenset({"status", "run-once", "stop"})
 
 
-def _control(name: str, pipe_name: str) -> int:
+def _control(name: str, pipe_name: str | None, socket_path: Path | None) -> int:
     try:
-        response = send_control_request(CliCommand(name), pipe_name)
+        if pipe_name is not None:
+            response = send_control_request(CliCommand(name), pipe_name)
+        elif socket_path is not None or os.name != "nt":
+            response = send_unix_control_request(CliCommand(name), socket_path)
+        else:
+            response = send_control_request(CliCommand(name), DEFAULT_PIPE_NAME)
     except ServiceNotRunningError:
         # Deliberately not the OS error. "No such file" is true and useless.
         print("the Jarvis background service is not running on this machine")
         return EXIT_SERVICE_UNAVAILABLE
+    except ControlProtocolError:
+        print("the Jarvis background service returned an invalid control response")
+        return EXIT_REFUSED
     for line in response.lines:
         print(line)
     if response.code != OK:
@@ -123,7 +136,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "enroll":
         return _enroll(JarvisLocalConfig.from_environment(), arguments.device_label)
     if arguments.command in CONTROL_SUBCOMMANDS:
-        return _control(arguments.command, arguments.pipe_name)
+        return _control(arguments.command, arguments.pipe_name, arguments.socket_path)
     if arguments.command == VAULT_COMMAND:
         return run_vault_command(arguments)
     # argparse enforces `required=True`, so this is unreachable in practice.
