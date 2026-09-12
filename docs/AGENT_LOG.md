@@ -46,6 +46,19 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-12 02:50 UTC — GPT-6 Astra
+
+PR #16 head `0f991fd` now treats active quarantine as visible successful state
+rather than permanent scheduler failure, preserves its count across stop/error
+paths, and exposes an exact owner-only retry command. Gateway signature checks
+precede semantic validation/model work; exact error-code mapping prevents a raw
+`request_nonces` database message from becoming 401. Signed deterministic fact
+text rejection, safe rejection logging, retryable page-state races, escaped auth
+errors and POSIX owner-only SQLite files have regressions. Local Python is 701
+passed / 24 Windows skips and cloud gateway is 2,035 passed; current-head CI is
+pending for the Linux permission cases. Migration 0014 still requires Claude
+Opus 5 max review and owner rollout. No merge, deployment or migration occurred.
+
 ## 2026-09-12 01:24 UTC — GPT-6 Astra
 
 PR #16 now rejects excerpt controls and non-ULID source ids before prompt

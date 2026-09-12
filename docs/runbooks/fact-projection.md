@@ -60,10 +60,12 @@ An existing active fact that cannot be represented is excluded individually
 and recorded in local `memory_projection_quarantine`; other facts continue to
 publish. Its local text, provenance and active state are retained. Local memory
 migration `0004_projection_quarantine.sql` adds this record and the durable
-pending-rejection marker. Completed projection cycles report the active count,
-for example `projection: 32 active facts quarantined`, including later cycles
-while those active facts remain excluded. Other stage failures retain their
-own failure status.
+pending-rejection marker. Completed projection cycles report the active count
+as `quarantined=32` in the cycle status line, including later cycles while
+those active facts remain excluded. A cycle that published everything eligible
+remains `ok` and returns to the normal cadence; quarantine is durable owner-
+action state, not a retryable network failure. Other stage failures retain
+their own failure status.
 
 Superseding a quarantined fact removes it from the active count on the next
 completed projection cycle. Its quarantine record remains for inspection; the
@@ -108,12 +110,24 @@ WHERE q.principal_id = '<owner-principal>' AND q.device_id = '<home-device>';
 Review the rejected page locally. Correcting a claim creates a new fact identity
 and can be projected normally; superseding an excluded fact clears its active
 warning. To retry an unchanged fact after fixing its source or the gateway,
-first allow a healthy or empty replacement snapshot to commit, then stop the
-node and remove only that reviewed fact's quarantine entry, scoped to
-gateway origin, principal and device, then restart. Do not alter pending pages,
-publication cursors or cloud abandonment receipts. Retrying an unchanged poison
-will quarantine it again. An abandoned manifest cannot be reused at its old
-version; the committed replacement is what makes the next version available.
+first allow a healthy or empty replacement snapshot to commit, then run:
+
+```console
+jarvis retry-quarantined fact_<32-lowercase-hex-characters>
+```
+
+The owner-only control channel removes only that exact fact's quarantine row,
+scoped to gateway origin, principal and device, and requests a new cycle. An
+unknown or malformed fact id is refused. Do not alter pending pages, publication
+cursors or cloud abandonment receipts. Retrying an unchanged poison will
+quarantine it again. An abandoned manifest cannot be reused at its old version;
+the committed replacement is what makes the next version available.
+
+On POSIX direct/manual runs, the archive and memory SQLite database, WAL and SHM
+files are created owner-only. Existing owner-held store files with broader mode
+bits are tightened before SQLite opens them, and symbolic links or foreign/non-
+regular files are refused. The systemd unit's `UMask=0077` and state-directory
+mode remain the outer deployment boundary.
 
 ## Retrieval behavior
 

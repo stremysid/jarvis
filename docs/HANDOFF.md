@@ -5,6 +5,25 @@ using this checkpoint. R0 passed on September 11; calling remains R1.
 
 ## R2 item 3 review candidate
 
+Review remediation at `0f991fd` separates durable quarantine from scheduler
+failure: successful cycles report `quarantined=N` and retain normal cadence,
+including stop and later-stage error paths. The private control channel now
+supports `jarvis retry-quarantined <fact_id>` for one owner-selected fact. An
+escaped authentication error reaches the run loop's permanent-stop guard, while
+unexpected promotion/projection errors retain completed stage counts.
+
+The gateway authenticates signed bytes before endpoint validation, so an
+unauthenticated request cannot invoke projection policy or distillation model
+work. Sync status uses exact closed codes; a raw `request_nonces` storage error
+remains retryable 400, while genuine auth/device-state failures retain 401/403.
+Deterministic invalid fact text receives the signed abandonment classification,
+authenticated content rejection is logged without submitted text, and a page
+write race returns retryable 409 instead of device revocation. Python and
+TypeScript exercise shared 4,096-byte/eight-source bounds. POSIX archive/memory
+SQLite files and live sidecars are owner-only, including manual runs. Local
+validation is 701 passed / 24 Windows skips and cloud validation is 2,035 passed;
+Linux file-mode tests await current-head CI.
+
 Distillation now refuses excerpt controls and non-ULID source ids before prompt
 rendering. The node skips these ineligible raw excerpts without rewriting the
 archive, and selection/progress use one scan so rejected events cannot consume
