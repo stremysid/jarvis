@@ -12,11 +12,20 @@ pending snapshot durable for the next node process.
 
 ## Rollout order
 
-**Before deploying either component or applying migration 0014**, inspect the
-immediate parent of every SQLite store this host uses, as the service account.
+This runbook is introduced by PR #16. Before merging, read it from the
+[PR branch](https://github.com/ksid1229-ops/jarvis/blob/codex/r2-fact-projection/docs/runbooks/fact-projection.md);
+it is not available on `main` until that PR merges.
+
+**On POSIX hosts, before deploying either component or applying migration 0014**,
+inspect the immediate parent of every SQLite store this host uses, as the service account.
 Existing parents must be owned by that account and private (mode **0700**).
 The new node refuses a permissive existing parent instead of changing it. A
-host still using a 0755 or 0750 parent will fail startup after this upgrade.
+POSIX host still using a 0755 or 0750 parent will fail startup after this upgrade.
+The store-mode preflight below is POSIX-only; its Bash/GNU `stat` commands target
+the Linux home node. On non-POSIX systems, including Windows,
+`_restrict_sqlite_directory` returns without enforcing mode bits. These commands
+do not apply there and do not validate Windows ACLs. The cloud migration and
+trigger-count check below still apply regardless of the node host platform.
 
 Load the deployed environment and inventory all four store types: archive,
 memory, vault and vector index. `jarvis node` currently opens the first two;
@@ -52,13 +61,26 @@ For an existing directory that should be private, the manual repair is
 `chmod 0700 -- '/actual/store/parent'`; then repeat the complete check above.
 Do not chmod a home directory or shared directory blindly. Move the store into
 a dedicated directory owned by the service account and update its configured
-path if the current parent must remain shared. Do not proceed to migration or
-deployment until every configured parent passes. This preflight is required
+path if the current parent must remain shared. On POSIX, do not proceed to migration
+or deployment until every configured parent passes. This preflight is required
 even for systemd: `UMask=0077` does not repair an existing directory's mode.
 
-Apply cloud migration `0014_memory_projection.sql` and deploy the updated
-gateway before starting a node version that uploads fact projections. These
-are owner operations. Do not start the updated node against an older gateway:
+Apply cloud migration `0014_memory_projection.sql`. **After applying 0014 and
+before deploying the gateway**, confirm that all 21 projection triggers landed
+in the target D1 database:
+
+```sql
+SELECT count(*) FROM sqlite_master
+WHERE type='trigger' AND name LIKE 'memory_fact_projection%';
+-- Expect exactly 21.
+```
+
+Tests and Wrangler use different SQL statement splitters, so a passing test suite
+does not replace this post-apply check. If the count is not exactly 21, stop before
+deployment and inspect the migration results and installed schema against the
+reviewed migration. Then deploy the updated gateway before starting a node version
+that uploads fact projections. These are owner operations.
+Do not start the updated node against an older gateway:
 the local pending snapshot is durable and will keep retrying until it receives
 an exact page and commit receipt.
 
@@ -315,6 +337,45 @@ and Unicode line separators. This applies to facts and legitimate multiline
 history: each item occupies one rendered line and ends with its verified source
 event id. Quoting preserves the original content as reference data; it is not a
 claim that a model can never follow an instruction found in that data.
+
+## Recover an FTS index that disagrees with published facts
+
+Suspect index divergence when retrieval returns unrelated published facts or no
+matching published facts, while `memory_fact_projection_facts`, the published
+head and its commit receipt remain intact. `memory_fact_projection_fts` is an
+external-content index derived from that guarded base table. Direct FTS inserts
+or special delete commands can alter matches without changing the authoritative
+fact rows or publication guards.
+
+A plain FTS5 `integrity-check` can succeed in this state: its default form checks
+the index's internal structure, not its agreement with the external content table.
+A successful check is therefore not proof that retrieval is correct. See
+[SQLite's integrity-check semantics](https://www.sqlite.org/fts5.html#the_integrity_check_command).
+
+After confirming the base facts and head are intact and taking the normal recovery
+point, the owner can regenerate the entire derived index in the affected D1 database:
+
+```sql
+INSERT INTO memory_fact_projection_fts(memory_fact_projection_fts) VALUES ('rebuild');
+```
+
+This [FTS5 rebuild command](https://www.sqlite.org/fts5.html#the_rebuild_command)
+discards index postings and rebuilds them from `memory_fact_projection_facts`.
+It does not change fact contents, heads or commit receipts. Re-run the affected
+queries and verify that genuine terms return the expected published facts and
+forged terms no longer match. If authoritative rows are damaged, rebuilding the
+index cannot repair them; investigate that separately rather than editing the
+publication guards. Do not add triggers to the FTS virtual table: SQLite does
+not support them. The existing base-table insert/delete triggers maintain it
+during ordinary projection publication and cleanup.
+
+The retriever already joins indexed rowids to the base facts and validates their
+content and provenance. This authenticates returned text but cannot establish
+that a manipulated index matched that text correctly, or recover missing matches.
+No second tokenizer or full base-table scan is added on every retrieval; the
+derived index is repaired by the explicit rebuild above. The regression tests
+exercise forged and missing matches through the real retriever, including a
+passing default integrity check, and verify correct retrieval after rebuild.
 
 ## Owner acceptance
 

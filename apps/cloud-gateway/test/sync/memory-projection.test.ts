@@ -1173,6 +1173,119 @@ describe("signed active-fact projection", () => {
     expect(await currentFactCount()).toBe(1);
   });
 
+  it("refuses direct updates to a published commit receipt", async () => {
+    await publishSnapshot(1);
+    const receipt = env.DB.prepare(
+      `SELECT * FROM memory_fact_projection_commits
+       WHERE principal_id = ? AND device_id = ? AND projection_version = 1`,
+    ).bind(identity.principalId, identity.deviceId);
+    const head = env.DB.prepare(
+      "SELECT * FROM memory_fact_projection_heads WHERE principal_id = ? AND device_id = ?",
+    ).bind(identity.principalId, identity.deviceId);
+    const originalReceipt = await receipt.first();
+    const originalHead = await head.first();
+    expect(originalReceipt).not.toBeNull();
+    expect(await publishedVersion()).toBe(1);
+
+    // A direct UPDATE must hit commits_immutable_update, without invoking commit_publish.
+    await expect(env.DB.prepare(
+      `UPDATE memory_fact_projection_commits SET manifest_hash = ?, committed_at = ?
+       WHERE principal_id = ? AND device_id = ? AND projection_version = 1`,
+    ).bind("f".repeat(64), "2026-09-11T12:00:00.001Z", identity.principalId, identity.deviceId).run())
+      .rejects.toThrow("memory_projection_commit_immutable");
+    expect(await receipt.first()).toEqual(originalReceipt);
+    expect(await head.first()).toEqual(originalHead);
+  });
+
+  it("refuses direct deletion of a published commit receipt", async () => {
+    await publishSnapshot(1);
+    const receipt = env.DB.prepare(
+      `SELECT * FROM memory_fact_projection_commits
+       WHERE principal_id = ? AND device_id = ? AND projection_version = 1`,
+    ).bind(identity.principalId, identity.deviceId);
+    const head = env.DB.prepare(
+      "SELECT * FROM memory_fact_projection_heads WHERE principal_id = ? AND device_id = ?",
+    ).bind(identity.principalId, identity.deviceId);
+    const originalReceipt = await receipt.first();
+    const originalHead = await head.first();
+    expect(originalReceipt).not.toBeNull();
+    expect(await publishedVersion()).toBe(1);
+
+    // REPLACE can abort in commit_publish even when commits_immutable_delete is absent.
+    await expect(env.DB.prepare(
+      `DELETE FROM memory_fact_projection_commits
+       WHERE principal_id = ? AND device_id = ? AND projection_version = 1`,
+    ).bind(identity.principalId, identity.deviceId).run()).rejects.toThrow("memory_projection_commit_immutable");
+    expect(await receipt.first()).toEqual(originalReceipt);
+    expect(await head.first()).toEqual(originalHead);
+  });
+
+  it("refuses direct rewriting of published fact contents", async () => {
+    const event = await appendSource("I like coffee");
+    const existing = await fact("Sid likes coffee", [source(event, "I like coffee")]);
+    await publishSnapshot(1, [existing]);
+    const stored = env.DB.prepare(
+      "SELECT * FROM memory_fact_projection_facts WHERE fact_id = ?",
+    ).bind(existing.factId);
+    const original = await stored.first();
+    expect(original).not.toBeNull();
+
+    await expect(env.DB.prepare(
+      "UPDATE memory_fact_projection_facts SET text = ? WHERE fact_id = ?",
+    ).bind("forged published text", existing.factId).run()).rejects.toThrow("memory_projection_fact_immutable");
+    expect(await stored.first()).toEqual(original);
+    expect(await publishedVersion()).toBe(1);
+  });
+
+  it("refuses direct rewriting of a published page under its committed manifest", async () => {
+    await publishSnapshot(1);
+    const stored = env.DB.prepare(
+      `SELECT * FROM memory_fact_projection_pages
+       WHERE principal_id = ? AND device_id = ? AND projection_version = 1 AND page_index = 0`,
+    ).bind(identity.principalId, identity.deviceId);
+    const original = await stored.first();
+    expect(original).not.toBeNull();
+
+    await expect(env.DB.prepare(
+      `UPDATE memory_fact_projection_pages SET page_hash = ?, page_json = ?
+       WHERE principal_id = ? AND device_id = ? AND projection_version = 1 AND page_index = 0`,
+    ).bind("f".repeat(64), canonicalJson({ forged: true }), identity.principalId, identity.deviceId).run())
+      .rejects.toThrow("memory_projection_page_immutable");
+    expect(await stored.first()).toEqual(original);
+    expect(await publishedVersion()).toBe(1);
+  });
+
+  it("removes retracted fact postings from FTS when a newer commit cleans up their version", async () => {
+    const event = await appendSource("I like coffee");
+    const retired = await fact("Sid likes coffee", [source(event, "I like coffee")]);
+    await publishSnapshot(1, [retired]);
+    const retiredRowid = await env.DB.prepare(
+      "SELECT projection_fact_rowid FROM memory_fact_projection_facts WHERE fact_id = ?",
+    ).bind(retired.factId).first<number>("projection_fact_rowid");
+    expect(retiredRowid).not.toBeNull();
+    const matches = (query: string) => env.DB.prepare(
+      "SELECT rowid FROM memory_fact_projection_fts WHERE memory_fact_projection_fts MATCH ? ORDER BY rowid",
+    ).bind(query).all<{ rowid: number }>();
+    expect((await matches("coffee")).results).toEqual([{ rowid: retiredRowid }]);
+
+    const replacementEvent = await appendSource("I like jasmine tea");
+    const replacement = await fact("Sid likes jasmine tea", [source(replacementEvent, "I like jasmine tea")]);
+    await publishSnapshot(2, [replacement]);
+    expect(await publishedVersion()).toBe(2);
+    expect(await currentFactCount()).toBe(1);
+    expect(await env.DB.prepare(
+      "SELECT fact_id FROM memory_fact_projection_facts WHERE fact_id = ?",
+    ).bind(retired.factId).first()).toBeNull();
+    const replacementRowid = await env.DB.prepare(
+      "SELECT projection_fact_rowid FROM memory_fact_projection_facts WHERE fact_id = ?",
+    ).bind(replacement.factId).first<number>("projection_fact_rowid");
+    expect(replacementRowid).not.toBeNull();
+
+    // A base-table join hides stale postings, so only a direct MATCH pins facts_fts_delete.
+    expect((await matches("coffee")).results).toEqual([]);
+    expect((await matches("jasmine")).results).toEqual([{ rowid: replacementRowid }]);
+  });
+
   it("rolls back a replacement of an immutable published receipt", async () => {
     const built = await publishSnapshot(1);
     const fingerprint = await keyFingerprint();

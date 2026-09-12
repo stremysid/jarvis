@@ -46,6 +46,20 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-12 22:04 UTC — GPT-6
+
+PR #16's 2e5da79 review follow-up adds the five missing trigger regressions plus
+FTS recovery for forged and missing terms through the real retriever. Each
+trigger was removed from migration 0014 and its own test failed, then the file
+was restored byte-for-byte; it still matches 4764d9b. Omitting rebuild fails both
+recovery cases. The runbook now names the default integrity-check limitation,
+explicit rebuild, post-apply/pre-gateway count of 21 triggers, PR-branch reading
+before merge, and the POSIX-only permissions preflight. Restored validation:
+105 focused tests, 2,146 workspace tests / 109 files, lint and source types pass.
+The separate test typecheck reports 119 diagnostics elsewhere and none in the
+changed files. Only tests/docs changed; current-head CI is tracked on the PR.
+No merge, deployment, live migration or permissions operation was performed.
+
 ## 2026-09-12 14:18 UTC — GPT-6
 
 PR #16's remaining 78e8e89 follow-up now creates and validates every missing

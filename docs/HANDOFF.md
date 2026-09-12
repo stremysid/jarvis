@@ -5,6 +5,26 @@ using this checkpoint. R0 passed on September 11; calling remains R1.
 
 ## R2 item 3 review candidate
 
+The follow-up after `2e5da79` adds five direct migration-trigger regressions and
+two FTS recovery cases. Removing each named trigger from migration 0014 fails its
+own test; removing the exercised rebuild command fails both forged/missing-match
+cases. The migration is restored byte-for-byte and has no diff from `4764d9b`.
+The FTS cleanup test inspects postings directly instead of letting the base-table
+join hide them. Recovery uses the real retriever and preserves facts, heads and
+receipts. The runbook now documents rebuilding the derived index, the default
+integrity-check limitation, and the decision to retain the existing base-table
+join rather than add a second per-query tokenizer or scan.
+
+Pre-merge rollout review must read this newly introduced runbook from the PR
+branch, not `main`. Its mode-0700 preflight is explicitly POSIX-only; the Linux
+shell commands do not validate Windows ACLs. After applying 0014 and before
+deploying the gateway, the owner must count exactly 21 projection triggers.
+Local validation passes 105 focused tests and all 2,146 workspace tests across
+109 files, lint and source types. The separate test typecheck has 119 diagnostics
+outside the two changed files and none inside them. Current-head CI and review
+status are recorded on PR #16. No production code or migration changed in this
+follow-up, and no live operation or merge was performed.
+
 Review remediation after `78e8e89` is implemented. The early pushed checkpoint
 `f8666f9` passed all seven CI jobs, including Linux's real node SIGKILL/restart
 and live-duplicate test. Startup names an occupied endpoint and gives conditional

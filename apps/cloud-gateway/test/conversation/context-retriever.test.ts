@@ -284,6 +284,57 @@ describe("D1ContextRetriever", () => {
     ]);
   });
 
+  it.each(["forged terms", "missing terms"] as const)(
+    "rebuilds correct published-fact retrieval after %s corrupt the FTS index",
+    async (corruption) => {
+      const principalId = "principal:fts-recovery";
+      const fact = await insertProjection({
+        principalId, deviceId: "device:fts-recovery", text: "Owner prefers jasmine tea",
+      });
+      const rowid = await env.DB.prepare(
+        "SELECT projection_fact_rowid FROM memory_fact_projection_facts WHERE fact_id = ?",
+      ).bind(fact.factId).first<number>("projection_fact_rowid");
+      expect(rowid).not.toBeNull();
+      const authority = () => Promise.all([
+        "SELECT * FROM memory_fact_projection_facts ORDER BY projection_fact_rowid",
+        "SELECT * FROM memory_fact_projection_heads ORDER BY principal_id, device_id",
+        "SELECT * FROM memory_fact_projection_commits ORDER BY principal_id, device_id, projection_version",
+      ].map(async (sql) => (await env.DB.prepare(sql).all()).results));
+      const original = await authority();
+      const retriever = new D1ContextRetriever(env.DB);
+      const retrieve = (query: string) => retriever.retrieve({
+        principalId, channel: "voice", purpose: "conversation", query, maxTokens: 1_024,
+      });
+      const expected = [{ sourceEventId: fact.sources[0]!.eventId, text: fact.text, sensitivity: "personal" }];
+      await expect(retrieve("jasmine")).resolves.toEqual(expected);
+      await expect(retrieve("salary")).resolves.toEqual([]);
+
+      if (corruption === "forged terms") {
+        await env.DB.prepare("INSERT INTO memory_fact_projection_fts(rowid, text) VALUES (?, ?)")
+          .bind(rowid, "salary bonus equity").run();
+        // The returned text is authentic, but it now answers a query it never matched.
+        await expect(retrieve("salary")).resolves.toEqual(expected);
+      } else {
+        await env.DB.prepare(
+          "INSERT INTO memory_fact_projection_fts(memory_fact_projection_fts) VALUES ('delete-all')",
+        ).run();
+        await expect(retrieve("jasmine")).resolves.toEqual([]);
+      }
+      expect(await authority()).toEqual(original);
+      // The default check validates index structures, not agreement with external content.
+      await expect(env.DB.prepare(
+        "INSERT INTO memory_fact_projection_fts(memory_fact_projection_fts) VALUES ('integrity-check')",
+      ).run()).resolves.toMatchObject({ success: true });
+
+      await env.DB.prepare(
+        "INSERT INTO memory_fact_projection_fts(memory_fact_projection_fts) VALUES ('rebuild')",
+      ).run();
+      await expect(retrieve("salary")).resolves.toEqual([]);
+      await expect(retrieve("jasmine")).resolves.toEqual(expected);
+      expect(await authority()).toEqual(original);
+    },
+  );
+
   it("excludes staged, non-head, revoked-device, and foreign projections", async () => {
     const principalId = "principal:projection-filters";
     const eligible = await insertProjection({
