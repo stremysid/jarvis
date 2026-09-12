@@ -418,15 +418,17 @@ def test_retry_quarantined_clears_one_fact_and_wakes_the_loop() -> None:
     assert state.take_cycle_request() is True
 
 
-def test_retry_quarantined_refuses_an_unknown_or_malformed_fact() -> None:
+def test_retry_quarantined_refuses_an_unknown_or_malformed_fact(
+    retry_factory: Callable[[ServiceState], _QuarantineRetryCoordinator],
+) -> None:
     state = ServiceState()
-    coordinator = _QuarantineRetryCoordinator(state)
+    coordinator = retry_factory(state)
     service = LocalAgentService(control_handlers(state, retry_quarantined=coordinator.submit))
     try:
         assert service.handle(CliCommand("retry-quarantined", {"fact_id": "not-a-fact"})).code == INVALID_ARGUMENT
         assert service.handle(CliCommand("retry-quarantined", {"fact_id": "fact_" + "a" * 32})).code == "queued"
         coordinator.drain(lambda _: False)
-        assert f"projection_retry fact_{'a' * 32} not_quarantined" in state.report()
+        assert any(f"projection_retry fact_{'a' * 32} not_quarantined" in line for line in state.report())
         assert state.take_cycle_request() is False
     finally:
         coordinator.close()

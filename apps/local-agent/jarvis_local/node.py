@@ -3,8 +3,9 @@
 This module only assembles components that already own the work: signed cloud
 replication, distillation, promotion policy, fact projection, scheduling, and
 the local control socket. The run loop stays on the main thread. The control
-thread can read status, set wake/stop flags, or queue work for the run loop; it
-never opens a second database transaction beside an active cycle.
+thread reads cached status and persists only retry-command metadata through a
+short-lived connection. SQLite serializes that write with the active cycle;
+quarantine changes and their receipts remain on the cycle thread.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from jarvis_local.sync.cloud_client import CloudAuthError, HttpCloudClient
 from jarvis_local.sync.distill_client import HttpDistillationClient
 from jarvis_local.sync.event_replicator import EventReplicator
 from jarvis_local.sync.memory_projection import MemoryProjectionUploader
+from jarvis_local.sync.quarantine_retry import QuarantineRetryJournal
 from jarvis_local.transport.pipe_server import ControlServer
 from jarvis_local.transport.unix_socket import (
     CONTROL_SOCKET_ENVIRONMENT,
@@ -79,6 +81,7 @@ class LoopRunner(Protocol):
 @dataclass(slots=True)
 class _QuarantineRetryRequest:
     fact_id: str
+    retry_id: int
     completed: threading.Event = field(default_factory=threading.Event)
     deleted: bool = False
     error: BaseException | None = None
@@ -91,17 +94,38 @@ class _QuarantineRetryCoordinator:
         self._state = state
         self._lock = threading.Lock()
         self._pending: list[_QuarantineRetryRequest] = []
+        self._requests: dict[int, _QuarantineRetryRequest] = {}
+        self._journal: QuarantineRetryJournal | None = None
         self._closed = False
+
+    def attach(self, journal: QuarantineRetryJournal) -> None:
+        self._journal = journal
+        for retry_id, fact_id, outcome in journal.records():
+            self._state.record_retry(retry_id, fact_id, outcome)
+            if outcome == "queued":
+                request = _QuarantineRetryRequest(fact_id, retry_id)
+                self._pending.append(request)
+                self._requests[retry_id] = request
+        if self._pending:
+            self._state.request_control_work()
 
     def submit(self, fact_id: str) -> bool | None:
         with self._lock:
             if self._closed or self._state.stop_requested():
                 raise QuarantineRetryError("the node is stopping")
-            request = next((item for item in self._pending if item.fact_id == fact_id), None)
+            if self._journal is None:
+                raise QuarantineRetryError("the retry journal is unavailable")
+            try:
+                retry_id = self._journal.enqueue(fact_id)
+            except Exception:
+                self._state.retry_storage_failed()
+                raise
+            request = self._requests.get(retry_id)
             if request is None:
-                request = _QuarantineRetryRequest(fact_id)
+                request = _QuarantineRetryRequest(fact_id, retry_id)
                 self._pending.append(request)
-                self._state.record_retry(fact_id, "queued")
+                self._requests[retry_id] = request
+                self._state.record_retry(retry_id, fact_id, "queued")
         self._state.request_control_work()
         if not request.completed.wait(timeout=QUARANTINE_RETRY_WAIT_SECONDS):
             return None
@@ -110,28 +134,44 @@ class _QuarantineRetryCoordinator:
         return request.deleted
 
     def drain(self, retry: Callable[[str], bool]) -> None:
+        journal = self._journal
+        if journal is None:
+            return
         with self._lock:
             pending, self._pending = self._pending, []
         for index, request in enumerate(pending):
             if self._state.stop_requested():
                 self._cancel(pending[index:])
                 return
+            retry_pending = False
             try:
-                request.deleted = retry(request.fact_id)
+                request.deleted = journal.apply(request.retry_id, request.fact_id, retry)
                 if request.deleted:
                     self._state.request_cycle()
-                self._state.record_retry(request.fact_id, "applied" if request.deleted else "not_quarantined")
+                self._state.record_retry(
+                    request.retry_id, request.fact_id, "applied" if request.deleted else "not_quarantined",
+                )
             except BaseException as error:
                 request.error = error
-                self._state.record_retry(request.fact_id, "failed")
+                retry_pending = not self._finish_request(request, "failed")
                 if not isinstance(error, Exception):
                     self._cancel(pending[index + 1:])
                     raise
             finally:
+                with self._lock:
+                    self._requests.pop(request.retry_id, None)
+                    if retry_pending:
+                        # Retry at a later existing boundary after storage
+                        # recovers, without a wake loop or a paid cloud cycle.
+                        recovered = _QuarantineRetryRequest(request.fact_id, request.retry_id)
+                        self._pending.append(recovered)
+                        self._requests[request.retry_id] = recovered
                 request.completed.set()
 
     def close(self) -> None:
         with self._lock:
+            if self._closed:
+                return
             self._closed = True
             pending, self._pending = self._pending, []
         self._cancel(pending)
@@ -139,8 +179,25 @@ class _QuarantineRetryCoordinator:
     def _cancel(self, pending: list[_QuarantineRetryRequest]) -> None:
         for request in pending:
             request.error = QuarantineRetryError("the node stopped before the quarantine retry")
-            self._state.record_retry(request.fact_id, "cancelled")
-            request.completed.set()
+            try:
+                self._finish_request(request, "cancelled")
+            finally:
+                self._requests.pop(request.retry_id, None)
+                request.completed.set()
+
+    def _finish_request(self, request: _QuarantineRetryRequest, outcome: str) -> bool:
+        try:
+            if self._journal is not None:
+                self._journal.finish(request.retry_id, outcome)
+        except Exception as error:
+            # The row remains queued after rollback. Do not invent a durable
+            # cancellation/failure, and do not let a disk fault bypass cleanup.
+            request.error = error
+            self._state.retry_storage_failed()
+            return False
+        else:
+            self._state.record_retry(request.retry_id, request.fact_id, outcome)
+            return True
 
 
 class ControlEndpoint(Protocol):
@@ -283,16 +340,18 @@ class NodeRuntime:
             reason = self.loop.run()
         finally:
             self.state.request_stop()
-            if self.retry_coordinator is not None:
-                self.retry_coordinator.close()
             try:
-                if control_thread_started and control_thread is not None:
-                    control_thread.join(timeout=5)
+                if self.retry_coordinator is not None:
+                    self.retry_coordinator.close()
             finally:
                 try:
-                    self._restore_signal_handlers(previous)
+                    if control_thread_started and control_thread is not None:
+                        control_thread.join(timeout=5)
                 finally:
-                    self.close()
+                    try:
+                        self._restore_signal_handlers(previous)
+                    finally:
+                        self.close()
         if control_thread_started and control_thread is not None and control_thread.is_alive():
             raise NodeStartupError("the control socket did not stop")
         if self._control_failed.is_set():
@@ -448,6 +507,9 @@ def build_node(
                 cloud,
                 should_stop=state.stop_requested,
             )
+            retry_coordinator.attach(QuarantineRetryJournal(
+                facts.connection, settings.memory_path, (cloud.base_url, cloud.principal_id, cloud.device_id),
+            ))
 
             def node_cycle() -> CycleResult:
                 retry_coordinator.drain(projector.retry_quarantined)

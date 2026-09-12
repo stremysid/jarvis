@@ -157,8 +157,9 @@ class ServiceState:
         self._stop_requested = False
         self._cycle_requested = False
         self._control_work_requested = False
-        self._pending_retries: set[str] = set()
-        self._recent_retries: deque[tuple[str, str]] = deque(maxlen=recent_limit)
+        self._pending_retries: dict[int, str] = {}
+        self._recent_retries: deque[tuple[int, str, str]] = deque(maxlen=recent_limit)
+        self._retry_storage_failed = False
         self._started_at: str | None = None
         self._status = RUNNING
 
@@ -193,13 +194,19 @@ class ServiceState:
             self._control_work_requested = False
             return requested
 
-    def record_retry(self, fact_id: str, outcome: str) -> None:
+    def record_retry(self, retry_id: int, fact_id: str, outcome: str) -> None:
         with self._lock:
             if outcome == QUEUED:
-                self._pending_retries.add(fact_id)
+                self._pending_retries[retry_id] = fact_id
             else:
-                self._pending_retries.discard(fact_id)
-                self._recent_retries.append((fact_id, outcome))
+                self._pending_retries.pop(retry_id, None)
+                self._recent_retries.append((retry_id, fact_id, outcome))
+            if not self._pending_retries:
+                self._retry_storage_failed = False
+
+    def retry_storage_failed(self) -> None:
+        with self._lock:
+            self._retry_storage_failed = True
 
     def stop_requested(self) -> bool:
         """Sample the stop flag now.
@@ -233,13 +240,17 @@ class ServiceState:
             started = self._started_at or "never"
             status = self._status
             cycles = tuple(self._recent)
-            pending = tuple(sorted(self._pending_retries))
+            pending = tuple(sorted(self._pending_retries.items()))
             retries = tuple(self._recent_retries)
+            retry_error = self._retry_storage_failed
         header = (f"status {status}", f"started_at {started}", f"cycles_recorded {len(cycles)}")
         return (
             header + tuple(f"cycle {cycle.summary()}" for cycle in cycles)
-            + tuple(f"projection_retry {fact_id} queued" for fact_id in pending)
-            + tuple(f"projection_retry {fact_id} {outcome}" for fact_id, outcome in retries)
+            + tuple(f"projection_retry {fact_id} queued request_id={retry_id}" for retry_id, fact_id in pending)
+            + tuple(
+                f"projection_retry {fact_id} {outcome} request_id={retry_id}" for retry_id, fact_id, outcome in retries
+            )
+            + (("projection_retry_storage unavailable; queued requests remain durable",) if retry_error else ())
         )
 
     def wait(self, seconds: float) -> None:

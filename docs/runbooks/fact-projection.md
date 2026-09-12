@@ -174,15 +174,28 @@ is busy, the command answers `queued` within a bounded wait, with CLI exit code
 a delete or a cloud publication. `jarvis status` stays available during a cloud
 call and shows `projection_retry <fact_id> <outcome>`: every pending `queued`
 retry plus the latest 20 completed results (`applied`, `not_quarantined`,
-`failed`, or `cancelled`). Failures contain no database or fact text. These
-command records are in memory and reset when the process restarts; quarantine
-rows themselves remain durable and can be inspected with the SQL above.
+`failed`, or `cancelled`), each with a distinct `request_id`. Local migration
+`0005_projection_retries.sql` adds the durable command journal in the memory
+store. Acceptance is committed before `queued` is returned; the scoped delete
+and its outcome commit together. Startup reloads pending and recent results and
+resumes work left queued by an abrupt exit. History retention keeps all pending
+requests and the latest 20 completed receipts for each gateway/principal/device.
+Failures contain no database or fact text. Status serves a memory copy of those
+durable records, so it never needs to wait on a database read.
 
 A refused retry wakes only local command processing, preserving the existing
 cadence/backoff deadline without a cloud or paid distillation cycle. Only a
 successful delete requests a cycle. Pending retries are cancelled when the
 node stops, leaving their quarantine rows intact. A delete completed before
 stop may still need the next node start to publish its replacement snapshot.
+The short enqueue connection uses a 100 ms SQLite lock timeout. If the journal
+cannot accept the command, the CLI returns `retry_failed`, not `queued` or
+service unavailable. If an outcome cannot be saved, status reports
+`projection_retry_storage unavailable; queued requests remain durable` and the
+row remains queued for recovery after storage is repaired. The timeout bounds
+lock contention and the completion wait; a stalled filesystem can still delay
+the synchronous durable enqueue. This is not a hard deadline on disk I/O.
+
 If the installed node predates this
 thread-safe command or the control channel is unavailable, keep this stopped-node
 fallback: stop `jarvis-node`, take the normal memory-store backup, and delete only

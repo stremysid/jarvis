@@ -46,6 +46,19 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-12 11:40 UTC — GPT-6
+
+PR #16 now persists accepted retry requests and terminal results through local
+migration0005. Enqueue has a short lock timeout on a separate control-thread
+connection; only the cycle thread changes quarantine, atomically with its receipt.
+Status restores pending and recent results after restart. Advisory review exposed
+two further defects, now fixed and tested: storage-failed receipts must stay in
+the live work queue, and retention must follow completion order rather than the
+age of the request. Final local Python751/31skips, Ruff, win32mypy55 sources and
+all40 targeted mutations pass. Main1fc8187 includes merged PR21, so the following
+merge will bring its Hermes CI fix into this branch. Current-head CI is pending;
+independent Claude Opus5 max review and owner rollout remain required.
+
 ## 2026-09-12 11:20 UTC — GPT-6
 
 PR #16's new retry regressions caught all 22 targeted mutations: bounded queued

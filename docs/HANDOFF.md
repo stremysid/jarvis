@@ -9,9 +9,13 @@ The follow-up after `a9b73fb` bounds the retry reply wait and returns an explici
 queued acknowledgement while a cloud call is in flight. Local command work wakes
 without running a cloud cycle; only a successful scoped quarantine delete asks
 for one. Status reports pending and recent retry results, including failures and
-stop cancellation. The current checkpoint keeps these records in memory;
-Sid has requested a durable local journal and restart regressions next. The
-runbook retains the stopped-node exact SQL fallback.
+stop cancellation. Local migration `0005_projection_retries.sql` persists accepted
+requests and their outcomes in the memory store. The cycle thread commits the
+delete and receipt atomically; queued work resumes after abrupt restart, and
+recent history survives with distinct request IDs. Retention uses completion
+order, so an older request finishing late remains visible. A receipt-storage
+failure keeps queued work available for later existing boundaries without a
+hot retry loop. The runbook retains the stopped-node exact SQL fallback.
 
 The gateway now returns retryable 409 for `device_key_changed`, the race between
 the verified-key read and nonce write. `device_key_invalid` remains 401 and a
@@ -25,9 +29,11 @@ Existing POSIX store parents are refused if they are not private; startup never
 chmods an owner-selected directory. The permission error names the manual chmod
 command. The runbook now requires an archive/memory/vault/vector parent-mode
 preflight before deployment or migration 0014. Database/WAL/SHM file guards stay
-0600. Local validation at this checkpoint: Python 728 passed / 31 skips, with 22
-targeted guard mutations caught and restored. Linux CI must exercise the actual
-slow-cloud Unix socket and POSIX permission cases.
+0600. Local validation: Python 751 passed / 31 skips, Ruff, win32 mypy for all55
+source files and diff checks pass. All40 final guard mutations were caught and
+restored. Linux CI must exercise the actual slow-cloud Unix socket and POSIX
+permission cases. PR21 is merged on main1fc8187; absorb that main and wait for
+the final PR16 CI before claiming this candidate is green.
 
 The gateway authenticates signed bytes before endpoint validation, so an
 unauthenticated request cannot invoke projection policy or distillation model
