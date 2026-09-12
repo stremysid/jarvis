@@ -25,6 +25,7 @@ import socket
 import socketserver
 import sys
 import threading
+import time
 import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -81,6 +82,7 @@ class StubPolicy:
         self.max_message_content_bytes = int(limits["maxMessageContentBytes"])
         self.max_total_content_bytes = int(limits["maxTotalContentBytes"])
         self.max_concurrent = int(limits["maxConcurrentRequests"])
+        self.request_timeout_seconds = int(limits["requestTimeoutMs"]) / 1000
 
         self.request_type = contract["contentTypes"]["request"]
 
@@ -226,23 +228,49 @@ class StubHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        if self.close_connection:
+            self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
 
+    def _drain_declared_body(self) -> None:
+        """Discard the declared body during a time-bounded graceful close."""
+        raw_length = self.headers.get("Content-Length")
+        try:
+            remaining = int(raw_length) if raw_length is not None else 0
+        except ValueError:
+            return
+        deadline = time.monotonic() + self.policy.request_timeout_seconds
+        try:
+            while remaining > 0:
+                timeout = deadline - time.monotonic()
+                if timeout <= 0:
+                    return
+                self.connection.settimeout(timeout)
+                chunk = self.rfile.read(min(64 * 1024, remaining))
+                if not chunk:
+                    return
+                remaining -= len(chunk)
+        except OSError:
+            # The peer can stop sending after it receives the early response.
+            return
+
     def _error(self, key: str) -> None:
         status, content_type, body = self.policy.errors[key]
+        if key == "payload_too_large":
+            self.close_connection = True
         self._respond(status, content_type, body)
         if key == "payload_too_large":
-            # The request body remains unread by design. On Windows, closing a
-            # socket with unread inbound data can reset the connection and
-            # discard the 413 already written. Half-close the write side first
-            # so the response and FIN are ordered before the final close.
-            self.close_connection = True
+            # The request body remains unparsed by design. On Windows, closing a
+            # socket with unread inbound data can reset the connection. Order
+            # the 413 and FIN first, then receive the declared bytes before the
+            # final close. The contract timeout bounds an uncooperative peer.
             try:
                 self.connection.shutdown(socket.SHUT_WR)
             except OSError:
                 # The peer may already have closed; the response path is done.
-                pass
+                return
+            self._drain_declared_body()
 
     def _authorized(self) -> bool:
         header = self.headers.get(self.policy.auth_header)
@@ -273,8 +301,8 @@ class StubHandler(BaseHTTPRequestHandler):
         if length < 0:
             return None, "invalid_request"
         if length > self.policy.max_body_bytes:
-            # Too large to drain safely: the response path half-closes the
-            # write side after emitting 413, then closes without reading it.
+            # The response path rejects before parsing, then drains only while
+            # closing so unread TCP data cannot reset the completed 413.
             self.close_connection = True
             return None, "payload_too_large"
         return self.rfile.read(length), None
