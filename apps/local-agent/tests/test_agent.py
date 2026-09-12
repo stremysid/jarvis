@@ -435,6 +435,28 @@ def test_promotion_failure_preserves_completed_replication_and_distillation(
     assert result.failure == "promotion: promotion failed"
 
 
+def test_promotion_authentication_failure_stops_instead_of_backing_off(
+    stores: tuple[ArchiveRepository, FactRepository], monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    archive, facts = stores
+    replicator, distiller = build(
+        archive,
+        facts,
+        FakeCloud([EventPage(events=(event(1),), highest_sequence=1)]),
+        FakeDistiller(),
+    )
+
+    def reject_promotion(_facts: FactRepository, _principal_id: str) -> list[object]:
+        raise CloudAuthError("device rejected")
+
+    monkeypatch.setattr("jarvis_local.agent.promote_new_facts", reject_promotion)
+    result = run_cycle(replicator, distiller, facts, PRINCIPAL)
+
+    assert result.events_replicated == 1
+    assert result.excerpts_distilled == 1
+    assert result.failure == "authentication: device rejected"
+
+
 def test_unexpected_projection_failure_preserves_completed_stage_counts(
     stores: tuple[ArchiveRepository, FactRepository],
 ) -> None:

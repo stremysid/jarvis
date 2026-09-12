@@ -26,7 +26,10 @@ from jarvis_local.scheduler import (
     Scheduler,
 )
 from jarvis_local.service import (
+    FACT_NOT_QUARANTINED,
+    INVALID_ARGUMENT,
     RECENT_CYCLE_LIMIT,
+    RETRY_FAILED,
     STOPPED_ON_REQUEST,
     TRIGGER_REQUESTED,
     LocalAgentService,
@@ -397,9 +400,15 @@ def test_stop_only_asks_and_leaves_the_cycle_boundary_to_the_loop() -> None:
 def test_retry_quarantined_clears_one_fact_and_wakes_the_loop() -> None:
     state = ServiceState()
     retried: list[str] = []
+
+    def retry(fact_id: str) -> bool:
+        retried.append(fact_id)
+        state.request_cycle()
+        return True
+
     service = LocalAgentService(control_handlers(
         state,
-        retry_quarantined=lambda fact_id: retried.append(fact_id) or True,
+        retry_quarantined=retry,
     ))
 
     response = service.handle(CliCommand("retry-quarantined", {"fact_id": "fact_" + "a" * 32}))
@@ -413,9 +422,26 @@ def test_retry_quarantined_refuses_an_unknown_or_malformed_fact() -> None:
     state = ServiceState()
     service = LocalAgentService(control_handlers(state, retry_quarantined=lambda _fact_id: False))
 
-    assert service.handle(CliCommand("retry-quarantined", {"fact_id": "not-a-fact"})).code != OK
-    assert service.handle(CliCommand("retry-quarantined", {"fact_id": "fact_" + "a" * 32})).code != OK
+    assert service.handle(CliCommand("retry-quarantined", {"fact_id": "not-a-fact"})).code == INVALID_ARGUMENT
+    assert (
+        service.handle(CliCommand("retry-quarantined", {"fact_id": "fact_" + "a" * 32})).code
+        == FACT_NOT_QUARANTINED
+    )
     assert state.take_cycle_request() is False
+
+
+def test_retry_quarantined_contains_store_failure() -> None:
+    state = ServiceState()
+
+    def fail(_fact_id: str) -> bool:
+        raise RuntimeError("database unavailable")
+
+    service = LocalAgentService(control_handlers(state, retry_quarantined=fail))
+
+    response = service.handle(CliCommand("retry-quarantined", {"fact_id": "fact_" + "a" * 32}))
+
+    assert response.code == RETRY_FAILED
+    assert response.lines == ()
 
 
 def test_the_backoff_reason_is_reported_so_quiet_can_be_told_from_stuck() -> None:

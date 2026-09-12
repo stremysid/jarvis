@@ -46,6 +46,20 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-12 04:12 UTC — GPT-6 Astra
+
+PR #16 follow-up moves quarantine retry work from the control thread to a queued
+request drained by the cycle thread before/after cloud work. The real Linux
+socket regression requires a successful response, deleted row and live node;
+a portable thread regression reproduces the old SQLite failure on Windows.
+`device_key_changed` is now retryable 409 while corrupt stored
+`device_key_invalid` remains a deliberate 401 stop, and storage-text status
+promotion is limited to the reviewed device-state trigger. Store parents become
+0700 and file/sidecar guards are mutation-pinned. Local Python is 711 passed / 27
+Windows skips; workspace is 2,139 / 109 files; Ruff, win32 mypy and gateway
+lint/source types pass. Ubuntu socket/mode checks await current-head CI. No merge,
+deployment or migration occurred.
+
 ## 2026-09-12 02:50 UTC — GPT-6 Astra
 
 PR #16 head `0f991fd` now treats active quarantine as visible successful state

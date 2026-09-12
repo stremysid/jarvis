@@ -5,12 +5,29 @@ using this checkpoint. R0 passed on September 11; calling remains R1.
 
 ## R2 item 3 review candidate
 
-Review remediation at `0f991fd` separates durable quarantine from scheduler
-failure: successful cycles report `quarantined=N` and retain normal cadence,
-including stop and later-stage error paths. The private control channel now
-supports `jarvis retry-quarantined <fact_id>` for one owner-selected fact. An
-escaped authentication error reaches the run loop's permanent-stop guard, while
-unexpected promotion/projection errors retain completed stage counts.
+The review follow-up after `71e6b10` moves `retry-quarantined` off the control
+thread. The command queues an exact owner-scoped request, wakes the run loop and
+waits while the cycle thread performs the SQLite delete outside projection
+transactions. A control/store failure returns a fixed response instead of
+terminating the node. Both a portable cross-thread regression and a real Linux
+Unix-socket regression require the row gone, a successful response and a still-
+running node. The runbook retains the stopped-node exact SQL fallback.
+
+The gateway now returns retryable 409 for `device_key_changed`, the race between
+the verified-key read and nonce write. `device_key_invalid` remains 401 and a
+deliberate stop because it means the stored enrolled key/fingerprint is corrupt.
+Only the reviewed `memory_projection_device_state_changed` D1 trigger may turn
+storage text into a permanent status; future trigger names remain generic 400.
+Promotion-stage authentication is mutation-pinned. Quarantine deletion scope and
+both fact-id guards now have dedicated regressions.
+
+POSIX store parents are tightened to 0700 as well as database/WAL/SHM files to
+0600. Portable tests pin regular-file, owner, creation-mode, directory-call and
+both sidecar-pass guards; Linux integration covers actual modes and the real
+control socket. Local Windows validation is 711 passed / 27 platform skips and
+workspace validation is 2,139 passed / 109 files; Ruff, win32 mypy and gateway
+lint/source types pass. Current-head Ubuntu CI is required for the Linux-only
+mode and socket cases.
 
 The gateway authenticates signed bytes before endpoint validation, so an
 unauthenticated request cannot invoke projection policy or distillation model
@@ -19,10 +36,7 @@ remains retryable 400, while genuine auth/device-state failures retain 401/403.
 Deterministic invalid fact text receives the signed abandonment classification,
 authenticated content rejection is logged without submitted text, and a page
 write race returns retryable 409 instead of device revocation. Python and
-TypeScript exercise shared 4,096-byte/eight-source bounds. POSIX archive/memory
-SQLite files and live sidecars are owner-only, including manual runs. Local
-validation is 701 passed / 24 Windows skips and cloud validation is 2,035 passed;
-Linux file-mode tests await current-head CI.
+TypeScript exercise shared 4,096-byte/eight-source bounds.
 
 Distillation now refuses excerpt controls and non-ULID source ids before prompt
 rendering. The node skips these ineligible raw excerpts without rewriting the

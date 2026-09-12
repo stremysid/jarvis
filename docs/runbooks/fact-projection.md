@@ -123,11 +123,49 @@ cursors or cloud abandonment receipts. Retrying an unchanged poison will
 quarantine it again. An abandoned manifest cannot be reused at its old version;
 the committed replacement is what makes the next version available.
 
+The command queues the delete for the node's cycle thread and does not answer
+success until that scoped row is gone. If the installed node predates this
+thread-safe command or the control channel is unavailable, keep this stopped-node
+fallback: stop `jarvis-node`, take the normal memory-store backup, and delete only
+the exact four-column owner tuple with SQLite before restarting the service:
+
+```sql
+BEGIN IMMEDIATE;
+DELETE FROM memory_projection_quarantine
+WHERE gateway_origin = '<exact-gateway-origin>'
+  AND principal_id = '<exact-owner-principal>'
+  AND device_id = '<exact-enrolled-device>'
+  AND fact_id = 'fact_<32-lowercase-hex-characters>';
+SELECT changes();
+COMMIT;
+```
+
+Require `changes()` to return exactly `1`. Leave the node stopped and restore the
+backup if it does not; do not broaden the predicate. Restart the node and request
+one cycle only after the scoped delete succeeds.
+
 On POSIX direct/manual runs, the archive and memory SQLite database, WAL and SHM
-files are created owner-only. Existing owner-held store files with broader mode
-bits are tightened before SQLite opens them, and symbolic links or foreign/non-
-regular files are refused. The systemd unit's `UMask=0077` and state-directory
-mode remain the outer deployment boundary.
+files are created owner-only, and each immediate store directory is mode 0700.
+Existing owner-held store files/directories with broader mode bits are tightened
+before SQLite opens them, and symbolic-link store files or foreign/non-regular
+files are refused. A symlinked directory is permitted, but the final archive and
+memory files must not themselves be symlinks. Before the first upgraded live-node
+start, load the configured environment and verify both with:
+
+```console
+test ! -L "$JARVIS_ARCHIVE_PATH" && test ! -L "$JARVIS_MEMORY_PATH"
+```
+
+The systemd unit's `UMask=0077` and state-directory mode remain the outer
+deployment boundary.
+
+A `device_key_changed` response means the enrolled key changed between the
+gateway's verification read and nonce write, so it is returned as retryable 409.
+If the next request sees the same key it can succeed; if rotation completed, the
+next signature check gives the durable authentication result. By contrast,
+`device_key_invalid` means the gateway's stored enrolled key is malformed or its
+fingerprint does not match. Retrying the same bytes cannot repair that data, so
+401 deliberately stops the node until the enrollment record is repaired.
 
 ## Retrieval behavior
 

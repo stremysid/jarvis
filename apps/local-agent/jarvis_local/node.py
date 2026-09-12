@@ -2,9 +2,9 @@
 
 This module only assembles components that already own the work: signed cloud
 replication, distillation, promotion policy, fact projection, scheduling, and
-the local control socket.  The run loop stays on the main thread.  The control thread can only
-read status or set the loop's wake/stop flags, so it cannot open a second
-database transaction beside an active cycle.
+the local control socket. The run loop stays on the main thread. The control
+thread can read status, set wake/stop flags, or queue work for the run loop; it
+never opens a second database transaction beside an active cycle.
 """
 
 from __future__ import annotations
@@ -64,8 +64,63 @@ class NodeStartupError(RuntimeError):
     """The node could not acquire or construct a required local dependency."""
 
 
+class QuarantineRetryError(RuntimeError):
+    """A deferred quarantine retry could not complete on the cycle thread."""
+
+
 class LoopRunner(Protocol):
     def run(self) -> str: ...
+
+
+@dataclass(slots=True)
+class _QuarantineRetryRequest:
+    fact_id: str
+    completed: threading.Event = field(default_factory=threading.Event)
+    deleted: bool = False
+    error: Exception | None = None
+
+
+class _QuarantineRetryCoordinator:
+    """Move owner-requested SQLite work from control to cycle thread."""
+
+    def __init__(self, state: ServiceState) -> None:
+        self._state = state
+        self._lock = threading.Lock()
+        self._pending: list[_QuarantineRetryRequest] = []
+        self._closed = False
+
+    def submit(self, fact_id: str) -> bool:
+        request = _QuarantineRetryRequest(fact_id)
+        with self._lock:
+            if self._closed:
+                raise QuarantineRetryError("the node is stopping")
+            self._pending.append(request)
+        # The cycle thread owns the SQLite connection. Wake it, then wait for
+        # that thread to finish the exact delete before answering the owner.
+        self._state.request_cycle()
+        request.completed.wait()
+        if request.error is not None:
+            raise QuarantineRetryError("the quarantine retry failed") from request.error
+        return request.deleted
+
+    def drain(self, retry: Callable[[str], bool]) -> None:
+        with self._lock:
+            pending, self._pending = self._pending, []
+        for request in pending:
+            try:
+                request.deleted = retry(request.fact_id)
+            except Exception as error:
+                request.error = error
+            finally:
+                request.completed.set()
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+            pending, self._pending = self._pending, []
+        for request in pending:
+            request.error = QuarantineRetryError("the node stopped before the quarantine retry")
+            request.completed.set()
 
 
 class ControlEndpoint(Protocol):
@@ -189,12 +244,13 @@ class NodeRuntime:
     control: ControlEndpoint
     archive: Closable
     facts: Closable
+    retry_coordinator: _QuarantineRetryCoordinator | None = None
     _closed: bool = field(init=False, default=False)
     _control_failed: threading.Event = field(init=False, default_factory=threading.Event)
     _signal_pending: bool = field(init=False, default=False)
 
     def run(self, *, install_signal_handlers: bool = True) -> str:
-        """Run cycles on this thread and the flag-only control server beside it."""
+        """Run cycles and deferred store work on this thread beside control."""
         control_thread: threading.Thread | None = None
         control_thread_started = False
         previous: dict[signal.Signals, Any] = {}
@@ -207,6 +263,8 @@ class NodeRuntime:
             reason = self.loop.run()
         finally:
             self.state.request_stop()
+            if self.retry_coordinator is not None:
+                self.retry_coordinator.close()
             try:
                 if control_thread_started and control_thread is not None:
                     control_thread.join(timeout=5)
@@ -225,6 +283,8 @@ class NodeRuntime:
         if self._closed:
             return
         self._closed = True
+        if self.retry_coordinator is not None:
+            self.retry_coordinator.close()
         try:
             self.control.close()
         finally:
@@ -335,13 +395,10 @@ def build_node(
         raise NodeStartupError("the enrolled device key could not be opened") from error
 
     state = ServiceState()
-    projector_holder: list[MemoryProjectionUploader] = []
-
-    def retry_quarantined(fact_id: str) -> bool:
-        return bool(projector_holder and projector_holder[0].retry_quarantined(fact_id))
+    retry_coordinator = _QuarantineRetryCoordinator(state)
 
     control = control_factory(
-        ControlServer(LocalAgentService(control_handlers(state, retry_quarantined=retry_quarantined))),
+        ControlServer(LocalAgentService(control_handlers(state, retry_quarantined=retry_coordinator.submit))),
         settings.control_socket_path,
     )
     # Claim the singleton endpoint before migrations touch either database. A
@@ -371,19 +428,28 @@ def build_node(
                 cloud,
                 should_stop=state.stop_requested,
             )
-            projector_holder.append(projector)
+
+            def node_cycle() -> CycleResult:
+                retry_coordinator.drain(projector.retry_quarantined)
+                try:
+                    return _safe_node_cycle(
+                        replicator,
+                        distiller,
+                        facts,
+                        settings.principal_id,
+                        projector,
+                        state.stop_requested,
+                    )
+                finally:
+                    # A retry can arrive while cloud work is in flight. Drain
+                    # again only after that cycle has closed its transactions.
+                    retry_coordinator.drain(projector.retry_quarantined)
+
             loop = RunLoop(
-                lambda: _safe_node_cycle(
-                    replicator,
-                    distiller,
-                    facts,
-                    settings.principal_id,
-                    projector,
-                    state.stop_requested,
-                ),
+                node_cycle,
                 state=state,
             )
-            return NodeRuntime(loop, state, control, archive, facts)
+            return NodeRuntime(loop, state, control, archive, facts, retry_coordinator)
         except BaseException:
             try:
                 facts.close()

@@ -414,6 +414,48 @@ def test_owner_can_retry_one_quarantined_fact_without_touching_other_quarantine(
     ).fetchall() == [(other.fact_id,)]
 
 
+def test_quarantine_retry_is_scoped_to_the_exact_owner_tuple(
+    stores: tuple[ArchiveRepository, FactRepository, Path],
+) -> None:
+    archive, facts, _ = stores
+    record_vector_fact(archive, facts)
+    fact_id = facts.active_facts(PRINCIPAL)[0].fact_id
+    owners = (
+        (BASE, PRINCIPAL, DEVICE),
+        ("https://staging.example", PRINCIPAL, DEVICE),
+        (BASE, "principal:other", DEVICE),
+        (BASE, PRINCIPAL, "device:replacement"),
+    )
+    for owner in owners:
+        facts.connection.execute(
+            "INSERT INTO memory_projection_quarantine VALUES (?, ?, ?, ?, 'gateway_rejected', ?)",
+            (*owner, fact_id, "2026-09-11T12:00:00.000Z"),
+        )
+
+    uploader = MemoryProjectionUploader(facts, archive, cloud(BindingOpener()))
+    assert uploader.retry_quarantined(fact_id) is True
+
+    assert facts.connection.execute(
+        """SELECT gateway_origin, principal_id, device_id
+           FROM memory_projection_quarantine ORDER BY gateway_origin, principal_id, device_id"""
+    ).fetchall() == sorted(owners[1:])
+
+
+def test_malformed_fact_id_is_refused_before_any_quarantine_delete(
+    stores: tuple[ArchiveRepository, FactRepository, Path],
+) -> None:
+    archive, facts, _ = stores
+    statements: list[str] = []
+    facts.connection.set_trace_callback(statements.append)
+    try:
+        uploader = MemoryProjectionUploader(facts, archive, cloud(BindingOpener()))
+        assert uploader.retry_quarantined("fact_not-hex") is False
+    finally:
+        facts.connection.set_trace_callback(None)
+
+    assert not any("DELETE FROM memory_projection_quarantine" in statement for statement in statements)
+
+
 def test_a_foreign_source_is_never_copied_into_the_upload(
     stores: tuple[ArchiveRepository, FactRepository, Path],
 ) -> None:

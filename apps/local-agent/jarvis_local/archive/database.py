@@ -60,6 +60,23 @@ def _restrict_sqlite_file(path: Path, *, create: bool) -> None:
         os.close(descriptor)
 
 
+def _restrict_sqlite_directory(path: Path) -> None:
+    if not _is_posix():
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise PermissionError("the SQLite store parent is not a directory")
+        if metadata.st_uid != os.geteuid():  # type: ignore[attr-defined,unused-ignore]
+            raise PermissionError("the SQLite store parent is not owned by this user")
+        if metadata.st_mode & 0o077:
+            os.fchmod(descriptor, stat.S_IRWXU)  # type: ignore[attr-defined,unused-ignore]
+    finally:
+        os.close(descriptor)
+
+
 def connect(path: Path) -> sqlite3.Connection:
     """Open the archive with the pragmas it depends on.
 
@@ -67,7 +84,8 @@ def connect(path: Path) -> sqlite3.Connection:
     default in SQLite and must be enabled per connection, or content_seen's
     reference to content_blob would be decorative.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(mode=stat.S_IRWXU, parents=True, exist_ok=True)
+    _restrict_sqlite_directory(path.parent)
     _restrict_sqlite_file(path, create=True)
     for suffix in ("-wal", "-shm"):
         _restrict_sqlite_file(Path(f"{path}{suffix}"), create=False)

@@ -8,6 +8,7 @@ import io
 import json
 import os
 import signal
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -26,6 +27,7 @@ from jarvis_local.config import JarvisLocalConfig
 from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.crypto.signed_request import signature_text
 from jarvis_local.memory.facts import FactOrigin, FactProposal, FactRepository, FactState
+from jarvis_local.memory.promotion import PromotionEngine
 from jarvis_local.node import (
     EXIT_NODE_AUTHENTICATION,
     NodeConfigurationError,
@@ -38,13 +40,13 @@ from jarvis_local.node import (
 )
 from jarvis_local.scheduler import STOP_AUTHENTICATION, SchedulerState
 from jarvis_local.service import (
-    FACT_NOT_QUARANTINED,
     LocalAgentService,
     RunLoop,
     ServiceState,
     control_handlers,
 )
 from jarvis_local.sync.cloud_client import CloudAuthError
+from jarvis_local.sync.memory_projection import MemoryProjectionUploader
 from jarvis_local.transport.cli_protocol import OK, CliCommand
 from jarvis_local.transport.pipe_server import ControlServer
 from jarvis_local.transport.unix_socket import UnixSocketServer, send_unix_control_request
@@ -645,24 +647,57 @@ def test_the_node_reports_quarantine_count_and_keeps_publishing_later_cycles(
         runtime.close()
 
 
-def test_built_node_exposes_the_owner_quarantine_retry_handler(tmp_path: Path) -> None:
+def test_built_node_executes_quarantine_retry_on_the_cycle_thread(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     settings = settings_at(tmp_path)
     platform_device_key_store(settings.device_key_path).load_or_create()
-    captured: list[ControlServer] = []
+    retry_threads: list[int] = []
+    real_retry = MemoryProjectionUploader.retry_quarantined
 
-    def capture(server: ControlServer, _path: Path) -> FakeControl:
-        captured.append(server)
-        return FakeControl()
+    def record_retry_thread(uploader: MemoryProjectionUploader, fact_id: str) -> bool:
+        retry_threads.append(threading.get_ident())
+        return real_retry(uploader, fact_id)
+
+    monkeypatch.setattr(MemoryProjectionUploader, "retry_quarantined", record_retry_thread)
+
+    class RetryControl(FakeControl):
+        def __init__(self, server: ControlServer) -> None:
+            super().__init__()
+            self.server = server
+            self.response: object | None = None
+            self.finished: Any = lambda: None
+
+        def serve_forever(self, _should_continue: Any) -> None:
+            try:
+                self.response = self.server.dispatcher.handle(CliCommand(
+                    "retry-quarantined", {"fact_id": fact_id},
+                ))
+            finally:
+                self.finished()
+
+    controls: list[RetryControl] = []
+
+    def capture(server: ControlServer, _path: Path) -> RetryControl:
+        control = RetryControl(server)
+        controls.append(control)
+        return control
 
     runtime = build_node(settings, opener=EmptyCycleOpener(), control_factory=capture)
-    try:
-        response = captured[0].dispatcher.handle(CliCommand(
-            "retry-quarantined", {"fact_id": "fact_" + "a" * 32},
-        ))
-    finally:
-        runtime.close()
+    assert isinstance(runtime.facts, FactRepository)
+    fact_id = record_promotable_fact(runtime)
+    PromotionEngine(runtime.facts).promote(runtime.facts.get(fact_id))
+    runtime.facts.connection.execute(
+        "INSERT INTO memory_projection_quarantine VALUES (?, ?, ?, ?, 'gateway_rejected', ?)",
+        (settings.cloud_base_url, settings.principal_id, settings.device_id, fact_id, "2026-09-11T12:00:00.000Z"),
+    )
+    controls[0].finished = runtime.state.request_stop
 
-    assert response.code == FACT_NOT_QUARANTINED
+    assert runtime.run(install_signal_handlers=False) == "stopped"
+    assert getattr(controls[0].response, "code", None) == OK
+    assert retry_threads == [threading.get_ident()]
+    with sqlite3.connect(settings.memory_path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM memory_projection_quarantine").fetchone() == (0,)
 
 
 def test_the_node_distinguishes_pending_recovery_from_transient_projection_failure(tmp_path: Path) -> None:
@@ -865,6 +900,47 @@ def test_real_runtime_serves_status_run_once_and_stop_over_its_unix_socket(tmp_p
     assert not thread.is_alive()
     assert outcome == ["stopped"]
     assert not path.exists()
+
+
+@linux_only
+def test_real_socket_retry_clears_quarantine_without_stopping_the_node(tmp_path: Path) -> None:
+    root = tmp_path / "private"
+    root.mkdir(mode=0o700)
+    settings = settings_at(root)
+    platform_device_key_store(settings.device_key_path).load_or_create()
+    runtime = build_node(settings, opener=EmptyCycleOpener())
+    assert isinstance(runtime.facts, FactRepository)
+    fact_id = record_promotable_fact(runtime)
+    PromotionEngine(runtime.facts).promote(runtime.facts.get(fact_id))
+    runtime.facts.connection.execute(
+        "INSERT INTO memory_projection_quarantine VALUES (?, ?, ?, ?, 'gateway_rejected', ?)",
+        (settings.cloud_base_url, settings.principal_id, settings.device_id, fact_id, "2026-09-11T12:00:00.000Z"),
+    )
+    responses: list[object] = []
+    errors: list[BaseException] = []
+
+    def drive_control_socket() -> None:
+        try:
+            responses.append(send_unix_control_request(
+                CliCommand("retry-quarantined", {"fact_id": fact_id}),
+                settings.control_socket_path,
+            ))
+            responses.append(send_unix_control_request(CliCommand("status"), settings.control_socket_path))
+            responses.append(send_unix_control_request(CliCommand("stop"), settings.control_socket_path))
+        except BaseException as error:
+            errors.append(error)
+
+    client = threading.Thread(target=drive_control_socket)
+    client.start()
+    reason = runtime.run(install_signal_handlers=False)
+    client.join(timeout=3)
+
+    assert not client.is_alive()
+    assert errors == []
+    assert reason == "stopped"
+    assert [getattr(response, "code", None) for response in responses] == [OK, OK, OK]
+    with sqlite3.connect(settings.memory_path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM memory_projection_quarantine").fetchone() == (0,)
 
 
 @linux_only

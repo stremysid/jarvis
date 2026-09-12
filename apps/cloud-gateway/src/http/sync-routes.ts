@@ -93,7 +93,10 @@ function decodeSecret(value: string): Uint8Array | null {
 export function statusForSyncError(error: unknown): number {
   const message = error instanceof Error ? error.message : String(error);
   const sqliteCode = /^D1_ERROR: ([a-z][a-z0-9_]+): SQLITE_[A-Z_]+(?:\s|$)/u.exec(message)?.[1];
-  const code = sqliteCode ?? message;
+  // Only the existing trigger that atomically rechecks principal/device state
+  // may promote storage text into a permanent authentication decision. Future
+  // trigger names remain generic failures until their semantics are reviewed.
+  const code = sqliteCode === "memory_projection_device_state_changed" ? sqliteCode : message;
   switch (code) {
     case "signature_invalid":
     case "device_not_active":
@@ -103,10 +106,10 @@ export function statusForSyncError(error: unknown): number {
     case "replayed_nonce":
       return 401;
     case "consumer_binding_invalid":
-    case "device_key_changed":
     case "sync_device_state_changed":
     case "memory_projection_device_state_changed":
       return 403;
+    case "device_key_changed":
     case "memory_projection_page_state_changed":
       return 409;
     default:

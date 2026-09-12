@@ -67,6 +67,7 @@ STOPPED_ON_REQUEST = "stopped"
 RUNNING = "running"
 INVALID_ARGUMENT = "invalid_argument"
 FACT_NOT_QUARANTINED = "fact_not_quarantined"
+RETRY_FAILED = "retry_failed"
 _FACT_ID = re.compile(r"fact_[0-9a-f]{32}\Z")
 
 
@@ -311,7 +312,9 @@ def control_handlers(
 ) -> dict[str, CommandHandler]:
     """Commands served by the control channel, bound to one loop's state.
 
-    `run-once` and `stop` only set a flag and ring the doorbell. They must not
+    `run-once` and `stop` only set a flag and ring the doorbell. A configured
+    quarantine retry callback must likewise queue its store work for the cycle
+    thread before it answers. These handlers must not
     run a cycle on the calling thread: that would put a second cycle over the
     same databases alongside the one the loop may already be running, which is
     the one thing the append-only archive cannot be asked to referee.
@@ -335,9 +338,14 @@ def control_handlers(
             fact_id = command.arguments.get("fact_id")
             if not isinstance(fact_id, str) or _FACT_ID.fullmatch(fact_id) is None:
                 return CliResponse(INVALID_ARGUMENT)
-            if not retry_quarantined(fact_id):
+            try:
+                retried = retry_quarantined(fact_id)
+            except Exception:
+                # A malformed request or store failure must not escape through
+                # the transport and kill the long-running control server.
+                return CliResponse(RETRY_FAILED)
+            if not retried:
                 return CliResponse(FACT_NOT_QUARANTINED)
-            state.request_cycle()
             return accepted(("projection retry requested",))
 
         handlers["retry-quarantined"] = retry

@@ -74,12 +74,14 @@ describe("sync routes", () => {
     ["signed_request_expired", 401],
     ["replayed_nonce", 401],
     ["consumer_binding_invalid", 403],
-    ["device_key_changed", 403],
+    ["device_key_changed", 409],
     ["sync_device_state_changed", 403],
     ["memory_projection_device_state_changed", 403],
     ["memory_projection_page_state_changed", 409],
     ["no such table: request_nonces", 400],
     ["internal signature storage failure", 400],
+    ["D1_ERROR: memory_projection_device_state_changed: SQLITE_CONSTRAINT_TRIGGER", 403],
+    ["D1_ERROR: device_key_invalid: SQLITE_CONSTRAINT_TRIGGER", 400],
   ])("maps the exact sync failure %s to %i", (reason, expected) => {
     expect(statusForSyncError(new Error(reason))).toBe(expected);
   });
