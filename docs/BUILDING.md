@@ -31,17 +31,17 @@ stop.
 
 | Milestone | Build with | Review with |
 |---|---|---|
-| R0 Deploy what exists | GPT-6 Astra, xhigh | Claude Opus 5, xhigh |
-| R1 Calling (v1.0) | GPT-6 Astra, xhigh | **Claude Opus 5, max** |
-| R2 Home node and memory | GPT-6 Astra, xhigh | Claude Opus 5, xhigh |
-| R3 Hermes and PC control | GPT-6 Astra, xhigh | Claude Opus 5, xhigh |
-| R4 St. Remy | **Claude Opus 5, max** | GPT-6 Astra, xhigh |
-| R5 Deadlines | GPT-6 Astra, xhigh | Claude Opus 5, xhigh |
-| R6 Send on command, Siri | GPT-6 Astra, xhigh | Claude Opus 5, xhigh |
-| R7 Profile and manager | GPT-6 Astra, xhigh | Claude Opus 5, xhigh |
-| R8 Errands, Tesla, wake word | GPT-6 Astra, xhigh | Claude Opus 5, xhigh |
-| R9 Dashboard, voice notes | GPT-6 Astra, xhigh | Claude Opus 5, xhigh |
-| R10 Later | GPT-6 Astra, xhigh | Claude Opus 5, xhigh |
+| R0 Deploy what exists | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
+| R1 Calling (v1.0) | GPT-5.6 Sol, xhigh | **Claude Opus 5, max** |
+| R2 Home node and memory | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
+| R3 Hermes and PC control | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
+| R4 St. Remy | **Claude Opus 5, max** | GPT-5.6 Sol, xhigh |
+| R5 Deadlines | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
+| R6 Send on command, Siri | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
+| R7 Profile and manager | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
+| R8 Errands, Tesla, wake word | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
+| R9 Dashboard, voice notes | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
+| R10 Later | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
 
 Two milestones are not on the default setting, and both for the same
 reason — a quiet mistake there is expensive and hard to notice:
@@ -107,7 +107,7 @@ effort** — and that ordering is deliberate.
 
 | Rung | Who | Effort |
 |---|---|---|
-| 1 | GPT-6 Astra | xhigh |
+| 1 | GPT-5.6 Sol | xhigh |
 | 2 | Claude Opus 5 | xhigh |
 | 3 | Claude Opus 5 | max |
 | 4 | Claude Fable 5.1 | high |
