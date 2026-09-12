@@ -214,7 +214,7 @@ describe("chat completions", () => {
     await expectContractError(response, "payload_too_large");
   });
 
-  it("orders a write-side shutdown after an oversized rejection", () => {
+  it("orders a write-side shutdown and drains an oversized request before close", () => {
     runPythonProbe(String.raw`
 import importlib.util
 import io
@@ -225,13 +225,25 @@ spec = importlib.util.spec_from_file_location("compatibility_stub", sys.argv[1])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 policy = module.StubPolicy(module.load_contract())
+events = []
 
 class Connection:
     def __init__(self):
         self.shutdowns = []
+        self.timeouts = []
 
     def shutdown(self, direction):
         self.shutdowns.append(direction)
+        events.append("shutdown")
+
+    def settimeout(self, timeout):
+        self.timeouts.append(timeout)
+        events.append("timeout")
+
+class Body(io.BytesIO):
+    def read(self, size=-1):
+        events.append("read")
+        return super().read(size)
 
 class Probe(module.StubHandler):
     def _respond(self, status, content_type, body):
@@ -246,13 +258,17 @@ handler.headers = {
     "Content-Type": policy.request_type,
     policy.auth_header: policy.auth_scheme + " " + policy.auth_value,
 }
-handler.rfile = io.BytesIO(b"")
+handler.rfile = Body(b"x" * (policy.max_body_bytes + 1))
 handler.connection = Connection()
 handler.close_connection = False
 handler.do_POST()
 
 assert handler.response_status == policy.errors["payload_too_large"][0]
 assert handler.connection.shutdowns == [socket.SHUT_WR]
+assert len(handler.connection.timeouts) >= 1
+assert all(0 < timeout <= policy.request_timeout_seconds for timeout in handler.connection.timeouts)
+assert events.index("shutdown") < events.index("read")
+assert handler.rfile.tell() == policy.max_body_bytes + 1
 `);
   });
 

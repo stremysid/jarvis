@@ -29,11 +29,12 @@ Existing POSIX store parents are refused if they are not private; startup never
 chmods an owner-selected directory. The permission error names the manual chmod
 command. The runbook now requires an archive/memory/vault/vector parent-mode
 preflight before deployment or migration 0014. Database/WAL/SHM file guards stay
-0600. Local validation: Python 751 passed / 31 skips, Ruff, win32 mypy for all55
-source files and diff checks pass. All40 final guard mutations were caught and
+0600. Local validation: Python 751 passed / 31 skips, Ruff, win32 mypy for all 55
+source files and diff checks pass. All 40 final guard mutations were caught and
 restored. Linux CI must exercise the actual slow-cloud Unix socket and POSIX
-permission cases. PR21 is merged on main1fc8187; absorb that main and wait for
-the final PR16 CI before claiming this candidate is green.
+permission cases. Main `1fc8187`, including merged PR #21's Hermes close fix,
+is incorporated here. Wait for final PR #16 CI before claiming this candidate
+is green.
 
 The gateway authenticates signed bytes before endpoint validation, so an
 unauthenticated request cannot invoke projection policy or distillation model

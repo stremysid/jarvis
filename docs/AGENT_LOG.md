@@ -49,15 +49,16 @@ the wrong shape for this file.
 ## 2026-09-12 11:40 UTC — GPT-6
 
 PR #16 now persists accepted retry requests and terminal results through local
-migration0005. Enqueue has a short lock timeout on a separate control-thread
+migration 0005. Enqueue has a short lock timeout on a separate control-thread
 connection; only the cycle thread changes quarantine, atomically with its receipt.
 Status restores pending and recent results after restart. Advisory review exposed
 two further defects, now fixed and tested: storage-failed receipts must stay in
 the live work queue, and retention must follow completion order rather than the
-age of the request. Final local Python751/31skips, Ruff, win32mypy55 sources and
-all40 targeted mutations pass. Main1fc8187 includes merged PR21, so the following
+age of the request. Final local Python 751 passed / 31 skips, Ruff, win32 mypy
+for 55 sources and all 40 targeted mutations pass. Main 1fc8187 includes merged
+PR #21, so the following
 merge will bring its Hermes CI fix into this branch. Current-head CI is pending;
-independent Claude Opus5 max review and owner rollout remain required.
+independent Claude Opus 5 max review and owner rollout remain required.
 
 ## 2026-09-12 11:20 UTC — GPT-6
 
@@ -70,6 +71,19 @@ longer chmods existing directories and prints the exact manual repair command.
 This is a pushed checkpoint, not completion: Sid has since requested persisted
 retry requests/outcomes, which are next with restart and lock-contention tests.
 No merge, deployment or migration performed.
+
+## 2026-09-12 04:26 UTC — GPT-6 Astra
+
+The PR #16 current-head Windows Hermes job exposed a residual oversized-request
+close race in merged PR #20: 18 local repetitions passed and the 19th reproduced
+the same `ECONNRESET`. A separate Hermes branch now completes the Windows
+graceful-close sequence after its 413 by half-closing writes and time-boundedly
+draining the declared request before final close. The old source fails the exact
+drain regression; the fix passed 30 process-level repetitions and all 37
+compatibility-stub tests. The broader local Hermes command retains ten unrelated
+host-toolchain failures because this machine lacks the pinned Python launcher and
+trusted PowerShell host. No R2 item 3 source was added to this branch, and no
+merge or deployment occurred.
 
 ## 2026-09-12 04:12 UTC — GPT-6 Astra
 
