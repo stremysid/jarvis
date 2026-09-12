@@ -46,6 +46,18 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-12 14:01 UTC — GPT-6
+
+The first PR #16 review checkpoint after 78e8e89 fixes the two rollout diagnoses:
+an occupied socket now names the configured endpoint and conditional manual
+recovery, and failed enqueue no longer invents a durable storage-failure banner.
+The runbook puts stale-endpoint handling before restart and clarifies retention
+per owner. Both regressions fail their original behavior; restored local Python
+passes 758 tests / 32 platform skips, Ruff and win32 mypy. The real process-kill
+and live-duplicate regression awaits Linux CI. The remaining guard, directory
+and response-encoding findings are still in progress on this PR. No PR merge,
+deployment or live migration performed.
+
 ## 2026-09-12 11:56 UTC — GPT-6
 
 PR #16's fresh advisory review found an oversized-status backlog and a delayed

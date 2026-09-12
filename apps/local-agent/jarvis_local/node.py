@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import posixpath
+import shlex
 import signal
 import stat
 import sys
@@ -37,10 +38,11 @@ from jarvis_local.sync.cloud_client import CloudAuthError, HttpCloudClient
 from jarvis_local.sync.distill_client import HttpDistillationClient
 from jarvis_local.sync.event_replicator import EventReplicator
 from jarvis_local.sync.memory_projection import MemoryProjectionUploader
-from jarvis_local.sync.quarantine_retry import QuarantineRetryJournal, RetryQueueFullError
+from jarvis_local.sync.quarantine_retry import QuarantineRetryJournal
 from jarvis_local.transport.pipe_server import ControlServer
 from jarvis_local.transport.unix_socket import (
     CONTROL_SOCKET_ENVIRONMENT,
+    UnixSocketInUseError,
     UnixSocketServer,
     default_unix_socket_path,
 )
@@ -115,13 +117,9 @@ class _QuarantineRetryCoordinator:
                 raise QuarantineRetryError("the node is stopping")
             if self._journal is None:
                 raise QuarantineRetryError("the retry journal is unavailable")
-            try:
-                retry_id = self._journal.enqueue(fact_id)
-            except RetryQueueFullError:
-                raise
-            except Exception:
-                self._state.retry_storage_failed()
-                raise
+            # An enqueue failure belongs to this unaccepted request. Only a
+            # failed outcome write for durable queued work merits the banner.
+            retry_id = self._journal.enqueue(fact_id)
             request = self._requests.get(retry_id)
             if request is None:
                 request = _QuarantineRetryRequest(fact_id, retry_id)
@@ -559,6 +557,16 @@ def run_node(config: JarvisLocalConfig, *, socket_path: Path | None = None) -> i
     except (NodeConfigurationError, SQLiteDirectoryError) as error:
         print(str(error))
         return EXIT_NODE_CONFIGURATION
+    except UnixSocketInUseError:
+        endpoint = os.fspath(settings.control_socket_path)
+        print(
+            f"the control socket endpoint {endpoint} already exists or is in use. "
+            "Stop jarvis-node and confirm no manually started node owns the endpoint. "
+            "Only if it is a stale socket, not a symlink or other file, run: "
+            f"rm -- {shlex.quote(endpoint)} ; then restart jarvis-node. "
+            "See docs/runbooks/fact-projection.md for the recovery sequence."
+        )
+        return EXIT_NODE_STARTUP
     except Exception:
         print("the Jarvis node could not start or stopped unexpectedly")
         return EXIT_NODE_STARTUP

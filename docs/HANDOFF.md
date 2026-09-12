@@ -5,6 +5,14 @@ using this checkpoint. R0 passed on September 11; calling remains R1.
 
 ## R2 item 3 review candidate
 
+Review remediation after `78e8e89` is in progress. The first checkpoint names
+occupied socket endpoints and gives conditional recovery instructions, documents
+the stale-socket step before abrupt-exit restart, and confines failed enqueue
+diagnosis to the request instead of a sticky storage banner. Local Python is
+758 passed / 32 skips with Ruff and win32 mypy clean. Linux must run the new
+process-kill/live-duplicate test. Guard coverage, intermediate-directory modes
+and response-encoding containment still remain in this review round.
+
 The follow-up after `a9b73fb` bounds the retry reply wait and returns an explicit
 queued acknowledgement while a cloud call is in flight. Local command work wakes
 without running a cloud cycle; only a successful scoped quarantine delete asks

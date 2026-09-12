@@ -614,11 +614,19 @@ def test_enqueue_lock_contention_returns_a_definite_failure_without_accepting_wo
         thread.join(timeout=0.5)
         assert not thread.is_alive(), "enqueue inherited SQLite's five-second lock timeout"
         assert responses == [CliResponse("retry_failed")]
-        assert service.handle(CliCommand("status")).code == "ok"
+        status = service.handle(CliCommand("status"))
+        assert status.code == "ok"
+        assert not any(line.startswith("projection_retry_storage") for line in status.lines)
         assert runtime.facts.connection.execute("SELECT COUNT(*) FROM memory_projection_retry").fetchone() == (0,)
         assert runtime.state.take_cycle_request() is False
-    finally:
         runtime.facts.connection.execute("ROLLBACK")
+        # The lock is healthy again, and no request was accepted. A cached
+        # status response must not advertise a durable pending storage fault.
+        status = service.handle(CliCommand("status"))
+        assert not any(line.startswith("projection_retry_storage") for line in status.lines)
+    finally:
+        if runtime.facts.connection.in_transaction:
+            runtime.facts.connection.execute("ROLLBACK")
         thread.join(timeout=1)
         runtime.close()
 

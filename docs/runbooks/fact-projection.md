@@ -177,9 +177,16 @@ retry plus the latest 20 completed results (`applied`, `not_quarantined`,
 `failed`, or `cancelled`), each with a distinct `request_id`. Local migration
 `0005_projection_retries.sql` adds the durable command journal in the memory
 store. Acceptance is committed before `queued` is returned; the scoped delete
-and its outcome commit together. Startup reloads pending and recent results and
-resumes work left queued by an abrupt exit. History retention keeps all pending
+and its outcome commit together. Startup reloads pending and recent results.
+After an abrupt exit, complete the stale-endpoint recovery sequence below
+before restarting; then the node resumes work left queued. History keeps all pending
 requests and the latest 20 completed receipts for each gateway/principal/device.
+Pruning runs when that owner completes a request. Status and processing cover
+only the configured owner tuple; records for retired device or gateway identities
+remain untouched. This is a per-owner retention bound, not a global database-size
+bound across re-enrollments. Take a backup and review retained identities locally
+before any owner-directed archival or cleanup; the current node never deletes
+another identity's retry history automatically.
 Failures contain no database or fact text. Status serves a memory copy of those
 durable records, so it never needs to wait on a database read.
 
@@ -198,11 +205,43 @@ node stops, leaving their quarantine rows intact. A delete completed before
 stop may still need the next node start to publish its replacement snapshot.
 The short enqueue connection uses a 100 ms SQLite lock timeout. If the journal
 cannot accept the command, the CLI returns `retry_failed`, not `queued` or
-service unavailable. If an outcome cannot be saved, status reports
+service unavailable. That unaccepted request does not set a persistent storage
+banner, including after a transient lock race. If an outcome cannot be saved for
+already accepted work, status reports
 `projection_retry_storage unavailable; queued requests remain durable` and the
 row remains queued for recovery after storage is repaired. The timeout bounds
 lock contention and the completion wait; a stalled filesystem can still delay
 the synchronous durable enqueue. This is not a hard deadline on disk I/O.
+
+### Recover after an abrupt exit
+
+SIGKILL or power loss may leave the control socket inode behind. Startup refuses
+every existing endpoint and does not probe-and-unlink it automatically. An abrupt
+exit therefore preserves the journal but may require this endpoint step before
+the process can restart:
+
+1. Stop automatic restarts with `sudo systemctl stop jarvis-node`. Check
+   `systemctl show jarvis-node -p ActiveState -p SubState -p MainPID` and
+   `pgrep -af '[j]arvis.*node'`; stop any manually launched node using this
+   endpoint too. Inspect `ss -xlpn` for listeners. Do not remove a live endpoint.
+2. Use the **exact endpoint printed by the startup error**. It includes any
+   `--socket-path` override; do not guess a default or use a wildcard. As the
+   service account, inspect that path and remove it only after confirming it is
+   an owner-held stale socket, not a symlink or a regular file. For example,
+   replacing the assignment with that exact path:
+
+   ```bash
+   socket_path='/exact/endpoint/from/the/startup/error'
+   test ! -L "$socket_path" && test -S "$socket_path" &&
+     test "$(stat -c '%u' -- "$socket_path")" = "$(id -u)" &&
+     rm -- "$socket_path"
+   ```
+
+3. Leave the SQLite files and queued retry rows intact. Complete the store-parent
+   preflight above, then `sudo systemctl start jarvis-node` (or relaunch the same
+   manual command). Run `jarvis status` with the same socket configuration to
+   observe restored request IDs and their eventual outcomes. If startup fails
+   for another reason, diagnose that error instead of deleting more files.
 
 If the installed node predates this
 thread-safe command or the control channel is unavailable, keep this stopped-node

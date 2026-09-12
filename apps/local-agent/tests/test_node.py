@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import os
+import shlex
 import signal
 import sqlite3
 import subprocess
@@ -50,7 +51,7 @@ from jarvis_local.sync.cloud_client import CloudAuthError
 from jarvis_local.sync.memory_projection import MemoryProjectionUploader
 from jarvis_local.transport.cli_protocol import OK, CliCommand
 from jarvis_local.transport.pipe_server import ControlServer
-from jarvis_local.transport.unix_socket import UnixSocketServer, send_unix_control_request
+from jarvis_local.transport.unix_socket import UnixSocketInUseError, UnixSocketServer, send_unix_control_request
 
 linux_only = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux node acceptance")
 
@@ -1044,6 +1045,25 @@ def test_startup_failure_is_nonzero_and_sanitized(
 
     assert code != 0
     assert "secret path and exception" not in capsys.readouterr().out
+
+
+def test_an_existing_socket_reports_its_configured_path_and_conditional_recovery(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    endpoint = "/run/jarvis/owner's control.sock"
+
+    def fail(_: NodeSettings) -> NodeRuntime:
+        raise UnixSocketInUseError("synthetic private exception detail")
+
+    monkeypatch.setattr("jarvis_local.node.sys.platform", "linux")
+    monkeypatch.setattr("jarvis_local.node.build_node", fail)
+    assert run_node(JarvisLocalConfig.load(linux_environment(JARVIS_CONTROL_SOCKET=endpoint))) == 4
+    output = capsys.readouterr().out
+    rendered_endpoint = os.fspath(Path(endpoint))
+    assert rendered_endpoint in output
+    assert "stop" in output.lower() and "stale socket" in output
+    assert "rm -- " + shlex.quote(rendered_endpoint) in output
+    assert "synthetic private" not in output
 
 
 def test_an_unsafe_store_parent_reports_the_path_and_required_mode(
