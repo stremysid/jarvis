@@ -31,6 +31,7 @@ const MAX_OUTPUT_CHARACTERS = 8_000;
 
 const MAX_EXCERPTS = 32;
 const MAX_EXCERPT_CHARACTERS = 4_000;
+const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 
 /** Mirrors the agent's list. A proposal carrying any of these is refused. */
 const FORBIDDEN_KEYS = new Set([
@@ -79,9 +80,10 @@ export function validateExcerpts(value: unknown): readonly DistillExcerpt[] | nu
   for (const item of value) {
     if (!isPlainObject(item)) return null;
     const { sourceEventId, text } = item;
-    if (typeof sourceEventId !== "string" || sourceEventId.length === 0) return null;
+    if (typeof sourceEventId !== "string" || !ULID.test(sourceEventId)) return null;
     if (typeof text !== "string" || text.trim().length === 0) return null;
     if (text.length > MAX_EXCERPT_CHARACTERS) return null;
+    if (hasFactTextControls(text)) return null;
     excerpts.push({ sourceEventId, text });
   }
   return excerpts;
@@ -143,8 +145,11 @@ export async function distil(
   dependencies: DistillDependencies,
   signal: AbortSignal,
 ): Promise<readonly DistillProposal[]> {
-  const supplied = new Set(excerpts.map((excerpt) => excerpt.sourceEventId));
-  const listing = excerpts
+  // Keep prompt construction safe even when a caller bypasses the HTTP validator.
+  const captured = validateExcerpts(excerpts);
+  if (captured === null) throw new TypeError("excerpts_invalid");
+  const supplied = new Set(captured.map((excerpt) => excerpt.sourceEventId));
+  const listing = captured
     .map((excerpt) => `[${excerpt.sourceEventId}] ${excerpt.text}`)
     .join("\n");
 

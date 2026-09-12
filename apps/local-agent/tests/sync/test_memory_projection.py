@@ -361,6 +361,31 @@ def test_an_unrepresentable_active_fact_is_quarantined_while_healthy_facts_publi
     assert facts.get(fact.fact_id).state is FactState.ACTIVE
 
 
+def test_superseded_quarantined_facts_stop_counting_without_erasing_the_record(
+    stores: tuple[ArchiveRepository, FactRepository, Path],
+) -> None:
+    archive, facts, _ = stores
+    record_vector_fact(archive, facts)
+    old = facts.active_facts(PRINCIPAL)[0]
+    # Quarantine through the real explicit rejection and abandonment path.
+    rejected = ProjectionOpener([rejection(), {**receipt(page=False), "published": False}])
+    first = MemoryProjectionUploader(facts, archive, cloud(rejected)).project()
+    assert first.quarantined == 1
+    replacement = facts.record_proposal(
+        FactProposal(PRINCIPAL, "A corrected preference", FactOrigin.AUTHENTICATED_FIRST_PERSON, (EVENT_ID,))
+    )
+    PromotionEngine(facts).promote(replacement)
+    facts.supersede(superseding_fact_id=replacement.fact_id, superseded_fact_id=old.fact_id)
+
+    opener = BindingOpener()
+    uploader = MemoryProjectionUploader(facts, archive, cloud(opener))
+    second = uploader.project()
+    assert second.published and second.quarantined == 0
+    assert [item["factId"] for item in opener.bodies[0]["facts"]] == [replacement.fact_id]
+    assert uploader.project().quarantined == 0
+    assert facts.connection.execute("SELECT COUNT(*) FROM memory_projection_quarantine").fetchone() == (1,)
+
+
 def test_a_foreign_source_is_never_copied_into_the_upload(
     stores: tuple[ArchiveRepository, FactRepository, Path],
 ) -> None:

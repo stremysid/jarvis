@@ -46,6 +46,22 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-12 01:24 UTC — GPT-6 Astra
+
+PR #16 now rejects excerpt controls and non-ULID source ids before prompt
+rendering, including direct distiller calls. The node skips ineligible excerpts
+without changing the archive; one selection/progress scan preserves the valid
+batch limit and advances an invalid-only backlog without a model call. A real
+rejection, supersession and re-projection test proves the active quarantine
+count drops to zero while retaining its audit row. All 11 new mutations fail,
+including removing the state filter alone and removing both the join and filter.
+Restored-source validation: 686 Python tests passed / 20 Windows skips; 2,112
+workspace tests / 109 files; Ruff, win32 mypy and workspace lint/source types
+passed. Test-only gateway types retain 119 unrelated baseline errors, none in
+changed files. See PR #16 for current-head CI and Claude Opus 5 max review;
+its D1 migration 0014 still requires owner rollout. No merge, deployment or live
+migration performed. The lower-priority observations remain outside this fix.
+
 ## 2026-09-11 22:13 UTC — GPT-6 Astra
 
 PR #16 now rejects C0/C1 controls and Unicode line/paragraph separators in fact

@@ -38,13 +38,23 @@ at most 65,536 canonical UTF-8 bytes and 32 facts, with at most eight sources
 per fact and 32 distinct source sequences per page. Fact text is limited to
 4,096 UTF-8 bytes. Fact text rejects C0/C1 controls (including tabs and newlines)
 and Unicode line/paragraph separators in both producers, upload validation and
-the D1 constraint. Source excerpts and conversation history may remain multiline.
+the D1 constraint. Projection provenance excerpts and conversation history may
+remain multiline.
 Both distillation producers enforce the byte/source limits
 and reject text requiring redaction before recording a proposal. Python and the
 gateway run the same redaction vectors, including all ECMAScript whitespace
 characters, while retaining ASCII word boundaries. They do not
 truncate or rewrite claims. Aggregate snapshot/page bounds still fail the
 snapshot explicitly.
+
+Distillation inputs have a stricter framing rule: every excerpt has a lowercase
+ULID source id and control-free text. The gateway validates this before rendering
+the model prompt, including direct calls to the distiller. The node skips archive
+excerpts that fail either rule, leaving the archived event intact. Skipped events
+do not consume the 32-excerpt limit. Progress advances past an ineligible-only
+batch without calling the model; a batch with eligible excerpts advances only
+after its proposals are durable. Multiline archive entries remain available for
+history and provenance but are not submitted for automatic distillation.
 
 An existing active fact that cannot be represented is excluded individually
 and recorded in local `memory_projection_quarantine`; other facts continue to
@@ -54,6 +64,10 @@ pending-rejection marker. Completed projection cycles report the active count,
 for example `projection: 32 active facts quarantined`, including later cycles
 while those active facts remain excluded. Other stage failures retain their
 own failure status.
+
+Superseding a quarantined fact removes it from the active count on the next
+completed projection cycle. Its quarantine record remains for inspection; the
+record alone does not keep the cycle in a failed state.
 
 The node persists the complete page set before the first request. A stopped or
 restarted upload resends every immutable page with fresh signed-request nonces,

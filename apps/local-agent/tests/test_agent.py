@@ -26,7 +26,7 @@ PRINCIPAL = "principal-a"
 
 def event(sequence: int, text: str = "I like coffee") -> dict[str, object]:
     return {
-        "event_id": f"event_{sequence:026d}",
+        "event_id": f"{sequence:026x}",
         "event_sequence": sequence,
         "event_type": "conversation.user_committed",
         "principal_id": PRINCIPAL,
@@ -130,7 +130,7 @@ def test_a_clean_cycle_replicates_distils_and_leaves_proposals_unpromoted(
         archive,
         facts,
         FakeCloud([page]),
-        FakeDistiller([{"text": "Likes coffee", "sourceEventIds": [f"event_{1:026d}"]}]),
+        FakeDistiller([{"text": "Likes coffee", "sourceEventIds": [f"{1:026x}"]}]),
     )
 
     result = run_cycle(replicator, distiller, facts, PRINCIPAL)
@@ -268,7 +268,7 @@ def test_projection_runs_after_an_eligible_fact_is_promoted(
             principal_id=PRINCIPAL,
             text="Likes coffee",
             origin=FactOrigin.AUTHENTICATED_FIRST_PERSON,
-            source_event_ids=(f"event_{1:026d}",),
+            source_event_ids=(f"{1:026x}",),
         )
     )
     replicator, distiller = build(archive, facts, FakeCloud([]), FakeDistiller())

@@ -1,9 +1,16 @@
 # Handoff
 
-Current as of **2026-09-11**. Verify the current branch and checks before
+Current as of **2026-09-12 UTC**. Verify the current branch and checks before
 using this checkpoint. R0 passed on September 11; calling remains R1.
 
 ## R2 item 3 review candidate
+
+Distillation now refuses excerpt controls and non-ULID source ids before prompt
+rendering. The node skips these ineligible raw excerpts without rewriting the
+archive, and selection/progress use one scan so rejected events cannot consume
+the valid-excerpt limit or cause repeated batches. Superseding a quarantined fact
+is covered across re-projection: the active count becomes zero while its retained
+quarantine record remains. Both state-filter mutations fail that regression.
 
 Fact text now rejects controls and Unicode line separators at both producers,
 upload validation and the D1 boundary. Provider context quotes/escapes each
@@ -38,14 +45,14 @@ The Python uploader persists an
 immutable snapshot before HTTP and resends every page after interruption,
 advancing only on an exact commit receipt. Local memory migration `0003`
 adds its durable pending pages and publication cursor. Full Python validation
-is 680 passed / 20 Windows skips, with Ruff and win32 mypy clean. Cloud context
+is 686 passed / 20 Windows skips, with Ruff and win32 mypy clean. Cloud context
 now combines matching published facts with recent turns, enforces active
 principal/device ownership and a shared byte/item budget, and keeps the most
 restrictive sensitivity across device duplicates. History stops at the first
 over-budget turn to preserve its contiguous newest suffix; deferred facts can
 use the remaining space and skip independent oversized candidates. Keyword
 mutations fail the three regressions for these boundaries. Full workspace
-validation is 2,093 passed / 109 files, with lint and source types clean. Removing both
+validation is 2,112 passed / 109 files, with lint and source types clean. Removing both
 publication predicates exposes staged facts and fails the regression; removing
 the device-status predicate exposes a revoked fact and also fails. All guards
 were restored before the full suite.
