@@ -46,6 +46,19 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-12 04:26 UTC — GPT-6 Astra
+
+The PR #16 current-head Windows Hermes job exposed a residual oversized-request
+close race in merged PR #20: 18 local repetitions passed and the 19th reproduced
+the same `ECONNRESET`. A separate Hermes branch now completes the Windows
+graceful-close sequence after its 413 by half-closing writes and time-boundedly
+draining the declared request before final close. The old source fails the exact
+drain regression; the fix passed 30 process-level repetitions and all 37
+compatibility-stub tests. The broader local Hermes command retains ten unrelated
+host-toolchain failures because this machine lacks the pinned Python launcher and
+trusted PowerShell host. No R2 item 3 source was added to this branch, and no
+merge or deployment occurred.
+
 ## 2026-09-11 17:25 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
 
 PR #13 now tests the completed-page guard directly on the wire: two pulls,
