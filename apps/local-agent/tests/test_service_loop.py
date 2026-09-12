@@ -14,8 +14,11 @@ it is the failure that no amount of waiting fixes.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+
+import pytest
 
 from jarvis_local.agent import CycleResult
 from jarvis_local.node import _QuarantineRetryCoordinator
@@ -23,8 +26,10 @@ from jarvis_local.scheduler import (
     STOP_AUTHENTICATION,
     WAKE_BACKOFF,
     WAKE_CADENCE,
+    Decision,
     SchedulePolicy,
     Scheduler,
+    SchedulerState,
 )
 from jarvis_local.service import (
     INVALID_ARGUMENT,
@@ -387,6 +392,85 @@ def test_run_once_only_asks_and_does_not_run_a_cycle_on_the_callers_thread() -> 
     assert response.code == OK
     assert state.take_cycle_request() is True
     assert state.take_cycle_request() is False
+
+
+def test_a_late_local_wake_cannot_end_backoff_after_its_retry_was_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    state = ServiceState()
+    setting = threading.Event()
+    allow_set = threading.Event()
+    set_done = threading.Event()
+    cleared = threading.Event()
+    processed = threading.Event()
+    finished = threading.Event()
+    errors: list[BaseException] = []
+    results: list[str | None] = []
+    original_set, original_clear = state._wake.set, state._wake.clear
+
+    def delayed_set() -> None:
+        setting.set()
+        assert allow_set.wait(2)
+        original_set()
+        set_done.set()
+
+    def release_after_clear() -> None:
+        original_clear()
+        cleared.set()
+        allow_set.set()
+        assert set_done.wait(2)
+
+    monkeypatch.setattr(state._wake, "set", delayed_set)
+    monkeypatch.setattr(state._wake, "clear", release_after_clear)
+    loop = RunLoop(lambda: ok(), state=state, process_control_work=processed.set)
+
+    def request() -> None:
+        try:
+            state.request_control_work()
+        except BaseException as error:
+            errors.append(error)
+
+    def wait() -> None:
+        try:
+            results.append(loop._wait_for_cycle(Decision(SchedulerState(), True, WAKE_BACKOFF, 60)))
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            finished.set()
+
+    requester = threading.Thread(target=request, daemon=True)
+    waiter = threading.Thread(target=wait, daemon=True)
+    requester.start()
+    try:
+        assert setting.wait(1)
+        waiter.start()
+        # The original code consumes the flag before set(), clears the event,
+        # then receives the stale set. With atomic signaling the state lock
+        # prevents that interleaving, so release the setter here instead.
+        if not cleared.wait(0.1):
+            allow_set.set()
+        assert processed.wait(1)
+        assert cleared.wait(1)
+        assert set_done.wait(1)
+        assert not finished.wait(0.1), "a refused local wake started a cloud cycle before backoff elapsed"
+        assert state.take_cycle_request() is False
+    finally:
+        allow_set.set()
+        monkeypatch.setattr(state._wake, "set", original_set)
+        state.request_stop()
+        requester.join(timeout=2)
+        if waiter.ident is not None:
+            waiter.join(timeout=2)
+    assert not requester.is_alive() and not waiter.is_alive()
+    assert errors == []
+    assert results == [None]
+
+
+@pytest.mark.parametrize("request_name", ["request_stop", "request_cycle", "request_control_work"])
+def test_a_wake_is_signalled_atomically_with_its_request(monkeypatch: pytest.MonkeyPatch, request_name: str) -> None:
+    state = ServiceState()
+    observed: list[bool] = []
+    monkeypatch.setattr(state._wake, "set", lambda: observed.append(state._lock.locked()))
+    getattr(state, request_name)()
+    assert observed == [True]
 
 
 def test_stop_only_asks_and_leaves_the_cycle_boundary_to_the_loop() -> None:

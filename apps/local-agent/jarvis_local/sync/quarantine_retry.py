@@ -15,6 +15,13 @@ from pathlib import Path
 
 RETRY_HISTORY_LIMIT = 20
 RETRY_LOCK_TIMEOUT_SECONDS = 0.1
+# Keep every accepted pending request, plus recent history, within one control
+# response. Admission and deduplication happen in the same SQLite statement.
+RETRY_PENDING_LIMIT = 256
+
+
+class RetryQueueFullError(RuntimeError):
+    """No new request was accepted; the owner can inspect the existing queue."""
 
 
 class QuarantineRetryJournal:
@@ -33,11 +40,18 @@ class QuarantineRetryJournal:
             connection.execute("PRAGMA synchronous = FULL")
             rows = connection.execute(
                 """INSERT INTO memory_projection_retry (gateway_origin, principal_id, device_id, fact_id)
-                   VALUES (?, ?, ?, ?)
+                   SELECT ?, ?, ?, ? WHERE
+                   (SELECT COUNT(*) FROM memory_projection_retry
+                    WHERE gateway_origin = ? AND principal_id = ? AND device_id = ? AND outcome = 'queued') < ?
+                   OR EXISTS (SELECT 1 FROM memory_projection_retry
+                    WHERE gateway_origin = ? AND principal_id = ? AND device_id = ?
+                    AND fact_id = ? AND outcome = 'queued')
                    ON CONFLICT (gateway_origin, principal_id, device_id, fact_id) WHERE outcome = 'queued'
                    DO UPDATE SET fact_id = excluded.fact_id RETURNING retry_id""",
-                (*self.owner, fact_id),
+                (*self.owner, fact_id, *self.owner, RETRY_PENDING_LIMIT, *self.owner, fact_id),
             ).fetchall()
+            if not rows:
+                raise RetryQueueFullError("the pending retry queue is full")
             return int(rows[0][0])
 
     def records(self) -> list[tuple[int, str, str]]:

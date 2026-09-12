@@ -37,7 +37,7 @@ from jarvis_local.sync.cloud_client import CloudAuthError, HttpCloudClient
 from jarvis_local.sync.distill_client import HttpDistillationClient
 from jarvis_local.sync.event_replicator import EventReplicator
 from jarvis_local.sync.memory_projection import MemoryProjectionUploader
-from jarvis_local.sync.quarantine_retry import QuarantineRetryJournal
+from jarvis_local.sync.quarantine_retry import QuarantineRetryJournal, RetryQueueFullError
 from jarvis_local.transport.pipe_server import ControlServer
 from jarvis_local.transport.unix_socket import (
     CONTROL_SOCKET_ENVIRONMENT,
@@ -117,6 +117,8 @@ class _QuarantineRetryCoordinator:
                 raise QuarantineRetryError("the retry journal is unavailable")
             try:
                 retry_id = self._journal.enqueue(fact_id)
+            except RetryQueueFullError:
+                raise
             except Exception:
                 self._state.retry_storage_failed()
                 raise

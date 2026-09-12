@@ -7,6 +7,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import replace
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -17,14 +18,68 @@ from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.memory.facts import FactRepository
 from jarvis_local.memory.promotion import PromotionEngine
 from jarvis_local.node import NodeRuntime, _QuarantineRetryCoordinator, build_node
-from jarvis_local.service import LocalAgentService, RunLoop, ServiceState, control_handlers
+from jarvis_local.service import CycleRecord, LocalAgentService, RunLoop, ServiceState, control_handlers
 from jarvis_local.sync.memory_projection import MemoryProjectionUploader
 from jarvis_local.sync.quarantine_retry import QuarantineRetryJournal
 from jarvis_local.transport.cli_protocol import CliCommand, CliResponse
+from jarvis_local.transport.pipe_server import decode_response, encode_frame, encode_response, read_frame
 from jarvis_local.transport.unix_socket import DEFAULT_IO_TIMEOUT_SECONDS, send_unix_control_request
 from tests.test_node import EmptyCycleOpener, FakeControl, linux_only, record_promotable_fact, settings_at
 
 FACT_ID = "fact_" + "a" * 32
+
+
+def test_retry_admission_keeps_all_pending_and_recent_status_readable_after_restart(tmp_path: Path) -> None:
+    path = tmp_path / "memory.sqlite3"
+    owner = ("https://gateway.example", "principal-1", "device-1")
+    facts = FactRepository.open(path)
+    journal = QuarantineRetryJournal(facts.connection, path, owner)
+    try:
+        for number in range(20):
+            retry_id = journal.enqueue("fact_" + f"{1000 + number:032x}")
+            journal.finish(retry_id, "failed")
+        pending_ids = [journal.enqueue("fact_" + f"{number:032x}") for number in range(256)]
+    finally:
+        facts.close()
+
+    facts = FactRepository.open(path)
+    journal = QuarantineRetryJournal(facts.connection, path, owner)
+    state = ServiceState()
+    coordinator = _QuarantineRetryCoordinator(state)
+    coordinator.attach(journal)
+    service = LocalAgentService(control_handlers(state, retry_quarantined=coordinator.submit))
+    try:
+        state.take_control_work_request()
+        refused = service.handle(CliCommand("retry-quarantined", {"fact_id": FACT_ID}))
+        assert refused.code == "retry_queue_full"
+        assert "not accepted" in " ".join(refused.lines)
+        assert state.take_control_work_request() is False
+        assert state.take_cycle_request() is False
+        assert not any(line.startswith("projection_retry_storage") for line in state.report())
+        assert len(journal.records()) == 276
+        # A duplicate is still the original accepted request even at capacity.
+        assert journal.enqueue("fact_" + "0" * 32) == pending_ids[0]
+        for column in range(3):
+            foreign_owner = list(owner)
+            foreign_owner[column] += "-other"
+            foreign = QuarantineRetryJournal(facts.connection, path, tuple(foreign_owner))
+            foreign_id = foreign.enqueue(FACT_ID)
+            assert foreign.records() == [(foreign_id, FACT_ID, "queued")]
+        for _ in range(20):
+            state.record(CycleRecord(
+                "2026-09-12T12:00:00.000Z", "2026-09-12T12:00:01.000Z", "requested",
+                *([2**63 - 1] * 5), failure="projection: request failed",
+            ))
+        response = service.handle(CliCommand("status"))
+        decoded = decode_response(read_frame(BytesIO(encode_frame(encode_response(response)))))
+        assert decoded == response
+        assert len([line for line in decoded.lines if " queued request_id=" in line]) == 256
+        assert len([line for line in decoded.lines if " failed request_id=" in line]) == 20
+        journal.finish(pending_ids[0], "not_quarantined")
+        new_id = journal.enqueue(FACT_ID)
+        assert (new_id, FACT_ID, "queued") in journal.records()
+    finally:
+        facts.close()
 
 
 def retry_status(lines: tuple[str, ...]) -> tuple[str, ...]:

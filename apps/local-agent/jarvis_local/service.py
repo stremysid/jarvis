@@ -40,6 +40,7 @@ from jarvis_local.scheduler import (
     utc_now,
 )
 from jarvis_local.sync.cloud_client import CloudAuthError
+from jarvis_local.sync.quarantine_retry import RetryQueueFullError
 from jarvis_local.transport.cli_protocol import (
     CONFIRMATION_REQUIRED,
     EFFECTFUL_COMMANDS,
@@ -70,6 +71,7 @@ RUNNING = "running"
 INVALID_ARGUMENT = "invalid_argument"
 FACT_NOT_QUARANTINED = "fact_not_quarantined"
 RETRY_FAILED = "retry_failed"
+RETRY_QUEUE_FULL = "retry_queue_full"
 _FACT_ID = re.compile(r"fact_[0-9a-f]{32}\Z")
 
 
@@ -175,18 +177,20 @@ class ServiceState:
     def request_stop(self) -> None:
         with self._lock:
             self._stop_requested = True
-        self._wake.set()
+            self._wake.set()
 
     def request_cycle(self) -> None:
         with self._lock:
             self._cycle_requested = True
-        self._wake.set()
+            self._wake.set()
 
     def request_control_work(self) -> None:
         """Wake SQLite's owning thread without authorizing cloud work."""
         with self._lock:
             self._control_work_requested = True
-        self._wake.set()
+            # Signal under the flag lock: a late set after the loop consumed
+            # this request could otherwise masquerade as an elapsed deadline.
+            self._wake.set()
 
     def take_control_work_request(self) -> bool:
         with self._lock:
@@ -406,6 +410,10 @@ def control_handlers(
                 return CliResponse(INVALID_ARGUMENT)
             try:
                 retried = retry_quarantined(fact_id)
+            except RetryQueueFullError:
+                return CliResponse(RETRY_QUEUE_FULL, (
+                    "retry not accepted; the pending queue is full; inspect it with jarvis status",
+                ))
             except Exception:
                 # A malformed request or store failure must not escape through
                 # the transport and kill the long-running control server.

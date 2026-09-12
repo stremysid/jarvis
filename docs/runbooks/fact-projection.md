@@ -183,6 +183,14 @@ requests and the latest 20 completed receipts for each gateway/principal/device.
 Failures contain no database or fact text. Status serves a memory copy of those
 durable records, so it never needs to wait on a database read.
 
+Each gateway/principal/device may have up to 256 pending requests. At that
+limit, a new fact returns `retry_queue_full` and is not accepted; retrying an
+already-pending fact keeps its existing request ID. Admission is atomic in
+SQLite. This limit keeps all accepted pending requests and recent results
+within the control client's response bound, including after a restart; status
+does not silently omit pending requests. Wait for a pending request to finish
+before submitting another new fact.
+
 A refused retry wakes only local command processing, preserving the existing
 cadence/backoff deadline without a cloud or paid distillation cycle. Only a
 successful delete requests a cycle. Pending retries are cancelled when the

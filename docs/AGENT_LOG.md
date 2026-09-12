@@ -46,6 +46,20 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-12 11:56 UTC — GPT-6
+
+PR #16's fresh advisory review found an oversized-status backlog and a delayed
+wake signal that could start cloud work after a local refusal. Atomic admission
+now caps pending retries at 256 per owner with an explicit refusal, and wake
+signals share the request lock. Regression tests reproduce both original
+failures, including restart and the actual response framing. Linux CI also
+caught the existing embedding compatibility check creating a 0755 store parent;
+that caller now requests 0700 at creation without weakening the refusal guard.
+Eleven additional mutations fail their tests and were restored. Full local
+Python is 757 passed / 31 skips; Ruff and win32 mypy pass. Main 1fc8187 is merged
+into the branch. Final-head CI and independent Claude Opus 5 max review remain
+pending. No PR merge, deployment or live migration performed.
+
 ## 2026-09-12 11:40 UTC — GPT-6
 
 PR #16 now persists accepted retry requests and terminal results through local

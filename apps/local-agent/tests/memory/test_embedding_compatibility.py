@@ -140,6 +140,32 @@ def test_gate_falls_back_to_blob_cosine_with_no_candidates(tmp_path: Path) -> No
     assert report.passed is True
 
 
+def test_gate_creates_a_private_store_directory_before_opening_the_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created: list[tuple[Path, int]] = []
+    original_mkdir = Path.mkdir
+
+    def record_creation(path: Path, mode: int = 0o777, parents: bool = False, exist_ok: bool = False) -> None:
+        if not path.exists():
+            created.append((path, mode))
+        original_mkdir(path, mode=mode, parents=parents, exist_ok=exist_ok)
+
+    monkeypatch.setattr(Path, "mkdir", record_creation)
+    previous_umask = os.umask(0o022)
+    try:
+        report = run_compatibility_gate(tmp_path)
+        assert report.passed is True
+        candidate_parent = tmp_path / f"00-{STRATEGY_SQLITE_BLOB_COSINE}"
+        # Windows cannot enforce POSIX modes; pin the creation request there,
+        # then check the real directory permissions in the Linux job too.
+        assert created == [(candidate_parent, 0o700)]
+        if os.name == "posix":
+            assert candidate_parent.stat().st_mode & 0o777 == 0o700
+    finally:
+        os.umask(previous_umask)
+
+
 @pytest.mark.parametrize("entry_point", ["socket", "create_connection"])
 def test_gate_rejects_any_candidate_that_attempts_network(tmp_path: Path, entry_point: str) -> None:
     with pytest.raises(CompatibilityFailure, match="offline"):

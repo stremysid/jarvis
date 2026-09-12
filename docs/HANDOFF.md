@@ -16,6 +16,10 @@ recent history survives with distinct request IDs. Retention uses completion
 order, so an older request finishing late remains visible. A receipt-storage
 failure keeps queued work available for later existing boundaries without a
 hot retry loop. The runbook retains the stopped-node exact SQL fallback.
+Atomic admission limits each owner to 256 pending requests so all accepted work
+fits in status; excess new requests receive `retry_queue_full`, and duplicate
+pending requests retain their IDs. Request flags and wake signals share the
+same lock so a delayed local signal cannot bypass the cloud backoff deadline.
 
 The gateway now returns retryable 409 for `device_key_changed`, the race between
 the verified-key read and nonce write. `device_key_invalid` remains 401 and a
@@ -29,8 +33,10 @@ Existing POSIX store parents are refused if they are not private; startup never
 chmods an owner-selected directory. The permission error names the manual chmod
 command. The runbook now requires an archive/memory/vault/vector parent-mode
 preflight before deployment or migration 0014. Database/WAL/SHM file guards stay
-0600. Local validation: Python 751 passed / 31 skips, Ruff, win32 mypy for all 55
-source files and diff checks pass. All 40 final guard mutations were caught and
+0600. The existing embedding compatibility check creates its own candidate
+directory with 0700 so it obeys this same policy. Local validation: Python 757
+passed / 31 skips, Ruff, win32 mypy for all 55 source files and diff checks pass.
+The 40 earlier guard mutations and 11 follow-up mutations were caught and
 restored. Linux CI must exercise the actual slow-cloud Unix socket and POSIX
 permission cases. Main `1fc8187`, including merged PR #21's Hermes close fix,
 is incorporated here. Wait for final PR #16 CI before claiming this candidate
