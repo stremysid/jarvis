@@ -5,6 +5,20 @@ using this checkpoint. R0 passed on September 11; calling remains R1.
 
 ## R2 item 3 review candidate
 
+**Platform hold (Sid, 2026-09-12):** his PCs run Windows 11 and his phone is an
+iPhone 16; there is no Linux host, server or VPS. The home PC is off overnight.
+The current Linux-only node cannot run on his machines. Do not port the node or
+continue Linux work until he decides. Carry forward the actual R2 requirement:
+memory must work with every PC off. PR #22 records this correction in
+`CLAUDE.md`; the runbook labels its existing Linux procedures as on hold and
+its mode-0700 check as POSIX-only, with no Windows ACL enforcement.
+
+The platform-independent review fixes are pushed at `f1958c4`. GitHub Actions
+run 34721781316 did not start any of its seven jobs because of an account
+billing/spending-limit restriction. This is not current-head CI validation;
+the local results below remain the available evidence. No billing setting or
+workflow check was changed.
+
 The follow-up after `2e5da79` adds five direct migration-trigger regressions and
 two FTS recovery cases. Removing each named trigger from migration 0014 fails its
 own test; removing the exercised rebuild command fails both forged/missing-match

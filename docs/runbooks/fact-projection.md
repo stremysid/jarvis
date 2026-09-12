@@ -1,4 +1,18 @@
-# Home-node fact projection
+# Fact projection
+
+**Platform decision on hold.** Sid's home PC and laptop run Windows 11; his
+phone is an iPhone 16. He has no Linux host, server or VPS. The home PC is on
+during waking hours and off overnight. The current `jarvis node` implementation
+refuses to start outside Linux, so this PR's node cannot run on his machines.
+Do not port it to Windows or proceed with Linux host work until Sid chooses a
+direction. The Linux deployment and recovery instructions retained below
+describe the existing implementation; they are not steps for his Windows hosts.
+See the platform correction in [PR #22](https://github.com/ksid1229-ops/jarvis/pull/22).
+
+The requirement remains **memory must work with every PC off**. Linux was an
+implementation chosen during planning, not an owner-approved platform decision.
+The cloud trigger tests, FTS recovery and post-migration verification below are
+platform-independent. They do not authorize a deployment or resolve the host choice.
 
 The home node publishes its eligible active-fact view as a signed, versioned
 snapshot. Cloud retrieval continues to use the previously published version
@@ -10,7 +24,7 @@ before new distillation work. It captures and publishes the current active-fact
 snapshot only after promotion finishes. A stop between requests leaves the
 pending snapshot durable for the next node process.
 
-## Rollout order
+## Rollout order after owner approval
 
 This runbook is introduced by PR #16. Before merging, read it from the
 [PR branch](https://github.com/ksid1229-ops/jarvis/blob/codex/r2-fact-projection/docs/runbooks/fact-projection.md);
@@ -21,8 +35,9 @@ inspect the immediate parent of every SQLite store this host uses, as the servic
 Existing parents must be owned by that account and private (mode **0700**).
 The new node refuses a permissive existing parent instead of changing it. A
 POSIX host still using a 0755 or 0750 parent will fail startup after this upgrade.
-The store-mode preflight below is POSIX-only; its Bash/GNU `stat` commands target
-the Linux home node. On non-POSIX systems, including Windows,
+The store-mode preflight below is POSIX-only; its Bash/GNU `stat` commands apply
+to the existing Linux implementation, whose deployment is on hold. On non-POSIX
+systems, including Sid's Windows hosts,
 `_restrict_sqlite_directory` returns without enforcing mode bits. These commands
 do not apply there and do not validate Windows ACLs. The cloud migration and
 trigger-count check below still apply regardless of the node host platform.
@@ -235,7 +250,7 @@ row remains queued for recovery after storage is repaired. The timeout bounds
 lock contention and the completion wait; a stalled filesystem can still delay
 the synchronous durable enqueue. This is not a hard deadline on disk I/O.
 
-### Recover after an abrupt exit
+### Recover after an abrupt exit (existing Linux implementation; on hold)
 
 SIGKILL or power loss may leave the control socket inode behind. Startup refuses
 every existing endpoint and does not probe-and-unlink it automatically. An abrupt
@@ -378,6 +393,10 @@ exercise forged and missing matches through the real retriever, including a
 passing default integrity check, and verify correct retrieval after rebuild.
 
 ## Owner acceptance
+
+Node deployment and live acceptance remain on hold pending Sid's platform
+decision. The eventual R2 exit test must prove memory retrieval with **every PC
+off**. Stopping a node process alone does not establish that requirement.
 
 After migration `0014_memory_projection.sql`, the updated gateway, and the
 node-composition patch are deployed, publish a harmless test fact sourced from

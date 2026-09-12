@@ -46,6 +46,18 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-12 22:09 UTC — GPT-6
+
+Sid corrected the platform record: Windows 11 PCs and iPhone 16 only, no Linux
+host, and the home PC is off overnight. Node direction is on hold; do not port
+it or continue Linux work. The requirement remains memory with every PC off.
+PR #22 records the correction; PR #16's runbook now makes the hold explicit.
+The requested platform-independent tests and documentation are pushed at
+f1958c4, with migration 0014 unchanged. All seven Actions jobs in run
+34721781316 were refused before starting because of GitHub account billing or
+spending limits; local tests pass, but this is not green CI. No billing setting,
+production service, migration or platform implementation was changed.
+
 ## 2026-09-12 22:04 UTC — GPT-6
 
 PR #16's 2e5da79 review follow-up adds the five missing trigger regressions plus
