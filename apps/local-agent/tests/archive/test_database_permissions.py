@@ -27,6 +27,42 @@ class ClosableStore(Protocol):
 POSIX_ONLY = pytest.mark.skipif(os.name != "posix", reason="POSIX permission semantics")
 
 
+def test_every_missing_store_ancestor_is_created_private_and_validated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    outer = tmp_path / "outer"
+    inner = outer / "inner"
+    requested: dict[Path, int] = {}
+    validated: list[Path] = []
+    original_mkdir = Path.mkdir
+    original_guard = database._restrict_sqlite_directory
+
+    def mkdir(path: Path, mode: int = 0o777, parents: bool = False, exist_ok: bool = False) -> None:
+        missing = not path.exists()
+        original_mkdir(path, mode=mode, parents=parents, exist_ok=exist_ok)
+        if missing:
+            requested[path] = mode
+
+    def guard(path: Path) -> None:
+        validated.append(path)
+        original_guard(path)
+
+    monkeypatch.setattr(Path, "mkdir", mkdir)
+    monkeypatch.setattr(database, "_restrict_sqlite_directory", guard)
+    previous = os.umask(0o022)
+    connection = None
+    try:
+        connection = connect(inner / "archive.sqlite3")
+        assert requested == {outer: 0o700, inner: 0o700}
+        assert validated == [outer, inner]
+        if os.name == "posix":
+            assert {stat.S_IMODE(path.stat().st_mode) for path in (outer, inner)} == {0o700}
+    finally:
+        os.umask(previous)
+        if connection is not None:
+            connection.close()
+
+
 @POSIX_ONLY
 @pytest.mark.parametrize("open_store", [ArchiveRepository.open, FactRepository.open])
 def test_store_and_live_wal_files_ignore_a_permissive_umask(

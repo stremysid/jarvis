@@ -46,6 +46,20 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-12 14:18 UTC — GPT-6
+
+PR #16's remaining 78e8e89 follow-up now creates and validates every missing
+store-directory component as 0700 and contains invalid control-response encoding.
+Regressions cover the transaction, startup wake, shutdown, existing-file and
+migration 0005 guards, preserve retired-device history, and detect a memory write
+lock across page, commit or abandonment HTTP. Seventeen targeted mutations were
+caught and restored; the full local Python suite passes 789 tests / 32 platform
+skips, with Ruff and win32 mypy clean. The early f8666f9 checkpoint passed all
+seven CI jobs including Linux process-kill recovery. A fresh same-vendor read-only
+advisory review found no further issues; final-commit CI remains on the PR.
+Retired identities remain retained with an explicitly per-owner bound. No
+migration contents changed, and no merge, deployment or live operation occurred.
+
 ## 2026-09-12 14:01 UTC — GPT-6
 
 The first PR #16 review checkpoint after 78e8e89 fixes the two rollout diagnoses:

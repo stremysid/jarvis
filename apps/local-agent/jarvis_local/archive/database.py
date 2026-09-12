@@ -86,6 +86,22 @@ def _restrict_sqlite_directory(path: Path) -> None:
         os.close(descriptor)
 
 
+def _ensure_sqlite_directory(path: Path) -> None:
+    # pathlib's parents=True applies mode only to the final directory. Create
+    # and inspect each missing component so the node never makes a public
+    # ancestor while creating a private store beneath it.
+    missing: list[Path] = []
+    for directory in (path, *path.parents):
+        if directory.exists():
+            break
+        missing.append(directory)
+    for directory in reversed(missing):
+        directory.mkdir(mode=stat.S_IRWXU, exist_ok=True)
+        _restrict_sqlite_directory(directory)
+    if not missing:
+        _restrict_sqlite_directory(path)
+
+
 def connect(path: Path) -> sqlite3.Connection:
     """Open the archive with the pragmas it depends on.
 
@@ -93,8 +109,7 @@ def connect(path: Path) -> sqlite3.Connection:
     default in SQLite and must be enabled per connection, or content_seen's
     reference to content_blob would be decorative.
     """
-    path.parent.mkdir(mode=stat.S_IRWXU, parents=True, exist_ok=True)
-    _restrict_sqlite_directory(path.parent)
+    _ensure_sqlite_directory(path.parent)
     _restrict_sqlite_file(path, create=True)
     for suffix in ("-wal", "-shm"):
         _restrict_sqlite_file(Path(f"{path}{suffix}"), create=False)

@@ -5,13 +5,24 @@ using this checkpoint. R0 passed on September 11; calling remains R1.
 
 ## R2 item 3 review candidate
 
-Review remediation after `78e8e89` is in progress. The first checkpoint names
-occupied socket endpoints and gives conditional recovery instructions, documents
-the stale-socket step before abrupt-exit restart, and confines failed enqueue
-diagnosis to the request instead of a sticky storage banner. Local Python is
-758 passed / 32 skips with Ruff and win32 mypy clean. Linux must run the new
-process-kill/live-duplicate test. Guard coverage, intermediate-directory modes
-and response-encoding containment still remain in this review round.
+Review remediation after `78e8e89` is implemented. The early pushed checkpoint
+`f8666f9` passed all seven CI jobs, including Linux's real node SIGKILL/restart
+and live-duplicate test. Startup names an occupied endpoint and gives conditional
+manual recovery instructions; the runbook puts stale-endpoint removal before
+restart. A failed, unaccepted enqueue no longer sets a persistent storage alarm.
+New store-directory components are all created as 0700 and validated. Invalid
+control-response shapes and encoding failures return a fixed refusal while the
+control service remains usable.
+
+The latest local Python suite passes 789 tests / 32 Windows platform skips,
+with Ruff and win32 mypy clean. Seventeen targeted mutations were caught and
+restored. Added coverage pins transaction boundaries, recovered-work wakeup,
+shutdown admission, mode=rw, all three reviewed migration 0005 constraints,
+per-device retention, and memory write locks staying outside cloud requests.
+No migration contents changed in this round. A fresh read-only same-vendor
+advisory review found no further issues in the inspected delta; it does not
+replace independent Claude review. Final-commit CI and publication status are
+recorded on PR #16.
 
 The follow-up after `a9b73fb` bounds the retry reply wait and returns an explicit
 queued acknowledgement while a cloud call is in flight. Local command work wakes
@@ -42,13 +53,14 @@ chmods an owner-selected directory. The permission error names the manual chmod
 command. The runbook now requires an archive/memory/vault/vector parent-mode
 preflight before deployment or migration 0014. Database/WAL/SHM file guards stay
 0600. The existing embedding compatibility check creates its own candidate
-directory with 0700 so it obeys this same policy. Local validation: Python 757
-passed / 31 skips, Ruff, win32 mypy for all 55 source files and diff checks pass.
+directory with 0700 so it obeys this same policy. The preceding checkpoint's
+local validation was Python 757 passed / 31 skips, Ruff, win32 mypy for all 55
+source files and diff checks.
 The 40 earlier guard mutations and 11 follow-up mutations were caught and
-restored. Linux CI must exercise the actual slow-cloud Unix socket and POSIX
+restored. Its Linux CI passed the actual slow-cloud Unix socket and POSIX
 permission cases. Main `1fc8187`, including merged PR #21's Hermes close fix,
-is incorporated here. Wait for final PR #16 CI before claiming this candidate
-is green.
+is incorporated here. Current validation is at the top of this section and on
+PR #16.
 
 The gateway authenticates signed bytes before endpoint validation, so an
 unauthenticated request cannot invoke projection policy or distillation model
@@ -98,15 +110,15 @@ each of ten guards and the fact-rowid predicate fails its direct-SQL regression.
 The Python uploader persists an
 immutable snapshot before HTTP and resends every page after interruption,
 advancing only on an exact commit receipt. Local memory migration `0003`
-adds its durable pending pages and publication cursor. Full Python validation
-is 686 passed / 20 Windows skips, with Ruff and win32 mypy clean. Cloud context
+adds its durable pending pages and publication cursor. Earlier Python validation
+was 686 passed / 20 Windows skips, with Ruff and win32 mypy clean. Cloud context
 now combines matching published facts with recent turns, enforces active
 principal/device ownership and a shared byte/item budget, and keeps the most
 restrictive sensitivity across device duplicates. History stops at the first
 over-budget turn to preserve its contiguous newest suffix; deferred facts can
 use the remaining space and skip independent oversized candidates. Keyword
-mutations fail the three regressions for these boundaries. Full workspace
-validation is 2,112 passed / 109 files, with lint and source types clean. Removing both
+mutations fail the three regressions for these boundaries. Earlier workspace
+validation was 2,112 passed / 109 files, with lint and source types clean. Removing both
 publication predicates exposes staged facts and fails the regression; removing
 the device-status predicate exposes a revoked fact and also fails. All guards
 were restored before the full suite.

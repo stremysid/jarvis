@@ -422,6 +422,34 @@ class EmptyCycleOpener:
         ]
 
 
+class TransactionRecordingOpener:
+    """Observe actual store transactions at the boundary of each HTTP call."""
+
+    def __init__(self, delegate: Any) -> None:
+        self.delegate = delegate
+        self.runtime: NodeRuntime | None = None
+        self.observed: list[tuple[str, str | None, bool, bool]] = []
+
+    def __call__(self, request: Any, timeout: float | None = None) -> FakeResponse:
+        assert self.runtime is not None
+        assert isinstance(self.runtime.archive, ArchiveRepository)
+        assert isinstance(self.runtime.facts, FactRepository)
+        body = json.loads(request.data.decode("utf-8"))
+        self.observed.append((
+            request.full_url.removeprefix("https://gateway.example"),
+            body.get("operation"),
+            self.runtime.archive.connection.in_transaction,
+            self.runtime.facts.connection.in_transaction,
+        ))
+        return self.delegate(request, timeout=timeout)
+
+    def assert_no_open_transactions(self) -> None:
+        # Assert after the cycle, too: intentionally failed recovery requests
+        # can have their exceptions converted into a normal failure result.
+        assert self.observed
+        assert all(not archive and not memory for _, _, archive, memory in self.observed), self.observed
+
+
 def settings_at(
     root: Path,
     *,
@@ -470,8 +498,10 @@ def test_bootstrap_wires_signed_replication_then_distillation_on_real_stores(tmp
     settings = settings_at(tmp_path)
     platform_device_key_store(settings.device_key_path).load_or_create()
     opener = SignedFlowOpener()
+    observed = TransactionRecordingOpener(opener)
     control = FakeControl()
-    runtime = build_node(settings, opener=opener, control_factory=lambda *_: control)
+    runtime = build_node(settings, opener=observed, control_factory=lambda *_: control)
+    observed.runtime = runtime
     try:
         assert isinstance(runtime.loop, RunLoop)
         result = runtime.loop.run_cycle()
@@ -496,6 +526,7 @@ def test_bootstrap_wires_signed_replication_then_distillation_on_real_stores(tmp
     assert signed["audience"] == "jarvis-local-agent"
     assert control.started == 1
     assert control.closed == 1
+    observed.assert_no_open_transactions()
 
 
 def test_node_projects_promoted_facts_once_across_two_cycles(tmp_path: Path) -> None:
@@ -550,7 +581,9 @@ def test_pending_projection_is_retried_by_a_reconstructed_node_before_distillati
     settings = settings_at(tmp_path)
     platform_device_key_store(settings.device_key_path).load_or_create()
     first_opener = EmptyCycleOpener(projection_actions=[None, urllib.error.URLError("commit response lost")])
-    first_runtime = build_node(settings, opener=first_opener, control_factory=lambda *_: FakeControl())
+    first_observed = TransactionRecordingOpener(first_opener)
+    first_runtime = build_node(settings, opener=first_observed, control_factory=lambda *_: FakeControl())
+    first_observed.runtime = first_runtime
     try:
         record_promotable_fact(first_runtime)
         assert isinstance(first_runtime.loop, RunLoop)
@@ -564,7 +597,9 @@ def test_pending_projection_is_retried_by_a_reconstructed_node_before_distillati
         first_runtime.close()
 
     second_opener = EmptyCycleOpener(distill_action=urllib.error.URLError("fresh model request unavailable"))
-    second_runtime = build_node(settings, opener=second_opener, control_factory=lambda *_: FakeControl())
+    second_observed = TransactionRecordingOpener(second_opener)
+    second_runtime = build_node(settings, opener=second_observed, control_factory=lambda *_: FakeControl())
+    second_observed.runtime = second_runtime
     try:
         assert isinstance(second_runtime.archive, ArchiveRepository)
         second_runtime.archive.insert_event_if_absent(
@@ -600,6 +635,8 @@ def test_pending_projection_is_retried_by_a_reconstructed_node_before_distillati
     assert second_opener.projection_bodies == first_projection_bodies
     assert pending == (0,)
     assert cursor == (1,)
+    first_observed.assert_no_open_transactions()
+    second_observed.assert_no_open_transactions()
 
 
 @pytest.mark.parametrize("fact_count", [1, 32])
@@ -616,7 +653,9 @@ def test_the_node_reports_quarantine_count_and_keeps_publishing_later_cycles(
         io.BytesIO(b'{"error":"memory_projection_content_rejected"}'),
     )
     opener = EmptyCycleOpener(projection_actions=[rejected])
-    runtime = build_node(settings, opener=opener, control_factory=lambda *_: FakeControl())
+    observed = TransactionRecordingOpener(opener)
+    runtime = build_node(settings, opener=observed, control_factory=lambda *_: FakeControl())
+    observed.runtime = runtime
     try:
         record_promotable_fact(runtime)
         assert isinstance(runtime.loop, RunLoop)
@@ -647,6 +686,8 @@ def test_the_node_reports_quarantine_count_and_keeps_publishing_later_cycles(
         ).fetchone() == (1,)
     finally:
         runtime.close()
+
+    observed.assert_no_open_transactions()
 
 
 def test_built_node_executes_quarantine_retry_on_the_cycle_thread(

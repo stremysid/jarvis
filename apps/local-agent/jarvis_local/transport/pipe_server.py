@@ -195,6 +195,8 @@ def decode_request(payload: bytes) -> CliCommand:
 
 
 def encode_response(response: CliResponse) -> bytes:
+    if not isinstance(response.code, str) or not all(isinstance(line, str) for line in response.lines):
+        raise TypeError("control response code and lines must be strings")
     return json.dumps({"code": response.code, "lines": list(response.lines)}, separators=(",", ":")).encode("utf-8")
 
 
@@ -243,11 +245,12 @@ class ControlServer:
 
         try:
             response = self.dispatcher.handle(command)
+            return self._reply(writer, response)
         except Exception:
-            # A handler's failure is one refused command, not the end of the
-            # control service. Exception text may contain private store data.
-            response = CliResponse("command_failed")
-        return self._reply(writer, response)
+            # A handler or its response can fail. Encode before writing so an
+            # invalid response never reaches the wire before this fixed reply.
+            # Exception text may contain private store data.
+            return self._reply(writer, CliResponse("command_failed"))
 
     def _reply(self, writer: ByteWriter, response: CliResponse) -> CliResponse:
         # Best effort by design: a peer that has hung up, or is blocked writing

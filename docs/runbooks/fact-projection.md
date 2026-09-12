@@ -264,9 +264,11 @@ backup if it does not; do not broaden the predicate. Restart the node and reques
 one cycle only after the scoped delete succeeds.
 
 On POSIX direct/manual runs, SQLite database, WAL and SHM files are created
-owner-only (0600). New immediate store directories are created as 0700.
+owner-only (0600). Every missing directory component the node creates, including
+intermediate parents, is created as 0700 and validated before proceeding.
 Existing directories are validated, never chmodded: see the required preflight
-before rollout above. Existing owner-held store files with broader mode bits are
+before rollout above. Existing ancestors above an immediate store parent are
+left unchanged. Existing owner-held store files with broader mode bits are
 tightened before SQLite opens them, and symbolic-link store files or foreign/non-regular
 files are refused. A symlinked directory is permitted, but the final archive and
 memory files must not themselves be symlinks. Before the first upgraded live-node

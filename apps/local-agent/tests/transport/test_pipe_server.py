@@ -27,6 +27,7 @@ import os
 import sys
 import threading
 import uuid
+from typing import cast
 
 import pytest
 
@@ -114,6 +115,25 @@ def test_a_raising_handler_gets_a_fixed_failure_and_the_next_command_still_works
     assert b"private" not in sink.getvalue()
     response = server.serve_one(io.BytesIO(encode_frame(encode_request(CliCommand("status")))), io.BytesIO())
     assert response.code == OK
+
+
+@pytest.mark.parametrize("field,value", [
+    ("lines", {"synthetic_private": "detail"}), ("lines", object()), ("code", 42),
+])
+def test_an_invalid_handler_response_is_refused_without_stopping_control_service(field: str, value: object) -> None:
+    invalid = CliResponse(cast(str, value), ()) if field == "code" else CliResponse(OK, (cast(str, value),))
+    service = LocalAgentService(control_handlers(ServiceState()))
+    service.handlers["run-once"] = lambda _: invalid
+    server = ControlServer(service)
+    sink = io.BytesIO()
+    response = server.serve_one(io.BytesIO(encode_frame(encode_request(CliCommand("run-once")))), sink)
+    assert response == CliResponse("command_failed")
+    assert decode_response(read_frame(io.BytesIO(sink.getvalue()))) == response
+    assert b"synthetic_private" not in sink.getvalue()
+    next_sink = io.BytesIO()
+    status = server.serve_one(io.BytesIO(encode_frame(encode_request(CliCommand("status")))), next_sink)
+    assert status.code == OK
+    assert decode_response(read_frame(io.BytesIO(next_sink.getvalue()))) == status
 
 
 def test_an_oversized_request_is_refused_before_its_body_is_read() -> None:

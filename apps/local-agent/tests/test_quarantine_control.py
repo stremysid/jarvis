@@ -18,6 +18,7 @@ from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.memory.facts import FactRepository
 from jarvis_local.memory.promotion import PromotionEngine
 from jarvis_local.node import NodeRuntime, _QuarantineRetryCoordinator, build_node
+from jarvis_local.scheduler import Decision, Scheduler, SchedulerState
 from jarvis_local.service import CycleRecord, LocalAgentService, RunLoop, ServiceState, control_handlers
 from jarvis_local.sync.memory_projection import MemoryProjectionUploader
 from jarvis_local.sync.quarantine_retry import QuarantineRetryJournal
@@ -84,6 +85,71 @@ def test_retry_admission_keeps_all_pending_and_recent_status_readable_after_rest
 
 def retry_status(lines: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(line.split(" request_id=")[0] for line in lines)
+
+
+def test_reconstructed_pending_work_wakes_a_loop_whose_first_cycle_is_delayed(tmp_path: Path) -> None:
+    settings = settings_at(tmp_path)
+    platform_device_key_store(settings.device_key_path).load_or_create()
+    first = build_node(settings, opener=EmptyCycleOpener(), control_factory=lambda *_: FakeControl())
+    assert first.retry_coordinator is not None
+    assert first.retry_coordinator.submit(FACT_ID) is None
+    first.facts.close()
+    first.archive.close()
+    first.control.close()
+    opener = EmptyCycleOpener()
+    second = build_node(settings, opener=opener, control_factory=lambda *_: FakeControl())
+    assert isinstance(second.loop, RunLoop)
+    assert isinstance(second.facts, FactRepository)
+    processed = threading.Event()
+    process_local_work = second.loop.process_control_work
+    assert process_local_work is not None
+
+    class DelayedStartup(Scheduler):
+        def after(self, state: SchedulerState, result: CycleResult | None) -> Decision:
+            return replace(super().after(state, result), delay_seconds=60)
+
+    def process() -> None:
+        process_local_work()
+        processed.set()
+
+    def stop_after_observation() -> None:
+        processed.wait(2)
+        second.state.request_stop()
+
+    second.loop.scheduler = DelayedStartup()
+    second.loop.process_control_work = process
+    observer = threading.Thread(target=stop_after_observation, daemon=True)
+    observer.start()
+    try:
+        assert second.loop.run() == "stopped"
+        assert processed.is_set(), "recovered work waited for the delayed startup cycle"
+        assert second.facts.connection.execute("SELECT outcome FROM memory_projection_retry").fetchone() == (
+            "not_quarantined",
+        )
+        assert opener.requests == []
+        assert second.state.recent() == ()
+        assert second.state.take_cycle_request() is False
+    finally:
+        second.state.request_stop()
+        observer.join(timeout=3)
+        second.close()
+
+
+def test_a_stopping_but_not_closed_coordinator_refuses_new_work(
+    retry_factory: Callable[[ServiceState], _QuarantineRetryCoordinator],
+) -> None:
+    state = ServiceState()
+    coordinator = retry_factory(state)
+    assert coordinator._journal is not None
+    state.request_stop()
+    response = LocalAgentService(control_handlers(state, retry_quarantined=coordinator.submit)).handle(
+        CliCommand("retry-quarantined", {"fact_id": FACT_ID}),
+    )
+    assert response == CliResponse("retry_failed")
+    assert coordinator._journal.records() == []
+    assert not any(line.startswith("projection_retry ") for line in state.report())
+    assert state.take_control_work_request() is False
+    assert state.take_cycle_request() is False
 
 
 def quarantined_fact(runtime: NodeRuntime) -> str:
@@ -696,12 +762,17 @@ def test_a_new_retry_for_the_same_fact_cannot_be_hidden_by_an_older_completion()
     assert f"projection_retry {FACT_ID} applied request_id=1" in state.report()
 
 
-def test_the_durable_journal_bounds_completed_history_without_dropping_pending_or_foreign_work(tmp_path: Path) -> None:
+@pytest.mark.parametrize("foreign_column", [0, 1, 2])
+def test_the_durable_journal_bounds_completed_history_without_dropping_pending_or_foreign_work(
+    tmp_path: Path, foreign_column: int,
+) -> None:
     path = tmp_path / "memory.sqlite3"
     facts = FactRepository.open(path)
     owner = ("https://gateway.example", "principal-1", "device-1")
     journal = QuarantineRetryJournal(facts.connection, path, owner)
-    foreign = QuarantineRetryJournal(facts.connection, path, (owner[0], "foreign", owner[2]))
+    foreign_owner = list(owner)
+    foreign_owner[foreign_column] += "-retired"
+    foreign = QuarantineRetryJournal(facts.connection, path, tuple(foreign_owner))
     try:
         foreign_id = foreign.enqueue(FACT_ID)
         foreign.finish(foreign_id, "failed")
