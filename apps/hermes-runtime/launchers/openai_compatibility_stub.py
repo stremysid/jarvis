@@ -22,6 +22,7 @@ import argparse
 import hmac
 import json
 import socket
+import socketserver
 import sys
 import threading
 import unicodedata
@@ -231,6 +232,17 @@ class StubHandler(BaseHTTPRequestHandler):
     def _error(self, key: str) -> None:
         status, content_type, body = self.policy.errors[key]
         self._respond(status, content_type, body)
+        if key == "payload_too_large":
+            # The request body remains unread by design. On Windows, closing a
+            # socket with unread inbound data can reset the connection and
+            # discard the 413 already written. Half-close the write side first
+            # so the response and FIN are ordered before the final close.
+            self.close_connection = True
+            try:
+                self.connection.shutdown(socket.SHUT_WR)
+            except OSError:
+                # The peer may already have closed; the response path is done.
+                pass
 
     def _authorized(self) -> bool:
         header = self.headers.get(self.policy.auth_header)
@@ -261,10 +273,34 @@ class StubHandler(BaseHTTPRequestHandler):
         if length < 0:
             return None, "invalid_request"
         if length > self.policy.max_body_bytes:
-            # Too large to drain safely: refuse and close rather than read it.
+            # Too large to drain safely: the response path half-closes the
+            # write side after emitting 413, then closes without reading it.
             self.close_connection = True
             return None, "payload_too_large"
         return self.rfile.read(length), None
+
+    def _select_chat_response(self, body: bytes) -> Tuple[int, str, bytes]:
+        """Validate one admitted request and select its immutable response."""
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return self.policy.errors["invalid_json"]
+
+        failure = validate_chat_request(self.policy, payload)
+        if failure is not None:
+            return self.policy.errors[failure]
+
+        if payload["stream"]:
+            return (
+                self.policy.streaming_status,
+                self.policy.streaming_type,
+                self.policy.streaming_body,
+            )
+        return (
+            self.policy.nonstreaming_status,
+            self.policy.nonstreaming_type,
+            self.policy.nonstreaming_body,
+        )
 
     # -- routes -----------------------------------------------------------
 
@@ -308,31 +344,10 @@ class StubHandler(BaseHTTPRequestHandler):
             self._error("concurrency_limit")
             return
         try:
-            try:
-                payload = json.loads(body.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                self._error("invalid_json")
-                return
-
-            failure = validate_chat_request(self.policy, payload)
-            if failure is not None:
-                self._error(failure)
-                return
-
-            if payload["stream"]:
-                self._respond(
-                    self.policy.streaming_status,
-                    self.policy.streaming_type,
-                    self.policy.streaming_body,
-                )
-            else:
-                self._respond(
-                    self.policy.nonstreaming_status,
-                    self.policy.nonstreaming_type,
-                    self.policy.nonstreaming_body,
-                )
+            response = self._select_chat_response(body)
         finally:
             self.gate.release()
+        self._respond(*response)
 
     def _reject_method(self) -> None:
         # Drain first for the same keep-alive framing reason as do_POST.
@@ -357,6 +372,13 @@ class LoopbackStubServer(ThreadingHTTPServer):
     # Do not reuse addresses: a bind collision must fail loudly rather than
     # silently share the fixed contract port with another process.
     allow_reuse_address = False
+
+    def server_bind(self) -> None:
+        # HTTPServer.server_bind performs a blocking reverse-DNS lookup via
+        # socket.getfqdn(). Bind directly because this stub neither resolves
+        # names nor uses the server_name value populated by that lookup.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
 
 def build_server(policy: StubPolicy, port: Optional[int] = None) -> LoopbackStubServer:
