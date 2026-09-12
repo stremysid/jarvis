@@ -27,7 +27,7 @@ from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.doctor import run_doctor
 from jarvis_local.enrollment import bootstrap_metadata_hash, enrollment_material
 from jarvis_local.node import run_node
-from jarvis_local.transport.cli_protocol import OK, CliCommand
+from jarvis_local.transport.cli_protocol import OK, QUEUED, CliCommand
 from jarvis_local.transport.pipe_server import (
     DEFAULT_PIPE_NAME,
     ControlProtocolError,
@@ -143,7 +143,7 @@ def _control(
         return EXIT_REFUSED
     for line in response.lines:
         print(line)
-    if response.code != OK:
+    if response.code not in {OK, QUEUED}:
         print(response.code)
         return EXIT_REFUSED
     return 0

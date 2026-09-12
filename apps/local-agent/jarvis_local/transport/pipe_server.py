@@ -241,7 +241,13 @@ class ControlServer:
         except MalformedRequestError:
             return self._reply(writer, CliResponse(MALFORMED_REQUEST))
 
-        return self._reply(writer, self.dispatcher.handle(command))
+        try:
+            response = self.dispatcher.handle(command)
+        except Exception:
+            # A handler's failure is one refused command, not the end of the
+            # control service. Exception text may contain private store data.
+            response = CliResponse("command_failed")
+        return self._reply(writer, response)
 
     def _reply(self, writer: ByteWriter, response: CliResponse) -> CliResponse:
         # Best effort by design: a peer that has hung up, or is blocked writing

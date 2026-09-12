@@ -5,13 +5,13 @@ using this checkpoint. R0 passed on September 11; calling remains R1.
 
 ## R2 item 3 review candidate
 
-The review follow-up after `71e6b10` moves `retry-quarantined` off the control
-thread. The command queues an exact owner-scoped request, wakes the run loop and
-waits while the cycle thread performs the SQLite delete outside projection
-transactions. A control/store failure returns a fixed response instead of
-terminating the node. Both a portable cross-thread regression and a real Linux
-Unix-socket regression require the row gone, a successful response and a still-
-running node. The runbook retains the stopped-node exact SQL fallback.
+The follow-up after `a9b73fb` bounds the retry reply wait and returns an explicit
+queued acknowledgement while a cloud call is in flight. Local command work wakes
+without running a cloud cycle; only a successful scoped quarantine delete asks
+for one. Status reports pending and recent retry results, including failures and
+stop cancellation. The current checkpoint keeps these records in memory;
+Sid has requested a durable local journal and restart regressions next. The
+runbook retains the stopped-node exact SQL fallback.
 
 The gateway now returns retryable 409 for `device_key_changed`, the race between
 the verified-key read and nonce write. `device_key_invalid` remains 401 and a
@@ -21,13 +21,13 @@ storage text into a permanent status; future trigger names remain generic 400.
 Promotion-stage authentication is mutation-pinned. Quarantine deletion scope and
 both fact-id guards now have dedicated regressions.
 
-POSIX store parents are tightened to 0700 as well as database/WAL/SHM files to
-0600. Portable tests pin regular-file, owner, creation-mode, directory-call and
-both sidecar-pass guards; Linux integration covers actual modes and the real
-control socket. Local Windows validation is 711 passed / 27 platform skips and
-workspace validation is 2,139 passed / 109 files; Ruff, win32 mypy and gateway
-lint/source types pass. Current-head Ubuntu CI is required for the Linux-only
-mode and socket cases.
+Existing POSIX store parents are refused if they are not private; startup never
+chmods an owner-selected directory. The permission error names the manual chmod
+command. The runbook now requires an archive/memory/vault/vector parent-mode
+preflight before deployment or migration 0014. Database/WAL/SHM file guards stay
+0600. Local validation at this checkpoint: Python 728 passed / 31 skips, with 22
+targeted guard mutations caught and restored. Linux CI must exercise the actual
+slow-cloud Unix socket and POSIX permission cases.
 
 The gateway authenticates signed bytes before endpoint validation, so an
 unauthenticated request cannot invoke projection policy or distillation model

@@ -25,6 +25,7 @@ from urllib.parse import urlsplit
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from jarvis_local.agent import CycleResult, open_stores, run_cycle
+from jarvis_local.archive.database import SQLiteDirectoryError
 from jarvis_local.config import JarvisLocalConfig
 from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.memory.distillation import DistillationCoordinator
@@ -49,6 +50,9 @@ EXIT_NODE_OK = 0
 EXIT_NODE_CONFIGURATION = 3
 EXIT_NODE_STARTUP = 4
 EXIT_NODE_AUTHENTICATION = 5
+
+# Leave most of the control client's two-second exchange deadline for I/O.
+QUARANTINE_RETRY_WAIT_SECONDS = 0.1
 
 
 def _is_linux() -> bool:
@@ -77,7 +81,7 @@ class _QuarantineRetryRequest:
     fact_id: str
     completed: threading.Event = field(default_factory=threading.Event)
     deleted: bool = False
-    error: Exception | None = None
+    error: BaseException | None = None
 
 
 class _QuarantineRetryCoordinator:
@@ -89,16 +93,18 @@ class _QuarantineRetryCoordinator:
         self._pending: list[_QuarantineRetryRequest] = []
         self._closed = False
 
-    def submit(self, fact_id: str) -> bool:
-        request = _QuarantineRetryRequest(fact_id)
+    def submit(self, fact_id: str) -> bool | None:
         with self._lock:
-            if self._closed:
+            if self._closed or self._state.stop_requested():
                 raise QuarantineRetryError("the node is stopping")
-            self._pending.append(request)
-        # The cycle thread owns the SQLite connection. Wake it, then wait for
-        # that thread to finish the exact delete before answering the owner.
-        self._state.request_cycle()
-        request.completed.wait()
+            request = next((item for item in self._pending if item.fact_id == fact_id), None)
+            if request is None:
+                request = _QuarantineRetryRequest(fact_id)
+                self._pending.append(request)
+                self._state.record_retry(fact_id, "queued")
+        self._state.request_control_work()
+        if not request.completed.wait(timeout=QUARANTINE_RETRY_WAIT_SECONDS):
+            return None
         if request.error is not None:
             raise QuarantineRetryError("the quarantine retry failed") from request.error
         return request.deleted
@@ -106,11 +112,21 @@ class _QuarantineRetryCoordinator:
     def drain(self, retry: Callable[[str], bool]) -> None:
         with self._lock:
             pending, self._pending = self._pending, []
-        for request in pending:
+        for index, request in enumerate(pending):
+            if self._state.stop_requested():
+                self._cancel(pending[index:])
+                return
             try:
                 request.deleted = retry(request.fact_id)
-            except Exception as error:
+                if request.deleted:
+                    self._state.request_cycle()
+                self._state.record_retry(request.fact_id, "applied" if request.deleted else "not_quarantined")
+            except BaseException as error:
                 request.error = error
+                self._state.record_retry(request.fact_id, "failed")
+                if not isinstance(error, Exception):
+                    self._cancel(pending[index + 1:])
+                    raise
             finally:
                 request.completed.set()
 
@@ -118,8 +134,12 @@ class _QuarantineRetryCoordinator:
         with self._lock:
             self._closed = True
             pending, self._pending = self._pending, []
+        self._cancel(pending)
+
+    def _cancel(self, pending: list[_QuarantineRetryRequest]) -> None:
         for request in pending:
             request.error = QuarantineRetryError("the node stopped before the quarantine retry")
+            self._state.record_retry(request.fact_id, "cancelled")
             request.completed.set()
 
 
@@ -448,6 +468,7 @@ def build_node(
             loop = RunLoop(
                 node_cycle,
                 state=state,
+                process_control_work=lambda: retry_coordinator.drain(projector.retry_quarantined),
             )
             return NodeRuntime(loop, state, control, archive, facts, retry_coordinator)
         except BaseException:
@@ -471,7 +492,7 @@ def run_node(config: JarvisLocalConfig, *, socket_path: Path | None = None) -> i
             settings = replace(settings, control_socket_path=socket_path)
         runtime = build_node(settings)
         reason = runtime.run()
-    except NodeConfigurationError as error:
+    except (NodeConfigurationError, SQLiteDirectoryError) as error:
         print(str(error))
         return EXIT_NODE_CONFIGURATION
     except Exception:

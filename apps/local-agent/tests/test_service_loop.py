@@ -18,6 +18,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from jarvis_local.agent import CycleResult
+from jarvis_local.node import _QuarantineRetryCoordinator
 from jarvis_local.scheduler import (
     STOP_AUTHENTICATION,
     WAKE_BACKOFF,
@@ -26,7 +27,6 @@ from jarvis_local.scheduler import (
     Scheduler,
 )
 from jarvis_local.service import (
-    FACT_NOT_QUARANTINED,
     INVALID_ARGUMENT,
     RECENT_CYCLE_LIMIT,
     RETRY_FAILED,
@@ -420,14 +420,16 @@ def test_retry_quarantined_clears_one_fact_and_wakes_the_loop() -> None:
 
 def test_retry_quarantined_refuses_an_unknown_or_malformed_fact() -> None:
     state = ServiceState()
-    service = LocalAgentService(control_handlers(state, retry_quarantined=lambda _fact_id: False))
-
-    assert service.handle(CliCommand("retry-quarantined", {"fact_id": "not-a-fact"})).code == INVALID_ARGUMENT
-    assert (
-        service.handle(CliCommand("retry-quarantined", {"fact_id": "fact_" + "a" * 32})).code
-        == FACT_NOT_QUARANTINED
-    )
-    assert state.take_cycle_request() is False
+    coordinator = _QuarantineRetryCoordinator(state)
+    service = LocalAgentService(control_handlers(state, retry_quarantined=coordinator.submit))
+    try:
+        assert service.handle(CliCommand("retry-quarantined", {"fact_id": "not-a-fact"})).code == INVALID_ARGUMENT
+        assert service.handle(CliCommand("retry-quarantined", {"fact_id": "fact_" + "a" * 32})).code == "queued"
+        coordinator.drain(lambda _: False)
+        assert f"projection_retry fact_{'a' * 32} not_quarantined" in state.report()
+        assert state.take_cycle_request() is False
+    finally:
+        coordinator.close()
 
 
 def test_retry_quarantined_contains_store_failure() -> None:

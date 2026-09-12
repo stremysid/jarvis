@@ -31,6 +31,7 @@ INTERACTIVE_LOCAL_SESSION_REQUIRED = "interactive_local_session_required"
 CONFIRMATION_REQUIRED = "confirmation_required"
 UNKNOWN_COMMAND = "unknown_command"
 OK = "ok"
+QUEUED = "queued"
 
 
 @dataclass(frozen=True, slots=True)

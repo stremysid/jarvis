@@ -12,6 +12,50 @@ pending snapshot durable for the next node process.
 
 ## Rollout order
 
+**Before deploying either component or applying migration 0014**, inspect the
+immediate parent of every SQLite store this host uses, as the service account.
+Existing parents must be owned by that account and private (mode **0700**).
+The new node refuses a permissive existing parent instead of changing it. A
+host still using a 0755 or 0750 parent will fail startup after this upgrade.
+
+Load the deployed environment and inventory all four store types: archive,
+memory, vault and vector index. `jarvis node` currently opens the first two;
+`jarvis vault` uses `JARVIS_ARCHIVE_PATH` too. `VaultRepository.open(path)` and
+`VectorIndex.open(path, provider)` can also receive explicit paths from other
+callers. There is no vector-index environment setting in this node yet. Inspect
+any deployed caller or wrapper for those paths; do not infer a default filename.
+If a store type is unused on this host, record that instead of inventing a path.
+
+Run this in Bash as the service account, adding any separately configured vault
+and vector-index store files to `store_paths` before the loop:
+
+```bash
+: "${JARVIS_ARCHIVE_PATH:?load the node environment first}"
+: "${JARVIS_MEMORY_PATH:?load the node environment first}"
+store_paths=("$JARVIS_ARCHIVE_PATH" "$JARVIS_MEMORY_PATH")
+# For each additional configured store, add its actual absolute path:
+# store_paths+=("/actual/path/to/vault-store.sqlite3")
+# store_paths+=("/actual/path/to/vector-index.sqlite3")
+preflight_failed=0
+for store_file in "${store_paths[@]}"; do
+  store_parent=$(dirname -- "$store_file")
+  stat -L -c 'mode=%a owner_uid=%u directory=%n' -- "$store_parent"
+  test "$(stat -L -c '%a:%u' -- "$store_parent")" = "700:$(id -u)" || {
+    printf 'STOP: fix ownership/permissions of %s before deployment\n' "$store_parent"
+    preflight_failed=1
+  }
+done
+test "$preflight_failed" -eq 0
+```
+
+For an existing directory that should be private, the manual repair is
+`chmod 0700 -- '/actual/store/parent'`; then repeat the complete check above.
+Do not chmod a home directory or shared directory blindly. Move the store into
+a dedicated directory owned by the service account and update its configured
+path if the current parent must remain shared. Do not proceed to migration or
+deployment until every configured parent passes. This preflight is required
+even for systemd: `UMask=0077` does not repair an existing directory's mode.
+
 Apply cloud migration `0014_memory_projection.sql` and deploy the updated
 gateway before starting a node version that uploads fact projections. These
 are owner operations. Do not start the updated node against an older gateway:
@@ -123,8 +167,23 @@ cursors or cloud abandonment receipts. Retrying an unchanged poison will
 quarantine it again. An abandoned manifest cannot be reused at its old version;
 the committed replacement is what makes the next version available.
 
-The command queues the delete for the node's cycle thread and does not answer
-success until that scoped row is gone. If the installed node predates this
+The command queues the delete for the node's cycle thread. An `ok` response
+means that scoped row is gone and a new cycle was requested. If the cycle thread
+is busy, the command answers `queued` within a bounded wait, with CLI exit code
+0 and the explicit message **not yet applied**. This is acceptance, not proof of
+a delete or a cloud publication. `jarvis status` stays available during a cloud
+call and shows `projection_retry <fact_id> <outcome>`: every pending `queued`
+retry plus the latest 20 completed results (`applied`, `not_quarantined`,
+`failed`, or `cancelled`). Failures contain no database or fact text. These
+command records are in memory and reset when the process restarts; quarantine
+rows themselves remain durable and can be inspected with the SQL above.
+
+A refused retry wakes only local command processing, preserving the existing
+cadence/backoff deadline without a cloud or paid distillation cycle. Only a
+successful delete requests a cycle. Pending retries are cancelled when the
+node stops, leaving their quarantine rows intact. A delete completed before
+stop may still need the next node start to publish its replacement snapshot.
+If the installed node predates this
 thread-safe command or the control channel is unavailable, keep this stopped-node
 fallback: stop `jarvis-node`, take the normal memory-store backup, and delete only
 the exact four-column owner tuple with SQLite before restarting the service:
@@ -144,10 +203,11 @@ Require `changes()` to return exactly `1`. Leave the node stopped and restore th
 backup if it does not; do not broaden the predicate. Restart the node and request
 one cycle only after the scoped delete succeeds.
 
-On POSIX direct/manual runs, the archive and memory SQLite database, WAL and SHM
-files are created owner-only, and each immediate store directory is mode 0700.
-Existing owner-held store files/directories with broader mode bits are tightened
-before SQLite opens them, and symbolic-link store files or foreign/non-regular
+On POSIX direct/manual runs, SQLite database, WAL and SHM files are created
+owner-only (0600). New immediate store directories are created as 0700.
+Existing directories are validated, never chmodded: see the required preflight
+before rollout above. Existing owner-held store files with broader mode bits are
+tightened before SQLite opens them, and symbolic-link store files or foreign/non-regular
 files are refused. A symlinked directory is permitted, but the final archive and
 memory files must not themselves be symlinks. Before the first upgraded live-node
 start, load the configured environment and verify both with:

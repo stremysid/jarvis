@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import re
 import threading
+import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -45,6 +46,7 @@ from jarvis_local.transport.cli_protocol import (
     INTERACTIVE_LOCAL_SESSION_REQUIRED,
     LOCAL_ONLY_COMMANDS,
     OK,
+    QUEUED,
     SERVICE_CONTROL_COMMANDS,
     UNKNOWN_COMMAND,
     CliCommand,
@@ -154,6 +156,9 @@ class ServiceState:
         self._recent: deque[CycleRecord] = deque(maxlen=recent_limit)
         self._stop_requested = False
         self._cycle_requested = False
+        self._control_work_requested = False
+        self._pending_retries: set[str] = set()
+        self._recent_retries: deque[tuple[str, str]] = deque(maxlen=recent_limit)
         self._started_at: str | None = None
         self._status = RUNNING
 
@@ -175,6 +180,26 @@ class ServiceState:
         with self._lock:
             self._cycle_requested = True
         self._wake.set()
+
+    def request_control_work(self) -> None:
+        """Wake SQLite's owning thread without authorizing cloud work."""
+        with self._lock:
+            self._control_work_requested = True
+        self._wake.set()
+
+    def take_control_work_request(self) -> bool:
+        with self._lock:
+            requested = self._control_work_requested
+            self._control_work_requested = False
+            return requested
+
+    def record_retry(self, fact_id: str, outcome: str) -> None:
+        with self._lock:
+            if outcome == QUEUED:
+                self._pending_retries.add(fact_id)
+            else:
+                self._pending_retries.discard(fact_id)
+                self._recent_retries.append((fact_id, outcome))
 
     def stop_requested(self) -> bool:
         """Sample the stop flag now.
@@ -208,13 +233,24 @@ class ServiceState:
             started = self._started_at or "never"
             status = self._status
             cycles = tuple(self._recent)
+            pending = tuple(sorted(self._pending_retries))
+            retries = tuple(self._recent_retries)
         header = (f"status {status}", f"started_at {started}", f"cycles_recorded {len(cycles)}")
-        return header + tuple(f"cycle {cycle.summary()}" for cycle in cycles)
+        return (
+            header + tuple(f"cycle {cycle.summary()}" for cycle in cycles)
+            + tuple(f"projection_retry {fact_id} queued" for fact_id in pending)
+            + tuple(f"projection_retry {fact_id} {outcome}" for fact_id, outcome in retries)
+        )
 
     def wait(self, seconds: float) -> None:
         """Sleep until the cadence elapses or a command arrives, whichever first."""
+        with self._lock:
+            if self._stop_requested or self._cycle_requested or self._control_work_requested:
+                return
+            # Clear before waiting, under the same lock as the flags. Clearing
+            # after wait could erase a command that raced with the wakeup.
+            self._wake.clear()
         self._wake.wait(timeout=seconds)
-        self._wake.clear()
 
 
 class RunLoop:
@@ -232,12 +268,16 @@ class RunLoop:
         state: ServiceState | None = None,
         sleep: Callable[[float], None] | None = None,
         clock: Callable[[], datetime] = utc_now,
+        process_control_work: Callable[[], None] | None = None,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.run_cycle = run_cycle
         self.scheduler = scheduler or Scheduler(clock=clock)
         self.state = state or ServiceState()
         self.sleep = sleep or self.state.wait
         self.clock = clock
+        self.process_control_work = process_control_work
+        self.monotonic = monotonic
 
     def run(self) -> str:
         """Run until stopped or until the scheduler refuses to continue.
@@ -260,17 +300,32 @@ class RunLoop:
             if not decision.keep_running:
                 return self._halt(decision.reason)
 
-            self.sleep(decision.delay_seconds)
-            if self.state.stop_requested():
+            trigger = self._wait_for_cycle(decision)
+            if trigger is None:
                 # Nothing is in flight here: the stop arrived during the wait.
                 return self._halt(STOPPED_ON_REQUEST)
 
-            last = self._run_one(self._trigger(decision))
+            last = self._run_one(trigger)
 
-    def _trigger(self, decision: Decision) -> str:
-        # Taken unconditionally, so a request that raced with a cadence wake is
-        # consumed rather than left to fire a spurious extra cycle later.
-        return TRIGGER_REQUESTED if self.state.take_cycle_request() else decision.reason
+    def _wait_for_cycle(self, decision: Decision) -> str | None:
+        remaining = decision.delay_seconds
+        while True:
+            started = self.monotonic()
+            self.sleep(remaining)
+            if self.state.stop_requested():
+                return None
+            local_work = self.state.take_control_work_request()
+            if local_work and self.process_control_work is not None:
+                self.process_control_work()
+            if self.state.stop_requested():
+                return None
+            if self.state.take_cycle_request():
+                return TRIGGER_REQUESTED
+            if not local_work or remaining <= 0:
+                return decision.reason
+            # A refused local retry is not a cycle. Keep the original deadline
+            # and backoff decision instead of charging for another model call.
+            remaining = max(0.0, remaining - (self.monotonic() - started))
 
     def _run_one(self, trigger: str) -> CycleResult:
         started = self.clock()
@@ -308,7 +363,7 @@ class RunLoop:
 def control_handlers(
     state: ServiceState,
     *,
-    retry_quarantined: Callable[[str], bool] | None = None,
+    retry_quarantined: Callable[[str], bool | None] | None = None,
 ) -> dict[str, CommandHandler]:
     """Commands served by the control channel, bound to one loop's state.
 
@@ -344,6 +399,10 @@ def control_handlers(
                 # A malformed request or store failure must not escape through
                 # the transport and kill the long-running control server.
                 return CliResponse(RETRY_FAILED)
+            if retried is None:
+                return CliResponse(QUEUED, (
+                    "projection retry queued; not yet applied; follow its result with jarvis status",
+                ))
             if not retried:
                 return CliResponse(FACT_NOT_QUARANTINED)
             return accepted(("projection retry requested",))

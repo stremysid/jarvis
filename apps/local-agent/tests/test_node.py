@@ -23,6 +23,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from jarvis_local.agent import CycleResult, open_stores
 from jarvis_local.archive.archive_repository import ArchiveRepository
+from jarvis_local.archive.database import SQLiteDirectoryError
 from jarvis_local.config import JarvisLocalConfig
 from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.crypto.signed_request import signature_text
@@ -1043,3 +1044,17 @@ def test_startup_failure_is_nonzero_and_sanitized(
 
     assert code != 0
     assert "secret path and exception" not in capsys.readouterr().out
+
+
+def test_an_unsafe_store_parent_reports_the_path_and_required_mode(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fail(_: NodeSettings) -> NodeRuntime:
+        raise SQLiteDirectoryError("SQLite store parent /srv/shared requires owner-only permissions (0700)")
+
+    monkeypatch.setattr("jarvis_local.node.sys.platform", "linux")
+    monkeypatch.setattr("jarvis_local.node.build_node", fail)
+    assert run_node(JarvisLocalConfig.load(linux_environment())) == 3
+    output = capsys.readouterr().out
+    assert "/srv/shared" in output
+    assert "0700" in output

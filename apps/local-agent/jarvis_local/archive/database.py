@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import sqlite3
 import stat
 from pathlib import Path
@@ -31,6 +32,10 @@ CREATE TABLE IF NOT EXISTS schema_migration (
 def _is_posix() -> bool:
     # Behind a function so a win32 mypy run still checks the guarded body.
     return os.name == "posix"
+
+
+class SQLiteDirectoryError(PermissionError):
+    """An owner-selected store directory requires an explicit permissions fix."""
 
 
 def _restrict_sqlite_file(path: Path, *, create: bool) -> None:
@@ -68,11 +73,15 @@ def _restrict_sqlite_directory(path: Path) -> None:
     try:
         metadata = os.fstat(descriptor)
         if not stat.S_ISDIR(metadata.st_mode):
-            raise PermissionError("the SQLite store parent is not a directory")
+            raise SQLiteDirectoryError(f"SQLite store parent {path} is not a directory")
         if metadata.st_uid != os.geteuid():  # type: ignore[attr-defined,unused-ignore]
-            raise PermissionError("the SQLite store parent is not owned by this user")
+            raise SQLiteDirectoryError(f"SQLite store parent {path} is not owned by this user")
         if metadata.st_mode & 0o077:
-            os.fchmod(descriptor, stat.S_IRWXU)  # type: ignore[attr-defined,unused-ignore]
+            raise SQLiteDirectoryError(
+                f"SQLite store parent {path} requires owner-only permissions (0700). "
+                "After checking that this directory should be private, run: "
+                f"chmod 0700 -- {shlex.quote(os.fspath(path))}"
+            )
     finally:
         os.close(descriptor)
 

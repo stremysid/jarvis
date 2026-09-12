@@ -130,7 +130,7 @@ def test_store_creation_requests_owner_only_mode(
     assert requested_modes == [0o600]
 
 
-def test_store_directory_guard_requests_owner_only_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_store_directory_guard_refuses_permissions_without_changing_them(monkeypatch: pytest.MonkeyPatch) -> None:
     requested_modes: list[int] = []
     monkeypatch.setattr(database, "_is_posix", lambda: True)
     monkeypatch.setattr(database.os, "open", lambda *_args: 7)
@@ -148,9 +148,41 @@ def test_store_directory_guard_requests_owner_only_mode(monkeypatch: pytest.Monk
     )
     monkeypatch.setattr(database.os, "close", lambda _descriptor: None)
 
-    database._restrict_sqlite_directory(Path("state"))
+    with pytest.raises(PermissionError, match=r"state.*0700") as refusal:
+        database._restrict_sqlite_directory(Path("state directory"))
 
-    assert requested_modes == [0o700]
+    assert requested_modes == []
+    assert "chmod 0700 -- 'state directory'" in str(refusal.value)
+
+
+@pytest.mark.parametrize("mode,owner,reason", [
+    (stat.S_IFREG | 0o700, 1000, "not a directory"),
+    (stat.S_IFDIR | 0o700, 1001, "not owned by this user"),
+])
+def test_store_directory_refuses_wrong_type_or_owner(
+    monkeypatch: pytest.MonkeyPatch, mode: int, owner: int, reason: str,
+) -> None:
+    closed: list[int] = []
+    monkeypatch.setattr(database, "_is_posix", lambda: True)
+    monkeypatch.setattr(database.os, "open", lambda *_args: 7)
+    monkeypatch.setattr(database.os, "fstat", lambda _: SimpleNamespace(st_mode=mode, st_uid=owner))
+    monkeypatch.setattr(database.os, "geteuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(database.os, "close", closed.append)
+    with pytest.raises(PermissionError, match=reason):
+        database._restrict_sqlite_directory(Path("state"))
+    assert closed == [7]
+
+
+@POSIX_ONLY
+@pytest.mark.parametrize("mode", [0o755, 0o750])
+def test_connect_refuses_an_existing_shared_parent_without_chmod(tmp_path: Path, mode: int) -> None:
+    parent = tmp_path / "owner-chosen"
+    parent.mkdir()
+    parent.chmod(mode)
+    with pytest.raises(PermissionError, match=r"owner-chosen.*0700"):
+        connect(parent / "archive.sqlite3")
+    assert stat.S_IMODE(parent.stat().st_mode) == mode
+    assert not (parent / "archive.sqlite3").exists()
 
 
 def test_connect_applies_the_directory_guard_to_the_store_parent(

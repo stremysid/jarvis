@@ -99,6 +99,23 @@ def served(payload: bytes, limit: int = MAX_REQUEST_BYTES) -> tuple[CliResponse,
 # --- the size bound ---------------------------------------------------------
 
 
+def test_a_raising_handler_gets_a_fixed_failure_and_the_next_command_still_works() -> None:
+    def fail(_command: CliCommand) -> CliResponse:
+        raise RuntimeError("synthetic private exception text")
+
+    service = LocalAgentService({"run-once": fail, **control_handlers(ServiceState())})
+    service.handlers["run-once"] = fail
+    server = ControlServer(service)
+    sink = io.BytesIO()
+
+    failed = server.serve_one(io.BytesIO(encode_frame(encode_request(CliCommand("run-once")))), sink)
+    assert failed == CliResponse("command_failed")
+    assert decode_response(read_frame(io.BytesIO(sink.getvalue()))) == failed
+    assert b"private" not in sink.getvalue()
+    response = server.serve_one(io.BytesIO(encode_frame(encode_request(CliCommand("status")))), io.BytesIO())
+    assert response.code == OK
+
+
 def test_an_oversized_request_is_refused_before_its_body_is_read() -> None:
     """An unbounded read on a local pipe is a one-line memory exhaustion, and a
     bound applied after the read is not a bound."""

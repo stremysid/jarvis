@@ -86,6 +86,21 @@ def test_an_explicit_pipe_name_keeps_the_windows_transport(monkeypatch: pytest.M
     assert calls == [r"\\.\pipe\explicit"]
 
 
+def test_a_queued_retry_is_reported_as_accepted_but_not_applied(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jarvis_local.cli.os", SimpleNamespace(name="posix"))
+    monkeypatch.setattr(
+        "jarvis_local.cli.send_unix_control_request",
+        lambda *_: CliResponse("queued", ("projection retry queued; not yet applied",)),
+    )
+
+    assert main(["retry-quarantined", "fact_" + "a" * 32]) == 0
+    output = capsys.readouterr().out
+    assert "queued; not yet applied" in output
+    assert "not running" not in output
+
+
 def test_posix_defaults_to_the_unix_socket(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[Path | None] = []
 

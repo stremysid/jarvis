@@ -46,6 +46,18 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-12 11:20 UTC — GPT-6
+
+PR #16's new retry regressions caught all 22 targeted mutations: bounded queued
+responses, separate local wake without a paid cycle on refusal, pre/post drains,
+shutdown cancellation, status history, directory refusals and handler containment.
+Local Python passed 728 tests / 31 skips. The runbook requires all configured
+store parents checked for 0700 before migration 0014 or deployment; startup no
+longer chmods existing directories and prints the exact manual repair command.
+This is a pushed checkpoint, not completion: Sid has since requested persisted
+retry requests/outcomes, which are next with restart and lock-contention tests.
+No merge, deployment or migration performed.
+
 ## 2026-09-12 04:12 UTC — GPT-6 Astra
 
 PR #16 follow-up moves quarantine retry work from the control thread to a queued
