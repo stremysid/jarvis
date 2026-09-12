@@ -1,6 +1,7 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import { readFileSync } from "node:fs";
+import { Agent, request as httpRequest } from "node:http";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -77,6 +78,45 @@ async function expectContractError(response, key) {
   expect(response.status).toBe(spec.status);
   expect(response.headers.get("content-type")).toBe(spec.contentType);
   expect(await response.text()).toBe(spec.utf8);
+}
+
+function runPythonProbe(source) {
+  const result = spawnSync(python, ["-c", source, stubPath], {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  expect(result.status, `python probe failed:\n${result.stdout}${result.stderr}`).toBe(0);
+}
+
+function postOnAgent(agent, body) {
+  const payload = Buffer.from(JSON.stringify(body));
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(
+      `${origin}${contract.request.route}`,
+      {
+        agent,
+        method: "POST",
+        headers: {
+          ...authHeaders,
+          "content-length": String(payload.length),
+          "content-type": "application/json",
+        },
+      },
+      (response) => {
+        const chunks = [];
+        response.on("data", (chunk) => chunks.push(chunk));
+        response.on("end", () => {
+          resolve({
+            body: Buffer.concat(chunks).toString("utf8"),
+            reusedSocket: request.reusedSocket,
+            status: response.statusCode,
+          });
+        });
+      },
+    );
+    request.on("error", reject);
+    request.end(payload);
+  });
 }
 
 describe("readiness route", () => {
@@ -174,6 +214,104 @@ describe("chat completions", () => {
     await expectContractError(response, "payload_too_large");
   });
 
+  it("orders a write-side shutdown after an oversized rejection", () => {
+    runPythonProbe(String.raw`
+import importlib.util
+import io
+import socket
+import sys
+
+spec = importlib.util.spec_from_file_location("compatibility_stub", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+policy = module.StubPolicy(module.load_contract())
+
+class Connection:
+    def __init__(self):
+        self.shutdowns = []
+
+    def shutdown(self, direction):
+        self.shutdowns.append(direction)
+
+class Probe(module.StubHandler):
+    def _respond(self, status, content_type, body):
+        self.response_status = status
+
+handler = object.__new__(Probe)
+handler.policy = policy
+handler.gate = module.ConcurrencyGate(policy.max_concurrent)
+handler.path = policy.chat_route
+handler.headers = {
+    "Content-Length": str(policy.max_body_bytes + 1),
+    "Content-Type": policy.request_type,
+    policy.auth_header: policy.auth_scheme + " " + policy.auth_value,
+}
+handler.rfile = io.BytesIO(b"")
+handler.connection = Connection()
+handler.close_connection = False
+handler.do_POST()
+
+assert handler.response_status == policy.errors["payload_too_large"][0]
+assert handler.connection.shutdowns == [socket.SHUT_WR]
+`);
+  });
+
+  it("serves immediate sequential requests on one keep-alive connection", async () => {
+    const agent = new Agent({ keepAlive: true, maxSockets: 1 });
+    try {
+      const first = await postOnAgent(agent, validRequest());
+      const second = await postOnAgent(agent, validRequest({ messages: [{ role: "user", content: "next" }] }));
+
+      expect(first.status).toBe(contract.responses.nonstreaming.status);
+      expect(first.body).toBe(contract.responses.nonstreaming.utf8);
+      expect(second.reusedSocket).toBe(true);
+      expect(second.status).toBe(contract.responses.nonstreaming.status);
+      expect(second.body).toBe(contract.responses.nonstreaming.utf8);
+    } finally {
+      agent.destroy();
+    }
+  });
+
+  it("releases the concurrency slot before writing the selected response", () => {
+    runPythonProbe(String.raw`
+import importlib.util
+import io
+import json
+import sys
+
+spec = importlib.util.spec_from_file_location("compatibility_stub", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+policy = module.StubPolicy(module.load_contract())
+payload = json.dumps({
+    "model": policy.model_const,
+    "messages": [{"role": "user", "content": "hello"}],
+    "stream": False,
+}).encode("utf-8")
+
+class Probe(module.StubHandler):
+    def _respond(self, status, content_type, body):
+        assert self.gate.try_acquire(), "concurrency slot remained held during response write"
+        self.gate.release()
+        self.response_status = status
+
+handler = object.__new__(Probe)
+handler.policy = policy
+handler.gate = module.ConcurrencyGate(1)
+handler.path = policy.chat_route
+handler.headers = {
+    "Content-Length": str(len(payload)),
+    "Content-Type": policy.request_type,
+    policy.auth_header: policy.auth_scheme + " " + policy.auth_value,
+}
+handler.rfile = io.BytesIO(payload)
+handler.close_connection = False
+handler.do_POST()
+
+assert handler.response_status == policy.nonstreaming_status
+`);
+  });
+
   it("rejects an unknown route", async () => {
     const response = await fetch(`${origin}/v1/models`, { headers: authHeaders });
     await expectContractError(response, "not_found");
@@ -233,6 +371,30 @@ describe("request validation (values validated, then discarded)", () => {
 });
 
 describe("static policy", () => {
+  it("binds without inherited reverse DNS resolution", () => {
+    runPythonProbe(String.raw`
+import importlib.util
+import socket
+import sys
+
+spec = importlib.util.spec_from_file_location("compatibility_stub", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+policy = module.StubPolicy(module.load_contract())
+
+def refuse_reverse_dns(*args):
+    raise RuntimeError("reverse DNS attempted during bind")
+
+socket.gethostbyaddr = refuse_reverse_dns
+server = module.build_server(policy, 0)
+try:
+    assert server.server_name == policy.host
+    assert server.server_port > 0
+finally:
+    server.server_close()
+`);
+  });
+
   it("binds the contract loopback host and port by default", () => {
     expect(contract.bind.host).toBe("127.0.0.1");
     expect(stubSource).toContain("compatibility stub may bind loopback only");
