@@ -125,9 +125,9 @@ wire assertion. Python validation is 557 passed / 20 Windows platform skips,
 with Ruff and win32 mypy clean. All seven CI jobs passed at `719d4ee` before
 Sid merged PR #13 at `94575fb`.
 
-GPT-5.6 Sol high built the merged item 2. Current BUILDING rules assign later
-R2 work to GPT-6 Astra xhigh and migration review to Claude Opus 5 max.
-Sid retains merging and the live systemd check. Item 3 is isolated in
+GPT-5.6 Sol xhigh builds R2 under the current BUILDING rules. Because this item
+contains a live-data migration, its review requires Claude Opus 5 max. Sid
+retains merging and the live systemd check. Item 3 is isolated in
 [PR #16](https://github.com/ksid1229-ops/jarvis/pull/16), including its
 D1 migration and version-order regression. No production operation was run.
 R0's observed exit evidence below remains valid and R1 remains open.
