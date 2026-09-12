@@ -32,6 +32,12 @@ def test_fact_controls_are_refused_without_rewriting(code_point: int) -> None:
     assert not representable_fact_text("Coffee" + chr(code_point) + "- forged entry")
 
 
+def test_shared_fact_byte_boundary_is_enforced_by_the_python_producer() -> None:
+    maximum = int(VECTORS["maxFactBytes"])
+    assert representable_fact_text("x" * maximum)
+    assert not representable_fact_text("x" * (maximum + 1))
+
+
 @pytest.mark.parametrize(
     "text",
     [

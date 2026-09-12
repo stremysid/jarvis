@@ -348,6 +348,17 @@ class MemoryProjectionUploader:
             self._owner,
         ).fetchone()[0])
 
+    def retry_quarantined(self, fact_id: str) -> bool:
+        """Clear one owner-selected exclusion so the next snapshot retries it."""
+        if _FACT_ID.fullmatch(fact_id) is None:
+            return False
+        deleted = self._facts.connection.execute(
+            """DELETE FROM memory_projection_quarantine
+               WHERE gateway_origin = ? AND principal_id = ? AND device_id = ? AND fact_id = ?""",
+            (*self._owner, fact_id),
+        )
+        return deleted.rowcount == 1
+
     def _capture_fact(self, fact: Fact) -> dict[str, Any]:
         if has_fact_text_controls(fact.text):
             raise MemoryProjectionError("an active fact contains control characters")

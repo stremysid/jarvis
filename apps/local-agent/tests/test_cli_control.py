@@ -16,7 +16,7 @@ from types import SimpleNamespace
 import pytest
 
 from jarvis_local.cli import EXIT_SERVICE_UNAVAILABLE, _control, build_parser, main
-from jarvis_local.transport.cli_protocol import OK, CliResponse
+from jarvis_local.transport.cli_protocol import OK, CliCommand, CliResponse
 from jarvis_local.transport.pipe_server import TruncatedFrameError
 
 
@@ -53,6 +53,23 @@ def test_the_parser_exposes_each_control_command(command: str) -> None:
     # know which local transport the installed node uses.
     assert arguments.pipe_name is None
     assert arguments.socket_path is None
+
+
+def test_retry_quarantined_sends_the_exact_fact_id_to_the_running_node(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent: list[object] = []
+    fact_id = "fact_" + "a" * 32
+
+    def send(command: object, _socket_path: Path | None) -> CliResponse:
+        sent.append(command)
+        return CliResponse(OK, ("projection retry requested",))
+
+    monkeypatch.setattr("jarvis_local.cli.os", SimpleNamespace(name="posix"))
+    monkeypatch.setattr("jarvis_local.cli.send_unix_control_request", send)
+
+    assert main(["retry-quarantined", fact_id]) == 0
+    assert sent == [CliCommand("retry-quarantined", {"fact_id": fact_id})]
 
 
 def test_an_explicit_pipe_name_keeps_the_windows_transport(monkeypatch: pytest.MonkeyPatch) -> None:

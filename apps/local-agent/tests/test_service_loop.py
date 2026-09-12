@@ -333,6 +333,19 @@ def test_one_run_once_request_produces_exactly_one_extra_cycle() -> None:
     assert triggers[1:] == [WAKE_CADENCE, WAKE_CADENCE]
 
 
+def test_quarantine_is_visible_without_turning_success_into_backoff() -> None:
+    result = CycleResult(1, 1, 1, 1, failure=None, facts_quarantined=3)
+    loop, state, sleeper, _ = loop_over([result, ok()])
+
+    loop.run()
+
+    records = state.recent()
+    assert records[0].failure is None
+    assert records[0].facts_quarantined == 3
+    assert records[1].trigger == WAKE_CADENCE
+    assert sleeper.delays == [0.0, 1800.0]
+
+
 def test_status_reports_the_recent_cycles() -> None:
     """The control channel must answer "how is it going" from memory. Reaching
     into the databases to answer a status query is the thing the ring exists
@@ -379,6 +392,30 @@ def test_stop_only_asks_and_leaves_the_cycle_boundary_to_the_loop() -> None:
 
     assert response.code == OK
     assert state.stop_requested() is True
+
+
+def test_retry_quarantined_clears_one_fact_and_wakes_the_loop() -> None:
+    state = ServiceState()
+    retried: list[str] = []
+    service = LocalAgentService(control_handlers(
+        state,
+        retry_quarantined=lambda fact_id: retried.append(fact_id) or True,
+    ))
+
+    response = service.handle(CliCommand("retry-quarantined", {"fact_id": "fact_" + "a" * 32}))
+
+    assert response.code == OK
+    assert retried == ["fact_" + "a" * 32]
+    assert state.take_cycle_request() is True
+
+
+def test_retry_quarantined_refuses_an_unknown_or_malformed_fact() -> None:
+    state = ServiceState()
+    service = LocalAgentService(control_handlers(state, retry_quarantined=lambda _fact_id: False))
+
+    assert service.handle(CliCommand("retry-quarantined", {"fact_id": "not-a-fact"})).code != OK
+    assert service.handle(CliCommand("retry-quarantined", {"fact_id": "fact_" + "a" * 32})).code != OK
+    assert state.take_cycle_request() is False
 
 
 def test_the_backoff_reason_is_reported_so_quiet_can_be_told_from_stuck() -> None:

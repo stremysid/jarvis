@@ -8,8 +8,10 @@ the same defect the append-only triggers exist to prevent.
 
 from __future__ import annotations
 
+import os
 import re
 import sqlite3
+import stat
 from pathlib import Path
 
 from jarvis_local.archive.append_only import assert_append_only
@@ -26,6 +28,38 @@ CREATE TABLE IF NOT EXISTS schema_migration (
 """
 
 
+def _is_posix() -> bool:
+    # Behind a function so a win32 mypy run still checks the guarded body.
+    return os.name == "posix"
+
+
+def _restrict_sqlite_file(path: Path, *, create: bool) -> None:
+    if not _is_posix():
+        return
+    flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+    if create:
+        flags |= os.O_CREAT
+    try:
+        descriptor = os.open(path, flags, stat.S_IRUSR | stat.S_IWUSR)
+    except FileNotFoundError:
+        if create:
+            raise
+        return
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise PermissionError("the SQLite store is not a regular file")
+        if metadata.st_uid != os.geteuid():  # type: ignore[attr-defined,unused-ignore]
+            raise PermissionError("the SQLite store is not owned by this user")
+        if metadata.st_mode & 0o077:
+            os.fchmod(  # type: ignore[attr-defined,unused-ignore]
+                descriptor,
+                stat.S_IRUSR | stat.S_IWUSR,
+            )
+    finally:
+        os.close(descriptor)
+
+
 def connect(path: Path) -> sqlite3.Connection:
     """Open the archive with the pragmas it depends on.
 
@@ -34,8 +68,13 @@ def connect(path: Path) -> sqlite3.Connection:
     reference to content_blob would be decorative.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
+    _restrict_sqlite_file(path, create=True)
+    for suffix in ("-wal", "-shm"):
+        _restrict_sqlite_file(Path(f"{path}{suffix}"), create=False)
     connection = sqlite3.connect(path, isolation_level=None)
     connection.execute("PRAGMA journal_mode = WAL")
+    for suffix in ("-wal", "-shm"):
+        _restrict_sqlite_file(Path(f"{path}{suffix}"), create=False)
     connection.execute("PRAGMA foreign_keys = ON")
     connection.execute("PRAGMA synchronous = FULL")
     return connection

@@ -117,6 +117,7 @@ function exactRecord(value: unknown, fields: ReadonlySet<string>, code: string):
 function text(value: unknown, maximumBytes: number, code: string, singleLine = false): string {
   if (typeof value !== "string" || value.length === 0 || !value.isWellFormed()
     || value !== value.normalize("NFC") || encoder.encode(value).byteLength > maximumBytes) {
+    if (singleLine) throw new ProjectionContentRejectedError("memory_projection_fact_text_invalid");
     throw new TypeError(code);
   }
   if (singleLine && hasFactTextControls(value)) {
@@ -458,7 +459,10 @@ class MemoryProjectionRepository {
     try {
       const results = await this.database.batch(statements);
       const pageResult = results[current === null ? 1 : 0];
-      if (pageResult?.meta.changes !== 1) throw new Error("memory_projection_device_state_changed");
+      if (pageResult?.meta.changes !== 1) {
+        if (!await this.deviceIsCurrent(verified)) throw new Error("memory_projection_device_state_changed");
+        throw new Error("memory_projection_page_state_changed");
+      }
     } catch (error) {
       const raced = await this.page(verified, page.projectionVersion, page.pageIndex);
       if (raced?.page_hash === page.pageHash && raced.page_json === pageJson) {
@@ -467,6 +471,25 @@ class MemoryProjectionRepository {
       throw error;
     }
     return this.receipt(page, false, false);
+  }
+
+  private async deviceIsCurrent(
+    verified: VerifiedDeviceRequest<MemoryFactProjectionPageV1>,
+  ): Promise<boolean> {
+    const current = await this.database.prepare(
+      `SELECT 1 AS present
+       FROM device_keys d JOIN principals p ON p.principal_id = d.principal_id
+       WHERE d.device_id = ? AND d.principal_id = ? AND d.key_id = ?
+         AND d.key_fingerprint = ? AND d.key_generation = ?
+         AND d.status = 'active' AND p.status = 'active'`,
+    ).bind(
+      verified.deviceId,
+      verified.principalId,
+      verified.keyId,
+      verified.keyFingerprint,
+      verified.keyGeneration,
+    ).first<{ present: number }>();
+    return current?.present === 1;
   }
 
   async commit(

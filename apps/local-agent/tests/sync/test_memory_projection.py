@@ -386,6 +386,34 @@ def test_superseded_quarantined_facts_stop_counting_without_erasing_the_record(
     assert facts.connection.execute("SELECT COUNT(*) FROM memory_projection_quarantine").fetchone() == (1,)
 
 
+def test_owner_can_retry_one_quarantined_fact_without_touching_other_quarantine(
+    stores: tuple[ArchiveRepository, FactRepository, Path],
+) -> None:
+    archive, facts, _ = stores
+    record_vector_fact(archive, facts)
+    retried = facts.active_facts(PRINCIPAL)[0]
+    other = facts.record_proposal(
+        FactProposal(PRINCIPAL, "Another preference", FactOrigin.AUTHENTICATED_FIRST_PERSON, (EVENT_ID,))
+    )
+    PromotionEngine(facts).promote(other)
+    for fact in (retried, facts.get(other.fact_id)):
+        facts.connection.execute(
+            "INSERT INTO memory_projection_quarantine VALUES (?, ?, ?, ?, 'gateway_rejected', ?)",
+            (BASE, PRINCIPAL, DEVICE, fact.fact_id, "2026-09-11T12:00:00.000Z"),
+        )
+    opener = BindingOpener()
+    uploader = MemoryProjectionUploader(facts, archive, cloud(opener))
+
+    assert uploader.retry_quarantined(retried.fact_id) is True
+    result = uploader.project()
+
+    assert result.published and result.quarantined == 1
+    assert [fact["factId"] for fact in opener.bodies[0]["facts"]] == [retried.fact_id]
+    assert facts.connection.execute(
+        "SELECT fact_id FROM memory_projection_quarantine ORDER BY fact_id"
+    ).fetchall() == [(other.fact_id,)]
+
+
 def test_a_foreign_source_is_never_copied_into_the_upload(
     stores: tuple[ArchiveRepository, FactRepository, Path],
 ) -> None:

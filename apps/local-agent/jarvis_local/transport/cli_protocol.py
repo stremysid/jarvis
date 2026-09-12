@@ -25,7 +25,7 @@ LOCAL_ONLY_COMMANDS: frozenset[str] = frozenset({"doctor", "status", "sync"})
 # whoever can open the channel is already the owner of the agent they would be
 # steering -- so requiring an interactive console here would only break
 # `jarvis stop` from a shutdown script while protecting nobody.
-SERVICE_CONTROL_COMMANDS: frozenset[str] = frozenset({"run-once", "stop"})
+SERVICE_CONTROL_COMMANDS: frozenset[str] = frozenset({"run-once", "stop", "retry-quarantined"})
 
 INTERACTIVE_LOCAL_SESSION_REQUIRED = "interactive_local_session_required"
 CONFIRMATION_REQUIRED = "confirmation_required"

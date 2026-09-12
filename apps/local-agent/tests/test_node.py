@@ -32,11 +32,19 @@ from jarvis_local.node import (
     NodeRuntime,
     NodeSettings,
     NodeStartupError,
+    _safe_node_cycle,
     build_node,
     run_node,
 )
 from jarvis_local.scheduler import STOP_AUTHENTICATION, SchedulerState
-from jarvis_local.service import LocalAgentService, RunLoop, ServiceState, control_handlers
+from jarvis_local.service import (
+    FACT_NOT_QUARANTINED,
+    LocalAgentService,
+    RunLoop,
+    ServiceState,
+    control_handlers,
+)
+from jarvis_local.sync.cloud_client import CloudAuthError
 from jarvis_local.transport.cli_protocol import OK, CliCommand
 from jarvis_local.transport.pipe_server import ControlServer
 from jarvis_local.transport.unix_socket import UnixSocketServer, send_unix_control_request
@@ -625,7 +633,8 @@ def test_the_node_reports_quarantine_count_and_keeps_publishing_later_cycles(
         report = control_handlers(runtime.state)["status"](CliCommand("status"))
         cycle_lines = [line for line in report.lines if line.startswith("cycle ")]
         assert len(cycle_lines) == 2
-        assert all(f"projection: {fact_count} active facts quarantined" in line for line in cycle_lines)
+        assert all(f"quarantined={fact_count}" in line for line in cycle_lines)
+        assert all(line.endswith(" ok") for line in cycle_lines)
         assert len(opener.projection_bodies[0]["facts"]) == fact_count
         assert [body["operation"] for body in opener.projection_bodies] == ["page", "abandon", "page", "commit"]
         assert opener.projection_bodies[-2]["facts"] == []
@@ -634,6 +643,26 @@ def test_the_node_reports_quarantine_count_and_keeps_publishing_later_cycles(
         ).fetchone() == (1,)
     finally:
         runtime.close()
+
+
+def test_built_node_exposes_the_owner_quarantine_retry_handler(tmp_path: Path) -> None:
+    settings = settings_at(tmp_path)
+    platform_device_key_store(settings.device_key_path).load_or_create()
+    captured: list[ControlServer] = []
+
+    def capture(server: ControlServer, _path: Path) -> FakeControl:
+        captured.append(server)
+        return FakeControl()
+
+    runtime = build_node(settings, opener=EmptyCycleOpener(), control_factory=capture)
+    try:
+        response = captured[0].dispatcher.handle(CliCommand(
+            "retry-quarantined", {"fact_id": "fact_" + "a" * 32},
+        ))
+    finally:
+        runtime.close()
+
+    assert response.code == FACT_NOT_QUARANTINED
 
 
 def test_the_node_distinguishes_pending_recovery_from_transient_projection_failure(tmp_path: Path) -> None:
@@ -774,6 +803,18 @@ def test_cycle_failures_exposed_by_status_do_not_include_remote_error_text(tmp_p
 
     assert "sync: request failed" in report
     assert "secret remote response and path" not in report
+
+
+def test_safe_node_cycle_leaves_authentication_for_the_run_loop_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def rejected(*_args: object, **_kwargs: object) -> CycleResult:
+        raise CloudAuthError("device revoked")
+
+    monkeypatch.setattr("jarvis_local.node.run_cycle", rejected)
+
+    with pytest.raises(CloudAuthError, match="device revoked"):
+        _safe_node_cycle(*([object()] * 5), should_stop=lambda: False)  # type: ignore[arg-type]
 
 
 @linux_only

@@ -90,18 +90,28 @@ function decodeSecret(value: string): Uint8Array | null {
  * Those are useful in logs and dangerous in responses, so they are separated
  * here: logged in full, answered with a status only.
  */
-function statusFor(message: string): number {
-  if (
-    message.includes("signature")
-    || message.includes("device_not_active")
-    || message.includes("audience")
-    || message.includes("expired")
-    || message.includes("nonce")
-  ) {
-    return 401;
+export function statusForSyncError(error: unknown): number {
+  const message = error instanceof Error ? error.message : String(error);
+  const sqliteCode = /^D1_ERROR: ([a-z][a-z0-9_]+): SQLITE_[A-Z_]+(?:\s|$)/u.exec(message)?.[1];
+  const code = sqliteCode ?? message;
+  switch (code) {
+    case "signature_invalid":
+    case "device_not_active":
+    case "device_key_invalid":
+    case "audience_mismatch":
+    case "signed_request_expired":
+    case "replayed_nonce":
+      return 401;
+    case "consumer_binding_invalid":
+    case "device_key_changed":
+    case "sync_device_state_changed":
+    case "memory_projection_device_state_changed":
+      return 403;
+    case "memory_projection_page_state_changed":
+      return 409;
+    default:
+      return 400;
   }
-  if (message.includes("consumer_binding") || message.includes("device_state_changed")) return 403;
-  return 400;
 }
 
 export async function handleSyncRequest(request: Request, env: Env): Promise<Response> {
@@ -171,11 +181,12 @@ export async function handleSyncRequest(request: Request, env: Env): Promise<Res
     });
   } catch (error) {
     if (pathname === MEMORY_PROJECTION_PATH && error instanceof ProjectionContentRejectedError) {
+      console.error("sync_request_failed", { path: pathname, reason: error.message });
       return refuse(400, "memory_projection_content_rejected");
     }
     const reason = error instanceof Error ? error.message : String(error);
     console.error("sync_request_failed", { path: pathname, reason });
-    return refuse(statusFor(reason), "sync_request_rejected");
+    return refuse(statusForSyncError(error), "sync_request_rejected");
   }
 }
 
@@ -193,9 +204,6 @@ async function handleDistill(
   rawBody: Uint8Array,
   env: Env,
 ): Promise<Response> {
-  const apiKey = env.DEEPSEEK_API_KEY;
-  if (apiKey === undefined) return refuse(503, "model_not_configured");
-
   const verifier = new DeviceRequestVerifier({ database: env.DB, audience: SYNC_AUDIENCE });
   const verified = await verifier.verify(
     envelope,
@@ -210,6 +218,9 @@ async function handleDistill(
   const submitted = (verified.body as { excerpts?: unknown }).excerpts;
   const excerpts = validateExcerpts(submitted);
   if (excerpts === null) return refuse(400, "excerpts_invalid");
+
+  const apiKey = env.DEEPSEEK_API_KEY;
+  if (apiKey === undefined) return refuse(503, "model_not_configured");
 
   const controller = new AbortController();
   const proposals = await distil(

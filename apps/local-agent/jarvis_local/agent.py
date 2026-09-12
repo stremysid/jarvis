@@ -86,38 +86,59 @@ def run_cycle(
         except ProjectionRecoveryError:
             return CycleResult(replicated, 0, 0, 0, failure="projection_recovery: pending")
         except CloudSyncError as error:
-            return CycleResult(replicated, 0, 0, 0, failure=f"projection: {error}")
+            return CycleResult(replicated, 0, 0, 0, failure=f"projection: {error}", facts_quarantined=quarantined)
         if resumed is not None and resumed.stopped:
-            return CycleResult(replicated, 0, 0, 0)
+            return CycleResult(replicated, 0, 0, 0, facts_quarantined=resumed.quarantined)
         if resumed is not None:
             quarantined = resumed.quarantined
 
     if should_stop():
-        return CycleResult(replicated, 0, 0, 0)
+        return CycleResult(replicated, 0, 0, 0, facts_quarantined=quarantined)
 
     try:
         progress = distiller.run_once()
     except CloudAuthError as error:
-        return CycleResult(replicated, 0, 0, 0, failure=f"authentication: {error}")
+        return CycleResult(replicated, 0, 0, 0, failure=f"authentication: {error}", facts_quarantined=quarantined)
     except Exception as error:
         # Replication already committed. Reporting rather than raising keeps
         # that work rather than discarding a good cycle for a bad model call.
-        return CycleResult(replicated, 0, 0, 0, failure=f"distillation: {error}")
+        return CycleResult(replicated, 0, 0, 0, failure=f"distillation: {error}", facts_quarantined=quarantined)
 
-    promoted = promote_new_facts(facts, principal_id)
+    try:
+        promoted = promote_new_facts(facts, principal_id)
+    except CloudAuthError as error:
+        return CycleResult(
+            replicated,
+            progress.excerpts_submitted,
+            progress.proposals_recorded,
+            0,
+            failure=f"authentication: {error}",
+            facts_quarantined=quarantined,
+        )
+    except Exception as error:
+        return CycleResult(
+            replicated,
+            progress.excerpts_submitted,
+            progress.proposals_recorded,
+            0,
+            failure=f"promotion: {error}",
+            facts_quarantined=quarantined,
+        )
     result = CycleResult(
         events_replicated=replicated,
         excerpts_distilled=progress.excerpts_submitted,
         proposals_recorded=progress.proposals_recorded,
         facts_promoted=len(promoted),
     )
-    if projector is None or should_stop():
+    if projector is None:
         return result
+    if should_stop():
+        return replace(result, facts_quarantined=quarantined)
     try:
         projected = projector.project()
-        quarantined = projected.quarantined
+        quarantined = max(quarantined, projected.quarantined)
     except ProjectionRecoveryError:
-        return replace(result, failure="projection_recovery: pending")
+        return replace(result, failure="projection_recovery: pending", facts_quarantined=quarantined)
     except CloudAuthError as error:
         return CycleResult(
             replicated,
@@ -125,6 +146,7 @@ def run_cycle(
             progress.proposals_recorded,
             len(promoted),
             failure=f"authentication: {error}",
+            facts_quarantined=quarantined,
         )
     except CloudSyncError as error:
         return CycleResult(
@@ -133,10 +155,18 @@ def run_cycle(
             progress.proposals_recorded,
             len(promoted),
             failure=f"projection: {error}",
+            facts_quarantined=quarantined,
         )
-    return replace(
-        result, failure="projection_quarantined: facts excluded", facts_quarantined=quarantined,
-    ) if quarantined else result
+    except Exception as error:
+        return CycleResult(
+            replicated,
+            progress.excerpts_submitted,
+            progress.proposals_recorded,
+            len(promoted),
+            failure=f"projection: {error}",
+            facts_quarantined=quarantined,
+        )
+    return replace(result, facts_quarantined=quarantined)
 
 
 def open_stores(archive_path: Path, memory_path: Path) -> tuple[ArchiveRepository, FactRepository]:

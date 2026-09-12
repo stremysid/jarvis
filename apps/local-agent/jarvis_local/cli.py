@@ -67,6 +67,15 @@ def build_parser() -> argparse.ArgumentParser:
         endpoint.add_argument("--pipe-name")
         endpoint.add_argument("--socket-path", type=Path)
 
+    retry = subcommands.add_parser(
+        "retry-quarantined",
+        help="clear one fact's projection quarantine and request a new cycle",
+    )
+    retry.add_argument("fact_id")
+    endpoint = retry.add_mutually_exclusive_group()
+    endpoint.add_argument("--pipe-name")
+    endpoint.add_argument("--socket-path", type=Path)
+
     add_vault_subcommands(subcommands)
     return parser
 
@@ -108,17 +117,23 @@ def _enroll(config: JarvisLocalConfig, device_label: str) -> int:
     return 0
 
 
-CONTROL_SUBCOMMANDS: frozenset[str] = frozenset({"status", "run-once", "stop"})
+CONTROL_SUBCOMMANDS: frozenset[str] = frozenset({"status", "run-once", "stop", "retry-quarantined"})
 
 
-def _control(name: str, pipe_name: str | None, socket_path: Path | None) -> int:
+def _control(
+    name: str,
+    pipe_name: str | None,
+    socket_path: Path | None,
+    arguments: dict[str, object] | None = None,
+) -> int:
+    command = CliCommand(name, arguments or {})
     try:
         if pipe_name is not None:
-            response = send_control_request(CliCommand(name), pipe_name)
+            response = send_control_request(command, pipe_name)
         elif socket_path is not None or os.name != "nt":
-            response = send_unix_control_request(CliCommand(name), socket_path)
+            response = send_unix_control_request(command, socket_path)
         else:
-            response = send_control_request(CliCommand(name), DEFAULT_PIPE_NAME)
+            response = send_control_request(command, DEFAULT_PIPE_NAME)
     except ServiceNotRunningError:
         # Deliberately not the OS error. "No such file" is true and useless.
         print("the Jarvis background service is not running on this machine")
@@ -143,7 +158,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "node":
         return run_node(JarvisLocalConfig.from_environment(), socket_path=arguments.socket_path)
     if arguments.command in CONTROL_SUBCOMMANDS:
-        return _control(arguments.command, arguments.pipe_name, arguments.socket_path)
+        control_arguments = {"fact_id": arguments.fact_id} if arguments.command == "retry-quarantined" else None
+        return _control(arguments.command, arguments.pipe_name, arguments.socket_path, control_arguments)
     if arguments.command == VAULT_COMMAND:
         return run_vault_command(arguments)
     # argparse enforces `required=True`, so this is unreachable in practice.

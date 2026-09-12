@@ -31,7 +31,7 @@ from jarvis_local.memory.distillation import DistillationCoordinator
 from jarvis_local.memory.facts import FactRepository
 from jarvis_local.scheduler import STOP_AUTHENTICATION
 from jarvis_local.service import LocalAgentService, RunLoop, ServiceState, control_handlers
-from jarvis_local.sync.cloud_client import HttpCloudClient
+from jarvis_local.sync.cloud_client import CloudAuthError, HttpCloudClient
 from jarvis_local.sync.distill_client import HttpDistillationClient
 from jarvis_local.sync.event_replicator import EventReplicator
 from jarvis_local.sync.memory_projection import MemoryProjectionUploader
@@ -294,6 +294,8 @@ def _safe_node_cycle(
             projector=projector,
             should_stop=should_stop,
         )
+    except CloudAuthError:
+        raise
     except Exception:
         return CycleResult(0, 0, 0, 0, failure="cycle: failed")
     failure = result.failure
@@ -305,8 +307,6 @@ def _safe_node_cycle(
         safe = "sync: request failed"
     elif failure.startswith("distillation:"):
         safe = "distillation: request failed"
-    elif failure.startswith("projection_quarantined:"):
-        safe = f"projection: {result.facts_quarantined} active facts quarantined"
     elif failure.startswith("projection_recovery:"):
         safe = "projection: permanent rejection; recovery pending"
     elif failure.startswith("projection:"):
@@ -335,8 +335,14 @@ def build_node(
         raise NodeStartupError("the enrolled device key could not be opened") from error
 
     state = ServiceState()
+    projector_holder: list[MemoryProjectionUploader] = []
+
+    def retry_quarantined(fact_id: str) -> bool:
+        return bool(projector_holder and projector_holder[0].retry_quarantined(fact_id))
+
     control = control_factory(
-        ControlServer(LocalAgentService(control_handlers(state))), settings.control_socket_path
+        ControlServer(LocalAgentService(control_handlers(state, retry_quarantined=retry_quarantined))),
+        settings.control_socket_path,
     )
     # Claim the singleton endpoint before migrations touch either database. A
     # duplicate process must fail without doing any store work at all.
@@ -365,6 +371,7 @@ def build_node(
                 cloud,
                 should_stop=state.stop_requested,
             )
+            projector_holder.append(projector)
             loop = RunLoop(
                 lambda: _safe_node_cycle(
                     replicator,

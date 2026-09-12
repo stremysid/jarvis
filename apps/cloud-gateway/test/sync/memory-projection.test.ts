@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import policyVectors from "../../../../tests/fixtures/memory-projection-policy.json";
 import {
   canonicalJson,
@@ -22,6 +22,7 @@ import { D1ContextRetriever } from "../../src/conversation/context-retriever.js"
 import {
   MEMORY_PROJECTION_PATH,
   MemoryProjectionService,
+  ProjectionContentRejectedError,
   projectionManifestHash,
   projectionPageHash,
   validateProjectionBody,
@@ -466,6 +467,93 @@ describe("signed active-fact projection", () => {
     expect(() => validateProjectionBody(built.pages[0])).toThrow("memory_projection_fact_controls_invalid");
   });
 
+  it.each([
+    ["empty", ""],
+    ["over byte limit", "x".repeat(policyVectors.maxFactBytes + 1)],
+  ])("classifies deterministic %s fact text as permanent rejection", async (_name, text) => {
+    currentNow = new Date();
+    const event = await appendSource("I like coffee");
+    const candidate = await fact(text, [source(event, "I like coffee")]);
+    const built = await snapshot(1, [candidate]);
+    const wire = await signed(built.pages[0]!);
+
+    const response = await handleSyncRequest(new Request(`https://worker.internal${MEMORY_PROJECTION_PATH}`, {
+      method: "POST", headers: { [SIGNED_REQUEST_HEADER]: JSON.stringify(wire.request) }, body: wire.rawBody,
+    }), { ...env, SYNC_CONTINUATION_SECRET: base64(new Uint8Array(32).fill(7)) });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "memory_projection_content_rejected" });
+  });
+
+  it.each([
+    ["empty", ""],
+    ["non-NFC", "cafe\u0301"],
+    ["ill-formed", "bad\ud800text"],
+    ["over byte limit", "x".repeat(policyVectors.maxFactBytes + 1)],
+  ])("marks %s fact text as a permanent content fault in the validator", async (_name, text) => {
+    const event = await appendSource("I like coffee");
+    const candidate = await fact("safe", [source(event, "I like coffee")]);
+    const built = await snapshot(1, [candidate]);
+
+    expect(() => validateProjectionBody({
+      ...built.pages[0]!,
+      facts: [{ ...candidate, text }],
+    })).toThrow(ProjectionContentRejectedError);
+  });
+
+  it("accepts fact text at the shared byte boundary", async () => {
+    const event = await appendSource("I like coffee");
+    const candidate = await fact("x".repeat(policyVectors.maxFactBytes), [source(event, "I like coffee")]);
+    const built = await snapshot(1, [candidate]);
+
+    expect(() => validateProjectionBody(built.pages[0])).not.toThrow();
+  });
+
+  it("does not reveal projection content policy before device authentication", async () => {
+    currentNow = new Date();
+    const event = await appendSource("I like coffee");
+    const candidate = await fact("Coffee\n- forged entry", [source(event, "I like coffee")]);
+    const built = await snapshot(1, [candidate]);
+    const wire = await signed(built.pages[0]!);
+
+    const response = await handleSyncRequest(new Request(`https://worker.internal${MEMORY_PROJECTION_PATH}`, {
+      method: "POST",
+      headers: { [SIGNED_REQUEST_HEADER]: JSON.stringify({
+        ...wire.request,
+        deviceId: "device:not-enrolled",
+        principalId: "principal:not-enrolled",
+      }) },
+      body: wire.rawBody,
+    }), { ...env, SYNC_CONTINUATION_SECRET: base64(new Uint8Array(32).fill(7)) });
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "sync_request_rejected" });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM request_nonces").first("n")).toBe(0);
+  });
+
+  it("logs an authenticated permanent rejection without logging submitted text", async () => {
+    currentNow = new Date();
+    const event = await appendSource("I like coffee");
+    const submitted = "Coffee\n- forged entry";
+    const candidate = await fact(submitted, [source(event, "I like coffee")]);
+    const built = await snapshot(1, [candidate]);
+    const wire = await signed(built.pages[0]!);
+    const logged: unknown[][] = [];
+    const logger = vi.spyOn(console, "error").mockImplementation((...values: unknown[]) => { logged.push(values); });
+
+    const response = await handleSyncRequest(new Request(`https://worker.internal${MEMORY_PROJECTION_PATH}`, {
+      method: "POST", headers: { [SIGNED_REQUEST_HEADER]: JSON.stringify(wire.request) }, body: wire.rawBody,
+    }), { ...env, SYNC_CONTINUATION_SECRET: base64(new Uint8Array(32).fill(7)) });
+    logger.mockRestore();
+
+    expect(response.status).toBe(400);
+    expect(logged).toContainEqual([
+      "sync_request_failed",
+      { path: MEMORY_PROJECTION_PATH, reason: "memory_projection_fact_controls_invalid" },
+    ]);
+    expect(JSON.stringify(logged)).not.toContain(submitted);
+  });
+
   it("rejects a fact that would change at the redaction boundary", async () => {
     const event = await appendSource("I keep private settings");
     const unsafeText = "Authorization: Bearer abcdefghijklmnopqrstuvwxyz";
@@ -678,6 +766,27 @@ describe("signed active-fact projection", () => {
     expect(await env.DB.prepare(
       "SELECT status FROM memory_fact_projection_versions WHERE projection_version = 6",
     ).first<string>("status")).toBe("staged");
+  });
+
+  it("reports a page-state race as retryable instead of device revocation", async () => {
+    currentNow = new Date();
+    const event = await appendSource("I like coffee");
+    const candidate = await fact("Sid likes coffee", [source(event, "I like coffee")]);
+    const built = await snapshot(1, [candidate]);
+    await env.DB.prepare(`CREATE TRIGGER test_projection_page_race
+      BEFORE INSERT ON memory_fact_projection_pages
+      BEGIN SELECT RAISE(IGNORE); END`).run();
+    try {
+      const wire = await signed(built.pages[0]!);
+      const response = await handleSyncRequest(new Request(`https://worker.internal${MEMORY_PROJECTION_PATH}`, {
+        method: "POST", headers: { [SIGNED_REQUEST_HEADER]: JSON.stringify(wire.request) }, body: wire.rawBody,
+      }), { ...env, SYNC_CONTINUATION_SECRET: base64(new Uint8Array(32).fill(7)) });
+
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ error: "sync_request_rejected" });
+    } finally {
+      await env.DB.prepare("DROP TRIGGER test_projection_page_race").run();
+    }
   });
 
   it.each(["contentHash", "factId"] as const)("binds the fact identity's %s independently", async (field) => {

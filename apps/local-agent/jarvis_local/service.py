@@ -21,6 +21,7 @@ for that cycle to finish, which costs seconds and saves the resumption.
 
 from __future__ import annotations
 
+import re
 import threading
 from collections import deque
 from collections.abc import Callable
@@ -64,6 +65,9 @@ TRIGGER_REQUESTED = "requested"
 STOPPED_ON_REQUEST = "stopped"
 
 RUNNING = "running"
+INVALID_ARGUMENT = "invalid_argument"
+FACT_NOT_QUARANTINED = "fact_not_quarantined"
+_FACT_ID = re.compile(r"fact_[0-9a-f]{32}\Z")
 
 
 class CommandHandler(Protocol):
@@ -116,13 +120,15 @@ class CycleRecord:
     excerpts_distilled: int
     proposals_recorded: int
     facts_promoted: int
+    facts_quarantined: int
     failure: str | None
 
     def summary(self) -> str:
         outcome = "ok" if self.failure is None else self.failure
         counts = (
             f"replicated={self.events_replicated} distilled={self.excerpts_distilled} "
-            f"proposed={self.proposals_recorded} promoted={self.facts_promoted}"
+            f"proposed={self.proposals_recorded} promoted={self.facts_promoted} "
+            f"quarantined={self.facts_quarantined}"
         )
         return f"{self.finished_at} {self.trigger} {counts} {outcome}"
 
@@ -287,6 +293,7 @@ class RunLoop:
                 excerpts_distilled=result.excerpts_distilled,
                 proposals_recorded=result.proposals_recorded,
                 facts_promoted=result.facts_promoted,
+                facts_quarantined=result.facts_quarantined,
                 failure=result.failure,
             )
         )
@@ -297,8 +304,12 @@ class RunLoop:
         return reason
 
 
-def control_handlers(state: ServiceState) -> dict[str, CommandHandler]:
-    """The three commands the control channel serves, bound to one loop's state.
+def control_handlers(
+    state: ServiceState,
+    *,
+    retry_quarantined: Callable[[str], bool] | None = None,
+) -> dict[str, CommandHandler]:
+    """Commands served by the control channel, bound to one loop's state.
 
     `run-once` and `stop` only set a flag and ring the doorbell. They must not
     run a cycle on the calling thread: that would put a second cycle over the
@@ -317,4 +328,17 @@ def control_handlers(state: ServiceState) -> dict[str, CommandHandler]:
         state.request_stop()
         return accepted(("stop requested",))
 
-    return {"status": status, "run-once": run_once, "stop": stop}
+    handlers: dict[str, CommandHandler] = {"status": status, "run-once": run_once, "stop": stop}
+    if retry_quarantined is not None:
+
+        def retry(command: CliCommand) -> CliResponse:
+            fact_id = command.arguments.get("fact_id")
+            if not isinstance(fact_id, str) or _FACT_ID.fullmatch(fact_id) is None:
+                return CliResponse(INVALID_ARGUMENT)
+            if not retry_quarantined(fact_id):
+                return CliResponse(FACT_NOT_QUARANTINED)
+            state.request_cycle()
+            return accepted(("projection retry requested",))
+
+        handlers["retry-quarantined"] = retry
+    return handlers

@@ -75,7 +75,7 @@ FRAME_HEADER_BYTES = 4
 
 #: What this channel serves. Narrower than the CLI's full command surface on
 #: purpose -- see the module docstring on `call-me`.
-CONTROL_COMMANDS: frozenset[str] = frozenset({"status", "run-once", "stop"})
+CONTROL_COMMANDS: frozenset[str] = frozenset({"status", "run-once", "stop", "retry-quarantined"})
 
 _REQUEST_KEYS: frozenset[str] = frozenset({"command", "arguments"})
 

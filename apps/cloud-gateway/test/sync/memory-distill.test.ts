@@ -91,10 +91,16 @@ describe("proposal validation", () => {
   });
 
   it("accepts the byte and source limits and rejects a ninth source", () => {
-    const sources = Array.from({ length: 9 }, (_, index) => `event-${index}`);
+    const sources = Array.from({ length: policyVectors.maxFactSources + 1 }, (_, index) => `event-${index}`);
     const allowed = new Set(sources);
-    expect(validateProposal({ text: "é".repeat(2048), sourceEventIds: sources.slice(0, 8) }, allowed))
-      .toEqual({ text: "é".repeat(2048), sourceEventIds: sources.slice(0, 8), confidence: 1 });
+    expect(validateProposal({
+      text: "é".repeat(policyVectors.maxFactBytes / 2),
+      sourceEventIds: sources.slice(0, policyVectors.maxFactSources),
+    }, allowed)).toEqual({
+      text: "é".repeat(policyVectors.maxFactBytes / 2),
+      sourceEventIds: sources.slice(0, policyVectors.maxFactSources),
+      confidence: 1,
+    });
     expect(validateProposal({ text: "Too many sources", sourceEventIds: sources }, allowed)).toBeNull();
   });
 

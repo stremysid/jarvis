@@ -8,6 +8,7 @@ what the model meant.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,9 @@ from jarvis_local.memory.facts import FactOrigin, FactRepository, FactState
 
 PRINCIPAL = "principal-a"
 OCCURRED_AT = "2026-09-02T12:00:00.000Z"
+POLICY_VECTORS = json.loads(
+    (Path(__file__).resolve().parents[4] / "tests/fixtures/memory-projection-policy.json").read_text("utf-8")
+)
 
 
 def event(sequence: int, text: str, event_type: str = "conversation.user_committed") -> dict[str, object]:
@@ -102,21 +106,26 @@ def test_proposals_share_the_projection_byte_and_source_boundaries(
     archive: ArchiveRepository,
     facts: FactRepository,
 ) -> None:
-    for sequence in range(1, 10):
+    maximum_sources = int(POLICY_VECTORS["maxFactSources"])
+    maximum_bytes = int(POLICY_VECTORS["maxFactBytes"])
+    for sequence in range(1, maximum_sources + 2):
         archive.insert_event_if_absent(event(sequence, "source"))
-    sources = [str(event(sequence, "source")["event_id"]) for sequence in range(1, 10)]
+    sources = [
+        str(event(sequence, "source")["event_id"])
+        for sequence in range(1, maximum_sources + 2)
+    ]
     progress = coordinator(
         archive,
         facts,
         FakeClient(
             [
-                proposal(text="é" * 2048, sourceEventIds=sources[:8]),
+                proposal(text="é" * (maximum_bytes // 2), sourceEventIds=sources[:maximum_sources]),
                 proposal(text="Too many sources", sourceEventIds=sources),
             ]
         ),
     ).run_once()
     assert (progress.proposals_recorded, progress.proposals_rejected) == (1, 1)
-    assert facts.connection.execute("SELECT text FROM fact").fetchall() == [("é" * 2048,)]
+    assert facts.connection.execute("SELECT text FROM fact").fetchall() == [("é" * (maximum_bytes // 2),)]
 
 
 def test_a_model_proposal_is_always_recorded_as_model_origin(archive: ArchiveRepository, facts: FactRepository) -> None:

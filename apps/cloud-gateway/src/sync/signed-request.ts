@@ -300,14 +300,10 @@ export class DeviceRequestVerifier {
     const request = validateRequest(rawRequest);
     if (request.audience !== this.deps.audience) throw new Error("audience_mismatch");
 
-    const authoritative = decodeCanonicalRawBody(rawBody);
-    const supplied = boundedStrictJsonCopy(suppliedBody);
-    const validatedAuthoritative = validateBody(authoritative);
-    validateBody(supplied);
-    if (!byteEqual(canonicalize(supplied), rawBody)) throw new Error("signed_body_mismatch");
+    if (!(rawBody instanceof Uint8Array) || rawBody.byteLength > MAXIMUM_SIGNED_BODY_BYTES) {
+      throw new TypeError("signed_body_invalid");
+    }
     const computedBodyHash = await sha256Hex(rawBody);
-    if (request.bodyHash !== computedBodyHash) throw new Error("body_hash_mismatch");
-
     const issuedAt = parseTimestamp(request.issuedAt);
     if (issuedAt === null || Math.abs(now.valueOf() - issuedAt.valueOf()) >= NONCE_WINDOW_MS) throw new Error("signed_request_expired");
     const signature = decodeCanonicalBase64(request.signatureBase64, 64, "signature_invalid");
@@ -320,6 +316,15 @@ export class DeviceRequestVerifier {
     catch { throw new Error("device_key_invalid"); }
     const signedBytes = signatureText(request, method, path);
     if (!await crypto.subtle.verify("Ed25519", publicKey, signature, signedBytes)) throw new Error("signature_invalid");
+    if (request.bodyHash !== computedBodyHash) throw new Error("body_hash_mismatch");
+
+    // Endpoint validation can walk and canonicalize the entire request. Run it
+    // only after the device has proved possession of its enrolled key.
+    const authoritative = decodeCanonicalRawBody(rawBody);
+    const supplied = boundedStrictJsonCopy(suppliedBody);
+    const validatedAuthoritative = validateBody(authoritative);
+    validateBody(supplied);
+    if (!byteEqual(canonicalize(supplied), rawBody)) throw new Error("signed_body_mismatch");
 
     await this.deps.beforeNonceInsert?.();
     const nonceHash = await sha256Hex(decodeCanonicalBase64Url(request.nonce, 32, "signed_request_invalid"));
