@@ -16,7 +16,7 @@ from types import SimpleNamespace
 import pytest
 
 from jarvis_local.cli import EXIT_SERVICE_UNAVAILABLE, _control, build_parser, main
-from jarvis_local.transport.cli_protocol import OK, CliResponse
+from jarvis_local.transport.cli_protocol import OK, CliCommand, CliResponse
 from jarvis_local.transport.pipe_server import TruncatedFrameError
 
 
@@ -55,6 +55,23 @@ def test_the_parser_exposes_each_control_command(command: str) -> None:
     assert arguments.socket_path is None
 
 
+def test_retry_quarantined_sends_the_exact_fact_id_to_the_running_node(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent: list[object] = []
+    fact_id = "fact_" + "a" * 32
+
+    def send(command: object, _socket_path: Path | None) -> CliResponse:
+        sent.append(command)
+        return CliResponse(OK, ("projection retry requested",))
+
+    monkeypatch.setattr("jarvis_local.cli.os", SimpleNamespace(name="posix"))
+    monkeypatch.setattr("jarvis_local.cli.send_unix_control_request", send)
+
+    assert main(["retry-quarantined", fact_id]) == 0
+    assert sent == [CliCommand("retry-quarantined", {"fact_id": fact_id})]
+
+
 def test_an_explicit_pipe_name_keeps_the_windows_transport(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
 
@@ -67,6 +84,21 @@ def test_an_explicit_pipe_name_keeps_the_windows_transport(monkeypatch: pytest.M
 
     assert _control("status", r"\\.\pipe\explicit", None) == 0
     assert calls == [r"\\.\pipe\explicit"]
+
+
+def test_a_queued_retry_is_reported_as_accepted_but_not_applied(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jarvis_local.cli.os", SimpleNamespace(name="posix"))
+    monkeypatch.setattr(
+        "jarvis_local.cli.send_unix_control_request",
+        lambda *_: CliResponse("queued", ("projection retry queued; not yet applied",)),
+    )
+
+    assert main(["retry-quarantined", "fact_" + "a" * 32]) == 0
+    output = capsys.readouterr().out
+    assert "queued; not yet applied" in output
+    assert "not running" not in output
 
 
 def test_posix_defaults_to_the_unix_socket(monkeypatch: pytest.MonkeyPatch) -> None:

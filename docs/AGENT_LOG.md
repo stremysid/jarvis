@@ -152,6 +152,98 @@ are still outstanding, so production voice remains closed. R1 requires
 Claude Opus 5 max review and owner-run live evidence. Sid's node platform
 hold and the GitHub Actions quota policy in HANDOFF remain in force.
 
+## 2026-09-12 22:09 UTC — GPT-6
+
+Sid corrected the platform record: Windows 11 PCs and iPhone 16 only, no Linux
+host, and the home PC is off overnight. Node direction is on hold; do not port
+it or continue Linux work. The requirement remains memory with every PC off.
+PR #22 records the correction; PR #16's runbook now makes the hold explicit.
+The requested platform-independent tests and documentation are pushed at
+f1958c4, with migration 0014 unchanged. All seven Actions jobs in run
+34721781316 were refused before starting because of GitHub account billing or
+spending limits; local tests pass, but this is not green CI. No billing setting,
+production service, migration or platform implementation was changed.
+
+## 2026-09-12 22:04 UTC — GPT-6
+
+PR #16's 2e5da79 review follow-up adds the five missing trigger regressions plus
+FTS recovery for forged and missing terms through the real retriever. Each
+trigger was removed from migration 0014 and its own test failed, then the file
+was restored byte-for-byte; it still matches 4764d9b. Omitting rebuild fails both
+recovery cases. The runbook now names the default integrity-check limitation,
+explicit rebuild, post-apply/pre-gateway count of 21 triggers, PR-branch reading
+before merge, and the POSIX-only permissions preflight. Restored validation:
+105 focused tests, 2,146 workspace tests / 109 files, lint and source types pass.
+The separate test typecheck reports 119 diagnostics elsewhere and none in the
+changed files. Only tests/docs changed; current-head CI is tracked on the PR.
+No merge, deployment, live migration or permissions operation was performed.
+
+## 2026-09-12 14:18 UTC — GPT-6
+
+PR #16's remaining 78e8e89 follow-up now creates and validates every missing
+store-directory component as 0700 and contains invalid control-response encoding.
+Regressions cover the transaction, startup wake, shutdown, existing-file and
+migration 0005 guards, preserve retired-device history, and detect a memory write
+lock across page, commit or abandonment HTTP. Seventeen targeted mutations were
+caught and restored; the full local Python suite passes 789 tests / 32 platform
+skips, with Ruff and win32 mypy clean. The early f8666f9 checkpoint passed all
+seven CI jobs including Linux process-kill recovery. A fresh same-vendor read-only
+advisory review found no further issues; final-commit CI remains on the PR.
+Retired identities remain retained with an explicitly per-owner bound. No
+migration contents changed, and no merge, deployment or live operation occurred.
+
+## 2026-09-12 14:01 UTC — GPT-6
+
+The first PR #16 review checkpoint after 78e8e89 fixes the two rollout diagnoses:
+an occupied socket now names the configured endpoint and conditional manual
+recovery, and failed enqueue no longer invents a durable storage-failure banner.
+The runbook puts stale-endpoint handling before restart and clarifies retention
+per owner. Both regressions fail their original behavior; restored local Python
+passes 758 tests / 32 platform skips, Ruff and win32 mypy. The real process-kill
+and live-duplicate regression awaits Linux CI. The remaining guard, directory
+and response-encoding findings are still in progress on this PR. No PR merge,
+deployment or live migration performed.
+
+## 2026-09-12 11:56 UTC — GPT-6
+
+PR #16's fresh advisory review found an oversized-status backlog and a delayed
+wake signal that could start cloud work after a local refusal. Atomic admission
+now caps pending retries at 256 per owner with an explicit refusal, and wake
+signals share the request lock. Regression tests reproduce both original
+failures, including restart and the actual response framing. Linux CI also
+caught the existing embedding compatibility check creating a 0755 store parent;
+that caller now requests 0700 at creation without weakening the refusal guard.
+Eleven additional mutations fail their tests and were restored. Full local
+Python is 757 passed / 31 skips; Ruff and win32 mypy pass. Main 1fc8187 is merged
+into the branch. Final-head CI and independent Claude Opus 5 max review remain
+pending. No PR merge, deployment or live migration performed.
+
+## 2026-09-12 11:40 UTC — GPT-6
+
+PR #16 now persists accepted retry requests and terminal results through local
+migration 0005. Enqueue has a short lock timeout on a separate control-thread
+connection; only the cycle thread changes quarantine, atomically with its receipt.
+Status restores pending and recent results after restart. Advisory review exposed
+two further defects, now fixed and tested: storage-failed receipts must stay in
+the live work queue, and retention must follow completion order rather than the
+age of the request. Final local Python 751 passed / 31 skips, Ruff, win32 mypy
+for 55 sources and all 40 targeted mutations pass. Main 1fc8187 includes merged
+PR #21, so the following
+merge will bring its Hermes CI fix into this branch. Current-head CI is pending;
+independent Claude Opus 5 max review and owner rollout remain required.
+
+## 2026-09-12 11:20 UTC — GPT-6
+
+PR #16's new retry regressions caught all 22 targeted mutations: bounded queued
+responses, separate local wake without a paid cycle on refusal, pre/post drains,
+shutdown cancellation, status history, directory refusals and handler containment.
+Local Python passed 728 tests / 31 skips. The runbook requires all configured
+store parents checked for 0700 before migration 0014 or deployment; startup no
+longer chmods existing directories and prints the exact manual repair command.
+This is a pushed checkpoint, not completion: Sid has since requested persisted
+retry requests/outcomes, which are next with restart and lock-contention tests.
+No merge, deployment or migration performed.
+
 ## 2026-09-12 04:26 UTC — GPT-6 Astra
 
 The PR #16 current-head Windows Hermes job exposed a residual oversized-request
@@ -164,6 +256,173 @@ compatibility-stub tests. The broader local Hermes command retains ten unrelated
 host-toolchain failures because this machine lacks the pinned Python launcher and
 trusted PowerShell host. No R2 item 3 source was added to this branch, and no
 merge or deployment occurred.
+
+## 2026-09-12 04:12 UTC — GPT-6 Astra
+
+PR #16 follow-up moves quarantine retry work from the control thread to a queued
+request drained by the cycle thread before/after cloud work. The real Linux
+socket regression requires a successful response, deleted row and live node;
+a portable thread regression reproduces the old SQLite failure on Windows.
+`device_key_changed` is now retryable 409 while corrupt stored
+`device_key_invalid` remains a deliberate 401 stop, and storage-text status
+promotion is limited to the reviewed device-state trigger. Store parents become
+0700 and file/sidecar guards are mutation-pinned. Local Python is 711 passed / 27
+Windows skips; workspace is 2,139 / 109 files; Ruff, win32 mypy and gateway
+lint/source types pass. Ubuntu socket/mode checks await current-head CI. No merge,
+deployment or migration occurred.
+
+## 2026-09-12 02:50 UTC — GPT-6 Astra
+
+PR #16 head `0f991fd` now treats active quarantine as visible successful state
+rather than permanent scheduler failure, preserves its count across stop/error
+paths, and exposes an exact owner-only retry command. Gateway signature checks
+precede semantic validation/model work; exact error-code mapping prevents a raw
+`request_nonces` database message from becoming 401. Signed deterministic fact
+text rejection, safe rejection logging, retryable page-state races, escaped auth
+errors and POSIX owner-only SQLite files have regressions. Local Python is 701
+passed / 24 Windows skips and cloud gateway is 2,035 passed; current-head CI is
+pending for the Linux permission cases. Migration 0014 still requires Claude
+Opus 5 max review and owner rollout. No merge, deployment or migration occurred.
+
+## 2026-09-12 01:24 UTC — GPT-6 Astra
+
+PR #16 now rejects excerpt controls and non-ULID source ids before prompt
+rendering, including direct distiller calls. The node skips ineligible excerpts
+without changing the archive; one selection/progress scan preserves the valid
+batch limit and advances an invalid-only backlog without a model call. A real
+rejection, supersession and re-projection test proves the active quarantine
+count drops to zero while retaining its audit row. All 11 new mutations fail,
+including removing the state filter alone and removing both the join and filter.
+Restored-source validation: 686 Python tests passed / 20 Windows skips; 2,112
+workspace tests / 109 files; Ruff, win32 mypy and workspace lint/source types
+passed. Test-only gateway types retain 119 unrelated baseline errors, none in
+changed files. See PR #16 for current-head CI and Claude Opus 5 max review;
+its D1 migration 0014 still requires owner rollout. No merge, deployment or live
+migration performed. The lower-priority observations remain outside this fix.
+
+## 2026-09-11 22:13 UTC — GPT-6 Astra
+
+PR #16 now rejects C0/C1 controls and Unicode line/paragraph separators in fact
+producers, upload validation and migration 0014; malformed old pending pages
+receive the explicit recoverable content-rejection classification. Provider
+context quotes and escapes every entry, including legitimate multiline history.
+Python now uses ECMAScript whitespace with ASCII boundaries/case rules, and both
+runtimes execute shared vectors covering all 25 whitespace characters and
+negative boundary cases. Page-wide quarantine remains the selected recovery
+tradeoff, with the exact active count exposed by the node status handler across
+later cycles. All 15 new guard mutations were caught and restored; full Python
+680 passed/20 Windows skips and workspace 2,093 passed/109 files, with lint,
+source types, Ruff and win32 mypy clean. Gateway test-only types retain 119
+unrelated diagnostics, none in changed files. Runbook and handoff updated.
+Migration 0014 still requires Claude Opus 5 max review and owner rollout; no
+merge, deployment or live migration performed.
+
+## 2026-09-11 21:35 UTC — GPT-6 Astra
+
+PR #16 now isolates unrepresentable facts and recovers explicit content rejection:
+both distillation producers enforce the projection byte/source limits and refuse
+text requiring redaction. Local `0004` stores quarantine and pending recovery;
+the signed abandon operation uses immutable D1 receipts in `0014` to discard
+only the exact staged manifest and fence delayed requests. The node distinguishes
+quarantine/recovery from transient failures. A further read-to-batch race required
+binding fact inserts to the exact page JSON, proved by a failing regression.
+All 37 targeted mutations are caught, including the reported principal, receipt,
+ordering, identity and source guards. Full local validation: 620 Python tests
+passed / 20 Windows skips, 2,007 workspace tests / 108 files, lint/source types
+clean. Test-only gateway types retain 119 unrelated diagnostics, none in changed
+files. Run the required Claude Opus 5 max review against the pushed head before
+owner merge or rollout; no migration, deployment or merge was performed here.
+
+## 2026-09-11 20:45 UTC — GPT-6 coordinator
+
+Main advanced to `3059d42` through PR #17 while the tested SQL fixes were
+being pushed at `aa369fe`. Its documentation change conflicted with the
+historical item-2 handoff and prevented PR CI from starting. The merge keeps
+the actual builder history and adopts the new GPT-6 Astra xhigh builder
+assignment plus Claude Opus 5 max review for live-data migrations. PR #16
+therefore needs max review. Application and test files are unchanged from
+the tested SQL checkpoint. No merge of PR #16 or production action occurred.
+
+## 2026-09-11 20:41 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
+
+PR #16 closes the three direct-SQL publication holes in migration `0014`.
+Commit publication runs AFTER receipt insertion, and version/head transitions
+require that exact immutable receipt. Insert, delete and replacement guards
+protect heads, published versions, pages and facts while allowing superseded
+version cascades and staged expiry/key-rotation cleanup. Composite-key tables
+have no alternate rowid, and the fact rowid conflict guard protects published
+facts from replacement through a staged parent. Removing each of ten guards
+let the forbidden SQL succeed and failed its regression; removing only the
+fact-rowid predicate did the same. The paired ordering mutation, fact-ID
+constraint mutation and retrieval mutations still fail their regressions.
+Fixtures now publish through real commits, preserve deliberate non-head
+corruption coverage, and restore only guards present before teardown. Restored
+validation: 41 projection/retriever tests, 1,980 workspace tests / 108 files,
+lint and source types pass; test-only types retain 121 unrelated diagnostics.
+The PR's D1 migration remains an owner operation. No merge or deployment.
+
+## 2026-09-11 19:46 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
+
+PR #16 restores the history byte-budget boundary to `break`. Eligible turns
+remain a contiguous newest suffix, so a large middle turn cannot silently join
+older and newer turns. Deferred facts retain independent fitting-candidate
+selection and can use the space left after history stops. Three regressions
+pin history alone, history plus a deferred fact, and an oversized deferred fact
+before a smaller fitting fact. Changing history to `continue` fails each of the
+first two; changing deferred facts to `break` fails the third. Restored checks:
+17 retriever tests, 1,969 workspace tests / 108 files, lint and source types
+pass. Test-only types retain 121 unrelated diagnostics, none in the changed
+file. Migration `0014` and the paired ordering/fact-ID tests are unchanged.
+The two new SQL bot review comments remain separate outstanding review work;
+this patch addresses Sid's history/deferred-budget finding only. No merge,
+production migration or deployment was performed.
+
+## 2026-09-11 18:08 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
+
+PR #16 now wires fact projection into the real node from merged main
+`94575fb`, incorporated by merge `7f6e8d5`. An owed immutable snapshot resumes
+after event sync/ACK recovery and before new distillation, then current active
+facts publish after promotion. Reconstructed-runtime tests verify the exact
+retry before a failing model call, valid signed page/commit requests, no
+unchanged-cycle upload, stop with a pending page, and authentication shutdown
+on both new and resumed uploads. Disabling the node binding, retry call, or
+stop callback fails those tests. Restored full Python: 582 passed / 20 Windows
+skips, Ruff and win32 mypy clean. The merged baseline also passed 1,966
+workspace tests and all seven CI jobs. Migration `0014`, its paired ordering
+regression, and the fact-ID constraint are unchanged; the paired mutation was
+rerun and caught. Final-head CI precedes readiness for Sid's high-effort
+review. The PR and installation runbooks call out the live D1 migration before
+gateway/node rollout. No production operation was run; item 4 stays separate.
+
+## 2026-09-11 17:45 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
+
+PR #16's cloud retriever now reads matching published facts alongside recent
+turns, with active principal/device checks, canonical provenance validation,
+literal FTS terms and a shared context budget. Duplicate devices cannot lower
+sensitivity. Removing both publication predicates exposes staged facts and
+fails the regression; removing the device-status predicate exposes a revoked
+fact and also fails. Guards restored, 42 focused tests and all 1,966 workspace
+tests passed, with lint and source types clean. Test-only types retain 121
+unrelated diagnostics after fixing the touched fixture's existing cast. The
+runbook states that node composition is still pending PR #13's merge to main,
+and separates owner migration/offline-recall/retraction acceptance from these
+local checks. PR #13 at `719d4ee` and the earlier uploader checkpoint have all
+seven CI jobs green. Nothing was merged or deployed.
+
+## 2026-09-11 17:28 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
+
+PR #16 now includes the durable Python active-fact uploader and local memory
+migration `0003_cloud_projection.sql`. Immutable pages are stored before HTTP,
+all pages are resent after interruption, and only an exact commit receipt
+advances the local publication cursor. Tests cover a disk reopen after a lost
+commit response, empty retraction, metadata changes, active-only capture,
+request bounds and corrupt persisted data. Skipping commit-receipt validation
+fails its regression. Full Python: 531 passed / 5 Windows skips, Ruff and
+win32 mypy clean. Cloud retrieval and node composition remain to finish here.
+PR #13 separately has the lifecycle fixes and direct `has_more` wire test at
+`719d4ee`; its Ubuntu and Windows checks passed, with the other jobs pending.
+Wait for Sid to merge item 2 before composing its node into item 3. Live D1
+migration `0014`, deployment and live acceptance remain owner operations.
 
 ## 2026-09-11 17:25 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
 
@@ -202,9 +461,24 @@ is the next required slice before final review. Do not merge yet. Item 3 and
 its version-order regression are now isolated in draft PR #16, whose body
 calls out migration `0014` and the owner's live D1 deployment step.
 
+## 2026-09-11 16:50 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
+
+R2 item 3 is now separate from PR #13: the item-2 branch is restored to
+reviewed `996e6ec`. Subsequent review found two blocking client lifecycle
+defects there, so it must not merge until the snapshot and restart-ACK fixes
+are verified. Those fixes stay in item 2. This fresh branch from main
+keeps the signed fact-page upload and atomic publication checkpoint, with
+the review's paired version-order guard regression and stricter fact-ID
+constraint. Python upload and context retrieval remain in progress. Review
+`0014_memory_projection.sql` before owner deployment: it adds live D1
+projection storage, triggers and FTS indexing, and must precede gateway
+publication and uploader startup. The builder has not merged, migrated or
+deployed. Keep item 3 in its own draft PR and review the final head there.
+
 ## 2026-09-11 16:05 UTC — GPT-5.6 Sol builder / GPT-6 coordinator
 
 Applied both PR #13 review follow-ups after bringing in PR #14: the four Unix-socket Linux guards and the node key-permission guard now use `_is_linux()`, with all five injected type errors rejected by the existing win32 mypy invocation. Added the requested systemd sandbox, documented the bind/UMask dependency, and put `systemd-analyze security` in the home-node runbook. Local Python checks pass (540 tests, 20 platform skips, Ruff and mypy). The two reviewed item-2 slices have no merge-blocking findings; these follow-ups and subsequent fact-projection work remain on the same draft PR for review. No host installation, security score, deployment or live R2 acceptance is claimed.
+
 
 ## 2026-09-11 15:50 UTC — Claude Opus 5
 

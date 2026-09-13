@@ -43,7 +43,184 @@ and record the results in each PR; do not retry Actions, disable jobs or
 restructure CI to bypass the quota. CI path filtering can be considered
 when CI is next intentionally changed; it is not part of this work.
 
-## R2 item 2 candidate
+## R2 item 3 review candidate
+
+**Platform hold (Sid, 2026-09-12):** his PCs run Windows 11 and his phone is an
+iPhone 16; there is no Linux host, server or VPS. The home PC is off overnight.
+The current Linux-only node cannot run on his machines. Do not port the node or
+continue Linux work until he decides. Carry forward the actual R2 requirement:
+memory must work with every PC off. PR #22 records this correction in
+`CLAUDE.md`; the runbook labels its existing Linux procedures as on hold and
+its mode-0700 check as POSIX-only, with no Windows ACL enforcement.
+
+The platform-independent review fixes are pushed at `f1958c4`. GitHub Actions
+run 34721781316 did not start any of its seven jobs because of an account
+billing/spending-limit restriction. This is not current-head CI validation;
+the local results below remain the available evidence. No billing setting or
+workflow check was changed.
+
+The follow-up after `2e5da79` adds five direct migration-trigger regressions and
+two FTS recovery cases. Removing each named trigger from migration 0014 fails its
+own test; removing the exercised rebuild command fails both forged/missing-match
+cases. The migration is restored byte-for-byte and has no diff from `4764d9b`.
+The FTS cleanup test inspects postings directly instead of letting the base-table
+join hide them. Recovery uses the real retriever and preserves facts, heads and
+receipts. The runbook now documents rebuilding the derived index, the default
+integrity-check limitation, and the decision to retain the existing base-table
+join rather than add a second per-query tokenizer or scan.
+
+Pre-merge rollout review must read this newly introduced runbook from the PR
+branch, not `main`. Its mode-0700 preflight is explicitly POSIX-only; the Linux
+shell commands do not validate Windows ACLs. After applying 0014 and before
+deploying the gateway, the owner must count exactly 21 projection triggers.
+Local validation passes 105 focused tests and all 2,146 workspace tests across
+109 files, lint and source types. The separate test typecheck has 119 diagnostics
+outside the two changed files and none inside them. Current-head CI and review
+status are recorded on PR #16. No production code or migration changed in this
+follow-up, and no live operation or merge was performed.
+
+Review remediation after `78e8e89` is implemented. The early pushed checkpoint
+`f8666f9` passed all seven CI jobs, including Linux's real node SIGKILL/restart
+and live-duplicate test. Startup names an occupied endpoint and gives conditional
+manual recovery instructions; the runbook puts stale-endpoint removal before
+restart. A failed, unaccepted enqueue no longer sets a persistent storage alarm.
+New store-directory components are all created as 0700 and validated. Invalid
+control-response shapes and encoding failures return a fixed refusal while the
+control service remains usable.
+
+The latest local Python suite passes 789 tests / 32 Windows platform skips,
+with Ruff and win32 mypy clean. Seventeen targeted mutations were caught and
+restored. Added coverage pins transaction boundaries, recovered-work wakeup,
+shutdown admission, mode=rw, all three reviewed migration 0005 constraints,
+per-device retention, and memory write locks staying outside cloud requests.
+No migration contents changed in this round. A fresh read-only same-vendor
+advisory review found no further issues in the inspected delta; it does not
+replace independent Claude review. Final-commit CI and publication status are
+recorded on PR #16.
+
+The follow-up after `a9b73fb` bounds the retry reply wait and returns an explicit
+queued acknowledgement while a cloud call is in flight. Local command work wakes
+without running a cloud cycle; only a successful scoped quarantine delete asks
+for one. Status reports pending and recent retry results, including failures and
+stop cancellation. Local migration `0005_projection_retries.sql` persists accepted
+requests and their outcomes in the memory store. The cycle thread commits the
+delete and receipt atomically; queued work resumes after abrupt restart, and
+recent history survives with distinct request IDs. Retention uses completion
+order, so an older request finishing late remains visible. A receipt-storage
+failure keeps queued work available for later existing boundaries without a
+hot retry loop. The runbook retains the stopped-node exact SQL fallback.
+Atomic admission limits each owner to 256 pending requests so all accepted work
+fits in status; excess new requests receive `retry_queue_full`, and duplicate
+pending requests retain their IDs. Request flags and wake signals share the
+same lock so a delayed local signal cannot bypass the cloud backoff deadline.
+
+The gateway now returns retryable 409 for `device_key_changed`, the race between
+the verified-key read and nonce write. `device_key_invalid` remains 401 and a
+deliberate stop because it means the stored enrolled key/fingerprint is corrupt.
+Only the reviewed `memory_projection_device_state_changed` D1 trigger may turn
+storage text into a permanent status; future trigger names remain generic 400.
+Promotion-stage authentication is mutation-pinned. Quarantine deletion scope and
+both fact-id guards now have dedicated regressions.
+
+Existing POSIX store parents are refused if they are not private; startup never
+chmods an owner-selected directory. The permission error names the manual chmod
+command. The runbook now requires an archive/memory/vault/vector parent-mode
+preflight before deployment or migration 0014. Database/WAL/SHM file guards stay
+0600. The existing embedding compatibility check creates its own candidate
+directory with 0700 so it obeys this same policy. The preceding checkpoint's
+local validation was Python 757 passed / 31 skips, Ruff, win32 mypy for all 55
+source files and diff checks.
+The 40 earlier guard mutations and 11 follow-up mutations were caught and
+restored. Its Linux CI passed the actual slow-cloud Unix socket and POSIX
+permission cases. Main `1fc8187`, including merged PR #21's Hermes close fix,
+is incorporated here. Current validation is at the top of this section and on
+PR #16.
+
+The gateway authenticates signed bytes before endpoint validation, so an
+unauthenticated request cannot invoke projection policy or distillation model
+work. Sync status uses exact closed codes; a raw `request_nonces` storage error
+remains retryable 400, while genuine auth/device-state failures retain 401/403.
+Deterministic invalid fact text receives the signed abandonment classification,
+authenticated content rejection is logged without submitted text, and a page
+write race returns retryable 409 instead of device revocation. Python and
+TypeScript exercise shared 4,096-byte/eight-source bounds.
+
+Distillation now refuses excerpt controls and non-ULID source ids before prompt
+rendering. The node skips these ineligible raw excerpts without rewriting the
+archive, and selection/progress use one scan so rejected events cannot consume
+the valid-excerpt limit or cause repeated batches. Superseding a quarantined fact
+is covered across re-projection: the active count becomes zero while its retained
+quarantine record remains. Both state-filter mutations fail that regression.
+
+Fact text now rejects controls and Unicode line separators at both producers,
+upload validation and the D1 boundary. Provider context quotes/escapes each
+entry, including multiline history, so content cannot add a rendered entry.
+Python and TypeScript execute one shared redaction-vector file covering
+ECMAScript whitespace and ASCII boundary/case semantics. Page rejection still
+quarantines the page as a unit; completed projection cycles expose the exact
+active quarantine count through node status.
+
+The follow-up addresses permanently stalled projection: distillation now shares
+the 4,096 UTF-8-byte/eight-source bounds and refuses text requiring redaction.
+Legacy unrepresentable facts are quarantined individually. Definitive gateway
+content rejection records durable local recovery and signs an exact-manifest
+abandonment, leaving published memory intact. D1 abandonment receipts prevent
+delayed pages from resurrecting the rejected stage. Unknown HTTP 400/network
+errors remain resumable. Quarantine and pending recovery have distinct node
+status messages. Local migration `0004` stores the quarantine/recovery metadata;
+cloud migration `0014` also includes the abandonment guards. Current validation
+and the pending independent review are recorded on PR #16.
+
+Item 2 merged through [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13)
+at `94575fb`, including the client lifecycle fixes and direct completed-token
+wire regression. That main commit is incorporated into
+`codex/r2-fact-projection`. The gateway accepts signed, bounded active-fact
+pages, validates their source events in D1 or the verified R2 archive, and
+publishes a complete manifest atomically. SQL version/head transitions require
+the exact immutable commit receipt; published contents reject direct additions,
+edits, deletion and replacement, including replacement by fact rowid. Cleanup
+after a newer commit and staged expiry/key rotation remain permitted. Removing
+each of ten guards and the fact-rowid predicate fails its direct-SQL regression.
+The Python uploader persists an
+immutable snapshot before HTTP and resends every page after interruption,
+advancing only on an exact commit receipt. Local memory migration `0003`
+adds its durable pending pages and publication cursor. Earlier Python validation
+was 686 passed / 20 Windows skips, with Ruff and win32 mypy clean. Cloud context
+now combines matching published facts with recent turns, enforces active
+principal/device ownership and a shared byte/item budget, and keeps the most
+restrictive sensitivity across device duplicates. History stops at the first
+over-budget turn to preserve its contiguous newest suffix; deferred facts can
+use the remaining space and skip independent oversized candidates. Keyword
+mutations fail the three regressions for these boundaries. Earlier workspace
+validation was 2,112 passed / 109 files, with lint and source types clean. Removing both
+publication predicates exposes staged facts and fails the regression; removing
+the device-status predicate exposes a revoked fact and also fails. All guards
+were restored before the full suite.
+
+The merged bootstrap now runs the uploader. An owed immutable projection is
+retried after event sync/ACK recovery and before new distillation. The current
+active snapshot is published after promotion. Node tests verify signed wire
+requests, unchanged later cycles, exact retry after process reconstruction,
+and shutdown with a pending page. Disabling the node binding, retry call, or
+stop callback fails those boundary tests. Authentication rejection stops the
+service; transient failure keeps pending work durable for retry. The reviewed
+ACK recovery implementation remains unchanged.
+
+Current-head checks and review status are recorded on PR #16. Its live-data
+migration requires Claude Opus 5 at max under the current BUILDING rules.
+Item 4 semantic
+search is a separate future PR and is not included here.
+See the [fact projection runbook](runbooks/fact-projection.md) for rollout and
+owner acceptance. The earlier sections below are historical R0 evidence.
+
+**Production schema change:** `0014_memory_projection.sql` adds projection
+storage, publication triggers and FTS indexing. It does not backfill facts
+or alter existing event rows. At owner deployment, apply and verify this
+migration on live D1 before publishing the gateway and enabling the uploader.
+Merging, production migration, deployment, and live acceptance remain Sid's;
+local D1 tests establish none of those actions.
+
+## R2 item 2 merged baseline
 
 PR #12 is merged at `7414ab1`. Its Linux device-key implementation is the
 base for [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13),
@@ -66,11 +243,13 @@ between requests. A direct HTTP-client regression also makes two pulls without
 an intervening ACK and checks that a completed nonempty page's token is absent
 from the second request. Replacing the `has_more` guard with `True` fails that
 wire assertion. Python validation is 557 passed / 20 Windows platform skips,
-with Ruff and win32 mypy clean. Current-head CI and review remain required.
+with Ruff and win32 mypy clean. All seven CI jobs passed at `719d4ee` before
+Sid merged PR #13 at `94575fb`.
 
-GPT-5.6 Sol xhigh builds this item; the final fixes need Claude Opus 5 xhigh
-review. Sid retains merging and the live systemd check. Item 3 is isolated in
-[draft PR #16](https://github.com/ksid1229-ops/jarvis/pull/16), including its
+GPT-5.6 Sol xhigh builds R2 under the current BUILDING rules. Because this item
+contains a live-data migration, its review requires Claude Opus 5 max. Sid
+retains merging and the live systemd check. Item 3 is isolated in
+[PR #16](https://github.com/ksid1229-ops/jarvis/pull/16), including its
 D1 migration and version-order regression. No production operation was run.
 R0's observed exit evidence below remains valid and R1 remains open.
 

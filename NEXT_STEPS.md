@@ -4,6 +4,31 @@ The milestone order is in [the roadmap](docs/plan/2026-09-03-jarvis-roadmap.md).
 **R0 passed on 2026-09-11 and R1 is open.** Do not resume superseded
 implementation plans.
 
+## R2 item 3: fact projection
+
+Item 2 merged through [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13)
+at `94575fb`, including the client lifecycle fixes and direct completed-token
+wire regression. The separate
+`codex/r2-fact-projection` branch starts from main and contains the signed
+page upload, atomic D1 publication, and durable Python uploader checkpoints.
+Cloud context now retrieves published facts alongside recent turns under a
+shared budget. The merged node bootstrap now resumes an owed projection after
+event sync and before new distillation, then publishes active facts after
+promotion. Durable ACK recovery remains unchanged, and shutdown preserves
+pending projection pages. Finish item-3 review and the owner acceptance in
+the fact projection runbook. Keep one PR
+per milestone item and push tested checkpoints. Item 4 semantic search stays
+in its own later PR and is not part of #16.
+
+This item adds `0014_memory_projection.sql`, including projection tables,
+publication/abandonment guards and an FTS index. Local migration `0004` adds
+quarantine and restart-safe rejection recovery. Owner deployment must apply this new
+migration to live D1 before publishing the updated gateway or starting the
+uploader. Check the pending migration list and recovery point first using
+the deployment runbook. Under `docs/BUILDING.md`, this live-data migration
+requires Claude Opus 5 at max for review. The builder must not merge, migrate
+or deploy.
+
 ## R0 checkpoint, 2026-09-11
 
 1. **PR #5 at edac272 reviewed: no merge blocker.** Seven CI jobs observed
@@ -43,7 +68,7 @@ implementation plans.
 
 Build it per the roadmap's section 7 and `docs/BUILDING.md`: GPT-5.6 Sol at
 xhigh builds, **Claude Opus 5 at max** reviews, because R1 is the v1.0
-release gate rather than the usual high. The cross-vendor gate holds -- the
+release gate rather than the usual xhigh. The cross-vendor gate holds -- the
 same model never builds and reviews the same work.
 
 The R1 acceptance audit in `docs/AGENT_LOG.md` records the original gaps;

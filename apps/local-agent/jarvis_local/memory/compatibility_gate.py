@@ -254,7 +254,7 @@ def run_compatibility_gate(
 
 
 def _verify_offline(candidate: SemanticCandidate, workdir: Path) -> CompatibilityReport:
-    workdir.mkdir(parents=True, exist_ok=True)
+    workdir.mkdir(mode=0o700, parents=True, exist_ok=True)
     guard = NetworkGuard()
     try:
         with guard.enforced():

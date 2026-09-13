@@ -8,8 +8,11 @@ the same defect the append-only triggers exist to prevent.
 
 from __future__ import annotations
 
+import os
 import re
+import shlex
 import sqlite3
+import stat
 from pathlib import Path
 
 from jarvis_local.archive.append_only import assert_append_only
@@ -26,6 +29,79 @@ CREATE TABLE IF NOT EXISTS schema_migration (
 """
 
 
+def _is_posix() -> bool:
+    # Behind a function so a win32 mypy run still checks the guarded body.
+    return os.name == "posix"
+
+
+class SQLiteDirectoryError(PermissionError):
+    """An owner-selected store directory requires an explicit permissions fix."""
+
+
+def _restrict_sqlite_file(path: Path, *, create: bool) -> None:
+    if not _is_posix():
+        return
+    flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+    if create:
+        flags |= os.O_CREAT
+    try:
+        descriptor = os.open(path, flags, stat.S_IRUSR | stat.S_IWUSR)
+    except FileNotFoundError:
+        if create:
+            raise
+        return
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise PermissionError("the SQLite store is not a regular file")
+        if metadata.st_uid != os.geteuid():  # type: ignore[attr-defined,unused-ignore]
+            raise PermissionError("the SQLite store is not owned by this user")
+        if metadata.st_mode & 0o077:
+            os.fchmod(  # type: ignore[attr-defined,unused-ignore]
+                descriptor,
+                stat.S_IRUSR | stat.S_IWUSR,
+            )
+    finally:
+        os.close(descriptor)
+
+
+def _restrict_sqlite_directory(path: Path) -> None:
+    if not _is_posix():
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise SQLiteDirectoryError(f"SQLite store parent {path} is not a directory")
+        if metadata.st_uid != os.geteuid():  # type: ignore[attr-defined,unused-ignore]
+            raise SQLiteDirectoryError(f"SQLite store parent {path} is not owned by this user")
+        if metadata.st_mode & 0o077:
+            raise SQLiteDirectoryError(
+                f"SQLite store parent {path} requires owner-only permissions (0700). "
+                "After checking that this directory should be private, run: "
+                f"chmod 0700 -- {shlex.quote(os.fspath(path))}"
+            )
+    finally:
+        os.close(descriptor)
+
+
+def _ensure_sqlite_directory(path: Path) -> None:
+    # pathlib's parents=True applies mode only to the final directory. Create
+    # and inspect each missing component so the node never makes a public
+    # ancestor while creating a private store beneath it.
+    missing: list[Path] = []
+    for directory in (path, *path.parents):
+        if directory.exists():
+            break
+        missing.append(directory)
+    for directory in reversed(missing):
+        directory.mkdir(mode=stat.S_IRWXU, exist_ok=True)
+        _restrict_sqlite_directory(directory)
+    if not missing:
+        _restrict_sqlite_directory(path)
+
+
 def connect(path: Path) -> sqlite3.Connection:
     """Open the archive with the pragmas it depends on.
 
@@ -33,9 +109,14 @@ def connect(path: Path) -> sqlite3.Connection:
     default in SQLite and must be enabled per connection, or content_seen's
     reference to content_blob would be decorative.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_sqlite_directory(path.parent)
+    _restrict_sqlite_file(path, create=True)
+    for suffix in ("-wal", "-shm"):
+        _restrict_sqlite_file(Path(f"{path}{suffix}"), create=False)
     connection = sqlite3.connect(path, isolation_level=None)
     connection.execute("PRAGMA journal_mode = WAL")
+    for suffix in ("-wal", "-shm"):
+        _restrict_sqlite_file(Path(f"{path}{suffix}"), create=False)
     connection.execute("PRAGMA foreign_keys = ON")
     connection.execute("PRAGMA synchronous = FULL")
     return connection

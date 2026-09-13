@@ -1,0 +1,38 @@
+{
+  "maxFactBytes": 4096,
+  "maxFactSources": 8,
+  "jsWhitespaceCodePoints": [9, 10, 11, 12, 13, 32, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198, 8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288, 65279],
+  "factControlCodePoints": [0, 9, 10, 13, 27, 31, 127, 133, 159, 8232, 8233],
+  "spaceTemplates": [
+    "pin is<space><eight>",
+    "pin<space>is <eight>",
+    "passcode:<space><eight>",
+    "token<space>= synthetic",
+    "api key<space>= synthetic",
+    "api<space>key=synthetic",
+    "authorization<space>:synthetic"
+  ],
+  "redactionCases": [
+    {"name": "ordinary", "text": "A coffee preference", "refuse": false},
+    {"name": "six digits", "text": "Order <six>", "refuse": true},
+    {"name": "eight ordinary digits", "text": "Order <eight>", "refuse": false},
+    {"name": "contextual digits", "text": "pin is <eight>", "refuse": true},
+    {"name": "header", "text": "authorization: synthetic", "refuse": true},
+    {"name": "assignment", "text": "password=\"synthetic fixture\"", "refuse": true},
+    {"name": "already redacted", "text": "[REDACTED_AUTH_DIGITS]", "refuse": false},
+    {"name": "Unicode before ASCII boundary", "text": "épin <eight>", "refuse": true},
+    {"name": "underscore is a word character", "text": "_pin <eight>", "refuse": false},
+    {"name": "dotted I is not ASCII I", "text": "pİn <eight>", "refuse": false},
+    {"name": "dotless I is not ASCII I", "text": "pın <eight>", "refuse": false},
+    {"name": "long S is not ASCII S", "text": "paſſcode <eight>", "refuse": false},
+    {"name": "NEL is not JS space", "text": "pin\u0085<eight>", "refuse": false},
+    {"name": "separator is not JS space", "text": "pin\u001c<eight>", "refuse": false},
+    {"name": "Mongolian separator is not JS space", "text": "pin\u180e<eight>", "refuse": false},
+    {"name": "zero width space is not JS space", "text": "pin\u200b<eight>", "refuse": false},
+    {"name": "NBSP alone is not a credential value", "text": "token:\u00a0", "refuse": false},
+    {"name": "BOM alone is not a credential value", "text": "token:\ufeff", "refuse": false},
+    {"name": "NBSP is not a bearer separator", "text": "bearer\u00a0<bearer>", "refuse": false},
+    {"name": "ordinary bearer", "text": "bearer of good news", "refuse": false},
+    {"name": "synthetic bearer shape", "text": "bearer <bearer>", "refuse": true}
+  ]
+}
