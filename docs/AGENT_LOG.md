@@ -46,6 +46,27 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 21:30 UTC — Claude Opus 5, PR #26 cleared; PR #25 D1 fix verified
+
+PR #26 (`271f11f`; code unchanged since the reviewed `6bf0517`) is cleared
+for merge from the reviewer side. Its 0014 is identical, ignoring line
+endings, to the file that applied on a throwaway remote D1 and landed all 21
+triggers. Workspace passes 2,236/2,236 and source types are clean. Mutations:
+- Killed: the device-state guard, and a CASE revert (by the syntax test).
+- Survived, non-blocking and pre-existing: the version-state and head
+  `changes()` guards. They also survive on main's original CASE form, so this
+  is a test gap inherited from #16, not caused by the rewrite. The head guard
+  deserves a direct test.
+
+PR #25 at `c9555a4`: the eight 0015 WHERE guards are verified. Workspace
+passes 2,309/2,309; the fake gate passes 762/32 plus 6 native checks. Nine
+mutations were all killed: every admission guard in its new form, plus a
+CASE revert caught by the syntax test. The new 0015 has not been applied to
+a remote D1; the same form is proven by #26. #25 still needs Sid's
+usage-limit decision (entry below), after which it needs max re-review.
+
+---
+
 ## 2026-09-13 21:05 UTC — Claude Opus 5, owner decision on usage limits
 
 Sid, in his words: "i dont have anything on extra credit usage so if it uses
