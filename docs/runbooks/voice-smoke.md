@@ -36,7 +36,9 @@ A failed fake gate stops the sequence before the evidence audit. Missing, duplic
 |---|---|
 | Owner inbound and outbound, without a PIN | Signed admission, raw setup, active authority and conversation output |
 | Guest activation and isolation | Real four-digit verifier, pending-to-active grant, separate principal history, another guest's PIN refused |
-| Guest capabilities and changing grants | Capability/owner-operation contracts, revocation and PIN rotation before the next turn, bound authority proofs |
+| Unknown and ungranted callers | Signed requests refused before relay initialization, PIN work or conversation |
+| Guest capabilities and changing grants | Capability/owner-operation contracts, revocation and PIN rotation before the next turn, cross-session proof rejection at the internal authority boundary |
+| PIN secrecy | Successful and rejected candidates absent from replies, frames, logs, model context, both event stores, conversation turns and attempt reservations |
 | Interruption and model timeout | Cancelled stream, no delivered-history claim, real 30-second total deadline, next turn usable |
 | No-answer and terminal callbacks | No redial, atomic receipt/state updates, exact provider binding, repeatable live cleanup |
 | Admission races and retention | Callback before/after initialization, real archive sealing/purge with the receipt retained |

@@ -5,12 +5,18 @@ using this checkpoint. R0 passed; calling remains R1.
 
 ## R1 is active; the node platform decision remains on hold
 
-R0 passed on 2026-09-11. R1 depends on R0 and is entirely cloud-side. Start
-with the fake inbound acceptance harness and the scenarios in both calling
-plans, then Telegram `/call`; keep the production voice routes closed until
-the fake scenarios pass. R1's v1.0 review requires Claude Opus 5 at max.
-Twilio configuration, live calls and redacted live evidence remain owner
-operations, separate from credential-free local test results.
+R0 passed on 2026-09-11. R1 depends on R0 and is entirely cloud-side.
+PR #23 implements item 2's fake calling/access matrix and confirmed Telegram
+`/call`, with local Windows validation and mutation evidence recorded in the
+PR. The production Worker still answers that calling is not configured.
+The real release runner passes its local prerequisites and then refuses the
+missing live evidence. It never places a call itself.
+
+R1's v1.0 review requires Claude Opus 5 at max. Item 1's real Worker/runtime
+composition belongs in a separate PR after this review; Twilio configuration,
+live calls and redacted live evidence remain owner operations. Items 3 and 4
+still cover the live smoke and legacy eight-digit verifier deletion. None
+of those are satisfied by the fake matrix or same-vendor advisory review.
 
 Sid's PCs run Windows 11 and his phone is an iPhone 16. There is no Linux
 host, server or VPS; the home PC is off overnight. No Windows node port or

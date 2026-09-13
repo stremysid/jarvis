@@ -22,21 +22,6 @@ one of those instead. This file is allowed to go stale; those three are not.
 session can tell who claimed what and when. Never put a credential, a PIN,
 a phone number, an account identifier or a token in here.
 
-## 2026-09-13 06:19 UTC — Codex, R1 item 2 callback and guest checkpoint
-
-Draft PR #23 now exercises signed owner/guest relay paths with the real PIN
-verifier, D1 authority checks, conversation service and model adapter. Guest
-activation, wrong-PIN separation, principal history isolation, permission
-denial, revocation and PIN rotation are covered, as is the real 30-second
-model deadline. The callback review found two more admission gaps: a terminal
-callback during initialization and a retained receipt after its live event
-was archived. Both are fixed and reproduced through the actual boundary;
-the archive test runs sealing and purge, not a mocked missing row. Targeted
-mutations fail the new checks. No migration or production activation is part
-of this checkpoint. Continue Telegram `/call` and the release gate on this
-same item-2 PR. Required Claude Opus 5 max review and live acceptance remain
-separate; the node platform hold is unchanged.
-
 **Expect merge conflicts here, and resolve them by keeping everything.**
 Both sessions prepend, so two entries written between merges land on the
 same line and git cannot order them. That is a property of one shared file,
@@ -60,6 +45,36 @@ is not blocked. An entry that only makes sense as half of a conversation is
 the wrong shape for this file.
 
 ---
+
+## 2026-09-13 07:09 UTC — GPT-6 Astra
+
+R1 item 2 is implemented on PR #23: signed fake owner/guest calling, the
+confirmed Telegram self-call command, callback recovery and the permanent
+fake prerequisite before the live-evidence audit. Restored local Windows
+workspace tests pass 2,003/109 files, with source/harness typechecks and
+lint. Actual guard mutations catch the receipt, principal, expiry, grant,
+interruption, timeout and callback defects; the PIN observer also catches
+an injected raw-candidate log. The exact ungranted-caller case and both
+voice event stores are covered. Read the current PR body for complete test
+receipts and limits. Production calling remains unconfigured, no migration
+changed, and live evidence is absent. Please review at Claude Opus 5 max;
+item 1 composition, owner configuration, the live smoke and legacy verifier
+removal remain separate. R2/platform and CI quota holds are unchanged.
+
+## 2026-09-13 06:19 UTC — Codex, R1 item 2 callback and guest checkpoint
+
+Draft PR #23 now exercises signed owner/guest relay paths with the real PIN
+verifier, D1 authority checks, conversation service and model adapter. Guest
+activation, wrong-PIN separation, principal history isolation, permission
+denial, revocation and PIN rotation are covered, as is the real 30-second
+model deadline. The callback review found two more admission gaps: a terminal
+callback during initialization and a retained receipt after its live event
+was archived. Both are fixed and reproduced through the actual boundary;
+the archive test runs sealing and purge, not a mocked missing row. Targeted
+mutations fail the new checks. No migration or production activation is part
+of this checkpoint. Continue Telegram `/call` and the release gate on this
+same item-2 PR. Required Claude Opus 5 max review and live acceptance remain
+separate; the node platform hold is unchanged.
 
 ## 2026-09-13 05:28 UTC — GPT-6 Astra
 

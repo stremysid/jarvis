@@ -1,10 +1,79 @@
 import { describe, expect, it, vi } from "vitest";
 import { env } from "cloudflare:test";
 import { GuestPinVerifier } from "../../../apps/cloud-gateway/src/security/guest-pin-verifier.js";
+import { VoiceAccessRepository } from "../../../apps/cloud-gateway/src/persistence/voice-access-repository.js";
 import { createFakeCallingSystem } from "./voice-call-system.js";
 import { FAKE_GUEST_PEPPER, FAKE_PIN_A, FAKE_PIN_B, seedFakeGuest } from "./voice-access-system.js";
 
 describe("fake voice guest access", () => {
+  it("refuses a verified active identity with no grant before creating a relay or consuming PIN work", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      const now = "2026-08-30T12:00:00.000Z";
+      const caller = "+14165550113";
+      await env.DB.batch([
+        env.DB.prepare(`INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at)
+          VALUES ('principal:ungranted', 'human', 'active', 'Fixture ungranted caller', ?, ?)`)
+          .bind(now, now),
+        env.DB.prepare(`INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at)
+          VALUES ('identity:ungranted', 'principal:ungranted', 'voice', ?, 'active', ?, ?)`)
+          .bind(caller, now, now),
+      ]);
+      await expect(env.DB.prepare("SELECT count(*) AS count FROM voice_access_grants WHERE identity_id = 'identity:ungranted'")
+        .first()).resolves.toEqual({ count: 0 });
+      await expect(new VoiceAccessRepository(env.DB).resolveInboundCandidate({ providerE164: caller,
+        ownerIdentityId: "identity:voice", challengeHmacKeyVersion: "1", now: new Date(now) })).resolves.toBeNull();
+      const response = await system.inbound(caller);
+      expect(response.status).toBe(403);
+      expect(await response.text()).toBe("forbidden");
+      expect(system.initializations()).toHaveLength(0);
+      await expect(env.DB.prepare("SELECT count(*) AS count FROM call_sessions").first()).resolves.toEqual({ count: 0 });
+      await expect(system.pinAttempts()).resolves.toBe(0);
+      await expect(system.conversationTurnCount()).resolves.toBe(0);
+    } finally { await system.cleanup(); }
+  });
+
+  it("keeps successful and rejected guest PIN candidates out of logs, replies and recalled memory", async () => {
+    const system = await createFakeCallingSystem();
+    const logs: unknown[][] = [];
+    const spies = (["debug", "info", "log", "warn", "error"] as const)
+      .map((method) => vi.spyOn(console, method).mockImplementation((...args: unknown[]) => { logs.push(args); }));
+    try {
+      const guest = await seedFakeGuest("a");
+      const failed = await system.inbound(guest.caller);
+      expect(failed.status).toBe(200);
+      const rejected = await system.openRelay();
+      await rejected.setup();
+      for (let attempt = 0; attempt < 3; attempt += 1) await rejected.pin(FAKE_PIN_B());
+      await expect(rejected.phase()).resolves.toBe("rejected");
+      await expect(rejected.modelRequests()).resolves.toHaveLength(0);
+      await rejected.close();
+
+      const admitted = await system.inbound(guest.caller);
+      expect(admitted.status).toBe(200);
+      const accepted = await system.openRelay();
+      await accepted.setup();
+      await accepted.pin(FAKE_PIN_A());
+      await expect(accepted.phase()).resolves.toBe("active");
+      await accepted.prompt("Remember my ordinary chamomile preference.");
+      await accepted.prompt("Recall my ordinary preference.");
+      const requests = await accepted.modelRequests();
+      expect(requests[1]?.context.map((item) => item.text)).toContain("Remember my ordinary chamomile preference.");
+      const surfaces = [await failed.text(), await admitted.text(), JSON.stringify(logs),
+        JSON.stringify(rejected.frames()), JSON.stringify(accepted.frames()), JSON.stringify(requests),
+        JSON.stringify((await env.DB.prepare("SELECT envelope_json FROM events").all()).results),
+        JSON.stringify((await env.DB.prepare("SELECT * FROM voice_access_grant_events").all()).results),
+        JSON.stringify((await env.DB.prepare("SELECT * FROM authentication_attempt_reservations").all()).results),
+        JSON.stringify((await env.DB.prepare("SELECT * FROM conversation_turns").all()).results)];
+      for (const digits of [FAKE_PIN_A(), FAKE_PIN_B()]) {
+        for (const surface of surfaces) expect(surface).not.toContain(String.fromCharCode(...digits));
+      }
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+      await system.cleanup();
+    }
+  });
+
   it("activates a pending guest with their bound PIN and never puts its digits in model input or durable conversation", async () => {
     const system = await createFakeCallingSystem();
     try {

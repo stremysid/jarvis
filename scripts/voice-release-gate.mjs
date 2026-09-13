@@ -5,6 +5,10 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 export const VOICE_FAKE_TEST_FILTERS = Object.freeze([
   "tests/acceptance/fake/voice-",
   "apps/cloud-gateway/test/security/voice-access-authority.test.ts",
+  "apps/cloud-gateway/test/security/owner-access-security.test.ts",
+  "apps/cloud-gateway/test/security/guest-pin-verifier.test.ts",
+  "apps/cloud-gateway/test/security/relay-binding.test.ts",
+  "apps/cloud-gateway/test/security/redaction.test.ts",
   "apps/cloud-gateway/test/voice/capability-registry.test.ts",
   "apps/cloud-gateway/test/voice/owner-access-service.test.ts",
   "apps/cloud-gateway/test/voice/owner-access-intent.test.ts",

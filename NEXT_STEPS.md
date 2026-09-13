@@ -46,23 +46,23 @@ xhigh builds, **Claude Opus 5 at max** reviews, because R1 is the v1.0
 release gate rather than the usual high. The cross-vendor gate holds -- the
 same model never builds and reviews the same work.
 
-Read the R1 acceptance audit in `docs/AGENT_LOG.md` before planning item 2.
-The short version: the fake acceptance layer is outbound-only, so the
-inbound harness is the first and largest piece of work, and the pass
-criteria already exist in `tests/acceptance/live/voice-smoke.ts` and should
-be mirrored rather than reinvented. Do not flip the voice switch in
-`apps/cloud-gateway/src/index.ts` until the fake scenarios pass.
+The R1 acceptance audit in `docs/AGENT_LOG.md` records the original gaps;
+the criteria remain in both calling plans and the live-smoke contract.
+Item 2 is implemented for review on `codex/r1-call-acceptance`, PR #23.
+The fake matrix crosses signed routes, D1 and the Durable Object for owner,
+guest, unknown and ungranted callers; it covers interruption, the real
+30-second model deadline, frame bounds, grant changes and callback recovery.
+Telegram `/call <reason> --confirm` constructs a durable owner-only self-call
+command with fixed expiry and replay protection. Production dispatch is
+still unconfigured; item 1 must supply the real runtime dependencies.
 
-Item 2 is in progress on `codex/r1-call-acceptance`, draft PR #23. The fake
-matrix now covers owner inbound and outbound calls, unanswered calls,
-guest activation and isolation, permission and grant changes between turns,
-interruption, terminal callbacks, oversized frames and the real 30-second
-model deadline. Callback acceptance also exposed admission races before and
-after DO initialization and after archive purge; the fixes require no
-migration. Continue Telegram `/call` and the release gate.
-`pnpm test:voice-access` runs the matrix;
-`pnpm typecheck:voice-access` checks its harness. This checkpoint does not
-activate voice or satisfy live acceptance.
+Run `pnpm test:voice-access` and `pnpm typecheck:voice-access` locally.
+`pnpm release:voice-gate` runs the fake prerequisite before auditing the five
+retained live records, and refuses release while those records are absent.
+Current validation belongs in PR #23; fake success is not live acceptance.
+After Claude Opus 5 max review, continue item 1's production composition in
+its own PR. Owner configuration and live evidence remain explicit gates;
+the live smoke (item 3) and legacy verifier removal (item 4) stay separate.
 
 ## R2 platform hold
 
