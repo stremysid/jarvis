@@ -43,11 +43,13 @@ describe("ProductionCapacitySource", () => {
 
   it("passes prepaid and postpaid observations through the unchanged threshold guard in opposite directions", async () => {
     await expect(guard(source()).assertAcceptingNewTurn()).resolves.toBeUndefined();
-    await expect(guard(source({ providers: [prepaid(1)] })).assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
-    await expect(guard(source({ providers: [prepaid(1.000001)] })).assertAcceptingNewTurn()).resolves.toBeUndefined();
+    await expect(guard(source({ providers: [prepaid(0)] })).assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
+    await expect(guard(source({ providers: [prepaid(0.000001)] })).assertAcceptingNewTurn()).resolves.toBeUndefined();
     const spent = postpaid();
-    spent.read = async () => ({ amount: 38, currency: "USD", observedAt: at });
+    spent.read = async () => ({ amount: 40, currency: "USD", observedAt: at });
     await expect(guard(source({ providers: [spent] })).assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
+    spent.read = async () => ({ amount: 39.999999, currency: "USD", observedAt: at });
+    await expect(guard(source({ providers: [spent] })).assertAcceptingNewTurn()).resolves.toBeUndefined();
   });
 
   it("preserves provider observation time rather than refreshing stale reported spending", async () => {

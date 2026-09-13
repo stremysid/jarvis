@@ -288,7 +288,7 @@ describe("OutboundCallDispatcher", () => {
       if (fault === "stale") estimates[0]!.observedAt = new Date(NOW.valueOf() - 60_000).toISOString();
       if (fault === "short") estimates.splice(1);
       if (fault === "malformed") estimates[0]!.used = Number.NaN;
-      if (fault === "critical") estimates[3]!.used = 95;
+      if (fault === "critical") estimates[3]!.used = 100;
       const capacity = new CapacityGuard({
         source: { async readEstimates() { return estimates; } },
         sink: { async emit() {}, async rearm() {} }, now: () => NOW, maximumTelemetryAgeMs: 60_000,
