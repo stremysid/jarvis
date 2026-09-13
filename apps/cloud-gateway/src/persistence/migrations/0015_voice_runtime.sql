@@ -102,9 +102,9 @@ CREATE TRIGGER outbound_attempts_admission
 BEFORE UPDATE OF provider_dispatch_state ON outbound_call_attempts
 WHEN OLD.provider_dispatch_state = 'ready' AND NEW.provider_dispatch_state = 'claimed'
 BEGIN
-  SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM outbound_runtime_controls WHERE singleton_id = 1 AND enabled = 1)
-    THEN RAISE(ABORT, 'outbound_admission_disabled') END;
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'outbound_admission_disabled')
+    WHERE NOT EXISTS (SELECT 1 FROM outbound_runtime_controls WHERE singleton_id = 1 AND enabled = 1);
+  SELECT RAISE(ABORT, 'outbound_admission_destination') WHERE NOT EXISTS (
     SELECT 1 FROM voice_owner_identity owner
     JOIN principals actor ON actor.principal_id = owner.principal_id
     JOIN channel_identities owner_identity ON owner_identity.identity_id = owner.identity_id
@@ -120,28 +120,30 @@ BEGIN
           SELECT 1 FROM voice_access_grants grant_row WHERE grant_row.identity_id = destination.identity_id
             AND grant_row.principal_id = destination.principal_id AND grant_row.status IN ('pending', 'active')
         )))
-  ) THEN RAISE(ABORT, 'outbound_admission_destination') END;
-  SELECT CASE WHEN EXISTS (SELECT 1 FROM outbound_runtime_controls WHERE singleton_id = 1
+  );
+  SELECT RAISE(ABORT, 'outbound_admission_quiet') WHERE EXISTS (
+    SELECT 1 FROM outbound_runtime_controls WHERE singleton_id = 1
       AND quiet_starts_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-      AND quiet_ends_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-    THEN RAISE(ABORT, 'outbound_admission_quiet') END;
-  SELECT CASE WHEN NEW.authorization_expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-    THEN RAISE(ABORT, 'outbound_admission_expired') END;
-  SELECT CASE WHEN NEW.nonce_expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-    THEN RAISE(ABORT, 'outbound_admission_nonce_expired') END;
-  SELECT CASE WHEN NEW.provider_dispatch_claimed_at IS NULL
+      AND quiet_ends_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+  );
+  SELECT RAISE(ABORT, 'outbound_admission_expired')
+    WHERE NEW.authorization_expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now');
+  SELECT RAISE(ABORT, 'outbound_admission_nonce_expired')
+    WHERE NEW.nonce_expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now');
+  SELECT RAISE(ABORT, 'outbound_admission_clock_invalid') WHERE NEW.provider_dispatch_claimed_at IS NULL
       OR strftime('%Y-%m-%dT%H:%M:%fZ', NEW.provider_dispatch_claimed_at) IS NOT NEW.provider_dispatch_claimed_at
-      OR substr(NEW.provider_dispatch_claimed_at, 1, 10) <> strftime('%Y-%m-%d', 'now')
-    THEN RAISE(ABORT, 'outbound_admission_clock_invalid') END;
-  SELECT CASE WHEN (SELECT count(*) FROM outbound_call_attempts attempt
+      OR substr(NEW.provider_dispatch_claimed_at, 1, 10) <> strftime('%Y-%m-%d', 'now');
+  SELECT RAISE(ABORT, 'outbound_admission_concurrency') WHERE (
+    SELECT count(*) FROM outbound_call_attempts attempt
       WHERE attempt.principal_id = NEW.principal_id
         AND attempt.provider_dispatch_state IN ('claimed', 'dispatched', 'provider_dispatch_unknown')
-        AND attempt.provider_terminal_at IS NULL) >= 2
-    THEN RAISE(ABORT, 'outbound_admission_concurrency') END;
-  SELECT CASE WHEN (SELECT count(*) FROM outbound_call_attempts attempt
+        AND attempt.provider_terminal_at IS NULL
+  ) >= 2;
+  SELECT RAISE(ABORT, 'outbound_admission_daily') WHERE (
+    SELECT count(*) FROM outbound_call_attempts attempt
       WHERE attempt.principal_id = NEW.principal_id AND attempt.provider_dispatch_claimed_at IS NOT NULL
-        AND substr(attempt.provider_dispatch_claimed_at, 1, 10) = strftime('%Y-%m-%d', 'now')) >= 6
-    THEN RAISE(ABORT, 'outbound_admission_daily') END;
+        AND substr(attempt.provider_dispatch_claimed_at, 1, 10) = strftime('%Y-%m-%d', 'now')
+  ) >= 6;
 END;
 
 CREATE INDEX outbound_attempts_policy_day ON outbound_call_attempts(principal_id, provider_dispatch_claimed_at);
