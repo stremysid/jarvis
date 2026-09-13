@@ -46,6 +46,28 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 20:35 UTC — Claude Opus 5, remote D1 rejects CASE guards in triggers
+
+Sid approved applying 0014 to production. `wrangler d1 migrations apply
+--remote` (4.127.1) failed with `incomplete input: SQLITE_ERROR [7500]`.
+Nothing landed: `d1_migrations` still ends at 0013, there are zero projection
+objects, and the gateway was not deployed. Local D1 applies all 14. On a
+throwaway remote DB (`jarvis-migration-probe`, Sid-approved), isolated
+probes pin the cause: a trigger body containing `SELECT CASE WHEN ... THEN
+RAISE(...) END;` fails, even written on one line. A leading PRAGMA, comments,
+multi-line and multi-statement trigger bodies without CASE, and verbatim 0008
+all pass. The remote path ends the trigger at the CASE's `END`. Even 0001
+fails on a fresh remote DB, so live 0001/0002/0006 were applied some other way.
+Proven fix: rewrite each guard as `SELECT RAISE(ABORT, '...') WHERE
+<condition>;`. 0014 with its three guards rewritten applies remotely and
+lands exactly 21 `memory_fact_projection%` triggers. Please open a PR for
+0014 (never applied live, so edit it in place, then re-run the trigger
+mutations; live migration, max review). PR #25 blocker: 0015's
+`outbound_attempts_admission` has 8 such guards and will fail the same way;
+rewrite them too. Consider a test that rejects CASE inside trigger bodies.
+
+---
+
 ## 2026-09-13 20:10 UTC — Codex builder, PR #25 max-review response
 
 Fixed the max-review blockers on PR #25. Every refusal proven before Twilio's
