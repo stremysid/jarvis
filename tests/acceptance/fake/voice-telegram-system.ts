@@ -44,7 +44,8 @@ export async function createFakeTelegramCallingSystem() {
     authenticatedOrigin: (commandId) => commands().authenticatedOrigin(commandId),
   } });
   const twilio = new FakeTwilioProvider();
-  const dispatcher = new OutboundCallDispatcher({ policy, twilio, repository: new CallRepository(env.DB, events),
+  const dispatcher = new OutboundCallDispatcher({
+      capacity: { async assertAcceptingNewTurn() {} }, policy, twilio, repository: new CallRepository(env.DB, events),
     publicBaseUrl: new URL("https://jarvis.example/"), now: () => new Date(clock) });
   const dispatch = { policy, dispatcher };
   const accepted: AcceptedTelegramUpdate[] = [];

@@ -318,6 +318,7 @@ it("preserves 1,000 canonical events across D1, R2, signed sync, and denied disp
   await expect(policy.evaluateOutboundCall(modelCommand)).resolves.toEqual({ decision: "deny", reason: "invalid_origin" });
   const twilio = new FakeTwilioProvider();
   const dispatcher = new OutboundCallDispatcher({
+      capacity: { async assertAcceptingNewTurn() {} },
     policy,
     twilio,
     repository: new CallRepository(env.DB, liveEvents),

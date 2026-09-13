@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CapacityGuard, type CapacityEstimate } from "../../src/archive/capacity-guard.js";
 import type { OutboundCallCommand, Ulid } from "../../../../packages/contracts/src/index.js";
 import { OutboundCallDispatcher } from "../../src/calls/outbound-call-dispatcher.js";
 import { CallRepository, type ProviderDispatchClaimCapability } from "../../src/persistence/call-repository.js";
@@ -238,6 +239,7 @@ function createDispatcher(input: {
   twilio?: TestControllableTwilioProvider;
   repository?: CallRepository;
   attemptIds?: Ulid[];
+  capacity?: Pick<CapacityGuard, "assertAcceptingNewTurn">;
 } = {}) {
   const attemptIds = input.attemptIds ?? [ATTEMPT_0, ATTEMPT_1, ATTEMPT_2];
   const policy = input.policy ?? new RecordingPolicy();
@@ -248,6 +250,7 @@ function createDispatcher(input: {
     twilio,
     repository,
     dispatcher: new OutboundCallDispatcher({
+      capacity: input.capacity ?? { async assertAcceptingNewTurn() {} },
       policy,
       twilio,
       repository,
@@ -274,6 +277,82 @@ describe("OutboundCallDispatcher", () => {
   });
 
   afterEach(clearData);
+
+  it.each(["stale", "short", "malformed", "critical"] as const)(
+    "blocks dialling on %s capacity telemetry before claiming a provider attempt", async (fault) => {
+      const estimates: CapacityEstimate[] = ["d1", "r2", "provider:twilio", "provider:deepseek"].map((resource) => ({
+        resource: resource as CapacityEstimate["resource"], used: 1, budget: 100, observedAt: NOW.toISOString(),
+      }));
+      if (fault === "stale") estimates[0]!.observedAt = new Date(NOW.valueOf() - 60_000).toISOString();
+      if (fault === "short") estimates.splice(1);
+      if (fault === "malformed") estimates[0]!.used = Number.NaN;
+      if (fault === "critical") estimates[3]!.used = 95;
+      const capacity = new CapacityGuard({
+        source: { async readEstimates() { return estimates; } },
+        sink: { async emit() {}, async rearm() {} }, now: () => NOW, maximumTelemetryAgeMs: 60_000,
+      });
+      const subject = createDispatcher({ capacity });
+      await expect(subject.dispatcher.dispatch(command())).resolves.toEqual({ status: "capacity_unavailable" });
+      expect(subject.policy.rechecks).toHaveLength(0);
+      expect(subject.twilio.requests).toHaveLength(0);
+      expect(await env.DB.prepare("SELECT count(*) AS count FROM outbound_call_attempts").first()).toEqual({ count: 0 });
+    },
+  );
+
+  it("awaits capacity before the final calling policy check and before any dispatch ownership", async () => {
+    let release = () => {};
+    let entered = () => {};
+    const waiting = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const order: string[] = [];
+    const subject = createDispatcher({ capacity: { async assertAcceptingNewTurn() {
+      order.push("capacity"); entered(); await gate;
+    } } });
+    const check = subject.policy.recheckOutboundDispatch.bind(subject.policy);
+    vi.spyOn(subject.policy, "recheckOutboundDispatch").mockImplementation(async (...args) => {
+      order.push("policy"); return check(...args);
+    });
+    const pending = subject.dispatcher.dispatch(command());
+    await waiting;
+    try {
+      expect(subject.policy.rechecks).toHaveLength(0);
+      expect(subject.twilio.requests).toHaveLength(0);
+      expect(await env.DB.prepare("SELECT count(*) AS count FROM outbound_call_attempts").first()).toEqual({ count: 0 });
+    } finally { release(); }
+    expect((await pending).status).toBe("dispatched");
+    expect(order).toEqual(["capacity", "policy"]);
+    expect(subject.twilio.requests).toHaveLength(1);
+  });
+
+  it("returns an existing call receipt without requiring another capacity check or another dial", async () => {
+    const assertAcceptingNewTurn = vi.fn(async () => {});
+    const subject = createDispatcher({ capacity: { assertAcceptingNewTurn } });
+    const first = await subject.dispatcher.dispatch(command());
+    assertAcceptingNewTurn.mockRejectedValue(new Error("capacity_unavailable"));
+    expect(await subject.dispatcher.dispatch(command())).toEqual(first);
+    expect(first.status).toBe("dispatched");
+    expect(assertAcceptingNewTurn).toHaveBeenCalledOnce();
+    expect(subject.twilio.requests).toHaveLength(1);
+  });
+
+  it("refuses missing capacity wiring without spending or exposing the dependency failure", async () => {
+    const twilio = new TestControllableTwilioProvider();
+    const dispatcher = new OutboundCallDispatcher({ policy: new RecordingPolicy(), twilio,
+      repository: createRepository(), publicBaseUrl: new URL("https://jarvis.example/"),
+      capacity: undefined as never, newAttemptId: () => ATTEMPT_0, now: () => NOW });
+    expect(await dispatcher.dispatch(command())).toEqual({ status: "capacity_unavailable" });
+    expect(twilio.requests).toHaveLength(0);
+    expect(await readAttempt(ATTEMPT_0)).toBeNull();
+  });
+
+  it("captures the capacity assertion so replacing the caller's dependency cannot bypass spending admission", async () => {
+    const capacity = { async assertAcceptingNewTurn(): Promise<void> { throw new Error("synthetic private diagnostic"); } };
+    const subject = createDispatcher({ capacity });
+    capacity.assertAcceptingNewTurn = async () => {};
+    expect(await subject.dispatcher.dispatch(command())).toEqual({ status: "capacity_unavailable" });
+    expect(subject.twilio.requests).toHaveLength(0);
+    expect(await readAttempt(ATTEMPT_0)).toBeNull();
+  });
 
   it("rejects extra caller-controlled fields before policy or persistence", async () => {
     const subject = createDispatcher();
@@ -400,6 +479,7 @@ describe("OutboundCallDispatcher", () => {
     });
     const twilio = new TestControllableTwilioProvider();
     const dispatcher = new OutboundCallDispatcher({
+      capacity: { async assertAcceptingNewTurn() {} },
       policy: new RecordingPolicy(),
       twilio,
       repository: wrappedRepository,
@@ -441,6 +521,7 @@ describe("OutboundCallDispatcher", () => {
     let now = NOW;
     const twilio = new TestControllableTwilioProvider();
     const dispatcher = new OutboundCallDispatcher({
+      capacity: { async assertAcceptingNewTurn() {} },
       policy: new RecordingPolicy(),
       twilio,
       repository: blockedRepository,
@@ -510,7 +591,7 @@ describe("OutboundCallDispatcher", () => {
     const results = await Promise.all([leftPending, rightPending]);
 
     const winner = twilio.requests[0]?.attemptId as Ulid;
-    expect(results.map((result) => result.attemptId)).toEqual([winner, winner]);
+    expect(results.map((result) => "attemptId" in result ? result.attemptId : null)).toEqual([winner, winner]);
     await expect(readAttempt(winner)).resolves.toMatchObject({ relayNonce: winner === ATTEMPT_0 ? NONCE_0 : NONCE_1 });
     expect(policy.rechecks.filter((entry) => entry.attemptId === winner)).toHaveLength(2);
     expect(twilio.requests).toHaveLength(1);
@@ -695,6 +776,7 @@ describe("OutboundCallDispatcher", () => {
     };
     const twilio = new TestControllableTwilioProvider();
     const dispatcher = new OutboundCallDispatcher({
+      capacity: { async assertAcceptingNewTurn() {} },
       policy,
       twilio,
       repository: blockedRepository,
@@ -738,6 +820,7 @@ describe("OutboundCallDispatcher", () => {
       recheckOutboundDispatch: async () => check,
     };
     const dispatcher = new OutboundCallDispatcher({
+      capacity: { async assertAcceptingNewTurn() {} },
       policy,
       twilio,
       repository: createRepository(),
@@ -772,6 +855,7 @@ describe("OutboundCallDispatcher", () => {
       },
     };
     const dispatcher = new OutboundCallDispatcher({
+      capacity: { async assertAcceptingNewTurn() {} },
       policy: new RecordingPolicy(),
       twilio,
       repository: createRepository(),
@@ -805,6 +889,7 @@ describe("OutboundCallDispatcher", () => {
       },
     };
     const dispatcher = new OutboundCallDispatcher({
+      capacity: { async assertAcceptingNewTurn() {} },
       policy: new RecordingPolicy(),
       twilio,
       repository: createRepository(),
@@ -863,6 +948,7 @@ describe("OutboundCallDispatcher", () => {
     const twilio = new TestControllableTwilioProvider();
     twilio.blockNextResponse();
     const dispatcher = new OutboundCallDispatcher({
+      capacity: { async assertAcceptingNewTurn() {} },
       policy: new RecordingPolicy(),
       twilio,
       repository: wrappedRepository,
@@ -914,6 +1000,7 @@ describe("OutboundCallDispatcher", () => {
     });
     const twilio = new TestControllableTwilioProvider();
     const dispatcher = new OutboundCallDispatcher({
+      capacity: { async assertAcceptingNewTurn() {} },
       policy: new RecordingPolicy(),
       twilio,
       repository: wrappedRepository,
@@ -948,6 +1035,7 @@ describe("OutboundCallDispatcher", () => {
     });
     const twilio = new TestControllableTwilioProvider();
     const dispatcher = new OutboundCallDispatcher({
+      capacity: { async assertAcceptingNewTurn() {} },
       policy: new RecordingPolicy(),
       twilio,
       repository: wrappedRepository,

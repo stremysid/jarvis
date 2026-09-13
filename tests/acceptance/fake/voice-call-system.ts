@@ -150,6 +150,7 @@ export async function createFakeCallingSystem(input: {
   const relays = new FakeRelaySessions(repository,
     { manual: input.manualModel ?? false, streamText: "A safe voice answer." }, () => new Date(NOW));
   const dispatcher = new OutboundCallDispatcher({
+      capacity: { async assertAcceptingNewTurn() {} },
     policy,
     twilio,
     repository,

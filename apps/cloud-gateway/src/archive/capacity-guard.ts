@@ -61,10 +61,12 @@ export class CapacityGuard {
 
   async assertAcceptingNewTurn(): Promise<void> {
     try {
+      const estimates = await this.options.source.readEstimates();
+      // A production collector can finish after the guard started. Compare its
+      // observation to this clock, then recheck after asynchronous alert delivery.
       const now = this.options.now();
       const nowMilliseconds = now.getTime();
       if (!Number.isFinite(nowMilliseconds)) throw unavailable();
-      const estimates = await this.options.source.readEstimates();
       if (!Array.isArray(estimates) || estimates.length < 3) throw unavailable();
 
       const resources = new Set<string>();
@@ -72,6 +74,8 @@ export class CapacityGuard {
       let hasR2 = false;
       let hasProvider = false;
       let critical = false;
+      let oldestObservation = Infinity;
+      let newestObservation = -Infinity;
       for (const estimate of estimates) {
         if (!safeResource.test(estimate.resource) || resources.has(estimate.resource)) throw unavailable();
         resources.add(estimate.resource);
@@ -89,6 +93,8 @@ export class CapacityGuard {
         }
         const age = nowMilliseconds - observedMilliseconds;
         if (age < 0 || age >= this.options.maximumTelemetryAgeMs) throw unavailable();
+        oldestObservation = Math.min(oldestObservation, observedMilliseconds);
+        newestObservation = Math.max(newestObservation, observedMilliseconds);
 
         for (const threshold of thresholds) {
           const alert = alertFor(estimate.resource, threshold);
@@ -98,6 +104,9 @@ export class CapacityGuard {
         critical ||= atOrAbove(estimate, 95);
       }
       if (!hasD1 || !hasR2 || !hasProvider || critical) throw unavailable();
+      const completedAt = this.options.now().getTime();
+      if (!Number.isFinite(completedAt) || completedAt < newestObservation
+        || completedAt - oldestObservation >= this.options.maximumTelemetryAgeMs) throw unavailable();
     } catch {
       throw unavailable();
     }

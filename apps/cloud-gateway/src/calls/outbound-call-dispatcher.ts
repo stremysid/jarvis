@@ -16,6 +16,7 @@ import {
   snapshotOutboundCallRequest,
 } from "../policy/policy-engine.js";
 import type { PolicyEngineContract, PolicyReason } from "../policy/policy-types.js";
+import type { CapacityGuard } from "../archive/capacity-guard.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const E164 = /^\+[1-9][0-9]{1,14}$/u;
@@ -61,6 +62,7 @@ interface DispatchPolicyCheckSnapshot {
 }
 
 export type OutboundCallDispatchResult =
+  | { status: "capacity_unavailable" }
   | { status: "denied"; reason: PolicyReason; checkedAt: string; checkId: Ulid | null; attemptId: Ulid | null }
   | { status: "dispatched"; callSid: string; attemptId: Ulid }
   | { status: "rejected"; attemptId: Ulid; failureCode: ProviderFailureCode; retryEligible: boolean }
@@ -151,9 +153,11 @@ export class OutboundCallDispatcher {
   private readonly publicBaseUrl: URL;
   private readonly newAttemptId: () => Ulid;
   private readonly now: () => Date;
+  private readonly assertCapacity: () => Promise<void>;
 
   constructor(private readonly deps: {
     policy: PolicyEngineContract;
+    capacity: Pick<CapacityGuard, "assertAcceptingNewTurn">;
     twilio: TwilioProvider;
     repository: CallRepository;
     publicBaseUrl: URL;
@@ -173,6 +177,11 @@ export class OutboundCallDispatcher {
     this.publicBaseUrl = baseUrl;
     this.newAttemptId = deps.newAttemptId ?? newUlid;
     this.now = deps.now ?? (() => new Date());
+    const capacity = deps.capacity;
+    const assertion = capacity?.assertAcceptingNewTurn;
+    this.assertCapacity = typeof assertion === "function"
+      ? assertion.bind(capacity)
+      : async () => { throw new Error("capacity_unavailable"); };
   }
 
   async dispatch(input: OutboundCallCommand): Promise<OutboundCallDispatchResult> {
@@ -209,6 +218,12 @@ export class OutboundCallDispatcher {
         if (intent.state !== "ready") return this.resolveExistingIntent(intent);
         allocationOrdinal = intent.attempt.attemptOrdinal;
       }
+
+      // Dialling spends before a turn exists. Await telemetry before the final
+      // policy recheck, so a slow collector cannot make that decision stale.
+      // Replayed receipts above do not claim ownership or spend again.
+      try { await this.assertCapacity(); }
+      catch { return { status: "capacity_unavailable" }; }
 
       const check = snapshotDispatchPolicyCheck(await this.deps.policy.recheckOutboundDispatch(request, attemptId));
       if (check === null) {

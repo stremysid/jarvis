@@ -126,4 +126,55 @@ describe("CapacityGuard", () => {
     await expect(guard(new MutableSource(healthy({ d1: 0.70 })), failedSink).assertAcceptingNewTurn())
       .rejects.toThrow("capacity_unavailable");
   });
+
+  it("uses the collection completion time so a fresh measurement is not rejected as future telemetry", async () => {
+    let clock = now.valueOf();
+    const capacity = new CapacityGuard({
+      source: { async readEstimates() {
+        clock += 1;
+        return healthy().map((item) => ({ ...item, observedAt: new Date(clock).toISOString() }));
+      } },
+      sink: new IdempotentSink(), now: () => new Date(clock), maximumTelemetryAgeMs: 60_000,
+    });
+    await expect(capacity.assertAcceptingNewTurn()).resolves.toBeUndefined();
+  });
+
+  it.each(["collection", "alert delivery"] as const)("refuses telemetry that becomes stale during %s", async (stage) => {
+    let clock = now.valueOf();
+    const capacity = new CapacityGuard({
+      source: { async readEstimates() {
+        if (stage === "collection") clock += 60_000;
+        return healthy({ d1: 0.70 });
+      } },
+      sink: { async emit() { if (stage === "alert delivery") clock += 60_000; }, async rearm() {} },
+      now: () => new Date(clock), maximumTelemetryAgeMs: 60_000,
+    });
+    await expect(capacity.assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
+  });
+
+  it("rejects an already-stale observation before sending or rearming its alert", async () => {
+    const sink = new IdempotentSink();
+    const stale = healthy({ d1: 0.70 }).map((item) => ({ ...item,
+      observedAt: new Date(now.valueOf() - 60_000).toISOString() }));
+    await expect(guard(new MutableSource(stale), sink).assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
+    expect(sink.alerts).toEqual([]);
+    expect(sink.rearms).toEqual([]);
+  });
+
+  it.each(["d1", "r2"] as const)("refuses a missing %s measurement even when multiple provider rows keep the list long enough", async (missing) => {
+    const rows = [...healthy().filter((item) => item.resource !== missing), estimate("provider:twilio", 0.1)];
+    expect(rows).toHaveLength(3);
+    await expect(guard(new MutableSource(rows)).assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
+  });
+
+  it.each([
+    ["used", -1], ["used", Infinity], ["used", Number.NaN],
+    ["budget", 0], ["budget", -1], ["budget", Infinity], ["budget", Number.NaN],
+  ] as const)("refuses an invalid %s measurement instead of interpreting it as available capacity", async (field, value) => {
+    const rows = healthy().map((item) => item.resource === "d1" ? { ...item, [field]: value } : item);
+    const sink = new IdempotentSink();
+    await expect(guard(new MutableSource(rows), sink).assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
+    expect(sink.alerts).toEqual([]);
+    expect(sink.rearms).toEqual([]);
+  });
 });

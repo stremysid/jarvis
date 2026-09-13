@@ -46,6 +46,20 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 16:00 UTC — GPT-6 Astra
+
+R1 item 1's dispatcher now awaits capacity before final policy revalidation
+and dispatch ownership. The guard no longer samples time before collection or
+accepts telemetry that ages out during alert delivery. Local Windows workspace
+passes 2,055 tests across 109 files. An earlier full run had one guest-access
+timeout; its nine-test file and then the full suite passed without relaxing
+timeouts. Twelve mutation experiments fail, including a combined removal of
+redundant short-source guards. Positive-budget removal initially survived via
+the critical threshold; new assertions prohibit alerts for malformed telemetry
+and kill it. The owner resolved DeepSeek to a prepaid-credit floor; DECISIONS
+records the weaker guarantee and interrupted-call/overshoot limits. Collector,
+sink and Worker composition remain in this draft. No live action performed.
+
 ## 2026-09-13 15:38 UTC — GPT-6 Astra
 
 R1 item 1 is underway on `codex/r1-voice-runtime`, stacked on PR #23 without

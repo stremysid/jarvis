@@ -69,14 +69,15 @@ Build this independently of PR #23's separate Claude Opus 5 max review;
 that review remains required before merge. Owner configuration and live evidence remain explicit gates;
 the live smoke (item 3) and legacy verifier removal (item 4) stay separate.
 
-Capacity adapters and the pre-dial assertion are authorized within item 1.
-Budgets are owner configuration with no defaults. The existing dispatcher
-has no capacity assertion; add it before claiming provider dispatch. Keep
-missing, malformed and stale telemetry closed. DeepSeek exposes remaining
-credit rather than spending and there is no complete local charge ledger;
-do not derive spend by subtracting balance or treating unknown calls as free.
-The strict-spending source/accounting decision is still pending. Alerts must
-reuse Telegram; no new notification channel or metering product is in scope.
+Capacity adapters are authorized within item 1. The dispatcher now awaits
+capacity before final policy validation and dispatch ownership; receipt replay
+does not spend again. The guard checks freshness after collection and again
+after alert delivery. Missing, malformed and stale telemetry remain closed.
+The owner chose a DeepSeek remaining-credit floor for his one-time prepaid
+allocation, not a strict-spending ledger. Normalize allocation minus remaining
+credit into the existing estimate shape; 70/85 alerts must say to plan the R7
+provider switch. Budgets remain owner configuration. Collector and Telegram
+sink wiring are still pending; see DECISIONS.md for the guarantee and limits.
 
 Hermes' MSI-only trusted PowerShell path is filed for R3 as
 [issue #24](https://github.com/ksid1229-ops/jarvis/issues/24). Sid's Store/MSIX

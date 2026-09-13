@@ -4,6 +4,27 @@
 - R2 is the archive store.
 - Authentication state does not use eventually consistent KV.
 
+## DeepSeek admission uses remaining credit (2026-09-13, owner decision)
+
+The owner selected a remaining-credit floor for his one-time $20 DeepSeek
+prepayment, with no refills. This is a **balance above floor** guarantee at
+admission, not **spend under budget**. Interrupted requests can still cost
+money. A later credit read sees that cost; the floor does not prevent overshoot
+from concurrent requests, delayed charges or other consumers of the account.
+
+Keep `CapacityEstimate` unchanged: prepaid providers use the configured
+allocation as `budget` and allocation minus remaining credit as `used`;
+postpaid providers use an owner-configured cap and provider-reported spending.
+These are different observation types normalized for the same threshold test,
+not a reconstructed charge ledger. Reject failed, incomplete, malformed or
+stale observations. Monetary configuration has no source-code default.
+
+DeepSeek's 70/85 alerts must explicitly say to plan the provider switch in R7.
+The floor must exceed the documented worst plausible request cost with margin;
+the runtime bounds, pricing assumption and calculation must be recorded before
+activation. No provider switch, top-up accounting or new metering product is
+part of R1. Existing watchdog/Telegram delivery remains the alert channel.
+
 ## Migration numbering diverges from the Obsidian plan (2026-09-02)
 
 `docs/superpowers/plans/2026-08-30-jarvis-obsidian-memory-implementation.md`

@@ -23,9 +23,10 @@ available when provider configuration is missing. The new explicit
 `IDENTITY_CHALLENGE_HMAC_KEY_VERSION` must match challenge issuance and inbound
 admission, and all three peppers must be canonical base64 for exactly 32 bytes.
 The Worker routes and Telegram dispatch remain unconfigured pending the rest
-of item 1. Capacity adapters and the missing pre-dial assertion are authorized;
-strict DeepSeek spending telemetry still needs an authoritative source or an
-approved accounting design, because remaining account credit is not spend.
+of item 1. The pre-dial capacity check and telemetry freshness corrections are
+implemented and tested. The owner approved a remaining-credit floor for the
+one-time DeepSeek prepaid pot. Collection and Telegram alerts remain to wire;
+the guarantee is balance above the floor, not spending under a budget.
 Twilio configuration,
 live calls and redacted live evidence remain owner operations. Items 3 and 4
 still cover the live smoke and legacy eight-digit verifier deletion. None
