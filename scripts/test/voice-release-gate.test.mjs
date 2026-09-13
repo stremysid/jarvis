@@ -24,6 +24,8 @@ test("runs the real fake-suite entry before the retained-evidence audit", () => 
     "apps/cloud-gateway/test/channels/telegram-",
     "apps/cloud-gateway/test/channels/command-handler.test.ts",
     "apps/cloud-gateway/test/http/voice-callback-recorder.test.ts",
+    "apps/cloud-gateway/test/http/voice-routes.test.ts",
+    "apps/cloud-gateway/test/http/voice-route-construction.test.ts",
     "apps/cloud-gateway/test/providers/twilio.test.ts",
     "apps/cloud-gateway/test/providers/twilio-cleanup-url.test.ts",
     "apps/cloud-gateway/test/providers/conversation-relay.test.ts",

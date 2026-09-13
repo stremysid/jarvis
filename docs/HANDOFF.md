@@ -3,17 +3,23 @@
 Current as of **2026-09-13**. Verify the current branch and checks before
 using this checkpoint. R0 passed; calling remains R1.
 
+PR #25's completed code candidate passes 2,306 Windows workspace tests / 119
+files. Its release gate passes 762 / 32 plus six native checks, then refuses
+missing live evidence. Source/harness typechecks and lint pass; the separate
+test-type baseline is 121 diagnostics. Max review and owner operations remain.
+
 ## R1 is active; the node platform decision remains on hold
 
 R0 passed on 2026-09-11. R1 depends on R0 and is entirely cloud-side.
 PR #23 implements item 2's fake calling/access matrix and confirmed Telegram
 `/call`, with local Windows validation and mutation evidence recorded in the
-PR. The production Worker still answers that calling is not configured.
+PR. PR #25 composes the production Worker; an unconfigured deployment still
+answers that calling is not configured.
 The real release runner passes its local prerequisites and then refuses the
 missing live evidence. It never places a call itself.
 
 R1's v1.0 review requires Claude Opus 5 at max. Item 1's real Worker/runtime
-composition is underway on `codex/r1-voice-runtime`, stacked on PR #23; its
+composition is implemented on `codex/r1-voice-runtime`, stacked on PR #23; its
 implementation does not wait on the separate review. The first checkpoint
 installs a lazy production Durable Object runtime using the real D1 access,
 activation, conversation, DeepSeek and Telegram services. Nominal proof and
@@ -22,8 +28,9 @@ is validated before runtime effects; initialization and termination remain
 available when provider configuration is missing. The new explicit
 `IDENTITY_CHALLENGE_HMAC_KEY_VERSION` must match challenge issuance and inbound
 admission, and all three peppers must be canonical base64 for exactly 32 bytes.
-The Worker routes and Telegram dispatch remain unconfigured pending the rest
-of item 1. The pre-dial capacity check and telemetry freshness corrections are
+The Worker now wires verified voice routes and confirmed Telegram dispatch
+to real adapters; owner configuration and review still gate activation.
+The pre-dial capacity check and telemetry freshness corrections are
 implemented and tested. The owner approved a remaining-credit floor for the
 one-time DeepSeek prepaid pot. D1/R2 and provider collectors, explicit capacity
 configuration and the durable Telegram alert sink are implemented. New D1
@@ -38,15 +45,18 @@ output can still settle its receipt after interruption without closing the call.
 Persisted outbound controls now cover atomic access/number binding, expiry,
 quiet windows and the two/six admission limits. Final control reads and a
 synchronous clock fence precede dialing. Unknown claims retain their slot;
-affirmative terminal evidence survives archival. Worker route wiring remains.
+affirmative terminal evidence survives archival. Inbound requests are verified
+once before capacity collection; their nominal form is passed to admission.
+Terminal callbacks and socket forwarding do not require model/credit config.
 The max review of #23 at d6c5fc2 requested changes. The fixes are pushed at
 695e762 and carried into this branch; max re-review remains required. The broad
 relay harness invokes DO methods directly. A separate configured test project
 now exercises the default production factory through the actual DO stub and
 client WebSocket: owner and PIN-authenticated guest turns survive real eviction,
 and a failed credit read closes the socket before another model request or turn.
-Only external provider HTTP is stubbed. This does not prove Worker route wiring
-or live Twilio delivery.
+Another test drives actual Worker ingress, confirmed Telegram dispatch, signed
+TwiML and callback routes, and closes real sockets after terminal callbacks.
+Only external provider HTTP is stubbed. This does not prove live Twilio delivery.
 The guarantee is balance above the floor on an accepted fresh report, not
 spending under a budget or a bound on later concurrent charges. The
 voice runbook identifies measured/estimated sources and derives a reserve from

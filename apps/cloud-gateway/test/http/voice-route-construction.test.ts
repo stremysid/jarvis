@@ -53,7 +53,7 @@ describe("createVoiceRouteDependencies", () => {
       twilio: fake,
     });
     const requests = [
-      new Request("https://worker.internal/voice/inbound", { method: "POST" }),
+      await signedPost(fake, "https://jarvis.example/voice/inbound", ""),
       new Request(`https://worker.internal/voice/outbound/${ATTEMPT_ID}`, { method: "POST" }),
       await signedPost(
         fake,

@@ -14,7 +14,7 @@ const syntheticRequiredBindings = {
 // Always use public fixtures for this check, even on a configured developer host.
 Object.assign(process.env, syntheticRequiredBindings);
 
-const socketTest = "tests/acceptance/fake/voice-production-socket.test.ts";
+const socketTests = ["tests/acceptance/fake/voice-production-socket.test.ts", "tests/acceptance/fake/voice-production-worker.test.ts"];
 const project = (name: string, include: string[], exclude: string[], bindings: Record<string, string> = {}) => ({
   plugins: [cloudflareTest({
     miniflare: { bindings: { ...syntheticRequiredBindings, DEFAULT_GUEST_PIN: "4827", ...bindings } },
@@ -27,10 +27,13 @@ export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
   test: { projects: [
     project("default", ["apps/cloud-gateway/test/**/*.test.ts", "packages/contracts/test/**/*.test.ts",
-      "tests/acceptance/**/*.test.ts"], [socketTest]),
+      "tests/acceptance/**/*.test.ts"], socketTests),
     // Only this project supplies complete public synthetic runtime bindings.
     // Existing missing-configuration tests retain their original environment.
-    project("voice-production-socket", [socketTest], [], {
+    project("voice-production-socket", socketTests, [], {
+      PUBLIC_ORIGIN: "https://jarvis.example", TWILIO_AUTH_TOKEN: "public-fake-twilio-auth-token",
+      TWILIO_FROM_E164: "+14165550100", TELEGRAM_WEBHOOK_SECRET: "synthetic-webhook-secret",
+      TELEGRAM_BOT_USERNAME: "jarvis_sid_bot",
       OWNER_PRINCIPAL_ID: "principal:owner", OWNER_VOICE_IDENTITY_ID: "identity:voice",
       TWILIO_ACCOUNT_SID: `AC${"6".repeat(32)}`, TWILIO_API_KEY_SID: `SK${"6".repeat(32)}`,
       TWILIO_API_KEY_SECRET: "synthetic-voice-key",

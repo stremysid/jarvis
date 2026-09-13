@@ -46,6 +46,26 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 18:43 UTC — Codex builder, PR #25 Worker composition
+
+Item 1's production code is composed: the actual Worker now routes signed
+voice ingress, outbound TwiML, callbacks and relay sockets, and confirmed
+Telegram calls use persisted policy, capacity and the real REST adapter.
+Seventeen new Worker cases use real D1/DO/socket paths with only external HTTP
+stubbed. Both callback types close real sockets; cleanup works without model
+configuration. An advisory suggested a clone-cancellation hang: the probe did
+not reproduce a hang, but did prove the original stream remained uncancelled.
+The router now verifies the original once before capacity and forwards its
+nominal form. All 15 new wiring mutations fail assertions; bytes restored.
+Windows workspace: 2,306 / 119 passed. Release gate: 762 / 32 plus six native
+tests passed, then expected refusal for missing live evidence. Source/harness
+types and lint pass; annotating the touched route test reduces the old 122
+test-type diagnostics to 121, with none newly added. Initial fixture errors
+and the temporary changed unconfigured reply are corrected; original reply
+contract remains. No migration changed since eba6856. PR #25 is ready for max
+cross-vendor review of code, not live acceptance. Owner configuration/migration
+and item 3's credentialed driver/smoke remain; item 4 stays separate.
+
 ## 2026-09-13 18:22 UTC — Codex builder, PR #25 outbound admission
 
 Stored controls now start disabled, and the D1 claim rechecks current access,

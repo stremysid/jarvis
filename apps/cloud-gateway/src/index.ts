@@ -27,9 +27,8 @@ import {
 } from "./conversation/outbox-dispatcher.js";
 import type { Env } from "./env.js";
 import { handleLiveness } from "./http/health.js";
-import { createVoiceRouteDependencies } from "./http/voice-route-construction.js";
+import { handleProductionVoiceRequest, requestProductionTelegramCall } from "./voice/production-routes.js";
 import { handleSyncRequest, isSyncPath } from "./http/sync-routes.js";
-import { routeVoiceRequest } from "./http/voice-routes.js";
 import { DeviceRepository } from "./persistence/device-repository.js";
 import { EventRepository } from "./persistence/event-repository.js";
 import { PolicyService } from "./policy/policy-service.js";
@@ -48,19 +47,6 @@ function notImplemented(): Response {
 function unavailable(): Response {
   return new Response("Channel not configured", { status: 503 });
 }
-
-/**
- * Voice is deliberately fail-closed until Twilio credentials are configured.
- * The invalid origin and always-rejecting verifier refuse every voice request
- * rather than serving one with a half-built configuration.
- */
-const unavailableVoiceRoutes = createVoiceRouteDependencies({
-  publicOrigin: new URL("http://invalid.invalid/"),
-  twilio: Object.freeze({
-    verifyWebhook: async () => null,
-    verifyWebSocket: async () => false,
-  }),
-});
 
 /**
  * Module scope, so state survives between requests in one isolate.
@@ -251,7 +237,10 @@ async function runTelegramCommand(
 ): Promise<void> {
   const send = telegramSender(env);
   if (send === null) return;
-  const replies = await runCommand(name, argument, commandContext(env, accepted.principalId));
+  const context = commandContext(env, accepted.principalId);
+  const replies = await runCommand(name, argument, name === "call"
+    ? { ...context, calls: { request: () => requestProductionTelegramCall(env, accepted) } }
+    : context);
   const decisions = new DecisionService({ repository: new DecisionRepository(env.DB) });
   for (const reply of replies) {
     await send(accepted.chatId, reply.text);
@@ -365,7 +354,7 @@ ${COMMAND_HELP}`));
     // Device-signed; authentication is the signature, not the path.
     if (isSyncPath(pathname)) return handleSyncRequest(request, env);
 
-    if (isVoicePath(request)) return routeVoiceRequest(request, unavailableVoiceRoutes);
+    if (isVoicePath(request)) return handleProductionVoiceRequest(request, env);
     return notImplemented();
   },
   /**

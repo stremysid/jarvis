@@ -1,6 +1,6 @@
 # Credentialed voice smoke gate
 
-This runbook covers the R1 fake calling gate and the separate live-evidence contract. The fake harness exercises local routes, D1, Durable Objects and the calling services with fake providers. It cannot place a real call. Production voice remains closed until R1 item 1 supplies the reviewed runtime dependencies and owner-managed configuration. The live command still needs an injected driver, deployed routes and an enrolled-operator evidence query.
+This runbook covers the R1 fake calling gate and the separate live-evidence contract. The fake harness exercises local routes, D1, Durable Objects and the calling services with fake providers. It cannot place a real call. PR #25 implements production composition; activation still requires max review, owner-managed configuration and the approved migration. The live command still needs an injected driver, deployed routes and an enrolled-operator evidence query.
 
 ## Offline developer workflow
 
@@ -45,7 +45,7 @@ A failed fake gate stops the sequence before the evidence audit. Missing, duplic
 | Oversized relay frames | Valid JSON passed directly to the DO method: 65,536 UTF-8 bytes permits a subsequent turn; 65,537 closes with 1009 and adds no turn |
 | Telegram self-call | Real webhook, stored command origin, policy/dispatch, owner-only confirmed request, replay and expiry |
 
-The broad relay harness injects a core factory and calls `fetch` and `webSocketMessage` directly inside `runInDurableObject`; it does not send incoming frames through the production stub/socket path. Providers and mutable policy inputs are fake. A separate item 1 test project now calls the real namespace stub, upgrades a WebSocket and sends client frames through the default factory. Owner and PIN-authenticated guest turns survive real Durable Object eviction; a failed balance read prevents a second model request and turn. That project uses isolated public synthetic configuration and stubs external provider HTTP only. A regression keeps the ordinary project's missing-configuration checks intact. Neither harness establishes Worker HTTP composition, deployed behavior, phone audio latency, Twilio playback acknowledgement or owner acceptance. The required R1 review is Claude Opus 5 at max.
+The broad relay harness injects a core factory and calls `fetch` and `webSocketMessage` directly inside `runInDurableObject`; it does not send incoming frames through the production stub/socket path. Providers and mutable policy inputs are fake. A separate item 1 test project calls the real namespace stub, upgrades a WebSocket and sends client frames through the default factory. Owner and PIN-authenticated guest turns survive real Durable Object eviction; a failed balance read prevents a second model request and turn. The same project drives actual Worker ingress, signed TwiML/callback routes, confirmed Telegram dispatch and terminal closure of real sockets. It uses isolated public synthetic configuration and stubs external provider HTTP only. A regression keeps the ordinary project's missing-configuration checks intact. These checks do not establish deployed behavior, phone audio latency, Twilio playback acknowledgement or owner acceptance. The required R1 review is Claude Opus 5 at max.
 
 Guest acceptance tests have explicit 15-second deadlines for real PIN crypto and multiple local round trips under the parallel Windows suite. Assertions and the model's 30-second deadline are unchanged. A passing full-suite run is a sample, not proof of deterministic timing. The delayed-initialization callback test intentionally causes the real uninitialized DO RPC to reject; workerd prints `call_session_termination_uninitialized` before the asserted 503 and successful replay. Other errors are not suppressed.
 
@@ -55,17 +55,44 @@ R1 supports calling the owner's configured, verified phone. `/call check in` ask
 
 The accepted Telegram event supplies the command ID and a domain-separated SHA-256 binding of the authenticated principal, stored as 32 numeric bytes. This structural attribution does not pass through message redaction, which could otherwise collapse distinct IDs containing six-digit runs. It creates no exception to the redaction-token contract. Older receipts without this binding confer no calling authority; send a new confirmed command. The committed receipt time starts the five-minute authorization window. Both command construction and policy rechecks read the same validated event, ingress receipt, current Telegram identity and owner voice binding. Reconstruction checks the complete stored line for controls before argument trimming and cannot extend expiry. The reason is not passed to the calling model or used to select a recipient.
 
-Until R1 item 1 composes production dispatch, the Worker answers `/call` with `Calling is not configured on this deployment.` A provider acknowledgement lost in transit is reported as pending; it is not an instruction to repeat the call. The fake acceptance gate tests this distinction. No home node or platform port is required for this cloud-side work.
+An incompletely configured Worker answers `/call` with `Calling is not configured on this deployment.` A configured deployment reconstructs the accepted command, checks stored policy and fresh capacity, and dispatches once. A provider acknowledgement lost in transit is reported as pending; it is not an instruction to repeat the call. The fake acceptance gate tests this distinction. No home node or platform port is required for this cloud-side work.
 
-## Future live authorization gates
+## Live authorization gates
+
+### Owner voice configuration
+
+Before deploying the reviewed item, configure `PUBLIC_ORIGIN` as the exact
+public HTTPS origin and `TWILIO_FROM_E164` as the Twilio number. Supply the
+account SID, outbound API key SID/secret, and separate webhook auth token in
+`TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET` and
+`TWILIO_AUTH_TOKEN`. Set `OWNER_PRINCIPAL_ID` and `OWNER_VOICE_IDENTITY_ID` to
+the existing verified owner records, not newly invented identifiers.
+
+The model/Telegram bindings, three existing canonical 32-byte peppers and
+explicit `IDENTITY_CHALLENGE_HMAC_KEY_VERSION` are required before dialing.
+The key version must match challenge issuance. Configure the capacity values
+below, then apply only the approved migrations. The outbound control row starts
+disabled and requires the owner's separate activation step described below.
+No command here authorizes a paid call or changes secrets automatically.
+
+Configure the Twilio number's incoming voice webhook as POST to
+`<PUBLIC_ORIGIN>/voice/inbound`. The outbound adapter supplies its own exact
+TwiML and status URLs. Its REST acknowledgement deadline is five seconds and
+ring timeout is thirty seconds; an ambiguous acknowledgement never triggers
+automatic redial. Verify actual provider behavior during item 3.
+
+Inbound signatures are checked before capacity reads or owner alerts. The
+verified form passes directly to admission, consuming the request body once.
+Status/relay-ended cleanup requires the public origin and webhook auth token,
+but remains available when model or capacity configuration is absent.
 
 ### Capacity observations and the DeepSeek reserve
 
 R1's collector is an admission dependency, not a billing ledger. Production
 composition must supply every configured provider and owner budget before
 opening the routes. The collector, durable Telegram sink and configuration
-factory and final-turn capacity checks are implemented. Worker admission
-and production outbound policy composition remain pending.
+factory and final-turn capacity checks are implemented and wired into Worker
+admission and production outbound dispatch. Real paid acceptance is still pending.
 
 | Resource | Observation | Units and limits |
 |---|---|---|
@@ -189,9 +216,8 @@ interruption cannot retroactively make that already-sent output unsent.
 
 ### Stored outbound controls
 
-Worker HTTP/Telegram composition remains unfinished on this draft. These are
-release instructions for the reviewed completed item, not authorization to
-enable the current draft. No home-node platform is involved.
+These are release instructions for the reviewed completed item, not authorization
+to enable an unreviewed branch. No home-node platform is involved.
 
 After applying the approved migration set, inspect the default-disabled state:
 
