@@ -60,6 +60,8 @@ Run `pnpm test:voice-access` and `pnpm typecheck:voice-access` locally.
 `pnpm release:voice-gate` runs the fake prerequisite before auditing the five
 retained live records, and refuses release while those records are absent.
 Current validation belongs in PR #23; fake success is not live acceptance.
+PR #23 review fixes are pushed at 695e762 and carried into this branch.
+A new Claude Opus 5 max review remains required.
 Item 1 is underway separately on `codex/r1-voice-runtime`, stacked on
 PR #23. Its first checkpoint composes the real Durable Object runtime and
 tests owner/guest conversation, restart, access administration, activation
@@ -101,7 +103,7 @@ not resolve `pwsh` from inherited PATH. Leave implementation deferred.
 ## R2 platform hold
 
 PR #13 is merged. PR #16 at `27b232f` is complete from the reviewer's side;
-the remaining owner-run Windows checks are listed in HANDOFF. No further
+the subsequent owner-run Windows results are listed in HANDOFF. No further
 implementation is requested on #16. R2 item 4 is parked behind Sid's node
 platform decision: no Windows port and no further Linux implementation.
 He owns Windows 11 PCs and an iPhone 16, with no Linux host or server.

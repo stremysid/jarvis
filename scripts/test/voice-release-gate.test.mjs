@@ -6,7 +6,26 @@ test("runs the real fake-suite entry before the retained-evidence audit", () => 
   const observed = [];
   assert.equal(runVoiceReleaseGate((step) => { observed.push(step); return 0; }), 0);
   assert.deepEqual(observed.map((step) => step.name), ["gate_tests", "fake_calls", "live_evidence"]);
-  assert.ok(observed[1].args.includes("tests/acceptance/fake/voice-"));
+  // An independent required list: removing a filter from the runner must fail.
+  assert.deepEqual(observed[1].args, ["node_modules/vitest/vitest.mjs", "--config", "vitest.workspace.ts", "run",
+    "tests/acceptance/fake/voice-",
+    "apps/cloud-gateway/test/security/voice-access-authority.test.ts",
+    "apps/cloud-gateway/test/security/owner-access-security.test.ts",
+    "apps/cloud-gateway/test/security/guest-pin-verifier.test.ts",
+    "apps/cloud-gateway/test/security/relay-binding.test.ts",
+    "apps/cloud-gateway/test/security/redaction.test.ts",
+    "apps/cloud-gateway/test/voice/capability-registry.test.ts",
+    "apps/cloud-gateway/test/voice/owner-access-service.test.ts",
+    "apps/cloud-gateway/test/voice/owner-access-intent.test.ts",
+    "apps/cloud-gateway/test/voice/call-session-do.test.ts",
+    "apps/cloud-gateway/test/policy/policy-engine.test.ts",
+    "apps/cloud-gateway/test/channels/telegram-",
+    "apps/cloud-gateway/test/channels/command-handler.test.ts",
+    "apps/cloud-gateway/test/http/voice-callback-recorder.test.ts",
+    "apps/cloud-gateway/test/providers/twilio.test.ts",
+    "apps/cloud-gateway/test/providers/twilio-cleanup-url.test.ts",
+    "apps/cloud-gateway/test/providers/conversation-relay.test.ts",
+  ]);
   assert.deepEqual(observed[2].args, ["tests/acceptance/live/voice-smoke-cli.mjs", "--audit-evidence"]);
 });
 

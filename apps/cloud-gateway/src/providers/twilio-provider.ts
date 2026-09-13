@@ -12,6 +12,7 @@ import {
   snapshotUrl,
   type TrustedPublicOrigin,
 } from "../security/trusted-public-origin.js";
+import { isTrustedCleanupUrl } from "./twilio-cleanup-url.js";
 
 const ACCOUNT_SID = /^AC[0-9A-Fa-f]{32}$/;
 const API_KEY_SID = /^SK[0-9A-Fa-f]{32}$/;
@@ -50,7 +51,7 @@ function validatedCallUrls(
     || !ULID.test(input.attemptId)
     || !E164.test(input.toE164)
     || !isTrustedFixedUrl(twimlUrl, publicOrigin, "https:", `/voice/outbound/${input.attemptId}`)
-    || !isTrustedFixedUrl(statusCallbackUrl, publicOrigin, "https:", `/voice/status/${input.attemptId}`)
+    || !isTrustedCleanupUrl(statusCallbackUrl, publicOrigin, `/voice/status/${input.attemptId}`)
     || !exactEvents
     || input.idempotencyKey.length === 0
   ) {

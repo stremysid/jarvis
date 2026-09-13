@@ -2,10 +2,11 @@ import { canonicalJson, sha256Hex, validateEnvelope, type OutboundCallCommand, t
 import type { TrustedOrigin } from "../../policy/policy-engine.js";
 import { dispatchOutboundCall, type OutboundDispatchDependencies } from "../../voice/outbound.js";
 import { parseCommand } from "./telegram-commands.js";
+import { telegramPrincipalBinding } from "./telegram-principal-binding.js";
 import { ACCEPTED_EVENT, IDEMPOTENCY_SCOPE, PRODUCER_VERSION, type AcceptedTelegramUpdate } from "./telegram-webhook.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
-const CALL_PAYLOAD_FIELDS = new Set(["updateId", "principalId", "chatId", "messageId", "text"]);
+const CALL_PAYLOAD_FIELDS = new Set(["updateId", "principalBinding", "chatId", "messageId", "text"]);
 const CONTROLS = /[\p{Cc}\p{Zl}\p{Zp}]/u;
 const INVALID_REQUEST_REPLY = "Use /call <reason> --confirm on one line to call your verified phone.";
 const CONFIRMATION_REPLY = "To confirm, send the same /call command with --confirm at the end. It will call your verified phone.";
@@ -122,15 +123,19 @@ export class D1TelegramCallCommands {
       throw new CallCommandRefusal("origin_unavailable");
     }
     const payload = envelope.payload as Record<string, unknown>;
+    const principalBinding = await telegramPrincipalBinding(this.deps.ownerPrincipalId);
     if (payload === null || typeof payload !== "object" || Array.isArray(payload)
       || Object.keys(payload).length !== CALL_PAYLOAD_FIELDS.size || Object.keys(payload).some((key) => !CALL_PAYLOAD_FIELDS.has(key))
-      || payload.principalId !== this.deps.ownerPrincipalId
+      || !Array.isArray(payload.principalBinding) || payload.principalBinding.length !== principalBinding.length
+      || payload.principalBinding.some((byte, index) => byte !== principalBinding[index])
       || !Number.isSafeInteger(payload.updateId) || (payload.updateId as number) < 0 || String(payload.updateId) !== row.update_key
       || !Number.isSafeInteger(payload.messageId) || (payload.messageId as number) <= 0
       || typeof payload.chatId !== "string" || payload.chatId.length === 0 || payload.chatId.length > 128
       || typeof payload.text !== "string") {
       throw new CallCommandRefusal("origin_unavailable");
     }
+    // Check the receipt's complete line before the parser trims its argument.
+    if (CONTROLS.test(payload.text)) throw new CallCommandRefusal("invalid_request");
     const parsed = parseCommand(payload.text, this.deps.botUsername);
     if (parsed.kind !== "command" || parsed.name !== "call") throw new CallCommandRefusal("invalid_request");
     requireConfirmation(parsed.argument);

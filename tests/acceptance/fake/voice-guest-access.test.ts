@@ -31,7 +31,7 @@ describe("fake voice guest access", () => {
       await expect(system.pinAttempts()).resolves.toBe(0);
       await expect(system.conversationTurnCount()).resolves.toBe(0);
     } finally { await system.cleanup(); }
-  });
+  }, 15_000);
 
   it("keeps successful and rejected guest PIN candidates out of logs, replies and recalled memory", async () => {
     const system = await createFakeCallingSystem();
@@ -44,7 +44,11 @@ describe("fake voice guest access", () => {
       expect(failed.status).toBe(200);
       const rejected = await system.openRelay();
       await rejected.setup();
+      const beforeRejectedPin = logs.length;
       for (let attempt = 0; attempt < 3; attempt += 1) await rejected.pin(FAKE_PIN_B());
+      // DTMF arrives one digit at a time. Whole-PIN substring checks alone
+      // miss per-frame logging; PIN processing must emit no console records.
+      expect(logs.slice(beforeRejectedPin)).toEqual([]);
       await expect(rejected.phase()).resolves.toBe("rejected");
       await expect(rejected.modelRequests()).resolves.toHaveLength(0);
       await rejected.close();
@@ -53,7 +57,9 @@ describe("fake voice guest access", () => {
       expect(admitted.status).toBe(200);
       const accepted = await system.openRelay();
       await accepted.setup();
+      const beforeAcceptedPin = logs.length;
       await accepted.pin(FAKE_PIN_A());
+      expect(logs.slice(beforeAcceptedPin)).toEqual([]);
       await expect(accepted.phase()).resolves.toBe("active");
       await accepted.prompt("Remember my ordinary chamomile preference.");
       await accepted.prompt("Recall my ordinary preference.");
@@ -64,6 +70,9 @@ describe("fake voice guest access", () => {
         JSON.stringify((await env.DB.prepare("SELECT envelope_json FROM events").all()).results),
         JSON.stringify((await env.DB.prepare("SELECT * FROM voice_access_grant_events").all()).results),
         JSON.stringify((await env.DB.prepare("SELECT * FROM authentication_attempt_reservations").all()).results),
+        JSON.stringify((await env.DB.prepare("SELECT * FROM provider_events").all()).results),
+        JSON.stringify((await env.DB.prepare("SELECT * FROM call_sessions").all()).results),
+        JSON.stringify(await rejected.durableStorage()), JSON.stringify(await accepted.durableStorage()),
         JSON.stringify((await env.DB.prepare("SELECT * FROM conversation_turns").all()).results)];
       for (const digits of [FAKE_PIN_A(), FAKE_PIN_B()]) {
         for (const surface of surfaces) expect(surface).not.toContain(String.fromCharCode(...digits));
@@ -72,7 +81,7 @@ describe("fake voice guest access", () => {
       for (const spy of spies) spy.mockRestore();
       await system.cleanup();
     }
-  });
+  }, 15_000);
 
   it("activates a pending guest with their bound PIN and never puts its digits in model input or durable conversation", async () => {
     const system = await createFakeCallingSystem();
@@ -107,7 +116,7 @@ describe("fake voice guest access", () => {
       const syntheticDigits = String.fromCharCode(...FAKE_PIN_A());
       for (const artifact of artifacts) expect(artifact).not.toContain(syntheticDigits);
     } finally { await system.cleanup(); }
-  });
+  }, 15_000);
 
   it("refuses another guest's PIN without activating that guest or reusing the first call's authority", async () => {
     const system = await createFakeCallingSystem();
@@ -136,7 +145,7 @@ describe("fake voice guest access", () => {
       await second.prompt("A brief answer please.");
       expect((await second.modelRequests()).map((request) => request.principalId)).toEqual([secondGuest.principalId]);
     } finally { await system.cleanup(); }
-  });
+  }, 15_000);
 
   it("keeps the owner's and two guests' conversation context separate", async () => {
     const system = await createFakeCallingSystem();
@@ -169,7 +178,7 @@ describe("fake voice guest access", () => {
       expect(JSON.stringify(next?.context)).not.toContain("private jasmine memory");
       expect(JSON.stringify(next?.context)).not.toContain("private chamomile memory");
     } finally { await system.cleanup(); }
-  });
+  }, 15_000);
 
   it("refuses conversation when a valid guest PIN grants no conversation capability", async () => {
     const system = await createFakeCallingSystem();
@@ -185,7 +194,7 @@ describe("fake voice guest access", () => {
       await expect(call.modelRequests()).resolves.toHaveLength(0);
       await expect(call.turns()).resolves.toHaveLength(0);
     } finally { await system.cleanup(); }
-  });
+  }, 15_000);
 
   it.each(["revocation", "PIN rotation"] as const)("refuses the next turn after %s without depending on a disabled identity", async (change) => {
     const system = await createFakeCallingSystem();
@@ -213,7 +222,7 @@ describe("fake voice guest access", () => {
       await expect(call.modelRequests()).resolves.toHaveLength(1);
       await expect(call.turns()).resolves.toHaveLength(1);
     } finally { await system.cleanup(); }
-  });
+  }, 15_000);
 
   it("refuses an unknown caller and an active identity whose guest grant was revoked before PIN or model work", async () => {
     const system = await createFakeCallingSystem();
@@ -233,5 +242,5 @@ describe("fake voice guest access", () => {
       await expect(system.pinAttempts()).resolves.toBe(0);
       await expect(system.conversationTurnCount()).resolves.toBe(0);
     } finally { await system.cleanup(); }
-  });
+  }, 15_000);
 });

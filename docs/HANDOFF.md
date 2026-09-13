@@ -34,8 +34,8 @@ and durable admission. Interrupted admission releases the slot for a replacement
 prompt; cancelled context retrieval cannot start a model request. Completed
 output can still settle its receipt after interruption without closing the call.
 Worker route wiring and persisted outbound policy controls remain.
-The max review of #23 at d6c5fc2 requests changes. Keep its fixes on #23 and
-carry the updated base forward. The existing relay harness invokes DO methods
+The max review of #23 at d6c5fc2 requested changes. The fixes are pushed at
+695e762 and carried into this branch; max re-review remains required. The existing relay harness invokes DO methods
 directly; #25 still needs proof through the real stub and socket path.
 The guarantee is balance above the floor on an accepted fresh report, not
 spending under a budget or a bound on later concurrent charges. The
@@ -55,9 +55,12 @@ platform correction; the old roadmap attribution is not owner approval.
 
 PR #16 at `27b232f` has completed the reviewer's requested changes. The
 reviewer independently verified migration byte identity, all five trigger
-mutations, 2,146 workspace tests and 807 Linux local-agent tests. Before he
-merges, Sid still needs the current-head Windows local-agent, Hermes and
-deployment-script suites plus the byte-exact checkout check. No further
+mutations, 2,146 workspace tests and 807 Linux local-agent tests. Sid's
+2026-09-13 Windows runs subsequently reported 789 local-agent passes / 32
+skips, 2 deployment-script passes, and 33 byte-exact files unchanged by
+checkout. Hermes has three known failures on his Store/MSIX PowerShell
+layout; that independent R3 issue does not block #16 and is not fixed here.
+These are owner/reviewer reports, not reruns by this builder. No further
 implementation is requested on #16.
 
 Sid's real Windows suite exposed Hermes' MSI-only PowerShell path: the trusted

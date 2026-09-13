@@ -1,4 +1,5 @@
 import { newUlid, type OutboundCallCommand, type Ulid } from "../../../../packages/contracts/src/index.js";
+import { twilioCleanupUrl } from "../providers/twilio-cleanup-url.js";
 import {
   AttemptAllocationRaceError,
   type CallRepository,
@@ -277,7 +278,7 @@ export class OutboundCallDispatcher {
       const capability = claim.capability;
 
       const twimlUrl = new URL(`/voice/outbound/${attemptId}`, this.publicBaseUrl);
-      const statusCallbackUrl = new URL(`/voice/status/${attemptId}`, this.publicBaseUrl);
+      const statusCallbackUrl = twilioCleanupUrl(`/voice/status/${attemptId}`, this.publicBaseUrl);
       try {
         // This is the final synchronous authority check before POST. No await belongs
         // between it and createCall; external policy state cannot be atomically coupled to Twilio.

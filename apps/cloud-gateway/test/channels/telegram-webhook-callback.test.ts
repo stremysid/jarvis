@@ -104,7 +104,9 @@ describe("accepting a button tap", () => {
     expect(messages).toHaveLength(1);
     expect(messages[0]?.receivedAt).toBe(events.events[0]?.envelope.receivedAt);
     expect(messages[0]?.receivedAt).toBe(NOW.toISOString());
-    expect(events.events[0]?.envelope.payload).toMatchObject({ principalId: messages[0]?.principalId });
+    const binding = [...new Uint8Array(await crypto.subtle.digest("SHA-256",
+      new TextEncoder().encode(`telegram-principal-v1:${messages[0]?.principalId}`)))];
+    expect(events.events[0]?.envelope.payload).toMatchObject({ principalBinding: binding });
   });
 
   it("hands the tap to the callback hook, not the message hook", async () => {

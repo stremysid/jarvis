@@ -1058,6 +1058,6 @@ describe("OutboundCallDispatcher", () => {
 
     expect(subject.twilio.requests[0]).toMatchObject({ attemptId: ATTEMPT_0, commandId: COMMAND_ID, idempotencyKey: ATTEMPT_0 });
     expect(subject.twilio.requests[0]?.twimlUrl.toString()).toBe(`https://jarvis.example/voice/outbound/${ATTEMPT_0}`);
-    expect(subject.twilio.requests[0]?.statusCallbackUrl.toString()).toBe(`https://jarvis.example/voice/status/${ATTEMPT_0}`);
+    expect(subject.twilio.requests[0]?.statusCallbackUrl.toString()).toBe(`https://jarvis.example/voice/status/${ATTEMPT_0}#rc=2&rp=ct,rt,5xx`);
   });
 });

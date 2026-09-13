@@ -217,7 +217,7 @@ describe("outbound TwiML claim security boundary", () => {
     expect(response.headers.get("content-type")).toBe("text/xml; charset=UTF-8");
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(body).toContain(`url="wss://jarvis.example/voice/relay/${ATTEMPT_ID}"`);
-    expect(body).toContain("action=\"https://jarvis.example/voice/relay-ended\"");
+    expect(body).toContain("action=\"https://jarvis.example/voice/relay-ended#rc=2&amp;rp=ct,rt,5xx\"");
     expect(body).not.toContain("user_requested");
     expect(body).not.toContain("principal:owner");
     expect(body).not.toContain(DESTINATION);

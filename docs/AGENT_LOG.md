@@ -46,6 +46,38 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 17:32 UTC — Codex builder, PR #25 base integration
+
+Merged PR #23's pushed review response 695e762 into the item 1 branch,
+preserving both histories and every mailbox entry. Four documentation conflicts
+were resolved without dropping the capacity work or the review findings.
+Combined Windows workspace passes 2,229 tests / 114 files; source and voice
+harness typechecks pass. This merge changes neither 0014 nor 0015. PR #23
+still needs max re-review; #25 remains draft with Worker/policy composition
+and actual default DO stub/socket proof outstanding. No production operation.
+
+## 2026-09-13 17:27 UTC — Codex builder, PR #23 review response
+
+Fixed receipt-time owner attribution with a domain-separated digest binding,
+checked the complete persisted command before trimming, and requested bounded
+5xx retries on status plus both Connect callbacks. Fragment-free synthetic
+signatures pass; real Twilio retry delivery remains item 3's live check.
+Strengthened per-digit console leakage, exact frame boundary, event/outbox
+replay counts and the full release selection. Guest-status and recorder-phase
+checks are isolated at their existing read/append ports, with real migrations
+intact; they are fault-injection evidence, not reachable normal SQL states.
+All 16 actual mutations failed assertions, with byte-exact source restoration.
+Restored Windows workspace: 2,031/110 files; source/harness types and lint pass;
+gateway test-type baseline remains 122; 33 byte-exact files match Git blobs.
+The actual release gate passes 577 tests / 24 files and 6 native checks,
+then correctly exits 2 for missing live evidence.
+The first full run failed three obsolete callback URL expectations, now updated.
+Guest tests use explicit 15-second deadlines as requested; the model deadline
+and assertions remain intact. The expected uninitialized DO RPC diagnostic is
+traced in the runbook. Max cross-vendor re-review is required. PR #25 still
+owes real default stub/socket composition evidence; no migration, deployment,
+secrets, live calls, CI workaround or platform implementation was added here.
+
 ## 2026-09-13 17:03 UTC — GPT-6 Astra
 
 R1's default call runtime now checks capacity for every final conversation turn
@@ -62,6 +94,30 @@ or live-acceptance claim. The real stub/socket production proof remains for #25.
 No migration changed in this checkpoint. Sid supplied the max review of #23
 at d6c5fc2: changes requested. Save/push #25, fix #23 on its own branch, then
 bring that reviewed base forward. No merge, deployment or live provider call.
+
+## 2026-09-13 17:01 UTC — Claude Opus 5, PR #23 max review
+
+Reviewed `d6c5fc2`: changes requested. (1) `/call` origin compares the
+stored, redacted `payload.principalId` with the raw owner id. An exactly
+six-digit run inside `principal:<uuid>` is redacted, so `/call` always
+refuses. Proven with a UUID-shaped owner: 21/30 Telegram tests fail, versus
+30/30 without the run. Sid's current owner is unaffected (owner-run D1
+check), but re-enrollment is not. Add a regression test using such an id.
+(2) `/call` then a newline then `check in --confirm` dials. The leading
+newline is trimmed before the control check, which breaks the one-line
+contract. (3) Cleanup after a 503 terminal callback assumes redelivery, but
+Twilio's default `rp=ct` does not retry 5xx and no override is set. Fix it
+or record it in KNOWN_ISSUES. (4) The fake relay injects `CallSessionCore`
+and calls DO methods directly; production's factory is null. #25 must prove
+the real stub/socket path. (5) Surviving mutations: the grant-status guard
+(the revocation test only proves the version bump), a per-digit DTMF log,
+the 64 KiB `>` boundary, the recorder's unreachable phase throw, and the
+release-gate filter list. (6) A quiet full workspace run here gave
+6/2,003 five-second timeouts. Five are new guest-access tests; give them
+explicit timeouts. The archival one also fails on main. 28/31 source
+mutations were killed. The full review is with Sid.
+
+---
 
 ## 2026-09-13 16:32 UTC — GPT-6 Astra
 
@@ -126,6 +182,8 @@ spending ledger, so do not silently substitute it for strict spending data.
 Hermes' Store/MSIX host failure is filed as R3 issue #24 and left untouched.
 No merge, deployment, secret handling, live call, migration, node-platform or
 CI workaround occurred. Preserve both PR #16 and #23 documentation on merge.
+
+
 
 ## 2026-09-13 07:09 UTC — GPT-6 Astra
 

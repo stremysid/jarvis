@@ -26,6 +26,7 @@
  */
 
 import { isIssuedRedaction, type RedactionResult } from "../../../../../packages/contracts/src/calls.js";
+import { telegramPrincipalBinding } from "./telegram-principal-binding.js";
 import {
   createEnvelope,
   newUlid,
@@ -328,7 +329,7 @@ export async function handleTelegramWebhook(
     updateId: update.updateId,
     payload: {
       updateId: update.updateId,
-      principalId: token(dependencies, authenticated.principalId),
+      principalBinding: await telegramPrincipalBinding(authenticated.principalId),
       chatId: token(dependencies, update.chatId),
       messageId: update.messageId,
       text: redacted as unknown as Record<string, unknown>,

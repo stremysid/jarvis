@@ -103,6 +103,41 @@ describe("VoiceAccessAuthorityService", () => {
 
   afterEach(() => clearVoiceAccessFixture(env.DB));
 
+  it("refuses an inactive current-grant read independently of version or document drift", async () => {
+    let inactiveRead = false;
+    let substitutedReads = 0;
+    // Fault the repository's read boundary only. Normal SQL revocation also
+    // bumps the version; keep the migration intact and isolate this guard.
+    const database = new Proxy(env.DB, { get(target, key) {
+      if (key === "prepare") return (sql: string) => {
+        if (inactiveRead && sql.includes("current_grant.status AS current_grant_status")) {
+          substitutedReads += 1;
+          return target.prepare(sql.replace("current_grant.status AS current_grant_status", "'revoked' AS current_grant_status"));
+        }
+        return target.prepare(sql);
+      };
+      const value: unknown = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    } });
+    repository = new VoiceAccessRepository(database);
+    service = new VoiceAccessAuthorityService(repository, registry, proofs);
+    const owner = await seedOwnerAuthority(env.DB, repository);
+    await repository.createGuestGrant(validCreateInput(owner));
+    const binding = guestBinding();
+    await seedPreAuthSession(GUEST_RUNTIME_SESSION, binding);
+    const proof = proofs.issue({ sessionId: GUEST_RUNTIME_SESSION, callSid: binding.callSid,
+      relayNonce: binding.relayNonce, direction: binding.direction, principalId: binding.principalId,
+      identityId: binding.identityId, grantId: GRANT_ID, grantVersion: 1,
+      accessDocumentHash: DOCUMENT_HASH, authenticatedAt: NOW });
+    const guest = await service.mintGuest({ sessionId: GUEST_RUNTIME_SESSION, binding, pinProof: proof, now: NOW });
+    await expect(service.authorize(guest, "conversation.basic", NOW)).resolves.toBe(guest);
+    inactiveRead = true;
+    await expect(service.authorize(guest, "conversation.basic", NOW)).rejects.toThrow("call_authority_stale");
+    expect(substitutedReads).toBe(1);
+    await expect(env.DB.prepare("SELECT status, grant_version, access_document_hash FROM voice_access_grants WHERE grant_id = ?")
+      .bind(GRANT_ID).first()).resolves.toEqual({ status: "active", grant_version: 1, access_document_hash: DOCUMENT_HASH });
+  });
+
   it("rejects structural, stale, expired, and explicitly invalidated owner authority", async () => {
     await seedOwnerAuthority(env.DB, repository);
     const relayBinding = ownerBinding();
