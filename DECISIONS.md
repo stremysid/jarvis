@@ -20,11 +20,17 @@ These are different observation types normalized for the same threshold test,
 not a reconstructed charge ledger. Reject failed, incomplete, malformed or
 stale observations. Monetary configuration has no source-code default.
 
-DeepSeek's 70/85 alerts must explicitly say to plan the provider switch in R7.
-The floor must exceed the documented worst plausible request cost with margin;
-the runtime bounds, pricing assumption and calculation must be recorded before
-activation. No provider switch, top-up accounting or new metering product is
-part of R1. Existing watchdog/Telegram delivery remains the alert channel.
+Only voice admission is protected by this balance floor. Telegram text and
+`/sync/distill` do not use it. The owner receives one best-effort Telegram
+notice when DeepSeek reports $1 or less remaining, telling him to plan the R7
+provider switch. A failed send retains its lease and retries on a later fresh
+check; the notice itself never decides admission. It is not rearmed because
+the owner does not plan to refill this pot. DeepSeek's former 70/85 notices are
+superseded by this one balance notice. The floor must exceed the documented
+worst plausible request cost with margin; the runtime bounds, pricing
+assumption and calculation must be recorded before activation. No provider
+switch, top-up accounting or new metering product is part of R1. Existing
+watchdog/Telegram delivery remains the alert channel.
 
 ## Migration numbering diverges from the Obsidian plan (2026-09-02)
 

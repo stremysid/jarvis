@@ -117,9 +117,13 @@ provider's actual timestamp. The final guard also checks age after alerts.
 
 The owner's DeepSeek choice is a one-time $20 pot, then a provider switch in
 R7, with no top-ups. At the existing 95% admission cutoff, that configuration
-leaves a $1 floor and admission requires **more than** $1 remaining. The 70/85
-alerts are migration prompts: **plan the switch**, not overspend warnings.
-These amounts describe his selected configuration, not hidden defaults.
+leaves a $1 floor and voice admission requires **more than** $1 remaining. A
+single best-effort Telegram notice at $1 or less says to **plan the switch**;
+it replaces DeepSeek's former 70/85 notices and is not rearmed. Failed delivery
+retries after its durable lease expires, but the notice never decides whether
+voice, chat or sync may proceed. Telegram text and `/sync/distill` have no
+capacity gate. These amounts describe his selected configuration, not hidden
+defaults.
 
 The reserve calculation assumes one model API request per admitted turn:
 the adapter sends at most 131,072 UTF-8 request bytes and explicitly sets
@@ -191,10 +195,12 @@ only an approved set using the normal D1 migration workflow. Do not apply an
 unreviewed neighbouring migration because this one needs a table. Merging code
 and rolling back the Worker do not roll back D1 state.
 
-Acknowledged crossings survive Worker reconstruction. Falling below a
-threshold rearms that exact owner/resource/threshold. An in-progress or failed
-send does not count as acknowledgement and refuses the current admission.
-After its thirty-second lease expires, a later fresh check can retry.
+Acknowledged crossings survive Worker reconstruction. Storage and postpaid
+provider percentage crossings rearm independently after recovery. The one-time
+DeepSeek $1 notice does not rearm. An in-progress or failed percentage-alert
+send does not count as acknowledgement and refuses the current admission. A
+DeepSeek-notice failure is best-effort and does not refuse admission; after its
+thirty-second lease expires, a later fresh voice check can retry it.
 Telegram has no provider idempotency key: a delivered message whose response
 was lost can be repeated after lease recovery. This is durable suppression of
 acknowledged alerts, not an exactly-once delivery guarantee. The five-second
@@ -219,7 +225,20 @@ interruption cannot retroactively make that already-sent output unsent.
 These are release instructions for the reviewed completed item, not authorization
 to enable an unreviewed branch. No home-node platform is involved.
 
-After applying the approved migration set, inspect the default-disabled state:
+After applying the approved migration set and before deploying the gateway,
+verify the exact 0015 schema objects:
+
+```powershell
+pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command "SELECT type, name FROM sqlite_master WHERE (type = 'table' AND name IN ('capacity_alert_crossings', 'outbound_runtime_controls')) OR (type = 'index' AND name = 'outbound_attempts_policy_day') OR (type = 'trigger' AND name IN ('outbound_attempts_terminal_evidence', 'outbound_status_retains_terminal_evidence', 'outbound_event_retains_terminal_evidence', 'outbound_attempts_start_ready', 'outbound_attempts_admission')) ORDER BY type, name;"
+pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command "SELECT count(*) AS provider_terminal_at_columns FROM pragma_table_info('outbound_call_attempts') WHERE name = 'provider_terminal_at';"
+```
+
+Expect exactly eight `sqlite_master` rows: the two named tables, one named
+index and five named triggers. Expect `provider_terminal_at_columns = 1`.
+Anything else stops the rollout before the Worker deploy; tests and production
+use different migration splitters.
+
+Then inspect the default-disabled state:
 
 ```powershell
 pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command "SELECT singleton_id, enabled, quiet_starts_at, quiet_ends_at FROM outbound_runtime_controls;"
@@ -246,14 +265,34 @@ claims and six claims per UTC day. Rejected provider attempts still count for
 the day. A claim binds the current phone number; a number different from the
 audited destination is not dialed. After the awaited final control read, a
 synchronous fence refuses expired windows, clock reversal and day rollover
-before the sole provider POST. A refused or uncertain claimed attempt remains
-reserved; it is never automatically redialed or erased to free a slot.
+before the sole provider POST. A refusal at any of those pre-POST checks is
+recorded as a terminal rejection and releases the concurrent-call slot. If
+that result write itself fails, the conservative response is unknown and the
+durable row can remain claimed.
 
 Only affirmative terminal status evidence releases an admitted slot, and that
 evidence remains after envelope archival. Missing/archived nonterminal
-envelopes and unknown provider outcomes continue to reserve capacity. Stop the
-live smoke for owner investigation if an attempt cannot be reconciled. These
-are call-admission counts, not measured charges or spending reservations.
+envelopes and true post-request unknown outcomes continue to reserve capacity.
+They are never automatically redialed or erased. Stop the live smoke and set
+`outbound_runtime_controls.enabled = 0`, then read the attempt's dispatch state,
+claim/resolution times, CallSid and terminal time. Reconcile that window in the
+Twilio call log. If Twilio shows a call, do not redial; investigate or recover
+its signed callback. If Twilio definitively confirms that no call was created,
+an owner-reviewed repair may move that exact attempt to `rejected` with
+`provider_permanent_failure` / `invalid_request`, `retry_eligible = 0` and a
+canonical resolution time. If absence is uncertain, leave the slot reserved.
+These are call-admission counts, not measured charges or spending reservations.
+
+Use the reviewed attempt id in these commands; never infer one from timing:
+
+```powershell
+pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command "SELECT attempt_id, provider_dispatch_state, provider_dispatch_claimed_at, provider_dispatch_resolved_at, provider_call_sid, provider_terminal_at FROM outbound_call_attempts WHERE attempt_id = '<ATTEMPT_ID>';"
+pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command "UPDATE outbound_call_attempts SET provider_dispatch_state = 'rejected', provider_failure_code = 'provider_permanent_failure', provider_failure_category = 'invalid_request', retry_eligible = 0, provider_dispatch_resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE attempt_id = '<ATTEMPT_ID>' AND provider_dispatch_state IN ('claimed', 'provider_dispatch_unknown') AND provider_call_sid IS NULL AND relay_call_sid IS NULL AND provider_terminal_at IS NULL;"
+```
+
+The second command is authorized only after Twilio definitively confirms no
+call was created. Require exactly one changed row, then read it back. Zero or
+multiple changes stop the repair; do not broaden the predicate.
 
 ### Terminal cleanup delivery (R1 item 3)
 

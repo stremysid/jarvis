@@ -78,8 +78,10 @@ does not spend again. The guard checks freshness after collection and again
 after alert delivery. Missing, malformed and stale telemetry remain closed.
 The owner chose a DeepSeek remaining-credit floor for his one-time prepaid
 allocation, not a strict-spending ledger. Normalize allocation minus remaining
-credit into the existing estimate shape; 70/85 alerts must say to plan the R7
-provider switch. Budgets remain owner configuration. The collector now reads
+credit into the existing estimate shape. The owner superseded DeepSeek's 70/85
+crossings with one best-effort Telegram notice at $1 remaining; failed sends
+retry later, but notification delivery does not gate work. Only voice admission
+is floor-protected. Budgets remain owner configuration. The collector now reads
 real D1/R2 bindings, DeepSeek credit and Twilio totalprice with bounded reads
 and unchanged estimate interfaces. Source inventory and request-cost reserve
 are in the voice-smoke runbook. The durable Telegram sink and explicit capacity
@@ -92,7 +94,9 @@ final conversation turn, then revalidates access before allocating or committing
 the turn. Interruption releases admission without waiting for telemetry or
 authorization; cancellation during context retrieval prevents model invocation.
 Persisted outbound controls, claim-time access/phone binding and final dispatch
-clock checks are implemented. Worker route and Telegram composition are tested.
+clock checks are implemented. A refusal proven before the provider POST now
+settles its claim as rejected instead of pinning a concurrency slot. Worker
+route and Telegram composition are tested.
 The max review response is pushed on #23 at 695e762 and included here; max
 re-review remains required. The separate production socket project now proves
 the default factory through real stub fetch, client frames and eviction for

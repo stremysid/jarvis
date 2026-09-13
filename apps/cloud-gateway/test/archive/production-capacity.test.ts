@@ -43,24 +43,22 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("Production capacity composition", () => {
   it("uses both real provider readers and the durable Telegram sink across reconstruction", async () => {
-    credit = 6;
-    await createProductionCapacityGuard(configured, () => new Date(at)).assertAcceptingNewTurn();
-    await createProductionCapacityGuard(configured, () => new Date(at)).assertAcceptingNewTurn();
+    credit = 1;
+    await expect(createProductionCapacityGuard(configured, () => new Date(at)).assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
+    await expect(createProductionCapacityGuard(configured, () => new Date(at)).assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
     expect(reads.filter((url) => url.includes("deepseek"))).toHaveLength(2);
     expect(reads.filter((url) => url.includes("twilio"))).toHaveLength(2);
     expect(sent).toHaveLength(1);
     expect(sent[0]!.text).toContain("Plan the switch");
-    expect(sent[0]!.text).toContain("70%");
+    expect(sent[0]!.text).toContain("$1 or less");
     expect(await env.DB.prepare("SELECT state FROM capacity_alert_crossings WHERE owner_principal_id = ?")
       .bind(configured.OWNER_PRINCIPAL_ID).first()).toEqual({ state: "sent" });
   });
 
-  it("refuses credit at the floor and explains the 85 percent migration crossing", async () => {
-    credit = 1;
-    await expect(createProductionCapacityGuard(configured, () => new Date(at)).assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
-    expect(sent).toHaveLength(2);
-    expect(sent[1]!.text).toContain("85%");
-    expect(sent[1]!.text).toContain("Plan the switch");
+  it("accepts reported credit just above the floor without an early percentage notice", async () => {
+    credit = 1.01;
+    await expect(createProductionCapacityGuard(configured, () => new Date(at)).assertAcceptingNewTurn()).resolves.toBeUndefined();
+    expect(sent).toHaveLength(0);
   });
 
   it("enforces the separately configured voice spending cap", async () => {

@@ -60,7 +60,12 @@ Only external provider HTTP is stubbed. This does not prove live Twilio delivery
 The guarantee is balance above the floor on an accepted fresh report, not
 spending under a budget or a bound on later concurrent charges. The
 voice runbook identifies measured/estimated sources and derives a reserve from
-the model's tested request-byte and server-side generation limits.
+the model's tested request-byte and server-side generation limits. Only voice
+admission is protected by that floor. The owner replaced DeepSeek's 70/85
+crossings with one best-effort Telegram notice at $1 remaining; an unacknowledged
+send can retry later but cannot itself refuse work. Pre-provider refusals now
+settle claimed attempts as rejected; genuinely uncertain POST outcomes remain
+reserved for owner reconciliation.
 Twilio configuration,
 live calls and redacted live evidence remain owner operations. Items 3 and 4
 still cover the live smoke and legacy eight-digit verifier deletion. None
