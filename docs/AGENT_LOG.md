@@ -46,6 +46,23 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 16:32 UTC — GPT-6 Astra
+
+R1's capacity factory now requires owner budgets and a reviewed request-cost
+assumption, with no monetary defaults. A durable Telegram sink records only
+acknowledged alerts, rearms exact crossings and recovers expired send leases.
+Migration 0015 adds its D1 table and must be reviewed as a production schema
+change. It is independent of 0014, which is untouched. A new regression first
+proved two sends after a delayed destination lookup lost its lease; the sender
+now rechecks ownership and expiry before sending. Twenty sink/configuration
+mutations fail assertions after byte restoration. The first runner stopped
+on a bad mutation anchor, which was corrected and all experiments rerun.
+Windows workspace 2,171/113 passes; focused sink/factory 41 pass; source and
+harness typechecks/lint pass, test type baseline stays 122. Documentation now
+states that the floor is checked against a fresh report, not necessarily the
+actual later balance, and the input-token allowance is an engineering estimate.
+Worker/turn and real outbound policy composition still remain. No live action.
+
 ## 2026-09-13 16:15 UTC — GPT-6 Astra
 
 R1 capacity collection now uses D1 size metadata, a bounded whole-bucket R2

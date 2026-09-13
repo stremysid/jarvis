@@ -25,8 +25,11 @@ admission, and all three peppers must be canonical base64 for exactly 32 bytes.
 The Worker routes and Telegram dispatch remain unconfigured pending the rest
 of item 1. The pre-dial capacity check and telemetry freshness corrections are
 implemented and tested. The owner approved a remaining-credit floor for the
-one-time DeepSeek prepaid pot. D1/R2 and provider collectors are implemented;
-production configuration, Telegram alert state and admission wiring remain.
+one-time DeepSeek prepaid pot. D1/R2 and provider collectors, explicit capacity
+configuration and the durable Telegram alert sink are implemented. New D1
+migration 0015 adds alert crossing receipts and recoverable leases; it is a
+production schema change requiring review and owner migration. Admission
+wiring and persisted outbound policy controls remain.
 The guarantee is balance above the floor, not spending under a budget. The
 voice runbook identifies measured/estimated sources and derives a reserve from
 the model's tested request-byte and server-side generation limits.

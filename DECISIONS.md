@@ -7,8 +7,9 @@
 ## DeepSeek admission uses remaining credit (2026-09-13, owner decision)
 
 The owner selected a remaining-credit floor for his one-time $20 DeepSeek
-prepayment, with no refills. This is a **balance above floor** guarantee at
-admission, not **spend under budget**. Interrupted requests can still cost
+prepayment, with no refills. This is a **balance above floor** check on the
+accepted fresh report, not **spend under budget**. Actual remaining credit
+can be lower than that report. Interrupted requests can still cost
 money. A later credit read sees that cost; the floor does not prevent overshoot
 from concurrent requests, delayed charges or other consumers of the account.
 

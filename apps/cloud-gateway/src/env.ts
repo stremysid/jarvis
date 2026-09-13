@@ -73,6 +73,14 @@ export interface Env {
    */
   DEEPSEEK_MODEL?: string;
 
+  /** Explicit owner limits. Missing or malformed capacity configuration refuses admission. */
+  CAPACITY_D1_BUDGET_BYTES?: string;
+  CAPACITY_R2_BUDGET_BYTES?: string;
+  CAPACITY_MODEL_ALLOCATION_USD?: string;
+  /** Reviewed plausible cost per model request, including hidden reasoning. Not a measured charge. */
+  CAPACITY_MODEL_REQUEST_COST_ASSUMPTION_USD?: string;
+  CAPACITY_TWILIO_DAILY_BUDGET_USD?: string;
+
   /**
    * The principal every scheduled job acts for and delivers to.
    *

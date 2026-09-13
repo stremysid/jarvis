@@ -79,8 +79,11 @@ credit into the existing estimate shape; 70/85 alerts must say to plan the R7
 provider switch. Budgets remain owner configuration. The collector now reads
 real D1/R2 bindings, DeepSeek credit and Twilio totalprice with bounded reads
 and unchanged estimate interfaces. Source inventory and request-cost reserve
-are in the voice-smoke runbook. Telegram alert state, production configuration
-and route/turn wiring remain pending; see DECISIONS.md for the guarantee.
+are in the voice-smoke runbook. The durable Telegram sink and explicit capacity
+configuration factory are implemented. They add D1 migration 0015 for alert
+crossing receipts and recoverable send leases; review this production schema
+change before deployment. Route/turn wiring and persisted outbound policy
+controls remain pending. See DECISIONS.md for the precise guarantee.
 
 Hermes' MSI-only trusted PowerShell path is filed for R3 as
 [issue #24](https://github.com/ksid1229-ops/jarvis/issues/24). Sid's Store/MSIX

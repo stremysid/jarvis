@@ -61,8 +61,8 @@ Until R1 item 1 composes production dispatch, the Worker answers `/call` with `C
 
 R1's collector is an admission dependency, not a billing ledger. Production
 composition must supply every configured provider and owner budget before
-opening the routes. This section describes the implemented collector; the
-Worker wiring and owner configuration are still pending.
+opening the routes. The collector, durable Telegram sink and configuration
+factory are implemented; Worker and turn wiring are still pending.
 
 | Resource | Observation | Units and limits |
 |---|---|---|
@@ -97,6 +97,8 @@ the adapter sends at most 131,072 UTF-8 request bytes and explicitly sets
 DeepSeek-V4-Pro peak cache-miss input price of $1.32/M tokens and output price
 of $3.96/M, an intentionally conservative 132,000 input-token allowance plus
 65,536 output tokens costs about $0.434. Round up to **$0.45 per request**.
+The byte-to-token allowance is an engineering estimate, not a verified
+tokenizer or billing contract. The wire limits themselves are tested.
 A $1 floor exceeds two such requests ($0.90) with $0.10 remaining margin.
 Recalculate before changing models, prices or either wire bound.
 [Pricing](https://api-docs.deepseek.com/quick_start/pricing/),
@@ -106,8 +108,9 @@ This bounds the plausible cost of **one model request**, not an entire phone
 conversation with arbitrarily many turns or its Twilio duration. Check credit
 again for each turn and before an outbound dial. Interrupted requests still
 cost money; the next read sees reported charges. Concurrency, reporting delay
-and other account consumers can overshoot. The guarantee is **balance above
-floor at admission**, not **spend under budget** or a durable reservation.
+and other account consumers can overshoot. The accepted fresh report must
+show **balance above floor**; actual credit can be lower. This is not **spend
+under budget** or a durable reservation.
 See DECISIONS.md. Twilio's reported-spend threshold likewise cannot account
 for charges its API has not reported yet.
 
@@ -115,6 +118,54 @@ Source contracts: [D1 result metadata](https://developers.cloudflare.com/d1/work
 [R2 listing](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/),
 [DeepSeek credit](https://api-docs.deepseek.com/api/get-user-balance/),
 [Twilio usage records](https://www.twilio.com/docs/usage/api/usage-record).
+
+### Owner capacity configuration and durable alerts
+
+Each binding below is mandatory for production capacity admission. Missing,
+zero, negative or malformed values refuse construction without reading any
+provider. There are no fallback amounts. Storage budgets must be integers.
+
+| Binding | Owner value |
+|---|---|
+| `CAPACITY_D1_BUDGET_BYTES` | D1 byte limit selected by the owner |
+| `CAPACITY_R2_BUDGET_BYTES` | R2 completed-object payload byte limit selected by the owner |
+| `CAPACITY_MODEL_ALLOCATION_USD` | The owner's one-time prepaid allocation, currently 20 |
+| `CAPACITY_MODEL_REQUEST_COST_ASSUMPTION_USD` | Reviewed plausible cost per model request, currently 0.45 from the calculation above |
+| `CAPACITY_TWILIO_DAILY_BUDGET_USD` | Owner-selected Twilio account spending cap for each UTC day |
+
+The configuration rejects a prepaid floor at or below twice the declared
+request-cost assumption. That assumption is reviewed configuration, not a
+measured bill. Current production telemetry must be strictly less than sixty
+seconds old; do not restamp delayed reports to satisfy that bound.
+
+The owner can set each binding using the existing interactive Wrangler flow
+from the reviewed checkout, for example:
+
+```powershell
+pnpm --dir apps/cloud-gateway exec wrangler secret put CAPACITY_D1_BUDGET_BYTES
+```
+
+Repeat for each binding name with the chosen value. Production also needs the
+existing model/Twilio read credentials, `TELEGRAM_BOT_TOKEN` and
+`OWNER_PRINCIPAL_ID`. The sink resolves the current unique verified Telegram
+identity for that principal; it does not accept a new recipient or channel.
+
+**Migration 0015 has a production consequence.** It adds
+`capacity_alert_crossings` for acknowledged alert state and recoverable send
+leases. It is independent of 0014 and does not modify it. Before deployment,
+inspect the pending migration list in the reviewed release checkout and apply
+only an approved set using the normal D1 migration workflow. Do not apply an
+unreviewed neighbouring migration because this one needs a table. Merging code
+and rolling back the Worker do not roll back D1 state.
+
+Acknowledged crossings survive Worker reconstruction. Falling below a
+threshold rearms that exact owner/resource/threshold. An in-progress or failed
+send does not count as acknowledgement and refuses the current admission.
+After its thirty-second lease expires, a later fresh check can retry.
+Telegram has no provider idempotency key: a delivered message whose response
+was lost can be repeated after lease recovery. This is durable suppression of
+acknowledged alerts, not an exactly-once delivery guarantee. The five-second
+sender deadline keeps a hung transport from holding admission indefinitely.
 
 All gates below must pass before an injected live driver may run:
 
