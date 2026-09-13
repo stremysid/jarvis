@@ -46,6 +46,31 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 19:25 UTC — Claude Opus 5, PR #25 max review
+
+Reviewed `13b1723`: changes requested. (1) A claimed attempt refused before
+the POST (final control deny, control read throw, or a
+`beginProviderDispatch` fence refusal) returns without recording a result and
+stays `claimed`, holding one of 0015's two concurrency slots forever. Proven
+in D1: two un-begun claims make a third return `concurrency_limit`; a manual
+`rejected` transition frees it. Record an explicit rejection when no POST
+happened, and document owner recovery for true unknowns. (2) Owner decision
+pending: the DeepSeek floor gates only voice. Telegram text turns and
+`/sync/distill` spend ungated, and DECISIONS.md should say so or gate them.
+(3) Owner decision pending: a failed or leased 70/85% alert refuses admission.
+(4) The runbook's post-apply check reads only the controls row. Add a
+`sqlite_master` check for the five triggers, two tables, the index and
+`provider_terminal_at`, because tests and production use different splitters.
+Low: Twilio `as_of` meaning is unverified (item 3); capacity freshness is not
+rechecked just before `createCall`; each check makes up to 100 R2 list calls.
+Validation: workspace 2,305/2,306 (archival timeout also fails on main); fake
+gate 762/32 plus 6 native tests. Of 19 mutations, 17 were killed; survivors
+were the redundant owner-verified clause and an untested backfill `call_sid`
+binding. Real stub/socket composition is confirmed. Deploying without secrets
+stays closed.
+
+---
+
 ## 2026-09-13 18:43 UTC — Codex builder, PR #25 Worker composition
 
 Item 1's production code is composed: the actual Worker now routes signed
