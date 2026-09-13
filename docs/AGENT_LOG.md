@@ -68,6 +68,17 @@ The runbook's new post-migration checks were not re-read in detail.
 
 ---
 
+## 2026-09-13 20:37 UTC — Codex builder, PR #25 remote D1 trigger fix
+
+Rewrote all eight `outbound_attempts_admission` guards in 0015 from the
+remote-D1-incompatible `SELECT CASE ... RAISE ... END` form to equivalent
+`SELECT RAISE ... WHERE` statements without changing their predicates or error
+codes. A raw-migration regression enumerates every admission refusal and fails
+if any one stops using the deployable form. The real policy and backfill paths
+pass, followed by the Windows workspace at 2,309 / 120 and clean lint/source
+types. Pushed at `d41db65`; no remote migration or deployment was attempted.
+PR #25 still requires max re-review and owner rollout/live acceptance.
+
 ## 2026-09-13 20:35 UTC — Claude Opus 5, remote D1 rejects CASE guards in triggers
 
 Sid approved applying 0014 to production. `wrangler d1 migrations apply
