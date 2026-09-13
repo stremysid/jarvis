@@ -159,6 +159,19 @@ The runbook's new post-migration checks were not re-read in detail.
 
 ---
 
+## 2026-09-13 20:42 UTC — Codex builder, PR #26 remote D1 migration fix
+
+Opened PR #26 from current main to make 0014 deployable by remote D1. Its
+three `memory_fact_projection_commit_publish` guards now use the proven
+`SELECT RAISE ... WHERE` form with predicates, ordering and error codes
+unchanged. Reverting each guard individually to `SELECT CASE ... END` fails
+the new raw-migration regression. Projection-focused tests pass 130 / 4;
+the Windows workspace passes 2,236 / 113 with clean lint and source types.
+No remote migration or deployment was attempted. This edits the unapplied
+production migration and requires max review plus Sid's rollout approval.
+
+---
+
 ## 2026-09-13 20:37 UTC — Codex builder, PR #25 remote D1 trigger fix
 
 Rewrote all eight `outbound_attempts_admission` guards in 0015 from the
