@@ -53,12 +53,14 @@ criteria already exist in `tests/acceptance/live/voice-smoke.ts` and should
 be mirrored rather than reinvented. Do not flip the voice switch in
 `apps/cloud-gateway/src/index.ts` until the fake scenarios pass.
 
-Item 2 is in progress on `codex/r1-call-acceptance`. The first owner inbound
-case exercises signed admission, relay setup, two turns and interruption;
-removing the model abort fails it. Continue the owner outbound/no-answer,
-guest access/activation/isolation, permission/revocation, terminal callback,
-oversized-frame and model-timeout cases, then Telegram `/call` and the
-release gate. `pnpm test:voice-access` runs the matrix;
+Item 2 is in progress on `codex/r1-call-acceptance`, draft PR #23. The fake
+matrix now covers owner inbound and outbound calls, unanswered calls,
+guest activation and isolation, permission and grant changes between turns,
+interruption, terminal callbacks, oversized frames and the real 30-second
+model deadline. Callback acceptance also exposed admission races before and
+after DO initialization and after archive purge; the fixes require no
+migration. Continue Telegram `/call` and the release gate.
+`pnpm test:voice-access` runs the matrix;
 `pnpm typecheck:voice-access` checks its harness. This checkpoint does not
 activate voice or satisfy live acceptance.
 

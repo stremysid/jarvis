@@ -7,22 +7,24 @@ import { DefaultModelAdapter } from "../../../apps/cloud-gateway/src/model/model
 import type { CallRepository } from "../../../apps/cloud-gateway/src/persistence/call-repository.js";
 import { EventRepository } from "../../../apps/cloud-gateway/src/persistence/event-repository.js";
 import { VoiceAccessRepository } from "../../../apps/cloud-gateway/src/persistence/voice-access-repository.js";
+import { GuestPinVerifier } from "../../../apps/cloud-gateway/src/security/guest-pin-verifier.js";
 import { FakeModelProvider, type FakeModelProviderOptions } from "../../../apps/cloud-gateway/src/providers/fake-model-provider.js";
 import { Redactor } from "../../../apps/cloud-gateway/src/security/redaction.js";
 import {
   CallSession,
   CallSessionCore,
+  GuestCallAuthentication,
   type CallSessionInitialization,
   type CallSessionTermination,
   type CallSessionTerminationResult,
   type CallSessionTerminalPhase,
 } from "../../../apps/cloud-gateway/src/voice/call-session-do.js";
-import { CapabilityRegistry } from "../../../apps/cloud-gateway/src/voice/capability-registry.js";
+import { AuthenticationAttemptBudget } from "../../../apps/cloud-gateway/src/voice/inbound-auth.js";
 import { DurableObjectCallSessionTerminator } from "../../../apps/cloud-gateway/src/voice/call-session-terminator.js";
-import { VoiceAccessAuthorityService } from "../../../apps/cloud-gateway/src/voice/voice-access-authority.js";
+import { GuestPinProofIssuer, VoiceAccessAuthorityService } from "../../../apps/cloud-gateway/src/voice/voice-access-authority.js";
+import { FAKE_BUDGET_PEPPER, FAKE_GUEST_PEPPER, FAKE_VOICE_REGISTRY } from "./voice-access-system.js";
 
 export const FAKE_ACCOUNT_SID = `AC${"6".repeat(32)}`;
-export const FAKE_PROVIDER_SESSION_ID = `VX${"5".repeat(32)}`;
 
 export interface RelayTextFrame {
   readonly type: "text";
@@ -33,12 +35,14 @@ export interface RelayTextFrame {
 export interface FakeRelayCall {
   readonly sessionId: Ulid;
   readonly callSid: string;
+  readonly providerSessionId: string;
   readonly upgradeStatus: number;
   setup(): Promise<void>;
   prompt(text: string): Promise<void>;
+  pin(digits: Uint8Array): Promise<void>;
   interrupt(): Promise<void>;
   sendFrame(frame: string | ArrayBuffer): Promise<void>;
-  modelRequests(): Promise<readonly { principalId: string; userText: string; context: readonly { text: string }[] }[]>;
+  modelRequests(): Promise<readonly { principalId: string; userText: string; timeoutMs: number; context: readonly { text: string }[] }[]>;
   emitToken(text: string): Promise<void>;
   completeModel(): Promise<void>;
   frames(): readonly RelayTextFrame[];
@@ -63,6 +67,7 @@ interface InitializedRelay {
   server: WebSocket | null;
   readonly frames: RelayTextFrame[];
   readonly closeCodes: number[];
+  readonly providerSessionId: string;
 }
 
 /**
@@ -72,10 +77,7 @@ interface InitializedRelay {
  */
 export class FakeRelaySessions {
   private readonly sessions = new Map<Ulid, InitializedRelay>();
-  private readonly authority = new VoiceAccessAuthorityService(
-    new VoiceAccessRepository(env.DB),
-    new CapabilityRegistry({ installed: ["conversation.basic", "access.manage"] }),
-  );
+  private providerSequence = 100;
 
   constructor(
     private readonly repository: CallRepository,
@@ -88,6 +90,13 @@ export class FakeRelaySessions {
     await stub.initialize(initialization);
     if (this.sessions.has(initialization.sessionId)) return;
     await runInDurableObject(stub, async (_instance, state) => {
+      const access = new VoiceAccessRepository(env.DB);
+      const proofs = new GuestPinProofIssuer();
+      const authority = new VoiceAccessAuthorityService(access, FAKE_VOICE_REGISTRY(), proofs);
+      const guestAuthentication = new GuestCallAuthentication({
+        repository: access, proofs, verifier: new GuestPinVerifier(FAKE_GUEST_PEPPER()),
+        budgets: new AuthenticationAttemptBudget(env.DB, FAKE_BUDGET_PEPPER()),
+      });
       const model = new FakeModelProvider(this.modelOptions);
       const conversation = new DefaultConversationService({
         repository: new ConversationRepository(env.DB, new EventRepository(env.DB)),
@@ -101,7 +110,8 @@ export class FakeRelaySessions {
         session: input.session,
         expectedAccountSid: FAKE_ACCOUNT_SID,
         repository: this.repository,
-        authority: this.authority,
+        authority,
+        guestAuthentication,
         conversation,
         relay: input.relay,
         ...(input.initialization.binding.direction === "outbound" && "preAuthentication" in input.initialization
@@ -111,6 +121,7 @@ export class FakeRelaySessions {
       }));
       this.sessions.set(initialization.sessionId, {
         stub, object, initialization, model, client: null, server: null, frames: [], closeCodes: [],
+        providerSessionId: `VX${(++this.providerSequence).toString(16).padStart(32, "0")}`,
       });
     });
   }
@@ -146,16 +157,21 @@ export class FakeRelaySessions {
     return Object.freeze({
       sessionId,
       callSid: session.initialization.binding.callSid,
+      providerSessionId: session.providerSessionId,
       upgradeStatus,
       setup: () => sendFrame(JSON.stringify({
         type: "setup",
-        sessionId: FAKE_PROVIDER_SESSION_ID,
+        sessionId: session.providerSessionId,
         accountSid: FAKE_ACCOUNT_SID,
         callSid: session.initialization.binding.callSid,
         direction: session.initialization.binding.direction === "outbound" ? "outbound-api" : "inbound",
         customParameters: { relayNonce: session.initialization.binding.relayNonce },
       })),
       prompt: (text: string) => sendFrame(JSON.stringify({ type: "prompt", voicePrompt: text, lang: "en-US", last: true })),
+      pin: async (digits: Uint8Array) => {
+        try { for (const digit of digits) await sendFrame(JSON.stringify({ type: "dtmf", digit: String.fromCharCode(digit) })); }
+        finally { digits.fill(0); }
+      },
       interrupt: () => sendFrame(JSON.stringify({
         type: "interrupt", utteranceUntilInterrupt: "This response must stop", durationUntilInterruptMs: 100,
       })),
@@ -163,7 +179,7 @@ export class FakeRelaySessions {
       modelRequests: () => runInDurableObject(session.stub, async () => session.model.requests
         .filter((request) => request.operation === "streamText")
         .map((request) => ({
-          principalId: request.principalId, userText: request.userText,
+          principalId: request.principalId, userText: request.userText, timeoutMs: request.timeoutMs,
           context: request.context.map((item) => ({ text: item.text })),
         }))),
       emitToken: (text: string) => runInDurableObject(session.stub, async () => { session.model.emitToken(text); }),
@@ -197,10 +213,22 @@ export class FakeRelaySessions {
     return new DurableObjectCallSessionTerminator({
       idFromName: (name) => env.CALL_SESSION.idFromName(name),
       get: (id) => {
-        const session = this.requireSession(id.name as Ulid);
+        const session = this.sessions.get(id.name as Ulid);
+        if (session === undefined) return env.CALL_SESSION.get(id);
         return { terminate: (request) => runInDurableObject(session.stub, async () => session.object.terminate(request)) };
       },
     }).terminate(input);
+  }
+
+  terminationRecord(sessionId: Ulid): Promise<unknown> {
+    const stub = env.CALL_SESSION.get(env.CALL_SESSION.idFromName(sessionId));
+    return runInDurableObject(stub, async (_instance, state) => state.storage.get("call-session.termination.v1"));
+  }
+
+  providerSessionId(callSid: string): string {
+    const session = [...this.sessions.values()].find((candidate) => candidate.initialization.binding.callSid === callSid);
+    if (session === undefined) throw new Error("fake_call_not_initialized");
+    return session.providerSessionId;
   }
 
   private async close(session: InitializedRelay): Promise<void> {

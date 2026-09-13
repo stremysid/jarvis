@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { env } from "cloudflare:test";
 import { CallRepository } from "../../../apps/cloud-gateway/src/persistence/call-repository.js";
 import { EventRepository } from "../../../apps/cloud-gateway/src/persistence/event-repository.js";
+import { ArchivalService } from "../../../apps/cloud-gateway/src/archive/archival-service.js";
+import { resetArchiveFixture } from "../../../apps/cloud-gateway/test/archive/archive-fixture.js";
 import { createFakeCallingSystem, createFakeOutboundCallingSystem } from "./voice-call-system.js";
 
 describe("fake voice call path", () => {
@@ -141,6 +143,37 @@ describe("fake voice call path", () => {
     } finally { release(); await system.cleanup(); }
   });
 
+  it("keeps an ended call fenced after its terminal event is sealed and purged from live D1", async () => {
+    await resetArchiveFixture();
+    let release!: () => void;
+    let reached!: () => void;
+    const entered = new Promise<void>((resolve) => { reached = resolve; });
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const system = await createFakeCallingSystem({ beforeOutboundSessionCreate: async () => { reached(); await blocked; } });
+    try {
+      await system.dispatch();
+      const callSid = system.acceptedCallSid();
+      const pending = system.claimOutboundTwiML(callSid);
+      await entered;
+      expect((await system.sendStatus(callSid, "no-answer", 1)).status).toBe(204);
+      await env.DB.batch([
+        env.DB.prepare("UPDATE events SET created_at = '2026-09-02T00:00:00.000Z'"),
+        env.DB.prepare("UPDATE outbox SET status = 'delivered', delivered_at = '2026-09-02T00:00:00.000Z'"),
+      ]);
+      const archive = new ArchivalService({ database: env.DB, bucket: env.ARCHIVE });
+      await expect(archive.archiveEligible(new Date("2026-12-01T00:00:00.000Z"), 1000))
+        .resolves.toMatchObject({ eventCount: 1 });
+      await expect(env.DB.prepare("SELECT count(*) AS count FROM events").first()).resolves.toEqual({ count: 0 });
+      await expect(env.DB.prepare("SELECT count(*) AS count FROM provider_events").first()).resolves.toEqual({ count: 1 });
+      await expect(env.DB.prepare("SELECT count(*) AS count FROM archive_purge_receipts").first()).resolves.toEqual({ count: 1 });
+      release();
+      expect((await pending).status).toBe(403);
+      expect((await system.claimOutboundTwiML(callSid)).status).toBe(403);
+      expect(system.initializations()).toHaveLength(0);
+      await expect(env.DB.prepare("SELECT count(*) AS count FROM call_sessions").first()).resolves.toEqual({ count: 0 });
+    } finally { release(); await system.cleanup(); await resetArchiveFixture(); }
+  });
+
   it("rolls back terminal call state when the callback event cannot commit", async () => {
     const system = await createFakeCallingSystem();
     try {
@@ -163,6 +196,34 @@ describe("fake voice call path", () => {
       await env.DB.prepare("DROP TRIGGER IF EXISTS fixture_reject_callback").run();
       await system.cleanup();
     }
+  });
+
+  it("refuses ended outbound TwiML after delayed initialization and resumes the incomplete callback cleanup", async () => {
+    let release!: () => void;
+    let reached!: () => void;
+    const entered = new Promise<void>((resolve) => { reached = resolve; });
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const system = await createFakeCallingSystem({ beforeSessionInitialize: async () => { reached(); await blocked; } });
+    try {
+      await system.dispatch();
+      const callSid = system.acceptedCallSid();
+      const pending = system.claimOutboundTwiML(callSid);
+      await entered;
+      expect((await system.sendStatus(callSid, "no-answer", 1)).status).toBe(503);
+      await expect(env.DB.prepare("SELECT phase FROM call_sessions WHERE session_id = ?")
+        .bind(system.attemptId).first()).resolves.toEqual({ phase: "failed" });
+      await expect(system.terminationRecord(system.attemptId)).resolves.toBeUndefined();
+      release();
+      expect((await pending).status).toBe(403);
+      expect((await system.sendStatus(callSid, "no-answer", 1)).status).toBe(204);
+      await expect(system.terminationRecord(system.attemptId)).resolves.toEqual({
+        sessionId: system.attemptId, callSid, providerSessionId: null,
+        phase: "failed", durablePhase: "failed", reason: "provider_callback", cleanupState: "complete",
+      });
+      await expect(env.DB.prepare("SELECT count(*) AS count FROM provider_events").first()).resolves.toEqual({ count: 1 });
+      await expect(env.DB.prepare("SELECT count(*) AS count FROM call_session_authorities").first()).resolves.toEqual({ count: 0 });
+      await expect(system.conversationTurnCount()).resolves.toBe(0);
+    } finally { release(); await system.cleanup(); }
   });
 
   it("ends only the exact inbound provider session and refuses a mismatched relay-ended callback", async () => {
@@ -260,6 +321,41 @@ describe("fake voice call path", () => {
       expect(call.closeCodes()).toHaveLength(0);
     } finally { await system.cleanup(); }
   });
+
+  it("fails one stalled model turn at the real thirty-second limit and permits the caller's next turn", async () => {
+    const system = await createFakeCallingSystem({ manualModel: true });
+    try {
+      await system.inbound();
+      const call = await system.openRelay();
+      await call.setup();
+      const started = performance.now();
+      const stalled = call.prompt("Please answer within the call's model budget.");
+      await vi.waitFor(async () => expect(await call.modelRequests()).toHaveLength(1));
+      expect((await call.modelRequests())[0]?.timeoutMs).toBe(30_000);
+      // Clear the first-token deadline, then keep the same stream open until
+      // the independent total deadline fires. No shortened fixture budget.
+      await call.emitToken("The response has started.\n");
+      await vi.waitFor(async () => expect((await call.turns())[0]?.state).toBe("failed"), { timeout: 35_000, interval: 100 });
+      await stalled;
+      const elapsed = performance.now() - started;
+      expect(elapsed).toBeGreaterThanOrEqual(29_000);
+      expect(elapsed).toBeLessThan(35_000);
+      await expect(env.DB.prepare(`SELECT state, failure_code, failure_category,
+        sent_assistant_event_id, delivered_assistant_event_id FROM conversation_turns WHERE session_id = ?`)
+        .bind(call.sessionId).all()).resolves.toMatchObject({ results: [{
+          state: "failed", failure_code: "model_failed", failure_category: "provider",
+          sent_assistant_event_id: null, delivered_assistant_event_id: null,
+        }] });
+      await expect(call.emitToken("This late tail must not be sent.")).rejects.toThrow("fake_model_manual_stream_inactive");
+      await expect(call.phase()).resolves.toBe("active");
+      const next = call.prompt("Please try a short answer now.");
+      await vi.waitFor(async () => expect(await call.modelRequests()).toHaveLength(2));
+      await call.emitToken("A short answer.");
+      await call.completeModel();
+      await next;
+      expect((await call.turns()).map((turn) => turn.state)).toEqual(["failed", "voice_sent"]);
+    } finally { await system.cleanup(); }
+  }, 40_000);
 
   it("closes an over-64-KiB relay frame with 1009 before it creates a conversation turn", async () => {
     const system = await createFakeCallingSystem();

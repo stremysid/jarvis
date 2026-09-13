@@ -12,7 +12,7 @@ import { CallRepository, type DispatchIntent } from "../../../apps/cloud-gateway
 import { EventRepository } from "../../../apps/cloud-gateway/src/persistence/event-repository.js";
 import { FakeTwilioProvider } from "../../../apps/cloud-gateway/src/providers/fake-twilio-provider.js";
 import type { CallSessionInitialization, CallSessionTermination } from "../../../apps/cloud-gateway/src/voice/call-session-do.js";
-import { FAKE_PROVIDER_SESSION_ID, FakeRelaySessions, type FakeRelayCall } from "./voice-relay-system.js";
+import { FakeRelaySessions, type FakeRelayCall } from "./voice-relay-system.js";
 import type {
   DispatchPolicyCheck,
   OutboundCallRequest,
@@ -38,7 +38,6 @@ const COMMAND_ID = "01k3s6k8000000000000000000" as Ulid;
 const ATTEMPT_ID = "01k3s6k8000000000000000001" as Ulid;
 const CHECK_ID = "01k3s6k8000000000000000002" as Ulid;
 const DESTINATION = "+14165550123";
-const NONCE = `${"A".repeat(42)}A`;
 
 class AllowPolicy implements PolicyEngineContract {
   async evaluateOutboundCall(): Promise<PolicyDecision> {
@@ -130,6 +129,7 @@ export interface FakeCallingSystem extends FakeOutboundCallingSystem {
   conversationTurnCount(): Promise<number>;
   sendRelayEnded(callSid: string, sessionStatus: string, providerSessionId?: string): Promise<Response>;
   terminations(): readonly CallSessionTermination[];
+  terminationRecord(sessionId: Ulid): Promise<unknown>;
 }
 
 export async function createFakeCallingSystem(input: {
@@ -137,6 +137,7 @@ export async function createFakeCallingSystem(input: {
   manualModel?: boolean;
   beforeTermination?: (input: CallSessionTermination) => Promise<void>;
   beforeOutboundSessionCreate?: () => Promise<void>;
+  beforeSessionInitialize?: () => Promise<void>;
 } = {}): Promise<FakeCallingSystem> {
   await applyFoundationMigration();
   await clearFixture();
@@ -144,7 +145,8 @@ export async function createFakeCallingSystem(input: {
   const policy = new AllowPolicy();
   const twilio = new FakeTwilioProvider();
   if (input.loseDispatchResponse === true) twilio.acceptAndLoseNextResponse();
-  const repository = new CallRepository(env.DB, new EventRepository(env.DB), () => NONCE);
+  const repository = new CallRepository(env.DB, new EventRepository(env.DB));
+  let inboundSequence = 100;
   const relays = new FakeRelaySessions(repository,
     { manual: input.manualModel ?? false, streamText: "A safe voice answer." }, () => new Date(NOW));
   const dispatcher = new OutboundCallDispatcher({
@@ -159,6 +161,7 @@ export async function createFakeCallingSystem(input: {
   let lastSessionId: Ulid | undefined;
   const terminationLog: CallSessionTermination[] = [];
   const initializeSession = async (initialization: Readonly<CallSessionInitialization>): Promise<void> => {
+    await input.beforeSessionInitialize?.();
     await relays.initialize(initialization);
     lastSessionId = initialization.sessionId;
   };
@@ -215,7 +218,7 @@ export async function createFakeCallingSystem(input: {
   return Object.freeze({
     inbound: async (caller = DESTINATION) => routeVoiceRequest(
       await signedPost(twilio, "/voice/inbound", "https://jarvis.example/voice/inbound",
-        new URLSearchParams({ From: caller, To: "+14165550100", CallSid: `CA${"2".repeat(32)}` }).toString()),
+        new URLSearchParams({ From: caller, To: "+14165550100", CallSid: `CA${(++inboundSequence).toString(16).padStart(32, "0")}` }).toString()),
       routeDependencies,
     ),
     openRelay: async () => {
@@ -245,13 +248,14 @@ export async function createFakeCallingSystem(input: {
       ),
       routeDependencies,
     ),
-    sendRelayEnded: async (callSid: string, sessionStatus: string, providerSessionId = FAKE_PROVIDER_SESSION_ID) => routeVoiceRequest(
+    sendRelayEnded: async (callSid: string, sessionStatus: string, providerSessionId = relays.providerSessionId(callSid)) => routeVoiceRequest(
       await signedPost(twilio, "/voice/relay-ended", "https://jarvis.example/voice/relay-ended",
         new URLSearchParams({ CallSid: callSid, SessionId: providerSessionId, SessionStatus: sessionStatus,
           SessionDuration: "17" }).toString()),
       routeDependencies,
     ),
     terminations: () => [...terminationLog],
+    terminationRecord: (sessionId: Ulid) => relays.terminationRecord(sessionId),
     claimOutboundTwiML: async (callSid: string) => routeVoiceRequest(
       await signedPost(
         twilio,

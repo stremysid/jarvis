@@ -34,12 +34,14 @@ const MAX_TEXT_BYTES = 256;
 const encoder = new TextEncoder();
 const TERMINAL_PHASES = Object.freeze(["completed", "rejected", "failed", "expired"] as const);
 function terminalStatusEvent(attemptColumn: "outbound_call_attempts.attempt_id" | "a.attempt_id"): string {
+  // Archive purge removes the envelope but retains its receipt. Missing live
+  // status evidence must not reopen an old provider call for relay admission.
   return `SELECT 1 FROM provider_events callback
-  JOIN events event ON event.event_id = callback.event_id
+  LEFT JOIN events event ON event.event_id = callback.event_id
   WHERE callback.endpoint_kind = 'status'
     AND callback.attempt_id = ${attemptColumn}
-    AND json_extract(event.envelope_json, '$.payload.callStatus')
-      IN ('completed', 'busy', 'failed', 'no-answer', 'canceled')`;
+    AND (event.event_id IS NULL OR json_extract(event.envelope_json, '$.payload.callStatus')
+      IN ('completed', 'busy', 'failed', 'no-answer', 'canceled'))`;
 }
 const RELAY_BINDING_FIELDS = new Set([
   "callSid", "principalId", "identityId", "destinationIdentityId", "relayNonce",

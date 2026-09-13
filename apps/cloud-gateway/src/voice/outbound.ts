@@ -451,6 +451,16 @@ export async function claimOutboundTwiML(
     return neutral("unavailable", 503);
   }
 
+  // A terminal callback can commit while initialization is in flight. The
+  // replay read revalidates terminal state and access before issuing TwiML.
+  try {
+    await outboundSession.method.call(outboundSession.receiver, {
+      attemptId, binding, now: observedAt,
+    });
+  } catch (error) {
+    return isCallSessionAdmissionError(error) ? neutral("forbidden", 403) : neutral("unavailable", 503);
+  }
+
   return new Response(body, {
     status: 200,
     headers: {
