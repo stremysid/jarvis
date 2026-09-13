@@ -15,8 +15,9 @@ Cloud context now retrieves published facts alongside recent turns under a
 shared budget. The merged node bootstrap now resumes an owed projection after
 event sync and before new distillation, then publishes active facts after
 promotion. Durable ACK recovery remains unchanged, and shutdown preserves
-pending projection pages. Finish item-3 review and the owner acceptance in
-the fact projection runbook. Keep one PR
+pending projection pages. Item-3 review is complete and PR #16 merged on
+2026-09-13 at `b6f3542`; the owner rollout and acceptance in the fact
+projection runbook remain. Keep one PR
 per milestone item and push tested checkpoints. Item 4 semantic search stays
 in its own later PR and is not part of #16.
 

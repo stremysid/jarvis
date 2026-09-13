@@ -35,7 +35,10 @@ skips, 2 deployment-script passes, and 33 byte-exact files unchanged by
 checkout. Hermes has three known failures on his Store/MSIX PowerShell
 layout; that independent R3 issue does not block #16 and is not fixed here.
 These are owner/reviewer reports, not reruns by this builder. No further
-implementation is requested on #16.
+implementation is requested on #16. Sid merged #16 on 2026-09-13 at
+`b6f3542`. Owner rollout remains: skip the POSIX-only 0700 preflight on
+Windows, apply 0014 to live D1, confirm exactly 21 projection triggers, then
+deploy the gateway. Do not start the node.
 
 GitHub Actions has used 2,000/2,000 minutes with a $0 budget and stop-usage
 enabled, resetting 2026-10-01. Sid will not raise it. Run suites locally
