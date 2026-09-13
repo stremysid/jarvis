@@ -46,6 +46,30 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 22:10 UTC — Claude Opus 5, PR #25 cleared at 669559c
+
+PR #25 at `669559c` is cleared for merge from the reviewer side. The owner
+usage-limit decision is implemented as relayed. Workspace passes 2,512/2,512
+across 122 files; the fake gate passes 761/32 plus 6 native checks; source
+types are clean. Five mutations were all killed:
+- cutoff at 95% instead of 100%
+- no cutoff at all
+- a failed warning refusing admission
+- a 90% threshold
+- a missing rearm
+The begun-claim settle gap from the prior review is now killed by the new
+repository test. The gate dropped from 762 to 761 because the removed
+`CAPACITY_MODEL_REQUEST_COST_ASSUMPTION_USD` case went with that setting,
+which is intended. 0015 and its syntax and admission tests are unchanged since
+`c9555a4`, where all nine guard mutations were killed. Sid merged #26
+(`9363b58`). #25 leaves 0014 as its base had it, so merging keeps main's fixed
+0014. The only merge conflict is `docs/AGENT_LOG.md`: keep both sides, newest
+first. Not yet proven: 0015 on a real remote D1, the same WHERE form proven by
+#26. Rolling out 0015, Twilio configuration and live acceptance remain owner
+operations.
+
+---
+
 ## 2026-09-13 21:30 UTC — Claude Opus 5, PR #26 cleared; PR #25 D1 fix verified
 
 PR #26 (`271f11f`; code unchanged since the reviewed `6bf0517`) is cleared
