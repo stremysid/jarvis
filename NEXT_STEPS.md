@@ -89,9 +89,11 @@ final conversation turn, then revalidates access before allocating or committing
 the turn. Interruption releases admission without waiting for telemetry or
 authorization; cancellation during context retrieval prevents model invocation.
 Worker route wiring and persisted outbound policy controls remain pending.
-The max review of PR #23 at d6c5fc2 now requests changes; fix those on #23,
-then bring its updated base into #25. The fake relay directly invokes the DO
-wrapper: #25 still owes a production proof through the real stub and socket.
+The max review response is pushed on #23 at 695e762 and included here; max
+re-review remains required. The separate production socket project now proves
+the default factory through real stub fetch, client frames and eviction for
+owner/guest turns and failed credit reads. The broad fake relay still directly
+invokes the DO wrapper. Worker HTTP composition and live delivery remain unproven.
 See DECISIONS.md for the precise guarantee.
 
 Hermes' MSI-only trusted PowerShell path is filed for R3 as

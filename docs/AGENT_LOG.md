@@ -46,6 +46,21 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 17:46 UTC — Codex builder, PR #25 real socket proof
+
+The default production CallSession factory now has a separate real namespace
+stub/WebSocket test project. Client frames exercise owner turns, guest DTMF,
+hibernated-socket eviction and failed-credit refusal with real D1 repositories
+and synthetic external HTTP. All seven actual mutations fail assertions and
+were restored byte-for-byte, including default factory removal and leaking
+positive configuration into the ordinary missing-configuration project. Windows
+workspace passes 2,233 tests / 116 files; source/harness typechecks and lint pass.
+The real release runner passes 642 tests / 26 files plus six native tests, then
+correctly refuses absent live evidence. No migration changed. Worker routes and
+mutable outbound controls remain next; no live acceptance or review approval
+is claimed. The first prototype failed on an incorrectly formatted synthetic
+Twilio timestamp, which the collector correctly rejected.
+
 ## 2026-09-13 17:32 UTC — Codex builder, PR #25 base integration
 
 Merged PR #23's pushed review response 695e762 into the item 1 branch,

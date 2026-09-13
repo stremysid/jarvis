@@ -35,8 +35,13 @@ prompt; cancelled context retrieval cannot start a model request. Completed
 output can still settle its receipt after interruption without closing the call.
 Worker route wiring and persisted outbound policy controls remain.
 The max review of #23 at d6c5fc2 requested changes. The fixes are pushed at
-695e762 and carried into this branch; max re-review remains required. The existing relay harness invokes DO methods
-directly; #25 still needs proof through the real stub and socket path.
+695e762 and carried into this branch; max re-review remains required. The broad
+relay harness invokes DO methods directly. A separate configured test project
+now exercises the default production factory through the actual DO stub and
+client WebSocket: owner and PIN-authenticated guest turns survive real eviction,
+and a failed credit read closes the socket before another model request or turn.
+Only external provider HTTP is stubbed. This does not prove Worker route wiring
+or live Twilio delivery.
 The guarantee is balance above the floor on an accepted fresh report, not
 spending under a budget or a bound on later concurrent charges. The
 voice runbook identifies measured/estimated sources and derives a reserve from
