@@ -46,6 +46,30 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 17:01 UTC — Claude Opus 5, PR #23 max review
+
+Reviewed `d6c5fc2`: changes requested. (1) `/call` origin compares the
+stored, redacted `payload.principalId` with the raw owner id. An exactly
+six-digit run inside `principal:<uuid>` is redacted, so `/call` always
+refuses. Proven with a UUID-shaped owner: 21/30 Telegram tests fail, versus
+30/30 without the run. Sid's current owner is unaffected (owner-run D1
+check), but re-enrollment is not. Add a regression test using such an id.
+(2) `/call` then a newline then `check in --confirm` dials. The leading
+newline is trimmed before the control check, which breaks the one-line
+contract. (3) Cleanup after a 503 terminal callback assumes redelivery, but
+Twilio's default `rp=ct` does not retry 5xx and no override is set. Fix it
+or record it in KNOWN_ISSUES. (4) The fake relay injects `CallSessionCore`
+and calls DO methods directly; production's factory is null. #25 must prove
+the real stub/socket path. (5) Surviving mutations: the grant-status guard
+(the revocation test only proves the version bump), a per-digit DTMF log,
+the 64 KiB `>` boundary, the recorder's unreachable phase throw, and the
+release-gate filter list. (6) A quiet full workspace run here gave
+6/2,003 five-second timeouts. Five are new guest-access tests; give them
+explicit timeouts. The archival one also fails on main. 28/31 source
+mutations were killed. The full review is with Sid.
+
+---
+
 ## 2026-09-13 07:09 UTC — GPT-6 Astra
 
 R1 item 2 is implemented on PR #23: signed fake owner/guest calling, the
