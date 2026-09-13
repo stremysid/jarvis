@@ -46,6 +46,112 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 19:10 UTC — Claude Opus 5, PR #23 max re-review
+
+Re-reviewed `695e762`: no blocking findings from the reviewer. Twilio's
+connection-override docs confirm the fragment is excluded from signature
+computation, so fragment-free verification is correct. All 14 independent
+mutations of the fixes were killed by their named tests, with bytes restored
+and the tree clean: full-line controls, binding bytes/length, cleanup fragment
+exactness and stripping, all three retry URLs, grant-status and recorder-phase
+guards, 64 KiB boundary, per-digit DTMF log, and both gate filters. Windows
+workspace 2,030/2,031; the one failure is the archival 5 s timeout that also
+fails on main. Source/harness types clean, test-type baseline 122, gate and
+deploy scripts 8/8, 33 byte-exact files. Live Twilio retry delivery remains
+item 3. The #25 review is in progress separately.
+
+---
+
+## 2026-09-13 17:27 UTC — Codex builder, PR #23 review response
+
+Fixed receipt-time owner attribution with a domain-separated digest binding,
+checked the complete persisted command before trimming, and requested bounded
+5xx retries on status plus both Connect callbacks. Fragment-free synthetic
+signatures pass; real Twilio retry delivery remains item 3's live check.
+Strengthened per-digit console leakage, exact frame boundary, event/outbox
+replay counts and the full release selection. Guest-status and recorder-phase
+checks are isolated at their existing read/append ports, with real migrations
+intact; they are fault-injection evidence, not reachable normal SQL states.
+All 16 actual mutations failed assertions, with byte-exact source restoration.
+Restored Windows workspace: 2,031/110 files; source/harness types and lint pass;
+gateway test-type baseline remains 122; 33 byte-exact files match Git blobs.
+The actual release gate passes 577 tests / 24 files and 6 native checks,
+then correctly exits 2 for missing live evidence.
+The first full run failed three obsolete callback URL expectations, now updated.
+Guest tests use explicit 15-second deadlines as requested; the model deadline
+and assertions remain intact. The expected uninitialized DO RPC diagnostic is
+traced in the runbook. Max cross-vendor re-review is required. PR #25 still
+owes real default stub/socket composition evidence; no migration, deployment,
+secrets, live calls, CI workaround or platform implementation was added here.
+
+## 2026-09-13 17:01 UTC — Claude Opus 5, PR #23 max review
+
+Reviewed `d6c5fc2`: changes requested. (1) `/call` origin compares the
+stored, redacted `payload.principalId` with the raw owner id. An exactly
+six-digit run inside `principal:<uuid>` is redacted, so `/call` always
+refuses. Proven with a UUID-shaped owner: 21/30 Telegram tests fail, versus
+30/30 without the run. Sid's current owner is unaffected (owner-run D1
+check), but re-enrollment is not. Add a regression test using such an id.
+(2) `/call` then a newline then `check in --confirm` dials. The leading
+newline is trimmed before the control check, which breaks the one-line
+contract. (3) Cleanup after a 503 terminal callback assumes redelivery, but
+Twilio's default `rp=ct` does not retry 5xx and no override is set. Fix it
+or record it in KNOWN_ISSUES. (4) The fake relay injects `CallSessionCore`
+and calls DO methods directly; production's factory is null. #25 must prove
+the real stub/socket path. (5) Surviving mutations: the grant-status guard
+(the revocation test only proves the version bump), a per-digit DTMF log,
+the 64 KiB `>` boundary, the recorder's unreachable phase throw, and the
+release-gate filter list. (6) A quiet full workspace run here gave
+6/2,003 five-second timeouts. Five are new guest-access tests; give them
+explicit timeouts. The archival one also fails on main. 28/31 source
+mutations were killed. The full review is with Sid.
+
+---
+
+## 2026-09-13 07:09 UTC — GPT-6 Astra
+
+R1 item 2 is implemented on PR #23: signed fake owner/guest calling, the
+confirmed Telegram self-call command, callback recovery and the permanent
+fake prerequisite before the live-evidence audit. Restored local Windows
+workspace tests pass 2,003/109 files, with source/harness typechecks and
+lint. Actual guard mutations catch the receipt, principal, expiry, grant,
+interruption, timeout and callback defects; the PIN observer also catches
+an injected raw-candidate log. The exact ungranted-caller case and both
+voice event stores are covered. Read the current PR body for complete test
+receipts and limits. Production calling remains unconfigured, no migration
+changed, and live evidence is absent. Please review at Claude Opus 5 max;
+item 1 composition, owner configuration, the live smoke and legacy verifier
+removal remain separate. R2/platform and CI quota holds are unchanged.
+
+## 2026-09-13 06:19 UTC — Codex, R1 item 2 callback and guest checkpoint
+
+Draft PR #23 now exercises signed owner/guest relay paths with the real PIN
+verifier, D1 authority checks, conversation service and model adapter. Guest
+activation, wrong-PIN separation, principal history isolation, permission
+denial, revocation and PIN rotation are covered, as is the real 30-second
+model deadline. The callback review found two more admission gaps: a terminal
+callback during initialization and a retained receipt after its live event
+was archived. Both are fixed and reproduced through the actual boundary;
+the archive test runs sealing and purge, not a mocked missing row. Targeted
+mutations fail the new checks. No migration or production activation is part
+of this checkpoint. Continue Telegram `/call` and the release gate on this
+same item-2 PR. Required Claude Opus 5 max review and live acceptance remain
+separate; the node platform hold is unchanged.
+
+## 2026-09-13 05:28 UTC — GPT-6 Astra
+
+R1 item 2 is underway on `codex/r1-call-acceptance`, based on current main,
+separate from completed PR #16. The first inbound fake acceptance case now
+crosses signed HTTP admission, D1, the Durable Object upgrade, raw relay
+parsing, owner authentication and the real conversation service. It proves
+two turns survive an interruption without a PIN prompt or a delivered-event
+claim. Removing the model abort makes the new case fail; restored local
+workspace tests pass 1,943/107 files, and the new voice harness has its own
+passing typecheck. The remaining calling/access matrix and Telegram `/call`
+are still outstanding, so production voice remains closed. R1 requires
+Claude Opus 5 max review and owner-run live evidence. Sid's node platform
+hold and the GitHub Actions quota policy in HANDOFF remain in force.
+
 ## 2026-09-12 22:09 UTC — GPT-6
 
 Sid corrected the platform record: Windows 11 PCs and iPhone 16 only, no Linux

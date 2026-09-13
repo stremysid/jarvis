@@ -15,8 +15,9 @@ Cloud context now retrieves published facts alongside recent turns under a
 shared budget. The merged node bootstrap now resumes an owed projection after
 event sync and before new distillation, then publishes active facts after
 promotion. Durable ACK recovery remains unchanged, and shutdown preserves
-pending projection pages. Finish item-3 review and the owner acceptance in
-the fact projection runbook. Keep one PR
+pending projection pages. Item-3 review is complete and PR #16 merged on
+2026-09-13 at `b6f3542`; the owner rollout and acceptance in the fact
+projection runbook remain. Keep one PR
 per milestone item and push tested checkpoints. Item 4 semantic search stays
 in its own later PR and is not part of #16.
 
@@ -71,37 +72,37 @@ xhigh builds, **Claude Opus 5 at max** reviews, because R1 is the v1.0
 release gate rather than the usual xhigh. The cross-vendor gate holds -- the
 same model never builds and reviews the same work.
 
-Read the R1 acceptance audit in `docs/AGENT_LOG.md` before planning item 2.
-The short version: the fake acceptance layer is outbound-only, so the
-inbound harness is the first and largest piece of work, and the pass
-criteria already exist in `tests/acceptance/live/voice-smoke.ts` and should
-be mirrored rather than reinvented. Do not flip the voice switch in
-`apps/cloud-gateway/src/index.ts` until the fake scenarios pass.
+The R1 acceptance audit in `docs/AGENT_LOG.md` records the original gaps;
+the criteria remain in both calling plans and the live-smoke contract.
+Item 2 is implemented for review on `codex/r1-call-acceptance`, PR #23.
+The fake matrix crosses signed routes, D1 and the Durable Object for owner,
+guest, unknown and ungranted callers; it covers interruption, the real
+30-second model deadline, frame bounds, grant changes and callback recovery.
+Telegram `/call <reason> --confirm` constructs a durable owner-only self-call
+command with fixed expiry and replay protection. Production dispatch is
+still unconfigured; item 1 must supply the real runtime dependencies.
 
-## R2 item 2 continuation
+Run `pnpm test:voice-access` and `pnpm typecheck:voice-access` locally.
+`pnpm release:voice-gate` runs the fake prerequisite before auditing the five
+retained live records, and refuses release while those records are absent.
+Current validation belongs in PR #23; fake success is not live acceptance.
+Claude Opus 5 max reviewed `d6c5fc2` and requested changes. The response
+fixes receipt-time principal binding, full-line confirmation validation and
+bounded terminal callback retries, and strengthens the specified assertions.
+Obtain max re-review of the new head. Item 1's production composition is
+already in draft PR #25; carry this updated base into it and prove the real
+default DO stub/socket path there. Owner configuration and live evidence remain explicit gates;
+the live smoke (item 3) and legacy verifier removal (item 4) stay separate.
 
-PR #12's Linux device-key storage is merged. The Unix control socket and
-foreground `jarvis node` bootstrap continue in
-[PR #13](https://github.com/ksid1229-ops/jarvis/pull/13), on
-`codex/r2-unix-node`. Keep this work in that one PR and obtain Claude Opus 5
-high review before Sid merges it. The node's owner-run systemd check belongs
-on the provisioned Linux server; follow the
-[home-node runbook](docs/runbooks/home-node.md). Local tests and Ubuntu CI do
-not establish that live acceptance.
+## R2 platform hold
 
-The confirmed snapshot-continuation and restart-ACK P1s are fixed, including
-expired ACK recovery through an exact refetch of the already archived range.
-Full Python validation passes (556 tests, 20 Windows platform skips), and
-mutation checks cover the lifecycle, archive comparison and boundary guards.
-The final fixes still need current-head CI and Claude Opus 5 high review
-before Sid merges. Legacy pending rows without snapshot metadata require
-owner repair; the node must not delete them or reset the cursor.
-Item 3 continues separately in [draft PR #16](https://github.com/ksid1229-ops/jarvis/pull/16).
-
-R2's remaining work is server provisioning/private networking, fact upload
-and cloud retrieval, semantic search, the guarded vault adapter, and encrypted
-backups with node heartbeat. The roadmap's full R2 exit still requires the
-phone/Telegram/Obsidian scenario with the PCs off. R1 remains open separately.
+PR #13 is merged. PR #16 at `27b232f` is complete from the reviewer's side;
+the subsequent owner-run Windows results are listed in HANDOFF. No further
+implementation is requested on #16. R2 item 4 is parked behind Sid's node
+platform decision: no Windows port and no further Linux implementation.
+He owns Windows 11 PCs and an iPhone 16, with no Linux host or server.
+Keep the requirement that memory works with every PC off. R1 is cloud-side
+and does not depend on that decision.
 
 ## Next gate
 
@@ -195,5 +196,5 @@ the pinning mechanism and do not resume Tasks 10-13 in R0.
 - Move the Telegram rate limiter and the provider circuit breaker into a
   Durable Object. Both are per-isolate today.
 - Complete the owner-blocked external monitor action above after deployment.
-- A Windows service host is still outstanding. R2 item 2's Linux foreground
-  node bootstrap is tracked in PR #13 above.
+- A Windows service host does not exist. All node platform work remains on
+  hold pending Sid's decision, as stated above.

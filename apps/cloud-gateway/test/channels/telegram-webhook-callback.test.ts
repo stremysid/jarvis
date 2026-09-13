@@ -96,6 +96,19 @@ function tapUpdate(updateId = 91, data: string = DATA): unknown {
 }
 
 describe("accepting a button tap", () => {
+  it("carries the committed receipt time and authenticated principal for an accepted text command", async () => {
+    const response = await handleTelegramWebhook(requestFor({ update_id: 101, message: {
+      message_id: 12, from: { id: 12_345 }, chat: { id: 12_345 }, text: "/call check in --confirm",
+    } }), deps);
+    expect(response.status).toBe(200);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.receivedAt).toBe(events.events[0]?.envelope.receivedAt);
+    expect(messages[0]?.receivedAt).toBe(NOW.toISOString());
+    const binding = [...new Uint8Array(await crypto.subtle.digest("SHA-256",
+      new TextEncoder().encode(`telegram-principal-v1:${messages[0]?.principalId}`)))];
+    expect(events.events[0]?.envelope.payload).toMatchObject({ principalBinding: binding });
+  });
+
   it("hands the tap to the callback hook, not the message hook", async () => {
     const response = await handleTelegramWebhook(requestFor(tapUpdate()), deps);
 

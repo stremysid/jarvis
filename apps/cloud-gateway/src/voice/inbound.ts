@@ -1,4 +1,5 @@
 import type { RelayBinding, Ulid } from "../../../../packages/contracts/src/index.js";
+import { twilioCleanupUrl } from "../providers/twilio-cleanup-url.js";
 import {
   isCallSessionAdmissionError,
   type StoredCallSession,
@@ -348,7 +349,7 @@ export async function handleInboundVoiceWebhook(
   try {
     const sessionUrl = new URL(`/voice/relay/${session.sessionId}`, trustedOrigin.origin);
     sessionUrl.protocol = "wss:";
-    const actionUrl = new URL("/voice/relay-ended", trustedOrigin.origin);
+    const actionUrl = twilioCleanupUrl("/voice/relay-ended", trustedOrigin.origin);
     body = renderConversationRelayTwiML({
       publicOrigin: new URL(`${trustedOrigin.origin}/`),
       sessionUrl,

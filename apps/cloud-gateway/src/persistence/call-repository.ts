@@ -33,6 +33,16 @@ const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const MAX_TEXT_BYTES = 256;
 const encoder = new TextEncoder();
 const TERMINAL_PHASES = Object.freeze(["completed", "rejected", "failed", "expired"] as const);
+function terminalStatusEvent(attemptColumn: "outbound_call_attempts.attempt_id" | "a.attempt_id"): string {
+  // Archive purge removes the envelope but retains its receipt. Missing live
+  // status evidence must not reopen an old provider call for relay admission.
+  return `SELECT 1 FROM provider_events callback
+  LEFT JOIN events event ON event.event_id = callback.event_id
+  WHERE callback.endpoint_kind = 'status'
+    AND callback.attempt_id = ${attemptColumn}
+    AND (event.event_id IS NULL OR json_extract(event.envelope_json, '$.payload.callStatus')
+      IN ('completed', 'busy', 'failed', 'no-answer', 'canceled'))`;
+}
 const RELAY_BINDING_FIELDS = new Set([
   "callSid", "principalId", "identityId", "destinationIdentityId", "relayNonce",
   "direction", "activationOnly", "activationChallengeId",
@@ -561,6 +571,7 @@ export class CallRepository {
         AND ((relay_call_sid IS NULL AND nonce_expires_at > ?8) OR relay_call_sid = ?9)
         AND provider_dispatch_state IN ('claimed', 'dispatched', 'provider_dispatch_unknown')
         AND (provider_call_sid IS NULL OR provider_call_sid = ?10)
+        AND NOT EXISTS (${terminalStatusEvent("outbound_call_attempts.attempt_id")})
         AND EXISTS (
           SELECT 1 FROM voice_owner_identity owner
           WHERE owner.identity_id = ?11 AND owner.principal_id = outbound_call_attempts.principal_id
@@ -784,6 +795,7 @@ export class CallRepository {
         AND a.destination_identity_id = ?6
         AND a.relay_nonce = ?7
         AND a.provider_dispatch_state = 'dispatched'
+        AND NOT EXISTS (${terminalStatusEvent("a.attempt_id")})
         AND (
           SELECT COUNT(*) FROM call_sessions s
           WHERE s.principal_id = ?4
@@ -1067,7 +1079,7 @@ export class CallRepository {
           callbackSource,
           sequenceNumber,
           envelope.receivedAt,
-        )]);
+        ), ...this.terminalCallbackTransitions(database, envelope, "status", attemptId, callSid)]);
     }
 
     if (endpointKind !== "relay_ended") throw new TypeError("provider_event_endpoint_kind_invalid");
@@ -1084,7 +1096,39 @@ export class CallRepository {
       dedupe_key, endpoint_kind, event_id, attempt_id, call_sid, callback_source,
       sequence_number, session_id, received_at
     ) VALUES (?1, 'relay_ended', ?2, NULL, ?3, NULL, NULL, ?4, ?5)`)
-      .bind(dedupeKey, envelope.eventId, callSid, sessionId, envelope.receivedAt)]);
+      .bind(dedupeKey, envelope.eventId, callSid, sessionId, envelope.receivedAt),
+      ...this.terminalCallbackTransitions(database, envelope, "relay_ended", sessionId, callSid)]);
+  }
+
+  private terminalCallbackTransitions(
+    database: D1Database,
+    envelope: PersistableEventEnvelopeV1,
+    endpoint: "status" | "relay_ended",
+    providerIdentity: string,
+    callSid: string,
+  ): readonly D1PreparedStatement[] {
+    const payload = envelope.payload as Readonly<Record<string, unknown>>;
+    const status = payload[endpoint === "status" ? "callStatus" : "sessionStatus"];
+    const complete = endpoint === "relay_ended" ? status === "completed" || status === "ended" : status === "completed";
+    const failed = endpoint === "relay_ended" ? status === "failed"
+      : typeof status === "string" && ["busy", "failed", "no-answer", "canceled"].includes(status);
+    if (!complete && !failed) return [];
+    const binding = endpoint === "status"
+      ? "session_id = ?1 AND expected_attempt_id = ?1 AND direction = 'outbound' AND call_sid = ?2"
+      : "provider_session_id = ?1 AND call_sid = ?2";
+    // Preserve terminal causes and use the schema's ending step. Authority
+    // reads become invalid in the same transaction that records the callback.
+    const first = database.prepare(`UPDATE call_sessions SET
+      phase = CASE WHEN ?4 = 1 THEN 'failed'
+        WHEN phase IN ('created', 'connecting', 'pre_auth') THEN 'rejected'
+        ELSE 'ending' END,
+      updated_at = MAX(updated_at, ?3)
+      WHERE ${binding} AND phase NOT IN ('completed', 'rejected', 'failed', 'expired')`)
+      .bind(providerIdentity, callSid, envelope.receivedAt, failed ? 1 : 0);
+    if (failed) return [first];
+    return [first, database.prepare(`UPDATE call_sessions
+      SET phase = 'completed', updated_at = MAX(updated_at, ?3)
+      WHERE ${binding} AND phase = 'ending'`).bind(providerIdentity, callSid, envelope.receivedAt)];
   }
 
   /** Read-only hydration seam for the named relay-session Durable Object. */
@@ -1170,6 +1214,7 @@ export class CallRepository {
       || row.guest_grant_id !== binding.guestGrantId
       || row.guest_grant_version !== binding.guestGrantVersion
       || row.access_document_hash !== binding.accessDocumentHash
+      || (TERMINAL_PHASES as readonly CallPhase[]).includes(row.phase)
       || !await this.isCurrentAccessBinding(binding)
     ) {
       throw callSessionAdmissionFailure("call_session_conflict");

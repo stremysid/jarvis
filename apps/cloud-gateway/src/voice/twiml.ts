@@ -3,6 +3,7 @@ import {
   snapshotTrustedPublicOrigin,
   snapshotUrl,
 } from "../security/trusted-public-origin.js";
+import { isTrustedCleanupUrl } from "../providers/twilio-cleanup-url.js";
 
 const RELAY_NONCE_PATTERN = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/;
 const ULID_PATTERN = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/;
@@ -67,7 +68,7 @@ export function renderConversationRelayTwiML(input: ConversationRelayTwiMLInput)
     sessionPath === null ||
     !ULID_PATTERN.test(sessionPath[1] ?? "") ||
     !isTrustedFixedUrl(sessionUrl, publicOrigin, "wss:", `/voice/relay/${sessionPath[1]}`) ||
-    !isTrustedFixedUrl(actionUrl, publicOrigin, "https:", "/voice/relay-ended") ||
+    !isTrustedCleanupUrl(actionUrl, publicOrigin, "/voice/relay-ended") ||
     typeof input.relayNonce !== "string" ||
     !RELAY_NONCE_PATTERN.test(input.relayNonce) ||
     !isRecord(voiceConfig) ||

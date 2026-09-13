@@ -1,5 +1,24 @@
 # Known issues
 
+## R1 terminal cleanup retries are bounded
+
+PR #23 requests `#rc=2&rp=ct,rt,5xx` on outbound status callbacks and both
+Connect action callbacks. This closes the default-policy gap: Twilio's
+default retries connection failures, not HTTP 503 cleanup failures.
+The fixed fragment is excluded from HTTP signature verification. Two retries
+within the voice webhook deadline do not guarantee cleanup after a prolonged
+outage, and account Webhook Rules can override the URL policy. D1 terminal
+state remains authoritative and fail-closed throughout; a later callback or
+socket lifecycle event can still be needed to stop the live DO. R1 item 3
+must observe actual delivery for both paths before acceptance, per the
+[voice runbook](docs/runbooks/voice-smoke.md#terminal-cleanup-delivery-r1-item-3)
+and [Twilio's documented overrides](https://www.twilio.com/docs/usage/webhooks/webhooks-connection-overrides).
+
+PR #23's relay harness calls DO methods directly with an injected factory;
+default production stub/socket composition remains PR #25's acceptance task.
+The delayed-initialization test's `call_session_termination_uninitialized`
+workerd diagnostic is expected and traced, not a swallowed production error.
+
 ## Current R0 checkpoint, 2026-09-11
 
 PR #5 `edac272` supersedes the historical CI failures below. Codex reviewed

@@ -6,6 +6,7 @@ import {
 } from "../../../../packages/contracts/src/index.js";
 import type { CallRepository } from "../persistence/call-repository.js";
 import { Redactor } from "../security/redaction.js";
+import type { CallSessionTermination, CallSessionTerminationResult } from "../voice/call-session-do.js";
 import type {
   TwilioCallbackRecord,
   TwilioCallbackRecorder,
@@ -35,6 +36,7 @@ interface CallbackContextRow {
 export interface D1TwilioCallbackRecorderDependencies {
   database: D1Database;
   calls: Pick<CallRepository, "appendProviderEvent">;
+  terminateSession?: (input: CallSessionTermination) => Promise<CallSessionTerminationResult>;
   now?: () => Date;
   newEventId?: () => Ulid;
 }
@@ -147,6 +149,7 @@ export class D1TwilioCallbackRecorder implements TwilioCallbackRecorder {
   private readonly now: () => Date;
   private readonly newEventId: () => Ulid;
   private readonly redactor = new Redactor();
+  private readonly terminateSession: D1TwilioCallbackRecorderDependencies["terminateSession"];
 
   constructor(deps: D1TwilioCallbackRecorderDependencies) {
     const appendProviderEvent = captureAppendProviderEvent(deps.calls);
@@ -155,6 +158,7 @@ export class D1TwilioCallbackRecorder implements TwilioCallbackRecorder {
     this.appendProviderEvent = appendProviderEvent;
     this.now = deps.now ?? (() => new Date());
     this.newEventId = deps.newEventId ?? newUlid;
+    this.terminateSession = deps.terminateSession;
   }
 
   async record(input: TwilioCallbackRecord): Promise<void> {
@@ -162,13 +166,41 @@ export class D1TwilioCallbackRecorder implements TwilioCallbackRecorder {
     if (snapshot === null) throw new TypeError("callback_record_invalid");
     if (snapshot.endpointKind === "status") {
       await this.recordStatus(snapshot);
+      if (["completed", "busy", "failed", "no-answer", "canceled"].includes(snapshot.callStatus)) {
+        await this.finishSession("session_id = ?1 AND expected_attempt_id = ?1 AND direction = 'outbound' AND call_sid = ?2",
+          snapshot.attemptId, snapshot.callSid);
+      }
       return;
     }
     if (snapshot.endpointKind === "relay_ended") {
       await this.recordRelayEnded(snapshot);
+      await this.finishSession("provider_session_id = ?1 AND call_sid = ?2", snapshot.sessionId, snapshot.callSid);
       return;
     }
     throw new TypeError("callback_endpoint_invalid");
+  }
+
+  private async finishSession(binding: string, providerIdentity: string, callSid: string): Promise<void> {
+    const session = await this.database.prepare(`SELECT session_id, phase FROM call_sessions WHERE ${binding}`)
+      .bind(providerIdentity, callSid).first<{ session_id: Ulid; phase: string }>();
+    // No answer may arrive before TwiML ever creates a session. The durable
+    // provider event then fences future claim/create writes in CallRepository.
+    if (session === null) return;
+    if (!["completed", "failed", "rejected", "expired"].includes(session.phase)) {
+      throw new Error("callback_terminal_state_missing");
+    }
+    if (this.terminateSession === undefined) throw new Error("callback_termination_unavailable");
+    // D1 terminal phases are immutable. Normalize only after the atomic
+    // callback commit so different/replayed callbacks use one cleanup intent.
+    const phase = session.phase === "failed" ? "failed" : "completed";
+    const result = await this.terminateSession(Object.freeze({
+      sessionId: session.session_id, phase, reason: "provider_callback",
+    }));
+    if (result.sessionId !== session.session_id || result.terminalPhase !== phase
+      || typeof result.invalidated !== "boolean"
+      || !["applied", "replayed", "recovered"].includes(result.outcome)) {
+      throw new Error("callback_termination_receipt_invalid");
+    }
   }
 
   private async recordStatus(input: TwilioStatusCallbackRecord): Promise<void> {

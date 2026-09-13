@@ -182,7 +182,9 @@ export class EventRepository implements EventRepositoryContract {
       throw new RangeError("event_append_dependency_limit");
     }
     const dependencyCount = providedDependencies.length;
-    if (!Number.isSafeInteger(dependencyCount) || dependencyCount < 0 || dependencyCount > 2) {
+    // A terminal voice callback needs its receipt plus both legal phase
+    // transitions in this batch; splitting them leaves live authority behind.
+    if (!Number.isSafeInteger(dependencyCount) || dependencyCount < 0 || dependencyCount > 3) {
       throw new RangeError("event_append_dependency_limit");
     }
     const dependencies: D1PreparedStatement[] = [];

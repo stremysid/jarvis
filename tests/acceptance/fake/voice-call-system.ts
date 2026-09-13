@@ -1,4 +1,5 @@
 import { env } from "cloudflare:test";
+import { CapacityGuard } from "../../../apps/cloud-gateway/src/archive/capacity-guard.js";
 import type { OutboundCallCommand, Ulid } from "../../../packages/contracts/src/index.js";
 import {
   OutboundCallDispatcher,
@@ -10,6 +11,8 @@ import { routeVoiceRequest } from "../../../apps/cloud-gateway/src/http/voice-ro
 import { CallRepository, type DispatchIntent } from "../../../apps/cloud-gateway/src/persistence/call-repository.js";
 import { EventRepository } from "../../../apps/cloud-gateway/src/persistence/event-repository.js";
 import { FakeTwilioProvider } from "../../../apps/cloud-gateway/src/providers/fake-twilio-provider.js";
+import type { CallSessionInitialization, CallSessionTermination } from "../../../apps/cloud-gateway/src/voice/call-session-do.js";
+import { FakeRelaySessions, type FakeRelayCall } from "./voice-relay-system.js";
 import type {
   DispatchPolicyCheck,
   OutboundCallRequest,
@@ -23,7 +26,9 @@ import {
 } from "../../../apps/cloud-gateway/src/voice/outbound.js";
 import {
   applyFoundationMigration,
+  clearAuthenticationAttemptReservationsForTest,
   clearCallSessionsForTest,
+  clearConversationDataForTest,
   clearOutboundCallAttemptsForTest,
   clearVoiceAccessDataForTest,
 } from "../../../apps/cloud-gateway/test/persistence/migration.js";
@@ -32,9 +37,7 @@ const NOW = new Date("2026-08-30T12:00:00.000Z");
 const COMMAND_ID = "01k3s6k8000000000000000000" as Ulid;
 const ATTEMPT_ID = "01k3s6k8000000000000000001" as Ulid;
 const CHECK_ID = "01k3s6k8000000000000000002" as Ulid;
-const EVENT_ID = "01k3s6k8000000000000000003" as Ulid;
 const DESTINATION = "+14165550123";
-const NONCE = `${"A".repeat(42)}A`;
 
 class AllowPolicy implements PolicyEngineContract {
   async evaluateOutboundCall(): Promise<PolicyDecision> {
@@ -57,7 +60,9 @@ class AllowPolicy implements PolicyEngineContract {
 async function clearFixture(): Promise<void> {
   await env.DB.prepare("DELETE FROM provider_events").run();
   await clearCallSessionsForTest();
+  await clearAuthenticationAttemptReservationsForTest();
   await clearOutboundCallAttemptsForTest();
+  await clearConversationDataForTest();
   await clearVoiceAccessDataForTest();
   await env.DB.batch([
     env.DB.prepare("DELETE FROM outbox"),
@@ -69,13 +74,13 @@ async function clearFixture(): Promise<void> {
   ]);
 }
 
-async function seedAuthorizedCommand(): Promise<void> {
+async function seedAuthorizedCommand(principalId: string): Promise<void> {
   const timestamp = NOW.toISOString();
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('principal:owner', 'human', 'active', 'Owner', ?, ?)").bind(timestamp, timestamp),
-    env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES ('identity:voice', 'principal:owner', 'voice', ?, 'active', ?, ?)").bind(DESTINATION, timestamp, timestamp),
-    env.DB.prepare("INSERT INTO voice_owner_identity (singleton_id, principal_id, identity_id, created_at) VALUES (1, 'principal:owner', 'identity:voice', ?)").bind(timestamp),
-    env.DB.prepare("INSERT INTO policy_decisions (decision_id, principal_id, policy_version, input_hash, outcome, reason_code, decided_at) VALUES (?, 'principal:owner', 'v1', ?, 'allow', 'allowed', ?)").bind(COMMAND_ID, "b".repeat(64), timestamp),
+    env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES (?, 'human', 'active', 'Owner', ?, ?)").bind(principalId, timestamp, timestamp),
+    env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES ('identity:voice', ?, 'voice', ?, 'active', ?, ?)").bind(principalId, DESTINATION, timestamp, timestamp),
+    env.DB.prepare("INSERT INTO voice_owner_identity (singleton_id, principal_id, identity_id, created_at) VALUES (1, ?, 'identity:voice', ?)").bind(principalId, timestamp),
+    env.DB.prepare("INSERT INTO policy_decisions (decision_id, principal_id, policy_version, input_hash, outcome, reason_code, decided_at) VALUES (?, ?, 'v1', ?, 'allow', 'allowed', ?)").bind(COMMAND_ID, principalId, "b".repeat(64), timestamp),
   ]);
 }
 
@@ -94,11 +99,15 @@ function command(): OutboundCallCommand {
 
 async function signedPost(fake: FakeTwilioProvider, route: string, exactUrl: string, body: string): Promise<Request> {
   const rawBody = new TextEncoder().encode(body);
+  // Twilio consumes connection overrides itself; URL fragments are neither
+  // sent on the HTTP request nor included in X-Twilio-Signature.
+  const deliveredUrl = new URL(exactUrl);
+  deliveredUrl.hash = "";
   return new Request(`https://worker.internal${route}`, {
     method: "POST",
     headers: {
       "content-type": "application/x-www-form-urlencoded",
-      "x-twilio-signature": await fake.signWebhook(exactUrl, rawBody),
+      "x-twilio-signature": await fake.signWebhook(deliveredUrl.href, rawBody),
     },
     body: rawBody,
   });
@@ -117,16 +126,34 @@ export interface FakeOutboundCallingSystem {
   cleanup(): Promise<void>;
 }
 
-export async function createFakeOutboundCallingSystem(input: {
+export interface FakeCallingSystem extends FakeOutboundCallingSystem {
+  inbound(caller?: string): Promise<Response>;
+  openRelay(): Promise<FakeRelayCall>;
+  pinAttempts(): Promise<number>;
+  conversationTurnCount(): Promise<number>;
+  sendRelayEnded(callSid: string, sessionStatus: string, providerSessionId?: string): Promise<Response>;
+  terminations(): readonly CallSessionTermination[];
+  terminationRecord(sessionId: Ulid): Promise<unknown>;
+}
+
+export async function createFakeCallingSystem(input: {
+  ownerPrincipalId?: string;
   loseDispatchResponse?: boolean;
-} = {}): Promise<FakeOutboundCallingSystem> {
+  manualModel?: boolean;
+  beforeTermination?: (input: CallSessionTermination) => Promise<void>;
+  beforeOutboundSessionCreate?: () => Promise<void>;
+  beforeSessionInitialize?: () => Promise<void>;
+} = {}): Promise<FakeCallingSystem> {
   await applyFoundationMigration();
   await clearFixture();
-  await seedAuthorizedCommand();
+  await seedAuthorizedCommand(input.ownerPrincipalId ?? "principal:owner");
   const policy = new AllowPolicy();
   const twilio = new FakeTwilioProvider();
   if (input.loseDispatchResponse === true) twilio.acceptAndLoseNextResponse();
-  const repository = new CallRepository(env.DB, new EventRepository(env.DB), () => NONCE);
+  const repository = new CallRepository(env.DB, new EventRepository(env.DB));
+  let inboundSequence = 100;
+  const relays = new FakeRelaySessions(repository,
+    { manual: input.manualModel ?? false, streamText: "A safe voice answer." }, () => new Date(NOW));
   const dispatcher = new OutboundCallDispatcher({
     policy,
     twilio,
@@ -136,26 +163,85 @@ export async function createFakeOutboundCallingSystem(input: {
     now: () => NOW,
   });
   const initializationLog: Readonly<OutboundSessionInitialization>[] = [];
+  let lastSessionId: Ulid | undefined;
+  const terminationLog: CallSessionTermination[] = [];
+  let relayAction = "https://jarvis.example/voice/relay-ended";
+  const rememberAction = async (response: Response): Promise<Response> => {
+    const action = (await response.clone().text()).match(/<Connect action="([^"]+)"/u)?.[1];
+    if (action !== undefined) relayAction = action.replaceAll("&amp;", "&");
+    return response;
+  };
+  const initializeSession = async (initialization: Readonly<CallSessionInitialization>): Promise<void> => {
+    await input.beforeSessionInitialize?.();
+    await relays.initialize(initialization);
+    lastSessionId = initialization.sessionId;
+  };
   const callbacks = new D1TwilioCallbackRecorder({
     database: env.DB,
     calls: repository,
     now: () => NOW,
-    newEventId: () => EVENT_ID,
+    terminateSession: async (termination) => {
+      terminationLog.push(termination);
+      await input.beforeTermination?.(termination);
+      return relays.terminate(termination);
+    },
   });
   const routeDependencies = createVoiceRouteDependencies({
     publicOrigin: new URL("https://jarvis.example/"),
     twilio,
+    capacity: new CapacityGuard({
+      source: { readEstimates: async () => ["d1", "r2", "provider:deepseek"].map((resource) => ({
+        resource: resource as "d1" | "r2" | "provider:deepseek",
+        used: 1, budget: 100, observedAt: NOW.toISOString(),
+      })) },
+      sink: { emit: async () => undefined, rearm: async () => undefined },
+      now: () => new Date(NOW),
+      maximumTelemetryAgeMs: 60_000,
+    }),
+    inbound: {
+      expectedInboundE164: "+14165550100",
+      ownerIdentityId: "identity:voice",
+      currentChallengeHmacKeyVersion: "hmac-v1",
+      sessions: repository,
+      initializeSession,
+      now: () => new Date(NOW),
+    },
     outbound: {
       ownerIdentityId: "identity:voice",
       recipients: new D1OutboundRecipientIdentityLookup(env.DB),
-      calls: repository,
-      initializeSession: async (initialization) => { initializationLog.push(initialization); },
+      calls: {
+        claimExpectedCall: repository.claimExpectedCall.bind(repository),
+        getOrCreateOutboundSession: async (request) => {
+          await input.beforeOutboundSessionCreate?.();
+          return repository.getOrCreateOutboundSession(request);
+        },
+      },
+      initializeSession: async (initialization) => {
+        await initializeSession(initialization);
+        initializationLog.push(initialization);
+      },
       now: () => NOW,
     },
     callbacks,
+    relaySession: (request, sessionId) => relays.upgrade(request, sessionId),
   });
 
   return Object.freeze({
+    inbound: async (caller = DESTINATION) => routeVoiceRequest(
+      await signedPost(twilio, "/voice/inbound", "https://jarvis.example/voice/inbound",
+        new URLSearchParams({ From: caller, To: "+14165550100", CallSid: `CA${(++inboundSequence).toString(16).padStart(32, "0")}` }).toString()),
+      routeDependencies,
+    ).then(rememberAction),
+    openRelay: async () => {
+      if (lastSessionId === undefined) throw new Error("fake_call_not_initialized");
+      const exactUrl = `wss://jarvis.example/voice/relay/${lastSessionId}`;
+      const response = await routeVoiceRequest(new Request(`https://worker.internal/voice/relay/${lastSessionId}`, {
+        headers: { Upgrade: "websocket", "x-twilio-signature": await twilio.signWebSocket(exactUrl) },
+      }), routeDependencies);
+      return relays.call(lastSessionId, response.status);
+    },
+    pinAttempts: async () => (await env.DB.prepare("SELECT COUNT(*) AS count FROM authentication_attempt_reservations")
+      .first<{ count: number }>())?.count ?? 0,
     attemptId: ATTEMPT_ID,
     destination: DESTINATION,
     dispatch: () => dispatchOutboundCall(command(), { policy, dispatcher }),
@@ -168,11 +254,19 @@ export async function createFakeOutboundCallingSystem(input: {
       await signedPost(
         twilio,
         `/voice/status/${ATTEMPT_ID}`,
-        `https://jarvis.example/voice/status/${ATTEMPT_ID}`,
+        twilio.requests[0]?.statusCallbackUrl.href ?? `https://jarvis.example/voice/status/${ATTEMPT_ID}`,
         `CallSid=${callSid}&CallbackSource=call-progress-events&SequenceNumber=${sequenceNumber}&CallStatus=${callStatus}`,
       ),
       routeDependencies,
     ),
+    sendRelayEnded: async (callSid: string, sessionStatus: string, providerSessionId = relays.providerSessionId(callSid)) => routeVoiceRequest(
+      await signedPost(twilio, "/voice/relay-ended", relayAction,
+        new URLSearchParams({ CallSid: callSid, SessionId: providerSessionId, SessionStatus: sessionStatus,
+          SessionDuration: "17" }).toString()),
+      routeDependencies,
+    ),
+    terminations: () => [...terminationLog],
+    terminationRecord: (sessionId: Ulid) => relays.terminationRecord(sessionId),
     claimOutboundTwiML: async (callSid: string) => routeVoiceRequest(
       await signedPost(
         twilio,
@@ -181,10 +275,16 @@ export async function createFakeOutboundCallingSystem(input: {
         `CallSid=${callSid}&To=${encodeURIComponent(DESTINATION)}`,
       ),
       routeDependencies,
-    ),
+    ).then(rememberAction),
     dispatchIntent: () => repository.resolveDispatchIntent(COMMAND_ID),
+    conversationTurnCount: async () => (await env.DB.prepare("SELECT COUNT(*) AS count FROM conversation_turns")
+      .first<{ count: number }>())?.count ?? 0,
     twilioRequests: () => twilio.requests,
     initializations: () => Object.freeze([...initializationLog]),
-    cleanup: clearFixture,
+    cleanup: async () => { await relays.cleanup(); await clearFixture(); },
   });
+}
+
+export function createFakeOutboundCallingSystem(input: { loseDispatchResponse?: boolean } = {}): Promise<FakeOutboundCallingSystem> {
+  return createFakeCallingSystem(input);
 }

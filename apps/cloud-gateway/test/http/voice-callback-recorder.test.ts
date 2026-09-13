@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CallSessionTermination } from "../../src/voice/call-session-do.js";
 import type { Sha256Hex, Ulid } from "../../../../packages/contracts/src/index.js";
 import { D1TwilioCallbackRecorder } from "../../src/http/voice-callback-recorder.js";
 import { CallRepository } from "../../src/persistence/call-repository.js";
@@ -64,6 +65,29 @@ describe("D1TwilioCallbackRecorder", () => {
   });
 
   afterEach(clearFixture);
+
+  it("refuses cleanup when an append adapter returns without terminalizing the durable session", async () => {
+    const repository = new CallRepository(env.DB, new EventRepository(env.DB), () => NONCE);
+    await seedClaimedAttempt(repository);
+    const binding = await repository.claimExpectedCall({ attemptId: ATTEMPT_ID, callSid: CALL_SID,
+      observedDestinationIdentityId: "identity:voice", ownerIdentityId: "identity:voice", now: NOW });
+    if (binding === null) throw new Error("fixture_expected_call_missing");
+    await repository.getOrCreateOutboundSession({ attemptId: ATTEMPT_ID, binding, now: NOW });
+    const terminateSession = vi.fn(async (input: CallSessionTermination) => ({
+      sessionId: input.sessionId, terminalPhase: input.phase, invalidated: true, outcome: "applied" as const,
+    }));
+    // Integration fault injection at the existing append port. A real atomic
+    // CallRepository cannot return this inconsistent state.
+    const recorder = new D1TwilioCallbackRecorder({ database: env.DB, now: () => NOW, newEventId: () => EVENT_ID,
+      calls: { appendProviderEvent: async ({ envelope }) => ({ envelope, eventSequence: 1, replayed: false }) },
+      terminateSession });
+    await expect(recorder.record({ endpointKind: "status", attemptId: ATTEMPT_ID, callSid: CALL_SID,
+      callbackSource: "call-progress-events", sequenceNumber: 2, callStatus: "completed", requestHash: REQUEST_HASH }))
+      .rejects.toThrow("callback_terminal_state_missing");
+    expect(terminateSession).not.toHaveBeenCalled();
+    await expect(env.DB.prepare("SELECT phase FROM call_sessions WHERE session_id = ?").bind(ATTEMPT_ID).first())
+      .resolves.toEqual({ phase: "created" });
+  });
 
   it("atomically records safe status lifecycle metadata and reconciles the compatible attempt", async () => {
     const repository = new CallRepository(env.DB, new EventRepository(env.DB), () => NONCE);
@@ -134,11 +158,15 @@ describe("D1TwilioCallbackRecorder", () => {
       direction: "outbound",
       now: NOW,
     });
+    const terminateSession = vi.fn(async (input: CallSessionTermination) => ({
+      sessionId: input.sessionId, terminalPhase: input.phase, invalidated: true, outcome: "applied" as const,
+    }));
     const recorder = new D1TwilioCallbackRecorder({
       database: env.DB,
       calls: repository,
       now: () => NOW,
       newEventId: () => EVENT_ID,
+      terminateSession,
     });
     const mutable = {
       endpointKind: "relay_ended" as const,
@@ -156,6 +184,9 @@ describe("D1TwilioCallbackRecorder", () => {
     mutable.requestHash = "c".repeat(64) as Sha256Hex;
 
     await expect(pending).resolves.toBeUndefined();
+    expect(terminateSession).toHaveBeenCalledExactlyOnceWith({
+      sessionId: ATTEMPT_ID, phase: "completed", reason: "provider_callback",
+    });
     const stored = await env.DB.prepare("SELECT endpoint_kind, call_sid, session_id FROM provider_events").first();
     expect(stored).toEqual({ endpoint_kind: "relay_ended", call_sid: CALL_SID, session_id: PROVIDER_SESSION_ID });
     const event = await env.DB.prepare("SELECT event_type, envelope_json FROM events").first<{

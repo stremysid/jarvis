@@ -1,7 +1,50 @@
 # Handoff
 
-Current as of **2026-09-12 UTC**. Verify the current branch and checks before
-using this checkpoint. R0 passed on September 11; calling remains R1.
+Current as of **2026-09-13**. Verify the current branch and checks before
+using this checkpoint. R0 passed; calling remains R1.
+
+## R1 is active; the node platform decision remains on hold
+
+R0 passed on 2026-09-11. R1 depends on R0 and is entirely cloud-side.
+PR #23 implements item 2's fake calling/access matrix and confirmed Telegram
+`/call`, with local Windows validation and mutation evidence recorded in the
+PR. The production Worker still answers that calling is not configured.
+The real release runner passes its local prerequisites and then refuses the
+missing live evidence. It never places a call itself.
+
+Claude Opus 5 max requested changes on PR #23 at `d6c5fc2`; the builder's
+response and mutation evidence are in AGENT_LOG. A new max review is required.
+Item 1's real Worker/runtime composition is in draft PR #25, based on #23;
+its default production stub/socket proof remains outstanding. Twilio configuration,
+live calls and redacted live evidence remain owner operations. Items 3 and 4
+still cover the live smoke and legacy eight-digit verifier deletion. None
+of those are satisfied by the fake matrix or same-vendor advisory review.
+
+Sid's PCs run Windows 11 and his phone is an iPhone 16. There is no Linux
+host, server or VPS; the home PC is off overnight. No Windows node port or
+further Linux implementation is authorized until he chooses a direction.
+R2 item 4 is parked. Preserve the actual requirement: memory must work with
+every PC off, whatever implementation Sid selects. PR #22 records the
+platform correction; the old roadmap attribution is not owner approval.
+
+PR #16 at `27b232f` has completed the reviewer's requested changes. The
+reviewer independently verified migration byte identity, all five trigger
+mutations, 2,146 workspace tests and 807 Linux local-agent tests. Sid's
+2026-09-13 Windows runs subsequently reported 789 local-agent passes / 32
+skips, 2 deployment-script passes, and 33 byte-exact files unchanged by
+checkout. Hermes has three known failures on his Store/MSIX PowerShell
+layout; that independent R3 issue does not block #16 and is not fixed here.
+These are owner/reviewer reports, not reruns by this builder. No further
+implementation is requested on #16. Sid merged #16 on 2026-09-13 at
+`b6f3542`. Owner rollout remains: skip the POSIX-only 0700 preflight on
+Windows, apply 0014 to live D1, confirm exactly 21 projection triggers, then
+deploy the gateway. Do not start the node.
+
+GitHub Actions has used 2,000/2,000 minutes with a $0 budget and stop-usage
+enabled, resetting 2026-10-01. Sid will not raise it. Run suites locally
+and record the results in each PR; do not retry Actions, disable jobs or
+restructure CI to bypass the quota. CI path filtering can be considered
+when CI is next intentionally changed; it is not part of this work.
 
 ## R2 item 3 review candidate
 
@@ -412,9 +455,11 @@ secret value.
   deadline half of the digest is empty rather than stale.
 - **`project()` in the vault** has no authority gate in front of it. Nothing
   but tests calls it. Do not wire a caller without one.
-- **The local agent has no process bootstrap.** `RunLoop`, `ServiceState` and
-  `NamedPipeServer.serve_forever` are tested and nothing starts them; there
-  is no `jarvis service` command and no Windows service host.
+- **There is no Windows process host.** The existing `jarvis node` starts
+  `RunLoop` and `ServiceState`, but refuses to start outside Linux.
+  `NamedPipeServer.serve_forever` is still started only by tests; there is no
+  `jarvis service` command and no Windows service host. Node platform work
+  remains on hold as described above.
 
 ## The one thing to read before building on the vault
 

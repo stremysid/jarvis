@@ -1,4 +1,5 @@
 import type { OutboundCallCommand, RelayBinding, Ulid } from "../../../../packages/contracts/src/index.js";
+import { twilioCleanupUrl } from "../providers/twilio-cleanup-url.js";
 import type {
   OutboundCallDispatcher,
   OutboundCallDispatchResult,
@@ -424,7 +425,7 @@ export async function claimOutboundTwiML(
     body = renderConversationRelayTwiML({
       publicOrigin: new URL(`${trustedOrigin.origin}/`),
       sessionUrl,
-      actionUrl: new URL("/voice/relay-ended", trustedOrigin.origin),
+      actionUrl: twilioCleanupUrl("/voice/relay-ended", trustedOrigin.origin),
       relayNonce: session.binding.relayNonce,
       voiceConfig: {
         language: "en-US",
@@ -449,6 +450,16 @@ export async function claimOutboundTwiML(
     await initializeSession(initialization);
   } catch {
     return neutral("unavailable", 503);
+  }
+
+  // A terminal callback can commit while initialization is in flight. The
+  // replay read revalidates terminal state and access before issuing TwiML.
+  try {
+    await outboundSession.method.call(outboundSession.receiver, {
+      attemptId, binding, now: observedAt,
+    });
+  } catch (error) {
+    return isCallSessionAdmissionError(error) ? neutral("forbidden", 403) : neutral("unavailable", 503);
   }
 
   return new Response(body, {

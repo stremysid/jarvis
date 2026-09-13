@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": [
+    "fake/voice-*.ts",
+    "../../apps/cloud-gateway/test/types/test-modules.d.ts"
+  ]
+}
