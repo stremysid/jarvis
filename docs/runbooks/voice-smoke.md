@@ -167,6 +167,20 @@ was lost can be repeated after lease recovery. This is durable suppression of
 acknowledged alerts, not an exactly-once delivery guarantee. The five-second
 sender deadline keeps a hung transport from holding admission indefinitely.
 
+The call runtime collects fresh capacity for each final conversation turn,
+then revalidates the caller's access before allocating or recording the turn.
+PIN entry, enrollment, owner access administration, partial speech and the
+outbound pre-authentication announcement do not start a model turn. A refused
+capacity read closes the relay through its existing fixed failure path.
+
+Interruption cancels an admission wait promptly, so the replacement prompt
+does not wait for the old telemetry or authorization read. The old bounded
+read may finish in the background, including an already-started owner alert;
+it cannot admit the interrupted turn. Cancellation while durable context is
+being read also prevents the model request and records a cancelled turn.
+Output completed before interruption can finish recording its receipt;
+interruption cannot retroactively make that already-sent output unsent.
+
 All gates below must pass before an injected live driver may run:
 
 1. A recognized scenario: `inbound`, `unauthorized-caller`, `outbound-answer`, `outbound-no-answer`, or `failure-callbacks`.

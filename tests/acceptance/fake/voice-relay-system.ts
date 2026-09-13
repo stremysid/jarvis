@@ -107,6 +107,7 @@ export class FakeRelaySessions {
         now: this.now,
       });
       const object = new CallSession(state, env, (input) => new CallSessionCore({
+        capacity: { async assertAcceptingNewTurn(): Promise<void> {} },
         session: input.session,
         expectedAccountSid: FAKE_ACCOUNT_SID,
         repository: this.repository,

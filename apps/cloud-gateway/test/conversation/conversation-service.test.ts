@@ -881,7 +881,6 @@ describe("DefaultConversationService", () => {
     let tokenCalls = 0;
     let settlementCalls = 0;
     const controller = new AbortController();
-    if (aborted) controller.abort();
     const repository = {
       async getOrCreateTurn() { return Object.freeze({ turn: durable, replayed: durable === terminal }); },
       async claimModelTurn() { return Object.freeze({ kind: "claimed" as const, capability, turn: claimed }); },
@@ -905,7 +904,10 @@ describe("DefaultConversationService", () => {
     };
     const service = new DefaultConversationService({
       repository,
-      model: { async *stream() { modelCalls += 1; throw new ModelAdapterError(code); } },
+      // Cancellation after invocation cannot turn an uncertain provider outcome
+      // into a known no-spend cancellation. An already-aborted request is now
+      // rejected before this boundary and has its own real-repository regression.
+      model: { async *stream() { modelCalls += 1; if (aborted) controller.abort(); throw new ModelAdapterError(code); } },
       context: { async retrieve() { contextCalls += 1; return Object.freeze([]); } },
       dispatcher: { async dispatch(): Promise<never> { throw new Error("unexpected_dispatch"); } },
       redactor: new Redactor(),

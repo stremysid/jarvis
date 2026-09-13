@@ -1,4 +1,5 @@
 import { D1ContextRetriever } from "../conversation/context-retriever.js";
+import { createProductionCapacityGuard } from "../archive/production-capacity.js";
 import { ConversationRepository } from "../conversation/conversation-repository.js";
 import { DefaultConversationService } from "../conversation/conversation-service.js";
 import { D1TelegramIdentityResolver, DefaultOutboxDispatcher } from "../conversation/outbox-dispatcher.js";
@@ -99,6 +100,7 @@ export function createProductionCallSessionCore(
     now,
   });
   return new CallSessionCore({
+    capacity: createProductionCapacityGuard(env, now),
     session: input.session,
     expectedAccountSid: configuration.accountSid,
     repository: calls,

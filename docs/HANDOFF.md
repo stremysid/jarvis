@@ -28,9 +28,17 @@ implemented and tested. The owner approved a remaining-credit floor for the
 one-time DeepSeek prepaid pot. D1/R2 and provider collectors, explicit capacity
 configuration and the durable Telegram alert sink are implemented. New D1
 migration 0015 adds alert crossing receipts and recoverable leases; it is a
-production schema change requiring review and owner migration. Admission
-wiring and persisted outbound policy controls remain.
-The guarantee is balance above the floor, not spending under a budget. The
+production schema change requiring review and owner migration. The default call
+runtime now checks every final conversation turn before fresh access validation
+and durable admission. Interrupted admission releases the slot for a replacement
+prompt; cancelled context retrieval cannot start a model request. Completed
+output can still settle its receipt after interruption without closing the call.
+Worker route wiring and persisted outbound policy controls remain.
+The max review of #23 at d6c5fc2 requests changes. Keep its fixes on #23 and
+carry the updated base forward. The existing relay harness invokes DO methods
+directly; #25 still needs proof through the real stub and socket path.
+The guarantee is balance above the floor on an accepted fresh report, not
+spending under a budget or a bound on later concurrent charges. The
 voice runbook identifies measured/estimated sources and derives a reserve from
 the model's tested request-byte and server-side generation limits.
 Twilio configuration,

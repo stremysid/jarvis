@@ -844,6 +844,9 @@ export class DefaultConversationService implements ConversationService {
     const budget = this.modelBudgets[captured.channel];
     try {
       call<void>(this.beginModelStream, capability, captured.turnId, admission.turn.requestHash);
+      // Claim and context reads can outlast cancellation. Consume the nominal
+      // claim so cancellation can settle durably, but never start a paid request.
+      if (signalIsAborted(captured.signal)) throw new ModelAdapterError("model_aborted");
       const stream = call<AsyncIterable<ModelToken>>(this.modelStream, Object.freeze({
         correlationId: captured.turnId,
         principalId: captured.principalId,

@@ -82,8 +82,15 @@ and unchanged estimate interfaces. Source inventory and request-cost reserve
 are in the voice-smoke runbook. The durable Telegram sink and explicit capacity
 configuration factory are implemented. They add D1 migration 0015 for alert
 crossing receipts and recoverable send leases; review this production schema
-change before deployment. Route/turn wiring and persisted outbound policy
-controls remain pending. See DECISIONS.md for the precise guarantee.
+change before deployment. The default call runtime now checks capacity for each
+final conversation turn, then revalidates access before allocating or committing
+the turn. Interruption releases admission without waiting for telemetry or
+authorization; cancellation during context retrieval prevents model invocation.
+Worker route wiring and persisted outbound policy controls remain pending.
+The max review of PR #23 at d6c5fc2 now requests changes; fix those on #23,
+then bring its updated base into #25. The fake relay directly invokes the DO
+wrapper: #25 still owes a production proof through the real stub and socket.
+See DECISIONS.md for the precise guarantee.
 
 Hermes' MSI-only trusted PowerShell path is filed for R3 as
 [issue #24](https://github.com/ksid1229-ops/jarvis/issues/24). Sid's Store/MSIX

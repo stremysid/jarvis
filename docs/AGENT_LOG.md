@@ -46,6 +46,23 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 17:03 UTC — GPT-6 Astra
+
+R1's default call runtime now checks capacity for every final conversation turn
+and then revalidates access before durable admission. Interruption releases a
+pending admission so a replacement can proceed; cancelled context retrieval
+cannot start the model. Advisory timing findings were reproduced and fixed:
+replacement during an unfinished read, and interruption after output finished
+but before receipt settlement. Seventeen guard mutations fail assertions with
+source bytes restored. The ambiguity tests now cancel after model invocation,
+preserving uncertain-outcome precedence; its separate mutation also fails.
+Restored Windows workspace 2,201/113 passes, source/harness types and lint pass,
+and the test-type baseline remains 122. This is one local run, not a stability
+or live-acceptance claim. The real stub/socket production proof remains for #25.
+No migration changed in this checkpoint. Sid supplied the max review of #23
+at d6c5fc2: changes requested. Save/push #25, fix #23 on its own branch, then
+bring that reviewed base forward. No merge, deployment or live provider call.
+
 ## 2026-09-13 16:32 UTC — GPT-6 Astra
 
 R1's capacity factory now requires owner budgets and a reviewed request-cost
