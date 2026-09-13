@@ -53,6 +53,8 @@ export interface CommandContext {
     closeManual(at: Date): Promise<number>;
   };
   readonly runDigestNow?: () => Promise<string>;
+  /** Bound to the accepted event; neither the parser nor caller chooses a destination. */
+  readonly calls?: { request(): Promise<string> };
   readonly now: () => Date;
 }
 
@@ -194,6 +196,10 @@ export async function runCommand(
         return await queue(context);
       case "digest":
         return await digest(context);
+      case "call":
+        if (context.calls === undefined) return [unavailable("Calling")];
+        try { return one(await context.calls.request()); }
+        catch { return one("Could not confirm whether the call was placed. Check your phone before trying again."); }
       case "shadow":
         return await shadow(argument, context);
       case "exam":

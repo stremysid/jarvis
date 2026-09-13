@@ -45,6 +45,19 @@ describe("messages that are not commands", () => {
 });
 
 describe("recognising a command", () => {
+  it("routes a self-call command and its confirmation before ordinary model text", () => {
+    expect(parse("/call check in")).toEqual({ kind: "command", name: "call", argument: "check in", addressedTo: null });
+    expect(parse("/call@Jarvis_Sid_Bot check in --confirm"))
+      .toMatchObject({ kind: "command", name: "call", argument: "check in --confirm" });
+  });
+
+  it("preserves an entire call argument so truncation cannot manufacture final confirmation", () => {
+    const argument = `${"a".repeat(246)} --confirm extra words`;
+    expect(parse(`/call ${argument}`)).toMatchObject({ name: "call", argument });
+    expect(parse("/call check in --confirm\ndo not place this call"))
+      .toMatchObject({ name: "call", argument: "check in --confirm\ndo not place this call" });
+  });
+
   it("parses a bare command", () => {
     expect(parse("/status")).toEqual({
       kind: "command",

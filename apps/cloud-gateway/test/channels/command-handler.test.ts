@@ -51,7 +51,7 @@ async function text(...args: Parameters<typeof runCommand>): Promise<string> {
 describe("help", () => {
   it("lists every command", async () => {
     const help = await text("help", "", context());
-    for (const name of ["/status", "/queue", "/digest", "/exam", "/shadow", "/vault"]) {
+    for (const name of ["/status", "/queue", "/digest", "/exam", "/shadow", "/vault", "/call"]) {
       expect(help).toContain(name);
     }
   });
@@ -63,6 +63,7 @@ describe("a subsystem that is not configured", () => {
     ["digest", "The digest"],
     ["exam", "Quiet hours"],
     ["shadow", "Autonomy"],
+    ["call", "Calling"],
   ] as const)("says %s is not configured rather than reporting nothing", async (name, label) => {
     // The failure this prevents: an owner reading "Nothing waiting on you"
     // from a deployment where the decision queue was never wired up.
@@ -73,6 +74,23 @@ describe("a subsystem that is not configured", () => {
     const empty = await text("queue", "", context({ decisions: { queue: async () => [] } }));
     expect(empty).toBe("Nothing waiting on you.");
     expect(empty).not.toContain("not configured");
+  });
+});
+
+describe("calling", () => {
+  it("invokes the port bound to the accepted event without accepting a destination from the command", async () => {
+    const request = vi.fn(async () => "Call request accepted for your verified phone.");
+    expect(await text("call", "check in --confirm", context({ calls: { request } })))
+      .toBe("Call request accepted for your verified phone.");
+    expect(request).toHaveBeenCalledExactlyOnceWith();
+  });
+
+  it("contains a raising call port without echoing a private provider error", async () => {
+    const reply = await text("call", "check in --confirm", context({ calls: {
+      request: async () => { throw new Error("private fixture provider body"); },
+    } }));
+    expect(reply).toBe("Could not confirm whether the call was placed. Check your phone before trying again.");
+    expect(reply).not.toContain("private fixture");
   });
 });
 

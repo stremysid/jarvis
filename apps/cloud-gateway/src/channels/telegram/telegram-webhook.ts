@@ -88,6 +88,7 @@ export interface TelegramWebhookDependencies {
 
 export interface AcceptedTelegramUpdate {
   readonly eventId: string;
+  readonly receivedAt: string;
   readonly principalId: string;
   /** Needed to resolve the delivery identity; chatId is not the same thing. */
   readonly telegramUserId: string;
@@ -327,6 +328,7 @@ export async function handleTelegramWebhook(
     updateId: update.updateId,
     payload: {
       updateId: update.updateId,
+      principalId: token(dependencies, authenticated.principalId),
       chatId: token(dependencies, update.chatId),
       messageId: update.messageId,
       text: redacted as unknown as Record<string, unknown>,
@@ -342,6 +344,7 @@ export async function handleTelegramWebhook(
     dependencies.onAccepted?.({
       eventId: appended.envelope.eventId,
       principalId: authenticated.principalId,
+      receivedAt: appended.envelope.receivedAt,
       telegramUserId: update.telegramUserId,
       chatId: update.chatId,
       messageId: update.messageId,

@@ -26,6 +26,7 @@ export type CommandName =
   | "digest"
   | "exam"
   | "shadow"
+  | "call"
   | "vault";
 
 const KNOWN_COMMANDS: ReadonlySet<string> = new Set<CommandName>([
@@ -35,6 +36,7 @@ const KNOWN_COMMANDS: ReadonlySet<string> = new Set<CommandName>([
   "digest",
   "exam",
   "shadow",
+  "call",
   "vault",
 ]);
 
@@ -99,7 +101,11 @@ export function parseCommand(text: string, botUsername: string | null): CommandP
   return {
     kind: "command",
     name: name as CommandName,
-    argument: (rest ?? "").trim().slice(0, MAX_ARGUMENT_CHARACTERS),
+    // A call must validate all the supplied text. Truncation or ignoring a
+    // second line could turn a non-final --confirm into permission to dial.
+    argument: name === "call"
+      ? line.slice(1 + name.length + (addressed === undefined ? 0 : addressed.length + 1)).trim()
+      : (rest ?? "").trim().slice(0, MAX_ARGUMENT_CHARACTERS),
     addressedTo: addressed ?? null,
   };
 }
@@ -129,5 +135,6 @@ export const COMMAND_HELP: string = [
   "/exam on|off - hold non-urgent pings",
   "/shadow on|off - whether Jarvis acts or only reports",
   "/vault <query> - search your notes",
+  "/call <reason> --confirm - call your verified phone (owner only)",
   "/help - this",
 ].join("\n");
