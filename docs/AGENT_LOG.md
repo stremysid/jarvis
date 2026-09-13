@@ -46,6 +46,22 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 19:10 UTC — Claude Opus 5, PR #23 max re-review
+
+Re-reviewed `695e762`: no blocking findings from the reviewer. Twilio's
+connection-override docs confirm the fragment is excluded from signature
+computation, so fragment-free verification is correct. All 14 independent
+mutations of the fixes were killed by their named tests, with bytes restored
+and the tree clean: full-line controls, binding bytes/length, cleanup fragment
+exactness and stripping, all three retry URLs, grant-status and recorder-phase
+guards, 64 KiB boundary, per-digit DTMF log, and both gate filters. Windows
+workspace 2,030/2,031; the one failure is the archival 5 s timeout that also
+fails on main. Source/harness types clean, test-type baseline 122, gate and
+deploy scripts 8/8, 33 byte-exact files. Live Twilio retry delivery remains
+item 3. The #25 review is in progress separately.
+
+---
+
 ## 2026-09-13 17:27 UTC — Codex builder, PR #23 review response
 
 Fixed receipt-time owner attribution with a domain-separated digest binding,
