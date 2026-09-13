@@ -31,8 +31,8 @@ admission, and all three peppers must be canonical base64 for exactly 32 bytes.
 The Worker now wires verified voice routes and confirmed Telegram dispatch
 to real adapters; owner configuration and review still gate activation.
 The pre-dial capacity check and telemetry freshness corrections are
-implemented and tested. The owner approved a remaining-credit floor for the
-one-time DeepSeek prepaid pot. D1/R2 and provider collectors, explicit capacity
+implemented and tested. The owner approved admission through 100% of each
+configured limit, with 85% and 95% warnings. D1/R2 and provider collectors, explicit capacity
 configuration and the durable Telegram alert sink are implemented. New D1
 migration 0015 adds alert crossing receipts, recoverable leases, default-disabled
 outbound controls and atomic admission guards. It adds and backfills a terminal
@@ -57,13 +57,13 @@ and a failed credit read closes the socket before another model request or turn.
 Another test drives actual Worker ingress, confirmed Telegram dispatch, signed
 TwiML and callback routes, and closes real sockets after terminal callbacks.
 Only external provider HTTP is stubbed. This does not prove live Twilio delivery.
-The guarantee is balance above the floor on an accepted fresh report, not
-spending under a budget or a bound on later concurrent charges. The
-voice runbook identifies measured/estimated sources and derives a reserve from
-the model's tested request-byte and server-side generation limits. Only voice
-admission is protected by that floor. The owner replaced DeepSeek's 70/85
-crossings with one best-effort Telegram notice at $1 remaining; an unacknowledged
-send can retry later but cannot itself refuse work. Pre-provider refusals now
+The guarantee is stop at the configured limit or provider refusal, not a
+reservation or a bound on later concurrent charges. An admitted call can end
+mid-conversation when credit runs out. The voice runbook identifies each
+measured or estimated source. Voice calls and turns are capacity-gated;
+Telegram text and `/sync/distill` remain ungated. Every resource warns at 85%
+and 95%; an unacknowledged send can retry later but cannot itself refuse work.
+Pre-provider refusals now
 settle claimed attempts as rejected; genuinely uncertain POST outcomes remain
 reserved for owner reconciliation.
 Twilio configuration,

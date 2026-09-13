@@ -11,19 +11,12 @@ export interface CapacityEstimateSource {
   readEstimates(): Promise<readonly CapacityEstimate[]>;
 }
 
-export type CapacityAlert =
-  | {
-    idempotencyKey: string;
-    resource: CapacityResource;
-    threshold: 70 | 85;
-    code: "capacity_70" | "capacity_85";
-  }
-  | {
-    idempotencyKey: "capacity:provider:model:remaining-1-usd";
-    resource: "provider:model";
-    threshold: "remaining_1_usd";
-    code: "deepseek_balance_1_usd";
-  };
+export interface CapacityAlert {
+  idempotencyKey: string;
+  resource: CapacityResource;
+  threshold: 85 | 95;
+  code: "capacity_85" | "capacity_95";
+}
 
 export interface CapacityAlertSink {
   emit(alert: CapacityAlert): Promise<void>;
@@ -39,13 +32,13 @@ export interface CapacityGuardOptions {
 
 const utcMilliseconds = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const safeResource = /^(?:d1|r2|provider:[a-z0-9][a-z0-9_-]{0,63})$/;
-const thresholds = [70, 85] as const;
+const thresholds = [85, 95] as const;
 
 function unavailable(): Error {
   return new Error("capacity_unavailable");
 }
 
-function alertFor(resource: CapacityResource, threshold: 70 | 85): CapacityAlert {
+function alertFor(resource: CapacityResource, threshold: 85 | 95): CapacityAlert {
   return {
     idempotencyKey: `capacity:${resource}:${threshold}`,
     resource,
@@ -53,13 +46,6 @@ function alertFor(resource: CapacityResource, threshold: 70 | 85): CapacityAlert
     code: `capacity_${threshold}`,
   };
 }
-
-const deepSeekBalanceNotice = Object.freeze({
-  idempotencyKey: "capacity:provider:model:remaining-1-usd",
-  resource: "provider:model",
-  threshold: "remaining_1_usd",
-  code: "deepseek_balance_1_usd",
-} as const satisfies CapacityAlert);
 
 function atOrAbove(estimate: CapacityEstimate, percentage: number): boolean {
   return estimate.used * 100 >= estimate.budget * percentage;
@@ -110,21 +96,16 @@ export class CapacityGuard {
         oldestObservation = Math.min(oldestObservation, observedMilliseconds);
         newestObservation = Math.max(newestObservation, observedMilliseconds);
 
-        if (estimate.resource === "provider:model") {
-          if (estimate.budget - estimate.used <= 1) {
-            // This one-time migration reminder is advisory. Its durable lease
-            // retries a failed send later, but delivery never decides whether
-            // a voice turn is admitted; the separate 95% floor does that.
-            try { await this.options.sink.emit(deepSeekBalanceNotice); } catch { /* best effort */ }
-          }
-        } else {
-          for (const threshold of thresholds) {
-            const alert = alertFor(estimate.resource, threshold);
+        for (const threshold of thresholds) {
+          const alert = alertFor(estimate.resource, threshold);
+          // Owner warnings are advisory. Their durable lease can retry later,
+          // but neither a failed send nor receipt maintenance refuses work.
+          try {
             if (atOrAbove(estimate, threshold)) await this.options.sink.emit(alert);
             else await this.options.sink.rearm(alert.idempotencyKey);
-          }
+          } catch { /* best effort */ }
         }
-        critical ||= atOrAbove(estimate, 95);
+        critical ||= atOrAbove(estimate, 100);
       }
       if (!hasD1 || !hasR2 || !hasProvider || critical) throw unavailable();
       const completedAt = this.options.now().getTime();

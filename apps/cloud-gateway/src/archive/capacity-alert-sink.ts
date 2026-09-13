@@ -12,14 +12,14 @@ interface SinkOptions {
 
 function unavailable(): Error { return new Error("capacity_alert_unavailable"); }
 function key(value: string): string {
-  if (!/^capacity:(?:(?:d1|r2|provider:[a-z0-9][a-z0-9_-]{0,63}):(?:70|85)|provider:model:remaining-1-usd)$/u.test(value)) {
+  if (!/^capacity:(?:d1|r2|provider:[a-z0-9][a-z0-9_-]{0,63}):(?:85|95)$/u.test(value)) {
     throw unavailable();
   }
   return value;
 }
 
 function rearmableKey(value: string): string {
-  if (!/^capacity:(?:d1|r2|provider:(?!model:)[a-z0-9][a-z0-9_-]{0,63}):(?:70|85)$/u.test(value)) throw unavailable();
+  if (!/^capacity:(?:d1|r2|provider:[a-z0-9][a-z0-9_-]{0,63}):(?:85|95)$/u.test(value)) throw unavailable();
   return value;
 }
 
@@ -41,15 +41,9 @@ export class D1CapacityAlertSink implements CapacityAlertSink {
 
   async emit(alert: CapacityAlert): Promise<void> {
     const alertKey = key(alert.idempotencyKey);
-    const balanceNotice = alert.resource === "provider:model"
-      && alert.threshold === "remaining_1_usd"
-      && alert.code === "deepseek_balance_1_usd"
-      && alertKey === "capacity:provider:model:remaining-1-usd";
-    const percentageNotice = typeof alert.threshold === "number"
-      && alert.resource !== "provider:model"
-      && alertKey === `capacity:${alert.resource}:${alert.threshold}`
+    const percentageNotice = alertKey === `capacity:${alert.resource}:${alert.threshold}`
       && alert.code === `capacity_${alert.threshold}`;
-    if (!balanceNotice && !percentageNotice) throw unavailable();
+    if (!percentageNotice) throw unavailable();
     const now = this.now();
     const claimedAt = now.toISOString();
     const expiresAt = new Date(now.getTime() + 30_000).toISOString();
@@ -79,9 +73,8 @@ export class D1CapacityAlertSink implements CapacityAlertSink {
       WHERE owner_principal_id = ? AND alert_key = ? AND claim_id = ? AND state = 'sending'`)
       .bind(this.owner, alertKey, claimId).first<{ lease_expires_at: string }>();
     if (owned === null || owned.lease_expires_at <= this.now().toISOString()) throw unavailable();
-    const text = balanceNotice
-      ? "Jarvis model credit: DeepSeek reports $1 or less remaining. Plan the switch to the next provider (R7). Voice calls remain governed separately by the configured balance floor."
-      : `Jarvis ${alert.resource}: reported usage is at or above ${alert.threshold}% of the configured limit. Review capacity before admitting more work.`;
+    const text = `Jarvis ${alert.resource}: reported usage is at or above ${alert.threshold}% of the configured limit. `
+      + "The service continues until the configured limit or the provider refuses. Review capacity now.";
     await this.send(chatId, text, alertKey);
     const sentAt = this.now().toISOString();
     const recorded = await this.database.prepare(`UPDATE capacity_alert_crossings SET state = 'sent', sent_at = ?

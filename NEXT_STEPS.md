@@ -76,15 +76,15 @@ Capacity adapters are authorized within item 1. The dispatcher now awaits
 capacity before final policy validation and dispatch ownership; receipt replay
 does not spend again. The guard checks freshness after collection and again
 after alert delivery. Missing, malformed and stale telemetry remain closed.
-The owner chose a DeepSeek remaining-credit floor for his one-time prepaid
-allocation, not a strict-spending ledger. Normalize allocation minus remaining
-credit into the existing estimate shape. The owner superseded DeepSeek's 70/85
-crossings with one best-effort Telegram notice at $1 remaining; failed sends
-retry later, but notification delivery does not gate work. Only voice admission
-is floor-protected. Budgets remain owner configuration. The collector now reads
-real D1/R2 bindings, DeepSeek credit and Twilio totalprice with bounded reads
-and unchanged estimate interfaces. Source inventory and request-cost reserve
-are in the voice-smoke runbook. The durable Telegram sink and explicit capacity
+Prepaid allocation minus remaining credit is normalized into the same estimate
+shape as postpaid spend. Voice calls and turns continue until a fresh report
+reaches 100% of any configured limit or the provider refuses. Every D1, R2,
+model and Twilio estimate emits best-effort Telegram warnings at 85% and 95%;
+failed or leased sends retry later without gating work. Telegram text and
+`/sync/distill` remain ungated. Budgets remain owner configuration. The
+collector now reads real D1/R2 bindings, DeepSeek credit and Twilio totalprice
+with bounded reads and unchanged estimate interfaces. Source inventory is in
+the voice-smoke runbook. The durable Telegram sink and explicit capacity
 configuration factory are implemented. D1 migration 0015 now adds alert
 crossing receipts, leases, default-disabled outbound controls and atomic
 admission guards. It also backfills retained terminal evidence on existing

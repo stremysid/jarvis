@@ -8,7 +8,7 @@ import { applyVoiceRuntimeMigration } from "../persistence/migration.js";
 const at = "2026-09-13T16:00:00.000Z";
 const account = `AC${"a".repeat(32)}`;
 const budgetFields = ["CAPACITY_D1_BUDGET_BYTES", "CAPACITY_R2_BUDGET_BYTES", "CAPACITY_MODEL_ALLOCATION_USD",
-  "CAPACITY_MODEL_REQUEST_COST_ASSUMPTION_USD", "CAPACITY_TWILIO_DAILY_BUDGET_USD"] as const;
+  "CAPACITY_TWILIO_DAILY_BUDGET_USD"] as const;
 let configured: Env;
 let credit = 15;
 let spend = "1";
@@ -22,7 +22,7 @@ beforeEach(async () => {
   configured = { ...env, OWNER_PRINCIPAL_ID: owner.principalId, DEEPSEEK_API_KEY: "synthetic-model-key",
     TWILIO_ACCOUNT_SID: account, TWILIO_API_KEY_SID: `SK${"b".repeat(32)}`, TWILIO_API_KEY_SECRET: "synthetic-voice-key",
     TELEGRAM_BOT_TOKEN: `123456:${"x".repeat(32)}`, CAPACITY_D1_BUDGET_BYTES: "1000000000", CAPACITY_R2_BUDGET_BYTES: "1000000000",
-    CAPACITY_MODEL_ALLOCATION_USD: "20", CAPACITY_MODEL_REQUEST_COST_ASSUMPTION_USD: "0.45", CAPACITY_TWILIO_DAILY_BUDGET_USD: "40" } as Env;
+    CAPACITY_MODEL_ALLOCATION_USD: "20", CAPACITY_TWILIO_DAILY_BUDGET_USD: "40" } as Env;
   vi.stubGlobal("fetch", function (this: unknown, input: RequestInfo | URL, init?: RequestInit) {
     expect(this).toBe(globalThis);
     const url = String(input);
@@ -44,29 +44,41 @@ afterEach(() => vi.unstubAllGlobals());
 describe("Production capacity composition", () => {
   it("uses both real provider readers and the durable Telegram sink across reconstruction", async () => {
     credit = 1;
-    await expect(createProductionCapacityGuard(configured, () => new Date(at)).assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
-    await expect(createProductionCapacityGuard(configured, () => new Date(at)).assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
+    await expect(createProductionCapacityGuard(configured, () => new Date(at)).assertAcceptingNewTurn()).resolves.toBeUndefined();
+    await expect(createProductionCapacityGuard(configured, () => new Date(at)).assertAcceptingNewTurn()).resolves.toBeUndefined();
     expect(reads.filter((url) => url.includes("deepseek"))).toHaveLength(2);
     expect(reads.filter((url) => url.includes("twilio"))).toHaveLength(2);
-    expect(sent).toHaveLength(1);
-    expect(sent[0]!.text).toContain("Plan the switch");
-    expect(sent[0]!.text).toContain("$1 or less");
+    expect(sent).toHaveLength(2);
+    expect(sent.map((message) => message.text)).toEqual([
+      expect.stringContaining("85%"),
+      expect.stringContaining("95%"),
+    ]);
     expect(await env.DB.prepare("SELECT state FROM capacity_alert_crossings WHERE owner_principal_id = ?")
       .bind(configured.OWNER_PRINCIPAL_ID).first()).toEqual({ state: "sent" });
   });
 
-  it("accepts reported credit just above the floor without an early percentage notice", async () => {
-    credit = 1.01;
+  it("accepts reported credit below the warning bands while any configured credit remains", async () => {
+    credit = 0.01;
     await expect(createProductionCapacityGuard(configured, () => new Date(at)).assertAcceptingNewTurn()).resolves.toBeUndefined();
-    expect(sent).toHaveLength(0);
+    expect(sent).toHaveLength(2);
   });
 
-  it("enforces the separately configured voice spending cap", async () => {
+  it("warns at 95 percent of the voice cap without stopping early", async () => {
     spend = "38";
-    await expect(createProductionCapacityGuard(configured, () => new Date(at)).assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
+    await expect(createProductionCapacityGuard(configured, () => new Date(at)).assertAcceptingNewTurn()).resolves.toBeUndefined();
     expect(sent).toHaveLength(2);
     expect(sent[1]!.text).toContain("provider:voice");
-    expect(sent[1]!.text).not.toContain("switch");
+  });
+
+  it("enforces the separately configured model allocation and voice cap at 100 percent", async () => {
+    for (const exhausted of ["model", "voice"] as const) {
+      credit = exhausted === "model" ? 0 : 15;
+      spend = exhausted === "voice" ? "40" : "1";
+      await expect(createProductionCapacityGuard(configured, () => new Date(at)).assertAcceptingNewTurn())
+        .rejects.toThrow("capacity_unavailable");
+      await env.DB.prepare("DELETE FROM capacity_alert_crossings").run();
+      sent = [];
+    }
   });
 
   it("refuses a stale provider report even when the other reader and storage are fresh", async () => {
@@ -93,11 +105,10 @@ describe("Production capacity composition", () => {
     }
   });
 
-  it("requires integer storage bytes and a reserve greater than twice the reviewed request assumption", () => {
+  it("requires integer storage byte limits", () => {
     expect(() => readCapacityConfiguration({ ...configured, CAPACITY_D1_BUDGET_BYTES: "1.5" })).toThrow("capacity_configuration_invalid");
     expect(() => readCapacityConfiguration({ ...configured, CAPACITY_R2_BUDGET_BYTES: "1.5" })).toThrow("capacity_configuration_invalid");
-    expect(() => readCapacityConfiguration({ ...configured, CAPACITY_MODEL_REQUEST_COST_ASSUMPTION_USD: "0.50" })).toThrow("capacity_configuration_invalid");
-    expect(readCapacityConfiguration({ ...configured, CAPACITY_MODEL_REQUEST_COST_ASSUMPTION_USD: "0.49999999" }).modelAllocationUsd).toBe(20);
+    expect(readCapacityConfiguration(configured).modelAllocationUsd).toBe(20);
   });
 
   it.each(["DEEPSEEK_API_KEY", "TWILIO_ACCOUNT_SID", "TWILIO_API_KEY_SID", "TWILIO_API_KEY_SECRET", "TELEGRAM_BOT_TOKEN", "OWNER_PRINCIPAL_ID"] as const)

@@ -4,14 +4,15 @@
 - R2 is the archive store.
 - Authentication state does not use eventually consistent KV.
 
-## DeepSeek admission uses remaining credit (2026-09-13, owner decision)
+## Capacity admission stops at the configured limit (2026-09-13, owner decision)
 
-The owner selected a remaining-credit floor for his one-time $20 DeepSeek
-prepayment, with no refills. This is a **balance above floor** check on the
-accepted fresh report, not **spend under budget**. Actual remaining credit
-can be lower than that report. Interrupted requests can still cost
-money. A later credit read sees that cost; the floor does not prevent overshoot
-from concurrent requests, delayed charges or other consumers of the account.
+The owner does not enable provider auto-recharge. Voice calls and turns may
+continue until a fresh capacity report reaches 100% of any configured D1, R2,
+model or Twilio limit, or until a provider refuses the request. This is **stop
+at the configured limit or provider refusal**, not a reserved-spend guarantee.
+An admitted call can end mid-conversation when credit runs out. Actual usage
+can exceed the last accepted report because interrupted and concurrent requests,
+reporting delay and other consumers can still add charges.
 
 Keep `CapacityEstimate` unchanged: prepaid providers use the configured
 allocation as `budget` and allocation minus remaining credit as `used`;
@@ -20,16 +21,13 @@ These are different observation types normalized for the same threshold test,
 not a reconstructed charge ledger. Reject failed, incomplete, malformed or
 stale observations. Monetary configuration has no source-code default.
 
-Only voice admission is protected by this balance floor. Telegram text and
-`/sync/distill` do not use it. The owner receives one best-effort Telegram
-notice when DeepSeek reports $1 or less remaining, telling him to plan the R7
-provider switch. A failed send retains its lease and retries on a later fresh
-check; the notice itself never decides admission. It is not rearmed because
-the owner does not plan to refill this pot. DeepSeek's former 70/85 notices are
-superseded by this one balance notice. The floor must exceed the documented
-worst plausible request cost with margin; the runtime bounds, pricing
-assumption and calculation must be recorded before activation. No provider
-switch, top-up accounting or new metering product is part of R1. Existing
+Only voice calls and voice turns use this capacity gate. Telegram text and
+`/sync/distill` do not. Every measured resource emits best-effort owner
+Telegram warnings at 85% and 95% of its configured limit. Failed and leased
+sends retry through the existing durable receipt path but never decide
+admission. A resource that falls below a threshold rearms that crossing.
+There is no 70% warning, separate $1 DeepSeek notice, reserve margin, provider
+switch, top-up accounting or new metering product in R1. Existing
 watchdog/Telegram delivery remains the alert channel.
 
 ## Migration numbering diverges from the Obsidian plan (2026-09-02)

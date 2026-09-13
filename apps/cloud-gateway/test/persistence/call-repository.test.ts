@@ -272,6 +272,25 @@ describe("CallRepository", () => {
       .rejects.toThrow("provider_dispatch_claim_invalid");
   });
 
+  it("never settles a begun provider dispatch capability as not started", async () => {
+    await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
+    const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
+    if (claim.kind !== "claimed") throw new Error("test_claim_failed");
+    repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
+
+    await expect(repository.recordProviderDispatchNotStarted({
+      claim: claim.capability,
+      expectedAttemptId: ATTEMPT_0,
+      now: NOW,
+    })).rejects.toThrow("provider_dispatch_claim_invalid");
+    await expect(repository.resolveDispatchIntent(COMMAND_ID)).resolves.toMatchObject({
+      kind: "existing",
+      state: "claimed",
+    });
+    await expect(repository.recordProviderDispatchUnknown({ claim: claim.capability, now: NOW }))
+      .resolves.toBeUndefined();
+  });
+
   it("rejects a coercion-shaped CallSid at the repository boundary", async () => {
     await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
     const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });

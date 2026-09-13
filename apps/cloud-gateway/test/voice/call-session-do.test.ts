@@ -1849,7 +1849,6 @@ describe("CallSession production composition", () => {
       CAPACITY_D1_BUDGET_BYTES: "1000000000",
       CAPACITY_R2_BUDGET_BYTES: "1000000000",
       CAPACITY_MODEL_ALLOCATION_USD: "20",
-      CAPACITY_MODEL_REQUEST_COST_ASSUMPTION_USD: "0.45",
       CAPACITY_TWILIO_DAILY_BUDGET_USD: "40",
       DEEPSEEK_API_KEY: "synthetic-runtime-key",
       DEEPSEEK_MODEL: "synthetic-runtime-model",
@@ -1964,7 +1963,7 @@ describe("CallSession production composition", () => {
       .bind(stored.sessionId).first()).toEqual({ authority_kind: "guest", grant_id: GUEST_GRANT_ID });
   });
 
-  it.each(["credit floor", "failed read", "stale report"])("blocks the next model request on a %s through the actual production graph", async (fault) => {
+  it.each(["credit exhausted", "failed read", "stale report"])("blocks the next model request on %s through the actual production graph", async (fault) => {
     await seedActiveVoiceIdentity();
     await env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES ('identity:capacity-owner', 'principal:owner', 'telegram', '44112233', 'active', ?, ?)")
       .bind(NOW.toISOString(), NOW.toISOString()).run();
@@ -1972,7 +1971,7 @@ describe("CallSession production composition", () => {
     await call.setup();
     await call.prompt("First permitted question");
     expect(call.close).not.toHaveBeenCalled();
-    if (fault === "credit floor") credit = "1";
+    if (fault === "credit exhausted") credit = "0";
     else if (fault === "failed read") creditFails = true;
     else telemetryAsOf = "2026-08-30T11:59:00+00:00";
     await call.prompt("Second refused question");
@@ -1981,11 +1980,11 @@ describe("CallSession production composition", () => {
     expect(call.close).toHaveBeenCalledExactlyOnceWith(1011, "relay processing failed");
     expect(await env.DB.prepare("SELECT count(*) AS count FROM conversation_turns").first()).toEqual({ count: 1 });
     const receipts = (await env.DB.prepare("SELECT state FROM capacity_alert_crossings").all()).results;
-    expect(receipts).toEqual(fault === "credit floor" ? [{ state: "sent" }] : []);
+    expect(receipts).toEqual(fault === "credit exhausted" ? [{ state: "sent" }, { state: "sent" }] : []);
   });
 
   it.each(["CAPACITY_D1_BUDGET_BYTES", "CAPACITY_R2_BUDGET_BYTES", "CAPACITY_MODEL_ALLOCATION_USD",
-    "CAPACITY_MODEL_REQUEST_COST_ASSUMPTION_USD", "CAPACITY_TWILIO_DAILY_BUDGET_USD"] as const)
+    "CAPACITY_TWILIO_DAILY_BUDGET_USD"] as const)
     ("keeps the default relay closed without owner configuration %s", async (field) => {
       await seedActiveVoiceIdentity();
       const configured = configuration();

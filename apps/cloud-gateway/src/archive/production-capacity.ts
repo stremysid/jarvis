@@ -18,14 +18,11 @@ export function readCapacityConfiguration(env: Env) {
   const d1BudgetBytes = positive(env.CAPACITY_D1_BUDGET_BYTES);
   const r2BudgetBytes = positive(env.CAPACITY_R2_BUDGET_BYTES);
   const modelAllocationUsd = positive(env.CAPACITY_MODEL_ALLOCATION_USD);
-  const modelRequestCostAssumptionUsd = positive(env.CAPACITY_MODEL_REQUEST_COST_ASSUMPTION_USD);
   const twilioDailyBudgetUsd = positive(env.CAPACITY_TWILIO_DAILY_BUDGET_USD);
-  if (!Number.isSafeInteger(d1BudgetBytes) || !Number.isSafeInteger(r2BudgetBytes)
-    // 95% cutoff leaves 5% of a prepaid allocation. Require more than two
-    // owner-reviewed plausible request costs in that reserve, not an estimate
-    // disguised as a measured ledger or a hidden monetary budget default.
-    || modelAllocationUsd * 0.05 <= modelRequestCostAssumptionUsd * 2) throw new TypeError("capacity_configuration_invalid");
-  return Object.freeze({ d1BudgetBytes, r2BudgetBytes, modelAllocationUsd, modelRequestCostAssumptionUsd, twilioDailyBudgetUsd });
+  if (!Number.isSafeInteger(d1BudgetBytes) || !Number.isSafeInteger(r2BudgetBytes)) {
+    throw new TypeError("capacity_configuration_invalid");
+  }
+  return Object.freeze({ d1BudgetBytes, r2BudgetBytes, modelAllocationUsd, twilioDailyBudgetUsd });
 }
 
 /** Composes the existing source/sink ports; model migration remains R7. */

@@ -115,38 +115,25 @@ redirects. A full collection has a ten-second deadline; R2 refuses more than
 times are sampled before the read/scan, never after it. Twilio keeps the
 provider's actual timestamp. The final guard also checks age after alerts.
 
-The owner's DeepSeek choice is a one-time $20 pot, then a provider switch in
-R7, with no top-ups. At the existing 95% admission cutoff, that configuration
-leaves a $1 floor and voice admission requires **more than** $1 remaining. A
-single best-effort Telegram notice at $1 or less says to **plan the switch**;
-it replaces DeepSeek's former 70/85 notices and is not rearmed. Failed delivery
-retries after its durable lease expires, but the notice never decides whether
-voice, chat or sync may proceed. Telegram text and `/sync/distill` have no
-capacity gate. These amounts describe his selected configuration, not hidden
-defaults.
+The owner's DeepSeek choice is a one-time $20 pot with provider auto-recharge
+off. The collector reports `used = configured allocation - remaining credit`.
+Voice calls and turns remain admitted while every fresh estimate is below
+100% of its configured limit; admission stops at 100% or when a provider
+refuses. Telegram text and `/sync/distill` have no capacity gate.
 
-The reserve calculation assumes one model API request per admitted turn:
-the adapter sends at most 131,072 UTF-8 request bytes and explicitly sets
-`max_tokens: 65536`, including reasoning. At the documented 2026-09-13
-DeepSeek-V4-Pro peak cache-miss input price of $1.32/M tokens and output price
-of $3.96/M, an intentionally conservative 132,000 input-token allowance plus
-65,536 output tokens costs about $0.434. Round up to **$0.45 per request**.
-The byte-to-token allowance is an engineering estimate, not a verified
-tokenizer or billing contract. The wire limits themselves are tested.
-A $1 floor exceeds two such requests ($0.90) with $0.10 remaining margin.
-Recalculate before changing models, prices or either wire bound.
-[Pricing](https://api-docs.deepseek.com/quick_start/pricing/),
-[completion bounds](https://api-docs.deepseek.com/api/create-chat-completion/).
+Every D1, R2, model and Twilio estimate sends owner Telegram warnings at 85%
+and 95%. These warnings are advisory: a failed or leased send retries through
+the durable receipt path but never refuses work. Falling below a threshold
+rearms that crossing. The former 70% warning and separate $1 DeepSeek notice
+are removed.
 
-This bounds the plausible cost of **one model request**, not an entire phone
-conversation with arbitrarily many turns or its Twilio duration. Check credit
-again for each turn and before an outbound dial. Interrupted requests still
-cost money; the next read sees reported charges. Concurrency, reporting delay
-and other account consumers can overshoot. The accepted fresh report must
-show **balance above floor**; actual credit can be lower. This is not **spend
-under budget** or a durable reservation.
-See DECISIONS.md. Twilio's reported-spend threshold likewise cannot account
-for charges its API has not reported yet.
+There is no reserve margin or promise that an admitted call can finish. A call
+may end mid-conversation when credit reaches the limit. Interrupted requests
+still cost money; the next read sees reported charges. Concurrency, reporting
+delay and other account consumers can overshoot the last accepted report.
+The guarantee is **stop at the configured limit or provider refusal**, not a
+durable reservation or spend ceiling. See DECISIONS.md. Keep Twilio
+auto-recharge disabled as selected by the owner.
 
 Source contracts: [D1 result metadata](https://developers.cloudflare.com/d1/worker-api/prepared-statements/),
 [R2 listing](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/),
@@ -164,13 +151,10 @@ provider. There are no fallback amounts. Storage budgets must be integers.
 | `CAPACITY_D1_BUDGET_BYTES` | D1 byte limit selected by the owner |
 | `CAPACITY_R2_BUDGET_BYTES` | R2 completed-object payload byte limit selected by the owner |
 | `CAPACITY_MODEL_ALLOCATION_USD` | The owner's one-time prepaid allocation, currently 20 |
-| `CAPACITY_MODEL_REQUEST_COST_ASSUMPTION_USD` | Reviewed plausible cost per model request, currently 0.45 from the calculation above |
 | `CAPACITY_TWILIO_DAILY_BUDGET_USD` | Owner-selected Twilio account spending cap for each UTC day |
 
-The configuration rejects a prepaid floor at or below twice the declared
-request-cost assumption. That assumption is reviewed configuration, not a
-measured bill. Current production telemetry must be strictly less than sixty
-seconds old; do not restamp delayed reports to satisfy that bound.
+Current production telemetry must be strictly less than sixty seconds old; do
+not restamp delayed reports to satisfy that bound.
 
 The owner can set each binding using the existing interactive Wrangler flow
 from the reviewed checkout, for example:

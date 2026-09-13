@@ -9,9 +9,9 @@ import { applyVoiceRuntimeMigration } from "../persistence/migration.js";
 const instant = new Date("2026-09-13T16:00:00.000Z");
 const modelAlert: CapacityAlert = {
   resource: "provider:model",
-  threshold: "remaining_1_usd",
-  code: "deepseek_balance_1_usd",
-  idempotencyKey: "capacity:provider:model:remaining-1-usd",
+  threshold: 85,
+  code: "capacity_85",
+  idempotencyKey: "capacity:provider:model:85",
 };
 let owner: DecisionPrincipalFixture;
 let now = instant;
@@ -30,34 +30,26 @@ beforeEach(async () => {
 afterEach(() => vi.useRealTimers());
 
 describe("D1CapacityAlertSink", () => {
-  it("delivers the one-time $1 migration reminder and deduplicates across reconstruction", async () => {
+  it("delivers a model percentage warning and deduplicates across reconstruction", async () => {
     const sendMessage = vi.fn(async (_input: TelegramSendMessageInput) => ({ providerMessageId: "123" }));
     await expect(sink({ sendMessage }).emit(modelAlert)).resolves.toBeUndefined();
     await expect(sink({ sendMessage }).emit(modelAlert)).resolves.toBeUndefined();
     expect(sendMessage).toHaveBeenCalledOnce();
     expect(sendMessage.mock.calls[0]![0]).toEqual(expect.objectContaining({
       chatId: expect.any(String),
-      text: expect.stringMatching(/DeepSeek.+\$1 or less.+Plan the switch/su),
+      text: expect.stringMatching(/provider:model.+85%.+continues until the configured limit/su),
       idempotencyKey: modelAlert.idempotencyKey,
     }));
     expect(await state()).toEqual({ state: "sent", sent_at: instant.toISOString() });
   });
 
-  it("does not rearm the one-time balance reminder", async () => {
+  it("rearms a recovered model crossing so a later crossing warns again", async () => {
     const sendMessage = vi.fn(async () => ({ providerMessageId: "123" }));
     const subject = sink({ sendMessage });
     await subject.emit(modelAlert);
-    await expect(subject.rearm(modelAlert.idempotencyKey)).rejects.toThrow("capacity_alert_unavailable");
+    await expect(subject.rearm(modelAlert.idempotencyKey)).resolves.toBeUndefined();
     await subject.emit(modelAlert);
-    expect(sendMessage).toHaveBeenCalledOnce();
-  });
-
-  it("does not let percentage-shaped model alerts replace the owner-selected balance notice", async () => {
-    const sendMessage = vi.fn(async () => ({ providerMessageId: "123" }));
-    await expect(sink({ sendMessage }).emit({
-      resource: "provider:model", threshold: 85, code: "capacity_85", idempotencyKey: "capacity:provider:model:85",
-    })).rejects.toThrow("capacity_alert_unavailable");
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledTimes(2);
   });
 
   it("does not suppress a new owner's crossing with the retired owner's receipt", async () => {
@@ -183,7 +175,7 @@ describe("D1CapacityAlertSink", () => {
 
   it("keeps alert keys bound to the resource and threshold", async () => {
     const sendMessage = vi.fn(async () => ({ providerMessageId: "123" }));
-    const mismatched = { ...modelAlert, idempotencyKey: "capacity:provider:model:85" } as unknown as CapacityAlert;
+    const mismatched = { ...modelAlert, idempotencyKey: "capacity:provider:model:95" } as unknown as CapacityAlert;
     await expect(sink({ sendMessage }).emit(mismatched))
       .rejects.toThrow("capacity_alert_unavailable");
     expect(sendMessage).not.toHaveBeenCalled();

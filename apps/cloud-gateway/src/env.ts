@@ -77,8 +77,6 @@ export interface Env {
   CAPACITY_D1_BUDGET_BYTES?: string;
   CAPACITY_R2_BUDGET_BYTES?: string;
   CAPACITY_MODEL_ALLOCATION_USD?: string;
-  /** Reviewed plausible cost per model request, including hidden reasoning. Not a measured charge. */
-  CAPACITY_MODEL_REQUEST_COST_ASSUMPTION_USD?: string;
   CAPACITY_TWILIO_DAILY_BUDGET_USD?: string;
 
   /**
