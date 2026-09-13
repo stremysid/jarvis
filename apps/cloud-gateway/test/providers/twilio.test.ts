@@ -60,6 +60,15 @@ function successResponse(overrides: Record<string, unknown> = {}): Response {
   return Response.json({ account_sid: ACCOUNT_SID, sid: CALL_SID, ...overrides }, { status: 201 });
 }
 
+it("sends the exact approved cleanup retry fragment in the Twilio REST body", async () => {
+  const fetcher = vi.fn<typeof fetch>(async () => successResponse());
+  await restProvider(fetcher).createCall(callInput({
+    statusCallbackUrl: new URL(`https://jarvis.example/voice/status/${ATTEMPT_ID}#rc=2&rp=ct,rt,5xx`),
+  }));
+  expect(new URLSearchParams(String(fetcher.mock.calls[0]?.[1]?.body)).get("StatusCallback"))
+    .toBe(`https://jarvis.example/voice/status/${ATTEMPT_ID}#rc=2&rp=ct,rt,5xx`);
+});
+
 function utf8(value: string): Uint8Array {
   return new TextEncoder().encode(value);
 }

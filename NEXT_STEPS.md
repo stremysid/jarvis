@@ -60,14 +60,18 @@ Run `pnpm test:voice-access` and `pnpm typecheck:voice-access` locally.
 `pnpm release:voice-gate` runs the fake prerequisite before auditing the five
 retained live records, and refuses release while those records are absent.
 Current validation belongs in PR #23; fake success is not live acceptance.
-After Claude Opus 5 max review, continue item 1's production composition in
-its own PR. Owner configuration and live evidence remain explicit gates;
+Claude Opus 5 max reviewed `d6c5fc2` and requested changes. The response
+fixes receipt-time principal binding, full-line confirmation validation and
+bounded terminal callback retries, and strengthens the specified assertions.
+Obtain max re-review of the new head. Item 1's production composition is
+already in draft PR #25; carry this updated base into it and prove the real
+default DO stub/socket path there. Owner configuration and live evidence remain explicit gates;
 the live smoke (item 3) and legacy verifier removal (item 4) stay separate.
 
 ## R2 platform hold
 
 PR #13 is merged. PR #16 at `27b232f` is complete from the reviewer's side;
-the remaining owner-run Windows checks are listed in HANDOFF. No further
+the subsequent owner-run Windows results are listed in HANDOFF. No further
 implementation is requested on #16. R2 item 4 is parked behind Sid's node
 platform decision: no Windows port and no further Linux implementation.
 He owns Windows 11 PCs and an iPhone 16, with no Linux host or server.

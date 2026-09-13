@@ -220,7 +220,7 @@ describe("signed inbound voice webhook", () => {
     expect(response.headers.get("content-type")).toBe("text/xml; charset=UTF-8");
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(body).toContain(`url="wss://jarvis.example/voice/relay/${SESSION_ID}"`);
-    expect(body).toContain("action=\"https://jarvis.example/voice/relay-ended\"");
+    expect(body).toContain("action=\"https://jarvis.example/voice/relay-ended#rc=2&amp;rp=ct,rt,5xx\"");
     expect(body).toContain(`name="relayNonce" value="${NONCE}"`);
     expect(body).toContain("language=\"en-US\"");
     expect(body).not.toContain(FROM);

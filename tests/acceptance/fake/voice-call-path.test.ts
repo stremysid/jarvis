@@ -7,6 +7,32 @@ import { resetArchiveFixture } from "../../../apps/cloud-gateway/test/archive/ar
 import { createFakeCallingSystem, createFakeOutboundCallingSystem } from "./voice-call-system.js";
 
 describe("fake voice call path", () => {
+  it.each(["inbound", "outbound"] as const)("requests bounded 5xx retries for %s cleanup and verifies fragment-free signatures", async (direction) => {
+    let fail = true;
+    const system = await createFakeCallingSystem({ beforeTermination: async () => {
+      if (fail) { fail = false; throw new Error("fixture_cleanup_unavailable"); }
+    } });
+    try {
+      let response: Response;
+      if (direction === "outbound") {
+        await system.dispatch();
+        expect((system.twilioRequests()[0] as { statusCallbackUrl: URL }).statusCallbackUrl.href)
+          .toBe(`https://jarvis.example/voice/status/${system.attemptId}#rc=2&rp=ct,rt,5xx`);
+        response = await system.claimOutboundTwiML(system.acceptedCallSid());
+      } else response = await system.inbound();
+      expect(await response.text()).toContain('action="https://jarvis.example/voice/relay-ended#rc=2&amp;rp=ct,rt,5xx"');
+      const call = await system.openRelay();
+      await call.setup();
+      const send = direction === "outbound"
+        ? () => system.sendStatus(call.callSid, "completed", 1)
+        : () => system.sendRelayEnded(call.callSid, "ended");
+      expect((await send()).status).toBe(503);
+      expect((await send()).status).toBe(204);
+      await expect(call.phase()).resolves.toBe("completed");
+      expect(system.terminations()).toHaveLength(2);
+    } finally { await system.cleanup(); }
+  });
+
   it("admits the owner without a PIN and preserves two turns across an interruption", async () => {
     const system = await createFakeCallingSystem({ manualModel: true });
     try {
@@ -86,7 +112,7 @@ describe("fake voice call path", () => {
     }
   });
 
-  it("does not retry an unanswered outbound call or admit its late relay request", async () => {
+  it("does not redial an unanswered outbound call or issue its late TwiML", async () => {
     const system = await createFakeCallingSystem();
     try {
       await system.dispatch();
@@ -209,6 +235,9 @@ describe("fake voice call path", () => {
       const callSid = system.acceptedCallSid();
       const pending = system.claimOutboundTwiML(callSid);
       await entered;
+      // The real uninitialized DO RPC rejects here and workerd logs
+      // call_session_termination_uninitialized. This expected diagnostic is
+      // deliberately not suppressed; the 503 and successful replay pin it.
       expect((await system.sendStatus(callSid, "no-answer", 1)).status).toBe(503);
       await expect(env.DB.prepare("SELECT phase FROM call_sessions WHERE session_id = ?")
         .bind(system.attemptId).first()).resolves.toEqual({ phase: "failed" });
@@ -268,6 +297,10 @@ describe("fake voice call path", () => {
       expect(system.terminations()).toHaveLength(2);
       expect((await system.sendStatus(callSid, "completed", 1)).status).toBe(204);
       await expect(env.DB.prepare("SELECT count(*) AS count FROM provider_events").first()).resolves.toEqual({ count: 1 });
+      await expect(env.DB.prepare("SELECT count(*) AS count FROM events WHERE event_type = 'provider.call_status'")
+        .first()).resolves.toEqual({ count: 1 });
+      await expect(env.DB.prepare(`SELECT count(*) AS count FROM outbox o JOIN events e ON e.sequence = o.event_sequence
+        WHERE e.event_type = 'provider.call_status'`).first()).resolves.toEqual({ count: 1 });
     } finally { await system.cleanup(); }
   });
 
@@ -357,16 +390,26 @@ describe("fake voice call path", () => {
     } finally { await system.cleanup(); }
   }, 40_000);
 
-  it("closes an over-64-KiB relay frame with 1009 before it creates a conversation turn", async () => {
+  it("accepts exactly 64 KiB of valid JSON and closes the next byte with 1009 before a turn", async () => {
     const system = await createFakeCallingSystem();
     try {
       await system.inbound();
       const call = await system.openRelay();
       await call.setup();
-      await call.sendFrame("x".repeat(65_537));
+      const json = JSON.stringify({ type: "prompt", voicePrompt: "A partial café prompt", lang: "en-US", last: false });
+      const boundary = json + " ".repeat(65_536 - new TextEncoder().encode(json).byteLength);
+      expect(new TextEncoder().encode(boundary).byteLength).toBe(65_536);
+      await call.sendFrame(boundary);
+      // A real subsequent turn proves the exact-limit frame left the socket
+      // and core usable, rather than merely observing a delayed close event.
+      await call.prompt("A short permitted answer.");
+      await vi.waitFor(() => expect(call.frames().some((frame) => frame.last)).toBe(true));
+      expect(call.closeCodes()).toEqual([]);
+      await expect(call.modelRequests()).resolves.toHaveLength(1);
+      await call.sendFrame(boundary + " ");
       await vi.waitFor(() => expect(call.closeCodes()).toContain(1009));
-      await expect(call.modelRequests()).resolves.toHaveLength(0);
-      await expect(call.turns()).resolves.toHaveLength(0);
+      await expect(call.modelRequests()).resolves.toHaveLength(1);
+      await expect(call.turns()).resolves.toHaveLength(1);
       await expect(system.pinAttempts()).resolves.toBe(0);
     } finally {
       await system.cleanup();
@@ -394,7 +437,7 @@ describe("fake voice call path", () => {
       expect(twiml.headers.get("cache-control")).toBe("no-store");
       const body = await twiml.text();
       expect(body).toContain(`url="wss://jarvis.example/voice/relay/${system.attemptId}"`);
-      expect(body).toContain("action=\"https://jarvis.example/voice/relay-ended\"");
+      expect(body).toContain("action=\"https://jarvis.example/voice/relay-ended#rc=2&amp;rp=ct,rt,5xx\"");
       expect(body).not.toContain("user_requested");
       expect(body).not.toContain("principal:owner");
       expect(body).not.toContain(system.destination);

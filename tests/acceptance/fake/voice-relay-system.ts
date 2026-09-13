@@ -48,6 +48,7 @@ export interface FakeRelayCall {
   frames(): readonly RelayTextFrame[];
   closeCodes(): readonly number[];
   phase(): Promise<string | undefined>;
+  durableStorage(): Promise<Readonly<Record<string, unknown>>>;
   turns(): Promise<readonly {
     state: string;
     sent_assistant_event_id: string | null;
@@ -187,6 +188,8 @@ export class FakeRelaySessions {
       frames: () => [...session.frames],
       closeCodes: () => [...session.closeCodes],
       phase: async () => (await this.repository.getCallSession(sessionId))?.phase,
+      durableStorage: () => runInDurableObject(session.stub, async (_instance, state) =>
+        Object.fromEntries(await state.storage.list())),
       turns: async () => (await env.DB.prepare(`SELECT state, sent_assistant_event_id, delivered_assistant_event_id
         FROM conversation_turns WHERE session_id = ? ORDER BY rowid`).bind(sessionId)
         .all<{ state: string; sent_assistant_event_id: string | null; delivered_assistant_event_id: string | null }>()).results,

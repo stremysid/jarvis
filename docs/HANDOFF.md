@@ -12,8 +12,10 @@ PR. The production Worker still answers that calling is not configured.
 The real release runner passes its local prerequisites and then refuses the
 missing live evidence. It never places a call itself.
 
-R1's v1.0 review requires Claude Opus 5 at max. Item 1's real Worker/runtime
-composition belongs in a separate PR after this review; Twilio configuration,
+Claude Opus 5 max requested changes on PR #23 at `d6c5fc2`; the builder's
+response and mutation evidence are in AGENT_LOG. A new max review is required.
+Item 1's real Worker/runtime composition is in draft PR #25, based on #23;
+its default production stub/socket proof remains outstanding. Twilio configuration,
 live calls and redacted live evidence remain owner operations. Items 3 and 4
 still cover the live smoke and legacy eight-digit verifier deletion. None
 of those are satisfied by the fake matrix or same-vendor advisory review.
@@ -27,9 +29,12 @@ platform correction; the old roadmap attribution is not owner approval.
 
 PR #16 at `27b232f` has completed the reviewer's requested changes. The
 reviewer independently verified migration byte identity, all five trigger
-mutations, 2,146 workspace tests and 807 Linux local-agent tests. Before he
-merges, Sid still needs the current-head Windows local-agent, Hermes and
-deployment-script suites plus the byte-exact checkout check. No further
+mutations, 2,146 workspace tests and 807 Linux local-agent tests. Sid's
+2026-09-13 Windows runs subsequently reported 789 local-agent passes / 32
+skips, 2 deployment-script passes, and 33 byte-exact files unchanged by
+checkout. Hermes has three known failures on his Store/MSIX PowerShell
+layout; that independent R3 issue does not block #16 and is not fixed here.
+These are owner/reviewer reports, not reruns by this builder. No further
 implementation is requested on #16.
 
 GitHub Actions has used 2,000/2,000 minutes with a $0 budget and stop-usage

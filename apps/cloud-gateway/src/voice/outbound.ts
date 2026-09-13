@@ -1,4 +1,5 @@
 import type { OutboundCallCommand, RelayBinding, Ulid } from "../../../../packages/contracts/src/index.js";
+import { twilioCleanupUrl } from "../providers/twilio-cleanup-url.js";
 import type {
   OutboundCallDispatcher,
   OutboundCallDispatchResult,
@@ -424,7 +425,7 @@ export async function claimOutboundTwiML(
     body = renderConversationRelayTwiML({
       publicOrigin: new URL(`${trustedOrigin.origin}/`),
       sessionUrl,
-      actionUrl: new URL("/voice/relay-ended", trustedOrigin.origin),
+      actionUrl: twilioCleanupUrl("/voice/relay-ended", trustedOrigin.origin),
       relayNonce: session.binding.relayNonce,
       voiceConfig: {
         language: "en-US",

@@ -6,6 +6,39 @@ import { D1TelegramCallCommands } from "../../../apps/cloud-gateway/src/channels
 import worker from "../../../apps/cloud-gateway/src/index.js";
 
 describe("fake Telegram self-call acceptance", () => {
+  it("preserves exact receipt-time attribution for a UUID owner containing a six-digit run", async () => {
+    const principalId = "principal:550e8400-e29b-41d4-a716-abc123456def";
+    const system = await createFakeTelegramCallingSystem(principalId);
+    try {
+      await system.ingest("/call check in --confirm");
+      expect(system.replies).toEqual(["Call request accepted for your verified phone."]);
+      const accepted = system.accepted[0]!;
+      const command = await system.commands().commandFor(accepted);
+      expect(command.principalId).toBe(principalId);
+      const persisted = await env.DB.prepare("SELECT envelope_json FROM events WHERE event_id = ?")
+        .bind(accepted.eventId).first<{ envelope_json: string }>();
+      expect(JSON.parse(persisted!.envelope_json).payload.principalBinding).toEqual([...new Uint8Array(
+        await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`telegram-principal-v1:${principalId}`)))]);
+      expect(await system.commands().authenticatedOrigin(command.commandId)).toMatchObject({ principalId });
+      await system.ingest("/call check in --confirm");
+      await system.commands().request(accepted, { policy: system.policy, dispatcher: system.dispatcher });
+      expect(system.twilio.requests).toHaveLength(1);
+    } finally { await system.cleanup(); }
+  });
+
+  it.each(["/call", "/call ", "/call@jarvis_sid_bot"].flatMap((command) =>
+    ["\n", "\r\n", "\u2028", "\u2029"].map((separator) => `${command}${separator}check in --confirm`)))(
+    "refuses a line separator immediately after the command in %j", async (text) => {
+      const system = await createFakeTelegramCallingSystem();
+      try {
+        await system.ingest(text);
+        expect(system.replies).toEqual(["Use /call <reason> --confirm on one line to call your verified phone."]);
+        expect(system.twilio.requests).toHaveLength(0);
+        expect(await system.commands().authenticatedOrigin(system.accepted[0]!.eventId)).toBeNull();
+      } finally { await system.cleanup(); }
+    },
+  );
+
   it("answers /call through the actual Worker with an explicit unconfigured reply until item one is composed", async () => {
     const system = await createFakeTelegramCallingSystem();
     const sent: unknown[] = [];
@@ -195,7 +228,7 @@ describe("fake Telegram self-call acceptance", () => {
     } finally { await system.cleanup(); }
   });
 
-  it.each(["event type", "source", "producer", "receipt-time principal", "legacy payload"])(
+  it.each(["event type", "source", "producer", "receipt-time principal", "empty principal binding", "legacy payload"])(
     "refuses a valid envelope with an untrusted %s", async (field) => {
       const system = await createFakeTelegramCallingSystem();
       try {
@@ -209,8 +242,9 @@ describe("fake Telegram self-call acceptance", () => {
         if (field === "event type") envelope.eventType = "fixture.unverified";
         if (field === "source") envelope.source = "fixture:unverified";
         if (field === "producer") envelope.producerVersion = "fixture@0.0.0";
-        if (field === "receipt-time principal") envelope.payload.principalId = "principal:telegram-guest";
-        if (field === "legacy payload") delete envelope.payload.principalId;
+        if (field === "receipt-time principal") envelope.payload.principalBinding[0] ^= 1;
+        if (field === "empty principal binding") envelope.payload.principalBinding = [];
+        if (field === "legacy payload") delete envelope.payload.principalBinding;
         envelope.contentHash = await sha256Hex(canonicalJson(envelope.payload));
         await env.DB.prepare("UPDATE events SET event_type = ?, source = ?, content_hash = ?, envelope_json = ? WHERE event_id = ?")
           .bind(envelope.eventType, envelope.source, envelope.contentHash, canonicalJson(envelope), accepted.eventId).run();

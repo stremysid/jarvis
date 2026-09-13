@@ -74,13 +74,13 @@ async function clearFixture(): Promise<void> {
   ]);
 }
 
-async function seedAuthorizedCommand(): Promise<void> {
+async function seedAuthorizedCommand(principalId: string): Promise<void> {
   const timestamp = NOW.toISOString();
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES ('principal:owner', 'human', 'active', 'Owner', ?, ?)").bind(timestamp, timestamp),
-    env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES ('identity:voice', 'principal:owner', 'voice', ?, 'active', ?, ?)").bind(DESTINATION, timestamp, timestamp),
-    env.DB.prepare("INSERT INTO voice_owner_identity (singleton_id, principal_id, identity_id, created_at) VALUES (1, 'principal:owner', 'identity:voice', ?)").bind(timestamp),
-    env.DB.prepare("INSERT INTO policy_decisions (decision_id, principal_id, policy_version, input_hash, outcome, reason_code, decided_at) VALUES (?, 'principal:owner', 'v1', ?, 'allow', 'allowed', ?)").bind(COMMAND_ID, "b".repeat(64), timestamp),
+    env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES (?, 'human', 'active', 'Owner', ?, ?)").bind(principalId, timestamp, timestamp),
+    env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES ('identity:voice', ?, 'voice', ?, 'active', ?, ?)").bind(principalId, DESTINATION, timestamp, timestamp),
+    env.DB.prepare("INSERT INTO voice_owner_identity (singleton_id, principal_id, identity_id, created_at) VALUES (1, ?, 'identity:voice', ?)").bind(principalId, timestamp),
+    env.DB.prepare("INSERT INTO policy_decisions (decision_id, principal_id, policy_version, input_hash, outcome, reason_code, decided_at) VALUES (?, ?, 'v1', ?, 'allow', 'allowed', ?)").bind(COMMAND_ID, principalId, "b".repeat(64), timestamp),
   ]);
 }
 
@@ -99,11 +99,15 @@ function command(): OutboundCallCommand {
 
 async function signedPost(fake: FakeTwilioProvider, route: string, exactUrl: string, body: string): Promise<Request> {
   const rawBody = new TextEncoder().encode(body);
+  // Twilio consumes connection overrides itself; URL fragments are neither
+  // sent on the HTTP request nor included in X-Twilio-Signature.
+  const deliveredUrl = new URL(exactUrl);
+  deliveredUrl.hash = "";
   return new Request(`https://worker.internal${route}`, {
     method: "POST",
     headers: {
       "content-type": "application/x-www-form-urlencoded",
-      "x-twilio-signature": await fake.signWebhook(exactUrl, rawBody),
+      "x-twilio-signature": await fake.signWebhook(deliveredUrl.href, rawBody),
     },
     body: rawBody,
   });
@@ -133,6 +137,7 @@ export interface FakeCallingSystem extends FakeOutboundCallingSystem {
 }
 
 export async function createFakeCallingSystem(input: {
+  ownerPrincipalId?: string;
   loseDispatchResponse?: boolean;
   manualModel?: boolean;
   beforeTermination?: (input: CallSessionTermination) => Promise<void>;
@@ -141,7 +146,7 @@ export async function createFakeCallingSystem(input: {
 } = {}): Promise<FakeCallingSystem> {
   await applyFoundationMigration();
   await clearFixture();
-  await seedAuthorizedCommand();
+  await seedAuthorizedCommand(input.ownerPrincipalId ?? "principal:owner");
   const policy = new AllowPolicy();
   const twilio = new FakeTwilioProvider();
   if (input.loseDispatchResponse === true) twilio.acceptAndLoseNextResponse();
@@ -160,6 +165,12 @@ export async function createFakeCallingSystem(input: {
   const initializationLog: Readonly<OutboundSessionInitialization>[] = [];
   let lastSessionId: Ulid | undefined;
   const terminationLog: CallSessionTermination[] = [];
+  let relayAction = "https://jarvis.example/voice/relay-ended";
+  const rememberAction = async (response: Response): Promise<Response> => {
+    const action = (await response.clone().text()).match(/<Connect action="([^"]+)"/u)?.[1];
+    if (action !== undefined) relayAction = action.replaceAll("&amp;", "&");
+    return response;
+  };
   const initializeSession = async (initialization: Readonly<CallSessionInitialization>): Promise<void> => {
     await input.beforeSessionInitialize?.();
     await relays.initialize(initialization);
@@ -220,7 +231,7 @@ export async function createFakeCallingSystem(input: {
       await signedPost(twilio, "/voice/inbound", "https://jarvis.example/voice/inbound",
         new URLSearchParams({ From: caller, To: "+14165550100", CallSid: `CA${(++inboundSequence).toString(16).padStart(32, "0")}` }).toString()),
       routeDependencies,
-    ),
+    ).then(rememberAction),
     openRelay: async () => {
       if (lastSessionId === undefined) throw new Error("fake_call_not_initialized");
       const exactUrl = `wss://jarvis.example/voice/relay/${lastSessionId}`;
@@ -243,13 +254,13 @@ export async function createFakeCallingSystem(input: {
       await signedPost(
         twilio,
         `/voice/status/${ATTEMPT_ID}`,
-        `https://jarvis.example/voice/status/${ATTEMPT_ID}`,
+        twilio.requests[0]?.statusCallbackUrl.href ?? `https://jarvis.example/voice/status/${ATTEMPT_ID}`,
         `CallSid=${callSid}&CallbackSource=call-progress-events&SequenceNumber=${sequenceNumber}&CallStatus=${callStatus}`,
       ),
       routeDependencies,
     ),
     sendRelayEnded: async (callSid: string, sessionStatus: string, providerSessionId = relays.providerSessionId(callSid)) => routeVoiceRequest(
-      await signedPost(twilio, "/voice/relay-ended", "https://jarvis.example/voice/relay-ended",
+      await signedPost(twilio, "/voice/relay-ended", relayAction,
         new URLSearchParams({ CallSid: callSid, SessionId: providerSessionId, SessionStatus: sessionStatus,
           SessionDuration: "17" }).toString()),
       routeDependencies,
@@ -264,7 +275,7 @@ export async function createFakeCallingSystem(input: {
         `CallSid=${callSid}&To=${encodeURIComponent(DESTINATION)}`,
       ),
       routeDependencies,
-    ),
+    ).then(rememberAction),
     dispatchIntent: () => repository.resolveDispatchIntent(COMMAND_ID),
     conversationTurnCount: async () => (await env.DB.prepare("SELECT COUNT(*) AS count FROM conversation_turns")
       .first<{ count: number }>())?.count ?? 0,
