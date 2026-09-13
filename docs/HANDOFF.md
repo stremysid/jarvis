@@ -25,8 +25,11 @@ admission, and all three peppers must be canonical base64 for exactly 32 bytes.
 The Worker routes and Telegram dispatch remain unconfigured pending the rest
 of item 1. The pre-dial capacity check and telemetry freshness corrections are
 implemented and tested. The owner approved a remaining-credit floor for the
-one-time DeepSeek prepaid pot. Collection and Telegram alerts remain to wire;
-the guarantee is balance above the floor, not spending under a budget.
+one-time DeepSeek prepaid pot. D1/R2 and provider collectors are implemented;
+production configuration, Telegram alert state and admission wiring remain.
+The guarantee is balance above the floor, not spending under a budget. The
+voice runbook identifies measured/estimated sources and derives a reserve from
+the model's tested request-byte and server-side generation limits.
 Twilio configuration,
 live calls and redacted live evidence remain owner operations. Items 3 and 4
 still cover the live smoke and legacy eight-digit verifier deletion. None

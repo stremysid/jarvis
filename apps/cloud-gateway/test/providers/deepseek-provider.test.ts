@@ -3,6 +3,8 @@ import type { Ulid } from "../../../../packages/contracts/src/index.js";
 import {
   DeepSeekModelAdapter,
   collectStream,
+  MAX_MODEL_OUTPUT_TOKENS,
+  MAX_MODEL_REQUEST_BYTES,
 } from "../../src/providers/deepseek-provider.js";
 
 /**
@@ -56,6 +58,31 @@ function adapterWith(fetchImplementation: typeof fetch): DeepSeekModelAdapter {
 }
 
 describe("DeepSeekModelAdapter", () => {
+  it("puts an explicit total generation bound on the wire so hidden reasoning cannot exceed the reserve assumption", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => sseResponse(["data: [DONE]\n\n"]));
+    await collectStream(adapterWith(fetcher).stream(input()));
+    const body = JSON.parse(fetcher.mock.calls[0]![1]!.body as string) as Record<string, unknown>;
+    expect(body.max_tokens).toBe(65_536);
+    expect(MAX_MODEL_OUTPUT_TOKENS).toBe(65_536);
+  });
+
+  it("accepts the exact UTF-8 request limit and refuses one more byte before any paid request", async () => {
+    expect(MAX_MODEL_REQUEST_BYTES).toBe(131_072);
+    const fetcher = vi.fn<typeof fetch>(async () => sseResponse(["data: [DONE]\n\n"]));
+    const adapter = adapterWith(fetcher);
+    await collectStream(adapter.stream(input({ userText: "" })));
+    const overhead = new TextEncoder().encode(fetcher.mock.calls[0]![1]!.body as string).length;
+    fetcher.mockClear();
+    const remaining = 131_072 - overhead;
+    // Multibyte text distinguishes a byte bound from JS string length.
+    const text = "é".repeat(Math.floor(remaining / 2)) + (remaining % 2 === 1 ? "a" : "");
+    await collectStream(adapter.stream(input({ userText: text })));
+    expect(new TextEncoder().encode(fetcher.mock.calls[0]![1]!.body as string).length).toBe(131_072);
+    fetcher.mockClear();
+    await expect(collectStream(adapter.stream(input({ userText: `${text}a` })))).rejects.toThrow("model_request_too_large");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("streams tokens and collects them in order", async () => {
     const fetchMock = vi.fn(async () =>
       sseResponse([frame("Hel"), frame("lo "), frame("there"), "data: [DONE]\n\n"]),

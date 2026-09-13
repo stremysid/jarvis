@@ -57,6 +57,65 @@ Until R1 item 1 composes production dispatch, the Worker answers `/call` with `C
 
 ## Future live authorization gates
 
+### Capacity observations and the DeepSeek reserve
+
+R1's collector is an admission dependency, not a billing ledger. Production
+composition must supply every configured provider and owner budget before
+opening the routes. This section describes the implemented collector; the
+Worker wiring and owner configuration are still pending.
+
+| Resource | Observation | Units and limits |
+|---|---|---|
+| D1 | `SELECT 1` result `meta.size_after` from the database binding | Measured database bytes, including SQLite structure. Not a sum of archived payload sizes. |
+| R2 | Every page of `ARCHIVE.list`, all prefixes, sum of object sizes | Estimated completed-object payload bytes. Includes orphan objects, but is not an atomic snapshot during concurrent writes and excludes unfinished multipart uploads. Not billed GB-months. |
+| Prepaid model | DeepSeek `/user/balance`, selected currency, `is_available` and complete consistent balance record | Reported remaining credit. `used = configured allocation - remaining`, `budget = configured allocation`. No refills or grants above the declared pot are supported. |
+| Postpaid voice | Twilio `Usage/Records/Today.json?Category=totalprice` | Reported cumulative spend for this account and UTC day in its configured currency. Preserve `as_of`; fetching an old report does not make it fresh. Charges not yet reported are not measured. |
+
+The provider direction is configured separately from its reader. Future
+postpaid model providers can use reported spending through the same
+`CapacityEstimate` shape; that does not switch the model endpoint in R1.
+D1/R2 budgets are owner-selected byte limits. Provider allocations and caps
+are owner-selected monetary amounts, with no source-code budget default.
+
+Failed reads, missing currencies/pages, inconsistent or malformed values and
+stale observations refuse admission. HTTP reads have a five-second total
+deadline, including body reads, with a 65,536-byte response bound and no
+redirects. A full collection has a ten-second deadline; R2 refuses more than
+100 pages instead of reporting a partial sum. Balance and storage observation
+times are sampled before the read/scan, never after it. Twilio keeps the
+provider's actual timestamp. The final guard also checks age after alerts.
+
+The owner's DeepSeek choice is a one-time $20 pot, then a provider switch in
+R7, with no top-ups. At the existing 95% admission cutoff, that configuration
+leaves a $1 floor and admission requires **more than** $1 remaining. The 70/85
+alerts are migration prompts: **plan the switch**, not overspend warnings.
+These amounts describe his selected configuration, not hidden defaults.
+
+The reserve calculation assumes one model API request per admitted turn:
+the adapter sends at most 131,072 UTF-8 request bytes and explicitly sets
+`max_tokens: 65536`, including reasoning. At the documented 2026-09-13
+DeepSeek-V4-Pro peak cache-miss input price of $1.32/M tokens and output price
+of $3.96/M, an intentionally conservative 132,000 input-token allowance plus
+65,536 output tokens costs about $0.434. Round up to **$0.45 per request**.
+A $1 floor exceeds two such requests ($0.90) with $0.10 remaining margin.
+Recalculate before changing models, prices or either wire bound.
+[Pricing](https://api-docs.deepseek.com/quick_start/pricing/),
+[completion bounds](https://api-docs.deepseek.com/api/create-chat-completion/).
+
+This bounds the plausible cost of **one model request**, not an entire phone
+conversation with arbitrarily many turns or its Twilio duration. Check credit
+again for each turn and before an outbound dial. Interrupted requests still
+cost money; the next read sees reported charges. Concurrency, reporting delay
+and other account consumers can overshoot. The guarantee is **balance above
+floor at admission**, not **spend under budget** or a durable reservation.
+See DECISIONS.md. Twilio's reported-spend threshold likewise cannot account
+for charges its API has not reported yet.
+
+Source contracts: [D1 result metadata](https://developers.cloudflare.com/d1/worker-api/prepared-statements/),
+[R2 listing](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/),
+[DeepSeek credit](https://api-docs.deepseek.com/api/get-user-balance/),
+[Twilio usage records](https://www.twilio.com/docs/usage/api/usage-record).
+
 All gates below must pass before an injected live driver may run:
 
 1. A recognized scenario: `inbound`, `unauthorized-caller`, `outbound-answer`, `outbound-no-answer`, or `failure-callbacks`.

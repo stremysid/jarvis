@@ -46,6 +46,21 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 16:15 UTC — GPT-6 Astra
+
+R1 capacity collection now uses D1 size metadata, a bounded whole-bucket R2
+completed-object scan, DeepSeek remaining credit and Twilio account/day
+totalprice with its original as_of. The generic source normalizes prepaid
+and postpaid observations into the unchanged estimate contract. Model requests
+have explicit generation and UTF-8 wire bounds; the runbook documents the
+dated price assumption and $0.45/request versus $1 reserve calculation, without
+claiming a whole-phone-call cap or preventing overshoot. Local Windows full
+suite passes 2,130 tests in 111 files, focused collector/provider tests 90.
+All 29 actual guard mutations fail assertions and all source files were
+restored byte-for-byte. Source/harness typechecks and lint pass; whole gateway
+test typecheck remains at 122 pre-existing diagnostics, none in new files.
+Configuration, Telegram sink and Worker wiring remain. No live operation.
+
 ## 2026-09-13 16:00 UTC — GPT-6 Astra
 
 R1 item 1's dispatcher now awaits capacity before final policy revalidation

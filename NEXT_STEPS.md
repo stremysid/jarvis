@@ -76,8 +76,11 @@ after alert delivery. Missing, malformed and stale telemetry remain closed.
 The owner chose a DeepSeek remaining-credit floor for his one-time prepaid
 allocation, not a strict-spending ledger. Normalize allocation minus remaining
 credit into the existing estimate shape; 70/85 alerts must say to plan the R7
-provider switch. Budgets remain owner configuration. Collector and Telegram
-sink wiring are still pending; see DECISIONS.md for the guarantee and limits.
+provider switch. Budgets remain owner configuration. The collector now reads
+real D1/R2 bindings, DeepSeek credit and Twilio totalprice with bounded reads
+and unchanged estimate interfaces. Source inventory and request-cost reserve
+are in the voice-smoke runbook. Telegram alert state, production configuration
+and route/turn wiring remain pending; see DECISIONS.md for the guarantee.
 
 Hermes' MSI-only trusted PowerShell path is filed for R3 as
 [issue #24](https://github.com/ksid1229-ops/jarvis/issues/24). Sid's Store/MSIX
