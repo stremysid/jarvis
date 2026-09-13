@@ -11,12 +11,19 @@ export interface CapacityEstimateSource {
   readEstimates(): Promise<readonly CapacityEstimate[]>;
 }
 
-export interface CapacityAlert {
-  idempotencyKey: string;
-  resource: CapacityResource;
-  threshold: 70 | 85;
-  code: "capacity_70" | "capacity_85";
-}
+export type CapacityAlert =
+  | {
+    idempotencyKey: string;
+    resource: CapacityResource;
+    threshold: 70 | 85;
+    code: "capacity_70" | "capacity_85";
+  }
+  | {
+    idempotencyKey: "capacity:provider:model:remaining-1-usd";
+    resource: "provider:model";
+    threshold: "remaining_1_usd";
+    code: "deepseek_balance_1_usd";
+  };
 
 export interface CapacityAlertSink {
   emit(alert: CapacityAlert): Promise<void>;
@@ -46,6 +53,13 @@ function alertFor(resource: CapacityResource, threshold: 70 | 85): CapacityAlert
     code: `capacity_${threshold}`,
   };
 }
+
+const deepSeekBalanceNotice = Object.freeze({
+  idempotencyKey: "capacity:provider:model:remaining-1-usd",
+  resource: "provider:model",
+  threshold: "remaining_1_usd",
+  code: "deepseek_balance_1_usd",
+} as const satisfies CapacityAlert);
 
 function atOrAbove(estimate: CapacityEstimate, percentage: number): boolean {
   return estimate.used * 100 >= estimate.budget * percentage;
@@ -96,10 +110,19 @@ export class CapacityGuard {
         oldestObservation = Math.min(oldestObservation, observedMilliseconds);
         newestObservation = Math.max(newestObservation, observedMilliseconds);
 
-        for (const threshold of thresholds) {
-          const alert = alertFor(estimate.resource, threshold);
-          if (atOrAbove(estimate, threshold)) await this.options.sink.emit(alert);
-          else await this.options.sink.rearm(alert.idempotencyKey);
+        if (estimate.resource === "provider:model") {
+          if (estimate.budget - estimate.used <= 1) {
+            // This one-time migration reminder is advisory. Its durable lease
+            // retries a failed send later, but delivery never decides whether
+            // a voice turn is admitted; the separate 95% floor does that.
+            try { await this.options.sink.emit(deepSeekBalanceNotice); } catch { /* best effort */ }
+          }
+        } else {
+          for (const threshold of thresholds) {
+            const alert = alertFor(estimate.resource, threshold);
+            if (atOrAbove(estimate, threshold)) await this.options.sink.emit(alert);
+            else await this.options.sink.rearm(alert.idempotencyKey);
+          }
         }
         critical ||= atOrAbove(estimate, 95);
       }

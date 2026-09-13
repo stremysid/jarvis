@@ -38,6 +38,10 @@ function estimate(resource: CapacityEstimate["resource"], ratio: number, timesta
   return { resource, used: ratio * 1000, budget: 1000, observedAt: timestamp };
 }
 
+function modelBalance(remainingUsd: number, allocationUsd = 20): CapacityEstimate {
+  return { resource: "provider:model", used: allocationUsd - remainingUsd, budget: allocationUsd, observedAt };
+}
+
 function healthy(overrides: Partial<Record<CapacityEstimate["resource"], number>> = {}): readonly CapacityEstimate[] {
   return [
     estimate("d1", overrides.d1 ?? 0.1),
@@ -51,23 +55,50 @@ function guard(source: CapacityEstimateSource, sink: CapacityAlertSink = new Ide
 }
 
 describe("CapacityGuard", () => {
-  it("emits deduplicated alerts at exact 70 and 85 percent for each resource", async () => {
+  it("keeps percentage crossings for storage while replacing model crossings with one $1 notice", async () => {
     const source = new MutableSource(healthy({ d1: 0.70 }));
     const sink = new IdempotentSink();
     const capacity = guard(source, sink);
 
     await capacity.assertAcceptingNewTurn();
     await capacity.assertAcceptingNewTurn();
-    source.estimates = healthy({ d1: 0.85, r2: 0.70, "provider:model": 0.85 });
+    source.estimates = [estimate("d1", 0.85), estimate("r2", 0.70), modelBalance(1.01)];
     await capacity.assertAcceptingNewTurn();
-    await capacity.assertAcceptingNewTurn();
+    source.estimates = [estimate("d1", 0.85), estimate("r2", 0.70), modelBalance(1)];
+    await expect(capacity.assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
+    await expect(capacity.assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
 
     expect(sink.alerts).toEqual([
       "d1:capacity_70",
       "d1:capacity_85",
       "r2:capacity_70",
-      "provider:model:capacity_70",
-      "provider:model:capacity_85",
+      "provider:model:deepseek_balance_1_usd",
+    ]);
+  });
+
+  it("retries a failed $1 notice later without making that notice an admission gate", async () => {
+    const alerts: string[] = [];
+    let fail = true;
+    const sink: CapacityAlertSink = {
+      async emit(alert) {
+        alerts.push(alert.idempotencyKey);
+        if (fail) throw new Error("telegram unavailable");
+      },
+      async rearm(idempotencyKey) {
+        if (idempotencyKey.includes("provider:model")) throw new Error("the one-time balance notice must not rearm");
+      },
+    };
+    const source = new MutableSource([
+      estimate("d1", 0.1), estimate("r2", 0.1), modelBalance(1, 10), estimate("provider:voice", 0.1),
+    ]);
+    const capacity = guard(source, sink);
+
+    await expect(capacity.assertAcceptingNewTurn()).resolves.toBeUndefined();
+    fail = false;
+    await expect(capacity.assertAcceptingNewTurn()).resolves.toBeUndefined();
+    expect(alerts).toEqual([
+      "capacity:provider:model:remaining-1-usd",
+      "capacity:provider:model:remaining-1-usd",
     ]);
   });
 

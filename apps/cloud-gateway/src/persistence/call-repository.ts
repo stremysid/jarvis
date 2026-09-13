@@ -570,6 +570,27 @@ export class CallRepository {
     await this.resolveExplicitRejection(attemptId, rejection, resolvedAt);
   }
 
+  /** Closes a genuine claim when the synchronous fence proves no provider POST started. */
+  async recordProviderDispatchNotStarted(input: {
+    claim: ProviderDispatchClaimCapability;
+    expectedAttemptId: Ulid;
+    now: Date;
+  }): Promise<void> {
+    const { claim, expectedAttemptId } = input;
+    if (!isUlid(expectedAttemptId) || claim.attemptId !== expectedAttemptId) {
+      throw new Error("provider_dispatch_claim_invalid");
+    }
+    const resolvedAt = requireDate(input.now, "provider_dispatch_not_started_now");
+    this.settleUnbegunClaim(claim);
+    // Migration 0003 predates the local/provider distinction and requires the
+    // rejected row shape to carry these fields. The public result remains a
+    // generic rejection and never claims that Twilio received the request.
+    await this.resolveExplicitRejection(expectedAttemptId, {
+      code: "provider_permanent_failure",
+      category: "invalid_request",
+    }, resolvedAt);
+  }
+
   async recordProviderDispatchUnknown(input: { claim: ProviderDispatchClaimCapability; now: Date }): Promise<void> {
     const claim = input.claim;
     const now = input.now;
@@ -1565,6 +1586,17 @@ export class CallRepository {
     if (
       !this.issuedClaims.has(claim)
       || !this.begunClaims.has(claim)
+      || this.settledClaims.has(claim)
+    ) {
+      throw new Error("provider_dispatch_claim_invalid");
+    }
+    this.settledClaims.add(claim);
+  }
+
+  private settleUnbegunClaim(claim: ProviderDispatchClaimCapability): void {
+    if (
+      !this.issuedClaims.has(claim)
+      || this.begunClaims.has(claim)
       || this.settledClaims.has(claim)
     ) {
       throw new Error("provider_dispatch_claim_invalid");

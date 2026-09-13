@@ -45,7 +45,6 @@ export function createProductionCapacityGuard(env: Env, now: () => Date = () => 
     }),
     sink: new D1CapacityAlertSink({ database: env.DB, ownerPrincipalId: env.OWNER_PRINCIPAL_ID ?? "", now,
       telegram: new TelegramRestProvider({ botToken: env.TELEGRAM_BOT_TOKEN ?? "", timeoutMs: 5000 }),
-      migrationResources: ["provider:model"],
     }),
     now,
     maximumTelemetryAgeMs: 60_000,

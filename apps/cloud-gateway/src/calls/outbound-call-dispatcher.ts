@@ -5,6 +5,7 @@ import {
   type CallRepository,
   type DispatchIntent,
   type ProviderDispatchClaim,
+  type ProviderDispatchClaimCapability,
 } from "../persistence/call-repository.js";
 import {
   ProviderFailure,
@@ -294,13 +295,17 @@ export class OutboundCallDispatcher {
         const dispatchAt = snapshotDateIso(this.now());
         const decision = outboundControlDecision(controls, dispatchAt);
         if (decision.decision === "deny") {
-          return { status: "denied", reason: decision.reason, checkedAt: dispatchAt, checkId: null, attemptId };
+          return await this.rejectBeforeProvider(capability, attemptId, {
+            status: "denied", reason: decision.reason, checkedAt: dispatchAt, checkId: null, attemptId,
+          });
         }
         // This is the final synchronous authority check before POST. No await belongs
         // between it and createCall; external policy state cannot be atomically coupled to Twilio.
         this.deps.repository.beginProviderDispatch(capability, attemptId, new Date(dispatchAt), check.destinationE164);
       } catch {
-        return { status: "provider_dispatch_unknown", attemptId };
+        return this.rejectBeforeProvider(capability, attemptId, {
+          status: "denied", reason: "invalid_dispatch_attempt", checkedAt: snapshotDateIso(this.now()), checkId: null, attemptId,
+        });
       }
       try {
         const providerResult = await this.deps.twilio.createCall({
@@ -396,5 +401,20 @@ export class OutboundCallDispatcher {
     }
     if (claim.kind === "provider_dispatch_unknown") return { status: "provider_dispatch_unknown", attemptId };
     throw new Error("provider_dispatch_claim_unexpected");
+  }
+
+  private async rejectBeforeProvider(
+    capability: ProviderDispatchClaimCapability,
+    attemptId: Ulid,
+    result: Extract<OutboundCallDispatchResult, { status: "denied" }>,
+  ): Promise<OutboundCallDispatchResult> {
+    try {
+      await this.deps.repository.recordProviderDispatchNotStarted({ claim: capability, expectedAttemptId: attemptId, now: this.now() });
+      return result;
+    } catch {
+      // Persistence failed or the capability was not the claim we just made.
+      // No POST occurred, but the durable row cannot safely be described as settled.
+      return { status: "provider_dispatch_unknown", attemptId };
+    }
   }
 }

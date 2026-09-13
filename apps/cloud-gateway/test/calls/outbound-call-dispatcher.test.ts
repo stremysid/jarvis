@@ -1076,12 +1076,13 @@ describe("OutboundCallDispatcher", () => {
     const dispatcher = new OutboundCallDispatcher({ controls: permittedOutboundControls,
       capacity: { async assertAcceptingNewTurn() {} }, policy: new RecordingPolicy(), twilio, repository,
       publicBaseUrl: new URL("https://jarvis.example/"), newAttemptId: () => ATTEMPT_0, now: () => NOW });
-    await expect(dispatcher.dispatch(command())).resolves.toMatchObject({ status: "provider_dispatch_unknown" });
+    await expect(dispatcher.dispatch(command())).resolves.toMatchObject({ status: "denied", reason: "invalid_dispatch_attempt" });
     expect(twilio.requests).toEqual([]);
+    await expect(readAttempt(ATTEMPT_0)).resolves.toMatchObject({ providerDispatchState: "rejected", providerCallSid: null });
   });
 
   it.each(["disabled", "unreadable", "malformed", "quiet", "authorization", "nonce", "day", "rollback"] as const)(
-    "sends no POST when final controls or the claim clock refuse: %s", async (fault) => {
+    "settles the claimed slot without a POST when final controls or the claim clock refuse: %s", async (fault) => {
       let now = fault === "day" ? new Date("2026-08-30T23:59:59.000Z") : NOW;
       const request = { ...command(), authorizationExpiresAt:
         new Date(now.valueOf() + (fault === "authorization" ? 1_000 : 300_000)).toISOString() };
@@ -1106,7 +1107,11 @@ describe("OutboundCallDispatcher", () => {
       const result = await dispatcher.dispatch(request);
       expect(result.status).not.toBe("dispatched");
       expect(twilio.requests).toEqual([]);
-      await expect(readAttempt(ATTEMPT_0)).resolves.toMatchObject({ providerDispatchState: "claimed", providerCallSid: null });
+      await expect(readAttempt(ATTEMPT_0)).resolves.toMatchObject({ providerDispatchState: "rejected", providerCallSid: null });
+      await expect(repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW })).resolves.toMatchObject({
+        kind: "rejected",
+        retryEligible: false,
+      });
     },
   );
 

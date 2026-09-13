@@ -7,11 +7,16 @@ import { createDecisionPrincipal, type DecisionPrincipalFixture } from "../decis
 import { applyVoiceRuntimeMigration } from "../persistence/migration.js";
 
 const instant = new Date("2026-09-13T16:00:00.000Z");
-const modelAlert: CapacityAlert = { resource: "provider:model", threshold: 70, code: "capacity_70", idempotencyKey: "capacity:provider:model:70" };
+const modelAlert: CapacityAlert = {
+  resource: "provider:model",
+  threshold: "remaining_1_usd",
+  code: "deepseek_balance_1_usd",
+  idempotencyKey: "capacity:provider:model:remaining-1-usd",
+};
 let owner: DecisionPrincipalFixture;
 let now = instant;
 function sink(telegram: TelegramProvider, principalId = owner.principalId, database = env.DB) {
-  return new D1CapacityAlertSink({ database, ownerPrincipalId: principalId, telegram, migrationResources: ["provider:model"], now: () => now });
+  return new D1CapacityAlertSink({ database, ownerPrincipalId: principalId, telegram, now: () => now });
 }
 async function state() {
   return env.DB.prepare("SELECT state, sent_at FROM capacity_alert_crossings WHERE owner_principal_id = ?")
@@ -25,26 +30,34 @@ beforeEach(async () => {
 afterEach(() => vi.useRealTimers());
 
 describe("D1CapacityAlertSink", () => {
-  it("delivers a migration reminder to the current owner and deduplicates across reconstruction", async () => {
+  it("delivers the one-time $1 migration reminder and deduplicates across reconstruction", async () => {
     const sendMessage = vi.fn(async (_input: TelegramSendMessageInput) => ({ providerMessageId: "123" }));
     await expect(sink({ sendMessage }).emit(modelAlert)).resolves.toBeUndefined();
     await expect(sink({ sendMessage }).emit(modelAlert)).resolves.toBeUndefined();
     expect(sendMessage).toHaveBeenCalledOnce();
     expect(sendMessage.mock.calls[0]![0]).toEqual(expect.objectContaining({
-      chatId: expect.any(String), text: expect.stringContaining("Plan the switch"), idempotencyKey: modelAlert.idempotencyKey,
+      chatId: expect.any(String),
+      text: expect.stringMatching(/DeepSeek.+\$1 or less.+Plan the switch/su),
+      idempotencyKey: modelAlert.idempotencyKey,
     }));
     expect(await state()).toEqual({ state: "sent", sent_at: instant.toISOString() });
   });
 
-  it("rearms one recovered crossing without rearming another threshold", async () => {
+  it("does not rearm the one-time balance reminder", async () => {
     const sendMessage = vi.fn(async () => ({ providerMessageId: "123" }));
-    const second: CapacityAlert = { ...modelAlert, threshold: 85, code: "capacity_85", idempotencyKey: "capacity:provider:model:85" };
-    await sink({ sendMessage }).emit(modelAlert);
-    await sink({ sendMessage }).emit(second);
-    await sink({ sendMessage }).rearm(modelAlert.idempotencyKey);
-    await sink({ sendMessage }).emit(modelAlert);
-    await sink({ sendMessage }).emit(second);
-    expect(sendMessage).toHaveBeenCalledTimes(3);
+    const subject = sink({ sendMessage });
+    await subject.emit(modelAlert);
+    await expect(subject.rearm(modelAlert.idempotencyKey)).rejects.toThrow("capacity_alert_unavailable");
+    await subject.emit(modelAlert);
+    expect(sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it("does not let percentage-shaped model alerts replace the owner-selected balance notice", async () => {
+    const sendMessage = vi.fn(async () => ({ providerMessageId: "123" }));
+    await expect(sink({ sendMessage }).emit({
+      resource: "provider:model", threshold: 85, code: "capacity_85", idempotencyKey: "capacity:provider:model:85",
+    })).rejects.toThrow("capacity_alert_unavailable");
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it("does not suppress a new owner's crossing with the retired owner's receipt", async () => {
@@ -52,7 +65,6 @@ describe("D1CapacityAlertSink", () => {
     await sink({ sendMessage }).emit(modelAlert);
     const next = await createDecisionPrincipal();
     await sink({ sendMessage }, next.principalId).emit(modelAlert);
-    await sink({ sendMessage }).rearm(modelAlert.idempotencyKey);
     await sink({ sendMessage }, next.principalId).emit(modelAlert);
     expect(sendMessage).toHaveBeenCalledTimes(2);
   });
@@ -171,7 +183,8 @@ describe("D1CapacityAlertSink", () => {
 
   it("keeps alert keys bound to the resource and threshold", async () => {
     const sendMessage = vi.fn(async () => ({ providerMessageId: "123" }));
-    await expect(sink({ sendMessage }).emit({ ...modelAlert, threshold: 85, code: "capacity_85" })).rejects.toThrow("capacity_alert_unavailable");
+    await expect(sink({ sendMessage }).emit({ ...modelAlert, idempotencyKey: "capacity:provider:model:85" }))
+      .rejects.toThrow("capacity_alert_unavailable");
     expect(sendMessage).not.toHaveBeenCalled();
     expect(await state()).toBeNull();
   });
