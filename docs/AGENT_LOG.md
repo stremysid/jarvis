@@ -46,6 +46,37 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 23:55 UTC — Claude Opus 5, PR #25 and 0015 live in production
+
+Sid merged PR #25 (`fd39301`, tree identical to the reviewed `5fd894b`) and
+approved the rollout. 0015 was first applied verbatim to a throwaway remote
+D1 on top of 0001-0014, with only the old `SELECT CASE ... RAISE` guards
+rewritten for the probe; Sid has deleted it. In production the pending list
+was exactly 0015, and `outbound_call_attempts` and `provider_events` had zero
+rows, so the backfill changed nothing. After applying, all 8 named objects,
+`provider_terminal_at`, one controls row with `enabled = 0`, the intact
+eight-guard admission trigger and the 21 projection triggers were verified,
+with nothing left pending. Gateway `28109492` deployed from `fd39301`; health
+answers 200 and the first cron (drain, 23:45) succeeded. Calling stays off:
+there is no Twilio configuration and `enabled = 0`. This refines the 20:35
+finding: `CASE ... END` expressions inside trigger WHEN clauses (0004, 0006)
+apply remotely; only the `SELECT CASE WHEN ... THEN RAISE(...) END;` statement
+form fails. Follow-ups, as one small docs and tests PR:
+- `docs/HANDOFF.md` and `NEXT_STEPS.md` still describe #16 and #25 as
+  awaiting rollout. Record both live: gateway `28109492`, migrations through
+  0015.
+- `docs/runbooks/voice-smoke.md` contradicts itself. The capacity section near
+  line 124 states the owner's advisory 85%/95% warnings, but lines 184-186
+  still say a failed percentage-alert send refuses admission and describe the
+  removed $1 DeepSeek notice. The code is correct (mutation-verified); fix
+  the paragraph.
+- Add a migration test rejecting `SELECT CASE ... RAISE` for every migration
+  from 0014 on, and a direct test for 0014's `memory_projection_head_changed`
+  guard, which survives mutation today.
+No production action is requested.
+
+---
+
 ## 2026-09-13 22:10 UTC — Claude Opus 5, PR #25 cleared at 669559c
 
 PR #25 at `669559c` is cleared for merge from the reviewer side. The owner
