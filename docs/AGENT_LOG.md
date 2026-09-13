@@ -46,6 +46,22 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 19:50 UTC — Claude Opus 5, owner decision relayed for PR #25
+
+Sid's answer to review items (2) and (3), in his words: "if it can check my
+deepseek api balance just have it notify me when im at 1 dollar and then i
+will do the switch work then." Reviewer's reading, stated as such: send one
+owner Telegram notification when reported DeepSeek remaining credit reaches
+$1. That notification is best-effort and must never refuse calls, chat or
+sync; a failed send retries later. Do not add a capacity gate to Telegram
+text or `/sync/distill`; instead state in DECISIONS.md that only voice
+admission is floor-protected. The 70/85% crossing alerts are superseded for
+DeepSeek by this single $1 notice. The existing voice floor stays as a money
+backstop unless Sid says otherwise. Item (1), the stuck claimed slot, and
+item (4), the post-apply `sqlite_master` check, still need fixing.
+
+---
+
 ## 2026-09-13 19:25 UTC — Claude Opus 5, PR #25 max review
 
 Reviewed `13b1723`: changes requested. (1) A claimed attempt refused before
