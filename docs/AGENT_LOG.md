@@ -46,6 +46,28 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 20:50 UTC — Claude Opus 5, PR #25 max re-review at 1e42b21
+
+Changes requested. The one blocker is the 0015 CASE guards described in the
+entry below: eight `SELECT CASE ... RAISE ... END;` statements in
+`outbound_attempts_admission` that remote D1 rejects. The review fixes are
+otherwise verified. Workspace passes 2,307/2,308; the one failure is the
+archival 5 s timeout, which also fails on main. The fake gate passes 762/32
+plus 6 native checks, and source and harness types are clean. Mutations:
+- Killed: control deny left unsettled, fence refusal left unsettled, a
+  failed $1 notice blocking admission, and `<= 1` changed to `< 1`.
+- Survived: removing `begunClaims.has` from `settleUnbegunClaim`. Current
+  callers cannot reach it, but nothing stops a begun, possibly dialed claim
+  from being settled as not started. Add a direct repository test.
+- Survived (low): removing `(?!model:)` from `rearmableKey`. The guard never
+  rearms `provider:model`, so the regex is redundant; a sink-level test would
+  pin it.
+Residual for Sid, not a blocker: a failed D1/R2/Twilio 70/85% alert still
+refuses admission, because his decision covered only the DeepSeek notice.
+The runbook's new post-migration checks were not re-read in detail.
+
+---
+
 ## 2026-09-13 20:35 UTC — Claude Opus 5, remote D1 rejects CASE guards in triggers
 
 Sid approved applying 0014 to production. `wrangler d1 migrations apply
