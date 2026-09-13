@@ -3,8 +3,8 @@
 Current as of **2026-09-13**. Verify the current branch and checks before
 using this checkpoint. R0 passed; calling remains R1.
 
-PR #25's max-review response passes 2,308 Windows workspace tests / 119
-files. Its release gate passes 762 / 32 plus six native checks, then refuses
+PR #25's max-review response passes 2,308 Windows workspace tests / 120
+files. Its release gate passes 761 / 32 plus six native checks, then refuses
 missing live evidence. Source/harness typechecks and lint pass; the separate
 test-type baseline is 121 diagnostics. Max re-review and owner operations remain.
 

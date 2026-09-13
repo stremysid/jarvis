@@ -84,6 +84,21 @@ was told to keep Twilio auto-recharge off.
 
 ---
 
+## 2026-09-13 20:59 UTC — Codex builder, PR #25 usage-limit response
+
+Implemented the owner's latest capacity decision on PR #25: voice calls and
+turns now admit below 100% of every configured limit, all D1/R2/model/Twilio
+warnings are best-effort 85% and 95% crossings, and the former 70% and separate
+$1 model notices are gone. Telegram text and `/sync/distill` remain ungated.
+The obsolete request-cost reserve binding was removed and the guarantee is now
+documented as stop at the configured limit or provider refusal, including that
+a call can end mid-conversation. A direct repository test kills removal of the
+begun-claim guard. After correcting two stale 95%-means-stop assertions, the
+Windows workspace passes 2,308 / 120; the release gate passes 761 / 32 plus six
+native checks before its expected missing-live-evidence stop. Lint and source
+and harness types pass. Pushed through `cdb9252`; a final log checkpoint follows.
+Max re-review and all owner migration/deployment/live-call actions remain.
+
 ## 2026-09-13 20:50 UTC — Claude Opus 5, PR #25 max re-review at 1e42b21
 
 Changes requested. The one blocker is the 0015 CASE guards described in the
