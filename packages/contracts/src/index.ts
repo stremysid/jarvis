@@ -43,3 +43,14 @@ export type {
   TranscriptState,
 } from "./calls.js";
 export type { SequencedEventV1, SyncAckReceiptV1, SyncEventsAckBodyV1, SyncEventsPageV1, SyncEventsPullBodyV1 } from "./sync.js";
+export type {
+  MemoryFactOriginV1,
+  MemoryFactProjectBodyV1,
+  MemoryFactProjectionCommitV1,
+  MemoryFactProjectionAbandonV1,
+  MemoryFactProjectionPageV1,
+  MemoryFactProjectionReceiptV1,
+  MemoryFactProjectionV1,
+  MemoryFactSensitivityV1,
+  MemoryFactSourceV1,
+} from "./memory-projection.js";

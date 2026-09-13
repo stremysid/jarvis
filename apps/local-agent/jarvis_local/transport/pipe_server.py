@@ -75,7 +75,7 @@ FRAME_HEADER_BYTES = 4
 
 #: What this channel serves. Narrower than the CLI's full command surface on
 #: purpose -- see the module docstring on `call-me`.
-CONTROL_COMMANDS: frozenset[str] = frozenset({"status", "run-once", "stop"})
+CONTROL_COMMANDS: frozenset[str] = frozenset({"status", "run-once", "stop", "retry-quarantined"})
 
 _REQUEST_KEYS: frozenset[str] = frozenset({"command", "arguments"})
 
@@ -195,6 +195,8 @@ def decode_request(payload: bytes) -> CliCommand:
 
 
 def encode_response(response: CliResponse) -> bytes:
+    if not isinstance(response.code, str) or not all(isinstance(line, str) for line in response.lines):
+        raise TypeError("control response code and lines must be strings")
     return json.dumps({"code": response.code, "lines": list(response.lines)}, separators=(",", ":")).encode("utf-8")
 
 
@@ -241,7 +243,14 @@ class ControlServer:
         except MalformedRequestError:
             return self._reply(writer, CliResponse(MALFORMED_REQUEST))
 
-        return self._reply(writer, self.dispatcher.handle(command))
+        try:
+            response = self.dispatcher.handle(command)
+            return self._reply(writer, response)
+        except Exception:
+            # A handler or its response can fail. Encode before writing so an
+            # invalid response never reaches the wire before this fixed reply.
+            # Exception text may contain private store data.
+            return self._reply(writer, CliResponse("command_failed"))
 
     def _reply(self, writer: ByteWriter, response: CliResponse) -> CliResponse:
         # Best effort by design: a peer that has hung up, or is blocked writing

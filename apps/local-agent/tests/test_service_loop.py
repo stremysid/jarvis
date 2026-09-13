@@ -14,19 +14,27 @@ it is the failure that no amount of waiting fixes.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from jarvis_local.agent import CycleResult
+from jarvis_local.node import _QuarantineRetryCoordinator
 from jarvis_local.scheduler import (
     STOP_AUTHENTICATION,
     WAKE_BACKOFF,
     WAKE_CADENCE,
+    Decision,
     SchedulePolicy,
     Scheduler,
+    SchedulerState,
 )
 from jarvis_local.service import (
+    INVALID_ARGUMENT,
     RECENT_CYCLE_LIMIT,
+    RETRY_FAILED,
     STOPPED_ON_REQUEST,
     TRIGGER_REQUESTED,
     LocalAgentService,
@@ -333,6 +341,19 @@ def test_one_run_once_request_produces_exactly_one_extra_cycle() -> None:
     assert triggers[1:] == [WAKE_CADENCE, WAKE_CADENCE]
 
 
+def test_quarantine_is_visible_without_turning_success_into_backoff() -> None:
+    result = CycleResult(1, 1, 1, 1, failure=None, facts_quarantined=3)
+    loop, state, sleeper, _ = loop_over([result, ok()])
+
+    loop.run()
+
+    records = state.recent()
+    assert records[0].failure is None
+    assert records[0].facts_quarantined == 3
+    assert records[1].trigger == WAKE_CADENCE
+    assert sleeper.delays == [0.0, 1800.0]
+
+
 def test_status_reports_the_recent_cycles() -> None:
     """The control channel must answer "how is it going" from memory. Reaching
     into the databases to answer a status query is the thing the ring exists
@@ -373,12 +394,142 @@ def test_run_once_only_asks_and_does_not_run_a_cycle_on_the_callers_thread() -> 
     assert state.take_cycle_request() is False
 
 
+def test_a_late_local_wake_cannot_end_backoff_after_its_retry_was_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    state = ServiceState()
+    setting = threading.Event()
+    allow_set = threading.Event()
+    set_done = threading.Event()
+    cleared = threading.Event()
+    processed = threading.Event()
+    finished = threading.Event()
+    errors: list[BaseException] = []
+    results: list[str | None] = []
+    original_set, original_clear = state._wake.set, state._wake.clear
+
+    def delayed_set() -> None:
+        setting.set()
+        assert allow_set.wait(2)
+        original_set()
+        set_done.set()
+
+    def release_after_clear() -> None:
+        original_clear()
+        cleared.set()
+        allow_set.set()
+        assert set_done.wait(2)
+
+    monkeypatch.setattr(state._wake, "set", delayed_set)
+    monkeypatch.setattr(state._wake, "clear", release_after_clear)
+    loop = RunLoop(lambda: ok(), state=state, process_control_work=processed.set)
+
+    def request() -> None:
+        try:
+            state.request_control_work()
+        except BaseException as error:
+            errors.append(error)
+
+    def wait() -> None:
+        try:
+            results.append(loop._wait_for_cycle(Decision(SchedulerState(), True, WAKE_BACKOFF, 60)))
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            finished.set()
+
+    requester = threading.Thread(target=request, daemon=True)
+    waiter = threading.Thread(target=wait, daemon=True)
+    requester.start()
+    try:
+        assert setting.wait(1)
+        waiter.start()
+        # The original code consumes the flag before set(), clears the event,
+        # then receives the stale set. With atomic signaling the state lock
+        # prevents that interleaving, so release the setter here instead.
+        if not cleared.wait(0.1):
+            allow_set.set()
+        assert processed.wait(1)
+        assert cleared.wait(1)
+        assert set_done.wait(1)
+        assert not finished.wait(0.1), "a refused local wake started a cloud cycle before backoff elapsed"
+        assert state.take_cycle_request() is False
+    finally:
+        allow_set.set()
+        monkeypatch.setattr(state._wake, "set", original_set)
+        state.request_stop()
+        requester.join(timeout=2)
+        if waiter.ident is not None:
+            waiter.join(timeout=2)
+    assert not requester.is_alive() and not waiter.is_alive()
+    assert errors == []
+    assert results == [None]
+
+
+@pytest.mark.parametrize("request_name", ["request_stop", "request_cycle", "request_control_work"])
+def test_a_wake_is_signalled_atomically_with_its_request(monkeypatch: pytest.MonkeyPatch, request_name: str) -> None:
+    state = ServiceState()
+    observed: list[bool] = []
+    monkeypatch.setattr(state._wake, "set", lambda: observed.append(state._lock.locked()))
+    getattr(state, request_name)()
+    assert observed == [True]
+
+
 def test_stop_only_asks_and_leaves_the_cycle_boundary_to_the_loop() -> None:
     state = ServiceState()
     response = LocalAgentService(control_handlers(state)).handle(CliCommand("stop"))
 
     assert response.code == OK
     assert state.stop_requested() is True
+
+
+def test_retry_quarantined_clears_one_fact_and_wakes_the_loop() -> None:
+    state = ServiceState()
+    retried: list[str] = []
+
+    def retry(fact_id: str) -> bool:
+        retried.append(fact_id)
+        state.request_cycle()
+        return True
+
+    service = LocalAgentService(control_handlers(
+        state,
+        retry_quarantined=retry,
+    ))
+
+    response = service.handle(CliCommand("retry-quarantined", {"fact_id": "fact_" + "a" * 32}))
+
+    assert response.code == OK
+    assert retried == ["fact_" + "a" * 32]
+    assert state.take_cycle_request() is True
+
+
+def test_retry_quarantined_refuses_an_unknown_or_malformed_fact(
+    retry_factory: Callable[[ServiceState], _QuarantineRetryCoordinator],
+) -> None:
+    state = ServiceState()
+    coordinator = retry_factory(state)
+    service = LocalAgentService(control_handlers(state, retry_quarantined=coordinator.submit))
+    try:
+        assert service.handle(CliCommand("retry-quarantined", {"fact_id": "not-a-fact"})).code == INVALID_ARGUMENT
+        assert service.handle(CliCommand("retry-quarantined", {"fact_id": "fact_" + "a" * 32})).code == "queued"
+        coordinator.drain(lambda _: False)
+        assert any(f"projection_retry fact_{'a' * 32} not_quarantined" in line for line in state.report())
+        assert state.take_cycle_request() is False
+    finally:
+        coordinator.close()
+
+
+def test_retry_quarantined_contains_store_failure() -> None:
+    state = ServiceState()
+
+    def fail(_fact_id: str) -> bool:
+        raise RuntimeError("database unavailable")
+
+    service = LocalAgentService(control_handlers(state, retry_quarantined=fail))
+
+    response = service.handle(CliCommand("retry-quarantined", {"fact_id": "fact_" + "a" * 32}))
+
+    assert response.code == RETRY_FAILED
+    assert response.lines == ()
 
 
 def test_the_backoff_reason_is_reported_so_quiet_can_be_told_from_stuck() -> None:
