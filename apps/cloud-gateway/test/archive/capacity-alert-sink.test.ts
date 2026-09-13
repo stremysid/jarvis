@@ -183,7 +183,8 @@ describe("D1CapacityAlertSink", () => {
 
   it("keeps alert keys bound to the resource and threshold", async () => {
     const sendMessage = vi.fn(async () => ({ providerMessageId: "123" }));
-    await expect(sink({ sendMessage }).emit({ ...modelAlert, idempotencyKey: "capacity:provider:model:85" }))
+    const mismatched = { ...modelAlert, idempotencyKey: "capacity:provider:model:85" } as unknown as CapacityAlert;
+    await expect(sink({ sendMessage }).emit(mismatched))
       .rejects.toThrow("capacity_alert_unavailable");
     expect(sendMessage).not.toHaveBeenCalled();
     expect(await state()).toBeNull();

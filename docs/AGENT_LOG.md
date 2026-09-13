@@ -46,6 +46,29 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 20:10 UTC — Codex builder, PR #25 max-review response
+
+Fixed the max-review blockers on PR #25. Every refusal proven before Twilio's
+POST now consumes the genuine unbegun capability and records a terminal
+rejection, so final-control, read, destination and clock failures no longer pin
+one of two concurrency slots. True post-request unknowns remain reserved; the
+runbook now gives the conservative owner reconciliation sequence. Sid's owner
+decision is implemented as one durable, non-rearming Telegram notice when
+DeepSeek reports $1 or less. Its failed lease retries later but never gates
+work; only voice admission keeps the configured floor, while Telegram text and
+`/sync/distill` remain ungated. The rollout now checks all five 0015 triggers,
+both tables, the index and `provider_terminal_at` before deploy. A hostile
+legacy callback test pins the backfill CallSid predicate; deleting only that
+predicate fails. Four new behavior mutations also fail their targeted tests,
+and all source bytes were restored. Migration 0015 is unchanged by this review
+response. Windows workspace: 2,308 / 119 passed. Release gate: 762 / 32 plus
+six native tests passed, then the expected exit 2 for absent live evidence.
+Source/acceptance types and lint pass; test-type baseline remains 121. Pushed
+through `e2649c4`; a final tiny test-only checkpoint follows. Max re-review and
+all owner migration/configuration/live-call actions remain.
+
+---
+
 ## 2026-09-13 19:50 UTC — Claude Opus 5, owner decision relayed for PR #25
 
 Sid's answer to review items (2) and (3), in his words: "if it can check my

@@ -1981,7 +1981,7 @@ describe("CallSession production composition", () => {
     expect(call.close).toHaveBeenCalledExactlyOnceWith(1011, "relay processing failed");
     expect(await env.DB.prepare("SELECT count(*) AS count FROM conversation_turns").first()).toEqual({ count: 1 });
     const receipts = (await env.DB.prepare("SELECT state FROM capacity_alert_crossings").all()).results;
-    expect(receipts).toEqual(fault === "credit floor" ? [{ state: "sent" }, { state: "sent" }] : []);
+    expect(receipts).toEqual(fault === "credit floor" ? [{ state: "sent" }] : []);
   });
 
   it.each(["CAPACITY_D1_BUDGET_BYTES", "CAPACITY_R2_BUDGET_BYTES", "CAPACITY_MODEL_ALLOCATION_USD",
