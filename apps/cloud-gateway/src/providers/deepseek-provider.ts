@@ -10,9 +10,9 @@ import type {
  * Two bounds matter more than throughput here. `firstTokenTimeoutMs` catches a
  * provider that accepts the connection and then stalls -- on a voice call that
  * is silence the caller experiences as a dead line. `maxOutputCharacters`
- * stops a runaway generation from being streamed onward indefinitely; the
- * stream is cut at the limit rather than truncated afterwards, so the tokens
- * are never produced in the first place.
+ * stops a runaway generation from being streamed onward indefinitely. Server
+ * max_tokens bounds generation too, including reasoning that never streams to
+ * the caller. Cancellation is not a billing receipt: interrupted work can cost.
  *
  * Retrieved context is passed as system messages carrying their source event
  * ids. Every claim the model makes from memory is therefore traceable to an
@@ -20,6 +20,9 @@ import type {
  */
 
 const API_ORIGIN = "https://api.deepseek.com";
+/** These wire bounds anchor the documented prepaid admission reserve. */
+export const MAX_MODEL_REQUEST_BYTES = 131_072;
+export const MAX_MODEL_OUTPUT_TOKENS = 65_536;
 /**
  * Default from the foundation design. DeepSeek's published ids have
  * historically been names like deepseek-chat, so this is overridable
@@ -66,6 +69,11 @@ export class DeepSeekModelAdapter implements ModelAdapter {
 
   async *stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
     const messages = buildMessages(input);
+    const body = JSON.stringify({
+      model: this.#model, messages, stream: true,
+      reasoning_effort: input.reasoningEffort, max_tokens: MAX_MODEL_OUTPUT_TOKENS,
+    });
+    if (new TextEncoder().encode(body).byteLength > MAX_MODEL_REQUEST_BYTES) throw new Error("model_request_too_large");
 
     // Combine the caller's signal with our own timeout so either can stop the
     // request, and so the socket is always released.
@@ -82,12 +90,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
           "content-type": "application/json",
           authorization: `Bearer ${this.#apiKey}`,
         },
-        body: JSON.stringify({
-          model: this.#model,
-          messages,
-          stream: true,
-          reasoning_effort: input.reasoningEffort,
-        }),
+        body,
         signal: controller.signal,
       });
     } catch (error) {

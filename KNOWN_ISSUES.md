@@ -15,7 +15,8 @@ must observe actual delivery for both paths before acceptance, per the
 and [Twilio's documented overrides](https://www.twilio.com/docs/usage/webhooks/webhooks-connection-overrides).
 
 PR #23's relay harness calls DO methods directly with an injected factory;
-default production stub/socket composition remains PR #25's acceptance task.
+PR #25 now tests the default production stub/socket and Worker composition
+with external HTTP stubbed. Live Twilio delivery remains item 3 acceptance.
 The delayed-initialization test's `call_session_termination_uninitialized`
 workerd diagnostic is expected and traced, not a swallowed production error.
 

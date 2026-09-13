@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { newUlid, type CallPhase, type RelayBinding, type Ulid } from "../../../../packages/contracts/src/index.js";
 import type { Env } from "../env.js";
+import type { CapacityGuard } from "../archive/capacity-guard.js";
 import {
   createVoiceStreamDelivery,
   type ConversationService,
@@ -26,6 +27,7 @@ import {
 import { parseOwnerAccessIntent, type OwnerAccessDraft } from "./owner-access-intent.js";
 import { OwnerAccessService, type OwnerPinSelection, type PreparedOwnerAccessProposal } from "./owner-access-service.js";
 import { FourDigitPinCapture, normalizeSpokenPin } from "./pin-capture.js";
+import { createProductionCallSessionCore } from "./production-runtime.js";
 import {
   GuestPinProofIssuer,
   type GuestPinAuthenticationProof,
@@ -606,6 +608,7 @@ type CallInteraction =
   }>;
 
 export interface CallSessionCoreSetup {
+  readonly capacity: Pick<CapacityGuard, "assertAcceptingNewTurn">;
   readonly session: StoredCallSession;
   readonly expectedAccountSid: string;
   readonly repository: CallRepository;
@@ -634,6 +637,7 @@ export class CallSessionCore {
   readonly #activation: PhoneActivationChallengeConfirmer | null;
   readonly #ownerAccess: OwnerAccessService | null;
   readonly #conversation: ConversationService | null;
+  readonly #assertCapacity: () => Promise<void>;
   readonly #preAuthentication: OutboundPreAuthenticationContract | null;
   readonly #relay: CallSessionCoreSetup["relay"];
   readonly #newTurnId: () => Ulid;
@@ -655,8 +659,11 @@ export class CallSessionCore {
   #terminationCleanupInFlight: Promise<void> | null = null;
 
   constructor(input: CallSessionCoreSetup) {
+    const capacity = input.capacity;
+    const assertCapacity = capacity?.assertAcceptingNewTurn;
     if (
-      !(input.repository instanceof CallRepository)
+      typeof assertCapacity !== "function"
+      || !(input.repository instanceof CallRepository)
       || input.authority !== undefined && input.authority !== null
         && !(input.authority instanceof VoiceAccessAuthorityService)
       || input.guestAuthentication !== undefined && input.guestAuthentication !== null
@@ -678,6 +685,7 @@ export class CallSessionCore {
     this.#activation = input.activation ?? null;
     this.#ownerAccess = input.ownerAccess ?? null;
     this.#conversation = input.conversation ?? null;
+    this.#assertCapacity = assertCapacity.bind(capacity);
     this.#preAuthentication = input.preAuthentication === undefined
       ? null
       : snapshotPreAuthentication(input.preAuthentication);
@@ -954,15 +962,34 @@ export class CallSessionCore {
     }
   }
 
-  #isActiveTurn(lifecycleGeneration: number, controller: AbortController): boolean {
+  #ownsLiveTurn(lifecycleGeneration: number, controller: AbortController): boolean {
     return lifecycleGeneration === this.#lifecycleGeneration
       && !this.#socketClosed
       && this.#session.phase === "active"
       && this.#activeTurnAbort === controller;
   }
 
+  #isActiveTurn(lifecycleGeneration: number, controller: AbortController): boolean {
+    return this.#ownsLiveTurn(lifecycleGeneration, controller) && !controller.signal.aborted;
+  }
+
   #requireActiveTurn(lifecycleGeneration: number, controller: AbortController): void {
     if (!this.#isActiveTurn(lifecycleGeneration, controller)) throw new Error("call_session_terminal");
+  }
+
+  async #awaitAdmission(work: Promise<unknown>, signal: AbortSignal): Promise<void> {
+    let interrupt!: () => void;
+    const interrupted = new Promise<void>((resolve) => { interrupt = resolve; });
+    signal.addEventListener("abort", interrupt, { once: true });
+    try {
+      if (signal.aborted) interrupt();
+      // Source/auth ports need not support cancellation. Retire this admission
+      // promptly so a replacement prompt can proceed; race still observes a
+      // late rejection, and no continuation may allocate a turn after interruption.
+      await Promise.race([work, interrupted]);
+    } finally {
+      signal.removeEventListener("abort", interrupt);
+    }
   }
 
   async #handlePrompt(event: Extract<RelayEvent, { type: "prompt" }>): Promise<void> {
@@ -1004,33 +1031,33 @@ export class CallSessionCore {
 
     if (this.#conversation === null) throw new Error("conversation_unavailable");
     const lifecycleGeneration = this.#lifecycleGeneration;
-    if (this.#authorityService !== null) {
-      await this.#authorityService.authorize(this.#authority, "conversation.basic", this.#now());
-    }
-    if (
-      lifecycleGeneration !== this.#lifecycleGeneration
-      || this.#socketClosed
-      || this.#session.phase !== "active"
-    ) {
-      throw new Error("call_session_terminal");
-    }
-
-    const turnId = this.#newTurnId();
     const controller = new AbortController();
+    // Collection can await network I/O. Reserve ownership first so interruption
+    // and a competing prompt cannot slip past a turn that has not reached the model.
     this.#activeTurnAbort = controller;
-    const delivery = createVoiceStreamDelivery({
-      sessionId: this.#session.sessionId,
-      turnId,
-      sendToken: async (token) => {
-        this.#requireActiveTurn(lifecycleGeneration, controller);
-        await this.#relay.sendToken(token);
-      },
-      finish: async (finalText) => {
-        this.#requireActiveTurn(lifecycleGeneration, controller);
-        await this.#relay.finish(finalText);
-      },
-    });
     try {
+      await this.#awaitAdmission(this.#assertCapacity(), controller.signal);
+      if (!this.#ownsLiveTurn(lifecycleGeneration, controller)) throw new Error("call_session_terminal");
+      if (controller.signal.aborted) return;
+      // A grant may have been revoked while telemetry was being collected.
+      if (this.#authorityService !== null) {
+        await this.#awaitAdmission(this.#authorityService.authorize(this.#authority, "conversation.basic", this.#now()), controller.signal);
+      }
+      if (!this.#ownsLiveTurn(lifecycleGeneration, controller)) throw new Error("call_session_terminal");
+      if (controller.signal.aborted) return;
+      const turnId = this.#newTurnId();
+      const delivery = createVoiceStreamDelivery({
+        sessionId: this.#session.sessionId,
+        turnId,
+        sendToken: async (token) => {
+          this.#requireActiveTurn(lifecycleGeneration, controller);
+          await this.#relay.sendToken(token);
+        },
+        finish: async (finalText) => {
+          this.#requireActiveTurn(lifecycleGeneration, controller);
+          await this.#relay.finish(finalText);
+        },
+      });
       const result = await this.#conversation.handleTurn({
         sessionId: this.#session.sessionId,
         principalId: this.#session.binding.principalId,
@@ -1039,7 +1066,9 @@ export class CallSessionCore {
         signal: controller.signal,
         ...delivery,
       });
-      if (!this.#isActiveTurn(lifecycleGeneration, controller)) {
+      // Output callbacks enforce the abort fence. A response already finished
+      // before interruption may still be awaiting its durable receipt here.
+      if (!this.#ownsLiveTurn(lifecycleGeneration, controller)) {
         if (
           result.outcome === "voice_sent"
           || result.sentAssistantEventId !== null
@@ -1055,7 +1084,7 @@ export class CallSessionCore {
       }
       if (result.outcome === "voice_sent") {
         if (result.sentAssistantEventId === null) throw new Error("conversation_voice_result_invalid");
-        this.#lastSentAssistantEventId = result.sentAssistantEventId;
+        if (!controller.signal.aborted) this.#lastSentAssistantEventId = result.sentAssistantEventId;
       } else if (result.sentAssistantEventId !== null) {
         throw new Error("conversation_voice_result_invalid");
       }
@@ -1270,7 +1299,7 @@ export interface CallSessionRuntimeInput {
   readonly relay: CallSessionRelay;
 }
 
-/** Task 8 supplies trusted provider/account/model construction through this in-process adapter. */
+/** Tests may replace the production graph through this trusted in-process adapter. */
 export type CallSessionRuntimeFactory = (input: CallSessionRuntimeInput) => CallSessionCore;
 
 function socketRelay(socket: WebSocket, markPolicyClosed: () => void): CallSessionRelay {
@@ -1313,7 +1342,7 @@ export class CallSession extends DurableObject<Env> {
   constructor(
     state: DurableObjectState,
     env: Env,
-    runtimeFactory: CallSessionRuntimeFactory | null = null,
+    runtimeFactory: CallSessionRuntimeFactory | null = (input) => createProductionCallSessionCore(env, input),
   ) {
     super(state, env);
     this.#runtimeFactory = runtimeFactory;

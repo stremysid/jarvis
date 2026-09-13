@@ -110,7 +110,7 @@ export function createVoiceRouteDependencies(input: VoiceRouteConstruction): Voi
 
   const inbound: VoiceRouteDependencies["inbound"] = inboundDependencies === null
     ? notImplemented
-    : (request) => handleInboundVoiceWebhook(request, inboundDependencies);
+    : (request, verifiedForm) => handleInboundVoiceWebhook(request, inboundDependencies, verifiedForm);
 
   const outbound: VoiceRouteDependencies["outbound"] = outboundDependencies === null
     ? notImplemented

@@ -143,6 +143,7 @@ function core(
     close,
     sendNeutralText,
     instance: new CallSessionCore({
+      capacity: { async assertAcceptingNewTurn(): Promise<void> {} },
       session,
       expectedAccountSid: ACCOUNT_SID,
       repository: repo,

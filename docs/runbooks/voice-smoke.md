@@ -1,6 +1,6 @@
 # Credentialed voice smoke gate
 
-This runbook covers the R1 fake calling gate and the separate live-evidence contract. The fake harness exercises local routes, D1, Durable Objects and the calling services with fake providers. It cannot place a real call. Production voice remains closed until R1 item 1 supplies the reviewed runtime dependencies and owner-managed configuration. The live command still needs an injected driver, deployed routes and an enrolled-operator evidence query.
+This runbook covers the R1 fake calling gate and the separate live-evidence contract. The fake harness exercises local routes, D1, Durable Objects and the calling services with fake providers. It cannot place a real call. PR #25 implements production composition; activation still requires max review, owner-managed configuration and the approved migration. The live command still needs an injected driver, deployed routes and an enrolled-operator evidence query.
 
 ## Offline developer workflow
 
@@ -45,7 +45,7 @@ A failed fake gate stops the sequence before the evidence audit. Missing, duplic
 | Oversized relay frames | Valid JSON passed directly to the DO method: 65,536 UTF-8 bytes permits a subsequent turn; 65,537 closes with 1009 and adds no turn |
 | Telegram self-call | Real webhook, stored command origin, policy/dispatch, owner-only confirmed request, replay and expiry |
 
-The relay harness injects a core factory and calls `fetch` and `webSocketMessage` directly inside `runInDurableObject`; it does not send incoming frames through the production stub/socket path. Providers and mutable policy inputs are fake. R1 item 1 / PR #25 must prove the default factory through the actual stub and socket. These tests establish local behavior, not deployed dependency composition, phone audio latency, Twilio playback acknowledgement or owner acceptance. The required R1 review is Claude Opus 5 at max.
+The broad relay harness injects a core factory and calls `fetch` and `webSocketMessage` directly inside `runInDurableObject`; it does not send incoming frames through the production stub/socket path. Providers and mutable policy inputs are fake. A separate item 1 test project calls the real namespace stub, upgrades a WebSocket and sends client frames through the default factory. Owner and PIN-authenticated guest turns survive real Durable Object eviction; a failed balance read prevents a second model request and turn. The same project drives actual Worker ingress, signed TwiML/callback routes, confirmed Telegram dispatch and terminal closure of real sockets. It uses isolated public synthetic configuration and stubs external provider HTTP only. A regression keeps the ordinary project's missing-configuration checks intact. These checks do not establish deployed behavior, phone audio latency, Twilio playback acknowledgement or owner acceptance. The required R1 review is Claude Opus 5 at max.
 
 Guest acceptance tests have explicit 15-second deadlines for real PIN crypto and multiple local round trips under the parallel Windows suite. Assertions and the model's 30-second deadline are unchanged. A passing full-suite run is a sample, not proof of deterministic timing. The delayed-initialization callback test intentionally causes the real uninitialized DO RPC to reject; workerd prints `call_session_termination_uninitialized` before the asserted 503 and successful replay. Other errors are not suppressed.
 
@@ -55,9 +55,228 @@ R1 supports calling the owner's configured, verified phone. `/call check in` ask
 
 The accepted Telegram event supplies the command ID and a domain-separated SHA-256 binding of the authenticated principal, stored as 32 numeric bytes. This structural attribution does not pass through message redaction, which could otherwise collapse distinct IDs containing six-digit runs. It creates no exception to the redaction-token contract. Older receipts without this binding confer no calling authority; send a new confirmed command. The committed receipt time starts the five-minute authorization window. Both command construction and policy rechecks read the same validated event, ingress receipt, current Telegram identity and owner voice binding. Reconstruction checks the complete stored line for controls before argument trimming and cannot extend expiry. The reason is not passed to the calling model or used to select a recipient.
 
-Until R1 item 1 composes production dispatch, the Worker answers `/call` with `Calling is not configured on this deployment.` A provider acknowledgement lost in transit is reported as pending; it is not an instruction to repeat the call. The fake acceptance gate tests this distinction. No home node or platform port is required for this cloud-side work.
+An incompletely configured Worker answers `/call` with `Calling is not configured on this deployment.` A configured deployment reconstructs the accepted command, checks stored policy and fresh capacity, and dispatches once. A provider acknowledgement lost in transit is reported as pending; it is not an instruction to repeat the call. The fake acceptance gate tests this distinction. No home node or platform port is required for this cloud-side work.
 
-## Future live authorization gates
+## Live authorization gates
+
+### Owner voice configuration
+
+Before deploying the reviewed item, configure `PUBLIC_ORIGIN` as the exact
+public HTTPS origin and `TWILIO_FROM_E164` as the Twilio number. Supply the
+account SID, outbound API key SID/secret, and separate webhook auth token in
+`TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET` and
+`TWILIO_AUTH_TOKEN`. Set `OWNER_PRINCIPAL_ID` and `OWNER_VOICE_IDENTITY_ID` to
+the existing verified owner records, not newly invented identifiers.
+
+The model/Telegram bindings, three existing canonical 32-byte peppers and
+explicit `IDENTITY_CHALLENGE_HMAC_KEY_VERSION` are required before dialing.
+The key version must match challenge issuance. Configure the capacity values
+below, then apply only the approved migrations. The outbound control row starts
+disabled and requires the owner's separate activation step described below.
+No command here authorizes a paid call or changes secrets automatically.
+
+Configure the Twilio number's incoming voice webhook as POST to
+`<PUBLIC_ORIGIN>/voice/inbound`. The outbound adapter supplies its own exact
+TwiML and status URLs. Its REST acknowledgement deadline is five seconds and
+ring timeout is thirty seconds; an ambiguous acknowledgement never triggers
+automatic redial. Verify actual provider behavior during item 3.
+
+Inbound signatures are checked before capacity reads or owner alerts. The
+verified form passes directly to admission, consuming the request body once.
+Status/relay-ended cleanup requires the public origin and webhook auth token,
+but remains available when model or capacity configuration is absent.
+
+### Capacity observations and the DeepSeek reserve
+
+R1's collector is an admission dependency, not a billing ledger. Production
+composition must supply every configured provider and owner budget before
+opening the routes. The collector, durable Telegram sink and configuration
+factory and final-turn capacity checks are implemented and wired into Worker
+admission and production outbound dispatch. Real paid acceptance is still pending.
+
+| Resource | Observation | Units and limits |
+|---|---|---|
+| D1 | `SELECT 1` result `meta.size_after` from the database binding | Measured database bytes, including SQLite structure. Not a sum of archived payload sizes. |
+| R2 | Every page of `ARCHIVE.list`, all prefixes, sum of object sizes | Estimated completed-object payload bytes. Includes orphan objects, but is not an atomic snapshot during concurrent writes and excludes unfinished multipart uploads. Not billed GB-months. |
+| Prepaid model | DeepSeek `/user/balance`, selected currency, `is_available` and complete consistent balance record | Reported remaining credit. `used = configured allocation - remaining`, `budget = configured allocation`. No refills or grants above the declared pot are supported. |
+| Postpaid voice | Twilio `Usage/Records/Today.json?Category=totalprice` | Reported cumulative spend for this account and UTC day in its configured currency. Preserve `as_of`; fetching an old report does not make it fresh. Charges not yet reported are not measured. |
+
+The provider direction is configured separately from its reader. Future
+postpaid model providers can use reported spending through the same
+`CapacityEstimate` shape; that does not switch the model endpoint in R1.
+D1/R2 budgets are owner-selected byte limits. Provider allocations and caps
+are owner-selected monetary amounts, with no source-code budget default.
+
+Failed reads, missing currencies/pages, inconsistent or malformed values and
+stale observations refuse admission. HTTP reads have a five-second total
+deadline, including body reads, with a 65,536-byte response bound and no
+redirects. A full collection has a ten-second deadline; R2 refuses more than
+100 pages instead of reporting a partial sum. Balance and storage observation
+times are sampled before the read/scan, never after it. Twilio keeps the
+provider's actual timestamp. The final guard also checks age after alerts.
+
+The owner's DeepSeek choice is a one-time $20 pot with provider auto-recharge
+off. The collector reports `used = configured allocation - remaining credit`.
+Voice calls and turns remain admitted while every fresh estimate is below
+100% of its configured limit; admission stops at 100% or when a provider
+refuses. Telegram text and `/sync/distill` have no capacity gate.
+
+Every D1, R2, model and Twilio estimate sends owner Telegram warnings at 85%
+and 95%. These warnings are advisory: a failed or leased send retries through
+the durable receipt path but never refuses work. Falling below a threshold
+rearms that crossing. The former 70% warning and separate $1 DeepSeek notice
+are removed.
+
+There is no reserve margin or promise that an admitted call can finish. A call
+may end mid-conversation when credit reaches the limit. Interrupted requests
+still cost money; the next read sees reported charges. Concurrency, reporting
+delay and other account consumers can overshoot the last accepted report.
+The guarantee is **stop at the configured limit or provider refusal**, not a
+durable reservation or spend ceiling. See DECISIONS.md. Keep Twilio
+auto-recharge disabled as selected by the owner.
+
+Source contracts: [D1 result metadata](https://developers.cloudflare.com/d1/worker-api/prepared-statements/),
+[R2 listing](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/),
+[DeepSeek credit](https://api-docs.deepseek.com/api/get-user-balance/),
+[Twilio usage records](https://www.twilio.com/docs/usage/api/usage-record).
+
+### Owner capacity configuration and durable alerts
+
+Each binding below is mandatory for production capacity admission. Missing,
+zero, negative or malformed values refuse construction without reading any
+provider. There are no fallback amounts. Storage budgets must be integers.
+
+| Binding | Owner value |
+|---|---|
+| `CAPACITY_D1_BUDGET_BYTES` | D1 byte limit selected by the owner |
+| `CAPACITY_R2_BUDGET_BYTES` | R2 completed-object payload byte limit selected by the owner |
+| `CAPACITY_MODEL_ALLOCATION_USD` | The owner's one-time prepaid allocation, currently 20 |
+| `CAPACITY_TWILIO_DAILY_BUDGET_USD` | Owner-selected Twilio account spending cap for each UTC day |
+
+Current production telemetry must be strictly less than sixty seconds old; do
+not restamp delayed reports to satisfy that bound.
+
+The owner can set each binding using the existing interactive Wrangler flow
+from the reviewed checkout, for example:
+
+```powershell
+pnpm --dir apps/cloud-gateway exec wrangler secret put CAPACITY_D1_BUDGET_BYTES
+```
+
+Repeat for each binding name with the chosen value. Production also needs the
+existing model/Twilio read credentials, `TELEGRAM_BOT_TOKEN` and
+`OWNER_PRINCIPAL_ID`. The sink resolves the current unique verified Telegram
+identity for that principal; it does not accept a new recipient or channel.
+
+**Migration 0015 has a production consequence.** It adds
+`capacity_alert_crossings` for acknowledged alert state and recoverable send
+leases, a default-disabled `outbound_runtime_controls` singleton, admission
+triggers and a terminal-evidence column on existing outbound attempts. It
+backfills that column only from affirmative retained status envelopes; missing
+envelopes do not free capacity. It is independent of 0014 and does not modify it. Before deployment,
+inspect the pending migration list in the reviewed release checkout and apply
+only an approved set using the normal D1 migration workflow. Do not apply an
+unreviewed neighbouring migration because this one needs a table. Merging code
+and rolling back the Worker do not roll back D1 state.
+
+Acknowledged crossings survive Worker reconstruction. Storage and postpaid
+provider percentage crossings rearm independently after recovery. The one-time
+DeepSeek $1 notice does not rearm. An in-progress or failed percentage-alert
+send does not count as acknowledgement and refuses the current admission. A
+DeepSeek-notice failure is best-effort and does not refuse admission; after its
+thirty-second lease expires, a later fresh voice check can retry it.
+Telegram has no provider idempotency key: a delivered message whose response
+was lost can be repeated after lease recovery. This is durable suppression of
+acknowledged alerts, not an exactly-once delivery guarantee. The five-second
+sender deadline keeps a hung transport from holding admission indefinitely.
+
+The call runtime collects fresh capacity for each final conversation turn,
+then revalidates the caller's access before allocating or recording the turn.
+PIN entry, enrollment, owner access administration, partial speech and the
+outbound pre-authentication announcement do not start a model turn. A refused
+capacity read closes the relay through its existing fixed failure path.
+
+Interruption cancels an admission wait promptly, so the replacement prompt
+does not wait for the old telemetry or authorization read. The old bounded
+read may finish in the background, including an already-started owner alert;
+it cannot admit the interrupted turn. Cancellation while durable context is
+being read also prevents the model request and records a cancelled turn.
+Output completed before interruption can finish recording its receipt;
+interruption cannot retroactively make that already-sent output unsent.
+
+### Stored outbound controls
+
+These are release instructions for the reviewed completed item, not authorization
+to enable an unreviewed branch. No home-node platform is involved.
+
+After applying the approved migration set and before deploying the gateway,
+verify the exact 0015 schema objects:
+
+```powershell
+pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command "SELECT type, name FROM sqlite_master WHERE (type = 'table' AND name IN ('capacity_alert_crossings', 'outbound_runtime_controls')) OR (type = 'index' AND name = 'outbound_attempts_policy_day') OR (type = 'trigger' AND name IN ('outbound_attempts_terminal_evidence', 'outbound_status_retains_terminal_evidence', 'outbound_event_retains_terminal_evidence', 'outbound_attempts_start_ready', 'outbound_attempts_admission')) ORDER BY type, name;"
+pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command "SELECT count(*) AS provider_terminal_at_columns FROM pragma_table_info('outbound_call_attempts') WHERE name = 'provider_terminal_at';"
+```
+
+Expect exactly eight `sqlite_master` rows: the two named tables, one named
+index and five named triggers. Expect `provider_terminal_at_columns = 1`.
+Anything else stops the rollout before the Worker deploy; tests and production
+use different migration splitters.
+
+Then inspect the default-disabled state:
+
+```powershell
+pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command "SELECT singleton_id, enabled, quiet_starts_at, quiet_ends_at FROM outbound_runtime_controls;"
+```
+
+Expect one row, `singleton_id = 1`, `enabled = 0`, and both quiet bounds NULL.
+An absent row or failed read refuses new calls. The owner sets an explicit
+paired UTC interval before enabling calls, or deliberately leaves both bounds
+NULL for no interval. Bounds use `YYYY-MM-DDTHH:mm:ss.sssZ`; the start is included
+and the end excluded. This is one stored interval, not a recurring local-time
+schedule. Profile scheduling remains R7. Setting `enabled = 1` is the owner's
+live activation step after configuration, max review and smoke authorization.
+
+The owner can stop new outbound admission with:
+
+```powershell
+pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command "UPDATE outbound_runtime_controls SET enabled = 0 WHERE singleton_id = 1;"
+```
+
+This does not cancel a call already admitted or prevent terminal callbacks and
+claim recovery. The atomic ready-to-claimed transition rechecks access, both
+expiry windows, the database's current UTC day, quiet state, two active outbound
+claims and six claims per UTC day. Rejected provider attempts still count for
+the day. A claim binds the current phone number; a number different from the
+audited destination is not dialed. After the awaited final control read, a
+synchronous fence refuses expired windows, clock reversal and day rollover
+before the sole provider POST. A refusal at any of those pre-POST checks is
+recorded as a terminal rejection and releases the concurrent-call slot. If
+that result write itself fails, the conservative response is unknown and the
+durable row can remain claimed.
+
+Only affirmative terminal status evidence releases an admitted slot, and that
+evidence remains after envelope archival. Missing/archived nonterminal
+envelopes and true post-request unknown outcomes continue to reserve capacity.
+They are never automatically redialed or erased. Stop the live smoke and set
+`outbound_runtime_controls.enabled = 0`, then read the attempt's dispatch state,
+claim/resolution times, CallSid and terminal time. Reconcile that window in the
+Twilio call log. If Twilio shows a call, do not redial; investigate or recover
+its signed callback. If Twilio definitively confirms that no call was created,
+an owner-reviewed repair may move that exact attempt to `rejected` with
+`provider_permanent_failure` / `invalid_request`, `retry_eligible = 0` and a
+canonical resolution time. If absence is uncertain, leave the slot reserved.
+These are call-admission counts, not measured charges or spending reservations.
+
+Use the reviewed attempt id in these commands; never infer one from timing:
+
+```powershell
+pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command "SELECT attempt_id, provider_dispatch_state, provider_dispatch_claimed_at, provider_dispatch_resolved_at, provider_call_sid, provider_terminal_at FROM outbound_call_attempts WHERE attempt_id = '<ATTEMPT_ID>';"
+pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command "UPDATE outbound_call_attempts SET provider_dispatch_state = 'rejected', provider_failure_code = 'provider_permanent_failure', provider_failure_category = 'invalid_request', retry_eligible = 0, provider_dispatch_resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE attempt_id = '<ATTEMPT_ID>' AND provider_dispatch_state IN ('claimed', 'provider_dispatch_unknown') AND provider_call_sid IS NULL AND relay_call_sid IS NULL AND provider_terminal_at IS NULL;"
+```
+
+The second command is authorized only after Twilio definitively confirms no
+call was created. Require exactly one changed row, then read it back. Zero or
+multiple changes stop the repair; do not broaden the predicate.
 
 ### Terminal cleanup delivery (R1 item 3)
 

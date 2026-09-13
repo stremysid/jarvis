@@ -3,19 +3,70 @@
 Current as of **2026-09-13**. Verify the current branch and checks before
 using this checkpoint. R0 passed; calling remains R1.
 
+PR #25's max-review response passes 2,512 Windows workspace tests / 122
+files. Its release gate passes 761 / 32 plus six native checks, then refuses
+missing live evidence. Source/harness typechecks and lint pass; the separate
+test-type baseline is 121 diagnostics. Max re-review and owner operations remain.
+
 ## R1 is active; the node platform decision remains on hold
 
 R0 passed on 2026-09-11. R1 depends on R0 and is entirely cloud-side.
 PR #23 implements item 2's fake calling/access matrix and confirmed Telegram
 `/call`, with local Windows validation and mutation evidence recorded in the
-PR. The production Worker still answers that calling is not configured.
+PR. PR #25 composes the production Worker; an unconfigured deployment still
+answers that calling is not configured.
 The real release runner passes its local prerequisites and then refuses the
 missing live evidence. It never places a call itself.
 
-Claude Opus 5 max requested changes on PR #23 at `d6c5fc2`; the builder's
-response and mutation evidence are in AGENT_LOG. A new max review is required.
-Item 1's real Worker/runtime composition is in draft PR #25, based on #23;
-its default production stub/socket proof remains outstanding. Twilio configuration,
+R1's v1.0 review requires Claude Opus 5 at max. Item 1's real Worker/runtime
+composition is implemented on `codex/r1-voice-runtime`, stacked on PR #23; its
+implementation does not wait on the separate review. The first checkpoint
+installs a lazy production Durable Object runtime using the real D1 access,
+activation, conversation, DeepSeek and Telegram services. Nominal proof and
+authority issuers are shared within each reconstructed graph. Configuration
+is validated before runtime effects; initialization and termination remain
+available when provider configuration is missing. The new explicit
+`IDENTITY_CHALLENGE_HMAC_KEY_VERSION` must match challenge issuance and inbound
+admission, and all three peppers must be canonical base64 for exactly 32 bytes.
+The Worker now wires verified voice routes and confirmed Telegram dispatch
+to real adapters; owner configuration and review still gate activation.
+The pre-dial capacity check and telemetry freshness corrections are
+implemented and tested. The owner approved admission through 100% of each
+configured limit, with 85% and 95% warnings. D1/R2 and provider collectors, explicit capacity
+configuration and the durable Telegram alert sink are implemented. New D1
+migration 0015 adds alert crossing receipts, recoverable leases, default-disabled
+outbound controls and atomic admission guards. It adds and backfills a terminal
+evidence column on existing attempts; it is a production schema change requiring
+max review and owner migration. The default call
+runtime now checks every final conversation turn before fresh access validation
+and durable admission. Interrupted admission releases the slot for a replacement
+prompt; cancelled context retrieval cannot start a model request. Completed
+output can still settle its receipt after interruption without closing the call.
+Persisted outbound controls now cover atomic access/number binding, expiry,
+quiet windows and the two/six admission limits. Final control reads and a
+synchronous clock fence precede dialing. Unknown claims retain their slot;
+affirmative terminal evidence survives archival. Inbound requests are verified
+once before capacity collection; their nominal form is passed to admission.
+Terminal callbacks and socket forwarding do not require model/credit config.
+The max review of #23 at d6c5fc2 requested changes. The fixes are pushed at
+695e762 and carried into this branch; max re-review remains required. The broad
+relay harness invokes DO methods directly. A separate configured test project
+now exercises the default production factory through the actual DO stub and
+client WebSocket: owner and PIN-authenticated guest turns survive real eviction,
+and a failed credit read closes the socket before another model request or turn.
+Another test drives actual Worker ingress, confirmed Telegram dispatch, signed
+TwiML and callback routes, and closes real sockets after terminal callbacks.
+Only external provider HTTP is stubbed. This does not prove live Twilio delivery.
+The guarantee is stop at the configured limit or provider refusal, not a
+reservation or a bound on later concurrent charges. An admitted call can end
+mid-conversation when credit runs out. The voice runbook identifies each
+measured or estimated source. Voice calls and turns are capacity-gated;
+Telegram text and `/sync/distill` remain ungated. Every resource warns at 85%
+and 95%; an unacknowledged send can retry later but cannot itself refuse work.
+Pre-provider refusals now
+settle claimed attempts as rejected; genuinely uncertain POST outcomes remain
+reserved for owner reconciliation.
+Twilio configuration,
 live calls and redacted live evidence remain owner operations. Items 3 and 4
 still cover the live smoke and legacy eight-digit verifier deletion. None
 of those are satisfied by the fake matrix or same-vendor advisory review.
@@ -39,6 +90,17 @@ implementation is requested on #16. Sid merged #16 on 2026-09-13 at
 `b6f3542`. Owner rollout remains: skip the POSIX-only 0700 preflight on
 Windows, apply 0014 to live D1, confirm exactly 21 projection triggers, then
 deploy the gateway. Do not start the node.
+
+Sid's real Windows suite exposed Hermes' MSI-only PowerShell path: the trusted
+host lookup rejects his Store/MSIX installation. This is deferred R3
+[issue #24](https://github.com/ksid1229-ops/jarvis/issues/24), not a PR #16
+blocker. No Hermes implementation changed. The Codex command host is a bundled
+PowerShell installation, so local command success does not reproduce Sid's
+installed Store host or clear the reported Hermes failures. Prefer evidence
+from the actual target environment over runner layout assumptions.
+
+PR #16 and PR #23 both edit NEXT_STEPS, AGENT_LOG and this document. Whichever
+merges second must preserve both milestones' current state and all log entries.
 
 GitHub Actions has used 2,000/2,000 minutes with a $0 budget and stop-usage
 enabled, resetting 2026-10-01. Sid will not raise it. Run suites locally

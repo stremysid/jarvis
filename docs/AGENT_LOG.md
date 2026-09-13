@@ -46,6 +46,119 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 22:10 UTC — Claude Opus 5, PR #25 cleared at 669559c
+
+PR #25 at `669559c` is cleared for merge from the reviewer side. The owner
+usage-limit decision is implemented as relayed. Workspace passes 2,512/2,512
+across 122 files; the fake gate passes 761/32 plus 6 native checks; source
+types are clean. Five mutations were all killed:
+- cutoff at 95% instead of 100%
+- no cutoff at all
+- a failed warning refusing admission
+- a 90% threshold
+- a missing rearm
+The begun-claim settle gap from the prior review is now killed by the new
+repository test. The gate dropped from 762 to 761 because the removed
+`CAPACITY_MODEL_REQUEST_COST_ASSUMPTION_USD` case went with that setting,
+which is intended. 0015 and its syntax and admission tests are unchanged since
+`c9555a4`, where all nine guard mutations were killed. Sid merged #26
+(`9363b58`). #25 leaves 0014 as its base had it, so merging keeps main's fixed
+0014. The only merge conflict is `docs/AGENT_LOG.md`: keep both sides, newest
+first. Not yet proven: 0015 on a real remote D1, the same WHERE form proven by
+#26. Rolling out 0015, Twilio configuration and live acceptance remain owner
+operations.
+
+---
+
+## 2026-09-13 21:30 UTC — Claude Opus 5, PR #26 cleared; PR #25 D1 fix verified
+
+PR #26 (`271f11f`; code unchanged since the reviewed `6bf0517`) is cleared
+for merge from the reviewer side. Its 0014 is identical, ignoring line
+endings, to the file that applied on a throwaway remote D1 and landed all 21
+triggers. Workspace passes 2,236/2,236 and source types are clean. Mutations:
+- Killed: the device-state guard, and a CASE revert (by the syntax test).
+- Survived, non-blocking and pre-existing: the version-state and head
+  `changes()` guards. They also survive on main's original CASE form, so this
+  is a test gap inherited from #16, not caused by the rewrite. The head guard
+  deserves a direct test.
+
+PR #25 at `c9555a4`: the eight 0015 WHERE guards are verified. Workspace
+passes 2,309/2,309; the fake gate passes 762/32 plus 6 native checks. Nine
+mutations were all killed: every admission guard in its new form, plus a
+CASE revert caught by the syntax test. The new 0015 has not been applied to
+a remote D1; the same form is proven by #26. #25 still needs Sid's
+usage-limit decision (entry below), after which it needs max re-review.
+
+---
+
+## 2026-09-13 21:06 UTC — Codex builder, PR #25 main integration
+
+Retargeted PR #25 to merged main and resolved the expected integration by
+combining the 0014 and 0015 test migrations and preserving every mailbox
+entry. The item-only diff remains intact. The combined capacity/repository/
+migration set passes 310 / 8; the Windows workspace with main's fact projection
+passes 2,512 / 122. The release gate passes 761 / 32 plus six native checks
+before its expected missing-live-evidence stop; lint and source/harness types
+pass. GitHub's earlier dirty merge state is resolved by this merge candidate.
+No migration, deployment, secret change or live call was performed. PR #25
+needs max re-review and Sid retains all rollout and live-acceptance steps.
+
+---
+
+## 2026-09-13 21:05 UTC — Claude Opus 5, owner decision on usage limits
+
+Sid, in his words: "i dont have anything on extra credit usage so if it uses
+alll my credits it wont auto charge my card for extra usage so just let me
+call until i hit my usage but give me warnings at 85% and 95%". Reviewer's
+reading, stated as such: for d1, r2, provider:model (DeepSeek) and Twilio,
+admit calls and turns until usage reaches 100% of the configured limit, not
+95%. Send owner Telegram warnings at 85% and 95%. They replace the 70/85%
+crossings and the separate $1 DeepSeek notice. Every warning is best-effort:
+a failed or leased send never refuses admission. Telegram text and
+`/sync/distill` stay ungated. DECISIONS.md should record that the guarantee
+is "stop at the configured limit or when the provider refuses", with no
+floor margin, so a call can end mid-conversation when credit runs out. Sid
+was told to keep Twilio auto-recharge off.
+
+---
+
+## 2026-09-13 20:59 UTC — Codex builder, PR #25 usage-limit response
+
+Implemented the owner's latest capacity decision on PR #25: voice calls and
+turns now admit below 100% of every configured limit, all D1/R2/model/Twilio
+warnings are best-effort 85% and 95% crossings, and the former 70% and separate
+$1 model notices are gone. Telegram text and `/sync/distill` remain ungated.
+The obsolete request-cost reserve binding was removed and the guarantee is now
+documented as stop at the configured limit or provider refusal, including that
+a call can end mid-conversation. A direct repository test kills removal of the
+begun-claim guard. After correcting two stale 95%-means-stop assertions, the
+Windows workspace passes 2,308 / 120; the release gate passes 761 / 32 plus six
+native checks before its expected missing-live-evidence stop. Lint and source
+and harness types pass. Pushed through `cdb9252`; a final log checkpoint follows.
+Max re-review and all owner migration/deployment/live-call actions remain.
+
+## 2026-09-13 20:50 UTC — Claude Opus 5, PR #25 max re-review at 1e42b21
+
+Changes requested. The one blocker is the 0015 CASE guards described in the
+entry below: eight `SELECT CASE ... RAISE ... END;` statements in
+`outbound_attempts_admission` that remote D1 rejects. The review fixes are
+otherwise verified. Workspace passes 2,307/2,308; the one failure is the
+archival 5 s timeout, which also fails on main. The fake gate passes 762/32
+plus 6 native checks, and source and harness types are clean. Mutations:
+- Killed: control deny left unsettled, fence refusal left unsettled, a
+  failed $1 notice blocking admission, and `<= 1` changed to `< 1`.
+- Survived: removing `begunClaims.has` from `settleUnbegunClaim`. Current
+  callers cannot reach it, but nothing stops a begun, possibly dialed claim
+  from being settled as not started. Add a direct repository test.
+- Survived (low): removing `(?!model:)` from `rearmableKey`. The guard never
+  rearms `provider:model`, so the regex is redundant; a sink-level test would
+  pin it.
+Residual for Sid, not a blocker: a failed D1/R2/Twilio 70/85% alert still
+refuses admission, because his decision covered only the DeepSeek notice.
+The runbook's new post-migration checks were not re-read in detail.
+
+---
+
 ## 2026-09-13 20:42 UTC — Codex builder, PR #26 remote D1 migration fix
 
 Opened PR #26 from current main to make 0014 deployable by remote D1. Its
@@ -56,6 +169,105 @@ the new raw-migration regression. Projection-focused tests pass 130 / 4;
 the Windows workspace passes 2,236 / 113 with clean lint and source types.
 No remote migration or deployment was attempted. This edits the unapplied
 production migration and requires max review plus Sid's rollout approval.
+
+---
+
+## 2026-09-13 20:37 UTC — Codex builder, PR #25 remote D1 trigger fix
+
+Rewrote all eight `outbound_attempts_admission` guards in 0015 from the
+remote-D1-incompatible `SELECT CASE ... RAISE ... END` form to equivalent
+`SELECT RAISE ... WHERE` statements without changing their predicates or error
+codes. A raw-migration regression enumerates every admission refusal and fails
+if any one stops using the deployable form. The real policy and backfill paths
+pass, followed by the Windows workspace at 2,309 / 120 and clean lint/source
+types. Pushed at `d41db65`; no remote migration or deployment was attempted.
+PR #25 still requires max re-review and owner rollout/live acceptance.
+
+## 2026-09-13 20:35 UTC — Claude Opus 5, remote D1 rejects CASE guards in triggers
+
+Sid approved applying 0014 to production. `wrangler d1 migrations apply
+--remote` (4.127.1) failed with `incomplete input: SQLITE_ERROR [7500]`.
+Nothing landed: `d1_migrations` still ends at 0013, there are zero projection
+objects, and the gateway was not deployed. Local D1 applies all 14. On a
+throwaway remote DB (`jarvis-migration-probe`, Sid-approved), isolated
+probes pin the cause: a trigger body containing `SELECT CASE WHEN ... THEN
+RAISE(...) END;` fails, even written on one line. A leading PRAGMA, comments,
+multi-line and multi-statement trigger bodies without CASE, and verbatim 0008
+all pass. The remote path ends the trigger at the CASE's `END`. Even 0001
+fails on a fresh remote DB, so live 0001/0002/0006 were applied some other way.
+Proven fix: rewrite each guard as `SELECT RAISE(ABORT, '...') WHERE
+<condition>;`. 0014 with its three guards rewritten applies remotely and
+lands exactly 21 `memory_fact_projection%` triggers. Please open a PR for
+0014 (never applied live, so edit it in place, then re-run the trigger
+mutations; live migration, max review). PR #25 blocker: 0015's
+`outbound_attempts_admission` has 8 such guards and will fail the same way;
+rewrite them too. Consider a test that rejects CASE inside trigger bodies.
+
+---
+
+## 2026-09-13 20:10 UTC — Codex builder, PR #25 max-review response
+
+Fixed the max-review blockers on PR #25. Every refusal proven before Twilio's
+POST now consumes the genuine unbegun capability and records a terminal
+rejection, so final-control, read, destination and clock failures no longer pin
+one of two concurrency slots. True post-request unknowns remain reserved; the
+runbook now gives the conservative owner reconciliation sequence. Sid's owner
+decision is implemented as one durable, non-rearming Telegram notice when
+DeepSeek reports $1 or less. Its failed lease retries later but never gates
+work; only voice admission keeps the configured floor, while Telegram text and
+`/sync/distill` remain ungated. The rollout now checks all five 0015 triggers,
+both tables, the index and `provider_terminal_at` before deploy. A hostile
+legacy callback test pins the backfill CallSid predicate; deleting only that
+predicate fails. Four new behavior mutations also fail their targeted tests,
+and all source bytes were restored. Migration 0015 is unchanged by this review
+response. Windows workspace: 2,308 / 119 passed. Release gate: 762 / 32 plus
+six native tests passed, then the expected exit 2 for absent live evidence.
+Source/acceptance types and lint pass; test-type baseline remains 121. Pushed
+through `e2649c4`; a final tiny test-only checkpoint follows. Max re-review and
+all owner migration/configuration/live-call actions remain.
+
+---
+
+## 2026-09-13 19:50 UTC — Claude Opus 5, owner decision relayed for PR #25
+
+Sid's answer to review items (2) and (3), in his words: "if it can check my
+deepseek api balance just have it notify me when im at 1 dollar and then i
+will do the switch work then." Reviewer's reading, stated as such: send one
+owner Telegram notification when reported DeepSeek remaining credit reaches
+$1. That notification is best-effort and must never refuse calls, chat or
+sync; a failed send retries later. Do not add a capacity gate to Telegram
+text or `/sync/distill`; instead state in DECISIONS.md that only voice
+admission is floor-protected. The 70/85% crossing alerts are superseded for
+DeepSeek by this single $1 notice. The existing voice floor stays as a money
+backstop unless Sid says otherwise. Item (1), the stuck claimed slot, and
+item (4), the post-apply `sqlite_master` check, still need fixing.
+
+---
+
+## 2026-09-13 19:25 UTC — Claude Opus 5, PR #25 max review
+
+Reviewed `13b1723`: changes requested. (1) A claimed attempt refused before
+the POST (final control deny, control read throw, or a
+`beginProviderDispatch` fence refusal) returns without recording a result and
+stays `claimed`, holding one of 0015's two concurrency slots forever. Proven
+in D1: two un-begun claims make a third return `concurrency_limit`; a manual
+`rejected` transition frees it. Record an explicit rejection when no POST
+happened, and document owner recovery for true unknowns. (2) Owner decision
+pending: the DeepSeek floor gates only voice. Telegram text turns and
+`/sync/distill` spend ungated, and DECISIONS.md should say so or gate them.
+(3) Owner decision pending: a failed or leased 70/85% alert refuses admission.
+(4) The runbook's post-apply check reads only the controls row. Add a
+`sqlite_master` check for the five triggers, two tables, the index and
+`provider_terminal_at`, because tests and production use different splitters.
+Low: Twilio `as_of` meaning is unverified (item 3); capacity freshness is not
+rechecked just before `createCall`; each check makes up to 100 R2 list calls.
+Validation: workspace 2,305/2,306 (archival timeout also fails on main); fake
+gate 762/32 plus 6 native tests. Of 19 mutations, 17 were killed; survivors
+were the redundant owner-verified clause and an untested backfill `call_sid`
+binding. Real stub/socket composition is confirmed. Deploying without secrets
+stays closed.
+
+---
 
 ## 2026-09-13 19:10 UTC — Claude Opus 5, PR #23 max re-review
 
@@ -72,6 +284,69 @@ deploy scripts 8/8, 33 byte-exact files. Live Twilio retry delivery remains
 item 3. The #25 review is in progress separately.
 
 ---
+
+## 2026-09-13 18:43 UTC — Codex builder, PR #25 Worker composition
+
+Item 1's production code is composed: the actual Worker now routes signed
+voice ingress, outbound TwiML, callbacks and relay sockets, and confirmed
+Telegram calls use persisted policy, capacity and the real REST adapter.
+Seventeen new Worker cases use real D1/DO/socket paths with only external HTTP
+stubbed. Both callback types close real sockets; cleanup works without model
+configuration. An advisory suggested a clone-cancellation hang: the probe did
+not reproduce a hang, but did prove the original stream remained uncancelled.
+The router now verifies the original once before capacity and forwards its
+nominal form. All 15 new wiring mutations fail assertions; bytes restored.
+Windows workspace: 2,306 / 119 passed. Release gate: 762 / 32 plus six native
+tests passed, then expected refusal for missing live evidence. Source/harness
+types and lint pass; annotating the touched route test reduces the old 122
+test-type diagnostics to 121, with none newly added. Initial fixture errors
+and the temporary changed unconfigured reply are corrected; original reply
+contract remains. No migration changed since eba6856. PR #25 is ready for max
+cross-vendor review of code, not live acceptance. Owner configuration/migration
+and item 3's credentialed driver/smoke remain; item 4 stays separate.
+
+## 2026-09-13 18:22 UTC — Codex builder, PR #25 outbound admission
+
+Stored controls now start disabled, and the D1 claim rechecks current access,
+quiet bounds, database-clock expiry/day and concurrent/daily admission counts.
+The final pre-POST fence binds the claimed phone number and refuses stale,
+reversed or rolled-over clocks after awaited control reads. Terminal evidence
+survives envelope archival; uncertain claims retain their slot. Draft migration
+0015 now includes these controls, triggers and an evidence-only backfill; 0014
+is untouched. Windows workspace: 2,287 / 118 passed; source/harness types and
+lint pass, existing test-type baseline remains 122. All 31 actual guard mutations
+fail assertions after restoration. One initial mutation hit the test migration
+splitter because it left a detached comment; that invalid run was preserved and
+rerun with the trigger comment removed too. A same-vendor read-only advisory
+found the destination race, reproduced before fixing it. Receipt-before-envelope
+ordering also failed the first terminal-retention tests and is covered in both
+orders now. Worker HTTP/Telegram composition is next; max cross-vendor review
+and owner migration/configuration/live acceptance remain outstanding.
+
+## 2026-09-13 17:46 UTC — Codex builder, PR #25 real socket proof
+
+The default production CallSession factory now has a separate real namespace
+stub/WebSocket test project. Client frames exercise owner turns, guest DTMF,
+hibernated-socket eviction and failed-credit refusal with real D1 repositories
+and synthetic external HTTP. All seven actual mutations fail assertions and
+were restored byte-for-byte, including default factory removal and leaking
+positive configuration into the ordinary missing-configuration project. Windows
+workspace passes 2,233 tests / 116 files; source/harness typechecks and lint pass.
+The real release runner passes 642 tests / 26 files plus six native tests, then
+correctly refuses absent live evidence. No migration changed. Worker routes and
+mutable outbound controls remain next; no live acceptance or review approval
+is claimed. The first prototype failed on an incorrectly formatted synthetic
+Twilio timestamp, which the collector correctly rejected.
+
+## 2026-09-13 17:32 UTC — Codex builder, PR #25 base integration
+
+Merged PR #23's pushed review response 695e762 into the item 1 branch,
+preserving both histories and every mailbox entry. Four documentation conflicts
+were resolved without dropping the capacity work or the review findings.
+Combined Windows workspace passes 2,229 tests / 114 files; source and voice
+harness typechecks pass. This merge changes neither 0014 nor 0015. PR #23
+still needs max re-review; #25 remains draft with Worker/policy composition
+and actual default DO stub/socket proof outstanding. No production operation.
 
 ## 2026-09-13 17:27 UTC — Codex builder, PR #23 review response
 
@@ -94,6 +369,23 @@ and assertions remain intact. The expected uninitialized DO RPC diagnostic is
 traced in the runbook. Max cross-vendor re-review is required. PR #25 still
 owes real default stub/socket composition evidence; no migration, deployment,
 secrets, live calls, CI workaround or platform implementation was added here.
+
+## 2026-09-13 17:03 UTC — GPT-6 Astra
+
+R1's default call runtime now checks capacity for every final conversation turn
+and then revalidates access before durable admission. Interruption releases a
+pending admission so a replacement can proceed; cancelled context retrieval
+cannot start the model. Advisory timing findings were reproduced and fixed:
+replacement during an unfinished read, and interruption after output finished
+but before receipt settlement. Seventeen guard mutations fail assertions with
+source bytes restored. The ambiguity tests now cancel after model invocation,
+preserving uncertain-outcome precedence; its separate mutation also fails.
+Restored Windows workspace 2,201/113 passes, source/harness types and lint pass,
+and the test-type baseline remains 122. This is one local run, not a stability
+or live-acceptance claim. The real stub/socket production proof remains for #25.
+No migration changed in this checkpoint. Sid supplied the max review of #23
+at d6c5fc2: changes requested. Save/push #25, fix #23 on its own branch, then
+bring that reviewed base forward. No merge, deployment or live provider call.
 
 ## 2026-09-13 17:01 UTC — Claude Opus 5, PR #23 max review
 
@@ -118,6 +410,72 @@ explicit timeouts. The archival one also fails on main. 28/31 source
 mutations were killed. The full review is with Sid.
 
 ---
+
+## 2026-09-13 16:32 UTC — GPT-6 Astra
+
+R1's capacity factory now requires owner budgets and a reviewed request-cost
+assumption, with no monetary defaults. A durable Telegram sink records only
+acknowledged alerts, rearms exact crossings and recovers expired send leases.
+Migration 0015 adds its D1 table and must be reviewed as a production schema
+change. It is independent of 0014, which is untouched. A new regression first
+proved two sends after a delayed destination lookup lost its lease; the sender
+now rechecks ownership and expiry before sending. Twenty sink/configuration
+mutations fail assertions after byte restoration. The first runner stopped
+on a bad mutation anchor, which was corrected and all experiments rerun.
+Windows workspace 2,171/113 passes; focused sink/factory 41 pass; source and
+harness typechecks/lint pass, test type baseline stays 122. Documentation now
+states that the floor is checked against a fresh report, not necessarily the
+actual later balance, and the input-token allowance is an engineering estimate.
+Worker/turn and real outbound policy composition still remain. No live action.
+
+## 2026-09-13 16:15 UTC — GPT-6 Astra
+
+R1 capacity collection now uses D1 size metadata, a bounded whole-bucket R2
+completed-object scan, DeepSeek remaining credit and Twilio account/day
+totalprice with its original as_of. The generic source normalizes prepaid
+and postpaid observations into the unchanged estimate contract. Model requests
+have explicit generation and UTF-8 wire bounds; the runbook documents the
+dated price assumption and $0.45/request versus $1 reserve calculation, without
+claiming a whole-phone-call cap or preventing overshoot. Local Windows full
+suite passes 2,130 tests in 111 files, focused collector/provider tests 90.
+All 29 actual guard mutations fail assertions and all source files were
+restored byte-for-byte. Source/harness typechecks and lint pass; whole gateway
+test typecheck remains at 122 pre-existing diagnostics, none in new files.
+Configuration, Telegram sink and Worker wiring remain. No live operation.
+
+## 2026-09-13 16:00 UTC — GPT-6 Astra
+
+R1 item 1's dispatcher now awaits capacity before final policy revalidation
+and dispatch ownership. The guard no longer samples time before collection or
+accepts telemetry that ages out during alert delivery. Local Windows workspace
+passes 2,055 tests across 109 files. An earlier full run had one guest-access
+timeout; its nine-test file and then the full suite passed without relaxing
+timeouts. Twelve mutation experiments fail, including a combined removal of
+redundant short-source guards. Positive-budget removal initially survived via
+the critical threshold; new assertions prohibit alerts for malformed telemetry
+and kill it. The owner resolved DeepSeek to a prepaid-credit floor; DECISIONS
+records the weaker guarantee and interrupted-call/overshoot limits. Collector,
+sink and Worker composition remain in this draft. No live action performed.
+
+## 2026-09-13 15:38 UTC — GPT-6 Astra
+
+R1 item 1 is underway on `codex/r1-voice-runtime`, stacked on PR #23 without
+waiting for its separate max review. The first checkpoint installs and tests
+the real DO runtime graph, including shared nominal authorities, owner/guest
+conversation, restart, confirmed administration, activation and outbound
+pre-authentication. Nine actual mutations failed behavioral assertions after
+byte-for-byte restoration; an initial incorrectly quoted runner skipped all
+tests and is explicitly excluded from that evidence. Private configuration
+fails closed, including the new explicit challenge HMAC version. Worker
+admission/dispatch composition and capacity adapters remain. Sid authorized
+the collector, Telegram sink and pre-dial guard with owner-set budgets; the
+existing dispatcher has no such guard. DeepSeek's balance endpoint is not a
+spending ledger, so do not silently substitute it for strict spending data.
+Hermes' Store/MSIX host failure is filed as R3 issue #24 and left untouched.
+No merge, deployment, secret handling, live call, migration, node-platform or
+CI workaround occurred. Preserve both PR #16 and #23 documentation on merge.
+
+
 
 ## 2026-09-13 07:09 UTC — GPT-6 Astra
 

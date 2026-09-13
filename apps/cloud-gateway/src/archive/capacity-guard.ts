@@ -14,8 +14,8 @@ export interface CapacityEstimateSource {
 export interface CapacityAlert {
   idempotencyKey: string;
   resource: CapacityResource;
-  threshold: 70 | 85;
-  code: "capacity_70" | "capacity_85";
+  threshold: 85 | 95;
+  code: "capacity_85" | "capacity_95";
 }
 
 export interface CapacityAlertSink {
@@ -32,13 +32,13 @@ export interface CapacityGuardOptions {
 
 const utcMilliseconds = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const safeResource = /^(?:d1|r2|provider:[a-z0-9][a-z0-9_-]{0,63})$/;
-const thresholds = [70, 85] as const;
+const thresholds = [85, 95] as const;
 
 function unavailable(): Error {
   return new Error("capacity_unavailable");
 }
 
-function alertFor(resource: CapacityResource, threshold: 70 | 85): CapacityAlert {
+function alertFor(resource: CapacityResource, threshold: 85 | 95): CapacityAlert {
   return {
     idempotencyKey: `capacity:${resource}:${threshold}`,
     resource,
@@ -61,10 +61,12 @@ export class CapacityGuard {
 
   async assertAcceptingNewTurn(): Promise<void> {
     try {
+      const estimates = await this.options.source.readEstimates();
+      // A production collector can finish after the guard started. Compare its
+      // observation to this clock, then recheck after asynchronous alert delivery.
       const now = this.options.now();
       const nowMilliseconds = now.getTime();
       if (!Number.isFinite(nowMilliseconds)) throw unavailable();
-      const estimates = await this.options.source.readEstimates();
       if (!Array.isArray(estimates) || estimates.length < 3) throw unavailable();
 
       const resources = new Set<string>();
@@ -72,6 +74,8 @@ export class CapacityGuard {
       let hasR2 = false;
       let hasProvider = false;
       let critical = false;
+      let oldestObservation = Infinity;
+      let newestObservation = -Infinity;
       for (const estimate of estimates) {
         if (!safeResource.test(estimate.resource) || resources.has(estimate.resource)) throw unavailable();
         resources.add(estimate.resource);
@@ -89,15 +93,24 @@ export class CapacityGuard {
         }
         const age = nowMilliseconds - observedMilliseconds;
         if (age < 0 || age >= this.options.maximumTelemetryAgeMs) throw unavailable();
+        oldestObservation = Math.min(oldestObservation, observedMilliseconds);
+        newestObservation = Math.max(newestObservation, observedMilliseconds);
 
         for (const threshold of thresholds) {
           const alert = alertFor(estimate.resource, threshold);
-          if (atOrAbove(estimate, threshold)) await this.options.sink.emit(alert);
-          else await this.options.sink.rearm(alert.idempotencyKey);
+          // Owner warnings are advisory. Their durable lease can retry later,
+          // but neither a failed send nor receipt maintenance refuses work.
+          try {
+            if (atOrAbove(estimate, threshold)) await this.options.sink.emit(alert);
+            else await this.options.sink.rearm(alert.idempotencyKey);
+          } catch { /* best effort */ }
         }
-        critical ||= atOrAbove(estimate, 95);
+        critical ||= atOrAbove(estimate, 100);
       }
       if (!hasD1 || !hasR2 || !hasProvider || critical) throw unavailable();
+      const completedAt = this.options.now().getTime();
+      if (!Number.isFinite(completedAt) || completedAt < newestObservation
+        || completedAt - oldestObservation >= this.options.maximumTelemetryAgeMs) throw unavailable();
     } catch {
       throw unavailable();
     }

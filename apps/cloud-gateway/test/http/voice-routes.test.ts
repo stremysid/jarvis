@@ -31,6 +31,14 @@ function dependencies(overrides: Record<string, unknown> = {}): VoiceRouteDepend
 }
 
 describe("routeVoiceRequest", () => {
+  it.each(["unissued", "throws"] as const)("refuses %s verifier output before capacity", async (failure) => {
+    let capacityCalls = 0;
+    const response = await routeVoiceRequest(new Request("https://worker.internal/voice/inbound", { method: "POST" }), dependencies({
+      twilio: { verifyWebhook: async () => { if (failure === "throws") throw new Error("synthetic verifier failure"); return {}; } },
+      capacity: { assertAcceptingNewTurn: async () => { capacityCalls++; } },
+    }));
+    expect(response.status).toBe(503); expect(capacityCalls).toBe(0);
+  });
   it("rejects a query-bearing voice path before evaluating dependencies", async () => {
     let dependencyReads = 0;
     const unavailableDependencies = new Proxy({} as VoiceRouteDependencies, {
@@ -108,21 +116,26 @@ describe("routeVoiceRequest", () => {
     }
   });
 
-  it("delegates exact inbound POSTs without consuming or replacing the original request", async () => {
+  it("verifies the original inbound body once and passes its nominal form to the handler", async () => {
+    const fake = new FakeTwilioProvider();
+    const signature = await fake.signWebhook("https://jarvis.example/voice/inbound", new TextEncoder().encode("CallSid=private"));
     const request = new Request("https://worker.internal/voice/inbound", {
       method: "POST",
       body: "CallSid=private",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
+      headers: { "content-type": "application/x-www-form-urlencoded", "x-twilio-signature": signature },
     });
     let observedRequest: Request | null = null;
     const response = await routeVoiceRequest(request, dependencies({
-      inbound: async (candidate) => {
+      twilio: fake,
+      inbound: async (candidate: Request, form: Parameters<VoiceRouteDependencies["inbound"]>[1]) => {
         observedRequest = candidate;
+        expect(form.get("CallSid")).toBe("private");
         return new Response("Not implemented", { status: 501 });
       },
     }));
 
     expect(observedRequest).toBe(request);
+    expect(request.bodyUsed).toBe(true);
     await expect(exactResponse(response)).resolves.toEqual({
       status: 501,
       cacheControl: null,
@@ -131,8 +144,11 @@ describe("routeVoiceRequest", () => {
   });
 
   it("fails closed at capacity before reading or invoking the inbound handler", async () => {
+    const fake = new FakeTwilioProvider();
+    const signature = await fake.signWebhook("https://jarvis.example/voice/inbound", new Uint8Array());
     const events: string[] = [];
     const routeDependencies = dependencies({
+      twilio: fake,
       capacity: {
         assertAcceptingNewTurn: async () => {
           events.push("capacity");
@@ -152,7 +168,8 @@ describe("routeVoiceRequest", () => {
     });
 
     const response = await routeVoiceRequest(
-      new Request("https://worker.internal/voice/inbound", { method: "POST" }),
+      new Request("https://worker.internal/voice/inbound", { method: "POST", body: "",
+        headers: { "content-type": "application/x-www-form-urlencoded", "x-twilio-signature": signature } }),
       guardedDependencies,
     );
 

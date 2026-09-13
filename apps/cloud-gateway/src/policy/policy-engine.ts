@@ -3,6 +3,7 @@ import type { EventRepositoryContract } from "../persistence/event-repository.js
 import { TransactionRunner } from "../persistence/transaction.js";
 import { PolicyAudit } from "./policy-audit.js";
 import type { DispatchPolicyCheck, OutboundCallRequest, PolicyDecision, PolicyEngineContract, PolicyReason } from "./policy-types.js";
+import { outboundControlDecision, snapshotOutboundControls, type OutboundControls, type OutboundControlSource } from "./outbound-controls.js";
 
 export type { DispatchPolicyCheck, OutboundCallRequest, PolicyDecision, PolicyEngineContract, PolicyReason } from "./policy-types.js";
 export interface TrustedOrigin { principalId: string; issuedBy: "telegram_call_command" | "local_cli"; commandHash: Sha256Hex; }
@@ -14,6 +15,10 @@ export interface MutablePolicyContext {
   outboundCallsForUtcPolicyDay(principalId: string, utcDay: string): number | Promise<number>;
   authenticatedOrigin(commandId: string): TrustedOrigin | null | Promise<TrustedOrigin | null>;
 }
+
+/** Production reads immutable stored controls; component tests may retain synchronous ports. */
+export interface StoredPolicyContext extends OutboundControlSource,
+  Pick<MutablePolicyContext, "now" | "activeOutboundCalls" | "outboundCallsForUtcPolicyDay" | "authenticatedOrigin"> {}
 
 interface StoredDecision { input_hash: string; outcome: "allow" | "deny"; reason_code: PolicyReason; }
 interface PolicyClockSample { readonly epochMs: number; readonly iso: string; readonly utcDay: string; }
@@ -85,7 +90,7 @@ export class PolicyEngine implements PolicyEngineContract {
   constructor(private readonly deps: {
     database: D1Database;
     events: EventRepositoryContract;
-    context: MutablePolicyContext;
+    context: MutablePolicyContext | StoredPolicyContext;
     policyVersion?: string;
     newUlid?: () => Ulid;
   }) {
@@ -103,7 +108,7 @@ export class PolicyEngine implements PolicyEngineContract {
       ? this.persistDecision(request, inputHash, denied("invalid_origin"), false)
       : denied("invalid_origin");
     if (existing !== null) return this.fromStored(existing);
-    return this.persistDecision(request, inputHash, await this.evaluateNew(request, this.sampleNow()), true);
+    return this.persistDecision(request, inputHash, await this.evaluateNew(request), true);
   }
 
   async recheckOutboundDispatch(input: OutboundCallRequest, attemptId: Ulid): Promise<DispatchPolicyCheck> {
@@ -154,26 +159,15 @@ export class PolicyEngine implements PolicyEngineContract {
     }
   }
 
-  private async evaluateNew(request: OutboundCallRequest, now: PolicyClockSample): Promise<PolicyDecision> {
+  private async evaluateNew(request: OutboundCallRequest): Promise<PolicyDecision> {
     if (request.purposeCode !== "smoke" && request.purposeCode !== "user_requested") return denied("invalid_purpose");
     if (!await this.verifiedDestination(request.principalId, request.destinationIdentityId)) return denied("destination_not_verified");
-    return this.recheckMutable(request, now);
-  }
-  private async recheckMutable(request: OutboundCallRequest, now: PolicyClockSample): Promise<PolicyDecision> {
-    const synchronous = this.recheckSynchronousMutable(request, now);
-    if (synchronous.decision === "deny") return synchronous;
-    const activeCalls: unknown = await this.deps.context.activeOutboundCalls(request.principalId);
-    if (!isNonNegativeCount(activeCalls)) return denied("invalid_dispatch_attempt");
-    if (activeCalls >= 2) return denied("concurrency_limit");
-    const dailyCalls: unknown = await this.deps.context.outboundCallsForUtcPolicyDay(request.principalId, now.utcDay);
-    if (!isNonNegativeCount(dailyCalls)) return denied("invalid_dispatch_attempt");
-    if (dailyCalls >= 6) return denied("daily_limit");
-    if (await this.retryCount(request.commandId) > 1) return denied("retry_limit");
-    return { decision: "allow", reason: "allowed" };
+    return (await this.recheckMutableForDispatch(request)).result;
   }
   private async recheckMutableForDispatch(request: OutboundCallRequest): Promise<{ result: PolicyDecision; checkedAt: string }> {
+    let controls = await this.readStoredControls();
     const initialNow = this.sampleNow();
-    const initialSynchronous = this.recheckSynchronousMutable(request, initialNow);
+    const initialSynchronous = this.recheckSynchronousMutable(request, initialNow, controls);
     if (initialSynchronous.decision === "deny") {
       return { result: initialSynchronous, checkedAt: initialNow.iso };
     }
@@ -186,6 +180,7 @@ export class PolicyEngine implements PolicyEngineContract {
     let lastNow = initialNow;
     for (let pass = 0; pass < MAX_POLICY_DAY_STABILITY_PASSES; pass += 1) {
       const dailyCalls: unknown = await this.deps.context.outboundCallsForUtcPolicyDay(request.principalId, candidateDay);
+      controls = await this.readStoredControls();
       const finalNow = this.sampleNow();
       lastNow = finalNow;
       if (!isNonNegativeCount(dailyCalls)) {
@@ -196,24 +191,33 @@ export class PolicyEngine implements PolicyEngineContract {
         candidateDay = finalDay;
         continue;
       }
-      let result = this.recheckSynchronousMutable(request, finalNow);
+      let result = this.recheckSynchronousMutable(request, finalNow, controls);
       if (result.decision === "allow" && activeCalls >= 2) result = denied("concurrency_limit");
       if (result.decision === "allow" && dailyCalls >= 6) result = denied("daily_limit");
       if (result.decision === "allow" && retries > 1) result = denied("retry_limit");
       return { result, checkedAt: finalNow.iso };
     }
-    const finalSynchronous = this.recheckSynchronousMutable(request, lastNow);
+    const finalSynchronous = this.recheckSynchronousMutable(request, lastNow, controls);
     return {
       result: finalSynchronous.decision === "deny" ? finalSynchronous : denied("invalid_dispatch_attempt"),
       checkedAt: lastNow.iso,
     };
   }
-  private recheckSynchronousMutable(request: OutboundCallRequest, now: PolicyClockSample): PolicyDecision {
-    const killSwitch: unknown = this.deps.context.killSwitch;
+  private async readStoredControls(): Promise<Readonly<OutboundControls> | undefined> {
+    return "readControls" in this.deps.context ? snapshotOutboundControls(await this.deps.context.readControls()) : undefined;
+  }
+  private recheckSynchronousMutable(request: OutboundCallRequest, now: PolicyClockSample, controls?: Readonly<OutboundControls>): PolicyDecision {
+    const context = this.deps.context;
+    if ("readControls" in context) {
+      if (controls === undefined) return denied("invalid_dispatch_attempt");
+      if (!validExpiry(request.authorizationExpiresAt, now)) return denied("authorization_expired");
+      return outboundControlDecision(controls, now.iso);
+    }
+    const killSwitch: unknown = context.killSwitch;
     if (typeof killSwitch !== "boolean") return denied("invalid_dispatch_attempt");
     if (killSwitch) return denied("kill_switch_enabled");
     if (!validExpiry(request.authorizationExpiresAt, now)) return denied("authorization_expired");
-    const quietHours: unknown = this.deps.context.isQuietHours(new Date(now.epochMs));
+    const quietHours: unknown = context.isQuietHours(new Date(now.epochMs));
     if (typeof quietHours !== "boolean") return denied("invalid_dispatch_attempt");
     if (quietHours) return denied("quiet_hours");
     return { decision: "allow", reason: "allowed" };

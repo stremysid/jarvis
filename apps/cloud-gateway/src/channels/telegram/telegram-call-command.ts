@@ -74,9 +74,10 @@ export class D1TelegramCallCommands {
     try {
       const result = await dispatchOutboundCall(await this.commandFor(accepted), dispatch);
       switch (result.status) {
+        case "capacity_unavailable": return "Calling is unavailable because capacity or spending telemetry does not permit another call.";
         case "dispatched": return "Call request accepted for your verified phone.";
         case "provider_dispatch_unknown": return "Call acknowledgement is pending. Check your phone before sending another request.";
-        case "rejected": return "The phone provider rejected the call request.";
+        case "rejected": return "The call request was rejected before a call was acknowledged.";
         case "denied": return "The call request was refused by the calling policy.";
       }
     } catch (error) {

@@ -11,7 +11,7 @@ export interface VoiceRouteDependencies {
   publicOrigin: URL;
   twilio: TwilioRequestVerifier;
   capacity: Pick<CapacityGuard, "assertAcceptingNewTurn">;
-  inbound(request: Request): Promise<Response>;
+  inbound(request: Request, verifiedForm: VerifiedTwilioForm): Promise<Response>;
   outbound(request: Request, attemptId: Ulid): Promise<Response>;
   relayEnded(form: VerifiedTwilioForm): Promise<Response>;
   relaySession(request: Request, sessionId: Ulid): Promise<Response>;
@@ -67,6 +67,19 @@ export async function routeVoiceRequest(
   if (url.pathname === "/voice/inbound" && request.method === "POST") {
     const trustedOrigin = snapshotTrustedPublicOrigin(ownData(dependencies, "publicOrigin"));
     if (trustedOrigin === null) return plainResponse("unavailable", 503);
+    // Authenticate before capacity collection can read providers or send an alert.
+    // Consume the original once: an unread clone can retain its stream after rejection.
+    const verifier = method(ownData(dependencies, "twilio"), "verifyWebhook");
+    if (verifier === null) return plainResponse("unavailable", 503);
+    let verifiedForm: VerifiedTwilioForm;
+    try {
+      const verified = await (verifier.call as TwilioRequestVerifier["verifyWebhook"]).call(verifier.receiver, {
+        request, exactUrl: `${trustedOrigin.origin}/voice/inbound`,
+      });
+      if (verified === null) return plainResponse("forbidden", 403);
+      if (snapshotVerifiedTwilioFormPairs(verified) === null) return plainResponse("unavailable", 503);
+      verifiedForm = verified;
+    } catch { return plainResponse("unavailable", 503); }
     const capacitySnapshot = method(ownData(dependencies, "capacity"), "assertAcceptingNewTurn");
     const capacityThis = capacitySnapshot?.receiver as Pick<CapacityGuard, "assertAcceptingNewTurn">;
     const assertAcceptingNewTurn = capacitySnapshot?.call as CapacityGuard["assertAcceptingNewTurn"];
@@ -79,7 +92,7 @@ export async function routeVoiceRequest(
     const inbound = ownData(dependencies, "inbound");
     if (typeof inbound !== "function") return plainResponse("unavailable", 503);
     try {
-      const response: unknown = await inbound.call(dependencies, request);
+      const response: unknown = await inbound.call(dependencies, request, verifiedForm);
       return response instanceof Response ? response : plainResponse("unavailable", 503);
     } catch {
       return plainResponse("unavailable", 503);

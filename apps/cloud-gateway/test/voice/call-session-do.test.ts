@@ -1,9 +1,13 @@
 import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Env } from "../../src/env.js";
+import type { CapacityGuard } from "../../src/archive/capacity-guard.js";
+import { createFakeCallingSystem } from "../../../../tests/acceptance/fake/voice-call-system.js";
 import { D1ContextRetriever } from "../../src/conversation/context-retriever.js";
 import { ConversationRepository } from "../../src/conversation/conversation-repository.js";
 import { DefaultConversationService } from "../../src/conversation/conversation-service.js";
 import type { ConversationService, ModelToken } from "../../src/conversation/conversation-types.js";
+import { createVoiceStreamDelivery } from "../../src/conversation/conversation-types.js";
 import { DefaultModelAdapter } from "../../src/model/model-adapter.js";
 import type { RelayEvent } from "../../src/providers/conversation-relay.js";
 import { FakeModelProvider, type FakeModelProviderOptions } from "../../src/providers/fake-model-provider.js";
@@ -23,6 +27,7 @@ import {
   type CallSessionRuntimeFactory,
 } from "../../src/voice/call-session-do.js";
 import { CapabilityRegistry } from "../../src/voice/capability-registry.js";
+import { readVoiceRuntimeConfiguration } from "../../src/voice/production-runtime.js";
 import {
   createTargetGuestAccessDocumentVerifier,
   OwnerAccessService,
@@ -49,6 +54,7 @@ import {
 } from "../../src/voice/outbound.js";
 import {
   applyFoundationMigration,
+  applyVoiceRuntimeMigration,
   clearAuthenticationAttemptReservationsForTest,
   clearCallSessionsForTest,
   clearConversationDataForTest,
@@ -201,6 +207,8 @@ function relaySetup(session: StoredCallSession): Extract<RelayEvent, { type: "se
   };
 }
 
+const healthyCapacity = { async assertAcceptingNewTurn(): Promise<void> {} };
+
 function makeCore(input: {
   session: StoredCallSession;
   repo: CallRepository;
@@ -209,6 +217,7 @@ function makeCore(input: {
   activation?: PhoneActivationChallengeConfirmer | null;
   ownerAccess?: import("../../src/voice/owner-access-service.js").OwnerAccessService | null;
   conversation?: ConversationService | null;
+  capacity?: Pick<CapacityGuard, "assertAcceptingNewTurn">;
   turnIds?: readonly Ulid[];
   now?: () => Date;
 }) {
@@ -224,6 +233,11 @@ function makeCore(input: {
     )
     : input.authority;
   const turnIds = [...(input.turnIds ?? [TURN_ID])];
+  const newTurnId = vi.fn(() => {
+    const turnId = turnIds.shift();
+    if (turnId === undefined) throw new Error("fixture_turn_id_exhausted");
+    return turnId;
+  });
   return {
     close,
     sendNeutralText,
@@ -231,7 +245,9 @@ function makeCore(input: {
     finish,
     cancelOutput,
     authority,
+    newTurnId,
     instance: new CallSessionCore({
+      capacity: input.capacity ?? healthyCapacity,
       session: input.session,
       expectedAccountSid: ACCOUNT_SID,
       repository: input.repo,
@@ -241,11 +257,7 @@ function makeCore(input: {
       ownerAccess: input.ownerAccess ?? null,
       conversation: input.conversation ?? null,
       relay: { close, sendNeutralText, sendToken, finish, cancelOutput },
-      newTurnId: () => {
-        const turnId = turnIds.shift();
-        if (turnId === undefined) throw new Error("fixture_turn_id_exhausted");
-        return turnId;
-      },
+      newTurnId,
       now: input.now ?? (() => new Date(NOW)),
     }),
   };
@@ -512,6 +524,7 @@ async function accessHarness(
   kind: "owner" | "guest",
   callSidLimit?: number,
   withOwnerAdministration = false,
+  capacity = healthyCapacity,
 ) {
   await clearFixture();
   await seedActiveVoiceIdentity();
@@ -571,6 +584,7 @@ async function accessHarness(
   const close = vi.fn<(code: number) => void>();
   const sendNeutralText = vi.fn<(text: string) => Promise<void>>(async () => undefined);
   const instance = new CallSessionCore({
+    capacity,
     session: stored,
     expectedAccountSid: ACCOUNT_SID,
     repository: repo,
@@ -821,6 +835,7 @@ describe("CallSessionCore owner and guest access", () => {
       })),
     } as unknown as ConversationService;
     const restarted = new CallSessionCore({
+      capacity: { async assertAcceptingNewTurn(): Promise<void> {} },
       session: active,
       expectedAccountSid: ACCOUNT_SID,
       repository: harness.repo,
@@ -849,6 +864,7 @@ describe("CallSessionCore owner and guest access", () => {
     if (active === null || active.phase !== "active") throw new Error("active_session_fixture_missing");
     const conversation = { handleTurn: vi.fn() } as unknown as ConversationService;
     const restarted = new CallSessionCore({
+      capacity: { async assertAcceptingNewTurn(): Promise<void> {} },
       session: active,
       expectedAccountSid: ACCOUNT_SID,
       repository: harness.repo,
@@ -967,6 +983,7 @@ describe("CallSessionCore owner and guest access", () => {
     const preAuth = await harness.repo.getCallSession(harness.stored.sessionId);
     if (preAuth === null || preAuth.phase !== "pre_auth") throw new Error("pre_auth_fixture_missing");
     const restarted = new CallSessionCore({
+      capacity: { async assertAcceptingNewTurn(): Promise<void> {} },
       session: preAuth,
       expectedAccountSid: ACCOUNT_SID,
       repository: harness.repo,
@@ -1121,6 +1138,7 @@ describe("CallSessionCore owner and guest access", () => {
     const active = await harness.repo.getCallSession(harness.stored.sessionId);
     if (active === null || active.phase !== "active") throw new Error("active_session_fixture_missing");
     const restarted = new CallSessionCore({
+      capacity: { async assertAcceptingNewTurn(): Promise<void> {} },
       session: active,
       expectedAccountSid: ACCOUNT_SID,
       repository: harness.repo,
@@ -1167,6 +1185,7 @@ describe("CallSessionCore access, enrollment, and conversation", () => {
     };
 
     expect(() => new CallSessionCore({
+      capacity: { async assertAcceptingNewTurn(): Promise<void> {} },
       session: stored,
       expectedAccountSid: ACCOUNT_SID,
       repository: repo,
@@ -1501,6 +1520,590 @@ describe("CallSessionCore access, enrollment, and conversation", () => {
   });
 });
 
+describe("CallSession capacity admission", () => {
+  const prompt = { type: "prompt", text: "An ordinary question", language: "en-US", final: true } as const;
+  beforeEach(async () => { await applyFoundationMigration(); await clearFixture(); await seedActiveVoiceIdentity(); });
+  afterEach(async () => { vi.restoreAllMocks(); await clearFixture(); });
+
+  function blocked() {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const capacity = { assertAcceptingNewTurn: vi.fn(async () => { await gate; }) };
+    return { capacity, release };
+  }
+
+  async function start(capacity: Pick<CapacityGuard, "assertAcceptingNewTurn">) {
+    const repo = repository();
+    const stored = await createInboundSession(repo);
+    const provider = new FakeModelProvider({ streamText: "A safe answer", streamTokenCount: 1 });
+    const conversation = new DefaultConversationService({
+      repository: new ConversationRepository(env.DB, new EventRepository(env.DB)),
+      model: new DefaultModelAdapter(provider), context: new D1ContextRetriever(env.DB),
+      dispatcher: { async dispatch(): Promise<never> { throw new Error("unexpected_voice_outbox_dispatch"); } },
+      redactor: new Redactor(), now: () => new Date(NOW),
+    });
+    const handleTurn = vi.spyOn(conversation, "handleTurn");
+    const core = makeCore({ session: stored, repo, conversation, capacity, turnIds: [TURN_ID, NEXT_TURN_ID] });
+    await core.instance.handleRelayEvent(relaySetup(stored));
+    return { ...core, provider, handleTurn };
+  }
+
+  it("refuses capacity before allocating an id, writing a turn or requesting the model", async () => {
+    const capacity = { assertAcceptingNewTurn: vi.fn(async () => { throw new Error("capacity_unavailable"); }) };
+    const core = await start(capacity);
+    await expect(core.instance.handleRelayEvent(prompt)).rejects.toThrow("capacity_unavailable");
+    expect(capacity.assertAcceptingNewTurn).toHaveBeenCalledOnce();
+    expect(core.newTurnId).not.toHaveBeenCalled();
+    expect(core.handleTurn).not.toHaveBeenCalled();
+    expect(core.provider.requests).toHaveLength(0);
+    expect(await conversationTurn(TURN_ID)).toBeNull();
+  });
+
+  it.each([undefined, null, {}, { assertAcceptingNewTurn: true }])("refuses a missing or malformed capacity port: %j", async (capacity) => {
+    const repo = repository();
+    const stored = await createInboundSession(repo);
+    expect(() => new CallSessionCore({ session: stored, expectedAccountSid: ACCOUNT_SID, repository: repo,
+      capacity: capacity as never,
+      relay: { close: vi.fn(), sendNeutralText: vi.fn(), sendToken: vi.fn(), finish: vi.fn(), cancelOutput: vi.fn() },
+      now: () => new Date(NOW),
+    })).toThrow("call_session_configuration_invalid");
+  });
+
+  it("captures the capacity method and rechecks it for every final conversation turn", async () => {
+    let allowed = true;
+    const capacity = { assertAcceptingNewTurn: vi.fn(async function (this: unknown) {
+      expect(this).toBe(capacity);
+      if (!allowed) throw new Error("capacity_unavailable");
+    }) };
+    const captured = capacity.assertAcceptingNewTurn;
+    const core = await start(capacity);
+    capacity.assertAcceptingNewTurn = vi.fn(async () => undefined);
+    await core.instance.handleRelayEvent({ ...prompt, final: false });
+    expect(captured).not.toHaveBeenCalled();
+    await core.instance.handleRelayEvent(prompt);
+    allowed = false;
+    await expect(core.instance.handleRelayEvent(prompt)).rejects.toThrow("capacity_unavailable");
+    expect(captured).toHaveBeenCalledTimes(2);
+    expect(capacity.assertAcceptingNewTurn).not.toHaveBeenCalled();
+    expect(core.provider.requests).toHaveLength(1);
+    expect(await conversationTurn(NEXT_TURN_ID)).toBeNull();
+  });
+
+  it("reserves the turn before collection so a second prompt cannot start another admission", async () => {
+    const { capacity, release } = blocked();
+    const core = await start(capacity);
+    const pending = core.instance.handleRelayEvent(prompt);
+    try {
+      await vi.waitFor(() => expect(capacity.assertAcceptingNewTurn).toHaveBeenCalledOnce());
+      await expect(core.instance.handleRelayEvent(prompt)).rejects.toThrow("turn_in_progress");
+      expect(core.newTurnId).not.toHaveBeenCalled();
+    } finally { release(); await pending; }
+    expect(core.provider.requests).toHaveLength(1);
+  });
+
+  it.each([false, true])("quietly cancels admission on interruption even if collection later fails: %s", async (fails) => {
+    const { capacity, release } = blocked();
+    const read = capacity.assertAcceptingNewTurn.getMockImplementation()!;
+    capacity.assertAcceptingNewTurn.mockImplementationOnce(async () => { await read(); if (fails) throw new Error("capacity_unavailable"); });
+    const core = await start(capacity);
+    const authorize = vi.spyOn(core.authority!, "authorize");
+    const pending = core.instance.handleRelayEvent(prompt);
+    void pending.catch(() => undefined);
+    try {
+      await vi.waitFor(() => expect(capacity.assertAcceptingNewTurn).toHaveBeenCalledOnce());
+      await core.instance.handleRelayEvent({ type: "interrupt" });
+    } finally { release(); }
+    await expect(pending).resolves.toBeUndefined();
+    expect(authorize).not.toHaveBeenCalled();
+    expect(core.handleTurn).not.toHaveBeenCalled();
+    expect(core.newTurnId).not.toHaveBeenCalled();
+    expect(core.instance.phase).toBe("active");
+    await core.instance.handleRelayEvent(prompt);
+    expect(core.provider.requests).toHaveLength(1);
+    expect(core.close).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("admits the replacement prompt while the interrupted read remains pending, late failure: %s", async (fails) => {
+    const { capacity, release } = blocked();
+    const read = capacity.assertAcceptingNewTurn.getMockImplementation()!;
+    capacity.assertAcceptingNewTurn.mockImplementationOnce(async () => { await read(); if (fails) throw new Error("capacity_unavailable"); })
+      .mockResolvedValue(undefined);
+    const core = await start(capacity);
+    const pending = core.instance.handleRelayEvent(prompt);
+    void pending.catch(() => undefined);
+    try {
+      await vi.waitFor(() => expect(capacity.assertAcceptingNewTurn).toHaveBeenCalledOnce());
+      await core.instance.handleRelayEvent({ type: "interrupt" });
+      await expect(core.instance.handleRelayEvent({ ...prompt, text: "The replacement question" })).resolves.toBeUndefined();
+      expect(core.provider.requests).toHaveLength(1);
+      expect(core.provider.requests[0]).toMatchObject({ operation: "streamText", userText: "The replacement question" });
+    } finally { release(); await pending; }
+    expect(core.instance.phase).toBe("active");
+    expect(core.close).not.toHaveBeenCalled();
+  });
+
+  it("does not wait for a read when the socket closes synchronously as collection starts", async () => {
+    const { capacity, release } = blocked();
+    const read = capacity.assertAcceptingNewTurn.getMockImplementation()!;
+    const core = await start(capacity);
+    let closing!: Promise<void>;
+    capacity.assertAcceptingNewTurn.mockImplementationOnce(async () => {
+      closing = core.instance.handleSocketClose();
+      await read();
+    });
+    const pending = core.instance.handleRelayEvent(prompt);
+    let failure: unknown;
+    const observed = pending.catch((error: unknown) => { failure = error; });
+    try {
+      await vi.waitFor(() => expect(failure).toMatchObject({ message: "call_session_terminal" }));
+      await closing;
+      expect(core.provider.requests).toHaveLength(0);
+      expect(core.newTurnId).not.toHaveBeenCalled();
+    } finally { release(); await observed; }
+  });
+
+  it.each(["terminal", "socket", "provider"] as const)("refuses a collected turn after %s termination", async (kind) => {
+    const { capacity, release } = blocked();
+    const core = await start(capacity);
+    const pending = core.instance.handleRelayEvent(prompt);
+    void pending.catch(() => undefined);
+    try {
+      await vi.waitFor(() => expect(capacity.assertAcceptingNewTurn).toHaveBeenCalledOnce());
+      if (kind === "terminal") await core.instance.terminate("completed");
+      else await core.instance.handleSocketClose(kind === "provider" ? "provider_error" : "socket_closed");
+    } finally { release(); }
+    await expect(pending).rejects.toThrow("call_session_terminal");
+    expect(core.handleTurn).not.toHaveBeenCalled();
+    expect(core.newTurnId).not.toHaveBeenCalled();
+    expect(core.sendToken).not.toHaveBeenCalled();
+  });
+
+  it("reauthorizes the guest after collection so revocation during the read prevents a turn", async () => {
+    const { capacity, release } = blocked();
+    const core = await accessHarness("guest", undefined, false, capacity);
+    await core.instance.handleRelayEvent(relaySetup(core.stored));
+    await sendDigits(core.instance, "4827");
+    expect(capacity.assertAcceptingNewTurn).not.toHaveBeenCalled();
+    const pending = core.instance.handleRelayEvent(prompt);
+    void pending.catch(() => undefined);
+    try {
+      await vi.waitFor(() => expect(capacity.assertAcceptingNewTurn).toHaveBeenCalledOnce());
+      await env.DB.prepare("UPDATE voice_access_grants SET grant_version = 2, status = 'revoked', updated_at = ?, revoked_at = ? WHERE grant_id = ?")
+        .bind(new Date(NOW.valueOf() + 1).toISOString(), new Date(NOW.valueOf() + 1).toISOString(), GUEST_GRANT_ID).run();
+    } finally { release(); }
+    await expect(pending).rejects.toThrow();
+    expect(core.conversation.handleTurn).not.toHaveBeenCalled();
+  });
+
+  it("honors interruption during the fresh authorization after capacity succeeds", async () => {
+    const capacity = { assertAcceptingNewTurn: vi.fn(async () => undefined) };
+    const core = await start(capacity);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const authorize = vi.spyOn(core.authority!, "authorize").mockImplementation(async (authority) => {
+      const captured = core.authority!.snapshot(authority);
+      await gate;
+      return captured;
+    });
+    const pending = core.instance.handleRelayEvent(prompt);
+    void pending.catch(() => undefined);
+    try {
+      await vi.waitFor(() => expect(authorize).toHaveBeenCalledOnce());
+      await core.instance.handleRelayEvent({ type: "interrupt" });
+    } finally { release(); }
+    await expect(pending).resolves.toBeUndefined();
+    expect(capacity.assertAcceptingNewTurn).toHaveBeenCalledOnce();
+    expect(core.handleTurn).not.toHaveBeenCalled();
+    expect(core.newTurnId).not.toHaveBeenCalled();
+  });
+
+  it("admits a replacement before the interrupted authorization returns", async () => {
+    const core = await start(healthyCapacity);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const authorize = vi.spyOn(core.authority!, "authorize").mockImplementationOnce(async (authority) => {
+      const captured = core.authority!.snapshot(authority);
+      await gate;
+      return captured;
+    });
+    const pending = core.instance.handleRelayEvent(prompt);
+    void pending.catch(() => undefined);
+    try {
+      await vi.waitFor(() => expect(authorize).toHaveBeenCalledOnce());
+      await core.instance.handleRelayEvent({ type: "interrupt" });
+      await expect(core.instance.handleRelayEvent({ ...prompt, text: "A replacement after interrupt" })).resolves.toBeUndefined();
+      expect(core.provider.requests).toHaveLength(1);
+      expect(core.provider.requests[0]).toMatchObject({ operation: "streamText", userText: "A replacement after interrupt" });
+    } finally { release(); await pending; }
+    expect(core.instance.phase).toBe("active");
+    expect(core.close).not.toHaveBeenCalled();
+  });
+
+  it("never starts an abort-ignoring model after interruption during durable context retrieval", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const context = { retrieve: vi.fn(async () => { await gate; return []; }) };
+    // This adapter intentionally ignores the signal, so its own cancellation
+    // protection cannot hide a missing check at the service's spend boundary.
+    const stream = vi.fn(async function* () { yield { index: 0, text: "Should never be requested" }; });
+    const service = new DefaultConversationService({
+      repository: new ConversationRepository(env.DB, new EventRepository(env.DB)),
+      model: { stream }, context,
+      dispatcher: { async dispatch(): Promise<never> { throw new Error("unexpected_voice_outbox_dispatch"); } },
+      redactor: new Redactor(), now: () => new Date(NOW),
+    });
+    const controller = new AbortController();
+    const sendToken = vi.fn(async () => undefined);
+    const finish = vi.fn(async () => undefined);
+    const pending = service.handleTurn({ sessionId: SESSION_ID, turnId: TURN_ID,
+      principalId: "principal:owner", text: "Cancel while context is read", signal: controller.signal,
+      ...createVoiceStreamDelivery({ sessionId: SESSION_ID, turnId: TURN_ID, sendToken, finish }),
+    });
+    try {
+      await vi.waitFor(() => expect(context.retrieve).toHaveBeenCalledOnce());
+      controller.abort();
+    } finally { release(); }
+    await expect(pending).resolves.toMatchObject({ outcome: "cancelled", sentAssistantEventId: null });
+    expect(stream).not.toHaveBeenCalled();
+    expect(sendToken).not.toHaveBeenCalled();
+    expect(finish).not.toHaveBeenCalled();
+    expect(await conversationTurn(TURN_ID)).toEqual({ state: "cancelled", sent_assistant_event_id: null, delivered_assistant_event_id: null });
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM events WHERE event_type LIKE 'conversation.assistant%'").first())
+      .toEqual({ count: 0 });
+  });
+
+  it.each(["token", "finish"] as const)("refuses a late %s from a conversation that ignores interruption", async (kind) => {
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const waiting = new Promise<void>((resolve) => { entered = resolve; });
+    const conversation: ConversationService = { handleTurn: vi.fn<ConversationService["handleTurn"]>(async (input) => {
+      if (input.channel !== "voice") throw new Error("fixture_voice_required");
+      if (kind === "finish") await input.onToken({ index: 0, text: "A partial answer" });
+      entered();
+      await gate;
+      if (kind === "token") await input.onToken({ index: 0, text: "An interrupted answer" });
+      else await input.finish("A partial answer");
+      return { outcome: "cancelled", committedUserEventId: TURN_ID, sentAssistantEventId: null,
+        deliveredAssistantEventId: null, deliveryId: null };
+    }), async stageSystemNotice(): Promise<never> { throw new Error("unexpected_voice_notice"); } };
+    const repo = repository();
+    const stored = await createInboundSession(repo);
+    const core = makeCore({ session: stored, repo, conversation });
+    await core.instance.handleRelayEvent(relaySetup(stored));
+    const pending = core.instance.handleRelayEvent(prompt);
+    void pending.catch(() => undefined);
+    try { await waiting; await core.instance.handleRelayEvent({ type: "interrupt" }); }
+    finally { release(); }
+    await expect(pending).rejects.toThrow();
+    expect(core.sendToken).toHaveBeenCalledTimes(kind === "token" ? 0 : 1);
+    expect(core.finish).not.toHaveBeenCalled();
+    expect(core.instance.phase).toBe("active");
+  });
+
+  it("keeps a completed response when interruption arrives while its durable receipt is settling", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const conversations = new ConversationRepository(env.DB, new EventRepository(env.DB));
+    const record = conversations.recordVoiceSent.bind(conversations);
+    const settle = vi.spyOn(conversations, "recordVoiceSent").mockImplementation(async (input) => {
+      await gate;
+      return record(input);
+    });
+    const service = new DefaultConversationService({ repository: conversations,
+      model: new DefaultModelAdapter(new FakeModelProvider({ streamText: "A completed answer", streamTokenCount: 1 })),
+      context: new D1ContextRetriever(env.DB),
+      dispatcher: { async dispatch(): Promise<never> { throw new Error("unexpected_voice_outbox_dispatch"); } },
+      redactor: new Redactor(), now: () => new Date(NOW),
+    });
+    const repo = repository();
+    const stored = await createInboundSession(repo);
+    const core = makeCore({ session: stored, repo, conversation: service });
+    await core.instance.handleRelayEvent(relaySetup(stored));
+    const pending = core.instance.handleRelayEvent(prompt);
+    void pending.catch(() => undefined);
+    try {
+      await vi.waitFor(() => expect(settle).toHaveBeenCalledOnce());
+      expect(core.finish).toHaveBeenCalledExactlyOnceWith("A completed answer");
+      await core.instance.handleRelayEvent({ type: "interrupt" });
+    } finally { release(); }
+    await expect(pending).resolves.toBeUndefined();
+    expect(core.instance.phase).toBe("active");
+    expect(core.close).not.toHaveBeenCalled();
+    expect(await conversationTurn(TURN_ID)).toMatchObject({ state: "voice_sent", sent_assistant_event_id: expect.any(String), delivered_assistant_event_id: null });
+  });
+});
+
+describe("CallSession production composition", () => {
+  let credit: string;
+  let creditFails: boolean;
+  let telemetryAsOf: string;
+  let requests: string[];
+  function configuration(): Env & { IDENTITY_CHALLENGE_HMAC_KEY_VERSION: string } {
+    return {
+      ...env,
+      TWILIO_ACCOUNT_SID: ACCOUNT_SID,
+      TWILIO_API_KEY_SID: `SK${"6".repeat(32)}`,
+      TWILIO_API_KEY_SECRET: "synthetic-voice-key",
+      OWNER_PRINCIPAL_ID: "principal:owner",
+      CAPACITY_D1_BUDGET_BYTES: "1000000000",
+      CAPACITY_R2_BUDGET_BYTES: "1000000000",
+      CAPACITY_MODEL_ALLOCATION_USD: "20",
+      CAPACITY_TWILIO_DAILY_BUDGET_USD: "40",
+      DEEPSEEK_API_KEY: "synthetic-runtime-key",
+      DEEPSEEK_MODEL: "synthetic-runtime-model",
+      TELEGRAM_BOT_TOKEN: `123456789:${"s".repeat(35)}`,
+      GUEST_PIN_PEPPER_V1: base64(new Uint8Array(32).fill(12)),
+      AUTHENTICATION_BUDGET_PEPPER: base64(PEPPER),
+      IDENTITY_CHALLENGE_HMAC_PEPPER: base64(new Uint8Array(32).fill(11)),
+      IDENTITY_CHALLENGE_HMAC_KEY_VERSION: "identity-hmac-v1",
+    };
+  }
+
+  async function runtime(stored: StoredCallSession, configured = configuration(), disabled = false,
+    initialization?: CallSessionInitialization) {
+    if (initialization === undefined) {
+      if (stored.relaySetupExpiresAt === null) throw new Error("fixture_inbound_expiry_missing");
+      initialization = { sessionId: stored.sessionId, binding: stored.binding, relaySetupExpiresAt: stored.relaySetupExpiresAt };
+    }
+    const capturedInitialization = initialization;
+    const stub = callSessionStub(stored.sessionId);
+    const relay = fakeSocket(stored.sessionId);
+    let object: CallSession;
+    const restart = () => runInDurableObject(stub, async (_instance, state) => {
+      object = disabled ? new CallSession(state, configured, null) : new CallSession(state, configured);
+      await object.initialize(capturedInitialization);
+    });
+    await restart();
+    const send = (frame: unknown) => runInDurableObject(stub, async () => {
+      await object.webSocketMessage(relay.socket, JSON.stringify(frame));
+    });
+    return {
+      ...relay, restart,
+      setup: () => send({ type: "setup", sessionId: PROVIDER_SESSION_ID, accountSid: ACCOUNT_SID,
+        callSid: stored.callSid, direction: stored.direction === "outbound" ? "outbound-api" : "inbound",
+        customParameters: { relayNonce: stored.binding.relayNonce } }),
+      prompt: (voicePrompt: string) => send({ type: "prompt", voicePrompt, lang: "en-US", last: true }),
+      digits: async (digits: string) => { for (const digit of digits) await send({ type: "dtmf", digit }); },
+    };
+  }
+
+  beforeEach(async () => {
+    await applyVoiceRuntimeMigration();
+    await env.DB.prepare("DELETE FROM capacity_alert_crossings").run();
+    await clearFixture();
+    await runInDurableObject(callSessionStub(SESSION_ID), async (_instance, state) => { await state.storage.deleteAll(); });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    credit = "15"; creditFails = false; requests = []; telemetryAsOf = NOW.toISOString().replace(".000Z", "+00:00");
+    vi.spyOn(globalThis, "fetch").mockImplementation(async function (this: unknown, input, init) {
+      // A mock that ignores its receiver would miss workerd's Illegal invocation failure.
+      expect(this).toBe(globalThis);
+      const url = String(input);
+      requests.push(url);
+      if (url === "https://api.deepseek.com/user/balance") {
+        if (creditFails) throw new Error("synthetic balance unavailable");
+        return Response.json({ is_available: true, balance_infos: [{ currency: "USD",
+          total_balance: credit, granted_balance: "0", topped_up_balance: credit }] });
+      }
+      if (url === `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Usage/Records/Today.json?Category=totalprice`) {
+        return Response.json({ next_page_uri: null, usage_records: [{ account_sid: ACCOUNT_SID,
+          category: "totalprice", price: "1", price_unit: "usd", start_date: "2026-08-30", end_date: "2026-08-30", as_of: telemetryAsOf }] });
+      }
+      if (url.startsWith("https://api.telegram.org/")) return Response.json({ ok: true, result: { message_id: requests.length } });
+      expect(String(input)).toBe("https://api.deepseek.com/chat/completions");
+      expect(JSON.parse(String(init?.body))).toMatchObject({ model: "synthetic-runtime-model", stream: true });
+      return new Response('data: {"choices":[{"delta":{"content":"A composed voice reply."}}]}\n\ndata: [DONE]\n\n',
+        { headers: { "content-type": "text/event-stream" } });
+    });
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    await env.DB.prepare("DELETE FROM capacity_alert_crossings").run();
+    await clearFixture();
+  });
+
+  it("serves an owner through the default production runtime and reconstructs its authority after restart", async () => {
+    await seedActiveVoiceIdentity();
+    const stored = await createInboundSession(repository());
+    const call = await runtime(stored);
+    await call.setup();
+    expect(await storedPhase(stored.sessionId)).toBe("active");
+    await call.prompt("A first ordinary question");
+    await call.restart();
+    await call.prompt("A second ordinary question");
+    expect(requests.filter((url) => url === "https://api.deepseek.com/chat/completions")).toHaveLength(2);
+    expect(requests.filter((url) => url === "https://api.deepseek.com/user/balance")).toHaveLength(2);
+    expect(requests.filter((url) => url.includes("api.twilio.com"))).toHaveLength(2);
+    expect(call.close).not.toHaveBeenCalled();
+    expect(call.send.mock.calls.map(([frame]) => JSON.parse(String(frame)))).toContainEqual({
+      type: "text", token: "A composed voice reply.", last: false,
+    });
+    expect((await env.DB.prepare("SELECT state FROM conversation_turns ORDER BY rowid").all()).results)
+      .toEqual([{ state: "voice_sent" }, { state: "voice_sent" }]);
+  });
+
+  it("shares the production guest proof issuer with the authority that admits a PIN-authenticated conversation", async () => {
+    await seedActiveVoiceIdentity();
+    await seedPendingGuestAccess(new CapabilityRegistry({ installed: ["conversation.basic", "access.manage"] }),
+      new GuestPinVerifier(new Uint8Array(32).fill(12)));
+    const stored = await repository().getOrCreateInboundSession({ callSid: CALL_SID, callerE164: GUEST_E164,
+      ownerIdentityId: "identity:voice", currentChallengeHmacKeyVersion: "identity-hmac-v1", now: NOW });
+    const call = await runtime(stored);
+    await call.setup();
+    await call.digits("4827");
+    expect(await storedPhase(stored.sessionId)).toBe("active");
+    await call.prompt("A guest question");
+    expect(requests.filter((url) => url === "https://api.deepseek.com/chat/completions")).toHaveLength(1);
+    expect(requests.filter((url) => url === "https://api.deepseek.com/user/balance")).toHaveLength(1);
+    expect(requests.filter((url) => url.includes("api.twilio.com"))).toHaveLength(1);
+    expect(call.close).not.toHaveBeenCalled();
+    expect(await env.DB.prepare("SELECT authority_kind, grant_id FROM call_session_authorities WHERE session_id = ?")
+      .bind(stored.sessionId).first()).toEqual({ authority_kind: "guest", grant_id: GUEST_GRANT_ID });
+  });
+
+  it.each(["credit exhausted", "failed read", "stale report"])("blocks the next model request on %s through the actual production graph", async (fault) => {
+    await seedActiveVoiceIdentity();
+    await env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES ('identity:capacity-owner', 'principal:owner', 'telegram', '44112233', 'active', ?, ?)")
+      .bind(NOW.toISOString(), NOW.toISOString()).run();
+    const call = await runtime(await createInboundSession(repository()));
+    await call.setup();
+    await call.prompt("First permitted question");
+    expect(call.close).not.toHaveBeenCalled();
+    if (fault === "credit exhausted") credit = "0";
+    else if (fault === "failed read") creditFails = true;
+    else telemetryAsOf = "2026-08-30T11:59:00+00:00";
+    await call.prompt("Second refused question");
+    expect(requests.filter((url) => url === "https://api.deepseek.com/user/balance")).toHaveLength(2);
+    expect(requests.filter((url) => url === "https://api.deepseek.com/chat/completions")).toHaveLength(1);
+    expect(call.close).toHaveBeenCalledExactlyOnceWith(1011, "relay processing failed");
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM conversation_turns").first()).toEqual({ count: 1 });
+    const receipts = (await env.DB.prepare("SELECT state FROM capacity_alert_crossings").all()).results;
+    expect(receipts).toEqual(fault === "credit exhausted" ? [{ state: "sent" }, { state: "sent" }] : []);
+  });
+
+  it.each(["CAPACITY_D1_BUDGET_BYTES", "CAPACITY_R2_BUDGET_BYTES", "CAPACITY_MODEL_ALLOCATION_USD",
+    "CAPACITY_TWILIO_DAILY_BUDGET_USD"] as const)
+    ("keeps the default relay closed without owner configuration %s", async (field) => {
+      await seedActiveVoiceIdentity();
+      const configured = configuration();
+      delete configured[field];
+      const call = await runtime(await createInboundSession(repository()), configured);
+      await call.setup();
+      expect(call.close).toHaveBeenCalledExactlyOnceWith(1011, "relay runtime unavailable");
+      expect(requests).toEqual([]);
+    });
+
+  it("shares the production owner authority with confirmed access administration without calling the model", async () => {
+    await seedActiveVoiceIdentity();
+    const call = await runtime(await createInboundSession(repository()));
+    await call.setup();
+    await call.prompt(`allow ${GUEST_E164} with conversation`);
+    await call.digits("2468");
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM voice_access_grants").first()).toEqual({ count: 0 });
+    await call.prompt("confirm");
+    expect(await env.DB.prepare("SELECT status FROM voice_access_grants").first()).toEqual({ status: "pending" });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(call.close).not.toHaveBeenCalled();
+  });
+
+  it("shares the production activation observation issuer and configured key version with challenge confirmation", async () => {
+    await beginPhoneChallenge();
+    const stored = await createInboundSession(repository(), "identity-hmac-v1");
+    const call = await runtime(stored);
+    await call.setup();
+    await call.digits(CHALLENGE_RESPONSE);
+    expect(await identityState()).toEqual({ status: "active", verified_at: NOW.toISOString() });
+    expect(await challengeConsumedAt()).toBe(NOW.toISOString());
+    expect(await reservationKinds()).toEqual(["activation"]);
+    expect(await storedPhase(stored.sessionId)).toBe("completed");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps an explicit null runtime disabled even with complete production configuration", async () => {
+    await seedActiveVoiceIdentity();
+    const stored = await createInboundSession(repository());
+    const call = await runtime(stored, configuration(), true);
+    await call.setup();
+    expect(call.close).toHaveBeenCalledExactlyOnceWith(1011, "relay runtime unavailable");
+    expect(await storedPhase(stored.sessionId)).toBe("created");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("forwards the outbound pre-authentication contract into the production runtime", async () => {
+    const stamp = await env.DB.prepare("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AS stamp").first<string>("stamp");
+    const databaseNow = new Date(stamp!);
+    vi.setSystemTime(databaseNow);
+    await env.DB.prepare("UPDATE outbound_runtime_controls SET enabled = 1").run();
+    const system = await createFakeCallingSystem({ now: databaseNow });
+    try {
+      await system.dispatch();
+      expect((await system.claimOutboundTwiML(system.acceptedCallSid())).status).toBe(200);
+      const initialization = system.initializations()[0];
+      if (initialization === undefined) throw new Error("fixture_outbound_initialization_missing");
+      const stored = await repository().getCallSession(initialization.sessionId);
+      if (stored === null) throw new Error("fixture_outbound_session_missing");
+      const call = await runtime(stored, configuration(), false, initialization);
+      await call.setup();
+      expect(call.send.mock.calls.map(([frame]) => JSON.parse(String(frame)))[0])
+        .toEqual({ type: "text", token: OUTBOUND_VOICEMAIL_MESSAGE, last: true });
+      expect(await storedPhase(stored.sessionId)).toBe("active");
+      expect(call.close).not.toHaveBeenCalled();
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    } finally {
+      await system.cleanup();
+      await env.DB.prepare("UPDATE outbound_runtime_controls SET enabled = 0").run();
+    }
+  });
+
+  it.each([
+    ["missing account", "TWILIO_ACCOUNT_SID", ""],
+    ["wrong account type", "TWILIO_ACCOUNT_SID", `SK${"6".repeat(32)}`],
+    ["missing model key", "DEEPSEEK_API_KEY", ""],
+    ["whitespace model key", "DEEPSEEK_API_KEY", " synthetic-runtime-key"],
+    ["oversized model key", "DEEPSEEK_API_KEY", "s".repeat(4097)],
+    ["oversized model id", "DEEPSEEK_MODEL", "s".repeat(129)],
+    ["control in model id", "DEEPSEEK_MODEL", "synthetic\nmodel"],
+    ["missing bot token", "TELEGRAM_BOT_TOKEN", ""],
+    ["oversized bot token", "TELEGRAM_BOT_TOKEN", `123456789:${"s".repeat(4097)}`],
+    ["missing challenge version", "IDENTITY_CHALLENGE_HMAC_KEY_VERSION", ""],
+    ["oversized challenge version", "IDENTITY_CHALLENGE_HMAC_KEY_VERSION", "s".repeat(65)],
+    ["control in challenge version", "IDENTITY_CHALLENGE_HMAC_KEY_VERSION", "v1\nv2"],
+    ...["GUEST_PIN_PEPPER_V1", "AUTHENTICATION_BUDGET_PEPPER", "IDENTITY_CHALLENGE_HMAC_PEPPER"].flatMap((key) => [
+      [`short ${key}`, key, base64(new Uint8Array(31))],
+      [`long ${key}`, key, base64(new Uint8Array(33))],
+      [`noncanonical ${key}`, key, `${"A".repeat(42)}B=`],
+      [`whitespace ${key}`, key, ` ${base64(new Uint8Array(32))}`],
+    ]),
+  ])("refuses %s before runtime effects while keeping initialization available", async (_label, key, value) => {
+    if (key === undefined) throw new Error("fixture_configuration_key_missing");
+    await seedActiveVoiceIdentity();
+    const configured = { ...configuration(), [key]: value };
+    expect(() => readVoiceRuntimeConfiguration(configured)).toThrow("voice_runtime_configuration_invalid");
+    const stored = await createInboundSession(repository());
+    const call = await runtime(stored, configured);
+    await call.setup();
+    expect(call.close).toHaveBeenCalledExactlyOnceWith(1011, "relay runtime unavailable");
+    expect(await storedPhase(stored.sessionId)).toBe("created");
+    expect(await reservationCount()).toBe(0);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("accepts the exact configured bounds and keeps the guest default optional", () => {
+    const configured = configuration();
+    configured.DEEPSEEK_API_KEY = "s".repeat(4096);
+    configured.DEEPSEEK_MODEL = "s".repeat(128);
+    configured.TELEGRAM_BOT_TOKEN = `123456789:${"s".repeat(4096)}`;
+    configured.IDENTITY_CHALLENGE_HMAC_KEY_VERSION = "s".repeat(64);
+    delete configured.DEFAULT_GUEST_PIN;
+    expect(readVoiceRuntimeConfiguration(configured)).toMatchObject({
+      modelApiKey: configured.DEEPSEEK_API_KEY, model: configured.DEEPSEEK_MODEL,
+      telegramToken: configured.TELEGRAM_BOT_TOKEN, challengeKeyVersion: configured.IDENTITY_CHALLENGE_HMAC_KEY_VERSION,
+    });
+  });
+});
+
 describe("CallSession Durable Object boundary", () => {
   beforeEach(async () => {
     await applyFoundationMigration();
@@ -1671,6 +2274,7 @@ describe("CallSession Durable Object boundary", () => {
       const relay = fakeSocket(harness.stored.sessionId);
       const cancelOutput = vi.fn(async () => undefined);
       const factory = vi.fn<CallSessionRuntimeFactory>((input) => new CallSessionCore({
+        capacity: { async assertAcceptingNewTurn(): Promise<void> {} },
         session: input.session,
         expectedAccountSid: ACCOUNT_SID,
         repository: harness.repo,
@@ -1743,6 +2347,7 @@ describe("CallSession Durable Object boundary", () => {
       .mockRejectedValueOnce(new Error("provider_cleanup_failed"))
       .mockResolvedValue(undefined);
     const factory = vi.fn<CallSessionRuntimeFactory>((input) => new CallSessionCore({
+      capacity: { async assertAcceptingNewTurn(): Promise<void> {} },
       session: input.session,
       expectedAccountSid: ACCOUNT_SID,
       repository: harness.repo,
@@ -1806,6 +2411,7 @@ describe("CallSession Durable Object boundary", () => {
     const relay = fakeSocket(harness.stored.sessionId);
     const cancelOutput = vi.fn(async () => { throw new Error("provider_cleanup_failed"); });
     const factory = vi.fn<CallSessionRuntimeFactory>((input) => new CallSessionCore({
+      capacity: { async assertAcceptingNewTurn(): Promise<void> {} },
       session: input.session,
       expectedAccountSid: ACCOUNT_SID,
       repository: harness.repo,
@@ -1990,6 +2596,7 @@ describe("CallSession Durable Object boundary", () => {
     const relay = fakeSocket(stored.sessionId);
     const factory = vi.fn<CallSessionRuntimeFactory>((input) => {
       return new CallSessionCore({
+        capacity: { async assertAcceptingNewTurn(): Promise<void> {} },
         session: input.session,
         expectedAccountSid: ACCOUNT_SID,
         repository: repo,

@@ -1,3 +1,4 @@
+import { permittedOutboundControls } from "../../../apps/cloud-gateway/test/policy/outbound-controls-fixture.js";
 import { env } from "cloudflare:test";
 import { CallRepository } from "../../../apps/cloud-gateway/src/persistence/call-repository.js";
 import { DeviceRepository } from "../../../apps/cloud-gateway/src/persistence/device-repository.js";
@@ -44,7 +45,9 @@ export async function createFakeTelegramCallingSystem(ownerPrincipalId = "princi
     authenticatedOrigin: (commandId) => commands().authenticatedOrigin(commandId),
   } });
   const twilio = new FakeTwilioProvider();
-  const dispatcher = new OutboundCallDispatcher({ policy, twilio, repository: new CallRepository(env.DB, events),
+  const dispatcher = new OutboundCallDispatcher({
+      controls: permittedOutboundControls,
+      capacity: { async assertAcceptingNewTurn() {} }, policy, twilio, repository: new CallRepository(env.DB, events),
     publicBaseUrl: new URL("https://jarvis.example/"), now: () => new Date(clock) });
   const dispatch = { policy, dispatcher };
   const accepted: AcceptedTelegramUpdate[] = [];

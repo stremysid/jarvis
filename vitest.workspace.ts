@@ -14,27 +14,35 @@ const syntheticRequiredBindings = {
 // Always use public fixtures for this check, even on a configured developer host.
 Object.assign(process.env, syntheticRequiredBindings);
 
+const socketTests = ["tests/acceptance/fake/voice-production-socket.test.ts", "tests/acceptance/fake/voice-production-worker.test.ts"];
+const project = (name: string, include: string[], exclude: string[], bindings: Record<string, string> = {}) => ({
+  plugins: [cloudflareTest({
+    miniflare: { bindings: { ...syntheticRequiredBindings, DEFAULT_GUEST_PIN: "4827", ...bindings } },
+    wrangler: { configPath: "apps/cloud-gateway/wrangler.toml", environment: "test" },
+  })],
+  test: { name, include, exclude },
+});
+
 export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
-  plugins: [
-    cloudflareTest({
-      miniflare: {
-        bindings: {
-          ...syntheticRequiredBindings,
-          DEFAULT_GUEST_PIN: "4827",
-        },
-      },
-      wrangler: {
-        configPath: "apps/cloud-gateway/wrangler.toml",
-        environment: "test"
-      }
-    })
-  ],
-  test: {
-    include: [
-      "apps/cloud-gateway/test/**/*.test.ts",
-      "packages/contracts/test/**/*.test.ts",
-      "tests/acceptance/**/*.test.ts"
-    ]
-  }
+  test: { projects: [
+    project("default", ["apps/cloud-gateway/test/**/*.test.ts", "packages/contracts/test/**/*.test.ts",
+      "tests/acceptance/**/*.test.ts"], socketTests),
+    // Only this project supplies complete public synthetic runtime bindings.
+    // Existing missing-configuration tests retain their original environment.
+    project("voice-production-socket", socketTests, [], {
+      PUBLIC_ORIGIN: "https://jarvis.example", TWILIO_AUTH_TOKEN: "public-fake-twilio-auth-token",
+      TWILIO_FROM_E164: "+14165550100", TELEGRAM_WEBHOOK_SECRET: "synthetic-webhook-secret",
+      TELEGRAM_BOT_USERNAME: "jarvis_sid_bot",
+      OWNER_PRINCIPAL_ID: "principal:owner", OWNER_VOICE_IDENTITY_ID: "identity:voice",
+      TWILIO_ACCOUNT_SID: `AC${"6".repeat(32)}`, TWILIO_API_KEY_SID: `SK${"6".repeat(32)}`,
+      TWILIO_API_KEY_SECRET: "synthetic-voice-key",
+      DEEPSEEK_API_KEY: "synthetic-runtime-key", DEEPSEEK_MODEL: "synthetic-runtime-model",
+      TELEGRAM_BOT_TOKEN: `123456789:${"s".repeat(35)}`,
+      GUEST_PIN_PEPPER_V1: Buffer.alloc(32, 12).toString("base64"),
+      IDENTITY_CHALLENGE_HMAC_KEY_VERSION: "identity-hmac-v1",
+      CAPACITY_D1_BUDGET_BYTES: "1000000000", CAPACITY_R2_BUDGET_BYTES: "1000000000",
+      CAPACITY_MODEL_ALLOCATION_USD: "20", CAPACITY_TWILIO_DAILY_BUDGET_USD: "40",
+    }),
+  ] },
 });

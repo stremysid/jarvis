@@ -8,6 +8,8 @@ export interface Env {
   GUEST_PIN_PEPPER_V1: string;
   AUTHENTICATION_BUDGET_PEPPER: string;
   IDENTITY_CHALLENGE_HMAC_PEPPER: string;
+  /** Explicit rotation version shared by challenge issuance, inbound admission and confirmation. */
+  IDENTITY_CHALLENGE_HMAC_KEY_VERSION?: string;
   DEFAULT_GUEST_PIN?: string;
 
   /**
@@ -70,6 +72,12 @@ export interface Env {
    * rather than a redeploy.
    */
   DEEPSEEK_MODEL?: string;
+
+  /** Explicit owner limits. Missing or malformed capacity configuration refuses admission. */
+  CAPACITY_D1_BUDGET_BYTES?: string;
+  CAPACITY_R2_BUDGET_BYTES?: string;
+  CAPACITY_MODEL_ALLOCATION_USD?: string;
+  CAPACITY_TWILIO_DAILY_BUDGET_USD?: string;
 
   /**
    * The principal every scheduled job acts for and delivers to.

@@ -51,44 +51,69 @@ function guard(source: CapacityEstimateSource, sink: CapacityAlertSink = new Ide
 }
 
 describe("CapacityGuard", () => {
-  it("emits deduplicated alerts at exact 70 and 85 percent for each resource", async () => {
-    const source = new MutableSource(healthy({ d1: 0.70 }));
+  it("warns every resource at 85 and 95 percent, then refuses at the configured limit", async () => {
+    const source = new MutableSource(healthy({ d1: 0.85 }));
     const sink = new IdempotentSink();
     const capacity = guard(source, sink);
 
     await capacity.assertAcceptingNewTurn();
     await capacity.assertAcceptingNewTurn();
-    source.estimates = healthy({ d1: 0.85, r2: 0.70, "provider:model": 0.85 });
+    source.estimates = [estimate("d1", 0.95), estimate("r2", 0.85), estimate("provider:model", 0.95)];
     await capacity.assertAcceptingNewTurn();
-    await capacity.assertAcceptingNewTurn();
+    source.estimates = healthy({ r2: 1 });
+    await expect(capacity.assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
 
     expect(sink.alerts).toEqual([
-      "d1:capacity_70",
       "d1:capacity_85",
-      "r2:capacity_70",
-      "provider:model:capacity_70",
+      "d1:capacity_95",
+      "r2:capacity_85",
       "provider:model:capacity_85",
+      "provider:model:capacity_95",
+      "r2:capacity_95",
+    ]);
+  });
+
+  it("keeps every failed or leased warning best-effort for every resource", async () => {
+    const alerts: string[] = [];
+    const sink: CapacityAlertSink = {
+      async emit(alert) {
+        alerts.push(alert.idempotencyKey);
+        throw new Error("telegram unavailable");
+      },
+      async rearm() { throw new Error("receipt storage unavailable"); },
+    };
+    const source = new MutableSource([
+      estimate("d1", 0.85), estimate("r2", 0.95), estimate("provider:model", 0.95), estimate("provider:voice", 0.95),
+    ]);
+    const capacity = guard(source, sink);
+
+    await expect(capacity.assertAcceptingNewTurn()).resolves.toBeUndefined();
+    expect(alerts).toEqual([
+      "capacity:d1:85",
+      "capacity:r2:85", "capacity:r2:95",
+      "capacity:provider:model:85", "capacity:provider:model:95",
+      "capacity:provider:voice:85", "capacity:provider:voice:95",
     ]);
   });
 
   it("rearms each recovered crossing so a later equality crossing alerts again", async () => {
-    const source = new MutableSource(healthy({ d1: 0.85 }));
+    const source = new MutableSource(healthy({ d1: 0.95 }));
     const sink = new IdempotentSink();
     const capacity = guard(source, sink);
     await capacity.assertAcceptingNewTurn();
 
-    source.estimates = healthy({ d1: 0.69 });
+    source.estimates = healthy({ d1: 0.84 });
     await capacity.assertAcceptingNewTurn();
-    source.estimates = healthy({ d1: 0.70 });
+    source.estimates = healthy({ d1: 0.85 });
     await capacity.assertAcceptingNewTurn();
 
-    expect(sink.rearms).toContain("capacity:d1:70");
     expect(sink.rearms).toContain("capacity:d1:85");
-    expect(sink.alerts.filter((alert) => alert === "d1:capacity_70")).toHaveLength(2);
+    expect(sink.rearms).toContain("capacity:d1:95");
+    expect(sink.alerts.filter((alert) => alert === "d1:capacity_85")).toHaveLength(2);
   });
 
-  it("rejects at exact 95 percent before the caller reads or persists content", async () => {
-    const source = new MutableSource(healthy({ r2: 0.95 }));
+  it("rejects at exact 100 percent before the caller reads or persists content", async () => {
+    const source = new MutableSource(healthy({ r2: 1 }));
     let contentReads = 0;
     const acceptTurn = async (): Promise<void> => {
       await guard(source).assertAcceptingNewTurn();
@@ -113,17 +138,62 @@ describe("CapacityGuard", () => {
     }
   });
 
-  it("fails closed when telemetry or safe alert delivery is unavailable", async () => {
+  it("fails closed when telemetry is unavailable", async () => {
     const unavailable: CapacityEstimateSource = {
       readEstimates: async () => { throw new Error("provider secret response"); },
     };
     await expect(guard(unavailable).assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
 
-    const failedSink: CapacityAlertSink = {
-      emit: async () => { throw new Error("alert transport unavailable"); },
-      rearm: async () => undefined,
-    };
-    await expect(guard(new MutableSource(healthy({ d1: 0.70 })), failedSink).assertAcceptingNewTurn())
-      .rejects.toThrow("capacity_unavailable");
+  });
+
+  it("uses the collection completion time so a fresh measurement is not rejected as future telemetry", async () => {
+    let clock = now.valueOf();
+    const capacity = new CapacityGuard({
+      source: { async readEstimates() {
+        clock += 1;
+        return healthy().map((item) => ({ ...item, observedAt: new Date(clock).toISOString() }));
+      } },
+      sink: new IdempotentSink(), now: () => new Date(clock), maximumTelemetryAgeMs: 60_000,
+    });
+    await expect(capacity.assertAcceptingNewTurn()).resolves.toBeUndefined();
+  });
+
+  it.each(["collection", "alert delivery"] as const)("refuses telemetry that becomes stale during %s", async (stage) => {
+    let clock = now.valueOf();
+    const capacity = new CapacityGuard({
+      source: { async readEstimates() {
+        if (stage === "collection") clock += 60_000;
+        return healthy({ d1: 0.85 });
+      } },
+      sink: { async emit() { if (stage === "alert delivery") clock += 60_000; }, async rearm() {} },
+      now: () => new Date(clock), maximumTelemetryAgeMs: 60_000,
+    });
+    await expect(capacity.assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
+  });
+
+  it("rejects an already-stale observation before sending or rearming its alert", async () => {
+    const sink = new IdempotentSink();
+    const stale = healthy({ d1: 0.85 }).map((item) => ({ ...item,
+      observedAt: new Date(now.valueOf() - 60_000).toISOString() }));
+    await expect(guard(new MutableSource(stale), sink).assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
+    expect(sink.alerts).toEqual([]);
+    expect(sink.rearms).toEqual([]);
+  });
+
+  it.each(["d1", "r2"] as const)("refuses a missing %s measurement even when multiple provider rows keep the list long enough", async (missing) => {
+    const rows = [...healthy().filter((item) => item.resource !== missing), estimate("provider:twilio", 0.1)];
+    expect(rows).toHaveLength(3);
+    await expect(guard(new MutableSource(rows)).assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
+  });
+
+  it.each([
+    ["used", -1], ["used", Infinity], ["used", Number.NaN],
+    ["budget", 0], ["budget", -1], ["budget", Infinity], ["budget", Number.NaN],
+  ] as const)("refuses an invalid %s measurement instead of interpreting it as available capacity", async (field, value) => {
+    const rows = healthy().map((item) => item.resource === "d1" ? { ...item, [field]: value } : item);
+    const sink = new IdempotentSink();
+    await expect(guard(new MutableSource(rows), sink).assertAcceptingNewTurn()).rejects.toThrow("capacity_unavailable");
+    expect(sink.alerts).toEqual([]);
+    expect(sink.rearms).toEqual([]);
   });
 });

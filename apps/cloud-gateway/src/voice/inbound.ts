@@ -5,7 +5,7 @@ import {
   type StoredCallSession,
 } from "../persistence/call-repository.js";
 import type { TwilioRequestVerifier } from "../providers/provider-types.js";
-import { snapshotVerifiedTwilioFormPairs } from "../providers/twilio-verifier.js";
+import { snapshotVerifiedTwilioFormPairs, type VerifiedTwilioForm } from "../providers/twilio-verifier.js";
 import {
   isTrustedFixedUrl,
   snapshotTrustedPublicOrigin,
@@ -241,10 +241,12 @@ function capturedDate(now: () => Date): Date | null {
   return Number.isFinite(epochMs) ? new Date(epochMs) : null;
 }
 
-/** Direct, dependency-injected signed ingress. Route construction remains a later task. */
+/** Direct ingress verifies itself. The router may pass its already-verified
+ * nominal form after authenticating this exact inbound URL before capacity. */
 export async function handleInboundVoiceWebhook(
   request: Request,
   deps: InboundVoiceDependencies,
+  verifiedForm?: VerifiedTwilioForm,
 ): Promise<Response> {
   let verifyWebhook: TwilioRequestVerifier["verifyWebhook"];
   let verifierThis: TwilioRequestVerifier;
@@ -296,7 +298,9 @@ export async function handleInboundVoiceWebhook(
 
   let form: Awaited<ReturnType<TwilioRequestVerifier["verifyWebhook"]>>;
   try {
-    form = await verifyWebhook.call(verifierThis, { request, exactUrl: exactInboundWebhookUrl });
+    form = verifiedForm === undefined
+      ? await verifyWebhook.call(verifierThis, { request, exactUrl: exactInboundWebhookUrl })
+      : verifiedForm;
   } catch {
     return neutral("unavailable", 503);
   }
