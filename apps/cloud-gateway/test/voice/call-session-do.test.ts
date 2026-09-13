@@ -1,5 +1,7 @@
 import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Env } from "../../src/env.js";
+import { createFakeCallingSystem } from "../../../../tests/acceptance/fake/voice-call-system.js";
 import { D1ContextRetriever } from "../../src/conversation/context-retriever.js";
 import { ConversationRepository } from "../../src/conversation/conversation-repository.js";
 import { DefaultConversationService } from "../../src/conversation/conversation-service.js";
@@ -23,6 +25,7 @@ import {
   type CallSessionRuntimeFactory,
 } from "../../src/voice/call-session-do.js";
 import { CapabilityRegistry } from "../../src/voice/capability-registry.js";
+import { readVoiceRuntimeConfiguration } from "../../src/voice/production-runtime.js";
 import {
   createTargetGuestAccessDocumentVerifier,
   OwnerAccessService,
@@ -1498,6 +1501,207 @@ describe("CallSessionCore access, enrollment, and conversation", () => {
 
     expect(before).toMatchObject({ state: "voice_sent", delivered_assistant_event_id: null });
     expect(await conversationTurn(TURN_ID)).toEqual(before);
+  });
+});
+
+describe("CallSession production composition", () => {
+  function configuration(): Env & { IDENTITY_CHALLENGE_HMAC_KEY_VERSION: string } {
+    return {
+      ...env,
+      TWILIO_ACCOUNT_SID: ACCOUNT_SID,
+      DEEPSEEK_API_KEY: "synthetic-runtime-key",
+      DEEPSEEK_MODEL: "synthetic-runtime-model",
+      TELEGRAM_BOT_TOKEN: `123456789:${"s".repeat(35)}`,
+      GUEST_PIN_PEPPER_V1: base64(new Uint8Array(32).fill(12)),
+      AUTHENTICATION_BUDGET_PEPPER: base64(PEPPER),
+      IDENTITY_CHALLENGE_HMAC_PEPPER: base64(new Uint8Array(32).fill(11)),
+      IDENTITY_CHALLENGE_HMAC_KEY_VERSION: "identity-hmac-v1",
+    };
+  }
+
+  async function runtime(stored: StoredCallSession, configured = configuration(), disabled = false,
+    initialization?: CallSessionInitialization) {
+    if (initialization === undefined) {
+      if (stored.relaySetupExpiresAt === null) throw new Error("fixture_inbound_expiry_missing");
+      initialization = { sessionId: stored.sessionId, binding: stored.binding, relaySetupExpiresAt: stored.relaySetupExpiresAt };
+    }
+    const capturedInitialization = initialization;
+    const stub = callSessionStub(stored.sessionId);
+    const relay = fakeSocket(stored.sessionId);
+    let object: CallSession;
+    const restart = () => runInDurableObject(stub, async (_instance, state) => {
+      object = disabled ? new CallSession(state, configured, null) : new CallSession(state, configured);
+      await object.initialize(capturedInitialization);
+    });
+    await restart();
+    const send = (frame: unknown) => runInDurableObject(stub, async () => {
+      await object.webSocketMessage(relay.socket, JSON.stringify(frame));
+    });
+    return {
+      ...relay, restart,
+      setup: () => send({ type: "setup", sessionId: PROVIDER_SESSION_ID, accountSid: ACCOUNT_SID,
+        callSid: stored.callSid, direction: stored.direction === "outbound" ? "outbound-api" : "inbound",
+        customParameters: { relayNonce: stored.binding.relayNonce } }),
+      prompt: (voicePrompt: string) => send({ type: "prompt", voicePrompt, lang: "en-US", last: true }),
+      digits: async (digits: string) => { for (const digit of digits) await send({ type: "dtmf", digit }); },
+    };
+  }
+
+  beforeEach(async () => {
+    await applyFoundationMigration();
+    await clearFixture();
+    await runInDurableObject(callSessionStub(SESSION_ID), async (_instance, state) => { await state.storage.deleteAll(); });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    vi.spyOn(globalThis, "fetch").mockImplementation(async function (this: unknown, input, init) {
+      // A mock that ignores its receiver would miss workerd's Illegal invocation failure.
+      expect(this).toBe(globalThis);
+      expect(String(input)).toBe("https://api.deepseek.com/chat/completions");
+      expect(JSON.parse(String(init?.body))).toMatchObject({ model: "synthetic-runtime-model", stream: true });
+      return new Response('data: {"choices":[{"delta":{"content":"A composed voice reply."}}]}\n\ndata: [DONE]\n\n',
+        { headers: { "content-type": "text/event-stream" } });
+    });
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    await clearFixture();
+  });
+
+  it("serves an owner through the default production runtime and reconstructs its authority after restart", async () => {
+    await seedActiveVoiceIdentity();
+    const stored = await createInboundSession(repository());
+    const call = await runtime(stored);
+    await call.setup();
+    expect(await storedPhase(stored.sessionId)).toBe("active");
+    await call.prompt("A first ordinary question");
+    await call.restart();
+    await call.prompt("A second ordinary question");
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(call.close).not.toHaveBeenCalled();
+    expect(call.send.mock.calls.map(([frame]) => JSON.parse(String(frame)))).toContainEqual({
+      type: "text", token: "A composed voice reply.", last: false,
+    });
+    expect((await env.DB.prepare("SELECT state FROM conversation_turns ORDER BY rowid").all()).results)
+      .toEqual([{ state: "voice_sent" }, { state: "voice_sent" }]);
+  });
+
+  it("shares the production guest proof issuer with the authority that admits a PIN-authenticated conversation", async () => {
+    await seedActiveVoiceIdentity();
+    await seedPendingGuestAccess(new CapabilityRegistry({ installed: ["conversation.basic", "access.manage"] }),
+      new GuestPinVerifier(new Uint8Array(32).fill(12)));
+    const stored = await repository().getOrCreateInboundSession({ callSid: CALL_SID, callerE164: GUEST_E164,
+      ownerIdentityId: "identity:voice", currentChallengeHmacKeyVersion: "identity-hmac-v1", now: NOW });
+    const call = await runtime(stored);
+    await call.setup();
+    await call.digits("4827");
+    expect(await storedPhase(stored.sessionId)).toBe("active");
+    await call.prompt("A guest question");
+    expect(globalThis.fetch).toHaveBeenCalledOnce();
+    expect(call.close).not.toHaveBeenCalled();
+    expect(await env.DB.prepare("SELECT authority_kind, grant_id FROM call_session_authorities WHERE session_id = ?")
+      .bind(stored.sessionId).first()).toEqual({ authority_kind: "guest", grant_id: GUEST_GRANT_ID });
+  });
+
+  it("shares the production owner authority with confirmed access administration without calling the model", async () => {
+    await seedActiveVoiceIdentity();
+    const call = await runtime(await createInboundSession(repository()));
+    await call.setup();
+    await call.prompt(`allow ${GUEST_E164} with conversation`);
+    await call.digits("2468");
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM voice_access_grants").first()).toEqual({ count: 0 });
+    await call.prompt("confirm");
+    expect(await env.DB.prepare("SELECT status FROM voice_access_grants").first()).toEqual({ status: "pending" });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(call.close).not.toHaveBeenCalled();
+  });
+
+  it("shares the production activation observation issuer and configured key version with challenge confirmation", async () => {
+    await beginPhoneChallenge();
+    const stored = await createInboundSession(repository(), "identity-hmac-v1");
+    const call = await runtime(stored);
+    await call.setup();
+    await call.digits(CHALLENGE_RESPONSE);
+    expect(await identityState()).toEqual({ status: "active", verified_at: NOW.toISOString() });
+    expect(await challengeConsumedAt()).toBe(NOW.toISOString());
+    expect(await reservationKinds()).toEqual(["activation"]);
+    expect(await storedPhase(stored.sessionId)).toBe("completed");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps an explicit null runtime disabled even with complete production configuration", async () => {
+    await seedActiveVoiceIdentity();
+    const stored = await createInboundSession(repository());
+    const call = await runtime(stored, configuration(), true);
+    await call.setup();
+    expect(call.close).toHaveBeenCalledExactlyOnceWith(1011, "relay runtime unavailable");
+    expect(await storedPhase(stored.sessionId)).toBe("created");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("forwards the outbound pre-authentication contract into the production runtime", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      await system.dispatch();
+      expect((await system.claimOutboundTwiML(system.acceptedCallSid())).status).toBe(200);
+      const initialization = system.initializations()[0];
+      if (initialization === undefined) throw new Error("fixture_outbound_initialization_missing");
+      const stored = await repository().getCallSession(initialization.sessionId);
+      if (stored === null) throw new Error("fixture_outbound_session_missing");
+      const call = await runtime(stored, configuration(), false, initialization);
+      await call.setup();
+      expect(call.send.mock.calls.map(([frame]) => JSON.parse(String(frame)))[0])
+        .toEqual({ type: "text", token: OUTBOUND_VOICEMAIL_MESSAGE, last: true });
+      expect(await storedPhase(stored.sessionId)).toBe("active");
+      expect(call.close).not.toHaveBeenCalled();
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    } finally { await system.cleanup(); }
+  });
+
+  it.each([
+    ["missing account", "TWILIO_ACCOUNT_SID", ""],
+    ["wrong account type", "TWILIO_ACCOUNT_SID", `SK${"6".repeat(32)}`],
+    ["missing model key", "DEEPSEEK_API_KEY", ""],
+    ["whitespace model key", "DEEPSEEK_API_KEY", " synthetic-runtime-key"],
+    ["oversized model key", "DEEPSEEK_API_KEY", "s".repeat(4097)],
+    ["oversized model id", "DEEPSEEK_MODEL", "s".repeat(129)],
+    ["control in model id", "DEEPSEEK_MODEL", "synthetic\nmodel"],
+    ["missing bot token", "TELEGRAM_BOT_TOKEN", ""],
+    ["oversized bot token", "TELEGRAM_BOT_TOKEN", `123456789:${"s".repeat(4097)}`],
+    ["missing challenge version", "IDENTITY_CHALLENGE_HMAC_KEY_VERSION", ""],
+    ["oversized challenge version", "IDENTITY_CHALLENGE_HMAC_KEY_VERSION", "s".repeat(65)],
+    ["control in challenge version", "IDENTITY_CHALLENGE_HMAC_KEY_VERSION", "v1\nv2"],
+    ...["GUEST_PIN_PEPPER_V1", "AUTHENTICATION_BUDGET_PEPPER", "IDENTITY_CHALLENGE_HMAC_PEPPER"].flatMap((key) => [
+      [`short ${key}`, key, base64(new Uint8Array(31))],
+      [`long ${key}`, key, base64(new Uint8Array(33))],
+      [`noncanonical ${key}`, key, `${"A".repeat(42)}B=`],
+      [`whitespace ${key}`, key, ` ${base64(new Uint8Array(32))}`],
+    ]),
+  ])("refuses %s before runtime effects while keeping initialization available", async (_label, key, value) => {
+    if (key === undefined) throw new Error("fixture_configuration_key_missing");
+    await seedActiveVoiceIdentity();
+    const configured = { ...configuration(), [key]: value };
+    expect(() => readVoiceRuntimeConfiguration(configured)).toThrow("voice_runtime_configuration_invalid");
+    const stored = await createInboundSession(repository());
+    const call = await runtime(stored, configured);
+    await call.setup();
+    expect(call.close).toHaveBeenCalledExactlyOnceWith(1011, "relay runtime unavailable");
+    expect(await storedPhase(stored.sessionId)).toBe("created");
+    expect(await reservationCount()).toBe(0);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("accepts the exact configured bounds and keeps the guest default optional", () => {
+    const configured = configuration();
+    configured.DEEPSEEK_API_KEY = "s".repeat(4096);
+    configured.DEEPSEEK_MODEL = "s".repeat(128);
+    configured.TELEGRAM_BOT_TOKEN = `123456789:${"s".repeat(4096)}`;
+    configured.IDENTITY_CHALLENGE_HMAC_KEY_VERSION = "s".repeat(64);
+    delete configured.DEFAULT_GUEST_PIN;
+    expect(readVoiceRuntimeConfiguration(configured)).toMatchObject({
+      modelApiKey: configured.DEEPSEEK_API_KEY, model: configured.DEEPSEEK_MODEL,
+      telegramToken: configured.TELEGRAM_BOT_TOKEN, challengeKeyVersion: configured.IDENTITY_CHALLENGE_HMAC_KEY_VERSION,
+    });
   });
 });
 

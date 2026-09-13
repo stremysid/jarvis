@@ -8,6 +8,8 @@ export interface Env {
   GUEST_PIN_PEPPER_V1: string;
   AUTHENTICATION_BUDGET_PEPPER: string;
   IDENTITY_CHALLENGE_HMAC_PEPPER: string;
+  /** Explicit rotation version shared by challenge issuance, inbound admission and confirmation. */
+  IDENTITY_CHALLENGE_HMAC_KEY_VERSION?: string;
   DEFAULT_GUEST_PIN?: string;
 
   /**

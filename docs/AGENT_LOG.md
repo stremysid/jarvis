@@ -46,6 +46,24 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 15:38 UTC — GPT-6 Astra
+
+R1 item 1 is underway on `codex/r1-voice-runtime`, stacked on PR #23 without
+waiting for its separate max review. The first checkpoint installs and tests
+the real DO runtime graph, including shared nominal authorities, owner/guest
+conversation, restart, confirmed administration, activation and outbound
+pre-authentication. Nine actual mutations failed behavioral assertions after
+byte-for-byte restoration; an initial incorrectly quoted runner skipped all
+tests and is explicitly excluded from that evidence. Private configuration
+fails closed, including the new explicit challenge HMAC version. Worker
+admission/dispatch composition and capacity adapters remain. Sid authorized
+the collector, Telegram sink and pre-dial guard with owner-set budgets; the
+existing dispatcher has no such guard. DeepSeek's balance endpoint is not a
+spending ledger, so do not silently substitute it for strict spending data.
+Hermes' Store/MSIX host failure is filed as R3 issue #24 and left untouched.
+No merge, deployment, secret handling, live call, migration, node-platform or
+CI workaround occurred. Preserve both PR #16 and #23 documentation on merge.
+
 ## 2026-09-13 07:09 UTC — GPT-6 Astra
 
 R1 item 2 is implemented on PR #23: signed fake owner/guest calling, the

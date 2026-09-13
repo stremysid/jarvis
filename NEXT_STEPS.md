@@ -60,9 +60,29 @@ Run `pnpm test:voice-access` and `pnpm typecheck:voice-access` locally.
 `pnpm release:voice-gate` runs the fake prerequisite before auditing the five
 retained live records, and refuses release while those records are absent.
 Current validation belongs in PR #23; fake success is not live acceptance.
-After Claude Opus 5 max review, continue item 1's production composition in
-its own PR. Owner configuration and live evidence remain explicit gates;
+Item 1 is underway separately on `codex/r1-voice-runtime`, stacked on
+PR #23. Its first checkpoint composes the real Durable Object runtime and
+tests owner/guest conversation, restart, access administration, activation
+and outbound pre-authentication. The Worker routes remain closed until the
+remaining admission, capacity and dispatch dependencies are composed.
+Build this independently of PR #23's separate Claude Opus 5 max review;
+that review remains required before merge. Owner configuration and live evidence remain explicit gates;
 the live smoke (item 3) and legacy verifier removal (item 4) stay separate.
+
+Capacity adapters and the pre-dial assertion are authorized within item 1.
+Budgets are owner configuration with no defaults. The existing dispatcher
+has no capacity assertion; add it before claiming provider dispatch. Keep
+missing, malformed and stale telemetry closed. DeepSeek exposes remaining
+credit rather than spending and there is no complete local charge ledger;
+do not derive spend by subtracting balance or treating unknown calls as free.
+The strict-spending source/accounting decision is still pending. Alerts must
+reuse Telegram; no new notification channel or metering product is in scope.
+
+Hermes' MSI-only trusted PowerShell path is filed for R3 as
+[issue #24](https://github.com/ksid1229-ops/jarvis/issues/24). Sid's Store/MSIX
+installation is legitimate but rejected. Preserve the absolute-host security
+boundary and require package identity verification in that future fix; do
+not resolve `pwsh` from inherited PATH. Leave implementation deferred.
 
 ## R2 platform hold
 

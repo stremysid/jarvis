@@ -13,7 +13,20 @@ The real release runner passes its local prerequisites and then refuses the
 missing live evidence. It never places a call itself.
 
 R1's v1.0 review requires Claude Opus 5 at max. Item 1's real Worker/runtime
-composition belongs in a separate PR after this review; Twilio configuration,
+composition is underway on `codex/r1-voice-runtime`, stacked on PR #23; its
+implementation does not wait on the separate review. The first checkpoint
+installs a lazy production Durable Object runtime using the real D1 access,
+activation, conversation, DeepSeek and Telegram services. Nominal proof and
+authority issuers are shared within each reconstructed graph. Configuration
+is validated before runtime effects; initialization and termination remain
+available when provider configuration is missing. The new explicit
+`IDENTITY_CHALLENGE_HMAC_KEY_VERSION` must match challenge issuance and inbound
+admission, and all three peppers must be canonical base64 for exactly 32 bytes.
+The Worker routes and Telegram dispatch remain unconfigured pending the rest
+of item 1. Capacity adapters and the missing pre-dial assertion are authorized;
+strict DeepSeek spending telemetry still needs an authoritative source or an
+approved accounting design, because remaining account credit is not spend.
+Twilio configuration,
 live calls and redacted live evidence remain owner operations. Items 3 and 4
 still cover the live smoke and legacy eight-digit verifier deletion. None
 of those are satisfied by the fake matrix or same-vendor advisory review.
@@ -31,6 +44,17 @@ mutations, 2,146 workspace tests and 807 Linux local-agent tests. Before he
 merges, Sid still needs the current-head Windows local-agent, Hermes and
 deployment-script suites plus the byte-exact checkout check. No further
 implementation is requested on #16.
+
+Sid's real Windows suite exposed Hermes' MSI-only PowerShell path: the trusted
+host lookup rejects his Store/MSIX installation. This is deferred R3
+[issue #24](https://github.com/ksid1229-ops/jarvis/issues/24), not a PR #16
+blocker. No Hermes implementation changed. The Codex command host is a bundled
+PowerShell installation, so local command success does not reproduce Sid's
+installed Store host or clear the reported Hermes failures. Prefer evidence
+from the actual target environment over runner layout assumptions.
+
+PR #16 and PR #23 both edit NEXT_STEPS, AGENT_LOG and this document. Whichever
+merges second must preserve both milestones' current state and all log entries.
 
 GitHub Actions has used 2,000/2,000 minutes with a $0 budget and stop-usage
 enabled, resetting 2026-10-01. Sid will not raise it. Run suites locally

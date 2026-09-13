@@ -26,6 +26,7 @@ import {
 import { parseOwnerAccessIntent, type OwnerAccessDraft } from "./owner-access-intent.js";
 import { OwnerAccessService, type OwnerPinSelection, type PreparedOwnerAccessProposal } from "./owner-access-service.js";
 import { FourDigitPinCapture, normalizeSpokenPin } from "./pin-capture.js";
+import { createProductionCallSessionCore } from "./production-runtime.js";
 import {
   GuestPinProofIssuer,
   type GuestPinAuthenticationProof,
@@ -1270,7 +1271,7 @@ export interface CallSessionRuntimeInput {
   readonly relay: CallSessionRelay;
 }
 
-/** Task 8 supplies trusted provider/account/model construction through this in-process adapter. */
+/** Tests may replace the production graph through this trusted in-process adapter. */
 export type CallSessionRuntimeFactory = (input: CallSessionRuntimeInput) => CallSessionCore;
 
 function socketRelay(socket: WebSocket, markPolicyClosed: () => void): CallSessionRelay {
@@ -1313,7 +1314,7 @@ export class CallSession extends DurableObject<Env> {
   constructor(
     state: DurableObjectState,
     env: Env,
-    runtimeFactory: CallSessionRuntimeFactory | null = null,
+    runtimeFactory: CallSessionRuntimeFactory | null = (input) => createProductionCallSessionCore(env, input),
   ) {
     super(state, env);
     this.#runtimeFactory = runtimeFactory;
