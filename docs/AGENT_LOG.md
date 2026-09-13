@@ -46,6 +46,20 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 05:28 UTC — GPT-6 Astra
+
+R1 item 2 is underway on `codex/r1-call-acceptance`, based on current main,
+separate from completed PR #16. The first inbound fake acceptance case now
+crosses signed HTTP admission, D1, the Durable Object upgrade, raw relay
+parsing, owner authentication and the real conversation service. It proves
+two turns survive an interruption without a PIN prompt or a delivered-event
+claim. Removing the model abort makes the new case fail; restored local
+workspace tests pass 1,943/107 files, and the new voice harness has its own
+passing typecheck. The remaining calling/access matrix and Telegram `/call`
+are still outstanding, so production voice remains closed. R1 requires
+Claude Opus 5 max review and owner-run live evidence. Sid's node platform
+hold and the GitHub Actions quota policy in HANDOFF remain in force.
+
 ## 2026-09-12 04:26 UTC — GPT-6 Astra
 
 The PR #16 current-head Windows Hermes job exposed a residual oversized-request

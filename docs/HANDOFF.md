@@ -1,7 +1,36 @@
 # Handoff
 
-Current as of **2026-09-11**. Verify the current branch and checks before
+Current as of **2026-09-13**. Verify the current branch and checks before
 using this checkpoint. R0 passed; calling remains R1.
+
+## R1 is active; the node platform decision remains on hold
+
+R0 passed on 2026-09-11. R1 depends on R0 and is entirely cloud-side. Start
+with the fake inbound acceptance harness and the scenarios in both calling
+plans, then Telegram `/call`; keep the production voice routes closed until
+the fake scenarios pass. R1's v1.0 review requires Claude Opus 5 at max.
+Twilio configuration, live calls and redacted live evidence remain owner
+operations, separate from credential-free local test results.
+
+Sid's PCs run Windows 11 and his phone is an iPhone 16. There is no Linux
+host, server or VPS; the home PC is off overnight. No Windows node port or
+further Linux implementation is authorized until he chooses a direction.
+R2 item 4 is parked. Preserve the actual requirement: memory must work with
+every PC off, whatever implementation Sid selects. PR #22 records the
+platform correction; the old roadmap attribution is not owner approval.
+
+PR #16 at `27b232f` has completed the reviewer's requested changes. The
+reviewer independently verified migration byte identity, all five trigger
+mutations, 2,146 workspace tests and 807 Linux local-agent tests. Before he
+merges, Sid still needs the current-head Windows local-agent, Hermes and
+deployment-script suites plus the byte-exact checkout check. No further
+implementation is requested on #16.
+
+GitHub Actions has used 2,000/2,000 minutes with a $0 budget and stop-usage
+enabled, resetting 2026-10-01. Sid will not raise it. Run suites locally
+and record the results in each PR; do not retry Actions, disable jobs or
+restructure CI to bypass the quota. CI path filtering can be considered
+when CI is next intentionally changed; it is not part of this work.
 
 ## R2 item 2 candidate
 
@@ -233,9 +262,11 @@ secret value.
   deadline half of the digest is empty rather than stale.
 - **`project()` in the vault** has no authority gate in front of it. Nothing
   but tests calls it. Do not wire a caller without one.
-- **The local agent has no process bootstrap.** `RunLoop`, `ServiceState` and
-  `NamedPipeServer.serve_forever` are tested and nothing starts them; there
-  is no `jarvis service` command and no Windows service host.
+- **There is no Windows process host.** The existing `jarvis node` starts
+  `RunLoop` and `ServiceState`, but refuses to start outside Linux.
+  `NamedPipeServer.serve_forever` is still started only by tests; there is no
+  `jarvis service` command and no Windows service host. Node platform work
+  remains on hold as described above.
 
 ## The one thing to read before building on the vault
 
