@@ -403,12 +403,12 @@ CREATE TABLE memory_fact_projection_commits (
 CREATE TRIGGER memory_fact_projection_commit_publish
 AFTER INSERT ON memory_fact_projection_commits
 BEGIN
-  SELECT CASE WHEN NOT EXISTS (
+  SELECT RAISE(ABORT, 'memory_projection_device_state_changed') WHERE NOT EXISTS (
     SELECT 1 FROM device_keys d JOIN principals p ON p.principal_id = d.principal_id
     WHERE d.device_id = NEW.device_id AND d.principal_id = NEW.principal_id
       AND d.key_id = NEW.key_id AND d.key_fingerprint = NEW.key_fingerprint
       AND d.key_generation = NEW.key_generation AND d.status = 'active' AND p.status = 'active'
-  ) THEN RAISE(ABORT, 'memory_projection_device_state_changed') END;
+  );
   UPDATE memory_fact_projection_versions
   SET status = 'published', published_at = NEW.committed_at
   WHERE principal_id = NEW.principal_id
@@ -431,7 +431,7 @@ BEGIN
       WHERE h.principal_id = NEW.principal_id AND h.device_id = NEW.device_id
         AND h.published_version = NEW.projection_version - 1
     );
-  SELECT CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'memory_projection_state_changed') END;
+  SELECT RAISE(ABORT, 'memory_projection_state_changed') WHERE changes() <> 1;
   UPDATE memory_fact_projection_heads
   SET published_version = NEW.projection_version,
       manifest_hash = NEW.manifest_hash,
@@ -439,7 +439,7 @@ BEGIN
   WHERE principal_id = NEW.principal_id
     AND device_id = NEW.device_id
     AND published_version = NEW.projection_version - 1;
-  SELECT CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'memory_projection_head_changed') END;
+  SELECT RAISE(ABORT, 'memory_projection_head_changed') WHERE changes() <> 1;
   DELETE FROM memory_fact_projection_versions
   WHERE principal_id = NEW.principal_id
     AND device_id = NEW.device_id
