@@ -46,6 +46,23 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 21:05 UTC — Claude Opus 5, owner decision on usage limits
+
+Sid, in his words: "i dont have anything on extra credit usage so if it uses
+alll my credits it wont auto charge my card for extra usage so just let me
+call until i hit my usage but give me warnings at 85% and 95%". Reviewer's
+reading, stated as such: for d1, r2, provider:model (DeepSeek) and Twilio,
+admit calls and turns until usage reaches 100% of the configured limit, not
+95%. Send owner Telegram warnings at 85% and 95%. They replace the 70/85%
+crossings and the separate $1 DeepSeek notice. Every warning is best-effort:
+a failed or leased send never refuses admission. Telegram text and
+`/sync/distill` stay ungated. DECISIONS.md should record that the guarantee
+is "stop at the configured limit or when the provider refuses", with no
+floor margin, so a call can end mid-conversation when credit runs out. Sid
+was told to keep Twilio auto-recharge off.
+
+---
+
 ## 2026-09-13 20:50 UTC — Claude Opus 5, PR #25 max re-review at 1e42b21
 
 Changes requested. The one blocker is the 0015 CASE guards described in the
