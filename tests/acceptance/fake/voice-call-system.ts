@@ -11,8 +11,8 @@ import { routeVoiceRequest } from "../../../apps/cloud-gateway/src/http/voice-ro
 import { CallRepository, type DispatchIntent } from "../../../apps/cloud-gateway/src/persistence/call-repository.js";
 import { EventRepository } from "../../../apps/cloud-gateway/src/persistence/event-repository.js";
 import { FakeTwilioProvider } from "../../../apps/cloud-gateway/src/providers/fake-twilio-provider.js";
-import type { CallSessionInitialization } from "../../../apps/cloud-gateway/src/voice/call-session-do.js";
-import { FakeRelaySessions, type FakeRelayCall } from "./voice-relay-system.js";
+import type { CallSessionInitialization, CallSessionTermination } from "../../../apps/cloud-gateway/src/voice/call-session-do.js";
+import { FAKE_PROVIDER_SESSION_ID, FakeRelaySessions, type FakeRelayCall } from "./voice-relay-system.js";
 import type {
   DispatchPolicyCheck,
   OutboundCallRequest,
@@ -127,11 +127,16 @@ export interface FakeCallingSystem extends FakeOutboundCallingSystem {
   inbound(caller?: string): Promise<Response>;
   openRelay(): Promise<FakeRelayCall>;
   pinAttempts(): Promise<number>;
+  conversationTurnCount(): Promise<number>;
+  sendRelayEnded(callSid: string, sessionStatus: string, providerSessionId?: string): Promise<Response>;
+  terminations(): readonly CallSessionTermination[];
 }
 
 export async function createFakeCallingSystem(input: {
   loseDispatchResponse?: boolean;
   manualModel?: boolean;
+  beforeTermination?: (input: CallSessionTermination) => Promise<void>;
+  beforeOutboundSessionCreate?: () => Promise<void>;
 } = {}): Promise<FakeCallingSystem> {
   await applyFoundationMigration();
   await clearFixture();
@@ -152,6 +157,7 @@ export async function createFakeCallingSystem(input: {
   });
   const initializationLog: Readonly<OutboundSessionInitialization>[] = [];
   let lastSessionId: Ulid | undefined;
+  const terminationLog: CallSessionTermination[] = [];
   const initializeSession = async (initialization: Readonly<CallSessionInitialization>): Promise<void> => {
     await relays.initialize(initialization);
     lastSessionId = initialization.sessionId;
@@ -160,6 +166,11 @@ export async function createFakeCallingSystem(input: {
     database: env.DB,
     calls: repository,
     now: () => NOW,
+    terminateSession: async (termination) => {
+      terminationLog.push(termination);
+      await input.beforeTermination?.(termination);
+      return relays.terminate(termination);
+    },
   });
   const routeDependencies = createVoiceRouteDependencies({
     publicOrigin: new URL("https://jarvis.example/"),
@@ -184,7 +195,13 @@ export async function createFakeCallingSystem(input: {
     outbound: {
       ownerIdentityId: "identity:voice",
       recipients: new D1OutboundRecipientIdentityLookup(env.DB),
-      calls: repository,
+      calls: {
+        claimExpectedCall: repository.claimExpectedCall.bind(repository),
+        getOrCreateOutboundSession: async (request) => {
+          await input.beforeOutboundSessionCreate?.();
+          return repository.getOrCreateOutboundSession(request);
+        },
+      },
       initializeSession: async (initialization) => {
         await initializeSession(initialization);
         initializationLog.push(initialization);
@@ -228,6 +245,13 @@ export async function createFakeCallingSystem(input: {
       ),
       routeDependencies,
     ),
+    sendRelayEnded: async (callSid: string, sessionStatus: string, providerSessionId = FAKE_PROVIDER_SESSION_ID) => routeVoiceRequest(
+      await signedPost(twilio, "/voice/relay-ended", "https://jarvis.example/voice/relay-ended",
+        new URLSearchParams({ CallSid: callSid, SessionId: providerSessionId, SessionStatus: sessionStatus,
+          SessionDuration: "17" }).toString()),
+      routeDependencies,
+    ),
+    terminations: () => [...terminationLog],
     claimOutboundTwiML: async (callSid: string) => routeVoiceRequest(
       await signedPost(
         twilio,
@@ -238,6 +262,8 @@ export async function createFakeCallingSystem(input: {
       routeDependencies,
     ),
     dispatchIntent: () => repository.resolveDispatchIntent(COMMAND_ID),
+    conversationTurnCount: async () => (await env.DB.prepare("SELECT COUNT(*) AS count FROM conversation_turns")
+      .first<{ count: number }>())?.count ?? 0,
     twilioRequests: () => twilio.requests,
     initializations: () => Object.freeze([...initializationLog]),
     cleanup: async () => { await relays.cleanup(); await clearFixture(); },

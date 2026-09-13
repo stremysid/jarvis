@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { env } from "cloudflare:test";
+import { CallRepository } from "../../../apps/cloud-gateway/src/persistence/call-repository.js";
+import { EventRepository } from "../../../apps/cloud-gateway/src/persistence/event-repository.js";
 import { createFakeCallingSystem, createFakeOutboundCallingSystem } from "./voice-call-system.js";
 
 describe("fake voice call path", () => {
@@ -50,6 +53,224 @@ describe("fake voice call path", () => {
       expect(call.frames().at(-1)).toEqual({ type: "text", token: "", last: true });
       await call.close();
       await expect(call.phase()).resolves.toBe("completed");
+      await expect(system.pinAttempts()).resolves.toBe(0);
+    } finally {
+      await system.cleanup();
+    }
+  });
+
+  it("answers an owner outbound call without a PIN and ends the active session on a signed terminal callback", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      await expect(system.dispatch()).resolves.toMatchObject({ status: "dispatched", attemptId: system.attemptId });
+      const callSid = system.acceptedCallSid();
+      expect((await system.claimOutboundTwiML(callSid)).status).toBe(200);
+      const call = await system.openRelay();
+      await call.setup();
+      await expect(call.phase()).resolves.toBe("active");
+      await expect(system.pinAttempts()).resolves.toBe(0);
+      expect(call.frames().map((frame) => frame.token).join("")).toBe("Jarvis called for Sid. No private message was left.");
+      await call.prompt("Please give a brief answer.");
+      expect((await call.modelRequests()).map((request) => request.principalId)).toEqual(["principal:owner"]);
+      await expect(call.turns()).resolves.toEqual([
+        { state: "voice_sent", sent_assistant_event_id: expect.any(String), delivered_assistant_event_id: null },
+      ]);
+      expect((await system.sendStatus(callSid, "completed", 1)).status).toBe(204);
+      await expect(call.phase()).resolves.toBe("completed");
+      await vi.waitFor(() => expect(call.closeCodes()).toContain(1000));
+      expect(system.twilioRequests()).toHaveLength(1);
+    } finally {
+      await system.cleanup();
+    }
+  });
+
+  it("does not retry an unanswered outbound call or admit its late relay request", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      await system.dispatch();
+      const callSid = system.acceptedCallSid();
+      expect((await system.sendStatus(callSid, "no-answer", 1)).status).toBe(204);
+      await system.dispatch();
+      expect(system.twilioRequests()).toHaveLength(1);
+      const response = await system.claimOutboundTwiML(callSid);
+      expect(response.status).toBe(403);
+      await expect(env.DB.prepare("SELECT relay_call_sid FROM outbound_call_attempts WHERE attempt_id = ?")
+        .bind(system.attemptId).first()).resolves.toEqual({ relay_call_sid: null });
+      expect(await response.text()).not.toContain("ConversationRelay");
+      expect(system.initializations()).toHaveLength(0);
+      await expect(system.pinAttempts()).resolves.toBe(0);
+      await expect(system.conversationTurnCount()).resolves.toBe(0);
+    } finally {
+      await system.cleanup();
+    }
+  });
+
+  it("records nonterminal callbacks without invalidating an active call", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      await system.dispatch();
+      const callSid = system.acceptedCallSid();
+      await system.claimOutboundTwiML(callSid);
+      const call = await system.openRelay();
+      await call.setup();
+      for (const [sequence, status] of ["initiated", "ringing", "in-progress"].entries()) {
+        expect((await system.sendStatus(callSid, status, sequence)).status).toBe(204);
+        await expect(call.phase()).resolves.toBe("active");
+      }
+      expect(system.terminations()).toHaveLength(0);
+      await expect(env.DB.prepare("SELECT count(*) AS count FROM provider_events").first()).resolves.toEqual({ count: 3 });
+    } finally { await system.cleanup(); }
+  });
+
+  it("refuses session creation when a terminal callback wins after relay claim", async () => {
+    let release!: () => void;
+    let reached!: () => void;
+    const entered = new Promise<void>((resolve) => { reached = resolve; });
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const system = await createFakeCallingSystem({ beforeOutboundSessionCreate: async () => { reached(); await blocked; } });
+    try {
+      await system.dispatch();
+      const callSid = system.acceptedCallSid();
+      const pending = system.claimOutboundTwiML(callSid);
+      await entered;
+      expect((await system.sendStatus(callSid, "no-answer", 1)).status).toBe(204);
+      release();
+      expect((await pending).status).toBe(403);
+      expect(system.initializations()).toHaveLength(0);
+      await expect(env.DB.prepare("SELECT count(*) AS count FROM call_sessions").first()).resolves.toEqual({ count: 0 });
+    } finally { release(); await system.cleanup(); }
+  });
+
+  it("rolls back terminal call state when the callback event cannot commit", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      await system.dispatch();
+      const callSid = system.acceptedCallSid();
+      await system.claimOutboundTwiML(callSid);
+      const call = await system.openRelay();
+      await call.setup();
+      await env.DB.prepare(`CREATE TRIGGER fixture_reject_callback BEFORE INSERT ON events
+        WHEN NEW.event_type = 'provider.call_status'
+        BEGIN SELECT RAISE(ABORT, 'fixture_callback_storage_failed'); END`).run();
+      expect((await system.sendStatus(callSid, "completed", 1)).status).toBe(503);
+      await expect(call.phase()).resolves.toBe("active");
+      await expect(env.DB.prepare("SELECT count(*) AS count FROM provider_events").first()).resolves.toEqual({ count: 0 });
+      expect(system.terminations()).toHaveLength(0);
+      await env.DB.prepare("DROP TRIGGER fixture_reject_callback").run();
+      expect((await system.sendStatus(callSid, "completed", 1)).status).toBe(204);
+      await expect(call.phase()).resolves.toBe("completed");
+    } finally {
+      await env.DB.prepare("DROP TRIGGER IF EXISTS fixture_reject_callback").run();
+      await system.cleanup();
+    }
+  });
+
+  it("ends only the exact inbound provider session and refuses a mismatched relay-ended callback", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      await system.inbound();
+      const call = await system.openRelay();
+      await call.setup();
+      expect((await system.sendRelayEnded(call.callSid, "ended", `VX${"7".repeat(32)}`)).status).toBe(503);
+      expect(system.terminations()).toHaveLength(0);
+      await expect(call.phase()).resolves.toBe("active");
+      expect((await system.sendRelayEnded(call.callSid, "ended")).status).toBe(204);
+      await expect(call.phase()).resolves.toBe("completed");
+      await vi.waitFor(() => expect(call.closeCodes()).toContain(1000));
+      expect(system.terminations()).toEqual([{ sessionId: call.sessionId, phase: "completed", reason: "provider_callback" }]);
+    } finally { await system.cleanup(); }
+  });
+
+  it("retries failed live cleanup after the callback has committed without recording or publishing twice", async () => {
+    let failCleanup = true;
+    const system = await createFakeCallingSystem({ manualModel: true, beforeTermination: async ({ sessionId }) => {
+      await expect(env.DB.prepare("SELECT phase FROM call_sessions WHERE session_id = ?").bind(sessionId).first())
+        .resolves.toEqual({ phase: "completed" });
+      await expect(env.DB.prepare("SELECT count(*) AS count FROM provider_events").first()).resolves.toEqual({ count: 1 });
+      if (failCleanup) { failCleanup = false; throw new Error("fixture_cleanup_unavailable"); }
+    } });
+    try {
+      await system.dispatch();
+      const callSid = system.acceptedCallSid();
+      await system.claimOutboundTwiML(callSid);
+      const call = await system.openRelay();
+      await call.setup();
+      const turn = call.prompt("Please answer briefly.");
+      await vi.waitFor(async () => expect(await call.modelRequests()).toHaveLength(1));
+      expect((await system.sendStatus(callSid, "completed", 1)).status).toBe(503);
+      expect((await system.sendStatus(callSid, "completed", 1)).status).toBe(204);
+      await turn;
+      await expect(call.turns()).resolves.toEqual([
+        { state: "cancelled", sent_assistant_event_id: null, delivered_assistant_event_id: null },
+      ]);
+      await expect(call.emitToken("This must never be sent.")).rejects.toThrow("fake_model_manual_stream_inactive");
+      expect(system.terminations()).toHaveLength(2);
+      expect((await system.sendStatus(callSid, "completed", 1)).status).toBe(204);
+      await expect(env.DB.prepare("SELECT count(*) AS count FROM provider_events").first()).resolves.toEqual({ count: 1 });
+    } finally { await system.cleanup(); }
+  });
+
+  it("preserves the first terminal phase across differently classified provider callbacks", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      await system.dispatch();
+      const callSid = system.acceptedCallSid();
+      await system.claimOutboundTwiML(callSid);
+      const call = await system.openRelay();
+      await call.setup();
+      expect((await system.sendStatus(callSid, "failed", 1)).status).toBe(204);
+      expect((await system.sendStatus(callSid, "completed", 2)).status).toBe(204);
+      expect((await system.sendRelayEnded(callSid, "ended")).status).toBe(204);
+      await expect(call.phase()).resolves.toBe("failed");
+      expect(system.terminations().map((input) => input.phase)).toEqual(["failed", "failed", "failed"]);
+    } finally { await system.cleanup(); }
+  });
+
+  it("cleans an initialized outbound session that ends before relay setup and keeps its provider binding empty", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      await system.dispatch();
+      const callSid = system.acceptedCallSid();
+      await system.claimOutboundTwiML(callSid);
+      const call = await system.openRelay();
+      expect((await system.sendStatus(callSid, "no-answer", 1)).status).toBe(204);
+      await expect(call.phase()).resolves.toBe("failed");
+      await expect(env.DB.prepare("SELECT provider_session_id, provider_connected_at FROM call_sessions WHERE session_id = ?")
+        .bind(call.sessionId).first()).resolves.toEqual({ provider_session_id: null, provider_connected_at: null });
+      await vi.waitFor(() => expect(call.closeCodes()).toContain(1000));
+      expect((await system.sendStatus(callSid, "no-answer", 1)).status).toBe(204);
+      expect((await system.claimOutboundTwiML(callSid)).status).toBe(403);
+      const initialization = system.initializations()[0];
+      if (initialization === undefined) throw new Error("fixture_initialization_missing");
+      await expect(new CallRepository(env.DB, new EventRepository(env.DB)).getOrCreateOutboundSession({
+        attemptId: system.attemptId, binding: initialization.binding, now: new Date("2026-08-30T12:00:00.000Z"),
+      })).rejects.toThrow("call_session_conflict");
+      await expect(system.pinAttempts()).resolves.toBe(0);
+    } finally { await system.cleanup(); }
+  });
+
+  it("refuses unbound live-session cleanup until a callback has terminalized its durable state", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      await system.dispatch();
+      await system.claimOutboundTwiML(system.acceptedCallSid());
+      const call = await system.openRelay();
+      await expect(call.terminate("failed")).rejects.toThrow("call_session_termination_binding_mismatch");
+      await expect(call.phase()).resolves.toBe("created");
+      expect(call.closeCodes()).toHaveLength(0);
+    } finally { await system.cleanup(); }
+  });
+
+  it("closes an over-64-KiB relay frame with 1009 before it creates a conversation turn", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      await system.inbound();
+      const call = await system.openRelay();
+      await call.setup();
+      await call.sendFrame("x".repeat(65_537));
+      await vi.waitFor(() => expect(call.closeCodes()).toContain(1009));
+      await expect(call.modelRequests()).resolves.toHaveLength(0);
+      await expect(call.turns()).resolves.toHaveLength(0);
       await expect(system.pinAttempts()).resolves.toBe(0);
     } finally {
       await system.cleanup();

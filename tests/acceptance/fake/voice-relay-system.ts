@@ -13,12 +13,16 @@ import {
   CallSession,
   CallSessionCore,
   type CallSessionInitialization,
+  type CallSessionTermination,
+  type CallSessionTerminationResult,
+  type CallSessionTerminalPhase,
 } from "../../../apps/cloud-gateway/src/voice/call-session-do.js";
 import { CapabilityRegistry } from "../../../apps/cloud-gateway/src/voice/capability-registry.js";
+import { DurableObjectCallSessionTerminator } from "../../../apps/cloud-gateway/src/voice/call-session-terminator.js";
 import { VoiceAccessAuthorityService } from "../../../apps/cloud-gateway/src/voice/voice-access-authority.js";
 
 export const FAKE_ACCOUNT_SID = `AC${"6".repeat(32)}`;
-const PROVIDER_SESSION_ID = `VX${"5".repeat(32)}`;
+export const FAKE_PROVIDER_SESSION_ID = `VX${"5".repeat(32)}`;
 
 export interface RelayTextFrame {
   readonly type: "text";
@@ -28,6 +32,7 @@ export interface RelayTextFrame {
 
 export interface FakeRelayCall {
   readonly sessionId: Ulid;
+  readonly callSid: string;
   readonly upgradeStatus: number;
   setup(): Promise<void>;
   prompt(text: string): Promise<void>;
@@ -45,6 +50,7 @@ export interface FakeRelayCall {
     delivered_assistant_event_id: string | null;
   }[]>;
   close(): Promise<void>;
+  terminate(phase: CallSessionTerminalPhase): Promise<CallSessionTerminationResult>;
 }
 
 type SessionStub = ReturnType<typeof env.CALL_SESSION.get>;
@@ -139,13 +145,14 @@ export class FakeRelaySessions {
     );
     return Object.freeze({
       sessionId,
+      callSid: session.initialization.binding.callSid,
       upgradeStatus,
       setup: () => sendFrame(JSON.stringify({
         type: "setup",
-        sessionId: PROVIDER_SESSION_ID,
+        sessionId: FAKE_PROVIDER_SESSION_ID,
         accountSid: FAKE_ACCOUNT_SID,
         callSid: session.initialization.binding.callSid,
-        direction: session.initialization.binding.direction,
+        direction: session.initialization.binding.direction === "outbound" ? "outbound-api" : "inbound",
         customParameters: { relayNonce: session.initialization.binding.relayNonce },
       })),
       prompt: (text: string) => sendFrame(JSON.stringify({ type: "prompt", voicePrompt: text, lang: "en-US", last: true })),
@@ -168,14 +175,32 @@ export class FakeRelaySessions {
         FROM conversation_turns WHERE session_id = ? ORDER BY rowid`).bind(sessionId)
         .all<{ state: string; sent_assistant_event_id: string | null; delivered_assistant_event_id: string | null }>()).results,
       close: () => this.close(session),
+      terminate: (phase: CallSessionTerminalPhase) => this.terminate({ sessionId, phase, reason: "provider_callback" }),
     });
   }
 
   async cleanup(): Promise<void> {
     for (const session of this.sessions.values()) {
+      // Assertions have finished. Recover stale in-memory state as well so
+      // teardown cannot replace a useful failed assertion with a CAS error.
+      const stored = await this.repository.getCallSession(session.initialization.sessionId);
+      if (stored !== null && ["ending", "completed", "failed", "rejected", "expired"].includes(stored.phase)) {
+        await this.terminate({ sessionId: stored.sessionId, phase: stored.phase === "failed" ? "failed" : "completed",
+          reason: "provider_callback" });
+      }
       await this.close(session);
       await runInDurableObject(session.stub, async (_instance, state) => { await state.storage.deleteAll(); });
     }
+  }
+
+  terminate(input: CallSessionTermination): Promise<CallSessionTerminationResult> {
+    return new DurableObjectCallSessionTerminator({
+      idFromName: (name) => env.CALL_SESSION.idFromName(name),
+      get: (id) => {
+        const session = this.requireSession(id.name as Ulid);
+        return { terminate: (request) => runInDurableObject(session.stub, async () => session.object.terminate(request)) };
+      },
+    }).terminate(input);
   }
 
   private async close(session: InitializedRelay): Promise<void> {

@@ -223,7 +223,7 @@ type DurableCallSessionTerminalPhase = Extract<CallPhase, "completed" | "rejecte
 
 interface StoredCallSessionTermination extends CallSessionTermination {
   readonly callSid: string;
-  readonly providerSessionId: string;
+  readonly providerSessionId: string | null;
   readonly durablePhase: DurableCallSessionTerminalPhase;
   readonly cleanupState: "pending" | "complete";
 }
@@ -480,7 +480,8 @@ function snapshotTerminationRecord(value: unknown): Readonly<StoredCallSessionTe
     || captured.phase !== "completed" && captured.phase !== "failed"
     || captured.reason !== "provider_callback"
     || typeof captured.callSid !== "string" || !CALL_SID.test(captured.callSid)
-    || typeof captured.providerSessionId !== "string" || !/^VX[0-9A-Fa-f]{32}$/u.test(captured.providerSessionId)
+    || captured.providerSessionId !== null
+      && (typeof captured.providerSessionId !== "string" || !/^VX[0-9A-Fa-f]{32}$/u.test(captured.providerSessionId))
     || captured.durablePhase !== "completed" && captured.durablePhase !== "rejected"
       && captured.durablePhase !== "failed" && captured.durablePhase !== "expired"
     || captured.cleanupState !== "pending" && captured.cleanupState !== "complete"
@@ -1382,7 +1383,7 @@ export class CallSession extends DurableObject<Env> {
       record = Object.freeze({
         ...termination,
         callSid: session.callSid,
-        providerSessionId: session.providerSessionId as string,
+        providerSessionId: session.providerSessionId,
         durablePhase,
         cleanupState: "pending",
       });
@@ -1458,8 +1459,10 @@ export class CallSession extends DurableObject<Env> {
     if (
       session === null
       || !initializationMatchesSession(initialization, session)
-      || session.providerSessionId === null
-      || session.providerConnectedAt === null
+      || (session.providerSessionId === null) !== (session.providerConnectedAt === null)
+      // Before setup there is no provider-session binding to invent. Only an
+      // already-terminal D1 session may receive cleanup with a null pair.
+      || session.providerSessionId === null && !TERMINAL_PHASES.has(session.phase)
     ) {
       throw terminationFailure("call_session_termination_binding_mismatch");
     }

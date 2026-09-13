@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { CallSessionTermination } from "../../src/voice/call-session-do.js";
 import type { Sha256Hex, Ulid } from "../../../../packages/contracts/src/index.js";
 import { D1TwilioCallbackRecorder } from "../../src/http/voice-callback-recorder.js";
 import { CallRepository } from "../../src/persistence/call-repository.js";
@@ -134,11 +135,15 @@ describe("D1TwilioCallbackRecorder", () => {
       direction: "outbound",
       now: NOW,
     });
+    const terminateSession = vi.fn(async (input: CallSessionTermination) => ({
+      sessionId: input.sessionId, terminalPhase: input.phase, invalidated: true, outcome: "applied" as const,
+    }));
     const recorder = new D1TwilioCallbackRecorder({
       database: env.DB,
       calls: repository,
       now: () => NOW,
       newEventId: () => EVENT_ID,
+      terminateSession,
     });
     const mutable = {
       endpointKind: "relay_ended" as const,
@@ -156,6 +161,9 @@ describe("D1TwilioCallbackRecorder", () => {
     mutable.requestHash = "c".repeat(64) as Sha256Hex;
 
     await expect(pending).resolves.toBeUndefined();
+    expect(terminateSession).toHaveBeenCalledExactlyOnceWith({
+      sessionId: ATTEMPT_ID, phase: "completed", reason: "provider_callback",
+    });
     const stored = await env.DB.prepare("SELECT endpoint_kind, call_sid, session_id FROM provider_events").first();
     expect(stored).toEqual({ endpoint_kind: "relay_ended", call_sid: CALL_SID, session_id: PROVIDER_SESSION_ID });
     const event = await env.DB.prepare("SELECT event_type, envelope_json FROM events").first<{

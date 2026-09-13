@@ -80,6 +80,20 @@ describe("EventRepository", () => {
     expect(stored?.envelope_json).not.toContain("first-secret");
   });
 
+  it("admits three callback dependencies but refuses a fourth before any ledger write", async () => {
+    const repository = new EventRepository(env.DB);
+    const envelope = await eventFixture("three callback steps");
+    await expect(repository.appendAtomic({
+      envelope, scope: "fixture:callback", key: "three", requestHash: await requestHash("three"),
+    }, () => Array.from({ length: 3 }, () => env.DB.prepare("SELECT 1"))))
+      .resolves.toMatchObject({ replayed: false });
+    await expect(repository.appendAtomic({
+      envelope: await eventFixture("four callback steps"), scope: "fixture:callback", key: "four", requestHash: await requestHash("four"),
+    }, () => Array.from({ length: 4 }, () => env.DB.prepare("SELECT 1"))))
+      .rejects.toThrow("event_append_dependency_limit");
+    await expect(env.DB.prepare("SELECT count(*) AS count FROM events").first()).resolves.toEqual({ count: 1 });
+  });
+
   it("refuses a hand-built, self-hashed envelope that was not minted by createEnvelope", async () => {
     const repository = new EventRepository(env.DB);
     const payload = { message: "unredacted ingress" };
