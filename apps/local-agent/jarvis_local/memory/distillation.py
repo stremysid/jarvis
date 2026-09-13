@@ -23,6 +23,7 @@ later state as true.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -36,6 +37,7 @@ from jarvis_local.memory.facts import (
     FactRepository,
     Sensitivity,
 )
+from jarvis_local.memory.projection_policy import MAX_SOURCES_PER_FACT, has_fact_text_controls, representable_fact_text
 from jarvis_local.sync.cursor_store import CursorStore
 
 DISTILLER = "distiller"
@@ -43,6 +45,7 @@ DISTILLER = "distiller"
 #: Bounded so one run cannot submit an unbounded prompt or an unbounded bill.
 MAX_EXCERPTS_PER_RUN = 32
 MAX_EXCERPT_CHARACTERS = 4_000
+_SOURCE_ID = re.compile(r"[0-7][0-9a-hjkmnp-tv-z]{25}")
 
 #: Event types worth distilling. An allowlist: a new event type is ignored
 #: until someone decides what a fact drawn from it would even mean.
@@ -104,12 +107,10 @@ class DistillationCoordinator:
 
     def run_once(self, *, now: str | None = None) -> DistillationProgress:
         cursor = self.cursors.cursor(self.consumer)
-        excerpts = self._select(cursor)
-        if not excerpts:
-            return DistillationProgress(0, 0, 0, cursor)
+        excerpts, through = self._select(cursor)
 
         supplied = {excerpt.source_event_id for excerpt in excerpts}
-        proposals = self.client.distill(excerpts)
+        proposals = self.client.distill(excerpts) if excerpts else []
 
         recorded = 0
         rejected = 0
@@ -124,43 +125,35 @@ class DistillationCoordinator:
         # Advanced only after the proposals are durable. A crash before this
         # re-distills the same events, which costs a model call; advancing
         # first would skip them permanently.
-        through = self._highest(excerpts)
-        self.cursors.advance_and_stage_ack(through, consumer=self.consumer, now=now)
-        self.cursors.clear_pending_ack(self.consumer)
+        if through > cursor:
+            self.cursors.advance_and_stage_ack(through, consumer=self.consumer, now=now)
+            self.cursors.clear_pending_ack(self.consumer)
         return DistillationProgress(len(excerpts), recorded, rejected, through)
 
     # -- internals --------------------------------------------------------
 
-    def _select(self, after_sequence: int) -> list[Excerpt]:
+    def _select(self, after_sequence: int) -> tuple[list[Excerpt], int]:
         selected: list[Excerpt] = []
+        through = after_sequence
         for event in self.archive.events_after(after_sequence):
             if len(selected) >= MAX_EXCERPTS_PER_RUN:
                 break
+            through = event.event_sequence
             if event.event_type not in DISTILLABLE_EVENT_TYPES:
                 continue
             text = event.canonical_text[:MAX_EXCERPT_CHARACTERS]
             if not text.strip():
                 continue
+            # A rejected raw excerpt must not poison every later signed batch.
+            # Preserve the archive rather than rewriting its contents as evidence.
+            if has_fact_text_controls(text):
+                continue
+            if not _SOURCE_ID.fullmatch(event.event_id):
+                continue
             selected.append(Excerpt(source_event_id=event.event_id, text=text))
-        return selected
-
-    def _highest(self, excerpts: Sequence[Excerpt]) -> int:
-        """The sequence through which this run has now considered events.
-
-        Uses the archive's own ordering rather than the excerpt list, because
-        events skipped as undistillable have still been considered and must not
-        be re-examined on every future run.
-        """
-        cursor = self.cursors.cursor(self.consumer)
-        highest = cursor
-        seen = 0
-        for event in self.archive.events_after(cursor):
-            if seen >= MAX_EXCERPTS_PER_RUN and event.event_type in DISTILLABLE_EVENT_TYPES:
-                break
-            if event.event_type in DISTILLABLE_EVENT_TYPES and event.canonical_text.strip():
-                seen += 1
-            highest = event.event_sequence
-        return highest
+        # Selection and progress must use the same scan or filtered events can
+        # exhaust a second scan's limit before it reaches the excerpts we sent.
+        return selected, through
 
     # `raw` is whatever the model returned: untrusted, unvalidated, and Any
     # by definition. Narrowing it is this function's entire job.
@@ -178,11 +171,11 @@ class DistillationCoordinator:
         text = raw.get("text")
         if not isinstance(text, str) or not text.strip():
             return None
-        if len(text) > MAX_EXCERPT_CHARACTERS:
+        if not representable_fact_text(text):
             return None
 
         sources = raw.get("sourceEventIds")
-        if not isinstance(sources, list) or not sources:
+        if not isinstance(sources, list) or not 1 <= len(sources) <= MAX_SOURCES_PER_FACT:
             # A fact with no provenance is an assertion with no evidence.
             return None
         if any(not isinstance(source, str) for source in sources):

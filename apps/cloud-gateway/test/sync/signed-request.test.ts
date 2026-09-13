@@ -346,6 +346,25 @@ describe("DeviceRequestVerifier", () => {
     expect(await nonceCount()).toBe(0);
   });
 
+  it("does not run endpoint validation for an unauthenticated signature", async () => {
+    const { body, rawBody } = canonicalBody();
+    const request = await signed(rawBody);
+    const validate = vi.fn(validateBody);
+
+    await expect(verifier.verify(
+      { ...request, signatureBase64: base64(new Uint8Array(64)) },
+      method,
+      path,
+      body,
+      rawBody,
+      now,
+      validate,
+    )).rejects.toThrow("signature_invalid");
+
+    expect(validate).not.toHaveBeenCalled();
+    expect(await nonceCount()).toBe(0);
+  });
+
   it("rejects a noncanonical stored 32-byte public key before nonce insertion", async () => {
     const { body, rawBody } = canonicalBody();
     const request = await signed(rawBody);

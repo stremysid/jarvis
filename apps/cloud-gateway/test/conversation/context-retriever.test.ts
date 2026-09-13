@@ -5,6 +5,7 @@ import {
   createEnvelope,
   newUlid,
   sha256Hex,
+  type MemoryFactProjectionV1,
   type PersistableEventEnvelopeV1,
   type Ulid,
 } from "../../../../packages/contracts/src/index.js";
@@ -16,6 +17,7 @@ import type { ConversationDeliveryId } from "../../src/conversation/conversation
 import {
   applyFoundationMigration,
   clearConversationDataForTest,
+  clearMemoryProjectionDataForTest,
 } from "../persistence/migration.js";
 
 const observedAt = "2026-08-30T12:00:00.000Z";
@@ -64,15 +66,142 @@ describe("D1ContextRetriever", () => {
   beforeEach(async () => {
     await applyFoundationMigration();
     await clearConversationDataForTest();
+    await clearMemoryProjectionDataForTest();
     await env.DB.batch([
       env.DB.prepare("DELETE FROM outbox"),
       env.DB.prepare("DELETE FROM idempotency_records"),
       env.DB.prepare("DELETE FROM events"),
+      env.DB.prepare("DELETE FROM request_nonces"),
+      env.DB.prepare("DELETE FROM identity_challenges"),
       env.DB.prepare("DELETE FROM channel_identities"),
+      env.DB.prepare("DELETE FROM consumer_cursors"),
+      env.DB.prepare("DELETE FROM bootstrap_tokens"),
+      env.DB.prepare("DELETE FROM device_keys"),
       env.DB.prepare("DELETE FROM principals"),
       env.DB.prepare("DELETE FROM sqlite_sequence WHERE name = 'events'"),
     ]);
   });
+
+  async function insertProjection(input: {
+    principalId: string;
+    deviceId: string;
+    text: string;
+    sensitivity?: "normal" | "sensitive";
+    sourceEventId?: Ulid;
+    sourceSequence?: number;
+    sourceExcerpt?: string;
+    principalStatus?: "active" | "disabled";
+    deviceStatus?: "active" | "revoked";
+    versionStatus?: "staged" | "published";
+    distilledAt?: string;
+    storedContentHash?: string;
+  }): Promise<MemoryFactProjectionV1> {
+    const sourceEventId = input.sourceEventId ?? newUlid();
+    const sourceSequence = input.sourceSequence ?? 1;
+    const sensitivity = input.sensitivity ?? "normal";
+    const versionStatus = input.versionStatus ?? "published";
+    const digest = new Uint8Array(await crypto.subtle.digest(
+      "SHA-256", new TextEncoder().encode(input.deviceId),
+    ));
+    const publicKey = btoa(String.fromCharCode(...digest));
+    const fingerprint = await sha256Hex(digest);
+    const manifest = await sha256Hex(canonicalJson([input.deviceId, "manifest"]));
+    const contentHash = await sha256Hex(canonicalJson({
+      principal_id: input.principalId,
+      sources: [sourceEventId],
+      text: input.text,
+    }));
+    const fact: MemoryFactProjectionV1 = {
+      factId: `fact_${contentHash.slice(0, 32)}`,
+      text: input.text,
+      origin: "authenticated_first_person",
+      sensitivity,
+      confidence: 1,
+      distillerVersion: "local-agent@0.1.0",
+      distilledAt: input.distilledAt ?? observedAt,
+      contentHash,
+      sources: [{
+        eventId: sourceEventId,
+        eventSequence: sourceSequence,
+        excerpt: input.sourceExcerpt ?? input.text,
+      }],
+    };
+    await env.DB.batch([
+      env.DB.prepare(`INSERT OR IGNORE INTO principals
+        (principal_id, principal_type, status, display_name, created_at, updated_at)
+        VALUES (?, 'human', 'active', 'Context owner', ?, ?)`)
+        .bind(input.principalId, observedAt, observedAt),
+      env.DB.prepare(`INSERT INTO device_keys
+        (device_id, principal_id, key_id, public_key_base64, key_fingerprint, key_generation,
+         algorithm, status, device_label, bootstrap_metadata_hash, created_at, revoked_at)
+        VALUES (?, ?, ?, ?, ?, 1, 'ed25519', ?, 'context test', ?, ?, ?)`)
+        .bind(input.deviceId, input.principalId, `key:${input.deviceId}`, publicKey, fingerprint,
+          "active", await sha256Hex(`bootstrap:${input.deviceId}`), observedAt, null),
+      env.DB.prepare(`INSERT INTO memory_fact_projection_heads
+        (principal_id, device_id, published_version, manifest_hash, published_at)
+        VALUES (?, ?, 0, NULL, NULL)`)
+        .bind(input.principalId, input.deviceId),
+      env.DB.prepare(`INSERT INTO memory_fact_projection_versions
+        (principal_id, device_id, projection_version, manifest_hash, page_count, total_fact_count,
+         key_id, key_fingerprint, key_generation, status, created_at, expires_at, published_at)
+        VALUES (?, ?, 1, ?, 1, 1, ?, ?, 1, 'staged', ?, ?, NULL)`)
+        .bind(
+          input.principalId, input.deviceId, manifest, `key:${input.deviceId}`, fingerprint,
+          observedAt, "2026-09-11T13:00:00.000Z",
+        ),
+      env.DB.prepare(`INSERT INTO memory_fact_projection_pages
+        (principal_id, device_id, projection_version, page_index, page_hash, fact_count,
+         page_json, created_at) VALUES (?, ?, 1, 0, ?, 1, '{}', ?)`)
+        .bind(input.principalId, input.deviceId, "0".repeat(64), observedAt),
+      env.DB.prepare(`INSERT INTO memory_fact_projection_facts
+        (principal_id, device_id, projection_version, page_index, fact_position, fact_id, text,
+         origin, sensitivity, confidence, distiller_version, distilled_at, content_hash,
+         primary_event_id, primary_event_sequence, sources_json, fact_json)
+        VALUES (?, ?, 1, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(
+          input.principalId, input.deviceId, fact.factId, fact.text, fact.origin, fact.sensitivity,
+          fact.confidence, fact.distillerVersion, fact.distilledAt,
+          input.storedContentHash ?? fact.contentHash,
+          sourceEventId, sourceSequence, canonicalJson(fact.sources as never), canonicalJson(fact as never),
+        ),
+    ]);
+    if (versionStatus === "published") {
+      await env.DB.prepare(`INSERT INTO memory_fact_projection_commits
+        (principal_id, device_id, projection_version, manifest_hash, key_id,
+         key_fingerprint, key_generation, committed_at)
+        VALUES (?, ?, 1, ?, ?, ?, 1, ?)`)
+        .bind(input.principalId, input.deviceId, manifest, `key:${input.deviceId}`, fingerprint,
+          observedAt).run();
+    }
+    if (input.deviceStatus === "revoked") {
+      await env.DB.prepare(
+        "UPDATE device_keys SET status = 'revoked', revoked_at = ? WHERE device_id = ?",
+      ).bind(observedAt, input.deviceId).run();
+    }
+    if (input.principalStatus === "disabled") {
+      await env.DB.prepare(
+        "UPDATE principals SET status = 'disabled', updated_at = ? WHERE principal_id = ?",
+      ).bind(observedAt, input.principalId).run();
+    }
+    return fact;
+  }
+
+  async function movePublishedHeadForCorruptFixture(deviceId: string, publishedVersion: number): Promise<void> {
+    const guard = await env.DB.prepare(
+      `SELECT sql FROM sqlite_schema
+       WHERE type = 'trigger' AND name = 'memory_fact_projection_heads_update_guard'`,
+    ).first<string>("sql");
+    if (guard === null) throw new Error("fixture requires the production head-update guard");
+    await env.DB.prepare("DROP TRIGGER memory_fact_projection_heads_update_guard").run();
+    try {
+      await env.DB.prepare(
+        `UPDATE memory_fact_projection_heads SET published_version = ?, manifest_hash = ?, published_at = ?
+         WHERE device_id = ?`,
+      ).bind(publishedVersion, "c".repeat(64), observedAt, deviceId).run();
+    } finally {
+      await env.DB.prepare(guard).run();
+    }
+  }
 
   it("returns only the authenticated subject's committed history in chronological order", async () => {
     const events = new EventRepository(env.DB);
@@ -124,6 +253,416 @@ describe("D1ContextRetriever", () => {
     ]);
     expect(Object.isFrozen(result)).toBe(true);
     expect(result.every((item) => Object.isFrozen(item))).toBe(true);
+  });
+
+  it("returns matching published facts with recent history under the same budget", async () => {
+    const events = new EventRepository(env.DB);
+    const principalId = "principal:fact-context";
+    const fact = await insertProjection({
+      principalId,
+      deviceId: "device:fact-context",
+      text: "Sid prefers moka coffee",
+    });
+    const history = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 1,
+      historyEligible: true,
+      text: "We discussed coffee yesterday",
+    });
+    await append(events, history);
+
+    await expect(new D1ContextRetriever(env.DB).retrieve({
+      principalId,
+      channel: "voice",
+      purpose: "conversation",
+      query: "coffee",
+      maxTokens: 1_024,
+    })).resolves.toEqual([
+      { sourceEventId: fact.sources[0]!.eventId, text: fact.text, sensitivity: "personal" },
+      { sourceEventId: history.eventId, text: "We discussed coffee yesterday", sensitivity: "personal" },
+    ]);
+  });
+
+  it.each(["forged terms", "missing terms"] as const)(
+    "rebuilds correct published-fact retrieval after %s corrupt the FTS index",
+    async (corruption) => {
+      const principalId = "principal:fts-recovery";
+      const fact = await insertProjection({
+        principalId, deviceId: "device:fts-recovery", text: "Owner prefers jasmine tea",
+      });
+      const rowid = await env.DB.prepare(
+        "SELECT projection_fact_rowid FROM memory_fact_projection_facts WHERE fact_id = ?",
+      ).bind(fact.factId).first<number>("projection_fact_rowid");
+      expect(rowid).not.toBeNull();
+      const authority = () => Promise.all([
+        "SELECT * FROM memory_fact_projection_facts ORDER BY projection_fact_rowid",
+        "SELECT * FROM memory_fact_projection_heads ORDER BY principal_id, device_id",
+        "SELECT * FROM memory_fact_projection_commits ORDER BY principal_id, device_id, projection_version",
+      ].map(async (sql) => (await env.DB.prepare(sql).all()).results));
+      const original = await authority();
+      const retriever = new D1ContextRetriever(env.DB);
+      const retrieve = (query: string) => retriever.retrieve({
+        principalId, channel: "voice", purpose: "conversation", query, maxTokens: 1_024,
+      });
+      const expected = [{ sourceEventId: fact.sources[0]!.eventId, text: fact.text, sensitivity: "personal" }];
+      await expect(retrieve("jasmine")).resolves.toEqual(expected);
+      await expect(retrieve("salary")).resolves.toEqual([]);
+
+      if (corruption === "forged terms") {
+        await env.DB.prepare("INSERT INTO memory_fact_projection_fts(rowid, text) VALUES (?, ?)")
+          .bind(rowid, "salary bonus equity").run();
+        // The returned text is authentic, but it now answers a query it never matched.
+        await expect(retrieve("salary")).resolves.toEqual(expected);
+      } else {
+        await env.DB.prepare(
+          "INSERT INTO memory_fact_projection_fts(memory_fact_projection_fts) VALUES ('delete-all')",
+        ).run();
+        await expect(retrieve("jasmine")).resolves.toEqual([]);
+      }
+      expect(await authority()).toEqual(original);
+      // The default check validates index structures, not agreement with external content.
+      await expect(env.DB.prepare(
+        "INSERT INTO memory_fact_projection_fts(memory_fact_projection_fts) VALUES ('integrity-check')",
+      ).run()).resolves.toMatchObject({ success: true });
+
+      await env.DB.prepare(
+        "INSERT INTO memory_fact_projection_fts(memory_fact_projection_fts) VALUES ('rebuild')",
+      ).run();
+      await expect(retrieve("salary")).resolves.toEqual([]);
+      await expect(retrieve("jasmine")).resolves.toEqual(expected);
+      expect(await authority()).toEqual(original);
+    },
+  );
+
+  it("excludes staged, non-head, revoked-device, and foreign projections", async () => {
+    const principalId = "principal:projection-filters";
+    const eligible = await insertProjection({
+      principalId, deviceId: "device:eligible", text: "eligible needle fact",
+    });
+    await insertProjection({
+      principalId, deviceId: "device:staged", text: "staged needle fact",
+      versionStatus: "staged",
+    });
+    await insertProjection({
+      principalId, deviceId: "device:old", text: "old needle fact",
+    });
+    // Production cannot create this mismatch. The fixture intentionally moves only the
+    // head so the retriever's published-head predicate has an independently valid row to exclude.
+    await movePublishedHeadForCorruptFixture("device:old", 2);
+    await insertProjection({
+      principalId, deviceId: "device:revoked", text: "revoked needle fact", deviceStatus: "revoked",
+    });
+    await insertProjection({
+      principalId: "principal:foreign-projection", deviceId: "device:foreign",
+      text: "foreign needle fact",
+    });
+
+    await expect(new D1ContextRetriever(env.DB).retrieve({
+      principalId,
+      channel: "telegram",
+      purpose: "conversation",
+      query: "needle",
+      maxTokens: 1_024,
+    })).resolves.toEqual([
+      { sourceEventId: eligible.sources[0]!.eventId, text: eligible.text, sensitivity: "personal" },
+    ]);
+  });
+
+  it("excludes projections when the owning principal is disabled", async () => {
+    const principalId = "principal:disabled-projection";
+    await insertProjection({
+      principalId,
+      deviceId: "device:disabled-principal",
+      text: "disabled needle fact",
+      principalStatus: "disabled",
+    });
+
+    await expect(new D1ContextRetriever(env.DB).retrieve({
+      principalId,
+      channel: "voice",
+      purpose: "conversation",
+      query: "needle",
+      maxTokens: 1_024,
+    })).resolves.toEqual([]);
+  });
+
+  it("quotes full-text terms so query syntax is treated as literal text", async () => {
+    const principalId = "principal:literal-query";
+    const fact = await insertProjection({
+      principalId, deviceId: "device:literal-query", text: "literal coffee preference",
+    });
+
+    await expect(new D1ContextRetriever(env.DB).retrieve({
+      principalId,
+      channel: "voice",
+      purpose: "conversation",
+      query: `coffee \" OR * - NOT`,
+      maxTokens: 1_024,
+    })).resolves.toEqual([
+      { sourceEventId: fact.sources[0]!.eventId, text: fact.text, sensitivity: "personal" },
+    ]);
+  });
+
+  it("reclaims the history share when no history fits", async () => {
+    const events = new EventRepository(env.DB);
+    const principalId = "principal:shared-budget";
+    const factText = `needle ${"f".repeat(693)}`;
+    const fact = await insertProjection({
+      principalId, deviceId: "device:shared-budget", text: factText,
+    });
+    const tooLargeHistory = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 1,
+      historyEligible: true,
+      text: "h".repeat(1_100),
+    });
+    await append(events, tooLargeHistory);
+
+    await expect(new D1ContextRetriever(env.DB).retrieve({
+      principalId,
+      channel: "voice",
+      purpose: "conversation",
+      query: "needle",
+      maxTokens: 1_000,
+    })).resolves.toEqual([
+      { sourceEventId: fact.sources[0]!.eventId, text: factText, sensitivity: "personal" },
+    ]);
+  });
+
+  it("does not let one large fact consume the reserved history share", async () => {
+    const events = new EventRepository(env.DB);
+    const principalId = "principal:history-share";
+    await insertProjection({
+      principalId,
+      deviceId: "device:history-share",
+      text: `needle ${"f".repeat(943)}`,
+    });
+    const history = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 1,
+      historyEligible: true,
+      text: "h".repeat(100),
+    });
+    await append(events, history);
+
+    await expect(new D1ContextRetriever(env.DB).retrieve({
+      principalId,
+      channel: "voice",
+      purpose: "conversation",
+      query: "needle",
+      maxTokens: 1_000,
+    })).resolves.toEqual([{
+      sourceEventId: history.eventId,
+      text: "h".repeat(100),
+      sensitivity: "personal",
+    }]);
+  });
+
+  it("keeps newest history contiguous when an older turn exceeds the byte budget", async () => {
+    const events = new EventRepository(env.DB);
+    const principalId = "principal:contiguous-history";
+    const older = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 1,
+      historyEligible: true,
+      text: "A".repeat(50),
+    });
+    const middle = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 1,
+      historyEligible: true,
+      text: "B".repeat(500),
+    });
+    const newest = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 1,
+      historyEligible: true,
+      text: "C".repeat(50),
+    });
+    await append(events, older);
+    await append(events, middle);
+    await append(events, newest);
+
+    await expect(new D1ContextRetriever(env.DB).retrieve({
+      principalId,
+      channel: "voice",
+      purpose: "conversation",
+      query: "current request",
+      maxTokens: 200,
+    })).resolves.toEqual([{
+      sourceEventId: newest.eventId,
+      text: "C".repeat(50),
+      sensitivity: "personal",
+    }]);
+  });
+
+  it("gives a deferred fact the budget left by a contiguous history suffix", async () => {
+    const events = new EventRepository(env.DB);
+    const principalId = "principal:deferred-fact-history";
+    const factText = `needle ${"f".repeat(113)}`;
+    const fact = await insertProjection({
+      principalId,
+      deviceId: "device:deferred-fact-history",
+      text: factText,
+    });
+    const older = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 1,
+      historyEligible: true,
+      text: "A".repeat(50),
+    });
+    const middle = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 1,
+      historyEligible: true,
+      text: "B".repeat(500),
+    });
+    const newest = await conversationEnvelope({
+      eventType: "conversation.user_committed",
+      subjectId: principalId,
+      channelCode: 1,
+      historyEligible: true,
+      text: "C".repeat(50),
+    });
+    await append(events, older);
+    await append(events, middle);
+    await append(events, newest);
+
+    await expect(new D1ContextRetriever(env.DB).retrieve({
+      principalId,
+      channel: "voice",
+      purpose: "conversation",
+      query: "needle",
+      maxTokens: 200,
+    })).resolves.toEqual([
+      { sourceEventId: fact.sources[0]!.eventId, text: factText, sensitivity: "personal" },
+      { sourceEventId: newest.eventId, text: "C".repeat(50), sensitivity: "personal" },
+    ]);
+  });
+
+  it("skips one oversized deferred fact so a later fitting fact remains available", async () => {
+    const principalId = "principal:independent-deferred-facts";
+    await insertProjection({
+      principalId,
+      deviceId: "device:dominant-deferred-fact",
+      text: `${"dominant secondary ".repeat(12)}x`,
+    });
+    const fittingText = `dominant ${"f".repeat(111)}`;
+    const fitting = await insertProjection({
+      principalId,
+      deviceId: "device:fitting-deferred-fact",
+      text: fittingText,
+    });
+
+    await expect(new D1ContextRetriever(env.DB).retrieve({
+      principalId,
+      channel: "voice",
+      purpose: "conversation",
+      query: "dominant secondary",
+      maxTokens: 200,
+    })).resolves.toEqual([{
+      sourceEventId: fitting.sources[0]!.eventId,
+      text: fittingText,
+      sensitivity: "personal",
+    }]);
+  });
+
+  it("caps the combined result at 32 facts and 64 total items", async () => {
+    const events = new EventRepository(env.DB);
+    const principalId = "principal:combined-item-limit";
+    for (let index = 0; index < 33; index += 1) {
+      await insertProjection({
+        principalId,
+        deviceId: `device:item-limit:${index.toString().padStart(2, "0")}`,
+        text: `limit fact ${index}`,
+      });
+      await append(events, await conversationEnvelope({
+        eventType: "conversation.user_committed",
+        subjectId: principalId,
+        channelCode: 1,
+        historyEligible: true,
+        text: `limit history ${index}`,
+      }));
+    }
+
+    const result = await new D1ContextRetriever(env.DB).retrieve({
+      principalId,
+      channel: "voice",
+      purpose: "conversation",
+      query: "limit",
+      maxTokens: 32_000,
+    });
+
+    expect(result).toHaveLength(64);
+    expect(result.slice(0, 32).every((item) => item.text.startsWith("limit fact"))).toBe(true);
+    expect(result.slice(32).every((item) => item.text.startsWith("limit history"))).toBe(true);
+  });
+
+  it("deduplicates projected facts without downgrading sensitive metadata", async () => {
+    const principalId = "principal:fact-dedup";
+    const sourceEventId = newUlid();
+    const normal = await insertProjection({
+      principalId, deviceId: "device:a-normal", text: "private needle preference",
+      sourceEventId, distilledAt: "2026-09-11T12:01:00.000Z",
+    });
+    await insertProjection({
+      principalId, deviceId: "device:z-sensitive", text: normal.text,
+      sourceEventId, sensitivity: "sensitive", distilledAt: observedAt,
+    });
+
+    await expect(new D1ContextRetriever(env.DB).retrieve({
+      principalId,
+      channel: "voice",
+      purpose: "conversation",
+      query: "needle",
+      maxTokens: 1_024,
+    })).resolves.toEqual([
+      { sourceEventId, text: normal.text, sensitivity: "restricted" },
+    ]);
+  });
+
+  it("fails closed when a published fact row disagrees with its immutable JSON", async () => {
+    const principalId = "principal:corrupt-projection";
+    await insertProjection({
+      principalId,
+      deviceId: "device:corrupt-projection",
+      text: "corrupt needle fact",
+      storedContentHash: "0".repeat(64),
+    });
+
+    await expect(new D1ContextRetriever(env.DB).retrieve({
+      principalId,
+      channel: "voice",
+      purpose: "conversation",
+      query: "needle",
+      maxTokens: 1_024,
+    })).rejects.toThrow("context_fact_invalid");
+  });
+
+  it("fails closed when published fact text no longer passes redaction", async () => {
+    const principalId = "principal:unredacted-projection";
+    await insertProjection({
+      principalId,
+      deviceId: "device:unredacted-projection",
+      text: "needle Authorization: Bearer abcdefghijklmnop12345678",
+      sourceExcerpt: "safe source excerpt",
+    });
+
+    await expect(new D1ContextRetriever(env.DB).retrieve({
+      principalId,
+      channel: "telegram",
+      purpose: "conversation",
+      query: "needle",
+      maxTokens: 1_024,
+    })).rejects.toThrow("context_fact_invalid");
   });
 
   it("fails closed instead of returning a validly hashed matching row whose text is not redacted", async () => {
@@ -218,7 +757,7 @@ describe("D1ContextRetriever", () => {
     ]);
     const repository = new ConversationRepository(env.DB, new EventRepository(env.DB), {
       eventIdFactory: () => newUlid(),
-      deliveryIdFactory: () => newUlid() as ConversationDeliveryId,
+      deliveryIdFactory: () => newUlid() as unknown as ConversationDeliveryId,
       claimTokenFactory: () => new Uint8Array(32).fill(0x31),
       leaseTokenFactory: () => new Uint8Array(32).fill(0x32),
     });

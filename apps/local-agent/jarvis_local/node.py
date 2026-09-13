@@ -1,16 +1,18 @@
 """Foreground bootstrap for the Linux home node.
 
 This module only assembles components that already own the work: signed cloud
-replication, distillation, promotion policy, scheduling, and the local control
-socket.  The run loop stays on the main thread.  The control thread can only
-read status or set the loop's wake/stop flags, so it cannot open a second
-database transaction beside an active cycle.
+replication, distillation, promotion policy, fact projection, scheduling, and
+the local control socket. The run loop stays on the main thread. The control
+thread reads cached status and persists only retry-command metadata through a
+short-lived connection. SQLite serializes that write with the active cycle;
+quarantine changes and their receipts remain on the cycle thread.
 """
 
 from __future__ import annotations
 
 import os
 import posixpath
+import shlex
 import signal
 import stat
 import sys
@@ -25,18 +27,22 @@ from urllib.parse import urlsplit
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from jarvis_local.agent import CycleResult, open_stores, run_cycle
+from jarvis_local.archive.database import SQLiteDirectoryError
 from jarvis_local.config import JarvisLocalConfig
 from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.memory.distillation import DistillationCoordinator
 from jarvis_local.memory.facts import FactRepository
 from jarvis_local.scheduler import STOP_AUTHENTICATION
 from jarvis_local.service import LocalAgentService, RunLoop, ServiceState, control_handlers
-from jarvis_local.sync.cloud_client import HttpCloudClient
+from jarvis_local.sync.cloud_client import CloudAuthError, HttpCloudClient
 from jarvis_local.sync.distill_client import HttpDistillationClient
 from jarvis_local.sync.event_replicator import EventReplicator
+from jarvis_local.sync.memory_projection import MemoryProjectionUploader
+from jarvis_local.sync.quarantine_retry import QuarantineRetryJournal
 from jarvis_local.transport.pipe_server import ControlServer
 from jarvis_local.transport.unix_socket import (
     CONTROL_SOCKET_ENVIRONMENT,
+    UnixSocketInUseError,
     UnixSocketServer,
     default_unix_socket_path,
 )
@@ -48,6 +54,9 @@ EXIT_NODE_OK = 0
 EXIT_NODE_CONFIGURATION = 3
 EXIT_NODE_STARTUP = 4
 EXIT_NODE_AUTHENTICATION = 5
+
+# Leave most of the control client's two-second exchange deadline for I/O.
+QUARANTINE_RETRY_WAIT_SECONDS = 0.1
 
 
 def _is_linux() -> bool:
@@ -63,8 +72,132 @@ class NodeStartupError(RuntimeError):
     """The node could not acquire or construct a required local dependency."""
 
 
+class QuarantineRetryError(RuntimeError):
+    """A deferred quarantine retry could not complete on the cycle thread."""
+
+
 class LoopRunner(Protocol):
     def run(self) -> str: ...
+
+
+@dataclass(slots=True)
+class _QuarantineRetryRequest:
+    fact_id: str
+    retry_id: int
+    completed: threading.Event = field(default_factory=threading.Event)
+    deleted: bool = False
+    error: BaseException | None = None
+
+
+class _QuarantineRetryCoordinator:
+    """Move owner-requested SQLite work from control to cycle thread."""
+
+    def __init__(self, state: ServiceState) -> None:
+        self._state = state
+        self._lock = threading.Lock()
+        self._pending: list[_QuarantineRetryRequest] = []
+        self._requests: dict[int, _QuarantineRetryRequest] = {}
+        self._journal: QuarantineRetryJournal | None = None
+        self._closed = False
+
+    def attach(self, journal: QuarantineRetryJournal) -> None:
+        self._journal = journal
+        for retry_id, fact_id, outcome in journal.records():
+            self._state.record_retry(retry_id, fact_id, outcome)
+            if outcome == "queued":
+                request = _QuarantineRetryRequest(fact_id, retry_id)
+                self._pending.append(request)
+                self._requests[retry_id] = request
+        if self._pending:
+            self._state.request_control_work()
+
+    def submit(self, fact_id: str) -> bool | None:
+        with self._lock:
+            if self._closed or self._state.stop_requested():
+                raise QuarantineRetryError("the node is stopping")
+            if self._journal is None:
+                raise QuarantineRetryError("the retry journal is unavailable")
+            # An enqueue failure belongs to this unaccepted request. Only a
+            # failed outcome write for durable queued work merits the banner.
+            retry_id = self._journal.enqueue(fact_id)
+            request = self._requests.get(retry_id)
+            if request is None:
+                request = _QuarantineRetryRequest(fact_id, retry_id)
+                self._pending.append(request)
+                self._requests[retry_id] = request
+                self._state.record_retry(retry_id, fact_id, "queued")
+        self._state.request_control_work()
+        if not request.completed.wait(timeout=QUARANTINE_RETRY_WAIT_SECONDS):
+            return None
+        if request.error is not None:
+            raise QuarantineRetryError("the quarantine retry failed") from request.error
+        return request.deleted
+
+    def drain(self, retry: Callable[[str], bool]) -> None:
+        journal = self._journal
+        if journal is None:
+            return
+        with self._lock:
+            pending, self._pending = self._pending, []
+        for index, request in enumerate(pending):
+            if self._state.stop_requested():
+                self._cancel(pending[index:])
+                return
+            retry_pending = False
+            try:
+                request.deleted = journal.apply(request.retry_id, request.fact_id, retry)
+                if request.deleted:
+                    self._state.request_cycle()
+                self._state.record_retry(
+                    request.retry_id, request.fact_id, "applied" if request.deleted else "not_quarantined",
+                )
+            except BaseException as error:
+                request.error = error
+                retry_pending = not self._finish_request(request, "failed")
+                if not isinstance(error, Exception):
+                    self._cancel(pending[index + 1:])
+                    raise
+            finally:
+                with self._lock:
+                    self._requests.pop(request.retry_id, None)
+                    if retry_pending:
+                        # Retry at a later existing boundary after storage
+                        # recovers, without a wake loop or a paid cloud cycle.
+                        recovered = _QuarantineRetryRequest(request.fact_id, request.retry_id)
+                        self._pending.append(recovered)
+                        self._requests[request.retry_id] = recovered
+                request.completed.set()
+
+    def close(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            pending, self._pending = self._pending, []
+        self._cancel(pending)
+
+    def _cancel(self, pending: list[_QuarantineRetryRequest]) -> None:
+        for request in pending:
+            request.error = QuarantineRetryError("the node stopped before the quarantine retry")
+            try:
+                self._finish_request(request, "cancelled")
+            finally:
+                self._requests.pop(request.retry_id, None)
+                request.completed.set()
+
+    def _finish_request(self, request: _QuarantineRetryRequest, outcome: str) -> bool:
+        try:
+            if self._journal is not None:
+                self._journal.finish(request.retry_id, outcome)
+        except Exception as error:
+            # The row remains queued after rollback. Do not invent a durable
+            # cancellation/failure, and do not let a disk fault bypass cleanup.
+            request.error = error
+            self._state.retry_storage_failed()
+            return False
+        else:
+            self._state.record_retry(request.retry_id, request.fact_id, outcome)
+            return True
 
 
 class ControlEndpoint(Protocol):
@@ -188,12 +321,13 @@ class NodeRuntime:
     control: ControlEndpoint
     archive: Closable
     facts: Closable
+    retry_coordinator: _QuarantineRetryCoordinator | None = None
     _closed: bool = field(init=False, default=False)
     _control_failed: threading.Event = field(init=False, default_factory=threading.Event)
     _signal_pending: bool = field(init=False, default=False)
 
     def run(self, *, install_signal_handlers: bool = True) -> str:
-        """Run cycles on this thread and the flag-only control server beside it."""
+        """Run cycles and deferred store work on this thread beside control."""
         control_thread: threading.Thread | None = None
         control_thread_started = False
         previous: dict[signal.Signals, Any] = {}
@@ -207,13 +341,17 @@ class NodeRuntime:
         finally:
             self.state.request_stop()
             try:
-                if control_thread_started and control_thread is not None:
-                    control_thread.join(timeout=5)
+                if self.retry_coordinator is not None:
+                    self.retry_coordinator.close()
             finally:
                 try:
-                    self._restore_signal_handlers(previous)
+                    if control_thread_started and control_thread is not None:
+                        control_thread.join(timeout=5)
                 finally:
-                    self.close()
+                    try:
+                        self._restore_signal_handlers(previous)
+                    finally:
+                        self.close()
         if control_thread_started and control_thread is not None and control_thread.is_alive():
             raise NodeStartupError("the control socket did not stop")
         if self._control_failed.is_set():
@@ -224,6 +362,8 @@ class NodeRuntime:
         if self._closed:
             return
         self._closed = True
+        if self.retry_coordinator is not None:
+            self.retry_coordinator.close()
         try:
             self.control.close()
         finally:
@@ -280,10 +420,21 @@ def _safe_node_cycle(
     distiller: DistillationCoordinator,
     facts: FactRepository,
     principal_id: str,
+    projector: MemoryProjectionUploader,
+    should_stop: Callable[[], bool],
 ) -> CycleResult:
     """Keep exception text out of the status channel while preserving its class."""
     try:
-        result = run_cycle(replicator, distiller, facts, principal_id)
+        result = run_cycle(
+            replicator,
+            distiller,
+            facts,
+            principal_id,
+            projector=projector,
+            should_stop=should_stop,
+        )
+    except CloudAuthError:
+        raise
     except Exception:
         return CycleResult(0, 0, 0, 0, failure="cycle: failed")
     failure = result.failure
@@ -295,6 +446,10 @@ def _safe_node_cycle(
         safe = "sync: request failed"
     elif failure.startswith("distillation:"):
         safe = "distillation: request failed"
+    elif failure.startswith("projection_recovery:"):
+        safe = "projection: permanent rejection; recovery pending"
+    elif failure.startswith("projection:"):
+        safe = "projection: request failed"
     else:
         safe = "cycle: failed"
     return replace(result, failure=safe)
@@ -306,7 +461,7 @@ def build_node(
     opener: Any = None,  # noqa: ANN401
     control_factory: ControlFactory = _control_endpoint,
 ) -> NodeRuntime:
-    """Open stores and assemble the signed replication/distillation cycle."""
+    """Open stores and assemble the signed replication, distillation, and projection cycle."""
     _validate_distinct_store_paths(settings.archive_path, settings.memory_path)
     _validate_existing_device_key(settings.device_key_path)
     try:
@@ -319,8 +474,11 @@ def build_node(
         raise NodeStartupError("the enrolled device key could not be opened") from error
 
     state = ServiceState()
+    retry_coordinator = _QuarantineRetryCoordinator(state)
+
     control = control_factory(
-        ControlServer(LocalAgentService(control_handlers(state))), settings.control_socket_path
+        ControlServer(LocalAgentService(control_handlers(state, retry_quarantined=retry_coordinator.submit))),
+        settings.control_socket_path,
     )
     # Claim the singleton endpoint before migrations touch either database. A
     # duplicate process must fail without doing any store work at all.
@@ -343,11 +501,38 @@ def build_node(
                 HttpDistillationClient(cloud),
                 principal_id=settings.principal_id,
             )
-            loop = RunLoop(
-                lambda: _safe_node_cycle(replicator, distiller, facts, settings.principal_id),
-                state=state,
+            projector = MemoryProjectionUploader(
+                facts,
+                archive,
+                cloud,
+                should_stop=state.stop_requested,
             )
-            return NodeRuntime(loop, state, control, archive, facts)
+            retry_coordinator.attach(QuarantineRetryJournal(
+                facts.connection, settings.memory_path, (cloud.base_url, cloud.principal_id, cloud.device_id),
+            ))
+
+            def node_cycle() -> CycleResult:
+                retry_coordinator.drain(projector.retry_quarantined)
+                try:
+                    return _safe_node_cycle(
+                        replicator,
+                        distiller,
+                        facts,
+                        settings.principal_id,
+                        projector,
+                        state.stop_requested,
+                    )
+                finally:
+                    # A retry can arrive while cloud work is in flight. Drain
+                    # again only after that cycle has closed its transactions.
+                    retry_coordinator.drain(projector.retry_quarantined)
+
+            loop = RunLoop(
+                node_cycle,
+                state=state,
+                process_control_work=lambda: retry_coordinator.drain(projector.retry_quarantined),
+            )
+            return NodeRuntime(loop, state, control, archive, facts, retry_coordinator)
         except BaseException:
             try:
                 facts.close()
@@ -369,9 +554,19 @@ def run_node(config: JarvisLocalConfig, *, socket_path: Path | None = None) -> i
             settings = replace(settings, control_socket_path=socket_path)
         runtime = build_node(settings)
         reason = runtime.run()
-    except NodeConfigurationError as error:
+    except (NodeConfigurationError, SQLiteDirectoryError) as error:
         print(str(error))
         return EXIT_NODE_CONFIGURATION
+    except UnixSocketInUseError:
+        endpoint = os.fspath(settings.control_socket_path)
+        print(
+            f"the control socket endpoint {endpoint} already exists or is in use. "
+            "Stop jarvis-node and confirm no manually started node owns the endpoint. "
+            "Only if it is a stale socket, not a symlink or other file, run: "
+            f"rm -- {shlex.quote(endpoint)} ; then restart jarvis-node. "
+            "See docs/runbooks/fact-projection.md for the recovery sequence."
+        )
+        return EXIT_NODE_STARTUP
     except Exception:
         print("the Jarvis node could not start or stopped unexpectedly")
         return EXIT_NODE_STARTUP

@@ -12,6 +12,7 @@ import projectsSql from "../../src/persistence/migrations/0010_projects.sql?raw"
 import deadlinesSql from "../../src/persistence/migrations/0011_deadlines.sql?raw";
 import livenessSql from "../../src/persistence/migrations/0012_liveness.sql?raw";
 import scheduledRunsSql from "../../src/persistence/migrations/0013_scheduled_runs.sql?raw";
+import memoryProjectionSql from "../../src/persistence/migrations/0014_memory_projection.sql?raw";
 import voiceRuntimeSql from "../../src/persistence/migrations/0015_voice_runtime.sql?raw";
 
 let migrated: Promise<void> | undefined;
@@ -69,6 +70,7 @@ export const assistantMigrations = Object.freeze([
   { name: "0011_deadlines.sql", queries: splitMigration(deadlinesSql) },
   { name: "0012_liveness.sql", queries: splitMigration(livenessSql) },
   { name: "0013_scheduled_runs.sql", queries: splitMigration(scheduledRunsSql) },
+  { name: "0014_memory_projection.sql", queries: splitMigration(memoryProjectionSql) },
 ]);
 
 /** Applies the deployable Wrangler migration to the actual D1 test binding once. */
@@ -88,6 +90,33 @@ export async function applyVoiceRuntimeMigration(): Promise<void> {
     { name: "0015_voice_runtime.sql", queries: splitMigration(voiceRuntimeSql) },
   ]);
   await voiceRuntimeMigrated;
+}
+
+const MEMORY_PROJECTION_DELETE_GUARDS = Object.freeze([
+  "memory_fact_projection_abandoned_no_delete",
+  "memory_fact_projection_commits_immutable_delete",
+  "memory_fact_projection_heads_delete_guard",
+  "memory_fact_projection_versions_delete_guard",
+]);
+
+/** Test-only reset that restores exactly the production guards present before cleanup. */
+export async function clearMemoryProjectionDataForTest(): Promise<void> {
+  const result = await env.DB.prepare(
+    `SELECT name, sql FROM sqlite_schema
+     WHERE type = 'trigger' AND name IN (${MEMORY_PROJECTION_DELETE_GUARDS.map(() => "?").join(", ")})`,
+  ).bind(...MEMORY_PROJECTION_DELETE_GUARDS).all<{ name: string; sql: string }>();
+  const guards = result.results.filter((row) => typeof row.sql === "string");
+  for (const name of MEMORY_PROJECTION_DELETE_GUARDS) {
+    await env.DB.prepare(`DROP TRIGGER IF EXISTS ${name}`).run();
+  }
+  try {
+    await env.DB.prepare("DELETE FROM memory_fact_projection_abandoned").run();
+    await env.DB.prepare("DELETE FROM memory_fact_projection_commits").run();
+    await env.DB.prepare("DELETE FROM memory_fact_projection_heads").run();
+    await env.DB.prepare("DELETE FROM memory_fact_projection_versions").run();
+  } finally {
+    for (const guard of guards) await env.DB.prepare(guard.sql).run();
+  }
 }
 
 /** Test-only reset that restores the production delete guard immediately after clearing isolated D1 state. */

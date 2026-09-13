@@ -55,6 +55,10 @@ class CloudAckRejectedError(CloudSyncError):
     """A well-formed acknowledgement was refused with HTTP 400."""
 
 
+class CloudProjectionRejectedError(CloudSyncError):
+    """The gateway explicitly rejected projection content after authentication."""
+
+
 @dataclass(frozen=True, slots=True)
 class SnapshotCursor:
     """The snapshot a page came from, needed to acknowledge it."""
@@ -311,6 +315,15 @@ class HttpCloudClient:
                 raise CloudAuthError(f"gateway rejected the device: HTTP {error.code}") from error
             if path == ACK_PATH and error.code == 400:
                 raise CloudAckRejectedError("gateway rejected the acknowledgement") from error
+            if path == "/sync/memory/project" and error.code == 400:
+                # A generic 400 can be an internal gateway failure. Only this
+                # bounded, fixed response authorizes abandoning durable work.
+                try:
+                    rejected = json.loads(error.read(1025).decode("utf-8"))
+                except (ValueError, UnicodeError, OSError):
+                    rejected = None
+                if rejected == {"error": "memory_projection_content_rejected"}:
+                    raise CloudProjectionRejectedError("gateway rejected projection content") from error
             raise CloudSyncError(f"gateway returned HTTP {error.code}") from error
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
             raise CloudSyncError(f"gateway unreachable or unusable: {error}") from error
