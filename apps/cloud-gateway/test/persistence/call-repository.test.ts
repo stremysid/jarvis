@@ -255,7 +255,7 @@ describe("CallRepository", () => {
       callSid: "not-a-call-sid",
       now: NOW,
     })).rejects.toThrow("provider_dispatch_claim_invalid");
-    repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+    repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
     await repository.recordProviderDispatchUnknown({ claim: claim.capability, now: NOW });
     await expect(repository.recordProviderDispatchUnknown({ claim: claim.capability, now: NOW }))
       .rejects.toThrow("provider_dispatch_claim_invalid");
@@ -276,7 +276,7 @@ describe("CallRepository", () => {
     await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
     const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
     if (claim.kind !== "claimed") throw new Error("test_claim_failed");
-    repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+    repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
     let coercions = 0;
     const callSid = {
       toString() {
@@ -299,9 +299,9 @@ describe("CallRepository", () => {
     if (claim.kind !== "claimed") throw new Error("test_claim_failed");
     const forged = { attemptId: ATTEMPT_0 } as ProviderDispatchClaimCapability;
 
-    expect(() => repository.beginProviderDispatch(forged, ATTEMPT_0)).toThrow("provider_dispatch_claim_invalid");
-    expect(() => repository.beginProviderDispatch(claim.capability, ATTEMPT_0)).not.toThrow();
-    expect(() => repository.beginProviderDispatch(claim.capability, ATTEMPT_0)).toThrow("provider_dispatch_claim_invalid");
+    expect(() => repository.beginProviderDispatch(forged, ATTEMPT_0, NOW, "+14165550123")).toThrow("provider_dispatch_claim_invalid");
+    expect(() => repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123")).not.toThrow();
+    expect(() => repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123")).toThrow("provider_dispatch_claim_invalid");
     await expect(repository.recordProviderDispatchUnknown({ claim: claim.capability, now: NOW }))
       .resolves.toBeUndefined();
   });
@@ -316,7 +316,7 @@ describe("CallRepository", () => {
 
     expect(claim).toMatchObject({ kind: "claimed", capability: { attemptId: ATTEMPT_0 } });
     if (claim.kind !== "claimed") throw new Error("test_claim_failed");
-    repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+    repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
     await repository.recordProviderDispatchUnknown({ claim: claim.capability, now: NOW });
     await expect(repository.resolveDispatchIntent(COMMAND_ID)).resolves.toMatchObject({ kind: "existing", state: "provider_dispatch_unknown" });
   });
@@ -325,7 +325,7 @@ describe("CallRepository", () => {
     await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
     const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
     if (claim.kind !== "claimed") throw new Error("test_claim_failed");
-    repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+    repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
     let claimReads = 0;
     const result = {
       get claim(): ProviderDispatchClaimCapability {
@@ -369,7 +369,7 @@ describe("CallRepository", () => {
     const first = await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
     const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
     if (claim.kind !== "claimed") throw new Error("test_claim_failed");
-    repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+    repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
     await repository.recordProviderDispatchRejection({ claim: claim.capability, failure: ProviderFailure.transient("rate_limited"), now: NOW });
 
     const retry = await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_1, 1));
@@ -398,7 +398,7 @@ describe("CallRepository", () => {
     await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
     const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
     if (claim.kind !== "claimed") throw new Error("test_claim_failed");
-    repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+    repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
     await repository.recordProviderDispatchRejection({
       claim: claim.capability,
       failure: ProviderFailure.transient("rate_limited"),
@@ -437,7 +437,7 @@ describe("CallRepository", () => {
     await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
     const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
     if (claim.kind !== "claimed") throw new Error("test_claim_failed");
-    if (state !== "claimed") repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+    if (state !== "claimed") repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
     if (state === "dispatched") await repository.recordProviderDispatchSuccess({ claim: claim.capability, callSid: CALL_SID_1, now: NOW });
     if (state === "provider_dispatch_unknown") await repository.recordProviderDispatchUnknown({ claim: claim.capability, now: NOW });
 
@@ -448,7 +448,7 @@ describe("CallRepository", () => {
     const expected = await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
     const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
     if (claim.kind !== "claimed") throw new Error("test_claim_failed");
-    repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+    repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
     await repository.claimExpectedCall({ attemptId: ATTEMPT_0, callSid: CALL_SID_1, observedDestinationIdentityId: expected.destinationIdentityId, ownerIdentityId: "identity:voice", now: NOW });
 
     await repository.recordProviderDispatchRejection({ claim: claim.capability, failure: ProviderFailure.transient("rate_limited"), now: NOW });
@@ -464,7 +464,7 @@ describe("CallRepository", () => {
     await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
     const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
     if (claim.kind !== "claimed") throw new Error("test_claim_failed");
-    repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+    repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
     await repository.recordProviderDispatchUnknown({ claim: claim.capability, now: NOW });
 
     await repository.appendProviderEvent(await statusFixture());
@@ -480,7 +480,7 @@ describe("CallRepository", () => {
     await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
     const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
     if (claim.kind !== "claimed") throw new Error("test_claim_failed");
-    repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+    repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
     await repository.appendProviderEvent(await statusFixture());
 
     await expect(repository.recordProviderDispatchSuccess({
@@ -499,7 +499,7 @@ describe("CallRepository", () => {
     await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
     const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
     if (claim.kind !== "claimed") throw new Error("test_claim_failed");
-    repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+    repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
     await repository.appendProviderEvent(await statusFixture());
 
     await expect(repository.recordProviderDispatchSuccess({
@@ -518,7 +518,7 @@ describe("CallRepository", () => {
     await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
     const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
     if (claim.kind !== "claimed") throw new Error("test_claim_failed");
-    repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+    repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
     await repository.appendProviderEvent(await statusFixture());
 
     await expect(repository.recordProviderDispatchUnknown({ claim: claim.capability, now: NOW }))
@@ -645,7 +645,7 @@ describe("CallRepository", () => {
       const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
       if (claim.kind !== "claimed") throw new Error("test_claim_failed");
       if (state === "terminal") {
-        repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+        repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
         await repository.recordProviderDispatchSuccess({ claim: claim.capability, callSid: CALL_SID_1, now: NOW });
       }
     }
@@ -664,7 +664,7 @@ describe("CallRepository", () => {
     await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
     const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
     if (claim.kind !== "claimed") throw new Error("test_claim_failed");
-    repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+    repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
     if (state === "dispatched") {
       await repository.recordProviderDispatchSuccess({ claim: claim.capability, callSid: CALL_SID_1, now: NOW });
     } else if (state === "rejected") {
@@ -687,7 +687,7 @@ describe("CallRepository", () => {
     const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
     if (claim.kind !== "claimed") throw new Error("test_claim_failed");
     if (binding === "provider") {
-      repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+      repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
       await repository.recordProviderDispatchSuccess({ claim: claim.capability, callSid: CALL_SID_1, now: NOW });
     } else {
       await repository.claimExpectedCall({
@@ -709,7 +709,7 @@ describe("CallRepository", () => {
     await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
     const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
     if (claim.kind !== "claimed") throw new Error("test_claim_failed");
-    repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+    repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
     await repository.recordProviderDispatchRejection({
       claim: claim.capability,
       failure: ProviderFailure.permanent("invalid_request"),
@@ -735,7 +735,7 @@ describe("CallRepository", () => {
       const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
       if (claim.kind !== "claimed") throw new Error("test_claim_failed");
       if (state === "rejected" || state === "provider_dispatch_unknown") {
-        repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+        repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
         if (state === "rejected") {
           await repository.recordProviderDispatchRejection({ claim: claim.capability, failure: ProviderFailure.permanent("invalid_request"), now: NOW });
         } else {
@@ -752,7 +752,7 @@ describe("CallRepository", () => {
     await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
     const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
     if (claim.kind !== "claimed") throw new Error("test_claim_failed");
-    repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+    repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
     await repository.recordProviderDispatchSuccess({ claim: claim.capability, callSid: CALL_SID_1, now: NOW });
 
     await expect(env.DB.prepare("UPDATE outbound_call_attempts SET provider_call_sid = NULL WHERE attempt_id = ?")
@@ -766,7 +766,7 @@ describe("CallRepository", () => {
     await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
     const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
     if (claim.kind !== "claimed") throw new Error("test_claim_failed");
-    repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+    repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
     await repository.recordProviderDispatchSuccess({ claim: claim.capability, callSid: CALL_SID_1, now: NOW });
 
     await expect(env.DB.prepare(`UPDATE outbound_call_attempts SET ${column} = ? WHERE attempt_id = ?`)
@@ -802,7 +802,7 @@ describe("CallRepository", () => {
     await repository.getOrCreateExpectedCall(expectedAttempt(ATTEMPT_0));
     const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
     if (claim.kind !== "claimed") throw new Error("test_claim_failed");
-    repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+    repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
     if (state === "dispatched") {
       await repository.recordProviderDispatchSuccess({ claim: claim.capability, callSid: CALL_SID_1, now: NOW });
     } else if (state === "rejected") {

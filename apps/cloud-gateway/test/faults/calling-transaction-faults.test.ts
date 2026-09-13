@@ -149,7 +149,7 @@ describe("calling transaction faults", () => {
     if (setup !== "ready") {
       const claim = await repository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
       if (claim.kind !== "claimed") throw new Error("test_claim_failed");
-      repository.beginProviderDispatch(claim.capability, ATTEMPT_0);
+      repository.beginProviderDispatch(claim.capability, ATTEMPT_0, NOW, "+14165550123");
       if (setup === "rejected") {
         await repository.recordProviderDispatchRejection({ claim: claim.capability, failure: ProviderFailure.permanent("invalid_request"), now: NOW });
       } else {

@@ -13,6 +13,7 @@ import {
 } from "../../../../packages/contracts/src/index.js";
 import { ProviderFailure, snapshotProviderFailure, type ProviderFailureCode } from "../providers/provider-types.js";
 import { transitionCall } from "../voice/call-state.js";
+import type { PolicyReason } from "../policy/policy-types.js";
 import {
   EventRepository,
   type AppendedEvent,
@@ -65,6 +66,30 @@ export function isCallSessionAdmissionError(error: unknown): boolean {
 
 export type ProviderDispatchState = "ready" | "claimed" | "dispatched" | "rejected" | "provider_dispatch_unknown";
 
+interface DispatchClaimRow {
+  provider_dispatch_state: ProviderDispatchState;
+  provider_dispatch_claimed_at: string;
+  authorization_expires_at: string;
+  nonce_expires_at: string;
+  destination_e164: string | null;
+}
+
+const ADMISSION_REASONS: Readonly<Record<string, PolicyReason>> = Object.freeze({
+  outbound_admission_disabled: "kill_switch_enabled", outbound_admission_quiet: "quiet_hours",
+  outbound_admission_expired: "authorization_expired", outbound_admission_nonce_expired: "invalid_dispatch_attempt",
+  outbound_admission_clock_invalid: "invalid_dispatch_attempt", outbound_admission_concurrency: "concurrency_limit",
+  outbound_admission_daily: "daily_limit",
+  outbound_admission_destination: "destination_not_verified",
+});
+
+function admissionRefusal(error: unknown): PolicyReason | undefined {
+  if (!(error instanceof Error)) return undefined;
+  // Only our exact SQLite RAISE codes are policy verdicts. A table name or an
+  // arbitrary storage error containing a similar word is not authorization.
+  const code = /^(?:D1_ERROR: )?(outbound_admission_[a-z_]+): SQLITE_CONSTRAINT \(extended: SQLITE_CONSTRAINT_TRIGGER\)$/u.exec(error.message)?.[1];
+  return code === undefined ? undefined : ADMISSION_REASONS[code];
+}
+
 declare const dispatchClaimBrand: unique symbol;
 export interface ProviderDispatchClaimCapability {
   readonly attemptId: Ulid;
@@ -76,6 +101,7 @@ export type ProviderDispatchClaim =
   | { kind: "claimed"; capability: ProviderDispatchClaimCapability }
   | { kind: "authorization_expired" }
   | { kind: "relay_nonce_expired" }
+  | { kind: "policy_denied"; reason: PolicyReason }
   | { kind: "dispatched"; callSid: string }
   | { kind: "rejected"; failureCode: ProviderFailureCode; retryEligible: boolean }
   | { kind: "provider_dispatch_unknown" };
@@ -395,7 +421,7 @@ function explicitRejection(failure: ProviderFailure): {
 
 /** Calling persistence with atomic allocation, provider claims, and callback receipt dependencies. */
 export class CallRepository {
-  private readonly issuedClaims = new WeakSet<object>();
+  private readonly issuedClaims = new WeakMap<object, Readonly<DispatchClaimRow>>();
   private readonly begunClaims = new WeakSet<object>();
   private readonly settledClaims = new WeakSet<object>();
 
@@ -454,10 +480,16 @@ export class CallRepository {
     const now = input.now;
     if (!isUlid(attemptId)) throw new TypeError("attempt_id_invalid");
     const observedAt = requireDate(now, "provider_dispatch_claim_now");
-    const row = await this.updateDispatchClaim(attemptId, observedAt);
+    let row: DispatchClaimRow | null;
+    try { row = await this.updateDispatchClaim(attemptId, observedAt); }
+    catch (error) {
+      const reason = admissionRefusal(error);
+      if (reason !== undefined) return { kind: "policy_denied", reason };
+      throw error;
+    }
     if (row?.provider_dispatch_state === "claimed") {
       const capability = Object.freeze({ attemptId }) as ProviderDispatchClaimCapability;
-      this.issuedClaims.add(capability);
+      this.issuedClaims.set(capability, Object.freeze({ ...row }));
       return { kind: "claimed", capability };
     }
     if (row?.provider_dispatch_state === "provider_dispatch_unknown") return { kind: "provider_dispatch_unknown" };
@@ -490,7 +522,7 @@ export class CallRepository {
   }
 
   /** Atomically binds one-shot in-memory POST authority to the dispatcher's audited attempt. */
-  beginProviderDispatch(claim: ProviderDispatchClaimCapability, expectedAttemptId: Ulid): void {
+  beginProviderDispatch(claim: ProviderDispatchClaimCapability, expectedAttemptId: Ulid, now: Date, destinationE164: string): void {
     if (
       !isUlid(expectedAttemptId)
       || !this.issuedClaims.has(claim)
@@ -499,6 +531,18 @@ export class CallRepository {
       || this.settledClaims.has(claim)
     ) {
       throw new Error("provider_dispatch_claim_invalid");
+    }
+    const bounds = this.issuedClaims.get(claim)!;
+    if (bounds.destination_e164 !== destinationE164) throw new Error("provider_dispatch_destination_changed");
+    const dispatchAt = requireDate(now, "provider_dispatch_begin_now");
+    const claimedAt = requireCanonicalTimestamp(bounds.provider_dispatch_claimed_at, "provider_dispatch_claimed_at");
+    const authorizationExpiresAt = requireCanonicalTimestamp(bounds.authorization_expires_at, "authorization_expires_at");
+    const nonceExpiresAt = requireCanonicalTimestamp(bounds.nonce_expires_at, "nonce_expires_at");
+    // A D1 reply or final control read may arrive after admission has expired.
+    // Keep the claim conservative rather than issuing a late or next-day POST.
+    if (dispatchAt < claimedAt || dispatchAt.slice(0, 10) !== claimedAt.slice(0, 10)
+      || dispatchAt >= authorizationExpiresAt || dispatchAt >= nonceExpiresAt) {
+      throw new Error("provider_dispatch_claim_expired");
     }
     this.begunClaims.add(claim);
   }
@@ -1361,7 +1405,7 @@ export class CallRepository {
       .first<StoredAttemptRow>();
   }
 
-  private updateDispatchClaim(attemptId: Ulid, observedAt: string): Promise<{ provider_dispatch_state: ProviderDispatchState } | null> {
+  private updateDispatchClaim(attemptId: Ulid, observedAt: string): Promise<DispatchClaimRow | null> {
     return this.database.prepare(`UPDATE outbound_call_attempts
       SET provider_dispatch_state = CASE provider_dispatch_state WHEN 'ready' THEN 'claimed' ELSE 'provider_dispatch_unknown' END,
           provider_dispatch_claimed_at = COALESCE(provider_dispatch_claimed_at, ?1),
@@ -1370,9 +1414,10 @@ export class CallRepository {
         AND (provider_dispatch_state = 'claimed' OR (
           nonce_expires_at > ?4 AND authorization_expires_at > ?4
         ))
-      RETURNING provider_dispatch_state`)
+      RETURNING provider_dispatch_state, provider_dispatch_claimed_at, authorization_expires_at, nonce_expires_at,
+        (SELECT provider_subject FROM channel_identities WHERE identity_id = outbound_call_attempts.destination_identity_id) AS destination_e164`)
       .bind(observedAt, observedAt, attemptId, observedAt)
-      .first<{ provider_dispatch_state: ProviderDispatchState }>();
+      .first<DispatchClaimRow>();
   }
 
   private async readAttemptsForCommand(commandId: Ulid): Promise<StoredAttemptRow[]> {

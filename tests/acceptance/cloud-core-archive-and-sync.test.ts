@@ -1,3 +1,4 @@
+import { permittedOutboundControls } from "../../apps/cloud-gateway/test/policy/outbound-controls-fixture.js";
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import {
@@ -318,6 +319,7 @@ it("preserves 1,000 canonical events across D1, R2, signed sync, and denied disp
   await expect(policy.evaluateOutboundCall(modelCommand)).resolves.toEqual({ decision: "deny", reason: "invalid_origin" });
   const twilio = new FakeTwilioProvider();
   const dispatcher = new OutboundCallDispatcher({
+      controls: permittedOutboundControls,
       capacity: { async assertAcceptingNewTurn() {} },
     policy,
     twilio,

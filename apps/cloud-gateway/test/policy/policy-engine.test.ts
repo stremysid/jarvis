@@ -122,6 +122,37 @@ describe("PolicyEngine", () => {
     ]);
   });
 
+  it.each(["disabled", "quiet", "expired", "unreadable", "malformed"] as const)(
+    "rechecks stored controls after awaited counters and samples time after the final read: %s", async (fault) => {
+      let reads = 0;
+      policy = new PolicyEngine({ database: env.DB, events: new EventRepository(env.DB),
+        context: {
+          now: () => context.now(), authenticatedOrigin: (id) => context.authenticatedOrigin(id),
+          activeOutboundCalls: () => context.activeOutboundCalls(),
+          outboundCallsForUtcPolicyDay: () => context.outboundCallsForUtcPolicyDay(),
+          async readControls() {
+            reads += 1;
+            const final = reads === 4;
+            if (final && fault === "unreadable") throw new Error("synthetic controls unavailable");
+            if (final && fault === "expired") context.nowValue = new Date(expires);
+            if (final && fault === "quiet") context.nowValue = new Date(instant.valueOf() + 1_000);
+            return { enabled: final && fault === "malformed" ? "true" as never : !(final && fault === "disabled"),
+              quietStartsAt: fault === "quiet" ? new Date(instant.valueOf() + 1_000).toISOString() : null,
+              quietEndsAt: fault === "quiet" ? new Date(instant.valueOf() + 2_000).toISOString() : null };
+          },
+        } });
+      await expect(evaluate(request())).resolves.toMatchObject({ decision: "allow" });
+      if (fault === "unreadable" || fault === "malformed") await expect(recheck(request())).rejects.toThrow();
+      else {
+        const checked = await recheck(request());
+        expect(checked).toMatchObject({ decision: "deny",
+          reason: fault === "disabled" ? "kill_switch_enabled" : fault === "quiet" ? "quiet_hours" : "authorization_expired",
+          checkedAt: context.nowValue.toISOString() });
+      }
+      expect(reads).toBe(4);
+    },
+  );
+
   it("denies model and unknown origins and persists immutable decisions", async () => {
     await expect(evaluate(request({ issuedBy: "model" as never }))).resolves.toMatchObject({ decision: "deny", reason: "invalid_origin" });
     await expect(evaluate(request({ commandId: "01k3s6k8000000000000000007" as never, issuedBy: "unknown" as never }))).resolves.toMatchObject({ decision: "deny", reason: "invalid_origin" });

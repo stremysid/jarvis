@@ -2033,7 +2033,11 @@ describe("CallSession production composition", () => {
   });
 
   it("forwards the outbound pre-authentication contract into the production runtime", async () => {
-    const system = await createFakeCallingSystem();
+    const stamp = await env.DB.prepare("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AS stamp").first<string>("stamp");
+    const databaseNow = new Date(stamp!);
+    vi.setSystemTime(databaseNow);
+    await env.DB.prepare("UPDATE outbound_runtime_controls SET enabled = 1").run();
+    const system = await createFakeCallingSystem({ now: databaseNow });
     try {
       await system.dispatch();
       expect((await system.claimOutboundTwiML(system.acceptedCallSid())).status).toBe(200);
@@ -2048,7 +2052,10 @@ describe("CallSession production composition", () => {
       expect(await storedPhase(stored.sessionId)).toBe("active");
       expect(call.close).not.toHaveBeenCalled();
       expect(globalThis.fetch).not.toHaveBeenCalled();
-    } finally { await system.cleanup(); }
+    } finally {
+      await system.cleanup();
+      await env.DB.prepare("UPDATE outbound_runtime_controls SET enabled = 0").run();
+    }
   });
 
   it.each([

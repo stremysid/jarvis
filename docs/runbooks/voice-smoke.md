@@ -155,7 +155,10 @@ identity for that principal; it does not accept a new recipient or channel.
 
 **Migration 0015 has a production consequence.** It adds
 `capacity_alert_crossings` for acknowledged alert state and recoverable send
-leases. It is independent of 0014 and does not modify it. Before deployment,
+leases, a default-disabled `outbound_runtime_controls` singleton, admission
+triggers and a terminal-evidence column on existing outbound attempts. It
+backfills that column only from affirmative retained status envelopes; missing
+envelopes do not free capacity. It is independent of 0014 and does not modify it. Before deployment,
 inspect the pending migration list in the reviewed release checkout and apply
 only an approved set using the normal D1 migration workflow. Do not apply an
 unreviewed neighbouring migration because this one needs a table. Merging code
@@ -183,6 +186,48 @@ it cannot admit the interrupted turn. Cancellation while durable context is
 being read also prevents the model request and records a cancelled turn.
 Output completed before interruption can finish recording its receipt;
 interruption cannot retroactively make that already-sent output unsent.
+
+### Stored outbound controls
+
+Worker HTTP/Telegram composition remains unfinished on this draft. These are
+release instructions for the reviewed completed item, not authorization to
+enable the current draft. No home-node platform is involved.
+
+After applying the approved migration set, inspect the default-disabled state:
+
+```powershell
+pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command "SELECT singleton_id, enabled, quiet_starts_at, quiet_ends_at FROM outbound_runtime_controls;"
+```
+
+Expect one row, `singleton_id = 1`, `enabled = 0`, and both quiet bounds NULL.
+An absent row or failed read refuses new calls. The owner sets an explicit
+paired UTC interval before enabling calls, or deliberately leaves both bounds
+NULL for no interval. Bounds use `YYYY-MM-DDTHH:mm:ss.sssZ`; the start is included
+and the end excluded. This is one stored interval, not a recurring local-time
+schedule. Profile scheduling remains R7. Setting `enabled = 1` is the owner's
+live activation step after configuration, max review and smoke authorization.
+
+The owner can stop new outbound admission with:
+
+```powershell
+pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command "UPDATE outbound_runtime_controls SET enabled = 0 WHERE singleton_id = 1;"
+```
+
+This does not cancel a call already admitted or prevent terminal callbacks and
+claim recovery. The atomic ready-to-claimed transition rechecks access, both
+expiry windows, the database's current UTC day, quiet state, two active outbound
+claims and six claims per UTC day. Rejected provider attempts still count for
+the day. A claim binds the current phone number; a number different from the
+audited destination is not dialed. After the awaited final control read, a
+synchronous fence refuses expired windows, clock reversal and day rollover
+before the sole provider POST. A refused or uncertain claimed attempt remains
+reserved; it is never automatically redialed or erased to free a slot.
+
+Only affirmative terminal status evidence releases an admitted slot, and that
+evidence remains after envelope archival. Missing/archived nonterminal
+envelopes and unknown provider outcomes continue to reserve capacity. Stop the
+live smoke for owner investigation if an attempt cannot be reconciled. These
+are call-admission counts, not measured charges or spending reservations.
 
 ### Terminal cleanup delivery (R1 item 3)
 

@@ -82,13 +82,16 @@ provider switch. Budgets remain owner configuration. The collector now reads
 real D1/R2 bindings, DeepSeek credit and Twilio totalprice with bounded reads
 and unchanged estimate interfaces. Source inventory and request-cost reserve
 are in the voice-smoke runbook. The durable Telegram sink and explicit capacity
-configuration factory are implemented. They add D1 migration 0015 for alert
-crossing receipts and recoverable send leases; review this production schema
+configuration factory are implemented. D1 migration 0015 now adds alert
+crossing receipts, leases, default-disabled outbound controls and atomic
+admission guards. It also backfills retained terminal evidence on existing
+attempts; review this production schema
 change before deployment. The default call runtime now checks capacity for each
 final conversation turn, then revalidates access before allocating or committing
 the turn. Interruption releases admission without waiting for telemetry or
 authorization; cancellation during context retrieval prevents model invocation.
-Worker route wiring and persisted outbound policy controls remain pending.
+Persisted outbound controls, claim-time access/phone binding and final dispatch
+clock checks are implemented. Worker route and Telegram composition remain pending.
 The max review response is pushed on #23 at 695e762 and included here; max
 re-review remains required. The separate production socket project now proves
 the default factory through real stub fetch, client frames and eviction for

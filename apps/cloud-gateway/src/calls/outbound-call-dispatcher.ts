@@ -18,6 +18,7 @@ import {
 } from "../policy/policy-engine.js";
 import type { PolicyEngineContract, PolicyReason } from "../policy/policy-types.js";
 import type { CapacityGuard } from "../archive/capacity-guard.js";
+import { outboundControlDecision, snapshotOutboundControls, type OutboundControlSource } from "../policy/outbound-controls.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const E164 = /^\+[1-9][0-9]{1,14}$/u;
@@ -155,10 +156,12 @@ export class OutboundCallDispatcher {
   private readonly newAttemptId: () => Ulid;
   private readonly now: () => Date;
   private readonly assertCapacity: () => Promise<void>;
+  private readonly readControls: OutboundControlSource["readControls"];
 
   constructor(private readonly deps: {
     policy: PolicyEngineContract;
     capacity: Pick<CapacityGuard, "assertAcceptingNewTurn">;
+    controls: OutboundControlSource;
     twilio: TwilioProvider;
     repository: CallRepository;
     publicBaseUrl: URL;
@@ -183,6 +186,10 @@ export class OutboundCallDispatcher {
     this.assertCapacity = typeof assertion === "function"
       ? assertion.bind(capacity)
       : async () => { throw new Error("capacity_unavailable"); };
+    const controlSource = deps.controls;
+    const reader = controlSource?.readControls;
+    this.readControls = typeof reader === "function" ? reader.bind(controlSource)
+      : async () => { throw new Error("outbound_controls_unavailable"); };
   }
 
   async dispatch(input: OutboundCallCommand): Promise<OutboundCallDispatchResult> {
@@ -268,6 +275,9 @@ export class OutboundCallDispatcher {
       const claimObservedAtIso = snapshotDateIso(this.now());
       const claim = await this.deps.repository.claimProviderDispatch({ attemptId, now: new Date(claimObservedAtIso) });
       const claimKind = claim.kind;
+      if (claimKind === "policy_denied") {
+        return { status: "denied", reason: claim.reason, checkedAt: snapshotDateIso(this.now()), checkId: null, attemptId };
+      }
       if (claimKind === "authorization_expired") {
         return this.deniedAtClaim("authorization_expired", claimObservedAtIso, attemptId);
       }
@@ -280,9 +290,15 @@ export class OutboundCallDispatcher {
       const twimlUrl = new URL(`/voice/outbound/${attemptId}`, this.publicBaseUrl);
       const statusCallbackUrl = twilioCleanupUrl(`/voice/status/${attemptId}`, this.publicBaseUrl);
       try {
+        const controls = snapshotOutboundControls(await this.readControls());
+        const dispatchAt = snapshotDateIso(this.now());
+        const decision = outboundControlDecision(controls, dispatchAt);
+        if (decision.decision === "deny") {
+          return { status: "denied", reason: decision.reason, checkedAt: dispatchAt, checkId: null, attemptId };
+        }
         // This is the final synchronous authority check before POST. No await belongs
         // between it and createCall; external policy state cannot be atomically coupled to Twilio.
-        this.deps.repository.beginProviderDispatch(capability, attemptId);
+        this.deps.repository.beginProviderDispatch(capability, attemptId, new Date(dispatchAt), check.destinationE164);
       } catch {
         return { status: "provider_dispatch_unknown", attemptId };
       }

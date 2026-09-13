@@ -14,6 +14,8 @@ export const VOICE_FAKE_TEST_FILTERS = Object.freeze([
   "apps/cloud-gateway/test/voice/owner-access-intent.test.ts",
   "apps/cloud-gateway/test/voice/call-session-do.test.ts",
   "apps/cloud-gateway/test/policy/policy-engine.test.ts",
+  "apps/cloud-gateway/test/policy/outbound-runtime.test.ts",
+  "apps/cloud-gateway/test/calls/outbound-call-dispatcher.test.ts",
   "apps/cloud-gateway/test/channels/telegram-",
   "apps/cloud-gateway/test/channels/command-handler.test.ts",
   "apps/cloud-gateway/test/http/voice-callback-recorder.test.ts",

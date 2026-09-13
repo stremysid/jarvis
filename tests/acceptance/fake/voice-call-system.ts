@@ -1,3 +1,4 @@
+import { permittedOutboundControls } from "../../../apps/cloud-gateway/test/policy/outbound-controls-fixture.js";
 import { env } from "cloudflare:test";
 import { CapacityGuard } from "../../../apps/cloud-gateway/src/archive/capacity-guard.js";
 import type { OutboundCallCommand, Ulid } from "../../../packages/contracts/src/index.js";
@@ -40,6 +41,7 @@ const CHECK_ID = "01k3s6k8000000000000000002" as Ulid;
 const DESTINATION = "+14165550123";
 
 class AllowPolicy implements PolicyEngineContract {
+  constructor(private readonly now = NOW) {}
   async evaluateOutboundCall(): Promise<PolicyDecision> {
     return { decision: "allow", reason: "allowed" };
   }
@@ -48,7 +50,7 @@ class AllowPolicy implements PolicyEngineContract {
     return {
       decision: "allow",
       reason: "allowed",
-      checkedAt: NOW.toISOString(),
+      checkedAt: this.now.toISOString(),
       checkId: CHECK_ID,
       attemptId,
       destinationE164: DESTINATION,
@@ -74,8 +76,8 @@ async function clearFixture(): Promise<void> {
   ]);
 }
 
-async function seedAuthorizedCommand(principalId: string): Promise<void> {
-  const timestamp = NOW.toISOString();
+async function seedAuthorizedCommand(principalId: string, now: Date): Promise<void> {
+  const timestamp = now.toISOString();
   await env.DB.batch([
     env.DB.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES (?, 'human', 'active', 'Owner', ?, ?)").bind(principalId, timestamp, timestamp),
     env.DB.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES ('identity:voice', ?, 'voice', ?, 'active', ?, ?)").bind(principalId, DESTINATION, timestamp, timestamp),
@@ -84,14 +86,14 @@ async function seedAuthorizedCommand(principalId: string): Promise<void> {
   ]);
 }
 
-function command(): OutboundCallCommand {
+function command(now: Date): OutboundCallCommand {
   return {
     commandId: COMMAND_ID,
     principalId: "principal:owner",
     purposeCode: "user_requested",
     destinationIdentityId: "identity:voice",
     urgency: "normal",
-    authorizationExpiresAt: "2026-08-30T12:10:00.000Z",
+    authorizationExpiresAt: new Date(now.valueOf() + 600_000).toISOString(),
     idempotencyKey: "call:fake-acceptance",
     issuedBy: "local_cli",
   };
@@ -137,6 +139,7 @@ export interface FakeCallingSystem extends FakeOutboundCallingSystem {
 }
 
 export async function createFakeCallingSystem(input: {
+  now?: Date;
   ownerPrincipalId?: string;
   loseDispatchResponse?: boolean;
   manualModel?: boolean;
@@ -144,24 +147,26 @@ export async function createFakeCallingSystem(input: {
   beforeOutboundSessionCreate?: () => Promise<void>;
   beforeSessionInitialize?: () => Promise<void>;
 } = {}): Promise<FakeCallingSystem> {
+  const now = new Date(input.now ?? NOW);
   await applyFoundationMigration();
   await clearFixture();
-  await seedAuthorizedCommand(input.ownerPrincipalId ?? "principal:owner");
-  const policy = new AllowPolicy();
+  await seedAuthorizedCommand(input.ownerPrincipalId ?? "principal:owner", now);
+  const policy = new AllowPolicy(now);
   const twilio = new FakeTwilioProvider();
   if (input.loseDispatchResponse === true) twilio.acceptAndLoseNextResponse();
   const repository = new CallRepository(env.DB, new EventRepository(env.DB));
   let inboundSequence = 100;
   const relays = new FakeRelaySessions(repository,
-    { manual: input.manualModel ?? false, streamText: "A safe voice answer." }, () => new Date(NOW));
+    { manual: input.manualModel ?? false, streamText: "A safe voice answer." }, () => new Date(now));
   const dispatcher = new OutboundCallDispatcher({
+      controls: permittedOutboundControls,
       capacity: { async assertAcceptingNewTurn() {} },
     policy,
     twilio,
     repository,
     publicBaseUrl: new URL("https://jarvis.example/"),
     newAttemptId: () => ATTEMPT_ID,
-    now: () => NOW,
+    now: () => now,
   });
   const initializationLog: Readonly<OutboundSessionInitialization>[] = [];
   let lastSessionId: Ulid | undefined;
@@ -180,7 +185,7 @@ export async function createFakeCallingSystem(input: {
   const callbacks = new D1TwilioCallbackRecorder({
     database: env.DB,
     calls: repository,
-    now: () => NOW,
+    now: () => now,
     terminateSession: async (termination) => {
       terminationLog.push(termination);
       await input.beforeTermination?.(termination);
@@ -193,10 +198,10 @@ export async function createFakeCallingSystem(input: {
     capacity: new CapacityGuard({
       source: { readEstimates: async () => ["d1", "r2", "provider:deepseek"].map((resource) => ({
         resource: resource as "d1" | "r2" | "provider:deepseek",
-        used: 1, budget: 100, observedAt: NOW.toISOString(),
+        used: 1, budget: 100, observedAt: now.toISOString(),
       })) },
       sink: { emit: async () => undefined, rearm: async () => undefined },
-      now: () => new Date(NOW),
+      now: () => new Date(now),
       maximumTelemetryAgeMs: 60_000,
     }),
     inbound: {
@@ -205,7 +210,7 @@ export async function createFakeCallingSystem(input: {
       currentChallengeHmacKeyVersion: "hmac-v1",
       sessions: repository,
       initializeSession,
-      now: () => new Date(NOW),
+      now: () => new Date(now),
     },
     outbound: {
       ownerIdentityId: "identity:voice",
@@ -221,7 +226,7 @@ export async function createFakeCallingSystem(input: {
         await initializeSession(initialization);
         initializationLog.push(initialization);
       },
-      now: () => NOW,
+      now: () => now,
     },
     callbacks,
     relaySession: (request, sessionId) => relays.upgrade(request, sessionId),
@@ -245,7 +250,7 @@ export async function createFakeCallingSystem(input: {
       .first<{ count: number }>())?.count ?? 0,
     attemptId: ATTEMPT_ID,
     destination: DESTINATION,
-    dispatch: () => dispatchOutboundCall(command(), { policy, dispatcher }),
+    dispatch: () => dispatchOutboundCall(command(now), { policy, dispatcher }),
     acceptedCallSid: () => {
       const accepted = twilio.acceptedCalls[0];
       if (accepted === undefined) throw new Error("fake_call_not_accepted");

@@ -1,3 +1,4 @@
+import { permittedOutboundControls } from "../policy/outbound-controls-fixture.js";
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CapacityGuard, type CapacityEstimate } from "../../src/archive/capacity-guard.js";
@@ -250,6 +251,7 @@ function createDispatcher(input: {
     twilio,
     repository,
     dispatcher: new OutboundCallDispatcher({
+      controls: permittedOutboundControls,
       capacity: input.capacity ?? { async assertAcceptingNewTurn() {} },
       policy,
       twilio,
@@ -337,7 +339,8 @@ describe("OutboundCallDispatcher", () => {
 
   it("refuses missing capacity wiring without spending or exposing the dependency failure", async () => {
     const twilio = new TestControllableTwilioProvider();
-    const dispatcher = new OutboundCallDispatcher({ policy: new RecordingPolicy(), twilio,
+    const dispatcher = new OutboundCallDispatcher({
+      controls: permittedOutboundControls, policy: new RecordingPolicy(), twilio,
       repository: createRepository(), publicBaseUrl: new URL("https://jarvis.example/"),
       capacity: undefined as never, newAttemptId: () => ATTEMPT_0, now: () => NOW });
     expect(await dispatcher.dispatch(command())).toEqual({ status: "capacity_unavailable" });
@@ -479,6 +482,7 @@ describe("OutboundCallDispatcher", () => {
     });
     const twilio = new TestControllableTwilioProvider();
     const dispatcher = new OutboundCallDispatcher({
+      controls: permittedOutboundControls,
       capacity: { async assertAcceptingNewTurn() {} },
       policy: new RecordingPolicy(),
       twilio,
@@ -521,6 +525,7 @@ describe("OutboundCallDispatcher", () => {
     let now = NOW;
     const twilio = new TestControllableTwilioProvider();
     const dispatcher = new OutboundCallDispatcher({
+      controls: permittedOutboundControls,
       capacity: { async assertAcceptingNewTurn() {} },
       policy: new RecordingPolicy(),
       twilio,
@@ -670,7 +675,7 @@ describe("OutboundCallDispatcher", () => {
     });
     const initialClaim = await initialRepository.claimProviderDispatch({ attemptId: ATTEMPT_0, now: NOW });
     if (initialClaim.kind !== "claimed") throw new Error("test_initial_claim_failed");
-    initialRepository.beginProviderDispatch(initialClaim.capability, ATTEMPT_0);
+    initialRepository.beginProviderDispatch(initialClaim.capability, ATTEMPT_0, NOW, "+14165550123");
     await initialRepository.recordProviderDispatchRejection({
       claim: initialClaim.capability,
       failure: ProviderFailure.transient("rate_limited"),
@@ -776,6 +781,7 @@ describe("OutboundCallDispatcher", () => {
     };
     const twilio = new TestControllableTwilioProvider();
     const dispatcher = new OutboundCallDispatcher({
+      controls: permittedOutboundControls,
       capacity: { async assertAcceptingNewTurn() {} },
       policy,
       twilio,
@@ -820,6 +826,7 @@ describe("OutboundCallDispatcher", () => {
       recheckOutboundDispatch: async () => check,
     };
     const dispatcher = new OutboundCallDispatcher({
+      controls: permittedOutboundControls,
       capacity: { async assertAcceptingNewTurn() {} },
       policy,
       twilio,
@@ -855,6 +862,7 @@ describe("OutboundCallDispatcher", () => {
       },
     };
     const dispatcher = new OutboundCallDispatcher({
+      controls: permittedOutboundControls,
       capacity: { async assertAcceptingNewTurn() {} },
       policy: new RecordingPolicy(),
       twilio,
@@ -889,6 +897,7 @@ describe("OutboundCallDispatcher", () => {
       },
     };
     const dispatcher = new OutboundCallDispatcher({
+      controls: permittedOutboundControls,
       capacity: { async assertAcceptingNewTurn() {} },
       policy: new RecordingPolicy(),
       twilio,
@@ -948,6 +957,7 @@ describe("OutboundCallDispatcher", () => {
     const twilio = new TestControllableTwilioProvider();
     twilio.blockNextResponse();
     const dispatcher = new OutboundCallDispatcher({
+      controls: permittedOutboundControls,
       capacity: { async assertAcceptingNewTurn() {} },
       policy: new RecordingPolicy(),
       twilio,
@@ -1000,6 +1010,7 @@ describe("OutboundCallDispatcher", () => {
     });
     const twilio = new TestControllableTwilioProvider();
     const dispatcher = new OutboundCallDispatcher({
+      controls: permittedOutboundControls,
       capacity: { async assertAcceptingNewTurn() {} },
       policy: new RecordingPolicy(),
       twilio,
@@ -1016,7 +1027,7 @@ describe("OutboundCallDispatcher", () => {
     expect(twilio.requests).toHaveLength(0);
     await expect(readAttempt(ATTEMPT_0)).resolves.toMatchObject({ providerDispatchState: "claimed", providerCallSid: null });
     await expect(readAttempt(ATTEMPT_2)).resolves.toMatchObject({ providerDispatchState: "claimed", providerCallSid: null });
-    expect(() => repository.beginProviderDispatch(otherClaim.capability, ATTEMPT_2)).not.toThrow();
+    expect(() => repository.beginProviderDispatch(otherClaim.capability, ATTEMPT_2, NOW, "+14165550123")).not.toThrow();
   });
 
   it("rejects a forged claimed wrapper before any provider POST", async () => {
@@ -1035,6 +1046,7 @@ describe("OutboundCallDispatcher", () => {
     });
     const twilio = new TestControllableTwilioProvider();
     const dispatcher = new OutboundCallDispatcher({
+      controls: permittedOutboundControls,
       capacity: { async assertAcceptingNewTurn() {} },
       policy: new RecordingPolicy(),
       twilio,
@@ -1051,6 +1063,52 @@ describe("OutboundCallDispatcher", () => {
     expect(twilio.requests).toHaveLength(0);
     await expect(readAttempt(ATTEMPT_0)).resolves.toMatchObject({ providerDispatchState: "ready", providerCallSid: null });
   });
+
+  it("does not dial a phone number that changed between policy approval and the claim", async () => {
+    const repository = createRepository();
+    const original = repository.getOrCreateExpectedCall.bind(repository);
+    vi.spyOn(repository, "getOrCreateExpectedCall").mockImplementation(async (input) => {
+      const expected = await original(input);
+      await env.DB.prepare("UPDATE channel_identities SET provider_subject = '+14165550199' WHERE identity_id = 'identity:voice'").run();
+      return expected;
+    });
+    const twilio = new TestControllableTwilioProvider();
+    const dispatcher = new OutboundCallDispatcher({ controls: permittedOutboundControls,
+      capacity: { async assertAcceptingNewTurn() {} }, policy: new RecordingPolicy(), twilio, repository,
+      publicBaseUrl: new URL("https://jarvis.example/"), newAttemptId: () => ATTEMPT_0, now: () => NOW });
+    await expect(dispatcher.dispatch(command())).resolves.toMatchObject({ status: "provider_dispatch_unknown" });
+    expect(twilio.requests).toEqual([]);
+  });
+
+  it.each(["disabled", "unreadable", "malformed", "quiet", "authorization", "nonce", "day", "rollback"] as const)(
+    "sends no POST when final controls or the claim clock refuse: %s", async (fault) => {
+      let now = fault === "day" ? new Date("2026-08-30T23:59:59.000Z") : NOW;
+      const request = { ...command(), authorizationExpiresAt:
+        new Date(now.valueOf() + (fault === "authorization" ? 1_000 : 300_000)).toISOString() };
+      const repository = new CallRepository(env.DB, new EventRepository(env.DB), () => NONCE_0,
+        fault === "nonce" ? 1_000 : 300_000);
+      const twilio = new TestControllableTwilioProvider();
+      const dispatcher = new OutboundCallDispatcher({
+      capacity: { async assertAcceptingNewTurn() {} }, policy: new RecordingPolicy(), twilio, repository,
+        publicBaseUrl: new URL("https://jarvis.example/"), newAttemptId: () => ATTEMPT_0, now: () => now,
+        controls: { async readControls() {
+          if (fault === "unreadable") throw new Error("synthetic control read failed");
+          if (fault === "authorization") now = new Date(request.authorizationExpiresAt);
+          if (fault === "nonce") now = new Date(NOW.valueOf() + 1_000);
+          if (fault === "day") now = new Date("2026-08-31T00:00:00.000Z");
+          if (fault === "rollback") now = new Date(NOW.valueOf() - 1);
+          if (fault === "quiet") now = new Date(NOW.valueOf() + 1_000);
+          return { enabled: fault === "malformed" ? "true" as never : fault !== "disabled",
+            quietStartsAt: fault === "quiet" ? new Date(NOW.valueOf() + 1_000).toISOString() : null,
+            quietEndsAt: fault === "quiet" ? new Date(NOW.valueOf() + 2_000).toISOString() : null };
+        } },
+      });
+      const result = await dispatcher.dispatch(request);
+      expect(result.status).not.toBe("dispatched");
+      expect(twilio.requests).toEqual([]);
+      await expect(readAttempt(ATTEMPT_0)).resolves.toMatchObject({ providerDispatchState: "claimed", providerCallSid: null });
+    },
+  );
 
   it("constructs trusted callback routes from attempt identity while retaining command lineage", async () => {
     const subject = createDispatcher();

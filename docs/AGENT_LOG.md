@@ -46,6 +46,24 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-13 18:22 UTC — Codex builder, PR #25 outbound admission
+
+Stored controls now start disabled, and the D1 claim rechecks current access,
+quiet bounds, database-clock expiry/day and concurrent/daily admission counts.
+The final pre-POST fence binds the claimed phone number and refuses stale,
+reversed or rolled-over clocks after awaited control reads. Terminal evidence
+survives envelope archival; uncertain claims retain their slot. Draft migration
+0015 now includes these controls, triggers and an evidence-only backfill; 0014
+is untouched. Windows workspace: 2,287 / 118 passed; source/harness types and
+lint pass, existing test-type baseline remains 122. All 31 actual guard mutations
+fail assertions after restoration. One initial mutation hit the test migration
+splitter because it left a detached comment; that invalid run was preserved and
+rerun with the trigger comment removed too. A same-vendor read-only advisory
+found the destination race, reproduced before fixing it. Receipt-before-envelope
+ordering also failed the first terminal-retention tests and is covered in both
+orders now. Worker HTTP/Telegram composition is next; max cross-vendor review
+and owner migration/configuration/live acceptance remain outstanding.
+
 ## 2026-09-13 17:46 UTC — Codex builder, PR #25 real socket proof
 
 The default production CallSession factory now has a separate real namespace

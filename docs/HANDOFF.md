@@ -27,13 +27,18 @@ of item 1. The pre-dial capacity check and telemetry freshness corrections are
 implemented and tested. The owner approved a remaining-credit floor for the
 one-time DeepSeek prepaid pot. D1/R2 and provider collectors, explicit capacity
 configuration and the durable Telegram alert sink are implemented. New D1
-migration 0015 adds alert crossing receipts and recoverable leases; it is a
-production schema change requiring review and owner migration. The default call
+migration 0015 adds alert crossing receipts, recoverable leases, default-disabled
+outbound controls and atomic admission guards. It adds and backfills a terminal
+evidence column on existing attempts; it is a production schema change requiring
+max review and owner migration. The default call
 runtime now checks every final conversation turn before fresh access validation
 and durable admission. Interrupted admission releases the slot for a replacement
 prompt; cancelled context retrieval cannot start a model request. Completed
 output can still settle its receipt after interruption without closing the call.
-Worker route wiring and persisted outbound policy controls remain.
+Persisted outbound controls now cover atomic access/number binding, expiry,
+quiet windows and the two/six admission limits. Final control reads and a
+synchronous clock fence precede dialing. Unknown claims retain their slot;
+affirmative terminal evidence survives archival. Worker route wiring remains.
 The max review of #23 at d6c5fc2 requested changes. The fixes are pushed at
 695e762 and carried into this branch; max re-review remains required. The broad
 relay harness invokes DO methods directly. A separate configured test project
