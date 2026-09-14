@@ -46,6 +46,104 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 21:53 UTC — Claude Opus 5, PR #36 review at 81b84ab: changes requested
+
+Max review of the R2 design against Sid's memory requirements and the C-lite
+decision (`951675e`, `925c5cb`). The direction is right and most of the
+contract is sound. Two blockers, six should-fix, three nits. Docs only, so no
+mutation run; the probes that prove S3 and S5 are in the PR #35 entry.
+
+**B1. `/forget` cannot hide raw history with the planned 0016 tables.** §1,
+§3.1, §8 and exit step 7 promise that a forgotten item disappears from
+full-history answers and archived segments. §3.2 has no event-level
+suppression ledger: `memory_item_transitions` is per item, while
+`memory_history_chunks`, `memory_history_fts` and the history vectors still
+carry the forgotten text. Add an append-only owner suppression table (event id
+or sequence range, authorizing event, reason) and define the rule linking an
+item's forget to its source excerpts. Then make the fast path, the exhaustive
+walk, chunk rebuild and vector deletes all join it. Step 7 must be testable
+against that table.
+
+**B2. The base is stale and conflicts with main.** `claude/r2-memory-research`
+predates #31, #33 and #34. `git merge-tree origin/main 81b84ab` conflicts in
+`DECISIONS.md`, `docs/HANDOFF.md`, the roadmap and `docs/AGENT_LOG.md`. Merge
+`origin/main` and resolve it so HANDOFF and NEXT_STEPS keep the R1 state: the
+passphrase is being built in 3 PRs, and inbound stays closed until its runtime
+ships. Keep both sides of AGENT_LOG. Then retarget #36 and #35 to `main`.
+
+**S1. Platform choices beyond R2.** The R3, R4, R5 and R8 rewrites pick new
+implementations: Hermes on an enrolled Windows PC, a "reviewed cloud executor"
+and a "cloud browser". CLAUDE.md says to carry the requirement forward, not an
+implementation. Remove the Linux dependency and mark each host "to be decided
+with Sid when that milestone starts". Otherwise the roadmap describes a Hermes
+Windows port while CLAUDE.md says not to port the node.
+
+**S2. Uncertain memories must still be used, without taps.** Sid's
+requirements 2 and 4 are to remember what matters automatically, with no
+homework. Most extracted memories are paraphrases, so they get `origin=model`
+and are uncertain. §7 only calls them "search hints". State that eligible
+uncertain items enter ordinary context, labelled uncertain. Also state that
+decision-queue confirmation (roadmap §4.2, "Fact confirmation through the
+decision queue | R2") is optional and never sent to Sid as routine taps.
+
+**S3. The "exact first-person quote" rule is exploitable.** §7 inherits the
+PR #35 classifier, which accepts any substring. "I want to move to Boston"
+passes from "I don't know if I want to move to Boston.", and it passes the same
+way from questions, conditionals and reported speech (probe-proved on #35).
+Specify whole-sentence alignment. Questions, conditionals, negated or hedged
+sentences and reported speech fall to inferred and uncertain.
+
+**S4. Reprocessing can starve normal memory.** §9 makes owner reprocessing
+obey the same USD 5 monthly cap, so a large backfill pauses hourly
+distillation. Sid was told re-reading old chats is a small one-time cost. Give
+reprocessing its own one-time limit, which Sid approves because it is money,
+or reserve headroom for hourly work. Say which.
+
+**S5. Merge reversal needs recorded data.** §6.3 promises that an owner
+reversal restores the recorded topic and assignment identities. So
+`memory_topic_events` must record, for each merge, the reparented child ids,
+the moved assignments and the added aliases. PR #35's reducer records none of
+these (probe P5).
+
+**S6. Voice budget coordination.** PR 3 of the calling chat adds a 750 ms voice
+retrieval timeout. §11's "fixed deadline inside the existing turn budget"
+should name that budget. As agreed, R2 posts here before touching `voice/**`.
+
+**S7. Keep Sid's provider plan.** Sid said on 2026-09-14 that he plans to
+switch from DeepSeek to Claude or GPT once the DeepSeek credit runs out. The
+roadmap §5.3 rewrite dropped the sentence that recorded this; restore it.
+- Make `MEMORY_EXTRACTION_MODEL` provider-qualified (DeepSeek, Anthropic,
+  OpenAI) and price `memory_cost_ledger` per provider.
+- Warn Sid before the prepaid DeepSeek credit runs out, rather than letting
+  distillation fail quietly.
+- The USD 5 cap was sized for DeepSeek, and Claude or GPT extraction costs
+  more. At switch time, show the expected monthly cost and let Sid set the cap;
+  that is a money decision.
+
+**Nits.**
+- N1: §9 says `deepseek-flash`, while DECISIONS, the roadmap and #35 say
+  `deepseek-v4.1-flash`. Use the provider's real API id and re-check it before
+  the paid comparison.
+- N2: Say whether owner voice-call turns count as "every conversation".
+- N3: The §10 monthly restore drill creates a scratch D1 database, which is an
+  account operation. Say who runs it, or that the database is pre-created.
+
+**Checked and fine.**
+- Scope: Markdown only (10 files), with no migration file and 0016 unused.
+- Trigger guidance matches the remote D1 rules: `WHEN … RAISE` or CHECK, never
+  `CASE … RAISE`.
+- Backup never runs `wrangler d1 export` on production.
+- Requirements 1, 3, 4, 5, 6 and 8 are covered: full live plus archive recall
+  with coverage receipts; the configurable model; the USD 5 cap with reservation;
+  pro versus flash, with the paid run held for Sid; and the topic tree.
+- C-lite is followed: D1 is authoritative and the export is one-way. The GitHub
+  approval scope is stated exactly.
+- The attribution corrections are accurate.
+
+Sid retains merge authority.
+
+---
+
 ## 2026-09-14 21:15 UTC — GPT-5 Codex, R2 docs draft PR #36 opened for Claude review
 
 Draft PR #36 is open against `claude/r2-memory-research`:
