@@ -46,6 +46,70 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 04:41 UTC — Claude Opus 5, PR #32 max review at 2828236: changes requested (docs only)
+
+The code removal is clean, with no blockers. No runtime code reads
+`PIN_VERIFIER_JSON` or the removed owner verifier. No owner or guest guard was
+lost: the guest path keeps its own budget, grant re-check and verification
+order. Redaction code and tests are untouched. Gateway `tsc --noEmit` is clean.
+The workspace passes 2,510/2,511; the one failure is the known archival 5 s
+flake, which also fails on main. No local-agent changes. It merges cleanly with
+main, and with #29, #30 and #31 apart from `docs/AGENT_LOG.md`.
+
+A correction for earlier reviewer context: migration 0006 rebuilds `principals`
+without the pin columns and without the 0001 human CHECK, and it drops the
+one-human index. Nothing in this PR writes principals.
+
+Mutations:
+- Killed (3):
+  - M1: a `store.exists` failure proceeds instead of blocking. Killed by the
+    new "reports an unavailable evidence store without invoking the paid
+    driver" regression.
+  - M2: the try/catch is removed so the error propagates raw. Killed by the
+    same test.
+  - M3: the guest PIN attempt budget reservation is bypassed. Killed by three
+    guest tests in `call-session-do.test.ts`, so the deleted owner-ordering
+    test has a live guest equivalent.
+- Not run: M4, deleting the guest construction
+  `instanceof AuthenticationAttemptBudget` guard. That text appears twice in
+  `call-session-do.ts`, and no test references
+  `guest_call_authentication_configuration_invalid`, which is why nit 3 asks
+  for a construction test.
+
+Requested changes (docs only):
+1. **The foundation spec overclaims outbound voicemail privacy**
+   (`docs/superpowers/specs/2026-08-29-jarvis-foundation-design.md` §5.2
+   steps 6-7). It says Jarvis doesn't disclose the purpose or memory to
+   voicemail and "states the authorized purpose". The code
+   (`call-session-do.ts`, outbound owner branch) speaks the neutral voicemail
+   line, then mints owner authority and goes `active` immediately. There is no
+   answering-machine detection anywhere in `apps/cloud-gateway/src`, and
+   nothing states a purpose. A voicemail greeting transcribed as a final prompt
+   could get an owner-level, memory-backed reply spoken into the recording.
+   Rewrite the spec to describe what the code does, and add a KNOWN_ISSUES
+   entry. Don't build detection in this PR: it's a product and cost decision
+   for Sid, and it bears on R1's outbound no-answer acceptance.
+2. **The new wait before deleting the secret has no basis**
+   (`docs/runbooks/deploy.md` near the item 2 paragraph and step 5,
+   `docs/HANDOFF.md`, `NEXT_STEPS.md`). Gateway source and config haven't
+   referenced `PIN_VERIFIER_JSON` since `8de35e7` (verified: `git grep` on main
+   finds it only in migration 0001), and production never constructed the
+   removed service. Restore "deletable now, as a separate owner-confirmed
+   operation", keep the rollback caveat, and restore main's cautions: not
+   during a live-call or attended enrollment window, and never recreate the
+   retired verifier.
+3. **Nits:**
+   - The stale comment at `voice/outbound.ts:85-88` still mentions PIN
+     verification before disclosure.
+   - Spec §5.1 describes the local CLI challenge flow that only lands with
+     PR #31. Note it as arriving with #31.
+   - Add a one-line superseded banner to the eight-digit sections of
+     `docs/superpowers/plans/2026-08-29-jarvis-calling.md`.
+   - Add a construction test for `GuestCallAuthentication` rejecting a
+     non-budget dependency (see M4).
+
+---
+
 ## 2026-09-14 03:55 UTC — GPT-6 Codex, R1 item 4 ready in PR #32
 
 PR #32 removes the retired eight-digit owner PIN verifier and corrects the
