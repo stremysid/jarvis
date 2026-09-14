@@ -25,6 +25,15 @@ Two bootstrap steps are absent: nothing creates the pending owner phone row and
 singleton, and `/identity/challenge/begin` is not exposed through a production
 route or a Windows CLI command.
 
+Option 1 also has an unverified prerequisite. One of Sid's Windows PCs must
+still hold the private key for the active production device. A configured key
+path or an arbitrary valid device key is insufficient: `JARVIS_DEVICE_KEY_PATH`
+must load a key whose derived public-key fingerprint matches the active
+production device record. The current `jarvis doctor` checks configuration and
+dependencies; it does not perform this comparison. If Option 1 is selected,
+its preflight must add a non-disclosing match check that reports only whether
+the configured key is the active production key.
+
 ## Properties every option must keep
 
 Whichever option Sid selects must meet the same acceptance bar:
@@ -53,11 +62,37 @@ Whichever option Sid selects must meet the same acceptance bar:
    until a fresh database read confirms the active verified row and singleton.
 9. Work from Sid's Windows 11 PCs and iPhone. It must not depend on the held
    Linux node work.
-10. Leave calling and the live-smoke gate disabled until enrollment is active,
-    Twilio is configured, the selected implementation passes max review, and
-    Sid explicitly starts the live runbook.
+10. Treat setting the production Twilio voice webhook as activation of inbound
+    calling. `outbound_runtime_controls.enabled` gates outbound dispatch, not
+    inbound admission. Keep the webhook unset until the selected implementation
+    is deployed and Sid is ready to complete enrollment in an attended window.
+
+## Twilio prerequisite and activation boundary
+
+Options 1 and 2 both finish verification through an inbound call to Jarvis's
+Twilio number. Twilio must therefore be configured before either enrollment can
+complete. The implementation can be built and reviewed without secrets, but
+the live sequence needs the number, credentials, signed webhook validation,
+and the production voice webhook in place before Sid makes the enrollment call.
+
+Setting that webhook makes inbound calling live immediately. The existing
+`outbound_runtime_controls.enabled` switch does not disable or pause inbound
+calls. An unknown or unbound caller is refused before entering a normal Jarvis
+conversation, but the provider may still charge for receiving and handling the
+call. The rollout must keep the interval between setting the webhook and Sid's
+enrollment call short and attended, and rollback must remove or redirect the
+webhook rather than relying on the outbound control.
 
 ## Option 1 — finish the device-signed Windows CLI path
+
+This option is available only after a prerequisite gate proves that
+`JARVIS_DEVICE_KEY_PATH` loads the private key matching the active production
+device record. The comparison must derive the public fingerprint locally,
+compare it with the production record through an authenticated preflight, and
+return only a match or mismatch result. It must not print the key or its
+fingerprint. Today's `jarvis doctor` does not provide that proof; the selected
+implementation must extend it or provide an equally bounded enrollment
+preflight.
 
 Add a one-shot `jarvis enroll-phone` command for Windows and one signed gateway
 bootstrap route. The CLI would prompt for the number interactively so it is not
@@ -89,10 +124,21 @@ contract, and end-to-end fake tests.
 
 **Costs and limits**
 
-- Sid must use a Windows PC for the one-time enrollment.
+- Sid must use the Windows PC holding the matching production device key for
+  the one-time enrollment.
 - The gateway and local agent both change.
 - Response-loss and an already-present conflicting pending row need explicit,
   tested recovery behavior.
+- If neither PC holds the matching key, this option first requires a separate
+  device recovery boundary. Jarvis has no production device-enrollment route,
+  and its existing bootstrap service is shaped for a fresh principal and fresh
+  identities. Recovery would need to authorize a replacement key, attach it to
+  the existing human principal without creating a second human or replacing
+  the verified Telegram identity, activate and prove the new device, and only
+  then revoke the orphaned device. That is security-sensitive gateway, local,
+  persistence, recovery, and rollout work before phone enrollment begins. It
+  removes Option 1's claimed simplicity relative to Option 2 even if the phone
+  enrollment itself still needs no schema migration.
 
 ## Option 2 — begin in verified Telegram, finish by inbound call
 
@@ -148,16 +194,25 @@ active voice identity and owner singleton, followed by a fresh status read.
 
 ## Recommendation
 
-Choose **Option 1, the device-signed Windows CLI path**. It completes the design
-already enforced by the repository, uses the enrolled device and the intended
-phone as separate factors, requires no new provider, and is expected to avoid a
-production migration. Windows is sufficient because this is a one-shot local
-command; it does not depend on the Linux-only long-running node.
+If one of Sid's PCs holds the key matching the active production device,
+choose **Option 1, the device-signed Windows CLI path**. In that case it
+completes the design already enforced by the repository, uses the enrolled
+device and intended phone as separate factors, adds no provider, and is
+expected to avoid a production migration. Windows is sufficient because this
+is a one-shot local command; it does not depend on the held Linux node work.
 
-Option 2 is the best phone-only design if Sid values iPhone-only setup enough to
-accept a new authentication schema and migration. Option 3 has the weakest fit:
-it expands provider and privacy surface while bypassing the activation path the
-release must test.
+If neither PC holds that key, choose **Option 2, verified Telegram followed by
+an inbound call**, unless Sid independently decides that restoring local device
+enrollment is valuable beyond this phone task. Option 2 needs a new
+authentication schema and production migration, but it avoids building and
+reviewing device recovery solely to unlock Option 1 and then building phone
+enrollment afterwards.
+
+If key ownership remains unknown, the decision remains open until Sid checks
+both PCs. The proposal must not count a device row in production as proof that
+its private key is available. Option 3 remains the weakest fit because it adds
+a provider and a wider privacy surface while bypassing the inbound activation
+path the release must test.
 
 ## Work only after Sid chooses
 
@@ -173,8 +228,10 @@ security tests first. At minimum, tests must kill mutations that remove:
 - the final fresh read proving the active identity and singleton.
 
 The implementation PR must also include a dry-run preflight and rollback
-instructions. Twilio setup, any required migration, deployment, and the live
-call remain separate owner-confirmed rollout steps.
+instructions. Any required migration, deployment, Twilio configuration, and
+the live call remain separate owner-confirmed rollout steps. For Options 1 and
+2, Twilio configuration and the inbound webhook must occur before the live
+enrollment call; setting the webhook is itself the inbound activation step.
 
 **Decision requested from Sid:** choose Option 1, 2, or 3. Until then, do not
 build an option or configure Twilio.

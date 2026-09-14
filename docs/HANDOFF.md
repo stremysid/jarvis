@@ -5,28 +5,36 @@ using this checkpoint. R0 passed; calling remains R1.
 
 PR #25 merged as `fd39301` after max review. Production D1 now has migrations
 through 0015, and gateway deployment `28109492` runs that commit. Health answers
-200 and the first observed cron succeeded. Calling remains disabled because
-Twilio is not configured and `outbound_runtime_controls.enabled` remains 0.
-The release gate still requires the retained live-call evidence.
+200 and the first observed cron succeeded. Inbound calling is unavailable
+because Twilio is not configured; outbound calling is separately disabled by
+`outbound_runtime_controls.enabled = 0`. The release gate still requires the
+retained live-call evidence.
 
 ## R1 is active; the node platform decision remains on hold
 
 R0 passed on 2026-09-11. R1 depends on R0 and is entirely cloud-side.
 PR #23 supplied item 2's fake calling/access matrix and confirmed Telegram
 `/call`, with local Windows validation and mutation evidence recorded in the
-PR. PR #25 composes the production Worker and is now merged and deployed;
-without Twilio configuration and explicit control activation, calling remains
-unavailable.
+PR. PR #25 composes the production Worker and is now merged and deployed.
+Inbound remains unavailable without Twilio configuration, while outbound also
+requires explicit control activation.
 The real release runner passes its local prerequisites and then refuses the
 missing live evidence. It never places a call itself.
 
 Production also has no owner voice `channel_identities` row and no
 `voice_owner_identity` singleton, so Twilio configuration alone cannot make a
 call pass admission. A separate draft proposal compares three enrollment
-designs and recommends the existing device-signed Windows CLI/challenge path:
+designs:
 [`plan/2026-09-14-owner-phone-enrollment-options.md`](plan/2026-09-14-owner-phone-enrollment-options.md).
-Sid must choose before implementation. No option, live call, secret change,
-migration or deployment is authorized by that proposal.
+Option 1 is recommended only if one of Sid's PCs holds the key matching the
+active production device. If neither does, Option 2 is recommended because
+Option 1 would first require a new device-recovery boundary for the existing
+principal and orphaned device. Sid must choose before implementation. Options
+1 and 2 require Twilio configuration before enrollment can finish, and setting
+the production voice webhook makes inbound live: the outbound runtime control
+does not gate inbound calls. Unknown callers are refused but may still incur
+provider charges. No option, live call, secret change, migration or deployment
+is authorized by that proposal.
 
 R1's v1.0 review required Claude Opus 5 at max, and PR #25 passed that review
 before merge. Item 1's real Worker/runtime composition is now on `main`. Its

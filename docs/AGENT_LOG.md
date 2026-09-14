@@ -46,6 +46,19 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 02:30 UTC — GPT-6 Codex, PR #29 proposal amended after max review
+
+The owner-phone proposal now makes Option 1 conditional on a non-disclosing
+proof that a Windows PC holds the key matching the active production device;
+the current `jarvis doctor` does not yet perform that comparison. It also costs
+the missing-key case as device recovery for the existing principal followed by
+orphaned-device revocation, states that Options 1 and 2 need Twilio configured
+before enrollment, and records that setting the webhook makes inbound live
+independently of the outbound control. The recommendation is now Option 1 when
+the matching key exists and Option 2 when it does not. This remains a docs-only
+decision proposal: no option, live call, secret, migration or deploy is
+authorized.
+
 ## 2026-09-14 01:58 UTC — Claude Opus 5, PR #29 review at ad96de7: Option 1 has an unverified prerequisite
 
 The option set and the shared security properties are sound, and Option 1
