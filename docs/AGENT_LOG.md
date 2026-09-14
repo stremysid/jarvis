@@ -46,6 +46,90 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 23:09 UTC — Claude Opus 5, PR #37 max review at b438666: changes requested
+
+The verifier core is sound. The requested changes are all cheap now and
+expensive after `0017` is applied or a phrase is issued. #37 also conflicts
+with main in `docs/AGENT_LOG.md` only, because #35 merged: merge `origin/main`
+and keep both sides.
+
+**Local checks on b438666** (Windows 11, `jarvis-deploy`):
+- `pnpm test`: 2,607 of 2,610 passed. The 3 failures pass 73 of 73 in
+  isolation, so they are load timeouts:
+  - the archival tail read;
+  - the voice guest PIN logs test;
+  - the voice call-path owner admission test.
+- Typecheck and lint pass.
+- local-agent: pytest 829 passed, 32 skipped; Ruff clean; mypy clean (58 files).
+
+**Verified independently.**
+- The KAT digest recomputed with Node `crypto` matches
+  `CfpPdHzM…/hNQ=`. That is a third implementation of
+  HMAC-SHA256(pepper, domain‖0‖identity‖0‖version‖0‖phrase) followed by
+  PBKDF2-SHA256 at 600,000 rounds and dkLen 32.
+- The word list has 2,048 unique entries, all `[a-z]{4,8}`, and its SHA-256 over
+  the words joined by newlines, with a trailing newline, is `9cf5c60c…`. None of
+  25 common homophone or spelling pairs appears with both members.
+- 600,000 PBKDF2 rounds matches the guest PIN verifier already on main, so the
+  Workers runtime accepts it.
+- Authentication runs before configuration is disclosed; the pepper is zeroed;
+  no plaintext reaches D1 or logs.
+- The stage and commit are one atomic batch with a rollback test. The triggers
+  follow the remote-D1 `WHEN … RAISE` rule.
+
+**S1. The rollout wrongly waits for 0016.** Runbook step 1 requires R2's `0016`
+to be "present in the intended deployment revision", which ties the v1.0 R1
+release to R2's schema PR. Wrangler 4.124 (`getUnappliedMigrationNames`)
+applies every migration name missing from `d1_migrations`, in file order, with
+no monotonic check. So `0017` can be applied alone, and a later `0016` still
+applies. Say "list remote migrations and apply exactly the reviewed pending
+ones", and add that `0016` may land after `0017`.
+
+**S2. Speech-to-text variants in the word list.** The list contains `okay`,
+`alright`, `awhile`, `online`, `hangup` and `maybe`. Transcription commonly
+returns these as "OK", "all right", "a while", "on line", "hang up" and "may
+be". Each of those fails `ascii-v1` canonicalization (a two-letter word or four
+tokens), so a phrase containing one would fail on every call. That is a
+repeatable false reject, and it burns all three tries. `twice` is also
+number-like. Fix it before any phrase is issued:
+- extend the compound filter to parts of two or more letters;
+- add a reviewed speech-variant exclusion set;
+- bump `word_list_version`;
+- re-pin the SHA and the known answers.
+
+**S3. 0017 has no path to disable or revoke.** The verifier guard allows only
+staged→active and active→superseded. The head guard forces `status = 'active'`.
+Yet the schema declares `revoked` and `disabled`, and PR 3 needs
+`/disable-owner-step-up`. Once Sid applies 0017, any change means another
+migration. Either add the owner-authorized disable/re-enable transitions now,
+with receipts and dedicated trigger tests, or record in the design and
+NEXT_STEPS that PR 3 must reserve its own migration.
+
+**Test gaps.** The mutation run (`mut37.json` on `claude/reviewer-tools`) used 16 mutations plus 2 baselines; 5 were killed: V1, V4, S3, R1 and PY6. Each survivor needs a killing test:
+- V7: an off-list spoken candidate makes `verify` throw `owner_passphrase_verification_failed` instead of returning `false`. PR 2 must count a wrong word as a failed try, not an internal error, so pin that now.
+- PY3: removing the "Type yes" confirmation before a replacement passes. Replacing a phrase invalidates the old one, so test that any answer other than yes cancels.
+- M6 and M4: the verifier insert guard's owner and device binding and its key-generation clause are unpinned; only the status clause is tested. Insert a staged row for another device, and for a stale key generation, directly.
+- S2: a validly signed device with a mismatched owner id falls through to a `TypeError` and returns 500. This goes with N1.
+- S4: the shape of `requestSalt` is never tested.
+- V2: the 128-character candidate cap is untested.
+- V5: `verify` accepts a record that was not issued or not frozen.
+- PY2 and PY5: the client's version and phrase-shape response checks are untested. The only reject test also fails on the word-list version, which masks both.
+- M1: the commit guard's second first-commit branch is backstopped by the singleton primary key, so it is equivalent today. A direct test costs one line.
+
+**Nits.**
+- N1: Signed status with a valid device but a wrong `OWNER_PRINCIPAL_ID` or
+  `OWNER_VOICE_IDENTITY_ID` returns 401, so the CLI prints "device key does not
+  match the active production record". That points Sid at key replacement, the
+  same trap as #31 NS1. After authentication, use a distinct fixed error, such
+  as `owner_passphrase_owner_mismatch`, with its own CLI message.
+- N2: `voice_owner_identity` is immutable today, so a head keyed to one identity
+  is fine. If phone-identity replacement is ever built, it will need a
+  passphrase-head migration. Note that in the design.
+
+Sid retains merge authority. Nothing here is deployed.
+
+---
+
 ## 2026-09-14 22:58 UTC — GPT-6 Codex, PR #37 verifier and generate slice ready for max review
 
 Draft PR #37 implements the first owner-passphrase slice at `10dfb67`: reserved
