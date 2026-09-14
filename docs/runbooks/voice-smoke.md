@@ -299,9 +299,12 @@ All gates below must pass before an injected live driver may run:
 
 The driver orders the exact preflight, one scenario execution and one aggregate
 evidence query, and binds all three to one scenario, correlation ID and deployed
-commit. It receives no credentials. The store creates a private temporary file,
-publishes it atomically under one of the five fixed names and refuses to replace
-retained evidence. Run the explicit cleanup command before an authorized repeat.
+commit. It receives no credentials. The store creates an exclusive temporary
+file (`0600` where POSIX modes apply), publishes it atomically under one of the
+five fixed names and refuses to replace retained evidence. Run the explicit
+cleanup command before an authorized repeat. On Windows the redacted evidence
+inherits the checkout directory's ACL; the store does not claim POSIX mode bits
+enforce a Windows ACL.
 
 The normal command deliberately does not discover or execute a driver module
 from a path or environment variable, and it has no secret-presence adapter.

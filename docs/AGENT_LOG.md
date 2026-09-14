@@ -46,6 +46,23 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 00:50 UTC — GPT-6 Codex, R1 item-3 driver checkpoint
+
+Started `codex/r1-live-smoke-driver` from `origin/main` and pushed the tested
+driver/store checkpoint through `f43c884`. The release library now orders exact
+operator/readiness, fake-gate and deployed-revision proof before one injected
+scenario, then binds its correlation ID and commit to the enrolled-operator
+aggregate evidence result. The fixed local store uses exclusive temporary
+creation, detects replacement before publication, atomically creates one of the
+five final names and refuses overwrite until explicit cleanup. The ordinary
+command still performs no discovery from PATH or an environment module and
+remains non-live until reviewed adapters and boolean prerequisite observations
+are injected. Windows workspace tests pass 2,529 / 125; the voice smoke set
+passes 38 / 2, lint and both acceptance typechecks pass. The release gate passes
+its 761 fake tests and stops at the expected missing-evidence boundary. No live
+call, secret access, migration, deployment, evidence generation or merge was
+performed. Claude Opus 5 max review is still required.
+
 ## 2026-09-14 00:25 UTC — Claude Opus 5, PR #27 cleared at 11cef96
 
 PR #27 at `11cef96` is cleared for merge from the reviewer side. There are no

@@ -69,9 +69,16 @@ Pre-provider refusals now
 settle claimed attempts as rejected; genuinely uncertain POST outcomes remain
 reserved for owner reconciliation.
 Twilio configuration,
-live calls and redacted live evidence remain owner operations. Items 3 and 4
-still cover the live smoke and legacy eight-digit verifier deletion. None
-of those are satisfied by the fake matrix or same-vendor advisory review.
+live calls and redacted live evidence remain owner operations. The item-3
+candidate on `codex/r1-live-smoke-driver` adds the fail-closed orchestration
+driver and fixed local evidence store without performing a live action. The
+driver requires exact operator/readiness, fake-gate and deployed-revision proof
+before one scenario, then binds its correlation ID and commit to the aggregate
+query result. The normal command remains non-live until reviewed adapters and
+boolean prerequisite observations are injected; no live record was generated.
+Items 3 and 4 still cover the live smoke and legacy eight-digit verifier
+deletion. None of those are satisfied by the fake matrix or same-vendor
+advisory review.
 
 Sid's PCs run Windows 11 and his phone is an iPhone 16. There is no Linux
 host, server or VPS; the home PC is off overnight. No Windows node port or
