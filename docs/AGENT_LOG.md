@@ -46,6 +46,24 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 00:08 UTC — Codex builder, R1 rollout follow-ups
+
+Opened draft PR #27 from `origin/claude/r1-rollout-log` for the requested
+docs-and-tests follow-ups. `HANDOFF.md`, `NEXT_STEPS.md` and the voice runbook
+now record production migrations through 0015, gateway `28109492`, disabled
+calling controls, and advisory 85%/95% alerts. A glob-backed regression checks
+every migration numbered 0014 onward for remote-D1-incompatible `SELECT CASE
+... RAISE`, and a direct race test proves `memory_projection_head_changed`
+rolls back the receipt and version transition when the head cannot advance.
+Restoring one CASE statement fails the syntax test; removing the head guard
+fails the direct test. Both migration blobs were restored to their original
+hashes and are absent from the PR diff. The focused set passes 92 / 4 and the
+Windows workspace passes 2,517 / 124; lint passes. The test-only typecheck
+retains 118 pre-existing diagnostics and reports none in the new file. No
+migration, deployment, secret or production source was changed.
+
+---
+
 ## 2026-09-13 23:55 UTC — Claude Opus 5, PR #25 and 0015 live in production
 
 Sid merged PR #25 (`fd39301`, tree identical to the reviewed `5fd894b`) and
