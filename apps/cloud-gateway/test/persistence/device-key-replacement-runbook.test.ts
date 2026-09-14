@@ -34,7 +34,20 @@ async function execute(template: string, values = replacement): Promise<void> {
 function documentedSql(variable: string): string {
   const match = new RegExp(`\\$${variable} = @'\\r?\\n([\\s\\S]*?)\\r?\\n'@`, "u").exec(runbook);
   if (match?.[1] === undefined) throw new Error(`missing documented SQL block: ${variable}`);
-  return match[1].replaceAll("__NEW_DEVICE_ID__", replacement.NEW_DEVICE_ID);
+  return render(match[1]);
+}
+
+function runbookSection(start: string, end: string): string {
+  const startIndex = runbook.indexOf(start);
+  const endIndex = runbook.indexOf(end, startIndex + start.length);
+  if (startIndex < 0 || endIndex < 0) throw new Error(`missing runbook section: ${start}`);
+  return runbook.slice(startIndex, endIndex);
+}
+
+function operationStatusSql(template: string): string {
+  const match = /^SELECT\r?\n  CASE WHEN EXISTS \([\s\S]*$/mu.exec(template);
+  if (match?.[0] === undefined) throw new Error("missing operation status query");
+  return render(match[0]);
 }
 
 async function executeReadOnly(sql: string): Promise<void> {
@@ -121,6 +134,73 @@ describe("owner device-key replacement runbook SQL", () => {
     await executeReadOnly(documentedSql("AfterInsert"));
     await execute(revokeReplacedSql);
     await executeReadOnly(documentedSql("FinalCheck"));
+  });
+
+  it("checks each write marker through a read-only query after the D1 import", async () => {
+    const insertSection = runbookSection("## 3. Owner approval", "## 4. Prove");
+    const revokeSection = runbookSection("## 5. Owner approval", "## 6. Read-only");
+    const insertImport = "& node $wrangler d1 execute jarvis --remote --config $gateway --env '' --file $InsertPath";
+    const insertStatus = "& node $wrangler d1 execute jarvis --remote --config $gateway --env '' --command $InsertStatus";
+    const revokeImport = "& node $wrangler d1 execute jarvis --remote --config $gateway --env '' --file $RevokePath";
+    const revokeStatus = "& node $wrangler d1 execute jarvis --remote --config $gateway --env '' --command $RevokeStatus";
+    expect(insertSection.indexOf(insertImport)).toBeGreaterThanOrEqual(0);
+    expect(insertSection.indexOf(insertStatus)).toBeGreaterThan(
+      insertSection.indexOf(insertImport),
+    );
+    expect(insertSection).toContain("$InsertOperation = Get-Content -LiteralPath $InsertPath -Raw");
+    expect(revokeSection.indexOf(revokeImport)).toBeGreaterThanOrEqual(0);
+    expect(revokeSection.indexOf(revokeStatus)).toBeGreaterThan(
+      revokeSection.indexOf(revokeImport),
+    );
+    expect(revokeSection).toContain("$RevokeOperation = Get-Content -LiteralPath $RevokePath -Raw");
+
+    await execute(insertReplacementSql);
+    await expect(env.DB.prepare(operationStatusSql(insertReplacementSql)).first())
+      .resolves.toEqual({ replacement_state: "replacement_ready" });
+    await execute(revokeReplacedSql);
+    await expect(env.DB.prepare(operationStatusSql(revokeReplacedSql)).first())
+      .resolves.toEqual({ replacement_state: "replacement_complete" });
+  });
+
+  it("targets production explicitly through the repository-pinned Wrangler host", () => {
+    expect(runbook).toContain("$PSNativeCommandArgumentPassing = 'Standard'");
+    expect(runbook).toContain("$wrangler = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path");
+    expect(runbook).toContain("$gateway = (Resolve-Path 'apps/cloud-gateway/wrangler.toml').Path");
+    const commands = runbook.match(/^.*d1 execute jarvis --remote.*$/gmu) ?? [];
+    expect(commands.length).toBeGreaterThan(0);
+    for (const command of commands) {
+      expect(command).toMatch(/^& node \$wrangler d1 execute jarvis --remote /u);
+      expect(command).toContain("--config $gateway");
+      expect(command).toContain("--env ''");
+      expect(command).not.toContain("pnpm");
+    }
+  });
+
+  it("persists and re-reads the selected device ID and sealed-key path", () => {
+    expect(runbook).toContain(
+      "[Environment]::SetEnvironmentVariable('JARVIS_DEVICE_ID', $NewDeviceId, [EnvironmentVariableTarget]::User)",
+    );
+    expect(runbook).toContain(
+      "[Environment]::SetEnvironmentVariable('JARVIS_DEVICE_KEY_PATH', $KeyPath, [EnvironmentVariableTarget]::User)",
+    );
+    const proveSection = runbookSection("## 4. Prove", "## 5. Owner approval");
+    expect(proveSection).toContain("$PSNativeCommandArgumentPassing = 'Standard'");
+    expect(proveSection).toContain("$wrangler = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path");
+    expect(proveSection).toContain("$gateway = (Resolve-Path 'apps/cloud-gateway/wrangler.toml').Path");
+    expect(proveSection).toContain(
+      "$env:JARVIS_DEVICE_ID = [Environment]::GetEnvironmentVariable('JARVIS_DEVICE_ID', [EnvironmentVariableTarget]::User)",
+    );
+    expect(proveSection).toContain(
+      "$env:JARVIS_DEVICE_KEY_PATH = [Environment]::GetEnvironmentVariable('JARVIS_DEVICE_KEY_PATH', [EnvironmentVariableTarget]::User)",
+    );
+  });
+
+  it("keeps the later revocation artifact beside the persisted sealed key", () => {
+    expect(runbook).not.toContain("$env:TEMP");
+    expect(runbook).toContain("$SqlDirectory = Join-Path $KeyDirectory 'replacement-runbook'");
+    const revokeSection = runbookSection("## 5. Owner approval", "## 6. Read-only");
+    expect(revokeSection).toContain("$KeyDirectory = Split-Path -Parent $env:JARVIS_DEVICE_KEY_PATH");
+    expect(revokeSection).toContain("$RevokePath = Join-Path $SqlDirectory 'revoke-replaced-device-key.sql'");
   });
 
   it("is idempotent when the exact replacement was already inserted", async () => {

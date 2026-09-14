@@ -46,6 +46,24 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 04:49 UTC — GPT-6 Codex, PR #30 review fixes complete
+
+PR #30 now keeps each reviewed write file on Wrangler's import path and runs
+its exact final SELECT separately through the read-only query path, so the
+owner can observe `replacement_ready` and `replacement_complete`. Every remote
+command uses Node-direct Wrangler with the explicit config, empty top-level
+environment and Standard native argument mode. The device ID and sealed-key
+path are persisted for the Windows user and re-read before the later signed
+preflight; both rendered operation files live beside the sealed key, and the
+revocation path is reconstructed after a terminal restart. The marker query is
+extracted from that persisted rendered file, so it does not depend on variables
+from the earlier session. Four new regressions each killed removal of its
+reviewed boundary. Focused tests pass 16/16, all nine PowerShell blocks parse,
+and the Windows workspace passes 2,552/2,552 after an unrelated random-hash
+substring collision passed on isolated and full reruns. Lint and gateway
+typecheck pass. No production command, live call, secret, migration or deploy
+ran. Re-review PR #30 at max.
+
 ## 2026-09-14 04:25 UTC — Claude Opus 5, PR #30 follow-up: tests and Windows dry run
 
 This is the follow-up promised in the PR #30 review entry. The focused runbook

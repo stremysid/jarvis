@@ -39,6 +39,10 @@ From the repository root on Sid's Windows 11 home PC, use PowerShell 7. These
 commands are read-only:
 
 ```powershell
+$PSNativeCommandArgumentPassing = 'Standard'
+$wrangler = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path
+$gateway = (Resolve-Path 'apps/cloud-gateway/wrangler.toml').Path
+
 $Precheck = @'
 SELECT
   (SELECT COUNT(*) FROM principals WHERE principal_type = 'human') AS human_principals,
@@ -49,7 +53,8 @@ SELECT
     WHERE p.principal_type = 'human' AND p.status = 'active' AND d.status = 'active'
       AND d.device_label = 'jarvis-local-agent' AND d.revoked_at IS NULL) AS expected_old_devices;
 '@
-pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command $Precheck
+& node $wrangler d1 execute jarvis --remote --config $gateway --env '' --command $Precheck
+if ($LASTEXITCODE -ne 0) { throw "production precheck failed" }
 ```
 
 Require exactly `1` for all four columns. Then identify the public old-device
@@ -64,7 +69,8 @@ JOIN principals p ON p.principal_id = d.principal_id
 WHERE p.principal_type = 'human' AND p.status = 'active'
   AND d.status = 'active' AND d.device_label = 'jarvis-local-agent';
 '@
-pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command $OldDevice
+& node $wrangler d1 execute jarvis --remote --config $gateway --env '' --command $OldDevice
+if ($LASTEXITCODE -ne 0) { throw "old-device query failed" }
 ```
 
 Inventory every table that stores the old device ID. Nonzero historical counts
@@ -102,7 +108,8 @@ SELECT
   (SELECT COUNT(*) FROM memory_fact_projection_versions
     WHERE device_id IN (SELECT device_id FROM old) AND status = 'staged') AS staged_projection_versions;
 '@
-pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command $References
+& node $wrangler d1 execute jarvis --remote --config $gateway --env '' --command $References
+if ($LASTEXITCODE -ne 0) { throw "device-reference query failed" }
 ```
 
 ## 2. Generate the new home-PC key and render the reviewed SQL
@@ -167,16 +174,25 @@ foreach ($Pair in $Values.GetEnumerator()) {
 if ($InsertSql -match '__[A-Z0-9_]+__' -or $RevokeSql -match '__[A-Z0-9_]+__') {
   throw "rendered SQL still contains a placeholder"
 }
-$InsertPath = Join-Path $env:TEMP 'jarvis-insert-replacement-device-key.sql'
-$RevokePath = Join-Path $env:TEMP 'jarvis-revoke-replaced-device-key.sql'
+$SqlDirectory = Join-Path $KeyDirectory 'replacement-runbook'
+New-Item -ItemType Directory -Path $SqlDirectory -Force | Out-Null
+$InsertPath = Join-Path $SqlDirectory 'insert-replacement-device-key.sql'
+$RevokePath = Join-Path $SqlDirectory 'revoke-replaced-device-key.sql'
 $Utf8NoBom = [Text.UTF8Encoding]::new($false)
 [IO.File]::WriteAllText($InsertPath, $InsertSql, $Utf8NoBom)
 [IO.File]::WriteAllText($RevokePath, $RevokeSql, $Utf8NoBom)
+
+[Environment]::SetEnvironmentVariable('JARVIS_DEVICE_ID', $NewDeviceId, [EnvironmentVariableTarget]::User)
+[Environment]::SetEnvironmentVariable('JARVIS_DEVICE_KEY_PATH', $KeyPath, [EnvironmentVariableTarget]::User)
 ```
 
 The rendered files contain public material only. Inspect them before either
 write. They must name `jarvis-home-pc`, generation `1`, algorithm `ed25519`,
-and the generated IDs.
+and the generated IDs. The two user environment variables persist the public
+device ID and the location of the DPAPI-sealed key across terminal restarts.
+The key path cannot be reconstructed from production, so retain it with the
+sealed key. The rendered operation files stay beside that key rather than in
+the temporary directory; the later revocation step re-derives their location.
 
 ## 3. Owner approval: insert the replacement
 
@@ -184,14 +200,26 @@ This is the first production write. Run it only after Sid explicitly approves
 this insertion:
 
 ```powershell
-pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --file $InsertPath
+& node $wrangler d1 execute jarvis --remote --config $gateway --env '' --file $InsertPath
+if ($LASTEXITCODE -ne 0) { throw "replacement-device import failed" }
+
+$InsertOperation = Get-Content -LiteralPath $InsertPath -Raw
+$InsertStatusMatch = [regex]::Match($InsertOperation, '(?ms)^SELECT\r?\n  CASE WHEN EXISTS \(.*\z')
+if (-not $InsertStatusMatch.Success) { throw "replacement status query is unavailable" }
+$InsertStatus = $InsertStatusMatch.Value
+& node $wrangler d1 execute jarvis --remote --config $gateway --env '' --command $InsertStatus
+if ($LASTEXITCODE -ne 0) { throw "replacement status query failed" }
 ```
 
-The final result must say `replacement_ready`. A second execution is an exact
-no-op. If the starting state or any public value conflicts, the SQL leaves the
-old device active and reports `replacement_not_ready`. The first statement can
-also be safely retried if response delivery is lost; the second statement adds
-the replacement's `device:<device_id>` cursor only for the exact active row.
+The `--file` invocation uses Wrangler's import path and reports only aggregate
+query totals; it does not display the SELECT row inside the operation file.
+Keep the reviewed file intact as one import operation. The separate read-only
+`--command $InsertStatus` result must say `replacement_ready`. A second import
+is an exact no-op. If the starting state or any public value conflicts, the SQL
+leaves the old device active and the status query says `replacement_not_ready`.
+The import can also be safely retried if response delivery is lost; its second
+write adds the replacement's `device:<device_id>` cursor only for the exact
+active row.
 
 Verify both active rows and the new cursor with read-only queries:
 
@@ -208,7 +236,8 @@ FROM consumer_cursors
 WHERE consumer_name = 'device:__NEW_DEVICE_ID__';
 '@
 $AfterInsert = $AfterInsert.Replace('__NEW_DEVICE_ID__', $NewDeviceId)
-pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command $AfterInsert
+& node $wrangler d1 execute jarvis --remote --config $gateway --env '' --command $AfterInsert
+if ($LASTEXITCODE -ne 0) { throw "post-insert query failed" }
 ```
 
 Require the old row to remain `active`, the `jarvis-home-pc` row to match every
@@ -222,6 +251,17 @@ is available. Set `JARVIS_PRINCIPAL_ID` to the opaque `principal_id` returned by
 the old-device check and configure the public gateway origin, then run:
 
 ```powershell
+$PSNativeCommandArgumentPassing = 'Standard'
+$wrangler = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path
+$gateway = (Resolve-Path 'apps/cloud-gateway/wrangler.toml').Path
+
+$env:JARVIS_DEVICE_ID = [Environment]::GetEnvironmentVariable('JARVIS_DEVICE_ID', [EnvironmentVariableTarget]::User)
+$env:JARVIS_DEVICE_KEY_PATH = [Environment]::GetEnvironmentVariable('JARVIS_DEVICE_KEY_PATH', [EnvironmentVariableTarget]::User)
+if ([string]::IsNullOrWhiteSpace($env:JARVIS_DEVICE_ID)) { throw "persisted device ID is unavailable" }
+if ([string]::IsNullOrWhiteSpace($env:JARVIS_DEVICE_KEY_PATH)) { throw "persisted device-key path is unavailable" }
+if (-not [IO.Path]::IsPathFullyQualified($env:JARVIS_DEVICE_KEY_PATH)) { throw "persisted device-key path is not absolute" }
+if (-not (Test-Path -LiteralPath $env:JARVIS_DEVICE_KEY_PATH -PathType Leaf)) { throw "persisted device key is unavailable" }
+
 uv run --project apps/local-agent jarvis enroll-phone --preflight
 ```
 
@@ -240,13 +280,27 @@ This is the second production write and a separate owner decision. Run it only
 after the exact key preflight passes and Sid explicitly approves revocation:
 
 ```powershell
-pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --file $RevokePath
+$KeyDirectory = Split-Path -Parent $env:JARVIS_DEVICE_KEY_PATH
+$SqlDirectory = Join-Path $KeyDirectory 'replacement-runbook'
+$RevokePath = Join-Path $SqlDirectory 'revoke-replaced-device-key.sql'
+if (-not (Test-Path -LiteralPath $RevokePath -PathType Leaf)) { throw "rendered revocation SQL is unavailable" }
+
+& node $wrangler d1 execute jarvis --remote --config $gateway --env '' --file $RevokePath
+if ($LASTEXITCODE -ne 0) { throw "old-device revocation import failed" }
+
+$RevokeOperation = Get-Content -LiteralPath $RevokePath -Raw
+$RevokeStatusMatch = [regex]::Match($RevokeOperation, '(?ms)^SELECT\r?\n  CASE WHEN EXISTS \(.*\z')
+if (-not $RevokeStatusMatch.Success) { throw "revocation status query is unavailable" }
+$RevokeStatus = $RevokeStatusMatch.Value
+& node $wrangler d1 execute jarvis --remote --config $gateway --env '' --command $RevokeStatus
+if ($LASTEXITCODE -ne 0) { throw "revocation status query failed" }
 ```
 
-The final result must say `replacement_complete`. The SQL revokes only an
-active `jarvis-local-agent` row belonging to the single active human, and only
-when exactly two active owner devices exist and every replacement binding plus
-its cursor matches. Repeating it is an exact no-op.
+The import output contains aggregate totals, not the marker row. The separate
+read-only `--command $RevokeStatus` result must say `replacement_complete`.
+The SQL revokes only an active `jarvis-local-agent` row belonging to the single
+active human, and only when exactly two active owner devices exist and every
+replacement binding plus its cursor matches. Repeating it is an exact no-op.
 
 ## 6. Read-only final checks
 
@@ -263,7 +317,8 @@ SELECT
     WHERE p.principal_type = 'human' AND p.status = 'active' AND d.status = 'active'
       AND d.device_label = 'jarvis-home-pc' AND d.revoked_at IS NULL) AS active_replacements;
 '@
-pnpm --dir apps/cloud-gateway exec wrangler d1 execute jarvis --remote --command $FinalCheck
+& node $wrangler d1 execute jarvis --remote --config $gateway --env '' --command $FinalCheck
+if ($LASTEXITCODE -ne 0) { throw "final device-state query failed" }
 uv run --project apps/local-agent jarvis enroll-phone --preflight
 ```
 
