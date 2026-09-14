@@ -1,0 +1,29 @@
+{
+  "root": "C:/Users/Sid/jarvis-deploy",
+  "branch": "3f884b5",
+  "mutations": [
+    { "id": "BASE-TS", "file": "apps/cloud-gateway/src/memory/extraction-policy.ts", "from": "export type MemoryFactState", "to": "export type MemoryFactState", "tests": ["apps/cloud-gateway/test/memory"] },
+    { "id": "BASE-PY", "runner": "pytest", "file": "apps/local-agent/jarvis_local/memory/promotion.py", "from": "def is_uncertain_origin", "to": "def is_uncertain_origin", "tests": ["tests/memory"] },
+
+    { "id": "F1a-no-penalty", "file": "apps/cloud-gateway/src/memory/extraction-evaluation.ts", "from": "    : unexpectedMemories * (100 / expectedMemories) / 2;", "to": "    : unexpectedMemories * 0;", "tests": ["apps/cloud-gateway/test/memory/extraction-evaluation.test.ts"] },
+    { "id": "F1b-flat-penalty", "file": "apps/cloud-gateway/src/memory/extraction-evaluation.ts", "from": "    : unexpectedMemories * (100 / expectedMemories) / 2;", "to": "    : unexpectedMemories * 5;", "tests": ["apps/cloud-gateway/test/memory/extraction-evaluation.test.ts"] },
+
+    { "id": "F2a-i-think-guess-suppose", "file": "apps/cloud-gateway/src/memory/extraction-policy.ts", "from": "  /(?<![A-Za-z0-9_])i\\s+(?:think|guess|suppose)(?![A-Za-z0-9_])/iu,", "to": "  /(?!)/u,", "tests": ["apps/cloud-gateway/test/memory/extraction-policy.test.ts"] },
+    { "id": "F2b-not-sure", "file": "apps/cloud-gateway/src/memory/extraction-policy.ts", "from": "  /(?<![A-Za-z0-9_])not\\s+sure(?![A-Za-z0-9_])/iu,", "to": "  /(?!)/u,", "tests": ["apps/cloud-gateway/test/memory/extraction-policy.test.ts"] },
+    { "id": "F2c-dont-know", "file": "apps/cloud-gateway/src/memory/extraction-policy.ts", "from": "  /(?<![A-Za-z0-9_])i\\s+(?:do\\s+not|don['’]t)\\s+know(?![A-Za-z0-9_])/iu,", "to": "  /(?!)/u,", "tests": ["apps/cloud-gateway/test/memory/extraction-policy.test.ts"] },
+    { "id": "F2d-alias-case-dedup", "file": "apps/cloud-gateway/src/memory/topic-tree.ts", "from": "    if (!targetAliasKeys.has(key)) {", "to": "    if (true) {", "tests": ["apps/cloud-gateway/test/memory/topic-tree.test.ts"] },
+
+    { "id": "F3a-second-sentence-ignored", "file": "apps/cloud-gateway/src/memory/extraction-policy.ts", "from": "  if (containsSecondSentence(quote, quoteTerminator !== undefined", "to": "  if (false && containsSecondSentence(quote, quoteTerminator !== undefined", "tests": ["apps/cloud-gateway/test/memory/extraction-policy.test.ts"] },
+    { "id": "F3b-interior-period-ignored", "file": "apps/cloud-gateway/src/memory/extraction-policy.ts", "from": "    if (character === \".\" && !isAllowedInteriorPeriod(quote, offset)) return true;", "to": "    if (character === \".\" && false) return true;", "tests": ["apps/cloud-gateway/test/memory/extraction-policy.test.ts"] },
+    { "id": "F3c-no-abbreviations", "file": "apps/cloud-gateway/src/memory/extraction-policy.ts", "from": "  return precedingWord !== undefined && PERIOD_ABBREVIATIONS.has(precedingWord.toLowerCase());", "to": "  return false;", "tests": ["apps/cloud-gateway/test/memory/extraction-policy.test.ts"] },
+    { "id": "F3d-no-decimal", "file": "apps/cloud-gateway/src/memory/extraction-policy.ts", "from": "  if (previous !== undefined && next !== undefined && /\\d/u.test(previous) && /\\d/u.test(next)) {", "to": "  if (false) {", "tests": ["apps/cloud-gateway/test/memory/extraction-policy.test.ts"] },
+    { "id": "F3e-interior-bang", "file": "apps/cloud-gateway/src/memory/extraction-policy.ts", "from": "    if (character === \"!\" || character === \"?\") return true;", "to": "", "tests": ["apps/cloud-gateway/test/memory/extraction-policy.test.ts"] },
+    { "id": "F4-new-hedges", "file": "apps/cloud-gateway/src/memory/extraction-policy.ts", "from": "  /(?<![A-Za-z0-9_])(?:maybe|might|probably|perhaps|could|would)(?![A-Za-z0-9_])/iu,", "to": "  /(?<![A-Za-z0-9_])(?:maybe|might)(?![A-Za-z0-9_])/iu,", "tests": ["apps/cloud-gateway/test/memory/extraction-policy.test.ts"] },
+
+    { "id": "PF3b-interior-period-ignored", "runner": "pytest", "file": "apps/local-agent/jarvis_local/memory/promotion.py", "from": "        if character == \".\" and not _is_allowed_interior_period(quote, offset):", "to": "        if False:", "tests": ["tests/memory"] },
+    { "id": "PF3c-no-abbreviations", "runner": "pytest", "file": "apps/local-agent/jarvis_local/memory/promotion.py", "from": "        and preceding_word.group(1).lower() in _PERIOD_ABBREVIATIONS", "to": "        and False", "tests": ["tests/memory"] },
+    { "id": "PF3d-no-decimal", "runner": "pytest", "file": "apps/local-agent/jarvis_local/memory/promotion.py", "from": "        and previous.isdigit()", "to": "        and False", "tests": ["tests/memory"] },
+    { "id": "PF4-new-hedges", "runner": "pytest", "file": "apps/local-agent/jarvis_local/memory/promotion.py", "from": "        r\"(?<![A-Za-z0-9_])(?:maybe|might|probably|perhaps|could|would)(?![A-Za-z0-9_])\",", "to": "        r\"(?<![A-Za-z0-9_])(?:maybe|might)(?![A-Za-z0-9_])\",", "tests": ["tests/memory"] },
+    { "id": "PF2a-i-think-guess-suppose", "runner": "pytest", "file": "apps/local-agent/jarvis_local/memory/promotion.py", "from": "    re.compile(r\"(?<![A-Za-z0-9_])i\\s+(?:think|guess|suppose)(?![A-Za-z0-9_])\", re.I | re.ASCII),", "to": "    re.compile(r\"(?!)\"),", "tests": ["tests/memory"] }
+  ]
+}

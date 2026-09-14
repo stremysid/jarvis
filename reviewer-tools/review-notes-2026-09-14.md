@@ -165,3 +165,5 @@ Facts gathered so far, for the final AGENT_LOG entries. All checks ran locally o
 - #35 re-review 22:53 UTC at be0e3fb: cleared with follow-ups F1-F4. pnpm 2625/2626 (archival flake; 46/46 isolated), pytest 850/32, ruff+mypy clean. Old probe 6/6 now fail (fixed). probe2 3/3 pass (F1 penalty scale, F3 two-sentence, F4 hedges). mut35c 32/37 killed; survivors ME6, NC7-9, NC19.
 
 - #36 union-merged with main as 1be6191 (0 entries lost). #37 max review 23:09 UTC at b438666: changes requested (S1 0016 coupling, S2 STT-variant words, S3 no disable/revoke transition, 11 mutation survivors). pnpm 2607/2610 (3 flakes 73/73 isolated), pytest 829/32. KAT recomputed with Node crypto: match.
+
+- #38 review 23:45 UTC at f9b528f (code = 3f884b5): cleared with nits N1 (would vs I would like / contraction), N2 (decimal + interior ! vectors). pnpm 2635/2638 (3 flakes 126/126 isolated), pytest 860/32, ruff+mypy clean. Probes v1+v2 9/9 fail (all fixed). mut38 14/17 killed.
