@@ -46,6 +46,184 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 07:08 UTC — Claude Opus 5, PR #33 design review at f6eb083: changes requested
+
+**Verdict.** The structure is right: both directions, three tries then the call
+ends, the waiver built but off, outbound never waived, and AMD optional. The
+exact `StirVerstat` rule is correct. Current code has no route to the model or
+to owner access administration before owner authority.
+
+**Why changes are requested.** Seven defects would ship in any implementation
+that follows the text faithfully.
+
+**Review files.** The full design review with file:line evidence is on
+`claude/r1-call-safety-research` at `docs/reviews/2026-09-14-pr33-design-review.md`.
+The test-strength review, proof patches and run output are beside it in `docs/reviews/2026-09-14-pr33-tests/`. The reviewer spot-verified B1-B6 and S1 at `f6eb083`.
+
+The reviewer made the design decisions below, and they are binding for this
+PR. Sid doesn't need to be asked about any of them.
+
+**Blockers**
+1. **B1 attribution.** "Three-word" is recorded as Sid's choice in
+   `DECISIONS.md:9`, `KNOWN_ISSUES.md:18`, `NEXT_STEPS.md`, the roadmap and the
+   PR body. Sid said "okay add a phrase". Attribute only that to him: a spoken
+   phrase on every owner call, both directions, 3 tries then the call ends, no
+   lockout, waiver built but off. Label the word count and the waiver's
+   evidence gate as design choices from the research.
+2. **B2 "no lockout" vs shared limits.** Spoofed owner calls spend Sid's own
+   composite and global attempt budget (`inbound-auth.ts`: 3 per CallSid, 6
+   composite, 30 global per 300 s). They also fill his two session slots
+   (`call-repository.ts` inbound and outbound admission), which blocks his calls
+   and `/call`. Decided:
+   - at most 3 complete candidates per call, counted durably, then the call ends;
+   - owner step-up never rejects a candidate because a cross-call scope is
+     full. If CPU protection is needed, delay rather than reject;
+   - an outbound owner session can always be created while inbound `pre_auth`
+     relays exist;
+   - a coalesced Telegram alert goes to Sid on rejected step-ups;
+   - define "no lockout" as no state that outlives the attack;
+   - implement the foundation's throttle-clear recovery sentence, or delete it.
+3. **B3 durable count.** The wrong-phrase count follows the guest pattern,
+   in-memory `#failedPinAttempts` (`call-session-do.ts:651`), and the DO
+   hibernates (`acceptWebSocket`). Pausing therefore resets it, allowing about
+   18 guesses per call. Decided: a durable per-session attempt ordinal (D1 row
+   or DO storage, no candidate data), written before verification. The third
+   mismatch commits `rejected` in the same step. Add an eviction test. The guest
+   PIN path has the same pre-existing defect: record it in KNOWN_ISSUES and fix
+   it in the implementation PR.
+4. **B4 CLI path.** The CLI can't compute a verifier peppered with a Worker
+   secret, and Python and TypeScript can't share one Unicode canonicalizer.
+   Decided, following PR #31's pattern:
+   - The device-signed CLI sends "generate".
+   - The Worker draws the words, stores the peppered verifier, and returns the
+     words once for terminal display.
+   - The canonical form is ASCII `a-z` with single spaces.
+   - Ship known-answer vectors.
+   - Rotation is compare-and-swap on the current verifier version.
+5. **B5 phrase strength.** The phrase is self-chosen with no strength rule, and
+   there is no lockout. A guessable phrase falls in days at redial rates. Typed
+   Canadian spellings, digits, homophones and hyphenated words can never match
+   `en-US` STT. Decided:
+   - The phrase is generated, never chosen: CSPRNG, uniform draw from a
+     versioned list of common, phonetically distinct `en-US` words with no
+     number words, homophones, spelling variants, compounds or long words.
+   - State the bits. Pick the word count for at least 33 bits.
+   - Sid may re-roll until he likes the words.
+   - He must pass one attended spoken verification before inbound opens.
+6. **B6 deadline.** The "existing five-minute pre-authentication deadline"
+   (`design:132`) doesn't exist. The call DO sets no alarm. Decided:
+   - an alarm-backed step-up window of 45-60 s from the prompt, checked
+     against the lifecycle generation;
+   - a cap of 3 re-prompts for non-candidate finals;
+   - both end the call without counting as a mismatch;
+   - tests driven by a manual clock.
+7. **B7 post-success leak.** After a silent match, Sid repeating the phrase
+   becomes a normal `active` turn: committed, archived and sent to DeepSeek.
+   Decided:
+   - a fixed non-model acknowledgement right after the commit, not three words;
+   - one verification in flight at a time, with finals dropped during it and
+     for a short guard window;
+   - a first `active` final that matches the verifier is dropped silently;
+   - a secrecy test on the matching path.
+
+**Should fix**
+- **S1.** "Say your passphrase." is itself three words, and Tesla echo becomes
+  a mismatch. No fixed utterance may canonicalize to a candidate. Enforce it
+  with a table test, and discard finals equal to a fixed utterance.
+- **S2.** Define a "complete candidate" for real STT. Cover split finals,
+  filler, digits, 2-word and 4-word finals, and a final around `interrupt`, with
+  fake cases for each.
+- **S3.** Rejection is a fixed refusal line, then ConversationRelay `end`, then
+  `<Hangup/>` from the action URL. Use a policy close only as a fallback. Tests
+  should assert `end` and durable `rejected`, not 1008.
+- **S4.** A waived session can't use `access.manage` without the phrase. Every
+  guest-grant change sends a fixed Telegram notice.
+- **S5.** Define onboarding:
+  1. A device-issued single-use challenge opens a setup segment with no owner
+     authority.
+  2. Deterministic handlers write verifier and PIN records.
+  3. Owner authority then needs the new phrase spoken once.
+  4. Add "make this call parked, not driving" to NEXT_STEPS and the roadmap.
+- **S6.** PR #31's live enrollment window opens caller-ID-only owner calls. Make
+  "remove the webhook right after `active`, confirm with status" a required
+  step, or defer the live enrollment until step-up ships. Put this in the
+  design rollout and NEXT_STEPS, and in PR #31's runbook via the follow-up PR.
+- **S7.** Replace PR #31's now-stale caller-ID paragraphs in KNOWN_ISSUES and
+  NEXT_STEPS ("until Sid records the decision") with a pointer to this entry.
+- **S8.** Measure R2 retrieval against the 4 s first-audible gate, not the 30 s
+  model deadline. Add a voice-path retrieval timeout that falls back to no
+  extra context.
+- **S9.** The test file is outside the typecheck and the voice release gate.
+  Rename it `voice-owner-passphrase-security.test.ts`. Replace `as never` with
+  a single `@ts-expect-error`. Add tests for:
+  - no context read before step-up;
+  - no owner command before step-up;
+  - duplicate `StirVerstat`, `-Diverted`, `-Passthrough` and padding;
+  - the third-mismatch alert.
+- **S10.** Add "superseded" banners where the PIN-free owner contract is still
+  described: `voice-smoke.md:37`, `:317`, the five-records count, `HANDOFF.md:99`,
+  and the calling plan.
+- **S11.** Research §6.2 still says "Migration `0016`". Add a correction line.
+- **S12.** Cost floods: coalesce alerts, state the per-call cost bound, and
+  consider a separate pre-auth minutes sub-budget.
+- **S13.** Add a Telegram command that only disables owner step-up. It revokes
+  the verifier, and owner calls are refused until the CLI rotates. The command
+  never accepts a phrase.
+
+**Nits**
+- N1: quote "[t]he owner accepts…" with the original capitalisation.
+- N2: scope "D1 protects future writers" to writers that omit step-up. The
+  trigger checks that `verifier_version` is the active version.
+- N3: the roadmap puts onboarding inside the Linux home-node milestone. State
+  the dependency as "R2 memory, however hosted".
+- N4: when re-creating the lineage trigger, use only `WHEN … BEGIN SELECT
+  RAISE … END` or `SELECT RAISE(…) WHERE …`, never `CASE … RAISE`.
+- N5: log a fixed configuration warning for an unknown waiver policy value.
+- N6: define "stale frames".
+- N7: the alert's attestation field doesn't apply to outbound calls.
+
+**Red contract strength: too weak to gate an implementation.**
+
+The reviewer ran it at `f6eb083`. 13 cases fail on their final assertion, and
+the one passing waiver case proves nothing, because today every owner call is
+admitted by caller ID. The other 94 fake acceptance tests pass.
+
+A 99-line stub with no verifier turns all 14 cases green (`gap-0` patch). Six
+gaps are proven with flawed patches that keep the contract 14/14 green while a
+probe shows the violation:
+1. The correct phrase is never spoken in any test, so a never-accepting
+   gate passes. So does one that leaks the correct phrase into the transcript,
+   events and model after success.
+2. Attempts reset on hibernation: a probe got 8 wrong candidates through with no
+   rejection.
+3. The leak sweep has blind spots. It captures only `error`/`warn`/`log`,
+   flattens objects to `[object Object]`, and misses DO SQLite, bytes and `Map`
+   values, normalised forms, unpeppered hashes, echoed speech and the rejection
+   path. The patch hid the candidate in 11 channels and stayed green.
+4. Four keypad digits admit the owner.
+5. An unset policy enables the waiver: the harness `?? "passphrase_always"`
+   default masks it.
+6. `-Passthrough`, `-Diverted`, padded or duplicated attestation satisfies the
+   waiver.
+
+Nine more gaps are reasoned from file:line evidence in the report, which also
+has ready-to-use assertions, including one shared sweep of every sink. The
+implementation branch's contract must add these before it is trusted.
+
+**Landing plan (decided): split.**
+1. Fix the above on this branch, keep it docs-only, and re-request review. It
+   merges alone once cleared.
+2. Move the red test file and the harness change to a new implementation branch
+   from main (PR #31 is merged). That PR must:
+   - turn every case green;
+   - add the B3, B6, B7 and S1-S3 tests;
+   - remove `as never`.
+3. Take the migration number only after checking AGENT_LOG; R2 holds `0016`.
+
+No live calls, secrets, migrations or deploys.
+
+---
+
 ## 2026-09-14 07:01 UTC — Claude Opus 5, PR #31 re-review at 518e0f9: cleared
 
 NS1 and NS2 are fixed with docs and tests only. No product code changed
