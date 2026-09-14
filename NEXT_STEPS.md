@@ -92,6 +92,24 @@ webhook makes inbound calling live because the outbound runtime control does
 not gate inbound calls; unknown callers are refused but may still incur
 provider charges. Live enrollment and acceptance remain owner-confirmed steps.
 
+Sid has now reversed the unconfirmed Caller-ID-risk assumption and requires a
+three-word spoken passphrase before owner authority on every inbound and
+outbound call. Three complete wrong candidates end the call without a
+persistent lockout. The exact `TN-Validation-Passed-A` waiver must exist but
+ship switched off. The design and intentionally failing security contract live
+on `codex/r1-owner-call-passphrase-design`; implementation must wait for PR #31
+to merge, then rebase on `main`, check the newest mailbox entries, and take the
+next unreserved migration number. R2 owns `0016`.
+
+After R1 calling and R2 memory are both live, run Sid's first-call onboarding
+session. Its enrollment-trusted, deterministic setup segment sets or rotates
+the owner phrase and guest PINs without sending candidates to the model. Only
+after those settings have durable receipts does Jarvis interview Sid and write
+owner-confirmed answers to memory. The interview is R2-dependent and is not to
+be built as part of the passphrase design branch. Because calls use the shared
+context retriever, measure the R2 retrieval path against the voice model
+deadline before wiring this session.
+
 Run `pnpm test:voice-access` and `pnpm typecheck:voice-access` locally.
 `pnpm release:voice-gate` runs the fake prerequisite before auditing the five
 retained live records, and refuses release while those records are absent.

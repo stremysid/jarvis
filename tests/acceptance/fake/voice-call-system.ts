@@ -129,7 +129,7 @@ export interface FakeOutboundCallingSystem {
 }
 
 export interface FakeCallingSystem extends FakeOutboundCallingSystem {
-  inbound(caller?: string): Promise<Response>;
+  inbound(caller?: string, stirVerstat?: string | readonly string[]): Promise<Response>;
   openRelay(): Promise<FakeRelayCall>;
   pinAttempts(): Promise<number>;
   conversationTurnCount(): Promise<number>;
@@ -141,6 +141,7 @@ export interface FakeCallingSystem extends FakeOutboundCallingSystem {
 export async function createFakeCallingSystem(input: {
   now?: Date;
   ownerPrincipalId?: string;
+  ownerCallerIdPolicy?: string;
   loseDispatchResponse?: boolean;
   manualModel?: boolean;
   beforeTermination?: (input: CallSessionTermination) => Promise<void>;
@@ -208,10 +209,11 @@ export async function createFakeCallingSystem(input: {
       expectedInboundE164: "+14165550100",
       ownerIdentityId: "identity:voice",
       currentChallengeHmacKeyVersion: "hmac-v1",
+      ownerCallerIdPolicy: input.ownerCallerIdPolicy ?? "passphrase_always",
       sessions: repository,
       initializeSession,
       now: () => new Date(now),
-    },
+    } as never,
     outbound: {
       ownerIdentityId: "identity:voice",
       recipients: new D1OutboundRecipientIdentityLookup(env.DB),
@@ -233,11 +235,20 @@ export async function createFakeCallingSystem(input: {
   });
 
   return Object.freeze({
-    inbound: async (caller = DESTINATION) => routeVoiceRequest(
-      await signedPost(twilio, "/voice/inbound", "https://jarvis.example/voice/inbound",
-        new URLSearchParams({ From: caller, To: "+14165550100", CallSid: `CA${(++inboundSequence).toString(16).padStart(32, "0")}` }).toString()),
-      routeDependencies,
-    ).then(rememberAction),
+    inbound: async (caller = DESTINATION, stirVerstat?: string | readonly string[]) => {
+      const form = new URLSearchParams({
+        From: caller,
+        To: "+14165550100",
+        CallSid: `CA${(++inboundSequence).toString(16).padStart(32, "0")}`,
+      });
+      for (const value of typeof stirVerstat === "string" ? [stirVerstat] : stirVerstat ?? []) {
+        form.append("StirVerstat", value);
+      }
+      return routeVoiceRequest(
+        await signedPost(twilio, "/voice/inbound", "https://jarvis.example/voice/inbound", form.toString()),
+        routeDependencies,
+      ).then(rememberAction);
+    },
     openRelay: async () => {
       if (lastSessionId === undefined) throw new Error("fake_call_not_initialized");
       const exactUrl = `wss://jarvis.example/voice/relay/${lastSessionId}`;

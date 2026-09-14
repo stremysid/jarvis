@@ -1,18 +1,27 @@
 # Known issues
 
-## Outbound voice does not distinguish Sid from voicemail after the neutral greeting
+## Owner calls lack the decided passphrase boundary
 
-After an exact outbound relay binding succeeds, the current call session says
-the neutral line and immediately grants owner authority. It has no
+Inbound owner admission currently trusts the enrolled `From` number after
+Twilio request verification. A valid Twilio signature proves the request came
+through Twilio; it does not prove the caller is Sid. The runtime does not read
+or bind STIR/SHAKEN attestation, so someone who spoofs the enrolled number is
+granted owner authority and can reach private memory and guest-access controls.
+
+Outbound has the sibling gap. After an exact relay binding succeeds, the call
+session says the neutral line and immediately grants owner authority. It has no
 human-versus-answering-machine detection. A voicemail greeting delivered as a
-final transcript can therefore be treated as owner input and can cause a
-memory-backed response to be spoken into the recording. The runtime also does
-not automatically state the outbound command's authorized purpose.
+final transcript can be treated as owner input and can cause a memory-backed
+response to be spoken into the recording. The runtime also does not
+automatically state the outbound command's authorized purpose.
 
-The neutral first line remains useful, but it is not a voicemail privacy
-boundary. R1's outbound answer/no-answer live acceptance must observe this
-path. Adding answering-machine detection is a separate product and cost
-decision; PR #32 only corrects the specification and does not implement it.
+Sid decided on a three-word spoken passphrase for every inbound and outbound
+owner call. Until that step-up ships and passes live acceptance, both paths are
+release blockers and inbound must remain closed. The exact Passed-A waiver is
+designed but switched off. The passphrase protects private disclosure to
+voicemail; answering-machine detection remains an optional cost optimization.
+The red security contract and implementation order are in
+[`docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md`](docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md).
 
 ## PR #28 evidence-store guards include deliberate redundancy
 

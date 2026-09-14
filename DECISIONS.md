@@ -4,6 +4,33 @@
 - R2 is the archive store.
 - Authentication state does not use eventually consistent KV.
 
+## Owner calls require a spoken step-up (2026-09-14, owner decision)
+
+Sid chose a three-word spoken passphrase at the start of every inbound and
+outbound owner call. Jarvis must not mint owner authority, read personal
+context, invoke a model, or accept an owner-only command until the phrase has
+passed. Three complete wrong candidates end the call without creating a
+persistent lockout.
+
+This reverses the 2026-08-30 design statement that “the owner accepts Caller
+ID possession risk for the PIN-free owner experience.” That statement was
+recorded as an owner decision but was never confirmed with Sid. A valid Twilio
+signature authenticates Twilio's delivery, not the person represented by the
+`From` number, and outbound answer does not establish that Sid rather than
+voicemail or another person is listening.
+
+The exact `TN-Validation-Passed-A` waiver is part of the design but ships off.
+The default and every missing or unknown policy value require the phrase.
+Outbound calls always require it. Sid may separately enable the waiver only
+after real-call evidence establishes the attestation behavior and he accepts
+the residual SIM-swap and carrier mis-attestation risk.
+
+Only a salted verifier is stored. Jarvis keeps phrase candidates out of its
+transcripts, model context, events, logs, call records, and Durable Object
+storage. Twilio and the configured speech-to-text processor necessarily see
+the spoken candidate before Jarvis receives it; the product must state that
+limit rather than claim end-to-end secrecy.
+
 ## Capacity admission stops at the configured limit (2026-09-13, owner decision)
 
 The owner does not enable provider auto-recharge. Voice calls and turns may

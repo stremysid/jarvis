@@ -2,23 +2,40 @@
 
 **Date:** 2026-08-30
 
-**Status:** Approved by the owner for autonomous implementation on 2026-08-30
+**Status:** Approved on 2026-08-30 and amended by Sid's owner-passphrase
+decision on 2026-09-14
 
-**Scope:** Amend Jarvis voice authentication so the owner's enrolled number is PIN-free and the owner can provision, change, and revoke per-number guest access during an owner call.
+**Scope:** Amend Jarvis voice authentication so the owner's enrolled number
+must pass owner step-up and the owner can provision, change, and revoke
+per-number guest access during an authenticated owner call.
 
 ## 1. Purpose
 
-Jarvis is first a personal assistant for Sid. Calls from Sid's one enrolled owner voice identity must enter the authenticated owner experience without a reusable PIN. Other people may use Jarvis only after Sid explicitly provisions their exact phone number and assigns a per-number four-digit PIN and permissions.
+Jarvis is first a personal assistant for Sid. Calls associated with Sid's one
+enrolled owner voice identity must pass a three-word spoken owner passphrase
+before entering the authenticated owner experience. Other people may use Jarvis
+only after Sid explicitly provisions their exact phone number and assigns a
+per-number four-digit PIN and permissions.
 
 The feature must feel conversational: during an owner call, Sid can ask Jarvis to add, change, list, revoke, or rotate access for another number. Natural-language model output may propose an administration operation, but it never authorizes or executes one. The cloud session validates the owner identity, presents an exact bounded proposal, obtains explicit confirmation, and alone performs the transaction.
 
-This design replaces the foundation rule that every inbound and outbound call requires one global eight-digit PIN. For call authentication, phone activation, and call-session authority, this amendment takes precedence over the corresponding PIN rules in the foundation design and calling plan. All other signed-request, relay-binding, rate-limit, durable-event, and fail-closed requirements remain in force. The implementation plan must update those older documents in the same change so there is one current contract.
+This design replaces the foundation rule that every inbound and outbound call
+requires one global eight-digit PIN. The owner passphrase is a separate
+three-word verifier and guests retain per-grant four-digit PINs. For call
+authentication, phone activation, and call-session authority, this amendment
+and the 2026-09-14 owner-passphrase design take precedence over older PIN-free
+language. All other signed-request, relay-binding, rate-limit, durable-event,
+and fail-closed requirements remain in force.
 
 ## 2. Binding product decisions
 
 - Exactly one active voice identity is designated `owner`. It is selected by opaque configured identity ID, not by accepting a number supplied in a request or model response.
-- The active owner identity bypasses recurring PIN authentication for both inbound calls and outbound calls to that identity.
-- Owner PIN bypass does not bypass Twilio signature verification, exact `CallSid` and relay nonce binding, active-identity checks, session limits, action policy, or explicit confirmation requirements for external, destructive, credential, or spending effects.
+- The active owner identity requires a three-word spoken passphrase before
+  authority on both inbound calls and outbound calls to that identity.
+- Owner step-up does not bypass Twilio signature verification, exact `CallSid`
+  and relay nonce binding, active-identity checks, session limits, action
+  policy, or explicit confirmation requirements for external, destructive,
+  credential, or spending effects.
 - An unknown, blocked, revoked, or unprovisioned number is rejected before ConversationRelay and receives no PIN prompt or information about registered callers.
 - A guest number is usable only after an owner-confirmed grant exists for that exact canonical E.164 voice identity.
 - Every guest has an individual verifier for a PIN of exactly four decimal digits. New grants may start from the privately configured default guest PIN when the owner explicitly says `use the default`; because each grant uses its own salt and grant-bound derivation, there is still no global verifier or PIN-only path for an unknown number. The owner may assign or rotate a different value per guest at any time.
@@ -26,13 +43,21 @@ This design replaces the foundation rule that every inbound and outbound call re
 - Only the owner identity can manage callers, grants, PINs, permission sets, security configuration, credentials, or the owner identity itself.
 - Each guest receives a separate principal, conversation history, memory scope, and permission set. No guest permission grants access to Sid's personal memory by implication.
 - Permissions refer only to registered capability identifiers. Granting a name cannot create a tool or enable a capability that is not installed and policy-enabled.
-- Voiceprints and speaker verification are deferred. The owner accepts Caller ID possession risk for the PIN-free owner experience.
+- Voiceprints and speaker verification are deferred. Sid did not accept Caller
+  ID as sufficient owner proof. An exact Passed-A attestation waiver exists but
+  ships off; outbound calls always require the phrase.
 
 ## 3. Identity and authority model
 
 ### 3.1 Owner authority
 
-Configuration names one opaque `OWNER_VOICE_IDENTITY_ID`. At session creation, the repository must resolve the signed provider `From` or claimed outbound destination to an active `voice` channel identity and require its identity ID to equal the configured value. The owner authority is minted only from that stored row and the already verified call/session binding.
+Configuration names one opaque `OWNER_VOICE_IDENTITY_ID`. At session creation,
+the repository must resolve the signed provider `From` or claimed outbound
+destination to an active `voice` channel identity and require its identity ID
+to equal the configured value. That row selects an owner candidate; it does not
+authenticate the person. Owner authority is minted only after the immutable
+call/session binding and a successful owner-passphrase proof, or an explicitly
+enabled exact Passed-A waiver on an inbound binding.
 
 Owner authority is not represented as a guest permission list. It grants access to every currently installed Jarvis capability, subject to that capability's ordinary action-specific confirmation and safety policy. It cannot be copied, delegated, serialized into model context, or produced from a phone number string alone.
 
@@ -138,7 +163,10 @@ Phone numbers remain provider subjects in the existing identity table and are ex
 
 1. Verify the exact Twilio request and resolve the active stored voice identity.
 2. Create the normal signed relay session.
-3. On first valid relay setup, mint owner authority and transition directly from setup/pre-auth to authenticated/active without prompting for a PIN.
+3. On first valid relay setup, remain in `pre_auth` and request the three-word
+   owner passphrase. Mint authority only from a bound successful proof. An
+   inbound exact Passed-A observation may waive the phrase only under the
+   explicitly enabled waiver policy, which ships off.
 
 ### Inbound guest call
 
@@ -153,22 +181,42 @@ Reject before ConversationRelay with a neutral response. Do not disclose whether
 
 ### Outbound calls
 
-Calls to the owner identity skip the recurring PIN after the signed expected-call and relay bindings succeed. Calls to a guest remain neutral until that guest supplies the grant's four-digit PIN. No outbound call to an arbitrary third party gains conversation authority merely because the owner initiated it.
+Calls to the owner identity say the neutral line and then require the owner
+passphrase after the signed expected-call and relay bindings succeed. Outbound
+never uses the attestation waiver. Calls to a guest remain neutral until that
+guest supplies the grant's four-digit PIN. No outbound call to an arbitrary
+third party gains conversation authority merely because the owner initiated
+it.
 
 ## 9. Failure handling and privacy
 
-- A failed owner-identity lookup, stale owner configuration, grant conflict, invalid capability, expired proposal, ambiguous spoken PIN, storage failure, or stale authority fails closed with fixed public language.
+- A failed owner-identity lookup, unavailable or mismatched owner-passphrase
+  verifier, stale owner configuration, grant conflict, invalid capability,
+  expired proposal, ambiguous spoken PIN, storage failure, or stale authority
+  fails closed with fixed public language.
 - A model proposal is always untrusted. Hallucinated numbers, permissions, confirmations, or repository results cannot create access.
 - Administration proposals expire exactly 60 seconds after creation, are single-session and single-use, and are invalidated by interruption, cancellation, socket close, or a newer proposal.
 - No access mutation occurs merely because Sid uttered a sentence that resembles confirmation; confirmation is accepted only while the exact proposal state is awaiting it.
-- Logs and durable events contain opaque grant/identity IDs, safe outcomes, grant versions, and permission identifiers, but no raw PIN, unrestricted transcript, or direct phone number.
+- Logs and durable events contain opaque grant/identity IDs, safe outcomes,
+  grant versions, attestation categories, and permission identifiers, but no
+  owner-passphrase candidate, raw PIN, unrestricted transcript, or direct phone
+  number.
 
 ## 10. Testing requirements
 
 Tests must prove at minimum:
 
-- the exact configured active owner identity bypasses PIN on inbound and outbound calls;
-- a same-number string without stored owner identity authority, changed identity row, forged proof, different `CallSid`, or cross-session replay does not bypass authentication;
+- the exact configured active owner identity still has no authority before a
+  successful owner step-up on inbound and outbound calls;
+- a same-number string without stored owner identity authority, changed
+  identity row, forged step-up proof, different `CallSid`, or cross-session
+  replay does not bypass authentication;
+- three complete wrong owner phrases reject and close the call, without a
+  persistent lockout or a model request;
+- owner-passphrase candidates never enter transcripts, model input or context,
+  memory, events, logs, call rows, Durable Object storage, errors, or TwiML;
+- the Passed-A waiver is exact, explicit, inbound-only, and switched off by
+  default; missing or unknown policy requires the phrase;
 - unknown callers are rejected before ConversationRelay and cannot test PINs;
 - two guests with different four-digit PINs cannot authenticate each other's number or reuse each other's proof;
 - exactly four digits are required, three failures terminate, budgets remain bounded, and no persistent lockout affects the owner;
@@ -188,9 +236,14 @@ No automated test places a real call or uses live credentials.
 
 1. Amend identity and persistence contracts plus the owner/guest access repository under strict TDD.
 2. Replace the global eight-digit PIN verifier with owner authority and per-grant four-digit verification while preserving attempt-budget and nominal-proof boundaries.
-3. Extend the Task 6 call session with owner direct activation, guest PIN states, and owner administration proposal/confirmation states.
+3. Extend the Task 6 call session with owner passphrase step-up, guest PIN
+   states, and owner administration proposal/confirmation states.
 4. Update Task 8 routing and fake end-to-end acceptance for owner, guest, unknown, revocation, and permission enforcement paths.
-5. Update Task 9 evidence so the live owner path proves PIN-free owner routing and a credential-free fake guest path proves PIN isolation. A live guest call is not required for the first release gate unless separately authorized.
+5. Update Task 9 evidence so inbound and outbound owner paths prove step-up
+   before the first model turn, the refused path proves three wrong phrases
+   mint no authority, and a credential-free fake guest path proves PIN
+   isolation. A live guest call is not required for the first release gate
+   unless separately authorized.
 6. Run task-scoped reviews, a whole-branch security review, and the complete release gates before any credentialed call.
 
 ## 12. Explicit exclusions
