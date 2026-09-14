@@ -46,6 +46,104 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 04:53 UTC — Claude Opus 5, PR #31 max review at fc84bdb: changes requested
+
+The core security design is sound. The route requires a device signature bound
+to method, path, body, audience and nonce. Only the phone number comes from the
+body; the identity comes from `OWNER_VOICE_IDENTITY_ID`. The challenge is
+five-minute, single-use, attempt-limited, and HMAC-bound to the initiating key
+and generation. The preflight is not a fingerprint oracle. Windows uses
+`load_existing()` and never creates a key. No migration.
+
+Verified locally at `fc84bdb`:
+- The workspace passes 2,559/2,560; the one failure is the known archival 5 s
+  flake, which also fails on main.
+- Gateway `tsc --noEmit` is clean.
+- The local agent passes pytest 808/32 skipped, ruff and mypy strict.
+- Mutation testing and an adversarial test pass are still running; a follow-up
+  entry will report them.
+
+**Blockers**
+
+1. **B1 (code, proven by an executed test).** A same-phone retry after expiry
+   returns 409 and still commits a live challenge.
+   - Cause: `device-repository.ts` judges the bootstrap batch by
+     `results.at(-1)?.meta.changes === 1`. The challenge INSERT fires
+     `identity_challenges_reclaim_and_cap` (0002), which deletes the expired
+     challenge in the same statement. The runtime therefore reports
+     `changes = 2`, and `created` is false.
+   - The reviewer ran this probe on the PR head (not committed): begin at
+     14:00, set the clock to 14:06, begin again.
+     - Expected: a fresh `pending` response with `challenge:2`.
+     - Actual: it rejects `owner_phone_enrollment_state_changed`. A second
+       assertion confirmed exactly one live `challenge:2`, expiring
+       14:11:00.000Z, was committed anyway.
+   - This is the runbook's own recovery path ("re-run the same command").
+   - Fix: add `RETURNING challenge_id` to the challenge INSERT and require the
+     returned id to equal `input.challengeId`, the same pattern as
+     `createIdentityChallenge`. Add the retry-after-expiry test.
+   - Production D1's `meta.changes` semantics are unverified. Don't rely on them
+     either way.
+2. **B2 (docs, fails safe).** The rollout order can't be followed as written.
+   - `docs/runbooks/owner-phone-enrollment.md` steps 2-3, `docs/HANDOFF.md` and
+     `NEXT_STEPS.md` put proving the new key (PR #30's
+     `enroll-phone --preflight`) before deploying the gateway that serves that
+     route. Until the deploy, the route falls through to 501.
+   - After the deploy, every operation (preflight included) returns 503 unless
+     `IDENTITY_CHALLENGE_HMAC_KEY_VERSION` is set. It is not in production's
+     current secret list, and no runbook names it.
+   - Rewrite the order as:
+     1. Merge.
+     2. Set and verify the key version, the peppers and the
+        `OWNER_VOICE_IDENTITY_ID` format. Deploy with the webhook unset.
+     3. Run PR #30: insert, preflight, revoke, final checks.
+     4. Require `--status` = `absent`.
+     5. Configure Twilio.
+     6. In an attended window: set the webhook, begin, call, and require
+        `active`.
+   - Consider letting preflight skip the challenge configuration.
+
+**Should fix**
+- **S1.** Enrollment isn't bound to the owner principal. 0006 dropped the
+  one-human index and guests are human principals. Require
+  `OWNER_PRINCIPAL_ID` and bind `d.principal_id` to it in the snapshot and all
+  batch statements, with a second-human test.
+- **S2.** The route accepts `OWNER_VOICE_IDENTITY_ID` values that the inbound
+  path rejects (`voice-access-repository.ts`
+  `^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$`). That could create an immutable
+  singleton that can never activate. Use the same regex, and require the first
+  `--status` to be `absent`.
+- **S3.** The CLI hides the number and confirms only the last four digits, so a
+  wrong area code binds the immutable singleton. Require a matching second
+  hidden entry, or show country and area code.
+- **S4.** The CLI reports missing configuration, a missing or unreadable key,
+  and clock skew as "device key does not match". Give each a fixed,
+  non-disclosing message, and document persisting the four settings (PR #30
+  sets them per session only).
+- **S5.** The signed header's `bodyHash` is an unsalted SHA-256 of a
+  low-entropy body containing the phone number, so it can be reversed offline
+  from any captured header. Add a random 32-byte salt field to the begin body.
+- **S6.** No test drives bootstrap-created rows through inbound admission. Add
+  an end-to-end test: begin, then `getOrCreateInboundSession` binds the
+  activation-only session to the begun challenge, then resume keeps a
+  call-bound challenge.
+- **S7.** The final fresh read compares `expires_at`, not challenge identity.
+  Select and compare `challenge_id`.
+- **S8.** The runbook and the AGENT_LOG entry overclaim tested properties:
+  exact owner binding, final fresh read, log privacy, exact retry, and "derives
+  the one human principal". Reword them to match the tests once the mutations
+  above are pinned.
+
+**Nits:** the pre-auth 503 reveals configuration state; a UNIQUE collision
+surfaces as 500; status `conflict` when run from a different device; the phone
+is checked before `active` (a guessable-number oracle for a device holder); the
+per-challenge attempt budget isn't reflected in status; show minutes left
+rather than UTC; say "Show My Caller ID" must be on; tracebacks escape on
+unexpected client errors; document the 409/500 outcomes; refuse enrolling
+`TWILIO_FROM_E164` itself.
+
+---
+
 ## 2026-09-14 03:47 UTC — GPT-6 Codex, PR #31 implementation complete
 
 PR #31 implements Sid's selected Option 1 without a migration, provider call,
