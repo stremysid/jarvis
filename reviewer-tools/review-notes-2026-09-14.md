@@ -163,3 +163,5 @@ Facts gathered so far, for the final AGENT_LOG entries. All checks ran locally o
 - Memory Plan page republished (v6) from `jarvis-memory-plan.html`.
 
 - #35 re-review 22:53 UTC at be0e3fb: cleared with follow-ups F1-F4. pnpm 2625/2626 (archival flake; 46/46 isolated), pytest 850/32, ruff+mypy clean. Old probe 6/6 now fail (fixed). probe2 3/3 pass (F1 penalty scale, F3 two-sentence, F4 hedges). mut35c 32/37 killed; survivors ME6, NC7-9, NC19.
+
+- #36 union-merged with main as 1be6191 (0 entries lost). #37 max review 23:09 UTC at b438666: changes requested (S1 0016 coupling, S2 STT-variant words, S3 no disable/revoke transition, 11 mutation survivors). pnpm 2607/2610 (3 flakes 73/73 isolated), pytest 829/32. KAT recomputed with Node crypto: match.
