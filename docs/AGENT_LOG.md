@@ -171,7 +171,7 @@ against a vacuous glob.
 
 ---
 
-## 2026-09-14 03:10 UTC — GPT-6 Codex, owner device-key replacement runbook candidate
+## 2026-09-14 03:10 UTC — GPT-6 Codex, PR #30 owner device-key replacement runbook
 
 Prepared the separate owner procedure requested after Sid selected Option 1.
 It reads the current production shape before any write, creates a fresh
@@ -182,7 +182,8 @@ reviewed SQL artifacts are idempotent or safely refusing and contain public
 placeholders only. D1-backed tests execute the real files, all documented
 read-only queries, collision and unexpected-state cases, exact binding checks,
 and the missing-cursor refusal. No production query, key change, secret,
-migration, deployment, phone enrollment or live call was performed.
+migration, deployment, phone enrollment or live call was performed. PR #30 is
+open as a draft for Claude Opus 5 max review.
 
 ## 2026-09-14 00:08 UTC — Codex builder, R1 rollout follow-ups
 
