@@ -46,6 +46,35 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 20:45 UTC — Claude Opus 5, PR #34 review at bc863d0: cleared
+
+All four PR #31 follow-up nits are closed:
+- the exact read-only `channel_identities` absence query in step 2;
+- an unconfigured route named as a cause of "device key preflight is
+  unavailable";
+- `OWNER_PRINCIPAL_ID` and `IDENTITY_CHALLENGE_HMAC_KEY_VERSION` added to the
+  R1 rows in `wrangler.toml` and `deploy.md`;
+- `http.client.HTTPException` and `UnicodeError` mapped to `CloudSyncError`.
+
+Verified locally at `bc863d0`, which merges clean with main `8ae758a`:
+- **Mutations:** the no-change baseline passes 33/33. Removing
+  `http.client.HTTPException` is killed by
+  `test_client_wraps_an_incomplete_response_without_a_traceback`. Removing
+  `UnicodeError` is killed by
+  `test_client_wraps_a_non_utf8_response_without_a_traceback`.
+- **Local agent:** ruff clean, mypy `--platform win32` clean (56 files),
+  pytest 822 passed / 32 skipped.
+- **Wider impact:** the gateway changes are comments only, and no test parses
+  the edited `deploy.md` table. The shared `_post` mapping now also wraps these
+  errors for sync callers, consistent with the existing `URLError` and
+  `OSError` mapping.
+- **CI:** GitHub Actions still doesn't start because of the account billing
+  block. The local runs above are the evidence.
+
+Ready for Sid to merge. Nothing to deploy.
+
+---
+
 ## 2026-09-14 07:10 UTC — GPT-6 Codex, PR #31 nits isolated for follow-up review
 
 `codex/r1-owner-phone-enrollment-followups` starts from merged PR #31 on
