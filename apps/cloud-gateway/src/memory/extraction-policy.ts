@@ -55,14 +55,26 @@ const FORBIDDEN_PROPOSAL_KEYS = new Set([
 const FIRST_PERSON_TOKEN = /(?<![A-Za-z0-9_])(?:i(?:['’](?:m|ve|d|ll))?|me|my|mine|myself)(?![A-Za-z0-9_])/iu;
 const FIRST_PERSON_UNTRUSTED_FRAMING = [
   /(?<![A-Za-z0-9_])(?:if|unless|whether|when)(?![A-Za-z0-9_])/iu,
-  /(?<![A-Za-z0-9_])(?:maybe|might)(?![A-Za-z0-9_])/iu,
-  /(?<![A-Za-z0-9_])i\s+think(?![A-Za-z0-9_])/iu,
+  /(?<![A-Za-z0-9_])(?:maybe|might|probably|perhaps|could|would)(?![A-Za-z0-9_])/iu,
+  /(?<![A-Za-z0-9_])i\s+(?:think|guess|suppose)(?![A-Za-z0-9_])/iu,
   /(?<![A-Za-z0-9_])i\s+(?:do\s+not|don['’]t)\s+know(?![A-Za-z0-9_])/iu,
   /(?<![A-Za-z0-9_])not\s+sure(?![A-Za-z0-9_])/iu,
   /(?<![A-Za-z0-9_])(?:says|said|told)(?![A-Za-z0-9_])/iu,
 ] as const;
 const SENTENCE_PUNCTUATION: ReadonlySet<string> = new Set([".", "!", "?"]);
 const ASCII_WHITESPACE = new Set([" ", "\t", "\r", "\n", "\f", "\v"]);
+// Unknown interior periods fail closed to model/uncertain; this small list
+// preserves ordinary owner statements such as "I am renovating St. Remy."
+const PERIOD_ABBREVIATIONS: ReadonlySet<string> = new Set([
+  "dr",
+  "jr",
+  "mr",
+  "mrs",
+  "ms",
+  "prof",
+  "sr",
+  "st",
+]);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null
@@ -75,6 +87,26 @@ function previousNonWhitespace(text: string, offset: number): number {
   let index = offset - 1;
   while (index >= 0 && ASCII_WHITESPACE.has(text[index] ?? "")) index -= 1;
   return index;
+}
+
+function isAllowedInteriorPeriod(text: string, offset: number): boolean {
+  const previous = text[offset - 1];
+  const next = text[offset + 1];
+  if (previous !== undefined && next !== undefined && /\d/u.test(previous) && /\d/u.test(next)) {
+    return true;
+  }
+  const precedingWord = /([A-Za-z]+)$/u.exec(text.slice(0, offset))?.[1];
+  return precedingWord !== undefined && PERIOD_ABBREVIATIONS.has(precedingWord.toLowerCase());
+}
+
+function containsSecondSentence(quote: string, quoteHasTerminator: boolean): boolean {
+  const bodyEnd = quoteHasTerminator ? quote.length - 1 : quote.length;
+  for (let offset = 0; offset < bodyEnd; offset += 1) {
+    const character = quote[offset];
+    if (character === "!" || character === "?") return true;
+    if (character === "." && !isAllowedInteriorPeriod(quote, offset)) return true;
+  }
+  return false;
 }
 
 function wholeSentenceMatch(sourceText: string, quote: string, offset: number): boolean {
@@ -100,6 +132,8 @@ function wholeSentenceMatch(sourceText: string, quote: string, offset: number): 
     return false;
   }
 
+  if (containsSecondSentence(quote, quoteTerminator !== undefined
+    && SENTENCE_PUNCTUATION.has(quoteTerminator))) return false;
   if (terminator === "?" || quote.includes("?")) return false;
   return !FIRST_PERSON_UNTRUSTED_FRAMING.some((pattern) => pattern.test(quote));
 }

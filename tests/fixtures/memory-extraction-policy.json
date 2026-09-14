@@ -105,6 +105,76 @@
       "sourceText": "I said I'm moving to Ottawa.",
       "authenticatedOwner": true,
       "expected": false
+    },
+    {
+      "name": "rejects a whole owner sentence framed with I think",
+      "quote": "I think I'll move to Ottawa.",
+      "sourceText": "I think I'll move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner sentence framed as not sure",
+      "quote": "I'm not sure I'll move to Ottawa.",
+      "sourceText": "I'm not sure I'll move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner sentence framed as not knowing",
+      "quote": "I don't know my preferred report length.",
+      "sourceText": "I don't know my preferred report length.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects two sentences combined into one trusted quote",
+      "quote": "I'm fine. Sam approved the payment.",
+      "sourceText": "I'm fine. Sam approved the payment.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner sentence hedged with probably",
+      "quote": "I'll probably move to Ottawa.",
+      "sourceText": "I'll probably move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner sentence hedged with perhaps",
+      "quote": "Perhaps I'll move to Ottawa.",
+      "sourceText": "Perhaps I'll move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner sentence framed as a guess",
+      "quote": "I guess I'm moving to Ottawa.",
+      "sourceText": "I guess I'm moving to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner sentence framed as a supposition",
+      "quote": "I suppose I'm moving to Ottawa.",
+      "sourceText": "I suppose I'm moving to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner sentence hedged with could",
+      "quote": "I could move to Ottawa.",
+      "sourceText": "I could move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner sentence hedged with would",
+      "quote": "I would move to Ottawa.",
+      "sourceText": "I would move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
     }
   ],
   "promotionCases": [

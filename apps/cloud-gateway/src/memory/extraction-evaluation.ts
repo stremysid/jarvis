@@ -366,7 +366,15 @@ export function evaluateExtractionRun(
   const baseScore = possibleQualityPoints === 0
     ? 100
     : (earnedQualityPoints / possibleQualityPoints) * 100;
-  const qualityScore = Math.max(0, Math.round((baseScore - unexpectedMemories * 5) * 100) / 100);
+  // One valid extra costs half of one completely missed memory. Scaling by the
+  // suite size preserves that relationship when the real comparison grows.
+  const unexpectedMemoryPenalty = expectedMemories === 0
+    ? unexpectedMemories * 100
+    : unexpectedMemories * (100 / expectedMemories) / 2;
+  const qualityScore = Math.max(
+    0,
+    Math.round((baseScore - unexpectedMemoryPenalty) * 100) / 100,
+  );
 
   return Object.freeze({
     modelId: parsedRun.modelId,

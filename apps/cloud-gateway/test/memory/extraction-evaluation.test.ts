@@ -292,6 +292,78 @@ describe("offline extraction evaluation", () => {
     expect(withExtra.qualityScore).toBeGreaterThan(withoutExpected.qualityScore);
   });
 
+  it("scales an unexpected-memory penalty below a complete miss in a realistic suite", () => {
+    const caseCount = 25;
+    const scaledSuite = parseEvaluationSuite({
+      schemaVersion: "1.0",
+      cases: Array.from({ length: caseCount }, (_, index) => ({
+        caseId: `scaled-${index}`,
+        conversation: [{
+          eventId: `event-${index}`,
+          speaker: "owner",
+          authenticatedOwner: true,
+          text: `I prefer report style ${index}.`,
+        }],
+        expectedMemories: [{
+          memoryId: `memory-${index}`,
+          acceptableTexts: [`I prefer report style ${index}.`],
+          sourceEventIds: [`event-${index}`],
+          origin: "authenticated_first_person",
+          uncertain: false,
+          topicPath: ["Personal", "Preferences"],
+        }],
+        forbiddenMemories: [],
+      })),
+    });
+    const completeOutputs = scaledSuite.cases.map((testCase) => {
+      const expected = testCase.expectedMemories[0];
+      if (expected === undefined) throw new Error("scaled_fixture_memory_missing");
+      const text = expected.acceptableTexts[0];
+      if (text === undefined) throw new Error("scaled_fixture_text_missing");
+      return {
+        caseId: testCase.caseId,
+        memories: [{
+          text,
+          sourceEventIds: expected.sourceEventIds,
+          origin: expected.origin,
+          uncertain: expected.uncertain,
+          topicPath: expected.topicPath,
+        }],
+      };
+    });
+    const withExtraOutputs = completeOutputs.map((output, index) => index === 0
+      ? {
+          ...output,
+          memories: [
+            ...output.memories,
+            {
+              text: "Sid asked for report style zero.",
+              sourceEventIds: ["event-0"],
+              origin: "model" as const,
+              uncertain: true,
+              topicPath: ["Personal", "Preferences"],
+            },
+          ],
+        }
+      : output);
+
+    const perfect = evaluateExtractionRun(scaledSuite, {
+      modelId: "offline-scaled-perfect",
+      outputs: completeOutputs,
+    });
+    const withExtra = evaluateExtractionRun(scaledSuite, {
+      modelId: "offline-scaled-extra",
+      outputs: withExtraOutputs,
+    });
+    const withMiss = evaluateExtractionRun(scaledSuite, {
+      modelId: "offline-scaled-miss",
+      outputs: completeOutputs.slice(0, -1),
+    });
+
+    expect(perfect.qualityScore).toBeGreaterThan(withExtra.qualityScore);
+    expect(withExtra.qualityScore).toBeGreaterThan(withMiss.qualityScore);
+  });
+
   it("rejects outputs for case ids outside the evaluation suite", () => {
     expect(() => evaluateExtractionRun(suite, {
       modelId: "offline-unknown-case",

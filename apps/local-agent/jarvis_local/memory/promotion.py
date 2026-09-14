@@ -41,8 +41,11 @@ _FIRST_PERSON_TOKEN = re.compile(
 )
 _FIRST_PERSON_UNTRUSTED_FRAMING = (
     re.compile(r"(?<![A-Za-z0-9_])(?:if|unless|whether|when)(?![A-Za-z0-9_])", re.I | re.ASCII),
-    re.compile(r"(?<![A-Za-z0-9_])(?:maybe|might)(?![A-Za-z0-9_])", re.I | re.ASCII),
-    re.compile(r"(?<![A-Za-z0-9_])i\s+think(?![A-Za-z0-9_])", re.I | re.ASCII),
+    re.compile(
+        r"(?<![A-Za-z0-9_])(?:maybe|might|probably|perhaps|could|would)(?![A-Za-z0-9_])",
+        re.I | re.ASCII,
+    ),
+    re.compile(r"(?<![A-Za-z0-9_])i\s+(?:think|guess|suppose)(?![A-Za-z0-9_])", re.I | re.ASCII),
     re.compile(
         r"(?<![A-Za-z0-9_])i\s+(?:do\s+not|don['\N{RIGHT SINGLE QUOTATION MARK}]t)\s+know"
         r"(?![A-Za-z0-9_])",
@@ -53,6 +56,9 @@ _FIRST_PERSON_UNTRUSTED_FRAMING = (
 )
 _SENTENCE_PUNCTUATION = frozenset(".!?")
 _ASCII_WHITESPACE = frozenset(" \t\r\n\f\v")
+# Unknown interior periods fail closed to model/uncertain; this small list
+# preserves ordinary owner statements such as "I am renovating St. Remy."
+_PERIOD_ABBREVIATIONS = frozenset({"dr", "jr", "mr", "mrs", "ms", "prof", "sr", "st"})
 
 
 def _previous_non_whitespace(text: str, offset: int) -> int:
@@ -60,6 +66,35 @@ def _previous_non_whitespace(text: str, offset: int) -> int:
     while index >= 0 and text[index] in _ASCII_WHITESPACE:
         index -= 1
     return index
+
+
+def _is_allowed_interior_period(text: str, offset: int) -> bool:
+    previous = text[offset - 1] if offset > 0 else None
+    following = text[offset + 1] if offset + 1 < len(text) else None
+    if (
+        previous is not None
+        and following is not None
+        and previous.isascii()
+        and previous.isdigit()
+        and following.isascii()
+        and following.isdigit()
+    ):
+        return True
+    preceding_word = re.search(r"([A-Za-z]+)$", text[:offset])
+    return (
+        preceding_word is not None
+        and preceding_word.group(1).lower() in _PERIOD_ABBREVIATIONS
+    )
+
+
+def _contains_second_sentence(quote: str, *, quote_has_terminator: bool) -> bool:
+    body_end = len(quote) - 1 if quote_has_terminator else len(quote)
+    for offset, character in enumerate(quote[:body_end]):
+        if character in "!?":
+            return True
+        if character == "." and not _is_allowed_interior_period(quote, offset):
+            return True
+    return False
 
 
 def _is_whole_trusted_sentence(source_text: str, quote: str, offset: int) -> bool:
@@ -88,6 +123,11 @@ def _is_whole_trusted_sentence(source_text: str, quote: str, offset: int) -> boo
     else:
         return False
 
+    if _contains_second_sentence(
+        quote,
+        quote_has_terminator=quote_terminator in _SENTENCE_PUNCTUATION,
+    ):
+        return False
     if terminator == "?" or "?" in quote:
         return False
     return not any(pattern.search(quote) for pattern in _FIRST_PERSON_UNTRUSTED_FRAMING)
