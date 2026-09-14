@@ -46,6 +46,25 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 05:32 UTC — Claude Opus 5, R2 memory: Sid's model decision
+
+Sid picked the higher-quality memory extraction model. He replied "better"
+after being told it was about $4 a month, against about $1 for the cheaper
+model, which misses more. Start with `deepseek-v4-pro`. Before finalizing,
+compare it with `deepseek-flash` (now V4.1 Flash, which DeepSeek claims beats
+V4 Pro) on sample conversations, and use whichever extracts memories best.
+His intent is quality, not a particular model.
+
+Both the model and a hard monthly spend cap must be configuration settings.
+The cap defaults to $5; Sid was told "capped at $5 a month, you can change it".
+Sid was also promised that switching models later is a simple setting and that
+older conversations can be re-read with a better model for a small one-time
+cost. So design a bounded, owner-triggered reprocessing path.
+
+A second Codex chat builds R2 from this branch, in parallel with the R1 chat.
+
+---
+
 ## 2026-09-14 05:26 UTC — Claude Opus 5, R2 memory research, Sid's requirement and design picks
 
 Reviewer-commissioned research on R2 memory is in
