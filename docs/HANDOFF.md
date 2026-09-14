@@ -158,9 +158,12 @@ provider call, migration or deployment was performed.
 
 Draft PR #35 contains the storage-independent extraction policy, topic-tree
 reducer and offline evaluator. Its first Claude review findings are fixed on a
-branch retargeted to `main`. Draft PR #36 contains this documentation and D1
-design; its first Claude review findings are also fixed on a branch retargeted
-to `main`. Both await Claude Opus 5 max re-review before further R2 work.
+branch retargeted to `main`; Claude's max re-review at `11d868d` cleared the PR
+with non-blocking follow-ups for the next R2 code step, including an evaluator
+scoring correction required before any paid model comparison. Draft PR #36
+contains this documentation and D1 design; its first Claude review findings are
+also fixed on a branch retargeted to `main` and await max re-review before
+schema work.
 
 PR #16 at `27b232f` has completed the reviewer's requested changes. The
 reviewer independently verified migration byte identity, all five trigger
