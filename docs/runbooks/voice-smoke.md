@@ -1,6 +1,6 @@
 # Credentialed voice smoke gate
 
-This runbook covers the R1 fake calling gate and the separate live-evidence contract. The fake harness exercises local routes, D1, Durable Objects and the calling services with fake providers. It cannot place a real call. PR #25 implements production composition; activation still requires max review, owner-managed configuration and the approved migration. The live command still needs an injected driver, deployed routes and an enrolled-operator evidence query.
+This runbook covers the R1 fake calling gate and the separate live-evidence contract. The fake harness exercises local routes, D1, Durable Objects and the calling services with fake providers. It cannot place a real call. PR #25 passed max review, merged and deployed as gateway `28109492` after migration 0015. Calling remains disabled until the owner supplies Twilio configuration and explicitly enables outbound controls. The live command still needs an injected driver and an enrolled-operator evidence query.
 
 ## Offline developer workflow
 
@@ -179,12 +179,10 @@ only an approved set using the normal D1 migration workflow. Do not apply an
 unreviewed neighbouring migration because this one needs a table. Merging code
 and rolling back the Worker do not roll back D1 state.
 
-Acknowledged crossings survive Worker reconstruction. Storage and postpaid
-provider percentage crossings rearm independently after recovery. The one-time
-DeepSeek $1 notice does not rearm. An in-progress or failed percentage-alert
-send does not count as acknowledgement and refuses the current admission. A
-DeepSeek-notice failure is best-effort and does not refuse admission; after its
-thirty-second lease expires, a later fresh voice check can retry it.
+Acknowledged crossings survive Worker reconstruction. Every D1, R2, model and
+Twilio percentage warning is advisory. A failed or leased 85% or 95% send
+never refuses admission; after its thirty-second lease expires, a later fresh
+voice check can retry it. Falling below a threshold rearms that crossing.
 Telegram has no provider idempotency key: a delivered message whose response
 was lost can be repeated after lease recovery. This is durable suppression of
 acknowledged alerts, not an exactly-once delivery guarantee. The five-second

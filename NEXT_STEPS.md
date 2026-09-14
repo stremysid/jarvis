@@ -16,19 +16,17 @@ shared budget. The merged node bootstrap now resumes an owed projection after
 event sync and before new distillation, then publishes active facts after
 promotion. Durable ACK recovery remains unchanged, and shutdown preserves
 pending projection pages. Item-3 review is complete and PR #16 merged on
-2026-09-13 at `b6f3542`; the owner rollout and acceptance in the fact
-projection runbook remain. Keep one PR
+2026-09-13 at `b6f3542`. Production D1 now includes 0014, exactly 21 projection
+triggers were verified, and gateway deployment `28109492` is live. Local-node
+acceptance remains behind the platform hold. Keep one PR
 per milestone item and push tested checkpoints. Item 4 semantic search stays
 in its own later PR and is not part of #16.
 
-This item adds `0014_memory_projection.sql`, including projection tables,
+This item added `0014_memory_projection.sql`, including projection tables,
 publication/abandonment guards and an FTS index. Local migration `0004` adds
-quarantine and restart-safe rejection recovery. Owner deployment must apply this new
-migration to live D1 before publishing the updated gateway or starting the
-uploader. Check the pending migration list and recovery point first using
-the deployment runbook. Under `docs/BUILDING.md`, this live-data migration
-requires Claude Opus 5 at max for review. The builder must not merge, migrate
-or deploy.
+quarantine and restart-safe rejection recovery. Production applied 0014 before
+gateway deployment `28109492`; no cloud migration remains pending through 0015.
+Do not start the uploader while the node platform decision is on hold.
 
 ## R0 checkpoint, 2026-09-11
 
@@ -80,22 +78,22 @@ guest, unknown and ungranted callers; it covers interruption, the real
 30-second model deadline, frame bounds, grant changes and callback recovery.
 Telegram `/call <reason> --confirm` constructs a durable owner-only self-call
 command with fixed expiry and replay protection. PR #25 now composes production
-dispatch; live activation still needs max review and owner configuration.
+dispatch and merged as `fd39301`; gateway deployment `28109492` is live.
+Calling remains off pending owner Twilio configuration, explicit control
+activation and live acceptance.
 
 Run `pnpm test:voice-access` and `pnpm typecheck:voice-access` locally.
 `pnpm release:voice-gate` runs the fake prerequisite before auditing the five
 retained live records, and refuses release while those records are absent.
-Current validation belongs in PR #23; fake success is not live acceptance.
-PR #23 review fixes are pushed at 695e762 and carried into this branch.
-A new Claude Opus 5 max review remains required.
-Item 1's code is implemented separately on `codex/r1-voice-runtime`, PR #25,
-stacked on PR #23. It composes the real Durable Object runtime and
+Fake success is not live acceptance. PR #23's review fixes at `695e762` are
+included in merged `main` through PR #25. Item 1's code merged through PR #25
+as `fd39301`. It composes the real Durable Object runtime and
 tests owner/guest conversation, restart, access administration, activation
 and outbound pre-authentication. The Worker now wires signed inbound, outbound
 TwiML, status/relay-ended callbacks, actual relay sockets and confirmed Telegram
 dispatch to real adapters. Missing configuration still refuses activation.
-Build this independently of PR #23's separate Claude Opus 5 max review;
-that review remains required before merge. Owner configuration and live evidence remain explicit gates;
+PR #25 passed Claude Opus 5 max review before merge. Owner configuration and
+live evidence remain explicit gates;
 the live smoke (item 3) and legacy verifier removal (item 4) stay separate.
 
 Capacity adapters are authorized within item 1. The dispatcher now awaits
@@ -111,11 +109,10 @@ failed or leased sends retry later without gating work. Telegram text and
 collector now reads real D1/R2 bindings, DeepSeek credit and Twilio totalprice
 with bounded reads and unchanged estimate interfaces. Source inventory is in
 the voice-smoke runbook. The durable Telegram sink and explicit capacity
-configuration factory are implemented. D1 migration 0015 now adds alert
+configuration factory are implemented. D1 migration 0015 added alert
 crossing receipts, leases, default-disabled outbound controls and atomic
-admission guards. It also backfills retained terminal evidence on existing
-attempts; review this production schema
-change before deployment. The default call runtime now checks capacity for each
+admission guards. It also backfilled retained terminal evidence on existing
+attempts; production had no rows to change. The default call runtime now checks capacity for each
 final conversation turn, then revalidates access before allocating or committing
 the turn. Interruption releases admission without waiting for telemetry or
 authorization; cancellation during context retrieval prevents model invocation.
@@ -123,8 +120,8 @@ Persisted outbound controls, claim-time access/phone binding and final dispatch
 clock checks are implemented. A refusal proven before the provider POST now
 settles its claim as rejected instead of pinning a concurrency slot. Worker
 route and Telegram composition are tested.
-The max review response is pushed on #23 at 695e762 and included here; max
-re-review remains required. The separate production socket project now proves
+The max review response on #23 at `695e762` was included in PR #25 and cleared
+before merge. The separate production socket project now proves
 the default factory through real stub fetch, client frames and eviction for
 owner/guest turns and failed credit reads. The broad fake relay still directly
 invokes the DO wrapper. A further test drives the actual Worker entry through
