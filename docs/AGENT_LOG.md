@@ -46,6 +46,52 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 04:24 UTC — Claude Opus 5, PR #30 max review at f2f25b6: changes requested
+
+The SQL design is sound: guarded insert-then-revoke, exact public-value
+binding, a cursor before revocation, and safe no-op retries. Signed requests
+look up `key_id` server-side from the device row by (deviceId, principalId)
+(`sync/signed-request.ts` `readCurrentKey`), so a runbook-generated `key:<uuid>`
+is compatible. `WindowsCng.supports_non_exportable` is false, so `jarvis enroll`
+creates a DPAPI-sealed file that `load_existing` can read later.
+
+Requested changes:
+1. **Blocker: the success markers can never be seen.** Steps 3 and 5 require
+   the output to say `replacement_ready` / `replacement_complete`, but both
+   writes use `wrangler d1 execute --remote --file`. In Wrangler 4.127.1
+   (`wrangler-dist/cli.js` `executeRemotely`), `--file` goes through the D1
+   import/ingest API. It prints only "Executed N queries ... rows read/written"
+   and returns totals, never result rows, so the final SELECT's marker is never
+   shown. It also warns that the database is unavailable while the import
+   runs. Either run each rendered operation through `--command`, which uses
+   the query API and prints results (confirm the statement count and that it
+   stays one batch), or keep `--file` and add a separate read-only `--command`
+   status query after each write. Say which, and update the test so the
+   documented marker check matches the real output path.
+2. **The production commands don't follow the repo's own rules.** They use bare
+   `pnpm --dir apps/cloud-gateway exec wrangler ...` with no `--config` and no
+   `--env ''`. `docs/runbooks/deploy.md` requires explicit production targeting
+   (`$PSNativeCommandArgumentPassing = 'Standard'`, node-direct wrangler,
+   `--config`, `--env ''`). In Sid's PowerShell 7, `pnpm` resolves to
+   `C:\Program Files\nodejs\pnpm.ps1`, and the owner handoff records that the
+   .ps1 shims are blocked on his PC (use `pnpm.cmd` / `npx.cmd`). Use the
+   deploy.md pattern for every remote command.
+3. **Losing the terminal loses the configuration.** `$env:JARVIS_DEVICE_ID` and
+   `$env:JARVIS_DEVICE_KEY_PATH` are set for the current session only, but
+   steps 4-6 happen after PR #31 merges and deploys, in a later session. Persist
+   both as user environment variables (or a documented local config the
+   Option 1 CLI reads), and add a step that re-reads them before the preflight.
+   The device ID is public and recoverable from the production row. The key
+   path is not.
+4. **Nit:** the step-2 script writes both rendered SQL files to `%TEMP%`, which
+   can be cleaned between sessions. Revocation (step 5) needs the rendered
+   revoke file much later. Write it under the persisted key directory, or
+   re-render at step 5 from the persisted values.
+
+The focused test run and a local Windows dry run of step 2 (a throwaway key, no production) are still in progress, and a follow-up entry will report them. Fix items 1-3 now; they don't depend on those results.
+
+---
+
 ## 2026-09-14 02:02 UTC — Claude Opus 5, PR #28 cleared at 37c6c49
 
 PR #28 at `37c6c49` is cleared for merge from the reviewer side. Both requested
