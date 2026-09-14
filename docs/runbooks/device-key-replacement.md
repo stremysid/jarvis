@@ -122,6 +122,10 @@ Option 1 uses the same device ID and key path.
 ```powershell
 $NewDeviceId = "device:$([guid]::NewGuid().ToString('D').ToLowerInvariant())"
 $NewKeyId = "key:$([guid]::NewGuid().ToString('D').ToLowerInvariant())"
+$OwnerPrincipalId = '<principal_id from the step 1 owner row>'
+$GatewayOrigin = 'https://<reviewed production gateway origin>'
+if ($OwnerPrincipalId -notmatch '^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$') { throw "owner principal ID is invalid" }
+if ($GatewayOrigin -notmatch '^https://[^/]+$') { throw "production gateway origin is invalid" }
 $KeyDirectory = Join-Path $env:LOCALAPPDATA 'Jarvis\keys'
 New-Item -ItemType Directory -Path $KeyDirectory -Force | Out-Null
 $KeyPath = Join-Path $KeyDirectory "$($NewDeviceId.Substring(7)).key"
@@ -184,15 +188,25 @@ $Utf8NoBom = [Text.UTF8Encoding]::new($false)
 
 [Environment]::SetEnvironmentVariable('JARVIS_DEVICE_ID', $NewDeviceId, [EnvironmentVariableTarget]::User)
 [Environment]::SetEnvironmentVariable('JARVIS_DEVICE_KEY_PATH', $KeyPath, [EnvironmentVariableTarget]::User)
+[Environment]::SetEnvironmentVariable('JARVIS_PRINCIPAL_ID', $OwnerPrincipalId, [EnvironmentVariableTarget]::User)
+[Environment]::SetEnvironmentVariable('JARVIS_CLOUD_BASE_URL', $GatewayOrigin, [EnvironmentVariableTarget]::User)
 ```
 
 The rendered files contain public material only. Inspect them before either
 write. They must name `jarvis-home-pc`, generation `1`, algorithm `ed25519`,
-and the generated IDs. The two user environment variables persist the public
-device ID and the location of the DPAPI-sealed key across terminal restarts.
+and the generated IDs. The four user environment variables persist the public
+gateway origin, owner principal ID, device ID, and location of the DPAPI-sealed
+key across terminal restarts.
 The key path cannot be reconstructed from production, so retain it with the
 sealed key. The rendered operation files stay beside that key rather than in
 the temporary directory; the later revocation step re-derives their location.
+
+Before step 3, merge and deploy the reviewed Option 1 implementation with the
+voice webhook unset or redirected. Configure and verify
+`OWNER_PRINCIPAL_ID`, `OWNER_VOICE_IDENTITY_ID`, all three voice peppers, and
+`IDENTITY_CHALLENGE_HMAC_KEY_VERSION` first. The step 4 production preflight is
+unavailable before that deployment; therefore the old key must remain active
+until the deployed route has proved the replacement.
 
 ## 3. Owner approval: insert the replacement
 
@@ -246,18 +260,21 @@ sequence `0`.
 
 ## 4. Prove the replacement before revocation
 
-Do not revoke the old key until the separately reviewed Option 1 implementation
-is available. Set `JARVIS_PRINCIPAL_ID` to the opaque `principal_id` returned by
-the old-device check and configure the public gateway origin, then run:
+Do not revoke the old key until the deployed Option 1 route proves the
+replacement. Re-read all four persisted local settings, then run:
 
 ```powershell
 $PSNativeCommandArgumentPassing = 'Standard'
 $wrangler = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path
 $gateway = (Resolve-Path 'apps/cloud-gateway/wrangler.toml').Path
 
+$env:JARVIS_CLOUD_BASE_URL = [Environment]::GetEnvironmentVariable('JARVIS_CLOUD_BASE_URL', [EnvironmentVariableTarget]::User)
 $env:JARVIS_DEVICE_ID = [Environment]::GetEnvironmentVariable('JARVIS_DEVICE_ID', [EnvironmentVariableTarget]::User)
+$env:JARVIS_PRINCIPAL_ID = [Environment]::GetEnvironmentVariable('JARVIS_PRINCIPAL_ID', [EnvironmentVariableTarget]::User)
 $env:JARVIS_DEVICE_KEY_PATH = [Environment]::GetEnvironmentVariable('JARVIS_DEVICE_KEY_PATH', [EnvironmentVariableTarget]::User)
+if ([string]::IsNullOrWhiteSpace($env:JARVIS_CLOUD_BASE_URL)) { throw "persisted gateway origin is unavailable" }
 if ([string]::IsNullOrWhiteSpace($env:JARVIS_DEVICE_ID)) { throw "persisted device ID is unavailable" }
+if ([string]::IsNullOrWhiteSpace($env:JARVIS_PRINCIPAL_ID)) { throw "persisted principal ID is unavailable" }
 if ([string]::IsNullOrWhiteSpace($env:JARVIS_DEVICE_KEY_PATH)) { throw "persisted device-key path is unavailable" }
 if (-not [IO.Path]::IsPathFullyQualified($env:JARVIS_DEVICE_KEY_PATH)) { throw "persisted device-key path is not absolute" }
 if (-not (Test-Path -LiteralPath $env:JARVIS_DEVICE_KEY_PATH -PathType Leaf)) { throw "persisted device key is unavailable" }

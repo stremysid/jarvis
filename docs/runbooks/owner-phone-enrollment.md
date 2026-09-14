@@ -1,0 +1,226 @@
+# Owner phone enrollment
+
+This runbook is for the reviewed Option 1 implementation selected in PR #29.
+It does not authorize a device-key replacement, secret change, Worker deploy,
+Twilio webhook change, database write, or live call. Sid performs those attended
+production steps after the relevant pull requests pass Claude Opus 5 max review.
+
+The command runs on the Windows 11 home PC holding the replacement production
+device key. It does not depend on the held Linux node work. The gateway route
+does not dial a phone or call Twilio; it creates the pending owner identity and
+the existing five-minute activation challenge. Phone possession is proved only
+when a later signed Twilio inbound call supplies the same number and response.
+
+## Prerequisites and order
+
+1. Merge the reviewed device-key replacement runbook from PR #30 and the
+   reviewed Option 1 implementation. Neither branch performs a production
+   operation by itself.
+2. Take `OWNER_PRINCIPAL_ID` from the exact `principal_id` returned by PR #30
+   step 1's read-only old-device query, and put that exact value into the
+   server setting. Choose a new opaque `OWNER_VOICE_IDENTITY_ID` for this
+   enrollment, require that it matches
+   `^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$`, and confirm with a read-only query
+   that the value is absent from `channel_identities` before putting it into
+   the server setting. Do not reuse an existing identity ID. Set and verify
+   `IDENTITY_CHALLENGE_HMAC_KEY_VERSION`, `GUEST_PIN_PEPPER_V1`,
+   `AUTHENTICATION_BUDGET_PEPPER`, and `IDENTITY_CHALLENGE_HMAC_PEPPER`.
+   Deploy the reviewed Option 1 gateway revision while the Twilio voice webhook
+   remains unset or redirected to the known closed endpoint.
+
+   Use this exact read-only query for the identity-ID absence check, replacing
+   only the placeholder with the new candidate ID:
+
+   ```sql
+   SELECT COUNT(*) AS existing_owner_voice_identity_ids
+   FROM channel_identities
+   WHERE identity_id = '__NEW_OWNER_VOICE_IDENTITY_ID__';
+   ```
+
+   Require `existing_owner_voice_identity_ids = 0` before setting
+   `OWNER_VOICE_IDENTITY_ID`.
+3. Follow PR #30 in order: run its read-only inventory, generate the home-PC
+   key, insert and prove its exact production row through the deployed
+   preflight, separately approve revoking the orphaned key, and finish its
+   read-only checks. Do not start phone enrollment until those checks pass.
+4. Run `jarvis enroll-phone --status` and require the exact state `absent`.
+   Any other state stops the rollout for reviewed repair.
+5. Configure and verify the required Twilio bindings through the voice rollout
+   procedure. Do not put their values in command output or evidence.
+6. In one attended window, set the signed inbound Twilio webhook, run the
+   enrollment command, make the inbound enrollment call, enter the response,
+   and confirm active status. Keep this interval short.
+
+Setting the Twilio voice webhook makes inbound calling live immediately.
+`outbound_runtime_controls.enabled = 0` blocks outbound dispatch only; it does
+not disable inbound calls. Remove or redirect the webhook to close inbound
+admission.
+
+## Dry key-match preflight
+
+From the reviewed checkout on the home PC, re-read all four settings persisted
+by the replacement runbook, then run:
+
+```powershell
+$env:JARVIS_CLOUD_BASE_URL = [Environment]::GetEnvironmentVariable('JARVIS_CLOUD_BASE_URL', [EnvironmentVariableTarget]::User)
+$env:JARVIS_DEVICE_ID = [Environment]::GetEnvironmentVariable('JARVIS_DEVICE_ID', [EnvironmentVariableTarget]::User)
+$env:JARVIS_PRINCIPAL_ID = [Environment]::GetEnvironmentVariable('JARVIS_PRINCIPAL_ID', [EnvironmentVariableTarget]::User)
+$env:JARVIS_DEVICE_KEY_PATH = [Environment]::GetEnvironmentVariable('JARVIS_DEVICE_KEY_PATH', [EnvironmentVariableTarget]::User)
+uv run --project apps/local-agent jarvis enroll-phone --preflight
+```
+
+The only successful result is:
+
+```text
+device key matches the active production record
+```
+
+The command loads the existing sealed key and signs a fresh production request.
+It never creates a replacement key. The gateway re-derives the current device,
+key generation, principal and configured owner identity from trusted state.
+The command prints no key, fingerprint, device ID, principal ID, identity ID or
+phone number. `device key does not match the active production record` stops the
+rollout and returns to the PR #30 checks. The same message occurs when the
+server's `OWNER_PRINCIPAL_ID` differs from the active device row's
+`principal_id`. Re-read PR #30 step 1 and put that exact `principal_id` into
+the server setting before repeating the preflight. Do not work around a
+mismatch by generating another key, creating another principal, or choosing a
+different identity ID.
+
+The other fixed local failures are distinct without disclosing values:
+`owner phone enrollment configuration is incomplete`, `configured device key
+is missing or unreadable`, and `device clock is outside the gateway freshness
+window`. The configuration message covers an incomplete or invalid local
+setting. Repair that named local condition and repeat the dry preflight; do not
+treat any of them as a device-record mismatch.
+
+The preflight does not call a provider, create an identity, create a challenge,
+or spend money. A successful result proves the configured key matches the
+currently active production row at that request. The normal enrollment command
+runs this same preflight again, so the standalone check cannot be bypassed by a
+later direct invocation.
+
+## Read-only state check
+
+After the device-key replacement and before Twilio configuration, run:
+
+```powershell
+uv run --project apps/local-agent jarvis enroll-phone --status
+```
+
+The fixed public states are:
+
+- `absent`: no configured owner-phone bootstrap exists;
+- `pending`: a live response is waiting for its signed inbound call;
+- `expired`: the identity is still pending and the response has expired;
+- `active`: a fresh database read found the verified active identity and its
+  exact owner singleton; or
+- `conflict`: trusted state does not match the configured identity, current
+  device and single owner. Stop and obtain a reviewed repair; do not broaden a
+  query or delete rows by hand.
+
+Status never returns the phone number or trusted identifiers. This rollout
+requires `owner phone enrollment is absent` at its first status check.
+`pending` and `expired` are resumable only when they belong to the configured
+owner, current device, and current HMAC key version. A different phone is
+refused.
+
+## Attended enrollment
+
+After Twilio is configured, open the short attended window by setting the
+reviewed signed inbound webhook. Inbound calling is live from that moment.
+Then run:
+
+```powershell
+uv run --project apps/local-agent jarvis enroll-phone
+```
+
+The command requires an interactive Windows terminal. It reads the number with
+terminal echo disabled, requires the same full number to be entered twice,
+accepts canonical E.164 form, and displays only its last four digits for
+confirmation. It sends nothing until Sid types the complete word `yes`. Each
+begin request carries a fresh random 32-byte salt so its signed body hash cannot
+be used as a low-entropy phone-number oracle. The
+gateway authenticates the device before interpreting the number, then creates
+or exactly resumes the pending identity, owner singleton and challenge in one
+D1 batch. It stores the number only in
+`channel_identities.provider_subject`; it creates no event or evidence record.
+
+The returned six-digit response is valid for five minutes and is shown only in
+the local terminal. Its plaintext is not stored. An exact retry replaces an
+unused response; a response already bound to an in-progress call remains bound
+to that call. The existing activation budget permits at most three attempts for
+one challenge, and each response can be consumed once.
+
+After the command returns a response:
+
+1. Call Jarvis from the confirmed phone.
+2. Enter the six digits when prompted. The activation-only call cannot load
+   memory or invoke the model and ends after verification.
+3. Run:
+
+   ```powershell
+   uv run --project apps/local-agent jarvis enroll-phone --status
+   ```
+
+4. Continue only when the fixed result is `owner phone enrollment is active`.
+   This result is produced after a fresh database read confirms both the active
+   verified voice identity and the singleton binding.
+5. Immediately remove or redirect the Twilio voice webhook. Do not leave the
+   caller-ID-only inbound path open while owner passphrase step-up is unbuilt.
+6. Run `uv run --project apps/local-agent jarvis enroll-phone --status` again
+   after closing the webhook and leave the attended window only when the fixed
+   result is still `owner phone enrollment is active`. This is a read-only
+   check and does not require the inbound webhook.
+
+The phone must be active before the later R1 live smoke. Inbound may reopen only
+after owner passphrase step-up is deployed and a generated phrase passes one
+attended spoken verification. Enrollment itself is not live-smoke evidence and
+does not satisfy the release gate.
+
+## Failure and rollback
+
+On a preflight failure, stop before configuring the webhook or running begin.
+On `conflict`, stop without retrying a different number. On an expired response,
+run the same attended command with the same phone to issue a fresh response.
+
+| Fixed command output | Owner action |
+| --- | --- |
+| `phone entries do not match` | Nothing was sent. Re-run the attended command and enter the same full number twice. |
+| `owner phone enrollment cancelled` | Nothing was sent. Re-run only when ready to type the complete word `yes`. |
+| `device key preflight is unavailable` | Stop before opening inbound admission. Confirm the reviewed enrollment route is deployed and all of its required configuration is present; this output also covers an unconfigured route. If configuration is complete, restore gateway availability, then repeat `--preflight`. |
+| `owner phone enrollment status is unavailable` | Do not infer a state or begin with a different number. Restore gateway availability, then repeat `--status`. |
+| `owner phone enrollment request is unavailable` | Run `--status` first. Once the state is known, repeat the attended command with the same phone if a begin is still needed. |
+
+If anything fails after the webhook is set, first remove or redirect the Twilio
+voice webhook. This closes new inbound calls; disabling outbound controls does
+not. Do not retry an ambiguous provider interaction until Twilio's call record
+shows whether that call existed.
+
+The implementation adds no migration, so the reviewed Worker can be rolled back
+to its schema-compatible predecessor. A Worker rollback does not remove a
+pending or active phone binding. Pending bootstrap rows are durable and guarded;
+do not drop triggers or delete the owner singleton to simulate rollback. An
+exact pending enrollment can resume later. A wrong-number or foreign-state
+conflict requires a separate reviewed production repair before another begin.
+
+After a successful activation, closing inbound still means removing or
+redirecting the webhook. Revoking or replacing an active owner phone is a new
+identity-security operation and is outside this bootstrap runbook.
+
+## Tests and evidence boundary
+
+The implementation tests the signed production route, configured principal and
+identity binding against a second active human, service-principal refusal,
+atomic rollback, retry after expiry, same-phone races, call-bound challenge
+preservation, HMAC-key-version status, exact E.164 and request-salt validation,
+fixed public states, raw-error log privacy, and non-disclosing route failures.
+The Windows client tests two matching hidden entries, literal `yes`, both TTY
+directions, fresh 32-byte request salts, distinct configuration/key/clock/key-
+mismatch messages, and the exact signed path. The retained inbound suite tests
+Twilio signatures and exact `From`/`To` binding. The retained call-session suite
+tests activation-only model/memory isolation, challenge expiry, single use,
+three-attempt cap, initiating key and call-session binding.
+
+These are local regression checks. Only Sid's attended key preflight, signed
+inbound enrollment and final active status establish production acceptance.

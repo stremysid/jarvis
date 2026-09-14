@@ -84,17 +84,49 @@ phone. Sid selected Option 1 in
 [`docs/plan/2026-09-14-owner-phone-enrollment-options.md`](docs/plan/2026-09-14-owner-phone-enrollment-options.md);
 the device-signed Windows CLI followed by an inbound activation call. No
 original sealed key was found on the intended home PC, so the required order is
-a separately reviewed device-key replacement runbook and owner-executed key
-replacement, then a non-disclosing local key-match preflight, then the Option 1
-implementation. The production key change remains one owner-confirmed action at
-each live step. Twilio must be configured before the enrollment call. Setting the voice
+the merged PR #31 Option 1 route deployed with its owner/HMAC configuration and
+the inbound webhook closed, then the reviewed owner-executed device-key
+replacement and non-disclosing preflight. First phone status must be `absent`.
+The production key change remains one owner-confirmed action at each live step.
+Twilio must be configured before the enrollment call. Setting the voice
 webhook makes inbound calling live because the outbound runtime control does
 not gate inbound calls; unknown callers are refused but may still incur
 provider charges. Live enrollment and acceptance remain owner-confirmed steps.
+The authenticated begin number-state oracle remains recorded in
+`KNOWN_ISSUES.md`.
+
+Sid has reversed the unconfirmed Caller-ID-risk assumption and requires a
+spoken passphrase before owner authority on every inbound and outbound call,
+three tries before the call ends, no persistent lockout, and a Passed-A waiver
+that is built but switched off. The reviewed design chooses three
+Worker-generated words from a 2,048-word list, durable per-session attempt
+ordinals, a 60-second alarm-backed window, no cross-call candidate rejection,
+and a reserved outbound-owner path. Documentation-only draft
+[PR #33](https://github.com/ksid1229-ops/jarvis/pull/33) carries that contract.
+Its red tests moved to the later implementation branch, where they must be
+strengthened from the Claude review artifact. R2 owns migration `0016`; check
+main and post to the mailbox before taking the next unreserved number.
+
+For the attended phone enrollment, remove or redirect the inbound webhook
+immediately after status becomes `active`, rerun the read-only status command,
+and confirm `active` before leaving the window. Inbound opens again only after
+passphrase deployment and one attended spoken verification.
+
+After R1 calling and R2 memory, however hosted, are both live, run Sid's
+first-call onboarding session while parked, never while driving. A
+device-issued single-use challenge opens a setup-only segment with no owner
+authority. Deterministic handlers generate the owner verifier and write guest
+PIN records; Sid then speaks the generated phrase once through normal step-up.
+Only after those settings have durable receipts may Jarvis interview Sid and
+write owner-confirmed answers to memory. The interview is parked work and must
+not drive R1 or R2 implementation. Measure the shared R2 retriever against the
+4,000 ms first-audible gate and give voice retrieval a hard timeout that falls
+back to no extra context.
 
 Run `pnpm test:voice-access` and `pnpm typecheck:voice-access` locally.
-`pnpm release:voice-gate` runs the fake prerequisite before auditing the five
-retained live records, and refuses release while those records are absent.
+The passphrase implementation must expand `pnpm release:voice-gate` from five
+retained live records to six by adding `owner-step-up-refused`; until then its
+PIN-free owner schema is superseded and cannot support an R1 release claim.
 Fake success is not live acceptance. PR #23's review fixes at `695e762` are
 included in merged `main` through PR #25. Item 1's code merged through PR #25
 as `fd39301`. It composes the real Durable Object runtime and

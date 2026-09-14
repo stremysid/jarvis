@@ -36,6 +36,27 @@ export interface CreateIdentityChallengeInput {
   readonly createdAt: string;
 }
 
+export interface OwnerPhoneEnrollmentSnapshotRow {
+  readonly verified_device_id: string;
+  readonly identity_id: string | null;
+  readonly identity_principal_id: string | null;
+  readonly identity_channel: StoredIdentityChannel | "local" | null;
+  readonly provider_subject: string | null;
+  readonly identity_status: "pending" | "active" | "disabled" | null;
+  readonly identity_verified_at: string | null;
+  readonly enrolled_by_device_id: string | null;
+  readonly owner_principal_id: string | null;
+  readonly owner_identity_id: string | null;
+  readonly challenge_id: string | null;
+  readonly challenge_expires_at: string | null;
+}
+
+export interface CreateOwnerPhoneEnrollmentChallengeInput extends CreateIdentityChallengeInput {
+  readonly ownerPrincipalId: string;
+  readonly phoneNumber: string;
+  readonly faultStatement?: D1PreparedStatement;
+}
+
 export interface ConsumeIdentityChallengeInput {
   readonly challengeId: string;
   readonly principalId: string;
@@ -160,6 +181,138 @@ export class DeviceRepository {
       input.verified.keyFingerprint, input.verified.keyGeneration, input.identityId, input.channel,
     ).first<{ challenge_id: string }>();
     return result?.challenge_id === input.challengeId;
+  }
+
+  readOwnerPhoneEnrollment(
+    verified: VerifiedDeviceRequest,
+    ownerPrincipalId: string,
+    identityId: string,
+    hmacKeyVersion: string,
+  ): Promise<OwnerPhoneEnrollmentSnapshotRow | null> {
+    return this.database.prepare(
+      `SELECT d.device_id AS verified_device_id,
+         ci.identity_id, ci.principal_id AS identity_principal_id, ci.channel AS identity_channel,
+         ci.provider_subject, ci.status AS identity_status, ci.verified_at AS identity_verified_at,
+         ci.enrolled_by_device_id,
+         owner.principal_id AS owner_principal_id, owner.identity_id AS owner_identity_id,
+         challenge.challenge_id, challenge.expires_at AS challenge_expires_at
+       FROM device_keys d
+       JOIN principals p ON p.principal_id = d.principal_id
+       LEFT JOIN channel_identities ci ON ci.identity_id = ?
+       LEFT JOIN voice_owner_identity owner ON owner.singleton_id = 1
+       LEFT JOIN identity_challenges challenge ON challenge.challenge_id = (
+         SELECT candidate.challenge_id
+         FROM identity_challenges candidate
+         WHERE candidate.principal_id = d.principal_id AND candidate.identity_id = ?
+           AND candidate.channel = 'voice' AND candidate.initiating_device_id = d.device_id
+           AND candidate.initiating_key_id = d.key_id
+           AND candidate.initiating_key_fingerprint = d.key_fingerprint
+           AND candidate.initiating_key_generation = d.key_generation
+           AND candidate.hmac_key_version = ? AND candidate.consumed_at IS NULL
+         ORDER BY candidate.created_at DESC, candidate.challenge_id DESC
+         LIMIT 1
+       )
+       WHERE d.device_id = ? AND d.principal_id = ? AND d.principal_id = ? AND d.key_id = ?
+         AND d.key_fingerprint = ? AND d.key_generation = ? AND d.status = 'active'
+         AND p.status = 'active' AND p.principal_type = 'human'`,
+    ).bind(
+      identityId, identityId, hmacKeyVersion,
+      verified.deviceId, verified.principalId, ownerPrincipalId, verified.keyId,
+      verified.keyFingerprint, verified.keyGeneration,
+    ).first<OwnerPhoneEnrollmentSnapshotRow>();
+  }
+
+  /**
+   * Creates or exactly resumes the owner phone bootstrap in one D1 batch.
+   *
+   * Every statement repeats the current device, human principal, configured
+   * identity and phone binding. D1 batches are atomic: a later constraint
+   * failure rolls the identity and singleton back with the challenge.
+   */
+  async createOwnerPhoneEnrollmentChallenge(input: CreateOwnerPhoneEnrollmentChallengeInput): Promise<boolean> {
+    const device = [
+      input.verified.deviceId, input.verified.principalId, input.ownerPrincipalId, input.verified.keyId,
+      input.verified.keyFingerprint, input.verified.keyGeneration,
+    ] as const;
+    const statements: D1PreparedStatement[] = [
+      this.database.prepare(
+        `INSERT INTO channel_identities (
+           identity_id, principal_id, channel, provider_subject, status, verified_at, created_at, enrolled_by_device_id
+         )
+         SELECT ?, d.principal_id, 'voice', ?, 'pending', NULL, ?, d.device_id
+         FROM device_keys d JOIN principals p ON p.principal_id = d.principal_id
+         WHERE d.device_id = ? AND d.principal_id = ? AND d.principal_id = ? AND d.key_id = ?
+           AND d.key_fingerprint = ? AND d.key_generation = ? AND d.status = 'active'
+           AND p.status = 'active' AND p.principal_type = 'human'
+           AND NOT EXISTS (SELECT 1 FROM channel_identities WHERE identity_id = ?)
+           AND NOT EXISTS (SELECT 1 FROM voice_owner_identity WHERE singleton_id = 1)`,
+      ).bind(input.identityId, input.phoneNumber, input.createdAt, ...device, input.identityId),
+      this.database.prepare(
+        `INSERT INTO voice_owner_identity (singleton_id, principal_id, identity_id, created_at)
+         SELECT 1, d.principal_id, ci.identity_id, ?
+         FROM device_keys d
+         JOIN principals p ON p.principal_id = d.principal_id
+         JOIN channel_identities ci ON ci.identity_id = ? AND ci.principal_id = d.principal_id
+         WHERE d.device_id = ? AND d.principal_id = ? AND d.principal_id = ? AND d.key_id = ?
+           AND d.key_fingerprint = ? AND d.key_generation = ? AND d.status = 'active'
+           AND p.status = 'active' AND p.principal_type = 'human'
+           AND ci.channel = 'voice' AND ci.provider_subject = ?
+           AND ci.status = 'pending' AND ci.verified_at IS NULL
+           AND ci.enrolled_by_device_id = d.device_id
+           AND NOT EXISTS (SELECT 1 FROM voice_owner_identity WHERE singleton_id = 1)`,
+      ).bind(input.createdAt, input.identityId, ...device, input.phoneNumber),
+    ];
+    if (input.faultStatement !== undefined) statements.push(input.faultStatement);
+    statements.push(
+      this.database.prepare(
+        `DELETE FROM identity_challenges
+         WHERE principal_id = ? AND principal_id = ? AND identity_id = ? AND channel = 'voice'
+           AND initiating_device_id = ? AND initiating_key_id = ?
+           AND initiating_key_fingerprint = ? AND initiating_key_generation = ?
+           AND consumed_at IS NULL AND expires_at > ?
+           AND NOT EXISTS (
+             SELECT 1 FROM call_sessions session
+             WHERE session.activation_challenge_id = identity_challenges.challenge_id
+           )
+           AND EXISTS (
+             SELECT 1 FROM channel_identities ci
+             WHERE ci.identity_id = ? AND ci.principal_id = ? AND ci.channel = 'voice'
+               AND ci.provider_subject = ? AND ci.status = 'pending' AND ci.verified_at IS NULL
+           )`,
+      ).bind(
+        input.verified.principalId, input.ownerPrincipalId, input.identityId,
+        input.verified.deviceId, input.verified.keyId, input.verified.keyFingerprint,
+        input.verified.keyGeneration, input.createdAt,
+        input.identityId, input.ownerPrincipalId, input.phoneNumber,
+      ),
+      this.database.prepare(
+        `INSERT INTO identity_challenges (
+           challenge_id, principal_id, identity_id, channel, initiating_device_id, initiating_key_id,
+           initiating_key_fingerprint, initiating_key_generation, response_hmac, hmac_key_version,
+           expires_at, consumed_at, created_at
+         )
+         SELECT ?, d.principal_id, ci.identity_id, 'voice', d.device_id, d.key_id,
+           d.key_fingerprint, d.key_generation, ?, ?, ?, NULL, ?
+         FROM device_keys d
+         JOIN principals p ON p.principal_id = d.principal_id
+         JOIN channel_identities ci ON ci.identity_id = ? AND ci.principal_id = d.principal_id
+         JOIN voice_owner_identity owner
+           ON owner.singleton_id = 1 AND owner.principal_id = d.principal_id AND owner.identity_id = ci.identity_id
+         WHERE d.device_id = ? AND d.principal_id = ? AND d.principal_id = ? AND d.key_id = ?
+           AND d.key_fingerprint = ? AND d.key_generation = ? AND d.status = 'active'
+           AND p.status = 'active' AND p.principal_type = 'human'
+           AND ci.channel = 'voice' AND ci.provider_subject = ?
+           AND ci.status = 'pending' AND ci.verified_at IS NULL
+           AND ci.enrolled_by_device_id = d.device_id
+         RETURNING challenge_id`,
+      ).bind(
+        input.challengeId, input.responseHmac, input.hmacKeyVersion, input.expiresAt, input.createdAt,
+        input.identityId, ...device, input.phoneNumber,
+      ),
+    );
+    const results = await this.database.batch(statements);
+    const inserted = results.at(-1)?.results.at(0) as { challenge_id?: unknown } | undefined;
+    return inserted?.challenge_id === input.challengeId;
   }
 
   readIdentityChallenge(challengeId: string): Promise<IdentityChallengeRow | null> {

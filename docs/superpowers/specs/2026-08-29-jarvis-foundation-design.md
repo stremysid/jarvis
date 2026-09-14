@@ -119,13 +119,48 @@ Consumers reject unsupported major schema versions, tolerate documented additive
 2. Twilio requests the cloud voice endpoint.
 3. The gateway validates the Twilio signature and evaluates the caller policy. Unknown or blocked numbers are rejected before ConversationRelay starts.
 4. The gateway returns TwiML connecting the call to ConversationRelay over `wss://`.
-5. A per-call Durable Object validates the WebSocket handshake, accepts structured speech and DTMF events, and enforces the access kind bound by the signed webhook and current database state. The exact active owner identity enters without a recurring PIN. A pending owner identity may enter only an activation-only session, and a provisioned guest begins in `pre_auth` with a neutral greeting and PIN prompt.
-6. A guest enters the four-digit PIN bound to that guest's current grant. Its versioned verifier is stored with the grant and keyed by the configured guest pepper; a PIN from another grant or version cannot mint conversation authority. Three failures terminate the call. An activation-only owner session accepts only its separate, short-lived, device-bound six-digit challenge and ends after the activation result. All DTMF candidates bypass the transcript, model, event payloads, and logs. Unknown and active-but-ungranted callers stop before ConversationRelay, and no personal memory or purpose is loaded before the applicable authority is established.
+5. A per-call Durable Object validates the WebSocket handshake, accepts
+structured speech and DTMF events, and enforces the access kind bound by the
+signed webhook and current database state. The exact active owner identity
+remains in `pre_auth` until the generated three-word passphrase succeeds. A
+pending
+owner identity may enter only an activation-only session, and a provisioned
+guest begins in `pre_auth` with a neutral greeting and PIN prompt.
+6. An owner supplies the generated phrase on inbound and outbound calls.
+Three complete wrong candidates, counted durably per session, reject and cleanly
+end the call without a persistent lockout. A 60-second alarm-backed window and
+three non-candidate re-prompts bound `pre_auth`. Owner candidates are never
+rejected by a cross-call attempt scope, and inbound `pre_auth` sessions cannot
+consume the outbound-owner path. The exact Passed-A waiver is inbound-only,
+explicitly configured, and ships off. A guest enters the four-digit PIN bound
+to that guest's current
+grant. Its versioned verifier is stored with the grant and keyed by the
+configured guest pepper; a PIN from another grant or version cannot mint
+conversation authority. An activation-only owner session accepts only its
+separate, short-lived, device-bound six-digit challenge and ends after the
+activation result. All phrase and DTMF candidates bypass the transcript,
+model, context, event payloads, logs, call rows, and Durable Object storage.
+Unknown and active-but-ungranted callers stop before ConversationRelay, and no
+personal memory or purpose is loaded before the applicable authority is
+established.
 7. After authentication, the model adapter streams relevant context and the transcript to DeepSeek V4 Pro. Live calls use low or non-thinking mode unless a turn explicitly needs deeper reasoning.
 8. Text tokens stream back to ConversationRelay for speech synthesis. Barge-in marks unplayed output `cancelled`, stops it, and starts the next turn without rewriting committed history.
 9. Post-redaction transcript turns and lifecycle events enter the shared event log. Raw audio is not recorded by Jarvis.
 
-The provider-observed caller number selects only a candidate identity. Owner authority additionally requires the exact configured active owner identity and current singleton; guest authority requires the current grant and its four-digit verifier; activation authority requires the exact pending identity and challenge. Authentication failures produce no model request and no personal disclosure. Failure throttles apply to the current `CallSid`, a short rolling composite source bucket, and a global abuse budget; they expire within five minutes and never disable Sid's canonical identity. Sid can clear throttles through authenticated Telegram or local CLI recovery. Tests must prove a spoofed caller cannot create a persistent lockout.
+The provider-observed caller number selects only a candidate identity. Owner
+authority additionally requires the exact configured active owner identity,
+current singleton, and a session-bound passphrase proof. An inbound exact
+Passed-A observation may replace that proof only under the owner-enabled waiver
+policy. Guest authority requires the current grant and its four-digit verifier;
+activation authority requires the exact pending identity and challenge.
+Authentication failures produce no model request and no personal disclosure.
+Guest authentication retains its bounded attempt budgets. Owner phrase step-up
+uses only its durable three-candidate per-session limit; composite and global
+scopes may delay CPU work but never reject a candidate. No owner-authentication
+state created by an attacker may outlive those calls and block a later correct
+candidate. Tests must prove a spoofed caller cannot create a persistent
+lockout. An owner-only confirmed Telegram command may revoke owner step-up, but
+only the device-signed CLI may generate its replacement.
 
 Call sessions follow `created -> connecting -> pre_auth -> authenticated -> active -> ending -> completed` with terminal alternatives `rejected`, `failed`, and `expired`. Provider callbacks may advance but never reverse a terminal state. Transcript turns are `partial`, `committed`, or `cancelled`; only committed user text and actually delivered assistant text enter conversational history. Events deduplicate on provider event type plus `CallSid`, sequence, and provider message identifier.
 
@@ -136,8 +171,18 @@ Call sessions follow `created -> connecting -> pre_auth -> authenticated -> acti
 3. The policy service permits calls only to Sid's enrolled verified number. It checks the global kill switch immediately before submission and before every retry, plus quiet hours, authorization expiry, concurrency, daily limits, and retry limits.
 4. Before placing the call, the gateway creates an expected-call record with a cryptographic one-time relay nonce and five-minute expiry. The Twilio call URL carries an opaque command reference, not the purpose or subject. On Twilio's signed TwiML request, the gateway atomically claims the pending record and binds its `CallSid`, verified destination, Sid's subject, and nonce. The REST response and status callbacks reconcile against that binding, avoiding a race between call creation and TwiML retrieval.
 5. The TwiML connects to the same ConversationRelay implementation used for inbound calls. The relay setup must match the bound `CallSid`, subject, and unused nonce before transcript or model traffic begins. Missing, expired, replayed, or mismatched bindings are rejected.
-6. When the bound relay setup succeeds, Jarvis first says: "Jarvis called for Sid. No private message was left." The exact claimed owner destination and relay binding then establish PIN-free owner authority and move the session to `active` immediately; no global verifier is consulted, and the runtime does not distinguish a person from voicemail. The neutral line is the first utterance, not a guarantee that voicemail receives nothing later.
-7. The first final transcript accepted in `active` is treated as owner input and may produce a memory-backed spoken response. The current runtime does not automatically state the command's authorized purpose. Busy, no-answer, rejected, and failed outcomes become events. A retry retains the original authorization, correlation, and idempotency lineage and is blocked after expiry. The voicemail limitation is tracked in `KNOWN_ISSUES.md` and must be exercised by R1's outbound answer/no-answer live acceptance.
+6. When the bound relay setup succeeds, Jarvis first says: "Jarvis called for
+Sid. No private message was left." It then requests the owner passphrase and
+stays in `pre_auth`. Outbound calls never use the caller-attestation waiver.
+Voicemail or another person therefore receives only the neutral line and fixed
+step-up prompt unless the correct phrase is supplied.
+7. Only after a bound passphrase proof commits may the session become `active`
+and accept a final transcript as owner input. The runtime does not
+automatically state the command's authorized purpose. Busy, no-answer,
+rejected, and failed outcomes become events. A retry retains the original
+authorization, correlation, and idempotency lineage and is blocked after
+expiry. R1's outbound answer/no-answer acceptance proves zero model and
+personal-context access before step-up.
 
 Calls to third parties are outside version 0.1.0. A later version must require a one-time confirmation naming the person, number, purpose, and allowed outcome. Jarvis must identify itself as Sid's AI assistant and may not create purchases, legal commitments, or sensitive disclosures without a separate confirmation.
 
@@ -149,6 +194,8 @@ Every release candidate must complete:
 - a real outbound call to Sid with answer and no-answer paths;
 - transcript persistence and later recall;
 - authentication rejection for a non-allowlisted caller;
+- rejection and hangup after three wrong owner phrases with zero owner
+  authority, model requests, or personal-context reads;
 - graceful handling of model, WebSocket, and callback failure.
 
 Version 0.1.0 defaults are configurable only toward stricter limits: two concurrent calls, 30 minutes and 100 committed turns per call, three authentication attempts, one retry per outbound command, six outbound calls per day, 64 KiB per WebSocket frame, 8,000 transcript characters per turn, a 32,000-token voice context budget, eight seconds to first model token, and 30 seconds total per model turn. The live release sample is 20 authenticated turns with p95 time to first audible response at or below four seconds and p95 interruption stop at or below 1.5 seconds. A measured exception requires a decision record; later releases may not regress more than 20 percent from the accepted baseline.
@@ -248,7 +295,21 @@ Retry defaults are one retry for an authorized outbound call, three delivery att
 - Integration tests use fake Twilio, Telegram, and DeepSeek adapters; no test requires paid credentials.
 - Cloud tests exercise Worker, Durable Object, and D1 behavior in the provider-supported local runtime.
 - Local tests exercise crash recovery, duplicate sync, append-only enforcement, full-text retrieval, and embedding-index rebuilds.
-- Security tests verify spoofed caller IDs disclose nothing and cannot lock Sid out; owner identity and singleton binding stays PIN-free and fail-closed; guest PINs remain grant-bound, versioned, attempt-limited, and absent from durable or model-visible data; activation challenges remain short-lived, device-bound, single-use, and isolated from normal conversation; mismatched or replayed relay nonces and device signatures fail; non-interactive or remote CLI commands cannot place calls; untrusted content cannot become instructions or exfiltrate retrieved memory; model observations cannot promote themselves; secrets never enter events, dead letters, logs, traces, exports, or backups; inbound floods stay within cost/concurrency budgets; and unauthorized callers, recipients, devices, or Telegram users are rejected.
+- Security tests verify spoofed caller IDs disclose nothing and cannot lock Sid
+  out; owner identity and singleton binding stays fail-closed behind a
+  session-bound passphrase proof; three durable attempts survive hibernation;
+  the alarm-backed window ends cleanly; the dormant Passed-A waiver is exact,
+  explicit and inbound-only; owner phrase candidates never reach transcripts,
+  model input or context, events, logs, call rows or Durable Object storage;
+  guest PINs remain grant-bound, versioned, attempt-limited, and absent from
+  durable or model-visible data; activation challenges remain short-lived,
+  device-bound, single-use, and isolated from normal conversation; mismatched
+  or replayed relay nonces and device signatures fail; non-interactive or
+  remote CLI commands cannot place calls; untrusted content cannot become
+  instructions or exfiltrate retrieved memory; model observations cannot
+  promote themselves; secrets never enter events, dead letters, logs, traces,
+  exports, or backups; inbound floods stay within cost/concurrency budgets; and
+  unauthorized callers, recipients, devices, or Telegram users are rejected.
 - Transaction-fault tests crash between each event, outbox, idempotency, archive, and cursor boundary, then prove no accepted event is lost and no external effect executes twice.
 
 ### 11.2 Deployment tests

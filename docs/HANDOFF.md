@@ -28,9 +28,11 @@ and records Sid's selection of Option 1:
 [`plan/2026-09-14-owner-phone-enrollment-options.md`](plan/2026-09-14-owner-phone-enrollment-options.md).
 No original sealed key was found on the intended home PC, so Sid chose a newly
 generated home-PC key and a separately reviewed, owner-executed replacement of
-the active production device row before phone work. The next steps are the
-device-key replacement runbook, the non-disclosing key-match preflight and
-Option 1 implementation, then owner-controlled Twilio setup and enrollment.
+the active production device row before phone work. The next order is: merge
+and configure the Option 1 route; deploy it with the inbound webhook closed;
+then perform the reviewed device-key replacement and prove it through the
+deployed non-disclosing preflight; require first phone status `absent`; then
+configure Twilio and run the attended enrollment window.
 Twilio configuration is required before enrollment can finish, and setting
 the production voice webhook makes inbound live: the outbound runtime control
 does not gate inbound calls. Unknown callers are refused but may still incur
@@ -96,14 +98,41 @@ query result. The normal command remains non-live until reviewed adapters and
 boolean prerequisite observations are injected; no live record was generated.
 Item 3 still requires the live smoke. The separate item-4 candidate on
 `codex/r1-retire-legacy-pin` removes the legacy eight-digit owner verifier,
-updates the foundation design to the current PIN-free-owner and grant-bound
-guest model, and adds PR #28's evidence-store failure regression. It does not
+updates the foundation design to the grant-bound guest model, and adds PR
+#28's evidence-store failure regression. Its PIN-free owner wording is
+superseded by the
+2026-09-14 owner-passphrase design; live smoke must use the later six-record
+step-up contract. It does not
 delete the stored `PIN_VERIFIER_JSON` secret or deploy anything. That stored
 secret is already deletable as the separate owner-confirmed step in
 `docs/runbooks/deploy.md`; do not run it during a live call or attended
 phone-enrollment window, never recreate the retired verifier, and assess any
 rollback to a version that reads it first. Neither the live smoke nor that
 owner operation is satisfied by local tests.
+
+Sid selected the device-signed Windows path for enrolling the missing owner
+phone, with a new production device key held on the home PC. PR #29 records the
+decision. PR #30 contains the separate key-replacement runbook and guarded SQL;
+PR #31 contains the non-disclosing key preflight, atomic owner-phone bootstrap,
+fixed status contract and attended rollout runbook. Its current review fixes
+bind both configured owner identifiers, identify the exact inserted challenge,
+salt the phone-bearing request, distinguish local configuration/key/clock/key-
+mismatch failures, and pin the review's repository, route, race, and Windows
+CLI guards. Neither PR performs a live operation. Deploy the configured route
+with the webhook closed before PR #30's production insert and preflight; require
+first status `absent`; configure Twilio; then open one attended enrollment
+window. The Twilio voice webhook is the inbound activation switch; outbound
+controls do not close it. R1 live smoke remains blocked until a fresh signed
+status reports the owner phone active.
+
+The current inbound owner path trusts Twilio's signed `From` number without
+STIR/SHAKEN attestation or another owner factor. Calling is not live. Sid chose
+a spoken phrase on every inbound and outbound owner call, three tries, no
+persistent lockout, and an exact Passed-A waiver built but switched off. Draft
+PR #33 contains the reviewed documentation contract; implementation and live
+acceptance remain outstanding. The device-signed begin response also reveals
+whether a supplied number matches stored enrollment state. Both current-code
+gaps are recorded in `KNOWN_ISSUES.md`.
 
 Sid's PCs run Windows 11 and his phone is an iPhone 16. There is no Linux
 host, server or VPS; the home PC is off overnight. No Windows node port or
