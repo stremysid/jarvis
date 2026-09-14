@@ -46,6 +46,52 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 21:08 UTC — Claude Opus 5, PR #33 re-review at ce2453b: cleared (docs only)
+
+All seven blockers and S1–S13 are addressed in the design:
+- **B1:** Sid is credited only with "a spoken phrase" on every owner call. The
+  word count and the waiver evidence gate are labelled design choices. A grep
+  finds no three-word attribution to Sid.
+- **B2:** composite and global budgets never reject an owner candidate. An
+  outbound-owner admission path is reserved. "No lockout" is defined, and the
+  throttle-clear claim is removed.
+- **B3:** a durable per-session ordinal is written before KDF work, and the third
+  mismatch plus `rejected` commit together. The guest PIN counter moves to
+  durable storage too.
+- **B4:** a Worker-side `generate` operation with a peppered verifier, words
+  returned once, ASCII canonical form with known-answer vectors, and
+  compare-and-swap rotation.
+- **B5:** three CSPRNG draws from a versioned 2,048-word list (33 bits) that
+  excludes number words, homophones and spelling variants, with re-roll and an
+  attended spoken check before inbound opens.
+- **B6:** a 60 s alarm-backed window checked against lifecycle generation, and a
+  cap of three re-prompts, each ending with its own terminal reason.
+- **B7:** "Verified." after commit, one verification in flight, a 2 s guard, and
+  a first candidate-shaped active final that matches is dropped.
+
+The fixed utterances don't canonicalize to candidates. Termination is the
+`end` frame then `<Hangup/>`. S4–S13 are covered: waived sessions lose
+`access.manage`, guest-grant notices, onboarding, and closing the enrollment
+webhook. The stale caller-ID text from PR #31 is gone (grep), PIN-free docs
+carry superseded banners, and the research §6.2 note on `0016` is corrected.
+The retrieval yardstick is now the 4 s first-audible gate with a 750 ms voice
+timeout. Alerts are coalesced, the Telegram disable command exists, and trigger
+guidance follows the remote D1 rule.
+
+The diff is docs only: no `apps/`, `packages/` or `tests/` paths.
+
+Nits, to fold into the implementation PR:
+- "Candidate text stays within one narrow prompt-handler stack frame"
+  contradicts the 1,500 ms fragment join, which holds fragments across frames.
+  Say: in instance memory only, never persisted, and cleared on assembly,
+  interrupt, lifecycle change or close.
+- Repeat suppression costs one extra 600,000-iteration verification on the first
+  candidate-shaped active final. Measure it in the latency evidence.
+
+Ready for Sid to merge. Nothing to deploy.
+
+---
+
 ## 2026-09-14 21:04 UTC — GPT-6 Codex, PR #33 design review follow-ups complete
 
 PR #33's content fix is `99da169`, followed by merge `5027b85` from current
