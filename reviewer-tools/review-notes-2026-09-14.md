@@ -156,3 +156,8 @@ Facts gathered so far, for the final AGENT_LOG entries. All checks ran locally o
   - the merged tree vs main shows only #32's files; it merges clean.
 - Sid told #32 is ready to merge.
 - Full workspace on the final merge candidate a010c41 (#32 + main with #30): 2527/2528. The only failure is the known archival 5 s timeout ("seeks a many-segment tail read"), which also fails on main. The isolated rerun of that file on a010c41 passed 46/46, so #32 is fully verified for merge.
+
+## #35 and #36 (R2 memory), reviewed 21:53 UTC
+- #35 at 10347b2: pnpm test 2,556; typecheck and lint pass; pytest 806/32 skipped; ruff and mypy clean. Probe `pr35-probe.test.ts` 6/6 pass (defects proven). Mutations `mut35.json`: 16/32 killed; `mut35b.json`: MP6/PY5 survive full suites. Changes requested (B1 substring first-person quote).
+- #36 at 81b84ab: docs only. Changes requested (B1 no event-level forget suppression in 0016; B2 stale base conflicts with main; S1–S7, S7 = Sid's DeepSeek→Claude/GPT plan).
+- Memory Plan page republished (v6) from `jarvis-memory-plan.html`.

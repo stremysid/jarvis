@@ -207,7 +207,7 @@
 <main>
   <header class="mast">
     <h1>Jarvis status</h1>
-    <p>Updated Sep 14, evening. Next for v1.0: fix and build the secret phrase for calls (<a href="https://github.com/ksid1229-ops/jarvis/pull/33">#33</a>), then your calling setup and real test calls. Memory work is starting in parallel. R1 is the v1.0 release gate: phone Jarvis from the car.</p>
+    <p>Updated Sep 14, night. Next for v1.0: the calling chat builds the secret phrase for calls in 3 small steps, then your calling setup and real test calls. Memory is being built in parallel. R1 is the v1.0 release gate: phone Jarvis from the car.</p>
     <div class="live">
       <span>Gateway live: version <span class="mono">28109492</span></span>
       <span>Health check OK</span>
@@ -218,16 +218,27 @@
     <h2>Needs you</h2>
 
     <div class="task">
-      <strong>Merge <a href="https://github.com/ksid1229-ops/jarvis/pull/33">#33</a>. The merge didn't go through.</strong>
-      <p>It's marked ready but still open. Click Merge pull request, then Confirm merge. It's notes only, so nothing gets turned on.</p>
-      <p>You said yes to a private GitHub copy of Jarvis's memory, as notes you can open in Obsidian. It gets built after the main memory works. Later you'll click once to give Jarvis access to that one GitHub repo.</p>
-      <p> Both Codex chats are working: the calling chat is fixing the phrase plan (<a href="https://github.com/ksid1229-ops/jarvis/pull/33">#33</a>), and the memory chat is opening its work for review.</p>
+      <strong>Paste one message into the memory Codex chat</strong>
+      <p>Its first two pieces (<a href="https://github.com/ksid1229-ops/jarvis/pull/35">#35</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/36">#36</a>) need fixes. The notes are posted; the message in chat tells it to read them.</p>
+      <p>The calling chat needs nothing. I check its secret-phrase steps as they open.</p>
     </div>
   </div>
 
   <section>
     <h2>Pull requests</h2>
     <div class="ledger">
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/36">#36</a>
+        <span class="what">Memory plan</span>
+        <span class="pill warn">Needs fixes</span>
+        <span class="detail">The full plan for memory in the cloud. Good overall. Before merge, "forget that" must also hide the old chat itself, and a big re-read of old chats mustn't use up the monthly $5 and stop new memories. Notes only, nothing to deploy.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/35">#35</a>
+        <span class="what">Fact or guess, and the filing tree</span>
+        <span class="pill warn">Needs fixes</span>
+        <span class="detail">All 2,556 tests pass, but Jarvis could take "I don't know if I want to move to Boston" as "I want to move to Boston" and store it as fact. Proven with a test. Nothing to deploy.</span>
+      </div>
       <div class="row">
         <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/34">#34</a>
         <span class="what">Phone setup cleanups</span>
@@ -237,8 +248,8 @@
       <div class="row">
         <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/33">#33</a>
         <span class="what">Secret phrase for calls (plan)</span>
-        <span class="pill ready">Ready to merge</span>
-        <span class="detail">The plan for your phrase on calls both ways: Jarvis generates 3 words for you, and you get 3 tries before the call ends. A spoofer can't lock you out. It's checked and marked ready, but the merge didn't go through. Codex has already started building it.</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">The plan for your phrase on calls both ways: Jarvis generates 3 words for you, and you get 3 tries before the call ends. A spoofer can’t lock you out. Codex is now building it in small steps. <span class="mono">726b78b</span></span>
       </div>
       <div class="row">
         <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/32">#32</a>
@@ -321,8 +332,8 @@
         <p>Replace the DeepSeek key and the Telegram bot token. Leave the "pepper" keys and the PIN key alone; changing those breaks saved PINs.</p>
       </li>
       <li>
-        <strong>Best-possible memory</strong><span class="who">Researching</span>
-        <p>Jarvis will keep everything, remember what matters, find anything you ask about, and work with your PCs off. You picked the better AI, capped at $5 a month. The plan is in the <a href="https://claude.ai/code/artifact/5ef1176e-b047-4365-ad6b-bd49f8bc0526">Jarvis Memory Plan</a>. On hold for a short while, because you asked me to research building it on Obsidian first.</p>
+        <strong>Best-possible memory</strong><span class="who">Being built</span>
+        <p>Jarvis will keep everything, remember what matters, find anything you ask about, and work with your PCs off. You picked the better AI, capped at $5 a month, and said yes to a private GitHub copy after the main memory works. Details in the <a href="https://claude.ai/code/artifact/5ef1176e-b047-4365-ad6b-bd49f8bc0526">Jarvis Memory Plan</a>.</p>
       </li>
     </ul>
   </section>

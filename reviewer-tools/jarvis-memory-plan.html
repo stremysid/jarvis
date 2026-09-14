@@ -1,0 +1,247 @@
+<title>Jarvis Memory Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Barlow+Semi+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+  :root {
+    --ground: #F2F5F8;
+    --surface: #FFFFFF;
+    --ink: #15202B;
+    --muted: #55677A;
+    --rule: #D5DEE7;
+    --accent: #2F6690;
+    --accent-soft: #E3EDF5;
+    --good: #2E7D5B;
+    --good-soft: #E1F2E9;
+    --warn: #A96A12;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0E141A;
+      --surface: #16202A;
+      --ink: #E7EDF3;
+      --muted: #9AABBB;
+      --rule: #2A3947;
+      --accent: #7FB2DB;
+      --accent-soft: #1C2E3D;
+      --good: #6CC49A;
+      --good-soft: #15302A;
+      --warn: #E6B25E;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0E141A;
+    --surface: #16202A;
+    --ink: #E7EDF3;
+    --muted: #9AABBB;
+    --rule: #2A3947;
+    --accent: #7FB2DB;
+    --accent-soft: #1C2E3D;
+    --good: #6CC49A;
+    --good-soft: #15302A;
+    --warn: #E6B25E;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+    font-size: 19px;
+    line-height: 1.55;
+  }
+  main {
+    max-width: 740px;
+    margin: 0 auto;
+    padding: 36px 20px 64px;
+    display: grid;
+    gap: 40px;
+  }
+  h1, h2 {
+    font-family: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+    font-weight: 700;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h1 { font-size: 40px; line-height: 1.1; letter-spacing: 0.01em; }
+  h2 {
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--rule);
+  }
+  p { margin: 0; max-width: 62ch; }
+  a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 2px; }
+  a:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+  .mast { display: grid; gap: 10px; }
+  .lede { font-size: 22px; line-height: 1.45; }
+  .lede strong { color: var(--accent); }
+  .note { color: var(--muted); font-size: 17px; }
+  section { display: grid; gap: 14px; }
+
+  /* The one lifted block: what's decided. */
+  .ask {
+    background: var(--surface);
+    border: 2px solid var(--accent);
+    border-radius: 10px;
+    padding: 22px 24px;
+    display: grid;
+    gap: 16px;
+  }
+  .ask h2 { color: var(--accent); border-color: var(--accent-soft); }
+  .ask .q { font-weight: 700; font-size: 22px; }
+  .choices { display: grid; gap: 10px; }
+  .choice {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 14px;
+    align-items: baseline;
+    padding: 12px 14px;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+  }
+  .choice.pick { border: 2px solid var(--good); background: var(--good-soft); }
+  .choice b {
+    font-family: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+    font-size: 20px;
+    letter-spacing: 0.02em;
+  }
+  .choice .price { font-variant-numeric: tabular-nums; color: var(--muted); }
+  .choice p { grid-column: 1 / 3; font-size: 17px; color: var(--muted); }
+  .choice.pick p { color: var(--ink); }
+  .reply { font-size: 18px; }
+
+  .promises { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; counter-reset: p; }
+  .promises li { display: grid; grid-template-columns: 38px 1fr; gap: 2px 14px; counter-increment: p; }
+  .promises li::before {
+    content: counter(p);
+    grid-row: 1 / 3;
+    font-family: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+    font-weight: 700;
+    font-size: 24px;
+    line-height: 1.2;
+    color: var(--accent);
+    text-align: center;
+    background: var(--accent-soft);
+    border-radius: 8px;
+    height: fit-content;
+  }
+  .promises strong { font-size: 20px; }
+  .promises span { color: var(--muted); font-size: 17px; }
+
+  .facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .facts li { padding-left: 18px; position: relative; max-width: 62ch; }
+  .facts li::before { content: ""; position: absolute; left: 0; top: 0.62em; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+
+  .finding { border-left: 4px solid var(--warn); padding: 6px 0 6px 16px; display: grid; gap: 8px; }
+  .finding strong { color: var(--warn); }
+
+  /* Build progress: one row per piece in review. */
+  .pieces { display: grid; }
+  .piece {
+    display: grid;
+    grid-template-columns: 56px 1fr auto;
+    gap: 4px 14px;
+    align-items: baseline;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .piece .num { font-family: "Barlow Semi Condensed", "Arial Narrow", sans-serif; font-weight: 700; font-size: 22px; }
+  .piece .what { font-weight: 700; }
+  .piece .detail { grid-column: 2 / 4; color: var(--muted); font-size: 17px; }
+  .pill {
+    font-family: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 3px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+    color: var(--warn);
+    border: 1px solid var(--warn);
+  }
+
+  @media (max-width: 560px) {
+    body { font-size: 18px; }
+    h1 { font-size: 32px; }
+    .lede { font-size: 20px; }
+    .piece { grid-template-columns: 48px 1fr; }
+    .piece .pill { grid-column: 2; justify-self: start; }
+    .piece .detail { grid-column: 2; }
+  }
+</style>
+
+<main>
+  <header class="mast">
+    <h1>Jarvis memory plan</h1>
+    <p class="lede">Jarvis's memory will work like <strong>a personal assistant whose only job is you</strong>. It will keep everything, remember what matters on its own, and find anything you ask about.</p>
+    <p class="note">Updated Sep 14, night. Codex is building it now. Nothing is live yet, and nothing needs you.</p>
+  </header>
+
+  <div class="ask">
+    <h2>Decided</h2>
+    <p class="q">You picked the better AI, capped at $5 a month.</p>
+    <p class="note">It runs on your DeepSeek credit, and you can change the cap or the choice later with one setting. Codex will also test DeepSeek's newest cheaper model and use whichever remembers best. That test costs a little, so it waits for your yes.</p>
+    <div class="choices">
+      <div class="choice pick">
+        <b>Better</b><span class="price">about $4 a month · your pick</span>
+        <p>Catches more of what matters. Best fit for "the best memory possible".</p>
+      </div>
+      <div class="choice">
+        <b>Cheaper</b><span class="price">about $1 a month</span>
+        <p>Works, but misses more.</p>
+      </div>
+    </div>
+  </div>
+
+  <section>
+    <h2>What Jarvis will do</h2>
+    <ol class="promises">
+      <li><strong>Keep every conversation.</strong><span>Nothing gets thrown away for being unimportant.</span></li>
+      <li><strong>Remember what matters on its own.</strong><span>You don't manage anything. Important things come back up when they're useful.</span></li>
+      <li><strong>Find anything you ask about, even small things.</strong><span>It searches everything you've ever said, not just the important parts.</span></li>
+      <li><strong>Say when it's guessing.</strong><span>It never passes a guess off as fact.</span></li>
+      <li><strong>Keep it organized like a brain.</strong><span>Memories get filed into a tree: main areas like St. Remy, then sub-areas like the website and the PC app, and deeper. Jarvis does the filing.</span></li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Decided for you</h2>
+    <ul class="facts">
+      <li>Memory lives in the cloud where Jarvis already runs, so it works with every PC off. No new computer and no Linux server.</li>
+      <li>You said yes to a private GitHub copy of Jarvis's memory, as notes Obsidian can open. It's built after the main memory works, and it leaves out health, money, passwords and other people's details. Later you'll click once to give it access to that one repo.</li>
+      <li>You never have to open Obsidian. You can check or fix memories just by asking Jarvis, like "why do you think that?"</li>
+      <li>"Forget that" hides the memory from Jarvis. Fully erasing things can come later if you want it.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Being built</h2>
+    <div class="pieces">
+      <div class="piece">
+        <a class="num" href="https://github.com/ksid1229-ops/jarvis/pull/36">#36</a>
+        <span class="what">The full memory plan</span>
+        <span class="pill">Needs fixes</span>
+        <span class="detail">Solid overall. Before it's merged, "forget that" must also hide the old chat itself, not just the memory pulled from it.</span>
+      </div>
+      <div class="piece">
+        <a class="num" href="https://github.com/ksid1229-ops/jarvis/pull/35">#35</a>
+        <span class="what">Fact or guess, and the filing tree</span>
+        <span class="pill">Needs fixes</span>
+        <span class="detail">Jarvis could take "I don't know if I want to move to Boston" as "I want to move to Boston" and treat it as fact. Codex fixes that first.</span>
+      </div>
+    </div>
+    <p class="note">I check every piece before you merge it. Nothing touches live Jarvis without your yes.</p>
+  </section>
+
+  <section>
+    <h2>Found along the way</h2>
+    <div class="finding">
+      <p><strong>Today Jarvis saves almost nothing from normal chatting.</strong> The old design had no step that turns what you say into lasting memories. The new plan adds it.</p>
+    </div>
+  </section>
+</main>

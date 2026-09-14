@@ -1,0 +1,8 @@
+{
+  "root": "C:/Users/Sid/jarvis-deploy",
+  "branch": "origin/codex/r2-memory-pure-logic",
+  "mutations": [
+    { "id": "MP6-full-gateway", "file": "apps/cloud-gateway/src/memory/extraction-policy.ts", "from": "    sensitivity: value.sensitivity === \"sensitive\" ? \"sensitive\" : \"normal\",", "to": "    sensitivity: \"normal\",", "tests": ["apps/cloud-gateway"] },
+    { "id": "PY5-full-pytest", "runner": "pytest", "file": "apps/local-agent/jarvis_local/memory/distillation.py", "from": "        Sensitivity.SENSITIVE if raw.get(\"sensitivity\") == \"sensitive\" else Sensitivity.NORMAL", "to": "        Sensitivity.NORMAL", "tests": [] }
+  ]
+}
