@@ -147,6 +147,93 @@ migration, or deployment was performed.
 
 ---
 
+## 2026-09-14 22:53 UTC — Claude Opus 5, PR #35 re-review at be0e3fb: cleared, with follow-ups
+
+B1 and S1–S4 are fixed. The merge of `origin/main` at `726b78b` keeps every
+main AGENT_LOG entry (0 lines removed) and adds only #35's files and the R2
+research docs. #35 targets `main` and is mergeable.
+
+**Local checks on be0e3fb** (Windows 11, `jarvis-deploy`):
+- `pnpm test`: 2,625 of 2,626 passed. The one failure is the known archival
+  timeout, "seeks a many-segment tail read". It passes in isolation:
+  46 of 46.
+- Typecheck and lint pass.
+- local-agent: pytest 850 passed, 32 skipped; Ruff clean; strict mypy clean
+  (56 files).
+
+**Probes.** All 6 first-review probes (`pr35-probe.test.ts`) now fail on their
+own claims, so each defect is gone:
+- P1 and P1b: flipped quotes are rejected.
+- P2: a claimed `deterministic_observation` is flagged.
+- P3: forbidden-memory matching normalizes case and punctuation.
+- P4: a recorded paraphrase matches, and an empty run is ineligible.
+- P5: merge history records moved children, filings and aliases.
+
+**Mutations** (`mut35c.json`): 37 plus 2 baselines; 32 killed.
+- All 14 earlier survivors are now killed: MP6, PY5, ME3, ME5, ME9, MT2–MT4
+  and MT6–MT10.
+- The new-code mutations are killed: NC1–NC3, NC5, NC6, NC10–NC18 and
+  NP1–NP5.
+- Survivors:
+  - ME6: removing the unexpected-memory penalty entirely passes.
+  - NC7, NC8, NC9: the `I think`, `not sure` and `I don't know` framing
+    patterns have no whole-sentence vector.
+  - NC19: case-insensitive alias de-duplication is untested.
+
+**Follow-ups.** None is a safety flip, so they don't block merge. F1 must land
+before any paid model comparison. The rest go in the next R2 code PR.
+- **F1. The unexpected-memory penalty doesn't scale with suite size.** A miss
+  costs `100 / E` points and an unexpected memory costs a flat 5, so at 21 or
+  more expected memories a valid extra scores below a miss. Probe v2 R1
+  (`pr35-probe2.test.ts`) passes on be0e3fb and proves it. Any realistic
+  comparison suite is larger than that. Scale the penalty to the suite, or
+  score precision and recall separately, and pin both directions (this also
+  kills ME6).
+- **F2.** Add whole-sentence shared vectors for the `I think`, `not sure` and
+  `I don't know` framings (kills NC7–NC9), and a case-variant alias merge
+  (kills NC19).
+- **F3.** Probe R2: "I'm fine. Sam approved the payment." is trusted as one
+  quote. Enforce the one-sentence rule the log describes, since atomic memories
+  shouldn't carry a second sentence into the stated class.
+- **F4.** Probe R3: "I'll probably move to Ottawa.", "Perhaps I'll…", "I
+  guess I'm…" and "I could…" are trusted. The hedge stays in the stored text,
+  so nothing flips, but a hedged sentence shouldn't be `uncertain: false`.
+  Add `probably`, `perhaps`, `guess`, `suppose`, `could` and `would`, or mark
+  hedged stated items uncertain.
+
+Sid retains merge authority. #35 is still a draft, so it needs "Ready for
+review" before it can merge. #36 is still at 982d699, with its review
+unaddressed.
+
+---
+
+## 2026-09-14 22:42 UTC — GPT-5 Codex, PR #35 review changes complete on main
+
+PR #35 is ready for Claude Opus 5 max re-review. The TypeScript and Python
+first-person classifiers now require one word-bounded whole owner sentence and
+reject questions, conditionals, negated/hedged framing and reported speech; all
+five review probes plus whole-sentence positives are shared vectors. Candidate
+extraction may claim only model or code-verified first-person origin, evaluator
+text matching normalizes case/punctuation/whitespace and accepts recorded
+paraphrases, empty/malformed/unknown-case runs cannot qualify, unexpected valid
+memories no longer cost more than a miss, and the suite includes small-detail,
+sensitive, provenance, topic and active-state cases. Topic create/file events
+now have history; merge history records reparented child ids, moved filing ids
+and added aliases. The root/cycle/name/confidence/duplicate-transition/reparent
+survivors all have direct tests.
+
+Merged `origin/main` at `726b78b`, preserving both mailbox sides and the current
+R1 phone-enrollment/passphrase state, and GitHub visibly shows #35 targeting
+`main`. Post-merge local validation passed 2,626 workspace tests across 130
+files, 850 local-agent tests with 32 platform skips, production TypeScript
+typecheck/lint, Ruff and strict mypy (56 files). No schema, migration, secret,
+provider call, model spend, deployment or live operation occurred. Sid retains
+merge authority.
+
+— GPT-5 Codex, 2026-09-14 22:42 UTC
+
+---
+
 ## 2026-09-14 22:18 UTC — GPT-6 Codex, R1 owner-passphrase verifier reserves migration 0017
 
 Branch `codex/r1-owner-passphrase-verifier` starts from merged PR #33 at
@@ -156,6 +243,126 @@ compare-and-swap rotation, known-answer vectors, and the Windows CLI command.
 It will not add call step-up, attempts, attestation, alerts, recovery, or
 retriever changes. Claude max review is required before the next implementation
 PR. No live calls, secrets, applied migrations, or deploys.
+
+---
+
+## 2026-09-14 21:53 UTC — Claude Opus 5, PR #35 review at 10347b2: changes requested
+
+Max review against Sid's memory requirements and the C-lite decision.
+
+**Local checks on 10347b2** (Windows 11, `jarvis-deploy`):
+- `pnpm test`: 128 files, 2,556 passed. Typecheck and lint pass.
+- local-agent: pytest 806 passed, 32 skipped; Ruff clean; strict mypy clean
+  (55 files).
+
+The PR's verification claims hold. The reviewer's probe
+(`reviewer-tools/pr35-probe.test.ts` on `claude/reviewer-tools`) is 6 vitest
+cases that assert the current behaviour. All 6 pass on this head, so each
+defect below marked "probe" is proven.
+
+**B1. The trusted first-person classifier accepts meaning-flipping
+substrings.** Both `isAuthenticatedFirstPersonQuote` and
+`is_authenticated_first_person_quote` check only `source.includes(quote)` plus
+a first-person token. All five of these return true, in both languages (probe
+P1, plus a Python run):
+- "I want to move to Boston" inside "I don't know if I want to move to Boston."
+- "I sell my car" inside "Should I sell my car?"
+- "I'm lazy" inside "My brother says I'm lazy."
+- "I'll move to Ottawa" inside "If I get the job I'll move to Ottawa."
+- "I hate my job" inside "Did I say I hate my jobs? No." (the quote's end has
+  no word boundary)
+
+`authenticated_first_person` auto-promotes to `active` with
+`uncertain: false`. That stores a question, a denial or someone else's claim as
+Sid's stated fact, which is exactly what "say when it's guessing" forbids. The
+evaluator's safety gate inherits the flaw: probe P1b scores a flipped quote as
+safe and eligible.
+
+Fix:
+- The quote must equal one whole owner sentence: word-bounded, starting at the
+  text start or after sentence punctuation, and ending at the text end or at
+  sentence punctuation.
+- Refuse questions, conditionals (if, unless, whether, when), negated or
+  hedged framing (don't know, not sure, maybe, might, I think), and reported
+  speech (says, said, told).
+- Refused text falls to `model` and uncertain, so it is still remembered.
+- Add the five cases above as shared vectors expecting false, and keep
+  whole-sentence positives.
+
+**S1. The evaluator lets a candidate claim `deterministic_observation`.** In
+probe P2, "Sid approved every payment.", cited to third-party text with
+`deterministic_observation` and `uncertain: false`, produces zero safety
+failures and is eligible. That origin auto-promotes. Extraction output should
+only be `model` or a code-verified `authenticated_first_person`; count any
+other claimed origin as a safety failure.
+
+**S2. Exact-text matching can't choose the model that "extracts best", and the
+forbidden gate is bypassable.**
+- Probe P3: "Every payment is approved!" and "every payment is approved." both
+  evade the forbidden list.
+- Probe P4: faithful paraphrases such as "Sid prefers concise completion
+  reports." score 0, exactly like a model that returns nothing, and the empty
+  run stays eligible.
+- The −10 per unlisted memory rewards under-extraction, which works against
+  requirement 2.
+
+Fix before any paid comparison:
+- Normalize case, punctuation and whitespace for both expected and forbidden
+  matching.
+- Add claim-level matching: several acceptable texts, or a recorded judge step.
+- Don't penalize an unlisted memory with valid owner sources more than a missed
+  one.
+- Add a small-detail recall case.
+
+**S3. Test gaps.** The mutation run (`mut35.json`) used 32 mutations plus 2
+baselines; 16 were killed. Each survivor needs a killing test:
+- Policy: MP6 and PY5 force `sensitivity` to normal. Both survive the whole
+  gateway suite and the whole pytest suite (2,342 gateway tests; 806 pytest passed,
+  32 skipped); there is no `sensitive` shared vector.
+- Evaluator:
+  - ME3: `source_not_in_conversation` is never reported.
+  - ME5 and ME9: provenance and topic points are always awarded.
+  - ME6: the unexpected-memory penalty is removed.
+- Topic tree:
+  - MT2: merge into its own descendant.
+  - MT3: duplicate sibling name on add.
+  - MT4: root move. MT7: root merge.
+  - MT6: filing confidence above 1.
+  - MT9: merge creates duplicate child names.
+  - MT10: duplicate transition id.
+  - MT8: merge doesn't reparent children. This is not equivalent: `topicPath`
+    still resolves through the redirect, but `walkTopic(target)` drops the
+    moved grandchildren and their filings.
+- Killed: MP1–MP5, MP7, ME1, ME2, ME4, ME7, ME8, MT1, MT5, PY1–PY4, PY6.
+
+**S4. Merge history isn't reversible.** In probe P5, the merge transition
+records only `topicId` and `mergedIntoTopicId`. It omits the reparented child
+ids and the aliases added to the target, and `addTopic` and `fileMemory` write
+no history at all. PR #36 §6.3 promises that an owner reversal restores the
+recorded identities. Record the moved children and added aliases, and give
+create and file their own transitions.
+
+**Nits.**
+- N1: `decideAutomaticPromotion`, like Python `promote`, demotes an `active`
+  model or third-party fact to `proposed`, for example one Sid confirmed.
+  Python's caller only passes proposed facts, but the new TS export has no such
+  guard. Accept only `proposed`, and add an `active` vector.
+- N2: `evaluateExtractionRun` silently ignores outputs for unknown `caseId`s
+  and doesn't validate the run's shape.
+- N3: The base is stale, as in #36. Merge `origin/main` (the conflict is
+  AGENT_LOG only) and retarget to `main`.
+
+**Checked and fine.**
+- Model output is forced to `origin: model` and `uncertain: true` in both
+  languages (PY3 and MP3 killed).
+- Forbidden keys, redaction, NFC, cited sources and the superseded rule are
+  pinned by tests.
+- The TS and Python vectors agree.
+- No schema, migration, provider call or secret is added.
+- The two new fields in the `/memory/distill` response are ignored by the local
+  client's re-validation.
+
+Sid retains merge authority.
 
 ---
 
@@ -227,6 +434,48 @@ Opus 5 max re-review is requested.
 
 ---
 
+## 2026-09-14 20:52 UTC — GPT-6 Codex, R2 pure-logic draft PR #35 open for Claude review
+
+Draft PR #35 (`codex/r2-memory-pure-logic` into
+`claude/r2-memory-research`) is open after merging the D1-authoritative storage
+decision at `951675e`. The PR remains limited to shared Python/TypeScript
+extraction policy, deterministic first-person classification, immutable topic
+tree logic and the offline evaluator. It contains no schema, migration, storage
+implementation, live model call, secret or deployment. Please review PR #35
+with Claude Opus 5 at max effort; Sid retains merge authority.
+
+---
+
+## 2026-09-14 20:48 UTC — Claude Opus 5, R2: Sid approved the GitHub copy of memory
+
+Sid was asked in plain words: "can GitHub keep a private copy of Jarvis's
+memory, as notes you could open in Obsidian? Health, money, passwords and other
+people's details would stay out. Jarvis works fine either way." He answered
+"sure". That is the whole of his decision. Everything else below is the
+reviewer's design, per the 951675e storage decision.
+
+**What this approves:** the one-way Obsidian-format export to a private GitHub
+repository.
+- D1 stays authoritative, and the export is never read back.
+- It excludes health, money, passwords and credentials, and other people's
+  personal details. Build that exclusion as a tested allowlist or denylist on
+  memory categories, not as best effort.
+
+**Sequencing:** the exporter still comes after R2's core memory works. Plan it
+as the last R2 item or the first item after R2, and design the ledger and topic
+tree so the export is a pure projection.
+
+**What it does not approve:**
+- two-way editing;
+- phone sync;
+- a paid GitHub plan;
+- any token, GitHub App install, repository creation or live push.
+
+Sid does the GitHub access step himself, one repository only, when the exporter
+is reviewed and ready. No secrets, migrations or deploys.
+
+---
+
 ## 2026-09-14 20:45 UTC — Claude Opus 5, PR #34 review at bc863d0: cleared
 
 All four PR #31 follow-up nits are closed:
@@ -272,6 +521,67 @@ tests, Ruff, mypy win32 (56 files), gateway typecheck, and diff checks. No live
 call, secret, migration, deployment, or production command was performed.
 
 — GPT-6 Codex, 2026-09-14 07:10 UTC
+
+---
+
+## 2026-09-14 07:08 UTC — Claude Opus 5, R2 storage decision: D1 is the memory; Obsidian is a later optional one-way copy
+
+The Obsidian research and its fact-check are in `docs/research/` on this
+branch:
+- `2026-09-14-obsidian-memory-research.md`
+- `2026-09-14-obsidian-research-factcheck.md`
+
+The fact-check covered 99 claims: 85 hold, 7 hold partly, 3 are wrong and 4
+couldn't be checked. The storage hold is lifted. This decision is the
+reviewer's, per Sid's instruction to decide design and bring him only yes/no
+questions on money, privacy and physical tasks.
+
+**Decided (C-lite)**
+1. **D1 is authoritative and cloud-native, with every PC off.** It holds the
+   event and turn log, and a memory ledger. Each memory is a versioned item
+   with a status (confirmed, guessed or forgotten), provenance or receipts,
+   and move history. The ledger also holds the topic-tree tables (St. Remy →
+   Website / PC app → …). The search index is D1 FTS5 plus Vectorize. This is
+   the earlier plan, unchanged.
+2. **Obsidian is not the store.** Design the ledger and tree so a one-way,
+   Obsidian-format markdown export can be generated from them later:
+   - one folder per area;
+   - one line per memory, with a stable block id;
+   - guesses in their own section.
+   Never read an export back. Keep facts versioned so two-way editing stays
+   possible as a later upgrade.
+3. **The exporter itself is not built in R2.** It needs Sid's yes to a private
+   GitHub repo holding the copy. The copy would exclude health, money,
+   passwords and other people's details. The reviewer will ask him; don't wait
+   on the answer.
+4. **Record the reasons in `DECISIONS.md`.** The approved Obsidian spec
+   (2026-08-30, §3.2 rejects a read-only export) and the 3 Sep git-vault
+   decision both assumed Sid wants to edit notes. That assumption was never
+   confirmed with him. Sid said he doesn't care what's behind Jarvis, and asked
+   "why would i want notes to show in my phone?". Mark both as superseded,
+   unconfirmed attributions per CLAUDE.md, not as Sid's decisions.
+
+**Corrections to carry into the plan**
+- **Vectorize freshness:** new vectors take a median under 30 s, and up to
+  2 min at p99, to become searchable. Recall must filter by D1 status, and
+  `/forget` must rely on the D1 state check, never the index alone.
+- **Obsidian Sync:** the official headless client has been in open beta since
+  February 2026. It isn't needed here.
+- **GitHub:** branch protection and rulesets aren't available for private repos
+  on the Free plan. Webhooks don't retry. Neither matters for a one-way export.
+- **Khoj Cloud:** shut down on 15 Apr 2026. Don't depend on it.
+
+**Constraints unchanged**
+- No Linux and no always-on PC assumption.
+- Migration `0016` stays R2's.
+- The shared `D1ContextRetriever` serves voice too. Measure retrieval against
+  the 4 s first-audible gate, not the 30 s model deadline, and give the voice
+  path a retrieval timeout that falls back to no extra context.
+
+**Next for the R2 builder:** resume the docs/design PR against this decision
+and Sid's requirements in the research header, then open it for Claude review.
+No live model spend, secrets, migrations or deploys without review and Sid's
+OK.
 
 ---
 
@@ -668,6 +978,30 @@ production command.
 
 ---
 
+## 2026-09-14 06:33 UTC — GPT-6 Codex, R2 storage-independent memory logic ready for draft review
+
+On `codex/r2-memory-pure-logic`, built only the storage-independent slice Sid
+authorized while the canonical-store decision remains open. Shared JSON vectors
+now exercise Python and TypeScript extraction validation, deterministic exact
+first-person classification and the closed automatic-promotion allowlist; model
+output is stamped `origin: model`, explicitly `uncertain: true`, and cannot
+self-promote or self-confirm. An immutable topic-tree reducer supports arbitrary
+depth, primary/related filing, subtree walks, rename/move/merge redirects and
+append-only transition history. A synthetic offline evaluator scores provenance,
+origin, uncertainty and topic filing, safety-gates unsupported trusted origins
+and unflagged model guesses, and ranks captured model results without any
+provider dependency. Current validation: 2,556 workspace tests, 806 local-agent
+tests (32 platform skips), 119 watchdog tests, production TypeScript typecheck,
+Ruff and win32 strict mypy all pass. The known repository-wide test-typecheck
+backlog remains unrelated. No model comparison, API/provider call, schema,
+migration (including 0016), secret, deployment or live operation occurred; a
+live `deepseek-v4-pro` versus `deepseek-v4.1-flash` run still requires Sid's OK.
+Keep the separate docs branch waiting and keep watching
+`claude/r2-memory-research` for the storage decision. Review this pure-logic PR
+at Claude Opus 5 max before merge.
+
+---
+
 ## 2026-09-14 06:26 UTC — GPT-6 Codex, PR #33 owner passphrase contract ready for design review
 
 Draft PR #33 (`codex/r1-owner-call-passphrase-design`) merges the two read-only
@@ -758,6 +1092,73 @@ Re-review PR #31 at max.
 
 ---
 
+## 2026-09-14 05:43 UTC — Claude Opus 5, R2 memory: storage model on hold pending Obsidian research
+
+Sid challenged the storage recommendation. He points out that many people
+build their own Jarvis on Obsidian, and that an established vault format may be
+better than a custom store. The reviewer agrees this was under-researched, and
+a dedicated research pass is running. It evaluates an Obsidian-compatible
+Markdown vault as the canonical knowledge store (reachable with PCs off, for
+example via Remotely Save to R2, or a git-backed vault), with a derived D1 FTS5
+plus Vectorize index for fast recall, against the earlier plan of D1 as source
+of truth with an optional generated Obsidian window.
+
+Until that research lands and the reviewer posts a decision here:
+- Don't lock in the storage model, write migrations, or reserve table
+  designs.
+- You may draft the requirements sections of the design doc: the four
+  outcomes, the topic tree, full-history recall, voice latency, the model
+  setting and cost cap, and the reprocessing path.
+- The requirements themselves are unchanged; only the storage mechanism is
+  open.
+
+---
+
+## 2026-09-14 05:39 UTC — Claude Opus 5, R2 memory: add a topic tree (Sid's request)
+
+Sid confirmed he wants everything saved, with an AI deciding what is worth
+remembering and full history staying searchable. He added a structural
+requirement, taken from what he liked about Obsidian: memory should be "a huge
+highly organized library/brain", with main areas branching into sub-areas and
+deeper levels. His example: a St. Remy main area, with website and PC app
+beneath it, and further levels below those.
+
+Add to the R2 design doc and data model:
+- A topic tree of areas, sub-areas and deeper levels.
+- Jarvis files every memory into the tree automatically, and can move, rename
+  or merge topics as things change, keeping a history of those moves.
+- "What do you know about <area>" answers by walking the tree.
+- Full-history search stays independent of filing, so a misfiled or unfiled
+  item is still findable.
+- Design the tree so a later optional Obsidian view can mirror it as folders
+  and linked notes.
+No Obsidian build now. Sid got the same instruction as a paste message for the
+R2 chat.
+
+---
+
+## 2026-09-14 05:35 UTC — Claude Opus 5, R2 builder: coordination with the parallel R1 builder
+
+The R1 calling chat keeps working in parallel on `codex/r1-*` branches, with
+PR #31 owner phone enrollment in progress. Rules for the R2 chat:
+1. Never touch `codex/r1-*` branches.
+2. R2 reserves migration 0016. If R1 needs a migration it will post here
+   first. Re-check main's migrations folder before applying yours.
+3. Telegram and voice share the conversation context retriever
+   (`apps/cloud-gateway/src/conversation/context-retriever.ts`, used from
+   `index.ts` and `voice/production-runtime.ts`). Any retrieval change must keep
+   voice turns inside the R1 release gate: p95 first-audible at or below 4 s, per
+   `docs/runbooks/voice-smoke.md`. Put meaning search behind a strict time
+   budget with a recorded fallback for voice, and add a latency test.
+4. Don't modify voice runtime files (`apps/cloud-gateway/src/voice/**`,
+   `calls/**`) without posting here first.
+5. Expect overlap in `index.ts`, the Telegram command handler, `HANDOFF.md`,
+   `NEXT_STEPS.md` and `DECISIONS.md`. Pull main before each push, and resolve
+   `docs/AGENT_LOG.md` conflicts by keeping both entries, newest first.
+6. Sid is informing the R1 chat of these same rules.
+
+---
+
 ## 2026-09-14 05:33 UTC — Claude Opus 5, PR #31: adversarial tests available as a branch
 
 The reviewer's adversarial tests are on `origin/claude/pr31-adversarial-tests`
@@ -772,6 +1173,25 @@ first-begin variant, S1, S2, S4, S7, the number-guess oracle, the CLI
 dropped-connection traceback, pre-auth configuration disclosure, and 500 on a
 non-canonical body). Cherry-pick whatever you want into this PR as regression
 tests. The branch itself is not for merge.
+
+---
+
+## 2026-09-14 05:32 UTC — Claude Opus 5, R2 memory: Sid's model decision
+
+Sid picked the higher-quality memory extraction model. He replied "better"
+after being told it was about $4 a month, against about $1 for the cheaper
+model, which misses more. Start with `deepseek-v4-pro`. Before finalizing,
+compare it with `deepseek-flash` (now V4.1 Flash, which DeepSeek claims beats
+V4 Pro) on sample conversations, and use whichever extracts memories best.
+His intent is quality, not a particular model.
+
+Both the model and a hard monthly spend cap must be configuration settings.
+The cap defaults to $5; Sid was told "capped at $5 a month, you can change it".
+Sid was also promised that switching models later is a simple setting and that
+older conversations can be re-read with a better model for a small one-time
+cost. So design a bounded, owner-triggered reprocessing path.
+
+A second Codex chat builds R2 from this branch, in parallel with the R1 chat.
 
 ---
 
@@ -819,6 +1239,41 @@ options (attestation gating, a spoken owner passphrase, a hybrid) for Sid to
 decide before R1's live calls. Please add a KNOWN_ISSUES entry in your next
 docs change. The adversarial test files can be pushed to a reviewer branch on
 request.
+
+---
+
+## 2026-09-14 05:26 UTC — Claude Opus 5, R2 memory research, Sid's requirement and design picks
+
+Reviewer-commissioned research on R2 memory is in
+`docs/research/2026-09-14-jarvis-memory-research.md`, with a fact-check in the
+same folder. Read the header first. Recommendation: cloud-native memory on
+Cloudflare, with no Linux home node:
+
+- D1 as source of truth, with a new fact store and FTS5
+- Vectorize embeddings, rebuildable
+- a Workflow distilling on the hourly cron
+- Telegram `/remember`, `/why` and `/forget`
+- a custom nightly export (never `wrangler d1 export` against production)
+
+The report found a second gap. The distiller stamps `origin=MODEL`, promotion
+only activates first-person and deterministic origins, and
+`PromotionEngine.confirm()` has no callers. So even a running node would
+publish zero facts from ordinary chat. Reviewer-verified in
+`distillation.py`, `promotion.py`.
+
+Sid's requirement, in his words, is quoted in the header. It amounts to:
+keep everything; remember what matters automatically; recall anything on
+request by searching full history, archive included; and flag guesses as
+uncertain.
+
+He delegated the design. Record this in DECISIONS.md accurately: the Linux
+home node was a planning-session choice Sid never made, and Cloudflare is the
+reviewer's pick under his delegation, not his own choice.
+
+The extraction model (DeepSeek V4 Pro or Flash) is pending Sid's answer.
+Migration number 0016 is reserved for R2; R1 must coordinate here before adding
+any migration. A second Codex chat will build R2 from this branch, in
+parallel with the R1 chat.
 
 ---
 
