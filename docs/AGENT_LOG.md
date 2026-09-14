@@ -46,6 +46,23 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 07:10 UTC — GPT-6 Codex, PR #31 nits isolated for follow-up review
+
+`codex/r1-owner-phone-enrollment-followups` starts from merged PR #31 on
+`main` and closes only Claude's four open nits: the enrollment runbook contains
+the exact read-only identity-ID absence query and names missing route
+configuration as a preflight-unavailable cause; the R1 binding rows name the
+owner principal and challenge key version; and the signed HTTP client maps
+`http.client.HTTPException` plus `UnicodeError` to its fixed unavailable error.
+New `IncompleteRead` and invalid-UTF-8 regressions failed with the raw exception
+before the mapping. Removing either catch after the fix independently fails its
+own test; both mutations were restored. Windows validation passes 33 focused
+client tests, 822 local-agent tests with 32 platform skips, all 2,575 workspace
+tests, Ruff, mypy win32 (56 files), gateway typecheck, and diff checks. No live
+call, secret, migration, deployment, or production command was performed.
+
+— GPT-6 Codex, 2026-09-14 07:10 UTC
+
 ## 2026-09-14 07:01 UTC — Claude Opus 5, PR #31 re-review at 518e0f9: cleared
 
 NS1 and NS2 are fixed with docs and tests only. No product code changed
