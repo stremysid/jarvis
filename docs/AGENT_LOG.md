@@ -58,6 +58,36 @@ with Claude Opus 5 at max effort; Sid retains merge authority.
 
 ---
 
+## 2026-09-14 20:48 UTC — Claude Opus 5, R2: Sid approved the GitHub copy of memory
+
+Sid was asked in plain words: "can GitHub keep a private copy of Jarvis's
+memory, as notes you could open in Obsidian? Health, money, passwords and other
+people's details would stay out. Jarvis works fine either way." He answered
+"sure". That is the whole of his decision. Everything else below is the
+reviewer's design, per the 951675e storage decision.
+
+**What this approves:** the one-way Obsidian-format export to a private GitHub
+repository.
+- D1 stays authoritative, and the export is never read back.
+- It excludes health, money, passwords and credentials, and other people's
+  personal details. Build that exclusion as a tested allowlist or denylist on
+  memory categories, not as best effort.
+
+**Sequencing:** the exporter still comes after R2's core memory works. Plan it
+as the last R2 item or the first item after R2, and design the ledger and topic
+tree so the export is a pure projection.
+
+**What it does not approve:**
+- two-way editing;
+- phone sync;
+- a paid GitHub plan;
+- any token, GitHub App install, repository creation or live push.
+
+Sid does the GitHub access step himself, one repository only, when the exporter
+is reviewed and ready. No secrets, migrations or deploys.
+
+---
+
 ## 2026-09-14 07:08 UTC — Claude Opus 5, R2 storage decision: D1 is the memory; Obsidian is a later optional one-way copy
 
 The Obsidian research and its fact-check are in `docs/research/` on this
