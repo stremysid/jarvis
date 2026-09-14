@@ -46,6 +46,105 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 04:24 UTC — Claude Opus 5, PR #29 cleared at 502e23c
+
+PR #29 at `502e23c` is cleared for merge from the reviewer side. It is docs
+only: the tree differs from main `4833b74` in exactly `NEXT_STEPS.md`,
+`docs/HANDOFF.md`, `docs/AGENT_LOG.md` and the options proposal. `ed64ac8`
+records Sid's decision accurately: Option 1, a newly generated home-PC key,
+and a separately reviewed, owner-executed device-key replacement before phone
+enrollment. Twilio configuration comes before the enrollment call, and setting
+the webhook is itself the inbound activation step. `502e23c` only merges main
+(#28) into the branch. It conflicts with PR #31 in `docs/AGENT_LOG.md` alone;
+resolve by keeping both entries, newest first. PRs #30, #31 and #32 are under
+separate max review.
+
+---
+
+## 2026-09-14 02:53 UTC — GPT-6 Codex, PR #29 records Sid's Option 1 decision
+
+The proposal now records Sid's selection of the device-signed Windows CLI and
+inbound activation call, using a newly generated key on his home PC because the
+original sealed key was not found there. It keeps the trust steps separate: a
+reviewed device-key replacement runbook and owner-executed replacement first,
+then a non-disclosing key-match preflight and the Option 1 implementation, then
+owner-controlled Twilio configuration and live enrollment. PR #29 remains docs
+only; it performs no key change, call, secret action, migration or deployment.
+
+## 2026-09-14 02:51 UTC — Claude Opus 5, Sid's decision on PR #29: Option 1 with a new device key
+
+Sid chose **Option 1 (device-signed Windows CLI, then an inbound call)**, with a
+**new device key generated on his home PC** if the original key cannot be found.
+The reviewer asked: "new key on this PC, then option 1?" His words: "if its the
+best cleanest option yes". His context: Jarvis has been developed only on this
+PC ("im pretty sure"), and it is his home gaming PC and the intended main host.
+
+Reviewer's assessment, given to Sid as the reason: this is cleaner than
+Option 2. It reuses the tested device-bound challenge and activation path, and
+needs no new authentication schema or migration. The only new trust step is a
+one-time, owner-approved replacement of the device key record.
+
+Facts for the build:
+- `jarvis enroll` already creates and DPAPI-seals a key and prints the
+  `device_id`, public key, fingerprint and bootstrap metadata hash, but not a
+  `key_id`.
+- `device_keys` has no triggers. The Telegram identity's `enrolled_by_device_id`
+  is NULL, so revoking the old `jarvis-local-agent` row orphans nothing
+  identity-side. Check every other reference before relying on that.
+- No original key was found on this PC. `Sid` is its only Windows user profile,
+  it has no `JARVIS_*` environment variables, and a search of all of `C:\Users`
+  found no sealed device key file. Plan on the new key.
+
+Requested order:
+1. Record the decision in the #29 proposal and mark it ready.
+2. Add a reviewed owner runbook plus exact SQL for device key replacement:
+   read-only pre-checks, insert the new active device for the existing single
+   human principal, revoke the old row, and post-checks. Keep it idempotent or
+   safely refusing, and never print private material. Keep it separate from
+   the phone work.
+3. Build the Option 1 implementation PR with the non-disclosing key-match
+   preflight and the #29 mutation-pinned security tests.
+
+No live calls, secrets, migrations or deploys. Production steps are Sid's, one
+yes each.
+
+---
+
+## 2026-09-14 02:36 UTC — Claude Opus 5, PR #29 re-review at 8959878: amendments verified
+
+All five requested amendments are present and accurate: the device-key
+prerequisite with a non-disclosing match check, the cost of device recovery if
+no PC holds the key, Twilio before enrollment, the webhook as inbound
+activation, and the recommendation under both cases. The Option 2 schema claim
+checks out: `identity_challenges.initiating_device_id` is `NOT NULL` with a
+foreign key to `device_keys` (`0001_foundation.sql`), so a Telegram-initiated
+challenge cannot reuse that row truthfully. Docs only; no code changed.
+
+Added context for the key question. The production device row's label is the
+`jarvis enroll` default (`jarvis-local-agent`). That command generates and
+DPAPI-seals a key and prints only public material, so a sealed key file was
+probably created on some Windows account once and the public half inserted by
+hand. DPAPI binds it to that Windows user on that machine. It was not found on
+this PC. Whether Sid's other PC holds it is unverified.
+
+The proposal is ready for Sid's decision. No merge is needed until an option is
+chosen.
+
+---
+
+## 2026-09-14 02:30 UTC — GPT-6 Codex, PR #29 proposal amended after max review
+
+The owner-phone proposal now makes Option 1 conditional on a non-disclosing
+proof that a Windows PC holds the key matching the active production device;
+the current `jarvis doctor` does not yet perform that comparison. It also costs
+the missing-key case as device recovery for the existing principal followed by
+orphaned-device revocation, states that Options 1 and 2 need Twilio configured
+before enrollment, and records that setting the webhook makes inbound live
+independently of the outbound control. The recommendation is now Option 1 when
+the matching key exists and Option 2 when it does not. This remains a docs-only
+decision proposal: no option, live call, secret, migration or deploy is
+authorized.
+
 ## 2026-09-14 02:02 UTC — Claude Opus 5, PR #28 cleared at 37c6c49
 
 PR #28 at `37c6c49` is cleared for merge from the reviewer side. Both requested
@@ -75,6 +174,59 @@ Mutations, against the two voice-smoke test files (45 tests):
 No paid call can run from this code until reviewed adapters exist.
 
 ---
+
+## 2026-09-14 01:58 UTC — Claude Opus 5, PR #29 review at ad96de7: Option 1 has an unverified prerequisite
+
+The option set and the shared security properties are sound, and Option 1
+correctly reuses the tested activation path. One load-bearing gap: **Option 1
+needs a Windows device that holds the private key of the single active
+production device**, and nothing shows such a device exists.
+
+Evidence from read-only production queries on 2026-09-14:
+- The device row is `jarvis-local-agent`, ed25519, generation 1, created at
+  exactly `2026-09-02T18:00:00.000Z`.
+- The principal and Telegram identity were both created at the same instant
+  (`17:09:21.629Z`), and Telegram `verified_at` equals `created_at`. The
+  Telegram identity has no `enrolled_by_device_id`.
+- `identity_challenges` and `bootstrap_tokens` have zero rows.
+
+This looks like manual seeding rather than enrollment. Device enrollment
+(`sync/device-enrollment.ts`) also has no production route. On this PC there are
+no `JARVIS_*` environment variables, and a bounded search of the user profile
+found no sealed device key file. It could still exist on Sid's other PC; that
+is unverified.
+
+Requested amendment:
+1. State Option 1's prerequisite explicitly: `JARVIS_DEVICE_KEY_PATH` must
+   load the key whose fingerprint matches the production row (`jarvis doctor`
+   can confirm without disclosing it).
+2. Cost the fallback if no PC holds that key. That means device re-enrollment
+   or recovery: a bootstrap route, handling for the existing principal under
+   the one-human index, and revoking the orphaned device. It is
+   security-sensitive and changes the comparison with Option 2.
+3. Say that Options 1 and 2 require Twilio configured before enrollment,
+   because the owner must call the Twilio number.
+4. Say that inbound admission ignores `outbound_runtime_controls.enabled`, so
+   setting the webhook makes inbound live. Unknown callers are refused, but
+   provider minutes still bill.
+5. Re-state the recommendation under both cases, key present and key absent.
+
+Reviewer's read, for Sid to weigh: if the key is absent, Option 2 (Telegram
+plus an inbound call from the iPhone) likely becomes the simpler path, despite
+its migration.
+
+---
+
+## 2026-09-14 01:52 UTC — GPT-6 Codex, owner-phone enrollment options proposed
+
+The PR #28 review established a separate production blocker: D1 has no owner
+voice identity or singleton, and no live route can create one. A docs-only
+draft proposal now compares a device-signed Windows CLI flow, a verified
+Telegram plus inbound-call flow, and Twilio Verify. It recommends finishing the
+existing device-signed challenge path because it reuses the tested activation
+boundary, works on Sid's Windows PC, adds no provider, and is expected to need
+no migration. This is a proposal only: Sid must choose an option before any
+implementation, Twilio setup, live call, secret change, migration or deploy.
 
 ## 2026-09-14 01:47 UTC — GPT-6 Codex, PR #28 review fixes complete
 
