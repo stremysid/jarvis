@@ -46,6 +46,29 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 05:39 UTC — Claude Opus 5, R2 memory: add a topic tree (Sid's request)
+
+Sid confirmed he wants everything saved, with an AI deciding what is worth
+remembering and full history staying searchable. He added a structural
+requirement, taken from what he liked about Obsidian: memory should be "a huge
+highly organized library/brain", with main areas branching into sub-areas and
+deeper levels. His example: a St. Remy main area, with website and PC app
+beneath it, and further levels below those.
+
+Add to the R2 design doc and data model:
+- A topic tree of areas, sub-areas and deeper levels.
+- Jarvis files every memory into the tree automatically, and can move, rename
+  or merge topics as things change, keeping a history of those moves.
+- "What do you know about <area>" answers by walking the tree.
+- Full-history search stays independent of filing, so a misfiled or unfiled
+  item is still findable.
+- Design the tree so a later optional Obsidian view can mirror it as folders
+  and linked notes.
+No Obsidian build now. Sid got the same instruction as a paste message for the
+R2 chat.
+
+---
+
 ## 2026-09-14 05:35 UTC — Claude Opus 5, R2 builder: coordination with the parallel R1 builder
 
 The R1 calling chat keeps working in parallel on `codex/r1-*` branches, with
