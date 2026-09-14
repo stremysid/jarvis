@@ -122,13 +122,18 @@ Consumers reject unsupported major schema versions, tolerate documented additive
 5. A per-call Durable Object validates the WebSocket handshake, accepts
 structured speech and DTMF events, and enforces the access kind bound by the
 signed webhook and current database state. The exact active owner identity
-remains in `pre_auth` until a three-word spoken passphrase succeeds. A pending
+remains in `pre_auth` until the generated three-word passphrase succeeds. A
+pending
 owner identity may enter only an activation-only session, and a provisioned
 guest begins in `pre_auth` with a neutral greeting and PIN prompt.
-6. An owner supplies the three-word phrase on inbound and outbound calls.
-Three complete wrong candidates reject and close the call without a persistent
-lockout. The exact Passed-A waiver is inbound-only, explicitly configured, and
-ships off. A guest enters the four-digit PIN bound to that guest's current
+6. An owner supplies the generated phrase on inbound and outbound calls.
+Three complete wrong candidates, counted durably per session, reject and cleanly
+end the call without a persistent lockout. A 60-second alarm-backed window and
+three non-candidate re-prompts bound `pre_auth`. Owner candidates are never
+rejected by a cross-call attempt scope, and inbound `pre_auth` sessions cannot
+consume the outbound-owner path. The exact Passed-A waiver is inbound-only,
+explicitly configured, and ships off. A guest enters the four-digit PIN bound
+to that guest's current
 grant. Its versioned verifier is stored with the grant and keyed by the
 configured guest pepper; a PIN from another grant or version cannot mint
 conversation authority. An activation-only owner session accepts only its
@@ -149,11 +154,13 @@ Passed-A observation may replace that proof only under the owner-enabled waiver
 policy. Guest authority requires the current grant and its four-digit verifier;
 activation authority requires the exact pending identity and challenge.
 Authentication failures produce no model request and no personal disclosure.
-Failure throttles apply to the current `CallSid`, a short rolling composite
-source bucket, and a global abuse budget; they expire within five minutes and
-never disable Sid's canonical identity. Sid can clear throttles through
-authenticated Telegram or local CLI recovery. Tests must prove a spoofed
-caller cannot create a persistent lockout.
+Guest authentication retains its bounded attempt budgets. Owner phrase step-up
+uses only its durable three-candidate per-session limit; composite and global
+scopes may delay CPU work but never reject a candidate. No owner-authentication
+state created by an attacker may outlive those calls and block a later correct
+candidate. Tests must prove a spoofed caller cannot create a persistent
+lockout. An owner-only confirmed Telegram command may revoke owner step-up, but
+only the device-signed CLI may generate its replacement.
 
 Call sessions follow `created -> connecting -> pre_auth -> authenticated -> active -> ending -> completed` with terminal alternatives `rejected`, `failed`, and `expired`. Provider callbacks may advance but never reverse a terminal state. Transcript turns are `partial`, `committed`, or `cancelled`; only committed user text and actually delivered assistant text enter conversational history. Events deduplicate on provider event type plus `CallSid`, sequence, and provider message identifier.
 
@@ -290,7 +297,8 @@ Retry defaults are one retry for an authorized outbound call, three delivery att
 - Local tests exercise crash recovery, duplicate sync, append-only enforcement, full-text retrieval, and embedding-index rebuilds.
 - Security tests verify spoofed caller IDs disclose nothing and cannot lock Sid
   out; owner identity and singleton binding stays fail-closed behind a
-  session-bound passphrase proof; the dormant Passed-A waiver is exact,
+  session-bound passphrase proof; three durable attempts survive hibernation;
+  the alarm-backed window ends cleanly; the dormant Passed-A waiver is exact,
   explicit and inbound-only; owner phrase candidates never reach transcripts,
   model input or context, events, logs, call rows or Durable Object storage;
   guest PINs remain grant-bound, versioned, attempt-limited, and absent from

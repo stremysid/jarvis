@@ -236,7 +236,9 @@ Reasons:
    - the `outbound.ts` binding snapshot
 
    Guests and activation-only sessions get `not_applicable`; an outbound owner is always `required`.
-6. **Migration `0016`.**
+6. **Migration `0016` (superseded numbering).** R2 owns `0016`. The
+   implementation must check `main` and `docs/AGENT_LOG.md`, post its intent,
+   and take the next unreserved number.
    - Add `call_sessions.owner_step_up` with CHECKs: guest or activation-only → `not_applicable`; outbound owner → `required`; `waived_passed_a` only on inbound.
    - Make the column immutable by extending `call_sessions_voice_access_immutable`.
    - Add `call_session_owner_step_ups` (session_id primary key, verifier_version, verified_at), insert-once, with no update or delete.

@@ -15,13 +15,27 @@ final transcript can be treated as owner input and can cause a memory-backed
 response to be spoken into the recording. The runtime also does not
 automatically state the outbound command's authorized purpose.
 
-Sid decided on a three-word spoken passphrase for every inbound and outbound
-owner call. Until that step-up ships and passes live acceptance, both paths are
-release blockers and inbound must remain closed. The exact Passed-A waiver is
-designed but switched off. The passphrase protects private disclosure to
-voicemail; answering-machine detection remains an optional cost optimization.
-The red security contract and implementation order are in
+Sid decided on a spoken passphrase for every inbound and outbound owner call,
+three tries before the call ends, no persistent lockout, and a Passed-A waiver
+that is built but switched off. The reviewed design chooses three generated
+words and an evidence gate for any later waiver enablement. Until step-up ships
+and passes live acceptance, both paths are release blockers and inbound must
+remain closed. The passphrase protects private disclosure to voicemail;
+answering-machine detection remains an optional cost optimization. The
+security contract and implementation order are in
 [`docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md`](docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md).
+
+## Guest PIN attempt counts reset when a call Durable Object hibernates
+
+The guest path keeps `#failedPinAttempts` in the in-memory call-session core.
+Cloudflare Durable Object hibernation reconstructs that core and resets the
+count while the same call remains in `pre_auth`. A caller can therefore avoid
+the promised three-attempt terminal state by pausing between attempts.
+
+The owner-passphrase implementation must move guest and owner per-call attempt
+ordinals into durable state, write each ordinal before verification, and commit
+the third mismatch with the terminal rejection. Until then, the guest
+three-attempt claim is not reliable across hibernation.
 
 ## Owner-phone begin can reveal whether a supplied number matches stored state
 

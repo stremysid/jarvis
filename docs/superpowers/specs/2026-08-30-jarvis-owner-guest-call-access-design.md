@@ -12,7 +12,7 @@ per-number guest access during an authenticated owner call.
 ## 1. Purpose
 
 Jarvis is first a personal assistant for Sid. Calls associated with Sid's one
-enrolled owner voice identity must pass a three-word spoken owner passphrase
+enrolled owner voice identity must pass a generated three-word owner passphrase
 before entering the authenticated owner experience. Other people may use Jarvis
 only after Sid explicitly provisions their exact phone number and assigns a
 per-number four-digit PIN and permissions.
@@ -21,7 +21,8 @@ The feature must feel conversational: during an owner call, Sid can ask Jarvis t
 
 This design replaces the foundation rule that every inbound and outbound call
 requires one global eight-digit PIN. The owner passphrase is a separate
-three-word verifier and guests retain per-grant four-digit PINs. For call
+generated three-word verifier and guests retain per-grant four-digit PINs. For
+call
 authentication, phone activation, and call-session authority, this amendment
 and the 2026-09-14 owner-passphrase design take precedence over older PIN-free
 language. All other signed-request, relay-binding, rate-limit, durable-event,
@@ -30,8 +31,11 @@ and fail-closed requirements remain in force.
 ## 2. Binding product decisions
 
 - Exactly one active voice identity is designated `owner`. It is selected by opaque configured identity ID, not by accepting a number supplied in a request or model response.
-- The active owner identity requires a three-word spoken passphrase before
-  authority on both inbound calls and outbound calls to that identity.
+- The active owner identity requires a generated three-word spoken passphrase
+  before authority on both inbound calls and outbound calls to that identity.
+- Three durable per-session candidates are allowed. Cross-call and global
+  scopes may delay verification but cannot reject an owner candidate, and no
+  attack-created lockout survives the calls.
 - Owner step-up does not bypass Twilio signature verification, exact `CallSid`
   and relay nonce binding, active-identity checks, session limits, action
   policy, or explicit confirmation requirements for external, destructive,
@@ -163,7 +167,7 @@ Phone numbers remain provider subjects in the existing identity table and are ex
 
 1. Verify the exact Twilio request and resolve the active stored voice identity.
 2. Create the normal signed relay session.
-3. On first valid relay setup, remain in `pre_auth` and request the three-word
+3. On first valid relay setup, remain in `pre_auth` and request the generated
    owner passphrase. Mint authority only from a bound successful proof. An
    inbound exact Passed-A observation may waive the phrase only under the
    explicitly enabled waiver policy, which ships off.
@@ -194,6 +198,10 @@ it.
   verifier, stale owner configuration, grant conflict, invalid capability,
   expired proposal, ambiguous spoken PIN, storage failure, or stale authority
   fails closed with fixed public language.
+- A waived owner may converse but cannot use `access.manage` or change security
+  settings until the phrase also passes in that call. Every guest-grant
+  mutation emits a fixed Telegram notice with its operation, masked target and
+  time.
 - A model proposal is always untrusted. Hallucinated numbers, permissions, confirmations, or repository results cannot create access.
 - Administration proposals expire exactly 60 seconds after creation, are single-session and single-use, and are invalidated by interruption, cancellation, socket close, or a newer proposal.
 - No access mutation occurs merely because Sid uttered a sentence that resembles confirmation; confirmation is accepted only while the exact proposal state is awaiting it.
@@ -211,15 +219,18 @@ Tests must prove at minimum:
 - a same-number string without stored owner identity authority, changed
   identity row, forged step-up proof, different `CallSid`, or cross-session
   replay does not bypass authentication;
-- three complete wrong owner phrases reject and close the call, without a
-  persistent lockout or a model request;
+- three complete wrong owner phrases counted across hibernation reject the
+  session, emit the fixed clean-end sequence and create no persistent lockout
+  or model request;
 - owner-passphrase candidates never enter transcripts, model input or context,
   memory, events, logs, call rows, Durable Object storage, errors, or TwiML;
 - the Passed-A waiver is exact, explicit, inbound-only, and switched off by
   default; missing or unknown policy requires the phrase;
 - unknown callers are rejected before ConversationRelay and cannot test PINs;
 - two guests with different four-digit PINs cannot authenticate each other's number or reuse each other's proof;
-- exactly four digits are required, three failures terminate, budgets remain bounded, and no persistent lockout affects the owner;
+- exactly four digits are required, three durable failures terminate across
+  hibernation, budgets remain bounded, and no persistent lockout affects the
+  owner;
 - DTMF and strict spoken PIN capture never enter transcripts, model input, memory, events, logs, errors, or TwiML;
 - a model proposal alone, an unconfirmed proposal, an expired proposal, `confirm` in ordinary conversation, a cross-session confirmation, and a replayed confirmation perform no mutation;
 - owner-confirmed add, permission replacement, PIN rotation, revocation, and masked listing are atomic and idempotent;

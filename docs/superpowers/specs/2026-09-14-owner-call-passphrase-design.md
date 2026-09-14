@@ -1,238 +1,385 @@
 # Owner call passphrase design
 
-**Status:** Sid approved the product decision on 2026-09-14. This document
-defines the security contract. The accompanying tests are intentionally red
-against `main`; implementation waits for PR #31 to merge because phone
-enrollment supplies the trusted owner identity and recovery path.
+**Status:** Sid approved the product boundary on 2026-09-14. This revision
+incorporates the PR #33 max-review decisions and is a documentation-only
+contract. Executable security tests move to the later implementation branch.
 
-**Scope:** R1 owner calls, inbound and outbound. This design does not add a
-migration, choose a migration number, make a call, change a secret, deploy, or
-build the R2-backed onboarding interview.
+**Scope:** R1 owner calls, inbound and outbound. This design adds no migration,
+reserves no migration number, makes no call, changes no secret, deploys
+nothing, and does not build the R2-backed onboarding interview.
 
-## Decision
+## Owner decision and design choices
 
-Every owner call must complete an owner step-up before Jarvis mints owner
+Sid decided that every owner call, inbound and outbound, requires a spoken
+phrase before owner authority. Three complete wrong candidates end that call,
+no lockout survives the attack, and the exact Passed-A waiver must exist but
+ship switched off.
+
+The phrase format and waiver evidence gate are design choices from the
+2026-09-14 call-safety research. Jarvis uses three generated words because
+three independent uniform draws from a 2,048-word list provide exactly 33 bits
+of entropy. Before the dormant waiver may be enabled, retained live evidence
+must show exact Passed-A on Sid's real paths and Sid must accept the remaining
+SIM-swap and carrier-attestation risk.
+
+Every owner call must complete owner step-up before Jarvis mints owner
 authority, reads personal context, invokes a model, or accepts an owner-only
-command. The normal step-up is a three-word spoken passphrase. Three complete
-wrong candidates reject the call and close the relay. A failed call creates no
-persistent lockout.
-
-An inbound call with the exact Twilio value
+command. An inbound call with the exact Twilio value
 `TN-Validation-Passed-A` may skip the phrase only when the owner explicitly
-sets the caller-ID policy to `waive_on_passed_a`. The code and evidence contract
-will support that policy, but the shipped setting is `passphrase_always`.
-Missing, empty, or unknown configuration also means `passphrase_always`.
-Outbound owner calls always require the phrase.
+sets `OWNER_CALLER_ID_POLICY=waive_on_passed_a`. The shipped value, a missing
+value, and every malformed or unknown value require the phrase. Outbound owner
+calls always require it.
 
 This reverses the unconfirmed 2026-08-30 statement that the owner accepted
 Caller ID risk for a PIN-free experience. A signed Twilio webhook proves the
-request came through Twilio. It does not prove that the person who supplied the
-caller number is Sid.
+request came through Twilio. It does not prove that the person represented by
+the caller number is Sid.
 
 ## Security claims and limits
 
-Jarvis will keep every passphrase candidate out of:
+Jarvis keeps every raw candidate, assembled candidate, canonical candidate,
+candidate fragment, and unpeppered candidate derivative out of:
 
-- conversation transcripts and committed turns;
-- model input and retrieved model context;
-- events, outbox payloads, provider-event records, and error objects;
-- application logs and owner alerts;
-- call-session rows and Durable Object storage;
-- TwiML, ConversationRelay hints, prompts, and replies.
+- conversation transcripts, committed turns, model input, and retrieved
+  context;
+- events, outbox payloads, delivery rows, provider-event rows, and archives;
+- application and structured logs, owner alerts, errors, and metrics;
+- call-session rows, Durable Object key-value and SQLite storage, WebSocket
+  attachments, outbound frames, close reasons, TwiML, and speech hints; and
+- memory extraction, memory projection, and local synchronization.
 
-The raw candidate necessarily reaches Twilio and the configured speech-to-text
-processor before Jarvis receives the final text. Their retention is outside
-this claim. The prompt and documentation must not imply that the spoken phrase
-is secret from those processors.
+The raw candidate necessarily reaches Twilio and the configured
+speech-to-text processor before Jarvis receives final text. Their retention is
+outside this claim. The product must not imply end-to-end secrecy from those
+processors.
 
-Only a salted verifier is durable. The Worker secret holding the verifier
-pepper is never stored in D1. JavaScript strings cannot be zeroed, so the
-candidate stays within one narrow final-prompt stack frame; canonical bytes and
-derived buffers are cleared in `finally` blocks before the handler returns.
-Fixed errors and prompts contain no candidate or match detail.
+JavaScript strings cannot be zeroed. Candidate text therefore stays within one
+narrow prompt-handler stack frame. Canonical byte arrays, derived HMAC input,
+and KDF buffers are cleared in `finally` blocks before the handler returns.
+Fixed prompts, refusals, acknowledgements, alerts, and errors contain no
+candidate or match detail.
 
 The phrase protects private context from caller-ID spoofing, a SIM swap, a
 person holding the phone, and an answering machine that accepts an outbound
 call. A recording of the correct phrase can be replayed. The optional Passed-A
-waiver accepts carrier attestation and therefore retains SIM-swap and
-mis-attestation risk.
+waiver retains SIM-swap, possession, and carrier mis-attestation risk.
 
-## Trusted records
+## Phrase generation and verifier
 
-Implementation requires one versioned owner-passphrase verifier record bound
-to the configured owner identity. It contains the algorithm, domain version,
-pepper version, iteration count, random salt, digest, creation time, and active
-version. Rotation atomically replaces the active version and emits a fixed
-audit event with identifiers and version numbers only.
+The phrase is generated, never chosen or typed. A Worker-side CSPRNG performs
+three independent, unbiased draws with replacement from a versioned list of
+exactly 2,048 common, phonetically distinct `en-US` words. Repetition is valid
+and preserves the stated 33-bit space. The list excludes number words,
+homophones, spelling variants such as Canadian and American pairs, compounds,
+hyphenated words, and long words that are unreliable in the configured STT.
+Sid may discard a generated phrase and request a complete re-roll.
 
-The verifier construction matches the reviewed guest-PIN construction while
-using a separate domain and pepper:
+Canonical phrases contain only lowercase ASCII `a-z` and single ASCII spaces.
+The versioned canonicalizer folds ASCII uppercase, strips only its documented
+ASCII punctuation, collapses ASCII whitespace, and rejects every other code
+point. TypeScript and Python run the same known-answer vectors even though
+only the Worker creates or verifies a phrase.
 
-- HMAC-SHA-256 domain separation with `jarvis.owner-passphrase/v1`;
-- PBKDF2-HMAC-SHA-256 with 600,000 iterations;
-- a random 16-byte salt and 32-byte digest;
-- a dedicated `OWNER_PASSPHRASE_PEPPER_V1` secret;
-- constant-time digest comparison;
-- fail-closed behavior for an unknown algorithm, domain, pepper, or version.
+One active verifier record is bound to the configured owner identity. It
+stores algorithm, domain version, word-list version, pepper version, iteration
+count, random salt, digest, creation time, status, and monotonic verifier
+version. It never stores words.
 
-Canonicalization is NFC, lowercase, punctuation removed, and Unicode
-whitespace collapsed. The result must be exactly three non-empty words made of
-letters. The same canonicalizer is used when creating and verifying a record.
-Phrase words never appear in speech hints.
+Verifier construction follows the reviewed guest-PIN shape with a separate
+domain and secret:
 
-The schema work belongs to the implementation PR after PR #31 merges. It must
-use the next unreserved migration number after checking `main` and the newest
-`docs/AGENT_LOG.md` entries. R2 owns `0016`; this design does not reserve a
-number.
+1. HMAC-SHA-256 with `OWNER_PASSPHRASE_PEPPER_V1` over
+   `jarvis.owner-passphrase/v1 || 0 || owner_identity_id || 0 ||
+   verifier_version || 0 || canonical_phrase`;
+2. PBKDF2-HMAC-SHA-256 over that HMAC result with 600,000 iterations, a random
+   16-byte salt, and a 32-byte digest; and
+3. constant-time comparison, with unknown algorithms, domains, word lists,
+   peppers, iterations, or versions failing closed.
 
-## Binding and authority
+The device-signed Windows CLI sends a signed `generate` operation. The Worker
+draws the phrase, commits its peppered verifier, and returns the words once for
+terminal display. The pepper never leaves the Worker and the phrase is never
+sent from the PC. If the one-time response is lost, the owner generates a new
+version; no endpoint reads an existing phrase. Rotation is compare-and-swap on
+the expected active verifier version, so a captured older signed request cannot
+roll the verifier back.
 
-Every relay binding gains an immutable owner-step-up requirement:
+The owner must complete one attended spoken verification of a newly generated
+phrase before inbound calling opens. A suspected compromise is handled from
+Telegram with the owner-only confirmed command
+`/disable-owner-step-up --confirm`. It revokes the verifier and makes every
+owner call play a fixed refusal until the signed CLI generates a replacement.
+The command never accepts, displays, or replaces a phrase. Rejection alerts
+link to this recovery action.
+
+## Trusted binding and attestation
+
+Every relay binding snapshots one immutable owner-step-up requirement before
+the relay opens:
 
 - `required`: a passphrase proof is mandatory;
 - `waived_passed_a`: an inbound exact Passed-A observation satisfied the
-  explicitly enabled waiver policy;
+  explicitly enabled waiver; or
 - `not_applicable`: guest and phone-activation-only sessions.
 
-The binding snapshots this value before the relay opens. Replaying an inbound
-webhook with different attestation or policy cannot change an existing
-session. Outbound owner bindings are always `required`.
+Replaying an inbound webhook with changed attestation or policy cannot change
+an existing session. Outbound bindings are always `required`.
 
-For inbound calls, the signed form parser classifies `StirVerstat` without
-normalization:
+The signed form parser classifies `StirVerstat` without normalization:
 
 - no value is `absent`;
-- exactly `TN-Validation-Passed-A` is `passed_a`;
-- one other value is `other`;
-- multiple values reject the webhook with the same neutral response used for
-  duplicated `From`, `To`, or `CallSid`.
+- exactly one `TN-Validation-Passed-A` is `passed_a`;
+- one other value is `other`; and
+- multiple values reject with the same neutral response used for duplicated
+  `From`, `To`, or `CallSid`.
 
-Lowercase, padded, prefixed, suffixed, Failed-A, Passed-B, Passed-C, diverted,
-passthrough, and unvalidated values never qualify. Adding or changing the field
-after signing invalidates the Twilio signature.
-
-A passphrase verifier issues a nominal proof bound to the session ID, CallSid,
-direction, verifier version, and verification time. The authority service
-consumes it once. D1 records the successful step-up and owner authority in one
-transaction. The database trigger refuses an owner authority unless the
-session is `waived_passed_a` or has the matching successful step-up row. The
-step-up row and binding field are immutable.
-
-This redundancy is deliberate: the Durable Object controls flow, the nominal
-proof binds in-process authority, and D1 protects direct or future writers.
-
-## Call state machine
-
-After the relay setup is authenticated, an owner binding marked `required`
-stays in `pre_auth` with interaction `owner_step_up`. Jarvis sends the fixed
-prompt “Say your passphrase.” No owner authority exists at this point.
-
-Only final speech prompts are examined. Partial prompts, DTMF, interruptions,
-and stale frames never verify a phrase. A final value that is not three words
-gets a fixed three-word re-prompt without comparison. The existing five-minute
-pre-authentication deadline bounds noise and echo that never form a candidate.
-
-Each complete three-word candidate reserves an authentication attempt before
-verification. On mismatch, Jarvis clears transient bytes and sends the same
-fixed retry prompt. The first and second mismatch remain in `pre_auth`. The
-third mismatch moves the durable session to `rejected`, closes the relay, and
-sends an owner Telegram alert containing only direction, attestation category,
-and time. There is no account or device lockout.
-
-On a match, the verifier returns a bound single-use proof. The authority and
-step-up receipt commit atomically; the session then moves through
-`authenticated` to `active`. Only then may context retrieval, a model request,
-memory access, or owner access administration start.
-
-Eviction reconstructs `owner_step_up` from the immutable binding and durable
-phase. It does not store or reconstruct a candidate. Interruption, socket
-close, hibernation, terminal callbacks, and errors clear transient buffers.
-
-For outbound calls, the neutral line remains first. The call then enters the
-same `owner_step_up` interaction. Voicemail or another person hears only the
-neutral line and fixed step-up prompt; their speech cannot reach memory or the
-model without the correct phrase.
-
-## Configuration and dormant waiver
+Lowercase, padded, prefixed, suffixed, Failed-A, Passed-B, Passed-C,
+`-Diverted`, `-Passthrough`, and unvalidated values never qualify. Adding or
+changing the field after signing invalidates the Twilio signature.
 
 `OWNER_CALLER_ID_POLICY` accepts exactly `passphrase_always` or
-`waive_on_passed_a`. Production configuration reads it once when composing the
-voice runtime. Missing, malformed, or unknown values resolve to
-`passphrase_always`; they never prevent startup by accidentally making the
-weaker mode necessary.
+`waive_on_passed_a`. Production reads it once during runtime composition.
+Missing and empty values require the phrase. Unknown values also require the
+phrase and emit one fixed configuration warning that contains no supplied
+value. The initial deployment uses `passphrase_always`.
 
-The initial deployment sets `passphrase_always`. The optional waiver remains
-testable but off. Enabling it is a later owner action after retained evidence
-shows exact Passed-A across LTE or 5G, home Wi-Fi calling, and Tesla Bluetooth
-on different days. Carrier or Twilio-number changes invalidate that evidence
-and require the check again.
+## Durable attempts, admission, and no lockout
 
-Attestation observations contain only `passed_a`, `other`, or `absent` plus a
-time. They contain no phone number. The voice smoke evidence validator accepts
-a waived owner only when the observation is `passed_a` and the policy is
-`waive_on_passed_a`.
+A session may consume at most three complete phrase candidates. Before any
+KDF work, one durable per-session ordinal is inserted for that session and
+lifecycle generation. The row stores no candidate data. Only ordinals 1, 2,
+and 3 are valid. The third mismatch and the session's `rejected` transition
+commit in the same operation, so hibernation, eviction, reconnect races, or a
+crash cannot restore an attempt.
 
-## Setting, rotation, and recovery
+Non-candidate re-prompts use a separate durable per-session ordinal and are
+also capped at three. They do not count as phrase mismatches. The pre-existing
+guest-PIN in-memory counter has the same hibernation defect and must move to a
+durable per-session count in the implementation PR.
 
-R1 must have a reviewed way to set or rotate the verifier before owner calling
-goes live. The immediate recovery surface is the device-signed Windows CLI
-from the PR #31 trust path: two hidden entries, exact match, local
-canonicalization, and a signed request that sends only the verifier record.
-No phrase is accepted from Telegram or a model.
+The shared five-minute composite and global authentication-attempt budgets do
+not reject owner phrase candidates. If verification CPU needs protection, the
+runtime serializes or delays work and keeps the same candidate pending; it
+does not consume an attempt or reject the call because another call filled a
+scope. At most one verification runs for a session.
 
-Sid also requested a first-call onboarding session after R1 calling and R2
-memory are both live. That later session starts from enrollment-trusted
-authority, not caller ID alone. Its deterministic setup segment sets or rotates
-the owner phrase and guest PINs without model access; guest PINs use DTMF and
-the phrase is entered twice. Only after every security setting has a durable,
-verified receipt may ordinary owner authority start the interview. The
-interview then asks Sid questions and writes only owner-confirmed answers to
-memory.
+Inbound `pre_auth` relays cannot consume every outbound-owner admission slot.
+The repository must either exclude those inbound sessions from outbound
+admission or reserve an outbound-owner path. A confirmed Telegram `/call`
+therefore remains available during an inbound spoofing flood.
 
-The onboarding interview is not part of this PR. It depends on R2 and will use
-the shared conversation context retriever. Before building it, measure the R2
-retriever on the voice path against the existing 30-second model deadline;
-additional fact retrieval must not make a call silently time out.
+“No lockout” means no rejection state, throttle, or attempt scope survives the
+attacking calls and blocks a later correct candidate. Per-call terminal state,
+audit receipts, coalesced alerts, capacity observations, and an explicitly
+revoked verifier may persist; none silently becomes a cross-call passphrase
+failure. The obsolete foundation claim that a CLI or Telegram command clears
+shared authentication throttles is removed because owner step-up does not use
+those rejecting scopes.
 
-## Tests written before implementation
+## Candidate framing and fixed speech
 
-The design branch adds executable tests against current `main`. They are
-expected to fail until implementation lands:
+Only final STT speech frames from the current relay session and lifecycle
+generation may enter candidate assembly. Frames from an earlier generation,
+after a terminal transition, with a mismatched relay/session identity, or
+delivered out of sequence are stale and discarded. Partial speech, DTMF,
+interruptions, and keypad digits never verify an owner phrase.
 
-1. An inbound owner session has no authority after relay setup and before a
-   successful step-up.
-2. An outbound owner session has no authority after the neutral line and
-   before a successful step-up.
-3. Every candidate is absent from transcripts, model requests and context,
-   events, logs, call rows, and Durable Object storage.
-4. Three complete wrong candidates reject inbound and outbound sessions and
-   close each relay; neither path invokes the model.
-5. Exact Passed-A still requires the phrase under absent,
-   `passphrase_always`, or unknown policy configuration.
-6. The Passed-A waiver works only when explicitly set to
-   `waive_on_passed_a`; every other attestation value remains required.
+Consecutive final fragments may be joined with one space for 1,500 ms from the
+first fragment. An interrupt, lifecycle change, or terminal transition clears
+the ephemeral fragments. A complete candidate is exactly three canonical
+tokens and every token belongs to the active word-list version. Digits,
+leading filler, and two-word or four-word values are non-candidates. Once the
+assembly window closes, an incomplete value causes one fixed re-prompt.
 
-Implementation expands this first red set with unit, repository, migration,
-eviction, interruption, concurrency, live-evidence, and mutation tests from
-the call-safety research. Each load-bearing guard must have a mutation that
-fails its owning test before review.
+The fixed phrases are:
 
-## Rollout order
+- prompt: “Passphrase, please.”
+- mismatch retry: “Please try your passphrase again.”
+- non-candidate re-prompt: “Please say only your passphrase.”
+- success acknowledgement: “Verified.”
+- refusal: “Verification failed. Ending this call.”
 
-1. Merge PR #31 after max review.
-2. Rebase the implementation branch on that merged `main` and preserve all
-   mailbox entries.
-3. Check `main` and `docs/AGENT_LOG.md`, then take the next unreserved
-   migration number; never use R2's `0016`.
-4. Implement verifier creation and rotation, authority binding, schema guards,
-   inbound attestation, outbound step-up, alerts, and live evidence.
-5. Run focused tests, mutations, the complete Windows suites, and max review.
-6. Configure the pepper and `passphrase_always`, set the phrase through the
-   reviewed device path, and keep inbound closed until attended live smoke.
-7. Run inbound, outbound-answer, outbound-no-answer, and
-   `owner-step-up-refused` evidence. No release claim precedes those records.
+The outbound neutral line remains “Jarvis called for Sid. No private message
+was left.” No fixed utterance may canonicalize to a complete candidate. A
+table-driven test enforces that rule, and a final whose canonical form equals
+any fixed utterance is silently discarded as echo.
+
+## Step-up window and rejection
+
+The 60-second step-up window begins when the first passphrase prompt is sent.
+The Durable Object persists the deadline and lifecycle generation and sets an
+alarm for that deadline. The alarm and every incoming frame compare both the
+current time and generation before acting. This is separate from the
+five-minute unconnected relay-setup expiry and the authentication budget
+window; neither of those ends a connected `pre_auth` call.
+
+Three mismatches, three non-candidate re-prompts, or the 60-second deadline
+ends the call. Re-prompt exhaustion and timeout record their own fixed terminal
+reason and do not masquerade as a mismatch or lockout. The sequence is a fixed
+refusal line, a ConversationRelay `end` frame with fixed `handoffData`, and a
+signed action callback that returns `<Hangup/>`. A policy WebSocket close is a
+fallback only if the clean end cannot be sent.
+
+Tests use a manual clock and prove the alarm's lifecycle-generation check,
+including an old alarm arriving after a newer lifecycle began.
+
+## Successful step-up and repeat suppression
+
+A match produces a nominal single-use proof bound to session ID, CallSid,
+direction, verifier version, lifecycle generation, and verification time. D1
+commits the successful step-up receipt and owner authority atomically, then the
+session becomes active. The fixed “Verified.” acknowledgement is sent
+immediately after that commit without a model call.
+
+Finals received while verification is in flight and during a two-second guard
+window after success are discarded. The first later active final that has the
+candidate shape is compared once against the active verifier; if it matches,
+it is silently discarded as a likely repeat. A non-match continues as ordinary
+owner speech. This prevents a repeated correct phrase from entering
+transcripts, archives, memory, or DeepSeek after a slow verification.
+
+Eviction reconstructs the step-up state, deadline, attempt ordinals, and
+current lifecycle generation from durable state. It never stores or
+reconstructs candidate text.
+
+## Authority and database enforcement
+
+The authority service consumes a successful proof once. A D1 trigger refuses
+an owner-authority insert unless the immutable binding is `waived_passed_a` or
+a matching successful step-up row exists for the same session, CallSid,
+direction, lifecycle generation, owner identity, and verifier version. The
+step-up verifier version must still equal the active verifier version, so a
+proof issued immediately before rotation cannot mint authority afterwards.
+Bindings, step-up receipts, attempt rows, and authority rows are immutable.
+
+This D1 rule protects application writers that attempt to mint authority while
+omitting the required step-up. It does not claim to defend against a writer
+that can forge both the authority and every matching proof row.
+
+The implementation migration must drop and recreate the existing authority
+lineage trigger. Remote D1 trigger bodies use only either `WHEN ... BEGIN
+SELECT RAISE(ABORT, ...); END` or `SELECT RAISE(ABORT, ...) WHERE ...`. They
+never use `CASE ... RAISE`, which remote D1 rejects.
+
+A waived session receives ordinary conversation authority but cannot use
+`access.manage` or change security settings until the phrase also passes in
+that call. Every guest-grant create, change, PIN rotation, or revocation emits
+a fixed Telegram notice containing only the operation, masked target, and
+time.
+
+## Alerts and cost bounds
+
+Rejected step-ups and owner-identity admission refusals alert Sid through the
+existing durable Telegram path. The first alert is immediate; later alerts of
+the same class coalesce into one count at most every 15 minutes. Alerts never
+contain speech, candidates, phone numbers, or raw provider values. Inbound
+step-up alerts may contain the fixed attestation category. Outbound alerts omit
+that field because outbound has no caller attestation.
+
+Using the research's $0.0785-per-minute list-price assumption, the 60-second
+step-up window bounds ConversationRelay pre-auth time to about $0.0785 per
+call, before any carrier/setup charge or provider rounding. Interrupted calls
+may still cost money. The existing owner-configured Twilio capacity guard
+remains the admission boundary. The first landing records pre-auth minutes
+separately for review but does not add a rejecting pre-auth sub-budget: such a
+cross-call rejection would recreate the lockout this design removes. Live cost
+evidence decides whether a later, owner-configured sub-budget is warranted.
+
+## Enrollment and first-call onboarding
+
+The phone-enrollment webhook creates a live caller-ID-only window before this
+step-up ships. After the activation status becomes `active`, the enrollment
+runbook therefore requires removing or redirecting the webhook immediately,
+then rerunning the read-only status command and confirming `active` before
+leaving the attended window. Inbound reopens only after the passphrase runtime
+is deployed and a generated phrase passes an attended spoken check.
+
+The later first-call onboarding is parked, never performed while driving, and
+depends on R2 memory however it is hosted. It is a separate protocol:
+
+1. A device-issued, single-use challenge opens a setup-only call segment with
+   no owner authority.
+2. Deterministic handlers generate and commit the owner verifier and write
+   guest-PIN records. The generated phrase is returned once to the trusted CLI
+   display; candidates never enter the model.
+3. Sid speaks the new phrase once through the ordinary step-up path. Only that
+   normal successful receipt can mint owner authority.
+4. After every setting has a durable verified receipt, Jarvis may begin the
+   interview and write only owner-confirmed answers to memory.
+
+The interview is outside this PR and must not drive R1 or R2 implementation.
+
+## Voice latency and retrieval
+
+Passphrase step-up adds speech endpointing, one 600,000-iteration verification,
+and one D1 commit before a fixed acknowledgement. It is outside the
+authenticated-turn first-audible measurement but should add only a few seconds
+to call entry.
+
+The shared R2 context retriever is measured against the 4,000 ms p95
+first-audible release gate, not the model's 30-second total deadline. Voice
+retrieval gets a 750 ms hard timeout. On timeout or retrieval failure, the turn
+continues with no extra retrieved context; cancellation still prevents a model
+call. The timeout is covered with a manual clock and must be revisited if live
+first-audible evidence consumes the remaining budget.
+
+## Implementation test contract
+
+This docs-only branch contains no executable red tests and no fake-harness
+changes. The later implementation branch must add
+`voice-owner-passphrase-security.test.ts`, include it in the voice typecheck and
+release gate, and use only a single targeted `@ts-expect-error` while a typed
+port is genuinely absent. It must incorporate the stronger assertions and
+proofs in
+`claude/r1-call-safety-research:docs/reviews/2026-09-14-pr33-tests/`.
+
+At minimum, tests must prove:
+
+- no owner authority, personal-context read, model call, or owner command
+  before step-up, inbound and outbound;
+- a correct phrase succeeds, a never-accepting verifier fails, and matching,
+  mismatch, rejection, termination, and deferred-work paths leak no raw or
+  normalized candidate, fragment, word array, unpeppered hash, byte buffer, or
+  structured value to any named sink;
+- DTMF cannot authenticate an owner; missing policy is not masked; outbound is
+  never waived; and exact attestation rejects duplicates, padding,
+  `-Diverted`, `-Passthrough`, case changes, and every non-exact value;
+- two wrong candidates, core eviction, and a third wrong candidate produce one
+  durable rejection and one coalesced alert;
+- split finals, filler, digits, two- and four-word finals, interruption, fixed
+  echo, concurrent finals, timeout, re-prompt exhaustion, and post-success
+  repeats follow this state machine;
+- the clean ConversationRelay `end` and `<Hangup/>` path is used, with policy
+  close only as a tested fallback; and
+- the disabled waiver remains present, exact, explicit, inbound-only, and
+  unable to authorize access management without phrase step-up.
+
+Every load-bearing guard needs a mutation that fails its owning test.
+
+## Migration and rollout order
+
+R2 owns migration `0016`. The implementation branch checks `main` and the
+newest `docs/AGENT_LOG.md`, posts its intent there, and takes the next
+unreserved number. This document does not reserve one.
+
+1. Merge this documentation-only PR after max review.
+2. Create the implementation branch from current `main`; bring over the
+   stronger red contract from the review artifact and make each case green.
+3. Take the next unreserved migration number and implement verifier generation
+   and rotation, durable attempts, authority binding, exact attestation,
+   alarm-backed timing, clean termination, alerts, recovery, and evidence.
+4. Run focused tests and mutations, the complete Windows suites, and max
+   review. Do not treat unavailable GitHub Actions as evidence.
+5. Deploy reviewed code and configuration with inbound still closed.
+6. Generate the phrase through the signed CLI, complete one attended spoken
+   verification, and only then open inbound.
+7. Run inbound, outbound-answer, outbound-no-answer,
+   `owner-step-up-refused`, and the remaining retained smoke scenarios. No
+   release claim precedes all required redacted records.
 
 The source reports are
 [`docs/research/2026-09-14-callerid-spoofing-options.md`](../../research/2026-09-14-callerid-spoofing-options.md)
 and
 [`docs/research/2026-09-14-outbound-voicemail-options.md`](../../research/2026-09-14-outbound-voicemail-options.md).
+The caller-ID report's §6.2 reference to migration `0016` is superseded: R2
+owns `0016`, and the implementation must take the next unreserved number.
