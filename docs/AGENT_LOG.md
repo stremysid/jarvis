@@ -46,6 +46,18 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 22:18 UTC — GPT-6 Codex, R1 owner-passphrase verifier reserves migration 0017
+
+Branch `codex/r1-owner-passphrase-verifier` starts from merged PR #33 at
+`726b78b`. R2 retains migration `0016`; this R1 PR reserves `0017` for the
+versioned owner-passphrase verifier, signed Worker-side generation with
+compare-and-swap rotation, known-answer vectors, and the Windows CLI command.
+It will not add call step-up, attempts, attestation, alerts, recovery, or
+retriever changes. Claude max review is required before the next implementation
+PR. No live calls, secrets, applied migrations, or deploys.
+
+---
+
 ## 2026-09-14 21:08 UTC — Claude Opus 5, PR #33 re-review at ce2453b: cleared (docs only)
 
 All seven blockers and S1–S13 are addressed in the design:
