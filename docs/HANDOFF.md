@@ -98,8 +98,11 @@ query result. The normal command remains non-live until reviewed adapters and
 boolean prerequisite observations are injected; no live record was generated.
 Item 3 still requires the live smoke. The separate item-4 candidate on
 `codex/r1-retire-legacy-pin` removes the legacy eight-digit owner verifier,
-updates the foundation design to the current PIN-free-owner and grant-bound
-guest model, and adds PR #28's evidence-store failure regression. It does not
+updates the foundation design to the grant-bound guest model, and adds PR
+#28's evidence-store failure regression. Its PIN-free owner wording is
+superseded by the
+2026-09-14 owner-passphrase design; live smoke must use the later six-record
+step-up contract. It does not
 delete the stored `PIN_VERIFIER_JSON` secret or deploy anything. That stored
 secret is already deletable as the separate owner-confirmed step in
 `docs/runbooks/deploy.md`; do not run it during a live call or attended
@@ -123,11 +126,13 @@ controls do not close it. R1 live smoke remains blocked until a fresh signed
 status reports the owner phone active.
 
 The current inbound owner path trusts Twilio's signed `From` number without
-STIR/SHAKEN attestation or another owner factor. Calling is not live. Sid must
-choose the reviewed identity-hardening direction before live calls; no option
-is authorized yet. The device-signed begin response also reveals whether a
-supplied number matches stored enrollment state. Both are recorded in
-`KNOWN_ISSUES.md` rather than silently changing recovery semantics in PR #31.
+STIR/SHAKEN attestation or another owner factor. Calling is not live. Sid chose
+a spoken phrase on every inbound and outbound owner call, three tries, no
+persistent lockout, and an exact Passed-A waiver built but switched off. Draft
+PR #33 contains the reviewed documentation contract; implementation and live
+acceptance remain outstanding. The device-signed begin response also reveals
+whether a supplied number matches stored enrollment state. Both current-code
+gaps are recorded in `KNOWN_ISSUES.md`.
 
 Sid's PCs run Windows 11 and his phone is an iPhone 16. There is no Linux
 host, server or VPS; the home PC is off overnight. No Windows node port or

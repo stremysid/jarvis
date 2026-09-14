@@ -1,19 +1,41 @@
 # Known issues
 
-## Inbound owner admission trusts the Twilio caller number without attestation
+## Owner calls lack the decided passphrase boundary
 
-The signed Twilio webhook proves that Twilio delivered the request, but current
-owner admission treats a matching `From` number as sufficient owner identity.
-Nothing in the gateway reads STIR/SHAKEN `StirVerstat` or requires another
-owner factor. Once calling goes live, spoofing the enrolled number could reach
-an owner session with memory access. A spoofed caller could also consume the
-three-attempt challenge budget and the six-attempt five-minute principal budget
-during enrollment.
+Inbound owner admission currently trusts the enrolled `From` number after
+Twilio request verification. A valid Twilio signature proves the request came
+through Twilio; it does not prove the caller is Sid. The runtime does not read
+or bind STIR/SHAKEN attestation, so someone who spoofs the enrolled number is
+granted owner authority and can reach private memory and guest-access controls.
 
-Calling is not live, so there is no current exposure. The reviewer is sizing
-attestation gating, a spoken owner passphrase, and a hybrid for Sid to choose.
-Do not make a live call or build one of those options until Sid records the
-decision.
+Outbound has the sibling gap. After an exact relay binding succeeds, the call
+session says the neutral line and immediately grants owner authority. It has no
+human-versus-answering-machine detection. A voicemail greeting delivered as a
+final transcript can be treated as owner input and can cause a memory-backed
+response to be spoken into the recording. The runtime also does not
+automatically state the outbound command's authorized purpose.
+
+Sid decided on a spoken passphrase for every inbound and outbound owner call,
+three tries before the call ends, no persistent lockout, and a Passed-A waiver
+that is built but switched off. The reviewed design chooses three generated
+words and an evidence gate for any later waiver enablement. Until step-up ships
+and passes live acceptance, both paths are release blockers and inbound must
+remain closed. The passphrase protects private disclosure to voicemail;
+answering-machine detection remains an optional cost optimization. The
+security contract and implementation order are in
+[`docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md`](docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md).
+
+## Guest PIN attempt counts reset when a call Durable Object hibernates
+
+The guest path keeps `#failedPinAttempts` in the in-memory call-session core.
+Cloudflare Durable Object hibernation reconstructs that core and resets the
+count while the same call remains in `pre_auth`. A caller can therefore avoid
+the promised three-attempt terminal state by pausing between attempts.
+
+The owner-passphrase implementation must move guest and owner per-call attempt
+ordinals into durable state, write each ordinal before verification, and commit
+the third mismatch with the terminal rejection. Until then, the guest
+three-attempt claim is not reliable across hibernation.
 
 ## Owner-phone begin can reveal whether a supplied number matches stored state
 
@@ -30,20 +52,6 @@ Changing retry semantics affects recovery when the owner loses a displayed
 response, so the reviewer left this as a design choice rather than a merge
 blocker. Before calling goes live, decide whether a pending begin should return
 one indistinguishable state and wait for expiry instead of rotating the code.
-
-## Outbound voice does not distinguish Sid from voicemail after the neutral greeting
-
-After an exact outbound relay binding succeeds, the current call session says
-the neutral line and immediately grants owner authority. It has no
-human-versus-answering-machine detection. A voicemail greeting delivered as a
-final transcript can therefore be treated as owner input and can cause a
-memory-backed response to be spoken into the recording. The runtime also does
-not automatically state the outbound command's authorized purpose.
-
-The neutral first line remains useful, but it is not a voicemail privacy
-boundary. R1's outbound answer/no-answer live acceptance must observe this
-path. Adding answering-machine detection is a separate product and cost
-decision; PR #32 only corrects the specification and does not implement it.
 
 ## PR #28 evidence-store guards include deliberate redundancy
 
