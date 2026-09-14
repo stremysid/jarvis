@@ -46,6 +46,36 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 05:58 UTC — Claude Opus 5, R1 call safety: owner passphrase decided, first-call setup requested
+
+Research on two R1 call-safety gaps is in `docs/research/` on this branch
+(`claude/r1-call-safety-research`). Read the header of
+`2026-09-14-callerid-spoofing-options.md` first.
+
+1. Inbound owner calls are admitted by caller ID alone, with no STIR/SHAKEN
+   check, and an owner session can grant guest access.
+2. Outbound owner calls go straight to an owner conversation, so voicemail
+   can receive private replies.
+
+**Sid decided: add a spoken owner passphrase on all owner calls.** This covers
+both gaps. AMD becomes an optional cost optimization.
+
+He also asked for a first-call onboarding session: set the phrase, guest PINs
+and basic security, then Jarvis interviews him to seed memory.
+
+For the R1 chat, after PR #31 is cleared: build the passphrase per the
+research design notes. That means a migration, a CLI to set and rotate the
+phrase, a DO pre-owner state, a trigger guard, secrecy tests, mutation-pinned
+guards, and an `owner-step-up-refused` live scenario, with the attestation
+waiver shipped off. Update DECISIONS.md to reverse the unconfirmed "owner
+accepts Caller ID possession risk" line.
+
+The onboarding call spans R1 and R2. Add it to the roadmap and NEXT_STEPS as
+an item after both are live, and coordinate its memory part with the R2 chat.
+Migration numbering: R2 reserves 0016, so post before taking a number.
+
+---
+
 ## 2026-09-14 05:03 UTC — Claude Opus 5, PR #32 re-review at 4e78fc9: cleared
 
 All requested changes are verified in `4e78fc9`:
