@@ -25,13 +25,21 @@ export interface TopicTransition {
   readonly transitionId: string;
   readonly occurredAt: string;
   readonly actor: TopicActor;
-  readonly operation: "rename" | "move" | "merge";
+  readonly operation: "create" | "file" | "rename" | "move" | "merge";
   readonly topicId: string;
+  readonly filingId?: string;
+  readonly memoryId?: string;
+  readonly relation?: TopicRelation;
+  readonly filedBy?: TopicActor;
+  readonly confidence?: number;
   readonly fromName?: string;
   readonly toName?: string;
   readonly fromParentTopicId?: string;
   readonly toParentTopicId?: string;
   readonly mergedIntoTopicId?: string;
+  readonly movedChildTopicIds?: readonly string[];
+  readonly movedFilingIds?: readonly string[];
+  readonly addedAliases?: readonly string[];
 }
 
 export interface TopicTree {
@@ -65,7 +73,18 @@ function freezeTree(tree: TopicTree): TopicTree {
     rootTopicId: tree.rootTopicId,
     topics: Object.freeze(tree.topics.map(freezeTopic)),
     filings: Object.freeze(tree.filings.map((filing) => Object.freeze({ ...filing }))),
-    history: Object.freeze(tree.history.map((entry) => Object.freeze({ ...entry }))),
+    history: Object.freeze(tree.history.map((entry) => Object.freeze({
+      ...entry,
+      movedChildTopicIds: entry.movedChildTopicIds === undefined
+        ? undefined
+        : Object.freeze([...entry.movedChildTopicIds]),
+      movedFilingIds: entry.movedFilingIds === undefined
+        ? undefined
+        : Object.freeze([...entry.movedFilingIds]),
+      addedAliases: entry.addedAliases === undefined
+        ? undefined
+        : Object.freeze([...entry.addedAliases]),
+    }))),
   });
 }
 
@@ -128,10 +147,12 @@ function withTransition(
   tree: TopicTree,
   topics: readonly TopicNode[],
   transition: TopicTransition,
+  filings: readonly TopicFiling[] = tree.filings,
 ): TopicTree {
   return freezeTree({
     ...tree,
     topics,
+    filings,
     history: [...tree.history, transition],
   });
 }
@@ -174,7 +195,9 @@ export function addTopic(
     readonly name: string;
     readonly parentTopicId: string;
   },
+  change: TopicChange,
 ): TopicTree {
+  validateChange(tree, change);
   requireIdentifier(input.topicId, "topic_id_invalid");
   if (tree.topics.some((topic) => topic.topicId === input.topicId)) {
     throw new RangeError("topic_id_exists");
@@ -183,16 +206,20 @@ export function addTopic(
   activeTopic(tree, parentTopicId);
   const name = normalizeName(input.name);
   requireUniqueSiblingName(tree, parentTopicId, name);
-  return freezeTree({
-    ...tree,
-    topics: [...tree.topics, {
-      topicId: input.topicId,
-      name,
-      parentTopicId,
-      aliases: [],
-      status: "active",
-      redirectToTopicId: null,
-    }],
+  const topics: readonly TopicNode[] = [...tree.topics, {
+    topicId: input.topicId,
+    name,
+    parentTopicId,
+    aliases: [],
+    status: "active",
+    redirectToTopicId: null,
+  }];
+  return withTransition(tree, topics, {
+    ...change,
+    operation: "create",
+    topicId: input.topicId,
+    toName: name,
+    toParentTopicId: parentTopicId,
   });
 }
 
@@ -206,7 +233,9 @@ export function fileMemory(
     readonly filedBy: TopicActor;
     readonly confidence: number;
   },
+  change: TopicChange,
 ): TopicTree {
+  validateChange(tree, change);
   requireIdentifier(input.filingId, "topic_filing_id_invalid");
   requireIdentifier(input.memoryId, "topic_memory_id_invalid");
   if (tree.filings.some((filing) => filing.filingId === input.filingId)) {
@@ -224,10 +253,17 @@ export function fileMemory(
   }
   const topicId = resolveTopicId(tree, input.topicId);
   activeTopic(tree, topicId);
-  return freezeTree({
-    ...tree,
-    filings: [...tree.filings, Object.freeze({ ...input, topicId })],
-  });
+  const filing = Object.freeze({ ...input, topicId });
+  return withTransition(tree, tree.topics, {
+    ...change,
+    operation: "file",
+    topicId,
+    filingId: input.filingId,
+    memoryId: input.memoryId,
+    relation: input.relation,
+    filedBy: input.filedBy,
+    confidence: input.confidence,
+  }, [...tree.filings, filing]);
 }
 
 export function topicPath(tree: TopicTree, topicId: string): readonly string[] {
@@ -342,12 +378,20 @@ export function mergeTopics(
 
   const movingChildren = tree.topics.filter((topic) =>
     topic.status === "active" && topic.parentTopicId === source.topicId);
+  const movingFilings = tree.filings.filter((filing) => filing.topicId === source.topicId);
   for (const child of movingChildren) {
     requireUniqueSiblingName(tree, target.topicId, child.name, child.topicId);
   }
   const targetAliases = [...target.aliases];
+  const targetAliasKeys = new Set([target.name, ...target.aliases].map(nameKey));
+  const addedAliases: string[] = [];
   for (const alias of [source.name, ...source.aliases]) {
-    if (!targetAliases.includes(alias) && alias !== target.name) targetAliases.push(alias);
+    const key = nameKey(alias);
+    if (!targetAliasKeys.has(key)) {
+      targetAliasKeys.add(key);
+      targetAliases.push(alias);
+      addedAliases.push(alias);
+    }
   }
 
   const topics = tree.topics.map((topic) => {
@@ -369,5 +413,8 @@ export function mergeTopics(
     operation: "merge",
     topicId: source.topicId,
     mergedIntoTopicId: target.topicId,
+    movedChildTopicIds: movingChildren.map((child) => child.topicId),
+    movedFilingIds: movingFilings.map((filing) => filing.filingId),
+    addedAliases,
   });
 }

@@ -53,6 +53,16 @@ const FORBIDDEN_PROPOSAL_KEYS = new Set([
 ]);
 
 const FIRST_PERSON_TOKEN = /(?<![A-Za-z0-9_])(?:i(?:['’](?:m|ve|d|ll))?|me|my|mine|myself)(?![A-Za-z0-9_])/iu;
+const FIRST_PERSON_UNTRUSTED_FRAMING = [
+  /(?<![A-Za-z0-9_])(?:if|unless|whether|when)(?![A-Za-z0-9_])/iu,
+  /(?<![A-Za-z0-9_])(?:maybe|might)(?![A-Za-z0-9_])/iu,
+  /(?<![A-Za-z0-9_])i\s+think(?![A-Za-z0-9_])/iu,
+  /(?<![A-Za-z0-9_])i\s+(?:do\s+not|don['’]t)\s+know(?![A-Za-z0-9_])/iu,
+  /(?<![A-Za-z0-9_])not\s+sure(?![A-Za-z0-9_])/iu,
+  /(?<![A-Za-z0-9_])(?:says|said|told)(?![A-Za-z0-9_])/iu,
+] as const;
+const SENTENCE_PUNCTUATION: ReadonlySet<string> = new Set([".", "!", "?"]);
+const ASCII_WHITESPACE = new Set([" ", "\t", "\r", "\n", "\f", "\v"]);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null
@@ -61,24 +71,65 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
     && Object.getPrototypeOf(value) === Object.prototype;
 }
 
+function previousNonWhitespace(text: string, offset: number): number {
+  let index = offset - 1;
+  while (index >= 0 && ASCII_WHITESPACE.has(text[index] ?? "")) index -= 1;
+  return index;
+}
+
+function wholeSentenceMatch(sourceText: string, quote: string, offset: number): boolean {
+  const end = offset + quote.length;
+  const before = previousNonWhitespace(sourceText, offset);
+  if (before >= 0 && !SENTENCE_PUNCTUATION.has(sourceText[before] ?? "")) return false;
+
+  const immediateBefore = sourceText[offset - 1];
+  const immediateAfter = sourceText[end];
+  if (immediateBefore !== undefined && /[A-Za-z0-9_]/u.test(immediateBefore)) return false;
+  if (immediateAfter !== undefined && /[A-Za-z0-9_]/u.test(immediateAfter)) return false;
+
+  const quoteTerminator = quote.at(-1);
+  let terminator: string | undefined;
+  if (quoteTerminator !== undefined && SENTENCE_PUNCTUATION.has(quoteTerminator)) {
+    terminator = quoteTerminator;
+    if (immediateAfter !== undefined && !ASCII_WHITESPACE.has(immediateAfter)) return false;
+  } else if (immediateAfter === undefined) {
+    terminator = undefined;
+  } else if (SENTENCE_PUNCTUATION.has(immediateAfter)) {
+    terminator = immediateAfter;
+  } else {
+    return false;
+  }
+
+  if (terminator === "?" || quote.includes("?")) return false;
+  return !FIRST_PERSON_UNTRUSTED_FRAMING.some((pattern) => pattern.test(quote));
+}
+
 /**
- * Classify only evidence that is both verbatim and attributable to the owner.
- * A model paraphrase cannot manufacture the trusted origin.
+ * Classify only one complete, unframed sentence that is both verbatim and
+ * attributable to the owner. A model paraphrase, question, conditional,
+ * hedge, negation, or report of speech cannot manufacture the trusted origin.
  */
 export function isAuthenticatedFirstPersonQuote(input: FirstPersonQuoteInput): boolean {
   if (!input.authenticatedOwner) return false;
   const quote = input.quote.normalize("NFC").replace(/^ +| +$/gu, "");
   const sourceText = input.sourceText.normalize("NFC");
   if (quote.length === 0 || hasFactTextControls(quote)) return false;
-  return sourceText.includes(quote) && FIRST_PERSON_TOKEN.test(quote);
+  if (!FIRST_PERSON_TOKEN.test(quote)) return false;
+
+  let offset = sourceText.indexOf(quote);
+  while (offset !== -1) {
+    if (wholeSentenceMatch(sourceText, quote, offset)) return true;
+    offset = sourceText.indexOf(quote, offset + 1);
+  }
+  return false;
 }
 
 /** Apply the same closed promotion allowlist as the Python local agent. */
 export function decideAutomaticPromotion(
   input: AutomaticPromotionInput,
 ): AutomaticPromotionDecision {
-  const state = input.currentState === "superseded"
-    ? "superseded"
+  const state = input.currentState !== "proposed"
+    ? input.currentState
     : AUTO_PROMOTABLE_ORIGINS.has(input.origin)
       ? "active"
       : "proposed";

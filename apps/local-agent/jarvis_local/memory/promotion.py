@@ -39,6 +39,58 @@ _FIRST_PERSON_TOKEN = re.compile(
     r"(?<![A-Za-z0-9_])(?:i(?:['\N{RIGHT SINGLE QUOTATION MARK}](?:m|ve|d|ll))?|me|my|mine|myself)(?![A-Za-z0-9_])",
     re.IGNORECASE | re.ASCII,
 )
+_FIRST_PERSON_UNTRUSTED_FRAMING = (
+    re.compile(r"(?<![A-Za-z0-9_])(?:if|unless|whether|when)(?![A-Za-z0-9_])", re.I | re.ASCII),
+    re.compile(r"(?<![A-Za-z0-9_])(?:maybe|might)(?![A-Za-z0-9_])", re.I | re.ASCII),
+    re.compile(r"(?<![A-Za-z0-9_])i\s+think(?![A-Za-z0-9_])", re.I | re.ASCII),
+    re.compile(
+        r"(?<![A-Za-z0-9_])i\s+(?:do\s+not|don['\N{RIGHT SINGLE QUOTATION MARK}]t)\s+know"
+        r"(?![A-Za-z0-9_])",
+        re.I | re.ASCII,
+    ),
+    re.compile(r"(?<![A-Za-z0-9_])not\s+sure(?![A-Za-z0-9_])", re.I | re.ASCII),
+    re.compile(r"(?<![A-Za-z0-9_])(?:says|said|told)(?![A-Za-z0-9_])", re.I | re.ASCII),
+)
+_SENTENCE_PUNCTUATION = frozenset(".!?")
+_ASCII_WHITESPACE = frozenset(" \t\r\n\f\v")
+
+
+def _previous_non_whitespace(text: str, offset: int) -> int:
+    index = offset - 1
+    while index >= 0 and text[index] in _ASCII_WHITESPACE:
+        index -= 1
+    return index
+
+
+def _is_whole_trusted_sentence(source_text: str, quote: str, offset: int) -> bool:
+    end = offset + len(quote)
+    before = _previous_non_whitespace(source_text, offset)
+    if before >= 0 and source_text[before] not in _SENTENCE_PUNCTUATION:
+        return False
+
+    immediate_before = source_text[offset - 1] if offset > 0 else None
+    immediate_after = source_text[end] if end < len(source_text) else None
+    if immediate_before is not None and re.fullmatch(r"[A-Za-z0-9_]", immediate_before):
+        return False
+    if immediate_after is not None and re.fullmatch(r"[A-Za-z0-9_]", immediate_after):
+        return False
+
+    quote_terminator = quote[-1]
+    terminator: str | None
+    if quote_terminator in _SENTENCE_PUNCTUATION:
+        terminator = quote_terminator
+        if immediate_after is not None and immediate_after not in _ASCII_WHITESPACE:
+            return False
+    elif immediate_after is None:
+        terminator = None
+    elif immediate_after in _SENTENCE_PUNCTUATION:
+        terminator = immediate_after
+    else:
+        return False
+
+    if terminator == "?" or "?" in quote:
+        return False
+    return not any(pattern.search(quote) for pattern in _FIRST_PERSON_UNTRUSTED_FRAMING)
 
 
 def is_authenticated_first_person_quote(
@@ -47,14 +99,22 @@ def is_authenticated_first_person_quote(
     source_text: str,
     authenticated_owner: bool,
 ) -> bool:
-    """Accept only an exact first-person quote from the authenticated owner."""
+    """Accept only one complete, unframed first-person owner sentence."""
     if not authenticated_owner:
         return False
     normalized_quote = unicodedata.normalize("NFC", quote).strip(" ")
     normalized_source = unicodedata.normalize("NFC", source_text)
     if not normalized_quote or has_fact_text_controls(normalized_quote):
         return False
-    return normalized_quote in normalized_source and _FIRST_PERSON_TOKEN.search(normalized_quote) is not None
+    if _FIRST_PERSON_TOKEN.search(normalized_quote) is None:
+        return False
+
+    offset = normalized_source.find(normalized_quote)
+    while offset != -1:
+        if _is_whole_trusted_sentence(normalized_source, normalized_quote, offset):
+            return True
+        offset = normalized_source.find(normalized_quote, offset + 1)
+    return False
 
 
 def is_uncertain_origin(origin: FactOrigin) -> bool:
@@ -81,10 +141,10 @@ class PromotionEngine:
     def promote(self, fact: Fact) -> Fact:
         """Return the fact in the state it is entitled to.
 
-        A superseded fact is never revived: a correction already replaced it,
-        and re-promoting it would resurrect the claim Sid corrected.
+        Only a proposed fact is eligible for automatic promotion. Active facts
+        stay active, and superseded facts are never revived.
         """
-        if fact.state is FactState.SUPERSEDED:
+        if fact.state is not FactState.PROPOSED:
             return fact
         target = FactState.ACTIVE if self.is_auto_promotable(fact) else FactState.PROPOSED
         return self._apply(fact, target)

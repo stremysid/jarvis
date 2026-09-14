@@ -4,14 +4,14 @@
     {
       "name": "accepts an exact first-person quote from the authenticated owner",
       "quote": "I prefer short status updates",
-      "sourceText": "For Jarvis, I prefer short status updates after a completed step.",
+      "sourceText": "I prefer short status updates.",
       "authenticatedOwner": true,
       "expected": true
     },
     {
       "name": "accepts a curly-apostrophe first-person contraction",
       "quote": "I’m renovating St. Remy",
-      "sourceText": "I’m renovating St. Remy before starting another large project.",
+      "sourceText": "Earlier note. I’m renovating St. Remy. Another note.",
       "authenticatedOwner": true,
       "expected": true
     },
@@ -40,6 +40,69 @@
       "name": "rejects a first-person token embedded inside another word",
       "quote": "mystery",
       "sourceText": "The mystery remains unsolved.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a desired move quoted out of an owner hedge",
+      "quote": "I want to move to Boston",
+      "sourceText": "I don't know if I want to move to Boston.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a statement quoted out of an owner question",
+      "quote": "I sell my car",
+      "sourceText": "Should I sell my car?",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a first-person quote inside reported speech",
+      "quote": "I'm lazy",
+      "sourceText": "My brother says I'm lazy.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a future action quoted out of a conditional",
+      "quote": "I'll move to Ottawa",
+      "sourceText": "If I get the job I'll move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a prefix quote inside a denial question",
+      "quote": "I hate my job",
+      "sourceText": "Did I say I hate my jobs? No.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner question",
+      "quote": "Should I sell my car?",
+      "sourceText": "Should I sell my car?",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner conditional",
+      "quote": "If I get the job, I'll move to Ottawa.",
+      "sourceText": "If I get the job, I'll move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole hedged owner statement",
+      "quote": "I might move to Ottawa.",
+      "sourceText": "I might move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a whole owner statement framed as reported speech",
+      "quote": "I said I'm moving to Ottawa.",
+      "sourceText": "I said I'm moving to Ottawa.",
       "authenticatedOwner": true,
       "expected": false
     }
@@ -84,6 +147,14 @@
       "expectedState": "superseded",
       "expectedUncertain": false,
       "expectedConfirmed": false
+    },
+    {
+      "name": "automatic promotion never demotes an already active model fact",
+      "origin": "model",
+      "currentState": "active",
+      "expectedState": "active",
+      "expectedUncertain": true,
+      "expectedConfirmed": false
     }
   ],
   "validationCases": [
@@ -118,6 +189,24 @@
         "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"],
         "confidence": 1,
         "sensitivity": "normal",
+        "origin": "model",
+        "uncertain": true
+      }
+    },
+    {
+      "name": "preserves an explicitly sensitive model proposal",
+      "suppliedSourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"],
+      "proposal": {
+        "text": "Sid stores private records in the locked drawer.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"],
+        "confidence": 0.75,
+        "sensitivity": "sensitive"
+      },
+      "expected": {
+        "text": "Sid stores private records in the locked drawer.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"],
+        "confidence": 0.75,
+        "sensitivity": "sensitive",
         "origin": "model",
         "uncertain": true
       }

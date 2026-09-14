@@ -24,17 +24,17 @@ const nestedTree = () => {
     topicId: "st-remy",
     name: "St. Remy",
     parentTopicId: "root",
-  });
+  }, change("create-st-remy"));
   tree = addTopic(tree, {
     topicId: "website",
     name: "Website",
     parentTopicId: "st-remy",
-  });
+  }, change("create-website"));
   return addTopic(tree, {
     topicId: "checkout",
     name: "Checkout",
     parentTopicId: "website",
-  });
+  }, change("create-checkout"));
 };
 
 describe("topic tree", () => {
@@ -46,7 +46,7 @@ describe("topic tree", () => {
       relation: "primary",
       filedBy: "model",
       confidence: 0.86,
-    });
+    }, change("file-memory-1"));
 
     expect(topicPath(tree, "checkout")).toEqual([
       "Memory",
@@ -68,7 +68,7 @@ describe("topic tree", () => {
       relation: "primary",
       filedBy: "model",
       confidence: 0.7,
-    });
+    }, change("file-memory-1"));
 
     expect(() =>
       fileMemory(once, {
@@ -78,7 +78,7 @@ describe("topic tree", () => {
         relation: "primary",
         filedBy: "model",
         confidence: 0.8,
-      }),
+      }, change("file-memory-2")),
     ).toThrow("topic_primary_filing_exists");
   });
 
@@ -109,7 +109,7 @@ describe("topic tree", () => {
       topicId: "work",
       name: "Work",
       parentTopicId: "root",
-    });
+    }, change("create-work"));
     const moved = moveTopic(tree, "website", "work", change("t-2"));
 
     expect(topicPath(moved, "checkout")).toEqual([
@@ -141,7 +141,7 @@ describe("topic tree", () => {
       topicId: "digital",
       name: "Digital",
       parentTopicId: "st-remy",
-    });
+    }, change("create-digital"));
     tree = fileMemory(tree, {
       filingId: "filing-1",
       memoryId: "memory-1",
@@ -149,7 +149,7 @@ describe("topic tree", () => {
       relation: "primary",
       filedBy: "model",
       confidence: 0.9,
-    });
+    }, change("file-memory-1"));
     const merged = mergeTopics(tree, "website", "digital", change("t-4"));
 
     expect(resolveTopicId(merged, "website")).toBe("digital");
@@ -165,6 +165,126 @@ describe("topic tree", () => {
       operation: "merge",
       topicId: "website",
       mergedIntoTopicId: "digital",
+      movedChildTopicIds: ["checkout"],
+      movedFilingIds: ["filing-1"],
+      addedAliases: ["Website"],
+    });
+  });
+
+  it("records topic creation and filing as reversible transitions", () => {
+    let tree = createTopicTree({ topicId: "root", name: "Memory" });
+    tree = addTopic(tree, {
+      topicId: "personal",
+      name: "Personal",
+      parentTopicId: "root",
+    }, change("create-personal"));
+    tree = fileMemory(tree, {
+      filingId: "filing-1",
+      memoryId: "memory-1",
+      topicId: "personal",
+      relation: "primary",
+      filedBy: "model",
+      confidence: 0.8,
+    }, change("file-memory-1"));
+
+    expect(tree.history).toEqual([
+      expect.objectContaining({
+        transitionId: "create-personal",
+        operation: "create",
+        topicId: "personal",
+        toName: "Personal",
+        toParentTopicId: "root",
+      }),
+      expect.objectContaining({
+        transitionId: "file-memory-1",
+        operation: "file",
+        filingId: "filing-1",
+        memoryId: "memory-1",
+        topicId: "personal",
+        relation: "primary",
+        filedBy: "model",
+        confidence: 0.8,
+      }),
+    ]);
+  });
+
+  it("rejects invalid root, cycle, duplicate-name, confidence, and transition changes", () => {
+    let tree = nestedTree();
+    tree = addTopic(tree, {
+      topicId: "digital",
+      name: "Digital",
+      parentTopicId: "st-remy",
+    }, change("create-digital"));
+
+    expect(() => addTopic(tree, {
+      topicId: "website-duplicate",
+      name: "website",
+      parentTopicId: "st-remy",
+    }, change("create-duplicate"))).toThrow("topic_sibling_name_exists");
+    expect(() => moveTopic(tree, "root", "st-remy", change("move-root"))).toThrow(
+      "topic_root_cannot_move",
+    );
+    expect(() => mergeTopics(tree, "root", "st-remy", change("merge-root"))).toThrow(
+      "topic_root_cannot_merge",
+    );
+    expect(() => mergeTopics(tree, "st-remy", "checkout", change("merge-cycle"))).toThrow(
+      "topic_merge_cycle",
+    );
+    expect(() => fileMemory(tree, {
+      filingId: "filing-too-confident",
+      memoryId: "memory-too-confident",
+      topicId: "website",
+      relation: "primary",
+      filedBy: "model",
+      confidence: 1.01,
+    }, change("file-too-confident"))).toThrow("topic_filing_confidence_invalid");
+    expect(() => renameTopic(tree, "website", "Web", change("create-digital"))).toThrow(
+      "topic_transition_id_exists",
+    );
+  });
+
+  it("rejects a merge that would create duplicate child names", () => {
+    let tree = nestedTree();
+    tree = addTopic(tree, {
+      topicId: "digital",
+      name: "Digital",
+      parentTopicId: "st-remy",
+    }, change("create-digital"));
+    tree = addTopic(tree, {
+      topicId: "digital-checkout",
+      name: "Checkout",
+      parentTopicId: "digital",
+    }, change("create-digital-checkout"));
+
+    expect(() => mergeTopics(tree, "website", "digital", change("merge-duplicate"))).toThrow(
+      "topic_sibling_name_exists",
+    );
+  });
+
+  it("reparents merged children so walking the target includes grandchildren", () => {
+    let tree = nestedTree();
+    tree = addTopic(tree, {
+      topicId: "digital",
+      name: "Digital",
+      parentTopicId: "st-remy",
+    }, change("create-digital"));
+    tree = fileMemory(tree, {
+      filingId: "filing-checkout",
+      memoryId: "memory-checkout",
+      topicId: "checkout",
+      relation: "primary",
+      filedBy: "model",
+      confidence: 0.9,
+    }, change("file-checkout"));
+
+    const merged = mergeTopics(tree, "website", "digital", change("merge-website"));
+
+    expect(merged.topics.find((topic) => topic.topicId === "checkout")?.parentTopicId).toBe(
+      "digital",
+    );
+    expect(walkTopic(merged, "digital")).toEqual({
+      topicIds: ["digital", "checkout"],
+      filings: [merged.filings[0]],
     });
   });
 });
