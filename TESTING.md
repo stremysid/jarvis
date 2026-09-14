@@ -140,8 +140,11 @@ The voice smoke contract is credential-free and offline by default:
 pnpm test:voice-smoke
 ```
 
-`pnpm smoke:voice -- --scenario inbound` must report `skipped` — this branch
-contains no live driver. `pnpm release:voice-gate` only audits already
+`pnpm smoke:voice -- --scenario inbound` must report `skipped`. The command
+does not load an executable or module from the environment. Release tooling
+must inject the reviewed preflight, scenario and enrolled-operator evidence
+adapters into the driver and must supply boolean secret presence plus the
+observed `jarvis doctor` result. `pnpm release:voice-gate` only audits already
 generated redacted evidence and exits nonzero if any is absent or invalid.
 `pnpm clean:voice-smoke-evidence` removes those files.
 

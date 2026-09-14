@@ -1,4 +1,4 @@
-import { readFile, rm } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   REQUIRED_LIVE_CONFIGURATION,
@@ -9,6 +9,7 @@ import {
   parseSmokeArguments,
   runVoiceSmoke,
 } from "./voice-smoke.ts";
+import { createFileEvidenceStore } from "./voice-smoke-store.mjs";
 
 const OWNER_VOICE_IDENTITY_CONFIGURATION = "OWNER_VOICE_IDENTITY_ID";
 
@@ -21,17 +22,7 @@ function evidencePath(name) {
   return fileURLToPath(new URL(`./evidence/${name}`, import.meta.url));
 }
 
-const store = {
-  async writeTemporary() {
-    throw new Error("live_driver_unavailable");
-  },
-  async commitTemporary() {
-    throw new Error("live_driver_unavailable");
-  },
-  async remove(name) {
-    await rm(evidencePath(name), { force: true });
-  },
-};
+const store = createFileEvidenceStore(new URL("./evidence/", import.meta.url));
 
 async function audit() {
   try {
@@ -76,11 +67,17 @@ export async function runSmokeCommand(arguments_, overrides = {}) {
   try {
     const parsed = parseSmokeArguments(arguments_);
     const configuration = liveGateConfiguration(environment);
-    const result = await runGate({
+    const input = {
       ...parsed,
       configuration,
-      secretPresence: {},
-    }, {});
+      secretPresence: overrides.secretPresence ?? {},
+    };
+    if (Object.prototype.hasOwnProperty.call(overrides, "doctorExitCode")) input.doctorExitCode = overrides.doctorExitCode;
+    const evidenceStore = overrides.store ?? store;
+    const dependencies = overrides.driver === undefined
+      ? { store: evidenceStore }
+      : { driver: overrides.driver, store: evidenceStore };
+    const result = await runGate(input, dependencies);
     writeStdout(formatRunResult(result));
     return result.status === "blocked" ? 2 : 0;
   } catch {

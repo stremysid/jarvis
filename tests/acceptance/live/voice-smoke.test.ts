@@ -13,6 +13,7 @@ import {
   runVoiceSmoke,
   validateEvidence,
   type EvidenceStore,
+  type VoiceSmokeDriver,
 } from "./voice-smoke.js";
 
 const inboundConversationTurn = {
@@ -431,6 +432,41 @@ describe("offline evidence lifecycle", () => {
 });
 
 describe("safe command contract", () => {
+  it("passes an injected live driver, evidence store, doctor result, and boolean secret presence into the gate", async () => {
+    const cli = await import("./voice-smoke-cli.mjs");
+    const store = new MemoryEvidenceStore();
+    const driver: VoiceSmokeDriver = { run: async () => inboundEvidence };
+    const stdout: string[] = [];
+    const gateDependencies: unknown[] = [];
+    const gateInputs: unknown[] = [];
+
+    const exitCode = await cli.runSmokeCommand([
+      "--scenario", "inbound", "--execute-live", "--confirm-live", LIVE_VOICE_SMOKE_CONFIRMATION,
+    ], {
+      environment: completeGate.configuration,
+      secretPresence: completeGate.secretPresence,
+      doctorExitCode: 0,
+      driver,
+      store,
+      runGate: async (input: unknown, dependencies: unknown) => {
+        gateInputs.push(input);
+        gateDependencies.push(dependencies);
+        return runVoiceSmoke(input as typeof completeGate & { scenario: "inbound" }, dependencies as { driver: VoiceSmokeDriver; store: EvidenceStore });
+      },
+      writeStdout: (value: string) => { stdout.push(value); },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(gateInputs).toEqual([{
+      ...completeGate,
+      scenario: "inbound",
+      configuration: { ...completeGate.configuration, OWNER_VOICE_IDENTITY_ID: true },
+    }]);
+    expect(gateDependencies).toEqual([{ driver, store }]);
+    expect(stdout).toEqual(['{"status":"passed","evidencePath":"tests/acceptance/live/evidence/inbound.json"}\n']);
+    expect([...store.files.keys()]).toEqual(["inbound.json"]);
+  });
+
   it("passes only an owner presence sentinel to the gate and never emits the raw identity", async () => {
     const priorExitCode = process.exitCode;
     const priorStderrWrite = process.stderr.write;

@@ -293,9 +293,21 @@ All gates below must pass before an injected live driver may run:
 5. Boolean presence confirmation—never secret values or fingerprints—for `DEEPSEEK_API_KEY`, `GUEST_PIN_PEPPER_V1`, `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, and `TWILIO_AUTH_TOKEN`.
 6. An enrolled human smoke-operator proof for authenticated readiness and aggregate evidence queries.
 7. A deployed revision matching the evidence `commitSha`, plus the Task 8 fake call gate.
-8. An injected live driver and evidence store supplied by the later release task.
+8. The repository driver and fixed local evidence store, with reviewed
+   preflight, scenario execution and enrolled-operator evidence-query adapters
+   injected by the release operator.
 
-The current command deliberately has no live driver and no secret-presence adapter. Even with live flags, it cannot place a call.
+The driver orders the exact preflight, one scenario execution and one aggregate
+evidence query, and binds all three to one scenario, correlation ID and deployed
+commit. It receives no credentials. The store creates a private temporary file,
+publishes it atomically under one of the five fixed names and refuses to replace
+retained evidence. Run the explicit cleanup command before an authorized repeat.
+
+The normal command deliberately does not discover or execute a driver module
+from a path or environment variable, and it has no secret-presence adapter.
+Release tooling must inject reviewed adapters through `runSmokeCommand`; without
+that injection, live flags cannot place a call. This prevents an inherited PATH
+entry or unreviewed local file from becoming paid-call authority.
 
 ## Redacted evidence contract
 

@@ -15,7 +15,7 @@
     "test:acceptance": "vitest --config vitest.workspace.ts run tests/acceptance",
     "test:voice-access": "node scripts/voice-release-gate.mjs --fake-only",
     "typecheck:voice-access": "tsc -p tests/acceptance/tsconfig.voice.json",
-    "test:voice-smoke": "vitest --config vitest.workspace.ts run tests/acceptance/live/voice-smoke.test.ts",
+    "test:voice-smoke": "vitest --config vitest.workspace.ts run tests/acceptance/live/voice-smoke.test.ts tests/acceptance/live/voice-smoke-runtime.test.ts",
     "smoke:voice": "node tests/acceptance/live/voice-smoke-cli.mjs",
     "release:voice-gate": "node scripts/voice-release-gate.mjs",
     "clean:voice-smoke-evidence": "node tests/acceptance/live/voice-smoke-cli.mjs --cleanup-evidence",
