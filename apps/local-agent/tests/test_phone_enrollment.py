@@ -348,6 +348,30 @@ def test_begin_refuses_when_only_stdin_is_a_terminal_before_loading_a_key(
     assert output.getvalue().strip() == "owner phone enrollment requires an interactive terminal"
 
 
+def test_begin_refuses_when_stdin_is_not_a_terminal_before_loading_a_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Terminal(io.StringIO):
+        def __init__(self, interactive: bool) -> None:
+            super().__init__()
+            self._interactive = interactive
+
+        def isatty(self) -> bool:
+            return self._interactive
+
+    output = Terminal(True)
+    monkeypatch.setattr("jarvis_local.phone_enrollment._is_windows", lambda: True)
+    monkeypatch.setattr("jarvis_local.phone_enrollment.sys.stdin", Terminal(False))
+    monkeypatch.setattr("jarvis_local.phone_enrollment.sys.stdout", output)
+    monkeypatch.setattr(
+        "jarvis_local.phone_enrollment.platform_device_key_store",
+        lambda _path: pytest.fail("loaded key without an interactive input terminal"),
+    )
+
+    assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "begin") == 2
+    assert output.getvalue().strip() == "owner phone enrollment requires an interactive terminal"
+
+
 def test_missing_local_configuration_has_a_distinct_non_disclosing_message(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -461,6 +485,33 @@ def test_client_salts_the_begin_body_before_signing(key: Ed25519PrivateKey) -> N
     assert body["phoneNumber"] == PHONE
     assert re.fullmatch(r"[A-Za-z0-9_-]{43}", body["requestSalt"])
     assert len(base64.urlsafe_b64decode(f"{body['requestSalt']}=")) == 32
+
+
+def test_client_uses_a_fresh_salt_for_each_begin(key: Ed25519PrivateKey) -> None:
+    opener = WireOpener({
+        "schemaVersion": "1.0",
+        "deviceKeyMatches": True,
+        "enrollmentState": "pending",
+        "challengeId": "challenge:opaque",
+        "response": "482913",
+        "expiresAt": "2026-09-14T14:05:00.000Z",
+    })
+    transport = HttpCloudClient(
+        base_url="https://gateway.example",
+        device_id="device:home",
+        principal_id="principal:owner",
+        audience="jarvis-local-agent",
+        key=key,
+        opener=opener,
+    )
+    client = OwnerPhoneEnrollmentClient(transport)
+
+    client.begin(PHONE)
+    client.begin(PHONE)
+
+    first = json.loads(opener.requests[0].data)["requestSalt"]
+    second = json.loads(opener.requests[1].data)["requestSalt"]
+    assert first != second
 
 
 def test_client_preserves_authentication_failure_for_non_disclosing_mapping(key: Ed25519PrivateKey) -> None:

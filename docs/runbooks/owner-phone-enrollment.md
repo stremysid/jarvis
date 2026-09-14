@@ -16,13 +16,17 @@ when a later signed Twilio inbound call supplies the same number and response.
 1. Merge the reviewed device-key replacement runbook from PR #30 and the
    reviewed Option 1 implementation. Neither branch performs a production
    operation by itself.
-2. Set and verify `OWNER_PRINCIPAL_ID`, `OWNER_VOICE_IDENTITY_ID`,
+2. Take `OWNER_PRINCIPAL_ID` from the exact `principal_id` returned by PR #30
+   step 1's read-only old-device query, and put that exact value into the
+   server setting. Choose a new opaque `OWNER_VOICE_IDENTITY_ID` for this
+   enrollment, require that it matches
+   `^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$`, and confirm with a read-only query
+   that the value is absent from `channel_identities` before putting it into
+   the server setting. Do not reuse an existing identity ID. Set and verify
    `IDENTITY_CHALLENGE_HMAC_KEY_VERSION`, `GUEST_PIN_PEPPER_V1`,
    `AUTHENTICATION_BUDGET_PEPPER`, and `IDENTITY_CHALLENGE_HMAC_PEPPER`.
-   Both owner identifiers must match
-   `^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$`. Deploy the reviewed Option 1
-   gateway revision while the Twilio voice webhook remains unset or redirected
-   to the known closed endpoint.
+   Deploy the reviewed Option 1 gateway revision while the Twilio voice webhook
+   remains unset or redirected to the known closed endpoint.
 3. Follow PR #30 in order: run its read-only inventory, generate the home-PC
    key, insert and prove its exact production row through the deployed
    preflight, separately approve revoking the orphaned key, and finish its
@@ -64,13 +68,18 @@ It never creates a replacement key. The gateway re-derives the current device,
 key generation, principal and configured owner identity from trusted state.
 The command prints no key, fingerprint, device ID, principal ID, identity ID or
 phone number. `device key does not match the active production record` stops the
-rollout and returns to the PR #30 checks; do not work around it by generating
-another key or editing identifiers.
+rollout and returns to the PR #30 checks. The same message occurs when the
+server's `OWNER_PRINCIPAL_ID` differs from the active device row's
+`principal_id`. Re-read PR #30 step 1 and put that exact `principal_id` into
+the server setting before repeating the preflight. Do not work around a
+mismatch by generating another key, creating another principal, or choosing a
+different identity ID.
 
 The other fixed local failures are distinct without disclosing values:
 `owner phone enrollment configuration is incomplete`, `configured device key
 is missing or unreadable`, and `device clock is outside the gateway freshness
-window`. Repair that named local condition and repeat the dry preflight; do not
+window`. The configuration message covers an incomplete or invalid local
+setting. Repair that named local condition and repeat the dry preflight; do not
 treat any of them as a device-record mismatch.
 
 The preflight does not call a provider, create an identity, create a challenge,
@@ -154,6 +163,14 @@ not live-smoke evidence and does not satisfy the release gate.
 On a preflight failure, stop before configuring the webhook or running begin.
 On `conflict`, stop without retrying a different number. On an expired response,
 run the same attended command with the same phone to issue a fresh response.
+
+| Fixed command output | Owner action |
+| --- | --- |
+| `phone entries do not match` | Nothing was sent. Re-run the attended command and enter the same full number twice. |
+| `owner phone enrollment cancelled` | Nothing was sent. Re-run only when ready to type the complete word `yes`. |
+| `device key preflight is unavailable` | Stop before opening inbound admission. Restore gateway availability, then repeat `--preflight`. |
+| `owner phone enrollment status is unavailable` | Do not infer a state or begin with a different number. Restore gateway availability, then repeat `--status`. |
+| `owner phone enrollment request is unavailable` | Run `--status` first. Once the state is known, repeat the attended command with the same phone if a begin is still needed. |
 
 If anything fails after the webhook is set, first remove or redirect the Twilio
 voice webhook. This closes new inbound calls; disabling outbound controls does
