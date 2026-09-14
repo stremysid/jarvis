@@ -33,7 +33,7 @@ stop.
 |---|---|---|
 | R0 Deploy what exists | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
 | R1 Calling (v1.0) | GPT-5.6 Sol, xhigh | **Claude Opus 5, max** |
-| R2 Home node and memory | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
+| R2 Cloud memory | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
 | R3 Hermes and PC control | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |
 | R4 St. Remy | **Claude Opus 5, max** | GPT-5.6 Sol, xhigh |
 | R5 Deadlines | GPT-5.6 Sol, xhigh | Claude Opus 5, xhigh |

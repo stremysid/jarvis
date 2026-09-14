@@ -23,9 +23,9 @@ asks.
 - **In the cloud, always on:** a Cloudflare Worker that answers the phone and
   Telegram, runs the digest, the decision queue, the deadline store and the
   project poller; a second, deliberately isolated Worker that notices when
-  the first goes quiet; and one small always-on server, the **home node**,
-  that runs Hermes Agent (tools, browser, skills, scheduled work) and Jarvis's
-  memory work (archive replication, distillation, search, the Obsidian vault).
+  the first goes quiet; and R2 memory services. D1 is the authoritative memory
+  ledger and topic tree, with FTS5 and Vectorize as rebuildable indexes. No
+  home node is involved.
 - **On his machines, when they are on:** a thin device agent on the laptop,
   the home gaming PC and the St. Remy office PC that carries out commands on
   that machine: open and fix things, run reports, read logs, relay
@@ -34,8 +34,10 @@ asks.
   location. iOS cannot be remote-controlled, so the phone is a window into
   Jarvis rather than something Jarvis drives.
 
-It remembers everything it is told and everything it reads, permanently and
-with receipts, and shows that memory as notes in Obsidian on every device.
+It keeps every accepted conversation with receipts, automatically distils and
+files useful memory into a topic tree, and can search the complete live and R2
+archive history for small details. A later optional one-way Obsidian-format
+export may mirror that tree; Obsidian is not an R2 dependency.
 It acts within tiers Sid set, and it never spends money, contacts another
 person, deletes data, or touches production without a tap from Sid first.
 **Version 1.0, the first release, is the day Sid can phone it from the car
@@ -166,22 +168,21 @@ from, its state, and the milestone in section 7 that delivers it.
 
 | Feature | Source | State | Milestone |
 |---|---|---|---|
-| Append-only raw archive of every message and everything read, deduplicated | plan §7, §8 | built and live for cloud events | R2 moves the replica to the home node |
-| Distilled fact store Jarvis reasons from | plan §7 | built on the laptop | R2 runs it on the home node |
-| Promotion rules: only Sid's words and Jarvis's observations become facts | plan §8 | built | done |
-| Facts available from the phone with every PC off | Sid, Sep 3; foundation §8.3 | absent | **R2** |
-| "Why do you think that" with receipts; `/why`, `/forget` | plan §7; addition | partial | R7 |
-| Personal profile: stated versus observed, confidence through repetition, behaviour follows it | plan §7 | absent | R7 |
-| Fact confirmation through the decision queue | addition | absent | R7 |
-| Full-text search over the archive | plan §7 | built | done |
-| Semantic search with a self-hosted embedding model on the home node, nothing sent to a third-party API | plan §8 | partial | R2 |
-| Obsidian vault as the readable, editable window into memory | Obsidian design | built, stage one | R2 |
-| Vault synced to iPhone, laptop, gaming PC and office PC through a git-backed vault; Jarvis commits from the home node, devices pull with the Obsidian Git plugin | Sid, Sep 3 | absent | R2 |
-| Facts, daily ledgers and project pages projected into the vault as write-once notes | Obsidian design §7.1; addition | partial | R2 |
-| Vault notes become proposals Sid can confirm into facts | Obsidian design §7.3 | absent | R7 |
+| Append-only raw record of every accepted conversation, live in D1 then archived in verified R2 segments | plan §7, §8; R2 requirement | live record exists; full-history recall does not | R2 adds complete recall |
+| Distilled knowledge with provenance and state | plan §7; reviewer decision `951675e` | local implementation exists; D1 ledger design selected | **R2** |
+| Promotion rules: only evidence-authorized items become facts; guesses stay uncertain | plan §8; Sid, Sep 14 | local rules exist, but ordinary chat publishes zero facts | **R2** closes the path |
+| Memory available from the phone with every PC off | Sid, Sep 14; foundation §8.3 | absent | **R2** |
+| "Why do you think that" with deterministic receipts; `/remember`, `/why`, `/forget` | plan §7; Sid, Sep 14 | absent | **R2** |
+| Personal profile: stated versus observed, confidence through repetition, behaviour follows only eligible facts | plan §7 | absent | R2 foundation; R7 expansion |
+| Optional per-item owner confirmation through the decision queue, never routine curation | addition | absent | **R2** |
+| Full-history recall across live D1 and R2 archive segments, independent of distillation or filing | Sid, Sep 14 | absent | **R2** |
+| Hybrid keyword and meaning search through rebuildable indexes | plan §8; research | local lexical vector prototype only | **R2** |
+| Hierarchical topic tree with automatic filing and reversible rename, move and merge history | Sid, Sep 14 | absent | **R2** |
+| Optional Obsidian-compatible view of the topic tree | Sid, Sep 14 | compatibility required; no view chosen | later, not R2 |
+| Vault notes become proposals Sid can confirm into facts | Obsidian design §7.3 | absent | later, only if an editable view is chosen |
 | Ingestion of emails, pages, documents; binaries by pointer with extracted text | plan §7; addition | absent | R7 |
-| Encrypted nightly backup of the home node's databases | plan §6 | built, unscheduled | R2 |
-| Retroactive re-mining of the archive | plan §7 | possible, no command | R7 |
+| Custom nightly, hashed, restorable cloud-memory export; never production `wrangler d1 export` | research; fact-check | absent; row-level NDJSON to locked R2 selected | **R2** |
+| Owner-triggered bounded reprocessing of older conversations with a configured model and its own one-time owner-approved cap | plan §7; Sid, Sep 14 | absent | **R2** |
 | Data export as one encrypted bundle | addition | absent | R9 |
 
 ### 4.3 Managing: what Jarvis keeps track of
@@ -191,7 +192,7 @@ from, its state, and the milestone in section 7 that delivers it.
 | Poll every tracked repo's four status documents; stalled-project detector | plan §2, §5 | built | R0 |
 | Real-time ping when KNOWN_ISSUES or DECISIONS changes | plan §2 | absent | R7 |
 | Google Classroom deadlines | plan §3 | unwired | R5 |
-| Brightspace deadlines by polite scrape in a browser on the home node, MFA via Telegram | plan §3 | absent | R5 |
+| Brightspace deadlines through a browser host/path Sid chooses when R5 starts, MFA via Telegram | plan §3; corrected Sep 14 | absent; host/path undecided | R5 |
 | One deadline store, conflict flagging, effort-scaled reminders, exam quiet hours | plan §3, §5 | built, empty | R0, R5 |
 | Grade and missing-work watch | plan §5 | absent | R5 |
 | Morning digest and Sunday retro | plan §3, §5 | built | R0 |
@@ -210,7 +211,7 @@ from, its state, and the milestone in section 7 that delivers it.
 | Tiered autonomy: observe, reversible and logged, always confirmed | plan §4, §8 | built | R0 |
 | Shadow mode before tier 2 | plan §8 | built | R3 |
 | Retrieved content is data, never instructions | plan §8 | built | done |
-| Hermes Agent on the home node: tools, skills, browser, terminal, subagents, cron | Sid's direction; Hermes design | absent | **R3** |
+| Hermes/task execution through a host and path Sid chooses when R3 starts | Hermes design; corrected Sep 14 | absent; host/path undecided | **R3** |
 | Full control of the laptop and the gaming PC when they are on: apps, files, settings, diagnostics | Sid, Sep 3; plan §4 | absent | R3 |
 | Full control of the St. Remy office PC and all St. Remy systems on command, with a permission tap for anything risky | Sid, Sep 3 | absent | **R4** |
 | Claude Code bridge: Jarvis relays an instruction to the Claude Code session on the office PC that maintains the St. Remy apps, and reports back | Sid, Sep 3 | absent | R4 |
@@ -228,8 +229,8 @@ from, its state, and the milestone in section 7 that delivers it.
 | Feature | Source | State | Milestone |
 |---|---|---|---|
 | Always-on Cloudflare gateway with D1 event log and R2 archive | plan, foundation | live | done |
-| The home node: one small Linux server running Hermes and the memory work, heartbeating to the watchdog | Sid, Sep 3 | absent | **R2** |
-| Thin device agents on laptop, gaming PC and office PC: outbound connection to the home node, command execution, health; under 300 MB resident | plan §6; Sid, Sep 3 | absent (the current local agent is the seed) | R3, R4 |
+| Linux home node | planning-session choice, not Sid's | historical; never provisioned or authorized | none |
+| Thin device agents on laptop, gaming PC and office PC: outbound cloud connection, command execution, health; under 300 MB resident | plan §6; corrected Sep 14 | absent (the current local agent is the seed) | R3, R4 |
 | Self-waking daily rhythm for the gaming PC: BIOS boot, work, sleep | plan, multi-device | absent | R8 |
 | Standalone watchdog Worker; something watching the watchdog | plan §6; known issues | built; absent | R0 |
 | Health and readiness endpoints; R2 archival with capacity alerts | foundation §8.3, §9 | unwired | R0 |
@@ -244,8 +245,8 @@ from, its state, and the milestone in section 7 that delivers it.
 ### 4.6 Rules every milestone inherits
 
 - Credentials never in source, commits, transcripts, logs, memory or the
-  vault. Rotation straight into `wrangler secret put` or the home node's
-  secret store.
+  vault. Rotation goes straight into `wrangler secret put` or the enrolled
+  device's reviewed secret store.
 - Money, contacting anyone who is not Sid, deleting data, and touching
   production systems always need a tap, in every mode, whatever the model's
   confidence. This now includes St. Remy production.
@@ -274,47 +275,52 @@ each has a natural milestone in parentheses.
 
 ---
 
-## 5. Decisions Sid made on September 3
+## 5. Direction recorded on September 3, corrected September 14
 
-These override any earlier plan where they conflict. DECISIONS.md carries
-the durable record.
+This planning session mixed Sid's requirements with implementation choices it
+made for him. DECISIONS.md carries the corrected durable record. The phone-first
+requirement remains Sid's; the Linux home node and git-backed Obsidian route do
+not.
 
 ### 5.1 Phone first, PC optional
 
 Jarvis must work from the iPhone with every computer off. Everything that
-is not tied to a specific machine runs in the cloud: the gateway and
-watchdog as today, plus one small always-on server, the home node, for
-Hermes and the memory work. Roughly $6 to $15 a month. The laptop, the home
-gaming PC and the office PC run thin device agents and are optional.
+is not tied to a specific machine runs in the cloud. D1 is R2 memory's
+authoritative ledger and topic tree; FTS5 and Vectorize are rebuildable search
+indexes. The laptop, home gaming PC and any confirmed office PC run thin device
+agents only when available.
 
-### 5.2 Hermes is the hands, on the home node
+### 5.2 Hermes is the hands when a device is available
 
-Sid's instinct was Hermes as the base with Jarvis's features on top. The
-cheaper path that delivers the same thing: Hermes runs on the home node as
-the part of Jarvis that does work with tools, a browser, skills and
-scheduled jobs; the Cloudflare gateway stays the always-on front door
-because it already answers the phone and Telegram with audited memory; the
-device agents are Hermes's reach into each machine. The Codex sidecar plan
-is retired. Hermes never replaces Jarvis's Telegram.
+Hermes remains a candidate tool-using component, not the always-on front door
+and not the memory host. The Cloudflare gateway keeps answering phone and
+Telegram. Sid chooses the R3 execution host and path when that milestone
+starts. No R3 step depends on a Linux node, and this roadmap does not select a
+Windows port or cloud executor. The Codex sidecar plan remains retired.
 
 ### 5.3 Models
 
-DeepSeek stays until the prepaid balance is spent. Then Opus 5 or GPT-5.6
-Terra for reasoning and calls, with GPT-5.6 Luna for distillation, triage,
-classification and quick turns, routed per task. GPT-5.6 Luna is OpenAI's
-low-cost tier released July 9, 2026; the gateway's model client already
-speaks its API format, and the switch needs the API base URL made
-configurable plus a key.
+R2's extraction model is a provider-qualified setting supporting DeepSeek,
+Anthropic and OpenAI. Start with `deepseek:deepseek-v4-pro`; before finalizing
+it, re-check the provider ids and compare the same sanitized sample
+conversations with `deepseek:deepseek-v4.1-flash`. Sid selected quality, not a
+model name, and a paid comparison requires his explicit OK. Normal DeepSeek
+memory-model spend has a configurable hard monthly cap of USD 5.00 by default.
+Before switching to Claude or GPT, show Sid the projected monthly cost and have
+him set the new cap. The broader per-task reasoning and calling model route
+remains R7.
 
-### 5.4 Memory and Obsidian
+### 5.4 Memory, topic organization and an optional Obsidian export
 
-Jarvis's own two-tier memory on the home node is the source of truth.
-Obsidian is the window: facts, daily ledgers and project pages appear as
-notes on every device, and notes Sid writes become sources. Sync is a
-git-backed vault: Jarvis commits from the home node, devices pull with the
-Obsidian Git plugin. Obsidian Sync would need a PC on for Jarvis's notes to
-reach the phone, because only the Obsidian app can write through it. The
-stage-one adapter is finished properly; the native bridge is deferred.
+Memory works in the cloud with every PC off, keeps full conversation history
+searchable, and organizes distilled items into a topic tree. D1 is
+authoritative for the conversation ledger, versioned memory items, receipts
+and topic tree. FTS5 and Vectorize are rebuildable indexes. Obsidian may later
+receive a one-way Markdown export that mirrors the tree as folders and linked
+notes; the export is never read back. No Obsidian client, sync route, editable
+view or exporter is part of R2. Sid approved a future private-GitHub copy with
+tested exclusion of sensitive categories; he did not approve repository
+creation, credentials, a paid plan or a live push.
 
 ### 5.5 Calling is in the first release
 
@@ -337,8 +343,9 @@ office PC that maintains the apps; fix things for Sid's parents (default
 apps, refresh problems, news apps) when Sid is not there; read the apps'
 error logs and text Sid for urgent entries or call for severe ones; watch
 the apps' uptime and restart them as a tier-2 action. The office PC is an
-i5-14400 with 16 GB and hosts the St. Remy apps, so it runs only the thin
-device agent; Hermes and the browser stay on the home node.
+i5-14400 with 16 GB and hosts the St. Remy apps. Decide the R4 execution host
+and path with Sid when that milestone starts; no home node, Windows port,
+cloud executor or browser placement is selected here.
 
 ### 5.8 Send on command
 
@@ -365,8 +372,8 @@ Mark each superseded by this file rather than deleting it.
 | Document | Remaining tasks | Disposition |
 |---|---|---|
 | Hermes H1 plan | Tasks 5 to 7 (ledger, Runs client, bridge service), 10 to 13 (Windows services, gateway join, certification) | Superseded by R3. Keep tasks 0 to 3 (locks, fetch script, profile) as the pinning mechanism. |
-| Obsidian implementation plan | O5 (Rust kernel, privileged broker), O7 (USN reconciliation), O11 (VSS backup), the cloud-ingest half of O2 to O4 | Deferred indefinitely. O8 retrieval, O9 gate and projection, O10 setup and doctor are R2, on the home node. |
-| Telegram/memory plan | T9 named-pipe service on the laptop as the memory host; T10 deployment scripts | The memory host is the home node (R2); the laptop keeps a device agent. T10 shrinks to the scripts and runbook in R0. |
+| Obsidian implementation plan | O5 (Rust kernel, privileged broker), O7 (USN reconciliation), O11 (VSS backup), the cloud-ingest half of O2 to O4 | Historical implementation based on an unconfirmed editable-notes premise. Keep the code, but build no Obsidian path in R2. Only compatibility with a later one-way export remains current. |
+| Telegram/memory plan | T9 named-pipe service on the laptop as the memory host; T10 deployment scripts | The device-hosted memory service is historical. R2 is cloud-available; T10 remains the R0 scripts/runbook scope. |
 | Calling and voice-access plans | C8 limits tests, 8B fake acceptance, C9 live evidence | R1, unchanged. |
 | hermes-runtime review-round tests | `source-lock` and `workflow-containment-review5`, fifty minutes each | Out of pull-request CI into a manual workflow. |
 | Foundation spec §5.1 eight-digit PIN, the two PIN-verifier scripts, the legacy verifier module | | Delete in R1; the owner/guest design is current. |
@@ -428,33 +435,47 @@ an owner call rejected after three wrong passphrases with no authority, model
 request or personal-context read.
 **This is v1.0.**
 
-### R2. The home node: memory that works with every PC off, v1.1
+### R2. Cloud memory that works with every PC off, v1.1
 
-Two to three sessions. Depends on R0.
+Multiple small review-gated PRs. Depends on R0 and the recorded D1 decision.
 
-1. Provision a small Linux server. Tailscale or equivalent for a private
-   network to the devices. Its own secret store.
-2. Port the Python agent's memory half to Linux: DPAPI sealing becomes a
-   file key under OS permissions, the named pipe becomes a Unix socket, the
-   NTFS checks stay no-ops. A `jarvis node` command that opens the stores,
-   constructs the replicator, the distillation client, the coordinator and
-   the run loop, and runs under systemd.
-3. Fact projection: a signed upload of active facts to D1, and the cloud
-   context retriever reads facts alongside recent turns. This is what makes
-   "Jarvis remembers" true from the phone.
-4. Real semantic search on the node: `all-MiniLM-L6-v2` on ONNX Runtime
-   through the existing compatibility gate, embeddings as SQLite blobs,
-   in-process cosine, retrieval wired to the vector index.
-5. The vault on the node: redactor over every observation, the authority
-   gate in front of `project()`, facts and daily ledger notes projected as
-   write-once files, a private git repo as the vault, commits from the node,
-   the Obsidian Git plugin on the iPhone and each PC. `/vault` on Telegram.
-6. Nightly encrypted backup of the node's databases; heartbeat to the
-   watchdog; the node in the watchdog's must-report list.
-**Exit.** Tell Jarvis something on Telegram with every PC off. Wait one
-cycle. Ask about it from the phone; it answers from a fact. Open Obsidian on
-the phone; the fact is there as a note with its source. Write a note on the
-phone; `/vault` finds it within a cycle.
+1. Implement the reviewed D1-authoritative ledger, topic-tree and rebuildable
+   search-index contract. Migration `0016` remains the reserved schema number;
+   Sid applies it only after its separate PR passes Claude max review.
+2. Run automatic extraction and consolidation in the cloud. The extraction
+   model is provider-qualified and configurable across DeepSeek, Anthropic and
+   OpenAI, starting at `deepseek:deepseek-v4-pro`. Before finalizing it, compare
+   the same sanitized conversations with `deepseek:deepseek-v4.1-flash` and use
+   whichever extracts memories best; re-check both API ids before the paid run.
+   Paid evaluation needs Sid's explicit OK. The hard configurable USD 5.00
+   monthly default is for DeepSeek; before a Claude or GPT switch, show Sid the
+   projected monthly cost and have him set the new cap.
+3. Preserve evidence and uncertainty: stated and confirmed items may inform
+   behavior; guesses stay visibly uncertain and never become instructions or
+   authorization. Add bounded owner-triggered reprocessing for older history
+   with its own one-time owner-approved spend limit, separate from hourly work.
+4. Add the hierarchical topic tree, automatic filing, reversible moves and
+   merges, and subtree answers. Filing never controls whether raw history is
+   findable.
+5. Add hybrid keyword and meaning recall across facts, summaries and the full
+   live-D1 plus archived-R2 conversation history. Voice meaning search has a
+   hard 750 ms memory-retrieval timeout and recorded fallback that preserves
+   the R1 latency gate; R2 logs coordination before touching `voice/**`.
+6. Add `/remember`, deterministic `/why` receipts, and `/forget` hide semantics
+   backed by the event-level suppression ledger across live and archived recall.
+7. Add a custom hashed nightly export and restore drill appropriate to the
+   chosen store. Never run `wrangler d1 export` against production because the
+   existing database contains FTS5 virtual tables.
+8. Keep the Linux node, 0014 device projection and existing home-node runbook as
+   historical artifacts. Build no Obsidian export or view in R2.
+
+**Exit.** With every PC off, normal conversation is automatically distilled
+and recalled from the phone with a deterministic `/why` receipt. `/remember`
+works immediately; a small detail sourced only from an archived R2 segment is
+found by explicit full-history recall; a topic-area question walks descendants;
+an ambiguous inference is labeled uncertain; and `/forget` hides the item from
+all retrieval paths while accurately saying the source event remains retained.
+The full live procedure is in the R2 memory design.
 
 **Cross-milestone onboarding note.** After R1 calling and R2 memory, however
 hosted, are both live, run Sid's first-call onboarding session while parked,
@@ -465,30 +486,30 @@ speaking the new phrase once. Only then may Jarvis interview Sid and write
 owner-confirmed answers to memory. This parked interview must not drive R1 or
 R2 implementation.
 
-### R3. Hands: Hermes on the node, device agents on the PCs, v1.2
+### R3. Hands: task execution and device capabilities, v1.2
 
 Three sessions. Depends on R2.
 
-1. Pin and install Hermes on the node with the existing source lock and
-   fetch script, in its own Python 3.11 environment; built-in memory and
-   background review off; API server on loopback with a key only the node
-   agent holds.
-2. A Hermes client in the node agent: create a run, follow the event
-   stream, stop, answer an approval. Every event into the archive, redacted.
-3. The device agent: the current local agent cut down to what a machine
-   needs, an outbound connection to the node, a command executor
-   (PowerShell, app launch and close, file operations, settings, screenshots
-   on request), health reporting. Starts at logon on the laptop and the
-   gaming PC. Enrolled over HTTP as second and third devices with explicit
-   routing, default the laptop.
-4. The task path: a Telegram command becomes a decision-queue item; the node
-   picks it up, runs it through Hermes with a toolset chosen by the autonomy
-   tier, executes machine-bound steps through the device agent, and posts
-   the result. A machine that is off means an honest wait.
+1. Decide the execution host and path with Sid when R3 starts. Preserve the
+   existing Hermes source lock and fetch script, but this roadmap authorizes no
+   Linux node, Windows port, Hermes installation or cloud executor in advance.
+2. On the selected path, implement a reviewed task/runtime contract: create a
+   run, follow the event stream, stop, answer an approval, and archive every
+   redacted event.
+3. Provide machine-bound capabilities through the device path Sid selects:
+   PowerShell, app launch and close, file operations, settings, screenshots on
+   request, explicit device routing and health reporting.
+4. Route a Telegram task through the decision queue to the selected execution
+   path and post the result. A required machine that is off means an honest
+   wait.
 5. Tier 3 through the decision queue: Hermes's approval request becomes a
    Telegram button; the tap is the approval. `/panic` stops every run, every
    tier-2 action, and every pending outbound call, and says what it stopped.
 6. Shadow mode for one to two weeks per device before tier 2 turns on.
+
+The historical Linux node and `docs/runbooks/home-node.md` are not an R3
+dependency or deployment option. They remain in the repository for provenance
+only; the replacement execution path is intentionally undecided.
 
 **Exit.** From Telegram, with the laptop on: "open the jarvis repo and tell
 me what NEXT_STEPS says". It runs on the laptop and answers on the phone.
@@ -499,22 +520,24 @@ Laptop off: the same command waits and Telegram says so.
 
 Two to three sessions. Depends on R3.
 
-1. The device agent on the office PC as a Windows service, because nobody is
-   logged in; under 300 MB resident; Hermes and the browser stay on the node.
-2. The Claude Code bridge: a "tell Claude" command that runs a headless
-   Claude Code turn in the St. Remy repository on the office PC with the
-   instruction Sid gave, captures the result, and reports back; any deploy or
-   production change behind a tier-3 tap. If Claude Code's remote sessions
-   prove simpler, the bridge targets those instead; the command surface is
-   the same either way.
+The execution host and path are decided with Sid when R4 starts. These are
+capability outcomes, not approval for a Windows service, cloud executor or
+particular browser/Claude runtime.
+
+1. Provide controlled access to the office PC when machine-bound work is
+   needed, within the agreed resource bound and only while that path is
+   available.
+2. Add a "tell Claude" command for the St. Remy repository that captures the
+   result and reports back; any deploy or production change stays behind a
+   tier-3 tap.
 3. Fix-it skills: default app associations, restarting an app or service,
    the news-app and refresh problems Sid's parents hit, diagnostics that
    read back what is wrong before changing it.
-4. Error-log reader: the St. Remy apps' logs tailed by the device agent,
+4. Error-log reader: the St. Remy apps' logs read through the chosen path,
    classified by severity, urgent entries texted, severe ones phoned.
-5. Uptime watch: the node pings the apps every few minutes, alerts on
-   failure, restarts as a tier-2 action after shadow mode, and records every
-   restart.
+5. Uptime watch: the chosen reviewed path pings the apps every few minutes,
+   alerts on failure, restarts as a tier-2 action after shadow mode, and records
+   every restart.
 6. DECISIONS.md: the on-command, permission-gated St. Remy rule.
 
 **Exit.** From Telegram, away from the office: "the PDFs open in Claude
@@ -529,8 +552,8 @@ Two sessions. Depends on R0 and R2.
 
 1. Google Classroom OAuth; the hourly job calls ingestion. One real
    assignment settles UTC versus local; delete the setting.
-2. Brightspace as a Hermes browser task on the node, a few runs a day, MFA
-   routed to Telegram as a decision.
+2. Decide the Brightspace browser host/path with Sid when R5 starts, then run a
+   few times a day with MFA routed to Telegram as a decision.
 3. Deadline status setters and the decision-expiry sweep. Grade and
    missing-work watch.
 
@@ -559,7 +582,8 @@ meeting across town at 3: Jarvis says "leave by 2:20" at 2:05.
 Three to four sessions. Depends on R2, R5.
 
 1. The personal profile as a shape; a nightly job proposing observed
-   patterns; fact confirmation through the decision queue; `/why`; `/forget`.
+   patterns; optional per-item confirmation through the decision queue when
+   Sid asks or authority requires it, never routine taps; `/why`; `/forget`.
 2. Profile-driven behaviour: digest time, quiet hours, style.
 3. The model switch: base URL configurable, per-task routing, Luna for the
    cheap tier, Opus 5 or GPT-5.6 Terra for reasoning, a local model as an
@@ -577,12 +601,12 @@ line and a cost line.
 
 Three sessions. Depends on R3, R5, R6.
 
-1. Errands with the tier-3 confirm flow in a real browser on the node;
-   ticketing as monitor-and-assist.
+1. Decide the errands browser host/path with Sid when R8 starts; preserve the
+   tier-3 confirm flow and ticketing as monitor-and-assist.
 2. Tesla Fleet API: preheat at tier 2, unlock and start at tier 3, unasked
    preheat from calendar, weather and "when should I leave".
-3. Standing watches through Hermes cron and subagents; the
-   repository-owned skills library.
+3. Standing watches through the reviewed execution path chosen at milestone
+   start; the repository-owned skills library.
 4. Local voice with `hey_jarvis` on the laptop; voice quick-capture to a
    repo's NEXT_STEPS.
 5. The gaming PC's self-waking rhythm: BIOS boot, work, sleep.
@@ -617,13 +641,13 @@ typecheck as a gate; and the six offered-not-chosen items in 4.7.
 
 | Item | Cost | From |
 |---|---|---|
-| Home node server | about $6 to $15 a month | R2 |
 | Twilio number and calls | about $1.15 a month plus per-minute usage | R1 |
-| Model usage | DeepSeek prepaid, then Luna plus a strong model, metered | R7 for the switch |
+| R2 extraction model | DeepSeek starts with a hard USD 5.00 monthly cap; a Claude or GPT switch shows Sid projected cost and requires his new cap | R2 |
+| R2 D1 ledger, FTS5, Workflows, Workers AI embeddings and Vectorize | expected inside existing included amounts at the researched personal volume; measure and alert before limits | R2 |
+| General model usage | DeepSeek prepaid, then a reviewed per-task route | R7 for the broader switch |
 | Cloudflare Workers Paid | already active | now |
-| Obsidian Git plugin | free | R2 |
 | Maps routing API | free tier covers personal use | R6 |
-| Obsidian Sync | not needed; optional $4 to $5 a month | never required |
+| Optional one-way Obsidian-format export | private GitHub copy approved for later, with tested sensitive-category exclusions; no R2 build, paid plan, repository creation, credentials or live push approved | later |
 
 ---
 
@@ -638,7 +662,7 @@ here and move NEXT_STEPS.md to the next one.
 |---|---|---|---|
 | R0 Green and deployed | | not started | |
 | R1 Calling | v1.0, first release | not started | |
-| R2 Home node and memory | v1.1 | not started | |
+| R2 Cloud memory | v1.1 | D1 design draft ready for Claude review | |
 | R3 Hands | v1.2 | not started | |
 | R4 St. Remy | v1.3 | not started | |
 | R5 Deadlines | v1.4 | not started | |
