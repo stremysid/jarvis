@@ -94,6 +94,61 @@ cleanly with main.
 
 PR #32 now describes the real outbound behavior: the neutral line precedes immediate bound-owner authority, no answering-machine distinction or automatic purpose statement exists, and the resulting voicemail risk is in `KNOWN_ISSUES.md`; no detection was built. The foundation spec identifies PR #31 as the source of the signed local activation flow, the historical calling-plan sections carry superseded banners, and the stale outbound source comment is corrected. The stored `PIN_VERIFIER_JSON` secret is again documented as deletable now only through a separate owner-confirmed operation, with live-call, attended-enrollment, rollback and never-recreate cautions preserved. A construction regression rejects a structural guest attempt-budget lookalike; deleting only the guest `AuthenticationAttemptBudget` instance guard makes it fail. Local Windows validation passed 2,512 workspace tests, 142 focused tests, production and voice type checks, and lint. The known non-gating test-typecheck backlog remains. No live call, secret operation, migration or deployment occurred. Re-review PR #32 at max.
 
+---
+
+## 2026-09-14 04:55 UTC — Claude Opus 5, PR #30 re-review at 5318bbf: cleared
+
+All four requested changes are verified in `5318bbf`. The focused runbook test file passes 16/16 on this PC at 5318bbf, and the SQL is unchanged since the original review.
+
+1. **Success markers:** each `--file` import is now followed by a separate
+   read-only `--command` that runs the operation's own final status SELECT,
+   extracted from the rendered file. The new test checks the import-then-status
+   order in both write sections, and executes the extracted status SQL for
+   `replacement_ready` and `replacement_complete`.
+2. **Production targeting:** every remote command is
+   `& node $wrangler d1 execute jarvis --remote --config $gateway --env ''`,
+   under `$PSNativeCommandArgumentPassing = 'Standard'`, with a
+   `$LASTEXITCODE` stop. A test asserts no `pnpm` remains on any remote line.
+3. **Persistence:** `JARVIS_DEVICE_ID` and `JARVIS_DEVICE_KEY_PATH` are
+   persisted as user environment variables and re-read and validated in step 4
+   (absolute path, key file present).
+4. **Revocation file:** the rendered revocation SQL lives beside the sealed key
+   under `replacement-runbook`, and step 5 re-derives its path. `%TEMP%` is
+   gone.
+
+Nit, not blocking: step 3 uses `$wrangler`, `$gateway` and `$InsertPath` from
+the step 1-2 session without re-declaring them, unlike steps 4-5. If Sid opens
+a new window before step 3, it fails with a PowerShell error rather than a
+partial write, so it fails safe. Re-declare them, or state "same window as
+step 2".
+
+Rollout dependency, carried from the PR #31 review (B2): step 4's
+`enroll-phone --preflight` needs PR #31 merged, `IDENTITY_CHALLENGE_HMAC_KEY_VERSION`
+set, and the gateway deployed before the step 3 insert is proven. Keep the
+old device active until then, as this runbook already requires.
+
+---
+
+## 2026-09-14 04:49 UTC — GPT-6 Codex, PR #30 review fixes complete
+
+PR #30 now keeps each reviewed write file on Wrangler's import path and runs
+its exact final SELECT separately through the read-only query path, so the
+owner can observe `replacement_ready` and `replacement_complete`. Every remote
+command uses Node-direct Wrangler with the explicit config, empty top-level
+environment and Standard native argument mode. The device ID and sealed-key
+path are persisted for the Windows user and re-read before the later signed
+preflight; both rendered operation files live beside the sealed key, and the
+revocation path is reconstructed after a terminal restart. The marker query is
+extracted from that persisted rendered file, so it does not depend on variables
+from the earlier session. Four new regressions each killed removal of its
+reviewed boundary. Focused tests pass 16/16, all nine PowerShell blocks parse,
+and the Windows workspace passes 2,552/2,552 after an unrelated random-hash
+substring collision passed on isolated and full reruns. Lint and gateway
+typecheck pass. No production command, live call, secret, migration or deploy
+ran. Re-review PR #30 at max.
+
+---
+
 ## 2026-09-14 04:41 UTC — Claude Opus 5, PR #32 max review at 2828236: changes requested (docs only)
 
 The code removal is clean, with no blockers. No runtime code reads
@@ -158,6 +213,28 @@ Requested changes (docs only):
 
 ---
 
+## 2026-09-14 04:25 UTC — Claude Opus 5, PR #30 follow-up: tests and Windows dry run
+
+This is the follow-up promised in the PR #30 review entry. The focused runbook
+test passes 12/12 at `f2f25b6`.
+
+Step 2 was dry-run on Sid's Windows 11 PC, local only, with a throwaway key
+under a temporary directory and a throwaway device ID (not
+`%LOCALAPPDATA%\Jarvis\keys`), and no production contact. Results:
+- `uv run --project apps/local-agent jarvis enroll --device-label jarvis-home-pc`
+  exits 0.
+- The runbook's PowerShell parser finds all six public fields, and its
+  independent SHA-256 fingerprint check matches the printed fingerprint.
+- The key file is created with the `DPAPI:` sealed prefix.
+- A second `jarvis enroll` with the same environment reuses the key (same
+  fingerprint). It doesn't create a replacement.
+
+`uv` resolves through a WinGet link, not a PowerShell shim, so only the remote
+`pnpm` commands need the change requested in item 2. Review items 1-4 are
+unchanged, and item 1 still blocks.
+
+---
+
 ## 2026-09-14 04:24 UTC — Claude Opus 5, PR #29 cleared at 502e23c
 
 PR #29 at `502e23c` is cleared for merge from the reviewer side. It is docs
@@ -170,6 +247,52 @@ the webhook is itself the inbound activation step. `502e23c` only merges main
 (#28) into the branch. It conflicts with PR #31 in `docs/AGENT_LOG.md` alone;
 resolve by keeping both entries, newest first. PRs #30, #31 and #32 are under
 separate max review.
+
+---
+
+## 2026-09-14 04:24 UTC — Claude Opus 5, PR #30 max review at f2f25b6: changes requested
+
+The SQL design is sound: guarded insert-then-revoke, exact public-value
+binding, a cursor before revocation, and safe no-op retries. Signed requests
+look up `key_id` server-side from the device row by (deviceId, principalId)
+(`sync/signed-request.ts` `readCurrentKey`), so a runbook-generated `key:<uuid>`
+is compatible. `WindowsCng.supports_non_exportable` is false, so `jarvis enroll`
+creates a DPAPI-sealed file that `load_existing` can read later.
+
+Requested changes:
+1. **Blocker: the success markers can never be seen.** Steps 3 and 5 require
+   the output to say `replacement_ready` / `replacement_complete`, but both
+   writes use `wrangler d1 execute --remote --file`. In Wrangler 4.127.1
+   (`wrangler-dist/cli.js` `executeRemotely`), `--file` goes through the D1
+   import/ingest API. It prints only "Executed N queries ... rows read/written"
+   and returns totals, never result rows, so the final SELECT's marker is never
+   shown. It also warns that the database is unavailable while the import
+   runs. Either run each rendered operation through `--command`, which uses
+   the query API and prints results (confirm the statement count and that it
+   stays one batch), or keep `--file` and add a separate read-only `--command`
+   status query after each write. Say which, and update the test so the
+   documented marker check matches the real output path.
+2. **The production commands don't follow the repo's own rules.** They use bare
+   `pnpm --dir apps/cloud-gateway exec wrangler ...` with no `--config` and no
+   `--env ''`. `docs/runbooks/deploy.md` requires explicit production targeting
+   (`$PSNativeCommandArgumentPassing = 'Standard'`, node-direct wrangler,
+   `--config`, `--env ''`). In Sid's PowerShell 7, `pnpm` resolves to
+   `C:\Program Files\nodejs\pnpm.ps1`, and the owner handoff records that the
+   .ps1 shims are blocked on his PC (use `pnpm.cmd` / `npx.cmd`). Use the
+   deploy.md pattern for every remote command.
+3. **Losing the terminal loses the configuration.** `$env:JARVIS_DEVICE_ID` and
+   `$env:JARVIS_DEVICE_KEY_PATH` are set for the current session only, but
+   steps 4-6 happen after PR #31 merges and deploys, in a later session. Persist
+   both as user environment variables (or a documented local config the
+   Option 1 CLI reads), and add a step that re-reads them before the preflight.
+   The device ID is public and recoverable from the production row. The key
+   path is not.
+4. **Nit:** the step-2 script writes both rendered SQL files to `%TEMP%`, which
+   can be cleaned between sessions. Revocation (step 5) needs the rendered
+   revoke file much later. Write it under the persisted key directory, or
+   re-render at step 5 from the persisted values.
+
+The focused test run and a local Windows dry run of step 2 (a throwaway key, no production) are still in progress, and a follow-up entry will report them. Fix items 1-3 now; they don't depend on those results.
 
 ---
 
@@ -188,6 +311,22 @@ is deployed, using `docs/runbooks/deploy.md`. Review PR #32 at max.
 
 ---
 
+## 2026-09-14 03:10 UTC — GPT-6 Codex, PR #30 owner device-key replacement runbook
+
+Prepared the separate owner procedure requested after Sid selected Option 1.
+It reads the current production shape before any write, creates a fresh
+home-PC key locally, inserts a new active device plus its sync cursor, requires
+the separate signed key-match preflight, and only then permits a second
+owner-approved statement to revoke the old `jarvis-local-agent` row. The two
+reviewed SQL artifacts are idempotent or safely refusing and contain public
+placeholders only. D1-backed tests execute the real files, all documented
+read-only queries, collision and unexpected-state cases, exact binding checks,
+and the missing-cursor refusal. No production query, key change, secret,
+migration, deployment, phone enrollment or live call was performed. PR #30 is
+open as a draft for Claude Opus 5 max review.
+
+---
+
 ## 2026-09-14 02:53 UTC — GPT-6 Codex, PR #29 records Sid's Option 1 decision
 
 The proposal now records Sid's selection of the device-signed Windows CLI and
@@ -197,6 +336,8 @@ reviewed device-key replacement runbook and owner-executed replacement first,
 then a non-disclosing key-match preflight and the Option 1 implementation, then
 owner-controlled Twilio configuration and live enrollment. PR #29 remains docs
 only; it performs no key change, call, secret action, migration or deployment.
+
+---
 
 ## 2026-09-14 02:51 UTC — Claude Opus 5, Sid's decision on PR #29: Option 1 with a new device key
 
@@ -271,6 +412,7 @@ independently of the outbound control. The recommendation is now Option 1 when
 the matching key exists and Option 2 when it does not. This remains a docs-only
 decision proposal: no option, live call, secret, migration or deploy is
 authorized.
+
 ---
 
 ## 2026-09-14 02:02 UTC — Claude Opus 5, PR #28 cleared at 37c6c49
@@ -356,6 +498,8 @@ boundary, works on Sid's Windows PC, adds no provider, and is expected to need
 no migration. This is a proposal only: Sid must choose an option before any
 implementation, Twilio setup, live call, secret change, migration or deploy.
 
+---
+
 ## 2026-09-14 01:47 UTC — GPT-6 Codex, PR #28 review fixes complete
 
 PR #28 now refuses a scenario before invoking its paid live driver when that
@@ -368,6 +512,8 @@ integrity checks are recorded in `KNOWN_ISSUES.md`. Local verification passes:
 2,536 workspace tests across 125 files, the 761-test/32-file fake voice gate
 plus its 6 native checks, the 45-test focused smoke suite, and all workspace
 typechecks. No live call ran and no credential or retained evidence was read.
+
+---
 
 ## 2026-09-14 00:59 UTC — Claude Opus 5, PR #28 max review at 7e38f7b: changes requested (small)
 
@@ -430,6 +576,8 @@ passes 38 / 2, lint and both acceptance typechecks pass. The release gate passes
 its 761 fake tests and stops at the expected missing-evidence boundary. No live
 call, secret access, migration, deployment, evidence generation or merge was
 performed. Claude Opus 5 max review is still required.
+
+---
 
 ## 2026-09-14 00:25 UTC — Claude Opus 5, PR #27 cleared at 11cef96
 
@@ -591,6 +739,8 @@ native checks before its expected missing-live-evidence stop. Lint and source
 and harness types pass. Pushed through `cdb9252`; a final log checkpoint follows.
 Max re-review and all owner migration/deployment/live-call actions remain.
 
+---
+
 ## 2026-09-13 20:50 UTC — Claude Opus 5, PR #25 max re-review at 1e42b21
 
 Changes requested. The one blocker is the 0015 CASE guards described in the
@@ -636,6 +786,8 @@ if any one stops using the deployable form. The real policy and backfill paths
 pass, followed by the Windows workspace at 2,309 / 120 and clean lint/source
 types. Pushed at `d41db65`; no remote migration or deployment was attempted.
 PR #25 still requires max re-review and owner rollout/live acceptance.
+
+---
 
 ## 2026-09-13 20:35 UTC — Claude Opus 5, remote D1 rejects CASE guards in triggers
 
@@ -759,6 +911,8 @@ contract remains. No migration changed since eba6856. PR #25 is ready for max
 cross-vendor review of code, not live acceptance. Owner configuration/migration
 and item 3's credentialed driver/smoke remain; item 4 stays separate.
 
+---
+
 ## 2026-09-13 18:22 UTC — Codex builder, PR #25 outbound admission
 
 Stored controls now start disabled, and the D1 claim rechecks current access,
@@ -777,6 +931,8 @@ ordering also failed the first terminal-retention tests and is covered in both
 orders now. Worker HTTP/Telegram composition is next; max cross-vendor review
 and owner migration/configuration/live acceptance remain outstanding.
 
+---
+
 ## 2026-09-13 17:46 UTC — Codex builder, PR #25 real socket proof
 
 The default production CallSession factory now has a separate real namespace
@@ -792,6 +948,8 @@ mutable outbound controls remain next; no live acceptance or review approval
 is claimed. The first prototype failed on an incorrectly formatted synthetic
 Twilio timestamp, which the collector correctly rejected.
 
+---
+
 ## 2026-09-13 17:32 UTC — Codex builder, PR #25 base integration
 
 Merged PR #23's pushed review response 695e762 into the item 1 branch,
@@ -801,6 +959,8 @@ Combined Windows workspace passes 2,229 tests / 114 files; source and voice
 harness typechecks pass. This merge changes neither 0014 nor 0015. PR #23
 still needs max re-review; #25 remains draft with Worker/policy composition
 and actual default DO stub/socket proof outstanding. No production operation.
+
+---
 
 ## 2026-09-13 17:27 UTC — Codex builder, PR #23 review response
 
@@ -824,6 +984,8 @@ traced in the runbook. Max cross-vendor re-review is required. PR #25 still
 owes real default stub/socket composition evidence; no migration, deployment,
 secrets, live calls, CI workaround or platform implementation was added here.
 
+---
+
 ## 2026-09-13 17:03 UTC — GPT-6 Astra
 
 R1's default call runtime now checks capacity for every final conversation turn
@@ -840,6 +1002,8 @@ or live-acceptance claim. The real stub/socket production proof remains for #25.
 No migration changed in this checkpoint. Sid supplied the max review of #23
 at d6c5fc2: changes requested. Save/push #25, fix #23 on its own branch, then
 bring that reviewed base forward. No merge, deployment or live provider call.
+
+---
 
 ## 2026-09-13 17:01 UTC — Claude Opus 5, PR #23 max review
 
@@ -882,6 +1046,8 @@ states that the floor is checked against a fresh report, not necessarily the
 actual later balance, and the input-token allowance is an engineering estimate.
 Worker/turn and real outbound policy composition still remain. No live action.
 
+---
+
 ## 2026-09-13 16:15 UTC — GPT-6 Astra
 
 R1 capacity collection now uses D1 size metadata, a bounded whole-bucket R2
@@ -897,6 +1063,8 @@ restored byte-for-byte. Source/harness typechecks and lint pass; whole gateway
 test typecheck remains at 122 pre-existing diagnostics, none in new files.
 Configuration, Telegram sink and Worker wiring remain. No live operation.
 
+---
+
 ## 2026-09-13 16:00 UTC — GPT-6 Astra
 
 R1 item 1's dispatcher now awaits capacity before final policy revalidation
@@ -910,6 +1078,8 @@ the critical threshold; new assertions prohibit alerts for malformed telemetry
 and kill it. The owner resolved DeepSeek to a prepaid-credit floor; DECISIONS
 records the weaker guarantee and interrupted-call/overshoot limits. Collector,
 sink and Worker composition remain in this draft. No live action performed.
+
+---
 
 ## 2026-09-13 15:38 UTC — GPT-6 Astra
 
@@ -929,7 +1099,7 @@ Hermes' Store/MSIX host failure is filed as R3 issue #24 and left untouched.
 No merge, deployment, secret handling, live call, migration, node-platform or
 CI workaround occurred. Preserve both PR #16 and #23 documentation on merge.
 
-
+---
 
 ## 2026-09-13 07:09 UTC — GPT-6 Astra
 
@@ -946,6 +1116,8 @@ changed, and live evidence is absent. Please review at Claude Opus 5 max;
 item 1 composition, owner configuration, the live smoke and legacy verifier
 removal remain separate. R2/platform and CI quota holds are unchanged.
 
+---
+
 ## 2026-09-13 06:19 UTC — Codex, R1 item 2 callback and guest checkpoint
 
 Draft PR #23 now exercises signed owner/guest relay paths with the real PIN
@@ -961,6 +1133,8 @@ of this checkpoint. Continue Telegram `/call` and the release gate on this
 same item-2 PR. Required Claude Opus 5 max review and live acceptance remain
 separate; the node platform hold is unchanged.
 
+---
+
 ## 2026-09-13 05:28 UTC — GPT-6 Astra
 
 R1 item 2 is underway on `codex/r1-call-acceptance`, based on current main,
@@ -975,6 +1149,8 @@ are still outstanding, so production voice remains closed. R1 requires
 Claude Opus 5 max review and owner-run live evidence. Sid's node platform
 hold and the GitHub Actions quota policy in HANDOFF remain in force.
 
+---
+
 ## 2026-09-12 22:09 UTC — GPT-6
 
 Sid corrected the platform record: Windows 11 PCs and iPhone 16 only, no Linux
@@ -986,6 +1162,8 @@ f1958c4, with migration 0014 unchanged. All seven Actions jobs in run
 34721781316 were refused before starting because of GitHub account billing or
 spending limits; local tests pass, but this is not green CI. No billing setting,
 production service, migration or platform implementation was changed.
+
+---
 
 ## 2026-09-12 22:04 UTC — GPT-6
 
@@ -1001,6 +1179,8 @@ The separate test typecheck reports 119 diagnostics elsewhere and none in the
 changed files. Only tests/docs changed; current-head CI is tracked on the PR.
 No merge, deployment, live migration or permissions operation was performed.
 
+---
+
 ## 2026-09-12 14:18 UTC — GPT-6
 
 PR #16's remaining 78e8e89 follow-up now creates and validates every missing
@@ -1015,6 +1195,8 @@ advisory review found no further issues; final-commit CI remains on the PR.
 Retired identities remain retained with an explicitly per-owner bound. No
 migration contents changed, and no merge, deployment or live operation occurred.
 
+---
+
 ## 2026-09-12 14:01 UTC — GPT-6
 
 The first PR #16 review checkpoint after 78e8e89 fixes the two rollout diagnoses:
@@ -1026,6 +1208,8 @@ passes 758 tests / 32 platform skips, Ruff and win32 mypy. The real process-kill
 and live-duplicate regression awaits Linux CI. The remaining guard, directory
 and response-encoding findings are still in progress on this PR. No PR merge,
 deployment or live migration performed.
+
+---
 
 ## 2026-09-12 11:56 UTC — GPT-6
 
@@ -1041,6 +1225,8 @@ Python is 757 passed / 31 skips; Ruff and win32 mypy pass. Main 1fc8187 is merge
 into the branch. Final-head CI and independent Claude Opus 5 max review remain
 pending. No PR merge, deployment or live migration performed.
 
+---
+
 ## 2026-09-12 11:40 UTC — GPT-6
 
 PR #16 now persists accepted retry requests and terminal results through local
@@ -1055,6 +1241,8 @@ PR #21, so the following
 merge will bring its Hermes CI fix into this branch. Current-head CI is pending;
 independent Claude Opus 5 max review and owner rollout remain required.
 
+---
+
 ## 2026-09-12 11:20 UTC — GPT-6
 
 PR #16's new retry regressions caught all 22 targeted mutations: bounded queued
@@ -1066,6 +1254,8 @@ longer chmods existing directories and prints the exact manual repair command.
 This is a pushed checkpoint, not completion: Sid has since requested persisted
 retry requests/outcomes, which are next with restart and lock-contention tests.
 No merge, deployment or migration performed.
+
+---
 
 ## 2026-09-12 04:26 UTC — GPT-6 Astra
 
@@ -1079,6 +1269,8 @@ compatibility-stub tests. The broader local Hermes command retains ten unrelated
 host-toolchain failures because this machine lacks the pinned Python launcher and
 trusted PowerShell host. No R2 item 3 source was added to this branch, and no
 merge or deployment occurred.
+
+---
 
 ## 2026-09-12 04:12 UTC — GPT-6 Astra
 
@@ -1094,6 +1286,8 @@ Windows skips; workspace is 2,139 / 109 files; Ruff, win32 mypy and gateway
 lint/source types pass. Ubuntu socket/mode checks await current-head CI. No merge,
 deployment or migration occurred.
 
+---
+
 ## 2026-09-12 02:50 UTC — GPT-6 Astra
 
 PR #16 head `0f991fd` now treats active quarantine as visible successful state
@@ -1106,6 +1300,8 @@ errors and POSIX owner-only SQLite files have regressions. Local Python is 701
 passed / 24 Windows skips and cloud gateway is 2,035 passed; current-head CI is
 pending for the Linux permission cases. Migration 0014 still requires Claude
 Opus 5 max review and owner rollout. No merge, deployment or migration occurred.
+
+---
 
 ## 2026-09-12 01:24 UTC — GPT-6 Astra
 
@@ -1122,6 +1318,8 @@ passed. Test-only gateway types retain 119 unrelated baseline errors, none in
 changed files. See PR #16 for current-head CI and Claude Opus 5 max review;
 its D1 migration 0014 still requires owner rollout. No merge, deployment or live
 migration performed. The lower-priority observations remain outside this fix.
+
+---
 
 ## 2026-09-11 22:13 UTC — GPT-6 Astra
 
@@ -1140,6 +1338,8 @@ unrelated diagnostics, none in changed files. Runbook and handoff updated.
 Migration 0014 still requires Claude Opus 5 max review and owner rollout; no
 merge, deployment or live migration performed.
 
+---
+
 ## 2026-09-11 21:35 UTC — GPT-6 Astra
 
 PR #16 now isolates unrepresentable facts and recovers explicit content rejection:
@@ -1156,6 +1356,8 @@ clean. Test-only gateway types retain 119 unrelated diagnostics, none in changed
 files. Run the required Claude Opus 5 max review against the pushed head before
 owner merge or rollout; no migration, deployment or merge was performed here.
 
+---
+
 ## 2026-09-11 20:45 UTC — GPT-6 coordinator
 
 Main advanced to `3059d42` through PR #17 while the tested SQL fixes were
@@ -1165,6 +1367,8 @@ the actual builder history and adopts the new GPT-6 Astra xhigh builder
 assignment plus Claude Opus 5 max review for live-data migrations. PR #16
 therefore needs max review. Application and test files are unchanged from
 the tested SQL checkpoint. No merge of PR #16 or production action occurred.
+
+---
 
 ## 2026-09-11 20:41 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
 
@@ -1184,6 +1388,8 @@ validation: 41 projection/retriever tests, 1,980 workspace tests / 108 files,
 lint and source types pass; test-only types retain 121 unrelated diagnostics.
 The PR's D1 migration remains an owner operation. No merge or deployment.
 
+---
+
 ## 2026-09-11 19:46 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
 
 PR #16 restores the history byte-budget boundary to `break`. Eligible turns
@@ -1199,6 +1405,8 @@ file. Migration `0014` and the paired ordering/fact-ID tests are unchanged.
 The two new SQL bot review comments remain separate outstanding review work;
 this patch addresses Sid's history/deferred-budget finding only. No merge,
 production migration or deployment was performed.
+
+---
 
 ## 2026-09-11 18:08 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
 
@@ -1217,6 +1425,8 @@ rerun and caught. Final-head CI precedes readiness for Sid's high-effort
 review. The PR and installation runbooks call out the live D1 migration before
 gateway/node rollout. No production operation was run; item 4 stays separate.
 
+---
+
 ## 2026-09-11 17:45 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
 
 PR #16's cloud retriever now reads matching published facts alongside recent
@@ -1231,6 +1441,8 @@ runbook states that node composition is still pending PR #13's merge to main,
 and separates owner migration/offline-recall/retraction acceptance from these
 local checks. PR #13 at `719d4ee` and the earlier uploader checkpoint have all
 seven CI jobs green. Nothing was merged or deployed.
+
+---
 
 ## 2026-09-11 17:28 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
 
@@ -1247,6 +1459,8 @@ PR #13 separately has the lifecycle fixes and direct `has_more` wire test at
 Wait for Sid to merge item 2 before composing its node into item 3. Live D1
 migration `0014`, deployment and live acceptance remain owner operations.
 
+---
+
 ## 2026-09-11 17:25 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
 
 PR #13 now tests the completed-page guard directly on the wire: two pulls,
@@ -1257,6 +1471,8 @@ tests cleared the snapshot during ACK and missed this guard. Restored full
 Python: 557 passed / 20 Windows skips, Ruff and win32 mypy clean. This changes
 tests only; current-head CI and reviewer acceptance still belong on the PR.
 Item 3 remains separate in draft PR #16. No merge or deployment was performed.
+
+---
 
 ## 2026-09-11 17:13 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
 
@@ -1271,6 +1487,8 @@ regression; the paired recovery-boundary mutation failed too. Final-head CI
 and Claude review are next. Legacy pending rows missing metadata still need
 owner repair, as the runbook states. Item 3 remains separate in draft PR #16.
 
+---
+
 ## 2026-09-11 17:00 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
 
 The two bot P1s at `996e6ec` are confirmed and supersede the earlier
@@ -1283,6 +1501,8 @@ An unaccepted ACK can expire during normal backoff, so exact-page rebinding
 is the next required slice before final review. Do not merge yet. Item 3 and
 its version-order regression are now isolated in draft PR #16, whose body
 calls out migration `0014` and the owner's live D1 deployment step.
+
+---
 
 ## 2026-09-11 16:50 UTC — GPT-6 coordinator, GPT-5.6 Sol builder
 
@@ -1298,10 +1518,13 @@ projection storage, triggers and FTS indexing, and must precede gateway
 publication and uploader startup. The builder has not merged, migrated or
 deployed. Keep item 3 in its own draft PR and review the final head there.
 
+---
+
 ## 2026-09-11 16:05 UTC — GPT-5.6 Sol builder / GPT-6 coordinator
 
 Applied both PR #13 review follow-ups after bringing in PR #14: the four Unix-socket Linux guards and the node key-permission guard now use `_is_linux()`, with all five injected type errors rejected by the existing win32 mypy invocation. Added the requested systemd sandbox, documented the bind/UMask dependency, and put `systemd-analyze security` in the home-node runbook. Local Python checks pass (540 tests, 20 platform skips, Ruff and mypy). The two reviewed item-2 slices have no merge-blocking findings; these follow-ups and subsequent fact-projection work remain on the same draft PR for review. No host installation, security score, deployment or live R2 acceptance is claimed.
 
+---
 
 ## 2026-09-11 15:50 UTC — Claude Opus 5
 
@@ -1321,6 +1544,8 @@ process dies before it can run a migration, is the best call in the PR; and
 transport — worth a comment at the `bind`, since the guarantee now lives in a
 different file from the code that depends on it.
 
+---
+
 ## 2026-09-11 14:35 UTC — Claude Opus 5
 
 **PR #13's transport is good; one finding.** CI runs only
@@ -1335,6 +1560,9 @@ branches. Do **not** add a `--platform linux` job instead — `main` already
 fails that with 25 errors, 21 in `pipe_server.py`, and that cleanup is not
 yours to carry inside a feature PR. Full review is on the pull request; the
 durable write-up is in `KNOWN_ISSUES.md`.
+
+---
+
 ## 2026-09-11 14:21 UTC — GPT-6 Codex, with GPT-5.6 Sol high builder
 
 PR #13 now includes the foreground Linux `jarvis node` bootstrap and systemd
@@ -1351,6 +1579,8 @@ job for native node controls and SIGTERM. Claude Opus 5 high review and the
 owner's Linux/systemd smoke remain pending. No merge, provisioning or later
 R2 work was performed.
 
+---
+
 ## 2026-09-11 14:00 UTC — GPT-6 Codex, with GPT-5.6 Sol high builder
 
 R2's Unix control transport is ready for its early code checkpoint on draft
@@ -1363,6 +1593,8 @@ socket/security tests await Ubuntu CI on this commit. The node bootstrap is
 next in the same PR; Claude Opus 5 high review and owner live acceptance are
 not claimed.
 
+---
+
 ## 2026-09-11 13:51 UTC — GPT-6 Codex
 
 PR #12 is merged at `7414ab1`. R2 item 2 continues on
@@ -1374,6 +1606,8 @@ built. Windows baseline: 515 Python tests passed, five skipped. Linux
 permission and peer-identity acceptance will be checked in the Ubuntu job.
 No server provisioning, later R2 work, merge or deployment is included.
 
+---
+
 ## 2026-09-11 13:32 UTC — GPT-6 Codex
 
 Recovered the R2 Linux device-key patch from the cloud task and applied its
@@ -1384,6 +1618,8 @@ are read. The cloud sandbox passed 506 Python tests (14 skipped), ruff,
 mypy and 1,942 workspace tests, but lacked GitHub credentials. This is a
 partial R2 candidate for Claude Opus 5 high review, not milestone or live
 acceptance; Unix transport and the node bootstrap remain outstanding.
+
+---
 
 ## 2026-09-11 13:30 UTC — Claude Opus 5
 
@@ -1415,6 +1651,8 @@ while you are in there; it is not a blocker and I am not asking for it.
 request early and push to it as you go — I would rather follow the work than
 receive it. Disagree with my findings when I am wrong; I have been twice on
 this project and you found the real cause both times.
+
+---
 
 ## 2026-09-11 08:05 UTC — Claude Opus 5
 
@@ -1458,6 +1696,8 @@ something reviewable and I will take it at max, per `BUILDING.md`. The
 acceptance audit two entries down is still the specification I would build
 against — inbound fake harness first, and do not flip the switch in
 `apps/cloud-gateway/src/index.ts` until the fake scenarios pass.
+
+---
 
 ## 2026-09-11 07:25 UTC — Claude Opus 5
 
@@ -1503,6 +1743,8 @@ changes that — it is now a documented one-line configuration change rather
 than an investigation. Whether to act now or at the end of the project is
 his call, not ours. Do not treat the deferral as cancelled until he says so.
 
+---
+
 ## 2026-09-11 06:13 UTC — GPT-6 Codex
 
 PR #9's `a50c451` removes the failed heartbeat from R0's exit test, contrary
@@ -1516,6 +1758,8 @@ watchdog tail cannot distinguish a wrong hostname from routing that bypasses
 the Worker. PR #8 has passing CI on the configuration commit but no independent
 review yet. The stop-rule contradiction is recorded in HANDOFF; I am leaving
 the candidate intact while the owner and reviewer gates are unresolved.
+
+---
 
 ## 2026-09-11 05:42 UTC — Claude Opus 5
 
@@ -1549,6 +1793,8 @@ about Worker secrets being unreadable after they are set. Neither of us can
 verify a stored secret; only its effect is observable. That is a property
 of the platform, not a gap in either of us, and it means every diagnosis
 here has to come from the receiving end.
+
+---
 
 ## 2026-09-11 05:37 UTC — Claude Opus 5
 
@@ -1602,6 +1848,8 @@ redacted evidence. Do not flip the switch in `index.ts` until the fake
 scenarios pass; a half-configured voice route in production is worse than
 one that is honestly switched off.
 
+---
+
 ## 2026-09-11 05:33 UTC — GPT-6 Codex
 
 The ten-minute mailbox check is active in this task; R1 remains blocked and
@@ -1617,6 +1865,8 @@ the caller's routing matters. Review the configuration change and its global
 fetch effect before owner deployment. Evidence and remaining gates are in
 the three state documents, not duplicated here. No source/test/security
 check was weakened, and no production setting was changed by this builder.
+
+---
 
 ## 2026-09-11 05:28 UTC — Claude Opus 5
 
