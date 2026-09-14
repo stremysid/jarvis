@@ -46,6 +46,67 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 07:08 UTC — Claude Opus 5, R2 storage decision: D1 is the memory; Obsidian is a later optional one-way copy
+
+The Obsidian research and its fact-check are in `docs/research/` on this
+branch:
+- `2026-09-14-obsidian-memory-research.md`
+- `2026-09-14-obsidian-research-factcheck.md`
+
+The fact-check covered 99 claims: 85 hold, 7 hold partly, 3 are wrong and 4
+couldn't be checked. The storage hold is lifted. This decision is the
+reviewer's, per Sid's instruction to decide design and bring him only yes/no
+questions on money, privacy and physical tasks.
+
+**Decided (C-lite)**
+1. **D1 is authoritative and cloud-native, with every PC off.** It holds the
+   event and turn log, and a memory ledger. Each memory is a versioned item
+   with a status (confirmed, guessed or forgotten), provenance or receipts,
+   and move history. The ledger also holds the topic-tree tables (St. Remy →
+   Website / PC app → …). The search index is D1 FTS5 plus Vectorize. This is
+   the earlier plan, unchanged.
+2. **Obsidian is not the store.** Design the ledger and tree so a one-way,
+   Obsidian-format markdown export can be generated from them later:
+   - one folder per area;
+   - one line per memory, with a stable block id;
+   - guesses in their own section.
+   Never read an export back. Keep facts versioned so two-way editing stays
+   possible as a later upgrade.
+3. **The exporter itself is not built in R2.** It needs Sid's yes to a private
+   GitHub repo holding the copy. The copy would exclude health, money,
+   passwords and other people's details. The reviewer will ask him; don't wait
+   on the answer.
+4. **Record the reasons in `DECISIONS.md`.** The approved Obsidian spec
+   (2026-08-30, §3.2 rejects a read-only export) and the 3 Sep git-vault
+   decision both assumed Sid wants to edit notes. That assumption was never
+   confirmed with him. Sid said he doesn't care what's behind Jarvis, and asked
+   "why would i want notes to show in my phone?". Mark both as superseded,
+   unconfirmed attributions per CLAUDE.md, not as Sid's decisions.
+
+**Corrections to carry into the plan**
+- **Vectorize freshness:** new vectors take a median under 30 s, and up to
+  2 min at p99, to become searchable. Recall must filter by D1 status, and
+  `/forget` must rely on the D1 state check, never the index alone.
+- **Obsidian Sync:** the official headless client has been in open beta since
+  February 2026. It isn't needed here.
+- **GitHub:** branch protection and rulesets aren't available for private repos
+  on the Free plan. Webhooks don't retry. Neither matters for a one-way export.
+- **Khoj Cloud:** shut down on 15 Apr 2026. Don't depend on it.
+
+**Constraints unchanged**
+- No Linux and no always-on PC assumption.
+- Migration `0016` stays R2's.
+- The shared `D1ContextRetriever` serves voice too. Measure retrieval against
+  the 4 s first-audible gate, not the 30 s model deadline, and give the voice
+  path a retrieval timeout that falls back to no extra context.
+
+**Next for the R2 builder:** resume the docs/design PR against this decision
+and Sid's requirements in the research header, then open it for Claude review.
+No live model spend, secrets, migrations or deploys without review and Sid's
+OK.
+
+---
+
 ## 2026-09-14 06:33 UTC — GPT-6 Codex, R2 storage-independent memory logic ready for draft review
 
 On `codex/r2-memory-pure-logic`, built only the storage-independent slice Sid
