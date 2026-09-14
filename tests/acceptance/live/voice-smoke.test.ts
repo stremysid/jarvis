@@ -467,6 +467,48 @@ describe("safe command contract", () => {
     expect([...store.files.keys()]).toEqual(["inbound.json"]);
   });
 
+  it("reports a live-driver failure distinctly without emitting the adapter's private error", async () => {
+    const cli = await import("./voice-smoke-cli.mjs");
+    const privateMessage = "private provider response and account identifier";
+    const stdout: string[] = [];
+
+    const exitCode = await cli.runSmokeCommand([
+      "--scenario", "inbound", "--execute-live", "--confirm-live", LIVE_VOICE_SMOKE_CONFIRMATION,
+    ], {
+      environment: completeGate.configuration,
+      secretPresence: completeGate.secretPresence,
+      doctorExitCode: 0,
+      driver: { run: async () => { throw new Error(privateMessage); } },
+      store: new MemoryEvidenceStore(),
+      writeStdout: (value: string) => { stdout.push(value); },
+    });
+
+    expect(exitCode).toBe(2);
+    expect(stdout).toEqual(['{"status":"blocked","reason":"live_smoke_failed"}\n']);
+    expect(stdout.join("")).not.toContain(privateMessage);
+  });
+
+  it("reports local evidence persistence failure distinctly from invalid arguments", async () => {
+    const cli = await import("./voice-smoke-cli.mjs");
+    const store = new MemoryEvidenceStore();
+    store.failCommit = true;
+    const stdout: string[] = [];
+
+    const exitCode = await cli.runSmokeCommand([
+      "--scenario", "inbound", "--execute-live", "--confirm-live", LIVE_VOICE_SMOKE_CONFIRMATION,
+    ], {
+      environment: completeGate.configuration,
+      secretPresence: completeGate.secretPresence,
+      doctorExitCode: 0,
+      driver: { run: async () => inboundEvidence },
+      store,
+      writeStdout: (value: string) => { stdout.push(value); },
+    });
+
+    expect(exitCode).toBe(2);
+    expect(stdout).toEqual(['{"status":"blocked","reason":"evidence_write_failed"}\n']);
+  });
+
   it("passes only an owner presence sentinel to the gate and never emits the raw identity", async () => {
     const priorExitCode = process.exitCode;
     const priorStderrWrite = process.stderr.write;

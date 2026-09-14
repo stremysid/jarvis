@@ -12,9 +12,26 @@ import {
 import { createFileEvidenceStore } from "./voice-smoke-store.mjs";
 
 const OWNER_VOICE_IDENTITY_CONFIGURATION = "OWNER_VOICE_IDENTITY_ID";
+const PUBLIC_RUN_FAILURES = new Set([
+  "evidence_cleanup_failed",
+  "evidence_write_failed",
+  "live_smoke_failed",
+]);
 
 function safeLine(value) {
   return `${JSON.stringify(value)}\n`;
+}
+
+function publicRunFailure(error) {
+  try {
+    if (error === null || typeof error !== "object") return "invalid_smoke_arguments";
+    const message = Object.getOwnPropertyDescriptor(error, "message")?.value;
+    return typeof message === "string" && PUBLIC_RUN_FAILURES.has(message)
+      ? message
+      : "invalid_smoke_arguments";
+  } catch {
+    return "invalid_smoke_arguments";
+  }
 }
 
 function evidencePath(name) {
@@ -64,8 +81,14 @@ export async function runSmokeCommand(arguments_, overrides = {}) {
   const environment = overrides.environment ?? process.env;
   const runGate = overrides.runGate ?? runVoiceSmoke;
   const writeStdout = overrides.writeStdout ?? ((value) => process.stdout.write(value));
+  let parsed;
   try {
-    const parsed = parseSmokeArguments(arguments_);
+    parsed = parseSmokeArguments(arguments_);
+  } catch {
+    writeStdout(safeLine({ status: "blocked", reason: "invalid_smoke_arguments" }));
+    return 2;
+  }
+  try {
     const configuration = liveGateConfiguration(environment);
     const input = {
       ...parsed,
@@ -80,8 +103,8 @@ export async function runSmokeCommand(arguments_, overrides = {}) {
     const result = await runGate(input, dependencies);
     writeStdout(formatRunResult(result));
     return result.status === "blocked" ? 2 : 0;
-  } catch {
-    writeStdout(safeLine({ status: "blocked", reason: "invalid_smoke_arguments" }));
+  } catch (error) {
+    writeStdout(safeLine({ status: "blocked", reason: publicRunFailure(error) }));
     return 2;
   }
 }

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -207,6 +207,32 @@ describe("local voice-smoke evidence store", () => {
     await expect(store.commitTemporary(temporaryName, "inbound.json")).rejects.toThrow(/^evidence_destination_exists$/u);
     await expect(readFile(join(directory, "inbound.json"), "utf8")).resolves.toBe("retained\n");
     await expect(readFile(join(directory, temporaryName), "utf8")).resolves.toBe("replacement\n");
+  });
+
+  it("treats a file URL as the evidence directory even when it has no trailing slash", async () => {
+    const root = await temporaryEvidenceDirectory();
+    const directory = join(root, "evidence");
+    await mkdir(directory);
+    const store = createFileEvidenceStore(pathToFileURL(directory));
+    const temporaryName = `.inbound.${CORRELATION_ID}.tmp`;
+
+    await store.writeTemporary(temporaryName, "inside\n");
+    await store.commitTemporary(temporaryName, "inbound.json");
+
+    await expect(readFile(join(directory, "inbound.json"), "utf8")).resolves.toBe("inside\n");
+    await expect(readFile(join(root, "inbound.json"), "utf8")).rejects.toThrow();
+  });
+
+  it("refuses to publish a temporary record changed after its validated write", async () => {
+    const directory = await temporaryEvidenceDirectory();
+    const store = createFileEvidenceStore(pathToFileURL(`${directory}/`));
+    const temporaryName = `.inbound.${CORRELATION_ID}.tmp`;
+    await store.writeTemporary(temporaryName, "validated\n");
+    await unlink(join(directory, temporaryName));
+    await writeFile(join(directory, temporaryName), "tampered!\n", "utf8");
+
+    await expect(store.commitTemporary(temporaryName, "inbound.json")).rejects.toThrow(/^evidence_temporary_changed$/u);
+    await expect(readFile(join(directory, "inbound.json"), "utf8")).rejects.toThrow();
   });
 
   it("refuses traversal, unrelated files, and pre-existing temporary paths", async () => {
