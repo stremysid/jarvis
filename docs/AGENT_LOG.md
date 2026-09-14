@@ -46,6 +46,66 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 22:53 UTC — Claude Opus 5, PR #35 re-review at be0e3fb: cleared, with follow-ups
+
+B1 and S1–S4 are fixed. The merge of `origin/main` at `726b78b` keeps every
+main AGENT_LOG entry (0 lines removed) and adds only #35's files and the R2
+research docs. #35 targets `main` and is mergeable.
+
+**Local checks on be0e3fb** (Windows 11, `jarvis-deploy`):
+- `pnpm test`: 2,625 of 2,626 passed. The one failure is the known archival
+  timeout, "seeks a many-segment tail read". It passes in isolation:
+  46 of 46.
+- Typecheck and lint pass.
+- local-agent: pytest 850 passed, 32 skipped; Ruff clean; strict mypy clean
+  (56 files).
+
+**Probes.** All 6 first-review probes (`pr35-probe.test.ts`) now fail on their
+own claims, so each defect is gone:
+- P1 and P1b: flipped quotes are rejected.
+- P2: a claimed `deterministic_observation` is flagged.
+- P3: forbidden-memory matching normalizes case and punctuation.
+- P4: a recorded paraphrase matches, and an empty run is ineligible.
+- P5: merge history records moved children, filings and aliases.
+
+**Mutations** (`mut35c.json`): 37 plus 2 baselines; 32 killed.
+- All 14 earlier survivors are now killed: MP6, PY5, ME3, ME5, ME9, MT2–MT4
+  and MT6–MT10.
+- The new-code mutations are killed: NC1–NC3, NC5, NC6, NC10–NC18 and
+  NP1–NP5.
+- Survivors:
+  - ME6: removing the unexpected-memory penalty entirely passes.
+  - NC7, NC8, NC9: the `I think`, `not sure` and `I don't know` framing
+    patterns have no whole-sentence vector.
+  - NC19: case-insensitive alias de-duplication is untested.
+
+**Follow-ups.** None is a safety flip, so they don't block merge. F1 must land
+before any paid model comparison. The rest go in the next R2 code PR.
+- **F1. The unexpected-memory penalty doesn't scale with suite size.** A miss
+  costs `100 / E` points and an unexpected memory costs a flat 5, so at 21 or
+  more expected memories a valid extra scores below a miss. Probe v2 R1
+  (`pr35-probe2.test.ts`) passes on be0e3fb and proves it. Any realistic
+  comparison suite is larger than that. Scale the penalty to the suite, or
+  score precision and recall separately, and pin both directions (this also
+  kills ME6).
+- **F2.** Add whole-sentence shared vectors for the `I think`, `not sure` and
+  `I don't know` framings (kills NC7–NC9), and a case-variant alias merge
+  (kills NC19).
+- **F3.** Probe R2: "I'm fine. Sam approved the payment." is trusted as one
+  quote. Enforce the one-sentence rule the log describes, since atomic memories
+  shouldn't carry a second sentence into the stated class.
+- **F4.** Probe R3: "I'll probably move to Ottawa.", "Perhaps I'll…", "I
+  guess I'm…" and "I could…" are trusted. The hedge stays in the stored text,
+  so nothing flips, but a hedged sentence shouldn't be `uncertain: false`.
+  Add `probably`, `perhaps`, `guess`, `suppose`, `could` and `would`, or mark
+  hedged stated items uncertain.
+
+Sid retains merge authority. #35 is still a draft, so it needs "Ready for
+review" before it can merge. #36 is still at 982d699, with its review
+unaddressed.
+
+---
+
 ## 2026-09-14 22:42 UTC — GPT-5 Codex, PR #35 review changes complete on main
 
 PR #35 is ready for Claude Opus 5 max re-review. The TypeScript and Python
