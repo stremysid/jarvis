@@ -79,8 +79,18 @@ guest, unknown and ungranted callers; it covers interruption, the real
 Telegram `/call <reason> --confirm` constructs a durable owner-only self-call
 command with fixed expiry and replay protection. PR #25 now composes production
 dispatch and merged as `fd39301`; gateway deployment `28109492` is live.
-Calling remains off pending owner Twilio configuration, explicit control
-activation and live acceptance.
+Owner calling remains unavailable because production has no enrolled owner
+phone. Sid selected Option 1 in
+[`docs/plan/2026-09-14-owner-phone-enrollment-options.md`](docs/plan/2026-09-14-owner-phone-enrollment-options.md);
+the device-signed Windows CLI followed by an inbound activation call. No
+original sealed key was found on the intended home PC, so the required order is
+a separately reviewed device-key replacement runbook and owner-executed key
+replacement, then a non-disclosing local key-match preflight, then the Option 1
+implementation. The production key change remains one owner-confirmed action at
+each live step. Twilio must be configured before the enrollment call. Setting the voice
+webhook makes inbound calling live because the outbound runtime control does
+not gate inbound calls; unknown callers are refused but may still incur
+provider charges. Live enrollment and acceptance remain owner-confirmed steps.
 
 Run `pnpm test:voice-access` and `pnpm typecheck:voice-access` locally.
 `pnpm release:voice-gate` runs the fake prerequisite before auditing the five
