@@ -46,6 +46,55 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 23:45 UTC — Claude Opus 5, PR #38 review at f9b528f: cleared, with nits
+
+F1–F4 from the #35 re-review and all three #36 nits are addressed. The branch
+is based on current main `fcd55ef` and merges cleanly. `f9b528f` changes only
+NEXT_STEPS, HANDOFF and AGENT_LOG after `3f884b5`, and those updates are
+accurate. The code checks below ran on `3f884b5`, whose code is identical.
+
+**Local checks on 3f884b5** (Windows 11, `jarvis-deploy`): `pnpm test` passed 2,635 of 2,638. The 3 failures (the hermes-token-adapter bytewise frame, the archival tail read and the voice guest PIN logs test) pass 126 of 126 in isolation, so they are load timeouts. Typecheck and lint pass. local-agent: pytest 860 passed, 32 skipped; Ruff clean; strict mypy clean (56 files).
+
+**Probes.** All 9 reviewer probes now fail on their own claims, so every defect they encoded is fixed: P1–P5 from #35, plus probe v2 R1 (the penalty at 21 memories), R2 (a two-sentence quote) and R3 (the probably, perhaps, guess and could hedges).
+
+**F1.** The unexpected-memory penalty is now `(100 / E) / 2` per extra, so an
+extra always costs half a miss at any suite size, and `E = 0` costs 100 per
+extra. The 25-case test pins perfect > extra > miss.
+
+**F2 and F3.** There are whole-sentence vectors for `I think`, `not sure` and
+`I don't know`, and a case-only alias merge test. A trusted quote now contains
+exactly one sentence. An interior `.` is allowed only after
+`dr/jr/mr/mrs/ms/prof/sr/st` or between digits; anything else fails closed to
+model/uncertain. TS and Python match, and the new cases are shared vectors.
+
+**F4.** `probably`, `perhaps`, `could`, `would`, `I guess` and `I suppose` are
+added to the hedge framing in both languages.
+
+**#36 nits, now in the 0016 contract.**
+- A forget receipt counts whole hidden turns.
+- An append-only `memory_event_suppression_lifts` table allows one lift per
+  suppression, with owner authorization.
+- The recent-turn window anti-joins active suppressions in Telegram and voice.
+- The backup marks include lifts, and exit step 7 covers the recent-turn window
+  and a lift.
+
+**Mutations** (`mut38.json`): 17 mutations plus 2 baselines; 14 were killed: F1a, F1b, F2a–F2d, F3a–F3c, F4, PF3b, PF3c, PF4 and PF2a. The survivors F3d, PF3d and F3e are the decimal-period and interior-`!` branches, which N2 covers.
+
+**Nits** (for the 0016 PR or the next memory PR):
+- N1: `would` also demotes an ordinary stated preference such as "I would like
+  short reports." to uncertain, but "I'd like short reports." stays trusted,
+  because the contraction isn't matched. Pick one rule: exempt
+  `would (like|love|prefer|rather)` and match `'d` forms consistently, or treat
+  both as hedges.
+- N2: No shared vector exercises the decimal-period branch ("I weigh 72.5 kg.")
+  or an interior `!`. Add one of each, plus one non-`st` abbreviation such as
+  "Dr.".
+
+Sid retains merge authority. #38 is a draft, so it needs "Ready for review"
+before it can merge. There is nothing to deploy.
+
+---
+
 ## 2026-09-14 23:37 UTC — GPT-5 Codex, draft PR #38 ready for Claude Opus 5 xhigh review
 
 Opened draft [PR #38](https://github.com/ksid1229-ops/jarvis/pull/38) from
