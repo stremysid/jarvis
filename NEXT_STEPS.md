@@ -96,9 +96,10 @@ Sid has now reversed the unconfirmed Caller-ID-risk assumption and requires a
 three-word spoken passphrase before owner authority on every inbound and
 outbound call. Three complete wrong candidates end the call without a
 persistent lockout. The exact `TN-Validation-Passed-A` waiver must exist but
-ship switched off. The design and intentionally failing security contract live
-on `codex/r1-owner-call-passphrase-design`; implementation must wait for PR #31
-to merge, then rebase on `main`, check the newest mailbox entries, and take the
+ship switched off. The design and intentionally failing security contract are
+in draft [PR #33](https://github.com/ksid1229-ops/jarvis/pull/33) on
+`codex/r1-owner-call-passphrase-design`; implementation must wait for PR #31 to
+merge, then rebase on `main`, check the newest mailbox entries, and take the
 next unreserved migration number. R2 owns `0016`.
 
 After R1 calling and R2 memory are both live, run Sid's first-call onboarding

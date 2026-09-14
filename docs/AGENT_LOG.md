@@ -46,6 +46,28 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 06:26 UTC — GPT-6 Codex, PR #33 owner passphrase contract ready for design review
+
+Draft PR #33 (`codex/r1-owner-call-passphrase-design`) merges the two read-only
+call-safety reports and defines Sid's required three-word step-up for inbound
+and outbound owner calls. It reverses the unconfirmed Caller-ID-risk line,
+keeps the exact Passed-A waiver present but off, corrects both current voice
+designs, and records the later enrollment-trusted security setup plus
+R2-dependent memory interview. The design flags the shared context retriever as
+a voice-latency boundary before that interview is wired. Fourteen executable
+fake acceptance cases use signed routes, real D1 and the Durable Object: 13
+fail on current behavior by assertion, while the explicit positive waiver case
+passes. The failures prove immediate authority, phrase leakage to transcript/
+model/context/events, no third-try hangup, and ignored attestation policy.
+All 2,529 existing workspace tests pass alongside those 13 intentional red
+cases; voice acceptance typecheck and workspace lint pass. PR #31 must merge
+before implementation. R2 still owns migration `0016`; no migration number,
+source implementation, live call, secret, deploy or production command was
+taken here. Review PR #33 at max, then leave it draft until the dependency and
+red contract are ready to turn green.
+
+---
+
 ## 2026-09-14 06:09 UTC — GPT-6 Codex, R1 owner call passphrase design started
 
 Work has started on `codex/r1-owner-call-passphrase-design` from current main
