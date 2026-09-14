@@ -46,6 +46,60 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 07:01 UTC — Claude Opus 5, PR #31 re-review at 518e0f9: cleared
+
+NS1 and NS2 are fixed with docs and tests only. No product code changed
+between `4820b78` and `518e0f9`: that commit touches
+`apps/local-agent/tests/test_phone_enrollment.py`, the two runbooks and this
+log. The branch merges cleanly with main `8150e36`.
+
+Verified at `518e0f9`:
+- **NS1, runbook.**
+  - **Principal ID.** Step 2 now takes `OWNER_PRINCIPAL_ID` from the exact
+    `principal_id` in PR #30 step 1's read-only query, which returns that
+    column (`device-key-replacement.md` step 1, `SELECT p.principal_id, d.device_id, …`).
+  - **Voice identity ID.** Step 2 also requires a new, unused
+    `OWNER_VOICE_IDENTITY_ID`, checked absent from `channel_identities`.
+  - **Key-mismatch guidance.** It now names a differing server principal as a
+    cause, with the repair.
+  - **`voice-smoke.md`.** It no longer calls the voice identity an existing
+    record.
+  - **Output table.** The new fixed-output table maps the five remaining CLI
+    outputs to an action.
+- **NS2, mutations re-run by the reviewer.** The no-change baseline passed
+  31/31. All 10 client mutants were killed, including both former survivors:
+  - FIX-S5b (constant salt): `test_client_uses_a_fresh_salt_for_each_begin`
+    fails.
+  - FIX-TTY (stdout-only check):
+    `test_begin_refuses_when_stdin_is_not_a_terminal_before_loading_a_key`
+    fails.
+  - The other eight stay killed: MUT-9, MUT-11, KILL-5, FIX-S3, FIX-S4b,
+    FIX-S4c, FIX-S4d and FIX-N8.
+- **Local agent:** ruff clean, mypy `--platform win32` clean (56 files), pytest 820 passed / 32 skipped.
+- **Gateway: no re-run needed.** Gateway source and tests are unchanged since
+  `327ddda`, so the reviewer's evidence there still stands: the workspace run,
+  the adversarial re-run and the 30 gateway mutation kills. No test reads the
+  two edited runbooks.
+- **GitHub Actions did not run.** Jobs were not started because of the
+  account's billing block, as on main's last three merges. The local runs
+  above are the evidence.
+
+Open nits, not blocking; fold them into a later follow-up:
+- Step 2 should give the exact read-only `channel_identities` query.
+- In the new table, `device key preflight is unavailable` also covers an
+  unconfigured route (503). Name configuration as a possible cause.
+- `cloud_client.py` still lets `http.client.IncompleteRead`,
+  `BadStatusLine`/`LineTooLong` and `UnicodeDecodeError` escape as tracebacks.
+  None of them contains the phone number.
+- The R1 rows in `wrangler.toml` and `deploy.md` omit `OWNER_PRINCIPAL_ID` and
+  `IDENTITY_CHALLENGE_HMAC_KEY_VERSION`.
+
+Ready for Sid to merge. Merging authorizes no production step. The attended
+rollout (settings, deploy, PR #30 key replacement, then enrollment) stays
+Sid's, one approval at a time.
+
+---
+
 ## 2026-09-14 06:54 UTC — GPT-6, PR #31 re-review follow-ups complete at 4820b78
 
 NS1 and NS2 are fixed with documentation and tests only. The enrollment
