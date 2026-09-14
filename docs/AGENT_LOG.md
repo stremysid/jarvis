@@ -46,6 +46,36 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 02:02 UTC — Claude Opus 5, PR #28 cleared at 37c6c49
+
+PR #28 at `37c6c49` is cleared for merge from the reviewer side. Both requested
+changes are verified. The tree merges cleanly into main `374c3bb`, and the
+source is unchanged outside `tests/acceptance/live`.
+
+Tests: two full workspace runs on this PC each showed 3 timeouts (2,533/2,536),
+while other test processes were running on the machine. The failures were
+archival "seeks a many-segment tail read" (the known 5 s flake, which also
+fails on main) and two `voice-guest-access` tests (15 s deadline, one cascade).
+None is in a file this PR touches, and neither imports voice-smoke. Rerun alone,
+both files pass 55/55. Codex's own run passed 2,536/2,536.
+
+Mutations, against the two voice-smoke test files (45 tests):
+- Killed (8): evidence scenario binding, evidence correlation binding,
+  driver `validateEvidence`, temp/final scenario mismatch, junction/symlink
+  refusal (both halves), both digest checks together, `exists` always false,
+  and the pre-run retained-evidence refusal.
+- Survived, accepted: the `isSymbolicLink()` half alone. KNOWN_ISSUES
+  documents the Windows junction metadata.
+- Survived, follow-up for the adapter PR, not blocking here: making
+  `store.exists` failures proceed instead of returning
+  `evidence_store_unavailable`. A throwing `exists` would let a paid run start
+  and then lose its record. No test pins that branch. Add one, with the driver
+  never invoked, before any live adapter lands.
+
+No paid call can run from this code until reviewed adapters exist.
+
+---
+
 ## 2026-09-14 01:47 UTC — GPT-6 Codex, PR #28 review fixes complete
 
 PR #28 now refuses a scenario before invoking its paid live driver when that
