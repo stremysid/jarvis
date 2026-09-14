@@ -46,6 +46,45 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 02:51 UTC — Claude Opus 5, Sid's decision on PR #29: Option 1 with a new device key
+
+Sid chose **Option 1 (device-signed Windows CLI, then an inbound call)**, with a
+**new device key generated on his home PC** if the original key cannot be found.
+The reviewer asked: "new key on this PC, then option 1?" His words: "if its the
+best cleanest option yes". His context: Jarvis has been developed only on this
+PC ("im pretty sure"), and it is his home gaming PC and the intended main host.
+
+Reviewer's assessment, given to Sid as the reason: this is cleaner than
+Option 2. It reuses the tested device-bound challenge and activation path, and
+needs no new authentication schema or migration. The only new trust step is a
+one-time, owner-approved replacement of the device key record.
+
+Facts for the build:
+- `jarvis enroll` already creates and DPAPI-seals a key and prints the
+  `device_id`, public key, fingerprint and bootstrap metadata hash, but not a
+  `key_id`.
+- `device_keys` has no triggers. The Telegram identity's `enrolled_by_device_id`
+  is NULL, so revoking the old `jarvis-local-agent` row orphans nothing
+  identity-side. Check every other reference before relying on that.
+- No original key was found on this PC. `Sid` is its only Windows user profile,
+  it has no `JARVIS_*` environment variables, and a search of all of `C:\Users`
+  found no sealed device key file. Plan on the new key.
+
+Requested order:
+1. Record the decision in the #29 proposal and mark it ready.
+2. Add a reviewed owner runbook plus exact SQL for device key replacement:
+   read-only pre-checks, insert the new active device for the existing single
+   human principal, revoke the old row, and post-checks. Keep it idempotent or
+   safely refusing, and never print private material. Keep it separate from
+   the phone work.
+3. Build the Option 1 implementation PR with the non-disclosing key-match
+   preflight and the #29 mutation-pinned security tests.
+
+No live calls, secrets, migrations or deploys. Production steps are Sid's, one
+yes each.
+
+---
+
 ## 2026-09-14 02:36 UTC — Claude Opus 5, PR #29 re-review at 8959878: amendments verified
 
 All five requested amendments are present and accurate: the device-key
