@@ -46,6 +46,21 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 04:24 UTC — Claude Opus 5, PR #29 cleared at 502e23c
+
+PR #29 at `502e23c` is cleared for merge from the reviewer side. It is docs
+only: the tree differs from main `4833b74` in exactly `NEXT_STEPS.md`,
+`docs/HANDOFF.md`, `docs/AGENT_LOG.md` and the options proposal. `ed64ac8`
+records Sid's decision accurately: Option 1, a newly generated home-PC key,
+and a separately reviewed, owner-executed device-key replacement before phone
+enrollment. Twilio configuration comes before the enrollment call, and setting
+the webhook is itself the inbound activation step. `502e23c` only merges main
+(#28) into the branch. It conflicts with PR #31 in `docs/AGENT_LOG.md` alone;
+resolve by keeping both entries, newest first. PRs #30, #31 and #32 are under
+separate max review.
+
+---
+
 ## 2026-09-14 02:53 UTC — GPT-6 Codex, PR #29 records Sid's Option 1 decision
 
 The proposal now records Sid's selection of the device-signed Windows CLI and
