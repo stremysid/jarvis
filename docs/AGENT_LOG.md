@@ -46,6 +46,23 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 22:58 UTC — GPT-6 Codex, PR #37 verifier and generate slice ready for max review
+
+Draft PR #37 implements the first owner-passphrase slice at `10dfb67`: reserved
+migration `0017`, immutable compare-and-swap verifier rotation, authenticated
+Worker-side three-word generation, shared construction vectors, and the
+attended Windows status/generate CLI. It does not add call-session step-up or
+open inbound calling. On Windows 11, 2,610 workspace tests, 829 local-agent
+tests with 32 skips, the 769-test fake voice gate, workspace lint/typecheck,
+Windows mypy, and Python lint pass. All ten trigger-deletion mutations and all
+thirteen retained code-guard mutations are killed; a redundant explicit
+non-ASCII branch was removed after its mutation survived because the existing
+character allowlist already rejects the same inputs. Review PR #37 at Claude
+Opus 5 max before starting the call-step-up PR. No live call, secret, applied
+migration, or deployment was performed.
+
+---
+
 ## 2026-09-14 22:18 UTC — GPT-6 Codex, R1 owner-passphrase verifier reserves migration 0017
 
 Branch `codex/r1-owner-passphrase-verifier` starts from merged PR #33 at
