@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import http.client
 import io
 import json
 import re
@@ -565,6 +566,42 @@ def test_client_wraps_a_connection_reset_while_reading_the_response(
         audience="jarvis-local-agent",
         key=key,
         opener=lambda *_args, **_kwargs: BrokenStream(),
+    )
+
+    with pytest.raises(CloudSyncError, match="gateway unreachable or unusable"):
+        OwnerPhoneEnrollmentClient(transport).preflight()
+
+
+def test_client_wraps_an_incomplete_response_without_a_traceback(
+    key: Ed25519PrivateKey,
+) -> None:
+    class BrokenStream(io.BytesIO):
+        def read(self, *_args: object) -> bytes:  # type: ignore[override]
+            raise http.client.IncompleteRead(b'{"schemaVersion"', 64)
+
+    transport = HttpCloudClient(
+        base_url="https://gateway.example",
+        device_id="device:home",
+        principal_id="principal:owner",
+        audience="jarvis-local-agent",
+        key=key,
+        opener=lambda *_args, **_kwargs: BrokenStream(),
+    )
+
+    with pytest.raises(CloudSyncError, match="gateway unreachable or unusable"):
+        OwnerPhoneEnrollmentClient(transport).preflight()
+
+
+def test_client_wraps_a_non_utf8_response_without_a_traceback(
+    key: Ed25519PrivateKey,
+) -> None:
+    transport = HttpCloudClient(
+        base_url="https://gateway.example",
+        device_id="device:home",
+        principal_id="principal:owner",
+        audience="jarvis-local-agent",
+        key=key,
+        opener=lambda *_args, **_kwargs: io.BytesIO(b"\xff"),
     )
 
     with pytest.raises(CloudSyncError, match="gateway unreachable or unusable"):

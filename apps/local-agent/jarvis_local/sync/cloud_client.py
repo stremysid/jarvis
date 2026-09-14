@@ -11,6 +11,7 @@ since moved, rather than silently accepting a cursor that skips events.
 
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.error
 import urllib.request
@@ -336,7 +337,14 @@ class HttpCloudClient:
                 if rejected == {"error": "memory_projection_content_rejected"}:
                     raise CloudProjectionRejectedError("gateway rejected projection content") from error
             raise CloudSyncError(f"gateway returned HTTP {error.code}") from error
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            json.JSONDecodeError,
+            http.client.HTTPException,
+            UnicodeError,
+            OSError,
+        ) as error:
             raise CloudSyncError(f"gateway unreachable or unusable: {error}") from error
 
 

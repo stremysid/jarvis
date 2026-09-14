@@ -27,6 +27,18 @@ when a later signed Twilio inbound call supplies the same number and response.
    `AUTHENTICATION_BUDGET_PEPPER`, and `IDENTITY_CHALLENGE_HMAC_PEPPER`.
    Deploy the reviewed Option 1 gateway revision while the Twilio voice webhook
    remains unset or redirected to the known closed endpoint.
+
+   Use this exact read-only query for the identity-ID absence check, replacing
+   only the placeholder with the new candidate ID:
+
+   ```sql
+   SELECT COUNT(*) AS existing_owner_voice_identity_ids
+   FROM channel_identities
+   WHERE identity_id = '__NEW_OWNER_VOICE_IDENTITY_ID__';
+   ```
+
+   Require `existing_owner_voice_identity_ids = 0` before setting
+   `OWNER_VOICE_IDENTITY_ID`.
 3. Follow PR #30 in order: run its read-only inventory, generate the home-PC
    key, insert and prove its exact production row through the deployed
    preflight, separately approve revoking the orphaned key, and finish its
@@ -168,7 +180,7 @@ run the same attended command with the same phone to issue a fresh response.
 | --- | --- |
 | `phone entries do not match` | Nothing was sent. Re-run the attended command and enter the same full number twice. |
 | `owner phone enrollment cancelled` | Nothing was sent. Re-run only when ready to type the complete word `yes`. |
-| `device key preflight is unavailable` | Stop before opening inbound admission. Restore gateway availability, then repeat `--preflight`. |
+| `device key preflight is unavailable` | Stop before opening inbound admission. Confirm the reviewed enrollment route is deployed and all of its required configuration is present; this output also covers an unconfigured route. If configuration is complete, restore gateway availability, then repeat `--preflight`. |
 | `owner phone enrollment status is unavailable` | Do not infer a state or begin with a different number. Restore gateway availability, then repeat `--status`. |
 | `owner phone enrollment request is unavailable` | Run `--status` first. Once the state is known, repeat the attended command with the same phone if a begin is still needed. |
 
