@@ -53,11 +53,13 @@ speech-to-text processor before Jarvis receives final text. Their retention is
 outside this claim. The product must not imply end-to-end secrecy from those
 processors.
 
-JavaScript strings cannot be zeroed. Candidate text therefore stays within one
-narrow prompt-handler stack frame. Canonical byte arrays, derived HMAC input,
-and KDF buffers are cleared in `finally` blocks before the handler returns.
-Fixed prompts, refusals, acknowledgements, alerts, and errors contain no
-candidate or match detail.
+JavaScript strings cannot be zeroed. Candidate fragments and assembled text
+therefore stay in one call-session instance's memory only and are never
+persisted. They are cleared after assembly, on interruption, on lifecycle
+change, and on close. Canonical byte arrays, derived HMAC input, and KDF
+buffers are cleared in `finally` blocks before the handler returns. Fixed
+prompts, refusals, acknowledgements, alerts, and errors contain no candidate or
+match detail.
 
 The phrase protects private context from caller-ID spoofing, a SIM swap, a
 person holding the phone, and an answering machine that accepts an outbound
@@ -312,9 +314,11 @@ The interview is outside this PR and must not drive R1 or R2 implementation.
 ## Voice latency and retrieval
 
 Passphrase step-up adds speech endpointing, one 600,000-iteration verification,
-and one D1 commit before a fixed acknowledgement. It is outside the
-authenticated-turn first-audible measurement but should add only a few seconds
-to call entry.
+and one D1 commit before a fixed acknowledgement. Repeat suppression also runs
+one extra 600,000-iteration verification for the first candidate-shaped active
+final. Both KDF paths must be measured in the latency evidence. They are
+outside the authenticated-turn first-audible measurement but should add only a
+few seconds to call entry.
 
 The shared R2 context retriever is measured against the 4,000 ms p95
 first-audible release gate, not the model's 30-second total deadline. Voice

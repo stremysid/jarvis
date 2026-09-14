@@ -101,11 +101,15 @@ three tries before the call ends, no persistent lockout, and a Passed-A waiver
 that is built but switched off. The reviewed design chooses three
 Worker-generated words from a 2,048-word list, durable per-session attempt
 ordinals, a 60-second alarm-backed window, no cross-call candidate rejection,
-and a reserved outbound-owner path. Documentation-only draft
-[PR #33](https://github.com/ksid1229-ops/jarvis/pull/33) carries that contract.
-Its red tests moved to the later implementation branch, where they must be
-strengthened from the Claude review artifact. R2 owns migration `0016`; check
-main and post to the mailbox before taking the next unreserved number.
+and a reserved outbound-owner path.
+[PR #33](https://github.com/ksid1229-ops/jarvis/pull/33) merged at `726b78b`
+with that documentation contract. Draft
+[PR #37](https://github.com/ksid1229-ops/jarvis/pull/37) implements only the
+first slice: migration `0017`, the versioned verifier, authenticated
+Worker-side generation and compare-and-swap rotation, known-answer vectors,
+and the attended Windows CLI. R2 retains migration `0016`. Call-session
+step-up, durable attempt ordinals, alarms, authority changes, recovery and
+notices remain later, separately reviewed PRs; inbound calling stays closed.
 
 For the attended phone enrollment, remove or redirect the inbound webhook
 immediately after status becomes `active`, rerun the read-only status command,

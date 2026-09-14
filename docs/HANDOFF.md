@@ -128,11 +128,15 @@ status reports the owner phone active.
 The current inbound owner path trusts Twilio's signed `From` number without
 STIR/SHAKEN attestation or another owner factor. Calling is not live. Sid chose
 a spoken phrase on every inbound and outbound owner call, three tries, no
-persistent lockout, and an exact Passed-A waiver built but switched off. Draft
-PR #33 contains the reviewed documentation contract; implementation and live
-acceptance remain outstanding. The device-signed begin response also reveals
-whether a supplied number matches stored enrollment state. Both current-code
-gaps are recorded in `KNOWN_ISSUES.md`.
+persistent lockout, and an exact Passed-A waiver built but switched off. PR
+#33 merged at `726b78b` with the reviewed documentation contract. Draft PR
+#37 is the first implementation slice: migration `0017`, the versioned
+verifier, authenticated Worker-side generation and compare-and-swap rotation,
+known-answer vectors, and the attended Windows CLI. It does not grant call
+authority or open inbound calling; call-session step-up and live acceptance
+remain outstanding. The device-signed begin response also reveals whether a
+supplied number matches stored enrollment state. Both current-code gaps are
+recorded in `KNOWN_ISSUES.md`.
 
 Sid's PCs run Windows 11 and his phone is an iPhone 16. There is no Linux
 host, server or VPS; the home PC is off overnight. No Windows node port or
