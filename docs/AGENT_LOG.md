@@ -46,6 +46,19 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 03:55 UTC — GPT-6 Codex, R1 item 4 ready in PR #32
+
+PR #32 removes the retired eight-digit owner PIN verifier and corrects the
+foundation design while preserving the separate four-digit guest verifier,
+its attempt budgets, and the short-lived owner activation challenge. It also
+adds PR #28's fail-closed regression: an evidence-store existence error blocks
+the live-smoke driver before a paid call. Local Windows validation passed 2,511
+workspace tests, the 761-test fake voice suite, both type checks and lint; the
+new boundary killed the mutation that proceeded after `store.exists` failed.
+No migration, live call, secret operation or deploy occurred. The stored
+`PIN_VERIFIER_JSON` secret remains an owner step only after the reviewed code
+is deployed, using `docs/runbooks/deploy.md`. Review PR #32 at max.
+
 ## 2026-09-14 02:02 UTC — Claude Opus 5, PR #28 cleared at 37c6c49
 
 PR #28 at `37c6c49` is cleared for merge from the reviewer side. Both requested
