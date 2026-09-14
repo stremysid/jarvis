@@ -8,7 +8,7 @@ import re
 from collections.abc import Set
 
 CANONICALIZER_VERSION = "ascii-v1"
-WORD_LIST_VERSION = "eff-long-cmudict-2026-09-v1"
+WORD_LIST_VERSION = "eff-long-cmudict-2026-09-v2"
 DOMAIN = b"jarvis.owner-passphrase/v1"
 ITERATIONS = 600_000
 _IDENTITY_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$", re.ASCII)
@@ -17,7 +17,7 @@ _WHITESPACE = frozenset("\t\n\v\f\r ")
 
 
 def canonicalize_owner_passphrase(candidate: str, allowed_words: Set[str]) -> bytes:
-    """Apply ASCII-v1 and require exactly three words from the supplied v1 list."""
+    """Apply ASCII-v1 and require exactly three words from the supplied versioned list."""
     if not isinstance(candidate, str) or not 0 < len(candidate) <= 128:
         raise ValueError("owner_passphrase_candidate_invalid")
     output: list[str] = []

@@ -135,22 +135,73 @@ describe("OwnerPassphraseService", () => {
     return { schemaVersion: "1.0", operation: "generate", expectedVerifierVersion, requestSalt: requestSalt(seed) };
   }
 
+  async function disableActiveVerifier(): Promise<void> {
+    const eventId = "01m2aaaaaaaaaaaaaaaaaaa901";
+    const subjectId = "telegram:user:44112233";
+    const envelope = {
+      schemaVersion: "1.0",
+      eventId,
+      correlationId: eventId,
+      causationId: null,
+      eventType: "telegram.update.received",
+      source: "channel:telegram",
+      producerVersion: "cloud-gateway@0.1.0",
+      subjectId,
+      occurredAt: nowIso,
+      receivedAt: nowIso,
+      contentHash: "5".repeat(64),
+      payload: {
+        updateId: 901,
+        principalBinding: [1],
+        chatId: "44112233",
+        messageId: 901,
+        text: "/disable-owner-step-up --confirm",
+      },
+    };
+    const inserted = await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO channel_identities (
+          identity_id, principal_id, channel, provider_subject, status, verified_at, created_at
+        ) VALUES ('identity:owner:telegram', ?, 'telegram', '44112233', 'active', ?, ?)`,
+      ).bind(principalId, nowIso, nowIso),
+      env.DB.prepare(
+        `INSERT INTO events (
+          event_id, event_type, source, subject_id, occurred_at, received_at,
+          content_hash, envelope_json, created_at
+        ) VALUES (?, 'telegram.update.received', 'channel:telegram', ?, ?, ?, ?, ?, ?) RETURNING sequence`,
+      ).bind(eventId, subjectId, nowIso, nowIso, "5".repeat(64), JSON.stringify(envelope), nowIso),
+    ]);
+    const sequence = (inserted[1].results?.[0] as { sequence?: unknown } | undefined)?.sequence;
+    if (!Number.isSafeInteger(sequence)) throw new Error("disable_event_insert_failed");
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO idempotency_records (scope, key, request_hash, event_sequence, created_at) VALUES ('telegram.update', ?, ?, ?, ?)",
+      ).bind(eventId, "6".repeat(64), sequence, nowIso),
+      env.DB.prepare(
+        `INSERT INTO owner_passphrase_disable_commits (
+          commit_id, owner_principal_id, owner_identity_id, expected_verifier_version,
+          authorization_event_id, committed_at
+        ) VALUES ('01m2aaaaaaaaaaaaaaaaaaa902', ?, ?, 1, ?, ?)`,
+      ).bind(principalId, identityId, eventId, nowIso),
+    ]);
+  }
+
   it("reports the version without an endpoint that can read an existing phrase", async () => {
     await expect(execute({ schemaVersion: "1.0", operation: "status" })).resolves.toEqual({
-      schemaVersion: "1.0", deviceKeyMatches: true, activeVerifierVersion: null,
+      schemaVersion: "1.0", deviceKeyMatches: true, verifierVersion: null, verifierStatus: null,
     });
     const created = await execute(generate(null));
-    expect(created).toMatchObject({ activeVerifierVersion: 1, phrase: "abide ability ablaze" });
+    expect(created).toMatchObject({ verifierVersion: 1, verifierStatus: "active", phrase: "ablaze abrasion abrasive" });
     await expect(execute({ schemaVersion: "1.0", operation: "status" })).resolves.toEqual({
-      schemaVersion: "1.0", deviceKeyMatches: true, activeVerifierVersion: 1,
+      schemaVersion: "1.0", deviceKeyMatches: true, verifierVersion: 1, verifierStatus: "active",
     });
   });
 
   it("stores only a peppered verifier and binds its receipt to the active owner and device key", async () => {
     const result = await execute(generate(null));
     expect(result).toEqual({
-      schemaVersion: "1.0", deviceKeyMatches: true, activeVerifierVersion: 1,
-      wordListVersion: "eff-long-cmudict-2026-09-v1", phrase: "abide ability ablaze",
+      schemaVersion: "1.0", deviceKeyMatches: true, verifierVersion: 1, verifierStatus: "active",
+      wordListVersion: "eff-long-cmudict-2026-09-v2", phrase: "ablaze abrasion abrasive",
     });
     const verifier = await env.DB.prepare(
       `SELECT owner_principal_id, owner_identity_id, verifier_version, algorithm, domain_version,
@@ -162,7 +213,7 @@ describe("OwnerPassphraseService", () => {
     expect(verifier).toMatchObject({
       owner_principal_id: principalId, owner_identity_id: identityId, verifier_version: 1,
       algorithm: "hmac-sha256-pepper+pbkdf2-hmac-sha256", domain_version: "v1",
-      word_list_version: "eff-long-cmudict-2026-09-v1", pepper_version: "v1", iterations: 600000,
+      word_list_version: "eff-long-cmudict-2026-09-v2", pepper_version: "v1", iterations: 600000,
       salt_bytes: 16, digest_bytes: 32, status: "active", created_by_device_id: "device:home",
       created_by_key_id: "key:home", created_by_key_fingerprint: keyFingerprint, created_by_key_generation: 1,
     });
@@ -179,7 +230,7 @@ describe("OwnerPassphraseService", () => {
   it("rotates by compare-and-swap and an older signed expectation cannot roll the head back", async () => {
     await execute(generate(null));
     const rotated = await execute(generate(1, 2));
-    expect(rotated).toMatchObject({ activeVerifierVersion: 2, phrase: "abide ability ablaze" });
+    expect(rotated).toMatchObject({ verifierVersion: 2, verifierStatus: "active", phrase: "ablaze abrasion abrasive" });
     await expect(execute(generate(1, 3))).rejects.toThrow("owner_passphrase_state_changed");
     expect(await env.DB.prepare("SELECT verifier_version FROM owner_passphrase_heads").first())
       .toEqual({ verifier_version: 2 });
@@ -188,6 +239,21 @@ describe("OwnerPassphraseService", () => {
       { verifier_version: 1, status: "superseded" },
       { verifier_version: 2, status: "active" },
     ]);
+  });
+
+  it("reports disabled state and re-enables only by publishing a new signed-device version", async () => {
+    await execute(generate(null));
+    await disableActiveVerifier();
+    await expect(execute({ schemaVersion: "1.0", operation: "status" })).resolves.toEqual({
+      schemaVersion: "1.0", deviceKeyMatches: true, verifierVersion: 1, verifierStatus: "disabled",
+    });
+    await expect(execute(generate(1, 20))).resolves.toMatchObject({
+      verifierVersion: 2,
+      verifierStatus: "active",
+      wordListVersion: "eff-long-cmudict-2026-09-v2",
+    });
+    expect(await env.DB.prepare("SELECT verifier_version, status FROM owner_passphrase_heads").first())
+      .toEqual({ verifier_version: 2, status: "active" });
   });
 
   it("rejects a stale expected version before drawing words or spending KDF work", async () => {
@@ -233,9 +299,23 @@ describe("OwnerPassphraseService", () => {
   });
 
   it("rejects unknown body fields after authentication without running generation", async () => {
-    const body = { ...generate(null), phrase: "abide ability ablaze" } as unknown as OwnerPassphraseBodyV1;
+    const body = { ...generate(null), phrase: "ablaze abrasion abrasive" } as unknown as OwnerPassphraseBodyV1;
     const envelope = await signed(body);
     await expect(service({ randomIndex: () => { throw new Error("generation_ran"); } })
       .execute(envelope.request, body, envelope.rawBody)).rejects.toThrow("owner_passphrase_body_invalid");
+  });
+
+  it("validates the exact request-salt shape after authentication and before generation", async () => {
+    const body = { ...generate(null), requestSalt: "A".repeat(42) };
+    const envelope = await signed(body);
+    await expect(service({ randomIndex: () => { throw new Error("generation_ran"); } })
+      .execute(envelope.request, body, envelope.rawBody)).rejects.toThrow("owner_passphrase_body_invalid");
+  });
+
+  it("classifies a valid device bound to a different configured owner separately", async () => {
+    const body = { schemaVersion: "1.0", operation: "status" } as const;
+    const envelope = await signed(body);
+    await expect(service({ ownerPrincipalId: "principal:other" })
+      .execute(envelope.request, body, envelope.rawBody)).rejects.toThrow("owner_passphrase_owner_mismatch");
   });
 });

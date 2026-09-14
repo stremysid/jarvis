@@ -14,6 +14,7 @@ const PUBLIC_FAILURES = new Set([
   "owner_passphrase_body_invalid", "body_hash_mismatch", "signed_body_mismatch",
   "signed_body_invalid", "signed_body_noncanonical", "signed_request_invalid",
 ]);
+const OWNER_MISMATCH = "owner_passphrase_owner_mismatch";
 
 function response(status: number, body: object): Response {
   return new Response(JSON.stringify(body), {
@@ -25,9 +26,10 @@ function response(status: number, body: object): Response {
 function failureResponse(error: unknown): Response {
   const reason = error instanceof Error ? error.message : "internal";
   const status = AUTH_FAILURES.has(reason) ? 401 : PUBLIC_FAILURES.has(reason) ? 400
-    : reason === "owner_passphrase_state_changed" ? 409 : 500;
+    : reason === OWNER_MISMATCH ? 403 : reason === "owner_passphrase_state_changed" ? 409 : 500;
   console.error("owner_passphrase_request_failed", {
-    reason: AUTH_FAILURES.has(reason) || PUBLIC_FAILURES.has(reason) || reason === "owner_passphrase_state_changed"
+    reason: AUTH_FAILURES.has(reason) || PUBLIC_FAILURES.has(reason)
+      || reason === OWNER_MISMATCH || reason === "owner_passphrase_state_changed"
       ? reason : "internal",
   });
   if (status === 401) {
@@ -36,6 +38,7 @@ function failureResponse(error: unknown): Response {
     });
   }
   if (status === 409) return response(status, { error: "owner_passphrase_state_changed" });
+  if (status === 403) return response(status, { error: OWNER_MISMATCH });
   return response(status, { error: "owner_passphrase_request_rejected" });
 }
 

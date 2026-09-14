@@ -25,12 +25,14 @@ export type OwnerPassphraseResultV1 =
   | {
     readonly schemaVersion: "1.0";
     readonly deviceKeyMatches: true;
-    readonly activeVerifierVersion: number | null;
+    readonly verifierVersion: number | null;
+    readonly verifierStatus: "active" | "disabled" | null;
   }
   | {
     readonly schemaVersion: "1.0";
     readonly deviceKeyMatches: true;
-    readonly activeVerifierVersion: number;
+    readonly verifierVersion: number;
+    readonly verifierStatus: "active";
     readonly wordListVersion: typeof OWNER_PASSPHRASE_WORD_LIST_VERSION;
     readonly phrase: string;
   };
@@ -119,15 +121,16 @@ export class OwnerPassphraseService {
     const status = await this.repository.readStatus(
       verified, this.deps.ownerPrincipalId, this.deps.ownerIdentityId,
     );
-    if (status === null) throw new Error("owner_passphrase_device_mismatch");
+    if (status === null) throw new Error("owner_passphrase_owner_mismatch");
     if (body.operation === "status") {
       return Object.freeze({
         schemaVersion: "1.0" as const,
         deviceKeyMatches: true as const,
-        activeVerifierVersion: status.status === "active" ? status.verifierVersion : null,
+        verifierVersion: status.verifierVersion,
+        verifierStatus: status.status,
       });
     }
-    if (status.status === "disabled" || status.verifierVersion !== body.expectedVerifierVersion) {
+    if (status.verifierVersion !== body.expectedVerifierVersion) {
       throw new OwnerPassphraseStateChangedError();
     }
     const newVersion = body.expectedVerifierVersion === null ? 1 : body.expectedVerifierVersion + 1;
@@ -147,7 +150,8 @@ export class OwnerPassphraseService {
     return Object.freeze({
       schemaVersion: "1.0" as const,
       deviceKeyMatches: true as const,
-      activeVerifierVersion: newVersion,
+      verifierVersion: newVersion,
+      verifierStatus: "active" as const,
       wordListVersion: OWNER_PASSPHRASE_WORD_LIST_VERSION,
       phrase,
     });

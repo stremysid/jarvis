@@ -78,7 +78,10 @@ export class OwnerPassphraseRepository {
             AND active.verifier_version = head.verifier_version
           WHERE head.singleton_id = 1 AND head.owner_principal_id = owner.principal_id
             AND head.owner_identity_id = owner.identity_id AND head.verifier_version = ?
-            AND head.status = 'active' AND active.status = 'active'
+            AND (
+              head.status = 'active' AND active.status = 'active'
+              OR head.status = 'disabled' AND active.status = 'revoked'
+            )
         )`;
     const stage = this.database.prepare(
       `INSERT INTO owner_passphrase_verifiers (

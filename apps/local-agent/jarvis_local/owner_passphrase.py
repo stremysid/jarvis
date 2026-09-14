@@ -16,6 +16,7 @@ from jarvis_local.config import JarvisLocalConfig
 from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.sync.cloud_client import (
     CloudAuthError,
+    CloudOwnerPassphraseMismatchError,
     CloudPassphraseStateChangedError,
     CloudRequestExpiredError,
     CloudSyncError,
@@ -24,7 +25,7 @@ from jarvis_local.sync.cloud_client import (
 
 OWNER_PASSPHRASE_PATH = "/identity/owner-passphrase"  # noqa: S105 - HTTP path, not a credential
 AUDIENCE = "jarvis-local-agent"
-WORD_LIST_VERSION = "eff-long-cmudict-2026-09-v1"
+WORD_LIST_VERSION = "eff-long-cmudict-2026-09-v2"
 _PHRASE = re.compile(r"^[a-z]{4,8} [a-z]{4,8} [a-z]{4,8}$", re.ASCII)
 _REQUIRED = (
     "JARVIS_CLOUD_BASE_URL",
@@ -36,7 +37,8 @@ _REQUIRED = (
 
 @dataclass(frozen=True, slots=True)
 class OwnerPassphraseStatus:
-    active_verifier_version: int | None
+    verifier_version: int | None
+    verifier_status: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,19 +64,22 @@ class OwnerPassphraseClient:
             OWNER_PASSPHRASE_PATH,
             {"schemaVersion": "1.0", "operation": "status"},
         )
-        if set(result) != {"schemaVersion", "deviceKeyMatches", "activeVerifierVersion"}:
+        if set(result) != {"schemaVersion", "deviceKeyMatches", "verifierVersion", "verifierStatus"}:
             raise CloudSyncError("gateway returned an invalid owner passphrase status")
-        version = result["activeVerifierVersion"]
+        version = result["verifierVersion"]
+        status = result["verifierStatus"]
         if (
             result["schemaVersion"] != "1.0"
             or result["deviceKeyMatches"] is not True
+            or status not in {None, "active", "disabled"}
+            or (version is None) != (status is None)
             or (
                 version is not None
                 and (not isinstance(version, int) or isinstance(version, bool) or not 1 <= version <= 2_147_483_647)
             )
         ):
             raise CloudSyncError("gateway returned an invalid owner passphrase status")
-        return OwnerPassphraseStatus(version)
+        return OwnerPassphraseStatus(version, status)
 
     def generate(self, expected_verifier_version: int | None) -> GeneratedOwnerPassphrase:
         request_salt = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii").rstrip("=")
@@ -88,15 +93,16 @@ class OwnerPassphraseClient:
             },
         )
         expected_fields = {
-            "schemaVersion", "deviceKeyMatches", "activeVerifierVersion", "wordListVersion", "phrase",
+            "schemaVersion", "deviceKeyMatches", "verifierVersion", "verifierStatus", "wordListVersion", "phrase",
         }
         if set(result) != expected_fields:
             raise CloudSyncError("gateway returned an invalid generated owner passphrase")
-        version = result["activeVerifierVersion"]
+        version = result["verifierVersion"]
         phrase = result["phrase"]
         if (
             result["schemaVersion"] != "1.0"
             or result["deviceKeyMatches"] is not True
+            or result["verifierStatus"] != "active"
             or result["wordListVersion"] != WORD_LIST_VERSION
             or not isinstance(version, int)
             or isinstance(version, bool)
@@ -149,6 +155,9 @@ def _failure(error: Exception, action: str) -> int:
     if isinstance(error, CloudAuthError):
         print("device key does not match the active production record")
         return 1
+    if isinstance(error, CloudOwnerPassphraseMismatchError):
+        print("server owner identity configuration does not match the enrolled device principal")
+        return 1
     if isinstance(error, CloudPassphraseStateChangedError):
         print("owner passphrase changed during generation; run the command again")
         return 1
@@ -176,22 +185,31 @@ def run_owner_passphrase(config: JarvisLocalConfig, operation: str) -> int:
 
     try:
         status = client.status()
-    except (CloudRequestExpiredError, CloudAuthError, CloudSyncError) as error:
+    except (CloudRequestExpiredError, CloudAuthError, CloudOwnerPassphraseMismatchError, CloudSyncError) as error:
         return _failure(error, "status")
     if operation == "status":
-        if status.active_verifier_version is None:
+        if status.verifier_version is None:
             print("owner passphrase is not configured")
             return 1
-        print(f"owner passphrase verifier version is {status.active_verifier_version}")
+        if status.verifier_status == "disabled":
+            print(f"owner passphrase is disabled at verifier version {status.verifier_version}")
+            return 1
+        print(f"owner passphrase verifier version is {status.verifier_version}")
         return 0
 
-    action = "replace" if status.active_verifier_version is not None else "create"
+    action = "replace" if status.verifier_version is not None else "create"
     if input(f"{action.capitalize()} the owner passphrase? Type yes to continue: ").strip().lower() != "yes":
         print("owner passphrase generation cancelled")
         return 1
     try:
-        generated = client.generate(status.active_verifier_version)
-    except (CloudRequestExpiredError, CloudAuthError, CloudPassphraseStateChangedError, CloudSyncError) as error:
+        generated = client.generate(status.verifier_version)
+    except (
+        CloudRequestExpiredError,
+        CloudAuthError,
+        CloudOwnerPassphraseMismatchError,
+        CloudPassphraseStateChangedError,
+        CloudSyncError,
+    ) as error:
         return _failure(error, "generation")
     print("Owner passphrase (shown once):")
     print(generated.phrase)

@@ -108,6 +108,7 @@ export async function clearOwnerPassphraseDataForTest(): Promise<void> {
   await applyOwnerPassphraseMigration();
   const deleteGuards = [
     "owner_passphrase_heads_delete_forbidden",
+    "owner_passphrase_disable_commits_delete_forbidden",
     "owner_passphrase_rotation_commits_delete_forbidden",
     "owner_passphrase_verifiers_delete_forbidden",
   ] as const;
@@ -118,6 +119,7 @@ export async function clearOwnerPassphraseDataForTest(): Promise<void> {
   for (const name of deleteGuards) await env.DB.prepare(`DROP TRIGGER IF EXISTS ${name}`).run();
   try {
     await env.DB.prepare("DELETE FROM owner_passphrase_heads").run();
+    await env.DB.prepare("DELETE FROM owner_passphrase_disable_commits").run();
     await env.DB.prepare("DELETE FROM owner_passphrase_rotation_commits").run();
     await env.DB.prepare("DELETE FROM owner_passphrase_verifiers").run();
   } finally {

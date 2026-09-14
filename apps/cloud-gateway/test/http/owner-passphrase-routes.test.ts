@@ -117,7 +117,7 @@ describe("owner passphrase route", () => {
     const response = await dispatch(await signedRequest({ schemaVersion: "1.0", operation: "status" }), environment);
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
-      schemaVersion: "1.0", deviceKeyMatches: true, activeVerifierVersion: null,
+      schemaVersion: "1.0", deviceKeyMatches: true, verifierVersion: null, verifierStatus: null,
     });
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
@@ -130,9 +130,10 @@ describe("owner passphrase route", () => {
         requestSalt: base64Url(new Uint8Array(32).fill(7)),
       }), environment);
       expect(response.status).toBe(200);
-      const result = await response.json<{ phrase: string; activeVerifierVersion: number }>();
+      const result = await response.json<{ phrase: string; verifierVersion: number; verifierStatus: string }>();
       expect(result.phrase).toMatch(/^[a-z]{4,8} [a-z]{4,8} [a-z]{4,8}$/u);
-      expect(result.activeVerifierVersion).toBe(1);
+      expect(result.verifierVersion).toBe(1);
+      expect(result.verifierStatus).toBe("active");
       const storage = JSON.stringify(await env.DB.prepare(
         "SELECT hex(salt) AS salt, hex(digest) AS digest FROM owner_passphrase_verifiers",
       ).all());
@@ -141,7 +142,7 @@ describe("owner passphrase route", () => {
 
       const status = await dispatch(await signedRequest({ schemaVersion: "1.0", operation: "status" }), environment);
       expect(await status.json()).toEqual({
-        schemaVersion: "1.0", deviceKeyMatches: true, activeVerifierVersion: 1,
+        schemaVersion: "1.0", deviceKeyMatches: true, verifierVersion: 1, verifierStatus: "active",
       });
     } finally {
       consoleSpy.mockRestore();
@@ -177,6 +178,18 @@ describe("owner passphrase route", () => {
     );
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "owner_passphrase_not_configured" });
+  });
+
+  it.each([
+    ["OWNER_PRINCIPAL_ID", "principal:other"],
+    ["OWNER_VOICE_IDENTITY_ID", "identity:other:voice"],
+  ] as const)("returns a distinct fixed error when configured %s does not match the authenticated device", async (name, value) => {
+    const response = await dispatch(
+      await signedRequest({ schemaVersion: "1.0", operation: "status" }),
+      { ...environment, [name]: value },
+    );
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "owner_passphrase_owner_mismatch" });
   });
 
   it("maps a stale compare-and-swap expectation to a fixed conflict", async () => {

@@ -106,8 +106,10 @@ and a reserved outbound-owner path.
 with that documentation contract. Draft
 [PR #37](https://github.com/ksid1229-ops/jarvis/pull/37) implements only the
 first slice: migration `0017`, the versioned verifier, authenticated
-Worker-side generation and compare-and-swap rotation, known-answer vectors,
-and the attended Windows CLI. R2 retains migration `0016`. Call-session
+Worker-side generation and compare-and-swap rotation, guarded disable/new-version
+re-enable storage transitions, known-answer vectors, and the attended Windows
+CLI. R2 retains migration `0016`; Wrangler may apply it after `0017` because
+migration names, rather than numeric continuity, determine pending work. Call-session
 step-up, durable attempt ordinals, alarms, authority changes, recovery and
 notices remain later, separately reviewed PRs; inbound calling stays closed.
 

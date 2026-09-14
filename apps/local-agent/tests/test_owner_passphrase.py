@@ -26,6 +26,7 @@ from jarvis_local.owner_passphrase_policy import (
     derive_owner_passphrase_digest,
 )
 from jarvis_local.sync.cloud_client import (
+    CloudOwnerPassphraseMismatchError,
     CloudPassphraseStateChangedError,
     HttpCloudClient,
 )
@@ -62,7 +63,7 @@ class WireOpener:
 
 def test_python_runs_the_shared_canonicalization_and_verifier_known_answers() -> None:
     vectors = json.loads(VECTORS.read_text(encoding="utf-8"))
-    allowed = {"abide", "ability", "ablaze", "active"}
+    allowed = {"ablaze", "abrasion", "abrasive", "active"}
     for vector in vectors["validCanonicalization"]:
         assert canonicalize_owner_passphrase(vector["input"], allowed).decode("ascii") == vector["canonical"]
     for candidate in vectors["invalidCandidates"]:
@@ -83,20 +84,22 @@ def test_python_runs_the_shared_canonicalization_and_verifier_known_answers() ->
 def test_client_reads_status_then_sends_only_expected_version_and_a_fresh_salt() -> None:
     key = Ed25519PrivateKey.generate()
     opener = WireOpener([
-        {"schemaVersion": "1.0", "deviceKeyMatches": True, "activeVerifierVersion": 4},
+        {"schemaVersion": "1.0", "deviceKeyMatches": True, "verifierVersion": 4, "verifierStatus": "active"},
         {
             "schemaVersion": "1.0",
             "deviceKeyMatches": True,
-            "activeVerifierVersion": 5,
-            "wordListVersion": "eff-long-cmudict-2026-09-v1",
-            "phrase": "abide ability ablaze",
+            "verifierVersion": 5,
+            "verifierStatus": "active",
+            "wordListVersion": "eff-long-cmudict-2026-09-v2",
+            "phrase": "ablaze abrasion abrasive",
         },
         {
             "schemaVersion": "1.0",
             "deviceKeyMatches": True,
-            "activeVerifierVersion": 5,
-            "wordListVersion": "eff-long-cmudict-2026-09-v1",
-            "phrase": "abide ability ablaze",
+            "verifierVersion": 5,
+            "verifierStatus": "active",
+            "wordListVersion": "eff-long-cmudict-2026-09-v2",
+            "phrase": "ablaze abrasion abrasive",
         },
     ])
     client = OwnerPassphraseClient(HttpCloudClient(
@@ -107,9 +110,9 @@ def test_client_reads_status_then_sends_only_expected_version_and_a_fresh_salt()
         key=key,
         opener=opener,
     ))
-    assert client.status() == OwnerPassphraseStatus(4)
-    assert client.generate(4) == GeneratedOwnerPassphrase("abide ability ablaze", 5)
-    assert client.generate(4) == GeneratedOwnerPassphrase("abide ability ablaze", 5)
+    assert client.status() == OwnerPassphraseStatus(4, "active")
+    assert client.generate(4) == GeneratedOwnerPassphrase("ablaze abrasion abrasive", 5)
+    assert client.generate(4) == GeneratedOwnerPassphrase("ablaze abrasion abrasive", 5)
     assert all(request.full_url == f"https://gateway.example{OWNER_PASSPHRASE_PATH}" for request in opener.requests)
     first = json.loads(opener.requests[1].data)
     second = json.loads(opener.requests[2].data)
@@ -120,16 +123,40 @@ def test_client_reads_status_then_sends_only_expected_version_and_a_fresh_salt()
     assert first["requestSalt"] != second["requestSalt"]
 
 
-def test_client_rejects_response_metadata_or_phrase_shape() -> None:
+@pytest.mark.parametrize(
+    "response",
+    [
+        {
+            "schemaVersion": "1.0",
+            "deviceKeyMatches": True,
+            "verifierVersion": 1,
+            "verifierStatus": "active",
+            "wordListVersion": "unknown",
+            "phrase": "ablaze abrasion abrasive",
+        },
+        {
+            "schemaVersion": "1.0",
+            "deviceKeyMatches": True,
+            "verifierVersion": 2,
+            "verifierStatus": "active",
+            "wordListVersion": "eff-long-cmudict-2026-09-v2",
+            "phrase": "ablaze abrasion abrasive",
+        },
+        {
+            "schemaVersion": "1.0",
+            "deviceKeyMatches": True,
+            "verifierVersion": 1,
+            "verifierStatus": "active",
+            "wordListVersion": "eff-long-cmudict-2026-09-v2",
+            "phrase": "ablaze abrasion",
+        },
+    ],
+    ids=["metadata", "version", "phrase-shape"],
+)
+def test_client_rejects_each_generated_response_binding(response: dict[str, Any]) -> None:
     class Transport:
         def post_signed(self, _path: str, _body: Any) -> dict[str, Any]:
-            return {
-                "schemaVersion": "1.0",
-                "deviceKeyMatches": True,
-                "activeVerifierVersion": 1,
-                "wordListVersion": "unknown",
-                "phrase": "synthetic phrase",
-            }
+            return response
 
     with pytest.raises(RuntimeError, match="invalid generated owner passphrase"):
         OwnerPassphraseClient(Transport()).generate(None)  # type: ignore[arg-type]
@@ -167,11 +194,11 @@ def test_generate_confirms_rotation_and_displays_the_worker_phrase_once(
 ) -> None:
     class Client:
         def status(self) -> OwnerPassphraseStatus:
-            return OwnerPassphraseStatus(7)
+            return OwnerPassphraseStatus(7, "active")
 
         def generate(self, expected: int | None) -> GeneratedOwnerPassphrase:
             assert expected == 7
-            return GeneratedOwnerPassphrase("abide ability ablaze", 8)
+            return GeneratedOwnerPassphrase("ablaze abrasion abrasive", 8)
 
     monkeypatch.setattr("jarvis_local.owner_passphrase._is_windows", lambda: True)
     monkeypatch.setattr("jarvis_local.owner_passphrase._interactive_terminal", lambda: True)
@@ -179,8 +206,27 @@ def test_generate_confirms_rotation_and_displays_the_worker_phrase_once(
     monkeypatch.setattr("builtins.input", lambda _prompt: "yes")
     assert run_owner_passphrase(JarvisLocalConfig.load(CONFIG), "generate") == 0
     output = capsys.readouterr().out
-    assert output.count("abide ability ablaze") == 1
+    assert output.count("ablaze abrasion abrasive") == 1
     assert "Verifier version: 8" in output
+
+
+def test_generate_requires_exact_confirmation_before_replacing_the_verifier(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class Client:
+        def status(self) -> OwnerPassphraseStatus:
+            return OwnerPassphraseStatus(7, "active")
+
+        def generate(self, _expected: int | None) -> GeneratedOwnerPassphrase:
+            pytest.fail("replacement ran without exact owner confirmation")
+
+    monkeypatch.setattr("jarvis_local.owner_passphrase._is_windows", lambda: True)
+    monkeypatch.setattr("jarvis_local.owner_passphrase._interactive_terminal", lambda: True)
+    monkeypatch.setattr("jarvis_local.owner_passphrase._client", lambda _config: Client())
+    monkeypatch.setattr("builtins.input", lambda _prompt: "no")
+    assert run_owner_passphrase(JarvisLocalConfig.load(CONFIG), "generate") == 1
+    assert capsys.readouterr().out.strip() == "owner passphrase generation cancelled"
 
 
 def test_status_never_displays_a_phrase_and_main_routes_nested_commands(
@@ -218,3 +264,32 @@ def test_exact_conflict_response_maps_to_retryable_operator_guidance() -> None:
     )
     with pytest.raises(CloudPassphraseStateChangedError, match="owner_passphrase_state_changed"):
         client.post_signed(OWNER_PASSPHRASE_PATH, {"schemaVersion": "1.0", "operation": "status"})
+
+
+def test_exact_owner_mismatch_response_has_distinct_operator_guidance(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    body = io.BytesIO(b'{"error":"owner_passphrase_owner_mismatch"}')
+    error = urllib.error.HTTPError("https://gateway.example", 403, "forbidden", Message(), body)
+    client = HttpCloudClient(
+        base_url="https://gateway.example",
+        device_id="device:home",
+        principal_id="principal:owner",
+        audience="jarvis-local-agent",
+        key=Ed25519PrivateKey.generate(),
+        opener=WireOpener([error]),
+    )
+    with pytest.raises(CloudOwnerPassphraseMismatchError, match="owner_passphrase_owner_mismatch"):
+        client.post_signed(OWNER_PASSPHRASE_PATH, {"schemaVersion": "1.0", "operation": "status"})
+
+    class Client:
+        def status(self) -> OwnerPassphraseStatus:
+            raise CloudOwnerPassphraseMismatchError("owner_passphrase_owner_mismatch")
+
+    monkeypatch.setattr("jarvis_local.owner_passphrase._is_windows", lambda: True)
+    monkeypatch.setattr("jarvis_local.owner_passphrase._client", lambda _config: Client())
+    assert run_owner_passphrase(JarvisLocalConfig.load(CONFIG), "status") == 1
+    assert capsys.readouterr().out.strip() == (
+        "server owner identity configuration does not match the enrolled device principal"
+    )

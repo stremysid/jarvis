@@ -8,7 +8,7 @@ CREATE TABLE owner_passphrase_verifiers (
   verifier_version INTEGER NOT NULL CHECK (verifier_version BETWEEN 1 AND 2147483647),
   algorithm TEXT NOT NULL CHECK (algorithm = 'hmac-sha256-pepper+pbkdf2-hmac-sha256'),
   domain_version TEXT NOT NULL CHECK (domain_version = 'v1'),
-  word_list_version TEXT NOT NULL CHECK (word_list_version = 'eff-long-cmudict-2026-09-v1'),
+  word_list_version TEXT NOT NULL CHECK (word_list_version = 'eff-long-cmudict-2026-09-v2'),
   pepper_version TEXT NOT NULL CHECK (pepper_version = 'v1'),
   iterations INTEGER NOT NULL CHECK (iterations = 600000),
   salt BLOB NOT NULL CHECK (typeof(salt) = 'blob' AND length(salt) = 16),
@@ -44,6 +44,22 @@ CREATE TABLE owner_passphrase_rotation_commits (
   UNIQUE (owner_identity_id, new_verifier_version),
   CHECK ((expected_verifier_version IS NULL AND new_verifier_version = 1)
     OR (expected_verifier_version IS NOT NULL AND new_verifier_version = expected_verifier_version + 1))
+) STRICT;
+
+-- A disable receipt must point at the exact accepted owner Telegram command.
+-- Re-enable never restores the revoked verifier: a later signed device
+-- rotation publishes a new version and moves the disabled head back to active.
+CREATE TABLE owner_passphrase_disable_commits (
+  commit_id TEXT PRIMARY KEY CHECK (
+    length(commit_id) = 26 AND substr(commit_id, 1, 1) BETWEEN '0' AND '7'
+    AND commit_id NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'
+  ),
+  owner_principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE RESTRICT,
+  owner_identity_id TEXT NOT NULL REFERENCES channel_identities(identity_id) ON DELETE RESTRICT,
+  expected_verifier_version INTEGER NOT NULL CHECK (expected_verifier_version BETWEEN 1 AND 2147483647),
+  authorization_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+  committed_at TEXT NOT NULL CHECK (strftime('%Y-%m-%dT%H:%M:%fZ', committed_at) IS committed_at),
+  UNIQUE (owner_identity_id, expected_verifier_version)
 ) STRICT;
 
 CREATE TABLE owner_passphrase_heads (
@@ -114,6 +130,22 @@ WHEN NEW.owner_principal_id IS NOT OLD.owner_principal_id
         AND commit_row.expected_verifier_version = OLD.verifier_version
         AND commit_row.committed_at = NEW.status_changed_at
     )
+    OR OLD.status = 'revoked' AND NEW.status = 'superseded'
+    AND EXISTS (
+      SELECT 1 FROM owner_passphrase_rotation_commits commit_row
+      WHERE commit_row.owner_principal_id = OLD.owner_principal_id
+        AND commit_row.owner_identity_id = OLD.owner_identity_id
+        AND commit_row.expected_verifier_version = OLD.verifier_version
+        AND commit_row.committed_at = NEW.status_changed_at
+    )
+    OR OLD.status = 'active' AND NEW.status = 'revoked'
+    AND EXISTS (
+      SELECT 1 FROM owner_passphrase_disable_commits disable_row
+      WHERE disable_row.owner_principal_id = OLD.owner_principal_id
+        AND disable_row.owner_identity_id = OLD.owner_identity_id
+        AND disable_row.expected_verifier_version = OLD.verifier_version
+        AND disable_row.committed_at = NEW.status_changed_at
+    )
   )
 BEGIN
   SELECT RAISE(ABORT, 'owner_passphrase_verifier_transition_invalid');
@@ -152,14 +184,17 @@ WHEN NOT EXISTS (
 ) OR (
   NEW.expected_verifier_version IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM owner_passphrase_heads head
-    JOIN owner_passphrase_verifiers active
-      ON active.owner_identity_id = head.owner_identity_id
-      AND active.verifier_version = head.verifier_version
+    JOIN owner_passphrase_verifiers current_verifier
+      ON current_verifier.owner_identity_id = head.owner_identity_id
+      AND current_verifier.verifier_version = head.verifier_version
     WHERE head.singleton_id = 1
       AND head.owner_principal_id = NEW.owner_principal_id
       AND head.owner_identity_id = NEW.owner_identity_id
       AND head.verifier_version = NEW.expected_verifier_version
-      AND head.status = 'active' AND active.status = 'active'
+      AND (
+        head.status = 'active' AND current_verifier.status = 'active'
+        OR head.status = 'disabled' AND current_verifier.status = 'revoked'
+      )
   )
 )
 BEGIN
@@ -173,7 +208,7 @@ BEGIN
   SET status = 'superseded', status_changed_at = NEW.committed_at
   WHERE owner_identity_id = NEW.owner_identity_id
     AND verifier_version = NEW.expected_verifier_version
-    AND status = 'active';
+    AND status IN ('active', 'revoked');
 
   UPDATE owner_passphrase_verifiers
   SET status = 'active', status_changed_at = NEW.committed_at
@@ -204,6 +239,84 @@ BEGIN
   SELECT RAISE(ABORT, 'owner_passphrase_rotation_commit_delete_forbidden');
 END;
 
+CREATE TRIGGER owner_passphrase_disable_commit_guard
+BEFORE INSERT ON owner_passphrase_disable_commits
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM owner_passphrase_heads head
+  JOIN owner_passphrase_verifiers verifier
+    ON verifier.owner_identity_id = head.owner_identity_id
+    AND verifier.verifier_version = head.verifier_version
+  JOIN voice_owner_identity owner
+    ON owner.principal_id = head.owner_principal_id
+    AND owner.identity_id = head.owner_identity_id
+  JOIN principals principal ON principal.principal_id = owner.principal_id
+  JOIN events event ON event.event_id = NEW.authorization_event_id
+  JOIN idempotency_records receipt
+    ON receipt.event_sequence = event.sequence AND receipt.scope = 'telegram.update'
+  JOIN channel_identities telegram_identity
+    ON event.subject_id = 'telegram:user:' || telegram_identity.provider_subject
+    AND telegram_identity.principal_id = owner.principal_id
+  WHERE head.singleton_id = 1
+    AND head.owner_principal_id = NEW.owner_principal_id
+    AND head.owner_identity_id = NEW.owner_identity_id
+    AND head.verifier_version = NEW.expected_verifier_version
+    AND head.status = 'active' AND verifier.status = 'active'
+    AND principal.principal_type = 'human' AND principal.status = 'active'
+    AND telegram_identity.channel = 'telegram'
+    AND telegram_identity.status = 'active'
+    AND telegram_identity.verified_at IS NOT NULL
+    AND event.event_type = 'telegram.update.received'
+    AND event.source = 'channel:telegram'
+    AND json_extract(event.envelope_json, '$.eventId') = event.event_id
+    AND json_extract(event.envelope_json, '$.correlationId') = event.event_id
+    AND json_extract(event.envelope_json, '$.eventType') = event.event_type
+    AND json_extract(event.envelope_json, '$.source') = event.source
+    AND json_extract(event.envelope_json, '$.producerVersion') = 'cloud-gateway@0.1.0'
+    AND json_extract(event.envelope_json, '$.subjectId') = event.subject_id
+    AND json_extract(event.envelope_json, '$.occurredAt') = event.occurred_at
+    AND json_extract(event.envelope_json, '$.receivedAt') = event.received_at
+    AND json_extract(event.envelope_json, '$.contentHash') = event.content_hash
+    AND json_type(event.envelope_json, '$.payload') = 'object'
+    AND json_extract(event.envelope_json, '$.payload.text') = '/disable-owner-step-up --confirm'
+    AND NEW.committed_at >= event.received_at
+    AND NEW.committed_at <= strftime('%Y-%m-%dT%H:%M:%fZ', event.received_at, '+5 minutes')
+)
+BEGIN
+  SELECT RAISE(ABORT, 'owner_passphrase_disable_state_changed');
+END;
+
+CREATE TRIGGER owner_passphrase_disable_commit_publish
+AFTER INSERT ON owner_passphrase_disable_commits
+BEGIN
+  UPDATE owner_passphrase_verifiers
+  SET status = 'revoked', status_changed_at = NEW.committed_at
+  WHERE owner_principal_id = NEW.owner_principal_id
+    AND owner_identity_id = NEW.owner_identity_id
+    AND verifier_version = NEW.expected_verifier_version
+    AND status = 'active';
+
+  UPDATE owner_passphrase_heads
+  SET status = 'disabled', updated_at = NEW.committed_at
+  WHERE singleton_id = 1
+    AND owner_principal_id = NEW.owner_principal_id
+    AND owner_identity_id = NEW.owner_identity_id
+    AND verifier_version = NEW.expected_verifier_version
+    AND status = 'active';
+END;
+
+CREATE TRIGGER owner_passphrase_disable_commits_immutable
+BEFORE UPDATE ON owner_passphrase_disable_commits
+BEGIN
+  SELECT RAISE(ABORT, 'owner_passphrase_disable_commit_immutable');
+END;
+
+CREATE TRIGGER owner_passphrase_disable_commits_delete_forbidden
+BEFORE DELETE ON owner_passphrase_disable_commits
+BEGIN
+  SELECT RAISE(ABORT, 'owner_passphrase_disable_commit_delete_forbidden');
+END;
+
 CREATE TRIGGER owner_passphrase_heads_insert_guard
 BEFORE INSERT ON owner_passphrase_heads
 WHEN NEW.singleton_id <> 1 OR NEW.status <> 'active' OR NOT EXISTS (
@@ -227,18 +340,33 @@ BEFORE UPDATE ON owner_passphrase_heads
 WHEN NEW.singleton_id IS NOT OLD.singleton_id
   OR NEW.owner_principal_id IS NOT OLD.owner_principal_id
   OR NEW.owner_identity_id IS NOT OLD.owner_identity_id
-  OR NEW.status <> 'active'
-  OR NOT EXISTS (
-    SELECT 1 FROM owner_passphrase_rotation_commits commit_row
-    JOIN owner_passphrase_verifiers verifier
-      ON verifier.owner_identity_id = commit_row.owner_identity_id
-      AND verifier.verifier_version = commit_row.new_verifier_version
-    WHERE commit_row.owner_principal_id = OLD.owner_principal_id
-      AND commit_row.owner_identity_id = OLD.owner_identity_id
-      AND commit_row.expected_verifier_version = OLD.verifier_version
-      AND commit_row.new_verifier_version = NEW.verifier_version
-      AND commit_row.committed_at = NEW.updated_at
-      AND verifier.status = 'active'
+  OR NOT (
+    NEW.status = 'active'
+    AND EXISTS (
+      SELECT 1 FROM owner_passphrase_rotation_commits commit_row
+      JOIN owner_passphrase_verifiers verifier
+        ON verifier.owner_identity_id = commit_row.owner_identity_id
+        AND verifier.verifier_version = commit_row.new_verifier_version
+      WHERE commit_row.owner_principal_id = OLD.owner_principal_id
+        AND commit_row.owner_identity_id = OLD.owner_identity_id
+        AND commit_row.expected_verifier_version = OLD.verifier_version
+        AND commit_row.new_verifier_version = NEW.verifier_version
+        AND commit_row.committed_at = NEW.updated_at
+        AND verifier.status = 'active'
+    )
+    OR OLD.status = 'active' AND NEW.status = 'disabled'
+    AND NEW.verifier_version = OLD.verifier_version
+    AND EXISTS (
+      SELECT 1 FROM owner_passphrase_disable_commits disable_row
+      JOIN owner_passphrase_verifiers verifier
+        ON verifier.owner_identity_id = disable_row.owner_identity_id
+        AND verifier.verifier_version = disable_row.expected_verifier_version
+      WHERE disable_row.owner_principal_id = OLD.owner_principal_id
+        AND disable_row.owner_identity_id = OLD.owner_identity_id
+        AND disable_row.expected_verifier_version = OLD.verifier_version
+        AND disable_row.committed_at = NEW.updated_at
+        AND verifier.status = 'revoked'
+    )
   )
 BEGIN
   SELECT RAISE(ABORT, 'owner_passphrase_head_update_invalid');

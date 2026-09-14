@@ -8,27 +8,38 @@ verification succeeds.
 ## What is stored
 
 The Worker selects three independent words with replacement from the fixed
-2,048-word `eff-long-cmudict-2026-09-v1` list. D1 stores only the versioned
+2,048-word `eff-long-cmudict-2026-09-v2` list. D1 stores only the versioned
 HMAC-plus-PBKDF2 verifier, its 16-byte salt, the creating device-key binding,
 and an immutable rotation receipt. It never stores the words. A signed status
-request returns only the active verifier version. A successful generation
-response returns the words once.
+request returns only the current verifier version and whether it is active or
+disabled. A successful generation response returns the words once.
+
+Migration `0017` also reserves PR 3's guarded recovery path. An immutable
+disable receipt must cite the exact accepted, confirmed owner Telegram event;
+its trigger revokes the active verifier and disables the head atomically. The
+same verifier cannot be restored. Re-enable requires this signed Windows CLI
+to publish a new verifier version, which supersedes the revoked record and
+moves the head back to active. This PR does not expose the Telegram disable
+command.
 
 The source list is derived from EFF's 2016 large Diceware list, then filtered
 with CMUdict commit `74790861f652b15e4ac49015a90074ad62a27690`. The checked-in
 list's newline-delimited SHA-256 is
-`9cf5c60c950729d2a8e8b17031f0e57e0db0e604184a87ab6fa2c0c37884ceed`.
-The selection removes number words, internal homophones and alternate
-pronunciations, Canadian/American spelling pairs, reviewed manual exclusions,
-compounds detectable as two CMUdict words, punctuation, and words outside four
-to eight ASCII letters.
+`52cfd230e93567f01b90c059f7e400d915f23b558ce1a28f0bfc4dc0c9ba1cc4`.
+The selection removes number words; the reviewed speech variants `okay`,
+`alright`, `awhile`, `online`, `hangup`, `maybe`, and `twice`; non-US spelling
+variants; reviewed manual exclusions; compounds detectable as two CMUdict
+entries of at least two letters; punctuation; and words outside four to eight
+ASCII letters. Hash-ranked greedy selection ensures that no two retained words
+share a CMUdict pronunciation.
 
 ## Reviewed rollout sequence
 
-1. Confirm the implementation commit has passed Claude max review. Confirm R2's
-   reserved migration `0016` and this PR's `0017_owner_passphrase.sql` are both
-   present in the intended deployment revision. List remote migrations before
-   applying any of them.
+1. Confirm the implementation commit has passed Claude max review. List remote
+   migrations and apply exactly the reviewed pending files. Wrangler tracks
+   migration names rather than enforcing numeric continuity, so this PR's
+   `0017_owner_passphrase.sql` can be applied before R2's reserved `0016`; if
+   `0016` lands later, it remains unapplied and is applied then.
 2. From a protected PowerShell session with transcription off, create a random
    32-byte value, base64-encode it, and enter it through Wrangler's interactive
    `secret put OWNER_PASSPHRASE_PEPPER_V1` prompt. Never put the value in a
@@ -54,6 +65,8 @@ to eight ASCII letters.
    phrase must pass one attended ordinary voice verification before inbound is
    reopened.
 
-`jarvis owner-passphrase status` prints only a version or “not configured.” A
-device mismatch, clock problem, unavailable gateway, and CAS conflict use fixed
-messages that contain no phrase or verifier material.
+`jarvis owner-passphrase status` prints only a version and state, or “not
+configured.” A disabled status names its current version so `generate` can
+compare-and-swap to a new one. A device mismatch, configured-owner mismatch,
+clock problem, unavailable gateway, and CAS conflict use fixed messages that
+contain no phrase or verifier material.

@@ -132,7 +132,9 @@ persistent lockout, and an exact Passed-A waiver built but switched off. PR
 #33 merged at `726b78b` with the reviewed documentation contract. Draft PR
 #37 is the first implementation slice: migration `0017`, the versioned
 verifier, authenticated Worker-side generation and compare-and-swap rotation,
-known-answer vectors, and the attended Windows CLI. It does not grant call
+guarded disable/new-version re-enable storage transitions, known-answer
+vectors, and the attended Windows CLI. Migration `0016` may be applied later;
+Wrangler determines pending work by migration name. PR #37 does not grant call
 authority or open inbound calling; call-session step-up and live acceptance
 remain outstanding. The device-signed begin response also reveals whether a
 supplied number matches stored enrollment state. Both current-code gaps are

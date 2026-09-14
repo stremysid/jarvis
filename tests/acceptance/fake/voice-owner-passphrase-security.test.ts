@@ -39,7 +39,7 @@ describe("owner-passphrase verifier and Worker-side generation", () => {
     expect(OWNER_PASSPHRASE_WORDS).toHaveLength(2048);
     expect(new Set(OWNER_PASSPHRASE_WORDS).size).toBe(2048);
     expect(OWNER_PASSPHRASE_WORD_LIST_VERSION).toBe(vectors.wordListVersion);
-    expect(OWNER_PASSPHRASE_WORD_LIST_SHA256).toBe("9cf5c60c950729d2a8e8b17031f0e57e0db0e604184a87ab6fa2c0c37884ceed");
+    expect(OWNER_PASSPHRASE_WORD_LIST_SHA256).toBe("52cfd230e93567f01b90c059f7e400d915f23b558ce1a28f0bfc4dc0c9ba1cc4");
     const digest = new Uint8Array(await crypto.subtle.digest(
       "SHA-256", new TextEncoder().encode(`${OWNER_PASSPHRASE_WORDS.join("\n")}\n`),
     ));
@@ -48,8 +48,13 @@ describe("owner-passphrase verifier and Worker-side generation", () => {
     expect(OWNER_PASSPHRASE_WORDS.every((word) => /^[a-z]{4,8}$/u.test(word))).toBe(true);
     for (const excluded of [
       "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
-      "color", "colour", "center", "centre", "gray", "grey", "theater", "theatre",
+      "okay", "alright", "awhile", "online", "hangup", "maybe", "twice",
+      "colour", "centre", "grey", "theatre",
+      "abide", "able", "acclaim", "alarm",
     ]) expect(OWNER_PASSPHRASE_WORDS).not.toContain(excluded);
+    for (const variants of [
+      ["color", "colour"], ["center", "centre"], ["gray", "grey"], ["theater", "theatre"],
+    ]) expect(variants.filter((word) => OWNER_PASSPHRASE_WORDS.includes(word)).length).toBeLessThanOrEqual(1);
 
     const supplied = [0, 0, 2047];
     const observed: number[] = [];
@@ -60,7 +65,7 @@ describe("owner-passphrase verifier and Worker-side generation", () => {
       return value;
     });
     expect(observed).toEqual([0, 0, 2047]);
-    expect(phrase).toBe("abide abide zoom");
+    expect(phrase).toBe("ablaze ablaze zoom");
   });
 
   it("uses one fresh 16-bit CSPRNG sample per default draw and refuses out-of-range injected indexes", () => {
@@ -73,7 +78,7 @@ describe("owner-passphrase verifier and Worker-side generation", () => {
       return array;
     });
     try {
-      expect(generateOwnerPassphrase()).toBe("abide abide zoom");
+      expect(generateOwnerPassphrase()).toBe("ablaze ablaze zoom");
       expect(samples).toEqual([]);
     } finally {
       random.mockRestore();
@@ -97,6 +102,10 @@ describe("owner-passphrase verifier and Worker-side generation", () => {
     for (const candidate of vectors.invalidCandidates) {
       expect(() => canonicalizeOwnerPassphrase(candidate)).toThrow("owner_passphrase_candidate_invalid");
     }
+    const overLimitButOtherwiseValid = `ablaze${"!".repeat(110)} abrasion abrasive`;
+    expect(overLimitButOtherwiseValid.length).toBeGreaterThan(128);
+    expect(() => canonicalizeOwnerPassphrase(overLimitButOtherwiseValid))
+      .toThrow("owner_passphrase_candidate_invalid");
   });
 
   it("constructs and verifies the shared HMAC plus PBKDF2 known answer", async () => {
@@ -115,8 +124,13 @@ describe("owner-passphrase verifier and Worker-side generation", () => {
       digestBase64: vector.digestBase64,
     });
     await expect(verifier.verify(vector.ownerIdentityId, vector.phrase, record)).resolves.toBe(true);
-    await expect(verifier.verify(vector.ownerIdentityId, "abide ability active", record)).resolves.toBe(false);
+    await expect(verifier.verify(vector.ownerIdentityId, "ablaze abrasion active", record)).resolves.toBe(false);
+    await expect(verifier.verify(vector.ownerIdentityId, "ablaze abrasion okay", record)).resolves.toBe(false);
     await expect(verifier.verify("identity:other:voice", vector.phrase, record)).resolves.toBe(false);
+    await expect(verifier.verify(vector.ownerIdentityId, vector.phrase, { ...record }))
+      .rejects.toThrow("owner_passphrase_verifier_invalid");
+    await expect(verifier.verify(vector.ownerIdentityId, vector.phrase, Object.freeze({ ...record })))
+      .rejects.toThrow("owner_passphrase_verifier_invalid");
   });
 
   it("binds the digest to both identity and monotonic version and clears supplied salt copies", async () => {
@@ -126,9 +140,9 @@ describe("owner-passphrase verifier and Worker-side generation", () => {
       supplied.push(salt);
       return salt;
     });
-    const first = await verifier.create("identity:owner:voice", 1, "abide ability ablaze");
-    const second = await verifier.create("identity:owner:voice", 2, "abide ability ablaze");
-    const other = await verifier.create("identity:other:voice", 1, "abide ability ablaze");
+    const first = await verifier.create("identity:owner:voice", 1, "ablaze abrasion abrasive");
+    const second = await verifier.create("identity:owner:voice", 2, "ablaze abrasion abrasive");
+    const other = await verifier.create("identity:other:voice", 1, "ablaze abrasion abrasive");
     expect(new Set([first.digestBase64, second.digestBase64, other.digestBase64]).size).toBe(3);
     expect(supplied.every((salt) => salt.every((byte) => byte === 0))).toBe(true);
   });
