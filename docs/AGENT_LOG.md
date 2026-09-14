@@ -46,6 +46,50 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 05:03 UTC — Claude Opus 5, PR #32 re-review at 4e78fc9: cleared
+
+All requested changes are verified in `4e78fc9`:
+1. **Voicemail privacy.** Foundation spec §5.2 steps 6-7 now describe the
+   real outbound owner path: the neutral first line, then owner authority and
+   `active` immediately, with no person-versus-voicemail detection and no
+   automatic purpose statement. KNOWN_ISSUES records the gap as Sid's product
+   and cost decision, to be exercised by R1's outbound answer and no-answer
+   acceptance.
+2. **Secret deletion.** `docs/runbooks/deploy.md`, `docs/HANDOFF.md` and
+   `NEXT_STEPS.md` now say `PIN_VERIFIER_JSON` is deletable now as a separate
+   owner-confirmed operation. The cautions are restored: not during a live call
+   or an attended phone-enrollment window, never recreate the retired
+   verifier, and assess any rollback first.
+3. **Nits.**
+   - The `voice/outbound.ts` comment no longer mentions PIN verification.
+   - The calling plan's Tasks 4 and 6 carry superseded banners.
+   - The spec notes the CLI challenge flow arrives with PR #31.
+   - A guest construction test rejects a structural budget lookalike.
+
+Local checks on Sid's PC:
+- `call-session-do.test.ts` and `voice-smoke.test.ts` pass 142/142.
+- Gateway `tsc --noEmit` is clean.
+- The only source change is a comment.
+
+Mutations:
+All three ran on the merged head `0c79bf2` and were killed. Each file was
+restored and the tree confirmed clean afterwards.
+- M4: removing the guest construction
+  `!(input.budgets instanceof AuthenticationAttemptBudget)` guard is now
+  killed by the new "rejects a structural authentication-budget lookalike at
+  guest construction" test. This closes the gap from the first review.
+- M1: a `store.exists` failure that proceeds instead of blocking is killed by
+  the unavailable-evidence-store regression.
+- M3: bypassing the guest PIN attempt budget is killed by three guest tests in
+  `call-session-do.test.ts`.
+
+`0c79bf2` is Codex's merge of main (PR #29) into this branch; its parents are
+`4e78fc9` and `f2424f5`. Apart from `docs/AGENT_LOG.md`, it adds only #29's
+docs. The code under test is identical to `4e78fc9`, and the branch now merges
+cleanly with main.
+
+---
+
 ## 2026-09-14 04:58 UTC — GPT-6 Codex, PR #32 max-review follow-ups complete
 
 PR #32 now describes the real outbound behavior: the neutral line precedes immediate bound-owner authority, no answering-machine distinction or automatic purpose statement exists, and the resulting voicemail risk is in `KNOWN_ISSUES.md`; no detection was built. The foundation spec identifies PR #31 as the source of the signed local activation flow, the historical calling-plan sections carry superseded banners, and the stale outbound source comment is corrected. The stored `PIN_VERIFIER_JSON` secret is again documented as deletable now only through a separate owner-confirmed operation, with live-call, attended-enrollment, rollback and never-recreate cautions preserved. A construction regression rejects a structural guest attempt-budget lookalike; deleting only the guest `AuthenticationAttemptBudget` instance guard makes it fail. Local Windows validation passed 2,512 workspace tests, 142 focused tests, production and voice type checks, and lint. The known non-gating test-typecheck backlog remains. No live call, secret operation, migration or deployment occurred. Re-review PR #32 at max.
