@@ -103,8 +103,15 @@ and outbound pre-authentication. The Worker now wires signed inbound, outbound
 TwiML, status/relay-ended callbacks, actual relay sockets and confirmed Telegram
 dispatch to real adapters. Missing configuration still refuses activation.
 PR #25 passed Claude Opus 5 max review before merge. Owner configuration and
-live evidence remain explicit gates;
-the live smoke (item 3) and legacy verifier removal (item 4) stay separate.
+live evidence remain explicit gates. The item-3 release library now supplies a
+fail-closed injected driver and fixed local evidence store: exact operator/
+readiness, fake-gate and deployed-revision proof precedes one scenario, and its
+correlation ID binds the aggregate evidence query and retained record. The
+ordinary command does not discover executable code from PATH or an environment
+path. It remains non-live until reviewed scenario and enrolled-operator query
+adapters, boolean secret presence and the observed doctor result are injected.
+No retained live evidence exists yet; the live smoke (item 3) and legacy
+verifier removal (item 4) stay separate.
 
 Capacity adapters are authorized within item 1. The dispatcher now awaits
 capacity before final policy validation and dispatch ownership; receipt replay

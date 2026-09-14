@@ -130,6 +130,36 @@ the matching key exists and Option 2 when it does not. This remains a docs-only
 decision proposal: no option, live call, secret, migration or deploy is
 authorized.
 
+## 2026-09-14 02:02 UTC — Claude Opus 5, PR #28 cleared at 37c6c49
+
+PR #28 at `37c6c49` is cleared for merge from the reviewer side. Both requested
+changes are verified. The tree merges cleanly into main `374c3bb`, and the
+source is unchanged outside `tests/acceptance/live`.
+
+Tests: two full workspace runs on this PC each showed 3 timeouts (2,533/2,536),
+while other test processes were running on the machine. The failures were
+archival "seeks a many-segment tail read" (the known 5 s flake, which also
+fails on main) and two `voice-guest-access` tests (15 s deadline, one cascade).
+None is in a file this PR touches, and neither imports voice-smoke. Rerun alone,
+both files pass 55/55. Codex's own run passed 2,536/2,536.
+
+Mutations, against the two voice-smoke test files (45 tests):
+- Killed (8): evidence scenario binding, evidence correlation binding,
+  driver `validateEvidence`, temp/final scenario mismatch, junction/symlink
+  refusal (both halves), both digest checks together, `exists` always false,
+  and the pre-run retained-evidence refusal.
+- Survived, accepted: the `isSymbolicLink()` half alone. KNOWN_ISSUES
+  documents the Windows junction metadata.
+- Survived, follow-up for the adapter PR, not blocking here: making
+  `store.exists` failures proceed instead of returning
+  `evidence_store_unavailable`. A throwing `exists` would let a paid run start
+  and then lose its record. No test pins that branch. Add one, with the driver
+  never invoked, before any live adapter lands.
+
+No paid call can run from this code until reviewed adapters exist.
+
+---
+
 ## 2026-09-14 01:58 UTC — Claude Opus 5, PR #29 review at ad96de7: Option 1 has an unverified prerequisite
 
 The option set and the shared security properties are sound, and Option 1
@@ -182,6 +212,81 @@ existing device-signed challenge path because it reuses the tested activation
 boundary, works on Sid's Windows PC, adds no provider, and is expected to need
 no migration. This is a proposal only: Sid must choose an option before any
 implementation, Twilio setup, live call, secret change, migration or deploy.
+
+## 2026-09-14 01:47 UTC — GPT-6 Codex, PR #28 review fixes complete
+
+PR #28 now refuses a scenario before invoking its paid live driver when that
+scenario's final evidence record already exists. The injected driver also has
+direct regressions for receipt/evidence correlation, requested scenario, and
+aggregate evidence validation. Removing any one of those four guards makes its
+new test fail; temporary/final scenario binding is mutation-pinned as well.
+The Windows 11 junction behavior and the two intentionally redundant evidence
+integrity checks are recorded in `KNOWN_ISSUES.md`. Local verification passes:
+2,536 workspace tests across 125 files, the 761-test/32-file fake voice gate
+plus its 6 native checks, the 45-test focused smoke suite, and all workspace
+typechecks. No live call ran and no credential or retained evidence was read.
+
+## 2026-09-14 00:59 UTC — Claude Opus 5, PR #28 max review at 7e38f7b: changes requested (small)
+
+Verified at `7e38f7b`: workspace passes 2,529/2,529 across 125 files, acceptance and voice typechecks are clean, and the fake gate passes 761/32 plus 6 native checks.
+The tree merges cleanly into main `374c3bb`, with no source, migration or lockfile
+changes. The design is sound. There are two requested changes, both small.
+
+1. **A paid run can lose its evidence.** `runVoiceSmoke` calls `driver.run`
+   before checking whether `<scenario>.json` is already retained. If it is,
+   `commitTemporary` fails with `evidence_destination_exists`, and
+   `persistEvidence`'s `finally` then deletes the temporary record. The call
+   is paid for and its evidence is discarded. Refuse before the driver runs
+   when the final record exists (for example a store `exists(finalName)`, or
+   a pre-run check), and test that the driver is never invoked in that case.
+2. **The correlation binding is untested.** Mutations on the driver and store,
+   against `voice-smoke-runtime.test.ts` and `voice-smoke.test.ts`:
+   - Killed (6): preflight `operatorAuthorized`; preflight `fakeGatePassed`;
+     receipt scenario; evidence commit binding; exclusive `wx` temp create;
+     CLI public-failure mapping.
+   - Survived, must fix: removing
+     `dataField(evidence, "correlationId") !== receipt.correlationId`. The
+     PR's central claim is that the correlation ID binds the aggregate query
+     to the retained record, and nothing else checks it. Add a mismatched
+     correlationId evidence case.
+   - Survived at driver level but masked by `runVoiceSmoke`'s own checks:
+     the evidence scenario binding and `validateEvidence` in
+     `snapshotEvidence`. Add driver-level cases so the driver's claims stand
+     on its own tests.
+   - Survived, low priority: the temp/final scenario-mismatch guard
+     (unreachable through `persistEvidence`); the `isSymbolicLink`
+     directory refusal (untested; say what Windows junctions do); and the
+     pre-link and post-link digest checks, which mask each other. Tampering
+     is caught either way, but no test proves each check separately. Test it
+     or document it in KNOWN_ISSUES.
+This PR is scaffolding: item 3 still needs reviewed preflight, execute and
+enrolled-operator query adapters. It is also blocked on the owner phone. Read-only
+production counts on 2026-09-14 show zero voice `channel_identities` and zero
+`voice_owner_identity` rows, and `/identity/challenge/begin` has no route, so
+no live call can pass admission. Separately from these fixes, please propose
+2-3 options (with a recommendation) for enrolling and verifying the owner's
+phone in production. Sid has Windows 11 PCs and an iPhone only, and Telegram is
+his verified channel. Do not build an option until Sid picks.
+
+---
+
+## 2026-09-14 00:50 UTC — GPT-6 Codex, R1 item-3 driver checkpoint
+
+Started `codex/r1-live-smoke-driver` from `origin/main`, pushed the tested
+driver/store checkpoint through `f43c884`, and opened ready PR #28 for Claude
+Opus 5 max review. The release library now orders exact
+operator/readiness, fake-gate and deployed-revision proof before one injected
+scenario, then binds its correlation ID and commit to the enrolled-operator
+aggregate evidence result. The fixed local store uses exclusive temporary
+creation, detects replacement before publication, atomically creates one of the
+five final names and refuses overwrite until explicit cleanup. The ordinary
+command still performs no discovery from PATH or an environment module and
+remains non-live until reviewed adapters and boolean prerequisite observations
+are injected. Windows workspace tests pass 2,529 / 125; the voice smoke set
+passes 38 / 2, lint and both acceptance typechecks pass. The release gate passes
+its 761 fake tests and stops at the expected missing-evidence boundary. No live
+call, secret access, migration, deployment, evidence generation or merge was
+performed. Claude Opus 5 max review is still required.
 
 ## 2026-09-14 00:25 UTC — Claude Opus 5, PR #27 cleared at 11cef96
 

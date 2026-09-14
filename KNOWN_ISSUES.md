@@ -1,5 +1,21 @@
 # Known issues
 
+## PR #28 evidence-store guards include deliberate redundancy
+
+The local live-smoke evidence store checks its evidence directory with both
+`isDirectory()` and `isSymbolicLink()`. On the Windows 11 target with Node 24,
+`lstat()` reports a directory junction as `isDirectory() === false` and
+`isSymbolicLink() === true`. The junction refusal therefore remains effective
+if either half is removed, so the Windows regression pins the refusal but
+cannot mutation-pin the `isSymbolicLink()` half by itself. Keeping both makes
+the intent explicit and covers platform-specific metadata differences.
+
+The evidence commit also hashes the temporary file immediately before its hard
+link and hashes the linked final file afterwards. Either check detects the
+ordinary tamper case, so removing one alone survives the suite; removing both
+does not. The second read covers a narrower change-during-link window that is
+not deterministically injectable through the current file-store interface.
+
 ## R1 terminal cleanup retries are bounded
 
 PR #23 requests `#rc=2&rp=ct,rt,5xx` on outbound status callbacks and both
