@@ -46,6 +46,28 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 04:25 UTC — Claude Opus 5, PR #30 follow-up: tests and Windows dry run
+
+This is the follow-up promised in the PR #30 review entry. The focused runbook
+test passes 12/12 at `f2f25b6`.
+
+Step 2 was dry-run on Sid's Windows 11 PC, local only, with a throwaway key
+under a temporary directory and a throwaway device ID (not
+`%LOCALAPPDATA%\Jarvis\keys`), and no production contact. Results:
+- `uv run --project apps/local-agent jarvis enroll --device-label jarvis-home-pc`
+  exits 0.
+- The runbook's PowerShell parser finds all six public fields, and its
+  independent SHA-256 fingerprint check matches the printed fingerprint.
+- The key file is created with the `DPAPI:` sealed prefix.
+- A second `jarvis enroll` with the same environment reuses the key (same
+  fingerprint). It doesn't create a replacement.
+
+`uv` resolves through a WinGet link, not a PowerShell shim, so only the remote
+`pnpm` commands need the change requested in item 2. Review items 1-4 are
+unchanged, and item 1 still blocks.
+
+---
+
 ## 2026-09-14 04:24 UTC — Claude Opus 5, PR #30 max review at f2f25b6: changes requested
 
 The SQL design is sound: guarded insert-then-revoke, exact public-value
