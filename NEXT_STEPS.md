@@ -26,7 +26,8 @@ This item added `0014_memory_projection.sql`, including projection tables,
 publication/abandonment guards and an FTS index. Local migration `0004` adds
 quarantine and restart-safe rejection recovery. Production applied 0014 before
 gateway deployment `28109492`; no cloud migration remains pending through 0015.
-Do not start the uploader while the node platform decision is on hold.
+Do not start the historical uploader; R2 no longer depends on a device
+projection or node.
 
 ## R0 checkpoint, 2026-09-11
 
@@ -199,15 +200,36 @@ installation is legitimate but rejected. Preserve the absolute-host security
 boundary and require package identity verification in that future fix; do
 not resolve `pwsh` from inherited PATH. Leave implementation deferred.
 
-## R2 platform hold
+## R2 cloud-memory design
 
 PR #13 is merged. PR #16 at `27b232f` is complete from the reviewer's side;
 the subsequent owner-run Windows results are listed in HANDOFF. No further
-implementation is requested on #16. R2 item 4 is parked behind Sid's node
-platform decision: no Windows port and no further Linux implementation.
-He owns Windows 11 PCs and an iPhone 16, with no Linux host or server.
-Keep the requirement that memory works with every PC off. R1 is cloud-side
-and does not depend on that decision.
+implementation is requested on #16. The Linux home node is historical: it was
+a planning-session choice Sid never made. Do not port it, provision it or make
+R2/R3 depend on it.
+
+Sid requires cloud memory that works with every PC off and delegated the
+design. The reviewer recorded the decision at `951675e`: D1 is authoritative
+for the event ledger, versioned memories, receipts and topic tree; FTS5 and
+Vectorize are rebuildable indexes, and full-history recall includes verified
+R2 archive segments. Obsidian is only a later optional one-way export and is
+not built in R2.
+
+Draft [PR #35](https://github.com/ksid1229-ops/jarvis/pull/35) contains the
+storage-independent extraction policy, topic-tree reducer and offline evaluator.
+Its first Claude review findings are fixed on `codex/r2-memory-pure-logic`,
+which is retargeted to `main`; Claude's max re-review at `11d868d` cleared the
+PR with non-blocking follow-ups for the next R2 code step. The evaluator scoring
+follow-up must land before any paid model comparison. Draft
+[PR #36](https://github.com/ksid1229-ops/jarvis/pull/36) contains the corrected
+documentation and D1-authoritative design; its first Claude review findings are
+fixed on `codex/r2-memory-docs`, which is also retargeted to `main` and waiting
+for max re-review.
+
+Keep migration `0016` reserved but uncreated. Only after the docs design passes
+review may the next small PR define `0016`; Sid alone applies it after another
+Claude max review. No live model comparison runs without Sid's explicit
+approval. R1 is cloud-side and does not depend on this work.
 
 ## Next gate
 
@@ -280,9 +302,13 @@ the Twilio number and credentials. No live calling evidence exists yet.
 
 ## The two-stage Obsidian adapter
 
-Stage one is built -- see DECISIONS.md. The roadmap assigns completion of
-the adapter on the home node to R2 and defers the native bridge. Do not
-resume the old bridge plan as part of R0.
+Stage one is built -- see DECISIONS.md -- but its home-node completion plan is
+historical. Do not resume the adapter or native bridge in R0 or R2. The active
+D1 design preserves an Obsidian-compatible Markdown shape only for a later
+optional one-way export. Sid approved a future private-GitHub copy with tested
+exclusion of sensitive categories, but not its R2 build, repository creation,
+token, app install, paid plan or live push. Compatibility does not authorize an
+Obsidian client, sync path or editable vault.
 
 **The redactor comes first.** Vault observations are stored verbatim with no
 redaction, so building the cloud upload path before the redactor would ship

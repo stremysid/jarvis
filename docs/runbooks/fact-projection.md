@@ -1,18 +1,24 @@
 # Fact projection
 
-**Platform decision on hold.** Sid's home PC and laptop run Windows 11; his
+**Historical device-projection path — do not execute the Linux procedures.**
+Sid's home PC and laptop run Windows 11; his
 phone is an iPhone 16. He has no Linux host, server or VPS. The home PC is on
 during waking hours and off overnight. The current `jarvis node` implementation
 refuses to start outside Linux, so this PR's node cannot run on his machines.
-Do not port it to Windows or proceed with Linux host work until Sid chooses a
-direction. The Linux deployment and recovery instructions retained below
-describe the existing implementation; they are not steps for his Windows hosts.
+Sid chose cloud memory and delegated the canonical storage design; the reviewer
+selected a D1-authoritative ledger and topic tree at `951675e`. Sid did not
+choose a Linux home node. Do not port the node to Windows or proceed
+with Linux host work. The Linux deployment and recovery instructions retained
+below describe the existing implementation; they are historical, not steps for
+his Windows hosts or the R2 cloud-memory rollout.
 See the platform correction in [PR #22](https://github.com/ksid1229-ops/jarvis/pull/22).
 
 The requirement remains **memory must work with every PC off**. Linux was an
 implementation chosen during planning, not an owner-approved platform decision.
 The cloud trigger tests, FTS recovery and post-migration verification below are
-platform-independent. They do not authorize a deployment or resolve the host choice.
+platform-independent historical evidence. They do not authorize a deployment
+or make the 0014 device projection canonical. The new D1 memory schema keeps
+migration number `0016` and belongs to a separate reviewed PR.
 
 The home node publishes its eligible active-fact view as a signed, versioned
 snapshot. Cloud retrieval continues to use the previously published version
@@ -392,11 +398,13 @@ derived index is repaired by the explicit rebuild above. The regression tests
 exercise forged and missing matches through the real retriever, including a
 passing default integrity check, and verify correct retrieval after rebuild.
 
-## Owner acceptance
+## Historical owner acceptance — do not run for R2
 
-Node deployment and live acceptance remain on hold pending Sid's platform
-decision. The eventual R2 exit test must prove memory retrieval with **every PC
-off**. Stopping a node process alone does not establish that requirement.
+The platform decision is now cloud D1 memory, so this Linux-node acceptance is
+superseded and must not be run as an R2 step. It remains below only as evidence
+of what the earlier projection intended to test. The new R2 exit test must prove
+memory retrieval with **every PC off**; stopping a node process alone does not
+establish that requirement.
 
 After migration `0014_memory_projection.sql`, the updated gateway, and the
 node-composition patch are deployed, publish a harmless test fact sourced from
@@ -418,5 +426,6 @@ sensitivity, and confirm that a newer head is published and retrieval marks it
 replacement snapshot, confirm that the head advances, and confirm that the old
 fact no longer appears.
 
-These steps are live owner acceptance. Unit tests and CI do not establish that
-the production migration, gateway, home node, or archived-source path worked.
+These were the proposed live owner-acceptance steps for the historical node.
+Unit tests and CI never established that the production migration, gateway,
+home node, or archived-source path worked.

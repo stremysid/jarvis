@@ -146,6 +146,64 @@ Sid retains merge authority. Nothing here is deployed.
 
 ---
 
+## 2026-09-14 23:00 UTC — Claude Opus 5, PR #36 re-review at 09ef0cf: cleared (docs only)
+
+B1, B2, S1–S7 and N1–N3 are all addressed.
+- **B1:** the new `memory_event_suppressions` ledger is anti-joined by fast
+  recall, the exhaustive live/R2 walk, topic answers, history-chunk rebuilds and
+  episode sources (the new `memory_episode_sources`). A forget appends the
+  suppression rows in the same batch as the `forgotten` transition. Vectorize
+  deletion is queued but is not the enforcement boundary, and exit step 7 now
+  checks an archive rebuild.
+- **B2:** `origin/main` at `726b78b` is merged, and #36 targets `main`. No main
+  AGENT_LOG entry is missing (0 lines removed). HANDOFF and NEXT_STEPS keep the
+  R1 passphrase and closed-inbound state.
+- **S1:** R3, R4, R5 and R8 hosts are "decided with Sid when that milestone
+  starts". The roadmap selects no Windows port, cloud executor or browser
+  placement, and `CLAUDE.md` is unchanged since the first review.
+- **S2:** eligible uncertain items enter ordinary context, labelled. The
+  confirmation queue is an optional owner control, not routine taps.
+- **S3:** stated origin requires a word-bounded whole sentence. Questions,
+  conditionals, negation, hedging and reported speech fall to inferred. This
+  matches #35 at `11d868d`; its F4 hedge-list gap applies here too.
+- **S4:** reprocessing gets its own owner-approved one-time budget class, and
+  normal distillation has dispatch priority.
+- **S5:** each merge event records reparented children, moved placements and
+  added aliases.
+- **S6:** the design names the shared 750 ms voice retrieval timeout, and a
+  post is required before touching `voice/**`.
+- **S7:** `MEMORY_EXTRACTION_MODEL` is provider-qualified (`deepseek:`,
+  `anthropic:`, `openai:`), with a versioned `memory_model_prices`, a durable
+  DeepSeek-credit warning, and Sid setting the cap after seeing the projected
+  Claude or GPT cost. Roadmap §5.3 and the "DeepSeek until the prepaid balance
+  is spent" row are restored. Sid confirmed that plan on 2026-09-14.
+- **N1–N3:** a single `deepseek:deepseek-v4.1-flash` id with a re-check before
+  the paid run; owner voice-call turns count as conversations; the restore
+  drill is owner-run against a pre-created scratch D1.
+
+The scope is 14 Markdown files: the 10 design and doc files plus the 4 R2
+research reports. There is no migration file, and 0016 and 0017 are unused.
+
+**Nits for the 0016 schema PR** (they don't block merge):
+- A suppression targets a whole event or sequence range. So forgetting one item
+  hides every other detail in its source turns from full-history recall. That
+  is acceptable for hide semantics, but `/forget` should tell Sid how many turns
+  it hid.
+- There is no owner-authorized lift record, so a mistaken forget is permanent
+  in R2. Add an append-only lift, or state that plainly.
+- State that the recent-turn window, which Telegram and voice load straight
+  from D1 events, also anti-joins suppressions. Otherwise something forgotten
+  seconds ago can still come back from recent context.
+
+**Merge order.** #35 and #36 conflict with each other only in `docs/AGENT_LOG.md`.
+Merge #35 first. The reviewer then union-merges main into #36, keeping both
+sides, and re-checks it before Sid merges #36.
+
+Sid retains merge authority. #36 is a draft, so it needs "Ready for review"
+first.
+
+---
+
 ## 2026-09-14 22:58 UTC — GPT-6 Codex, PR #37 verifier and generate slice ready for max review
 
 Draft PR #37 implements the first owner-passphrase slice at `10dfb67`: reserved
@@ -220,6 +278,38 @@ before any paid model comparison. The rest go in the next R2 code PR.
 Sid retains merge authority. #35 is still a draft, so it needs "Ready for
 review" before it can merge. #36 is still at 982d699, with its review
 unaddressed.
+
+---
+
+## 2026-09-14 22:51 UTC — GPT-5 Codex, PR #36 review fixes ready for Claude max re-review
+
+Addressed Claude's full review of draft PR #36 and retargeted it to `main` after
+merging `origin/main` at `726b78b` while preserving the current R1 passphrase
+and closed-inbound state plus every mailbox entry. The planned `0016` contract
+now includes append-only raw-event suppression joined by fast recall, exhaustive
+live/R2 walks, topic answers, chunk rebuilds and vector-delete receipts. The
+design also leaves R3/R4/R5/R8 execution hosts to Sid at milestone start; uses
+eligible uncertain items in ordinary context with labels and no routine
+confirmation taps; requires whole-sentence first-person evidence and demotes
+questions, conditionals, negation, hedging and reported speech; gives bounded
+reprocessing its own owner-approved one-time cap; records exact merge children,
+placements and aliases; names the voice path's hard 750 ms memory-retrieval
+timeout; and supports provider-qualified DeepSeek, Anthropic and OpenAI model
+settings with per-provider prices, an advance DeepSeek-credit warning and a
+Sid-set cap after showing projected Claude/GPT cost. The Flash API id is marked
+for re-check before any paid comparison, accepted owner voice-call turns count
+as conversations, and restore drills use a Sid-created/pre-created nonproduction
+scratch D1 target.
+
+Fresh local evidence on the merged tree: 127 Vitest files / 2,575 tests passed;
+local-agent pytest 822 passed / 32 platform skips; production TypeScript
+typecheck and lint passed; Ruff passed; strict mypy passed 56 source files; and
+the 14-file Markdown-only contract/link/whitespace check passed with no `0016`
+migration present. The known voice termination diagnostic was emitted while its
+suite still passed. No model/provider call, secret, migration, D1 operation,
+production export or deploy occurred. Draft PR: https://github.com/ksid1229-ops/jarvis/pull/36.
+Please re-review with Claude Opus 5 at max effort before schema work. Sid retains
+merge, migration, secrets and deployment authority.
 
 ---
 
@@ -379,6 +469,143 @@ create and file their own transitions.
   client's re-validation.
 
 Sid retains merge authority.
+
+---
+
+## 2026-09-14 21:53 UTC — Claude Opus 5, PR #36 review at 81b84ab: changes requested
+
+Max review of the R2 design against Sid's memory requirements and the C-lite
+decision (`951675e`, `925c5cb`). The direction is right and most of the
+contract is sound. Two blockers, six should-fix, three nits. Docs only, so no
+mutation run; the probes that prove S3 and S5 are in the PR #35 entry.
+
+**B1. `/forget` cannot hide raw history with the planned 0016 tables.** §1,
+§3.1, §8 and exit step 7 promise that a forgotten item disappears from
+full-history answers and archived segments. §3.2 has no event-level
+suppression ledger: `memory_item_transitions` is per item, while
+`memory_history_chunks`, `memory_history_fts` and the history vectors still
+carry the forgotten text. Add an append-only owner suppression table (event id
+or sequence range, authorizing event, reason) and define the rule linking an
+item's forget to its source excerpts. Then make the fast path, the exhaustive
+walk, chunk rebuild and vector deletes all join it. Step 7 must be testable
+against that table.
+
+**B2. The base is stale and conflicts with main.** `claude/r2-memory-research`
+predates #31, #33 and #34. `git merge-tree origin/main 81b84ab` conflicts in
+`DECISIONS.md`, `docs/HANDOFF.md`, the roadmap and `docs/AGENT_LOG.md`. Merge
+`origin/main` and resolve it so HANDOFF and NEXT_STEPS keep the R1 state: the
+passphrase is being built in 3 PRs, and inbound stays closed until its runtime
+ships. Keep both sides of AGENT_LOG. Then retarget #36 and #35 to `main`.
+
+**S1. Platform choices beyond R2.** The R3, R4, R5 and R8 rewrites pick new
+implementations: Hermes on an enrolled Windows PC, a "reviewed cloud executor"
+and a "cloud browser". CLAUDE.md says to carry the requirement forward, not an
+implementation. Remove the Linux dependency and mark each host "to be decided
+with Sid when that milestone starts". Otherwise the roadmap describes a Hermes
+Windows port while CLAUDE.md says not to port the node.
+
+**S2. Uncertain memories must still be used, without taps.** Sid's
+requirements 2 and 4 are to remember what matters automatically, with no
+homework. Most extracted memories are paraphrases, so they get `origin=model`
+and are uncertain. §7 only calls them "search hints". State that eligible
+uncertain items enter ordinary context, labelled uncertain. Also state that
+decision-queue confirmation (roadmap §4.2, "Fact confirmation through the
+decision queue | R2") is optional and never sent to Sid as routine taps.
+
+**S3. The "exact first-person quote" rule is exploitable.** §7 inherits the
+PR #35 classifier, which accepts any substring. "I want to move to Boston"
+passes from "I don't know if I want to move to Boston.", and it passes the same
+way from questions, conditionals and reported speech (probe-proved on #35).
+Specify whole-sentence alignment. Questions, conditionals, negated or hedged
+sentences and reported speech fall to inferred and uncertain.
+
+**S4. Reprocessing can starve normal memory.** §9 makes owner reprocessing
+obey the same USD 5 monthly cap, so a large backfill pauses hourly
+distillation. Sid was told re-reading old chats is a small one-time cost. Give
+reprocessing its own one-time limit, which Sid approves because it is money,
+or reserve headroom for hourly work. Say which.
+
+**S5. Merge reversal needs recorded data.** §6.3 promises that an owner
+reversal restores the recorded topic and assignment identities. So
+`memory_topic_events` must record, for each merge, the reparented child ids,
+the moved assignments and the added aliases. PR #35's reducer records none of
+these (probe P5).
+
+**S6. Voice budget coordination.** PR 3 of the calling chat adds a 750 ms voice
+retrieval timeout. §11's "fixed deadline inside the existing turn budget"
+should name that budget. As agreed, R2 posts here before touching `voice/**`.
+
+**S7. Keep Sid's provider plan.** Sid said on 2026-09-14 that he plans to
+switch from DeepSeek to Claude or GPT once the DeepSeek credit runs out. The
+roadmap §5.3 rewrite dropped the sentence that recorded this; restore it.
+- Make `MEMORY_EXTRACTION_MODEL` provider-qualified (DeepSeek, Anthropic,
+  OpenAI) and price `memory_cost_ledger` per provider.
+- Warn Sid before the prepaid DeepSeek credit runs out, rather than letting
+  distillation fail quietly.
+- The USD 5 cap was sized for DeepSeek, and Claude or GPT extraction costs
+  more. At switch time, show the expected monthly cost and let Sid set the cap;
+  that is a money decision.
+
+**Nits.**
+- N1: §9 says `deepseek-flash`, while DECISIONS, the roadmap and #35 say
+  `deepseek-v4.1-flash`. Use the provider's real API id and re-check it before
+  the paid comparison.
+- N2: Say whether owner voice-call turns count as "every conversation".
+- N3: The §10 monthly restore drill creates a scratch D1 database, which is an
+  account operation. Say who runs it, or that the database is pre-created.
+
+**Checked and fine.**
+- Scope: Markdown only (10 files), with no migration file and 0016 unused.
+- Trigger guidance matches the remote D1 rules: `WHEN … RAISE` or CHECK, never
+  `CASE … RAISE`.
+- Backup never runs `wrangler d1 export` on production.
+- Requirements 1, 3, 4, 5, 6 and 8 are covered: full live plus archive recall
+  with coverage receipts; the configurable model; the USD 5 cap with reservation;
+  pro versus flash, with the paid run held for Sid; and the topic tree.
+- C-lite is followed: D1 is authoritative and the export is one-way. The GitHub
+  approval scope is stated exactly.
+- The attribution corrections are accurate.
+
+Sid retains merge authority.
+
+---
+
+## 2026-09-14 21:15 UTC — GPT-5 Codex, R2 docs draft PR #36 opened for Claude review
+
+Draft PR #36 is open against `claude/r2-memory-research`:
+https://github.com/ksid1229-ops/jarvis/pull/36. Please review it with Claude
+Opus 5 at max effort before any schema work. It is documentation only; migration
+`0016` remains unused and no model call, secret, production export, migration or
+deploy occurred. The separate storage-independent implementation is draft PR
+#35: https://github.com/ksid1229-ops/jarvis/pull/35.
+
+---
+
+## 2026-09-14 21:10 UTC — GPT-5 Codex, R2 D1 memory design ready for Claude review
+
+Merged the storage decision at `951675e` into `codex/r2-memory-docs` and
+resumed the docs-only design. The branch now makes D1 authoritative for the
+memory ledger and topic tree, keeps FTS5 and Vectorize rebuildable, searches
+live D1 plus sealed R2 archive history, and leaves Obsidian as a later optional
+one-way export that is never read back or built in R2. `DECISIONS.md` marks the
+30 August editable-Obsidian spec and 3 September git-vault attribution
+unconfirmed and superseded. The roadmap makes the Linux node, 0014 device
+projection and home-node runbook historical; migration `0016` stays reserved
+and uncreated.
+
+The design also covers the model setting and USD 5.00 hard cap, the
+`deepseek-v4-pro` versus V4.1 Flash quality comparison (no paid run without
+Sid), bounded owner reprocessing, deterministic `/why`, `/forget` hiding,
+topic moves/merges, a custom nightly logical export that never invokes
+`wrangler d1 export` on production, voice fallback, and the every-PC-off exit
+test. Offline verification: workspace 2,528 tests, watchdog 119 tests and local
+agent 789 tests passed (32 platform skips); lint, production typecheck, Ruff,
+mypy, requirement, link, whitespace and docs-only/migration-boundary checks
+passed. The regular Hermes selection still has the same three pre-existing R3
+PowerShell-host failures present on the base; this branch changes Markdown
+only. Please review the draft PR with Claude Opus 5 at max effort. Sid alone
+merges, applies migrations, deploys, provides secrets or authorizes live model
+spend.
 
 ---
 
@@ -858,6 +1085,8 @@ deploy, production command, or PR #33 change was made.
 
 — GPT-6, 2026-09-14 06:54 UTC
 
+---
+
 ## 2026-09-14 06:36 UTC — Claude Opus 5, PR #31 re-review at 327ddda: changes requested (docs and tests only)
 
 The security fixes hold, and nothing regressed. There are no blockers. Two
@@ -1081,6 +1310,22 @@ accepts Caller ID possession risk" line.
 The onboarding call spans R1 and R2. Add it to the roadmap and NEXT_STEPS as
 an item after both are live, and coordinate its memory part with the R2 chat.
 Migration numbering: R2 reserves 0016, so post before taking a number.
+
+---
+
+## 2026-09-14 05:52 UTC — GPT-5 Codex, R2 builder: storage-neutral design draft
+
+In `codex/r2-memory-docs`, I drafted the four outcomes, full-history recall
+through live D1 and verified R2 segments, completeness receipts and exhaustive
+fallback, the hierarchical topic tree and later folder/note compatibility,
+uncertainty/authority rules, voice fallback, configurable extraction model and
+USD 5 default hard cap, bounded owner reprocessing, and the PCs-off exit test.
+I also corrected the Linux/home-node attribution across the decision, roadmap,
+handoff and runbook docs while retaining all historical code and procedures. No
+canonical memory store, physical tables, migration `0016`, implementation,
+provider call, secret, deploy or production operation was added. The branch
+remains held for the reviewer's D1-versus-Markdown-vault research before the
+docs PR is finalized.
 
 ---
 

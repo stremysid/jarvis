@@ -1,6 +1,6 @@
 # Handoff
 
-Current as of **2026-09-13**. Verify the current branch and checks before
+Current as of **2026-09-14**. Verify the current branch and checks before
 using this checkpoint. R0 passed; calling remains R1.
 
 PR #25 merged as `fd39301` after max review. Production D1 now has migrations
@@ -10,7 +10,7 @@ because Twilio is not configured; outbound calling is separately disabled by
 `outbound_runtime_controls.enabled = 0`. The release gate still requires the
 retained live-call evidence.
 
-## R1 is active; the node platform decision remains on hold
+## R1 is active; R2 D1 memory design is ready for review
 
 R0 passed on 2026-09-11. R1 depends on R0 and is entirely cloud-side.
 PR #23 supplied item 2's fake calling/access matrix and confirmed Telegram
@@ -140,12 +140,36 @@ remain outstanding. The device-signed begin response also reveals whether a
 supplied number matches stored enrollment state. Both current-code gaps are
 recorded in `KNOWN_ISSUES.md`.
 
-Sid's PCs run Windows 11 and his phone is an iPhone 16. There is no Linux
-host, server or VPS; the home PC is off overnight. No Windows node port or
-further Linux implementation is authorized until he chooses a direction.
-R2 item 4 is parked. Preserve the actual requirement: memory must work with
-every PC off, whatever implementation Sid selects. PR #22 records the
-platform correction; the old roadmap attribution is not owner approval.
+Sid's PCs run Windows 11 and his phone is an iPhone 16. There is no Linux host,
+server or VPS; the home PC is off overnight. The Linux home node was a
+planning-session choice Sid never made and is now historical. Do not port,
+provision or depend on it.
+
+Sid requires the best cloud memory, usable with every PC off, and delegated
+the design. The reviewer recorded the decision at `951675e`: D1 is
+authoritative for the event ledger, versioned memory items, receipts and topic
+tree. D1 FTS5 and Vectorize are rebuildable indexes; full-history recall also
+walks verified R2 archive segments. Obsidian is only a later optional one-way
+export and is not built or read back in R2. Sid approved a future private
+GitHub destination with sensitive-category exclusions, but not repository
+creation, credentials, paid service or a live push. Migration `0016` remains
+reserved but uncreated; Sid applies it only after its later schema PR passes
+Claude max review. The current docs branch defines the table contract,
+event-level forget suppression, distillation, receipts, custom nightly export
+and all-PCs-off exit test. Its provider-qualified memory setting supports
+DeepSeek, Anthropic and OpenAI; USD 5.00 is the normal DeepSeek default, a
+Claude/GPT switch requires Sid to set a new cap after seeing projected cost,
+and reprocessing has its own owner-approved one-time limit. No live call,
+provider call, migration or deployment was performed.
+
+Draft PR #35 contains the storage-independent extraction policy, topic-tree
+reducer and offline evaluator. Its first Claude review findings are fixed on a
+branch retargeted to `main`; Claude's max re-review at `11d868d` cleared the PR
+with non-blocking follow-ups for the next R2 code step, including an evaluator
+scoring correction required before any paid model comparison. Draft PR #36
+contains this documentation and D1 design; its first Claude review findings are
+also fixed on a branch retargeted to `main` and await max re-review before
+schema work.
 
 PR #16 at `27b232f` has completed the reviewer's requested changes. The
 reviewer independently verified migration byte identity, all five trigger
@@ -177,15 +201,16 @@ and record the results in each PR; do not retry Actions, disable jobs or
 restructure CI to bypass the quota. CI path filtering can be considered
 when CI is next intentionally changed; it is not part of this work.
 
-## R2 item 3 review candidate
+## R2 item 3 historical accepted baseline
 
-**Platform hold (Sid, 2026-09-12):** his PCs run Windows 11 and his phone is an
+**Superseded platform hold (Sid, 2026-09-12):** his PCs run Windows 11 and his phone is an
 iPhone 16; there is no Linux host, server or VPS. The home PC is off overnight.
-The current Linux-only node cannot run on his machines. Do not port the node or
-continue Linux work until he decides. Carry forward the actual R2 requirement:
-memory must work with every PC off. PR #22 records this correction in
-`CLAUDE.md`; the runbook labels its existing Linux procedures as on hold and
-its mode-0700 check as POSIX-only, with no Windows ACL enforcement.
+The current Linux-only node cannot run on his machines. Sid later chose cloud
+memory and confirmed that he never chose the Linux node. The node and its
+runbook are historical; carry forward only the requirement that memory works
+with every PC off. PR #22 records the earlier correction in `CLAUDE.md`; its
+mode-0700 check remains POSIX-only historical evidence, not Windows ACL
+enforcement.
 
 The platform-independent review fixes are pushed at `f1958c4`. GitHub Actions
 run 34721781316 did not start any of its seven jobs because of an account
@@ -586,24 +611,26 @@ commit a secret value.
   the hourly job does not call them, because no deployment holds the OAuth
   credentials. `deadline_sources` therefore has nothing writing to it, so the
   deadline half of the digest is empty rather than stale.
-- **`project()` in the vault** has no authority gate in front of it. Nothing
-  but tests calls it. Do not wire a caller without one.
+- **Historical `project()` in the vault.** It has no authority gate in front
+  of it and nothing but tests calls it. Do not wire a caller; the adapter is not
+  the R2 memory path.
 - **There is no Windows process host.** The existing `jarvis node` starts
   `RunLoop` and `ServiceState`, but refuses to start outside Linux.
   `NamedPipeServer.serve_forever` is still started only by tests; there is no
   `jarvis service` command and no Windows service host. Node platform work
   remains on hold as described above.
 
-## The one thing to read before building on the vault
+## Historical vault safety note
 
 Vault observations are stored **verbatim, with no redaction**. That is safe
 today only because nothing uploads them. Building the cloud sync path before
 the redactor would ship the owner's notes to the gateway unredacted, so the
 redactor is a prerequisite for that work rather than a follow-up to it.
 
-## Deliberate divergences from the plans
+## Historical divergences from the Obsidian plans
 
-Two, both in [DECISIONS.md](../DECISIONS.md) with reasoning:
+These are retained for the existing adapter, not as current R2 direction. Both
+are explained in [DECISIONS.md](../DECISIONS.md):
 
 - Migration numbering: the Obsidian plan reserves 0008–0011 for vault state;
   those numbers were taken first. Vault D1 migrations take 0014 onward.
