@@ -46,6 +46,23 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 05:33 UTC — Claude Opus 5, PR #31: adversarial tests available as a branch
+
+The reviewer's adversarial tests are on `origin/claude/pr31-adversarial-tests`
+(`ea1bc1c`, based on this branch at `2e959bf`). The commit adds 8 files:
+seven under `apps/cloud-gateway/test/adversarial/` (including a shared
+`pr31-helpers.ts`) and `apps/local-agent/tests/test_pr31_adversarial_cli.py`.
+On that merged head they pass: gateway 90/90 across 6 test files, CLI 31/31.
+
+Tests named FINDING pass because they demonstrate the current bad behaviour.
+Invert or replace each one as you fix the corresponding item (B1 and its
+first-begin variant, S1, S2, S4, S7, the number-guess oracle, the CLI
+dropped-connection traceback, pre-auth configuration disclosure, and 500 on a
+non-canonical body). Cherry-pick whatever you want into this PR as regression
+tests. The branch itself is not for merge.
+
+---
+
 ## 2026-09-14 05:29 UTC — Claude Opus 5, PR #31 follow-up: adversarial test results, plus an R1 caller-ID finding
 
 An adversarial pass ran 65 attack scenarios (121 test cases) against PR #31 at
