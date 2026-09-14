@@ -569,6 +569,8 @@ Commits:
 
 ### Task 4: Inbound Twilio ingress, DTMF PIN authentication, and neutral phone enrollment
 
+> **Superseded for owner authentication:** The reusable eight-digit PIN instructions in this task are replaced by PIN-free owner authority, grant-bound four-digit guest PINs, and the separate six-digit activation challenge in the current foundation and owner/guest access designs.
+
 **Files:**
 - Create: `apps/cloud-gateway/src/persistence/migrations/0004_call_sessions.sql`
 - Modify: `apps/cloud-gateway/src/persistence/call-repository.ts`
@@ -893,6 +895,8 @@ git commit -m "feat(conversation): add shared streaming turn and outbox services
 ```
 
 ### Task 6: Durable Object relay session, post-auth transcript rules, and interruption
+
+> **Superseded for owner authentication:** The reusable eight-digit PIN instructions in this task are replaced by PIN-free owner authority, grant-bound four-digit guest PINs, and the separate six-digit activation challenge in the current foundation and owner/guest access designs.
 
 **Files:**
 - Create: `apps/cloud-gateway/src/voice/call-session-do.ts`

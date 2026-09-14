@@ -5,20 +5,38 @@ using this checkpoint. R0 passed; calling remains R1.
 
 PR #25 merged as `fd39301` after max review. Production D1 now has migrations
 through 0015, and gateway deployment `28109492` runs that commit. Health answers
-200 and the first observed cron succeeded. Calling remains disabled because
-Twilio is not configured and `outbound_runtime_controls.enabled` remains 0.
-The release gate still requires the retained live-call evidence.
+200 and the first observed cron succeeded. Inbound calling is unavailable
+because Twilio is not configured; outbound calling is separately disabled by
+`outbound_runtime_controls.enabled = 0`. The release gate still requires the
+retained live-call evidence.
 
 ## R1 is active; the node platform decision remains on hold
 
 R0 passed on 2026-09-11. R1 depends on R0 and is entirely cloud-side.
 PR #23 supplied item 2's fake calling/access matrix and confirmed Telegram
 `/call`, with local Windows validation and mutation evidence recorded in the
-PR. PR #25 composes the production Worker and is now merged and deployed;
-without Twilio configuration and explicit control activation, calling remains
-unavailable.
+PR. PR #25 composes the production Worker and is now merged and deployed.
+Inbound remains unavailable without Twilio configuration, while outbound also
+requires explicit control activation.
 The real release runner passes its local prerequisites and then refuses the
 missing live evidence. It never places a call itself.
+
+Production also has no owner voice `channel_identities` row and no
+`voice_owner_identity` singleton, so Twilio configuration alone cannot make a
+call pass admission. The reviewed proposal compares three enrollment designs
+and records Sid's selection of Option 1:
+[`plan/2026-09-14-owner-phone-enrollment-options.md`](plan/2026-09-14-owner-phone-enrollment-options.md).
+No original sealed key was found on the intended home PC, so Sid chose a newly
+generated home-PC key and a separately reviewed, owner-executed replacement of
+the active production device row before phone work. The next steps are the
+device-key replacement runbook, the non-disclosing key-match preflight and
+Option 1 implementation, then owner-controlled Twilio setup and enrollment.
+Twilio configuration is required before enrollment can finish, and setting
+the production voice webhook makes inbound live: the outbound runtime control
+does not gate inbound calls. Unknown callers are refused but may still incur
+provider charges. The proposal authorizes implementation planning only; each
+production key change, live call, secret change, migration, and deployment
+remains a separate owner-confirmed action.
 
 R1's v1.0 review required Claude Opus 5 at max, and PR #25 passed that review
 before merge. Item 1's real Worker/runtime composition is now on `main`. Its
@@ -76,9 +94,16 @@ driver requires exact operator/readiness, fake-gate and deployed-revision proof
 before one scenario, then binds its correlation ID and commit to the aggregate
 query result. The normal command remains non-live until reviewed adapters and
 boolean prerequisite observations are injected; no live record was generated.
-Items 3 and 4 still cover the live smoke and legacy eight-digit verifier
-deletion. None of those are satisfied by the fake matrix or same-vendor
-advisory review.
+Item 3 still requires the live smoke. The separate item-4 candidate on
+`codex/r1-retire-legacy-pin` removes the legacy eight-digit owner verifier,
+updates the foundation design to the current PIN-free-owner and grant-bound
+guest model, and adds PR #28's evidence-store failure regression. It does not
+delete the stored `PIN_VERIFIER_JSON` secret or deploy anything. That stored
+secret is already deletable as the separate owner-confirmed step in
+`docs/runbooks/deploy.md`; do not run it during a live call or attended
+phone-enrollment window, never recreate the retired verifier, and assess any
+rollback to a version that reads it first. Neither the live smoke nor that
+owner operation is satisfied by local tests.
 
 Sid selected the device-signed Windows path for enrolling the missing owner
 phone, with a new production device key held on the home PC. PR #29 records the
@@ -524,10 +549,12 @@ nothing is skipped, disabled or weakened, and the defect stays open and
 documented in KNOWN_ISSUES.md until he chooses to close it.
 
 Item 2's rotations remain complete by owner confirmation; do not request
-them again. `PIN_VERIFIER_JSON` is absent from config; now that item 5's
-gateway deployment has happened, its stored secret may be deleted as a
-separate, explicitly confirmed operation. Never request, print or commit a
-secret value.
+them again. `PIN_VERIFIER_JSON` is absent from config and the stored secret is
+deletable now as the separate, owner-confirmed operation documented in
+`docs/runbooks/deploy.md`. Do not perform it during a live call or attended
+phone-enrollment window, never recreate the retired verifier, and assess a
+rollback to a version that reads it before deletion. Never request, print or
+commit a secret value.
 
 ## What is built but not wired
 

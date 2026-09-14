@@ -380,6 +380,29 @@ describe("runVoiceSmoke", () => {
     expect([...store.files]).toEqual([["inbound.json", "retained\n"]]);
   });
 
+  it("reports an unavailable evidence store without invoking the paid driver when the existence check fails", async () => {
+    let executions = 0;
+    const store: EvidenceStore = {
+      exists: async () => { throw new Error("private storage failure"); },
+      writeTemporary: async () => undefined,
+      commitTemporary: async () => undefined,
+      remove: async () => undefined,
+    };
+
+    const result = await runVoiceSmoke({ ...completeGate, scenario: "inbound" }, {
+      driver: {
+        run: async () => {
+          executions += 1;
+          return inboundEvidence;
+        },
+      },
+      store,
+    });
+
+    expect(result).toEqual({ status: "blocked", reason: "evidence_store_unavailable" });
+    expect(executions).toBe(0);
+  });
+
   it("removes its temporary evidence and normalizes commit failures", async () => {
     const store = new MemoryEvidenceStore();
     store.failCommit = true;

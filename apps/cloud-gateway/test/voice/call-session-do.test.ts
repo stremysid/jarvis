@@ -624,6 +624,15 @@ describe("CallSessionCore owner and guest access", () => {
   beforeEach(applyFoundationMigration);
   afterEach(clearFixture);
 
+  it("rejects a structural authentication-budget lookalike at guest construction", () => {
+    expect(() => new GuestCallAuthentication({
+      repository: new VoiceAccessRepository(env.DB),
+      budgets: { reservePinAttempt: vi.fn(async () => true) } as never,
+      verifier: new GuestPinVerifier(PEPPER),
+      proofs: new GuestPinProofIssuer(),
+    })).toThrowError("guest_call_authentication_configuration_invalid");
+  });
+
   it("moves an active owner from relay setup to active with zero PIN work", async () => {
     const harness = await accessHarness("owner");
 

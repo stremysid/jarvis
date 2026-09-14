@@ -79,8 +79,18 @@ guest, unknown and ungranted callers; it covers interruption, the real
 Telegram `/call <reason> --confirm` constructs a durable owner-only self-call
 command with fixed expiry and replay protection. PR #25 now composes production
 dispatch and merged as `fd39301`; gateway deployment `28109492` is live.
-Calling remains off pending owner Twilio configuration, explicit control
-activation and live acceptance.
+Owner calling remains unavailable because production has no enrolled owner
+phone. Sid selected Option 1 in
+[`docs/plan/2026-09-14-owner-phone-enrollment-options.md`](docs/plan/2026-09-14-owner-phone-enrollment-options.md);
+the device-signed Windows CLI followed by an inbound activation call. No
+original sealed key was found on the intended home PC, so the required order is
+a separately reviewed device-key replacement runbook and owner-executed key
+replacement, then a non-disclosing local key-match preflight, then the Option 1
+implementation. The production key change remains one owner-confirmed action at
+each live step. Twilio must be configured before the enrollment call. Setting the voice
+webhook makes inbound calling live because the outbound runtime control does
+not gate inbound calls; unknown callers are refused but may still incur
+provider charges. Live enrollment and acceptance remain owner-confirmed steps.
 
 Sid selected PR #29's Option 1 for owner-phone enrollment using a new device
 key on his home PC. PR #30 is the separate draft owner runbook and exact SQL
@@ -112,7 +122,16 @@ ordinary command does not discover executable code from PATH or an environment
 path. It remains non-live until reviewed scenario and enrolled-operator query
 adapters, boolean secret presence and the observed doctor result are injected.
 No retained live evidence exists yet; the live smoke (item 3) and legacy
-verifier removal (item 4) stay separate.
+verifier removal (item 4) stay separate. The item-4 candidate on
+`codex/r1-retire-legacy-pin` deletes the obsolete eight-digit owner verifier
+and corrects the foundation spec while preserving the distinct four-digit
+guest verifier and its attempt budgets. It also pins the item-3 evidence-store
+failure boundary requested in PR #28's review. No secret was changed. The
+stored `PIN_VERIFIER_JSON` secret is deletable now as a separate,
+owner-confirmed operation using `docs/runbooks/deploy.md`; do not do this
+during a live call or attended phone-enrollment window, and never recreate
+the retired verifier. A rollback to a version that reads it needs separate
+assessment.
 
 Capacity adapters are authorized within item 1. The dispatcher now awaits
 capacity before final policy validation and dispatch ownership; receipt replay

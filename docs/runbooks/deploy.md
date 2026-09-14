@@ -112,9 +112,10 @@ database and never applies migrations. The gateway also binds the
 The owner confirmed R0 item 2 complete: Wrangler login, rotation of the
 three peppers and DeepSeek key on `jarvis-cloud-gateway`, and revocation
 of the old DeepSeek key. No values were shared. `PIN_VERIFIER_JSON` is
-absent from the configuration and its two generators are retired. Item 5's
-gateway deployment is now complete; deletion of the stored legacy secret
-still requires the separate owner confirmation in step 5 below.
+absent from the configuration, its two generators are retired, and live
+gateway code has not constructed the legacy verifier. The stored legacy
+secret is deletable now as the separate owner-confirmed operation in step 5
+below; this repository change does not perform that operation.
 
 ## R0 item 5: migrate, then deploy
 
@@ -159,15 +160,16 @@ contents -- query it, as step 2 does.
    The scripts preserve dashboard variables with `--keep-vars` and refuse
    conflicting remote edits with `--strict`. They disable autoconfiguration
    so Wrangler does not rewrite this deployment's configuration.
-5. After the item 5 gateway deploy is confirmed, the owner can retire the
-   stored legacy secret as a separate, explicitly confirmed deletion:
+5. The owner can retire the stored legacy secret now as a separate, explicitly
+   confirmed deletion:
 
    ```powershell
    & node $wrangler secret delete PIN_VERIFIER_JSON --config $gateway --env ''
    ```
 
-   Do not run this during item 3 or recreate the retired verifier. A
-   rollback to an older version that reads it needs separate assessment.
+   Do not run this during a live call or an attended phone-enrollment window,
+   and never recreate the retired verifier. A rollback to an older version
+   that reads the secret needs separate assessment before deletion.
 
 ## A first-deployment DOWN alert must eventually recover
 
