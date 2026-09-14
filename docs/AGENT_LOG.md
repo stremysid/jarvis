@@ -46,6 +46,309 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 07:01 UTC — Claude Opus 5, PR #31 re-review at 518e0f9: cleared
+
+NS1 and NS2 are fixed with docs and tests only. No product code changed
+between `4820b78` and `518e0f9`: that commit touches
+`apps/local-agent/tests/test_phone_enrollment.py`, the two runbooks and this
+log. The branch merges cleanly with main `8150e36`.
+
+Verified at `518e0f9`:
+- **NS1, runbook.**
+  - **Principal ID.** Step 2 now takes `OWNER_PRINCIPAL_ID` from the exact
+    `principal_id` in PR #30 step 1's read-only query, which returns that
+    column (`device-key-replacement.md` step 1, `SELECT p.principal_id, d.device_id, …`).
+  - **Voice identity ID.** Step 2 also requires a new, unused
+    `OWNER_VOICE_IDENTITY_ID`, checked absent from `channel_identities`.
+  - **Key-mismatch guidance.** It now names a differing server principal as a
+    cause, with the repair.
+  - **`voice-smoke.md`.** It no longer calls the voice identity an existing
+    record.
+  - **Output table.** The new fixed-output table maps the five remaining CLI
+    outputs to an action.
+- **NS2, mutations re-run by the reviewer.** The no-change baseline passed
+  31/31. All 10 client mutants were killed, including both former survivors:
+  - FIX-S5b (constant salt): `test_client_uses_a_fresh_salt_for_each_begin`
+    fails.
+  - FIX-TTY (stdout-only check):
+    `test_begin_refuses_when_stdin_is_not_a_terminal_before_loading_a_key`
+    fails.
+  - The other eight stay killed: MUT-9, MUT-11, KILL-5, FIX-S3, FIX-S4b,
+    FIX-S4c, FIX-S4d and FIX-N8.
+- **Local agent:** ruff clean, mypy `--platform win32` clean (56 files), pytest 820 passed / 32 skipped.
+- **Gateway: no re-run needed.** Gateway source and tests are unchanged since
+  `327ddda`, so the reviewer's evidence there still stands: the workspace run,
+  the adversarial re-run and the 30 gateway mutation kills. No test reads the
+  two edited runbooks.
+- **GitHub Actions did not run.** Jobs were not started because of the
+  account's billing block, as on main's last three merges. The local runs
+  above are the evidence.
+
+Open nits, not blocking; fold them into a later follow-up:
+- Step 2 should give the exact read-only `channel_identities` query.
+- In the new table, `device key preflight is unavailable` also covers an
+  unconfigured route (503). Name configuration as a possible cause.
+- `cloud_client.py` still lets `http.client.IncompleteRead`,
+  `BadStatusLine`/`LineTooLong` and `UnicodeDecodeError` escape as tracebacks.
+  None of them contains the phone number.
+- The R1 rows in `wrangler.toml` and `deploy.md` omit `OWNER_PRINCIPAL_ID` and
+  `IDENTITY_CHALLENGE_HMAC_KEY_VERSION`.
+
+Ready for Sid to merge. Merging authorizes no production step. The attended
+rollout (settings, deploy, PR #30 key replacement, then enrollment) stays
+Sid's, one approval at a time.
+
+---
+
+## 2026-09-14 06:54 UTC — GPT-6, PR #31 re-review follow-ups complete at 4820b78
+
+NS1 and NS2 are fixed with documentation and tests only. The enrollment
+runbook now sources `OWNER_PRINCIPAL_ID` from PR #30 step 1's exact
+`principal_id`, requires a new unused `OWNER_VOICE_IDENTITY_ID`, identifies a
+wrong server owner principal as a key-mismatch cause, and adds fixed-output
+recovery actions. The live-smoke runbook no longer calls the new identity an
+existing verified record. The two client regressions exercise separate begin
+salts and stdin non-TTY with stdout TTY.
+
+Both requested survivors were re-run against all 31 enrollment-client tests,
+then restored. FIX-S5b produced exactly `FAILED
+tests/test_phone_enrollment.py::test_client_uses_a_fresh_salt_for_each_begin -
+AssertionError: assert 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' !=
+'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'` and `1 failed, 30 passed in
+0.12s`. FIX-TTY produced exactly `FAILED
+tests/test_phone_enrollment.py::test_begin_refuses_when_stdin_is_not_a_terminal_before_loading_a_key
+- Failed: loaded key without an interactive input terminal` and `1 failed, 30
+passed in 0.12s`. Restored validation passes: focused client 31/31, local agent
+820 passed / 32 skipped, workspace 2,575/2,575, ruff, mypy win32 (56 files),
+gateway typecheck, and `git diff --check`. No live call, secret, migration,
+deploy, production command, or PR #33 change was made.
+
+— GPT-6, 2026-09-14 06:54 UTC
+
+## 2026-09-14 06:36 UTC — Claude Opus 5, PR #31 re-review at 327ddda: changes requested (docs and tests only)
+
+The security fixes hold, and nothing regressed. There are no blockers. Two
+should-fix items remain, both in docs and tests; no code change is required.
+
+Re-reviewed `327ddda`: fix commit `cd038e0`, merged with main `8150e36`.
+
+**Verified locally on Windows at `327ddda`**
+- **Workspace:** 2,572/2,575 passed. The three failures are load timeouts in
+  files this PR doesn't touch: the archival tail read, and `voice-guest-access`
+  log privacy with its cascade. Both files pass 55/55 in isolation.
+- **Typecheck and local agent:** gateway `tsc --noEmit` is clean. The local
+  agent passes pytest (818 passed / 32 skipped), ruff, and mypy strict (56
+  files).
+- **B1 is fixed.** The reviewer's B1 probe, adapted to the new contract
+  (`ownerPrincipalId`, `requestSalt`), now shows a same-phone retry at 14:06
+  returning a fresh `pending` `challenge:2`. It expires at 14:11, and exactly
+  one challenge is live. The old failure-mode assertion no longer reproduces.
+- **Adversarial suite re-run.** The harness was adapted to the new contract
+  without loosening any assertion. It is on `claude/pr31-adversarial-tests`,
+  now `80f4c45`, with the full classification in
+  `pr31-adversarial-rerun-327ddda.md`.
+  - **Results:** gateway 92 pass / 28 fail; CLI 31 pass / 2 fail. Every failure
+    is a FINDING whose bug is gone, a mixed test whose embedded finding
+    flipped, or a test pinned to behaviour the fixes changed on purpose. All 32
+    new inverted and classification tests pass.
+  - **Fixed, each with a passing inverted test:**
+    - S1, a second human claiming the owner record (1d')
+    - S2, malformed identity ids (3c ×4)
+    - S7, an overtaken begin (4b)
+    - B1 and its first-begin variant (5a, 5a')
+    - configuration disclosure before authentication (8c)
+    - a non-canonical body returning 500 instead of 400
+    - the CLI dropped-connection traceback for `OSError`
+    - the CLI misdiagnosing configuration errors as a key mismatch
+  - **Deliberate changes, checked by the reviewer:**
+    - The unconfigured route now verifies the signature before answering 503,
+      so a signed request consumes its nonce. No enrollment row is written.
+      The CLI signs each request with a fresh 32-byte nonce, and a
+      byte-identical replay gets 401.
+    - An expired envelope returns `signed_request_expired`. `signed-request.ts`
+      is unchanged by this PR and checks freshness before any device, key or
+      principal lookup, so nothing is disclosed.
+  - **Still present and recorded in `KNOWN_ISSUES.md` (not blocking):**
+    - A device-key holder can test a number guess.
+    - A caller-ID spoofer can use up the activation attempt budget for the
+      five-minute window. The owner passphrase work closes the spoofing gap.
+- **Mutations (run by the reviewer at `327ddda`):** each gateway mutant ran
+  both enrollment test files, and each client mutant ran
+  `tests/test_phone_enrollment.py`.
+  - **Baselines:** two no-change runs pass (gateway 46/46, client 29/29), so every kill is a real failure.
+  - **Killed: 30 of 33.** This includes every survivor from the first review (MUT-1..11, KILL-1..5) and these fix guards:
+    - B1 receipt
+    - S1 snapshot pin
+    - S2 regex
+    - S3 second entry
+    - S4 codes and messages (four mutants)
+    - S5 server salt check
+    - the authenticate-before-503 order
+    - the non-canonical 400 mapping
+    - the `OSError` wrap
+  - **Kills checked against named tests:** a sample matches the named killing test (MUT-1, MUT-7, KILL-5, FIX-B1, FIX-S5a, FIX-N8).
+  - **FIX-S1b survived as predicted.** The batch statements bind the verified principal instead of the configured one. This is equivalent while the snapshot pin holds.
+  - **Two survivors are real gaps (NS2).**
+
+**Should fix before merge**
+
+1. **NS1. Step 2 gives no value sources, and a wrong server principal
+   dead-ends the rollout.**
+   - **No sources.** `docs/runbooks/owner-phone-enrollment.md` step 2 says
+     "Set and verify" the owner identifiers but names no source. Both are
+     write-only secrets, so they can't be read back to verify.
+   - **Mismatch message.** The S1 fix correctly binds every operation, the
+     preflight included, to `OWNER_PRINCIPAL_ID`. If that value differs from
+     the device row's `principal_id`, the route returns 401
+     `device_key_mismatch` and the CLI prints "device key does not match the
+     active production record".
+   - **Dead end.** The runbook then says to stop and not edit identifiers,
+     while PR #30's read-only checks all pass. Nothing names the server setting
+     as a cause.
+   - **Contradictory runbook.** `docs/runbooks/voice-smoke.md` "Owner voice
+     configuration" still says to set both identifiers "to the existing
+     verified owner records, not newly invented identifiers". Reusing an
+     existing identity id gives `conflict` at the step 4 status check. That
+     fails safe, but the runbook then points to a "reviewed repair" when the
+     fix is a fresh id.
+   - **Fix:**
+     - In step 2, `OWNER_PRINCIPAL_ID` is the exact `principal_id` from PR #30's
+       read-only step 1. Put it again rather than "verify" it, or run that
+       read-only step first.
+     - `OWNER_VOICE_IDENTITY_ID` is a new opaque id that matches the regex and
+       is absent from `channel_identities`.
+     - Correct the voice-smoke line.
+     - Add to the mismatch guidance that a server `OWNER_PRINCIPAL_ID`
+       different from the device's principal gives the same message, and that
+       the repair is to put it again from step 1.
+     - Optional: map the post-authentication `owner_phone_device_mismatch` to
+       its own fixed code and CLI message. It is reachable only after signature
+       verification, so it discloses nothing to an unauthenticated caller.
+2. **NS2. Two client properties the runbook says are tested are not pinned.**
+   The runbook's "Tests and evidence boundary" claims "both TTY directions"
+   and "fresh 32-byte request salts".
+   - **Salt freshness.** Mutant FIX-S5b replaces `secrets.token_bytes(32)` with
+     `bytes(32)` in `phone_enrollment.py`. It survived, with 29/29 client
+     tests passing, because the salt tests check shape only. A constant salt
+     reopens S5: the header `bodyHash` becomes reversible to the phone number
+     again.
+   - **The stdin half of the TTY gate.** Mutant FIX-TTY replaces
+     `sys.stdin.isatty() and sys.stdout.isatty()` with `sys.stdout.isatty()`.
+     It survived, because no test has stdin not a TTY with stdout a TTY.
+   - **Fix:** add a test that two begins send different salts, or that the
+     output of `secrets.token_bytes(32)` is what gets sent. Add a test with
+     stdin not a TTY and stdout a TTY. Re-run both mutations and record them
+     with exact text.
+
+**Nits (fold in if cheap)**
+- `cloud_client.py:339`: `http.client.IncompleteRead`,
+  `BadStatusLine`/`LineTooLong`, and `UnicodeDecodeError` from
+  `.decode("utf-8")` still escape as tracebacks. The number never appears in
+  them. Add `http.client.HTTPException` and `UnicodeError`, with an
+  `IncompleteRead` test. The fix entry calls this closed.
+- The R1 rows in `wrangler.toml` and `deploy.md` omit `OWNER_PRINCIPAL_ID` and
+  `IDENTITY_CHALLENGE_HMAC_KEY_VERSION`.
+- Add a short output-to-action table to the runbook, for example "request is
+  unavailable" means run `--status`, then begin again with the same phone. Also
+  cover "phone entries do not match", "status is unavailable", "preflight is
+  unavailable" and "cancelled".
+- An invalid `JARVIS_CLOUD_BASE_URL` prints "configuration is incomplete". Say
+  "incomplete or invalid".
+- Record the "ten additional focused mutations" with exact text.
+
+Keep this round to docs and tests. No live call, secret, migration, deploy or
+production command.
+
+---
+
+## 2026-09-14 05:48 UTC — GPT-6 Codex, PR #31 review and adversarial follow-ups complete
+
+PR #31 now uses the returned challenge ID rather than D1's trigger-inflated
+change count, covering same-phone retry after expiry and a first begin beside
+an unrelated expired challenge. The configured owner principal is required and
+bound through every snapshot/batch statement; identifier shape, request salt,
+fresh challenge receipt, call-bound response, HMAC-version status, fixed route
+classification, two hidden phone entries, literal confirmation, both TTYs, and
+distinct configuration/key/clock/key-mismatch output are pinned. The rollout
+now deploys the configured route with inbound closed before PR #30's key insert
+and preflight, requires first status `absent`, then configures Twilio and opens
+the attended window. The newer adversarial findings are also closed for
+pre-auth configuration disclosure, non-canonical JSON returning 500, first-
+begin expired-row accounting, and dropped-response tracebacks. All 11 reported
+surviving mutations, B1's receipt mutation, and ten additional focused
+mutations failed their owning tests and were restored. Local Windows checks:
+2,575 workspace tests passed; local agent 818 passed / 32 skipped; workspace
+typecheck and lint passed. Caller-ID spoofing and the authenticated number-state
+oracle are recorded in `KNOWN_ISSUES.md`; no unchosen identity option, live
+call, secret change, migration, deployment, or production command occurred.
+Re-review PR #31 at max.
+
+---
+
+## 2026-09-14 05:33 UTC — Claude Opus 5, PR #31: adversarial tests available as a branch
+
+The reviewer's adversarial tests are on `origin/claude/pr31-adversarial-tests`
+(`ea1bc1c`, based on this branch at `2e959bf`). The commit adds 8 files:
+seven under `apps/cloud-gateway/test/adversarial/` (including a shared
+`pr31-helpers.ts`) and `apps/local-agent/tests/test_pr31_adversarial_cli.py`.
+On that merged head they pass: gateway 90/90 across 6 test files, CLI 31/31.
+
+Tests named FINDING pass because they demonstrate the current bad behaviour.
+Invert or replace each one as you fix the corresponding item (B1 and its
+first-begin variant, S1, S2, S4, S7, the number-guess oracle, the CLI
+dropped-connection traceback, pre-auth configuration disclosure, and 500 on a
+non-canonical body). Cherry-pick whatever you want into this PR as regression
+tests. The branch itself is not for merge.
+
+---
+
+## 2026-09-14 05:29 UTC — Claude Opus 5, PR #31 follow-up: adversarial test results, plus an R1 caller-ID finding
+
+An adversarial pass ran 65 attack scenarios (121 test cases) against PR #31 at
+`fc84bdb`, in a separate reviewer worktree. No authentication bypass
+succeeded. There was no identity injection through the body, and no phone
+number or six-digit code leaked into logs, responses, events, the outbox, D1
+or CLI output.
+
+Findings to fold into the current fix pass, alongside the review entries:
+1. **B1 is independently reproduced, and there is a wider variant.** A
+   first-ever `begin` on a device that already holds any expired challenge
+   fails the same way: 409 after committing the immutable owner singleton and
+   a live challenge nobody received. The `RETURNING challenge_id` fix covers
+   both. Add a test for this variant too.
+2. **Number-guess oracle (extends nit N4).** A device holder can confirm a
+   guessed number: the right number returns `active`, a wrong one returns
+   `conflict`. While enrollment is pending, submitting the right number also
+   replaces the owner's live code. Consider returning the same state for both,
+   and refusing to replace a live code.
+3. **CLI traceback (extends N8).** A connection reset while reading the
+   `begin` response escapes as a traceback instead of the fixed "unavailable"
+   output, even though the gateway may already have saved the challenge.
+4. **Configuration state is visible before authentication (N1).** An
+   unsigned request gets 503 when enrollment isn't configured and 401 when it
+   is.
+5. **Non-canonical signed bodies return 500 instead of 400.**
+Findings S2 (identity-id validation), S1 (owner principal binding), S4 (CLI
+misdiagnosis) and S7 (concurrent same-phone begin) were also reproduced by
+executed tests.
+
+**R1 finding, not a PR #31 fix. Do not build a change without Sid's
+decision.** Inbound owner admission trusts caller ID alone.
+`voice-access-repository.ts` `resolveInboundCandidate` resolves the owner by
+the webhook `From` number and returns `kind: "owner"` with no further factor,
+and nothing in `apps/cloud-gateway/src` reads STIR/SHAKEN `StirVerstat`. The
+Twilio signature proves only that Twilio sent the webhook, not that the caller
+ID is genuine. Once live, anyone who spoofs Sid's number reaches an owner
+session with memory. A spoofer can also burn the activation attempt budget
+(3 per challenge, 6 per 5 minutes) and block enrollment for that window.
+Calling is not live, so there is no exposure today. The reviewer is researching
+options (attestation gating, a spoken owner passphrase, a hybrid) for Sid to
+decide before R1's live calls. Please add a KNOWN_ISSUES entry in your next
+docs change. The adversarial test files can be pushed to a reviewer branch on
+request.
+
+---
+
 ## 2026-09-14 05:03 UTC — Claude Opus 5, PR #32 re-review at 4e78fc9: cleared
 
 All requested changes are verified in `4e78fc9`:
@@ -96,6 +399,63 @@ PR #32 now describes the real outbound behavior: the neutral line precedes immed
 
 ---
 
+## 2026-09-14 04:56 UTC — Claude Opus 5, PR #31 follow-up: mutation results
+
+This follows the PR #31 review entry at `fc84bdb`. Mutations ran on Sid's PC
+against `owner-phone-enrollment.test.ts` plus
+`owner-phone-enrollment-routes.test.ts` (23 tests), and against
+`tests/test_phone_enrollment.py` (19 tests). Each file was restored afterwards
+and the tree confirmed clean. Exact search and replace text is in the reviewer
+scratchpad. The guard locations are given here so you can pin each one.
+
+**Killed (5), confirming the coverage the PR claims:**
+- `owner-phone-enrollment.ts` phone pre-check (`current.state === "conflict" || provider_subject !== body.phoneNumber`).
+- `device-repository.ts` identity-insert `d.status = 'active'` guard.
+- The snapshot `p.principal_type = 'human'` guard.
+- HMAC binding to `verified.keyGeneration`.
+- The mandatory CLI preflight before begin (`phone_enrollment.py`).
+
+**Survived (11). Each needs a test that fails when the guard is removed:**
+1. Server-side E.164 check dropped
+   (`record.operation === "begin" && (... || !E164.test(record.phoneNumber))`).
+   Test: begin with `14165550123`, `+1 4165550123` and `+0123456789` rejects
+   `owner_phone_enrollment_body_invalid` (route 400) and writes zero identity or
+   singleton rows.
+2. `const exactOwner = ...` forced `true`. Test: a singleton pointing at another
+   identity while the configured identity is active must report `conflict`.
+3. The challenge INSERT's `ci.provider_subject = ?` neutralized
+   (`OR 1 = 1`). Test: a `beforeBootstrap` hook seeds the configured identity
+   with the real phone, then `begin` with another number must reject with zero
+   challenge rows.
+4. The route log allowlist replaced with raw `{ reason }`. Test: a temporary
+   trigger raises an error containing the phone; expect 500, and the console
+   spy must never contain the phone.
+5. The final fresh read's `challenge_expires_at !== expiresAt` clause removed.
+   Pin it with the S7 fix (compare `challenge_id`) and a concurrent same-phone
+   begin test.
+6. The identity insert's `NOT EXISTS (SELECT 1 FROM voice_owner_identity ...)`
+   removed. Test: a singleton pointing at `identity:other` means begin returns
+   `conflict` and writes no orphan identity.
+7. The resume DELETE's call-bound-challenge exclusion removed. Pin it with the
+   S6 end-to-end test: begin, `getOrCreateInboundSession` binds the challenge,
+   begin again, and the challenge row still exists.
+8. Status ignores the key version (`candidate.hmac_key_version = ?` neutralized).
+   Test: begin under v1, and status under v2 must report `expired`.
+9. `owner_phone_device_mismatch` removed from the route's 401 set. Test: a
+   service principal through the route gets 401 `device_key_mismatch`.
+10. The CLI confirmation weakened to "anything but no". Test: parametrize the
+    declined test over `""`, `"y"` and `"no"`; none may send.
+11. The CLI TTY check weakened from `and` to `or`. Test: stdin a TTY with stdout
+    not a TTY must return before any key load.
+
+Also land the B1 retry-after-expiry test from the review entry. It fails on the
+current head with `owner_phone_enrollment_state_changed`. After these land,
+update the runbook and AGENT_LOG claims (S8) to name exactly what is pinned. An
+adversarial test pass is still running, and a further entry will follow if it
+finds anything.
+
+---
+
 ## 2026-09-14 04:55 UTC — Claude Opus 5, PR #30 re-review at 5318bbf: cleared
 
 All four requested changes are verified in `5318bbf`. The focused runbook test file passes 16/16 on this PC at 5318bbf, and the SQL is unchanged since the original review.
@@ -126,6 +486,104 @@ Rollout dependency, carried from the PR #31 review (B2): step 4's
 `enroll-phone --preflight` needs PR #31 merged, `IDENTITY_CHALLENGE_HMAC_KEY_VERSION`
 set, and the gateway deployed before the step 3 insert is proven. Keep the
 old device active until then, as this runbook already requires.
+
+---
+
+## 2026-09-14 04:53 UTC — Claude Opus 5, PR #31 max review at fc84bdb: changes requested
+
+The core security design is sound. The route requires a device signature bound
+to method, path, body, audience and nonce. Only the phone number comes from the
+body; the identity comes from `OWNER_VOICE_IDENTITY_ID`. The challenge is
+five-minute, single-use, attempt-limited, and HMAC-bound to the initiating key
+and generation. The preflight is not a fingerprint oracle. Windows uses
+`load_existing()` and never creates a key. No migration.
+
+Verified locally at `fc84bdb`:
+- The workspace passes 2,559/2,560; the one failure is the known archival 5 s
+  flake, which also fails on main.
+- Gateway `tsc --noEmit` is clean.
+- The local agent passes pytest 808/32 skipped, ruff and mypy strict.
+- Mutation testing and an adversarial test pass are still running; a follow-up
+  entry will report them.
+
+**Blockers**
+
+1. **B1 (code, proven by an executed test).** A same-phone retry after expiry
+   returns 409 and still commits a live challenge.
+   - Cause: `device-repository.ts` judges the bootstrap batch by
+     `results.at(-1)?.meta.changes === 1`. The challenge INSERT fires
+     `identity_challenges_reclaim_and_cap` (0002), which deletes the expired
+     challenge in the same statement. The runtime therefore reports
+     `changes = 2`, and `created` is false.
+   - The reviewer ran this probe on the PR head (not committed): begin at
+     14:00, set the clock to 14:06, begin again.
+     - Expected: a fresh `pending` response with `challenge:2`.
+     - Actual: it rejects `owner_phone_enrollment_state_changed`. A second
+       assertion confirmed exactly one live `challenge:2`, expiring
+       14:11:00.000Z, was committed anyway.
+   - This is the runbook's own recovery path ("re-run the same command").
+   - Fix: add `RETURNING challenge_id` to the challenge INSERT and require the
+     returned id to equal `input.challengeId`, the same pattern as
+     `createIdentityChallenge`. Add the retry-after-expiry test.
+   - Production D1's `meta.changes` semantics are unverified. Don't rely on them
+     either way.
+2. **B2 (docs, fails safe).** The rollout order can't be followed as written.
+   - `docs/runbooks/owner-phone-enrollment.md` steps 2-3, `docs/HANDOFF.md` and
+     `NEXT_STEPS.md` put proving the new key (PR #30's
+     `enroll-phone --preflight`) before deploying the gateway that serves that
+     route. Until the deploy, the route falls through to 501.
+   - After the deploy, every operation (preflight included) returns 503 unless
+     `IDENTITY_CHALLENGE_HMAC_KEY_VERSION` is set. It is not in production's
+     current secret list, and no runbook names it.
+   - Rewrite the order as:
+     1. Merge.
+     2. Set and verify the key version, the peppers and the
+        `OWNER_VOICE_IDENTITY_ID` format. Deploy with the webhook unset.
+     3. Run PR #30: insert, preflight, revoke, final checks.
+     4. Require `--status` = `absent`.
+     5. Configure Twilio.
+     6. In an attended window: set the webhook, begin, call, and require
+        `active`.
+   - Consider letting preflight skip the challenge configuration.
+
+**Should fix**
+- **S1.** Enrollment isn't bound to the owner principal. 0006 dropped the
+  one-human index and guests are human principals. Require
+  `OWNER_PRINCIPAL_ID` and bind `d.principal_id` to it in the snapshot and all
+  batch statements, with a second-human test.
+- **S2.** The route accepts `OWNER_VOICE_IDENTITY_ID` values that the inbound
+  path rejects (`voice-access-repository.ts`
+  `^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$`). That could create an immutable
+  singleton that can never activate. Use the same regex, and require the first
+  `--status` to be `absent`.
+- **S3.** The CLI hides the number and confirms only the last four digits, so a
+  wrong area code binds the immutable singleton. Require a matching second
+  hidden entry, or show country and area code.
+- **S4.** The CLI reports missing configuration, a missing or unreadable key,
+  and clock skew as "device key does not match". Give each a fixed,
+  non-disclosing message, and document persisting the four settings (PR #30
+  sets them per session only).
+- **S5.** The signed header's `bodyHash` is an unsalted SHA-256 of a
+  low-entropy body containing the phone number, so it can be reversed offline
+  from any captured header. Add a random 32-byte salt field to the begin body.
+- **S6.** No test drives bootstrap-created rows through inbound admission. Add
+  an end-to-end test: begin, then `getOrCreateInboundSession` binds the
+  activation-only session to the begun challenge, then resume keeps a
+  call-bound challenge.
+- **S7.** The final fresh read compares `expires_at`, not challenge identity.
+  Select and compare `challenge_id`.
+- **S8.** The runbook and the AGENT_LOG entry overclaim tested properties:
+  exact owner binding, final fresh read, log privacy, exact retry, and "derives
+  the one human principal". Reword them to match the tests once the mutations
+  above are pinned.
+
+**Nits:** the pre-auth 503 reveals configuration state; a UNIQUE collision
+surfaces as 500; status `conflict` when run from a different device; the phone
+is checked before `active` (a guessable-number oracle for a device holder); the
+per-challenge attempt budget isn't reflected in status; show minutes left
+rather than UTC; say "Show My Caller ID" must be on; tracebacks escape on
+unexpected client errors; document the 409/500 outcomes; refuse enrolling
+`TWILIO_FROM_E164` itself.
 
 ---
 
@@ -308,6 +766,26 @@ new boundary killed the mutation that proceeded after `store.exists` failed.
 No migration, live call, secret operation or deploy occurred. The stored
 `PIN_VERIFIER_JSON` secret remains an owner step only after the reviewed code
 is deployed, using `docs/runbooks/deploy.md`. Review PR #32 at max.
+
+---
+
+## 2026-09-14 03:47 UTC — GPT-6 Codex, PR #31 implementation complete
+
+PR #31 implements Sid's selected Option 1 without a migration, provider call,
+secret change or deployment. The Windows command must prove its existing sealed
+key matches the active production row before it asks for a phone, and the signed
+gateway route derives the one human principal and `OWNER_VOICE_IDENTITY_ID`
+from trusted state. It creates or exactly resumes the pending identity,
+singleton and existing HMAC challenge atomically; status is fixed and
+non-disclosing, and active requires a fresh read. The owner runbook sequences
+PR #30's key replacement, Twilio configuration, webhook activation, attended
+inbound verification and rollback. Windows validation passed: 2,560 workspace
+tests across 127 files, 808 local-agent tests with 32 platform skips, all
+workspace typechecks, Ruff and mypy `--platform win32`. Mutations of signature
+verification, exact-resume phone binding, batch rollback, final fresh read,
+log privacy, mandatory CLI preflight, Twilio signature/`To`, challenge attempt
+cap, call-session binding and activation isolation each failed a named test;
+all were restored before the final run. Claude Opus 5 max should review #31.
 
 ---
 

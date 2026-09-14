@@ -65,8 +65,10 @@ Before deploying the reviewed item, configure `PUBLIC_ORIGIN` as the exact
 public HTTPS origin and `TWILIO_FROM_E164` as the Twilio number. Supply the
 account SID, outbound API key SID/secret, and separate webhook auth token in
 `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET` and
-`TWILIO_AUTH_TOKEN`. Set `OWNER_PRINCIPAL_ID` and `OWNER_VOICE_IDENTITY_ID` to
-the existing verified owner records, not newly invented identifiers.
+`TWILIO_AUTH_TOKEN`. Set `OWNER_PRINCIPAL_ID` to the exact principal from the
+active owner device row. Set `OWNER_VOICE_IDENTITY_ID` to the new, previously
+unused identity ID selected by the owner-phone enrollment runbook; after
+enrollment, require that exact identity to be active and verified.
 
 The model/Telegram bindings, three existing canonical 32-byte peppers and
 explicit `IDENTITY_CHALLENGE_HMAC_KEY_VERSION` are required before dialing.

@@ -51,6 +51,10 @@ class CloudAuthError(CloudSyncError):
     """
 
 
+class CloudRequestExpiredError(CloudAuthError):
+    """The signed request is outside the gateway freshness window."""
+
+
 class CloudAckRejectedError(CloudSyncError):
     """A well-formed acknowledgement was refused with HTTP 400."""
 
@@ -311,6 +315,13 @@ class HttpCloudClient:
                 raise CloudSyncError(f"gateway returned {type(decoded).__name__}, expected an object")
             return decoded
         except urllib.error.HTTPError as error:
+            if path == "/identity/owner-phone-enrollment" and error.code == 401:
+                try:
+                    rejected = json.loads(error.read(257).decode("utf-8"))
+                except (AttributeError, ValueError, UnicodeError, OSError):
+                    rejected = None
+                if rejected == {"error": "signed_request_expired"}:
+                    raise CloudRequestExpiredError("signed_request_expired") from error
             if error.code in (401, 403):
                 raise CloudAuthError(f"gateway rejected the device: HTTP {error.code}") from error
             if path == ACK_PATH and error.code == 400:
@@ -325,7 +336,7 @@ class HttpCloudClient:
                 if rejected == {"error": "memory_projection_content_rejected"}:
                     raise CloudProjectionRejectedError("gateway rejected projection content") from error
             raise CloudSyncError(f"gateway returned HTTP {error.code}") from error
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as error:
             raise CloudSyncError(f"gateway unreachable or unusable: {error}") from error
 
 
