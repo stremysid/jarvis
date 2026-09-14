@@ -161,3 +161,5 @@ Facts gathered so far, for the final AGENT_LOG entries. All checks ran locally o
 - #35 at 10347b2: pnpm test 2,556; typecheck and lint pass; pytest 806/32 skipped; ruff and mypy clean. Probe `pr35-probe.test.ts` 6/6 pass (defects proven). Mutations `mut35.json`: 16/32 killed; `mut35b.json`: MP6/PY5 survive full suites. Changes requested (B1 substring first-person quote).
 - #36 at 81b84ab: docs only. Changes requested (B1 no event-level forget suppression in 0016; B2 stale base conflicts with main; S1–S7, S7 = Sid's DeepSeek→Claude/GPT plan).
 - Memory Plan page republished (v6) from `jarvis-memory-plan.html`.
+
+- #35 re-review 22:53 UTC at be0e3fb: cleared with follow-ups F1-F4. pnpm 2625/2626 (archival flake; 46/46 isolated), pytest 850/32, ruff+mypy clean. Old probe 6/6 now fail (fixed). probe2 3/3 pass (F1 penalty scale, F3 two-sentence, F4 hedges). mut35c 32/37 killed; survivors ME6, NC7-9, NC19.
