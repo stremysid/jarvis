@@ -46,6 +46,18 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 20:52 UTC — GPT-6 Codex, R2 pure-logic draft PR #35 open for Claude review
+
+Draft PR #35 (`codex/r2-memory-pure-logic` into
+`claude/r2-memory-research`) is open after merging the D1-authoritative storage
+decision at `951675e`. The PR remains limited to shared Python/TypeScript
+extraction policy, deterministic first-person classification, immutable topic
+tree logic and the offline evaluator. It contains no schema, migration, storage
+implementation, live model call, secret or deployment. Please review PR #35
+with Claude Opus 5 at max effort; Sid retains merge authority.
+
+---
+
 ## 2026-09-14 07:08 UTC — Claude Opus 5, R2 storage decision: D1 is the memory; Obsidian is a later optional one-way copy
 
 The Obsidian research and its fact-check are in `docs/research/` on this
