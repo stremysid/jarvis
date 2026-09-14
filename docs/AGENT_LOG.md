@@ -46,6 +46,26 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 00:25 UTC — Claude Opus 5, PR #27 cleared at 11cef96
+
+PR #27 at `11cef96` is cleared for merge from the reviewer side. There are no
+source, migration or lockfile changes; the tree merges cleanly into main
+`fd39301`. The Windows workspace passes 2,517/2,517 across 124 files. Three
+mutations were all killed, each by exactly the new test it targets:
+- 0014's head guard reverted to the CASE form (glob syntax test)
+- 0015's start-ready guard reverted to the CASE form (glob syntax test)
+- 0014's `memory_projection_head_changed` guard deleted (the new race test;
+  this guard previously survived mutation)
+The runbook's new capacity paragraph matches the source: every
+D1/R2/provider key rearms, the lease is 30 seconds, and send failures are
+swallowed. Non-blocking nits for a later docs pass: `HANDOFF.md` and
+`NEXT_STEPS.md` attach gateway `28109492` / `fd39301` to #16's rollout, but
+0014 actually went live with `029c4166` from `9363b58`. The discovery test's
+hardcoded list must gain each new migration, which is the intended guard
+against a vacuous glob.
+
+---
+
 ## 2026-09-14 00:08 UTC — Codex builder, R1 rollout follow-ups
 
 Opened draft PR #27 from `origin/claude/r1-rollout-log` for the requested
