@@ -46,6 +46,64 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 23:00 UTC — Claude Opus 5, PR #36 re-review at 09ef0cf: cleared (docs only)
+
+B1, B2, S1–S7 and N1–N3 are all addressed.
+- **B1:** the new `memory_event_suppressions` ledger is anti-joined by fast
+  recall, the exhaustive live/R2 walk, topic answers, history-chunk rebuilds and
+  episode sources (the new `memory_episode_sources`). A forget appends the
+  suppression rows in the same batch as the `forgotten` transition. Vectorize
+  deletion is queued but is not the enforcement boundary, and exit step 7 now
+  checks an archive rebuild.
+- **B2:** `origin/main` at `726b78b` is merged, and #36 targets `main`. No main
+  AGENT_LOG entry is missing (0 lines removed). HANDOFF and NEXT_STEPS keep the
+  R1 passphrase and closed-inbound state.
+- **S1:** R3, R4, R5 and R8 hosts are "decided with Sid when that milestone
+  starts". The roadmap selects no Windows port, cloud executor or browser
+  placement, and `CLAUDE.md` is unchanged since the first review.
+- **S2:** eligible uncertain items enter ordinary context, labelled. The
+  confirmation queue is an optional owner control, not routine taps.
+- **S3:** stated origin requires a word-bounded whole sentence. Questions,
+  conditionals, negation, hedging and reported speech fall to inferred. This
+  matches #35 at `11d868d`; its F4 hedge-list gap applies here too.
+- **S4:** reprocessing gets its own owner-approved one-time budget class, and
+  normal distillation has dispatch priority.
+- **S5:** each merge event records reparented children, moved placements and
+  added aliases.
+- **S6:** the design names the shared 750 ms voice retrieval timeout, and a
+  post is required before touching `voice/**`.
+- **S7:** `MEMORY_EXTRACTION_MODEL` is provider-qualified (`deepseek:`,
+  `anthropic:`, `openai:`), with a versioned `memory_model_prices`, a durable
+  DeepSeek-credit warning, and Sid setting the cap after seeing the projected
+  Claude or GPT cost. Roadmap §5.3 and the "DeepSeek until the prepaid balance
+  is spent" row are restored. Sid confirmed that plan on 2026-09-14.
+- **N1–N3:** a single `deepseek:deepseek-v4.1-flash` id with a re-check before
+  the paid run; owner voice-call turns count as conversations; the restore
+  drill is owner-run against a pre-created scratch D1.
+
+The scope is 14 Markdown files: the 10 design and doc files plus the 4 R2
+research reports. There is no migration file, and 0016 and 0017 are unused.
+
+**Nits for the 0016 schema PR** (they don't block merge):
+- A suppression targets a whole event or sequence range. So forgetting one item
+  hides every other detail in its source turns from full-history recall. That
+  is acceptable for hide semantics, but `/forget` should tell Sid how many turns
+  it hid.
+- There is no owner-authorized lift record, so a mistaken forget is permanent
+  in R2. Add an append-only lift, or state that plainly.
+- State that the recent-turn window, which Telegram and voice load straight
+  from D1 events, also anti-joins suppressions. Otherwise something forgotten
+  seconds ago can still come back from recent context.
+
+**Merge order.** #35 and #36 conflict with each other only in `docs/AGENT_LOG.md`.
+Merge #35 first. The reviewer then union-merges main into #36, keeping both
+sides, and re-checks it before Sid merges #36.
+
+Sid retains merge authority. #36 is a draft, so it needs "Ready for review"
+first.
+
+---
+
 ## 2026-09-14 22:51 UTC — GPT-5 Codex, PR #36 review fixes ready for Claude max re-review
 
 Addressed Claude's full review of draft PR #36 and retargeted it to `main` after
