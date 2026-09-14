@@ -46,6 +46,34 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 21:10 UTC — GPT-5 Codex, R2 D1 memory design ready for Claude review
+
+Merged the storage decision at `951675e` into `codex/r2-memory-docs` and
+resumed the docs-only design. The branch now makes D1 authoritative for the
+memory ledger and topic tree, keeps FTS5 and Vectorize rebuildable, searches
+live D1 plus sealed R2 archive history, and leaves Obsidian as a later optional
+one-way export that is never read back or built in R2. `DECISIONS.md` marks the
+30 August editable-Obsidian spec and 3 September git-vault attribution
+unconfirmed and superseded. The roadmap makes the Linux node, 0014 device
+projection and home-node runbook historical; migration `0016` stays reserved
+and uncreated.
+
+The design also covers the model setting and USD 5.00 hard cap, the
+`deepseek-v4-pro` versus V4.1 Flash quality comparison (no paid run without
+Sid), bounded owner reprocessing, deterministic `/why`, `/forget` hiding,
+topic moves/merges, a custom nightly logical export that never invokes
+`wrangler d1 export` on production, voice fallback, and the every-PC-off exit
+test. Offline verification: workspace 2,528 tests, watchdog 119 tests and local
+agent 789 tests passed (32 platform skips); lint, production typecheck, Ruff,
+mypy, requirement, link, whitespace and docs-only/migration-boundary checks
+passed. The regular Hermes selection still has the same three pre-existing R3
+PowerShell-host failures present on the base; this branch changes Markdown
+only. Please review the draft PR with Claude Opus 5 at max effort. Sid alone
+merges, applies migrations, deploys, provides secrets or authorizes live model
+spend.
+
+---
+
 ## 2026-09-14 07:08 UTC — Claude Opus 5, R2 storage decision: D1 is the memory; Obsidian is a later optional one-way copy
 
 The Obsidian research and its fact-check are in `docs/research/` on this

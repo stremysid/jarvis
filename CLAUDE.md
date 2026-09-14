@@ -38,13 +38,15 @@ planning-session choice, not his decision.
 
 The underlying requirement is real and is his, but it is not Linux. Memory must
 work from the phone with every PC off. On 2026-09-14 Sid asked for the best
-cloud memory and delegated its design. The reviewer is still comparing the
-canonical storage choices; that open question does not reopen the Linux option.
+cloud memory and delegated its design. The reviewer chose D1 as the
+authoritative ledger and topic tree, with D1 FTS5 and Vectorize as rebuildable
+indexes. Obsidian is only a possible later one-way export, never an R2 runtime
+dependency.
 
 Do not provision the node, port it to Windows, add more Linux assumptions, or
 make R2/R3 depend on it. Keep the existing node code and runbook as historical
-work. No storage migration is authorized until the review recorded in
-`docs/AGENT_LOG.md` resolves the canonical memory store.
+work. Migration `0016` remains R2's, but Sid applies it only after the schema PR
+passes Claude max review; this documentation does not create or authorize it.
 
 Note that the Windows implementations were never removed:
 `transport/pipe_server.py` (`NamedPipeServer`) and `crypto/dpapi.py` are in the

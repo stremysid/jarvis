@@ -162,7 +162,7 @@ installation is legitimate but rejected. Preserve the absolute-host security
 boundary and require package identity verification in that future fix; do
 not resolve `pwsh` from inherited PATH. Leave implementation deferred.
 
-## R2 storage-design hold
+## R2 cloud-memory design
 
 PR #13 is merged. PR #16 at `27b232f` is complete from the reviewer's side;
 the subsequent owner-run Windows results are listed in HANDOFF. No further
@@ -171,14 +171,17 @@ a planning-session choice Sid never made. Do not port it, provision it or make
 R2/R3 depend on it.
 
 Sid requires cloud memory that works with every PC off and delegated the
-design. The reviewer is comparing a database source of truth with an
-Obsidian-compatible Markdown vault source of truth and derived indexes. Until
-that decision is posted in `docs/AGENT_LOG.md`, keep migration `0016` reserved
-but do not create it or lock a physical schema. The requirements draft may
-continue: full-history recall through live D1 and R2 archives, the topic tree,
-uncertainty rules, voice latency, configurable extraction model and USD 5.00
-default hard cap, and bounded owner-triggered reprocessing. R1 is cloud-side
-and does not depend on this decision.
+design. The reviewer recorded the decision at `951675e`: D1 is authoritative
+for the event ledger, versioned memories, receipts and topic tree; FTS5 and
+Vectorize are rebuildable indexes, and full-history recall includes verified
+R2 archive segments. Obsidian is only a later optional one-way export and is
+not built in R2.
+
+Open the documentation/design PR for Claude max review. Keep migration `0016`
+reserved but uncreated. After the docs decision passes review, the next small
+PR may define `0016`; Sid alone applies it after a second review. No live model
+comparison runs without Sid's explicit approval. R1 is cloud-side and does not
+depend on this work.
 
 ## Next gate
 
@@ -253,8 +256,9 @@ the Twilio number and credentials. No live calling evidence exists yet.
 
 Stage one is built -- see DECISIONS.md -- but its home-node completion plan is
 historical. Do not resume the adapter or native bridge in R0 or R2. The active
-storage review may select an Obsidian-compatible Markdown format; compatibility
-does not authorize an Obsidian client, sync path or editable vault.
+D1 design preserves an Obsidian-compatible Markdown shape only for a later
+optional one-way export. Compatibility does not authorize an Obsidian client,
+sync path, editable vault or export build.
 
 **The redactor comes first.** Vault observations are stored verbatim with no
 redaction, so building the cloud upload path before the redactor would ship

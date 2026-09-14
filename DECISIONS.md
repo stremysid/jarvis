@@ -4,7 +4,7 @@
 - R2 is the archive store.
 - Authentication state does not use eventually consistent KV.
 
-## R2 cloud memory direction and corrected attribution (2026-09-14, owner decision)
+## R2 cloud memory direction and corrected attribution (2026-09-14, delegated design decision)
 
 Sid's requirement is the outcome: Jarvis keeps every accepted conversation,
 automatically remembers what matters, can recall even small unimportant details
@@ -18,20 +18,38 @@ host and did not authorize one. The home-node plan and runbook are historical;
 keep their code and documentation for provenance, but do not provision, port,
 deploy or make R2/R3 depend on that node.
 
-Sid asked for the best cloud memory and delegated the design. The reviewer is
-comparing a database source of truth with an Obsidian-compatible Markdown vault
-source of truth plus derived search indexes. Until that review is recorded, do
-not choose the canonical store, write migration `0016`, or build a vault sync
-path. Obsidian itself is not part of R2; compatibility is a future-view
-requirement only.
+Sid asked for the best cloud memory and delegated the design. The reviewer
+recorded the decision at `951675e`: **D1 is authoritative** for the conversation
+ledger, versioned memory items, receipts and topic tree. D1 FTS5 and Vectorize
+are rebuildable search indexes; Workers AI `bge-m3` supplies embeddings. Live
+D1 events plus verified R2 archive segments remain the complete conversation
+record.
 
-Whichever store wins must support the topic tree Sid requested: areas,
-sub-areas and deeper levels; automatic filing; reversible rename, move and
-merge history; subtree answers; and full-history search independent of filing.
-The extraction model is configurable and starts as a comparison between
-`deepseek-v4-pro` and `deepseek-flash`; quality decides. Memory-model spend has
-a configurable hard monthly cap of USD 5.00 by default, and reprocessing older
-conversations is owner-triggered and bounded.
+Obsidian is not the memory store and is not built in R2. The ledger and topic
+tree stay compatible with a later optional **one-way** Obsidian-format Markdown
+export: folders mirror areas, stable block ids identify memory lines, and
+guesses have a separate section. An export is never read back into memory or
+prompts. Building it requires a later owner decision about where the copy lives
+and what sensitive classes it excludes.
+
+The 2026-08-30 Obsidian spec and its rejection of a read-only export assumed
+Sid wanted a notes interface he could edit. That premise was never confirmed
+with him. The 3 September git-backed editable-vault entry below repeated the
+same unconfirmed attribution. Both are **superseded as product decisions** by
+the D1-authoritative design; retain their documents and code only as historical
+work. Do not describe either choice as Sid's decision.
+
+D1 must support the topic tree Sid requested: areas, sub-areas and deeper
+levels; automatic filing; reversible rename, move and merge history; subtree
+answers; and full-history search independent of filing. Migration number
+`0016` remains reserved for the later reviewed schema PR; no migration is
+created or authorized by this documentation decision.
+The extraction model is configurable and starts with `deepseek-v4-pro`. Before
+finalizing it, compare the same sanitized conversations with
+`deepseek-v4.1-flash`; extraction quality decides, and a paid comparison needs
+Sid's explicit OK. Memory-model spend has a configurable hard monthly cap of
+USD 5.00 by default, and reprocessing older conversations is owner-triggered
+and bounded.
 
 ## Capacity admission stops at the configured limit (2026-09-13, owner decision)
 
@@ -59,7 +77,7 @@ There is no 70% warning, separate $1 DeepSeek notice, reserve margin, provider
 switch, top-up accounting or new metering product in R1. Existing
 watchdog/Telegram delivery remains the alert channel.
 
-## Migration numbering diverges from the Obsidian plan (2026-09-02)
+## Historical migration numbering divergence (2026-09-02; superseded for R2)
 
 `docs/superpowers/plans/2026-08-30-jarvis-obsidian-memory-implementation.md`
 reserves migrations `0008`, `0009` and `0011` for vault state and `0010` for
@@ -73,7 +91,10 @@ free numbers nothing occupies. The vault migrations take `0014` onward
 instead. Migration numbers carry no meaning beyond order, and the plan's file
 table is the thing that is now out of date rather than the code.
 
-## The Obsidian adapter ships in two stages (2026-09-02)
+This remains an explanation of existing files, not the current cloud-memory
+plan. R2's new D1 ledger keeps the separately reserved migration number `0016`.
+
+## The Obsidian adapter shipped in two stages (2026-09-02; historical)
 
 The plan's design is one capability -- a vault Jarvis can read, search and add
 notes to, confined to its own root and never overwriting a file -- wrapped in
@@ -94,12 +115,17 @@ without changing the interface above them. Until it does, the adapter must not
 be described as meeting the plan's write-once guarantee -- it meets a weaker
 one, and the difference is recorded in KNOWN_ISSUES.md.
 
-## Planning-session record from 2026-09-03 (partly superseded)
+The 2026-09-14 D1 decision supersedes this as an R2 direction. Keep the adapter
+and its tests for provenance; do not resume the native bridge or make local
+vault state part of cloud memory.
+
+## Planning-session record from 2026-09-03 (unconfirmed and superseded in part)
 
 Recorded from a planning session; the reasoning is in
 `docs/plan/2026-09-03-jarvis-roadmap.md`, section 5. The Linux home node and
-git-backed Obsidian implementation in this historical list were planning
-choices, not choices Sid made. The 2026-09-14 decision above supersedes them.
+git-backed editable Obsidian implementation in this historical list were
+planning choices, not choices Sid made. The 2026-09-14 decision above
+supersedes both.
 
 - **Phone first, PC optional.** Jarvis must work from the iPhone with every
   computer off. Everything not tied to a machine runs in the cloud: the
@@ -112,10 +138,10 @@ choices, not choices Sid made. The 2026-09-14 decision above supersedes them.
 - **Models.** DeepSeek until the prepaid balance is spent, then Opus 5 or
   GPT-5.6 Terra for reasoning with GPT-5.6 Luna for cheap high-volume work,
   routed per task.
-- **Memory and Obsidian.** Jarvis's own two-tier memory is the source of
-  truth. Obsidian is the readable, editable window, synced as a git-backed
-  vault so notes reach every device with the PCs off. The native bridge is
-  deferred.
+- **Memory and Obsidian — unconfirmed, superseded.** This planning session
+  recorded an editable git-backed vault without confirming that Sid wanted to
+  edit notes. D1 is now the source of truth; only a later optional one-way
+  export may mirror the topic tree, and it is not part of R2.
 - **Calling is in the first release.** The Twilio number and credentials
   already exist.
 - **St. Remy is no longer off limits.** Full control of the office PC and all

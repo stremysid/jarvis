@@ -1,11 +1,10 @@
 # R2 memory design
 
-**Status: requirements draft; storage decision blocked.** The reviewer is
-comparing a database source of truth with an Obsidian-compatible Markdown
-vault source of truth and derived search indexes. This document deliberately
-does not choose between them, define physical tables, or authorize migration
-`0016`. Complete those sections only after the review is recorded in
-`docs/AGENT_LOG.md`.
+**Status: D1-authoritative design draft for review.** The reviewer recorded the
+storage decision in `docs/AGENT_LOG.md` at `951675e`: D1 is the authoritative
+memory ledger and topic tree; D1 FTS5 and Vectorize are rebuildable indexes;
+Obsidian is only a later optional one-way export. This document defines the
+planned table contract but does not add or authorize migration `0016`.
 
 The research and fact-check in `docs/research/` remain the evidence base. This
 document carries Sid's later requirements where they supersede the original
@@ -41,51 +40,122 @@ owner-confirmed material; erasure is not part of R2.
 - R2 runs in the cloud and passes its exit test with every PC off. No Linux
   server or home node is required.
 - The existing append-only event history remains D1 for live events and
-  verified, content-addressed R2 segments for archived events. The open storage
-  decision concerns distilled knowledge and its topic representation, not
-  whether archived conversations remain searchable.
+  verified, content-addressed R2 segments for archived events. D1 is
+  authoritative for distilled knowledge, receipts and topic organization.
 - Telegram and voice continue to share the context retriever. R2 must not
   weaken the R1 voice release gate: p95 first-audible latency stays at or below
   four seconds.
 - Retrieved text is quoted untrusted data. It cannot become a tool instruction
   or grant authority, even when it is Sid's old text.
-- D1/FTS, a Markdown vault, and any vector or keyword index are implementation
-  mechanisms. An index is derived data and never the only copy of a memory or
-  its receipt.
-- Obsidian is not built in R2. The tree and item identities must permit a later
-  optional Obsidian view without making that view a runtime dependency.
+- FTS5 and Vectorize are derived data and never the only copy of a memory, raw
+  event or receipt. Every retrieved hit is rechecked against D1 state.
+- Obsidian is not built in R2. Stable ledger and topic identities permit a later
+  optional one-way Markdown export without making that export a runtime
+  dependency or an input to memory.
 
-## 3. Storage decision gate
+## 3. Chosen storage and planned `0016` contract
 
-The final design must compare both candidates against the same contract:
+### 3.1 Authority and write path
 
-| Question | Required answer before implementation |
+D1 is the source of truth for memory-item identity and wording, versions,
+evidence, lifecycle state, topic identity and filing history. Existing live D1
+events and sealed R2 archive segments are the source of truth for what was
+said. A distillation write commits the item, version, sources, initial state and
+initial filing in one D1 batch; its cursor advances only after that batch
+succeeds.
+
+FTS5 provides literal recall. Vectorize provides meaning candidates generated
+with Workers AI `@cf/baai/bge-m3`. Both are disposable projections. Telegram
+and voice fetch the canonical D1 item or exact D1/R2 event after ranking, and
+discard any item hit whose current `memory_item_state` is ineligible. A raw
+history hit is checked against the current D1 forget/suppression policy before
+its exact event is returned, so an archived segment cannot bypass `/forget`.
+
+The optional Obsidian-shaped copy is deliberately outside this write path. It
+may later render D1 state to Markdown, but it is never read back into D1, search
+or prompts. The exporter is not part of R2.
+
+### 3.2 Planned D1 tables
+
+The later additive migration remains named `0016_cloud_memory.sql`. Its planned
+tables are:
+
+| Table | Purpose and critical fields |
 |---|---|
-| Canonical content | Which artifact is authoritative for distilled text, state, topic placement and provenance? |
-| Atomicity | How do fact creation, sources, state and topic filing commit without a half-written memory? |
-| History | How are edits, topic moves, merges, supersession and forget actions preserved rather than overwritten? |
-| Concurrency | What happens when the Worker, a reprocessor and a later human editor write at once? |
-| Availability | Can Telegram, voice, distillation and recall all work with every PC off? |
-| Rebuild | Can keyword and meaning indexes be rebuilt deterministically from the canonical content plus raw events? |
-| Backup | How is a consistent, hashed, restorable snapshot produced without `wrangler d1 export` against production? |
-| Obsidian compatibility | Can the topic tree become folders and linked Markdown notes later without changing stable identities? |
-| Forget | Can hidden content be excluded consistently from facts, topic walks, keyword hits, meaning hits and full-history answers? |
-| Operations | What are the failure modes, recovery steps, ongoing cost and owner workload? |
+| `memory_items` | Stable ULID `item_id`, `principal_id`, kind and creation receipt. Identity never depends on mutable wording or topic path. |
+| `memory_item_versions` | Immutable `version_id`, item version, NFC text and hash, basis, code-assigned origin, uncertainty, sensitivity, validity window, extractor version and creation time. Rewording creates a new row. |
+| `memory_item_sources` | Ordered sources for one version: event id and sequence, live-or-archived location, optional R2 segment id, verified excerpt and hash, channel and UTC time. |
+| `memory_item_transitions` | Append-only lifecycle events (`proposed`, `active`, `rejected`, `superseded`, `forgotten`, `expired`) with reason, actor, policy version and required owner authorizing event when applicable. |
+| `memory_item_state` | Trigger-maintained current version and lifecycle state. Every retrieval path joins it; it is rebuildable from transitions. |
+| `memory_item_links` | Immutable `supersedes`, `duplicate_of`, `contradicts` and `related` edges, with the transition that authorized the edge. |
+| `memory_topics` | Stable topic id, principal, current parent, normalized display name and active/merged state. The single root is immovable. |
+| `memory_topic_events` | Append-only create, rename, move and merge history with old/new parents and names, reason, actor and authorizing receipt. |
+| `memory_topic_aliases` | Historical names and paths resolving to stable topic ids after rename, move or merge. |
+| `memory_item_placement_events` | Append-only primary/related filing, refiling and removal events with source (`owner`, `rule`, `model`), confidence and reason. |
+| `memory_item_placement_state` | Trigger-maintained current primary and related placements, rebuildable from placement events. |
+| `memory_episodes` | Immutable bounded daily summaries with event-sequence range, content hash and summarizer version. Summaries have no authority; replacements link by supersession. |
+| `memory_history_chunks` | Rebuildable bounded text chunks spanning all live and archived conversations, with exact event range, content hashes and R2 segment receipt where applicable. |
+| `memory_history_coverage` | Per-principal live high-water mark plus every sealed R2 range and its indexing outcome. This is the proof behind a complete no-hit answer. |
+| `memory_vectors` | D1 ledger of Vectorize mutations: item kind (`item`, `episode`, `history_chunk`), id, embedding model, dimensions, content hash, mutation id, upsert time and delete time. |
+| `memory_runs` | Idempotent run key, job, range, model, counts, token/cost figures, outcome, timestamps and failure. Nothing-new, budget-blocked and failed are distinct. |
+| `memory_reprocess_jobs` | Owner-authorized bounded range, event cap, model, spend cap, dry-run flag, checkpoint, status and final receipt. |
+| `memory_cost_ledger` | Append-only worst-case reservations, settlements and releases in integer USD micros, keyed by model run and calendar month. |
+| `memory_cursors` | Named consumer high-water marks for distillation, summaries, FTS coverage, embeddings and export. |
 
-Do not add a migration, storage-specific schema, sync route, vault writer or
-production resource until the reviewer records this decision. Migration number
-`0016` remains reserved for R2 but unused.
+The external-content FTS5 projections are `memory_item_fts`,
+`memory_episode_fts` and `memory_history_fts`, using the repository's literal
+term builder and `unicode61 remove_diacritics 2`. `memory_history_chunks` keeps
+archived conversation text searchable without pretending the derived row is
+the raw receipt; results are verified against the R2 segment before use.
+
+### 3.3 Invariants and migration rules
+
+- The migration is additive and leaves the existing 0014 projection tables and
+  their triggers untouched.
+- IDs are ULIDs; timestamps are UTC ISO-8601 milliseconds; money is stored as
+  integer micros; bounded text refuses redaction-changing or control-character
+  input rather than silently rewriting it.
+- Immutable ledger tables reject UPDATE and DELETE. Owner correction,
+  supersession and forget append a version or transition.
+- A model-proposed version is always `origin = model` and uncertain. It cannot
+  set lifecycle state, claim owner origin, self-confirm or authorize a topic
+  operation.
+- Principal scope is present on every root row and enforced through foreign
+  keys and trigger checks. Cross-principal sources, topics and links fail.
+- Topic moves reject cycles; sibling names are unique after normalization;
+  merge redirects are bounded and cycle-free.
+- State and placement projections change only through their append-only event
+  triggers. Later migration tests must mutate every trigger and prove refusal.
+- Use remote-D1-compatible `WHEN ... BEGIN SELECT RAISE(...)` trigger guards or
+  CHECK constraints. Do not use `SELECT CASE ... RAISE`, which remote D1 does
+  not accept reliably.
+- Sid applies migration `0016` only after its separate PR passes Claude Opus 5
+  max review. This docs PR creates no SQL and performs no migration.
+
+### 3.4 Index freshness and rebuild
+
+FTS5 updates in the same D1 transaction as its content row. Vectorize updates
+are asynchronous: the reviewed planning bound is under 30 seconds at median and
+up to two minutes at p99. Therefore a fresh exact memory is available through
+FTS5 immediately, and every Vectorize result is filtered through
+`memory_item_state`; `/forget` never waits for vector deletion.
+
+A rebuild walks active D1 item versions and summaries, then all live events and
+verified R2 segments for history chunks. It writes to an embedding-model-specific
+index, records each mutation in `memory_vectors`, verifies coverage, and swaps
+the configured index only after counts and sampled hashes pass. Embedding models
+are never mixed in one index.
 
 ## 4. Memory layers
 
-These logical layers apply whichever canonical knowledge store wins:
+The D1-authoritative design has these logical layers:
 
 | Layer | Contents | Authority |
 |---|---|---|
 | Working context | Recent turns plus retrieved items for one response | None; ephemeral |
 | Full history | Every accepted redacted conversation event in live D1 or an R2 archive segment | Receipt only; old text is never an instruction |
-| Distilled items | Atomic facts, preferences, plans, decisions, relationships and bounded summaries with provenance | Depends on evidence and state |
-| Topic tree | Stable areas and assignments used to browse and aggregate distilled items | Organization only; filing never changes truth |
+| Distilled items | Atomic facts, preferences, plans, decisions, relationships and bounded summaries with provenance | D1 ledger; authority depends on evidence and state |
+| Topic tree | Stable areas and assignments used to browse and aggregate distilled items | D1 ledger; organization only, so filing never changes truth |
 | Search indexes | Keyword and meaning candidates for history, distilled items and topic summaries | None; rebuildable |
 
 Daily summaries are context, not fact. Topic paths are organization, not
@@ -96,9 +166,9 @@ event that supports it.
 
 ### 5.1 Completeness contract
 
-An explicit recall request searches all accepted owner conversation history,
-not only recent context, distilled facts, daily summaries or the current topic.
-The searchable range is the union of:
+An explicit recall request searches all accepted owner and assistant
+conversation history, not only recent context, distilled facts, daily summaries
+or the current topic. The searchable range is the union of:
 
 - live conversation events still in D1; and
 - every event covered by the verified R2 archive manifest and segment catalog.
@@ -216,15 +286,20 @@ The same question also runs a full-history search scoped by the area's names,
 aliases and linked entities. This catches raw, unfiled and misfiled events. The
 answer distinguishes tree-filed knowledge from history-only matches.
 
-### 6.5 Later Obsidian view
+### 6.5 Later one-way Obsidian-format export
 
-The optional future projection can map each active topic to a folder, each
-distilled item to a Markdown note with stable-id front matter, related topics to
-links, and merged topics to redirect notes. File names are sanitized display
-names; stable ids prevent a rename from creating a different memory.
+The optional future one-way projection maps each active topic to a folder and a
+same-named area note. Each memory is one list item ending in a stable block id;
+confirmed items and guesses appear in separate sections; sources are linked by
+receipt; related topics become links; merged topics become redirect notes. File
+names are sanitized display names, while stable ids prevent a rename from
+creating a different topic or memory.
 
-That mapping is a compatibility requirement only. R2 creates no Obsidian vault,
-sync account, plugin, container, git repository or two-way edit path.
+That mapping is a compatibility requirement only. R2 creates no exporter,
+Obsidian vault, sync account, plugin, container, git repository or two-way edit
+path. A future export is never read back. It requires Sid's later approval for
+its custodian and scope, and excludes health, money, credentials and other
+people's private details by default.
 
 ## 7. Automatic memory and uncertainty
 
@@ -265,7 +340,28 @@ A later tier-3 erasure design must handle live events, content-addressed R2
 segments, indexes and locked backups. R2 does not imply that hiding has erased
 the original.
 
-## 9. Extraction model, cost cap and reprocessing
+## 9. Distillation, model, cost cap and reprocessing
+
+The existing hourly cron claims `memory-distill:<UTC hour>` and starts one
+Cloudflare Workflow instance. The Workflow:
+
+1. reads events after the distillation cursor through the tiered reader, from
+   live D1 and then verified R2 archive segments;
+2. records `nothing_new` and stops if the range is empty;
+3. bounds and frames at most the configured event and byte limits;
+4. reserves worst-case cost in `memory_cost_ledger`, then calls the configured
+   extractor only if the monthly cap permits it;
+5. validates source ids, exact excerpts, redaction, output shape and topic
+   proposals, while assigning origin, uncertainty and promotion in code;
+6. writes item versions, sources, transitions and placements in one D1 batch;
+7. advances the cursor only after that batch succeeds;
+8. updates FTS5 immediately and queues `bge-m3` embeddings for Vectorize; and
+9. settles the cost reservation and records a terminal run outcome.
+
+The nightly consolidation Workflow writes a bounded daily summary with no
+authority, expires time-bounded memories, refreshes topic summaries and runs
+the custom backup in section 10. A failed model call never blocks raw-event
+retention and never advances the distillation cursor.
 
 The extraction model and hard monthly memory-model spend cap are configuration,
 not source constants. Initial settings are:
@@ -274,7 +370,13 @@ not source constants. Initial settings are:
 - comparison candidate: `deepseek-flash` (currently V4.1 Flash);
 - default hard monthly cap: **USD 5.00**.
 
-Before the extraction model is finalized, compare both candidates on the same
+The planned non-secret settings are `MEMORY_EXTRACTION_MODEL` (default
+`deepseek-v4-pro`) and `MEMORY_MONTHLY_SPEND_CAP_USD` (default `5.00`). The
+configured model id and price version are stamped on every run and item version;
+changing either does not rewrite old rows.
+
+Start with `deepseek-v4-pro`. Before the extraction model is finalized, compare
+both candidates on the same
 sanitized sample conversations. Score exact-source citation, atomic-memory
 recall, unsupported-memory rate, uncertainty labeling, topic filing quality,
 conflict handling, prompt-injection resistance, latency and measured cost. Use
@@ -296,8 +398,48 @@ idempotent, never rewrites raw history, and creates versioned proposals or
 supersession links rather than mutating old memories. A receipt reports the
 range read, model/version, tokens, cost, created/unchanged/rejected counts and
 remaining backlog. It cannot be triggered by retrieved text or another user.
+It does not advance the ordinary hourly cursor and cannot overwrite an owner
+correction, confirmation or forget transition.
 
-## 10. Voice latency
+## 10. Custom nightly backup and restore
+
+Production already contains FTS5 virtual tables, so **never run
+`wrangler d1 export` against production**. Wrangler refuses such databases;
+the documented workaround drops virtual tables, and an export can block other
+database requests. Neither behavior is acceptable on Jarvis's live store.
+
+The nightly Workflow performs a custom logical export:
+
+1. claim an idempotent export run and record immutable high-water marks for
+   event sequence, item transition, topic event, placement event and cost
+   ledger entry;
+2. page each authoritative, append-only table only through its recorded mark,
+   writing bounded NDJSON objects to a staging prefix in a separate backup R2
+   bucket;
+3. exclude FTS5 tables, history chunks, current-state projections and
+   Vectorize data because they are rebuilt from the exported ledger and raw
+   history;
+4. calculate SHA-256 for every object, read it back, and record table name,
+   schema version, row count, byte count, first/last key and hash;
+5. write the manifest last, with the complete object list and coverage marks;
+   only a verified manifest makes an export restorable; and
+6. retain the verified set under a bucket lock. A failed or partial staging set
+   is never advertised as the latest backup.
+
+Append-only boundaries make the multi-object export a consistent logical cut:
+derived current state is replayed from transitions through the same marks. The
+existing sealed R2 conversation archive remains the backup for older raw
+events; the nightly set includes memory-ledger tables and recent live events
+not yet covered by a sealed archive segment.
+
+A monthly restore drill imports the latest verified set into a scratch D1
+database, replays state projections, rebuilds all FTS5 tables, rebuilds or
+dry-runs the Vectorize ledger, and compares counts, coverage and sampled source
+hashes with the manifest. Restoring production is a separate destructive owner
+operation with a Time Travel bookmark and rollback; no scheduled job performs
+it.
+
+## 11. Voice latency
 
 Voice uses the same memory semantics with a stricter execution policy:
 
@@ -313,7 +455,7 @@ Voice uses the same memory semantics with a stricter execution policy:
 Silence is not success: an unavailable memory layer is named in observability
 and, when it could change the answer, in the response.
 
-## 11. R2 exit test
+## 12. R2 exit test
 
 This is owner-run live acceptance after reviewed migrations and deployment. It
 cannot be satisfied by local mocks, CI, a render, or a running PC agent.

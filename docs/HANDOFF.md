@@ -10,7 +10,7 @@ because Twilio is not configured; outbound calling is separately disabled by
 `outbound_runtime_controls.enabled = 0`. The release gate still requires the
 retained live-call evidence.
 
-## R1 is active; R2 storage design is on hold
+## R1 is active; R2 D1 memory design is ready for review
 
 R0 passed on 2026-09-11. R1 depends on R0 and is entirely cloud-side.
 PR #23 supplied item 2's fake calling/access matrix and confirmed Telegram
@@ -111,13 +111,15 @@ planning-session choice Sid never made and is now historical. Do not port,
 provision or depend on it.
 
 Sid requires the best cloud memory, usable with every PC off, and delegated
-the design. The reviewer is comparing a database source of truth with an
-Obsidian-compatible Markdown vault source of truth plus derived indexes. Until
-that result is recorded, migration `0016` remains reserved but uncreated and no
-physical memory schema or vault path is authorized. The storage-neutral design
-draft covers full-history recall including R2 segments, the topic tree,
-uncertainty, voice latency, configurable extraction model and USD 5.00 default
-hard cap, and bounded reprocessing.
+the design. The reviewer recorded the decision at `951675e`: D1 is
+authoritative for the event ledger, versioned memory items, receipts and topic
+tree. D1 FTS5 and Vectorize are rebuildable indexes; full-history recall also
+walks verified R2 archive segments. Obsidian is only a later optional one-way
+export and is not built or read back in R2. Migration `0016` remains reserved
+but uncreated; Sid applies it only after its later schema PR passes Claude max
+review. The current docs branch defines the table contract, distillation,
+cost cap, receipts, forget semantics, custom nightly export and all-PCs-off
+exit test without performing a live call, migration or deployment.
 
 PR #16 at `27b232f` has completed the reviewer's requested changes. The
 reviewer independently verified migration byte identity, all five trigger
@@ -559,24 +561,26 @@ commit a secret value.
   the hourly job does not call them, because no deployment holds the OAuth
   credentials. `deadline_sources` therefore has nothing writing to it, so the
   deadline half of the digest is empty rather than stale.
-- **`project()` in the vault** has no authority gate in front of it. Nothing
-  but tests calls it. Do not wire a caller without one.
+- **Historical `project()` in the vault.** It has no authority gate in front
+  of it and nothing but tests calls it. Do not wire a caller; the adapter is not
+  the R2 memory path.
 - **There is no Windows process host.** The existing `jarvis node` starts
   `RunLoop` and `ServiceState`, but refuses to start outside Linux.
   `NamedPipeServer.serve_forever` is still started only by tests; there is no
   `jarvis service` command and no Windows service host. Node platform work
   remains on hold as described above.
 
-## The one thing to read before building on the vault
+## Historical vault safety note
 
 Vault observations are stored **verbatim, with no redaction**. That is safe
 today only because nothing uploads them. Building the cloud sync path before
 the redactor would ship the owner's notes to the gateway unredacted, so the
 redactor is a prerequisite for that work rather than a follow-up to it.
 
-## Deliberate divergences from the plans
+## Historical divergences from the Obsidian plans
 
-Two, both in [DECISIONS.md](../DECISIONS.md) with reasoning:
+These are retained for the existing adapter, not as current R2 direction. Both
+are explained in [DECISIONS.md](../DECISIONS.md):
 
 - Migration numbering: the Obsidian plan reserves 0008–0011 for vault state;
   those numbers were taken first. Vault D1 migrations take 0014 onward.
