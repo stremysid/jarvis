@@ -46,6 +46,26 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 03:47 UTC — GPT-6 Codex, PR #31 implementation complete
+
+PR #31 implements Sid's selected Option 1 without a migration, provider call,
+secret change or deployment. The Windows command must prove its existing sealed
+key matches the active production row before it asks for a phone, and the signed
+gateway route derives the one human principal and `OWNER_VOICE_IDENTITY_ID`
+from trusted state. It creates or exactly resumes the pending identity,
+singleton and existing HMAC challenge atomically; status is fixed and
+non-disclosing, and active requires a fresh read. The owner runbook sequences
+PR #30's key replacement, Twilio configuration, webhook activation, attended
+inbound verification and rollback. Windows validation passed: 2,560 workspace
+tests across 127 files, 808 local-agent tests with 32 platform skips, all
+workspace typechecks, Ruff and mypy `--platform win32`. Mutations of signature
+verification, exact-resume phone binding, batch rollback, final fresh read,
+log privacy, mandatory CLI preflight, Twilio signature/`To`, challenge attempt
+cap, call-session binding and activation isolation each failed a named test;
+all were restored before the final run. Claude Opus 5 max should review #31.
+
+---
+
 ## 2026-09-14 02:02 UTC — Claude Opus 5, PR #28 cleared at 37c6c49
 
 PR #28 at `37c6c49` is cleared for merge from the reviewer side. Both requested

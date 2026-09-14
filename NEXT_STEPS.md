@@ -82,6 +82,17 @@ dispatch and merged as `fd39301`; gateway deployment `28109492` is live.
 Calling remains off pending owner Twilio configuration, explicit control
 activation and live acceptance.
 
+Sid selected PR #29's Option 1 for owner-phone enrollment using a new device
+key on his home PC. PR #30 is the separate draft owner runbook and exact SQL
+for replacing and proving the production key before revoking the orphaned row.
+PR #31 implements the device-signed Windows bootstrap and non-disclosing
+key-match preflight. It adds no migration and performs no provider operation;
+the later attended rollout must finish the reviewed key replacement, configure
+Twilio, keep the inbound webhook closed until the enrollment window, run the
+preflight, then make the signed inbound enrollment call. Setting the webhook
+makes inbound calling live even while outbound controls remain disabled. Do
+not start the live smoke until status freshly reports the owner phone active.
+
 Run `pnpm test:voice-access` and `pnpm typecheck:voice-access` locally.
 `pnpm release:voice-gate` runs the fake prerequisite before auditing the five
 retained live records, and refuses release while those records are absent.

@@ -80,6 +80,17 @@ Items 3 and 4 still cover the live smoke and legacy eight-digit verifier
 deletion. None of those are satisfied by the fake matrix or same-vendor
 advisory review.
 
+Sid selected the device-signed Windows path for enrolling the missing owner
+phone, with a new production device key held on the home PC. PR #29 records the
+decision. PR #30 contains the separate key-replacement runbook and guarded SQL;
+PR #31 contains the non-disclosing key preflight, atomic owner-phone bootstrap,
+fixed status contract and attended rollout runbook. Neither PR performs a live
+operation. The production order is key replacement and proof, reviewed gateway
+deployment, Twilio configuration, successful key preflight, then one attended
+inbound enrollment window. The Twilio voice webhook is the inbound activation
+switch; outbound controls do not close it. R1 live smoke remains blocked until
+a fresh signed status reports the owner phone active.
+
 Sid's PCs run Windows 11 and his phone is an iPhone 16. There is no Linux
 host, server or VPS; the home PC is off overnight. No Windows node port or
 further Linux implementation is authorized until he chooses a direction.
