@@ -76,9 +76,14 @@ driver requires exact operator/readiness, fake-gate and deployed-revision proof
 before one scenario, then binds its correlation ID and commit to the aggregate
 query result. The normal command remains non-live until reviewed adapters and
 boolean prerequisite observations are injected; no live record was generated.
-Items 3 and 4 still cover the live smoke and legacy eight-digit verifier
-deletion. None of those are satisfied by the fake matrix or same-vendor
-advisory review.
+Item 3 still requires the live smoke. The separate item-4 candidate on
+`codex/r1-retire-legacy-pin` removes the legacy eight-digit owner verifier,
+updates the foundation design to the current PIN-free-owner and grant-bound
+guest model, and adds PR #28's evidence-store failure regression. It does not
+delete the stored `PIN_VERIFIER_JSON` secret or deploy anything. Once that
+reviewed removal is merged and its gateway deployment is verified, the owner
+must perform the separate secret-deletion step in `docs/runbooks/deploy.md`.
+Neither the live smoke nor that owner operation is satisfied by local tests.
 
 Sid's PCs run Windows 11 and his phone is an iPhone 16. There is no Linux
 host, server or VPS; the home PC is off overnight. No Windows node port or
@@ -513,10 +518,11 @@ nothing is skipped, disabled or weakened, and the defect stays open and
 documented in KNOWN_ISSUES.md until he chooses to close it.
 
 Item 2's rotations remain complete by owner confirmation; do not request
-them again. `PIN_VERIFIER_JSON` is absent from config; now that item 5's
-gateway deployment has happened, its stored secret may be deleted as a
-separate, explicitly confirmed operation. Never request, print or commit a
-secret value.
+them again. `PIN_VERIFIER_JSON` is absent from config, but its stored secret
+must remain until the reviewed R1 item 4 removal is merged and a gateway
+deployment containing that removal is verified. The owner may then delete it
+as the separate operation documented in `docs/runbooks/deploy.md`. Never
+request, print or commit a secret value.
 
 ## What is built but not wired
 
