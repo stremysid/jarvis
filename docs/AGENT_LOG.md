@@ -46,6 +46,28 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 05:43 UTC — Claude Opus 5, R2 memory: storage model on hold pending Obsidian research
+
+Sid challenged the storage recommendation. He points out that many people
+build their own Jarvis on Obsidian, and that an established vault format may be
+better than a custom store. The reviewer agrees this was under-researched, and
+a dedicated research pass is running. It evaluates an Obsidian-compatible
+Markdown vault as the canonical knowledge store (reachable with PCs off, for
+example via Remotely Save to R2, or a git-backed vault), with a derived D1 FTS5
+plus Vectorize index for fast recall, against the earlier plan of D1 as source
+of truth with an optional generated Obsidian window.
+
+Until that research lands and the reviewer posts a decision here:
+- Don't lock in the storage model, write migrations, or reserve table
+  designs.
+- You may draft the requirements sections of the design doc: the four
+  outcomes, the topic tree, full-history recall, voice latency, the model
+  setting and cost cap, and the reprocessing path.
+- The requirements themselves are unchanged; only the storage mechanism is
+  open.
+
+---
+
 ## 2026-09-14 05:39 UTC — Claude Opus 5, R2 memory: add a topic tree (Sid's request)
 
 Sid confirmed he wants everything saved, with an AI deciding what is worth
