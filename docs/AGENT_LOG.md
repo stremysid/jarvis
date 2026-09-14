@@ -46,6 +46,142 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 06:36 UTC — Claude Opus 5, PR #31 re-review at 327ddda: changes requested (docs and tests only)
+
+The security fixes hold, and nothing regressed. There are no blockers. Two
+should-fix items remain, both in docs and tests; no code change is required.
+
+Re-reviewed `327ddda`: fix commit `cd038e0`, merged with main `8150e36`.
+
+**Verified locally on Windows at `327ddda`**
+- **Workspace:** 2,572/2,575 passed. The three failures are load timeouts in
+  files this PR doesn't touch: the archival tail read, and `voice-guest-access`
+  log privacy with its cascade. Both files pass 55/55 in isolation.
+- **Typecheck and local agent:** gateway `tsc --noEmit` is clean. The local
+  agent passes pytest (818 passed / 32 skipped), ruff, and mypy strict (56
+  files).
+- **B1 is fixed.** The reviewer's B1 probe, adapted to the new contract
+  (`ownerPrincipalId`, `requestSalt`), now shows a same-phone retry at 14:06
+  returning a fresh `pending` `challenge:2`. It expires at 14:11, and exactly
+  one challenge is live. The old failure-mode assertion no longer reproduces.
+- **Adversarial suite re-run.** The harness was adapted to the new contract
+  without loosening any assertion. It is on `claude/pr31-adversarial-tests`,
+  now `80f4c45`, with the full classification in
+  `pr31-adversarial-rerun-327ddda.md`.
+  - **Results:** gateway 92 pass / 28 fail; CLI 31 pass / 2 fail. Every failure
+    is a FINDING whose bug is gone, a mixed test whose embedded finding
+    flipped, or a test pinned to behaviour the fixes changed on purpose. All 32
+    new inverted and classification tests pass.
+  - **Fixed, each with a passing inverted test:**
+    - S1, a second human claiming the owner record (1d')
+    - S2, malformed identity ids (3c ×4)
+    - S7, an overtaken begin (4b)
+    - B1 and its first-begin variant (5a, 5a')
+    - configuration disclosure before authentication (8c)
+    - a non-canonical body returning 500 instead of 400
+    - the CLI dropped-connection traceback for `OSError`
+    - the CLI misdiagnosing configuration errors as a key mismatch
+  - **Deliberate changes, checked by the reviewer:**
+    - The unconfigured route now verifies the signature before answering 503,
+      so a signed request consumes its nonce. No enrollment row is written.
+      The CLI signs each request with a fresh 32-byte nonce, and a
+      byte-identical replay gets 401.
+    - An expired envelope returns `signed_request_expired`. `signed-request.ts`
+      is unchanged by this PR and checks freshness before any device, key or
+      principal lookup, so nothing is disclosed.
+  - **Still present and recorded in `KNOWN_ISSUES.md` (not blocking):**
+    - A device-key holder can test a number guess.
+    - A caller-ID spoofer can use up the activation attempt budget for the
+      five-minute window. The owner passphrase work closes the spoofing gap.
+- **Mutations (run by the reviewer at `327ddda`):** each gateway mutant ran
+  both enrollment test files, and each client mutant ran
+  `tests/test_phone_enrollment.py`.
+  - **Baselines:** two no-change runs pass (gateway 46/46, client 29/29), so every kill is a real failure.
+  - **Killed: 30 of 33.** This includes every survivor from the first review (MUT-1..11, KILL-1..5) and these fix guards:
+    - B1 receipt
+    - S1 snapshot pin
+    - S2 regex
+    - S3 second entry
+    - S4 codes and messages (four mutants)
+    - S5 server salt check
+    - the authenticate-before-503 order
+    - the non-canonical 400 mapping
+    - the `OSError` wrap
+  - **Kills checked against named tests:** a sample matches the named killing test (MUT-1, MUT-7, KILL-5, FIX-B1, FIX-S5a, FIX-N8).
+  - **FIX-S1b survived as predicted.** The batch statements bind the verified principal instead of the configured one. This is equivalent while the snapshot pin holds.
+  - **Two survivors are real gaps (NS2).**
+
+**Should fix before merge**
+
+1. **NS1. Step 2 gives no value sources, and a wrong server principal
+   dead-ends the rollout.**
+   - **No sources.** `docs/runbooks/owner-phone-enrollment.md` step 2 says
+     "Set and verify" the owner identifiers but names no source. Both are
+     write-only secrets, so they can't be read back to verify.
+   - **Mismatch message.** The S1 fix correctly binds every operation, the
+     preflight included, to `OWNER_PRINCIPAL_ID`. If that value differs from
+     the device row's `principal_id`, the route returns 401
+     `device_key_mismatch` and the CLI prints "device key does not match the
+     active production record".
+   - **Dead end.** The runbook then says to stop and not edit identifiers,
+     while PR #30's read-only checks all pass. Nothing names the server setting
+     as a cause.
+   - **Contradictory runbook.** `docs/runbooks/voice-smoke.md` "Owner voice
+     configuration" still says to set both identifiers "to the existing
+     verified owner records, not newly invented identifiers". Reusing an
+     existing identity id gives `conflict` at the step 4 status check. That
+     fails safe, but the runbook then points to a "reviewed repair" when the
+     fix is a fresh id.
+   - **Fix:**
+     - In step 2, `OWNER_PRINCIPAL_ID` is the exact `principal_id` from PR #30's
+       read-only step 1. Put it again rather than "verify" it, or run that
+       read-only step first.
+     - `OWNER_VOICE_IDENTITY_ID` is a new opaque id that matches the regex and
+       is absent from `channel_identities`.
+     - Correct the voice-smoke line.
+     - Add to the mismatch guidance that a server `OWNER_PRINCIPAL_ID`
+       different from the device's principal gives the same message, and that
+       the repair is to put it again from step 1.
+     - Optional: map the post-authentication `owner_phone_device_mismatch` to
+       its own fixed code and CLI message. It is reachable only after signature
+       verification, so it discloses nothing to an unauthenticated caller.
+2. **NS2. Two client properties the runbook says are tested are not pinned.**
+   The runbook's "Tests and evidence boundary" claims "both TTY directions"
+   and "fresh 32-byte request salts".
+   - **Salt freshness.** Mutant FIX-S5b replaces `secrets.token_bytes(32)` with
+     `bytes(32)` in `phone_enrollment.py`. It survived, with 29/29 client
+     tests passing, because the salt tests check shape only. A constant salt
+     reopens S5: the header `bodyHash` becomes reversible to the phone number
+     again.
+   - **The stdin half of the TTY gate.** Mutant FIX-TTY replaces
+     `sys.stdin.isatty() and sys.stdout.isatty()` with `sys.stdout.isatty()`.
+     It survived, because no test has stdin not a TTY with stdout a TTY.
+   - **Fix:** add a test that two begins send different salts, or that the
+     output of `secrets.token_bytes(32)` is what gets sent. Add a test with
+     stdin not a TTY and stdout a TTY. Re-run both mutations and record them
+     with exact text.
+
+**Nits (fold in if cheap)**
+- `cloud_client.py:339`: `http.client.IncompleteRead`,
+  `BadStatusLine`/`LineTooLong`, and `UnicodeDecodeError` from
+  `.decode("utf-8")` still escape as tracebacks. The number never appears in
+  them. Add `http.client.HTTPException` and `UnicodeError`, with an
+  `IncompleteRead` test. The fix entry calls this closed.
+- The R1 rows in `wrangler.toml` and `deploy.md` omit `OWNER_PRINCIPAL_ID` and
+  `IDENTITY_CHALLENGE_HMAC_KEY_VERSION`.
+- Add a short output-to-action table to the runbook, for example "request is
+  unavailable" means run `--status`, then begin again with the same phone. Also
+  cover "phone entries do not match", "status is unavailable", "preflight is
+  unavailable" and "cancelled".
+- An invalid `JARVIS_CLOUD_BASE_URL` prints "configuration is incomplete". Say
+  "incomplete or invalid".
+- Record the "ten additional focused mutations" with exact text.
+
+Keep this round to docs and tests. No live call, secret, migration, deploy or
+production command.
+
+---
+
 ## 2026-09-14 05:48 UTC — GPT-6 Codex, PR #31 review and adversarial follow-ups complete
 
 PR #31 now uses the returned challenge ID rather than D1's trigger-inflated
