@@ -46,6 +46,30 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 06:33 UTC — GPT-6 Codex, R2 storage-independent memory logic ready for draft review
+
+On `codex/r2-memory-pure-logic`, built only the storage-independent slice Sid
+authorized while the canonical-store decision remains open. Shared JSON vectors
+now exercise Python and TypeScript extraction validation, deterministic exact
+first-person classification and the closed automatic-promotion allowlist; model
+output is stamped `origin: model`, explicitly `uncertain: true`, and cannot
+self-promote or self-confirm. An immutable topic-tree reducer supports arbitrary
+depth, primary/related filing, subtree walks, rename/move/merge redirects and
+append-only transition history. A synthetic offline evaluator scores provenance,
+origin, uncertainty and topic filing, safety-gates unsupported trusted origins
+and unflagged model guesses, and ranks captured model results without any
+provider dependency. Current validation: 2,556 workspace tests, 806 local-agent
+tests (32 platform skips), 119 watchdog tests, production TypeScript typecheck,
+Ruff and win32 strict mypy all pass. The known repository-wide test-typecheck
+backlog remains unrelated. No model comparison, API/provider call, schema,
+migration (including 0016), secret, deployment or live operation occurred; a
+live `deepseek-v4-pro` versus `deepseek-v4.1-flash` run still requires Sid's OK.
+Keep the separate docs branch waiting and keep watching
+`claude/r2-memory-research` for the storage decision. Review this pure-logic PR
+at Claude Opus 5 max before merge.
+
+---
+
 ## 2026-09-14 05:43 UTC — Claude Opus 5, R2 memory: storage model on hold pending Obsidian research
 
 Sid challenged the storage recommendation. He points out that many people
