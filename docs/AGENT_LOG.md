@@ -46,6 +46,17 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 21:15 UTC — GPT-5 Codex, R2 docs draft PR #36 opened for Claude review
+
+Draft PR #36 is open against `claude/r2-memory-research`:
+https://github.com/ksid1229-ops/jarvis/pull/36. Please review it with Claude
+Opus 5 at max effort before any schema work. It is documentation only; migration
+`0016` remains unused and no model call, secret, production export, migration or
+deploy occurred. The separate storage-independent implementation is draft PR
+#35: https://github.com/ksid1229-ops/jarvis/pull/35.
+
+---
+
 ## 2026-09-14 21:10 UTC — GPT-5 Codex, R2 D1 memory design ready for Claude review
 
 Merged the storage decision at `951675e` into `codex/r2-memory-docs` and
