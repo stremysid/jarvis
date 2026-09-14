@@ -84,13 +84,16 @@ phone. Sid selected Option 1 in
 [`docs/plan/2026-09-14-owner-phone-enrollment-options.md`](docs/plan/2026-09-14-owner-phone-enrollment-options.md);
 the device-signed Windows CLI followed by an inbound activation call. No
 original sealed key was found on the intended home PC, so the required order is
-a separately reviewed device-key replacement runbook and owner-executed key
-replacement, then a non-disclosing local key-match preflight, then the Option 1
-implementation. The production key change remains one owner-confirmed action at
-each live step. Twilio must be configured before the enrollment call. Setting the voice
+the merged PR #31 Option 1 route deployed with its owner/HMAC configuration and
+the inbound webhook closed, then the reviewed owner-executed device-key
+replacement and non-disclosing preflight. First phone status must be `absent`.
+The production key change remains one owner-confirmed action at each live step.
+Twilio must be configured before the enrollment call. Setting the voice
 webhook makes inbound calling live because the outbound runtime control does
 not gate inbound calls; unknown callers are refused but may still incur
 provider charges. Live enrollment and acceptance remain owner-confirmed steps.
+The authenticated begin number-state oracle remains recorded in
+`KNOWN_ISSUES.md`.
 
 Sid has now reversed the unconfirmed Caller-ID-risk assumption and requires a
 three-word spoken passphrase before owner authority on every inbound and
@@ -98,9 +101,10 @@ outbound call. Three complete wrong candidates end the call without a
 persistent lockout. The exact `TN-Validation-Passed-A` waiver must exist but
 ship switched off. The design and intentionally failing security contract are
 in draft [PR #33](https://github.com/ksid1229-ops/jarvis/pull/33) on
-`codex/r1-owner-call-passphrase-design`; implementation must wait for PR #31 to
-merge, then rebase on `main`, check the newest mailbox entries, and take the
-next unreserved migration number. R2 owns `0016`.
+`codex/r1-owner-call-passphrase-design`. That branch now includes the merged
+enrollment code. Keep it in design review and do not start implementation until
+the newest Claude mailbox entry is available. R2 owns migration `0016`; check
+main and post to the mailbox before taking the next unreserved number.
 
 After R1 calling and R2 memory are both live, run Sid's first-call onboarding
 session. Its enrollment-trusted, deterministic setup segment sets or rotates

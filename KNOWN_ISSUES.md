@@ -23,6 +23,22 @@ voicemail; answering-machine detection remains an optional cost optimization.
 The red security contract and implementation order are in
 [`docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md`](docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md).
 
+## Owner-phone begin can reveal whether a supplied number matches stored state
+
+The device-signed enrollment route deliberately accepts the full phone only
+from a holder of the enrolled private device key. Once an enrollment exists,
+`begin` returns `active` or `pending` for the stored number and `conflict` for a
+different number. A compromised device key can therefore test phone-number
+guesses; while pending, the matching request also replaces an unused live
+response. The random request salt added by PR #31 prevents an observer from
+testing guesses against the signed body hash, but it does not remove this
+authenticated response oracle.
+
+Changing retry semantics affects recovery when the owner loses a displayed
+response, so the reviewer left this as a design choice rather than a merge
+blocker. Before calling goes live, decide whether a pending begin should return
+one indistinguishable state and wait for expiry instead of rotating the code.
+
 ## PR #28 evidence-store guards include deliberate redundancy
 
 The local live-smoke evidence store checks its evidence directory with both
