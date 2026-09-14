@@ -1,0 +1,163 @@
+{
+  "schemaVersion": "1.0",
+  "firstPersonCases": [
+    {
+      "name": "accepts an exact first-person quote from the authenticated owner",
+      "quote": "I prefer short status updates",
+      "sourceText": "For Jarvis, I prefer short status updates after a completed step.",
+      "authenticatedOwner": true,
+      "expected": true
+    },
+    {
+      "name": "accepts a curly-apostrophe first-person contraction",
+      "quote": "I’m renovating St. Remy",
+      "sourceText": "I’m renovating St. Remy before starting another large project.",
+      "authenticatedOwner": true,
+      "expected": true
+    },
+    {
+      "name": "rejects a paraphrase that is not an exact source quote",
+      "quote": "I like concise updates",
+      "sourceText": "I prefer short status updates.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects first-person words from an unauthenticated speaker",
+      "quote": "My address is 10 Example Road",
+      "sourceText": "My address is 10 Example Road.",
+      "authenticatedOwner": false,
+      "expected": false
+    },
+    {
+      "name": "rejects an authenticated statement about somebody else",
+      "quote": "Sam prefers short status updates",
+      "sourceText": "Sam prefers short status updates.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "rejects a first-person token embedded inside another word",
+      "quote": "mystery",
+      "sourceText": "The mystery remains unsolved.",
+      "authenticatedOwner": true,
+      "expected": false
+    }
+  ],
+  "promotionCases": [
+    {
+      "name": "authenticated first-person evidence auto-promotes",
+      "origin": "authenticated_first_person",
+      "currentState": "proposed",
+      "expectedState": "active",
+      "expectedUncertain": false,
+      "expectedConfirmed": false
+    },
+    {
+      "name": "deterministic observations auto-promote",
+      "origin": "deterministic_observation",
+      "currentState": "proposed",
+      "expectedState": "active",
+      "expectedUncertain": false,
+      "expectedConfirmed": false
+    },
+    {
+      "name": "model guesses remain proposed and uncertain",
+      "origin": "model",
+      "currentState": "proposed",
+      "expectedState": "proposed",
+      "expectedUncertain": true,
+      "expectedConfirmed": false
+    },
+    {
+      "name": "third-party claims remain proposed",
+      "origin": "third_party",
+      "currentState": "proposed",
+      "expectedState": "proposed",
+      "expectedUncertain": false,
+      "expectedConfirmed": false
+    },
+    {
+      "name": "superseded facts cannot be revived by automatic promotion",
+      "origin": "authenticated_first_person",
+      "currentState": "superseded",
+      "expectedState": "superseded",
+      "expectedUncertain": false,
+      "expectedConfirmed": false
+    }
+  ],
+  "validationCases": [
+    {
+      "name": "normalizes a valid model proposal and ignores a claimed trusted origin",
+      "suppliedSourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
+      "proposal": {
+        "text": "  Sid prefers concise completion reports.  ",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
+        "confidence": 0.8,
+        "sensitivity": "normal",
+        "origin": "authenticated_first_person"
+      },
+      "expected": {
+        "text": "Sid prefers concise completion reports.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
+        "confidence": 0.8,
+        "sensitivity": "normal",
+        "origin": "model",
+        "uncertain": true
+      }
+    },
+    {
+      "name": "defaults omitted confidence and sensitivity without trusting the model",
+      "suppliedSourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"],
+      "proposal": {
+        "text": "Sid is working on St. Remy.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"]
+      },
+      "expected": {
+        "text": "Sid is working on St. Remy.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"],
+        "confidence": 1,
+        "sensitivity": "normal",
+        "origin": "model",
+        "uncertain": true
+      }
+    },
+    {
+      "name": "rejects a proposal that attempts to set lifecycle state",
+      "suppliedSourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
+      "proposal": {
+        "text": "Sid prefers concise completion reports.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
+        "state": "active"
+      },
+      "expected": null
+    },
+    {
+      "name": "rejects a proposal that cites an unsupplied source",
+      "suppliedSourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
+      "proposal": {
+        "text": "Sid prefers concise completion reports.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h1"]
+      },
+      "expected": null
+    },
+    {
+      "name": "rejects a fact containing an unredacted authentication code",
+      "suppliedSourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
+      "proposal": {
+        "text": "Use code 123456.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"]
+      },
+      "expected": null
+    },
+    {
+      "name": "rejects model text that is not NFC normalized",
+      "suppliedSourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"],
+      "proposal": {
+        "text": "Sid likes Cafe\u0301 St. Remy.",
+        "sourceEventIds": ["01k4z8m0q2a3b4c5d6e7f8g9h0"]
+      },
+      "expected": null
+    }
+  ]
+}

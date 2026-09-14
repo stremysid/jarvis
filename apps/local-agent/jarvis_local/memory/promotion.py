@@ -13,6 +13,8 @@ behaviour and is not projected to the cloud until confirmed.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from dataclasses import dataclass
 
 from jarvis_local.memory.facts import (
@@ -22,6 +24,7 @@ from jarvis_local.memory.facts import (
     FactState,
     with_state,
 )
+from jarvis_local.memory.projection_policy import has_fact_text_controls
 
 # Deliberately an allowlist. An origin added later defaults to staying
 # proposed rather than silently inheriting promotion.
@@ -31,6 +34,32 @@ AUTO_PROMOTABLE_ORIGINS: frozenset[FactOrigin] = frozenset(
         FactOrigin.DETERMINISTIC_OBSERVATION,
     }
 )
+
+_FIRST_PERSON_TOKEN = re.compile(
+    r"(?<![A-Za-z0-9_])(?:i(?:['\N{RIGHT SINGLE QUOTATION MARK}](?:m|ve|d|ll))?|me|my|mine|myself)(?![A-Za-z0-9_])",
+    re.IGNORECASE | re.ASCII,
+)
+
+
+def is_authenticated_first_person_quote(
+    *,
+    quote: str,
+    source_text: str,
+    authenticated_owner: bool,
+) -> bool:
+    """Accept only an exact first-person quote from the authenticated owner."""
+    if not authenticated_owner:
+        return False
+    normalized_quote = unicodedata.normalize("NFC", quote).strip(" ")
+    normalized_source = unicodedata.normalize("NFC", source_text)
+    if not normalized_quote or has_fact_text_controls(normalized_quote):
+        return False
+    return normalized_quote in normalized_source and _FIRST_PERSON_TOKEN.search(normalized_quote) is not None
+
+
+def is_uncertain_origin(origin: FactOrigin) -> bool:
+    """Model inference is explicitly uncertain until Sid confirms it."""
+    return origin is FactOrigin.MODEL
 
 
 @dataclass(frozen=True, slots=True)
