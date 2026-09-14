@@ -115,6 +115,19 @@ describe("owner phone enrollment route", () => {
     expect(await response.json()).toEqual({ error: "owner_phone_enrollment_not_configured" });
   });
 
+  it.each([
+    ["OWNER_VOICE_IDENTITY_ID", "identity:owner\nvoice"],
+    ["IDENTITY_CHALLENGE_HMAC_PEPPER", btoa("too-short")],
+    ["IDENTITY_CHALLENGE_HMAC_KEY_VERSION", ""],
+  ] as const)("fails closed on malformed %s", async (name, value) => {
+    const response = await dispatch(
+      await request({ schemaVersion: "1.0", operation: "preflight" }),
+      { ...environment, [name]: value },
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "owner_phone_enrollment_not_configured" });
+  });
+
   it("returns only mismatch for a forged key and never reads or logs the submitted phone", async () => {
     const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);

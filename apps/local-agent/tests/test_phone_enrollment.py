@@ -112,6 +112,23 @@ def test_key_mismatch_is_fixed_non_disclosing_output(
     assert "deadbeef" not in output
 
 
+def test_begin_stops_at_key_mismatch_before_prompting_for_or_sending_the_phone(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    key: Ed25519PrivateKey,
+) -> None:
+    _, gateway = install_fakes(monkeypatch, key, [CloudAuthError("private key detail")])
+    monkeypatch.setattr("jarvis_local.phone_enrollment._interactive_terminal", lambda: True)
+    prompt = lambda _message: pytest.fail("prompted before key match")  # noqa: E731
+    monkeypatch.setattr("jarvis_local.phone_enrollment.getpass.getpass", prompt)
+
+    assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "begin") == 1
+    assert gateway.requests == [
+        (OWNER_PHONE_ENROLLMENT_PATH, {"schemaVersion": "1.0", "operation": "preflight"}),
+    ]
+    assert capsys.readouterr().out.strip() == "device key does not match the active production record"
+
+
 def test_missing_key_never_creates_one_or_discloses_its_path(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -179,6 +196,24 @@ def test_declined_confirmation_sends_nothing(
         (OWNER_PHONE_ENROLLMENT_PATH, {"schemaVersion": "1.0", "operation": "preflight"}),
     ]
     assert PHONE not in capsys.readouterr().out
+
+
+def test_invalid_phone_stops_after_preflight_without_sending_it(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    key: Ed25519PrivateKey,
+) -> None:
+    _, gateway = install_fakes(monkeypatch, key, [
+        {"schemaVersion": "1.0", "deviceKeyMatches": True},
+    ])
+    monkeypatch.setattr("jarvis_local.phone_enrollment._interactive_terminal", lambda: True)
+    monkeypatch.setattr("jarvis_local.phone_enrollment.getpass.getpass", lambda _prompt: "14165550123")
+
+    assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "begin") == 2
+    assert gateway.requests == [
+        (OWNER_PHONE_ENROLLMENT_PATH, {"schemaVersion": "1.0", "operation": "preflight"}),
+    ]
+    assert capsys.readouterr().out.strip() == "phone number must use E.164 form"
 
 
 @pytest.mark.parametrize(
