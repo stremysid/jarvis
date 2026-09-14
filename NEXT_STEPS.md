@@ -111,7 +111,16 @@ ordinary command does not discover executable code from PATH or an environment
 path. It remains non-live until reviewed scenario and enrolled-operator query
 adapters, boolean secret presence and the observed doctor result are injected.
 No retained live evidence exists yet; the live smoke (item 3) and legacy
-verifier removal (item 4) stay separate.
+verifier removal (item 4) stay separate. The item-4 candidate on
+`codex/r1-retire-legacy-pin` deletes the obsolete eight-digit owner verifier
+and corrects the foundation spec while preserving the distinct four-digit
+guest verifier and its attempt budgets. It also pins the item-3 evidence-store
+failure boundary requested in PR #28's review. No secret was changed. The
+stored `PIN_VERIFIER_JSON` secret is deletable now as a separate,
+owner-confirmed operation using `docs/runbooks/deploy.md`; do not do this
+during a live call or attended phone-enrollment window, and never recreate
+the retired verifier. A rollback to a version that reads it needs separate
+assessment.
 
 Capacity adapters are authorized within item 1. The dispatcher now awaits
 capacity before final policy validation and dispatch ownership; receipt replay

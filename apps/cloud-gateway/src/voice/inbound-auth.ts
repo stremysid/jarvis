@@ -1,12 +1,4 @@
-import { canonicalJson, newUlid, type CallDirection, type RelayBinding, type Ulid } from "../../../../packages/contracts/src/index.js";
-import {
-  decodePinVerifierRecord,
-  verifyPin,
-  type PinVerifierRecordV1,
-} from "../security/pin-verifier.js";
-
-export { decodePinVerifierRecord, verifyPin } from "../security/pin-verifier.js";
-export type { PinVerifierRecordV1 } from "../security/pin-verifier.js";
+import { canonicalJson, newUlid, type CallDirection, type RelayBinding } from "../../../../packages/contracts/src/index.js";
 
 export interface AuthenticationBudgetOptions {
   readonly callSidLimit?: number;
@@ -14,20 +6,6 @@ export interface AuthenticationBudgetOptions {
   readonly globalLimit?: number;
   readonly challengeLimit?: number;
   readonly windowMs?: number;
-}
-
-const PIN_AUTHENTICATION_PROOF = Symbol("jarvis.pin-authentication-proof");
-
-export interface PinAuthenticationProof {
-  readonly [PIN_AUTHENTICATION_PROOF]: true;
-  readonly proofId: string;
-  readonly authenticated: true;
-  readonly sessionId: Ulid;
-  readonly callSid: string;
-  readonly principalId: string;
-  readonly identityId: string;
-  readonly direction: CallDirection;
-  readonly activationChallengeId: string | null;
 }
 
 interface BindingSnapshot {
@@ -57,12 +35,10 @@ const BINDING_FIELDS = new Set([
   "direction", "activationOnly", "activationChallengeId",
   "accessKind", "guestGrantId", "guestGrantVersion", "accessDocumentHash",
 ]);
-const AUTH_INPUT_FIELDS = new Set(["pinDigits", "sessionId", "binding", "now"]);
 const CALL_SID = /^CA[0-9A-Fa-f]{32}$/u;
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const RELAY_NONCE = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/u;
 const encoder = new TextEncoder();
-const issuedBudgets = new WeakSet<object>();
 
 function exactDataRecord(value: unknown, fields: ReadonlySet<string>, error: string): Record<string, unknown> {
   let prototype: object | null;
@@ -219,7 +195,6 @@ export class AuthenticationAttemptBudget {
         copiedPepper.fill(0);
       }
     })();
-    issuedBudgets.add(this);
     Object.freeze(this);
   }
 
@@ -280,64 +255,6 @@ export class AuthenticationAttemptBudget {
       )
       .first<{ reservation_id: string }>();
     return row?.reservation_id === reservationId;
-  }
-}
-
-const reservePinAttemptFromIssuedBudget = AuthenticationAttemptBudget.prototype.reservePinAttempt;
-
-/** Mints instance-local nominal proof only after a reserved, successful PBKDF2 verification. */
-export class PinAuthenticationService {
-  readonly #proofs = new WeakMap<object, PinAuthenticationProof>();
-  readonly #reservePinAttempt: AuthenticationAttemptBudget["reservePinAttempt"];
-  readonly #verifier: PinVerifierRecordV1;
-
-  constructor(
-    budgets: AuthenticationAttemptBudget,
-    verifier: PinVerifierRecordV1,
-  ) {
-    if (!issuedBudgets.has(budgets)) {
-      throw new TypeError("pin_authentication_configuration_invalid");
-    }
-    this.#reservePinAttempt = (input) => reservePinAttemptFromIssuedBudget.call(budgets, input);
-    this.#verifier = verifier;
-  }
-
-  async authenticate(rawInput: {
-    readonly pinDigits: unknown;
-    readonly sessionId: Ulid;
-    readonly binding: RelayBinding;
-    readonly now: Date;
-  }): Promise<PinAuthenticationProof | null> {
-    const input = exactDataRecord(rawInput, AUTH_INPUT_FIELDS, "pin_authentication_input_invalid");
-    const pinDigits = input.pinDigits;
-    const sessionId = input.sessionId;
-    const binding = snapshotBinding(input.binding);
-    const now = input.now;
-    if (typeof sessionId !== "string" || !ULID.test(sessionId)) throw new TypeError("pin_authentication_input_invalid");
-    const reserved = await this.#reservePinAttempt({ binding, now: now as Date });
-    if (!reserved) throw new Error("authentication_budget_exhausted");
-    if (!await verifyPin(pinDigits, this.#verifier)) return null;
-    const proof: PinAuthenticationProof = Object.freeze({
-      [PIN_AUTHENTICATION_PROOF]: true as const,
-      proofId: `pin-proof:${crypto.randomUUID()}`,
-      authenticated: true,
-      sessionId: sessionId as Ulid,
-      callSid: binding.callSid,
-      principalId: binding.principalId,
-      identityId: binding.identityId,
-      direction: binding.direction,
-      activationChallengeId: binding.activationChallengeId,
-    });
-    this.#proofs.set(proof, proof);
-    return proof;
-  }
-
-  snapshotProof(value: unknown): PinAuthenticationProof {
-    const proof = value !== null && typeof value === "object" ? this.#proofs.get(value) : undefined;
-    if (proof === undefined || proof !== value || !Object.isFrozen(value)) {
-      throw new TypeError("pin_authentication_proof_invalid");
-    }
-    return proof;
   }
 }
 

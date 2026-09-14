@@ -1,5 +1,19 @@
 # Known issues
 
+## Outbound voice does not distinguish Sid from voicemail after the neutral greeting
+
+After an exact outbound relay binding succeeds, the current call session says
+the neutral line and immediately grants owner authority. It has no
+human-versus-answering-machine detection. A voicemail greeting delivered as a
+final transcript can therefore be treated as owner input and can cause a
+memory-backed response to be spoken into the recording. The runtime also does
+not automatically state the outbound command's authorized purpose.
+
+The neutral first line remains useful, but it is not a voicemail privacy
+boundary. R1's outbound answer/no-answer live acceptance must observe this
+path. Adding answering-machine detection is a separate product and cost
+decision; PR #32 only corrects the specification and does not implement it.
+
 ## PR #28 evidence-store guards include deliberate redundancy
 
 The local live-smoke evidence store checks its evidence directory with both

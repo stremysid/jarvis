@@ -27,14 +27,6 @@ const eventTimestamp = "2026-08-30T12:00:00.000Z";
 const audience = "jarvis-local-agent";
 const pullPath = "/sync/pull";
 const ackPath = "/sync/ack";
-const pinVerifierJson = JSON.stringify({
-  schemaVersion: "1.0",
-  algorithm: "pbkdf2-hmac-sha256",
-  iterations: 600_000,
-  saltBase64: btoa(String.fromCharCode(...Uint8Array.from({ length: 16 }, (_, index) => index + 11))),
-  digestBase64: btoa(String.fromCharCode(...Uint8Array.from({ length: 32 }, (_, index) => index + 31))),
-});
-
 interface EnrolledDevice extends DeviceEnrollmentResult { readonly privateKey: CryptoKey }
 interface ExpectedEvent {
   readonly eventSequence: number;
@@ -88,7 +80,7 @@ async function bootstrapOneDevice(): Promise<EnrolledDevice> {
     "2026-08-30T12:15:00.000Z", enrollmentNow.toISOString(),
   ).run();
   const enrolled = await new DeviceEnrollment({
-    database: env.DB, pinVerifierJson, now: () => new Date(enrollmentNow), ids: enrollmentIds(),
+    database: env.DB, now: () => new Date(enrollmentNow), ids: enrollmentIds(),
   }).bootstrap({
     schemaVersion: "1.0", bootstrapToken, displayName: "Sid", deviceLabel: "Jarvis laptop",
     publicKeyBase64: base64(publicKey), phoneProviderSubject: "+14165550123", telegramProviderSubject: "424242",
