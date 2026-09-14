@@ -417,12 +417,19 @@ One to two sessions. Depends on R0. The number and credentials exist.
    with two turns and an interruption, outbound answer and no-answer,
    oversize frame, model timeout, owner, guest, unknown caller, revoked
    grant. Add the Telegram `/call` command.
-3. Run the live smoke per the runbook; commit the redacted evidence.
+3. Add the decided owner passphrase before authority on every inbound and
+   outbound owner call, with three tries and no persistent lockout. The
+   reviewed design chooses three Worker-generated words, durable attempt
+   ordinals, and a 60-second alarm-backed window. Keep the exact Passed-A
+   waiver implemented but switched off. Then run the live smoke per the
+   runbook and commit the redacted evidence.
 4. Delete the legacy eight-digit PIN verifier; fix the foundation spec.
 
 **Exit.** The foundation design's permanent gate, §5.3: a real inbound call
 with two turns and an interruption, a real outbound call with answer and
-no-answer paths, transcript recall afterwards, a rejected unknown caller.
+no-answer paths, transcript recall afterwards, a rejected unknown caller, and
+an owner call rejected after three wrong passphrases with no authority, model
+request or personal-context read.
 **This is v1.0.**
 
 ### R2. Cloud memory that works with every PC off, v1.1
@@ -461,7 +468,16 @@ an ambiguous inference is labeled uncertain; and `/forget` hides the item from
 all retrieval paths while accurately saying the source event remains retained.
 The full live procedure is in the R2 memory design.
 
-### R3. Hands: cloud task routing and device agents on the PCs, v1.2
+**Cross-milestone onboarding note.** After R1 calling and R2 memory, however
+hosted, are both live, run Sid's first-call onboarding session while parked,
+never while driving. A device-issued single-use challenge opens a setup-only
+segment with no owner authority. Deterministic handlers generate the owner
+phrase verifier and write guest PIN records; ordinary authority still requires
+speaking the new phrase once. Only then may Jarvis interview Sid and write
+owner-confirmed answers to memory. This parked interview must not drive R1 or
+R2 implementation.
+
+### R3. Hands: Hermes on the node, device agents on the PCs, v1.2
 
 Three sessions. Depends on R2.
 

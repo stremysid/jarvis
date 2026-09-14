@@ -329,7 +329,10 @@ async function beginPhoneChallenge(): Promise<{
   return { observations, challenges, keyFingerprint };
 }
 
-async function activationHarness(options: { readonly challengeLimit?: number } = {}) {
+async function activationHarness(options: {
+  readonly challengeLimit?: number;
+  readonly conversation?: ConversationService;
+} = {}) {
   await clearFixture();
   const { observations, challenges, keyFingerprint } = await beginPhoneChallenge();
   const repo = repository();
@@ -350,7 +353,7 @@ async function activationHarness(options: { readonly challengeLimit?: number } =
     activation,
     keyFingerprint,
     budgets,
-    ...makeCore({ session: stored, repo, activation }),
+    ...makeCore({ session: stored, repo, activation, conversation: options.conversation }),
   };
 }
 
@@ -1243,6 +1246,23 @@ describe("CallSessionCore access, enrollment, and conversation", () => {
       env.DB.prepare("SELECT * FROM identity_challenges"),
     ]);
     expect(JSON.stringify(durable.flatMap((result) => result.results ?? []))).not.toContain(CHALLENGE_RESPONSE);
+  });
+
+  it("keeps an activation-only call isolated from conversation, memory, and the model", async () => {
+    const handleTurn = vi.fn<ConversationService["handleTurn"]>(async () => {
+      throw new Error("activation_reached_conversation");
+    });
+    const harness = await activationHarness({ conversation: { handleTurn } });
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+
+    await harness.instance.handleRelayEvent({
+      type: "prompt", text: "read my memory", language: "en-US", final: true,
+    });
+
+    expect(handleTurn).not.toHaveBeenCalled();
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM conversation_turns").first<{ count: number }>())?.count).toBe(0);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM events WHERE event_type LIKE 'conversation.%'")
+      .first<{ count: number }>())?.count).toBe(0);
   });
 
   it("fails one wrong activation response once and never retries it inside the call", async () => {

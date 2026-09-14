@@ -1,18 +1,57 @@
 # Known issues
 
-## Outbound voice does not distinguish Sid from voicemail after the neutral greeting
+## Owner calls lack the decided passphrase boundary
 
-After an exact outbound relay binding succeeds, the current call session says
-the neutral line and immediately grants owner authority. It has no
+Inbound owner admission currently trusts the enrolled `From` number after
+Twilio request verification. A valid Twilio signature proves the request came
+through Twilio; it does not prove the caller is Sid. The runtime does not read
+or bind STIR/SHAKEN attestation, so someone who spoofs the enrolled number is
+granted owner authority and can reach private memory and guest-access controls.
+
+Outbound has the sibling gap. After an exact relay binding succeeds, the call
+session says the neutral line and immediately grants owner authority. It has no
 human-versus-answering-machine detection. A voicemail greeting delivered as a
-final transcript can therefore be treated as owner input and can cause a
-memory-backed response to be spoken into the recording. The runtime also does
-not automatically state the outbound command's authorized purpose.
+final transcript can be treated as owner input and can cause a memory-backed
+response to be spoken into the recording. The runtime also does not
+automatically state the outbound command's authorized purpose.
 
-The neutral first line remains useful, but it is not a voicemail privacy
-boundary. R1's outbound answer/no-answer live acceptance must observe this
-path. Adding answering-machine detection is a separate product and cost
-decision; PR #32 only corrects the specification and does not implement it.
+Sid decided on a spoken passphrase for every inbound and outbound owner call,
+three tries before the call ends, no persistent lockout, and a Passed-A waiver
+that is built but switched off. The reviewed design chooses three generated
+words and an evidence gate for any later waiver enablement. Until step-up ships
+and passes live acceptance, both paths are release blockers and inbound must
+remain closed. The passphrase protects private disclosure to voicemail;
+answering-machine detection remains an optional cost optimization. The
+security contract and implementation order are in
+[`docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md`](docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md).
+
+## Guest PIN attempt counts reset when a call Durable Object hibernates
+
+The guest path keeps `#failedPinAttempts` in the in-memory call-session core.
+Cloudflare Durable Object hibernation reconstructs that core and resets the
+count while the same call remains in `pre_auth`. A caller can therefore avoid
+the promised three-attempt terminal state by pausing between attempts.
+
+The owner-passphrase implementation must move guest and owner per-call attempt
+ordinals into durable state, write each ordinal before verification, and commit
+the third mismatch with the terminal rejection. Until then, the guest
+three-attempt claim is not reliable across hibernation.
+
+## Owner-phone begin can reveal whether a supplied number matches stored state
+
+The device-signed enrollment route deliberately accepts the full phone only
+from a holder of the enrolled private device key. Once an enrollment exists,
+`begin` returns `active` or `pending` for the stored number and `conflict` for a
+different number. A compromised device key can therefore test phone-number
+guesses; while pending, the matching request also replaces an unused live
+response. The random request salt added by PR #31 prevents an observer from
+testing guesses against the signed body hash, but it does not remove this
+authenticated response oracle.
+
+Changing retry semantics affects recovery when the owner loses a displayed
+response, so the reviewer left this as a design choice rather than a merge
+blocker. Before calling goes live, decide whether a pending begin should return
+one indistinguishable state and wait for expiry instead of rotating the code.
 
 ## PR #28 evidence-store guards include deliberate redundancy
 

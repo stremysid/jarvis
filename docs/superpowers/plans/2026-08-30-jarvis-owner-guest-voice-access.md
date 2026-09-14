@@ -1,5 +1,11 @@
 # Jarvis Owner and Guest Voice Access Implementation Plan
 
+> **Superseded for owner authentication:** This historical implementation plan
+> built PIN-free owner admission. Its guest-grant work remains relevant, but
+> the owner portions are replaced by the
+> [2026-09-14 owner-passphrase design](../specs/2026-09-14-owner-call-passphrase-design.md).
+> Do not use its PIN-free owner tests or evidence as the R1 release contract.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the retired global call PIN with a PIN-free owner identity plus owner-provisioned, per-number guest access enforced by four-digit grant-bound PINs and exact permissions.

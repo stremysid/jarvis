@@ -2,6 +2,15 @@
 
 This runbook covers the R1 fake calling gate and the separate live-evidence contract. The fake harness exercises local routes, D1, Durable Objects and the calling services with fake providers. It cannot place a real call. PR #25 passed max review, merged and deployed as gateway `28109492` after migration 0015. Calling remains disabled until the owner supplies Twilio configuration and explicitly enables outbound controls. The live command still needs an injected driver and an enrolled-operator evidence query.
 
+> **Superseded owner contract:** The five-file gate and
+> `owner_identity_pin_free` evidence below describe the currently implemented
+> runtime, not the R1 release contract. The
+> [2026-09-14 owner passphrase design](../superpowers/specs/2026-09-14-owner-call-passphrase-design.md)
+> requires step-up on inbound and outbound calls and a sixth retained
+> `owner-step-up-refused` record. Do not run live acceptance or claim release
+> from the PIN-free schema. The implementation PR must update code, validators,
+> and this runbook together.
+
 ## Offline developer workflow
 
 Run the fake calling matrix and its typecheck, then the focused live-evidence contract tests:
@@ -34,7 +43,7 @@ A failed fake gate stops the sequence before the evidence audit. Missing, duplic
 
 | Requirement | Evidence exercised locally |
 |---|---|
-| Owner inbound and outbound, without a PIN | Signed admission, setup JSON passed to the DO method, active authority and conversation output |
+| Owner inbound and outbound, without a PIN **(superseded)** | Current signed admission and conversation output only; it does not satisfy the owner-passphrase contract |
 | Guest activation and isolation | Real four-digit verifier, pending-to-active grant, separate principal history, another guest's PIN refused |
 | Unknown and ungranted callers | Signed requests refused before relay initialization, PIN work or conversation |
 | Guest capabilities and changing grants | Capability/owner-operation contracts, revocation and PIN rotation before the next turn, cross-session proof rejection at the internal authority boundary |
@@ -65,8 +74,10 @@ Before deploying the reviewed item, configure `PUBLIC_ORIGIN` as the exact
 public HTTPS origin and `TWILIO_FROM_E164` as the Twilio number. Supply the
 account SID, outbound API key SID/secret, and separate webhook auth token in
 `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET` and
-`TWILIO_AUTH_TOKEN`. Set `OWNER_PRINCIPAL_ID` and `OWNER_VOICE_IDENTITY_ID` to
-the existing verified owner records, not newly invented identifiers.
+`TWILIO_AUTH_TOKEN`. Set `OWNER_PRINCIPAL_ID` to the exact principal from the
+active owner device row. Set `OWNER_VOICE_IDENTITY_ID` to the new, previously
+unused identity ID selected by the owner-phone enrollment runbook; after
+enrollment, require that exact identity to be active and verified.
 
 The model/Telegram bindings, three existing canonical 32-byte peppers and
 explicit `IDENTITY_CHALLENGE_HMAC_KEY_VERSION` are required before dialing.
@@ -314,7 +325,7 @@ entry or unreviewed local file from becoming paid-call authority.
 
 ## Redacted evidence contract
 
-Every accepted record is exact-key, scenario-discriminated JSON with `schemaVersion: "1.2"`, `generatorVersion: "0.1.0"`, `status: "passed"`, a lowercase 40-hex commit, ULID correlation/event identifiers, and UTC millisecond timestamps. Owner scenarios additionally require `authenticationMode: "owner_identity_pin_free"`, zero PIN prompts and zero PIN attempts. Unknown keys are rejected, including phone numbers, provider SIDs, transcript/PIN fields, authorization data, tokens, raw errors, URLs, headers, and provider bodies.
+Every accepted record is exact-key, scenario-discriminated JSON with `schemaVersion: "1.2"`, `generatorVersion: "0.1.0"`, `status: "passed"`, a lowercase 40-hex commit, ULID correlation/event identifiers, and UTC millisecond timestamps. The current owner scenarios additionally require the superseded `authenticationMode: "owner_identity_pin_free"`, zero PIN prompts and zero PIN attempts. The implementation must replace that owner mode with passphrase-step-up evidence and add the sixth refusal record before live acceptance. Unknown keys are rejected, including phone numbers, provider SIDs, transcript/PIN fields, authorization data, tokens, raw errors, URLs, headers, and provider bodies.
 
 The inbound sample requires 20 authenticated turns, persistence and recall, a clean hangup, at least one interruption, p95 first-audible latency at or below 4,000 ms, and p95 interruption-stop latency at or below 1,500 ms. Inbound and answered-outbound evidence also pins Deepgram `nova-3-general`, Google `en-US-Journey-O`, the exact configured signed WSS representation, DTMF delivery, and callback-schema verification.
 
@@ -326,7 +337,7 @@ These fields validate Task 5 only. They do not assert route wiring, call-session
 
 ## Operator sequence and rollback boundary
 
-With Tasks 6–8 integrated, the later release tooling must implement this operator sequence: run fake gates; run `jarvis doctor`; verify authenticated readiness; obtain explicit authorization for each paid scenario; run each scenario once; query only aggregate evidence as the enrolled operator; validate and atomically retain the five redacted records; then run `pnpm release:voice-gate` before release-manifest aggregation.
+With Tasks 6–8 integrated, the later release tooling must implement this operator sequence: run fake gates; run `jarvis doctor`; verify authenticated readiness; obtain explicit authorization for each paid scenario; run each scenario once; query only aggregate evidence as the enrolled operator; validate and atomically retain the required redacted records; then run `pnpm release:voice-gate` before release-manifest aggregation. The current five-record implementation is superseded; owner-passphrase implementation must require six.
 
 On any failure, stop the release, preserve the last known-good deployment identifier, and do not retry an indeterminate outbound dispatch. Task 10 owns deployment and rollback. Worker rollback must use an explicit schema-compatible known-good version and does not roll back D1, R2, or Durable Object state; migrations remain forward-only or require the separately proven encrypted restore procedure. This Task 9 harness never deploys or rolls back anything.
 
