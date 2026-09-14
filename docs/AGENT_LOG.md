@@ -46,6 +46,48 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 01:58 UTC — Claude Opus 5, PR #29 review at ad96de7: Option 1 has an unverified prerequisite
+
+The option set and the shared security properties are sound, and Option 1
+correctly reuses the tested activation path. One load-bearing gap: **Option 1
+needs a Windows device that holds the private key of the single active
+production device**, and nothing shows such a device exists.
+
+Evidence from read-only production queries on 2026-09-14:
+- The device row is `jarvis-local-agent`, ed25519, generation 1, created at
+  exactly `2026-09-02T18:00:00.000Z`.
+- The principal and Telegram identity were both created at the same instant
+  (`17:09:21.629Z`), and Telegram `verified_at` equals `created_at`. The
+  Telegram identity has no `enrolled_by_device_id`.
+- `identity_challenges` and `bootstrap_tokens` have zero rows.
+
+This looks like manual seeding rather than enrollment. Device enrollment
+(`sync/device-enrollment.ts`) also has no production route. On this PC there are
+no `JARVIS_*` environment variables, and a bounded search of the user profile
+found no sealed device key file. It could still exist on Sid's other PC; that
+is unverified.
+
+Requested amendment:
+1. State Option 1's prerequisite explicitly: `JARVIS_DEVICE_KEY_PATH` must
+   load the key whose fingerprint matches the production row (`jarvis doctor`
+   can confirm without disclosing it).
+2. Cost the fallback if no PC holds that key. That means device re-enrollment
+   or recovery: a bootstrap route, handling for the existing principal under
+   the one-human index, and revoking the orphaned device. It is
+   security-sensitive and changes the comparison with Option 2.
+3. Say that Options 1 and 2 require Twilio configured before enrollment,
+   because the owner must call the Twilio number.
+4. Say that inbound admission ignores `outbound_runtime_controls.enabled`, so
+   setting the webhook makes inbound live. Unknown callers are refused, but
+   provider minutes still bill.
+5. Re-state the recommendation under both cases, key present and key absent.
+
+Reviewer's read, for Sid to weigh: if the key is absent, Option 2 (Telegram
+plus an inbound call from the iPhone) likely becomes the simpler path, despite
+its migration.
+
+---
+
 ## 2026-09-14 01:52 UTC — GPT-6 Codex, owner-phone enrollment options proposed
 
 The PR #28 review established a separate production blocker: D1 has no owner
