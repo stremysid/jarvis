@@ -100,6 +100,8 @@ describe("proposal validation", () => {
       text: "é".repeat(policyVectors.maxFactBytes / 2),
       sourceEventIds: sources.slice(0, policyVectors.maxFactSources),
       confidence: 1,
+      origin: "model",
+      uncertain: true,
     });
     expect(validateProposal({ text: "Too many sources", sourceEventIds: sources }, allowed)).toBeNull();
   });
@@ -107,7 +109,13 @@ describe("proposal validation", () => {
   it("accepts a proposal citing submitted sources", () => {
     expect(
       validateProposal({ text: "Likes coffee", sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nnth"], confidence: 0.9 }, supplied),
-    ).toEqual({ text: "Likes coffee", sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nnth"], confidence: 0.9 });
+    ).toEqual({
+      text: "Likes coffee",
+      sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nnth"],
+      confidence: 0.9,
+      origin: "model",
+      uncertain: true,
+    });
   });
 
   it("rejects a proposal citing a source we never submitted", () => {
@@ -168,7 +176,13 @@ describe("distillation", () => {
       JSON.stringify([{ text: "Likes coffee", sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nnth"], confidence: 0.8 }]),
     );
     const result = await distil(EXCERPTS, deps(model), new AbortController().signal);
-    expect(result).toEqual([{ text: "Likes coffee", sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nnth"], confidence: 0.8 }]);
+    expect(result).toEqual([{
+      text: "Likes coffee",
+      sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nnth"],
+      confidence: 0.8,
+      origin: "model",
+      uncertain: true,
+    }]);
   });
 
   it("extracts the array even when the model wraps it in prose", async () => {
