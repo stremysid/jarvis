@@ -84,9 +84,10 @@ tables are:
 |---|---|
 | `memory_items` | Stable ULID `item_id`, `principal_id`, kind and creation receipt. Identity never depends on mutable wording or topic path. |
 | `memory_item_versions` | Immutable `version_id`, item version, NFC text and hash, basis, code-assigned origin, uncertainty, sensitivity, validity window, extractor version and creation time. Rewording creates a new row. |
-| `memory_item_sources` | Ordered sources for one version: event id and sequence, live-or-archived location, optional R2 segment id, verified excerpt and hash, channel and UTC time. |
+| `memory_item_sources` | Stable `source_id` plus ordered sources for one version: event id and sequence, live-or-archived location, optional R2 segment id, verified excerpt and hash, channel and UTC time. |
 | `memory_item_transitions` | Append-only lifecycle events (`proposed`, `active`, `rejected`, `superseded`, `forgotten`, `expired`) with reason, actor, policy version and required owner authorizing event when applicable. |
 | `memory_item_state` | Trigger-maintained current version and lifecycle state. Every retrieval path joins it; it is rebuildable from transitions. |
+| `memory_event_suppressions` | Append-only owner-authorized raw-history suppression ledger: stable suppression id and principal; exactly one target (`event_id` or inclusive event-sequence range); owner authorizing event; reason and UTC time; and, for an item forget, the `forgotten` transition plus each `memory_item_sources.source_id` whose excerpt must be hidden. |
 | `memory_item_links` | Immutable `supersedes`, `duplicate_of`, `contradicts` and `related` edges, with the transition that authorized the edge. |
 | `memory_topics` | Stable topic id, principal, current parent, normalized display name and active/merged state. The single root is immovable. |
 | `memory_topic_events` | Append-only create, rename, move and merge history with old/new parents and names, reason, actor and authorizing receipt. |
@@ -117,6 +118,12 @@ the raw receipt; results are verified against the R2 segment before use.
   input rather than silently rewriting it.
 - Immutable ledger tables reject UPDATE and DELETE. Owner correction,
   supersession and forget append a version or transition.
+- A raw-history candidate is eligible only when no matching
+  `memory_event_suppressions` row covers its event id or sequence. Fast recall,
+  exhaustive archive walks, topic answers and history-chunk rebuilds all apply
+  that D1 join. A forgotten item's source rows are linked to its suppression
+  records in the same batch as the `forgotten` transition; Vectorize deletion
+  is queued from that ledger but is never the enforcement boundary.
 - A model-proposed version is always `origin = model` and uncertain. It cannot
   set lifecycle state, claim owner origin, self-confirm or authorize a topic
   operation.
@@ -333,11 +340,15 @@ events. This prevents a guess from citing and reinforcing itself.
 - **`/why <words>`** is deterministic. It shows matching memory state,
   uncertainty, topic path, source date/channel, verified excerpt and stable
   event id. A model never composes the receipt.
-- **`/forget`** hides by transition; it is not erasure. Hidden items disappear
+- **`/forget`** hides by transition and event suppression; it is not erasure.
+  The owner-authorized batch appends the item's `forgotten` transition and one
+  suppression record for every linked source excerpt (or a bounded sequence
+  range for an explicit raw-history request). Hidden text disappears
   immediately from ordinary context, topic walks, keyword results, meaning
-  results and full-history answers. The raw event remains in the retained
-  record, and Jarvis says so. An owner audit can show that a hidden receipt
-  exists without silently restoring or reusing its text.
+  results and full-history answers, including results rebuilt from R2 archive
+  segments. The raw event remains in the retained record, and Jarvis says so.
+  An owner audit can show that a hidden receipt exists without silently
+  restoring or reusing its text.
 
 A later tier-3 erasure design must handle live events, content-addressed R2
 segments, indexes and locked backups. R2 does not imply that hiding has erased
@@ -476,7 +487,9 @@ cannot be satisfied by local mocks, CI, a render, or a running PC agent.
 6. A deliberately ambiguous statement is returned only as uncertain and is not
    treated as an instruction or permission.
 7. `/forget` hides one item from ordinary recall, meaning search, keyword
-   search and its topic walk while accurately stating that the original event
+   search, its topic walk, and an exhaustive rebuild/walk of the source event's
+   R2 archive segment. The suppression receipt links the forgotten item to the
+   exact source excerpt while accurately stating that the original event
    remains retained.
 8. The acceptance receipt records that the cloud path completed while all PCs
    were off, which indexes were searched, their coverage watermarks, any
