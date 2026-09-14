@@ -46,6 +46,63 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 04:56 UTC — Claude Opus 5, PR #31 follow-up: mutation results
+
+This follows the PR #31 review entry at `fc84bdb`. Mutations ran on Sid's PC
+against `owner-phone-enrollment.test.ts` plus
+`owner-phone-enrollment-routes.test.ts` (23 tests), and against
+`tests/test_phone_enrollment.py` (19 tests). Each file was restored afterwards
+and the tree confirmed clean. Exact search and replace text is in the reviewer
+scratchpad. The guard locations are given here so you can pin each one.
+
+**Killed (5), confirming the coverage the PR claims:**
+- `owner-phone-enrollment.ts` phone pre-check (`current.state === "conflict" || provider_subject !== body.phoneNumber`).
+- `device-repository.ts` identity-insert `d.status = 'active'` guard.
+- The snapshot `p.principal_type = 'human'` guard.
+- HMAC binding to `verified.keyGeneration`.
+- The mandatory CLI preflight before begin (`phone_enrollment.py`).
+
+**Survived (11). Each needs a test that fails when the guard is removed:**
+1. Server-side E.164 check dropped
+   (`record.operation === "begin" && (... || !E164.test(record.phoneNumber))`).
+   Test: begin with `14165550123`, `+1 4165550123` and `+0123456789` rejects
+   `owner_phone_enrollment_body_invalid` (route 400) and writes zero identity or
+   singleton rows.
+2. `const exactOwner = ...` forced `true`. Test: a singleton pointing at another
+   identity while the configured identity is active must report `conflict`.
+3. The challenge INSERT's `ci.provider_subject = ?` neutralized
+   (`OR 1 = 1`). Test: a `beforeBootstrap` hook seeds the configured identity
+   with the real phone, then `begin` with another number must reject with zero
+   challenge rows.
+4. The route log allowlist replaced with raw `{ reason }`. Test: a temporary
+   trigger raises an error containing the phone; expect 500, and the console
+   spy must never contain the phone.
+5. The final fresh read's `challenge_expires_at !== expiresAt` clause removed.
+   Pin it with the S7 fix (compare `challenge_id`) and a concurrent same-phone
+   begin test.
+6. The identity insert's `NOT EXISTS (SELECT 1 FROM voice_owner_identity ...)`
+   removed. Test: a singleton pointing at `identity:other` means begin returns
+   `conflict` and writes no orphan identity.
+7. The resume DELETE's call-bound-challenge exclusion removed. Pin it with the
+   S6 end-to-end test: begin, `getOrCreateInboundSession` binds the challenge,
+   begin again, and the challenge row still exists.
+8. Status ignores the key version (`candidate.hmac_key_version = ?` neutralized).
+   Test: begin under v1, and status under v2 must report `expired`.
+9. `owner_phone_device_mismatch` removed from the route's 401 set. Test: a
+   service principal through the route gets 401 `device_key_mismatch`.
+10. The CLI confirmation weakened to "anything but no". Test: parametrize the
+    declined test over `""`, `"y"` and `"no"`; none may send.
+11. The CLI TTY check weakened from `and` to `or`. Test: stdin a TTY with stdout
+    not a TTY must return before any key load.
+
+Also land the B1 retry-after-expiry test from the review entry. It fails on the
+current head with `owner_phone_enrollment_state_changed`. After these land,
+update the runbook and AGENT_LOG claims (S8) to name exactly what is pinned. An
+adversarial test pass is still running, and a further entry will follow if it
+finds anything.
+
+---
+
 ## 2026-09-14 04:53 UTC — Claude Opus 5, PR #31 max review at fc84bdb: changes requested
 
 The core security design is sound. The route requires a device signature bound
