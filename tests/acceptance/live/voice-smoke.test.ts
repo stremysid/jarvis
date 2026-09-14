@@ -13,6 +13,7 @@ import {
   runVoiceSmoke,
   validateEvidence,
   type EvidenceStore,
+  type VoiceSmokeDriver,
 } from "./voice-smoke.js";
 
 const inboundConversationTurn = {
@@ -252,6 +253,10 @@ class MemoryEvidenceStore implements EvidenceStore {
   readonly files = new Map<string, string>();
   failCommit = false;
 
+  async exists(name: string): Promise<boolean> {
+    return this.files.has(name);
+  }
+
   async writeTemporary(name: string, contents: string): Promise<void> {
     this.files.set(name, contents);
   }
@@ -355,6 +360,26 @@ describe("runVoiceSmoke", () => {
     expect(JSON.parse(store.files.get("inbound.json") ?? "null")).toEqual(inboundEvidence);
   });
 
+  it("refuses before invoking the paid driver when scenario evidence is already retained", async () => {
+    const store = new MemoryEvidenceStore();
+    store.files.set("inbound.json", "retained\n");
+    let executions = 0;
+
+    const result = await runVoiceSmoke({ ...completeGate, scenario: "inbound" }, {
+      driver: {
+        run: async () => {
+          executions += 1;
+          return inboundEvidence;
+        },
+      },
+      store,
+    });
+
+    expect(result).toEqual({ status: "blocked", reason: "evidence_already_retained" });
+    expect(executions).toBe(0);
+    expect([...store.files]).toEqual([["inbound.json", "retained\n"]]);
+  });
+
   it("removes its temporary evidence and normalizes commit failures", async () => {
     const store = new MemoryEvidenceStore();
     store.failCommit = true;
@@ -431,6 +456,83 @@ describe("offline evidence lifecycle", () => {
 });
 
 describe("safe command contract", () => {
+  it("passes an injected live driver, evidence store, doctor result, and boolean secret presence into the gate", async () => {
+    const cli = await import("./voice-smoke-cli.mjs");
+    const store = new MemoryEvidenceStore();
+    const driver: VoiceSmokeDriver = { run: async () => inboundEvidence };
+    const stdout: string[] = [];
+    const gateDependencies: unknown[] = [];
+    const gateInputs: unknown[] = [];
+
+    const exitCode = await cli.runSmokeCommand([
+      "--scenario", "inbound", "--execute-live", "--confirm-live", LIVE_VOICE_SMOKE_CONFIRMATION,
+    ], {
+      environment: completeGate.configuration,
+      secretPresence: completeGate.secretPresence,
+      doctorExitCode: 0,
+      driver,
+      store,
+      runGate: async (input: unknown, dependencies: unknown) => {
+        gateInputs.push(input);
+        gateDependencies.push(dependencies);
+        return runVoiceSmoke(input as typeof completeGate & { scenario: "inbound" }, dependencies as { driver: VoiceSmokeDriver; store: EvidenceStore });
+      },
+      writeStdout: (value: string) => { stdout.push(value); },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(gateInputs).toEqual([{
+      ...completeGate,
+      scenario: "inbound",
+      configuration: { ...completeGate.configuration, OWNER_VOICE_IDENTITY_ID: true },
+    }]);
+    expect(gateDependencies).toEqual([{ driver, store }]);
+    expect(stdout).toEqual(['{"status":"passed","evidencePath":"tests/acceptance/live/evidence/inbound.json"}\n']);
+    expect([...store.files.keys()]).toEqual(["inbound.json"]);
+  });
+
+  it("reports a live-driver failure distinctly without emitting the adapter's private error", async () => {
+    const cli = await import("./voice-smoke-cli.mjs");
+    const privateMessage = "private provider response and account identifier";
+    const stdout: string[] = [];
+
+    const exitCode = await cli.runSmokeCommand([
+      "--scenario", "inbound", "--execute-live", "--confirm-live", LIVE_VOICE_SMOKE_CONFIRMATION,
+    ], {
+      environment: completeGate.configuration,
+      secretPresence: completeGate.secretPresence,
+      doctorExitCode: 0,
+      driver: { run: async () => { throw new Error(privateMessage); } },
+      store: new MemoryEvidenceStore(),
+      writeStdout: (value: string) => { stdout.push(value); },
+    });
+
+    expect(exitCode).toBe(2);
+    expect(stdout).toEqual(['{"status":"blocked","reason":"live_smoke_failed"}\n']);
+    expect(stdout.join("")).not.toContain(privateMessage);
+  });
+
+  it("reports local evidence persistence failure distinctly from invalid arguments", async () => {
+    const cli = await import("./voice-smoke-cli.mjs");
+    const store = new MemoryEvidenceStore();
+    store.failCommit = true;
+    const stdout: string[] = [];
+
+    const exitCode = await cli.runSmokeCommand([
+      "--scenario", "inbound", "--execute-live", "--confirm-live", LIVE_VOICE_SMOKE_CONFIRMATION,
+    ], {
+      environment: completeGate.configuration,
+      secretPresence: completeGate.secretPresence,
+      doctorExitCode: 0,
+      driver: { run: async () => inboundEvidence },
+      store,
+      writeStdout: (value: string) => { stdout.push(value); },
+    });
+
+    expect(exitCode).toBe(2);
+    expect(stdout).toEqual(['{"status":"blocked","reason":"evidence_write_failed"}\n']);
+  });
+
   it("passes only an owner presence sentinel to the gate and never emits the raw identity", async () => {
     const priorExitCode = process.exitCode;
     const priorStderrWrite = process.stderr.write;

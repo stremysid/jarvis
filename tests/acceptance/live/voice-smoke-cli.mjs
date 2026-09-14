@@ -1,4 +1,4 @@
-import { readFile, rm } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   REQUIRED_LIVE_CONFIGURATION,
@@ -9,11 +9,29 @@ import {
   parseSmokeArguments,
   runVoiceSmoke,
 } from "./voice-smoke.ts";
+import { createFileEvidenceStore } from "./voice-smoke-store.mjs";
 
 const OWNER_VOICE_IDENTITY_CONFIGURATION = "OWNER_VOICE_IDENTITY_ID";
+const PUBLIC_RUN_FAILURES = new Set([
+  "evidence_cleanup_failed",
+  "evidence_write_failed",
+  "live_smoke_failed",
+]);
 
 function safeLine(value) {
   return `${JSON.stringify(value)}\n`;
+}
+
+function publicRunFailure(error) {
+  try {
+    if (error === null || typeof error !== "object") return "invalid_smoke_arguments";
+    const message = Object.getOwnPropertyDescriptor(error, "message")?.value;
+    return typeof message === "string" && PUBLIC_RUN_FAILURES.has(message)
+      ? message
+      : "invalid_smoke_arguments";
+  } catch {
+    return "invalid_smoke_arguments";
+  }
 }
 
 function evidencePath(name) {
@@ -21,17 +39,7 @@ function evidencePath(name) {
   return fileURLToPath(new URL(`./evidence/${name}`, import.meta.url));
 }
 
-const store = {
-  async writeTemporary() {
-    throw new Error("live_driver_unavailable");
-  },
-  async commitTemporary() {
-    throw new Error("live_driver_unavailable");
-  },
-  async remove(name) {
-    await rm(evidencePath(name), { force: true });
-  },
-};
+const store = createFileEvidenceStore(new URL("./evidence/", import.meta.url));
 
 async function audit() {
   try {
@@ -73,18 +81,30 @@ export async function runSmokeCommand(arguments_, overrides = {}) {
   const environment = overrides.environment ?? process.env;
   const runGate = overrides.runGate ?? runVoiceSmoke;
   const writeStdout = overrides.writeStdout ?? ((value) => process.stdout.write(value));
+  let parsed;
   try {
-    const parsed = parseSmokeArguments(arguments_);
-    const configuration = liveGateConfiguration(environment);
-    const result = await runGate({
-      ...parsed,
-      configuration,
-      secretPresence: {},
-    }, {});
-    writeStdout(formatRunResult(result));
-    return result.status === "blocked" ? 2 : 0;
+    parsed = parseSmokeArguments(arguments_);
   } catch {
     writeStdout(safeLine({ status: "blocked", reason: "invalid_smoke_arguments" }));
+    return 2;
+  }
+  try {
+    const configuration = liveGateConfiguration(environment);
+    const input = {
+      ...parsed,
+      configuration,
+      secretPresence: overrides.secretPresence ?? {},
+    };
+    if (Object.prototype.hasOwnProperty.call(overrides, "doctorExitCode")) input.doctorExitCode = overrides.doctorExitCode;
+    const evidenceStore = overrides.store ?? store;
+    const dependencies = overrides.driver === undefined
+      ? { store: evidenceStore }
+      : { driver: overrides.driver, store: evidenceStore };
+    const result = await runGate(input, dependencies);
+    writeStdout(formatRunResult(result));
+    return result.status === "blocked" ? 2 : 0;
+  } catch (error) {
+    writeStdout(safeLine({ status: "blocked", reason: publicRunFailure(error) }));
     return 2;
   }
 }

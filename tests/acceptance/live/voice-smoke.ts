@@ -34,6 +34,7 @@ export const REQUIRED_LIVE_SECRETS = Object.freeze([
 ] as const);
 
 export interface EvidenceStore {
+  exists(name: string): Promise<boolean>;
   writeTemporary(name: string, contents: string): Promise<void>;
   commitTemporary(temporaryName: string, finalName: string): Promise<void>;
   remove(name: string): Promise<void>;
@@ -60,7 +61,15 @@ export type VoiceSmokeRunResult =
     missingConfiguration: readonly string[];
     missingSecrets: readonly string[];
   }>
-  | Readonly<{ status: "blocked"; reason: "live_confirmation_required" | "doctor_not_ready" | "live_driver_unavailable" | "evidence_store_unavailable" }>
+  | Readonly<{
+    status: "blocked";
+    reason:
+      | "live_confirmation_required"
+      | "doctor_not_ready"
+      | "live_driver_unavailable"
+      | "evidence_store_unavailable"
+      | "evidence_already_retained";
+  }>
   | Readonly<{ status: "passed"; evidencePath: string }>;
 
 export interface ParsedSmokeArguments {
@@ -513,6 +522,13 @@ export async function runVoiceSmoke(
   if (input.doctorExitCode !== 0) return Object.freeze({ status: "blocked", reason: "doctor_not_ready" });
   if (dependencies.driver === undefined) return Object.freeze({ status: "blocked", reason: "live_driver_unavailable" });
   if (dependencies.store === undefined) return Object.freeze({ status: "blocked", reason: "evidence_store_unavailable" });
+  try {
+    if (await dependencies.store.exists(`${input.scenario}.json`)) {
+      return Object.freeze({ status: "blocked", reason: "evidence_already_retained" });
+    }
+  } catch {
+    return Object.freeze({ status: "blocked", reason: "evidence_store_unavailable" });
+  }
 
   let evidence: unknown;
   try {
