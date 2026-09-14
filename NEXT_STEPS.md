@@ -257,8 +257,10 @@ the Twilio number and credentials. No live calling evidence exists yet.
 Stage one is built -- see DECISIONS.md -- but its home-node completion plan is
 historical. Do not resume the adapter or native bridge in R0 or R2. The active
 D1 design preserves an Obsidian-compatible Markdown shape only for a later
-optional one-way export. Compatibility does not authorize an Obsidian client,
-sync path, editable vault or export build.
+optional one-way export. Sid approved a future private-GitHub copy with tested
+exclusion of sensitive categories, but not its R2 build, repository creation,
+token, app install, paid plan or live push. Compatibility does not authorize an
+Obsidian client, sync path or editable vault.
 
 **The redactor comes first.** Vault observations are stored verbatim with no
 redaction, so building the cloud upload path before the redactor would ship

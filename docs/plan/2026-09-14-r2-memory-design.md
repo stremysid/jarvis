@@ -297,9 +297,12 @@ creating a different topic or memory.
 
 That mapping is a compatibility requirement only. R2 creates no exporter,
 Obsidian vault, sync account, plugin, container, git repository or two-way edit
-path. A future export is never read back. It requires Sid's later approval for
-its custodian and scope, and excludes health, money, credentials and other
-people's private details by default.
+path. A future export is never read back. Sid approved a private GitHub
+repository as its later destination, with health, money, passwords and
+credentials, and other people's personal details excluded through tested
+category rules rather than best effort. He did not authorize an R2 exporter,
+repository creation, GitHub App installation, token, paid plan or live push;
+the one-repository access step remains his operation after separate review.
 
 ## 7. Automatic memory and uncertainty
 

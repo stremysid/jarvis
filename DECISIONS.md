@@ -29,8 +29,12 @@ Obsidian is not the memory store and is not built in R2. The ledger and topic
 tree stay compatible with a later optional **one-way** Obsidian-format Markdown
 export: folders mirror areas, stable block ids identify memory lines, and
 guesses have a separate section. An export is never read back into memory or
-prompts. Building it requires a later owner decision about where the copy lives
-and what sensitive classes it excludes.
+prompts. Sid later approved a private GitHub repository as the destination for
+that future copy, excluding health, money, passwords and credentials, and other
+people's personal details through tested category rules. That approval does not
+authorize building the exporter in R2, creating the repository, installing an
+app, supplying a token, buying a plan or making a live push; Sid performs the
+single-repository access step only after the exporter is separately reviewed.
 
 The 2026-08-30 Obsidian spec and its rejection of a read-only export assumed
 Sid wanted a notes interface he could edit. That premise was never confirmed

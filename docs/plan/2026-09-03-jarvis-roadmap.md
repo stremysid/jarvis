@@ -315,7 +315,9 @@ authoritative for the conversation ledger, versioned memory items, receipts
 and topic tree. FTS5 and Vectorize are rebuildable indexes. Obsidian may later
 receive a one-way Markdown export that mirrors the tree as folders and linked
 notes; the export is never read back. No Obsidian client, sync route, editable
-view or exporter is part of R2.
+view or exporter is part of R2. Sid approved a future private-GitHub copy with
+tested exclusion of sensitive categories; he did not approve repository
+creation, credentials, a paid plan or a live push.
 
 ### 5.5 Calling is in the first release
 
@@ -626,7 +628,7 @@ typecheck as a gate; and the six offered-not-chosen items in 4.7.
 | General model usage | DeepSeek prepaid, then a reviewed per-task route | R7 for the broader switch |
 | Cloudflare Workers Paid | already active | now |
 | Maps routing API | free tier covers personal use | R6 |
-| Optional one-way Obsidian-format export | not part of R2; custody, scope and price require a later owner decision | later |
+| Optional one-way Obsidian-format export | private GitHub copy approved for later, with tested sensitive-category exclusions; no R2 build, paid plan, repository creation, credentials or live push approved | later |
 
 ---
 

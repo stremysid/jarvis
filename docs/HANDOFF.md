@@ -115,9 +115,11 @@ the design. The reviewer recorded the decision at `951675e`: D1 is
 authoritative for the event ledger, versioned memory items, receipts and topic
 tree. D1 FTS5 and Vectorize are rebuildable indexes; full-history recall also
 walks verified R2 archive segments. Obsidian is only a later optional one-way
-export and is not built or read back in R2. Migration `0016` remains reserved
-but uncreated; Sid applies it only after its later schema PR passes Claude max
-review. The current docs branch defines the table contract, distillation,
+export and is not built or read back in R2. Sid approved a future private
+GitHub destination with sensitive-category exclusions, but not repository
+creation, credentials, paid service or a live push. Migration `0016` remains
+reserved but uncreated; Sid applies it only after its later schema PR passes
+Claude max review. The current docs branch defines the table contract, distillation,
 cost cap, receipts, forget semantics, custom nightly export and all-PCs-off
 exit test without performing a live call, migration or deployment.
 
