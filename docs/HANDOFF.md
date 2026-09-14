@@ -1,6 +1,6 @@
 # Handoff
 
-Current as of **2026-09-13**. Verify the current branch and checks before
+Current as of **2026-09-14**. Verify the current branch and checks before
 using this checkpoint. R0 passed; calling remains R1.
 
 PR #25 merged as `fd39301` after max review. Production D1 now has migrations
@@ -10,7 +10,7 @@ because Twilio is not configured; outbound calling is separately disabled by
 `outbound_runtime_controls.enabled = 0`. The release gate still requires the
 retained live-call evidence.
 
-## R1 is active; the node platform decision remains on hold
+## R1 is active; R2 storage design is on hold
 
 R0 passed on 2026-09-11. R1 depends on R0 and is entirely cloud-side.
 PR #23 supplied item 2's fake calling/access matrix and confirmed Telegram
@@ -105,12 +105,19 @@ phone-enrollment window, never recreate the retired verifier, and assess any
 rollback to a version that reads it first. Neither the live smoke nor that
 owner operation is satisfied by local tests.
 
-Sid's PCs run Windows 11 and his phone is an iPhone 16. There is no Linux
-host, server or VPS; the home PC is off overnight. No Windows node port or
-further Linux implementation is authorized until he chooses a direction.
-R2 item 4 is parked. Preserve the actual requirement: memory must work with
-every PC off, whatever implementation Sid selects. PR #22 records the
-platform correction; the old roadmap attribution is not owner approval.
+Sid's PCs run Windows 11 and his phone is an iPhone 16. There is no Linux host,
+server or VPS; the home PC is off overnight. The Linux home node was a
+planning-session choice Sid never made and is now historical. Do not port,
+provision or depend on it.
+
+Sid requires the best cloud memory, usable with every PC off, and delegated
+the design. The reviewer is comparing a database source of truth with an
+Obsidian-compatible Markdown vault source of truth plus derived indexes. Until
+that result is recorded, migration `0016` remains reserved but uncreated and no
+physical memory schema or vault path is authorized. The storage-neutral design
+draft covers full-history recall including R2 segments, the topic tree,
+uncertainty, voice latency, configurable extraction model and USD 5.00 default
+hard cap, and bounded reprocessing.
 
 PR #16 at `27b232f` has completed the reviewer's requested changes. The
 reviewer independently verified migration byte identity, all five trigger
@@ -142,15 +149,16 @@ and record the results in each PR; do not retry Actions, disable jobs or
 restructure CI to bypass the quota. CI path filtering can be considered
 when CI is next intentionally changed; it is not part of this work.
 
-## R2 item 3 review candidate
+## R2 item 3 historical accepted baseline
 
-**Platform hold (Sid, 2026-09-12):** his PCs run Windows 11 and his phone is an
+**Superseded platform hold (Sid, 2026-09-12):** his PCs run Windows 11 and his phone is an
 iPhone 16; there is no Linux host, server or VPS. The home PC is off overnight.
-The current Linux-only node cannot run on his machines. Do not port the node or
-continue Linux work until he decides. Carry forward the actual R2 requirement:
-memory must work with every PC off. PR #22 records this correction in
-`CLAUDE.md`; the runbook labels its existing Linux procedures as on hold and
-its mode-0700 check as POSIX-only, with no Windows ACL enforcement.
+The current Linux-only node cannot run on his machines. Sid later chose cloud
+memory and confirmed that he never chose the Linux node. The node and its
+runbook are historical; carry forward only the requirement that memory works
+with every PC off. PR #22 records the earlier correction in `CLAUDE.md`; its
+mode-0700 check remains POSIX-only historical evidence, not Windows ACL
+enforcement.
 
 The platform-independent review fixes are pushed at `f1958c4`. GitHub Actions
 run 34721781316 did not start any of its seven jobs because of an account

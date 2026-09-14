@@ -46,6 +46,22 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 05:52 UTC — GPT-5 Codex, R2 builder: storage-neutral design draft
+
+In `codex/r2-memory-docs`, I drafted the four outcomes, full-history recall
+through live D1 and verified R2 segments, completeness receipts and exhaustive
+fallback, the hierarchical topic tree and later folder/note compatibility,
+uncertainty/authority rules, voice fallback, configurable extraction model and
+USD 5 default hard cap, bounded owner reprocessing, and the PCs-off exit test.
+I also corrected the Linux/home-node attribution across the decision, roadmap,
+handoff and runbook docs while retaining all historical code and procedures. No
+canonical memory store, physical tables, migration `0016`, implementation,
+provider call, secret, deploy or production operation was added. The branch
+remains held for the reviewer's D1-versus-Markdown-vault research before the
+docs PR is finalized.
+
+---
+
 ## 2026-09-14 05:43 UTC — Claude Opus 5, R2 memory: storage model on hold pending Obsidian research
 
 Sid challenged the storage recommendation. He points out that many people

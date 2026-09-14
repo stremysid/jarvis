@@ -4,6 +4,35 @@
 - R2 is the archive store.
 - Authentication state does not use eventually consistent KV.
 
+## R2 cloud memory direction and corrected attribution (2026-09-14, owner decision)
+
+Sid's requirement is the outcome: Jarvis keeps every accepted conversation,
+automatically remembers what matters, can recall even small unimportant details
+by searching full history including R2 archives, and labels guesses as uncertain
+rather than presenting them as facts or instructions. Memory must work from the
+phone with every PC off.
+
+The small Linux home node recorded below and in the 3 September roadmap was a
+planning-session implementation choice that Sid never made. He owns no Linux
+host and did not authorize one. The home-node plan and runbook are historical;
+keep their code and documentation for provenance, but do not provision, port,
+deploy or make R2/R3 depend on that node.
+
+Sid asked for the best cloud memory and delegated the design. The reviewer is
+comparing a database source of truth with an Obsidian-compatible Markdown vault
+source of truth plus derived search indexes. Until that review is recorded, do
+not choose the canonical store, write migration `0016`, or build a vault sync
+path. Obsidian itself is not part of R2; compatibility is a future-view
+requirement only.
+
+Whichever store wins must support the topic tree Sid requested: areas,
+sub-areas and deeper levels; automatic filing; reversible rename, move and
+merge history; subtree answers; and full-history search independent of filing.
+The extraction model is configurable and starts as a comparison between
+`deepseek-v4-pro` and `deepseek-flash`; quality decides. Memory-model spend has
+a configurable hard monthly cap of USD 5.00 by default, and reprocessing older
+conversations is owner-triggered and bounded.
+
 ## Capacity admission stops at the configured limit (2026-09-13, owner decision)
 
 The owner does not enable provider auto-recharge. Voice calls and turns may
@@ -65,10 +94,12 @@ without changing the interface above them. Until it does, the adapter must not
 be described as meeting the plan's write-once guarantee -- it meets a weaker
 one, and the difference is recorded in KNOWN_ISSUES.md.
 
-## Decisions taken with Sid on 2026-09-03
+## Planning-session record from 2026-09-03 (partly superseded)
 
 Recorded from a planning session; the reasoning is in
-`docs/plan/2026-09-03-jarvis-roadmap.md`, section 5.
+`docs/plan/2026-09-03-jarvis-roadmap.md`, section 5. The Linux home node and
+git-backed Obsidian implementation in this historical list were planning
+choices, not choices Sid made. The 2026-09-14 decision above supersedes them.
 
 - **Phone first, PC optional.** Jarvis must work from the iPhone with every
   computer off. Everything not tied to a machine runs in the cloud: the

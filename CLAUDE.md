@@ -27,21 +27,24 @@ he sleeps.** So "always-on" in practice means "on except overnight", not 24/7.
 Anything that must survive that nightly window has to live in the cloud
 gateway, which is genuinely always-on, or tolerate catching up in the morning.
 
-## The Linux node conflict — unresolved, do not act on either side
+## The Linux node conflict is resolved for R2 memory
 
 `jarvis node` refuses to start on anything but Linux
 (`apps/local-agent/jarvis_local/node.py:239-240`), and the roadmap assumes "one
 small Linux server" (`docs/plan/2026-09-03-jarvis-roadmap.md:231`, `:428`),
 attributed to Sid and never provisioned. **Sid says he never asked for it and
-told the original planning chat he is on Windows.**
+told the original planning chat he is on Windows.** The Linux node was a
+planning-session choice, not his decision.
 
-The underlying requirement is real and is his, but it is not Linux. It is R2's
-exit test (`:451`): *memory must work with every PC off.* Linux was one
-implementation of always-on, chosen by a planning session and recorded as his
-decision.
+The underlying requirement is real and is his, but it is not Linux. Memory must
+work from the phone with every PC off. On 2026-09-14 Sid asked for the best
+cloud memory and delegated its design. The reviewer is still comparing the
+canonical storage choices; that open question does not reopen the Linux option.
 
-Until Sid picks a direction, do not "fix" this in either direction — do not port
-the node to Windows, and do not add more Linux assumptions.
+Do not provision the node, port it to Windows, add more Linux assumptions, or
+make R2/R3 depend on it. Keep the existing node code and runbook as historical
+work. No storage migration is authorized until the review recorded in
+`docs/AGENT_LOG.md` resolves the canonical memory store.
 
 Note that the Windows implementations were never removed:
 `transport/pipe_server.py` (`NamedPipeServer`) and `crypto/dpapi.py` are in the

@@ -1,18 +1,23 @@
 # Fact projection
 
-**Platform decision on hold.** Sid's home PC and laptop run Windows 11; his
+**Historical device-projection path — do not execute the Linux procedures.**
+Sid's home PC and laptop run Windows 11; his
 phone is an iPhone 16. He has no Linux host, server or VPS. The home PC is on
 during waking hours and off overnight. The current `jarvis node` implementation
 refuses to start outside Linux, so this PR's node cannot run on his machines.
-Do not port it to Windows or proceed with Linux host work until Sid chooses a
-direction. The Linux deployment and recovery instructions retained below
-describe the existing implementation; they are not steps for his Windows hosts.
+Sid has now chosen cloud memory and delegated the canonical storage design; he
+did not choose a Linux home node. Do not port the node to Windows or proceed
+with Linux host work. The Linux deployment and recovery instructions retained
+below describe the existing implementation; they are historical, not steps for
+his Windows hosts or the R2 cloud-memory rollout.
 See the platform correction in [PR #22](https://github.com/ksid1229-ops/jarvis/pull/22).
 
 The requirement remains **memory must work with every PC off**. Linux was an
 implementation chosen during planning, not an owner-approved platform decision.
 The cloud trigger tests, FTS recovery and post-migration verification below are
-platform-independent. They do not authorize a deployment or resolve the host choice.
+platform-independent historical evidence. They do not authorize a deployment,
+make the 0014 projection canonical, or resolve the storage review now in
+`docs/AGENT_LOG.md`.
 
 The home node publishes its eligible active-fact view as a signed, versioned
 snapshot. Cloud retrieval continues to use the previously published version

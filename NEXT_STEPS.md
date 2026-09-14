@@ -26,7 +26,8 @@ This item added `0014_memory_projection.sql`, including projection tables,
 publication/abandonment guards and an FTS index. Local migration `0004` adds
 quarantine and restart-safe rejection recovery. Production applied 0014 before
 gateway deployment `28109492`; no cloud migration remains pending through 0015.
-Do not start the uploader while the node platform decision is on hold.
+Do not start the historical uploader; R2 no longer depends on a device
+projection or node.
 
 ## R0 checkpoint, 2026-09-11
 
@@ -161,15 +162,23 @@ installation is legitimate but rejected. Preserve the absolute-host security
 boundary and require package identity verification in that future fix; do
 not resolve `pwsh` from inherited PATH. Leave implementation deferred.
 
-## R2 platform hold
+## R2 storage-design hold
 
 PR #13 is merged. PR #16 at `27b232f` is complete from the reviewer's side;
 the subsequent owner-run Windows results are listed in HANDOFF. No further
-implementation is requested on #16. R2 item 4 is parked behind Sid's node
-platform decision: no Windows port and no further Linux implementation.
-He owns Windows 11 PCs and an iPhone 16, with no Linux host or server.
-Keep the requirement that memory works with every PC off. R1 is cloud-side
-and does not depend on that decision.
+implementation is requested on #16. The Linux home node is historical: it was
+a planning-session choice Sid never made. Do not port it, provision it or make
+R2/R3 depend on it.
+
+Sid requires cloud memory that works with every PC off and delegated the
+design. The reviewer is comparing a database source of truth with an
+Obsidian-compatible Markdown vault source of truth and derived indexes. Until
+that decision is posted in `docs/AGENT_LOG.md`, keep migration `0016` reserved
+but do not create it or lock a physical schema. The requirements draft may
+continue: full-history recall through live D1 and R2 archives, the topic tree,
+uncertainty rules, voice latency, configurable extraction model and USD 5.00
+default hard cap, and bounded owner-triggered reprocessing. R1 is cloud-side
+and does not depend on this decision.
 
 ## Next gate
 
@@ -242,9 +251,10 @@ the Twilio number and credentials. No live calling evidence exists yet.
 
 ## The two-stage Obsidian adapter
 
-Stage one is built -- see DECISIONS.md. The roadmap assigns completion of
-the adapter on the home node to R2 and defers the native bridge. Do not
-resume the old bridge plan as part of R0.
+Stage one is built -- see DECISIONS.md -- but its home-node completion plan is
+historical. Do not resume the adapter or native bridge in R0 or R2. The active
+storage review may select an Obsidian-compatible Markdown format; compatibility
+does not authorize an Obsidian client, sync path or editable vault.
 
 **The redactor comes first.** Vault observations are stored verbatim with no
 redaction, so building the cloud upload path before the redactor would ship
