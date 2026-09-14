@@ -174,7 +174,7 @@ from, its state, and the milestone in section 7 that delivers it.
 | Memory available from the phone with every PC off | Sid, Sep 14; foundation §8.3 | absent | **R2** |
 | "Why do you think that" with deterministic receipts; `/remember`, `/why`, `/forget` | plan §7; Sid, Sep 14 | absent | **R2** |
 | Personal profile: stated versus observed, confidence through repetition, behaviour follows only eligible facts | plan §7 | absent | R2 foundation; R7 expansion |
-| Fact confirmation through the decision queue | addition | absent | **R2** |
+| Optional per-item owner confirmation through the decision queue, never routine curation | addition | absent | **R2** |
 | Full-history recall across live D1 and R2 archive segments, independent of distillation or filing | Sid, Sep 14 | absent | **R2** |
 | Hybrid keyword and meaning search through rebuildable indexes | plan §8; research | local lexical vector prototype only | **R2** |
 | Hierarchical topic tree with automatic filing and reversible rename, move and merge history | Sid, Sep 14 | absent | **R2** |
@@ -182,7 +182,7 @@ from, its state, and the milestone in section 7 that delivers it.
 | Vault notes become proposals Sid can confirm into facts | Obsidian design §7.3 | absent | later, only if an editable view is chosen |
 | Ingestion of emails, pages, documents; binaries by pointer with extracted text | plan §7; addition | absent | R7 |
 | Custom nightly, hashed, restorable cloud-memory export; never production `wrangler d1 export` | research; fact-check | absent; row-level NDJSON to locked R2 selected | **R2** |
-| Owner-triggered bounded reprocessing of older conversations with a configured model and cap | plan §7; Sid, Sep 14 | absent | **R2** |
+| Owner-triggered bounded reprocessing of older conversations with a configured model and its own one-time owner-approved cap | plan §7; Sid, Sep 14 | absent | **R2** |
 | Data export as one encrypted bundle | addition | absent | R9 |
 
 ### 4.3 Managing: what Jarvis keeps track of
@@ -192,7 +192,7 @@ from, its state, and the milestone in section 7 that delivers it.
 | Poll every tracked repo's four status documents; stalled-project detector | plan §2, §5 | built | R0 |
 | Real-time ping when KNOWN_ISSUES or DECISIONS changes | plan §2 | absent | R7 |
 | Google Classroom deadlines | plan §3 | unwired | R5 |
-| Brightspace deadlines by polite scrape in a reviewed cloud browser or available enrolled Windows device, MFA via Telegram | plan §3; corrected Sep 14 | absent | R5 |
+| Brightspace deadlines through a browser host/path Sid chooses when R5 starts, MFA via Telegram | plan §3; corrected Sep 14 | absent; host/path undecided | R5 |
 | One deadline store, conflict flagging, effort-scaled reminders, exam quiet hours | plan §3, §5 | built, empty | R0, R5 |
 | Grade and missing-work watch | plan §5 | absent | R5 |
 | Morning digest and Sunday retro | plan §3, §5 | built | R0 |
@@ -211,7 +211,7 @@ from, its state, and the milestone in section 7 that delivers it.
 | Tiered autonomy: observe, reversible and logged, always confirmed | plan §4, §8 | built | R0 |
 | Shadow mode before tier 2 | plan §8 | built | R3 |
 | Retrieved content is data, never instructions | plan §8 | built | done |
-| Hermes Agent when an enrolled Windows PC is available, plus a separately reviewed cloud path for cloud-only work | Hermes design; corrected Sep 14 | absent; no always-on host chosen | **R3** |
+| Hermes/task execution through a host and path Sid chooses when R3 starts | Hermes design; corrected Sep 14 | absent; host/path undecided | **R3** |
 | Full control of the laptop and the gaming PC when they are on: apps, files, settings, diagnostics | Sid, Sep 3; plan §4 | absent | R3 |
 | Full control of the St. Remy office PC and all St. Remy systems on command, with a permission tap for anything risky | Sid, Sep 3 | absent | **R4** |
 | Claude Code bridge: Jarvis relays an instruction to the Claude Code session on the office PC that maintains the St. Remy apps, and reports back | Sid, Sep 3 | absent | R4 |
@@ -292,20 +292,23 @@ agents only when available.
 
 ### 5.2 Hermes is the hands when a device is available
 
-Hermes remains the tool-using component, not the always-on front door and not
-the memory host. The Cloudflare gateway keeps answering phone and Telegram.
-R3 must choose and review the execution path for cloud-only work; machine-bound
-work waits honestly for an enrolled Windows device. No R3 step depends on a
-Linux node. The Codex sidecar plan remains retired.
+Hermes remains a candidate tool-using component, not the always-on front door
+and not the memory host. The Cloudflare gateway keeps answering phone and
+Telegram. Sid chooses the R3 execution host and path when that milestone
+starts. No R3 step depends on a Linux node, and this roadmap does not select a
+Windows port or cloud executor. The Codex sidecar plan remains retired.
 
 ### 5.3 Models
 
-R2's extraction model is a setting. Start with `deepseek-v4-pro`; before
-finalizing it, compare the same sanitized sample conversations with
-`deepseek-v4.1-flash` and choose the one that extracts memories best. Sid
-selected quality, not a model name, and a paid comparison requires his explicit
-OK. Memory-model spend has a configurable hard monthly cap of USD 5.00 by
-default. The broader per-task reasoning and calling model route remains R7.
+R2's extraction model is a provider-qualified setting supporting DeepSeek,
+Anthropic and OpenAI. Start with `deepseek:deepseek-v4-pro`; before finalizing
+it, re-check the provider ids and compare the same sanitized sample
+conversations with `deepseek:deepseek-v4.1-flash`. Sid selected quality, not a
+model name, and a paid comparison requires his explicit OK. Normal DeepSeek
+memory-model spend has a configurable hard monthly cap of USD 5.00 by default.
+Before switching to Claude or GPT, show Sid the projected monthly cost and have
+him set the new cap. The broader per-task reasoning and calling model route
+remains R7.
 
 ### 5.4 Memory, topic organization and an optional Obsidian export
 
@@ -340,9 +343,9 @@ office PC that maintains the apps; fix things for Sid's parents (default
 apps, refresh problems, news apps) when Sid is not there; read the apps'
 error logs and text Sid for urgent entries or call for severe ones; watch
 the apps' uptime and restart them as a tier-2 action. The office PC is an
-i5-14400 with 16 GB and hosts the St. Remy apps, so it runs only the thin
-device agent. Machine-bound Hermes and browser work runs there only while the
-office PC is available; no home node is assumed.
+i5-14400 with 16 GB and hosts the St. Remy apps. Decide the R4 execution host
+and path with Sid when that milestone starts; no home node, Windows port,
+cloud executor or browser placement is selected here.
 
 ### 5.8 Send on command
 
@@ -440,20 +443,26 @@ Multiple small review-gated PRs. Depends on R0 and the recorded D1 decision.
    search-index contract. Migration `0016` remains the reserved schema number;
    Sid applies it only after its separate PR passes Claude max review.
 2. Run automatic extraction and consolidation in the cloud. The extraction
-   model is configurable and starts at `deepseek-v4-pro`. Before finalizing it,
-   compare the same sanitized conversations with `deepseek-v4.1-flash` and use
-   whichever extracts memories best. Paid evaluation needs Sid's explicit OK.
-   The hard configurable monthly cap is USD 5.00 by default.
+   model is provider-qualified and configurable across DeepSeek, Anthropic and
+   OpenAI, starting at `deepseek:deepseek-v4-pro`. Before finalizing it, compare
+   the same sanitized conversations with `deepseek:deepseek-v4.1-flash` and use
+   whichever extracts memories best; re-check both API ids before the paid run.
+   Paid evaluation needs Sid's explicit OK. The hard configurable USD 5.00
+   monthly default is for DeepSeek; before a Claude or GPT switch, show Sid the
+   projected monthly cost and have him set the new cap.
 3. Preserve evidence and uncertainty: stated and confirmed items may inform
    behavior; guesses stay visibly uncertain and never become instructions or
-   authorization. Add bounded owner-triggered reprocessing for older history.
+   authorization. Add bounded owner-triggered reprocessing for older history
+   with its own one-time owner-approved spend limit, separate from hourly work.
 4. Add the hierarchical topic tree, automatic filing, reversible moves and
    merges, and subtree answers. Filing never controls whether raw history is
    findable.
 5. Add hybrid keyword and meaning recall across facts, summaries and the full
    live-D1 plus archived-R2 conversation history. Voice meaning search has a
-   strict time budget and recorded fallback that preserves the R1 latency gate.
-6. Add `/remember`, deterministic `/why` receipts, and `/forget` hide semantics.
+   hard 750 ms memory-retrieval timeout and recorded fallback that preserves
+   the R1 latency gate; R2 logs coordination before touching `voice/**`.
+6. Add `/remember`, deterministic `/why` receipts, and `/forget` hide semantics
+   backed by the event-level suppression ledger across live and archived recall.
 7. Add a custom hashed nightly export and restore drill appropriate to the
    chosen store. Never run `wrangler d1 export` against production because the
    existing database contains FTS5 virtual tables.
@@ -477,28 +486,22 @@ speaking the new phrase once. Only then may Jarvis interview Sid and write
 owner-confirmed answers to memory. This parked interview must not drive R1 or
 R2 implementation.
 
-### R3. Hands: Hermes on the node, device agents on the PCs, v1.2
+### R3. Hands: task execution and device capabilities, v1.2
 
 Three sessions. Depends on R2.
 
-1. Keep the existing Hermes source lock and fetch script. Install Hermes only
-   on an enrolled Windows PC when its machine-bound capabilities are needed;
-   built-in memory and background review stay off. Separately design and review
-   any cloud executor for cloud-only work.
-2. A cloud task contract and Hermes client: create a run, follow the event
-   stream, stop, answer an approval, and archive every redacted event. No
-   always-on local process is assumed.
-3. The device agent: the current local agent cut down to what a machine
-   needs, an outbound authenticated connection to the cloud task path, a
-   command executor
-   (PowerShell, app launch and close, file operations, settings, screenshots
-   on request), health reporting. Starts at logon on the laptop and the
-   gaming PC. Enrolled over HTTP as second and third devices with explicit
-   routing, default the laptop.
-4. The task path: a Telegram command becomes a decision-queue item. A reviewed
-   cloud executor handles cloud-only work; an enrolled device claims
-   machine-bound work, runs Hermes with a toolset chosen by the autonomy tier,
-   and posts the result. A machine that is off means an honest wait.
+1. Decide the execution host and path with Sid when R3 starts. Preserve the
+   existing Hermes source lock and fetch script, but this roadmap authorizes no
+   Linux node, Windows port, Hermes installation or cloud executor in advance.
+2. On the selected path, implement a reviewed task/runtime contract: create a
+   run, follow the event stream, stop, answer an approval, and archive every
+   redacted event.
+3. Provide machine-bound capabilities through the device path Sid selects:
+   PowerShell, app launch and close, file operations, settings, screenshots on
+   request, explicit device routing and health reporting.
+4. Route a Telegram task through the decision queue to the selected execution
+   path and post the result. A required machine that is off means an honest
+   wait.
 5. Tier 3 through the decision queue: Hermes's approval request becomes a
    Telegram button; the tap is the approval. `/panic` stops every run, every
    tier-2 action, and every pending outbound call, and says what it stopped.
@@ -506,7 +509,7 @@ Three sessions. Depends on R2.
 
 The historical Linux node and `docs/runbooks/home-node.md` are not an R3
 dependency or deployment option. They remain in the repository for provenance
-only.
+only; the replacement execution path is intentionally undecided.
 
 **Exit.** From Telegram, with the laptop on: "open the jarvis repo and tell
 me what NEXT_STEPS says". It runs on the laptop and answers on the phone.
@@ -517,23 +520,24 @@ Laptop off: the same command waits and Telegram says so.
 
 Two to three sessions. Depends on R3.
 
-1. The device agent on the office PC as a Windows service, because nobody is
-   logged in; under 300 MB resident. Hermes and browser work run on that office
-   PC when available, not on a home node.
-2. The Claude Code bridge: a "tell Claude" command that runs a headless
-   Claude Code turn in the St. Remy repository on the office PC with the
-   instruction Sid gave, captures the result, and reports back; any deploy or
-   production change behind a tier-3 tap. If Claude Code's remote sessions
-   prove simpler, the bridge targets those instead; the command surface is
-   the same either way.
+The execution host and path are decided with Sid when R4 starts. These are
+capability outcomes, not approval for a Windows service, cloud executor or
+particular browser/Claude runtime.
+
+1. Provide controlled access to the office PC when machine-bound work is
+   needed, within the agreed resource bound and only while that path is
+   available.
+2. Add a "tell Claude" command for the St. Remy repository that captures the
+   result and reports back; any deploy or production change stays behind a
+   tier-3 tap.
 3. Fix-it skills: default app associations, restarting an app or service,
    the news-app and refresh problems Sid's parents hit, diagnostics that
    read back what is wrong before changing it.
-4. Error-log reader: the St. Remy apps' logs tailed by the device agent,
+4. Error-log reader: the St. Remy apps' logs read through the chosen path,
    classified by severity, urgent entries texted, severe ones phoned.
-5. Uptime watch: the cloud watch pings the apps every few minutes, alerts on
-   failure, restarts as a tier-2 action after shadow mode, and records every
-   restart.
+5. Uptime watch: the chosen reviewed path pings the apps every few minutes,
+   alerts on failure, restarts as a tier-2 action after shadow mode, and records
+   every restart.
 6. DECISIONS.md: the on-command, permission-gated St. Remy rule.
 
 **Exit.** From Telegram, away from the office: "the PDFs open in Claude
@@ -548,9 +552,8 @@ Two sessions. Depends on R0 and R2.
 
 1. Google Classroom OAuth; the hourly job calls ingestion. One real
    assignment settles UTC versus local; delete the setting.
-2. Brightspace as a Hermes browser task on an available enrolled Windows
-   device, or a separately reviewed cloud browser, a few runs a day; MFA is
-   routed to Telegram as a decision.
+2. Decide the Brightspace browser host/path with Sid when R5 starts, then run a
+   few times a day with MFA routed to Telegram as a decision.
 3. Deadline status setters and the decision-expiry sweep. Grade and
    missing-work watch.
 
@@ -579,7 +582,8 @@ meeting across town at 3: Jarvis says "leave by 2:20" at 2:05.
 Three to four sessions. Depends on R2, R5.
 
 1. The personal profile as a shape; a nightly job proposing observed
-   patterns; fact confirmation through the decision queue; `/why`; `/forget`.
+   patterns; optional per-item confirmation through the decision queue when
+   Sid asks or authority requires it, never routine taps; `/why`; `/forget`.
 2. Profile-driven behaviour: digest time, quiet hours, style.
 3. The model switch: base URL configurable, per-task routing, Luna for the
    cheap tier, Opus 5 or GPT-5.6 Terra for reasoning, a local model as an
@@ -597,13 +601,12 @@ line and a cost line.
 
 Three sessions. Depends on R3, R5, R6.
 
-1. Errands with the tier-3 confirm flow in a reviewed cloud browser or on an
-   available enrolled Windows device;
-   ticketing as monitor-and-assist.
+1. Decide the errands browser host/path with Sid when R8 starts; preserve the
+   tier-3 confirm flow and ticketing as monitor-and-assist.
 2. Tesla Fleet API: preheat at tier 2, unlock and start at tier 3, unasked
    preheat from calendar, weather and "when should I leave".
-3. Standing watches through Hermes cron and subagents; the
-   repository-owned skills library.
+3. Standing watches through the reviewed execution path chosen at milestone
+   start; the repository-owned skills library.
 4. Local voice with `hey_jarvis` on the laptop; voice quick-capture to a
    repo's NEXT_STEPS.
 5. The gaming PC's self-waking rhythm: BIOS boot, work, sleep.
@@ -639,7 +642,7 @@ typecheck as a gate; and the six offered-not-chosen items in 4.7.
 | Item | Cost | From |
 |---|---|---|
 | Twilio number and calls | about $1.15 a month plus per-minute usage | R1 |
-| R2 extraction model | hard monthly cap, USD 5.00 by default; final model chosen by quality comparison | R2 |
+| R2 extraction model | DeepSeek starts with a hard USD 5.00 monthly cap; a Claude or GPT switch shows Sid projected cost and requires his new cap | R2 |
 | R2 D1 ledger, FTS5, Workflows, Workers AI embeddings and Vectorize | expected inside existing included amounts at the researched personal volume; measure and alert before limits | R2 |
 | General model usage | DeepSeek prepaid, then a reviewed per-task route | R7 for the broader switch |
 | Cloudflare Workers Paid | already active | now |

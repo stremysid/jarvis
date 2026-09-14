@@ -18,8 +18,10 @@ the phone, including while every PC is off.
 R2 must deliver all four outcomes together:
 
 1. **Keep every conversation.** Every accepted, redacted owner and assistant
-   turn is retained. Importance may affect distillation and ranking, never
-   retention.
+   turn is retained, including accepted owner voice-call transcripts and the
+   assistant turns in those calls. Importance may affect distillation and
+   ranking, never retention. Authentication/passphrase material rejected by
+   the existing voice boundary is not a conversation event.
 2. **Remember what matters automatically.** Jarvis extracts useful memories,
    files them into a topic tree, and makes safe memories available in later
    conversations without Sid curating them.
@@ -90,17 +92,19 @@ tables are:
 | `memory_event_suppressions` | Append-only owner-authorized raw-history suppression ledger: stable suppression id and principal; exactly one target (`event_id` or inclusive event-sequence range); owner authorizing event; reason and UTC time; and, for an item forget, the `forgotten` transition plus each `memory_item_sources.source_id` whose excerpt must be hidden. |
 | `memory_item_links` | Immutable `supersedes`, `duplicate_of`, `contradicts` and `related` edges, with the transition that authorized the edge. |
 | `memory_topics` | Stable topic id, principal, current parent, normalized display name and active/merged state. The single root is immovable. |
-| `memory_topic_events` | Append-only create, rename, move and merge history with old/new parents and names, reason, actor and authorizing receipt. |
+| `memory_topic_events` | Append-only create, rename, move and merge history with old/new parents and names, reason, actor and authorizing receipt. Each merge also records the exact reparented child topic ids, moved placement/assignment ids and aliases added to the survivor so reversal uses ledger data rather than model reconstruction. |
 | `memory_topic_aliases` | Historical names and paths resolving to stable topic ids after rename, move or merge. |
 | `memory_item_placement_events` | Append-only primary/related filing, refiling and removal events with source (`owner`, `rule`, `model`), confidence and reason. |
 | `memory_item_placement_state` | Trigger-maintained current primary and related placements, rebuildable from placement events. |
 | `memory_episodes` | Immutable bounded daily summaries with event-sequence range, content hash and summarizer version. Summaries have no authority; replacements link by supersession. |
+| `memory_episode_sources` | Exact ordered source-event ids for each daily summary, retained so an event suppression invalidates the summary candidate and queues a replacement that omits hidden text. |
 | `memory_history_chunks` | Rebuildable bounded text chunks spanning all live and archived conversations, with exact event range, content hashes and R2 segment receipt where applicable. |
 | `memory_history_coverage` | Per-principal live high-water mark plus every sealed R2 range and its indexing outcome. This is the proof behind a complete no-hit answer. |
 | `memory_vectors` | D1 ledger of Vectorize mutations: item kind (`item`, `episode`, `history_chunk`), id, embedding model, dimensions, content hash, mutation id, upsert time and delete time. |
-| `memory_runs` | Idempotent run key, job, range, model, counts, token/cost figures, outcome, timestamps and failure. Nothing-new, budget-blocked and failed are distinct. |
-| `memory_reprocess_jobs` | Owner-authorized bounded range, event cap, model, spend cap, dry-run flag, checkpoint, status and final receipt. |
-| `memory_cost_ledger` | Append-only worst-case reservations, settlements and releases in integer USD micros, keyed by model run and calendar month. |
+| `memory_runs` | Idempotent run key, job, range, provider-qualified model id, counts, token/cost figures, price-ledger version, outcome, timestamps and failure. Nothing-new, budget-blocked, provider-credit-blocked and failed are distinct. |
+| `memory_reprocess_jobs` | Owner-authorized bounded range, event cap, provider-qualified model, separate one-time spend limit, dry-run flag, checkpoint, status and final receipt. |
+| `memory_model_prices` | Versioned reviewed price records per provider and exact API model id, with effective time, input/output/cache unit prices, currency and source receipt. Old runs retain the price version used for settlement. |
+| `memory_cost_ledger` | Append-only worst-case reservations, settlements and releases in integer USD micros, keyed by provider, model run and budget class (`normal_monthly` or one owner-approved reprocessing job). |
 | `memory_cursors` | Named consumer high-water marks for distillation, summaries, FTS coverage, embeddings and export. |
 
 The external-content FTS5 projections are `memory_item_fts`,
@@ -123,7 +127,9 @@ the raw receipt; results are verified against the R2 segment before use.
   exhaustive archive walks, topic answers and history-chunk rebuilds all apply
   that D1 join. A forgotten item's source rows are linked to its suppression
   records in the same batch as the `forgotten` transition; Vectorize deletion
-  is queued from that ledger but is never the enforcement boundary.
+  is queued from that ledger but is never the enforcement boundary. Episodes
+  or chunks whose source set intersects a suppression are ineligible until a
+  replacement is rebuilt without the hidden event.
 - A model-proposed version is always `origin = model` and uncertain. It cannot
   set lifecycle state, claim owner origin, self-confirm or authorize a topic
   operation.
@@ -200,9 +206,12 @@ Ordinary turns use a bounded fast path:
 3. search keyword and meaning indexes across eligible distilled items,
    summaries and full-history chunks;
 4. fuse and rank candidates while preserving source identifiers;
-5. re-read each selected source from canonical knowledge content or the exact
+5. join distilled candidates to current item state and raw candidates to
+   `memory_event_suppressions`, dropping every hidden event before text enters
+   context;
+6. re-read each selected source from canonical knowledge content or the exact
    D1/R2 event and verify its hash before presenting it;
-6. pack quoted items into the existing item and byte budgets.
+7. pack quoted items into the existing item and byte budgets.
 
 Explicit requests such as "search everything" or "what did I say about X?"
 use the exhaustive path when the fast path misses, reports an index gap, or
@@ -210,7 +219,8 @@ cannot establish completeness. A bounded cloud job walks every uncovered live
 range and R2 segment, checkpoints progress, and sends the result when complete.
 It may take longer; it must not silently degrade to recent history or a fact-only
 answer. Retries resume from a checkpoint and a duplicate job key cannot produce
-two answers.
+two answers. Every walked event is anti-joined with
+`memory_event_suppressions` before its excerpt can be returned.
 
 Keyword search protects names, numbers and small exact details. Meaning search
 protects paraphrased recall. Time constraints (for example "last March") narrow
@@ -268,7 +278,9 @@ failure records a retryable observation and does not discard the memory.
   name alias.
 - **Move** changes the parent while recording the old and new paths.
 - **Merge** redirects the retired topic id to the surviving topic, moves its
-  assignments, and preserves the old path as an alias.
+  assignments, reparents its children, and preserves the old path as an alias.
+  The merge event records every reparented child id, moved placement/assignment
+  id and alias added to the survivor.
 - Every transition has an actor, timestamp, reason and owner authorization when
   the owner initiated it.
 - Redirect resolution is cycle-free and bounded. Old links and saved queries
@@ -316,7 +328,8 @@ the one-repository access step remains his operation after separate review.
 The extractor proposes atomic memories with exact source ids and excerpts.
 Deterministic code, never the model, assigns evidence class and authority:
 
-- `/remember <text>` and an exact first-person owner quote are `stated`;
+- `/remember <text>` and an exact first-person owner sentence are `stated`
+  only when the quote is word-bounded and equals the whole sentence;
 - an owner confirmation is `confirmed`;
 - repeated behavior may be `observed` but stays uncertain until the policy or
   owner promotes it;
@@ -324,10 +337,16 @@ Deterministic code, never the model, assigns evidence class and authority:
 - borrowed material is `third_party` and never becomes a fact about Sid by
   repetition.
 
-Only eligible stated or confirmed items may shape proactive behavior. Inferred,
-observed-unconfirmed and third-party items can be search hints, but responses
-label them as uncertain and they cannot authorize reminders, schedules, tools,
-messages, money, deletion or production work. Confidence is ranking metadata,
+An owner question, conditional (`if`, `unless`, `whether`, `when`), negated or
+hedged statement, or reported speech never receives trusted first-person origin;
+it falls to `inferred` and uncertain while remaining searchable.
+
+Eligible uncertain items enter ordinary conversational context with an explicit
+uncertain label, so Jarvis can use likely preferences or plans without hiding
+them from the answer. They may not shape proactive behavior or authorize
+reminders, schedules, tools, messages, money, deletion or production work.
+The confirmation queue is an optional owner control for a particular item, not
+routine tapping or memory-curation homework. Confidence is ranking metadata,
 not authority.
 
 The extractor receives no previously distilled memory when judging new source
@@ -377,20 +396,25 @@ authority, expires time-bounded memories, refreshes topic summaries and runs
 the custom backup in section 10. A failed model call never blocks raw-event
 retention and never advances the distillation cursor.
 
-The extraction model and hard monthly memory-model spend cap are configuration,
-not source constants. Initial settings are:
+The extraction provider/model and hard monthly memory-model spend cap are
+configuration, not source constants. Initial DeepSeek settings are:
 
-- model candidate: `deepseek-v4-pro`;
-- comparison candidate: `deepseek-flash` (currently V4.1 Flash);
-- default hard monthly cap: **USD 5.00**.
+- model candidate: `deepseek:deepseek-v4-pro`;
+- comparison candidate: `deepseek:deepseek-v4.1-flash`;
+- default hard monthly cap for normal DeepSeek distillation and consolidation:
+  **USD 5.00**.
 
 The planned non-secret settings are `MEMORY_EXTRACTION_MODEL` (default
-`deepseek-v4-pro`) and `MEMORY_MONTHLY_SPEND_CAP_USD` (default `5.00`). The
-configured model id and price version are stamped on every run and item version;
-changing either does not rewrite old rows.
+`deepseek:deepseek-v4-pro`) and `MEMORY_MONTHLY_SPEND_CAP_USD` (default `5.00`).
+`MEMORY_EXTRACTION_MODEL` accepts reviewed provider-qualified ids for DeepSeek,
+Anthropic Claude and OpenAI GPT (`deepseek:<api-id>`, `anthropic:<api-id>`, or
+`openai:<api-id>`); the prefix selects the adapter and provider-specific price
+ledger. The provider, exact API model id and price version are stamped on every
+run and item version; changing them does not rewrite old rows.
 
-Start with `deepseek-v4-pro`. Before the extraction model is finalized, compare
-both candidates on the same
+Start with `deepseek:deepseek-v4-pro`. Immediately before the owner-approved
+paid comparison, re-check that `deepseek:deepseek-v4.1-flash` is still the
+provider's real API id. Compare both candidates on the same
 sanitized sample conversations. Score exact-source citation, atomic-memory
 recall, unsupported-memory rate, uncertainty labeling, topic filing quality,
 conflict handling, prompt-injection resistance, latency and measured cost. Use
@@ -400,20 +424,36 @@ call by this builder.
 
 Every paid run reserves a worst-case amount before dispatch so concurrent jobs
 cannot cross the cap. Completion reconciles the reservation against observed
-tokens and price configuration. Rejection, timeout and no-new-events runs are
-recorded distinctly. At the cap, raw conversation retention, `/remember`,
-`/why`, `/forget` and existing-memory recall continue; model distillation and
-summarization pause with an owner-visible backlog and reason.
+tokens and the matching provider/model price record. Before a DeepSeek dispatch,
+Jarvis checks fresh prepaid credit against the next worst-case reservation and
+the configured warning headroom. It sends a durable owner warning before the
+credit is expected to run out; unavailable credit or provider refusal records a
+visible blocked outcome and backlog rather than failing quietly. Rejection,
+timeout and no-new-events runs are recorded distinctly. At the normal monthly
+cap, raw conversation retention, `/remember`, `/why`, `/forget` and
+existing-memory recall continue; model distillation and summarization pause
+with an owner-visible backlog and reason.
+
+The USD 5 default was sized for DeepSeek and is not silently carried to Claude
+or GPT. Before enabling an Anthropic or OpenAI model, Jarvis uses the offline
+evaluation's measured token volume plus that provider's reviewed price record
+to show Sid an expected monthly range. Sid then explicitly selects the
+provider-qualified model and sets its monthly cap; changing the cap is a money
+decision, not automatic failover.
 
 The owner-triggered reprocessing path is bounded by an explicit event-sequence
-or date range, maximum event count, maximum estimated spend, model id and dry-run
-mode. It also obeys the monthly cap. Reprocessing checkpoints progress, is
-idempotent, never rewrites raw history, and creates versioned proposals or
-supersession links rather than mutating old memories. A receipt reports the
-range read, model/version, tokens, cost, created/unchanged/rejected counts and
-remaining backlog. It cannot be triggered by retrieved text or another user.
-It does not advance the ordinary hourly cursor and cannot overwrite an owner
-correction, confirmation or forget transition.
+or date range, maximum event count, provider-qualified model id, dry-run mode,
+and its own one-time USD spend limit that Sid approves for that job. Its
+reservations use that one-time budget class rather than consuming the normal
+USD 5 monthly pool, so re-distilling old history cannot starve hourly memory.
+Normal distillation has dispatch priority if both queues contend for provider
+credit. Reprocessing checkpoints progress, is idempotent, never rewrites raw
+history, and creates versioned proposals or supersession links rather than
+mutating old memories. A receipt reports the range read, model/version, tokens,
+cost, created/unchanged/rejected counts and remaining backlog. It cannot be
+triggered by retrieved text or another user. It does not advance the ordinary
+hourly cursor and cannot overwrite an owner correction, confirmation or forget
+transition.
 
 ## 10. Custom nightly backup and restore
 
@@ -425,8 +465,8 @@ database requests. Neither behavior is acceptable on Jarvis's live store.
 The nightly Workflow performs a custom logical export:
 
 1. claim an idempotent export run and record immutable high-water marks for
-   event sequence, item transition, topic event, placement event and cost
-   ledger entry;
+   event sequence, item transition, event suppression, topic event, placement
+   event and cost-ledger entry;
 2. page each authoritative, append-only table only through its recorded mark,
    writing bounded NDJSON objects to a staging prefix in a separate backup R2
    bucket;
@@ -446,19 +486,22 @@ existing sealed R2 conversation archive remains the backup for older raw
 events; the nightly set includes memory-ledger tables and recent live events
 not yet covered by a sealed archive segment.
 
-A monthly restore drill imports the latest verified set into a scratch D1
-database, replays state projections, rebuilds all FTS5 tables, rebuilds or
-dry-runs the Vectorize ledger, and compares counts, coverage and sampled source
-hashes with the manifest. Restoring production is a separate destructive owner
-operation with a Time Travel bookmark and rollback; no scheduled job performs
-it.
+A monthly restore drill is an owner-run account operation using a pre-created,
+non-production scratch D1 database. Sid creates/configures that scratch target
+only after the restore procedure is separately reviewed; no scheduled Worker
+creates databases. The drill imports the latest verified set, replays state
+projections, rebuilds all FTS5 tables, rebuilds or dry-runs the Vectorize ledger,
+and compares counts, coverage and sampled source hashes with the manifest.
+Restoring production is a separate destructive owner operation with a Time
+Travel bookmark and rollback; no scheduled job performs it.
 
 ## 11. Voice latency
 
 Voice uses the same memory semantics with a stricter execution policy:
 
 1. recent context and bounded keyword results are always available;
-2. meaning search has a fixed deadline inside the existing turn budget;
+2. meaning search shares the calling PR's hard **750 ms memory-retrieval
+   timeout** inside the existing turn budget;
 3. deadline, index or archive failures fall back to the bounded path and record
    a redacted fallback reason;
 4. exhaustive archive walking is never placed before first audio—it becomes a
@@ -468,6 +511,10 @@ Voice uses the same memory semantics with a stricter execution policy:
 
 Silence is not success: an unavailable memory layer is named in observability
 and, when it could change the answer, in the response.
+
+Before any R2 implementation edits `apps/cloud-gateway/src/voice/**`, the R2
+builder posts the intended files and retrieval change in `docs/AGENT_LOG.md` so
+the calling work can coordinate first.
 
 ## 12. R2 exit test
 

@@ -48,12 +48,20 @@ levels; automatic filing; reversible rename, move and merge history; subtree
 answers; and full-history search independent of filing. Migration number
 `0016` remains reserved for the later reviewed schema PR; no migration is
 created or authorized by this documentation decision.
-The extraction model is configurable and starts with `deepseek-v4-pro`. Before
-finalizing it, compare the same sanitized conversations with
-`deepseek-v4.1-flash`; extraction quality decides, and a paid comparison needs
-Sid's explicit OK. Memory-model spend has a configurable hard monthly cap of
-USD 5.00 by default, and reprocessing older conversations is owner-triggered
-and bounded.
+The extraction setting is provider-qualified and supports reviewed DeepSeek,
+Anthropic Claude and OpenAI GPT adapters. It starts with
+`deepseek:deepseek-v4-pro`. Before finalizing it, compare the same sanitized
+conversations with `deepseek:deepseek-v4.1-flash`, re-checking both real API ids
+immediately before the paid run; extraction quality decides, and that run needs
+Sid's explicit OK. The price ledger is versioned per provider and exact model.
+Normal DeepSeek memory-model spend has a configurable hard monthly cap of USD
+5.00 by default. Jarvis warns Sid before prepaid DeepSeek credit is expected to
+run out and records a visible backlog instead of failing quietly. Before a
+Claude or GPT switch, Jarvis shows Sid the projected monthly cost and Sid sets
+the new cap; no automatic failover changes a money limit. Reprocessing older
+conversations is owner-triggered and bounded by its own separately approved
+one-time spend limit so it cannot consume the hourly-memory budget.
+
 ## Owner calls require a spoken step-up (2026-09-14, owner decision)
 
 Sid chose a spoken phrase at the start of every inbound and outbound owner

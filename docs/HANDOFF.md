@@ -149,8 +149,18 @@ GitHub destination with sensitive-category exclusions, but not repository
 creation, credentials, paid service or a live push. Migration `0016` remains
 reserved but uncreated; Sid applies it only after its later schema PR passes
 Claude max review. The current docs branch defines the table contract,
-distillation, cost cap, receipts, forget semantics, custom nightly export and
-all-PCs-off exit test without performing a live call, migration or deployment.
+event-level forget suppression, distillation, receipts, custom nightly export
+and all-PCs-off exit test. Its provider-qualified memory setting supports
+DeepSeek, Anthropic and OpenAI; USD 5.00 is the normal DeepSeek default, a
+Claude/GPT switch requires Sid to set a new cap after seeing projected cost,
+and reprocessing has its own owner-approved one-time limit. No live call,
+provider call, migration or deployment was performed.
+
+Draft PR #35 contains the storage-independent extraction policy, topic-tree
+reducer and offline evaluator. Its first Claude review findings are fixed on a
+branch retargeted to `main`. Draft PR #36 contains this documentation and D1
+design; its first Claude review findings are also fixed on a branch retargeted
+to `main`. Both await Claude Opus 5 max re-review before further R2 work.
 
 PR #16 at `27b232f` has completed the reviewer's requested changes. The
 reviewer independently verified migration byte identity, all five trigger

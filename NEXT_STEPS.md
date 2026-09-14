@@ -209,11 +209,19 @@ Vectorize are rebuildable indexes, and full-history recall includes verified
 R2 archive segments. Obsidian is only a later optional one-way export and is
 not built in R2.
 
-Open the documentation/design PR for Claude max review. Keep migration `0016`
-reserved but uncreated. After the docs decision passes review, the next small
-PR may define `0016`; Sid alone applies it after a second review. No live model
-comparison runs without Sid's explicit approval. R1 is cloud-side and does not
-depend on this work.
+Draft [PR #35](https://github.com/ksid1229-ops/jarvis/pull/35) contains the
+storage-independent extraction policy, topic-tree reducer and offline evaluator.
+Its first Claude review findings are fixed on `codex/r2-memory-pure-logic`,
+which is retargeted to `main` and waiting for max re-review. Draft
+[PR #36](https://github.com/ksid1229-ops/jarvis/pull/36) contains the corrected
+documentation and D1-authoritative design; its first Claude review findings are
+fixed on `codex/r2-memory-docs`, which is also retargeted to `main` and waiting
+for max re-review.
+
+Keep migration `0016` reserved but uncreated. Only after the docs design passes
+review may the next small PR define `0016`; Sid alone applies it after another
+Claude max review. No live model comparison runs without Sid's explicit
+approval. R1 is cloud-side and does not depend on this work.
 
 ## Next gate
 
