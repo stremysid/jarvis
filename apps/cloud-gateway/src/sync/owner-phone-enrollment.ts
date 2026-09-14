@@ -122,6 +122,7 @@ export class OwnerPhoneEnrollmentService {
     challengeId?: () => string;
     response?: () => string;
     beforeBootstrap?: () => void | Promise<void>;
+    afterBootstrap?: () => void | Promise<void>;
     faultStatement?: D1PreparedStatement;
   }) {
     if (!safeAtom(deps.ownerIdentityId)) throw new TypeError("owner_phone_enrollment_configuration_invalid");
@@ -186,6 +187,7 @@ export class OwnerPhoneEnrollmentService {
       if (after.state === "active" || after.state === "conflict") return this.stateResult(after.state);
       throw new Error("owner_phone_enrollment_state_changed");
     }
+    await this.deps.afterBootstrap?.();
     const after = await this.readCurrent(verified, now);
     if (after.state !== "pending" || after.row.challenge_expires_at !== expiresAt) {
       throw new Error("owner_phone_enrollment_state_changed");

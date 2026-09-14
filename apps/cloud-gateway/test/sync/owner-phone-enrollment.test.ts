@@ -221,6 +221,27 @@ describe("OwnerPhoneEnrollmentService", () => {
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM voice_owner_identity").first<{ count: number }>())?.count).toBe(0);
   });
 
+  it("refuses a service principal even when its device signature is valid", async () => {
+    await env.DB.prepare("UPDATE principals SET principal_type = 'service' WHERE principal_id = 'principal:owner'").run();
+    const body = { schemaVersion: "1.0", operation: "begin", phoneNumber: phone } as const;
+    const candidate = await signed(body);
+    await expect(service().execute(candidate.request, body, candidate.rawBody)).rejects.toThrow("owner_phone_device_mismatch");
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM channel_identities").first<{ count: number }>())?.count).toBe(0);
+  });
+
+  it("does not report success when the freshly-read identity no longer matches", async () => {
+    const body = { schemaVersion: "1.0", operation: "begin", phoneNumber: phone } as const;
+    const candidate = await signed(body);
+    const raced = service({
+      afterBootstrap: async () => {
+        await env.DB.prepare("UPDATE channel_identities SET status = 'disabled' WHERE identity_id = ?")
+          .bind(identityId).run();
+      },
+    });
+    await expect(raced.execute(candidate.request, body, candidate.rawBody))
+      .rejects.toThrow("owner_phone_enrollment_state_changed");
+  });
+
   it("reports absent, pending, expired, active, and conflict without returning the phone", async () => {
     await expect(execute({ schemaVersion: "1.0", operation: "status" })).resolves.toMatchObject({ enrollmentState: "absent" });
     const begun = await execute({ schemaVersion: "1.0", operation: "begin", phoneNumber: phone });
@@ -246,6 +267,13 @@ describe("OwnerPhoneEnrollmentService", () => {
       initiatingDeviceId: "device:home", initiatingKeyId: "key:home",
       initiatingKeyFingerprint: keyFingerprint, initiatingKeyGeneration: 1,
     }));
+    await expect(challenges.confirm(observations.issue({
+      challengeId: "challengeId" in begun ? begun.challengeId : "missing",
+      providerRequestId: "call:CA123", channel: "phone", principalId: "principal:owner",
+      identityId, response: "response" in begun ? begun.response : "000000",
+      initiatingDeviceId: "device:home", initiatingKeyId: "key:home",
+      initiatingKeyFingerprint: keyFingerprint, initiatingKeyGeneration: 1,
+    }))).rejects.toThrow("identity_challenge_consumed");
     const active = await execute({ schemaVersion: "1.0", operation: "status" });
     expect(active).toEqual({ schemaVersion: "1.0", deviceKeyMatches: true, enrollmentState: "active" });
     expect(JSON.stringify(active)).not.toContain(phone);
