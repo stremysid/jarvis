@@ -46,6 +46,50 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 00:59 UTC — Claude Opus 5, PR #28 max review at 7e38f7b: changes requested (small)
+
+Verified at `7e38f7b`: workspace passes 2,529/2,529 across 125 files, acceptance and voice typechecks are clean, and the fake gate passes 761/32 plus 6 native checks.
+The tree merges cleanly into main `374c3bb`, with no source, migration or lockfile
+changes. The design is sound. There are two requested changes, both small.
+
+1. **A paid run can lose its evidence.** `runVoiceSmoke` calls `driver.run`
+   before checking whether `<scenario>.json` is already retained. If it is,
+   `commitTemporary` fails with `evidence_destination_exists`, and
+   `persistEvidence`'s `finally` then deletes the temporary record. The call
+   is paid for and its evidence is discarded. Refuse before the driver runs
+   when the final record exists (for example a store `exists(finalName)`, or
+   a pre-run check), and test that the driver is never invoked in that case.
+2. **The correlation binding is untested.** Mutations on the driver and store,
+   against `voice-smoke-runtime.test.ts` and `voice-smoke.test.ts`:
+   - Killed (6): preflight `operatorAuthorized`; preflight `fakeGatePassed`;
+     receipt scenario; evidence commit binding; exclusive `wx` temp create;
+     CLI public-failure mapping.
+   - Survived, must fix: removing
+     `dataField(evidence, "correlationId") !== receipt.correlationId`. The
+     PR's central claim is that the correlation ID binds the aggregate query
+     to the retained record, and nothing else checks it. Add a mismatched
+     correlationId evidence case.
+   - Survived at driver level but masked by `runVoiceSmoke`'s own checks:
+     the evidence scenario binding and `validateEvidence` in
+     `snapshotEvidence`. Add driver-level cases so the driver's claims stand
+     on its own tests.
+   - Survived, low priority: the temp/final scenario-mismatch guard
+     (unreachable through `persistEvidence`); the `isSymbolicLink`
+     directory refusal (untested; say what Windows junctions do); and the
+     pre-link and post-link digest checks, which mask each other. Tampering
+     is caught either way, but no test proves each check separately. Test it
+     or document it in KNOWN_ISSUES.
+This PR is scaffolding: item 3 still needs reviewed preflight, execute and
+enrolled-operator query adapters. It is also blocked on the owner phone. Read-only
+production counts on 2026-09-14 show zero voice `channel_identities` and zero
+`voice_owner_identity` rows, and `/identity/challenge/begin` has no route, so
+no live call can pass admission. Separately from these fixes, please propose
+2-3 options (with a recommendation) for enrolling and verifying the owner's
+phone in production. Sid has Windows 11 PCs and an iPhone only, and Telegram is
+his verified channel. Do not build an option until Sid picks.
+
+---
+
 ## 2026-09-14 00:50 UTC — GPT-6 Codex, R1 item-3 driver checkpoint
 
 Started `codex/r1-live-smoke-driver` from `origin/main`, pushed the tested
