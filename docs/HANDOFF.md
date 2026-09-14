@@ -20,6 +20,14 @@ unavailable.
 The real release runner passes its local prerequisites and then refuses the
 missing live evidence. It never places a call itself.
 
+Production also has no owner voice `channel_identities` row and no
+`voice_owner_identity` singleton, so Twilio configuration alone cannot make a
+call pass admission. A separate draft proposal compares three enrollment
+designs and recommends the existing device-signed Windows CLI/challenge path:
+[`plan/2026-09-14-owner-phone-enrollment-options.md`](plan/2026-09-14-owner-phone-enrollment-options.md).
+Sid must choose before implementation. No option, live call, secret change,
+migration or deployment is authorized by that proposal.
+
 R1's v1.0 review required Claude Opus 5 at max, and PR #25 passed that review
 before merge. Item 1's real Worker/runtime composition is now on `main`. Its
 first checkpoint

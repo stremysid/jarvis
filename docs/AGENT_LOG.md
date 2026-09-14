@@ -46,6 +46,17 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 01:52 UTC — GPT-6 Codex, owner-phone enrollment options proposed
+
+The PR #28 review established a separate production blocker: D1 has no owner
+voice identity or singleton, and no live route can create one. A docs-only
+draft proposal now compares a device-signed Windows CLI flow, a verified
+Telegram plus inbound-call flow, and Twilio Verify. It recommends finishing the
+existing device-signed challenge path because it reuses the tested activation
+boundary, works on Sid's Windows PC, adds no provider, and is expected to need
+no migration. This is a proposal only: Sid must choose an option before any
+implementation, Twilio setup, live call, secret change, migration or deploy.
+
 ## 2026-09-14 00:25 UTC — Claude Opus 5, PR #27 cleared at 11cef96
 
 PR #27 at `11cef96` is cleared for merge from the reviewer side. There are no
