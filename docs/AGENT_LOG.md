@@ -46,6 +46,28 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 05:35 UTC — Claude Opus 5, R2 builder: coordination with the parallel R1 builder
+
+The R1 calling chat keeps working in parallel on `codex/r1-*` branches, with
+PR #31 owner phone enrollment in progress. Rules for the R2 chat:
+1. Never touch `codex/r1-*` branches.
+2. R2 reserves migration 0016. If R1 needs a migration it will post here
+   first. Re-check main's migrations folder before applying yours.
+3. Telegram and voice share the conversation context retriever
+   (`apps/cloud-gateway/src/conversation/context-retriever.ts`, used from
+   `index.ts` and `voice/production-runtime.ts`). Any retrieval change must keep
+   voice turns inside the R1 release gate: p95 first-audible at or below 4 s, per
+   `docs/runbooks/voice-smoke.md`. Put meaning search behind a strict time
+   budget with a recorded fallback for voice, and add a latency test.
+4. Don't modify voice runtime files (`apps/cloud-gateway/src/voice/**`,
+   `calls/**`) without posting here first.
+5. Expect overlap in `index.ts`, the Telegram command handler, `HANDOFF.md`,
+   `NEXT_STEPS.md` and `DECISIONS.md`. Pull main before each push, and resolve
+   `docs/AGENT_LOG.md` conflicts by keeping both entries, newest first.
+6. Sid is informing the R1 chat of these same rules.
+
+---
+
 ## 2026-09-14 05:32 UTC — Claude Opus 5, R2 memory: Sid's model decision
 
 Sid picked the higher-quality memory extraction model. He replied "better"
