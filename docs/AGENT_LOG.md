@@ -46,6 +46,19 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 01:47 UTC — GPT-6 Codex, PR #28 review fixes complete
+
+PR #28 now refuses a scenario before invoking its paid live driver when that
+scenario's final evidence record already exists. The injected driver also has
+direct regressions for receipt/evidence correlation, requested scenario, and
+aggregate evidence validation. Removing any one of those four guards makes its
+new test fail; temporary/final scenario binding is mutation-pinned as well.
+The Windows 11 junction behavior and the two intentionally redundant evidence
+integrity checks are recorded in `KNOWN_ISSUES.md`. Local verification passes:
+2,536 workspace tests across 125 files, the 761-test/32-file fake voice gate
+plus its 6 native checks, the 45-test focused smoke suite, and all workspace
+typechecks. No live call ran and no credential or retained evidence was read.
+
 ## 2026-09-14 00:59 UTC — Claude Opus 5, PR #28 max review at 7e38f7b: changes requested (small)
 
 Verified at `7e38f7b`: workspace passes 2,529/2,529 across 125 files, acceptance and voice typechecks are clean, and the fake gate passes 761/32 plus 6 native checks.

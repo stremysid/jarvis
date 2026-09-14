@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -8,6 +8,7 @@ import { createFileEvidenceStore } from "./voice-smoke-store.mjs";
 
 const COMMIT_SHA = "a".repeat(40);
 const CORRELATION_ID = "01j00000000000000000000000";
+const OTHER_CORRELATION_ID = "01j00000000000000000000002";
 
 const inboundEvidence = Object.freeze({
   schemaVersion: "1.2",
@@ -137,6 +138,36 @@ describe("injected live voice-smoke driver", () => {
     await expect(driver.run("inbound")).rejects.toThrow(/^live_smoke_evidence_failed$/u);
   });
 
+  it("refuses otherwise valid evidence bound to a different execution receipt", async () => {
+    const driver = createVoiceSmokeDriver({
+      preflight: async () => completePreflight,
+      execute: async () => ({ schemaVersion: "1.0", scenario: "inbound", correlationId: CORRELATION_ID }),
+      queryEvidence: async () => ({ ...inboundEvidence, correlationId: OTHER_CORRELATION_ID }),
+    });
+
+    await expect(driver.run("inbound")).rejects.toThrow(/^live_smoke_evidence_failed$/u);
+  });
+
+  it("refuses valid evidence for a different scenario at the driver boundary", async () => {
+    const driver = createVoiceSmokeDriver({
+      preflight: async () => completePreflight,
+      execute: async () => ({ schemaVersion: "1.0", scenario: "unauthorized-caller", correlationId: CORRELATION_ID }),
+      queryEvidence: async () => inboundEvidence,
+    });
+
+    await expect(driver.run("unauthorized-caller")).rejects.toThrow(/^live_smoke_evidence_failed$/u);
+  });
+
+  it("validates aggregate evidence inside the driver before returning it", async () => {
+    const driver = createVoiceSmokeDriver({
+      preflight: async () => completePreflight,
+      execute: async () => ({ schemaVersion: "1.0", scenario: "inbound", correlationId: CORRELATION_ID }),
+      queryEvidence: async () => ({ ...inboundEvidence, authenticatedTurns: 19 }),
+    });
+
+    await expect(driver.run("inbound")).rejects.toThrow(/^live_smoke_evidence_failed$/u);
+  });
+
   it("normalizes private adapter failures at the stage where they occur", async () => {
     const privateMessage = "private provider response and account identifier";
     const stages = [
@@ -184,6 +215,16 @@ afterEach(async () => {
 });
 
 describe("local voice-smoke evidence store", () => {
+  it("reports whether a fixed final evidence record is already retained", async () => {
+    const directory = await temporaryEvidenceDirectory();
+    const store = createFileEvidenceStore(pathToFileURL(`${directory}/`));
+
+    await expect(store.exists("inbound.json")).resolves.toBe(false);
+    await writeFile(join(directory, "inbound.json"), "retained\n", "utf8");
+    await expect(store.exists("inbound.json")).resolves.toBe(true);
+    await expect(store.exists("operator-notes.txt")).rejects.toThrow(/^unsafe_evidence_path$/u);
+  });
+
   it("publishes a completed temporary record atomically under its fixed scenario name", async () => {
     const directory = await temporaryEvidenceDirectory();
     const store = createFileEvidenceStore(pathToFileURL(`${directory}/`));
@@ -207,6 +248,31 @@ describe("local voice-smoke evidence store", () => {
     await expect(store.commitTemporary(temporaryName, "inbound.json")).rejects.toThrow(/^evidence_destination_exists$/u);
     await expect(readFile(join(directory, "inbound.json"), "utf8")).resolves.toBe("retained\n");
     await expect(readFile(join(directory, temporaryName), "utf8")).resolves.toBe("replacement\n");
+  });
+
+  it("refuses to commit a temporary record under a different scenario", async () => {
+    const directory = await temporaryEvidenceDirectory();
+    const store = createFileEvidenceStore(pathToFileURL(`${directory}/`));
+    const temporaryName = `.inbound.${CORRELATION_ID}.tmp`;
+    await store.writeTemporary(temporaryName, "retained\n");
+
+    await expect(store.commitTemporary(temporaryName, "outbound-answer.json")).rejects.toThrow(/^unsafe_evidence_path$/u);
+    await expect(readFile(join(directory, temporaryName), "utf8")).resolves.toBe("retained\n");
+    await expect(readFile(join(directory, "outbound-answer.json"), "utf8")).rejects.toThrow();
+  });
+
+  it("refuses a symbolic-link evidence directory, including a Windows junction", async () => {
+    const root = await temporaryEvidenceDirectory();
+    const target = join(root, "target");
+    const linked = join(root, "linked");
+    await mkdir(target);
+    await symlink(target, linked, process.platform === "win32" ? "junction" : "dir");
+    const store = createFileEvidenceStore(pathToFileURL(linked));
+
+    await expect(store.writeTemporary(`.inbound.${CORRELATION_ID}.tmp`, "blocked\n")).rejects.toThrow(
+      /^evidence_directory_unavailable$/u,
+    );
+    await expect(readFile(join(target, `.inbound.${CORRELATION_ID}.tmp`), "utf8")).rejects.toThrow();
   });
 
   it("treats a file URL as the evidence directory even when it has no trailing slash", async () => {

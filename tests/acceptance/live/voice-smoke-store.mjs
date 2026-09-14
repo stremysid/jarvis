@@ -44,6 +44,18 @@ export function createFileEvidenceStore(directoryUrl) {
   const pending = new Map();
 
   return Object.freeze({
+    async exists(name) {
+      safeName(name, FINAL_NAME);
+      await requireDirectory(directory);
+      try {
+        await lstat(join(directory, name));
+        return true;
+      } catch (error) {
+        if (isCode(error, "ENOENT")) return false;
+        throw new Error("evidence_store_unavailable");
+      }
+    },
+
     async writeTemporary(name, contents) {
       safeName(name, TEMPORARY_NAME);
       if (typeof contents !== "string") throw new Error("evidence_contents_invalid");

@@ -253,6 +253,10 @@ class MemoryEvidenceStore implements EvidenceStore {
   readonly files = new Map<string, string>();
   failCommit = false;
 
+  async exists(name: string): Promise<boolean> {
+    return this.files.has(name);
+  }
+
   async writeTemporary(name: string, contents: string): Promise<void> {
     this.files.set(name, contents);
   }
@@ -354,6 +358,26 @@ describe("runVoiceSmoke", () => {
     });
     expect([...store.files.keys()]).toEqual(["inbound.json"]);
     expect(JSON.parse(store.files.get("inbound.json") ?? "null")).toEqual(inboundEvidence);
+  });
+
+  it("refuses before invoking the paid driver when scenario evidence is already retained", async () => {
+    const store = new MemoryEvidenceStore();
+    store.files.set("inbound.json", "retained\n");
+    let executions = 0;
+
+    const result = await runVoiceSmoke({ ...completeGate, scenario: "inbound" }, {
+      driver: {
+        run: async () => {
+          executions += 1;
+          return inboundEvidence;
+        },
+      },
+      store,
+    });
+
+    expect(result).toEqual({ status: "blocked", reason: "evidence_already_retained" });
+    expect(executions).toBe(0);
+    expect([...store.files]).toEqual([["inbound.json", "retained\n"]]);
   });
 
   it("removes its temporary evidence and normalizes commit failures", async () => {
