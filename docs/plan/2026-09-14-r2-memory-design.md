@@ -90,6 +90,7 @@ tables are:
 | `memory_item_transitions` | Append-only lifecycle events (`proposed`, `active`, `rejected`, `superseded`, `forgotten`, `expired`) with reason, actor, policy version and required owner authorizing event when applicable. |
 | `memory_item_state` | Trigger-maintained current version and lifecycle state. Every retrieval path joins it; it is rebuildable from transitions. |
 | `memory_event_suppressions` | Append-only owner-authorized raw-history suppression ledger: stable suppression id and principal; exactly one target (`event_id` or inclusive event-sequence range); owner authorizing event; reason and UTC time; and, for an item forget, the `forgotten` transition plus each `memory_item_sources.source_id` whose excerpt must be hidden. |
+| `memory_event_suppression_lifts` | Append-only owner-authorized correction ledger: stable lift id and principal, exactly one suppression id, owner authorizing event, reason and UTC time. A suppression may be lifted once; hiding the same turn again requires a new suppression row. |
 | `memory_item_links` | Immutable `supersedes`, `duplicate_of`, `contradicts` and `related` edges, with the transition that authorized the edge. |
 | `memory_topics` | Stable topic id, principal, current parent, normalized display name and active/merged state. The single root is immovable. |
 | `memory_topic_events` | Append-only create, rename, move and merge history with old/new parents and names, reason, actor and authorizing receipt. Each merge also records the exact reparented child topic ids, moved placement/assignment ids and aliases added to the survivor so reversal uses ledger data rather than model reconstruction. |
@@ -122,14 +123,21 @@ the raw receipt; results are verified against the R2 segment before use.
   input rather than silently rewriting it.
 - Immutable ledger tables reject UPDATE and DELETE. Owner correction,
   supersession and forget append a version or transition.
-- A raw-history candidate is eligible only when no matching
-  `memory_event_suppressions` row covers its event id or sequence. Fast recall,
-  exhaustive archive walks, topic answers and history-chunk rebuilds all apply
-  that D1 join. A forgotten item's source rows are linked to its suppression
-  records in the same batch as the `forgotten` transition; Vectorize deletion
-  is queued from that ledger but is never the enforcement boundary. Episodes
-  or chunks whose source set intersects a suppression are ineligible until a
+- A suppression is active when no `memory_event_suppression_lifts` row names
+  it. A raw-history candidate is eligible only when no active suppression
+  covers its event id or sequence. Recent-turn context, fast recall, exhaustive
+  archive walks, topic answers and history-chunk rebuilds all apply that D1
+  join. A forgotten item's source rows are linked to its suppression records in
+  the same batch as the `forgotten` transition; Vectorize deletion is queued
+  from that ledger but is never the enforcement boundary. Episodes or chunks
+  whose source set intersects an active suppression are ineligible until a
   replacement is rebuilt without the hidden event.
+- A lift requires an authenticated owner authorization event and names exactly
+  one suppression. An item-level correction appends both the new item lifecycle
+  transition and every required suppression lift in one batch. It queues
+  rebuild/upsert work, but canonical D1 state—not asynchronous indexes—controls
+  immediate eligibility. Migration tests must reject duplicate, cross-principal
+  and unauthorised lifts.
 - A model-proposed version is always `origin = model` and uncertain. It cannot
   set lifecycle state, claim owner origin, self-confirm or authorize a topic
   operation.
@@ -143,7 +151,8 @@ the raw receipt; results are verified against the R2 segment before use.
   CHECK constraints. Do not use `SELECT CASE ... RAISE`, which remote D1 does
   not accept reliably.
 - Sid applies migration `0016` only after its separate PR passes Claude Opus 5
-  max review. This docs PR creates no SQL and performs no migration.
+  max review. The design and pure-logic follow-up PRs create no SQL and perform
+  no migration.
 
 ### 3.4 Index freshness and rebuild
 
@@ -203,15 +212,18 @@ Ordinary turns use a bounded fast path:
 
 1. validate the authenticated owner principal and capture the query;
 2. include a small deterministic profile/context card;
-3. search keyword and meaning indexes across eligible distilled items,
+3. load the bounded recent-turn window from D1 only after anti-joining every
+   event against active suppressions, so a just-forgotten turn cannot re-enter
+   Telegram or voice context;
+4. search keyword and meaning indexes across eligible distilled items,
    summaries and full-history chunks;
-4. fuse and rank candidates while preserving source identifiers;
-5. join distilled candidates to current item state and raw candidates to
-   `memory_event_suppressions`, dropping every hidden event before text enters
-   context;
-6. re-read each selected source from canonical knowledge content or the exact
+5. fuse and rank candidates while preserving source identifiers;
+6. join distilled candidates to current item state and raw candidates to
+   active `memory_event_suppressions`, dropping every hidden event before text
+   enters context;
+7. re-read each selected source from canonical knowledge content or the exact
    D1/R2 event and verify its hash before presenting it;
-7. pack quoted items into the existing item and byte budgets.
+8. pack quoted items into the existing item and byte budgets.
 
 Explicit requests such as "search everything" or "what did I say about X?"
 use the exhaustive path when the fast path misses, reports an index gap, or
@@ -219,7 +231,7 @@ cannot establish completeness. A bounded cloud job walks every uncovered live
 range and R2 segment, checkpoints progress, and sends the result when complete.
 It may take longer; it must not silently degrade to recent history or a fact-only
 answer. Retries resume from a checkpoint and a duplicate job key cannot produce
-two answers. Every walked event is anti-joined with
+two answers. Every walked event is anti-joined with active
 `memory_event_suppressions` before its excerpt can be returned.
 
 Keyword search protects names, numbers and small exact details. Meaning search
@@ -339,7 +351,11 @@ Deterministic code, never the model, assigns evidence class and authority:
 
 An owner question, conditional (`if`, `unless`, `whether`, `when`), negated or
 hedged statement, or reported speech never receives trusted first-person origin;
-it falls to `inferred` and uncertain while remaining searchable.
+it falls to `inferred` and uncertain while remaining searchable. Deterministic
+hedge framing includes `maybe`, `might`, `probably`, `perhaps`, `I think`, `I
+guess`, `I suppose`, `could` and `would`. A trusted quote contains exactly one
+sentence; multiple sentences cannot inherit trust from a first-person token in
+only one of them.
 
 Eligible uncertain items enter ordinary conversational context with an explicit
 uncertain label, so Jarvis can use likely preferences or plans without hiding
@@ -362,12 +378,22 @@ events. This prevents a guess from citing and reinforcing itself.
 - **`/forget`** hides by transition and event suppression; it is not erasure.
   The owner-authorized batch appends the item's `forgotten` transition and one
   suppression record for every linked source excerpt (or a bounded sequence
-  range for an explicit raw-history request). Hidden text disappears
-  immediately from ordinary context, topic walks, keyword results, meaning
-  results and full-history answers, including results rebuilt from R2 archive
-  segments. The raw event remains in the retained record, and Jarvis says so.
-  An owner audit can show that a hidden receipt exists without silently
-  restoring or reusing its text.
+  range for an explicit raw-history request). Suppression hides each complete
+  source turn, including other details in that turn, rather than redacting only
+  the matched excerpt. The deterministic receipt reports the exact number of
+  distinct accepted conversation turns newly hidden and the total covered by
+  the request. Hidden text disappears immediately from recent-turn context,
+  topic walks, keyword results, meaning results and full-history answers,
+  including results rebuilt from R2 archive segments. The raw event remains in
+  the retained record, and Jarvis says so. An owner audit can show that a hidden
+  receipt exists without silently restoring or reusing its text.
+- **Suppression lift** corrects a mistaken hide without deleting its history.
+  The authenticated owner action appends one lift per suppression and, for an
+  item-level correction, a new lifecycle transition in the same batch. The
+  original suppression and its reason remain auditable. Retrieval starts using
+  the canonical lifted state immediately; FTS5/history-chunk and Vectorize
+  rebuilds are queued. The owner-facing command name is left to the reviewed
+  implementation PR rather than being invented by the schema.
 
 A later tier-3 erasure design must handle live events, content-addressed R2
 segments, indexes and locked backups. R2 does not imply that hiding has erased
@@ -465,8 +491,8 @@ database requests. Neither behavior is acceptable on Jarvis's live store.
 The nightly Workflow performs a custom logical export:
 
 1. claim an idempotent export run and record immutable high-water marks for
-   event sequence, item transition, event suppression, topic event, placement
-   event and cost-ledger entry;
+   event sequence, item transition, event suppression, suppression lift, topic
+   event, placement event and cost-ledger entry;
 2. page each authoritative, append-only table only through its recorded mark,
    writing bounded NDJSON objects to a staging prefix in a separate backup R2
    bucket;
@@ -499,7 +525,8 @@ Travel bookmark and rollback; no scheduled job performs it.
 
 Voice uses the same memory semantics with a stricter execution policy:
 
-1. recent context and bounded keyword results are always available;
+1. recent context and bounded keyword results are available only after the same
+   active-suppression anti-join used by Telegram;
 2. meaning search shares the calling PR's hard **750 ms memory-retrieval
    timeout** inside the existing turn budget;
 3. deadline, index or archive failures fall back to the bounded path and record
@@ -534,10 +561,12 @@ cannot be satisfied by local mocks, CI, a render, or a running PC agent.
 6. A deliberately ambiguous statement is returned only as uncertain and is not
    treated as an instruction or permission.
 7. `/forget` hides one item from ordinary recall, meaning search, keyword
-   search, its topic walk, and an exhaustive rebuild/walk of the source event's
-   R2 archive segment. The suppression receipt links the forgotten item to the
-   exact source excerpt while accurately stating that the original event
-   remains retained.
+   search, the immediate recent-turn window, its topic walk, and an exhaustive
+   rebuild/walk of the source event's R2 archive segment. The suppression
+   receipt links the forgotten item to the exact source excerpt, reports how
+   many complete source turns were hidden, and accurately states that the
+   original event remains retained. A reviewed owner lift restores eligibility
+   while both suppression and lift remain auditable.
 8. The acceptance receipt records that the cloud path completed while all PCs
    were off, which indexes were searched, their coverage watermarks, any
    fallback, and end-to-end latency.
