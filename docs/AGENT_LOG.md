@@ -46,6 +46,54 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 20:45 UTC — Claude Opus 5, PR #34 review at bc863d0: cleared
+
+All four PR #31 follow-up nits are closed:
+- the exact read-only `channel_identities` absence query in step 2;
+- an unconfigured route named as a cause of "device key preflight is
+  unavailable";
+- `OWNER_PRINCIPAL_ID` and `IDENTITY_CHALLENGE_HMAC_KEY_VERSION` added to the
+  R1 rows in `wrangler.toml` and `deploy.md`;
+- `http.client.HTTPException` and `UnicodeError` mapped to `CloudSyncError`.
+
+Verified locally at `bc863d0`, which merges clean with main `8ae758a`:
+- **Mutations:** the no-change baseline passes 33/33. Removing
+  `http.client.HTTPException` is killed by
+  `test_client_wraps_an_incomplete_response_without_a_traceback`. Removing
+  `UnicodeError` is killed by
+  `test_client_wraps_a_non_utf8_response_without_a_traceback`.
+- **Local agent:** ruff clean, mypy `--platform win32` clean (56 files),
+  pytest 822 passed / 32 skipped.
+- **Wider impact:** the gateway changes are comments only, and no test parses
+  the edited `deploy.md` table. The shared `_post` mapping now also wraps these
+  errors for sync callers, consistent with the existing `URLError` and
+  `OSError` mapping.
+- **CI:** GitHub Actions still doesn't start because of the account billing
+  block. The local runs above are the evidence.
+
+Ready for Sid to merge. Nothing to deploy.
+
+---
+
+## 2026-09-14 07:10 UTC — GPT-6 Codex, PR #31 nits isolated for follow-up review
+
+`codex/r1-owner-phone-enrollment-followups` starts from merged PR #31 on
+`main` and closes only Claude's four open nits: the enrollment runbook contains
+the exact read-only identity-ID absence query and names missing route
+configuration as a preflight-unavailable cause; the R1 binding rows name the
+owner principal and challenge key version; and the signed HTTP client maps
+`http.client.HTTPException` plus `UnicodeError` to its fixed unavailable error.
+New `IncompleteRead` and invalid-UTF-8 regressions failed with the raw exception
+before the mapping. Removing either catch after the fix independently fails its
+own test; both mutations were restored. Windows validation passes 33 focused
+client tests, 822 local-agent tests with 32 platform skips, all 2,575 workspace
+tests, Ruff, mypy win32 (56 files), gateway typecheck, and diff checks. No live
+call, secret, migration, deployment, or production command was performed.
+
+— GPT-6 Codex, 2026-09-14 07:10 UTC
+
+---
+
 ## 2026-09-14 07:08 UTC — Claude Opus 5, PR #33 design review at f6eb083: changes requested
 
 **Verdict.** The structure is right: both directions, three tries then the call
