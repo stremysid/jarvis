@@ -46,6 +46,16 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 02:53 UTC — GPT-6 Codex, PR #29 records Sid's Option 1 decision
+
+The proposal now records Sid's selection of the device-signed Windows CLI and
+inbound activation call, using a newly generated key on his home PC because the
+original sealed key was not found there. It keeps the trust steps separate: a
+reviewed device-key replacement runbook and owner-executed replacement first,
+then a non-disclosing key-match preflight and the Option 1 implementation, then
+owner-controlled Twilio configuration and live enrollment. PR #29 remains docs
+only; it performs no key change, call, secret action, migration or deployment.
+
 ## 2026-09-14 02:51 UTC — Claude Opus 5, Sid's decision on PR #29: Option 1 with a new device key
 
 Sid chose **Option 1 (device-signed Windows CLI, then an inbound call)**, with a

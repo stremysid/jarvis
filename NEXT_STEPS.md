@@ -80,14 +80,14 @@ Telegram `/call <reason> --confirm` constructs a durable owner-only self-call
 command with fixed expiry and replay protection. PR #25 now composes production
 dispatch and merged as `fd39301`; gateway deployment `28109492` is live.
 Owner calling remains unavailable because production has no enrolled owner
-phone. Sid must
-first choose one of the designs in
+phone. Sid selected Option 1 in
 [`docs/plan/2026-09-14-owner-phone-enrollment-options.md`](docs/plan/2026-09-14-owner-phone-enrollment-options.md);
-no option is authorized for implementation yet. Use Option 1 only if a Windows
-PC holds the private key matching the active production device; if neither PC
-does, Option 2 is the current recommendation because restoring device
-enrollment would be a separate security-sensitive prerequisite. Options 1 and
-2 require Twilio configuration before the enrollment call. Setting the voice
+the device-signed Windows CLI followed by an inbound activation call. No
+original sealed key was found on the intended home PC, so the required order is
+a separately reviewed device-key replacement runbook and owner-executed key
+replacement, then a non-disclosing local key-match preflight, then the Option 1
+implementation. The production key change remains one owner-confirmed action at
+each live step. Twilio must be configured before the enrollment call. Setting the voice
 webhook makes inbound calling live because the outbound runtime control does
 not gate inbound calls; unknown callers are refused but may still incur
 provider charges. Live enrollment and acceptance remain owner-confirmed steps.

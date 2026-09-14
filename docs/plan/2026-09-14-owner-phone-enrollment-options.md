@@ -1,7 +1,9 @@
 # Owner phone production enrollment options
 
-**Status:** decision required. This document proposes three designs. It does
-not authorize or implement any of them.
+**Status:** Sid selected Option 1 on 2026-09-14, using a newly generated device
+key on his home PC if the original key cannot be recovered. This document
+records the decision; it does not itself authorize a production key change,
+phone enrollment, live call, secret change, migration, or deployment.
 
 ## The blocker
 
@@ -25,14 +27,34 @@ Two bootstrap steps are absent: nothing creates the pending owner phone row and
 singleton, and `/identity/challenge/begin` is not exposed through a production
 route or a Windows CLI command.
 
-Option 1 also has an unverified prerequisite. One of Sid's Windows PCs must
-still hold the private key for the active production device. A configured key
-path or an arbitrary valid device key is insufficient: `JARVIS_DEVICE_KEY_PATH`
-must load a key whose derived public-key fingerprint matches the active
-production device record. The current `jarvis doctor` checks configuration and
-dependencies; it does not perform this comparison. If Option 1 is selected,
-its preflight must add a non-disclosing match check that reports only whether
-the configured key is the active production key.
+Option 1 requires the configured local key to match the active production
+device. A configured key path or an arbitrary valid device key is insufficient:
+`JARVIS_DEVICE_KEY_PATH` must load a key whose derived public-key fingerprint
+matches the active production device record. No original sealed key was found
+on Sid's home PC. Sid therefore selected a separate, reviewed replacement of
+that production device record with a newly generated home-PC key before phone
+enrollment begins. The current `jarvis doctor` checks configuration and
+dependencies; it does not perform the comparison. Option 1's implementation
+must add a non-disclosing match check that reports only whether the configured
+key is the active production key.
+
+## Sid's decision and required order
+
+Sid chose **Option 1, the device-signed Windows CLI path**, with the home PC as
+the intended key holder. The work remains split at the trust boundary:
+
+1. Review a separate device-key replacement owner runbook and exact, safely
+   refusing SQL for replacing the active production device key. This is a
+   separate docs-and-tests PR.
+2. After review, Sid performs the read-only checks, creates the new sealed key,
+   approves insertion of the replacement device, proves the replacement, and
+   separately approves revocation of the orphaned device. None of those live
+   steps is performed by this proposal.
+3. The non-disclosing local preflight confirms that the configured key matches
+   the active production row.
+4. Build and max-review Option 1's phone bootstrap route and Windows CLI.
+5. Configure Twilio, set the inbound webhook in an attended window, and perform
+   the enrollment call only after the implementation and key preflight pass.
 
 ## Properties every option must keep
 
@@ -192,29 +214,23 @@ active voice identity and owner singleton, followed by a fresh status read.
 - It does not exercise the signed inbound activation path that R1 will depend
   on immediately afterwards.
 
-## Recommendation
+## Decision rationale
 
-If one of Sid's PCs holds the key matching the active production device,
-choose **Option 1, the device-signed Windows CLI path**. In that case it
-completes the design already enforced by the repository, uses the enrolled
-device and intended phone as separate factors, adds no provider, and is
-expected to avoid a production migration. Windows is sufficient because this
-is a one-shot local command; it does not depend on the held Linux node work.
+Sid chose **Option 1, the device-signed Windows CLI path**. It completes the
+design already enforced by the repository, uses the enrolled device and
+intended phone as separate factors, adds no provider, and is expected to avoid
+a production migration. Windows is sufficient because this is a one-shot local
+command; it does not depend on the held Linux node work.
 
-If neither PC holds that key, choose **Option 2, verified Telegram followed by
-an inbound call**, unless Sid independently decides that restoring local device
-enrollment is valuable beyond this phone task. Option 2 needs a new
-authentication schema and production migration, but it avoids building and
-reviewing device recovery solely to unlock Option 1 and then building phone
-enrollment afterwards.
+The original production key is treated as unavailable. Replacing it adds a
+one-time trust step, but that recovery also establishes the home PC as the
+intended active device rather than existing only to unlock phone enrollment.
+Sid accepted that cost as the cleaner path. Option 2 remains the fallback if
+the reviewed replacement cannot be performed safely. Option 3 remains the
+weakest fit because it adds a provider and a wider privacy surface while
+bypassing the inbound activation path the release must test.
 
-If key ownership remains unknown, the decision remains open until Sid checks
-both PCs. The proposal must not count a device row in production as proof that
-its private key is available. Option 3 remains the weakest fit because it adds
-a provider and a wider privacy surface while bypassing the inbound activation
-path the release must test.
-
-## Work only after Sid chooses
+## Selected implementation requirements
 
 For the selected option, start a separate implementation PR and write the
 security tests first. At minimum, tests must kill mutations that remove:
@@ -233,5 +249,6 @@ the live call remain separate owner-confirmed rollout steps. For Options 1 and
 2, Twilio configuration and the inbound webhook must occur before the live
 enrollment call; setting the webhook is itself the inbound activation step.
 
-**Decision requested from Sid:** choose Option 1, 2, or 3. Until then, do not
-build an option or configure Twilio.
+**Decision recorded:** Option 1 with a newly generated home-PC device key. The
+runbook, production key replacement, implementation, Twilio configuration, and
+live enrollment remain separately reviewed and owner-confirmed steps.

@@ -23,18 +23,20 @@ missing live evidence. It never places a call itself.
 
 Production also has no owner voice `channel_identities` row and no
 `voice_owner_identity` singleton, so Twilio configuration alone cannot make a
-call pass admission. A separate draft proposal compares three enrollment
-designs:
+call pass admission. The reviewed proposal compares three enrollment designs
+and records Sid's selection of Option 1:
 [`plan/2026-09-14-owner-phone-enrollment-options.md`](plan/2026-09-14-owner-phone-enrollment-options.md).
-Option 1 is recommended only if one of Sid's PCs holds the key matching the
-active production device. If neither does, Option 2 is recommended because
-Option 1 would first require a new device-recovery boundary for the existing
-principal and orphaned device. Sid must choose before implementation. Options
-1 and 2 require Twilio configuration before enrollment can finish, and setting
+No original sealed key was found on the intended home PC, so Sid chose a newly
+generated home-PC key and a separately reviewed, owner-executed replacement of
+the active production device row before phone work. The next steps are the
+device-key replacement runbook, the non-disclosing key-match preflight and
+Option 1 implementation, then owner-controlled Twilio setup and enrollment.
+Twilio configuration is required before enrollment can finish, and setting
 the production voice webhook makes inbound live: the outbound runtime control
 does not gate inbound calls. Unknown callers are refused but may still incur
-provider charges. No option, live call, secret change, migration or deployment
-is authorized by that proposal.
+provider charges. The proposal authorizes implementation planning only; each
+production key change, live call, secret change, migration, and deployment
+remains a separate owner-confirmed action.
 
 R1's v1.0 review required Claude Opus 5 at max, and PR #25 passed that review
 before merge. Item 1's real Worker/runtime composition is now on `main`. Its
