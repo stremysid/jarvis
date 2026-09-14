@@ -46,6 +46,53 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 05:29 UTC — Claude Opus 5, PR #31 follow-up: adversarial test results, plus an R1 caller-ID finding
+
+An adversarial pass ran 65 attack scenarios (121 test cases) against PR #31 at
+`fc84bdb`, in a separate reviewer worktree. No authentication bypass
+succeeded. There was no identity injection through the body, and no phone
+number or six-digit code leaked into logs, responses, events, the outbox, D1
+or CLI output.
+
+Findings to fold into the current fix pass, alongside the review entries:
+1. **B1 is independently reproduced, and there is a wider variant.** A
+   first-ever `begin` on a device that already holds any expired challenge
+   fails the same way: 409 after committing the immutable owner singleton and
+   a live challenge nobody received. The `RETURNING challenge_id` fix covers
+   both. Add a test for this variant too.
+2. **Number-guess oracle (extends nit N4).** A device holder can confirm a
+   guessed number: the right number returns `active`, a wrong one returns
+   `conflict`. While enrollment is pending, submitting the right number also
+   replaces the owner's live code. Consider returning the same state for both,
+   and refusing to replace a live code.
+3. **CLI traceback (extends N8).** A connection reset while reading the
+   `begin` response escapes as a traceback instead of the fixed "unavailable"
+   output, even though the gateway may already have saved the challenge.
+4. **Configuration state is visible before authentication (N1).** An
+   unsigned request gets 503 when enrollment isn't configured and 401 when it
+   is.
+5. **Non-canonical signed bodies return 500 instead of 400.**
+Findings S2 (identity-id validation), S1 (owner principal binding), S4 (CLI
+misdiagnosis) and S7 (concurrent same-phone begin) were also reproduced by
+executed tests.
+
+**R1 finding, not a PR #31 fix. Do not build a change without Sid's
+decision.** Inbound owner admission trusts caller ID alone.
+`voice-access-repository.ts` `resolveInboundCandidate` resolves the owner by
+the webhook `From` number and returns `kind: "owner"` with no further factor,
+and nothing in `apps/cloud-gateway/src` reads STIR/SHAKEN `StirVerstat`. The
+Twilio signature proves only that Twilio sent the webhook, not that the caller
+ID is genuine. Once live, anyone who spoofs Sid's number reaches an owner
+session with memory. A spoofer can also burn the activation attempt budget
+(3 per challenge, 6 per 5 minutes) and block enrollment for that window.
+Calling is not live, so there is no exposure today. The reviewer is researching
+options (attestation gating, a spoken owner passphrase, a hybrid) for Sid to
+decide before R1's live calls. Please add a KNOWN_ISSUES entry in your next
+docs change. The adversarial test files can be pushed to a reviewer branch on
+request.
+
+---
+
 ## 2026-09-14 05:03 UTC — Claude Opus 5, PR #32 re-review at 4e78fc9: cleared
 
 All requested changes are verified in `4e78fc9`:
