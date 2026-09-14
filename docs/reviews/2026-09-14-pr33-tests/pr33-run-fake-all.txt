@@ -1,0 +1,293 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run tests/acceptance/fake/ --reporter=verbose
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr33-tests
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+ ✓ |default| tests/acceptance/fake/voice-test-environment.test.ts > keeps the ordinary test environment unconfigured when the socket project is fully configured 4ms
+ ✓ |default| tests/acceptance/fake/voice-runtime-backfill.test.ts > backfills a retained terminal callback when 0015 is applied to an existing calling store 721ms
+ ✓ |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > requests bounded 5xx retries for inbound cleanup and verifies fragment-free signatures 801ms
+ × |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not mint owner authority for an inbound call before a passed step-up 792ms
+   → expected { phase: 'active', …(2) } to deeply equal { phase: 'pre_auth', …(2) }
+ ✓ |default| tests/acceptance/fake/voice-guest-access.test.ts > fake voice guest access > refuses a verified active identity with no grant before creating a relay or consuming PIN work 642ms
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts > production Worker voice and Telegram composition > authenticates ingress and forwards an actual upgraded socket to default composition 795ms
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts > production Worker voice and Telegram composition > refuses an unsigned inbound request before provider telemetry or session allocation 200ms
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts > production Worker voice and Telegram composition > refuses inbound admission when authoritative credit cannot be read 136ms
+ ✓ |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > requests bounded 5xx retries for outbound cleanup and verifies fragment-free signatures 650ms
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts > production Worker voice and Telegram composition > cancels the original open wrong-type stream before finishing rejection 144ms
+ × |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not mint owner authority for an outbound call before a passed step-up 522ms
+   → expected { phase: 'active', …(2) } to deeply equal { phase: 'pre_auth', …(2) }
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-socket.test.ts > production voice through the real DO stub and socket > uses default composition for two socket turns across real eviction 980ms
+ × |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps an inbound spoken candidate out of transcripts, model input and context, events, logs, call rows and Durable Object storage 595ms
+   → expected { …(9) } to deeply equal { …(9) }
+ ✓ |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > admits the owner without a PIN and preserves two turns across an interruption 653ms
+ × |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps an outbound spoken candidate out of transcripts, model input and context, events, logs, call rows and Durable Object storage 580ms
+   → expected { …(9) } to deeply equal { …(9) }
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-socket.test.ts > production voice through the real DO stub and socket > activates a guest through socket DTMF and retains the correct authority across eviction 1480ms
+ ✓ |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > answers an owner outbound call without a PIN and ends the active session on a signed terminal callback 579ms
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-socket.test.ts > production voice through the real DO stub and socket > fails closed on an unreadable balance after a successful real-socket turn 441ms
+ ✓ |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > does not redial an unanswered outbound call or issue its late TwiML 366ms
+ × |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an inbound owner call after three complete wrong candidates 678ms
+   → expected { phases: [ 'active', …(2) ], …(3) } to deeply equal { phases: [ 'pre_auth', …(2) ], …(3) }
+ ✓ |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > records nonterminal callbacks without invalidating an active call 507ms
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts > production Worker voice and Telegram composition > refuses an unsigned relay upgrade before forwarding to the real session 254ms
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts > production Worker voice and Telegram composition > refuses a configured owner command before any dial when PUBLIC_ORIGIN is missing 164ms
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts > production Worker voice and Telegram composition > refuses a configured owner command before any dial when TWILIO_AUTH_TOKEN is missing 144ms
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts > production Worker voice and Telegram composition > refuses a configured owner command before any dial when TWILIO_API_KEY_SECRET is missing 159ms
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts > production Worker voice and Telegram composition > refuses a configured owner command before any dial when DEEPSEEK_API_KEY is missing 132ms
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts > production Worker voice and Telegram composition > refuses a configured owner command before any dial when OWNER_VOICE_IDENTITY_ID is missing 134ms
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts > production Worker voice and Telegram composition > refuses a configured owner command before any dial when GUEST_PIN_PEPPER_V1 is missing 115ms
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts > production Worker voice and Telegram composition > refuses a configured owner command before any dial when CAPACITY_MODEL_ALLOCATION_USD is missing 136ms
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts > production Worker voice and Telegram composition > dispatches an explicitly confirmed owner command once through the real REST adapter 325ms
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts > production Worker voice and Telegram composition > refuses dispatch with disabled and makes no call request 197ms
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts > production Worker voice and Telegram composition > refuses dispatch with credit and makes no call request 179ms
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts > production Worker voice and Telegram composition > refuses dispatch with confirmation and makes no call request 151ms
+ ✓ |voice-production-socket| tests/acceptance/fake/voice-production-worker.test.ts > production Worker voice and Telegram composition > initializes outbound TwiML and performs terminal cleanup without model or capacity configuration 490ms
+ × |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an outbound owner call after three complete wrong candidates 682ms
+   → expected { phases: [ 'active', …(2) ], …(3) } to deeply equal { phases: [ 'pre_auth', …(2) ], …(3) }
+ ✓ |default| tests/acceptance/fake/voice-guest-access.test.ts > fake voice guest access > keeps successful and rejected guest PIN candidates out of logs, replies and recalled memory 3489ms
+ × |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps the exact Passed-A waiver off when policy is undefined 399ms
+   → expected { Object (phase, ownerAuthorities) } to deeply equal { phase: 'pre_auth', …(1) }
+ × |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps the exact Passed-A waiver off when policy is passphrase_always 398ms
+   → expected { Object (phase, ownerAuthorities) } to deeply equal { phase: 'pre_auth', …(1) }
+ ✓ |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > refuses session creation when a terminal callback wins after relay claim 393ms
+ ✓ |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > keeps an ended call fenced after its terminal event is sealed and purged from live D1 867ms
+ × |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps the exact Passed-A waiver off when policy is unknown_policy 405ms
+   → expected { Object (phase, ownerAuthorities) } to deeply equal { phase: 'pre_auth', …(1) }
+ ✓ |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > rolls back terminal call state when the callback event cannot commit 468ms
+uncaught exception; source = Uncaught (in promise); stack = CallSessionTerminationError: call_session_termination_uninitialized
+    at terminationFailure (C:/Users/Sid/jarvis-pr33-tests/apps/cloud-gateway/src/voice/call-session-do.ts:466:10)
+    at CallSession.#terminateOnce (C:/Users/Sid/jarvis-pr33-tests/apps/cloud-gateway/src/voice/call-session-do.ts:1394:40)
+    at CallSession.terminate (C:/Users/Sid/jarvis-pr33-tests/apps/cloud-gateway/src/voice/call-session-do.ts:1384:18)
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > allows only the explicitly enabled exact Passed-A waiver to satisfy owner step-up 370ms
+ ✓ |default| tests/acceptance/fake/voice-guest-access.test.ts > fake voice guest access > activates a pending guest with their bound PIN and never puts its digits in model input or durable conversation 1572ms
+ ✓ |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > refuses ended outbound TwiML after delayed initialization and resumes the incomplete callback cleanup 1237ms
+ × |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation undefined 1177ms
+   → expected { Object (phase, ownerAuthorities) } to deeply equal { phase: 'pre_auth', …(1) }
+ ✓ |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > ends only the exact inbound provider session and refuses a mismatched relay-ended callback 434ms
+ × |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation TN-Validation-Passed-B 381ms
+   → expected { Object (phase, ownerAuthorities) } to deeply equal { phase: 'pre_auth', …(1) }
+ × |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation TN-Validation-Failed-A 389ms
+   → expected { Object (phase, ownerAuthorities) } to deeply equal { phase: 'pre_auth', …(1) }
+ ✓ |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > retries failed live cleanup after the callback has committed without recording or publishing twice 552ms
+ × |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation tn-validation-passed-a 404ms
+   → expected { Object (phase, ownerAuthorities) } to deeply equal { phase: 'pre_auth', …(1) }
+ ✓ |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > preserves the first terminal phase across differently classified provider callbacks 502ms
+ ✓ |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > cleans an initialized outbound session that ends before relay setup and keeps its provider binding empty 394ms
+ ✓ |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > refuses unbound live-session cleanup until a callback has terminalized its durable state 878ms
+ ✓ |default| tests/acceptance/fake/voice-guest-access.test.ts > fake voice guest access > refuses another guest's PIN without activating that guest or reusing the first call's authority 4859ms
+ ✓ |default| tests/acceptance/fake/voice-guest-access.test.ts > fake voice guest access > keeps the owner's and two guests' conversation context separate 2840ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > preserves exact receipt-time attribution for a UUID owner containing a six-digit run 717ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a line separator immediately after the command in "/call\ncheck in --confirm" 399ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a line separator immediately after the command in "/call\r\ncheck in --confirm" 357ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a line separator immediately after the command in "/call check in --confirm" 345ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a line separator immediately after the command in "/call check in --confirm" 321ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a line separator immediately after the command in "/call \ncheck in --confirm" 303ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a line separator immediately after the command in "/call \r\ncheck in --confirm" 261ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a line separator immediately after the command in "/call  check in --confirm" 339ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a line separator immediately after the command in "/call  check in --confirm" 330ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a line separator immediately after the command in "/call@jarvis_sid_bot\ncheck in --confirm" 326ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a line separator immediately after the command in "/call@jarvis_sid_bot\r\ncheck in --confirm" 318ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a line separator immediately after the command in "/call@jarvis_sid_bot check in --confirm" 335ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a line separator immediately after the command in "/call@jarvis_sid_bot check in --confirm" 270ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > answers /call through the actual Worker with an explicit unconfigured reply until item one is composed 282ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > requires confirmation and dispatches one immutable owner call across replay and command reconstruction 410ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses an incomplete or ambiguous call argument "" without dialing 295ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses an incomplete or ambiguous call argument "--confirm" without dialing 1051ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses an incomplete or ambiguous call argument "--unsafe --confirm" without dialing 260ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses an incomplete or ambiguous call argument "check in --confirm later" without dialing 295ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses an incomplete or ambiguous call argument "check in --confirm\ndo not call" without dialing 275ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses an incomplete or ambiguous call argument "check in\nmore --confirm" without dialing 292ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses an incomplete or ambiguous call argument "check in more --confirm" without dialing 256ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses an incomplete or ambiguous call argument "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --confirm extra" without dialing 253ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses an incomplete or ambiguous call argument "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --confirm" without dialing 251ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses an authenticated guest before outbound policy or provider work 808ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > rejects an invalid webhook secret and an unknown sender without producing a call origin 241ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > rechecks current Telegram ownership without rewriting who authenticated the original event 823ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > denies command-field substitution through the real policy engine 481ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > expires the original confirmation without extending it when the command service is rebuilt 187ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a configured destination that is not the persisted owner voice identity 185ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > uses the stored chat representation for both dispatch and origin when redaction changes a chat id 214ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a call origin with missing ingress receipt 167ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a call origin with wrong receipt scope 367ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a call origin with wrong update binding 205ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a call origin with mismatched content hash 168ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a call origin with mismatched source column 174ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a call origin with malformed envelope 181ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a valid envelope with an untrusted event type 155ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a valid envelope with an untrusted source 188ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a valid envelope with an untrusted producer 192ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a valid envelope with an untrusted receipt-time principal 189ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a valid envelope with an untrusted empty principal binding 154ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a valid envelope with an untrusted legacy payload 172ms
+ ✓ |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > reports an uncertain provider outcome without dialing twice or exposing private error text 369ms
+ ✓ |default| tests/acceptance/fake/voice-guest-access.test.ts > fake voice guest access > refuses conversation when a valid guest PIN grants no conversation capability 1195ms
+ ✓ |default| tests/acceptance/fake/voice-guest-access.test.ts > fake voice guest access > refuses the next turn after revocation without depending on a disabled identity 1614ms
+ ✓ |default| tests/acceptance/fake/voice-guest-access.test.ts > fake voice guest access > refuses the next turn after PIN rotation without depending on a disabled identity 1982ms
+ ✓ |default| tests/acceptance/fake/voice-guest-access.test.ts > fake voice guest access > refuses an unknown caller and an active identity whose guest grant was revoked before PIN or model work 613ms
+ ✓ |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > fails one stalled model turn at the real thirty-second limit and permits the caller's next turn 30889ms
+ ✓ |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > accepts exactly 64 KiB of valid JSON and closes the next byte with 1009 before a turn 227ms
+ ✓ |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > reconciles an accepted-but-lost dispatch and claims signed outbound TwiML without Task 6 activation 185ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 13 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not mint owner authority for an inbound call before a passed step-up
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not mint owner authority for an outbound call before a passed step-up
+AssertionError: expected { phase: 'active', …(2) } to deeply equal { phase: 'pre_auth', …(2) }
+
+- Expected
++ Received
+
+  {
+    "modelRequests": [],
+-   "ownerAuthorities": 0,
+-   "phase": "pre_auth",
++   "ownerAuthorities": 1,
++   "phase": "active",
+  }
+
+ ❯ tests/acceptance/fake/owner-call-passphrase-security.test.ts:52:12
+     50|           ownerAuthorities: await ownerAuthorityCount(call.sessionId),
+     51|           modelRequests: await call.modelRequests(),
+     52|         }).toEqual({ phase: "pre_auth", ownerAuthorities: 0, modelRequ…
+       |            ^
+     53|       } finally {
+     54|         await system.cleanup();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/13]⎯
+
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps an inbound spoken candidate out of transcripts, model input and context, events, logs, call rows and Durable Object storage
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps an outbound spoken candidate out of transcripts, model input and context, events, logs, call rows and Durable Object storage
+AssertionError: expected { …(9) } to deeply equal { …(9) }
+
+- Expected
++ Received
+
+  {
+    "callRowContainsCandidate": false,
+    "durableStorageContainsCandidate": false,
+-   "eventContainsCandidate": false,
++   "eventContainsCandidate": true,
+    "logContainsCandidate": false,
+-   "modelContextContainsCandidate": false,
+-   "modelPromptContainsCandidate": false,
+-   "modelRequestCount": 0,
++   "modelContextContainsCandidate": true,
++   "modelPromptContainsCandidate": true,
++   "modelRequestCount": 1,
+    "providerEventContainsCandidate": false,
+-   "transcriptContainsCandidate": false,
++   "transcriptContainsCandidate": true,
+  }
+
+ ❯ tests/acceptance/fake/owner-call-passphrase-security.test.ts:98:12
+     96|           providerEventContainsCandidate: contains(providerEvents.resu…
+     97|           durableStorageContainsCandidate: contains(await call.durable…
+     98|         }).toEqual({
+       |            ^
+     99|           transcriptContainsCandidate: false,
+    100|           modelPromptContainsCandidate: false,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/13]⎯
+
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an inbound owner call after three complete wrong candidates
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an outbound owner call after three complete wrong candidates
+AssertionError: expected { phases: [ 'active', …(2) ], …(3) } to deeply equal { phases: [ 'pre_auth', …(2) ], …(3) }
+
+- Expected
++ Received
+
+  {
+-   "closeCodes": [
+-     1008,
+-   ],
+-   "modelRequestCount": 0,
+-   "ownerAuthorities": 0,
++   "closeCodes": [],
++   "modelRequestCount": 3,
++   "ownerAuthorities": 1,
+    "phases": [
+-     "pre_auth",
+-     "pre_auth",
+-     "rejected",
++     "active",
++     "active",
++     "active",
+    ],
+  }
+
+ ❯ tests/acceptance/fake/owner-call-passphrase-security.test.ts:135:12
+    133|           ownerAuthorities: await ownerAuthorityCount(call.sessionId),
+    134|           modelRequestCount: (await call.modelRequests()).length,
+    135|         }).toEqual({
+       |            ^
+    136|           phases: ["pre_auth", "pre_auth", "rejected"],
+    137|           closeCodes: [1008],
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/13]⎯
+
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps the exact Passed-A waiver off when policy is undefined
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps the exact Passed-A waiver off when policy is passphrase_always
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps the exact Passed-A waiver off when policy is unknown_policy
+AssertionError: expected { Object (phase, ownerAuthorities) } to deeply equal { phase: 'pre_auth', …(1) }
+
+- Expected
++ Received
+
+  {
+-   "ownerAuthorities": 0,
+-   "phase": "pre_auth",
++   "ownerAuthorities": 1,
++   "phase": "active",
+  }
+
+ ❯ tests/acceptance/fake/owner-call-passphrase-security.test.ts:158:12
+    156|           phase: await call.phase(),
+    157|           ownerAuthorities: await ownerAuthorityCount(call.sessionId),
+    158|         }).toEqual({ phase: "pre_auth", ownerAuthorities: 0 });
+       |            ^
+    159|       } finally {
+    160|         await system.cleanup();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/13]⎯
+
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation undefined
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation TN-Validation-Passed-B
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation TN-Validation-Failed-A
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation tn-validation-passed-a
+AssertionError: expected { Object (phase, ownerAuthorities) } to deeply equal { phase: 'pre_auth', …(1) }
+
+- Expected
++ Received
+
+  {
+-   "ownerAuthorities": 0,
+-   "phase": "pre_auth",
++   "ownerAuthorities": 1,
++   "phase": "active",
+  }
+
+ ❯ tests/acceptance/fake/owner-call-passphrase-security.test.ts:191:12
+    189|           phase: await call.phase(),
+    190|           ownerAuthorities: await ownerAuthorityCount(call.sessionId),
+    191|         }).toEqual({ phase: "pre_auth", ownerAuthorities: 0 });
+       |            ^
+    192|       } finally {
+    193|         await system.cleanup();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/13]⎯
+
+
+ Test Files  1 failed | 7 passed (8)
+      Tests  13 failed | 94 passed (107)
+   Start at  02:37:30
+   Duration  45.98s (transform 11.58s, setup 0ms, import 23.39s, tests 88.85s, environment 0ms)
+
+exit=1

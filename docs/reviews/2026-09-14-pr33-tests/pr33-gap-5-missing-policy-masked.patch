@@ -1,0 +1,253 @@
+diff --git a/apps/cloud-gateway/src/http/voice-route-construction.ts b/apps/cloud-gateway/src/http/voice-route-construction.ts
+index db57456..7a6f8a4 100644
+--- a/apps/cloud-gateway/src/http/voice-route-construction.ts
++++ b/apps/cloud-gateway/src/http/voice-route-construction.ts
+@@ -108,9 +108,11 @@ export function createVoiceRouteDependencies(input: VoiceRouteConstruction): Voi
+       now: (ownData(outboundPorts, "now") ?? (() => new Date())) as () => Date,
+     });
+ 
++  // PR33 PROBE STUB: carry the caller-ID policy port to the inbound handler.
++  const ownerCallerIdPolicy = inboundPorts === undefined ? undefined : ownData(inboundPorts, "ownerCallerIdPolicy");
+   const inbound: VoiceRouteDependencies["inbound"] = inboundDependencies === null
+     ? notImplemented
+-    : (request, verifiedForm) => handleInboundVoiceWebhook(request, inboundDependencies, verifiedForm);
++    : (request, verifiedForm) => handleInboundVoiceWebhook(request, inboundDependencies, verifiedForm, ownerCallerIdPolicy);
+ 
+   const outbound: VoiceRouteDependencies["outbound"] = outboundDependencies === null
+     ? notImplemented
+diff --git a/apps/cloud-gateway/src/persistence/call-repository.ts b/apps/cloud-gateway/src/persistence/call-repository.ts
+index 4d2d291..6f05d99 100644
+--- a/apps/cloud-gateway/src/persistence/call-repository.ts
++++ b/apps/cloud-gateway/src/persistence/call-repository.ts
+@@ -1203,6 +1203,23 @@ export class CallRepository {
+     return row === null ? null : this.toStoredCallSession(row);
+   }
+ 
++  /** PR33 PROBE STUB ONLY: records the immutable owner step-up requirement (no real migration). */
++  async recordOwnerStepUpRequirementStub(sessionId: Ulid, requirement: "required" | "waived_passed_a"): Promise<void> {
++    await this.database.prepare(`CREATE TABLE IF NOT EXISTS owner_step_up_requirements_stub (
++      session_id TEXT NOT NULL PRIMARY KEY, requirement TEXT NOT NULL)`).run();
++    await this.database.prepare(`INSERT OR IGNORE INTO owner_step_up_requirements_stub (session_id, requirement)
++      VALUES (?1, ?2)`).bind(sessionId, requirement).run();
++  }
++
++  /** PR33 PROBE STUB ONLY: missing rows fail closed to "required". */
++  async ownerStepUpRequirementStub(sessionId: Ulid): Promise<"required" | "waived_passed_a"> {
++    await this.database.prepare(`CREATE TABLE IF NOT EXISTS owner_step_up_requirements_stub (
++      session_id TEXT NOT NULL PRIMARY KEY, requirement TEXT NOT NULL)`).run();
++    const row = await this.database.prepare(`SELECT requirement FROM owner_step_up_requirements_stub
++      WHERE session_id = ?1`).bind(sessionId).first<{ requirement: string }>();
++    return row?.requirement === "waived_passed_a" ? "waived_passed_a" : "required";
++  }
++
+   private readCallSessionById(sessionId: string): Promise<StoredCallSessionRow | null> {
+     return this.database.prepare(`SELECT s.*, i.provider_subject AS identity_provider_subject
+       FROM call_sessions s
+diff --git a/apps/cloud-gateway/src/voice/call-session-do.ts b/apps/cloud-gateway/src/voice/call-session-do.ts
+index d92722d..37a0c31 100644
+--- a/apps/cloud-gateway/src/voice/call-session-do.ts
++++ b/apps/cloud-gateway/src/voice/call-session-do.ts
+@@ -597,6 +597,7 @@ export class GuestCallAuthentication {
+ }
+ 
+ type CallInteraction =
++  | Readonly<{ kind: "owner_step_up" }>
+   | Readonly<{ kind: "owner_enrollment" }>
+   | Readonly<{ kind: "guest_pin" }>
+   | Readonly<{ kind: "conversation" }>
+@@ -649,6 +650,8 @@ export class CallSessionCore {
+   #activationDigits = "";
+   #activationAttempted = false;
+   #failedPinAttempts = 0;
++  // PR33 PROBE STUB: mirrors the in-memory guest counter pattern above.
++  #ownerStepUpFailures = 0;
+   #activeTurnAbort: AbortController | null = null;
+   #lastSentAssistantEventId: Ulid | null = null;
+   #socketClosed = false;
+@@ -827,18 +830,16 @@ export class CallSessionCore {
+           );
+         }
+       } else if (this.#authorityService !== null && this.#session.binding.accessKind === "owner") {
+-        this.#authority = await this.#authorityService.mintOwner({
+-          sessionId: this.#session.sessionId,
+-          binding: this.#session.binding,
+-          now: observedAt,
+-        });
+-        const authenticated = await this.#repository.getCallSession(this.#session.sessionId);
+-        if (authenticated === null || authenticated.phase !== "authenticated") {
+-          throw new Error("call_authority_write_failed");
++        // PR33 PROBE STUB: outbound is always required; inbound reads the snapshotted requirement.
++        const requirement = this.#session.direction === "outbound"
++          ? "required"
++          : await this.#repository.ownerStepUpRequirementStub(this.#session.sessionId);
++        if (requirement === "waived_passed_a") {
++          await this.#admitOwner(observedAt);
++        } else {
++          this.#interaction = Object.freeze({ kind: "owner_step_up" });
++          if (enteredPreAuthentication) await this.#relay.sendNeutralText("Say your passphrase.");
+         }
+-        this.#session = authenticated;
+-        await this.#transition("active", observedAt);
+-        this.#interaction = Object.freeze({ kind: "conversation" });
+       } else if (this.#authorityService !== null && this.#session.binding.accessKind === "guest") {
+         this.#interaction = Object.freeze({ kind: "guest_pin" });
+         if (enteredPreAuthentication) await this.#relay.sendNeutralText("Enter your four digit PIN.");
+@@ -992,6 +993,46 @@ export class CallSessionCore {
+     }
+   }
+ 
++  async #admitOwner(observedAt: Date): Promise<void> {
++    if (this.#authorityService === null) throw new Error("owner_authority_unavailable");
++    this.#authority = await this.#authorityService.mintOwner({
++      sessionId: this.#session.sessionId,
++      binding: this.#session.binding,
++      now: observedAt,
++    });
++    const authenticated = await this.#repository.getCallSession(this.#session.sessionId);
++    if (authenticated === null || authenticated.phase !== "authenticated") {
++      throw new Error("call_authority_write_failed");
++    }
++    this.#session = authenticated;
++    await this.#transition("active", observedAt);
++    this.#interaction = Object.freeze({ kind: "conversation" });
++  }
++
++  /** PR33 PROBE STUB: returns true only when owner authority was minted. */
++  async #handleOwnerStepUp(text: string): Promise<boolean> {
++    const words = text.normalize("NFC").toLowerCase().replace(/[^\p{L}\s]/gu, "")
++      .split(/\s+/u).filter((word) => word.length > 0);
++    if (words.length !== 3) {
++      await this.#relay.sendNeutralText("Say your three word passphrase.");
++      return false;
++    }
++    // No verifier record exists on this branch, so the stub fails closed on every candidate.
++    const matched = false;
++    if (matched) {
++      await this.#admitOwner(this.#now());
++      return true;
++    }
++    this.#ownerStepUpFailures += 1;
++    if (this.#ownerStepUpFailures >= 3) {
++      await this.#transition("rejected", this.#now());
++      this.#relay.close(1008);
++      return false;
++    }
++    await this.#relay.sendNeutralText("That did not match. Say your passphrase.");
++    return false;
++  }
++
+   async #handlePrompt(event: Extract<RelayEvent, { type: "prompt" }>): Promise<void> {
+     if (
+       this.#authorityService !== null
+@@ -1007,6 +1048,16 @@ export class CallSessionCore {
+       await this.#authenticateGuest(candidate);
+       return;
+     }
++    if (
++      this.#authorityService !== null
++      && this.#session.phase === "pre_auth"
++      && this.#session.binding.accessKind === "owner"
++      && !this.#session.binding.activationOnly
++    ) {
++      if (!event.final) return;
++      await this.#handleOwnerStepUp(event.text);
++      return;
++    }
+     if (!event.final || this.#session.phase !== "active" || event.text.length === 0) return;
+     if (event.language !== "en-US") throw new Error("turn_language_unsupported");
+     if (Array.from(event.text).length > 8_000 || encoder.encode(event.text).byteLength > 65_536) {
+diff --git a/apps/cloud-gateway/src/voice/inbound.ts b/apps/cloud-gateway/src/voice/inbound.ts
+index f417b5f..03731a0 100644
+--- a/apps/cloud-gateway/src/voice/inbound.ts
++++ b/apps/cloud-gateway/src/voice/inbound.ts
+@@ -247,6 +247,7 @@ export async function handleInboundVoiceWebhook(
+   request: Request,
+   deps: InboundVoiceDependencies,
+   verifiedForm?: VerifiedTwilioForm,
++  ownerCallerIdPolicy?: unknown,
+ ): Promise<Response> {
+   let verifyWebhook: TwilioRequestVerifier["verifyWebhook"];
+   let verifierThis: TwilioRequestVerifier;
+@@ -329,6 +330,14 @@ export async function handleInboundVoiceWebhook(
+   ) {
+     return neutral("forbidden", 403);
+   }
++  // PR33 PROBE STUB: exact attestation classification and dormant waiver policy.
++  const verstatValues = values("StirVerstat");
++  if (verstatValues.length > 1) return neutral("forbidden", 403);
++  const passedA = verstatValues.length === 1 && verstatValues[0] === "TN-Validation-Passed-A";
++  // PR33 FLAW (gap 5): an unset policy is treated as the waiver instead of passphrase_always.
++  const effectivePolicy = ownerCallerIdPolicy ?? "waive_on_passed_a";
++  const ownerStepUp: "required" | "waived_passed_a" =
++    effectivePolicy === "waive_on_passed_a" && passedA ? "waived_passed_a" : "required";
+   const observedAt = capturedDate(now);
+   if (observedAt === null) return neutral("unavailable", 503);
+ 
+@@ -348,6 +357,16 @@ export async function handleInboundVoiceWebhook(
+   }
+   const session = snapshotSession(stored, callSid, observedAt.toISOString());
+   if (session === null) return neutral("unavailable", 503);
++  if (session.binding.accessKind === "owner" && !session.binding.activationOnly) {
++    const record = snapshotMethod(captured.sessions, "recordOwnerStepUpRequirementStub");
++    if (record === null) return neutral("unavailable", 503);
++    try {
++      await (record.method as (sessionId: Ulid, requirement: string) => Promise<void>)
++        .call(record.receiver, session.sessionId, ownerStepUp);
++    } catch {
++      return neutral("unavailable", 503);
++    }
++  }
+ 
+   let body: string;
+   try {
+diff --git a/tests/acceptance/fake/pr33-probe-gap5-missing-policy.test.ts b/tests/acceptance/fake/pr33-probe-gap5-missing-policy.test.ts
+new file mode 100644
+index 0000000..3f393fc
+--- /dev/null
++++ b/tests/acceptance/fake/pr33-probe-gap5-missing-policy.test.ts
+@@ -0,0 +1,23 @@
++import { env } from "cloudflare:test";
++import { describe, expect, it } from "vitest";
++import { createFakeCallingSystem } from "./voice-call-system.js";
++
++// PR33 PROBE ONLY. voice-call-system.ts:212 replaces a missing policy with "passphrase_always",
++// so the contract's `undefined` case never reaches the implementation's missing-configuration branch.
++describe("PR33 probe gap 5: a genuinely missing policy is never delivered by the contract harness", () => {
++  it("waives the owner phrase for exact Passed-A when the policy port is absent", async () => {
++    const system = await createFakeCallingSystem({ ownerCallerIdPolicyUnset: true } as never);
++    try {
++      expect((await system.inbound(undefined, "TN-Validation-Passed-A")).status).toBe(200);
++      const call = await system.openRelay();
++      await call.setup();
++      const authorities = await env.DB.prepare(
++        "SELECT COUNT(*) AS count FROM call_session_authorities WHERE session_id = ? AND authority_kind = 'owner'",
++      ).bind(call.sessionId).first<{ count: number }>();
++      expect({ phase: await call.phase(), ownerAuthorities: authorities?.count })
++        .toEqual({ phase: "active", ownerAuthorities: 1 });
++    } finally {
++      await system.cleanup();
++    }
++  });
++});
+diff --git a/tests/acceptance/fake/voice-call-system.ts b/tests/acceptance/fake/voice-call-system.ts
+index 2ac2e32..b54eeb7 100644
+--- a/tests/acceptance/fake/voice-call-system.ts
++++ b/tests/acceptance/fake/voice-call-system.ts
+@@ -142,6 +142,8 @@ export async function createFakeCallingSystem(input: {
+   now?: Date;
+   ownerPrincipalId?: string;
+   ownerCallerIdPolicy?: string;
++  /** PR33 PROBE ONLY: deliver an absent policy instead of the harness default. */
++  ownerCallerIdPolicyUnset?: boolean;
+   loseDispatchResponse?: boolean;
+   manualModel?: boolean;
+   beforeTermination?: (input: CallSessionTermination) => Promise<void>;
+@@ -209,7 +211,7 @@ export async function createFakeCallingSystem(input: {
+       expectedInboundE164: "+14165550100",
+       ownerIdentityId: "identity:voice",
+       currentChallengeHmacKeyVersion: "hmac-v1",
+-      ownerCallerIdPolicy: input.ownerCallerIdPolicy ?? "passphrase_always",
++      ownerCallerIdPolicy: input.ownerCallerIdPolicyUnset === true ? undefined : input.ownerCallerIdPolicy ?? "passphrase_always",
+       sessions: repository,
+       initializeSession,
+       now: () => new Date(now),

@@ -1,0 +1,14 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/archive/archival-service.test.ts --reporter=dot
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr33-tests
+
+Using secrets defined in process.env
+··············································
+
+ Test Files  1 passed (1)
+      Tests  46 passed (46)
+   Start at  02:47:35
+   Duration  17.88s (transform 429ms, setup 0ms, import 841ms, tests 16.45s, environment 0ms)
+
+exit=0

@@ -1,0 +1,353 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run --reporter=dot
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr33-tests
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+·······························Using secrets defined in process.env
+·············································································Using secrets defined in process.env
+···········································Using secrets defined in process.env
+················Using secrets defined in process.env
+················Using secrets defined in process.env
+······························Using secrets defined in process.env
+····························Using secrets defined in process.env
+·······································································Using secrets defined in process.env
+····························Using secrets defined in process.env
+········································Using secrets defined in process.env
+·······Using secrets defined in process.env
+·······································Using secrets defined in process.env
+·······················Using secrets defined in process.env
+····························Using secrets defined in process.env
+···············Using secrets defined in process.env
+························Using secrets defined in process.env
+·····················································Using secrets defined in process.env
+·································································································································Using secrets defined in process.env
+··············Using secrets defined in process.env
+··············································Using secrets defined in process.env
+······Using secrets defined in process.env
+···Using secrets defined in process.env
+·uncaught exception; source = Uncaught (in promise); stack = CallSessionTerminationError: call_session_termination_uninitialized
+    at terminationFailure (C:/Users/Sid/jarvis-pr33-tests/apps/cloud-gateway/src/voice/call-session-do.ts:466:10)
+    at CallSession.#terminateOnce (C:/Users/Sid/jarvis-pr33-tests/apps/cloud-gateway/src/voice/call-session-do.ts:1394:40)
+    at CallSession.terminate (C:/Users/Sid/jarvis-pr33-tests/apps/cloud-gateway/src/voice/call-session-do.ts:1384:18)
+·············Using secrets defined in process.env
+································································Using secrets defined in process.env
+···················Using secrets defined in process.env
+·················Using secrets defined in process.env
+···Using secrets defined in process.env
+································································Using secrets defined in process.env
+·····················Using secrets defined in process.env
+···························Using secrets defined in process.env
+Using secrets defined in process.env
+·······················Using secrets defined in process.env
+··················Using secrets defined in process.env
+·····································Using secrets defined in process.env
+····Using secrets defined in process.env
+···············Using secrets defined in process.env
+············Using secrets defined in process.env
+······Using secrets defined in process.env
+···············x······························Using secrets defined in process.env
+························································Using secrets defined in process.env
+············Using secrets defined in process.env
+··································stderr | apps/cloud-gateway/test/sync/memory-projection.test.ts > signed active-fact projection > classifies deterministic empty fact text as permanent rejection
+sync_request_failed {
+  path: '/sync/memory/project',
+  reason: 'memory_projection_fact_text_invalid'
+}
+
+·Using secrets defined in process.env
+stderr | apps/cloud-gateway/test/sync/memory-projection.test.ts > signed active-fact projection > classifies deterministic over byte limit fact text as permanent rejection
+sync_request_failed {
+  path: '/sync/memory/project',
+  reason: 'memory_projection_fact_text_invalid'
+}
+
+······stderr | apps/cloud-gateway/test/sync/memory-projection.test.ts > signed active-fact projection > does not reveal projection content policy before device authentication
+sync_request_failed { path: '/sync/memory/project', reason: 'device_not_active' }
+
+····stderr | apps/cloud-gateway/test/sync/memory-projection.test.ts > signed active-fact projection > loses a revocation race at the atomic publish boundary
+sync_request_failed {
+  path: '/sync/memory/project',
+  reason: 'D1_ERROR: memory_projection_device_state_changed: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)'
+}
+
+······Using secrets defined in process.env
+········stderr | apps/cloud-gateway/test/sync/memory-projection.test.ts > signed active-fact projection > reports a page-state race as retryable instead of device revocation
+sync_request_failed {
+  path: '/sync/memory/project',
+  reason: 'memory_projection_page_state_changed'
+}
+
+···················stderr | apps/cloud-gateway/test/sync/memory-projection.test.ts > signed active-fact projection > distinguishes content rejection from internal failure over HTTP (redaction)
+sync_request_failed {
+  path: '/sync/memory/project',
+  reason: 'memory_projection_redaction_invalid'
+}
+
+·stderr | apps/cloud-gateway/test/sync/memory-projection.test.ts > signed active-fact projection > distinguishes content rejection from internal failure over HTTP (controls)
+sync_request_failed {
+  path: '/sync/memory/project',
+  reason: 'memory_projection_fact_controls_invalid'
+}
+
+·stderr | apps/cloud-gateway/test/sync/memory-projection.test.ts > signed active-fact projection > distinguishes content rejection from internal failure over HTTP (internal)
+sync_request_failed {
+  path: '/sync/memory/project',
+  reason: 'D1_ERROR: temporary_storage_failure: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)'
+}
+
+············································Using secrets defined in process.env
+············Using secrets defined in process.env
+····Using secrets defined in process.env
+··························································Using secrets defined in process.env
+···························Using secrets defined in process.env
+·Using secrets defined in process.env
+··················Using secrets defined in process.env
+····························Using secrets defined in process.env
+············································Using secrets defined in process.env
+······························Using secrets defined in process.env
+·········Using secrets defined in process.env
+Using secrets defined in process.env
+····Using secrets defined in process.env
+···················Using secrets defined in process.env
+······················Using secrets defined in process.env
+·····Using secrets defined in process.env
+Using secrets defined in process.env
+··································································Using secrets defined in process.env
+······························Using secrets defined in process.env
+············Using secrets defined in process.env
+···············Using secrets defined in process.env
+·······Using secrets defined in process.env
+········Using secrets defined in process.env
+···················Using secrets defined in process.env
+···········Using secrets defined in process.env
+··············Using secrets defined in process.env
+···Using secrets defined in process.env
+·································Using secrets defined in process.env
+·············Using secrets defined in process.env
+··········Using secrets defined in process.env
+·····································Using secrets defined in process.env
+································Using secrets defined in process.env
+··Using secrets defined in process.env
+················Using secrets defined in process.env
+················Using secrets defined in process.env
+········································Using secrets defined in process.env
+··Using secrets defined in process.env
+·stderr | apps/cloud-gateway/test/http/sync-routes.test.ts > sync routes > authenticates distillation before a paid model call
+sync_request_failed { path: '/memory/distill', reason: 'device_not_active' }
+
+····························Using secrets defined in process.env
+······························Using secrets defined in process.env
+Using secrets defined in process.env
+·····································Using secrets defined in process.env
+·························Using secrets defined in process.env
+Using secrets defined in process.env
+··x··················Using secrets defined in process.env
+·····x·····Using secrets defined in process.env
+·····Using secrets defined in process.env
+·x·Using secrets defined in process.env
+··························Using secrets defined in process.env
+·····Using secrets defined in process.env
+x·············Using secrets defined in process.env
+·······Using secrets defined in process.env
+·····Using secrets defined in process.env
+x····Using secrets defined in process.env
+·x···········Using secrets defined in process.env
+x······Using secrets defined in process.env
+·····Using secrets defined in process.env
+····Using secrets defined in process.env
+x····················································································································Using secrets defined in process.env
+···xUsing secrets defined in process.env
+········Using secrets defined in process.env
+··············Using secrets defined in process.env
+Using secrets defined in process.env
+x··Using secrets defined in process.env
+··········Using secrets defined in process.env
+x·················xx··································································································
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 14 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not mint owner authority for an inbound call before a passed step-up
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not mint owner authority for an outbound call before a passed step-up
+AssertionError: expected { phase: 'active', …(2) } to deeply equal { phase: 'pre_auth', …(2) }
+
+- Expected
++ Received
+
+  {
+    "modelRequests": [],
+-   "ownerAuthorities": 0,
+-   "phase": "pre_auth",
++   "ownerAuthorities": 1,
++   "phase": "active",
+  }
+
+ ❯ tests/acceptance/fake/owner-call-passphrase-security.test.ts:52:12
+     50|           ownerAuthorities: await ownerAuthorityCount(call.sessionId),
+     51|           modelRequests: await call.modelRequests(),
+     52|         }).toEqual({ phase: "pre_auth", ownerAuthorities: 0, modelRequ…
+       |            ^
+     53|       } finally {
+     54|         await system.cleanup();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/14]⎯
+
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps an inbound spoken candidate out of transcripts, model input and context, events, logs, call rows and Durable Object storage
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps an outbound spoken candidate out of transcripts, model input and context, events, logs, call rows and Durable Object storage
+AssertionError: expected { …(9) } to deeply equal { …(9) }
+
+- Expected
++ Received
+
+  {
+    "callRowContainsCandidate": false,
+    "durableStorageContainsCandidate": false,
+-   "eventContainsCandidate": false,
++   "eventContainsCandidate": true,
+    "logContainsCandidate": false,
+-   "modelContextContainsCandidate": false,
+-   "modelPromptContainsCandidate": false,
+-   "modelRequestCount": 0,
++   "modelContextContainsCandidate": true,
++   "modelPromptContainsCandidate": true,
++   "modelRequestCount": 1,
+    "providerEventContainsCandidate": false,
+-   "transcriptContainsCandidate": false,
++   "transcriptContainsCandidate": true,
+  }
+
+ ❯ tests/acceptance/fake/owner-call-passphrase-security.test.ts:98:12
+     96|           providerEventContainsCandidate: contains(providerEvents.resu…
+     97|           durableStorageContainsCandidate: contains(await call.durable…
+     98|         }).toEqual({
+       |            ^
+     99|           transcriptContainsCandidate: false,
+    100|           modelPromptContainsCandidate: false,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/14]⎯
+
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an inbound owner call after three complete wrong candidates
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an outbound owner call after three complete wrong candidates
+AssertionError: expected { phases: [ 'active', …(2) ], …(3) } to deeply equal { phases: [ 'pre_auth', …(2) ], …(3) }
+
+- Expected
++ Received
+
+  {
+-   "closeCodes": [
+-     1008,
+-   ],
+-   "modelRequestCount": 0,
+-   "ownerAuthorities": 0,
++   "closeCodes": [],
++   "modelRequestCount": 3,
++   "ownerAuthorities": 1,
+    "phases": [
+-     "pre_auth",
+-     "pre_auth",
+-     "rejected",
++     "active",
++     "active",
++     "active",
+    ],
+  }
+
+ ❯ tests/acceptance/fake/owner-call-passphrase-security.test.ts:135:12
+    133|           ownerAuthorities: await ownerAuthorityCount(call.sessionId),
+    134|           modelRequestCount: (await call.modelRequests()).length,
+    135|         }).toEqual({
+       |            ^
+    136|           phases: ["pre_auth", "pre_auth", "rejected"],
+    137|           closeCodes: [1008],
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/14]⎯
+
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps the exact Passed-A waiver off when policy is undefined
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps the exact Passed-A waiver off when policy is passphrase_always
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps the exact Passed-A waiver off when policy is unknown_policy
+AssertionError: expected { Object (phase, ownerAuthorities) } to deeply equal { phase: 'pre_auth', …(1) }
+
+- Expected
++ Received
+
+  {
+-   "ownerAuthorities": 0,
+-   "phase": "pre_auth",
++   "ownerAuthorities": 1,
++   "phase": "active",
+  }
+
+ ❯ tests/acceptance/fake/owner-call-passphrase-security.test.ts:158:12
+    156|           phase: await call.phase(),
+    157|           ownerAuthorities: await ownerAuthorityCount(call.sessionId),
+    158|         }).toEqual({ phase: "pre_auth", ownerAuthorities: 0 });
+       |            ^
+    159|       } finally {
+    160|         await system.cleanup();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/14]⎯
+
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation undefined
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation TN-Validation-Passed-B
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation TN-Validation-Failed-A
+ FAIL  |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation tn-validation-passed-a
+AssertionError: expected { Object (phase, ownerAuthorities) } to deeply equal { phase: 'pre_auth', …(1) }
+
+- Expected
++ Received
+
+  {
+-   "ownerAuthorities": 0,
+-   "phase": "pre_auth",
++   "ownerAuthorities": 1,
++   "phase": "active",
+  }
+
+ ❯ tests/acceptance/fake/owner-call-passphrase-security.test.ts:191:12
+    189|           phase: await call.phase(),
+    190|           ownerAuthorities: await ownerAuthorityCount(call.sessionId),
+    191|         }).toEqual({ phase: "pre_auth", ownerAuthorities: 0 });
+       |            ^
+    192|       } finally {
+    193|         await system.cleanup();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/14]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/archive/archival-service.test.ts > ArchivalService > seeks a many-segment tail read and accesses only the terminal manifest object
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/cloud-gateway/test/archive/archival-service.test.ts:603:3
+    601|   });
+    602|
+    603|   it("seeks a many-segment tail read and accesses only the terminal ma…
+       |   ^
+    604|     await appendEvents(48);
+    605|     for (let sequence = 1; sequence <= 48; sequence += 1) await setCre…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/14]⎯
+
+
+ Test Files  2 failed | 124 passed (126)
+      Tests  14 failed | 2528 passed (2542)
+   Start at  02:45:21
+   Duration  106.54s (transform 75.61s, setup 0ms, import 570.88s, tests 508.88s, environment 31ms)
+
+exit=1

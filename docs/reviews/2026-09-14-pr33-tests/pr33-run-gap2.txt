@@ -1,0 +1,30 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run tests/acceptance/fake/owner-call-passphrase-security.test.ts tests/acceptance/fake/pr33-probe-gap2-wake-resets-attempts.test.ts --reporter=verbose
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr33-tests
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+ ✓ |default| tests/acceptance/fake/pr33-probe-gap2-wake-resets-attempts.test.ts > PR33 probe gap 2: the three-attempt limit is not durable > an inbound owner call accepts eight complete wrong candidates when the object wakes between pairs 562ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not mint owner authority for an inbound call before a passed step-up 495ms
+ ✓ |default| tests/acceptance/fake/pr33-probe-gap2-wake-resets-attempts.test.ts > PR33 probe gap 2: the three-attempt limit is not durable > an outbound owner call accepts eight complete wrong candidates when the object wakes between pairs 488ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not mint owner authority for an outbound call before a passed step-up 402ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps an inbound spoken candidate out of transcripts, model input and context, events, logs, call rows and Durable Object storage 427ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps an outbound spoken candidate out of transcripts, model input and context, events, logs, call rows and Durable Object storage 418ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an inbound owner call after three complete wrong candidates 421ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an outbound owner call after three complete wrong candidates 428ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps the exact Passed-A waiver off when policy is undefined 382ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps the exact Passed-A waiver off when policy is passphrase_always 340ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps the exact Passed-A waiver off when policy is unknown_policy 348ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > allows only the explicitly enabled exact Passed-A waiver to satisfy owner step-up 317ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation undefined 391ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation TN-Validation-Passed-B 349ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation TN-Validation-Failed-A 299ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation tn-validation-passed-a 341ms
+
+ Test Files  2 passed (2)
+      Tests  16 passed (16)
+   Start at  02:54:02
+   Duration  7.95s (transform 1.49s, setup 0ms, import 3.10s, tests 6.41s, environment 0ms)
+
+exit=0

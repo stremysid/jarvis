@@ -1,0 +1,32 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run tests/acceptance/fake/owner-call-passphrase-security.test.ts tests/acceptance/fake/pr33-probe-gap4-waiver-matcher.test.ts --reporter=verbose
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr33-tests
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+ ✓ |default| tests/acceptance/fake/pr33-probe-gap4-waiver-matcher.test.ts > PR33 probe gap 4: a non-exact attestation satisfies the enabled waiver > waives the owner phrase for StirVerstat "TN-Validation-Passed-A-Passthrough" 765ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not mint owner authority for an inbound call before a passed step-up 760ms
+ ✓ |default| tests/acceptance/fake/pr33-probe-gap4-waiver-matcher.test.ts > PR33 probe gap 4: a non-exact attestation satisfies the enabled waiver > waives the owner phrase for StirVerstat "TN-Validation-Passed-A-Diverted" 314ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not mint owner authority for an outbound call before a passed step-up 315ms
+ ✓ |default| tests/acceptance/fake/pr33-probe-gap4-waiver-matcher.test.ts > PR33 probe gap 4: a non-exact attestation satisfies the enabled waiver > waives the owner phrase for StirVerstat " TN-Validation-Passed-A" 262ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps an inbound spoken candidate out of transcripts, model input and context, events, logs, call rows and Durable Object storage 260ms
+ ✓ |default| tests/acceptance/fake/pr33-probe-gap4-waiver-matcher.test.ts > PR33 probe gap 4: a non-exact attestation satisfies the enabled waiver > waives the owner phrase for StirVerstat ["TN-Validation-Failed-A","TN-Validation-Passed-A"] 286ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps an outbound spoken candidate out of transcripts, model input and context, events, logs, call rows and Durable Object storage 292ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an inbound owner call after three complete wrong candidates 206ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an outbound owner call after three complete wrong candidates 1087ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps the exact Passed-A waiver off when policy is undefined 192ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps the exact Passed-A waiver off when policy is passphrase_always 700ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps the exact Passed-A waiver off when policy is unknown_policy 703ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > allows only the explicitly enabled exact Passed-A waiver to satisfy owner step-up 200ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation undefined 179ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation TN-Validation-Passed-B 195ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation TN-Validation-Failed-A 181ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation tn-validation-passed-a 186ms
+
+ Test Files  2 passed (2)
+      Tests  18 passed (18)
+   Start at  02:58:02
+   Duration  7.14s (transform 815ms, setup 0ms, import 1.87s, tests 7.09s, environment 0ms)
+
+exit=0

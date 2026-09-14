@@ -1,0 +1,416 @@
+diff --git a/apps/cloud-gateway/src/http/voice-route-construction.ts b/apps/cloud-gateway/src/http/voice-route-construction.ts
+index db57456..7a6f8a4 100644
+--- a/apps/cloud-gateway/src/http/voice-route-construction.ts
++++ b/apps/cloud-gateway/src/http/voice-route-construction.ts
+@@ -108,9 +108,11 @@ export function createVoiceRouteDependencies(input: VoiceRouteConstruction): Voi
+       now: (ownData(outboundPorts, "now") ?? (() => new Date())) as () => Date,
+     });
+ 
++  // PR33 PROBE STUB: carry the caller-ID policy port to the inbound handler.
++  const ownerCallerIdPolicy = inboundPorts === undefined ? undefined : ownData(inboundPorts, "ownerCallerIdPolicy");
+   const inbound: VoiceRouteDependencies["inbound"] = inboundDependencies === null
+     ? notImplemented
+-    : (request, verifiedForm) => handleInboundVoiceWebhook(request, inboundDependencies, verifiedForm);
++    : (request, verifiedForm) => handleInboundVoiceWebhook(request, inboundDependencies, verifiedForm, ownerCallerIdPolicy);
+ 
+   const outbound: VoiceRouteDependencies["outbound"] = outboundDependencies === null
+     ? notImplemented
+diff --git a/apps/cloud-gateway/src/persistence/call-repository.ts b/apps/cloud-gateway/src/persistence/call-repository.ts
+index 4d2d291..6f05d99 100644
+--- a/apps/cloud-gateway/src/persistence/call-repository.ts
++++ b/apps/cloud-gateway/src/persistence/call-repository.ts
+@@ -1203,6 +1203,23 @@ export class CallRepository {
+     return row === null ? null : this.toStoredCallSession(row);
+   }
+ 
++  /** PR33 PROBE STUB ONLY: records the immutable owner step-up requirement (no real migration). */
++  async recordOwnerStepUpRequirementStub(sessionId: Ulid, requirement: "required" | "waived_passed_a"): Promise<void> {
++    await this.database.prepare(`CREATE TABLE IF NOT EXISTS owner_step_up_requirements_stub (
++      session_id TEXT NOT NULL PRIMARY KEY, requirement TEXT NOT NULL)`).run();
++    await this.database.prepare(`INSERT OR IGNORE INTO owner_step_up_requirements_stub (session_id, requirement)
++      VALUES (?1, ?2)`).bind(sessionId, requirement).run();
++  }
++
++  /** PR33 PROBE STUB ONLY: missing rows fail closed to "required". */
++  async ownerStepUpRequirementStub(sessionId: Ulid): Promise<"required" | "waived_passed_a"> {
++    await this.database.prepare(`CREATE TABLE IF NOT EXISTS owner_step_up_requirements_stub (
++      session_id TEXT NOT NULL PRIMARY KEY, requirement TEXT NOT NULL)`).run();
++    const row = await this.database.prepare(`SELECT requirement FROM owner_step_up_requirements_stub
++      WHERE session_id = ?1`).bind(sessionId).first<{ requirement: string }>();
++    return row?.requirement === "waived_passed_a" ? "waived_passed_a" : "required";
++  }
++
+   private readCallSessionById(sessionId: string): Promise<StoredCallSessionRow | null> {
+     return this.database.prepare(`SELECT s.*, i.provider_subject AS identity_provider_subject
+       FROM call_sessions s
+diff --git a/apps/cloud-gateway/src/voice/call-session-do.ts b/apps/cloud-gateway/src/voice/call-session-do.ts
+index d92722d..1913578 100644
+--- a/apps/cloud-gateway/src/voice/call-session-do.ts
++++ b/apps/cloud-gateway/src/voice/call-session-do.ts
+@@ -597,6 +597,7 @@ export class GuestCallAuthentication {
+ }
+ 
+ type CallInteraction =
++  | Readonly<{ kind: "owner_step_up" }>
+   | Readonly<{ kind: "owner_enrollment" }>
+   | Readonly<{ kind: "guest_pin" }>
+   | Readonly<{ kind: "conversation" }>
+@@ -649,6 +650,10 @@ export class CallSessionCore {
+   #activationDigits = "";
+   #activationAttempted = false;
+   #failedPinAttempts = 0;
++  // PR33 PROBE STUB: mirrors the in-memory guest counter pattern above.
++  #ownerStepUpFailures = 0;
++  // PR33 FLAW (gap 3): keeps what was heard for a rejection diagnostic.
++  #heardCandidatesStub: string[] = [];
+   #activeTurnAbort: AbortController | null = null;
+   #lastSentAssistantEventId: Ulid | null = null;
+   #socketClosed = false;
+@@ -827,18 +832,16 @@ export class CallSessionCore {
+           );
+         }
+       } else if (this.#authorityService !== null && this.#session.binding.accessKind === "owner") {
+-        this.#authority = await this.#authorityService.mintOwner({
+-          sessionId: this.#session.sessionId,
+-          binding: this.#session.binding,
+-          now: observedAt,
+-        });
+-        const authenticated = await this.#repository.getCallSession(this.#session.sessionId);
+-        if (authenticated === null || authenticated.phase !== "authenticated") {
+-          throw new Error("call_authority_write_failed");
++        // PR33 PROBE STUB: outbound is always required; inbound reads the snapshotted requirement.
++        const requirement = this.#session.direction === "outbound"
++          ? "required"
++          : await this.#repository.ownerStepUpRequirementStub(this.#session.sessionId);
++        if (requirement === "waived_passed_a") {
++          await this.#admitOwner(observedAt);
++        } else {
++          this.#interaction = Object.freeze({ kind: "owner_step_up" });
++          if (enteredPreAuthentication) await this.#relay.sendNeutralText("Say your passphrase.");
+         }
+-        this.#session = authenticated;
+-        await this.#transition("active", observedAt);
+-        this.#interaction = Object.freeze({ kind: "conversation" });
+       } else if (this.#authorityService !== null && this.#session.binding.accessKind === "guest") {
+         this.#interaction = Object.freeze({ kind: "guest_pin" });
+         if (enteredPreAuthentication) await this.#relay.sendNeutralText("Enter your four digit PIN.");
+@@ -992,6 +995,51 @@ export class CallSessionCore {
+     }
+   }
+ 
++  async #admitOwner(observedAt: Date): Promise<void> {
++    if (this.#authorityService === null) throw new Error("owner_authority_unavailable");
++    this.#authority = await this.#authorityService.mintOwner({
++      sessionId: this.#session.sessionId,
++      binding: this.#session.binding,
++      now: observedAt,
++    });
++    const authenticated = await this.#repository.getCallSession(this.#session.sessionId);
++    if (authenticated === null || authenticated.phase !== "authenticated") {
++      throw new Error("call_authority_write_failed");
++    }
++    this.#session = authenticated;
++    await this.#transition("active", observedAt);
++    this.#interaction = Object.freeze({ kind: "conversation" });
++  }
++
++  /** PR33 PROBE STUB: returns true only when owner authority was minted. */
++  async #handleOwnerStepUp(text: string): Promise<boolean> {
++    const words = text.normalize("NFC").toLowerCase().replace(/[^\p{L}\s]/gu, "")
++      .split(/\s+/u).filter((word) => word.length > 0);
++    if (words.length !== 3) {
++      await this.#relay.sendNeutralText("Say your three word passphrase.");
++      return false;
++    }
++    // No verifier record exists on this branch, so the stub fails closed on every candidate.
++    const matched = false;
++    if (matched) {
++      await this.#admitOwner(this.#now());
++      return true;
++    }
++    this.#ownerStepUpFailures += 1;
++    this.#heardCandidatesStub.push(text);
++    // PR33 FLAW (gap 3): structured and info-level logs, and an echoing retry prompt.
++    console.warn("owner_step_up_mismatch", { heard: text, attempt: this.#ownerStepUpFailures });
++    console.info(`owner_step_up heard=${text}`);
++    if (this.#ownerStepUpFailures >= 3) {
++      console.error("owner_step_up_rejected", this.#heardCandidatesStub.join(" | "));
++      await this.#transition("rejected", this.#now());
++      this.#relay.close(1008);
++      return false;
++    }
++    await this.#relay.sendNeutralText(`I heard ${text}. That did not match. Say your passphrase.`);
++    return false;
++  }
++
+   async #handlePrompt(event: Extract<RelayEvent, { type: "prompt" }>): Promise<void> {
+     if (
+       this.#authorityService !== null
+@@ -1007,6 +1055,16 @@ export class CallSessionCore {
+       await this.#authenticateGuest(candidate);
+       return;
+     }
++    if (
++      this.#authorityService !== null
++      && this.#session.phase === "pre_auth"
++      && this.#session.binding.accessKind === "owner"
++      && !this.#session.binding.activationOnly
++    ) {
++      if (!event.final) return;
++      await this.#handleOwnerStepUp(event.text);
++      return;
++    }
+     if (!event.final || this.#session.phase !== "active" || event.text.length === 0) return;
+     if (event.language !== "en-US") throw new Error("turn_language_unsupported");
+     if (Array.from(event.text).length > 8_000 || encoder.encode(event.text).byteLength > 65_536) {
+@@ -1596,6 +1654,10 @@ export class CallSession extends DurableObject<Env> {
+       closeSocket(socket, 1011, "relay runtime unavailable");
+       return;
+     }
++    // PR33 FLAW (gap 3): journal pre-authentication prompts "for eviction recovery".
++    if (event.type === "prompt" && event.final && resolved.core.phase === "pre_auth") {
++      await this.#journalPreAuthPromptStub(event.text);
++    }
+     try {
+       await resolved.core.handleRelayEvent(event);
+     } catch {
+@@ -1622,6 +1684,23 @@ export class CallSession extends DurableObject<Env> {
+     this.#cores.delete(socket);
+   }
+ 
++  async #journalPreAuthPromptStub(text: string): Promise<void> {
++    const canonical = text.normalize("NFC").toLowerCase();
++    const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(canonical)))]
++      .map((byte) => byte.toString(16).padStart(2, "0")).join("");
++    try {
++      this.ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS relay_prompt_journal (received_at TEXT NOT NULL, text TEXT NOT NULL)");
++      this.ctx.storage.sql.exec("INSERT INTO relay_prompt_journal (received_at, text) VALUES (?, ?)", new Date().toISOString(), text);
++    } catch { /* KV-only storage backend */ }
++    await this.ctx.storage.put("call-session.step-up.v1", {
++      lastCandidateBytes: encoder.encode(text),
++      canonicalWords: canonical.split(/\s+/u),
++      upper: text.toUpperCase(),
++      digest,
++      heard: new Map([["last", text]]),
++    });
++  }
++
+   async #readInitialization(): Promise<Readonly<CallSessionInitialization> | null> {
+     const value = await this.ctx.storage.get<unknown>(INITIALIZATION_KEY);
+     if (value === undefined) return null;
+diff --git a/apps/cloud-gateway/src/voice/inbound.ts b/apps/cloud-gateway/src/voice/inbound.ts
+index f417b5f..a288b8e 100644
+--- a/apps/cloud-gateway/src/voice/inbound.ts
++++ b/apps/cloud-gateway/src/voice/inbound.ts
+@@ -247,6 +247,7 @@ export async function handleInboundVoiceWebhook(
+   request: Request,
+   deps: InboundVoiceDependencies,
+   verifiedForm?: VerifiedTwilioForm,
++  ownerCallerIdPolicy?: unknown,
+ ): Promise<Response> {
+   let verifyWebhook: TwilioRequestVerifier["verifyWebhook"];
+   let verifierThis: TwilioRequestVerifier;
+@@ -329,6 +330,12 @@ export async function handleInboundVoiceWebhook(
+   ) {
+     return neutral("forbidden", 403);
+   }
++  // PR33 PROBE STUB: exact attestation classification and dormant waiver policy.
++  const verstatValues = values("StirVerstat");
++  if (verstatValues.length > 1) return neutral("forbidden", 403);
++  const passedA = verstatValues.length === 1 && verstatValues[0] === "TN-Validation-Passed-A";
++  const ownerStepUp: "required" | "waived_passed_a" =
++    ownerCallerIdPolicy === "waive_on_passed_a" && passedA ? "waived_passed_a" : "required";
+   const observedAt = capturedDate(now);
+   if (observedAt === null) return neutral("unavailable", 503);
+ 
+@@ -348,6 +355,16 @@ export async function handleInboundVoiceWebhook(
+   }
+   const session = snapshotSession(stored, callSid, observedAt.toISOString());
+   if (session === null) return neutral("unavailable", 503);
++  if (session.binding.accessKind === "owner" && !session.binding.activationOnly) {
++    const record = snapshotMethod(captured.sessions, "recordOwnerStepUpRequirementStub");
++    if (record === null) return neutral("unavailable", 503);
++    try {
++      await (record.method as (sessionId: Ulid, requirement: string) => Promise<void>)
++        .call(record.receiver, session.sessionId, ownerStepUp);
++    } catch {
++      return neutral("unavailable", 503);
++    }
++  }
+ 
+   let body: string;
+   try {
+diff --git a/tests/acceptance/fake/pr33-probe-gap3-sweep-blind-spots.test.ts b/tests/acceptance/fake/pr33-probe-gap3-sweep-blind-spots.test.ts
+new file mode 100644
+index 0000000..1c397b9
+--- /dev/null
++++ b/tests/acceptance/fake/pr33-probe-gap3-sweep-blind-spots.test.ts
+@@ -0,0 +1,101 @@
++import { afterEach, describe, expect, it, vi } from "vitest";
++import { createFakeCallingSystem } from "./voice-call-system.js";
++
++// PR33 PROBE ONLY. Same candidate and same flow as the contract's leak case.
++const CANDIDATE = "synthetic meadow lantern";
++
++async function sha256Hex(text: string): Promise<string> {
++  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
++  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
++}
++
++describe("PR33 probe gap 3: candidates survive in channels the contract cannot see", () => {
++  afterEach(() => vi.restoreAllMocks());
++
++  it("one candidate: structured logs, console.info, relay frames and non-string Durable Object storage", async () => {
++    const contractStyle: string[] = [];
++    const raw: unknown[][] = [];
++    for (const method of ["debug", "info", "log", "warn", "error"] as const) {
++      vi.spyOn(console, method).mockImplementation((...values: unknown[]) => {
++        raw.push([method, ...values]);
++        // Exactly the contract's capture: three methods, String() per argument.
++        if (method === "error" || method === "warn" || method === "log") {
++          contractStyle.push(values.map((value) => String(value)).join(" "));
++        }
++      });
++    }
++    const system = await createFakeCallingSystem();
++    try {
++      expect((await system.inbound()).status).toBe(200);
++      const call = await system.openRelay();
++      await call.setup();
++      await call.prompt(CANDIDATE);
++      const storage = await call.durableStorage();
++      const stepUp = storage["call-session.step-up.v1"] as {
++        readonly lastCandidateBytes: Uint8Array;
++        readonly canonicalWords: readonly string[];
++        readonly upper: string;
++        readonly digest: string;
++        readonly heard: Map<string, string>;
++      };
++      let journal: readonly Record<string, unknown>[];
++      try {
++        journal = await call.durableSql("SELECT text FROM relay_prompt_journal");
++      } catch (error) {
++        journal = [{ text: `sql_unavailable:${String(error)}` }];
++      }
++      expect({
++        contractStyleLogCapture: JSON.stringify(contractStyle).includes(CANDIDATE),
++        contractStyleStorageSweep: JSON.stringify(storage).includes(CANDIDATE),
++        phase: await call.phase(),
++        structuredLogArguments: JSON.stringify(raw).includes(CANDIDATE),
++        relayFramesEchoCandidate: JSON.stringify(call.frames()).includes(CANDIDATE),
++        decodedStorageBytes: new TextDecoder().decode(stepUp.lastCandidateBytes),
++        storageWordArray: stepUp.canonicalWords.join(" "),
++        storageUppercase: stepUp.upper.toLowerCase(),
++        storageMapValue: stepUp.heard.get("last"),
++        unpepperedSha256Matches: stepUp.digest === await sha256Hex(CANDIDATE),
++        sqliteJournal: journal.map((row) => row.text),
++      }).toEqual({
++        contractStyleLogCapture: false,
++        contractStyleStorageSweep: false,
++        phase: "pre_auth",
++        structuredLogArguments: true,
++        relayFramesEchoCandidate: true,
++        decodedStorageBytes: CANDIDATE,
++        storageWordArray: CANDIDATE,
++        storageUppercase: CANDIDATE,
++        storageMapValue: CANDIDATE,
++        unpepperedSha256Matches: true,
++        sqliteJournal: [CANDIDATE],
++      });
++    } finally {
++      await system.cleanup();
++    }
++  });
++
++  it("three candidates: the rejection path logs every candidate, and the contract's rejection case captures nothing", async () => {
++    const raw: unknown[][] = [];
++    for (const method of ["debug", "info", "log", "warn", "error"] as const) {
++      vi.spyOn(console, method).mockImplementation((...values: unknown[]) => { raw.push([method, ...values]); });
++    }
++    const system = await createFakeCallingSystem();
++    try {
++      await expect(system.dispatch()).resolves.toMatchObject({ status: "dispatched" });
++      expect((await system.claimOutboundTwiML(system.acceptedCallSid())).status).toBe(200);
++      const call = await system.openRelay();
++      await call.setup();
++      const candidates = ["synthetic wrong alpha", "synthetic wrong bravo", "synthetic wrong charlie"];
++      for (const candidate of candidates) await call.prompt(candidate);
++      const errorLines = raw.filter(([method]) => method === "error")
++        .map((entry) => entry.slice(1).map((value) => String(value)).join(" "));
++      expect({
++        phase: await call.phase(),
++        closeCodes: call.closeCodes(),
++        rejectionLogCarriesAllCandidates: errorLines.some((line) => candidates.every((candidate) => line.includes(candidate))),
++      }).toEqual({ phase: "rejected", closeCodes: [1008], rejectionLogCarriesAllCandidates: true });
++    } finally {
++      await system.cleanup();
++    }
++  });
++});
+diff --git a/tests/acceptance/fake/voice-relay-system.ts b/tests/acceptance/fake/voice-relay-system.ts
+index 92a74bc..67b51d1 100644
+--- a/tests/acceptance/fake/voice-relay-system.ts
++++ b/tests/acceptance/fake/voice-relay-system.ts
+@@ -15,6 +15,7 @@ import {
+   CallSessionCore,
+   GuestCallAuthentication,
+   type CallSessionInitialization,
++  type CallSessionRuntimeFactory,
+   type CallSessionTermination,
+   type CallSessionTerminationResult,
+   type CallSessionTerminalPhase,
+@@ -49,6 +50,10 @@ export interface FakeRelayCall {
+   closeCodes(): readonly number[];
+   phase(): Promise<string | undefined>;
+   durableStorage(): Promise<Readonly<Record<string, unknown>>>;
++  /** PR33 PROBE ONLY: replaces the CallSession instance, as a hibernation wake does. */
++  simulateHibernationWake(): Promise<void>;
++  /** PR33 PROBE ONLY: reads the SQLite side of Durable Object storage, which storage.list() omits. */
++  durableSql(query: string): Promise<readonly Record<string, unknown>[]>;
+   turns(): Promise<readonly {
+     state: string;
+     sent_assistant_event_id: string | null;
+@@ -61,7 +66,8 @@ export interface FakeRelayCall {
+ type SessionStub = ReturnType<typeof env.CALL_SESSION.get>;
+ interface InitializedRelay {
+   readonly stub: SessionStub;
+-  readonly object: CallSession;
++  object: CallSession;
++  readonly factory: CallSessionRuntimeFactory;
+   readonly initialization: Readonly<CallSessionInitialization>;
+   readonly model: FakeModelProvider;
+   client: WebSocket | null;
+@@ -107,7 +113,7 @@ export class FakeRelaySessions {
+         redactor: new Redactor(),
+         now: this.now,
+       });
+-      const object = new CallSession(state, env, (input) => new CallSessionCore({
++      const factory: CallSessionRuntimeFactory = (input) => new CallSessionCore({
+         capacity: { async assertAcceptingNewTurn(): Promise<void> {} },
+         session: input.session,
+         expectedAccountSid: FAKE_ACCOUNT_SID,
+@@ -120,9 +126,10 @@ export class FakeRelaySessions {
+           ? { preAuthentication: input.initialization.preAuthentication }
+           : {}),
+         now: this.now,
+-      }));
++      });
++      const object = new CallSession(state, env, factory);
+       this.sessions.set(initialization.sessionId, {
+-        stub, object, initialization, model, client: null, server: null, frames: [], closeCodes: [],
++        stub, object, factory, initialization, model, client: null, server: null, frames: [], closeCodes: [],
+         providerSessionId: `VX${(++this.providerSequence).toString(16).padStart(32, "0")}`,
+       });
+     });
+@@ -191,6 +198,11 @@ export class FakeRelaySessions {
+       phase: async () => (await this.repository.getCallSession(sessionId))?.phase,
+       durableStorage: () => runInDurableObject(session.stub, async (_instance, state) =>
+         Object.fromEntries(await state.storage.list())),
++      simulateHibernationWake: () => runInDurableObject(session.stub, async (_instance, state) => {
++        session.object = new CallSession(state, env, session.factory);
++      }),
++      durableSql: (query: string) => runInDurableObject(session.stub, async (_instance, state) =>
++        [...state.storage.sql.exec(query)] as Record<string, unknown>[]),
+       turns: async () => (await env.DB.prepare(`SELECT state, sent_assistant_event_id, delivered_assistant_event_id
+         FROM conversation_turns WHERE session_id = ? ORDER BY rowid`).bind(sessionId)
+         .all<{ state: string; sent_assistant_event_id: string | null; delivered_assistant_event_id: string | null }>()).results,

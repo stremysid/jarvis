@@ -1,0 +1,74 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run tests/acceptance/fake/owner-call-passphrase-security.test.ts tests/acceptance/fake/pr33-probe-gap3-sweep-blind-spots.test.ts --reporter=verbose
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr33-tests
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not mint owner authority for an inbound call before a passed step-up 361ms
+ ✓ |default| tests/acceptance/fake/pr33-probe-gap3-sweep-blind-spots.test.ts > PR33 probe gap 3: candidates survive in channels the contract cannot see > one candidate: structured logs, console.info, relay frames and non-string Durable Object storage 363ms
+ ✓ |default| tests/acceptance/fake/pr33-probe-gap3-sweep-blind-spots.test.ts > PR33 probe gap 3: candidates survive in channels the contract cannot see > three candidates: the rejection path logs every candidate, and the contract's rejection case captures nothing 281ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not mint owner authority for an outbound call before a passed step-up 259ms
+stdout | tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps an inbound spoken candidate out of transcripts, model input and context, events, logs, call rows and Durable Object storage
+owner_step_up heard=synthetic meadow lantern
+
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps an inbound spoken candidate out of transcripts, model input and context, events, logs, call rows and Durable Object storage 220ms
+stdout | tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps an outbound spoken candidate out of transcripts, model input and context, events, logs, call rows and Durable Object storage
+owner_step_up heard=synthetic meadow lantern
+
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps an outbound spoken candidate out of transcripts, model input and context, events, logs, call rows and Durable Object storage 209ms
+stdout | tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an inbound owner call after three complete wrong candidates
+owner_step_up heard=synthetic wrong alpha
+
+stderr | tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an inbound owner call after three complete wrong candidates
+owner_step_up_mismatch { heard: 'synthetic wrong alpha', attempt: 1 }
+
+stdout | tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an inbound owner call after three complete wrong candidates
+owner_step_up heard=synthetic wrong bravo
+
+stderr | tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an inbound owner call after three complete wrong candidates
+owner_step_up_mismatch { heard: 'synthetic wrong bravo', attempt: 2 }
+
+stdout | tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an inbound owner call after three complete wrong candidates
+owner_step_up heard=synthetic wrong charlie
+
+stderr | tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an inbound owner call after three complete wrong candidates
+owner_step_up_mismatch { heard: 'synthetic wrong charlie', attempt: 3 }
+owner_step_up_rejected synthetic wrong alpha | synthetic wrong bravo | synthetic wrong charlie
+
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an inbound owner call after three complete wrong candidates 226ms
+stdout | tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an outbound owner call after three complete wrong candidates
+owner_step_up heard=synthetic wrong alpha
+
+stderr | tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an outbound owner call after three complete wrong candidates
+owner_step_up_mismatch { heard: 'synthetic wrong alpha', attempt: 1 }
+
+stdout | tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an outbound owner call after three complete wrong candidates
+owner_step_up heard=synthetic wrong bravo
+
+stderr | tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an outbound owner call after three complete wrong candidates
+owner_step_up_mismatch { heard: 'synthetic wrong bravo', attempt: 2 }
+
+stdout | tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an outbound owner call after three complete wrong candidates
+owner_step_up heard=synthetic wrong charlie
+
+stderr | tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an outbound owner call after three complete wrong candidates
+owner_step_up_mismatch { heard: 'synthetic wrong charlie', attempt: 3 }
+owner_step_up_rejected synthetic wrong alpha | synthetic wrong bravo | synthetic wrong charlie
+
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > rejects and hangs up an outbound owner call after three complete wrong candidates 229ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps the exact Passed-A waiver off when policy is undefined 227ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps the exact Passed-A waiver off when policy is passphrase_always 197ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > keeps the exact Passed-A waiver off when policy is unknown_policy 220ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > allows only the explicitly enabled exact Passed-A waiver to satisfy owner step-up 206ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation undefined 194ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation TN-Validation-Passed-B 198ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation TN-Validation-Failed-A 192ms
+ ✓ |default| tests/acceptance/fake/owner-call-passphrase-security.test.ts > owner call passphrase security contract > does not apply an enabled waiver to nonqualifying attestation tn-validation-passed-a 221ms
+
+ Test Files  2 passed (2)
+      Tests  16 passed (16)
+   Start at  02:56:18
+   Duration  5.19s (transform 851ms, setup 0ms, import 1.95s, tests 3.81s, environment 0ms)
+
+exit=0
