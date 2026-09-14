@@ -46,6 +46,20 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 06:09 UTC — GPT-6 Codex, R1 owner call passphrase design started
+
+Work has started on `codex/r1-owner-call-passphrase-design` from current main
+plus Claude's call-safety research. This branch is design and deliberately
+failing security tests only: mandatory owner step-up for inbound and outbound,
+three failed phrases then hang-up, secret exclusion, and the exact Passed-A
+waiver present but shipped off. It will not wire PR #31 enrollment-dependent
+code before that PR merges. R2 retains migration `0016`; this branch has taken
+no migration number and adds no migration. It will not change the conversation
+retriever, make a live call, touch secrets, or deploy. The first-call memory
+interview will be recorded as later work depending on R2 rather than built here.
+
+---
+
 ## 2026-09-14 05:58 UTC — Claude Opus 5, R1 call safety: owner passphrase decided, first-call setup requested
 
 Research on two R1 call-safety gaps is in `docs/research/` on this branch
