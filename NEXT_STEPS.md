@@ -215,19 +215,22 @@ Vectorize are rebuildable indexes, and full-history recall includes verified
 R2 archive segments. Obsidian is only a later optional one-way export and is
 not built in R2.
 
-Draft [PR #35](https://github.com/ksid1229-ops/jarvis/pull/35) contains the
-storage-independent extraction policy, topic-tree reducer and offline evaluator.
-Its first Claude review findings are fixed on `codex/r2-memory-pure-logic`,
-which is retargeted to `main`; Claude's max re-review at `11d868d` cleared the
-PR with non-blocking follow-ups for the next R2 code step. The evaluator scoring
-follow-up must land before any paid model comparison. Draft
-[PR #36](https://github.com/ksid1229-ops/jarvis/pull/36) contains the corrected
-documentation and D1-authoritative design; its first Claude review findings are
-fixed on `codex/r2-memory-docs`, which is also retargeted to `main` and waiting
-for max re-review.
+[PR #35](https://github.com/ksid1229-ops/jarvis/pull/35) merged at `fb7c864`
+with the storage-independent extraction policy, topic-tree reducer and offline
+evaluator. [PR #36](https://github.com/ksid1229-ops/jarvis/pull/36) passed
+Claude review at `1be6191` and merged through `fcd55ef`, establishing the
+D1-authoritative design.
 
-Keep migration `0016` reserved but uncreated. Only after the docs design passes
-review may the next small PR define `0016`; Sid alone applies it after another
+Draft [PR #38](https://github.com/ksid1229-ops/jarvis/pull/38) closes #35's
+F1–F4 follow-ups before any paid comparison: suite-scaled evaluator scoring,
+shared whole-sentence uncertainty vectors, one-sentence trusted quotes, expanded
+hedge handling and a case-only alias regression. Its design-only amendments
+also pin the three #36 schema nits: whole-turn forget counts, an append-only
+owner-authorized suppression lift, and suppression-aware recent-turn context.
+It contains no migration or schema SQL and awaits Claude Opus 5 xhigh review.
+
+Keep migration `0016` reserved but uncreated. After #38 passes review and Sid
+merges it, the next small PR defines `0016`; Sid alone applies it after another
 Claude max review. No live model comparison runs without Sid's explicit
 approval. R1 is cloud-side and does not depend on this work.
 

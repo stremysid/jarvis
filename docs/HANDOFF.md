@@ -154,7 +154,7 @@ export and is not built or read back in R2. Sid approved a future private
 GitHub destination with sensitive-category exclusions, but not repository
 creation, credentials, paid service or a live push. Migration `0016` remains
 reserved but uncreated; Sid applies it only after its later schema PR passes
-Claude max review. The current docs branch defines the table contract,
+Claude max review. The merged design defines the table contract,
 event-level forget suppression, distillation, receipts, custom nightly export
 and all-PCs-off exit test. Its provider-qualified memory setting supports
 DeepSeek, Anthropic and OpenAI; USD 5.00 is the normal DeepSeek default, a
@@ -162,14 +162,17 @@ Claude/GPT switch requires Sid to set a new cap after seeing projected cost,
 and reprocessing has its own owner-approved one-time limit. No live call,
 provider call, migration or deployment was performed.
 
-Draft PR #35 contains the storage-independent extraction policy, topic-tree
-reducer and offline evaluator. Its first Claude review findings are fixed on a
-branch retargeted to `main`; Claude's max re-review at `11d868d` cleared the PR
-with non-blocking follow-ups for the next R2 code step, including an evaluator
-scoring correction required before any paid model comparison. Draft PR #36
-contains this documentation and D1 design; its first Claude review findings are
-also fixed on a branch retargeted to `main` and await max re-review before
-schema work.
+PR #35 merged at `fb7c864` with the storage-independent extraction policy,
+topic-tree reducer and offline evaluator. PR #36 passed Claude review at
+`1be6191` and merged through `fcd55ef` with the D1-authoritative design. Draft
+PR #38 now closes #35 follow-ups F1–F4 before any paid model comparison: scaled
+evaluation scoring, shared whole-sentence uncertainty vectors, a one-sentence
+trusted-quote rule, expanded hedge handling and a case-only alias regression.
+Its contract-only amendments also make `/forget` report whole-turn counts, add
+an append-only owner-authorized suppression lift, and require recent-turn
+context to skip actively hidden events. PR #38 contains no migration or schema
+SQL and awaits Claude Opus 5 xhigh review. After Sid merges it, the separate
+`0016` schema PR is next; Sid alone applies that migration after review.
 
 PR #16 at `27b232f` has completed the reviewer's requested changes. The
 reviewer independently verified migration byte identity, all five trigger

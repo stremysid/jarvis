@@ -287,4 +287,24 @@ describe("topic tree", () => {
       filings: [merged.filings[0]],
     });
   });
+
+  it("deduplicates merge aliases that differ only in case", () => {
+    let tree = nestedTree();
+    tree = addTopic(tree, {
+      topicId: "digital",
+      name: "Digital",
+      parentTopicId: "st-remy",
+    }, change("create-digital"));
+    tree = renameTopic(tree, "website", "Web platform", change("rename-website"));
+    tree = renameTopic(tree, "digital", "WEBSITE", change("rename-digital"));
+
+    const merged = mergeTopics(tree, "website", "digital", change("merge-case-alias"));
+    const target = merged.topics.find((topic) => topic.topicId === "digital");
+
+    expect(target?.aliases).toEqual(["Digital", "Web platform"]);
+    expect(merged.history.at(-1)).toMatchObject({
+      operation: "merge",
+      addedAliases: ["Web platform"],
+    });
+  });
 });
