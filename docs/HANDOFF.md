@@ -3,24 +3,26 @@
 Current as of **2026-09-13**. Verify the current branch and checks before
 using this checkpoint. R0 passed; calling remains R1.
 
-PR #25's max-review response passes 2,512 Windows workspace tests / 122
-files. Its release gate passes 761 / 32 plus six native checks, then refuses
-missing live evidence. Source/harness typechecks and lint pass; the separate
-test-type baseline is 121 diagnostics. Max re-review and owner operations remain.
+PR #25 merged as `fd39301` after max review. Production D1 now has migrations
+through 0015, and gateway deployment `28109492` runs that commit. Health answers
+200 and the first observed cron succeeded. Calling remains disabled because
+Twilio is not configured and `outbound_runtime_controls.enabled` remains 0.
+The release gate still requires the retained live-call evidence.
 
 ## R1 is active; the node platform decision remains on hold
 
 R0 passed on 2026-09-11. R1 depends on R0 and is entirely cloud-side.
-PR #23 implements item 2's fake calling/access matrix and confirmed Telegram
+PR #23 supplied item 2's fake calling/access matrix and confirmed Telegram
 `/call`, with local Windows validation and mutation evidence recorded in the
-PR. PR #25 composes the production Worker; an unconfigured deployment still
-answers that calling is not configured.
+PR. PR #25 composes the production Worker and is now merged and deployed;
+without Twilio configuration and explicit control activation, calling remains
+unavailable.
 The real release runner passes its local prerequisites and then refuses the
 missing live evidence. It never places a call itself.
 
-R1's v1.0 review requires Claude Opus 5 at max. Item 1's real Worker/runtime
-composition is implemented on `codex/r1-voice-runtime`, stacked on PR #23; its
-implementation does not wait on the separate review. The first checkpoint
+R1's v1.0 review required Claude Opus 5 at max, and PR #25 passed that review
+before merge. Item 1's real Worker/runtime composition is now on `main`. Its
+first checkpoint
 installs a lazy production Durable Object runtime using the real D1 access,
 activation, conversation, DeepSeek and Telegram services. Nominal proof and
 authority issuers are shared within each reconstructed graph. Configuration
@@ -36,8 +38,8 @@ configured limit, with 85% and 95% warnings. D1/R2 and provider collectors, expl
 configuration and the durable Telegram alert sink are implemented. New D1
 migration 0015 adds alert crossing receipts, recoverable leases, default-disabled
 outbound controls and atomic admission guards. It adds and backfills a terminal
-evidence column on existing attempts; it is a production schema change requiring
-max review and owner migration. The default call
+evidence column on existing attempts. Production applied 0015 with no existing
+outbound attempts or provider events, so the backfill changed no rows. The default call
 runtime now checks every final conversation turn before fresh access validation
 and durable admission. Interrupted admission releases the slot for a replacement
 prompt; cancelled context retrieval cannot start a model request. Completed
@@ -48,8 +50,8 @@ synchronous clock fence precede dialing. Unknown claims retain their slot;
 affirmative terminal evidence survives archival. Inbound requests are verified
 once before capacity collection; their nominal form is passed to admission.
 Terminal callbacks and socket forwarding do not require model/credit config.
-The max review of #23 at d6c5fc2 requested changes. The fixes are pushed at
-695e762 and carried into this branch; max re-review remains required. The broad
+The max review of #23 at d6c5fc2 requested changes. The fixes at `695e762`
+were carried into PR #25 and cleared before merge. The broad
 relay harness invokes DO methods directly. A separate configured test project
 now exercises the default production factory through the actual DO stub and
 client WebSocket: owner and PIN-authenticated guest turns survive real eviction,
@@ -87,9 +89,9 @@ checkout. Hermes has three known failures on his Store/MSIX PowerShell
 layout; that independent R3 issue does not block #16 and is not fixed here.
 These are owner/reviewer reports, not reruns by this builder. No further
 implementation is requested on #16. Sid merged #16 on 2026-09-13 at
-`b6f3542`. Owner rollout remains: skip the POSIX-only 0700 preflight on
-Windows, apply 0014 to live D1, confirm exactly 21 projection triggers, then
-deploy the gateway. Do not start the node.
+`b6f3542`. Production applied 0014, verified exactly 21 projection triggers,
+and deployed gateway `28109492` from `fd39301`. Do not start the node; local
+uploader acceptance remains behind the platform decision.
 
 Sid's real Windows suite exposed Hermes' MSI-only PowerShell path: the trusted
 host lookup rejects his Store/MSIX installation. This is deferred R3

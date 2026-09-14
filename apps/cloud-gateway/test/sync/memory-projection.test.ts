@@ -768,6 +768,44 @@ describe("signed active-fact projection", () => {
     ).first<string>("status")).toBe("staged");
   });
 
+  it("rolls back publication when the head disappears after the version transition", async () => {
+    const built = await snapshot(1, []);
+    await project(service(), built.pages[0]!);
+    const headDeleteGuard = await env.DB.prepare(
+      "SELECT sql FROM sqlite_schema WHERE type = 'trigger' AND name = ?",
+    ).bind("memory_fact_projection_heads_delete_guard").first<string>("sql");
+    if (headDeleteGuard === null) throw new Error("projection head delete guard missing");
+
+    await env.DB.prepare("DROP TRIGGER memory_fact_projection_heads_delete_guard").run();
+    let failure: unknown;
+    try {
+      await env.DB.prepare(`CREATE TRIGGER test_projection_head_race
+        AFTER UPDATE OF status ON memory_fact_projection_versions
+        WHEN OLD.status = 'staged' AND NEW.status = 'published'
+        BEGIN
+          DELETE FROM memory_fact_projection_heads
+          WHERE principal_id = NEW.principal_id AND device_id = NEW.device_id;
+        END`).run();
+      try {
+        await project(service(), built.commit);
+      } catch (error) {
+        failure = error;
+      }
+    } finally {
+      await env.DB.prepare("DROP TRIGGER IF EXISTS test_projection_head_race").run();
+      await env.DB.prepare(headDeleteGuard).run();
+    }
+
+    expect(String(failure)).toContain("memory_projection_head_changed");
+    expect(await publishedVersion()).toBe(0);
+    expect(await env.DB.prepare(
+      "SELECT status FROM memory_fact_projection_versions WHERE projection_version = 1",
+    ).first<string>("status")).toBe("staged");
+    expect(await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM memory_fact_projection_commits WHERE projection_version = 1",
+    ).first<number>("count")).toBe(0);
+  });
+
   it("reports a page-state race as retryable instead of device revocation", async () => {
     currentNow = new Date();
     const event = await appendSource("I like coffee");
