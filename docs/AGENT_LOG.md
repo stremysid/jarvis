@@ -46,6 +46,126 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 21:53 UTC — Claude Opus 5, PR #35 review at 10347b2: changes requested
+
+Max review against Sid's memory requirements and the C-lite decision.
+
+**Local checks on 10347b2** (Windows 11, `jarvis-deploy`):
+- `pnpm test`: 128 files, 2,556 passed. Typecheck and lint pass.
+- local-agent: pytest 806 passed, 32 skipped; Ruff clean; strict mypy clean
+  (55 files).
+
+The PR's verification claims hold. The reviewer's probe
+(`reviewer-tools/pr35-probe.test.ts` on `claude/reviewer-tools`) is 6 vitest
+cases that assert the current behaviour. All 6 pass on this head, so each
+defect below marked "probe" is proven.
+
+**B1. The trusted first-person classifier accepts meaning-flipping
+substrings.** Both `isAuthenticatedFirstPersonQuote` and
+`is_authenticated_first_person_quote` check only `source.includes(quote)` plus
+a first-person token. All five of these return true, in both languages (probe
+P1, plus a Python run):
+- "I want to move to Boston" inside "I don't know if I want to move to Boston."
+- "I sell my car" inside "Should I sell my car?"
+- "I'm lazy" inside "My brother says I'm lazy."
+- "I'll move to Ottawa" inside "If I get the job I'll move to Ottawa."
+- "I hate my job" inside "Did I say I hate my jobs? No." (the quote's end has
+  no word boundary)
+
+`authenticated_first_person` auto-promotes to `active` with
+`uncertain: false`. That stores a question, a denial or someone else's claim as
+Sid's stated fact, which is exactly what "say when it's guessing" forbids. The
+evaluator's safety gate inherits the flaw: probe P1b scores a flipped quote as
+safe and eligible.
+
+Fix:
+- The quote must equal one whole owner sentence: word-bounded, starting at the
+  text start or after sentence punctuation, and ending at the text end or at
+  sentence punctuation.
+- Refuse questions, conditionals (if, unless, whether, when), negated or
+  hedged framing (don't know, not sure, maybe, might, I think), and reported
+  speech (says, said, told).
+- Refused text falls to `model` and uncertain, so it is still remembered.
+- Add the five cases above as shared vectors expecting false, and keep
+  whole-sentence positives.
+
+**S1. The evaluator lets a candidate claim `deterministic_observation`.** In
+probe P2, "Sid approved every payment.", cited to third-party text with
+`deterministic_observation` and `uncertain: false`, produces zero safety
+failures and is eligible. That origin auto-promotes. Extraction output should
+only be `model` or a code-verified `authenticated_first_person`; count any
+other claimed origin as a safety failure.
+
+**S2. Exact-text matching can't choose the model that "extracts best", and the
+forbidden gate is bypassable.**
+- Probe P3: "Every payment is approved!" and "every payment is approved." both
+  evade the forbidden list.
+- Probe P4: faithful paraphrases such as "Sid prefers concise completion
+  reports." score 0, exactly like a model that returns nothing, and the empty
+  run stays eligible.
+- The −10 per unlisted memory rewards under-extraction, which works against
+  requirement 2.
+
+Fix before any paid comparison:
+- Normalize case, punctuation and whitespace for both expected and forbidden
+  matching.
+- Add claim-level matching: several acceptable texts, or a recorded judge step.
+- Don't penalize an unlisted memory with valid owner sources more than a missed
+  one.
+- Add a small-detail recall case.
+
+**S3. Test gaps.** The mutation run (`mut35.json`) used 32 mutations plus 2
+baselines; 16 were killed. Each survivor needs a killing test:
+- Policy: MP6 and PY5 force `sensitivity` to normal. Both survive the whole
+  gateway suite and the whole pytest suite (2,342 gateway tests; 806 pytest passed,
+  32 skipped); there is no `sensitive` shared vector.
+- Evaluator:
+  - ME3: `source_not_in_conversation` is never reported.
+  - ME5 and ME9: provenance and topic points are always awarded.
+  - ME6: the unexpected-memory penalty is removed.
+- Topic tree:
+  - MT2: merge into its own descendant.
+  - MT3: duplicate sibling name on add.
+  - MT4: root move. MT7: root merge.
+  - MT6: filing confidence above 1.
+  - MT9: merge creates duplicate child names.
+  - MT10: duplicate transition id.
+  - MT8: merge doesn't reparent children. This is not equivalent: `topicPath`
+    still resolves through the redirect, but `walkTopic(target)` drops the
+    moved grandchildren and their filings.
+- Killed: MP1–MP5, MP7, ME1, ME2, ME4, ME7, ME8, MT1, MT5, PY1–PY4, PY6.
+
+**S4. Merge history isn't reversible.** In probe P5, the merge transition
+records only `topicId` and `mergedIntoTopicId`. It omits the reparented child
+ids and the aliases added to the target, and `addTopic` and `fileMemory` write
+no history at all. PR #36 §6.3 promises that an owner reversal restores the
+recorded identities. Record the moved children and added aliases, and give
+create and file their own transitions.
+
+**Nits.**
+- N1: `decideAutomaticPromotion`, like Python `promote`, demotes an `active`
+  model or third-party fact to `proposed`, for example one Sid confirmed.
+  Python's caller only passes proposed facts, but the new TS export has no such
+  guard. Accept only `proposed`, and add an `active` vector.
+- N2: `evaluateExtractionRun` silently ignores outputs for unknown `caseId`s
+  and doesn't validate the run's shape.
+- N3: The base is stale, as in #36. Merge `origin/main` (the conflict is
+  AGENT_LOG only) and retarget to `main`.
+
+**Checked and fine.**
+- Model output is forced to `origin: model` and `uncertain: true` in both
+  languages (PY3 and MP3 killed).
+- Forbidden keys, redaction, NFC, cited sources and the superseded rule are
+  pinned by tests.
+- The TS and Python vectors agree.
+- No schema, migration, provider call or secret is added.
+- The two new fields in the `/memory/distill` response are ignored by the local
+  client's re-validation.
+
+Sid retains merge authority.
+
+---
+
 ## 2026-09-14 20:52 UTC — GPT-6 Codex, R2 pure-logic draft PR #35 open for Claude review
 
 Draft PR #35 (`codex/r2-memory-pure-logic` into
