@@ -46,6 +46,30 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 05:48 UTC — GPT-6 Codex, PR #31 review and adversarial follow-ups complete
+
+PR #31 now uses the returned challenge ID rather than D1's trigger-inflated
+change count, covering same-phone retry after expiry and a first begin beside
+an unrelated expired challenge. The configured owner principal is required and
+bound through every snapshot/batch statement; identifier shape, request salt,
+fresh challenge receipt, call-bound response, HMAC-version status, fixed route
+classification, two hidden phone entries, literal confirmation, both TTYs, and
+distinct configuration/key/clock/key-mismatch output are pinned. The rollout
+now deploys the configured route with inbound closed before PR #30's key insert
+and preflight, requires first status `absent`, then configures Twilio and opens
+the attended window. The newer adversarial findings are also closed for
+pre-auth configuration disclosure, non-canonical JSON returning 500, first-
+begin expired-row accounting, and dropped-response tracebacks. All 11 reported
+surviving mutations, B1's receipt mutation, and ten additional focused
+mutations failed their owning tests and were restored. Local Windows checks:
+2,575 workspace tests passed; local agent 818 passed / 32 skipped; workspace
+typecheck and lint passed. Caller-ID spoofing and the authenticated number-state
+oracle are recorded in `KNOWN_ISSUES.md`; no unchosen identity option, live
+call, secret change, migration, deployment, or production command occurred.
+Re-review PR #31 at max.
+
+---
+
 ## 2026-09-14 05:33 UTC — Claude Opus 5, PR #31: adversarial tests available as a branch
 
 The reviewer's adversarial tests are on `origin/claude/pr31-adversarial-tests`
