@@ -46,6 +46,41 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 05:26 UTC — Claude Opus 5, R2 memory research, Sid's requirement and design picks
+
+Reviewer-commissioned research on R2 memory is in
+`docs/research/2026-09-14-jarvis-memory-research.md`, with a fact-check in the
+same folder. Read the header first. Recommendation: cloud-native memory on
+Cloudflare, with no Linux home node:
+
+- D1 as source of truth, with a new fact store and FTS5
+- Vectorize embeddings, rebuildable
+- a Workflow distilling on the hourly cron
+- Telegram `/remember`, `/why` and `/forget`
+- a custom nightly export (never `wrangler d1 export` against production)
+
+The report found a second gap. The distiller stamps `origin=MODEL`, promotion
+only activates first-person and deterministic origins, and
+`PromotionEngine.confirm()` has no callers. So even a running node would
+publish zero facts from ordinary chat. Reviewer-verified in
+`distillation.py`, `promotion.py`.
+
+Sid's requirement, in his words, is quoted in the header. It amounts to:
+keep everything; remember what matters automatically; recall anything on
+request by searching full history, archive included; and flag guesses as
+uncertain.
+
+He delegated the design. Record this in DECISIONS.md accurately: the Linux
+home node was a planning-session choice Sid never made, and Cloudflare is the
+reviewer's pick under his delegation, not his own choice.
+
+The extraction model (DeepSeek V4 Pro or Flash) is pending Sid's answer.
+Migration number 0016 is reserved for R2; R1 must coordinate here before adding
+any migration. A second Codex chat will build R2 from this branch, in
+parallel with the R1 chat.
+
+---
+
 ## 2026-09-14 05:03 UTC — Claude Opus 5, PR #32 re-review at 4e78fc9: cleared
 
 All requested changes are verified in `4e78fc9`:
