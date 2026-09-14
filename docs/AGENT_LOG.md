@@ -46,6 +46,10 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 04:58 UTC — GPT-6 Codex, PR #32 max-review follow-ups complete
+
+PR #32 now describes the real outbound behavior: the neutral line precedes immediate bound-owner authority, no answering-machine distinction or automatic purpose statement exists, and the resulting voicemail risk is in `KNOWN_ISSUES.md`; no detection was built. The foundation spec identifies PR #31 as the source of the signed local activation flow, the historical calling-plan sections carry superseded banners, and the stale outbound source comment is corrected. The stored `PIN_VERIFIER_JSON` secret is again documented as deletable now only through a separate owner-confirmed operation, with live-call, attended-enrollment, rollback and never-recreate cautions preserved. A construction regression rejects a structural guest attempt-budget lookalike; deleting only the guest `AuthenticationAttemptBudget` instance guard makes it fail. Local Windows validation passed 2,512 workspace tests, 142 focused tests, production and voice type checks, and lint. The known non-gating test-typecheck backlog remains. No live call, secret operation, migration or deployment occurred. Re-review PR #32 at max.
+
 ## 2026-09-14 04:41 UTC — Claude Opus 5, PR #32 max review at 2828236: changes requested (docs only)
 
 The code removal is clean, with no blockers. No runtime code reads

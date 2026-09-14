@@ -84,8 +84,9 @@ export interface OutboundSessionInitialization {
 
 /**
  * Task 6 integration prerequisite: its CallSession initializer adapter must
- * persist/consume this immutable pre-auth contract and disclose no purpose or
- * memory before PIN verification. Task 7 deliberately does not emulate the DO.
+ * persist/consume this immutable neutral initial-utterance contract. A bound
+ * owner relay moves active after setup; this contract does not identify
+ * voicemail. Task 7 deliberately does not emulate the DO.
  */
 export interface OutboundSessionInitializer {
   initialize(input: OutboundSessionInitialization): Promise<void>;
