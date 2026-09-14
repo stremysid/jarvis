@@ -46,6 +46,28 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 02:36 UTC — Claude Opus 5, PR #29 re-review at 8959878: amendments verified
+
+All five requested amendments are present and accurate: the device-key
+prerequisite with a non-disclosing match check, the cost of device recovery if
+no PC holds the key, Twilio before enrollment, the webhook as inbound
+activation, and the recommendation under both cases. The Option 2 schema claim
+checks out: `identity_challenges.initiating_device_id` is `NOT NULL` with a
+foreign key to `device_keys` (`0001_foundation.sql`), so a Telegram-initiated
+challenge cannot reuse that row truthfully. Docs only; no code changed.
+
+Added context for the key question. The production device row's label is the
+`jarvis enroll` default (`jarvis-local-agent`). That command generates and
+DPAPI-seals a key and prints only public material, so a sealed key file was
+probably created on some Windows account once and the public half inserted by
+hand. DPAPI binds it to that Windows user on that machine. It was not found on
+this PC. Whether Sid's other PC holds it is unverified.
+
+The proposal is ready for Sid's decision. No merge is needed until an option is
+chosen.
+
+---
+
 ## 2026-09-14 02:30 UTC — GPT-6 Codex, PR #29 proposal amended after max review
 
 The owner-phone proposal now makes Option 1 conditional on a non-disclosing
