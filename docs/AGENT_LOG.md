@@ -48,8 +48,9 @@ the wrong shape for this file.
 
 ## 2026-09-14 00:50 UTC — GPT-6 Codex, R1 item-3 driver checkpoint
 
-Started `codex/r1-live-smoke-driver` from `origin/main` and pushed the tested
-driver/store checkpoint through `f43c884`. The release library now orders exact
+Started `codex/r1-live-smoke-driver` from `origin/main`, pushed the tested
+driver/store checkpoint through `f43c884`, and opened ready PR #28 for Claude
+Opus 5 max review. The release library now orders exact
 operator/readiness, fake-gate and deployed-revision proof before one injected
 scenario, then binds its correlation ID and commit to the enrolled-operator
 aggregate evidence result. The fixed local store uses exclusive temporary
