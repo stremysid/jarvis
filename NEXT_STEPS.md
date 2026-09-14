@@ -84,24 +84,30 @@ phone. Sid selected Option 1 in
 [`docs/plan/2026-09-14-owner-phone-enrollment-options.md`](docs/plan/2026-09-14-owner-phone-enrollment-options.md);
 the device-signed Windows CLI followed by an inbound activation call. No
 original sealed key was found on the intended home PC, so the required order is
-a separately reviewed device-key replacement runbook and owner-executed key
-replacement, then a non-disclosing local key-match preflight, then the Option 1
-implementation. The production key change remains one owner-confirmed action at
-each live step. Twilio must be configured before the enrollment call. Setting the voice
+a separately reviewed Option 1 route deployed with its owner/HMAC configuration
+and the inbound webhook closed, then the reviewed owner-executed device-key
+replacement and non-disclosing preflight. First phone status must be `absent`.
+The production key change remains one owner-confirmed action at each live step.
+Twilio must be configured before the enrollment call. Setting the voice
 webhook makes inbound calling live because the outbound runtime control does
 not gate inbound calls; unknown callers are refused but may still incur
 provider charges. Live enrollment and acceptance remain owner-confirmed steps.
 
 Sid selected PR #29's Option 1 for owner-phone enrollment using a new device
-key on his home PC. PR #30 is the separate draft owner runbook and exact SQL
+key on his home PC. PR #30 is the separate owner runbook and exact SQL
 for replacing and proving the production key before revoking the orphaned row.
 PR #31 implements the device-signed Windows bootstrap and non-disclosing
 key-match preflight. It adds no migration and performs no provider operation;
-the later attended rollout must finish the reviewed key replacement, configure
-Twilio, keep the inbound webhook closed until the enrollment window, run the
-preflight, then make the signed inbound enrollment call. Setting the webhook
+the later attended rollout must deploy and configure the route with inbound
+closed, finish the reviewed key replacement through its preflight, require
+status `absent`, configure Twilio, then set the webhook and make the signed
+inbound enrollment call. Setting the webhook
 makes inbound calling live even while outbound controls remain disabled. Do
 not start the live smoke until status freshly reports the owner phone active.
+Before any live call, Sid must choose how owner admission will address caller-
+ID spoofing; the signed Twilio webhook currently proves delivery by Twilio but
+does not attest the caller. The authenticated begin number-state oracle is also
+recorded in `KNOWN_ISSUES.md`; PR #31 does not silently change retry recovery.
 
 Run `pnpm test:voice-access` and `pnpm typecheck:voice-access` locally.
 `pnpm release:voice-gate` runs the fake prerequisite before auditing the five

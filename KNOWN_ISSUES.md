@@ -1,5 +1,36 @@
 # Known issues
 
+## Inbound owner admission trusts the Twilio caller number without attestation
+
+The signed Twilio webhook proves that Twilio delivered the request, but current
+owner admission treats a matching `From` number as sufficient owner identity.
+Nothing in the gateway reads STIR/SHAKEN `StirVerstat` or requires another
+owner factor. Once calling goes live, spoofing the enrolled number could reach
+an owner session with memory access. A spoofed caller could also consume the
+three-attempt challenge budget and the six-attempt five-minute principal budget
+during enrollment.
+
+Calling is not live, so there is no current exposure. The reviewer is sizing
+attestation gating, a spoken owner passphrase, and a hybrid for Sid to choose.
+Do not make a live call or build one of those options until Sid records the
+decision.
+
+## Owner-phone begin can reveal whether a supplied number matches stored state
+
+The device-signed enrollment route deliberately accepts the full phone only
+from a holder of the enrolled private device key. Once an enrollment exists,
+`begin` returns `active` or `pending` for the stored number and `conflict` for a
+different number. A compromised device key can therefore test phone-number
+guesses; while pending, the matching request also replaces an unused live
+response. The random request salt added by PR #31 prevents an observer from
+testing guesses against the signed body hash, but it does not remove this
+authenticated response oracle.
+
+Changing retry semantics affects recovery when the owner loses a displayed
+response, so the reviewer left this as a design choice rather than a merge
+blocker. Before calling goes live, decide whether a pending begin should return
+one indistinguishable state and wait for expiry instead of rotating the code.
+
 ## Outbound voice does not distinguish Sid from voicemail after the neutral greeting
 
 After an exact outbound relay binding succeeds, the current call session says

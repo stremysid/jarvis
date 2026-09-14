@@ -20,6 +20,8 @@ function base64Url(bytes: Uint8Array): string {
   return base64(bytes).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
 }
 
+const requestSalt = base64Url(Uint8Array.from({ length: 32 }, (_, index) => index + 91));
+
 function dispatch(request: Request, environment: Partial<Env>): Promise<Response> {
   const fetch = worker.fetch as unknown as (
     candidate: Request,
@@ -60,6 +62,7 @@ describe("owner phone enrollment route", () => {
     ).bind(base64(publicBytes), fingerprint, "0".repeat(64), nowIso).run();
     environment = {
       DB: env.DB,
+      OWNER_PRINCIPAL_ID: "principal:owner",
       OWNER_VOICE_IDENTITY_ID: "identity:owner:voice",
       IDENTITY_CHALLENGE_HMAC_PEPPER: base64(challengePepper),
       IDENTITY_CHALLENGE_HMAC_KEY_VERSION: "identity-hmac-v1",
@@ -68,10 +71,16 @@ describe("owner phone enrollment route", () => {
 
   async function request(
     body: unknown,
-    options: { key?: CryptoKey; method?: string; header?: string | null } = {},
+    options: {
+      key?: CryptoKey;
+      method?: string;
+      header?: string | null;
+      issuedAt?: string;
+      rawBody?: Uint8Array;
+    } = {},
   ): Promise<Request> {
-    const rawBody = canonicalize(body as never);
-    const issuedAt = new Date().toISOString();
+    const rawBody = options.rawBody ?? canonicalize(body as never);
+    const issuedAt = options.issuedAt ?? new Date().toISOString();
     const requestNonce = base64Url(Uint8Array.from({ length: 32 }, (_, index) => (nonceSeed + index) % 256));
     nonceSeed += 1;
     const unsigned = {
@@ -115,8 +124,28 @@ describe("owner phone enrollment route", () => {
     expect(await response.json()).toEqual({ error: "owner_phone_enrollment_not_configured" });
   });
 
+  it("does not reveal missing enrollment configuration before device authentication", async () => {
+    const unconfigured = { DB: env.DB };
+    const missing = await dispatch(
+      await request({ schemaVersion: "1.0", operation: "preflight" }, { header: null }),
+      unconfigured,
+    );
+    expect(missing.status).toBe(401);
+    expect(await missing.json()).toEqual({ error: "device_key_mismatch" });
+
+    const forgedPair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+    const forged = await dispatch(
+      await request({ schemaVersion: "1.0", operation: "preflight" }, { key: forgedPair.privateKey }),
+      unconfigured,
+    );
+    expect(forged.status).toBe(401);
+    expect(await forged.json()).toEqual({ error: "device_key_mismatch" });
+  });
+
   it.each([
+    ["OWNER_PRINCIPAL_ID", "principal owner"],
     ["OWNER_VOICE_IDENTITY_ID", "identity:owner\nvoice"],
+    ["OWNER_VOICE_IDENTITY_ID", "identity:owner voice"],
     ["IDENTITY_CHALLENGE_HMAC_PEPPER", btoa("too-short")],
     ["IDENTITY_CHALLENGE_HMAC_KEY_VERSION", ""],
   ] as const)("fails closed on malformed %s", async (name, value) => {
@@ -132,7 +161,7 @@ describe("owner phone enrollment route", () => {
     const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const response = await dispatch(
-      await request({ schemaVersion: "1.0", operation: "begin", phoneNumber: phone }, { key: pair.privateKey }),
+      await request({ schemaVersion: "1.0", operation: "begin", phoneNumber: phone, requestSalt }, { key: pair.privateKey }),
       environment,
     );
     expect(response.status).toBe(401);
@@ -146,7 +175,7 @@ describe("owner phone enrollment route", () => {
   it("rejects extra fields only after authenticating and never returns the phone", async () => {
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const response = await dispatch(await request({
-      schemaVersion: "1.0", operation: "begin", phoneNumber: phone, identityId: "identity:attacker",
+      schemaVersion: "1.0", operation: "begin", phoneNumber: phone, requestSalt, identityId: "identity:attacker",
     }), environment);
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "owner_phone_enrollment_rejected" });
@@ -157,7 +186,7 @@ describe("owner phone enrollment route", () => {
 
   it("begins enrollment through the production worker without exposing trusted identifiers", async () => {
     const response = await dispatch(
-      await request({ schemaVersion: "1.0", operation: "begin", phoneNumber: phone }),
+      await request({ schemaVersion: "1.0", operation: "begin", phoneNumber: phone, requestSalt }),
       environment,
     );
     expect(response.status).toBe(200);
@@ -169,6 +198,73 @@ describe("owner phone enrollment route", () => {
     expect(text).not.toContain("identity:owner:voice");
     expect(text).not.toContain("principal:owner");
     expect(text).not.toContain("device:home");
+  });
+
+  it.each(["14165550123", "+1 4165550123", "+0123456789"])(
+    "rejects non-canonical E.164 %s without enrollment state",
+    async (invalidPhone) => {
+      const response = await dispatch(await request({
+        schemaVersion: "1.0", operation: "begin", phoneNumber: invalidPhone, requestSalt,
+      }), environment);
+      expect(response.status).toBe(400);
+      expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM channel_identities").first<{ count: number }>())?.count).toBe(0);
+      expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM voice_owner_identity").first<{ count: number }>())?.count).toBe(0);
+    },
+  );
+
+  it.each([
+    { schemaVersion: "1.0", operation: "begin", phoneNumber: phone },
+    { schemaVersion: "1.0", operation: "begin", phoneNumber: phone, requestSalt: "short" },
+  ])("requires a canonical 32-byte request salt on begin", async (body) => {
+    const response = await dispatch(await request(body), environment);
+    expect(response.status).toBe(400);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM channel_identities").first<{ count: number }>())?.count).toBe(0);
+  });
+
+  it("returns a distinct fixed clock-skew code for an expired signed request", async () => {
+    const response = await dispatch(await request(
+      { schemaVersion: "1.0", operation: "preflight" },
+      { issuedAt: new Date(Date.now() - 10 * 60_000).toISOString() },
+    ), environment);
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "signed_request_expired" });
+  });
+
+  it("maps an authenticated service principal refusal to the fixed key-mismatch response", async () => {
+    await env.DB.prepare("UPDATE principals SET principal_type = 'service' WHERE principal_id = 'principal:owner'").run();
+    const response = await dispatch(await request({ schemaVersion: "1.0", operation: "preflight" }), environment);
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "device_key_mismatch" });
+  });
+
+  it("never logs raw storage text that contains the submitted phone", async () => {
+    await env.DB.prepare(
+      `CREATE TRIGGER owner_phone_test_failure BEFORE INSERT ON identity_challenges
+       BEGIN SELECT RAISE(ABORT, '${phone}'); END`,
+    ).run();
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const response = await dispatch(await request({
+        schemaVersion: "1.0", operation: "begin", phoneNumber: phone, requestSalt,
+      }), environment);
+      expect(response.status).toBe(500);
+      expect(JSON.stringify(consoleSpy.mock.calls)).not.toContain(phone);
+    } finally {
+      consoleSpy.mockRestore();
+      await env.DB.prepare("DROP TRIGGER owner_phone_test_failure").run();
+    }
+  });
+
+  it.each([
+    `{"operation":"begin", "phoneNumber":"${phone}","requestSalt":"${requestSalt}","schemaVersion":"1.0"}`,
+    `{"operation":"preflight","operation":"begin","phoneNumber":"${phone}","requestSalt":"${requestSalt}","schemaVersion":"1.0"}`,
+  ])("classifies a validly signed non-canonical body as a client rejection", async (text) => {
+    const response = await dispatch(await request(null, { rawBody: new TextEncoder().encode(text) }), environment);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "owner_phone_enrollment_rejected" });
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM channel_identities").first<{ count: number }>())?.count).toBe(0);
   });
 
   it.each(["GET", "PUT", "DELETE"])("refuses %s before reading a body", async (method) => {

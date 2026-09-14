@@ -8,7 +8,7 @@ import { decodeCanonicalBase64, DeviceRequestVerifier } from "../sync/signed-req
 import { SIGNED_REQUEST_HEADER, SYNC_AUDIENCE } from "./sync-routes.js";
 
 const MAX_BODY_BYTES = 4096;
-const SAFE_ID = /^[^\u0000-\u001f\u007f\r\n]{1,256}$/u;
+const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$/u;
 const KEY_VERSION = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,63}$/u;
 const AUTH_FAILURES = new Set([
   "signature_invalid", "device_not_active", "device_key_invalid", "audience_mismatch",
@@ -16,7 +16,7 @@ const AUTH_FAILURES = new Set([
 ]);
 const PUBLIC_FAILURES = new Set([
   "owner_phone_enrollment_body_invalid", "body_hash_mismatch", "signed_body_mismatch",
-  "signed_body_invalid", "signed_request_invalid",
+  "signed_body_invalid", "signed_body_noncanonical", "signed_request_invalid",
 ]);
 
 function response(status: number, body: object): Response {
@@ -24,6 +24,24 @@ function response(status: number, body: object): Response {
     status,
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
   });
+}
+
+function failureResponse(error: unknown): Response {
+  const reason = error instanceof Error ? error.message : "internal";
+  const status = AUTH_FAILURES.has(reason) ? 401 : PUBLIC_FAILURES.has(reason) ? 400
+    : reason === "owner_phone_enrollment_state_changed" ? 409 : 500;
+  // Only an allowlisted reason code reaches logs. Raw storage/provider text
+  // could contain the submitted number, so unknown failures stay opaque.
+  console.error("owner_phone_enrollment_failed", {
+    reason: AUTH_FAILURES.has(reason) || PUBLIC_FAILURES.has(reason)
+      || reason === "owner_phone_enrollment_state_changed" ? reason : "internal",
+  });
+  if (status === 401) {
+    return response(status, {
+      error: reason === "signed_request_expired" ? "signed_request_expired" : "device_key_mismatch",
+    });
+  }
+  return response(status, { error: "owner_phone_enrollment_rejected" });
 }
 
 async function readBoundedBody(request: Request): Promise<Uint8Array | null> {
@@ -54,12 +72,19 @@ async function readBoundedBody(request: Request): Promise<Uint8Array | null> {
   return body;
 }
 
-function configured(env: Env): { ownerIdentityId: string; pepper: Uint8Array; keyVersion: string } | null {
+function configured(env: Env): {
+  ownerPrincipalId: string;
+  ownerIdentityId: string;
+  pepper: Uint8Array;
+  keyVersion: string;
+} | null {
   try {
-    if (typeof env.OWNER_VOICE_IDENTITY_ID !== "string" || !SAFE_ID.test(env.OWNER_VOICE_IDENTITY_ID)
+    if (typeof env.OWNER_PRINCIPAL_ID !== "string" || !IDENTIFIER.test(env.OWNER_PRINCIPAL_ID)
+      || typeof env.OWNER_VOICE_IDENTITY_ID !== "string" || !IDENTIFIER.test(env.OWNER_VOICE_IDENTITY_ID)
       || typeof env.IDENTITY_CHALLENGE_HMAC_KEY_VERSION !== "string"
       || !KEY_VERSION.test(env.IDENTITY_CHALLENGE_HMAC_KEY_VERSION)) return null;
     return {
+      ownerPrincipalId: env.OWNER_PRINCIPAL_ID,
       ownerIdentityId: env.OWNER_VOICE_IDENTITY_ID,
       pepper: decodeCanonicalBase64(
         env.IDENTITY_CHALLENGE_HMAC_PEPPER, 32, "owner_phone_enrollment_configuration_invalid",
@@ -78,8 +103,6 @@ export function isOwnerPhoneEnrollmentPath(pathname: string): boolean {
 /** Production route for the device-signed, provider-free bootstrap step. */
 export async function handleOwnerPhoneEnrollmentRequest(request: Request, env: Env): Promise<Response> {
   if (request.method !== "POST") return response(405, { error: "method_not_allowed" });
-  const configuration = configured(env);
-  if (configuration === null) return response(503, { error: "owner_phone_enrollment_not_configured" });
   const header = request.headers.get(SIGNED_REQUEST_HEADER);
   if (header === null) return response(401, { error: "device_key_mismatch" });
   let envelope: SignedRequestV1;
@@ -96,27 +119,35 @@ export async function handleOwnerPhoneEnrollmentRequest(request: Request, env: E
   } catch {
     return response(400, { error: "owner_phone_enrollment_rejected" });
   }
+  const configuration = configured(env);
+  if (configuration === null) {
+    try {
+      await new DeviceRequestVerifier({ database: env.DB, audience: SYNC_AUDIENCE }).verify(
+        envelope,
+        "POST",
+        OWNER_PHONE_ENROLLMENT_PATH,
+        body,
+        rawBody,
+        new Date(),
+        (value) => value,
+      );
+    } catch (error) {
+      return failureResponse(error);
+    }
+    return response(503, { error: "owner_phone_enrollment_not_configured" });
+  }
 
   try {
     const service = new OwnerPhoneEnrollmentService({
       database: env.DB,
       verifier: new DeviceRequestVerifier({ database: env.DB, audience: SYNC_AUDIENCE }),
+      ownerPrincipalId: configuration.ownerPrincipalId,
       ownerIdentityId: configuration.ownerIdentityId,
       hmacPepper: configuration.pepper,
       hmacKeyVersion: configuration.keyVersion,
     });
     return response(200, await service.execute(envelope, body, rawBody));
   } catch (error) {
-    const reason = error instanceof Error ? error.message : "internal";
-    const status = AUTH_FAILURES.has(reason) ? 401 : PUBLIC_FAILURES.has(reason) ? 400
-      : reason === "owner_phone_enrollment_state_changed" ? 409 : 500;
-    // Only an allowlisted reason code reaches logs. Raw storage/provider text
-    // could contain the submitted number, so unknown failures stay opaque.
-    console.error("owner_phone_enrollment_failed", {
-      reason: AUTH_FAILURES.has(reason) || PUBLIC_FAILURES.has(reason)
-        || reason === "owner_phone_enrollment_state_changed" ? reason : "internal",
-    });
-    if (status === 401) return response(status, { error: "device_key_mismatch" });
-    return response(status, { error: "owner_phone_enrollment_rejected" });
+    return failureResponse(error);
   }
 }

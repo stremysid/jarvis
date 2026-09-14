@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import io
 import json
+import re
 import urllib.error
 from pathlib import Path
 from typing import Any
@@ -18,7 +20,12 @@ from jarvis_local.phone_enrollment import (
     OwnerPhoneEnrollmentClient,
     run_phone_enrollment,
 )
-from jarvis_local.sync.cloud_client import CloudAuthError, HttpCloudClient
+from jarvis_local.sync.cloud_client import (
+    CloudAuthError,
+    CloudRequestExpiredError,
+    CloudSyncError,
+    HttpCloudClient,
+)
 
 PHONE = "+14165550123"
 CONFIG = {
@@ -139,7 +146,7 @@ def test_missing_key_never_creates_one_or_discloses_its_path(
 
     assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "preflight") == 1
     output = capsys.readouterr().out
-    assert output.strip() == "device key does not match the active production record"
+    assert output.strip() == "configured device key is missing or unreadable"
     assert CONFIG["JARVIS_DEVICE_KEY_PATH"] not in output
     assert store.loaded == 1
 
@@ -161,17 +168,25 @@ def test_begin_hides_input_masks_confirmation_and_sends_only_after_yes(
         },
     ])
     monkeypatch.setattr("jarvis_local.phone_enrollment._interactive_terminal", lambda: True)
-    monkeypatch.setattr("jarvis_local.phone_enrollment.getpass.getpass", lambda _prompt: PHONE)
+    hidden_entries = iter([PHONE, PHONE])
+    monkeypatch.setattr("jarvis_local.phone_enrollment.getpass.getpass", lambda _prompt: next(hidden_entries))
     prompts: list[str] = []
     monkeypatch.setattr("builtins.input", lambda prompt: prompts.append(prompt) or "yes")
 
     assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "begin") == 0
-    assert gateway.requests == [
-        (OWNER_PHONE_ENROLLMENT_PATH, {"schemaVersion": "1.0", "operation": "preflight"}),
-        (OWNER_PHONE_ENROLLMENT_PATH, {
-            "schemaVersion": "1.0", "operation": "begin", "phoneNumber": PHONE,
-        }),
-    ]
+    assert gateway.requests[0] == (
+        OWNER_PHONE_ENROLLMENT_PATH, {"schemaVersion": "1.0", "operation": "preflight"},
+    )
+    begin_path, begin_body = gateway.requests[1]
+    assert begin_path == OWNER_PHONE_ENROLLMENT_PATH
+    assert set(begin_body) == {"schemaVersion", "operation", "phoneNumber", "requestSalt"}
+    assert begin_body["schemaVersion"] == "1.0"
+    assert begin_body["operation"] == "begin"
+    assert begin_body["phoneNumber"] == PHONE
+    salt = begin_body["requestSalt"]
+    assert isinstance(salt, str)
+    assert re.fullmatch(r"[A-Za-z0-9_-]{43}", salt)
+    assert len(base64.urlsafe_b64decode(f"{salt}=")) == 32
     output = capsys.readouterr().out
     assert PHONE not in output
     assert prompts == ["Enroll phone ending 0123? Type yes to continue: "]
@@ -179,7 +194,28 @@ def test_begin_hides_input_masks_confirmation_and_sends_only_after_yes(
     assert "call" in output.lower()
 
 
+@pytest.mark.parametrize("confirmation", ["", "y", "no"])
 def test_declined_confirmation_sends_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    key: Ed25519PrivateKey,
+    confirmation: str,
+) -> None:
+    _, gateway = install_fakes(monkeypatch, key, [
+        {"schemaVersion": "1.0", "deviceKeyMatches": True},
+    ])
+    monkeypatch.setattr("jarvis_local.phone_enrollment._interactive_terminal", lambda: True)
+    monkeypatch.setattr("jarvis_local.phone_enrollment.getpass.getpass", lambda _prompt: PHONE)
+    monkeypatch.setattr("builtins.input", lambda _prompt: confirmation)
+
+    assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "begin") == 1
+    assert gateway.requests == [
+        (OWNER_PHONE_ENROLLMENT_PATH, {"schemaVersion": "1.0", "operation": "preflight"}),
+    ]
+    assert PHONE not in capsys.readouterr().out
+
+
+def test_mismatched_hidden_phone_entries_never_send_begin(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     key: Ed25519PrivateKey,
@@ -188,14 +224,15 @@ def test_declined_confirmation_sends_nothing(
         {"schemaVersion": "1.0", "deviceKeyMatches": True},
     ])
     monkeypatch.setattr("jarvis_local.phone_enrollment._interactive_terminal", lambda: True)
-    monkeypatch.setattr("jarvis_local.phone_enrollment.getpass.getpass", lambda _prompt: PHONE)
-    monkeypatch.setattr("builtins.input", lambda _prompt: "no")
+    hidden_entries = iter([PHONE, "+14165550999"])
+    monkeypatch.setattr("jarvis_local.phone_enrollment.getpass.getpass", lambda _prompt: next(hidden_entries))
+    monkeypatch.setattr("builtins.input", lambda _prompt: "yes")
 
-    assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "begin") == 1
+    assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "begin") == 2
     assert gateway.requests == [
         (OWNER_PHONE_ENROLLMENT_PATH, {"schemaVersion": "1.0", "operation": "preflight"}),
     ]
-    assert PHONE not in capsys.readouterr().out
+    assert capsys.readouterr().out.strip() == "phone entries do not match"
 
 
 def test_invalid_phone_stops_after_preflight_without_sending_it(
@@ -287,6 +324,72 @@ def test_begin_refuses_non_windows_and_noninteractive_runs_before_loading_a_key(
     assert "interactive" in capsys.readouterr().out
 
 
+def test_begin_refuses_when_only_stdin_is_a_terminal_before_loading_a_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Terminal(io.StringIO):
+        def __init__(self, interactive: bool) -> None:
+            super().__init__()
+            self._interactive = interactive
+
+        def isatty(self) -> bool:
+            return self._interactive
+
+    output = Terminal(False)
+    monkeypatch.setattr("jarvis_local.phone_enrollment._is_windows", lambda: True)
+    monkeypatch.setattr("jarvis_local.phone_enrollment.sys.stdin", Terminal(True))
+    monkeypatch.setattr("jarvis_local.phone_enrollment.sys.stdout", output)
+    monkeypatch.setattr(
+        "jarvis_local.phone_enrollment.platform_device_key_store",
+        lambda _path: pytest.fail("loaded key without an interactive output terminal"),
+    )
+
+    assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "begin") == 2
+    assert output.getvalue().strip() == "owner phone enrollment requires an interactive terminal"
+
+
+def test_missing_local_configuration_has_a_distinct_non_disclosing_message(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jarvis_local.phone_enrollment._is_windows", lambda: True)
+    incomplete = {**CONFIG, "JARVIS_CLOUD_BASE_URL": ""}
+
+    assert run_phone_enrollment(JarvisLocalConfig.load(incomplete), "preflight") == 2
+    assert capsys.readouterr().out.strip() == "owner phone enrollment configuration is incomplete"
+
+
+def test_expired_signed_request_has_a_distinct_clock_message(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    key: Ed25519PrivateKey,
+) -> None:
+    install_fakes(monkeypatch, key, [CloudRequestExpiredError("signed_request_expired")])
+
+    assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "preflight") == 2
+    assert capsys.readouterr().out.strip() == "device clock is outside the gateway freshness window"
+
+
+def test_begin_connection_reset_returns_fixed_unavailable_output(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    key: Ed25519PrivateKey,
+) -> None:
+    install_fakes(monkeypatch, key, [
+        {"schemaVersion": "1.0", "deviceKeyMatches": True},
+        CloudSyncError("private connection detail"),
+    ])
+    monkeypatch.setattr("jarvis_local.phone_enrollment._interactive_terminal", lambda: True)
+    entries = iter([PHONE, PHONE])
+    monkeypatch.setattr("jarvis_local.phone_enrollment.getpass.getpass", lambda _prompt: next(entries))
+    monkeypatch.setattr("builtins.input", lambda _prompt: "yes")
+
+    assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "begin") == 4
+    output = capsys.readouterr().out
+    assert output.strip() == "owner phone enrollment request is unavailable"
+    assert "private connection detail" not in output
+
+
 def test_main_routes_enroll_phone_without_requiring_node_store_paths(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -333,6 +436,33 @@ def test_client_uses_the_exact_signed_path_and_canonical_operation(key: Ed25519P
     assert envelope["deviceId"] == "device:home"
 
 
+def test_client_salts_the_begin_body_before_signing(key: Ed25519PrivateKey) -> None:
+    opener = WireOpener({
+        "schemaVersion": "1.0",
+        "deviceKeyMatches": True,
+        "enrollmentState": "pending",
+        "challengeId": "challenge:opaque",
+        "response": "482913",
+        "expiresAt": "2026-09-14T14:05:00.000Z",
+    })
+    transport = HttpCloudClient(
+        base_url="https://gateway.example",
+        device_id="device:home",
+        principal_id="principal:owner",
+        audience="jarvis-local-agent",
+        key=key,
+        opener=opener,
+    )
+
+    OwnerPhoneEnrollmentClient(transport).begin(PHONE)
+
+    body = json.loads(opener.requests[0].data)
+    assert set(body) == {"operation", "phoneNumber", "requestSalt", "schemaVersion"}
+    assert body["phoneNumber"] == PHONE
+    assert re.fullmatch(r"[A-Za-z0-9_-]{43}", body["requestSalt"])
+    assert len(base64.urlsafe_b64decode(f"{body['requestSalt']}=")) == 32
+
+
 def test_client_preserves_authentication_failure_for_non_disclosing_mapping(key: Ed25519PrivateKey) -> None:
     error = urllib.error.HTTPError("https://gateway.example", 401, "no", {}, None)  # type: ignore[arg-type]
     transport = HttpCloudClient(
@@ -344,4 +474,47 @@ def test_client_preserves_authentication_failure_for_non_disclosing_mapping(key:
         opener=lambda *_args, **_kwargs: (_ for _ in ()).throw(error),
     )
     with pytest.raises(CloudAuthError):
+        OwnerPhoneEnrollmentClient(transport).preflight()
+
+
+def test_client_classifies_only_the_fixed_expired_request_response_as_clock_skew(
+    key: Ed25519PrivateKey,
+) -> None:
+    error = urllib.error.HTTPError(
+        "https://gateway.example",
+        401,
+        "no",
+        {},
+        io.BytesIO(b'{"error":"signed_request_expired"}'),
+    )
+    transport = HttpCloudClient(
+        base_url="https://gateway.example",
+        device_id="device:home",
+        principal_id="principal:owner",
+        audience="jarvis-local-agent",
+        key=key,
+        opener=lambda *_args, **_kwargs: (_ for _ in ()).throw(error),
+    )
+
+    with pytest.raises(CloudRequestExpiredError):
+        OwnerPhoneEnrollmentClient(transport).preflight()
+
+
+def test_client_wraps_a_connection_reset_while_reading_the_response(
+    key: Ed25519PrivateKey,
+) -> None:
+    class BrokenStream(io.BytesIO):
+        def read(self, *_args: object) -> bytes:  # type: ignore[override]
+            raise ConnectionResetError("private transport detail")
+
+    transport = HttpCloudClient(
+        base_url="https://gateway.example",
+        device_id="device:home",
+        principal_id="principal:owner",
+        audience="jarvis-local-agent",
+        key=key,
+        opener=lambda *_args, **_kwargs: BrokenStream(),
+    )
+
+    with pytest.raises(CloudSyncError, match="gateway unreachable or unusable"):
         OwnerPhoneEnrollmentClient(transport).preflight()

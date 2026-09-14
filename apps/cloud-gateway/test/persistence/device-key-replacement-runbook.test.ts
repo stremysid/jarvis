@@ -176,9 +176,15 @@ describe("owner device-key replacement runbook SQL", () => {
     }
   });
 
-  it("persists and re-reads the selected device ID and sealed-key path", () => {
+  it("persists and re-reads all four local phone-enrollment settings", () => {
+    expect(runbook).toContain(
+      "[Environment]::SetEnvironmentVariable('JARVIS_CLOUD_BASE_URL', $GatewayOrigin, [EnvironmentVariableTarget]::User)",
+    );
     expect(runbook).toContain(
       "[Environment]::SetEnvironmentVariable('JARVIS_DEVICE_ID', $NewDeviceId, [EnvironmentVariableTarget]::User)",
+    );
+    expect(runbook).toContain(
+      "[Environment]::SetEnvironmentVariable('JARVIS_PRINCIPAL_ID', $OwnerPrincipalId, [EnvironmentVariableTarget]::User)",
     );
     expect(runbook).toContain(
       "[Environment]::SetEnvironmentVariable('JARVIS_DEVICE_KEY_PATH', $KeyPath, [EnvironmentVariableTarget]::User)",
@@ -188,7 +194,13 @@ describe("owner device-key replacement runbook SQL", () => {
     expect(proveSection).toContain("$wrangler = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path");
     expect(proveSection).toContain("$gateway = (Resolve-Path 'apps/cloud-gateway/wrangler.toml').Path");
     expect(proveSection).toContain(
+      "$env:JARVIS_CLOUD_BASE_URL = [Environment]::GetEnvironmentVariable('JARVIS_CLOUD_BASE_URL', [EnvironmentVariableTarget]::User)",
+    );
+    expect(proveSection).toContain(
       "$env:JARVIS_DEVICE_ID = [Environment]::GetEnvironmentVariable('JARVIS_DEVICE_ID', [EnvironmentVariableTarget]::User)",
+    );
+    expect(proveSection).toContain(
+      "$env:JARVIS_PRINCIPAL_ID = [Environment]::GetEnvironmentVariable('JARVIS_PRINCIPAL_ID', [EnvironmentVariableTarget]::User)",
     );
     expect(proveSection).toContain(
       "$env:JARVIS_DEVICE_KEY_PATH = [Environment]::GetEnvironmentVariable('JARVIS_DEVICE_KEY_PATH', [EnvironmentVariableTarget]::User)",

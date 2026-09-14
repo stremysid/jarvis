@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import getpass
 import re
+import secrets
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -14,7 +16,12 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from jarvis_local.config import JarvisLocalConfig
 from jarvis_local.crypto.device_keys import platform_device_key_store
-from jarvis_local.sync.cloud_client import CloudAuthError, CloudSyncError, HttpCloudClient
+from jarvis_local.sync.cloud_client import (
+    CloudAuthError,
+    CloudRequestExpiredError,
+    CloudSyncError,
+    HttpCloudClient,
+)
 
 OWNER_PHONE_ENROLLMENT_PATH = "/identity/owner-phone-enrollment"
 AUDIENCE = "jarvis-local-agent"
@@ -36,6 +43,14 @@ class PhoneEnrollmentResponse:
     challenge_id: str | None = None
     response: str | None = None
     expires_at: str | None = None
+
+
+class PhoneEnrollmentConfigurationError(RuntimeError):
+    """Required local enrollment settings are unavailable."""
+
+
+class PhoneEnrollmentKeyUnavailableError(RuntimeError):
+    """The configured device key cannot be loaded safely."""
 
 
 class OwnerPhoneEnrollmentClient:
@@ -63,9 +78,15 @@ class OwnerPhoneEnrollmentClient:
         return self._state(result, allow_challenge=False)
 
     def begin(self, phone_number: str) -> PhoneEnrollmentResponse:
+        request_salt = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii").rstrip("=")
         result = self._transport.post_signed(
             OWNER_PHONE_ENROLLMENT_PATH,
-            {"schemaVersion": "1.0", "operation": "begin", "phoneNumber": phone_number},
+            {
+                "schemaVersion": "1.0",
+                "operation": "begin",
+                "phoneNumber": phone_number,
+                "requestSalt": request_salt,
+            },
         )
         return self._state(result, allow_challenge=True)
 
@@ -115,17 +136,24 @@ def _interactive_terminal() -> bool:
 def _client(config: JarvisLocalConfig) -> OwnerPhoneEnrollmentClient:
     values = {name: config.environment.get(name, "").strip() for name in REQUIRED}
     if any(not value for value in values.values()):
-        raise ValueError("phone enrollment configuration incomplete")
-    key = platform_device_key_store(Path(values["JARVIS_DEVICE_KEY_PATH"])).load_existing()
+        raise PhoneEnrollmentConfigurationError("phone enrollment configuration incomplete")
+    try:
+        key = platform_device_key_store(Path(values["JARVIS_DEVICE_KEY_PATH"])).load_existing()
+    except Exception as error:
+        raise PhoneEnrollmentKeyUnavailableError("device key unavailable") from error
     if not isinstance(key, Ed25519PrivateKey):
-        raise ValueError("device key unavailable")
-    return OwnerPhoneEnrollmentClient(HttpCloudClient(
-        base_url=values["JARVIS_CLOUD_BASE_URL"],
-        device_id=values["JARVIS_DEVICE_ID"],
-        principal_id=values["JARVIS_PRINCIPAL_ID"],
-        audience=AUDIENCE,
-        key=key,
-    ))
+        raise PhoneEnrollmentKeyUnavailableError("device key unavailable")
+    try:
+        transport = HttpCloudClient(
+            base_url=values["JARVIS_CLOUD_BASE_URL"],
+            device_id=values["JARVIS_DEVICE_ID"],
+            principal_id=values["JARVIS_PRINCIPAL_ID"],
+            audience=AUDIENCE,
+            key=key,
+        )
+    except (TypeError, ValueError) as error:
+        raise PhoneEnrollmentConfigurationError("phone enrollment configuration invalid") from error
+    return OwnerPhoneEnrollmentClient(transport)
 
 
 def run_phone_enrollment(config: JarvisLocalConfig, operation: str) -> int:
@@ -140,13 +168,19 @@ def run_phone_enrollment(config: JarvisLocalConfig, operation: str) -> int:
         return 2
     try:
         client = _client(config)
-    except Exception:
-        print("device key does not match the active production record")
+    except PhoneEnrollmentConfigurationError:
+        print("owner phone enrollment configuration is incomplete")
+        return 2
+    except PhoneEnrollmentKeyUnavailableError:
+        print("configured device key is missing or unreadable")
         return 1
 
     if operation == "preflight":
         try:
             client.preflight()
+        except CloudRequestExpiredError:
+            print("device clock is outside the gateway freshness window")
+            return 2
         except CloudAuthError:
             print("device key does not match the active production record")
             return 1
@@ -159,6 +193,9 @@ def run_phone_enrollment(config: JarvisLocalConfig, operation: str) -> int:
     if operation == "status":
         try:
             state = client.status().state
+        except CloudRequestExpiredError:
+            print("device clock is outside the gateway freshness window")
+            return 2
         except CloudAuthError:
             print("device key does not match the active production record")
             return 1
@@ -172,6 +209,9 @@ def run_phone_enrollment(config: JarvisLocalConfig, operation: str) -> int:
     # the preflight by skipping the standalone --preflight command.
     try:
         client.preflight()
+    except CloudRequestExpiredError:
+        print("device clock is outside the gateway freshness window")
+        return 2
     except CloudAuthError:
         print("device key does not match the active production record")
         return 1
@@ -182,11 +222,18 @@ def run_phone_enrollment(config: JarvisLocalConfig, operation: str) -> int:
     if E164.fullmatch(phone_number) is None:
         print("phone number must use E.164 form")
         return 2
+    repeated_phone_number = getpass.getpass("Re-enter the same phone number (input hidden): ").strip()
+    if repeated_phone_number != phone_number:
+        print("phone entries do not match")
+        return 2
     if input(f"Enroll phone ending {phone_number[-4:]}? Type yes to continue: ").strip().lower() != "yes":
         print("owner phone enrollment cancelled")
         return 1
     try:
         result = client.begin(phone_number)
+    except CloudRequestExpiredError:
+        print("device clock is outside the gateway freshness window")
+        return 2
     except CloudAuthError:
         print("device key does not match the active production record")
         return 1

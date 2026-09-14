@@ -7,7 +7,11 @@ import {
   generateIdentityChallengeResponse,
   IdentityChallengeResponseSigner,
 } from "./identity-challenge.js";
-import { DeviceRequestVerifier, type VerifiedDeviceRequest } from "./signed-request.js";
+import {
+  decodeCanonicalBase64Url,
+  DeviceRequestVerifier,
+  type VerifiedDeviceRequest,
+} from "./signed-request.js";
 
 export const OWNER_PHONE_ENROLLMENT_PATH = "/identity/owner-phone-enrollment";
 
@@ -15,7 +19,12 @@ export type OwnerPhoneEnrollmentState = "absent" | "pending" | "expired" | "acti
 
 export type OwnerPhoneEnrollmentBodyV1 =
   | { readonly schemaVersion: "1.0"; readonly operation: "preflight" | "status" }
-  | { readonly schemaVersion: "1.0"; readonly operation: "begin"; readonly phoneNumber: string };
+  | {
+    readonly schemaVersion: "1.0";
+    readonly operation: "begin";
+    readonly phoneNumber: string;
+    readonly requestSalt: string;
+  };
 
 export type OwnerPhoneEnrollmentResult =
   | { readonly schemaVersion: "1.0"; readonly deviceKeyMatches: true }
@@ -37,7 +46,7 @@ const FIVE_MINUTES_MS = 300_000;
 const RESPONSE = /^\d{6}$/u;
 const E164 = /^\+[1-9]\d{7,14}$/u;
 const BASE_FIELDS = new Set(["schemaVersion", "operation"]);
-const BEGIN_FIELDS = new Set(["schemaVersion", "operation", "phoneNumber"]);
+const BEGIN_FIELDS = new Set(["schemaVersion", "operation", "phoneNumber", "requestSalt"]);
 const encoder = new TextEncoder();
 
 function safeAtom(value: unknown, maximumBytes = 256): value is string {
@@ -78,6 +87,9 @@ function validateBody(value: unknown): OwnerPhoneEnrollmentBodyV1 {
   if (record.operation === "begin" && (typeof record.phoneNumber !== "string" || !E164.test(record.phoneNumber))) {
     throw new TypeError("owner_phone_enrollment_body_invalid");
   }
+  if (record.operation === "begin") {
+    decodeCanonicalBase64Url(record.requestSalt, 32, "owner_phone_enrollment_body_invalid");
+  }
   return record as OwnerPhoneEnrollmentBodyV1;
 }
 
@@ -89,6 +101,7 @@ function requireNow(value: Date): Date {
 function publicState(
   row: OwnerPhoneEnrollmentSnapshotRow,
   verified: VerifiedDeviceRequest,
+  ownerPrincipalId: string,
   ownerIdentityId: string,
   now: Date,
 ): OwnerPhoneEnrollmentState {
@@ -96,11 +109,11 @@ function publicState(
   const ownerMissing = row.owner_identity_id === null && row.owner_principal_id === null;
   if (identityMissing && ownerMissing) return "absent";
   const exactIdentity = row.identity_id === ownerIdentityId
-    && row.identity_principal_id === verified.principalId
+    && row.identity_principal_id === ownerPrincipalId
     && row.identity_channel === "voice"
     && row.enrolled_by_device_id === verified.deviceId;
   const exactOwner = row.owner_identity_id === ownerIdentityId
-    && row.owner_principal_id === verified.principalId;
+    && row.owner_principal_id === ownerPrincipalId;
   if (!exactIdentity || !exactOwner) return "conflict";
   if (row.identity_status === "active" && row.identity_verified_at !== null) return "active";
   if (row.identity_status !== "pending" || row.identity_verified_at !== null) return "conflict";
@@ -115,6 +128,7 @@ export class OwnerPhoneEnrollmentService {
   constructor(private readonly deps: {
     database: D1Database;
     verifier: DeviceRequestVerifier;
+    ownerPrincipalId: string;
     ownerIdentityId: string;
     hmacPepper: Uint8Array;
     hmacKeyVersion: string;
@@ -125,7 +139,9 @@ export class OwnerPhoneEnrollmentService {
     afterBootstrap?: () => void | Promise<void>;
     faultStatement?: D1PreparedStatement;
   }) {
-    if (!safeAtom(deps.ownerIdentityId)) throw new TypeError("owner_phone_enrollment_configuration_invalid");
+    if (!safeAtom(deps.ownerPrincipalId) || !safeAtom(deps.ownerIdentityId)) {
+      throw new TypeError("owner_phone_enrollment_configuration_invalid");
+    }
     this.repository = new DeviceRepository(deps.database);
     this.signer = new IdentityChallengeResponseSigner(deps.hmacPepper, deps.hmacKeyVersion);
   }
@@ -160,7 +176,7 @@ export class OwnerPhoneEnrollmentService {
     const expiresAt = new Date(now.valueOf() + FIVE_MINUTES_MS).toISOString();
     const responseHmac = await this.signer.sign({
       challengeId,
-      principalId: verified.principalId,
+      principalId: this.deps.ownerPrincipalId,
       channel: "voice",
       identityId: this.deps.ownerIdentityId,
       response,
@@ -173,6 +189,7 @@ export class OwnerPhoneEnrollmentService {
     const created = await this.repository.createOwnerPhoneEnrollmentChallenge({
       challengeId,
       verified,
+      ownerPrincipalId: this.deps.ownerPrincipalId,
       identityId: this.deps.ownerIdentityId,
       channel: "voice",
       phoneNumber: body.phoneNumber,
@@ -189,7 +206,8 @@ export class OwnerPhoneEnrollmentService {
     }
     await this.deps.afterBootstrap?.();
     const after = await this.readCurrent(verified, now);
-    if (after.state !== "pending" || after.row.challenge_expires_at !== expiresAt) {
+    if (after.state !== "pending" || after.row.challenge_id !== challengeId
+      || after.row.challenge_expires_at !== expiresAt) {
       throw new Error("owner_phone_enrollment_state_changed");
     }
     return Object.freeze({
@@ -207,10 +225,13 @@ export class OwnerPhoneEnrollmentService {
     now: Date,
   ): Promise<{ readonly row: OwnerPhoneEnrollmentSnapshotRow; readonly state: OwnerPhoneEnrollmentState }> {
     const row = await this.repository.readOwnerPhoneEnrollment(
-      verified, this.deps.ownerIdentityId, this.signer.keyVersion,
+      verified, this.deps.ownerPrincipalId, this.deps.ownerIdentityId, this.signer.keyVersion,
     );
     if (row === null) throw new Error("owner_phone_device_mismatch");
-    return Object.freeze({ row, state: publicState(row, verified, this.deps.ownerIdentityId, now) });
+    return Object.freeze({
+      row,
+      state: publicState(row, verified, this.deps.ownerPrincipalId, this.deps.ownerIdentityId, now),
+    });
   }
 
   private stateResult(state: OwnerPhoneEnrollmentState): OwnerPhoneEnrollmentResult {
