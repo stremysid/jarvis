@@ -31,6 +31,18 @@ export interface ChannelObservationInput {
 
 export interface VerifiedChannelObservation extends Readonly<ChannelObservationInput> {}
 
+export interface IdentityChallengeBinding {
+  readonly challengeId: string;
+  readonly principalId: string;
+  readonly channel: StoredIdentityChannel;
+  readonly identityId: string;
+  readonly response: string;
+  readonly initiatingDeviceId: string;
+  readonly initiatingKeyId: string;
+  readonly initiatingKeyFingerprint: string;
+  readonly initiatingKeyGeneration: number;
+}
+
 const BEGIN_PATH = "/identity/challenge/begin";
 const FIVE_MINUTES_MS = 300_000;
 const SHA256 = /^[a-f0-9]{64}$/u;
@@ -120,7 +132,7 @@ export class VerifiedChannelObservationAuthority {
   }
 }
 
-function defaultResponse(): string {
+export function generateIdentityChallengeResponse(): string {
   const maximum = 4_294_000_000;
   const bytes = new Uint32Array(1);
   do { crypto.getRandomValues(bytes); } while ((bytes[0] ?? maximum) >= maximum);
@@ -136,10 +148,38 @@ function fromHex(value: string): Uint8Array {
   return Uint8Array.from({ length: 32 }, (_, index) => Number.parseInt(value.slice(index * 2, index * 2 + 2), 16));
 }
 
+/** One implementation of the persisted challenge HMAC shared by every issuer. */
+export class IdentityChallengeResponseSigner {
+  readonly keyVersion: string;
+  private readonly key: Promise<CryptoKey>;
+
+  constructor(pepper: Uint8Array, keyVersion: string) {
+    if (!(pepper instanceof Uint8Array) || pepper.byteLength !== 32 || !safeAtom(keyVersion, 64)) {
+      throw new TypeError("identity_challenge_hmac_configuration_invalid");
+    }
+    this.keyVersion = keyVersion;
+    this.key = crypto.subtle.importKey(
+      "raw", new Uint8Array(pepper), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"],
+    );
+  }
+
+  async sign(input: IdentityChallengeBinding): Promise<Sha256Hex> {
+    return hex(new Uint8Array(await crypto.subtle.sign("HMAC", await this.key, this.input(input))));
+  }
+
+  async verify(digest: string, input: IdentityChallengeBinding): Promise<boolean> {
+    return crypto.subtle.verify("HMAC", await this.key, fromHex(digest), this.input(input));
+  }
+
+  private input(input: IdentityChallengeBinding): Uint8Array {
+    return encoder.encode(canonicalJson({ domain: "jarvis.identity-challenge.v1", ...input }));
+  }
+}
+
 /** Begins signed enrollment challenges and consumes trusted adapter observations atomically. */
 export class IdentityChallengeService {
   private readonly repository: DeviceRepository;
-  private readonly hmacKey: Promise<CryptoKey>;
+  private readonly signer: IdentityChallengeResponseSigner;
 
   constructor(private readonly deps: {
     database: D1Database;
@@ -153,12 +193,8 @@ export class IdentityChallengeService {
     beforeChallengeInsert?: () => void | Promise<void>;
     beforeConfirmation?: () => void | Promise<void>;
   }) {
-    if (!(deps.hmacPepper instanceof Uint8Array) || deps.hmacPepper.byteLength !== 32 || !safeAtom(deps.hmacKeyVersion, 64)) {
-      throw new TypeError("identity_challenge_hmac_configuration_invalid");
-    }
     this.repository = new DeviceRepository(deps.database);
-    const pepper = new Uint8Array(deps.hmacPepper);
-    this.hmacKey = crypto.subtle.importKey("raw", pepper, { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
+    this.signer = new IdentityChallengeResponseSigner(deps.hmacPepper, deps.hmacKeyVersion);
   }
 
   async begin(
@@ -169,11 +205,11 @@ export class IdentityChallengeService {
     const now = requireNow((this.deps.now ?? (() => new Date()))());
     const verified = await this.deps.verifier.verify(request, "POST", BEGIN_PATH, body, rawBody, now, validateBeginBody);
     const challengeId = (this.deps.challengeId ?? (() => `challenge:${crypto.randomUUID()}`))();
-    const response = (this.deps.response ?? defaultResponse)();
+    const response = (this.deps.response ?? generateIdentityChallengeResponse)();
     if (!safeAtom(challengeId) || !RESPONSE.test(response)) throw new TypeError("identity_challenge_generation_invalid");
     const channel = storedChannel(verified.body.channel);
     const expiresAt = new Date(now.valueOf() + FIVE_MINUTES_MS).toISOString();
-    const responseHmac = await this.challengeHmac({
+    const responseHmac = await this.signer.sign({
       challengeId, principalId: verified.principalId, channel, identityId: verified.body.identityId, response,
       initiatingDeviceId: verified.deviceId, initiatingKeyId: verified.keyId,
       initiatingKeyFingerprint: verified.keyFingerprint, initiatingKeyGeneration: verified.keyGeneration,
@@ -196,13 +232,13 @@ export class IdentityChallengeService {
     if (row.channel === "voice" && !await this.repository.isOwnerVoiceIdentity(row.identity_id, row.principal_id)) {
       throw new Error("owner_voice_identity_required");
     }
-    if (row.hmac_key_version !== this.deps.hmacKeyVersion) throw new Error("identity_challenge_hmac_key_unavailable");
-    const input = this.hmacInput({
+    if (row.hmac_key_version !== this.signer.keyVersion) throw new Error("identity_challenge_hmac_key_unavailable");
+    const input = {
       challengeId: row.challenge_id, principalId: row.principal_id, channel: row.channel, identityId: row.identity_id,
       response: observation.response, initiatingDeviceId: row.initiating_device_id, initiatingKeyId: row.initiating_key_id,
       initiatingKeyFingerprint: row.initiating_key_fingerprint, initiatingKeyGeneration: row.initiating_key_generation,
-    });
-    if (!await crypto.subtle.verify("HMAC", await this.hmacKey, fromHex(row.response_hmac), input)) throw new Error("identity_challenge_mismatch");
+    };
+    if (!await this.signer.verify(row.response_hmac, input)) throw new Error("identity_challenge_mismatch");
     await this.deps.beforeConfirmation?.();
     try {
       const consumed = await this.repository.consumeIdentityChallenge({
@@ -242,19 +278,5 @@ export class IdentityChallengeService {
     if (current?.consumed_at !== null && current?.consumed_at !== undefined) return "identity_challenge_consumed";
     if (current !== null && current.expires_at <= now.toISOString()) return "identity_challenge_expired";
     return "identity_challenge_state_changed";
-  }
-
-  private hmacInput(input: {
-    challengeId: string; principalId: string; channel: StoredIdentityChannel; identityId: string; response: string;
-    initiatingDeviceId: string; initiatingKeyId: string; initiatingKeyFingerprint: string; initiatingKeyGeneration: number;
-  }): Uint8Array {
-    return encoder.encode(canonicalJson({ domain: "jarvis.identity-challenge.v1", ...input }));
-  }
-
-  private async challengeHmac(input: {
-    challengeId: string; principalId: string; channel: StoredIdentityChannel; identityId: string; response: string;
-    initiatingDeviceId: string; initiatingKeyId: string; initiatingKeyFingerprint: string; initiatingKeyGeneration: number;
-  }): Promise<Sha256Hex> {
-    return hex(new Uint8Array(await crypto.subtle.sign("HMAC", await this.hmacKey, this.hmacInput(input))));
   }
 }

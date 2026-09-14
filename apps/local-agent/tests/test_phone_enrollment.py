@@ -1,0 +1,312 @@
+"""The owner-phone command must prove the configured key before revealing state."""
+
+from __future__ import annotations
+
+import io
+import json
+import urllib.error
+from pathlib import Path
+from typing import Any
+
+import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from jarvis_local.cli import build_parser, main
+from jarvis_local.config import JarvisLocalConfig
+from jarvis_local.phone_enrollment import (
+    OWNER_PHONE_ENROLLMENT_PATH,
+    OwnerPhoneEnrollmentClient,
+    run_phone_enrollment,
+)
+from jarvis_local.sync.cloud_client import CloudAuthError, HttpCloudClient
+
+PHONE = "+14165550123"
+CONFIG = {
+    "JARVIS_CLOUD_BASE_URL": "https://gateway.example",
+    "JARVIS_DEVICE_ID": "device:home-private",
+    "JARVIS_PRINCIPAL_ID": "principal:owner-private",
+    "JARVIS_DEVICE_KEY_PATH": str(Path("C:/Jarvis/private/device.key")),
+}
+
+
+class FakeGateway:
+    def __init__(self, responses: list[object]) -> None:
+        self.responses = responses
+        self.requests: list[tuple[str, dict[str, object]]] = []
+
+    def post_signed(self, path: str, body: dict[str, object]) -> dict[str, object]:
+        self.requests.append((path, body))
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        assert isinstance(response, dict)
+        return response
+
+
+class FakeStore:
+    def __init__(self, key: Ed25519PrivateKey | Exception) -> None:
+        self.key = key
+        self.loaded = 0
+
+    def load_existing(self) -> Ed25519PrivateKey:
+        self.loaded += 1
+        if isinstance(self.key, Exception):
+            raise self.key
+        return self.key
+
+    def load_or_create(self) -> None:
+        pytest.fail("phone preflight silently created a replacement key")
+
+
+@pytest.fixture
+def key() -> Ed25519PrivateKey:
+    return Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
+
+
+def install_fakes(
+    monkeypatch: pytest.MonkeyPatch,
+    key: Ed25519PrivateKey,
+    responses: list[object],
+) -> tuple[FakeStore, FakeGateway]:
+    store = FakeStore(key)
+    gateway = FakeGateway(responses)
+    monkeypatch.setattr("jarvis_local.phone_enrollment._is_windows", lambda: True)
+    monkeypatch.setattr("jarvis_local.phone_enrollment.platform_device_key_store", lambda _path: store)
+    monkeypatch.setattr("jarvis_local.phone_enrollment.HttpCloudClient", lambda **_kwargs: gateway)
+    return store, gateway
+
+
+def test_parser_exposes_preflight_status_and_interactive_begin() -> None:
+    assert build_parser().parse_args(["enroll-phone"]).phone_operation == "begin"
+    assert build_parser().parse_args(["enroll-phone", "--preflight"]).phone_operation == "preflight"
+    assert build_parser().parse_args(["enroll-phone", "--status"]).phone_operation == "status"
+
+
+def test_preflight_loads_only_the_existing_key_and_reports_no_identifiers(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    key: Ed25519PrivateKey,
+) -> None:
+    store, gateway = install_fakes(monkeypatch, key, [{"schemaVersion": "1.0", "deviceKeyMatches": True}])
+
+    assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "preflight") == 0
+    assert store.loaded == 1
+    assert gateway.requests == [(OWNER_PHONE_ENROLLMENT_PATH, {"schemaVersion": "1.0", "operation": "preflight"})]
+    output = capsys.readouterr().out
+    assert output.strip() == "device key matches the active production record"
+    for private_value in (*CONFIG.values(), key.public_key().public_bytes_raw().hex()):
+        assert private_value not in output
+
+
+def test_key_mismatch_is_fixed_non_disclosing_output(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    key: Ed25519PrivateKey,
+) -> None:
+    install_fakes(monkeypatch, key, [CloudAuthError("private device:home fingerprint deadbeef")])
+
+    assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "preflight") == 1
+    output = capsys.readouterr().out
+    assert output.strip() == "device key does not match the active production record"
+    assert "device:home" not in output
+    assert "deadbeef" not in output
+
+
+def test_missing_key_never_creates_one_or_discloses_its_path(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    store = FakeStore(FileNotFoundError(CONFIG["JARVIS_DEVICE_KEY_PATH"]))
+    monkeypatch.setattr("jarvis_local.phone_enrollment._is_windows", lambda: True)
+    monkeypatch.setattr("jarvis_local.phone_enrollment.platform_device_key_store", lambda _path: store)
+
+    assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "preflight") == 1
+    output = capsys.readouterr().out
+    assert output.strip() == "device key does not match the active production record"
+    assert CONFIG["JARVIS_DEVICE_KEY_PATH"] not in output
+    assert store.loaded == 1
+
+
+def test_begin_hides_input_masks_confirmation_and_sends_only_after_yes(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    key: Ed25519PrivateKey,
+) -> None:
+    _, gateway = install_fakes(monkeypatch, key, [
+        {"schemaVersion": "1.0", "deviceKeyMatches": True},
+        {
+        "schemaVersion": "1.0",
+        "deviceKeyMatches": True,
+        "enrollmentState": "pending",
+        "challengeId": "challenge:opaque",
+        "response": "482913",
+        "expiresAt": "2026-09-14T14:05:00.000Z",
+        },
+    ])
+    monkeypatch.setattr("jarvis_local.phone_enrollment._interactive_terminal", lambda: True)
+    monkeypatch.setattr("jarvis_local.phone_enrollment.getpass.getpass", lambda _prompt: PHONE)
+    prompts: list[str] = []
+    monkeypatch.setattr("builtins.input", lambda prompt: prompts.append(prompt) or "yes")
+
+    assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "begin") == 0
+    assert gateway.requests == [
+        (OWNER_PHONE_ENROLLMENT_PATH, {"schemaVersion": "1.0", "operation": "preflight"}),
+        (OWNER_PHONE_ENROLLMENT_PATH, {
+            "schemaVersion": "1.0", "operation": "begin", "phoneNumber": PHONE,
+        }),
+    ]
+    output = capsys.readouterr().out
+    assert PHONE not in output
+    assert prompts == ["Enroll phone ending 0123? Type yes to continue: "]
+    assert "482913" in output
+    assert "call" in output.lower()
+
+
+def test_declined_confirmation_sends_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    key: Ed25519PrivateKey,
+) -> None:
+    _, gateway = install_fakes(monkeypatch, key, [
+        {"schemaVersion": "1.0", "deviceKeyMatches": True},
+    ])
+    monkeypatch.setattr("jarvis_local.phone_enrollment._interactive_terminal", lambda: True)
+    monkeypatch.setattr("jarvis_local.phone_enrollment.getpass.getpass", lambda _prompt: PHONE)
+    monkeypatch.setattr("builtins.input", lambda _prompt: "no")
+
+    assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "begin") == 1
+    assert gateway.requests == [
+        (OWNER_PHONE_ENROLLMENT_PATH, {"schemaVersion": "1.0", "operation": "preflight"}),
+    ]
+    assert PHONE not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("state", "expected_code"),
+    [("absent", 1), ("pending", 0), ("expired", 1), ("active", 0), ("conflict", 1)],
+)
+def test_status_reports_only_the_fixed_public_state(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    key: Ed25519PrivateKey,
+    state: str,
+    expected_code: int,
+) -> None:
+    install_fakes(monkeypatch, key, [{
+        "schemaVersion": "1.0", "deviceKeyMatches": True, "enrollmentState": state,
+    }])
+    assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "status") == expected_code
+    assert capsys.readouterr().out.strip() == f"owner phone enrollment is {state}"
+
+
+def test_conflicting_begin_is_safely_refused_without_echoing_the_number(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    key: Ed25519PrivateKey,
+) -> None:
+    install_fakes(monkeypatch, key, [
+        {"schemaVersion": "1.0", "deviceKeyMatches": True},
+        {
+        "schemaVersion": "1.0", "deviceKeyMatches": True, "enrollmentState": "conflict",
+        },
+    ])
+    monkeypatch.setattr("jarvis_local.phone_enrollment._interactive_terminal", lambda: True)
+    monkeypatch.setattr("jarvis_local.phone_enrollment.getpass.getpass", lambda _prompt: PHONE)
+    monkeypatch.setattr("builtins.input", lambda _prompt: "yes")
+
+    assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "begin") == 1
+    output = capsys.readouterr().out
+    assert output.strip().endswith("conflict")
+    assert PHONE not in output
+
+
+def test_malformed_gateway_response_is_refused_without_echoing_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    key: Ed25519PrivateKey,
+) -> None:
+    install_fakes(monkeypatch, key, [{
+        "schemaVersion": "1.0", "deviceKeyMatches": True, "enrollmentState": "active", "phoneNumber": PHONE,
+    }])
+    assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "status") == 4
+    output = capsys.readouterr().out
+    assert output.strip() == "owner phone enrollment status is unavailable"
+    assert PHONE not in output
+
+
+def test_begin_refuses_non_windows_and_noninteractive_runs_before_loading_a_key(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jarvis_local.phone_enrollment._is_windows", lambda: False)
+    monkeypatch.setattr(
+        "jarvis_local.phone_enrollment.platform_device_key_store",
+        lambda _path: pytest.fail("loaded key off Windows"),
+    )
+    assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "begin") == 2
+    assert "Windows 11" in capsys.readouterr().out
+
+    monkeypatch.setattr("jarvis_local.phone_enrollment._is_windows", lambda: True)
+    monkeypatch.setattr("jarvis_local.phone_enrollment._interactive_terminal", lambda: False)
+    assert run_phone_enrollment(JarvisLocalConfig.load(CONFIG), "begin") == 2
+    assert "interactive" in capsys.readouterr().out
+
+
+def test_main_routes_enroll_phone_without_requiring_node_store_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[tuple[dict[str, str], str]] = []
+    monkeypatch.setattr(
+        "jarvis_local.cli.run_phone_enrollment",
+        lambda config, operation: captured.append((dict(config.environment), operation)) or 0,
+    )
+    monkeypatch.setattr("jarvis_local.cli.JarvisLocalConfig.from_environment", lambda: JarvisLocalConfig.load(CONFIG))
+
+    assert main(["enroll-phone", "--preflight"]) == 0
+    assert captured == [(CONFIG, "preflight")]
+
+
+class WireOpener:
+    def __init__(self, response: dict[str, Any]) -> None:
+        self.response = response
+        self.requests: list[Any] = []
+
+    def __call__(self, request: Any, timeout: float | None = None) -> Any:
+        self.requests.append(request)
+        stream = io.BytesIO(json.dumps(self.response).encode("utf-8"))
+        stream.__enter__ = lambda: stream  # type: ignore[method-assign]
+        stream.__exit__ = lambda *_: None  # type: ignore[method-assign]
+        return stream
+
+
+def test_client_uses_the_exact_signed_path_and_canonical_operation(key: Ed25519PrivateKey) -> None:
+    opener = WireOpener({"schemaVersion": "1.0", "deviceKeyMatches": True})
+    transport = HttpCloudClient(
+        base_url="https://gateway.example",
+        device_id="device:home",
+        principal_id="principal:owner",
+        audience="jarvis-local-agent",
+        key=key,
+        opener=opener,
+    )
+    client = OwnerPhoneEnrollmentClient(transport)
+    assert client.preflight() is True
+    sent = opener.requests[0]
+    assert sent.full_url == f"https://gateway.example{OWNER_PHONE_ENROLLMENT_PATH}"
+    assert json.loads(sent.data) == {"operation": "preflight", "schemaVersion": "1.0"}
+    envelope = json.loads(sent.headers["X-jarvis-signed-request"])
+    assert envelope["deviceId"] == "device:home"
+
+
+def test_client_preserves_authentication_failure_for_non_disclosing_mapping(key: Ed25519PrivateKey) -> None:
+    error = urllib.error.HTTPError("https://gateway.example", 401, "no", {}, None)  # type: ignore[arg-type]
+    transport = HttpCloudClient(
+        base_url="https://gateway.example",
+        device_id="device:home",
+        principal_id="principal:owner",
+        audience="jarvis-local-agent",
+        key=key,
+        opener=lambda *_args, **_kwargs: (_ for _ in ()).throw(error),
+    )
+    with pytest.raises(CloudAuthError):
+        OwnerPhoneEnrollmentClient(transport).preflight()

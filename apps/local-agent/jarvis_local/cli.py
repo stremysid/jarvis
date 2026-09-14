@@ -27,6 +27,7 @@ from jarvis_local.crypto.device_keys import platform_device_key_store
 from jarvis_local.doctor import run_doctor
 from jarvis_local.enrollment import bootstrap_metadata_hash, enrollment_material
 from jarvis_local.node import run_node
+from jarvis_local.phone_enrollment import run_phone_enrollment
 from jarvis_local.transport.cli_protocol import OK, QUEUED, CliCommand
 from jarvis_local.transport.pipe_server import (
     DEFAULT_PIPE_NAME,
@@ -53,6 +54,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="print this device's public enrollment material (no secrets)",
     )
     enroll.add_argument("--device-label", default="jarvis-local-agent")
+
+    enroll_phone = subcommands.add_parser(
+        "enroll-phone",
+        help="verify the enrolled device and bootstrap the owner's phone",
+    )
+    phone_mode = enroll_phone.add_mutually_exclusive_group()
+    phone_mode.add_argument("--preflight", dest="phone_operation", action="store_const", const="preflight")
+    phone_mode.add_argument("--status", dest="phone_operation", action="store_const", const="status")
+    enroll_phone.set_defaults(phone_operation="begin")
 
     node = subcommands.add_parser("node", help="run the Linux home node in the foreground")
     node.add_argument("--socket-path", type=Path)
@@ -155,6 +165,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _doctor()
     if arguments.command == "enroll":
         return _enroll(JarvisLocalConfig.from_environment(), arguments.device_label)
+    if arguments.command == "enroll-phone":
+        return run_phone_enrollment(JarvisLocalConfig.from_environment(), arguments.phone_operation)
     if arguments.command == "node":
         return run_node(JarvisLocalConfig.from_environment(), socket_path=arguments.socket_path)
     if arguments.command in CONTROL_SUBCOMMANDS:
