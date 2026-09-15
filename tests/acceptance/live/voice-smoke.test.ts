@@ -215,7 +215,7 @@ function legacyOwnerEvidence(value: Readonly<Record<string, unknown>>): Record<s
   };
 }
 
-function legacyEvidence(value: Readonly<Record<string, unknown>>): Record<string, unknown> {
+function legacyOutboundNoAnswerEvidence(value: Readonly<Record<string, unknown>>): Record<string, unknown> {
   const legacy = { ...value };
   for (const field of OWNER_STEP_UP_FIELDS) delete legacy[field];
   delete legacy.authenticationMode;
@@ -570,7 +570,7 @@ describe("offline evidence lifecycle", () => {
       legacyOwnerEvidence(inboundEvidence),
       { ...unauthorizedEvidence, schemaVersion: "1.2" },
       legacyOwnerEvidence(outboundAnswerEvidence),
-      legacyEvidence(outboundNoAnswerEvidence),
+      legacyOutboundNoAnswerEvidence(outboundNoAnswerEvidence),
       { ...failureEvidence, schemaVersion: "1.2" },
     ])).toThrow(/^release_voice_evidence_incomplete$/u);
   });
@@ -590,6 +590,14 @@ describe("offline evidence lifecycle", () => {
       outboundAnswerEvidence,
       outboundNoAnswerEvidence,
       ownerStepUpRefusedEvidence,
+      failureEvidence,
+    ])).toThrow(/^release_voice_evidence_incomplete$/u);
+    expect(() => auditVoiceEvidence([
+      inboundEvidence,
+      inboundEvidence,
+      unauthorizedEvidence,
+      outboundAnswerEvidence,
+      outboundNoAnswerEvidence,
       failureEvidence,
     ])).toThrow(/^release_voice_evidence_incomplete$/u);
   });

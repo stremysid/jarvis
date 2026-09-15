@@ -660,9 +660,6 @@ export function auditVoiceEvidence(records: readonly unknown[]): true {
       commitShas.add(dataField(record as object, "commitSha"));
     }
     if (scenarios.size !== VOICE_SMOKE_SCENARIOS.length || commitShas.size !== 1) throw new Error();
-    for (const scenario of VOICE_SMOKE_SCENARIOS) {
-      if (!scenarios.has(scenario)) throw new Error();
-    }
     return true;
   } catch {
     throw new Error("release_voice_evidence_incomplete");
