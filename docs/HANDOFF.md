@@ -18,7 +18,9 @@ without setting its secret or making a live request. Draft
 study-coach slice on the existing Telegram conversation: evidence-backed
 per-course weak areas, one quiet daily check-in when evidence changes or is due,
 cited owner-topic/course-card practice, and direct-owner-only correction and
-forget. Its additive `0023_study_coach.sql` is unapplied. The operational record
+forget. Claude's first max review requested changes at `30ec39e`; fix commit
+`4f7c3bc` plus current-main merge `11d624c` is ready for max re-review. Its
+additive `0023_study_coach.sql` is unapplied. The operational record
 stays separate from R2 until a later reviewed integration, and spoken quizzes
 wait for R1 calling. Draft PR #52 independently owns migration `0024` for the
 university application workflow. No school account, secret, deploy, migration,
