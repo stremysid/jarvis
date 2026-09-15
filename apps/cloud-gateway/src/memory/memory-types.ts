@@ -169,14 +169,16 @@ export interface ResolvedMemoryTopic {
   readonly matchedBy: "current" | "alias";
 }
 
+export type MemoryControlIntent = "remember" | "forget" | "lift" | "explain";
+
 export interface MemoryOwnerTurnInput {
   readonly principalId: string;
   readonly eventId: Ulid;
   readonly eventSequence: number;
   readonly occurredAt: string;
   readonly channel: MemorySourceChannel;
-  /** Set only by a trusted adapter after it sees an unambiguous memory request. */
-  readonly explicitMemoryIntent: boolean;
+  /** Set only by a trusted adapter after it classifies one exact memory operation. */
+  readonly memoryIntent: MemoryControlIntent | null;
   readonly forwarded: boolean;
   readonly quoted: boolean;
   readonly pasted: boolean;
@@ -225,6 +227,7 @@ export interface ForgetMemoryItemResult {
 export interface PreparedMemoryLift {
   readonly item: CanonicalMemoryItem;
   readonly suppressionIds: readonly Ulid[];
+  readonly restoredLifecycleState: "active" | "proposed";
 }
 
 export interface LiftMemoryItemInput {
@@ -234,6 +237,7 @@ export interface LiftMemoryItemInput {
   readonly versionId: Ulid;
   readonly transitionId: Ulid;
   readonly ownerAuthorizingEventId: Ulid;
+  readonly lifecycleState: "active" | "proposed";
   readonly sourceIds: readonly Ulid[];
   readonly lifts: readonly Readonly<{
     liftId: Ulid;

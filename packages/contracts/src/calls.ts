@@ -150,9 +150,9 @@ export function sanitizeRedaction(text: string, fieldMarker?: RedactionMarker): 
 }
 
 /**
- * Mints an envelope-safe token for a grammar-validated ULID. Identifiers are
- * not user text; applying content redaction to them can corrupt a valid ULID
- * whose random component happens to contain six consecutive digits.
+ * Mints an envelope-safe token for a grammar-validated ULID. This is an
+ * internal structural escape hatch and is deliberately absent from the
+ * package's public index.
  */
 export function issueRedactedUlid(value: Ulid): SuccessfulRedaction {
   if (typeof value !== "string" || !LOWERCASE_ULID.test(value)) {

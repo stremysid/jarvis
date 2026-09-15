@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
+import * as publicContracts from "../src/index.js";
 import {
   canonicalJson,
   createEnvelope,
-  issueRedactedUlid,
+  type Ulid,
   sha256Hex,
   validateEnvelope,
   type CreateEnvelopeInput,
-  type Ulid,
 } from "../src";
+import { issueRedactedUlid } from "../src/calls.js";
 import { Redactor } from "../../../apps/cloud-gateway/src/security/redaction";
 
 function redacted(text: string) {
@@ -69,6 +70,10 @@ describe("event envelopes", () => {
 
   it("refuses to mint structural tokens for malformed ULIDs", () => {
     expect(() => issueRedactedUlid("not-a-ulid" as Ulid)).toThrow("canonical ULID");
+  });
+
+  it("keeps the structural ULID issuer off the public contracts surface", () => {
+    expect("issueRedactedUlid" in publicContracts).toBe(false);
   });
 
   it("normalizes producer-controlled envelope headers", async () => {

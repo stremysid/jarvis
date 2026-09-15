@@ -1,5 +1,31 @@
 # Known issues
 
+## Owner memory controls have four deferred integration limits
+
+PR #50 keeps the channel-neutral owner-control boundary closed, but later
+integration work must resolve these limits before enabling the affected callers:
+
+- **F1, required before the channel adapter PR:**
+  `conversation.user_committed` persists no closed provenance code. The service
+  can reject forwarded, quoted, pasted, attachment and guest flags only as
+  assertions from its trusted caller; it cannot verify them against the event
+  ledger. Telegram and voice ingress must persist an owner-typed provenance code,
+  and `validateOwnerTurn` must require it.
+- **F2, required before any topic move or merge caller:** moving the canonical
+  inbox away from the root, or merging it, makes `bootstrapTopics` refuse every
+  later remember request. A future caller must either forbid those operations for
+  the bootstrap inbox or make bootstrap follow its redirect and accept its new
+  parent.
+- **N3:** exact recovery of an accepted but unapplied owner command has no age
+  bound and intentionally skips revalidating the now-stale owner turn. Completed
+  remember replays whose transition is no longer current suppress all text and
+  excerpts, and forget/lift replays require the exact current transition, but an
+  unchanged accepted command can still be completed much later. Define a durable
+  expiry policy before command-retention or delayed-queue work.
+- **N8:** each remember, explain, forget or lift request accepts exactly one
+  resolved target. The future adapter must state that limit and ask the owner to
+  disambiguate or repeat multi-target requests rather than silently selecting one.
+
 ## A late split passphrase repeat is ordinary conversation (PR #40 N9)
 
 After the 3.5-second post-verification fragment window, one- and two-word

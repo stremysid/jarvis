@@ -22,6 +22,18 @@ describe("shared memory extraction policy", () => {
     });
   }
 
+  it.each([
+    "I am not allergic to peanuts.",
+    "I never share private notes.",
+    "I don't want to move to Boston.",
+  ])("keeps the complete negated first-person sentence out of automatic trust: %s", (text) => {
+    expect(isAuthenticatedFirstPersonQuote({
+      quote: text,
+      sourceText: text,
+      authenticatedOwner: true,
+    })).toBe(false);
+  });
+
   for (const testCase of policyVectors.promotionCases) {
     it(testCase.name, () => {
       expect(

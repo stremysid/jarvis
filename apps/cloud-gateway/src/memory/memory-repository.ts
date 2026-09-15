@@ -26,6 +26,7 @@ import {
   type LiftMemoryItemInput,
   type LiftMemoryItemResult,
   type MemoryBasis,
+  type MemoryControlIntent,
   type MemoryFilingSource,
   type MemoryKind,
   type MemoryLifecycleState,
@@ -263,6 +264,15 @@ interface LiftRow {
 
 interface CountRow {
   readonly count: unknown;
+}
+
+interface PreviousLifecycleRow {
+  readonly lifecycle_state: unknown;
+  readonly version_id: unknown;
+}
+
+interface SuppressedSourceRow {
+  readonly source_id: unknown;
 }
 
 interface CapturedSource {
@@ -700,6 +710,10 @@ export class MemoryRepository {
       || this.maximumWriteAttempts < 1 || this.maximumWriteAttempts > 3) refuse();
   }
 
+  validateItemText(value: unknown): string {
+    return safeInputText(value, 4096);
+  }
+
   async bootstrapTopics(principalIdInput: string): Promise<BootstrapMemoryTopicsResult> {
     return this.safely(async () => {
       const principalId = safeInputText(principalIdInput, 256);
@@ -824,6 +838,131 @@ export class MemoryRepository {
     });
   }
 
+  async readItemVisibility(
+    principalIdInput: string,
+    itemIdInput: Ulid,
+  ): Promise<Readonly<{ retrievable: boolean; suppressedSourceIds: readonly Ulid[] }>> {
+    return this.safely(async () => {
+      const principalId = safeInputText(principalIdInput, 256);
+      const itemId = inputUlid(itemIdInput);
+      const item = await this.readCurrentItemInternal(principalId, itemId);
+      const [retrievable, suppressed] = await Promise.all([
+        this.database.prepare(`SELECT 1 AS count FROM memory_retrievable_item_versions
+          WHERE principal_id = ? AND item_id = ? AND version_id = ? LIMIT 1`)
+          .bind(principalId, itemId, item.version.versionId).first<CountRow>(),
+        this.database.prepare(`SELECT source.source_id
+          FROM memory_item_sources source
+          WHERE source.principal_id = ? AND source.item_id = ? AND source.version_id = ?
+            AND EXISTS (
+              SELECT 1 FROM memory_active_event_suppressions suppression
+              WHERE suppression.principal_id = source.principal_id
+                AND (
+                  suppression.target_event_id = source.event_id
+                  OR source.event_sequence BETWEEN suppression.start_event_sequence
+                    AND suppression.end_event_sequence
+                )
+            )
+          ORDER BY source.source_position`)
+          .bind(principalId, itemId, item.version.versionId).all<SuppressedSourceRow>(),
+      ]);
+      if (retrievable !== null) {
+        exactRow(retrievable, new Set(["count"]));
+        if (rowInteger(retrievable.count, 1, 1) !== 1) corrupt();
+      }
+      const suppressedSourceIds = suppressed.results.map((row) => {
+        exactRow(row, new Set(["source_id"]));
+        const sourceId = rowUlid(row.source_id);
+        if (!item.sources.some((source) => source.sourceId === sourceId)) corrupt();
+        return sourceId;
+      });
+      if (new Set(suppressedSourceIds).size !== suppressedSourceIds.length) corrupt();
+      return Object.freeze({
+        retrievable: retrievable !== null,
+        suppressedSourceIds: Object.freeze(suppressedSourceIds),
+      });
+    });
+  }
+
+  async countSiblingItemsHiddenByForget(
+    principalIdInput: string,
+    itemIdInput: Ulid,
+    forgottenTransitionIdInput: Ulid,
+  ): Promise<number> {
+    return this.safely(async () => {
+      const principalId = safeInputText(principalIdInput, 256);
+      const itemId = inputUlid(itemIdInput);
+      const forgottenTransitionId = inputUlid(forgottenTransitionIdInput);
+      const row = await this.database.prepare(`SELECT count(*) AS count FROM (
+        SELECT state.item_id
+        FROM memory_item_state state
+        JOIN memory_item_versions version
+          ON version.principal_id = state.principal_id
+          AND version.version_id = state.current_version_id
+        JOIN memory_items item
+          ON item.principal_id = state.principal_id AND item.item_id = state.item_id
+        WHERE state.principal_id = ? AND state.item_id <> ? AND state.lifecycle_state = 'active'
+          AND (
+            EXISTS (
+              SELECT 1 FROM memory_item_sources source
+              JOIN memory_active_event_suppressions suppression
+                ON suppression.principal_id = source.principal_id
+                AND suppression.forgotten_transition_id = ?
+                AND suppression.newly_hidden_turn_count = 1
+                AND (
+                  suppression.target_event_id = source.event_id
+                  OR source.event_sequence BETWEEN suppression.start_event_sequence
+                    AND suppression.end_event_sequence
+                )
+              WHERE source.principal_id = version.principal_id
+                AND source.version_id = version.version_id
+            )
+            OR EXISTS (
+              SELECT 1 FROM memory_active_event_suppressions suppression
+              WHERE suppression.principal_id = item.principal_id
+                AND suppression.forgotten_transition_id = ?
+                AND suppression.newly_hidden_turn_count = 1
+                AND (
+                  suppression.target_event_id = item.creation_event_id
+                  OR item.creation_event_sequence BETWEEN suppression.start_event_sequence
+                    AND suppression.end_event_sequence
+                )
+            )
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM memory_active_event_suppressions suppression
+            WHERE suppression.principal_id = state.principal_id
+              AND suppression.forgotten_transition_id IS NOT ?
+              AND (
+                EXISTS (
+                  SELECT 1 FROM memory_item_sources source
+                  WHERE source.principal_id = version.principal_id
+                    AND source.version_id = version.version_id
+                    AND (
+                      suppression.target_event_id = source.event_id
+                      OR source.event_sequence BETWEEN suppression.start_event_sequence
+                        AND suppression.end_event_sequence
+                    )
+                )
+                OR (
+                  suppression.target_event_id = item.creation_event_id
+                  OR item.creation_event_sequence BETWEEN suppression.start_event_sequence
+                    AND suppression.end_event_sequence
+                )
+              )
+          )
+      ) hidden_siblings`).bind(
+        principalId,
+        itemId,
+        forgottenTransitionId,
+        forgottenTransitionId,
+        forgottenTransitionId,
+      ).first<CountRow>();
+      if (row === null) corrupt();
+      exactRow(row, new Set(["count"]));
+      return rowInteger(row.count, 0, Number.MAX_SAFE_INTEGER);
+    });
+  }
+
   async resolveTopicPath(
     principalIdInput: string,
     pathInput: readonly string[],
@@ -855,15 +994,17 @@ export class MemoryRepository {
     });
   }
 
-  async validateOwnerTurn(input: MemoryOwnerTurnInput): Promise<string> {
+  async validateOwnerTurn(input: MemoryOwnerTurnInput, expectedIntent: MemoryControlIntent): Promise<string> {
     return this.safely(async () => {
       const principalId = safeInputText(input.principalId, 256);
       const eventId = inputUlid(input.eventId);
       const eventSequence = inputInteger(input.eventSequence, 1, Number.MAX_SAFE_INTEGER);
       const occurredAt = inputTimestamp(input.occurredAt);
       const channel = inputEnum(input.channel, new Set(["telegram", "voice", "system"] as const));
+      const intent = inputEnum(expectedIntent, new Set([
+        "remember", "forget", "lift", "explain",
+      ] as const));
       const flags = [
-        input.explicitMemoryIntent,
         input.forwarded,
         input.quoted,
         input.pasted,
@@ -873,8 +1014,8 @@ export class MemoryRepository {
         input.guest,
       ];
       if (flags.some((flag) => typeof flag !== "boolean")
-        || !input.explicitMemoryIntent
-        || flags.slice(1).some(Boolean)) refuse();
+        || input.memoryIntent !== intent
+        || flags.some(Boolean)) refuse();
       const principal = await this.database.prepare(
         "SELECT principal_id, principal_type, status FROM principals WHERE principal_id = ?",
       ).bind(principalId).first<OwnerPrincipalRow>();
@@ -908,7 +1049,7 @@ export class MemoryRepository {
         || payload.historyEligible !== true) refuse();
       const newerTurn = await this.database.prepare(`SELECT 1 AS count FROM events
         WHERE subject_id = ? AND sequence > ?
-          AND event_type IN ('conversation.user_committed', 'conversation.assistant_delivered')
+          AND event_type = 'conversation.user_committed'
         LIMIT 1`).bind(principalId, eventSequence).first<CountRow>();
       if (newerTurn !== null) {
         exactRow(newerTurn, new Set(["count"]));
@@ -953,14 +1094,27 @@ export class MemoryRepository {
       const itemId = inputUlid(itemIdInput);
       const item = await this.readCurrentItemInternal(principalId, itemId);
       if (item.lifecycle.state !== "forgotten") refuse();
-      const rows = await this.database.prepare(`SELECT suppression_id, principal_id, target_event_id,
-        owner_authorizing_event_id, forgotten_transition_id, source_id,
-        newly_hidden_turn_count, total_covered_turn_count
-        FROM memory_active_event_suppressions
-        WHERE principal_id = ? AND forgotten_transition_id = ?
-        ORDER BY source_id`)
-        .bind(principalId, item.lifecycle.transitionId).all<SuppressionRow>();
+      const [rows, previous] = await Promise.all([
+        this.database.prepare(`SELECT suppression_id, principal_id, target_event_id,
+          owner_authorizing_event_id, forgotten_transition_id, source_id,
+          newly_hidden_turn_count, total_covered_turn_count
+          FROM memory_active_event_suppressions
+          WHERE principal_id = ? AND forgotten_transition_id = ?
+          ORDER BY source_id`)
+          .bind(principalId, item.lifecycle.transitionId).all<SuppressionRow>(),
+        this.database.prepare(`SELECT lifecycle_state, version_id FROM memory_item_transitions
+          WHERE principal_id = ? AND item_id = ? AND transition_number = ?`)
+          .bind(principalId, itemId, item.lifecycle.transitionNumber - 1)
+          .first<PreviousLifecycleRow>(),
+      ]);
       if (rows.results.length !== item.sources.length || rows.results.length < 1) corrupt();
+      if (previous === null) corrupt();
+      exactRow(previous, new Set(["lifecycle_state", "version_id"]));
+      const restoredLifecycleState = rowEnum(
+        previous.lifecycle_state,
+        new Set(["active", "proposed"] as const),
+      );
+      if (rowUlid(previous.version_id) !== item.version.versionId) corrupt();
       const suppressionIds = rows.results.map((row) => {
         exactRow(row, suppressionFields);
         rowPrincipal(row.principal_id, principalId);
@@ -975,7 +1129,11 @@ export class MemoryRepository {
         return rowUlid(row.suppression_id);
       });
       if (new Set(suppressionIds).size !== suppressionIds.length) corrupt();
-      return Object.freeze({ item, suppressionIds: Object.freeze(suppressionIds) });
+      return Object.freeze({
+        item,
+        suppressionIds: Object.freeze(suppressionIds),
+        restoredLifecycleState,
+      });
     });
   }
 
@@ -1089,6 +1247,7 @@ export class MemoryRepository {
       const versionId = inputUlid(input.versionId);
       const transitionId = inputUlid(input.transitionId);
       const ownerAuthorizingEventId = inputUlid(input.ownerAuthorizingEventId);
+      const lifecycleState = inputEnum(input.lifecycleState, new Set(["active", "proposed"] as const));
       const reason = safeInputText(input.reason, 512);
       const policyVersion = safeInputText(input.policyVersion, 128);
       if (!Array.isArray(input.sourceIds) || !Array.isArray(input.lifts)
@@ -1109,6 +1268,7 @@ export class MemoryRepository {
         versionId,
         transitionId,
         ownerAuthorizingEventId,
+        lifecycleState,
         sourceIds: Object.freeze(sourceIds),
         lifts: Object.freeze(lifts),
         reason,
@@ -1119,6 +1279,7 @@ export class MemoryRepository {
       const prepared = await this.prepareLiftItem(principalId, itemId);
       const item = prepared.item;
       if (item.version.versionId !== previousVersionId
+        || prepared.restoredLifecycleState !== lifecycleState
         || item.sources.length !== sourceIds.length
         || prepared.suppressionIds.length !== lifts.length
         || prepared.suppressionIds.some((id) => !lifts.some((lift) => lift.suppressionId === id))) refuse();
@@ -1177,13 +1338,14 @@ export class MemoryRepository {
       statements.push(this.database.prepare(`INSERT INTO memory_item_transitions (
         transition_id, principal_id, item_id, transition_number, version_id,
         lifecycle_state, reason, actor, policy_version, owner_authorizing_event_id, occurred_at
-      ) VALUES (?, ?, ?, ?, ?, 'active', ?, 'owner', ?, ?, ?)`)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'owner', ?, ?, ?)`)
         .bind(
           transitionId,
           principalId,
           itemId,
           item.lifecycle.transitionNumber + 1,
           versionId,
+          lifecycleState,
           reason,
           policyVersion,
           ownerAuthorizingEventId,
@@ -1216,7 +1378,8 @@ export class MemoryRepository {
         throw error;
       }
       const restored = await this.readCurrentItemInternal(principalId, itemId);
-      if (restored.lifecycle.state !== "active" || restored.lifecycle.transitionId !== transitionId) corrupt();
+      if (restored.lifecycle.state !== lifecycleState
+        || restored.lifecycle.transitionId !== transitionId) corrupt();
       return Object.freeze({ item: restored, liftedSuppressionCount: lifts.length, replayed: false });
     });
   }
@@ -1259,7 +1422,7 @@ export class MemoryRepository {
 
   private async readLiftReplay(input: LiftMemoryItemInput): Promise<LiftMemoryItemResult | null> {
     const item = await this.readCurrentItemInternal(input.principalId, input.itemId);
-    if (item.lifecycle.state !== "active" || item.lifecycle.transitionId !== input.transitionId
+    if (item.lifecycle.state !== input.lifecycleState || item.lifecycle.transitionId !== input.transitionId
       || item.version.versionId !== input.versionId
       || item.lifecycle.ownerAuthorizingEventId !== input.ownerAuthorizingEventId) return null;
     const rows = await this.database.prepare(`SELECT lift_id, principal_id, suppression_id,

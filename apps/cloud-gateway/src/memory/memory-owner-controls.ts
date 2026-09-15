@@ -1,7 +1,6 @@
 import {
   canonicalJson,
   createEnvelope,
-  issueRedactedUlid,
   newUlid,
   sha256Hex,
   type JsonValue,
@@ -9,6 +8,7 @@ import {
   type Sha256Hex,
   type Ulid,
 } from "../../../../packages/contracts/src/index.js";
+import { issueRedactedUlid } from "../../../../packages/contracts/src/calls.js";
 import { Redactor } from "../security/redaction.js";
 import {
   EventRepository,
@@ -16,11 +16,13 @@ import {
   type AppendedEvent,
 } from "../persistence/event-repository.js";
 import { MemoryRepository } from "./memory-repository.js";
+import { isAuthenticatedFirstPersonQuote } from "./extraction-policy.js";
 import {
   MemoryRepositoryError,
   type CanonicalMemoryItem,
   type ForgetMemoryItemInput,
   type LiftMemoryItemInput,
+  type MemoryControlIntent,
   type MemoryKind,
   type MemoryOwnerTurnInput,
   type MemorySensitivity,
@@ -34,6 +36,14 @@ const MEMORY_CONTROL_EVENT_TYPE = "memory.owner_command";
 const MEMORY_CONTROL_PRODUCER = "memory-control-v1";
 const MEMORY_KINDS = new Set<MemoryKind>(["fact", "preference", "plan", "decision", "relationship"]);
 const MEMORY_SENSITIVITIES = new Set<MemorySensitivity>(["normal", "sensitive"]);
+const MEMORY_CONTROL_INTENTS = new Set<MemoryControlIntent>(["remember", "forget", "lift", "explain"]);
+const REMEMBER_CONTROL_PREFIXES = [
+  /^(?:please[ \t]+)?remember[ \t]+that:[ \t]*/iu,
+  /^(?:please[ \t]+)?remember[ \t]+that[ \t]+/iu,
+  /^(?:please[ \t]+)?remember:[ \t]*/iu,
+  /^(?:please[ \t]+)?remember[ \t]+/iu,
+] as const;
+const NEGATION = /(?<![A-Za-z0-9_])(?:not|never|no[ \t]+longer)(?![A-Za-z0-9_])|n['’]t(?![A-Za-z0-9_])/iu;
 
 export interface RememberMemoryInput {
   readonly ownerTurn: MemoryOwnerTurnInput;
@@ -48,7 +58,7 @@ export interface TargetedMemoryControlInput {
 }
 
 export interface MemoryMutationReceipt {
-  readonly item: CanonicalMemoryItem;
+  readonly item: CanonicalMemoryItem | MemoryTextSuppressedItem;
   readonly receipt: string;
   readonly replayed: boolean;
 }
@@ -58,12 +68,17 @@ export interface MemoryForgetReceipt {
   readonly state: "forgotten";
   readonly newlyHiddenTurnCount: number;
   readonly totalCoveredTurnCount: number;
+  readonly hiddenSiblingItemCount: number;
   readonly receipt: string;
   readonly replayed: boolean;
 }
 
-export interface MemoryLiftReceipt extends MemoryMutationReceipt {
+export interface MemoryLiftReceipt {
+  readonly item: CanonicalMemoryItem;
   readonly liftedSuppressionCount: number;
+  readonly retrievable: boolean;
+  readonly receipt: string;
+  readonly replayed: boolean;
 }
 
 export interface MemoryExplanation {
@@ -90,6 +105,13 @@ interface StoredControlReceipt {
   readonly request_hash: unknown;
 }
 
+type MemoryTextSuppressedItem = Omit<CanonicalMemoryItem, "version" | "sources"> & Readonly<{
+  version: Omit<CanonicalMemoryItem["version"], "text" | "textHash">
+    & Readonly<{ text: null; textHash: null }>;
+  sources: readonly (Omit<CanonicalMemoryItem["sources"][number], "excerpt" | "excerptHash">
+    & Readonly<{ excerpt: null; excerptHash: null }>)[];
+}>;
+
 type JsonRecord = Readonly<Record<string, JsonValue>>;
 type DecodedForgetCommand = Omit<ForgetMemoryItemInput, "principalId" | "ownerAuthorizingEventId">;
 type DecodedLiftCommand = Omit<LiftMemoryItemInput, "principalId" | "ownerAuthorizingEventId">;
@@ -97,6 +119,10 @@ const redactor = new Redactor();
 
 function refuse(): never {
   throw new MemoryRepositoryError("memory_refused");
+}
+
+function corrupt(): never {
+  throw new MemoryRepositoryError("memory_corrupt");
 }
 
 function unavailable(): never {
@@ -123,8 +149,8 @@ function captureOwnerTurn(value: MemoryOwnerTurnInput): MemoryOwnerTurnInput {
   const eventSequence = value.eventSequence;
   const occurredAt = value.occurredAt;
   const channel = value.channel;
+  const memoryIntent = value.memoryIntent;
   const flags = [
-    value.explicitMemoryIntent,
     value.forwarded,
     value.quoted,
     value.pasted,
@@ -138,6 +164,7 @@ function captureOwnerTurn(value: MemoryOwnerTurnInput): MemoryOwnerTurnInput {
     || !Number.isSafeInteger(eventSequence) || eventSequence < 1
     || typeof occurredAt !== "string" || !isCanonicalTimestamp(occurredAt)
     || channel !== "telegram" && channel !== "voice" && channel !== "system"
+    || memoryIntent !== null && !MEMORY_CONTROL_INTENTS.has(memoryIntent)
     || flags.some((flag) => typeof flag !== "boolean")) refuse();
   return Object.freeze({
     principalId,
@@ -145,14 +172,14 @@ function captureOwnerTurn(value: MemoryOwnerTurnInput): MemoryOwnerTurnInput {
     eventSequence,
     occurredAt,
     channel,
-    explicitMemoryIntent: flags[0] as boolean,
-    forwarded: flags[1] as boolean,
-    quoted: flags[2] as boolean,
-    pasted: flags[3] as boolean,
-    hasAttachment: flags[4] as boolean,
-    modelGenerated: flags[5] as boolean,
-    toolGenerated: flags[6] as boolean,
-    guest: flags[7] as boolean,
+    memoryIntent,
+    forwarded: flags[0] as boolean,
+    quoted: flags[1] as boolean,
+    pasted: flags[2] as boolean,
+    hasAttachment: flags[3] as boolean,
+    modelGenerated: flags[4] as boolean,
+    toolGenerated: flags[5] as boolean,
+    guest: flags[6] as boolean,
   });
 }
 
@@ -188,8 +215,54 @@ function exactSingleTarget(candidateItemIds: readonly Ulid[]): Ulid {
   return inputUlid(candidateItemIds[0]);
 }
 
-function commandKey(turn: MemoryOwnerTurnInput, operation: string): string {
-  return `${turn.eventId}:${operation}`;
+function commandKey(turn: MemoryOwnerTurnInput, operation: MemoryControlIntent): string {
+  return `${turn.eventId}:${operation === "explain" ? operation : "mutation"}`;
+}
+
+function requireMemoryIntent(turn: MemoryOwnerTurnInput, operation: MemoryControlIntent): void {
+  if (turn.memoryIntent !== operation) refuse();
+}
+
+function suppressMemoryText(item: CanonicalMemoryItem): MemoryTextSuppressedItem {
+  return Object.freeze({
+    ...item,
+    version: Object.freeze({ ...item.version, text: null, textHash: null }),
+    sources: Object.freeze(item.sources.map((source) => Object.freeze({
+      ...source,
+      excerpt: null,
+      excerptHash: null,
+    }))),
+  });
+}
+
+function decodeStoredCommand<T>(value: JsonValue, decode: (payload: JsonValue) => T): T {
+  try {
+    return decode(value);
+  } catch (error) {
+    if (error instanceof MemoryRepositoryError && error.code === "memory_refused") corrupt();
+    throw error;
+  }
+}
+
+function rememberRemainder(ownerText: string): string {
+  const source = ownerText.trim();
+  for (const prefix of REMEMBER_CONTROL_PREFIXES) {
+    const match = prefix.exec(source);
+    if (match !== null) return source.slice(match[0].length).trim();
+  }
+  return source;
+}
+
+function isAuthorizedRememberText(text: string, ownerText: string): boolean {
+  const remainder = rememberRemainder(ownerText);
+  if (remainder.length === 0 || text !== text.trim()) return false;
+  if (text === remainder) return true;
+  if (NEGATION.test(remainder) && !NEGATION.test(text)) return false;
+  return isAuthenticatedFirstPersonQuote({
+    quote: text,
+    sourceText: remainder,
+    authenticatedOwner: true,
+  });
 }
 
 function rememberPayload(value: JsonValue): Readonly<{
@@ -260,7 +333,8 @@ function liftPayload(value: JsonValue): DecodedLiftCommand {
     "operation", "targetId", "itemId", "previousVersionId", "versionId", "lifecycleState",
     "sourceIds", "lifts",
   ]);
-  if (payload.operation !== "item.correct" || payload.lifecycleState !== "active"
+  if (payload.operation !== "item.correct"
+    || payload.lifecycleState !== "active" && payload.lifecycleState !== "proposed"
     || !Array.isArray(payload.sourceIds) || !Array.isArray(payload.lifts)) refuse();
   const transitionId = inputUlid(payload.targetId);
   return Object.freeze({
@@ -268,6 +342,7 @@ function liftPayload(value: JsonValue): DecodedLiftCommand {
     previousVersionId: inputUlid(payload.previousVersionId),
     versionId: inputUlid(payload.versionId),
     transitionId,
+    lifecycleState: payload.lifecycleState,
     sourceIds: Object.freeze(payload.sourceIds.map(inputUlid)),
     lifts: Object.freeze(payload.lifts.map((value) => {
       const entry = record(value);
@@ -301,11 +376,11 @@ export class MemoryOwnerControlsService {
   async remember(input: RememberMemoryInput): Promise<MemoryMutationReceipt> {
     return this.safely(async () => {
       const ownerTurn = captureOwnerTurn(input.ownerTurn);
-      const text = input.text;
+      requireMemoryIntent(ownerTurn, "remember");
+      const text = this.memory.validateItemText(input.text);
       const kind = input.kind;
       const sensitivity = input.sensitivity;
-      if (typeof text !== "string" || text.length < 1 || text.length > 32_768
-        || !MEMORY_KINDS.has(kind) || !MEMORY_SENSITIVITIES.has(sensitivity)) refuse();
+      if (!MEMORY_KINDS.has(kind) || !MEMORY_SENSITIVITIES.has(sensitivity)) refuse();
       const requestHash = await this.requestHash("remember", ownerTurn, [
         text,
         kind,
@@ -320,8 +395,8 @@ export class MemoryOwnerControlsService {
           targetId: this.nextId(),
         });
       } else {
-        const ownerText = await this.memory.validateOwnerTurn(ownerTurn);
-        if (!ownerText.includes(text)) refuse();
+        const ownerText = await this.memory.validateOwnerTurn(ownerTurn, "remember");
+        if (!isAuthorizedRememberText(text, ownerText)) refuse();
         const topics = await this.memory.bootstrapTopics(ownerTurn.principalId);
         const transitionId = this.nextId();
         command = await this.appendCommand(ownerTurn, key, requestHash, {
@@ -336,7 +411,7 @@ export class MemoryOwnerControlsService {
           topicId: topics.inbox.topicId,
         });
       }
-      const payload = rememberPayload(command.envelope.payload);
+      const payload = decodeStoredCommand(command.envelope.payload, rememberPayload);
       const result = await this.memory.commitInitialItem({
         principalId: ownerTurn.principalId,
         itemId: payload.itemId,
@@ -383,10 +458,16 @@ export class MemoryOwnerControlsService {
           reason: "owner memory starts in the explicit inbox",
         },
       });
+      const replayed = command.replayed || result.replayed;
+      const transitionIsCurrent = result.item.lifecycle.transitionId === payload.transitionId;
       return Object.freeze({
-        item: result.item,
-        receipt: "Remembered 1 memory. You can ask in ordinary language to forget it.",
-        replayed: command.replayed || result.replayed,
+        item: replayed && !transitionIsCurrent ? suppressMemoryText(result.item) : result.item,
+        receipt: replayed && !transitionIsCurrent
+          ? result.item.lifecycle.state === "forgotten"
+            ? "That remember request was already handled; the memory is currently hidden."
+            : "That remember request was already handled; the memory has changed since then."
+          : "Remembered 1 memory. You can ask in ordinary language to forget it.",
+        replayed,
       });
     });
   }
@@ -394,24 +475,31 @@ export class MemoryOwnerControlsService {
   async explain(input: TargetedMemoryControlInput): Promise<MemoryExplanation> {
     return this.safely(async () => {
       const ownerTurn = captureOwnerTurn(input.ownerTurn);
+      requireMemoryIntent(ownerTurn, "explain");
       const itemId = exactSingleTarget(input.candidateItemIds);
-      await this.memory.validateOwnerTurn(ownerTurn);
+      await this.memory.validateOwnerTurn(ownerTurn, "explain");
       const item = await this.memory.readCurrentItem(ownerTurn.principalId, itemId);
+      const visibility = await this.memory.readItemVisibility(ownerTurn.principalId, itemId);
       const hidden = item.lifecycle.state === "forgotten";
+      const suppressedSourceIds = new Set(visibility.suppressedSourceIds);
       return Object.freeze({
         itemId,
         state: item.lifecycle.state,
         uncertain: item.version.uncertain,
-        topicPath: Object.freeze(item.topicPath.map((entry) => entry.displayName)),
+        topicPath: hidden
+          ? Object.freeze([])
+          : Object.freeze(item.topicPath.map((entry) => entry.displayName)),
         text: hidden ? null : item.version.text,
         sources: Object.freeze(item.sources.map((source) => Object.freeze({
           eventId: source.eventId,
           occurredAt: source.occurredAt,
           channel: source.channel,
-          excerpt: hidden ? null : source.excerpt,
+          excerpt: hidden || suppressedSourceIds.has(source.sourceId) ? null : source.excerpt,
         }))),
         receipt: hidden
           ? "Explained 1 hidden memory without revealing its text; nothing changed."
+          : suppressedSourceIds.size > 0
+            ? "Explained 1 memory; hidden source excerpts were not revealed; nothing changed."
           : "Explained 1 memory from verified evidence; nothing changed.",
       });
     });
@@ -420,6 +508,7 @@ export class MemoryOwnerControlsService {
   async forget(input: TargetedMemoryControlInput): Promise<MemoryForgetReceipt> {
     return this.safely(async () => {
       const ownerTurn = captureOwnerTurn(input.ownerTurn);
+      requireMemoryIntent(ownerTurn, "forget");
       const itemId = exactSingleTarget(input.candidateItemIds);
       const requestHash = await this.requestHash("forget", ownerTurn, [itemId]);
       const key = commandKey(ownerTurn, "forget");
@@ -431,7 +520,7 @@ export class MemoryOwnerControlsService {
           targetId: this.nextId(),
         });
       } else {
-        await this.memory.validateOwnerTurn(ownerTurn);
+        await this.memory.validateOwnerTurn(ownerTurn, "forget");
         const prepared = await this.memory.prepareForgetItem(ownerTurn.principalId, itemId);
         const transitionId = this.nextId();
         command = await this.appendCommand(ownerTurn, key, requestHash, {
@@ -451,19 +540,27 @@ export class MemoryOwnerControlsService {
           })),
         });
       }
-      const decoded = forgetPayload(command.envelope.payload);
-      if (decoded.itemId !== itemId) refuse();
+      const decoded = decodeStoredCommand(command.envelope.payload, forgetPayload);
+      if (decoded.itemId !== itemId) corrupt();
       const result = await this.memory.forgetItem({
         ...decoded,
         principalId: ownerTurn.principalId,
         ownerAuthorizingEventId: command.envelope.eventId,
       });
+      const hiddenSiblingItemCount = await this.memory.countSiblingItemsHiddenByForget(
+        ownerTurn.principalId,
+        itemId,
+        decoded.transitionId,
+      );
       return Object.freeze({
         itemId: result.item.itemId,
         state: "forgotten" as const,
         newlyHiddenTurnCount: result.newlyHiddenTurnCount,
         totalCoveredTurnCount: result.totalCoveredTurnCount,
-        receipt: `Forgot 1 memory and hid ${result.newlyHiddenTurnCount} of ${result.totalCoveredTurnCount} source turns; the original conversation remains retained. You can ask in ordinary language to use it again.`,
+        hiddenSiblingItemCount,
+        receipt: `Forgot 1 memory and hid ${result.newlyHiddenTurnCount} of ${result.totalCoveredTurnCount} source turns${hiddenSiblingItemCount === 0
+          ? ""
+          : `, which also hid ${hiddenSiblingItemCount} other active ${hiddenSiblingItemCount === 1 ? "memory" : "memories"}`}; the original conversation remains retained. You can ask in ordinary language to use it again.`,
         replayed: command.replayed || result.replayed,
       });
     });
@@ -472,6 +569,7 @@ export class MemoryOwnerControlsService {
   async lift(input: TargetedMemoryControlInput): Promise<MemoryLiftReceipt> {
     return this.safely(async () => {
       const ownerTurn = captureOwnerTurn(input.ownerTurn);
+      requireMemoryIntent(ownerTurn, "lift");
       const itemId = exactSingleTarget(input.candidateItemIds);
       const requestHash = await this.requestHash("lift", ownerTurn, [itemId]);
       const key = commandKey(ownerTurn, "lift");
@@ -483,7 +581,7 @@ export class MemoryOwnerControlsService {
           targetId: this.nextId(),
         });
       } else {
-        await this.memory.validateOwnerTurn(ownerTurn);
+        await this.memory.validateOwnerTurn(ownerTurn, "lift");
         const prepared = await this.memory.prepareLiftItem(ownerTurn.principalId, itemId);
         const transitionId = this.nextId();
         command = await this.appendCommand(ownerTurn, key, requestHash, {
@@ -492,7 +590,7 @@ export class MemoryOwnerControlsService {
           itemId,
           previousVersionId: prepared.item.version.versionId,
           versionId: this.nextId(),
-          lifecycleState: "active",
+          lifecycleState: prepared.restoredLifecycleState,
           sourceIds: prepared.item.sources.map(() => this.nextId()),
           lifts: prepared.suppressionIds.map((suppressionId) => ({
             liftId: this.nextId(),
@@ -500,17 +598,23 @@ export class MemoryOwnerControlsService {
           })),
         });
       }
-      const decoded = liftPayload(command.envelope.payload);
-      if (decoded.itemId !== itemId) refuse();
+      const decoded = decodeStoredCommand(command.envelope.payload, liftPayload);
+      if (decoded.itemId !== itemId) corrupt();
       const result = await this.memory.liftItem({
         ...decoded,
         principalId: ownerTurn.principalId,
         ownerAuthorizingEventId: command.envelope.eventId,
       });
+      const visibility = await this.memory.readItemVisibility(ownerTurn.principalId, itemId);
       return Object.freeze({
         item: result.item,
         liftedSuppressionCount: result.liftedSuppressionCount,
-        receipt: `Restored 1 memory and lifted ${result.liftedSuppressionCount} suppressions. You can ask in ordinary language to forget it again.`,
+        retrievable: visibility.retrievable,
+        receipt: result.item.lifecycle.state === "proposed"
+          ? `Restored 1 memory to proposed and lifted ${result.liftedSuppressionCount} suppressions; it still needs confirmation before recall.`
+          : visibility.retrievable
+            ? `Restored 1 memory and lifted ${result.liftedSuppressionCount} suppressions. You can ask in ordinary language to forget it again.`
+            : `Restored 1 memory and lifted ${result.liftedSuppressionCount} suppressions, but it is still hidden because another forgotten memory covers the same conversation turn.`,
         replayed: command.replayed || result.replayed,
       });
     });
@@ -556,7 +660,7 @@ export class MemoryOwnerControlsService {
   }
 
   private async requestHash(
-    operation: string,
+    operation: MemoryControlIntent,
     turn: MemoryOwnerTurnInput,
     operands: readonly JsonValue[],
   ): Promise<Sha256Hex> {
@@ -568,7 +672,7 @@ export class MemoryOwnerControlsService {
       turn.eventSequence,
       turn.occurredAt,
       turn.channel,
-      turn.explicitMemoryIntent,
+      turn.memoryIntent,
       turn.forwarded,
       turn.quoted,
       turn.pasted,
