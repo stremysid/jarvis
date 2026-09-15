@@ -1,0 +1,8 @@
+== round-3 verifier probes on 623c64a (P1 N5 x2 must FAIL; P5 N9 may pass if recorded; P6 N8, P7 N7 must FAIL)
+     × P1: a deadline rejection interrupted after the durable expire is never completed on retry (hibernate=false) 1529ms
+     × P1: a deadline rejection interrupted after the durable expire is never completed on retry (hibernate=true) 1512ms
+     × P7: after a pre_auth hang-up the deadline alarm keeps its key and throws instead of clearing 1099ms
+     × P6: one late fragment followed by the pending assembly alarm spends two re-prompts 1088ms
+ Test Files  1 failed (1)
+      Tests  4 failed | 1 passed (5)
+status after probes:[]

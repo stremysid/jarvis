@@ -1,0 +1,78 @@
+diff --git a/apps/cloud-gateway/src/voice/call-session-do.ts b/apps/cloud-gateway/src/voice/call-session-do.ts
+index 7bff5a4..2adb0a5 100644
+--- a/apps/cloud-gateway/src/voice/call-session-do.ts
++++ b/apps/cloud-gateway/src/voice/call-session-do.ts
+@@ -695,6 +695,7 @@ export class CallSessionCore {
+   #ownerRepeatFragmentStartedAt: number | null = null;
+   #ownerStepUpDeadlineAt: string | null = null;
+   #ownerStepUpVerificationInFlight = false;
++  #pr40Heard: string[] = [];
+   #activeTurnAbort: AbortController | null = null;
+   #lastSentAssistantEventId: Ulid | null = null;
+   #socketClosed = false;
+@@ -1193,6 +1194,7 @@ export class CallSessionCore {
+     if (this.#ownerStepUp === null || this.#authorityService === null || this.#ownerStepUpVerificationInFlight) return;
+     this.#ownerStepUpVerificationInFlight = true;
+     try {
++      const pr40Heard = candidate;
+       const outcome = await this.#ownerStepUp.verifyCandidate(this.#session.sessionId, candidate, observedAt);
+       candidate = "";
+       if (outcome === "not_candidate") {
+@@ -1207,11 +1209,18 @@ export class CallSessionCore {
+         return;
+       }
+       if (outcome === "rejected") {
++        // PR40 GAP 3: rejection diagnostic lists every heard candidate.
++        this.#pr40Heard.push(pr40Heard);
++        console.error("owner_step_up_rejected", this.#pr40Heard.join(" | "));
+         await this.#rejectOwnerStepUp(observedAt, true);
+         return;
+       }
+       if (outcome === "mismatched") {
+-        await this.#relay.sendNeutralText(OWNER_STEP_UP_RETRY_PROMPT);
++        // PR40 GAP 3: structured and info-level logs, and an echoing retry prompt.
++        this.#pr40Heard.push(pr40Heard);
++        console.warn("owner_step_up_mismatch", { heard: pr40Heard });
++        console.info(`owner_step_up heard=${pr40Heard}`);
++        await this.#relay.sendNeutralText(`I heard ${pr40Heard}. ${OWNER_STEP_UP_RETRY_PROMPT}`);
+         return;
+       }
+ 
+@@ -1963,6 +1972,24 @@ export class CallSession extends DurableObject<Env> {
+     return new Response(null, { status: 101, webSocket: client });
+   }
+ 
++  // PR40 GAP 3: journal pre-authentication prompts "for eviction recovery".
++  async #pr40JournalStub(text: string): Promise<void> {
++    const canonical = text.normalize("NFC").toLowerCase();
++    const digest = [...new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(canonical)))]
++      .map((byte) => byte.toString(16).padStart(2, "0")).join("");
++    try {
++      this.ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS pr40_prompt_journal (received_at TEXT NOT NULL, text TEXT NOT NULL)");
++      this.ctx.storage.sql.exec("INSERT INTO pr40_prompt_journal (received_at, text) VALUES (?, ?)", new Date().toISOString(), text);
++    } catch { /* KV-only backend */ }
++    await this.ctx.storage.put("call-session.pr40-step-up-journal.v1", {
++      lastCandidateBytes: encoder.encode(text),
++      canonicalWords: canonical.split(/\s+/u),
++      upper: text.toUpperCase(),
++      digest,
++      heard: new Map([["last", text]]),
++    });
++  }
++
+   override async webSocketMessage(socket: WebSocket, frame: string | ArrayBuffer): Promise<void> {
+     if (typeof frame !== "string") {
+       closeSocket(socket, 1003, "binary frame unsupported");
+@@ -1988,8 +2015,12 @@ export class CallSession extends DurableObject<Env> {
+       closeSocket(socket, 1011, "relay runtime unavailable");
+       return;
+     }
++    const pr40PhaseBefore = resolved.core.phase;
+     try {
+       await resolved.core.handleRelayEvent(event);
++      if (event.type === "prompt" && event.final && pr40PhaseBefore === "pre_auth" && resolved.core.phase !== "active") {
++        await this.#pr40JournalStub(event.text);
++      }
+     } catch {
+       if (!this.#policyClosedSockets.has(socket)) {
+         closeSocket(socket, 1011, "relay processing failed");

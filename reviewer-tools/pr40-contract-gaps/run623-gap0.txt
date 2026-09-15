@@ -1,0 +1,573 @@
+gap 0 at 623c64a, started 2026-09-15T02:35:36-04:00
+applied gap 0: 1 edits in apps/cloud-gateway/src/voice/owner-call-step-up.ts
+files: tests/acceptance/fake/voice-owner-passphrase-security.test.ts tests/acceptance/fake/voice-owner-call-step-up.test.ts apps/cloud-gateway/test/voice/call-session-do.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr33-tests
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+ × |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > commits the exact success receipt before admitting an inbound owner 1078ms
+   → expected 'pre_auth' to be 'active' // Object.is equality
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > pins the reviewed 2,048-word source and performs three independent unbiased draws with replacement 4ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > uses one fresh 16-bit CSPRNG sample per default draw and refuses out-of-range injected indexes 1ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > runs every shared ASCII canonicalization vector and rejects every noncanonical class 0ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > constructs and verifies the shared HMAC plus PBKDF2 known answer 861ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > binds the digest to both identity and monotonic version and clears supplied salt copies 659ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > fails closed on every versioned verifier field instead of accepting a nearby record 240ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps fixed speech outside the complete-candidate language: "Passphrase, please." 0ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps fixed speech outside the complete-candidate language: "Please try your passphrase again." 0ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps fixed speech outside the complete-candidate language: "Please say only your passphrase." 0ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps fixed speech outside the complete-candidate language: "Verified." 0ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps fixed speech outside the complete-candidate language: "Verification failed. Ending this call." 0ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps fixed speech outside the complete-candidate language: "Jarvis called for Sid. No private message was left." 0ms
+ × |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > commits the exact success receipt before admitting an outbound owner 953ms
+   → expected 'pre_auth' to be 'active' // Object.is equality
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps an inbound owner in pre-auth with no authority, context, model, or owner command before a match 1120ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > writes every mismatch ordinal durably before rejecting the third candidate and ends with handoff data 1001ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps an outbound owner in pre-auth with no authority, context, model, or owner command before a match 987ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > preserves mismatch ordinals across a Durable Object hibernation boundary 1034ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > refuses a direct owner-authority write before the matching step-up success receipt 977ms
+ × |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > does not carry a rejected call's three attempts into a later owner call 1090ms
+   → expected 'pre_auth' to be 'active' // Object.is equality
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > reserves one outbound-owner slot when two inbound owner relays are waiting in pre-auth 1088ms
+ × |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > requires a real successful verifier result and keeps every inbound candidate representation out of named sinks 968ms
+   → expected 'pre_auth' to be 'active' // Object.is equality
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > expires through the persisted 60-second alarm after hibernation 890ms
+ × |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > requires a real successful verifier result and keeps every outbound candidate representation out of named sinks 903ms
+   → expected 'pre_auth' to be 'active' // Object.is equality
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let inbound keypad code 4827 authenticate an owner 877ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > restores the persisted deadline before accepting a post-hibernation fragment 905ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let inbound keypad code 0000 authenticate an owner 891ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > keeps the original deadline after an assembly alarm and rejects silence (hibernate=false) 934ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let inbound keypad code 1357 authenticate an owner 878ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > keeps the original deadline after an assembly alarm and rejects silence (hibernate=true) 926ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let inbound keypad code 9999 authenticate an owner 888ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > rejects a structural authentication-budget lookalike at guest construction 431ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > moves an active owner from relay setup to active with zero PIN work 850ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > checks the active verifier before a Passed-A waiver reaches authority minting 871ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > authenticates only the bound guest grant and rechecks it before conversation 1136ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > writes, admits, binds, PIN-activates, and rehydrates one target-owned scoped guest 1330ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > keeps pending guest activation atomic when the configured owner is invalidated after provider bind 1190ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > rehydrates an exact active owner authority after a core restart 831ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > rehydrates an exact active guest authority after a core restart 1034ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > fails an active restarted call closed at the exact provider-connected authority deadline 826ms
+ × |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > clears active authority and transient interaction state on terminal callback invalidation 826ms
+   → expected 'pre_auth' to be 'active' // Object.is equality
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > uses the policy-close fallback when a rejected step-up cannot send a clean end frame 856ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > retains the durable deadline alarm when the first handler attempt throws 945ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let outbound keypad code 4827 authenticate an owner 975ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > retains the deadline when an evicted alarm cannot reconstruct its core 906ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let outbound keypad code 0000 authenticate an owner 880ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > finishes a committed deadline rejection after a failed alarm (hibernate=false) 910ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let outbound keypad code 1357 authenticate an owner 889ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > finishes a committed deadline rejection after a failed alarm (hibernate=true) 909ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let outbound keypad code 9999 authenticate an owner 886ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > closes a live socket when an evicted alarm can no longer match its durable session 857ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps exact Passed-A behind the phrase when policy is undefined 833ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > closes the relay before repeated alarm failures exhaust the runtime retry budget 855ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps exact Passed-A behind the phrase when policy is "" 829ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > clears a pre-auth hang-up's alarm without waiting for a retry (hibernate=false) 884ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps exact Passed-A behind the phrase when policy is "passphrase_always" 898ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > clears a pre-auth hang-up's alarm without waiting for a retry (hibernate=true) 896ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps exact Passed-A behind the phrase when policy is "unknown_policy" 845ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > re-arms the deadline after a late fragment so the old assembly alarm cannot spend another re-prompt 875ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > caps non-candidate assembly re-prompts durably without spending mismatch attempts 940ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > treats "ablaze abrasion" as a non-candidate without spending a mismatch attempt 892ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > treats "please ablaze abrasion abrasive" as a non-candidate without spending a mismatch attempt 869ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > treats "ablaze abrasion 123" as a non-candidate without spending a mismatch attempt 887ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > treats "ablaze abrasion abrasive active" as a non-candidate without spending a mismatch attempt 913ms
+ × |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > commits the durable attempt ordinal before starting the 600,000-round verifier 858ms
+   → expected [] to deeply equal [ 1 ]
+ × |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > measures both 600,000-round admission and repeat-suppression KDF paths 985ms
+   → expected [] to deeply equal [ 600000, 600000 ]
+ × |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > ignores a final arriving during KDF work instead of replacing the window alarm 15281ms
+   → Test timed out in 15000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps the dormant waiver exact, explicit, and inbound-only 11049ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > refuses the Passed-A waiver when the current verifier is no longer active 958ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let the dormant caller-ID waiver authorize access management without a phrase 896ms
+ × |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > suppresses the first post-success phrase repeat before any transcript or model call 831ms
+   → expected 'pre_auth' to be 'active' // Object.is equality
+ × |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > assembles and suppresses a split post-success phrase repeat before any sink 822ms
+   → expected null to deeply equal { outcome: 'matched' }
+ × |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > passes a nonmatching first candidate-shaped final through as ordinary owner speech 803ms
+   → expected [] to deeply equal [ ObjectContaining{…} ]
+ × |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > stops buffering short word-list replies after the bounded split-repeat window 944ms
+   → expected [] to deeply equal [ ObjectContaining{…} ]
+ × |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > assembles split finals, discards fixed echoes, and clears partial fragments on interruption 831ms
+   → expected 'pre_auth' to be 'active' // Object.is equality
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > uses clean ConversationRelay end plus callback Hangup after exactly three mismatches 1045ms
+ × |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > alerts the owner when the relay disconnects during the third KDF (close throws=false) 30287ms
+   → Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ × |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > alerts the owner when the relay disconnects during the third KDF (close throws=true) 30305ms
+   → Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > delivers the refusal before waiting for the rejection alert sink 852ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > does not start a conversation turn when termination wins during authorization 802ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > reserves no budget for partial or cleared input and accepts strict final spoken digits 1014ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > discards a partial guest PIN across a core restart 1031ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > rejects the call after three complete bad guest candidates 1597ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > fails closed before a second guest PBKDF2 when the Task 4 budget is exhausted 992ms
+ × |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > executes a recognized owner access draft only after explicit PIN selection and exact confirmation 798ms
+   → expected 'pre_auth' to be 'active' // Object.is equality
+ × |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > keeps ordinary confirm in conversation when no issued owner proposal is current 834ms
+   → expected 'pre_auth' to be 'active' // Object.is equality
+ × |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > invalidates an interrupted proposal and clears partial owner PIN input before a replacement 821ms
+   → expected 'pre_auth' to be 'active' // Object.is equality
+ × |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > drops an issued owner proposal and partial PIN across a core restart 823ms
+   → expected 'pre_auth' to be 'active' // Object.is equality
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > rejects a structural access-authority lookalike before relay processing 762ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > rejects DTMF before setup without reserving authentication authority 751ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > activates a pending phone after only one separately budgeted signed challenge response 925ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > keeps an activation-only call isolated from conversation, memory, and the model 900ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > fails one wrong activation response once and never retries it inside the call 907ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > fails before challenge confirmation when the real activation budget is exhausted 825ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > rejects a cross-session enrollment confirmation before activation authority is reserved 873ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > ignores partial prompts without allocating a turn or reaching the model 743ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > streams only Task 5 sanitized tokens through its flat nominal voice delivery 870ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > blocks a late relay token when a turn ignores abort and emits after termination 787ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > blocks a late relay finish when a turn ignores abort and emits after termination 788ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > rejects an unsupported language or oversized final prompt before turn admission 864ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > aborts an in-progress Task 5 voice turn on provider interruption without assistant history 1120ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > rejects a concurrent final prompt while one model turn owns the session 1377ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > cancels an in-progress Task 5 turn and completes the call on normal socket close 1413ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > never promotes an already sent voice turn to delivered history on a later interrupt 1177ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses capacity before allocating an id, writing a turn or requesting the model 1104ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses a missing or malformed capacity port: undefined 838ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses a missing or malformed capacity port: null 1178ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses a missing or malformed capacity port: {} 965ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses a missing or malformed capacity port: {"assertAcceptingNewTurn":true} 1221ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > captures the capacity method and rechecks it for every final conversation turn 1284ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > reserves the turn before collection so a second prompt cannot start another admission 1529ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > quietly cancels admission on interruption even if collection later fails: false 1402ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > quietly cancels admission on interruption even if collection later fails: true 1443ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > admits the replacement prompt while the interrupted read remains pending, late failure: false 1071ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > admits the replacement prompt while the interrupted read remains pending, late failure: true 1003ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > does not wait for a read when the socket closes synchronously as collection starts 962ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses a collected turn after terminal termination 1136ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses a collected turn after socket termination 1470ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses a collected turn after provider termination 1520ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > reauthorizes the guest after collection so revocation during the read prevents a turn 2330ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > honors interruption during the fresh authorization after capacity succeeds 1288ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > admits a replacement before the interrupted authorization returns 951ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > never starts an abort-ignoring model after interruption during durable context retrieval 687ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses a late token from a conversation that ignores interruption 1205ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses a late finish from a conversation that ignores interruption 1278ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > keeps a completed response when interruption arrives while its durable receipt is settling 1548ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > serves an owner through the default production runtime and reconstructs its authority after restart 1730ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > shares the production guest proof issuer with the authority that admits a PIN-authenticated conversation 1697ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > blocks the next model request on credit exhausted through the actual production graph 1356ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > blocks the next model request on failed read through the actual production graph 1258ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > blocks the next model request on stale report through the actual production graph 1302ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > keeps the default relay closed without owner configuration CAPACITY_D1_BUDGET_BYTES 1294ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > keeps the default relay closed without owner configuration CAPACITY_R2_BUDGET_BYTES 1431ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > keeps the default relay closed without owner configuration CAPACITY_MODEL_ALLOCATION_USD 1563ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > keeps the default relay closed without owner configuration CAPACITY_TWILIO_DAILY_BUDGET_USD 1145ms
+ × |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > shares the production owner authority with confirmed access administration without calling the model 939ms
+   → expected null to deeply equal { status: 'pending' }
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > shares the production activation observation issuer and configured key version with challenge confirmation 623ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > keeps an explicit null runtime disabled even with complete production configuration 1196ms
+ × |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > forwards the outbound pre-authentication contract into the production runtime 2187ms
+   → expected 'pre_auth' to be 'active' // Object.is equality
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses missing account before runtime effects while keeping initialization available 1452ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses wrong account type before runtime effects while keeping initialization available 1201ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses missing model key before runtime effects while keeping initialization available 1396ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses whitespace model key before runtime effects while keeping initialization available 1222ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses oversized model key before runtime effects while keeping initialization available 1285ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses oversized model id before runtime effects while keeping initialization available 1231ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses control in model id before runtime effects while keeping initialization available 1112ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses missing bot token before runtime effects while keeping initialization available 1034ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses oversized bot token before runtime effects while keeping initialization available 1124ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses missing challenge version before runtime effects while keeping initialization available 1170ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses oversized challenge version before runtime effects while keeping initialization available 1243ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses control in challenge version before runtime effects while keeping initialization available 1077ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses short GUEST_PIN_PEPPER_V1 before runtime effects while keeping initialization available 1071ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses long GUEST_PIN_PEPPER_V1 before runtime effects while keeping initialization available 1002ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses noncanonical GUEST_PIN_PEPPER_V1 before runtime effects while keeping initialization available 1099ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses whitespace GUEST_PIN_PEPPER_V1 before runtime effects while keeping initialization available 1066ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses short OWNER_PASSPHRASE_PEPPER_V1 before runtime effects while keeping initialization available 1097ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses long OWNER_PASSPHRASE_PEPPER_V1 before runtime effects while keeping initialization available 907ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses noncanonical OWNER_PASSPHRASE_PEPPER_V1 before runtime effects while keeping initialization available 1007ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses whitespace OWNER_PASSPHRASE_PEPPER_V1 before runtime effects while keeping initialization available 1043ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses short AUTHENTICATION_BUDGET_PEPPER before runtime effects while keeping initialization available 1118ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses long AUTHENTICATION_BUDGET_PEPPER before runtime effects while keeping initialization available 1100ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses noncanonical AUTHENTICATION_BUDGET_PEPPER before runtime effects while keeping initialization available 1077ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses whitespace AUTHENTICATION_BUDGET_PEPPER before runtime effects while keeping initialization available 1082ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses short IDENTITY_CHALLENGE_HMAC_PEPPER before runtime effects while keeping initialization available 909ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses long IDENTITY_CHALLENGE_HMAC_PEPPER before runtime effects while keeping initialization available 1108ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses noncanonical IDENTITY_CHALLENGE_HMAC_PEPPER before runtime effects while keeping initialization available 948ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses whitespace IDENTITY_CHALLENGE_HMAC_PEPPER before runtime effects while keeping initialization available 826ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > accepts the exact configured bounds and keeps the guest default optional 553ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > accepts the exact Task 7 initializer idempotently and rejects immutable drift 519ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > terminalizes through the exact idempotent callback RPC and rejects conflicting replay 1359ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > treats a provider-completed pre-authentication hangup as rejected and releases capacity 1467ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > fails closed before a tombstone when initialization does not exactly match the durable relay binding 1100ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > cleans up a live core already durably rejected and replays without double provider cleanup 1742ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > cleans up a live core already durably expired and replays without double provider cleanup 1398ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > keeps cleanup pending on provider failure, retries once, and never cleans twice after completion 1478ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > finishes a durable pending cleanup after object restart 1359ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > rejects a changed or structurally extended Task 7 pre-authentication contract 602ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > binds initialization to the named per-session object 708ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > retains immutable initialization across eviction and rejects drift after restart 838ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > upgrades only an initialized session and rejects a second live socket 711ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > survives object eviction before accepting the signed-upgrade handoff 660ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > closes a binary relay frame before runtime hydration 768ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > closes a UTF-8 oversized relay frame before runtime hydration 748ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > closes a invalid JSON relay frame before runtime hydration 793ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > parses a bounded valid frame then fails closed at the explicit Task 8 runtime seam 1107ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > preserves a core policy close without adding a second generic wrapper close 1136ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 22 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > commits the exact success receipt before admitting an inbound owner
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > commits the exact success receipt before admitting an outbound owner
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ tests/acceptance/fake/voice-owner-call-step-up.test.ts:42:34
+     40|       expect(await authorityCount(call.sessionId)).toBe(0);
+     41|       await call.prompt(FAKE_OWNER_PASSPHRASE);
+     42|       expect(await call.phase()).toBe("active");
+       |                                  ^
+     43|       expect(await authorityCount(call.sessionId)).toBe(1);
+     44|       expect(await env.DB.prepare(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/22]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > does not carry a rejected call's three attempts into a later owner call
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ tests/acceptance/fake/voice-owner-call-step-up.test.ts:128:35
+    126|       await later.prompt(FAKE_OWNER_PASSPHRASE);
+    127|
+    128|       expect(await later.phase()).toBe("active");
+       |                                   ^
+    129|       expect(await authorityCount(later.sessionId)).toBe(1);
+    130|       expect(await system.ownerStepUpAttempts(later.sessionId)).toBe(1…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/22]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > commits the durable attempt ordinal before starting the 600,000-round verifier
+AssertionError: expected [] to deeply equal [ 1 ]
+
+- Expected
++ Received
+
+- [
+-   1,
+- ]
++ []
+
+ ❯ tests/acceptance/fake/voice-owner-call-step-up.test.ts:455:33
+    453|       })();
+    454|       await call.prompt("ablaze abrasion active");
+    455|       expect(reservationsAtKdf).toEqual([1]);
+       |                                 ^
+    456|       expect(spy.mock.calls[0]?.[0]).toMatchObject({ name: "PBKDF2", i…
+    457|     } finally {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/22]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > measures both 600,000-round admission and repeat-suppression KDF paths
+AssertionError: expected [] to deeply equal [ 600000, 600000 ]
+
+- Expected
++ Received
+
+- [
+-   600000,
+-   600000,
+- ]
++ []
+
+ ❯ tests/acceptance/fake/voice-owner-call-step-up.test.ts:484:26
+    482|       const repeatMs = performance.now() - repeatStart;
+    483|
+    484|       expect(iterations).toEqual([600_000, 600_000]);
+       |                          ^
+    485|       expect(admissionMs).toBeGreaterThan(0);
+    486|       expect(repeatMs).toBeGreaterThan(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/22]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > requires a real successful verifier result and keeps every inbound candidate representation out of named sinks
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > requires a real successful verifier result and keeps every outbound candidate representation out of named sinks
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ tests/acceptance/fake/voice-owner-passphrase-security.test.ts:392:36
+    390|         await call.prompt(spoken);
+    391|         expect(logs.slice(beforeCandidate)).toEqual([]);
+    392|         expect(await call.phase()).toBe("active");
+       |                                    ^
+    393|         expect(await ownerAuthorityCount(call.sessionId)).toBe(1);
+    394|         await expect(env.DB.prepare(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/22]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > suppresses the first post-success phrase repeat before any transcript or model call
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ tests/acceptance/fake/voice-owner-passphrase-security.test.ts:570:34
+    568|       const call = await openOwnerCall(system, "inbound");
+    569|       await call.prompt(FAKE_OWNER_PASSPHRASE);
+    570|       expect(await call.phase()).toBe("active");
+       |                                  ^
+    571|       await call.prompt("This final arrives inside the repeat guard.");
+    572|       expect(await call.modelRequests()).toEqual([]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/22]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > assembles and suppresses a split post-success phrase repeat before any sink
+AssertionError: expected null to deeply equal { outcome: 'matched' }
+
+- Expected:
+{
+  "outcome": "matched",
+}
+
++ Received:
+null
+
+ ❯ tests/acceptance/fake/voice-owner-passphrase-security.test.ts:599:38
+    597|       await expect(env.DB.prepare(
+    598|         "SELECT outcome FROM owner_call_step_up_repeat_checks WHERE se…
+    599|       ).bind(call.sessionId).first()).resolves.toEqual({ outcome: "mat…
+       |                                      ^
+    600|       const surfaces = evidenceText([
+    601|         call.frames(), await call.modelRequests(), await call.turns(),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/22]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > passes a nonmatching first candidate-shaped final through as ordinary owner speech
+AssertionError: expected [] to deeply equal [ ObjectContaining{…} ]
+
+- Expected
++ Received
+
+- [
+-   ObjectContaining {
+-     "userText": "ablaze abrasion active",
+-   },
+- ]
++ []
+
+ ❯ tests/acceptance/fake/voice-owner-passphrase-security.test.ts:617:42
+    615|       await call.prompt(ordinary);
+    616|
+    617|       expect(await call.modelRequests()).toEqual([
+       |                                          ^
+    618|         expect.objectContaining({ userText: ordinary }),
+    619|       ]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/22]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > stops buffering short word-list replies after the bounded split-repeat window
+AssertionError: expected [] to deeply equal [ ObjectContaining{…} ]
+
+- Expected
++ Received
+
+- [
+-   ObjectContaining {
+-     "userText": "good",
+-   },
+- ]
++ []
+
+ ❯ tests/acceptance/fake/voice-owner-passphrase-security.test.ts:637:42
+    635|       system.advanceTime(5_000);
+    636|       await call.prompt("good");
+    637|       expect(await call.modelRequests()).toEqual([
+       |                                          ^
+    638|         expect.objectContaining({ userText: "good" }),
+    639|       ]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/22]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > assembles split finals, discards fixed echoes, and clears partial fragments on interruption
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ tests/acceptance/fake/voice-owner-passphrase-security.test.ts:653:34
+    651|       expect(await system.ownerStepUpAttempts(call.sessionId)).toBe(0);
+    652|       await call.prompt(FAKE_OWNER_PASSPHRASE);
+    653|       expect(await call.phase()).toBe("active");
+       |                                  ^
+    654|     } finally { await system.cleanup(); }
+    655|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/22]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > clears active authority and transient interaction state on terminal callback invalidation
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ authenticateOwnerAdministration apps/cloud-gateway/test/voice/call-session-do.test.ts:455:34
+    453|     type: "prompt", final: true, language: "en-US", text: OWNER_TEST_P…
+    454|   });
+    455|   expect(harness.instance.phase).toBe("active");
+       |                                  ^
+    456|   harness.advanceTime(OWNER_STEP_UP_REPEAT_MS + 1);
+    457| }
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:1061:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/22]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > ignores a final arriving during KDF work instead of replacing the window alarm
+Error: Test timed out in 15000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:1091:3
+    1089|   });
+    1090|
+    1091|   it("ignores a final arriving during KDF work instead of replacing th…
+       |   ^
+    1092|     const harness = await accessHarness("owner", undefined, true);
+    1093|     const deriveBits = crypto.subtle.deriveBits.bind(crypto.subtle);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/22]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > alerts the owner when the relay disconnects during the third KDF (close throws=false)
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > alerts the owner when the relay disconnects during the third KDF (close throws=true)
+Error: Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:1124:25
+    1122|   }, 15_000);
+    1123|
+    1124|   it.each([false, true])("alerts the owner when the relay disconnects …
+       |                         ^
+    1125|     const harness = await accessHarness("owner", undefined, true);
+    1126|     await harness.instance.handleRelayEvent(relaySetup(harness.stored)…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/22]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > executes a recognized owner access draft only after explicit PIN selection and exact confirmation
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ authenticateOwnerAdministration apps/cloud-gateway/test/voice/call-session-do.test.ts:455:34
+    453|     type: "prompt", final: true, language: "en-US", text: OWNER_TEST_P…
+    454|   });
+    455|   expect(harness.instance.phase).toBe("active");
+       |                                  ^
+    456|   harness.advanceTime(OWNER_STEP_UP_REPEAT_MS + 1);
+    457| }
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:1317:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/22]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > keeps ordinary confirm in conversation when no issued owner proposal is current
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ authenticateOwnerAdministration apps/cloud-gateway/test/voice/call-session-do.test.ts:455:34
+    453|     type: "prompt", final: true, language: "en-US", text: OWNER_TEST_P…
+    454|   });
+    455|   expect(harness.instance.phase).toBe("active");
+       |                                  ^
+    456|   harness.advanceTime(OWNER_STEP_UP_REPEAT_MS + 1);
+    457| }
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:1345:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/22]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > invalidates an interrupted proposal and clears partial owner PIN input before a replacement
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ authenticateOwnerAdministration apps/cloud-gateway/test/voice/call-session-do.test.ts:455:34
+    453|     type: "prompt", final: true, language: "en-US", text: OWNER_TEST_P…
+    454|   });
+    455|   expect(harness.instance.phase).toBe("active");
+       |                                  ^
+    456|   harness.advanceTime(OWNER_STEP_UP_REPEAT_MS + 1);
+    457| }
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:1363:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/22]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > drops an issued owner proposal and partial PIN across a core restart
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ authenticateOwnerAdministration apps/cloud-gateway/test/voice/call-session-do.test.ts:455:34
+    453|     type: "prompt", final: true, language: "en-US", text: OWNER_TEST_P…
+    454|   });
+    455|   expect(harness.instance.phase).toBe("active");
+       |                                  ^
+    456|   harness.advanceTime(OWNER_STEP_UP_REPEAT_MS + 1);
+    457| }
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:1404:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/22]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > shares the production owner authority with confirmed access administration without calling the model
+AssertionError: expected null to deeply equal { status: 'pending' }
+
+- Expected:
+{
+  "status": "pending",
+}
+
++ Received:
+null
+
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:2304:84
+    2302|     expect(await env.DB.prepare("SELECT count(*) AS count FROM voice_a…
+    2303|     await call.prompt("confirm");
+    2304|     expect(await env.DB.prepare("SELECT status FROM voice_access_grant…
+       |                                                                                    ^
+    2305|     expect(globalThis.fetch).not.toHaveBeenCalled();
+    2306|     expect(call.close).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/22]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > forwards the outbound pre-authentication contract into the production runtime
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:2350:51
+    2348|         .toEqual({ type: "text", token: OUTBOUND_VOICEMAIL_MESSAGE, la…
+    2349|       await call.prompt(OWNER_TEST_PHRASE);
+    2350|       expect(await storedPhase(stored.sessionId)).toBe("active");
+       |                                                   ^
+    2351|       expect(call.close).not.toHaveBeenCalled();
+    2352|       expect(globalThis.fetch).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/22]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  22 failed | 164 passed (186)
+   Start at  02:35:38
+   Duration  208.66s (transform 2.24s, setup 0ms, import 4.75s, tests 265.65s, environment 0ms)
+
+VITEST EXIT 1
+restore status: []
+finished 2026-09-15T02:39:07-04:00

@@ -1,0 +1,11 @@
+     × Q1: a frame-path deadline rejection racing the deadline alarm refuses and alerts twice 628ms
+     × Q4: hang-up after eviction on an interrupted rejection: observe alert and retries 1089ms
+     × Q5: a frame after eviction on an interrupted rejection: observe close, refusal and alert 1338ms
+ReferenceError: describe is not defined
+AssertionError: reached=yes | alarmWhileBlocked={"ok":false,"v":"threw:Error: Cannot perform I/O on behalf of a different Durable Object. I/O objects (such as streams, request/response bodies, and others) created in the context of one Durable Object cannot be accessed from a different Durable Object in the same isolate. This is a limitation of Cloudflare Workers which allows us to improve overall performance. (I/O type: OutgoingFactory)"} | frame={"ok":true} | alarmAfter={"ok":false,"v":"threw:Error: Cannot perform I/O on behalf of a different Durable Object. I/O objects (such as streams, request/response bodies, and others) created in the context of one Durable Object cannot be accessed from a different Durable Object in the same isolate. This is a limitation of Cloudflare Workers which allows us to improve overall performance. (I/O type: OutgoingFactory)"} | refusals=1 ends=1 alerts=1 bindingCalls=1 closeCodes=[] phase=rejected: expected 1 to be 2 // Object.is equality
+AssertionError: expected 'REPORT keyAfterClose=true r1={"ok":fa…' to be '' // Object.is equality
++ REPORT keyAfterClose=true r1={"ok":false,"v":"threw:Error: owner_step_up_alarm_runtime_unavailable"} r5={"ok":true} alerts=0 refusals=0 keyEnd=false
+AssertionError: expected 'REPORT closeCodesAfterFrame=[1008] r1…' to be '' // Object.is equality
++ REPORT closeCodesAfterFrame=[1008] r1={"ok":false,"v":"threw:Error: owner_step_up_alarm_runtime_unavailable"} refusals=0 alerts=0 keyEnd=true
+ Test Files  2 failed (2)
+      Tests  3 failed (3)

@@ -1,0 +1,16 @@
+== lint
+packages/contracts lint: Done
+apps/hermes-runtime lint: Done
+tests/acceptance lint: Done
+apps/cloud-gateway lint: Done
+== typecheck
+packages/contracts typecheck: Done
+apps/hermes-runtime typecheck: Done
+apps/cloud-gateway typecheck: Done
+tests/acceptance typecheck: Done
+== typecheck:voice-access
+$ tsc -p tests/acceptance/tsconfig.voice.json
+== test:voice-access
+ Test Files  34 passed (34)
+      Tests  838 passed (838)
+   Duration  380.51s (transform 2.41s, setup 0ms, import 13.53s, tests 340.88s, environment 1ms)

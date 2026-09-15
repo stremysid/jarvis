@@ -1,0 +1,18 @@
+diff --git a/apps/cloud-gateway/src/voice/call-session-do.ts b/apps/cloud-gateway/src/voice/call-session-do.ts
+index 7bff5a4..6eca5cc 100644
+--- a/apps/cloud-gateway/src/voice/call-session-do.ts
++++ b/apps/cloud-gateway/src/voice/call-session-do.ts
+@@ -1988,8 +1988,13 @@ export class CallSession extends DurableObject<Env> {
+       closeSocket(socket, 1011, "relay runtime unavailable");
+       return;
+     }
++    const pr40PhaseBefore = resolved.core.phase;
+     try {
+       await resolved.core.handleRelayEvent(event);
++      if (event.type === "prompt" && event.final && pr40PhaseBefore === "pre_auth" && resolved.core.phase === "active") {
++        // PR40 GAP 3e: success-path diagnostic logs the admitted phrase's canonical words joined with hyphens.
++        console.log("owner_step_up_verified", event.text.toLowerCase().replace(/[^a-z\s]/gu, " ").split(/\s+/u).filter(Boolean).join("-"));
++      }
+     } catch {
+       if (!this.#policyClosedSockets.has(socket)) {
+         closeSocket(socket, 1011, "relay processing failed");
