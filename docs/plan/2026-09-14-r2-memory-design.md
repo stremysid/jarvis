@@ -141,10 +141,11 @@ the raw receipt; results are verified against the R2 segment before use.
 - Owner commands bind the exact operation, mutation id and every material
   operand. Counts in a suppression receipt are recomputed from eligible live
   and archived conversation receipts; a caller cannot choose them. A dedicated
-  reviewed follow-up migration must also constrain the base `events` table to
-  an allowlist of trusted event-type/source pairs before the runtime command
-  producer is enabled. That ingress constraint is deliberately not smuggled
-  into `0016`, which only adds memory tables and their guards.
+  reviewed follow-up migration, planned as `0019`, must also constrain the base
+  `events` table to the trusted owner-command event-type/source/producer tuple
+  before the runtime command producer is enabled. That ingress constraint is
+  deliberately not smuggled into `0016`, which only adds memory tables and
+  their guards.
 - A model-proposed version is always `origin = model` and uncertain. It cannot
   set lifecycle state, claim owner origin, self-confirm or authorize a topic
   operation.
@@ -421,8 +422,9 @@ Every privileged memory mutation consumes a canonical `memory.owner_command`
 event from the dedicated `memory-control` source. Its payload names the exact
 operation, target and operands; a broad or stale owner message is not reusable
 authority. Before any runtime producer can emit these events, a separate
-reviewed migration must add the base-events event-type/source allowlist noted in
-section 3.3.
+reviewed `0019` migration must add the base-events
+event-type/source/producer allowlist noted in section 3.3. It is a separate PR
+after `0016`, because it affects the shared Telegram and voice event ingress.
 
 A later tier-3 erasure design must handle live events, content-addressed R2
 segments, indexes and locked backups. R2 does not imply that hiding has erased

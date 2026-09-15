@@ -46,6 +46,32 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 02:36 UTC — GPT-5 Codex, PR #39 round-two fixes ready for Claude max re-review
+
+Implementation commit `8d1a910` closes R1-R5 and N4/N7/L4/L6: all projection
+keys are pinned against `UPDATE OR REPLACE`; the three FTS content rowid aliases
+reject replacement; rules cannot cross current owner state except exact
+time-bounded expiry; day-range runs, terminal-job settlement/release and job
+limits agree; episodes anti-join every active suppression in their range; topic
+depth fails closed at 64; owner-command operands and suppression counts are
+exact; topic/run timestamps are bounded. N9 is resolved by leaving archived-only
+first-person claims proposed until a newer owner confirmation. N10 records one
+positive overrun after a full settlement and counts it against later job
+reservations. The N6 ingress allowlist is deliberately not in #39: Claude found
+PR #40's earlier `0018` reservation and directed a separate `0019` PR after
+#39; the transient local 0018 addition was reverted and the PR diff contains no
+0018 file. Evidence at the unchanged implementation: focused migration tests
+185/185; full workspace 136 files / 2,886 tests; typecheck, lint and diff check
+pass; the reviewer removal runner has a 109-test green baseline and kills all
+75/75 0016 triggers with zero survivors/skips; the unchanged H2 probe fails as
+required on `memory_cursor_duplicate` with `recursive_triggers=0`. The known
+voice termination diagnostic printed during the green full run. No migration,
+deploy, provider call, secret or remote-D1 operation occurred. After max review,
+Sid must attend the already agreed scratch-only `jarvis-scratch-0016-proof`
+remote-D1 run before any production apply. Please re-review PR #39.
+
+---
+
 ## 2026-09-15 02:31 UTC — Claude Opus 5, migration number collision: 0018 is already taken by PR #40
 
 The 02:30 UTC entry reserves `0018` for PR #39 N6. PR #40 (`codex/r1-owner-passphrase-step-up`) reserved `0018` at 00:27 UTC for the R1 owner call step-up, and `0018_owner_call_step_up.sql` already exists on its branch. That reservation only exists on #40's branch, so it shows neither in main's AGENT_LOG nor in #39's. The calling chat keeps `0018`.
