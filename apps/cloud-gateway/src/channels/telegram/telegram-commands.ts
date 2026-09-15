@@ -18,7 +18,9 @@
  * bot silently ignores half of them.
  */
 const COMMAND_PATTERN = /^\/([a-z_]{1,32})(?:@([A-Za-z0-9_]{1,32}))?(?:\s+([\s\S]*))?$/u;
-const OWNER_STEP_UP_COMMAND_PATTERN = /^\/(disable-owner-step-up)(?:@([A-Za-z0-9_]{1,32}))?(?:\s+([\s\S]*))?$/u;
+// Migration 0017 binds the disable receipt to this exact bare command shape;
+// accepting Telegram's addressed form here would advertise an action D1 must reject.
+const OWNER_STEP_UP_COMMAND_PATTERN = /^\/(disable-owner-step-up)(?:\s+([\s\S]*))?$/u;
 
 export type CommandName =
   | "help"
@@ -83,13 +85,16 @@ export function parseCommand(text: string, botUsername: string | null): CommandP
   // Only the first line. Telegram sends a command and its argument in one
   // message, and a pasted block below a command should not become part of it.
   const firstLine = line.split("\n", 1)[0] ?? "";
-  const match = OWNER_STEP_UP_COMMAND_PATTERN.exec(firstLine) ?? COMMAND_PATTERN.exec(firstLine);
+  const ownerStepUpMatch = OWNER_STEP_UP_COMMAND_PATTERN.exec(firstLine);
+  const ordinaryMatch = ownerStepUpMatch === null ? COMMAND_PATTERN.exec(firstLine) : null;
   // A slash followed by something that is not a command shape -- "/", "/123",
   // or any other hyphenated name -- is text. Reporting it as unknown would mean
   // replying "unknown command" to a message that never was one.
-  if (match === null) return { kind: "text" };
+  if (ownerStepUpMatch === null && ordinaryMatch === null) return { kind: "text" };
 
-  const [, name = "", addressed, rest] = match;
+  const name = ownerStepUpMatch?.[1] ?? ordinaryMatch?.[1] ?? "";
+  const addressed = ordinaryMatch?.[2];
+  const rest = ownerStepUpMatch?.[2] ?? ordinaryMatch?.[3];
   if (
     addressed !== undefined
     && botUsername !== null

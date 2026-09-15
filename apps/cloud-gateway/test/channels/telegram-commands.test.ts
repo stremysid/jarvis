@@ -55,6 +55,7 @@ describe("recognising a command", () => {
     expect(parse("/disable-owner-step-up --confirm")).toEqual({
       kind: "command", name: "disable-owner-step-up", argument: "--confirm", addressedTo: null,
     });
+    expect(parse("/disable-owner-step-up@Jarvis_Sid_Bot --confirm")).toEqual({ kind: "text" });
     expect(parse("/not-a-command")).toEqual({ kind: "text" });
     expect(parse("/enable-owner-step-up --confirm")).toEqual({ kind: "text" });
   });
