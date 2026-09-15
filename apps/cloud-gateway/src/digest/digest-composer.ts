@@ -232,9 +232,9 @@ function render(sections: readonly DigestSection[]): string {
  * first.
  *
  * The gaps section is never dropped. A digest that silently omits "the
- * Brightspace scrape failed" reads exactly like a digest reporting a quiet
- * day, and the entire point of recording a failed source is that those two
- * must never look the same.
+ * Brightspace calendar feed failed" reads exactly like a digest reporting a
+ * quiet day, and the entire point of recording a failed source is that those
+ * two must never look the same.
  */
 function fit(
   sections: readonly DigestSection[],

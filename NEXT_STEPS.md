@@ -16,16 +16,16 @@ ingestion depends on the deployed R0 gateway, not on PC control; its
 evidence-based weak-spot memory integrates with R2 as that interface lands.
 
 The plan cleared in merged PR #41, Classroom hourly ingestion merged in PR #43,
-and the first live-bot catch-up slice merged in PR #45. The current second code
-slice adds a bounded university program tracker to the same ordinary Telegram
-conversation: programs, requirements and dates are each labelled `verified` or
-`unverified`, and verified details retain their current official source and
-admission cycle. It also closes PR #45 follow-ups F1-F3. Its additive
-`0022_university_tracker.sql` remains an unapplied candidate; `0021` is reserved
-by the concurrent PR #46 work. Next: the Brightspace calendar feed in its own
-PR. None of these slices authorizes OAuth consent, a secret operation,
-migration, deployment, school or university contact, purchase, sign-up,
-submission or live account access.
+the first live-bot catch-up slice merged in PR #45, and the conversational
+university tracker merged in PR #48 with unapplied migration `0022`. The current
+slice adds the Brightspace private iCalendar feed to the existing hourly poll,
+deadline tables and morning digest. It also closes PR #43 follow-ups F1 and F2:
+an hourly deadline source becomes visibly stale after three missed hours, and a
+Classroom bootstrap failure no longer skips later polling. No new migration is
+needed; `0021` remains reserved by the concurrent PR #46 work. None of these
+slices authorizes OAuth consent, a secret operation, migration, deployment,
+school or university contact, purchase, sign-up, submission or live account
+access.
 
 ## R2 cloud-memory runtime next
 
@@ -322,9 +322,12 @@ These have code and tests but still need owner configuration or a later slice.
   Live configuration and deployment acceptance are not established, and Sid's
   OAuth consent remains an owner-run step in
   [`docs/runbooks/google-classroom-oauth.md`](docs/runbooks/google-classroom-oauth.md).
-- **The Brightspace scrape.** Deliberately not built. It needs a real browser
-  session and belongs in the local agent. `RawDeadlineItem` is the interface
-  it feeds.
+- **Brightspace calendar ingestion.** The current candidate reads only Sid's
+  private iCalendar subscription URL in the always-on gateway. Missing
+  configuration makes no request and says `Brightspace: not set up` in the
+  digest. It never logs in or reads a browser session. The owner setup and
+  live-verification boundary is in
+  [`docs/runbooks/brightspace-calendar-feed.md`](docs/runbooks/brightspace-calendar-feed.md).
 - **Deadline status.** Nothing sets `submitted`, `missed` or `cancelled`. The
   grade and missing-work watch is what closes this.
 - **Decision expiry.** `listOpenQueue` filters lapsed items out of the queue,

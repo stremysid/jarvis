@@ -212,6 +212,12 @@ describe("DeadlineIngestion", () => {
     expect(await countRevisions(report.created[0]!.deadlineId)).toBe(1);
   });
 
+  it("rejects control characters in an untrusted external identifier", async () => {
+    const report = await ingestion().ingest(sourceId, items({ ...QUIZ, externalId: "event\u202Ehidden" }));
+    expect(report.created).toEqual([]);
+    expect(report.rejected).toEqual([{ externalId: null, reason: "missing_external_id" }]);
+  });
+
   it("truncates a runaway title rather than losing the deadline, and does not record a phantom revision for it", async () => {
     const runaway = { ...QUIZ, title: `Unit 3 Quiz ${"very ".repeat(400)}long` };
     const first = await ingestion().ingest(sourceId, items(runaway));

@@ -123,6 +123,13 @@ export interface Env {
   GOOGLE_REFRESH_TOKEN?: string;
 
   /**
+   * Sid's private Brightspace calendar-subscription URL. The URL itself is a
+   * bearer credential and belongs only in Worker secrets, never in logs,
+   * source, chat, or a browser-session scraper.
+   */
+  BRIGHTSPACE_ICAL_URL?: string;
+
+  /**
    * The watchdog's heartbeat endpoint and its shared secret.
    *
    * Deliberately a URL rather than a service binding: the watchdog is a

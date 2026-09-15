@@ -115,6 +115,7 @@ interface NormalizedItem {
 
 const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}]/gu;
+const UNSAFE_IDENTIFIER_CHARACTERS = /[\p{Cc}\p{Cf}]/u;
 const WHITESPACE_RUN = /\s+/gu;
 const EFFORTS: readonly DeadlineEffort[] = Object.freeze(["quiz", "test", "exam", "essay", "project", "other"]);
 
@@ -146,7 +147,12 @@ function normalizeTitle(value: string): string {
 function normalizeItem(item: RawDeadlineItem): { ok: true; value: NormalizedItem } | { ok: false; rejection: RejectedDeadlineItem } {
   const externalIdRaw = typeof item.externalId === "string" ? item.externalId.trim() : "";
   const externalId = externalIdRaw.normalize("NFC");
-  if (externalId.length === 0 || externalId.length > MAXIMUM_IDENTIFIER_CHARACTERS || !externalId.isWellFormed()) {
+  if (
+    externalId.length === 0
+    || externalId.length > MAXIMUM_IDENTIFIER_CHARACTERS
+    || !externalId.isWellFormed()
+    || UNSAFE_IDENTIFIER_CHARACTERS.test(externalId)
+  ) {
     return { ok: false, rejection: { externalId: null, reason: "missing_external_id" } };
   }
 
@@ -202,9 +208,9 @@ export class DeadlineIngestion {
    *
    * Marking it cancelled is the obvious alternative and it is unsafe, for a
    * reason that has nothing to do with teachers deleting assignments. A
-   * Brightspace scrape that half-succeeds because the page markup moved
+   * Brightspace feed that half-succeeds because the upstream export changes
    * returns fewer items, and from in here that is indistinguishable from a
-   * teacher removing them. One bad scrape would cancel a term of real
+   * teacher removing them. One bad feed would cancel a term of real
    * deadlines, and the owner would find out by missing them. An open deadline
    * that no longer exists costs him a reminder he dismisses; a cancelled one
    * that does exist costs him the assignment. The asymmetry decides it.
