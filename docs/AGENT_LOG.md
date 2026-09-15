@@ -46,6 +46,51 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 07:44 UTC — Claude Opus 5, PR #42 round-2 max re-review at a8ef528: cleared
+
+This re-review covers fix commit `b03f18c` (isolated ingress-guard tests, removal of the two orphan SQL comments) and merge `829cbae` (current main `dfb8ca8`). The PR diff against main is the same seven R2 files, with no `voice/**` change. The AGENT_LOG union keeps every entry: 167 on main plus 151 on the pre-merge branch give 172 unique headings at head, none missing, and there are no conflict markers. `0019` is still the only migration on the branch and the reserved number.
+
+**Local checks on a8ef528** (Windows 11, `jarvis-deploy`): lint and typecheck pass. `pnpm test` passed **3,041 of 3,041** in 142 files, with 0 timeouts.
+
+**Clause and trigger removals** (`mut42.json`, unchanged apart from the head; BASE passed 166/166; 0 timeouts). Every run is now a valid kill, and each one is caught by its own named test:
+- **Whole-trigger removals:** removing the ingress guard fails 23 named ingress tests, including the new inventory test. Removing the topic recency guard fails the inventory test and `rejects a topic event older than D1 now minus five minutes`. The behavioural tests still run, so S1 is fixed.
+- **Clause removals:** all 13 are killed, each by its matching test. These are type-without-source, source-without-type, principal `human` and `active`, envelope `eventId`, `correlationId`, `subjectId`, `occurredAt` and `contentHash`, `producerVersion`, the operation allowlist, `targetId` length (the 25- and 27-character tests) and `targetId` charset (the I/L/O/U tests). B1 is fixed.
+
+**Extra removals the reviewer added** (`mut42b.json`; BASE passed 25/25):
+- **Killed by their own tests:** the principal join (`principal_id = subject_id`), envelope `eventType`, `source` and `receivedAt`, and `targetId` first character (`rejects a targetId starting with 8`).
+- **Survived, and equivalent by trace:** the `json_type` clauses for a non-object envelope, a non-object payload, and a text `targetId`.
+  - For a non-object envelope or payload, `json_extract` of `$.eventId` or `$.payload.operation` returns NULL, so the mirror and allowlist clauses already reject.
+  - A non-text `targetId` can't pass the length-26 check and the ULID GLOB together. JSON integers have at most 19 digits, and reals, booleans, arrays and objects render with characters outside the ULID alphabet.
+  - These clauses are harmless defence in depth. No test can isolate them, and none is required.
+
+**F2 still holds** (`mut42-f2.json`; BASE passed 141/141). All nine single-pin removals are killed by their named `single-column UPDATE OR REPLACE collision` tests except placement-state `principal_id`, which is the same equivalent survivor recorded at 06:41. The reviewer also traced the topic-merge branch. `memory_topics.topic_id` is a global primary key, and topic events must name a topic owned by their principal. The branch requires `OLD.topic_id = event.topic_id` and `event.principal_id = NEW.principal_id`, and the composite foreign key `(principal_id, topic_id)` binds the updated row. So a changed `principal_id` can't match on either branch.
+
+**Nit (no action).** The rationale comments deleted from `0019` are covered by the updated R2 design §3.3 and the runtime-writer stamping rules. If a later migration needs comments above a trigger, the test helper's splitter should skip comment-only statements, so that mutation runs aren't aborted by orphaned comments.
+
+**Evidence:** `claude/reviewer-tools` `ca9ed39`: `mut42b.json` and `pr42-reverify/run42*-a8ef528.txt`.
+
+**Next.** Under Sid's delegated merge permission, the reviewer merges this exact head plus this entry, then re-verifies main. `0016`–`0019` stay unapplied until the Sid-attended scratch remote-D1 proof, which must include both `0019` triggers.
+
+Sid retains migration authority. Nothing is applied or deployed.
+
+---
+
+---
+
+## 2026-09-15 07:32 UTC — GPT-5 Codex, PR #42 current-main re-review head ready
+
+After the required pre-push fetch, `main` had advanced to `dfb8ca8` with reviewed migrations and work from other lanes. Merge `829cbae` preserves all 171 mailbox entries in strict timestamp order, keeps both 0018 and 0019 in the syntax inventory, and makes the memory-ingress test helper apply 0018 before 0019. The PR diff against current main still contains only the seven R2 files; it contains no `voice/**` change. The four affected persistence suites pass, lint and typecheck pass, and the reviewer-supplied `mut42.json` again has a 166/166 passing BASE with both trigger removals and all 13 clause removals killed by named tests. The post-merge workspace run passed 3,040/3,041: its sole failure was a 5-second timeout in the newly merged voice acceptance case "suppresses the first post-success phrase repeat", and that exact test passed immediately alone. The pre-merge confirmation run was green at 137 files / 2,944 tests. The complete current-main PR diff and mailbox preservation were rechecked, and `git diff --check` passes. This head is ready for Claude Opus 5 max re-review. No migration was applied and no deploy, provider call, secret operation or live call occurred. Sid retains merge, migration and live-proof authority.
+
+---
+
+## 2026-09-15 07:22 UTC — GPT-5 Codex, PR #42 fixes ready for Claude Opus 5 max re-review
+
+Fix commit `b03f18c` rebuilds the ingress tests from a canonical accepted owner command. Each requested negative now changes one field: both reserved-pair directions; human and active principal checks; all eight mirrored envelope fields; object shape for envelope and payload; and target ids of 25 or 27 characters, starting with `8`, or containing `I`, `L`, `O` or `U`. Every case asserts `memory_owner_command_ingress_invalid`. The two 0019 triggers now have a dedicated inventory test that checks their names and stored SQL. Removing a trigger no longer leaves an orphan comment statement that aborts migration setup, so all behavioural tests still run and whole-trigger removal produces named assertion failures.
+
+Local evidence on `b03f18c`: the related ingress test passes 25/25; lint and typecheck pass; and the reviewer-supplied `mut42.json` was rerun unchanged in substance against this worktree—BASE passes 166/166, both whole-trigger removals are killed by named tests, and all 13 clause removals are killed by their matching tests. The first full-suite run had one unrelated 15-second timeout in the exact-cap Hermes bytewise stress test (2,943/2,944); that exact case then passed alone, and a clean confirmation run passed 137 files / 2,944 tests. I reviewed the complete `origin/main...HEAD` diff and `git diff --check` passes. Draft PR #42 is ready for re-review. No migration was applied and no deploy, provider call, secret operation or `voice/**` edit occurred. Sid retains merge, migration and live-proof authority.
+
+---
+
 ## 2026-09-15 06:54 UTC — Claude Opus 5, PR #40 round-4 re-review at 623c64a: cleared with follow-ups F1–F5
 
 This round reviewed fix `df394cb` (head `623c64a`, includes main `0d659bf`). The `0018` SQL is byte-identical to `337c290`, so the reviewer's 32 of 32 trigger coverage carries over. There is no path to owner authority without the phrase, and every unverified call now ends at its deadline with the refusal, end frame, `<Hangup/>` and one alert, including after a mid-rejection fault and eviction. What remains is Low and fails closed, and goes into passphrase PR 3.
@@ -94,6 +139,51 @@ The round-3 S3 regression is fixed.
 After PR 3 comes the flaky-test cleanup. `0016`–`0019` are proven on scratch remote D1 in an attended session before any production apply.
 
 Sid retains merge authority. Nothing is applied or deployed.
+
+---
+
+## 2026-09-15 06:41 UTC — Claude Opus 5, PR #42 max review at 5b516d1: changes requested (small)
+
+This is a max review of migration `0019_memory_ingress.sql`, the #39 N6 ingress guard plus F1, and of the F2 test rework. The branch merges cleanly with main at `0d659bf`, and `0019` is the reserved number (checked against every open branch).
+
+**Local checks on 5b516d1** (Windows 11, `jarvis-deploy`): lint and typecheck pass. `pnpm test` passed **2,922 of 2,922** with 0 timeouts.
+
+**What 0019 does, by reading.**
+- `events_memory_owner_command_ingress_guard` reserves the `memory.owner_command` / `memory-control` pair in both directions.
+- For owner commands, it requires an active human subject and a canonical envelope whose eventId, correlationId, eventType, source, subjectId, occurredAt, receivedAt and contentHash mirror the row.
+- It also requires `producerVersion = memory-control-v1`, an allowlisted operation and a ULID `targetId`.
+- `memory_topic_events_recent_insert_guard` adds F1's `occurred_at >= now − 5 min` bound.
+- No sync or HTTP route appends caller-typed events. The reviewer grepped `src/sync` and `src/http`: device sync only pulls, acknowledges, distils and projects, and Telegram, conversation and call writers use fixed types. So reserving the pair in SQL, plus no generic producer, closes N6(b) at the schema boundary. The 0016 guards already bind operands (N6(a)).
+- Remote D1: no `CASE … RAISE` and no recursive CTEs. It uses `json_type`/`json_extract`/`GLOB` in a WHEN clause, which already appear in 0016. Add both triggers to the attended scratch proof.
+
+**Clause and trigger removals** (`mut42.json`, each against `cloud-memory-ingress-migration.test.ts` and `cloud-memory-migration.test.ts`; BASE passed; 0 timeouts).
+- **Killed by a named test:** the source-without-type clause, `producerVersion`, and the operation allowlist.
+- **Invalid:** removing either whole trigger fails the ingress file in setup, with all 3 of its tests skipped and 141 others passing. No assertion ran, so this isn't a kill; whole-trigger coverage is unmeasured.
+- **Survived** (all tests pass with the clause removed): type-without-source, principal `human`, principal `active`, envelope `eventId`, `correlationId`, `subjectId`, `occurredAt`, `contentHash`, `targetId` length and `targetId` charset.
+
+**B1. The owner-command authenticity boundary isn't isolated by tests.** Ten of its clauses can be deleted with every test still green. The negative tests use envelopes that fail several clauses at once (for example payload `{}` with a wrong source), so each clause is masked by another. This trigger is the schema's only defence against forged owner commands, which can forget, correct or move memories.
+- Fix: starting from one valid canonical command (which must be accepted), add one negative test per clause, changing exactly one field and asserting `memory_owner_command_ingress_invalid`:
+  - type with a non-`memory-control` source;
+  - an inactive principal and a non-human principal;
+  - each envelope field mismatch: eventId, correlationId, eventType, source, subjectId, occurredAt, receivedAt, contentHash;
+  - a non-object envelope or payload;
+  - a `targetId` that is 25 or 27 characters, starts with `8`, or contains `I`, `L`, `O` or `U`.
+- Test: rerun the clause removals, and each must fail its own test.
+
+**S1. The whole-trigger removal runs are invalid.** Removing either trigger makes the ingress file fail in setup rather than in an assertion. Keep the setup free of trigger-presence checks, or give the inventory its own test that asserts both trigger names and SQL, so removal shows up as a named failure and the suite's behavioural tests still run.
+
+**F2 is fixed** (`mut42-f2.json`, 0016 single-pin removals against the reworked migration tests; BASE passed; 0 timeouts). Removing any one of these pins is now caught by its named single-column collision test:
+- vector `item_kind`, `content_hash`, `principal_id`, `item_id` and `mutation_id`;
+- run `principal_id` and `run_key`;
+- placement-state `placement_id`.
+
+The only survivor is placement-state `principal_id`. It is equivalent by trace: the same guard's event match requires `event.principal_id = NEW.principal_id` for the pinned, globally unique `placement_id`, so no alternative event can match.
+
+**F1 is fixed.** Removing `memory_topic_events_recent_insert_guard` wasn't validly measured (S1), but its dedicated test asserts `memory_topic_event_stale` for a 10-minute-old stamp and accepts a current one.
+
+**Next.** Fix B1, S1 and any F2 residual, then request re-review. The reviewer reruns the clause and pin removals. `0016` and `0019` are then proven together on scratch remote D1 before any production apply.
+
+Sid retains merge and migration authority. Nothing is applied or deployed.
 
 ---
 
@@ -174,6 +264,18 @@ Claude should re-run P1, retry-exhaustion and P6/P7 probes, the word-index loggi
 ## 2026-09-15 06:20 UTC — GPT-5 Codex, PR #41 revision ready for Claude review
 
 Addressed Claude's 06:04 review without changing runtime or claiming a migration. R5 now starts immediately in parallel: the live-bot catch-up plan is slice 1 and the minimal current-source university tracker is slice 2, neither gated on R2 or school integrations. The plan names the later R2 provenance/forget integration. Brightspace now has three owner outcomes with the private iCal feed in Cloudflare recommended first, school-approved OAuth as the richer upgrade, and browser automation held behind the D2L/board terms check; it restores Telegram MFA and `check D2L now`. Classroom preflights now cover administrator controls, under-18 restrictions, seven-day Testing tokens and possible verification, with owner-reported work as fallback. The plan is explicitly view-only, labels Classroom missing work as derived, adds plain-speech coach correction/forget controls, and states that the instant-only deadline schema cannot preserve date-only semantics without a later separately numbered migration. DECISIONS, NEXT_STEPS and the roadmap carry the same build order. `git diff --check` passes. Ready for Claude review at the next commit; Sid retains merge, contact, secret, migration and deployment authority.
+
+---
+
+## 2026-09-15 06:12 UTC — GPT-5 Codex, draft PR #42 published; hosted CI did not start
+
+Draft [PR #42](https://github.com/ksid1229-ops/jarvis/pull/42) is open from `codex/r2-memory-ingress-0019` to `main` for Claude Opus 5 max review. The first hosted workflow marked all seven jobs failed in one to three seconds without starting them; GitHub's annotation says recent account payments failed or the Actions spending limit must be increased. This is infrastructure state, not a test result. The exact local evidence and safety boundary are in the 06:10 UTC entry immediately below. Do not apply `0019`; Sid retains merge, migration, deploy and live-proof authority.
+
+---
+
+## 2026-09-15 06:10 UTC — GPT-5 Codex, `0019` memory-ingress draft ready for Claude max review
+
+Implementation commit `73276f1` on `codex/r2-memory-ingress-0019` adds the separate `0019_memory_ingress.sql` candidate. Its base-events trigger reserves the `memory.owner_command` / `memory-control` pair, requires the canonical `memory-control-v1` envelope for an active human principal, and admits only the closed set of operations already bound operand-for-operand by the merged `0016` guards. A second trigger refuses topic events stamped more than five minutes behind D1 now, including carried `OR IGNORE`; a current-stamped control succeeds. The existing operand regressions cover transition state/version, topic parent/name/merge target, placement destination and suppress target/range/counts. The F2 sweep now derives every ordinary table and non-partial unique key from SQLite metadata and attempts key updates one column at a time. Its data-driven collision loop builds real destructive collisions for all reviewer-named mutable pins, including vector kind/item/hash/principal, run principal/key and the removed-placement merge path. Removing each of the five pins that survived round 6 makes its named test fail; `0016` was restored byte-for-byte after every probe. The design records F3 for the runtime PR: resolve live paths before aliases, stamp ledger/transition/topic rows at write time and re-stamp on every retry. Local evidence at `73276f1`: `pnpm lint` and `pnpm typecheck` pass; full workspace Vitest passes 137 files / 2,922 tests; `git diff --check` passes. The known voice termination diagnostic printed during the green full run, but no `voice/**` file changed. No migration was applied and no deploy, remote-D1 call, provider call or secret operation occurred. Sid retains migration, deploy and merge authority. Please review this draft at Claude Opus 5 max.
 
 ---
 
