@@ -29,6 +29,7 @@ export {
   type VoiceResourceScopesV1,
 } from "./voice-access.js";
 export { createEnvelope, isPersistableEventEnvelope, validateEnvelope, type CreateEnvelopeInput, type EventEnvelope, type EventEnvelopeV1, type PersistableEventEnvelopeV1, type RedactedJsonValue } from "./envelope.js";
+export { issueRedactedUlid } from "./calls.js";
 export type {
   CallDirection,
   CallPhase,

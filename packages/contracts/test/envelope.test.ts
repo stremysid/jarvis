@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { canonicalJson, createEnvelope, sha256Hex, validateEnvelope, type CreateEnvelopeInput } from "../src";
+import {
+  canonicalJson,
+  createEnvelope,
+  issueRedactedUlid,
+  sha256Hex,
+  validateEnvelope,
+  type CreateEnvelopeInput,
+  type Ulid,
+} from "../src";
 import { Redactor } from "../../../apps/cloud-gateway/src/security/redaction";
 
 function redacted(text: string) {
@@ -45,6 +53,22 @@ describe("event envelopes", () => {
     } as never);
 
     expect(envelope.payload).toEqual({ text: "Your sign-in code is [REDACTED_AUTH_DIGITS].", safeField: "Your sign-in code is [REDACTED_AUTH_DIGITS]." });
+  });
+
+  it("preserves a canonical ULID whose random component contains six digits", async () => {
+    const identifier = "01abcde123456fghjkmnpqrstv" as Ulid;
+
+    const envelope = await createEnvelope({
+      ...input,
+      payload: { itemId: issueRedactedUlid(identifier) },
+    } as never);
+
+    expect(envelope.payload).toEqual({ itemId: identifier });
+    expect(envelope.redaction).toEqual({ status: "none", markers: [] });
+  });
+
+  it("refuses to mint structural tokens for malformed ULIDs", () => {
+    expect(() => issueRedactedUlid("not-a-ulid" as Ulid)).toThrow("canonical ULID");
   });
 
   it("normalizes producer-controlled envelope headers", async () => {

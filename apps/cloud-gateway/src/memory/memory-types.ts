@@ -77,6 +77,7 @@ export interface CommitInitialMemoryInput {
     lifecycleState: "proposed" | "active";
     reason: string;
     policyVersion: string;
+    ownerAuthorizingEventId?: Ulid;
   }>;
   readonly placement: Readonly<{
     placementId: Ulid;
@@ -166,4 +167,84 @@ export interface ResolvedMemoryTopic {
   readonly topicId: Ulid;
   readonly path: readonly CanonicalTopicPathEntry[];
   readonly matchedBy: "current" | "alias";
+}
+
+export interface MemoryOwnerTurnInput {
+  readonly principalId: string;
+  readonly eventId: Ulid;
+  readonly eventSequence: number;
+  readonly occurredAt: string;
+  readonly channel: MemorySourceChannel;
+  /** Set only by a trusted adapter after it sees an unambiguous memory request. */
+  readonly explicitMemoryIntent: boolean;
+  readonly forwarded: boolean;
+  readonly quoted: boolean;
+  readonly pasted: boolean;
+  readonly hasAttachment: boolean;
+  readonly modelGenerated: boolean;
+  readonly toolGenerated: boolean;
+  readonly guest: boolean;
+}
+
+export interface PreparedMemoryForgetSource {
+  readonly sourceId: Ulid;
+  readonly eventId: Ulid;
+  readonly newlyHiddenTurnCount: 0 | 1;
+  readonly totalCoveredTurnCount: 1;
+}
+
+export interface PreparedMemoryForget {
+  readonly item: CanonicalMemoryItem;
+  readonly sources: readonly PreparedMemoryForgetSource[];
+}
+
+export interface ForgetMemoryItemInput {
+  readonly principalId: string;
+  readonly itemId: Ulid;
+  readonly versionId: Ulid;
+  readonly transitionId: Ulid;
+  readonly ownerAuthorizingEventId: Ulid;
+  readonly suppressions: readonly Readonly<{
+    suppressionId: Ulid;
+    sourceId: Ulid;
+    targetEventId: Ulid;
+    newlyHiddenTurnCount: 0 | 1;
+    totalCoveredTurnCount: 1;
+  }>[];
+  readonly reason: string;
+  readonly policyVersion: string;
+}
+
+export interface ForgetMemoryItemResult {
+  readonly item: CanonicalMemoryItem;
+  readonly newlyHiddenTurnCount: number;
+  readonly totalCoveredTurnCount: number;
+  readonly replayed: boolean;
+}
+
+export interface PreparedMemoryLift {
+  readonly item: CanonicalMemoryItem;
+  readonly suppressionIds: readonly Ulid[];
+}
+
+export interface LiftMemoryItemInput {
+  readonly principalId: string;
+  readonly itemId: Ulid;
+  readonly previousVersionId: Ulid;
+  readonly versionId: Ulid;
+  readonly transitionId: Ulid;
+  readonly ownerAuthorizingEventId: Ulid;
+  readonly sourceIds: readonly Ulid[];
+  readonly lifts: readonly Readonly<{
+    liftId: Ulid;
+    suppressionId: Ulid;
+  }>[];
+  readonly reason: string;
+  readonly policyVersion: string;
+}
+
+export interface LiftMemoryItemResult {
+  readonly item: CanonicalMemoryItem;
+  readonly liftedSuppressionCount: number;
+  readonly replayed: boolean;
 }

@@ -3,6 +3,7 @@ import type { VoiceAccessBinding } from "./voice-access.js";
 
 const redactionToken = Symbol("redactionToken");
 const issuedRedactions = new WeakSet<object>();
+const LOWERCASE_ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const AUTHENTICATION_DIGITS = /(?<!\d)\d{6}(?!\d)/g;
 const CONTEXTUAL_EIGHT_DIGIT_AUTHENTICATION = /(\b(?:pin|passcode|otp|authentication(?:[_ -]?code)?|verification(?:[_ -]?code)?)(?:\s+is)?\s*[=:]?\s*)(\d{8})(?!\d)/gi;
 const AUTHORIZATION_HEADER = /\bauthorization\s*:\s*[^\r\n]*/gi;
@@ -95,14 +96,14 @@ function issueSanitizedRedaction(text: string, markers: readonly RedactionMarker
   return result;
 }
 
-/** Recognizes only tokens minted by issueRedaction in this module instance. */
+/** Recognizes only redaction tokens minted by this module instance. */
 export function isIssuedRedaction(value: unknown): value is SuccessfulRedaction {
   return value !== null && typeof value === "object" && issuedRedactions.has(value);
 }
 
 /**
- * The only redaction-token issuer. It removes secrets before minting an opaque,
- * frozen token; failure values never retain the original input.
+ * Removes secrets before minting an opaque, frozen token; failure values never
+ * retain the original input.
  */
 export function sanitizeRedaction(text: string, fieldMarker?: RedactionMarker): RedactionResult {
   try {
@@ -146,6 +147,18 @@ export function sanitizeRedaction(text: string, fieldMarker?: RedactionMarker): 
   } catch {
     return { ok: false, category: "ingest_redaction_failed" };
   }
+}
+
+/**
+ * Mints an envelope-safe token for a grammar-validated ULID. Identifiers are
+ * not user text; applying content redaction to them can corrupt a valid ULID
+ * whose random component happens to contain six consecutive digits.
+ */
+export function issueRedactedUlid(value: Ulid): SuccessfulRedaction {
+  if (typeof value !== "string" || !LOWERCASE_ULID.test(value)) {
+    throw new TypeError("redacted ULID must be a lowercase canonical ULID");
+  }
+  return issueSanitizedRedaction(value, []);
 }
 
 export interface Redactor {
