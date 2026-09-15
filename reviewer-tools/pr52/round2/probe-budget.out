@@ -1,0 +1,10 @@
+empty tracker (prompt overhead)                            | app items=  0 | structured 5989 bytes
+realistic: 8 programs x 5 items, 3 req + 2 dates           | app items= 40 | structured 33900 bytes
+10 programs x 6 items, 4 req + 2 dates                     | app items= 60 | structured 47558 bytes
+16 programs x 4 items, no req/dates, verified              | app items= 64 | structured 29310 bytes
+16 programs x 5 items, no req/dates, verified              | app items= 80 | structured 33540 bytes
+16 programs x 6 items, no req/dates, verified              | app items= 96 | structured 37770 bytes
+16 programs x 7 items, no req/dates, verified              | app items=112 | structured 42000 bytes
+16 programs x 8 items, no req/dates, verified              | app items=128 | structured 46230 bytes
+16 programs x 8 items (128 cap), unverified, short labels  | app items=128 | structured 36192 bytes
+12 programs x 6 items, 4 req (detail 120) + 2 dates        | app items= 72 | FELL BACK to ordinary chat (prompt > 48,000)

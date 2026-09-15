@@ -1,0 +1,54 @@
+ok   | expected=BLOCK actual=BLOCK | I've sent your reference request to Ms. Chen.
+ok   | expected=BLOCK actual=BLOCK | I've now submitted your Waterloo AIF.
+ok   | expected=BLOCK actual=BLOCK | Done, your Waterloo AIF is submitted.
+ok   | expected=BLOCK actual=BLOCK | Your transcript request has been sent to the guidance office.
+ok   | expected=BLOCK actual=BLOCK | I've gone ahead and submitted the scholarship form.
+ok   | expected=BLOCK actual=BLOCK | I forwarded your essay to your teacher.
+ok   | expected=BLOCK actual=BLOCK | I've asked Ms. Chen for your reference.
+FLAG | expected=BLOCK actual=PASS | Your Waterloo AIF has now been submitted.
+ok   | expected=BLOCK actual=BLOCK | I went ahead and uploaded your transcript.
+ok   | expected=BLOCK actual=BLOCK | I've emailed Ms. Chen about your reference.
+ok   | expected=BLOCK actual=BLOCK | I reached out to your counsellor.
+FLAG | expected=BLOCK actual=PASS | Ms. Chen has been contacted.
+FLAG | expected=BLOCK actual=PASS | I've let Ms. Chen know you need a reference.
+FLAG | expected=BLOCK actual=PASS | I told your counsellor about the transcript.
+FLAG | expected=BLOCK actual=PASS | I shared your essay with Ms. Chen.
+FLAG | expected=BLOCK actual=PASS | I've handed in your AIF.
+FLAG | expected=BLOCK actual=PASS | I've completed your OUAC submission.
+FLAG | expected=BLOCK actual=PASS | Your AIF is now in with Waterloo.
+FLAG | expected=BLOCK actual=PASS | Submitted! Your Waterloo AIF is in.
+FLAG | expected=BLOCK actual=PASS | I have applied to Waterloo for you.
+FLAG | expected=BLOCK actual=PASS | I've put in the transcript request.
+FLAG | expected=BLOCK actual=PASS | I booked your Waterloo interview.
+ok   | expected=BLOCK actual=BLOCK | I've paid the OUAC fee.
+FLAG | expected=BLOCK actual=PASS | Your Waterloo AIF got submitted.
+ok   | expected=BLOCK actual=BLOCK | The scholarship application is now submitted.
+ok   | expected=BLOCK actual=BLOCK | I've submitted it.
+ok   | expected=BLOCK actual=BLOCK | I've successfully sent Ms. Chen the reference form.
+FLAG | expected=BLOCK actual=PASS | I just texted Ms. Chen.
+ok   | expected=PASS actual=PASS | I've spent some time thinking through your essay outline.
+ok   | expected=PASS actual=PASS | We're calling this the draft stage for now.
+FLAG | expected=PASS actual=BLOCK | I asked earlier which programs you're considering.
+FLAG | expected=PASS actual=BLOCK | I'm asking because the Waterloo AIF is still unverified.
+FLAG | expected=PASS actual=BLOCK | As I asked before, which essay prompt did you pick?
+FLAG | expected=PASS actual=BLOCK | Once your Waterloo AIF is submitted, Waterloo emails a confirmation.
+FLAG | expected=PASS actual=BLOCK | After your transcript request is sent, your school has to process it.
+FLAG | expected=PASS actual=BLOCK | Nice, you said your Waterloo AIF is submitted. I noted it as submitted by you.
+FLAG | expected=PASS actual=BLOCK | Got it. Your Waterloo AIF was submitted by you, so it's off the list.
+FLAG | expected=PASS actual=BLOCK | I sent you a summary above.
+FLAG | expected=PASS actual=BLOCK | I've requested that you double-check the date on the Waterloo site.
+FLAG | expected=PASS actual=BLOCK | Make sure the essay is submitted before the deadline.
+FLAG | expected=PASS actual=BLOCK | Ask Ms. Chen whether your reference was sent.
+ok   | expected=PASS actual=PASS | I have not submitted anything; only you can submit it.
+FLAG | expected=PASS actual=BLOCK | Check whether your transcript has been sent by guidance.
+ok   | expected=PASS actual=PASS | Your application is not submitted yet.
+FLAG | expected=PASS actual=BLOCK | I called it the Waterloo AIF in your tracker.
+FLAG | expected=PASS actual=BLOCK | We're asking OUAC-style questions to build your list.
+FLAG | expected=PASS actual=BLOCK | I'm filing this under the Western program.
+
+29 mismatches of 47
+S3 decomposed accent: ok, 14 bytes, NFC=true
+S3 lone surrogate: ok, 15 bytes, NFC=true
+S3 30k ASCII chars (>24,000 bytes): ok, 24000 bytes, NFC=true
+S3 16k 3-byte chars (48k bytes): ok, 24000 bytes, NFC=true
+S3 33k chars (> MAX_MODEL_JSON_CHARACTERS): THROWS school_catchup_model_response_too_large

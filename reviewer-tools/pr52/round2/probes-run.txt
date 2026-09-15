@@ -1,0 +1,84 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/university/zz-reviewer-pr52-probes.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr39
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/university/zz-reviewer-pr52-probes.test.ts (4 tests | 4 failed) 7ms
+     × P1 crossitem: one positive report lets a different item become submitted_by_sid 5ms
+     × P2 negation: a cropped excerpt of a negated sentence moves an item to drafting 0ms
+     × P3 retracted: a retracted submission report is accepted as submitted_by_sid 1ms
+     × P4 question: a quoted question counts as a positive report 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/university/zz-reviewer-pr52-probes.test.ts > zzreviewerpr52 > P1 crossitem: one positive report lets a different item become submitted_by_sid
+TypeError: university_application_model_item_invalid
+ ❯ applicationUpdate apps/cloud-gateway/src/university/university-tracker-model.ts:367:11
+    365|     || status !== null && (statusEvidence !== ownerMessage || !namesIt…
+    366|       || !supportsStatus(status, ownerMessage, isNew, existingItem?.st…
+    367|     throw new TypeError("university_application_model_item_invalid");
+       |           ^
+    368|   }
+    369|   return Object.freeze({
+ ❯ apps/cloud-gateway/src/university/university-tracker-model.ts:398:20
+ ❯ parseOwnerUniversityPlan apps/cloud-gateway/src/university/university-tracker-model.ts:398:5
+ ❯ plan apps/cloud-gateway/test/university/zz-reviewer-pr52-probes.test.ts:12:10
+ ❯ apps/cloud-gateway/test/university/zz-reviewer-pr52-probes.test.ts:29:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/university/zz-reviewer-pr52-probes.test.ts > zzreviewerpr52 > P2 negation: a cropped excerpt of a negated sentence moves an item to drafting
+TypeError: university_application_model_item_invalid
+ ❯ applicationUpdate apps/cloud-gateway/src/university/university-tracker-model.ts:367:11
+    365|     || status !== null && (statusEvidence !== ownerMessage || !namesIt…
+    366|       || !supportsStatus(status, ownerMessage, isNew, existingItem?.st…
+    367|     throw new TypeError("university_application_model_item_invalid");
+       |           ^
+    368|   }
+    369|   return Object.freeze({
+ ❯ apps/cloud-gateway/src/university/university-tracker-model.ts:398:20
+ ❯ parseOwnerUniversityPlan apps/cloud-gateway/src/university/university-tracker-model.ts:398:5
+ ❯ plan apps/cloud-gateway/test/university/zz-reviewer-pr52-probes.test.ts:12:10
+ ❯ apps/cloud-gateway/test/university/zz-reviewer-pr52-probes.test.ts:36:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/university/zz-reviewer-pr52-probes.test.ts > zzreviewerpr52 > P3 retracted: a retracted submission report is accepted as submitted_by_sid
+TypeError: university_application_model_item_invalid
+ ❯ applicationUpdate apps/cloud-gateway/src/university/university-tracker-model.ts:367:11
+    365|     || status !== null && (statusEvidence !== ownerMessage || !namesIt…
+    366|       || !supportsStatus(status, ownerMessage, isNew, existingItem?.st…
+    367|     throw new TypeError("university_application_model_item_invalid");
+       |           ^
+    368|   }
+    369|   return Object.freeze({
+ ❯ apps/cloud-gateway/src/university/university-tracker-model.ts:398:20
+ ❯ parseOwnerUniversityPlan apps/cloud-gateway/src/university/university-tracker-model.ts:398:5
+ ❯ plan apps/cloud-gateway/test/university/zz-reviewer-pr52-probes.test.ts:12:10
+ ❯ apps/cloud-gateway/test/university/zz-reviewer-pr52-probes.test.ts:42:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/university/zz-reviewer-pr52-probes.test.ts > zzreviewerpr52 > P4 question: a quoted question counts as a positive report
+TypeError: university_application_model_item_invalid
+ ❯ applicationUpdate apps/cloud-gateway/src/university/university-tracker-model.ts:367:11
+    365|     || status !== null && (statusEvidence !== ownerMessage || !namesIt…
+    366|       || !supportsStatus(status, ownerMessage, isNew, existingItem?.st…
+    367|     throw new TypeError("university_application_model_item_invalid");
+       |           ^
+    368|   }
+    369|   return Object.freeze({
+ ❯ apps/cloud-gateway/src/university/university-tracker-model.ts:398:20
+ ❯ parseOwnerUniversityPlan apps/cloud-gateway/src/university/university-tracker-model.ts:398:5
+ ❯ plan apps/cloud-gateway/test/university/zz-reviewer-pr52-probes.test.ts:12:10
+ ❯ apps/cloud-gateway/test/university/zz-reviewer-pr52-probes.test.ts:48:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed (4)
+   Start at  18:36:00
+   Duration  721ms (transform 59ms, setup 0ms, import 90ms, tests 7ms, environment 0ms)
+

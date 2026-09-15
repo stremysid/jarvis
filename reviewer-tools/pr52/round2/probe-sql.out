@@ -1,0 +1,29 @@
+ok   | INSERT OR REPLACE same primary key                                             | abort: university_application_item_insert_conflict
+ok   | INSERT OR IGNORE same natural key, new item_id                                 | abort: university_application_item_insert_conflict
+ok   | UPDATE OR REPLACE item_key onto another row's key                              | abort: university_application_item_core_immutable
+ok   | UPDATE OR REPLACE item_id onto another row's id                                | abort: university_application_item_core_immutable
+ok   | DELETE                                                                         | abort: university_application_item_delete_forbidden
+ok   | REPLACE via UPDATE OR REPLACE into program2 (FK/core)                          | abort: university_application_item_core_immutable
+ok   | submitted -> drafting, same source_turn_id                                     | abort: university_application_item_status_invalid
+ok   | submitted: change submitted_at, same status                                    | abort: university_application_item_state_invalid
+ok   | submitted: submitted_at earlier than created_at                                | abort: university_application_item_state_invalid
+ok   | submitted -> drafting, new telegram turn (correction)                          | ok
+ok   | drafting -> submitted again with a fresh submitted_at (flip back)              | ok
+ok   | submitted -> drafting reusing an OLDER turn id (T1)                            | ok
+ok   | update with a voice-channel turn                                               | abort: university_application_item_owner_turn_invalid
+ok   | updated_at backwards                                                           | abort: university_application_item_state_invalid
+ok   | updated_at unchanged on a status change                                        | ok
+ok   | verified: change due_date keeping verified_at                                  | abort: university_application_item_state_invalid
+FLAG | verified: change source_url and cycle keeping date and verified_at             | ok
+FLAG | verified: backdate verified_at only                                            | ok
+ok   | verified -> unverified, keep date, same turn (un-verify)                       | ok
+   row: {"item_status":"not_started","submitted_at":null,"due_date":"2027-02-01","verification_state":"unverified","source_url":"https://evil.example/x","admission_cycle":"2019","verified_at":null,"updated_at":"2026-09-15T18:12:00.000Z","source_turn_id":"01k5fb9pg00000000000000802"}
+ok   | unverified keeps stale source_url/cycle                                        | ok
+ok   | program2: 32nd active item (31 active + 1 retired)                             | ok
+ok   | program2: reactivate retired item at 32 active                                 | abort: university_application_item_limit_exceeded
+ok   | program2: insert active item before retiring one (batch order A)               | abort: university_application_item_limit_exceeded
+ok   | program2: retire one, then insert (batch order B)                              | ok
+ok   | program2: re-add a retired item's label as a new row                           | abort: university_application_item_insert_conflict
+ok   | retired -> submitted_by_sid with new turn (schema allows)                      | abort: university_application_item_limit_exceeded
+ok   | program2 history cap with retired inserts: 30 extra rows then university_application_item_limit_exceeded
+     | program2 rows: 64

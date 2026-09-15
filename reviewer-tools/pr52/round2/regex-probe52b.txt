@@ -1,0 +1,22 @@
+== submitted_by_sid accepted for ANY item the whole message names (true = accepted)
+true  I submitted my Waterloo AIF and the Western essay is next.
+true  I submitted my Waterloo AIF, then started the McMaster supplementary.
+true  I just submitted the Waterloo AIF. Ms. Chen is writing my reference.
+false  I submitted my Waterloo AIF. I haven't started the Western essay yet.
+false  I submitted my Waterloo AIF, can't believe it's done!
+
+== not_needed_by_sid accepted (true = accepted; item hides from digest)
+true  I'll skip the gym tonight and work on the Western essay.
+true  Remove the distractions, I need to finish my Waterloo AIF.
+true  Skipping lunch to finish the McMaster supplementary application.
+true  I'm not applying to Western, so skip the Western essay.
+
+== ordinary Jarvis replies replaced by the external-action refusal (true = replaced)
+true  I'm asking so I can update your tracker.
+true  I asked which program you meant.
+true  I sent you a summary above.
+true  We're sending you a quiz next.
+true  I've requested nothing from anyone; here is your plan.
+true  Jarvis filed this under Chemistry.
+false  Your essay is ready to submit when you are.
+true  I've sent your reference request to Ms. Chen.

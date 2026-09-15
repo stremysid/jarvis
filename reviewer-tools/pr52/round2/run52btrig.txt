@@ -1,0 +1,92 @@
+checked out 5e1a2ed8a1e7ff2c37b35c8ab8fd4eb4ed31aa73 at 5e1a2ed
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  5 passed (5)
+   Tests  89 passed (89)
+
+== T-university_application_items_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts (9 tests | 1 failed) 776ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  3 failed | 86 passed (89)
+   × installs the bounded program and item schema with every named guard 10ms
+   × installs the university_application_items_insert_guard trigger 3ms
+   × rejects REPLACE and IGNORE in a generic existing-row sweep 52ms
+
+== T-university_application_items_cap_insert: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts (9 tests | 1 failed) 777ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  3 failed | 86 passed (89)
+   × installs the bounded program and item schema with every named guard 10ms
+   × installs the university_application_items_cap_insert trigger 3ms
+   × refuses a thirty-third application item for one program 118ms
+
+== T-university_application_items_cap_reactivate: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts (9 tests | 1 failed) 761ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  3 failed | 86 passed (89)
+   × installs the bounded program and item schema with every named guard 10ms
+   × installs the university_application_items_cap_reactivate trigger 3ms
+   × refuses reactivating a retired item when its program is already at the active cap 119ms
+
+== T-university_application_items_require_owner_turn_insert: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts (9 tests | 1 failed) 753ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  3 failed | 86 passed (89)
+   × installs the bounded program and item schema with every named guard 11ms
+   × installs the university_application_items_require_owner_turn_insert trigger 2ms
+   × refuses an insert sourced from another principal's Telegram turn 56ms
+
+== T-university_application_items_require_owner_turn_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts (9 tests | 1 failed) 801ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  3 failed | 86 passed (89)
+   × installs the bounded program and item schema with every named guard 11ms
+   × installs the university_application_items_require_owner_turn_update trigger 3ms
+   × refuses an update sourced from another principal's Telegram turn 72ms
+
+== T-university_application_items_core_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts (9 tests | 1 failed) 761ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  3 failed | 86 passed (89)
+   × installs the bounded program and item schema with every named guard 11ms
+   × installs the university_application_items_core_immutable trigger 3ms
+   × keeps the application item identity and label immutable 41ms
+
+== T-university_application_items_status_correction_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts (9 tests | 1 failed) 781ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  3 failed | 86 passed (89)
+   × installs the bounded program and item schema with every named guard 11ms
+   × installs the university_application_items_status_correction_guard trigger 3ms
+   × allows a later owner turn, but not the same turn, to correct submitted-by-Sid 48ms
+
+== T-university_application_items_state_consistent_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts (9 tests | 1 failed) 754ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  3 failed | 86 passed (89)
+   × installs the bounded program and item schema with every named guard 10ms
+   × installs the university_application_items_state_consistent_update trigger 2ms
+   × keeps submitted timestamps, verified dates and update time internally consistent 47ms
+
+== T-university_application_items_reject_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts (9 tests | 1 failed) 831ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  3 failed | 86 passed (89)
+   × installs the bounded program and item schema with every named guard 10ms
+   × installs the university_application_items_reject_delete trigger 3ms
+   × refuses deletion of an application item 38ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-university_application_items_insert_guard
+KILLED    T-university_application_items_cap_insert
+KILLED    T-university_application_items_cap_reactivate
+KILLED    T-university_application_items_require_owner_turn_insert
+KILLED    T-university_application_items_require_owner_turn_update
+KILLED    T-university_application_items_core_immutable
+KILLED    T-university_application_items_status_correction_guard
+KILLED    T-university_application_items_state_consistent_update
+KILLED    T-university_application_items_reject_delete
+back on main, tree clean=true
+(node:34088) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

@@ -1,0 +1,45 @@
+skipped school statement in 0022_university_tracker.sql: -- R5 conversational university shortlist with explicit source verification. (no such trigger: school_course_facts_core_immutable)
+skipped school statement in 0022_university_tracker.sql: UPDATE school_course_facts (no such table: school_course_facts)
+skipped school statement in 0022_university_tracker.sql: CREATE TRIGGER school_course_facts_core_immutable (no such table: main.school_course_facts)
+skipped school statement in 0022_university_tracker.sql: DROP TRIGGER school_catchup_actions_reject_delete (no such trigger: school_catchup_actions_reject_delete)
+skipped school statement in 0022_university_tracker.sql: CREATE TRIGGER school_catchup_actions_reject_delete (no such table: main.school_catchup_actions)
+
+[setup programs] "Add Waterloo Computer Science, Western Medical Sciences and Queen's Commerce." -> saved
+  rows:   
+  digest: (none)
+
+[setup verified AIF] "Waterloo AIF due Feb 1, 2027 per https://uwaterloo.ca/aif for the 2027 cycle" -> saved
+  rows:   Waterloo AIF=not_started@2027-02-01/verified
+  digest: Waterloo AIF:not_started:2027-02-01:verified
+
+[setup essay] "Add the Western essay" -> saved
+  rows:   Waterloo AIF=not_started@2027-02-01/verified, Western essay=not_started
+  digest: Waterloo AIF:not_started:2027-02-01:verified, Western essay:not_started:-:unverified
+
+[setup scholarship] "Add the Queen's scholarship" -> saved
+  rows:   Queen's scholarship=not_started, Waterloo AIF=not_started@2027-02-01/verified, Western essay=not_started
+  digest: Waterloo AIF:not_started:2027-02-01:verified, Western essay:not_started:-:unverified, Queen's scholarship:not_started:-:unverified
+
+[H2 negated retire] "Don't remove the Queen's scholarship" -> saved
+  rows:   Queen's scholarship=not_needed_by_sid, Waterloo AIF=not_started@2027-02-01/verified, Western essay=not_started
+  digest: Waterloo AIF:not_started:2027-02-01:verified, Western essay:not_started:-:unverified
+
+[H1a retired->submitted without a submission report] "Keep the Queen's scholarship" -> saved
+  rows:   Queen's scholarship=submitted_by_sid, Waterloo AIF=not_started@2027-02-01/verified, Western essay=not_started
+  digest: Waterloo AIF:not_started:2027-02-01:verified, Western essay:not_started:-:unverified
+
+[H1b cross-item submission] "I submitted my Waterloo AIF and started the Western essay." -> saved
+  rows:   Queen's scholarship=submitted_by_sid, Waterloo AIF=not_started@2027-02-01/verified, Western essay=submitted_by_sid
+  digest: Waterloo AIF:not_started:2027-02-01:verified
+
+[M2 question overwrites verified date] "Is the Waterloo AIF due Feb 15, 2027?" -> saved
+  rows:   Queen's scholarship=submitted_by_sid, Waterloo AIF=not_started@2027-02-15/unverified, Western essay=submitted_by_sid
+  digest: Waterloo AIF:not_started:2027-02-15:unverified
+
+[correction natural wording] "I didn't actually submit the Western essay, the portal crashed" -> refused: university_application_model_item_invalid
+  rows:   Queen's scholarship=submitted_by_sid, Waterloo AIF=not_started@2027-02-15/unverified, Western essay=submitted_by_sid
+  digest: Waterloo AIF:not_started:2027-02-15:unverified
+
+[correction exact wording] "I didn't submit the Western essay" -> saved
+  rows:   Queen's scholarship=submitted_by_sid, Waterloo AIF=not_started@2027-02-15/unverified, Western essay=drafting
+  digest: Waterloo AIF:not_started:2027-02-15:unverified, Western essay:drafting:-:unverified

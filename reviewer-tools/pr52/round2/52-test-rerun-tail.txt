@@ -1,0 +1,38 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/archive/archival-service.test.ts apps/cloud-gateway/test/faults/voice-access-transaction-faults.test.ts apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts apps/cloud-gateway/test/memory/memory-owner-controls.test.ts apps/cloud-gateway/test/persistence/call-session-repository.test.ts apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts apps/cloud-gateway/test/persistence/migration-schema.test.ts apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts apps/cloud-gateway/test/persistence/voice-access-repository.test.ts apps/cloud-gateway/test/security/owner-access-security.test.ts apps/cloud-gateway/test/security/voice-access-authority.test.ts apps/cloud-gateway/test/sync/memory-projection.test.ts apps/cloud-gateway/test/sync/sync-service.test.ts apps/cloud-gateway/test/voice/call-session-do.test.ts apps/cloud-gateway/test/voice/guest-grant-notice.test.ts apps/cloud-gateway/test/voice/owner-access-service.test.ts tests/acceptance/cloud-core-archive-and-sync.test.ts tests/acceptance/fake/voice-call-path.test.ts tests/acceptance/fake/voice-guest-access.test.ts tests/acceptance/fake/voice-owner-call-step-up.test.ts tests/acceptance/fake/voice-owner-passphrase-security.test.ts tests/acceptance/fake/voice-telegram-call.test.ts tests/acceptance/fake/voice-telegram-owner-step-up.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr39
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+uncaught exception; source = Uncaught (in promise); stack = CallSessionTerminationError: call_session_termination_uninitialized
+    at terminationFailure (C:/Users/Sid/jarvis-pr39/apps/cloud-gateway/src/voice/call-session-do.ts:486:10)
+    at CallSession.#terminateOnce (C:/Users/Sid/jarvis-pr39/apps/cloud-gateway/src/voice/call-session-do.ts:1869:40)
+    at CallSession.terminate (C:/Users/Sid/jarvis-pr39/apps/cloud-gateway/src/voice/call-session-do.ts:1859:18)
+
+ Test Files  23 passed (23)
+      Tests  770 passed (770)
+   Start at  18:36:59
+   Duration  131.21s (transform 15.63s, setup 0ms, import 97.82s, tests 551.06s, environment 4ms)
+
