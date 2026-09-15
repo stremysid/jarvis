@@ -7,7 +7,7 @@ test("runs the real fake-suite entry before the retained-evidence audit", () => 
   assert.equal(runVoiceReleaseGate((step) => { observed.push(step); return 0; }), 0);
   assert.deepEqual(observed.map((step) => step.name), ["gate_tests", "fake_calls", "live_evidence"]);
   // An independent required list: removing a filter from the runner must fail.
-  assert.deepEqual(observed[1].args, ["node_modules/vitest/vitest.mjs", "--config", "vitest.workspace.ts", "run",
+  assert.deepEqual(observed[1].args, ["node_modules/vitest/vitest.mjs", "--config", "vitest.workspace.ts", "run", "--maxWorkers=1",
     "tests/acceptance/fake/voice-",
     "apps/cloud-gateway/test/security/voice-access-authority.test.ts",
     "apps/cloud-gateway/test/security/owner-access-security.test.ts",

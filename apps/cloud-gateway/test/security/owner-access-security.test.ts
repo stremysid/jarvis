@@ -13,6 +13,7 @@ import {
   OWNER_PRINCIPAL_ID,
   OWNER_SESSION_ID,
   seedOwnerAuthority,
+  verifyOwnerStepUpForTest,
 } from "../persistence/voice-access-fixture.js";
 
 const GUEST_E164 = "+14165550111";
@@ -64,6 +65,7 @@ async function mintOtherOwnerAuthority(authorities: VoiceAccessAuthorityService)
     .bind(now, OTHER_OWNER_SESSION_ID).run();
   await env.DB.prepare("UPDATE call_sessions SET phase = 'pre_auth', updated_at = ? WHERE session_id = ?")
     .bind(now, OTHER_OWNER_SESSION_ID).run();
+  await verifyOwnerStepUpForTest(env.DB, OTHER_OWNER_SESSION_ID, binding);
   return authorities.mintOwner({ sessionId: OTHER_OWNER_SESSION_ID, binding, now: NOW });
 }
 
@@ -82,12 +84,12 @@ describe("owner access security", () => {
   beforeEach(async () => {
     await clearVoiceAccessFixture(env.DB);
     repository = new VoiceAccessRepository(env.DB);
-    await seedOwnerAuthority(env.DB, repository);
+    await seedOwnerAuthority(env.DB, repository, { stepUpVerified: true });
     registry = new CapabilityRegistry({
       installed: ["conversation.basic", "research.web", "access.manage"],
     });
     authorities = new VoiceAccessAuthorityService(repository, registry);
-    ownerAuthority = await authorities.mintOwner({
+    ownerAuthority = await authorities.rehydrate({
       sessionId: OWNER_SESSION_ID,
       binding: ownerBinding(),
       now: NOW,
@@ -362,7 +364,7 @@ describe("owner access security", () => {
       },
     });
     const faultAuthorities = new VoiceAccessAuthorityService(faultRepository, registry);
-    const faultOwner = await faultAuthorities.mintOwner({
+    const faultOwner = await faultAuthorities.rehydrate({
       sessionId: OWNER_SESSION_ID,
       binding: ownerBinding(),
       now: NOW,

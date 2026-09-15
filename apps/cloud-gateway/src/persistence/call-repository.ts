@@ -50,18 +50,33 @@ const RELAY_BINDING_FIELDS = new Set([
   "accessKind", "guestGrantId", "guestGrantVersion", "accessDocumentHash",
 ]);
 
-const callSessionAdmissionErrors = new WeakSet<object>();
+export interface CallSessionAdmissionContext {
+  readonly code: "inbound_session_rejected" | "call_session_capacity" | "call_session_conflict" | "call_session_expired";
+  readonly principalId: string | null;
+  readonly accessKind: "owner" | "guest" | null;
+}
+
+const callSessionAdmissionErrors = new WeakMap<object, CallSessionAdmissionContext>();
 
 export function callSessionAdmissionFailure(
-  code: "inbound_session_rejected" | "call_session_capacity" | "call_session_conflict" | "call_session_expired",
+  code: CallSessionAdmissionContext["code"],
+  context: Readonly<{ principalId: string; accessKind: "owner" | "guest" }> | null = null,
 ): Error {
   const error = new Error(code);
-  callSessionAdmissionErrors.add(error);
+  callSessionAdmissionErrors.set(error, Object.freeze({
+    code,
+    principalId: context?.principalId ?? null,
+    accessKind: context?.accessKind ?? null,
+  }));
   return error;
 }
 
 export function isCallSessionAdmissionError(error: unknown): boolean {
   return error !== null && typeof error === "object" && callSessionAdmissionErrors.has(error);
+}
+
+export function callSessionAdmissionContext(error: unknown): CallSessionAdmissionContext | null {
+  return error !== null && typeof error === "object" ? callSessionAdmissionErrors.get(error) ?? null : null;
 }
 
 export type ProviderDispatchState = "ready" | "claimed" | "dispatched" | "rejected" | "provider_dispatch_unknown";
@@ -819,7 +834,10 @@ export class CallRepository {
       return this.requireInboundSessionReplay(stored, callerE164, currentChallengeHmacKeyVersion as string, nowIso, candidate);
     }
     const active = await this.countActiveSessions({ principalId: candidate.principalId, now: new Date(nowIso) });
-    if (active >= 2) throw callSessionAdmissionFailure("call_session_capacity");
+    if (active >= 2) throw callSessionAdmissionFailure("call_session_capacity", {
+      principalId: candidate.principalId,
+      accessKind: candidate.kind,
+    });
     if (insertError instanceof Error && /UNIQUE constraint failed: call_sessions\.call_sid/u.test(insertError.message)) {
       throw callSessionAdmissionFailure("call_session_conflict");
     }
@@ -862,15 +880,32 @@ export class CallRepository {
         AND a.provider_dispatch_state = 'dispatched'
         AND NOT EXISTS (${terminalStatusEvent("a.attempt_id")})
         AND (
-          SELECT COUNT(*) FROM call_sessions s
-          WHERE s.principal_id = ?4
-            AND s.phase NOT IN ('completed', 'rejected', 'failed', 'expired')
-            AND NOT (
-              s.direction = 'inbound'
-              AND s.provider_session_id IS NULL
-              AND s.relay_setup_expires_at <= ?1
+          (
+            SELECT COUNT(*) FROM call_sessions s
+            WHERE s.principal_id = ?4
+              AND s.phase NOT IN ('completed', 'rejected', 'failed', 'expired')
+              AND NOT (
+                s.direction = 'inbound'
+                AND s.provider_session_id IS NULL
+                AND s.relay_setup_expires_at <= ?1
+              )
+          ) < 2
+          OR ?8 = 'owner'
+            AND NOT EXISTS (
+              SELECT 1 FROM call_sessions outbound_owner
+              WHERE outbound_owner.principal_id = ?4
+                AND outbound_owner.direction = 'outbound'
+                AND outbound_owner.access_kind = 'owner'
+                AND outbound_owner.phase NOT IN ('completed', 'rejected', 'failed', 'expired')
             )
-        ) < 2`)
+            AND 2 = (
+              SELECT COUNT(*) FROM call_sessions inbound_owner
+              WHERE inbound_owner.principal_id = ?4
+                AND inbound_owner.direction = 'inbound'
+                AND inbound_owner.access_kind = 'owner'
+                AND inbound_owner.phase = 'pre_auth'
+            )
+        )`)
         .bind(
           nowIso,
           attemptId,
@@ -891,7 +926,10 @@ export class CallRepository {
     const stored = await this.readCallSessionById(attemptId);
     if (stored !== null) return this.requireOutboundSessionReplay(stored, attemptId, binding);
     const active = await this.countActiveSessions({ principalId: binding.principalId, now: new Date(nowIso) });
-    if (active >= 2) throw callSessionAdmissionFailure("call_session_capacity");
+    if (active >= 2) throw callSessionAdmissionFailure("call_session_capacity", {
+      principalId: binding.principalId,
+      accessKind: binding.accessKind,
+    });
     if (insertError instanceof Error && /UNIQUE constraint failed/u.test(insertError.message)) {
       throw callSessionAdmissionFailure("call_session_conflict");
     }

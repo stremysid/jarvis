@@ -5,6 +5,7 @@ import { EventRepository } from "../../../apps/cloud-gateway/src/persistence/eve
 import { ArchivalService } from "../../../apps/cloud-gateway/src/archive/archival-service.js";
 import { resetArchiveFixture } from "../../../apps/cloud-gateway/test/archive/archive-fixture.js";
 import { createFakeCallingSystem, createFakeOutboundCallingSystem } from "./voice-call-system.js";
+import { FAKE_OWNER_PASSPHRASE } from "./voice-access-system.js";
 
 describe("fake voice call path", () => {
   it.each(["inbound", "outbound"] as const)("requests bounded 5xx retries for %s cleanup and verifies fragment-free signatures", async (direction) => {
@@ -23,6 +24,7 @@ describe("fake voice call path", () => {
       expect(await response.text()).toContain('action="https://jarvis.example/voice/relay-ended#rc=2&amp;rp=ct,rt,5xx"');
       const call = await system.openRelay();
       await call.setup();
+      await call.prompt(FAKE_OWNER_PASSPHRASE);
       const send = direction === "outbound"
         ? () => system.sendStatus(call.callSid, "completed", 1)
         : () => system.sendRelayEnded(call.callSid, "ended");
@@ -31,7 +33,7 @@ describe("fake voice call path", () => {
       await expect(call.phase()).resolves.toBe("completed");
       expect(system.terminations()).toHaveLength(2);
     } finally { await system.cleanup(); }
-  });
+  }, 20_000);
 
   it("admits the owner without a PIN and preserves two turns across an interruption", async () => {
     const system = await createFakeCallingSystem({ manualModel: true });
@@ -46,9 +48,11 @@ describe("fake voice call path", () => {
       const call = await system.openRelay();
       expect(call.upgradeStatus).toBe(101);
       await call.setup();
+      await call.prompt(FAKE_OWNER_PASSPHRASE);
+      system.advanceTime(2_001);
       await expect(call.phase()).resolves.toBe("active");
       await expect(system.pinAttempts()).resolves.toBe(0);
-      expect(call.frames()).toEqual([]);
+      expect(call.frames().map((frame) => frame.token)).toEqual(["Passphrase, please.", "Verified."]);
 
       const interrupted = call.prompt("Remember the jasmine tea preference.");
       await vi.waitFor(async () => expect(await call.modelRequests()).toHaveLength(1));
@@ -95,9 +99,13 @@ describe("fake voice call path", () => {
       expect((await system.claimOutboundTwiML(callSid)).status).toBe(200);
       const call = await system.openRelay();
       await call.setup();
+      await call.prompt(FAKE_OWNER_PASSPHRASE);
+      system.advanceTime(2_001);
       await expect(call.phase()).resolves.toBe("active");
       await expect(system.pinAttempts()).resolves.toBe(0);
-      expect(call.frames().map((frame) => frame.token).join("")).toBe("Jarvis called for Sid. No private message was left.");
+      expect(call.frames().map((frame) => frame.token).join("|")).toBe(
+        "Jarvis called for Sid. No private message was left.|Passphrase, please.|Verified.",
+      );
       await call.prompt("Please give a brief answer.");
       expect((await call.modelRequests()).map((request) => request.principalId)).toEqual(["principal:owner"]);
       await expect(call.turns()).resolves.toEqual([
@@ -141,6 +149,7 @@ describe("fake voice call path", () => {
       await system.claimOutboundTwiML(callSid);
       const call = await system.openRelay();
       await call.setup();
+      await call.prompt(FAKE_OWNER_PASSPHRASE);
       for (const [sequence, status] of ["initiated", "ringing", "in-progress"].entries()) {
         expect((await system.sendStatus(callSid, status, sequence)).status).toBe(204);
         await expect(call.phase()).resolves.toBe("active");
@@ -208,6 +217,7 @@ describe("fake voice call path", () => {
       await system.claimOutboundTwiML(callSid);
       const call = await system.openRelay();
       await call.setup();
+      await call.prompt(FAKE_OWNER_PASSPHRASE);
       await env.DB.prepare(`CREATE TRIGGER fixture_reject_callback BEFORE INSERT ON events
         WHEN NEW.event_type = 'provider.call_status'
         BEGIN SELECT RAISE(ABORT, 'fixture_callback_storage_failed'); END`).run();
@@ -261,6 +271,7 @@ describe("fake voice call path", () => {
       await system.inbound();
       const call = await system.openRelay();
       await call.setup();
+      await call.prompt(FAKE_OWNER_PASSPHRASE);
       expect((await system.sendRelayEnded(call.callSid, "ended", `VX${"7".repeat(32)}`)).status).toBe(503);
       expect(system.terminations()).toHaveLength(0);
       await expect(call.phase()).resolves.toBe("active");
@@ -285,6 +296,8 @@ describe("fake voice call path", () => {
       await system.claimOutboundTwiML(callSid);
       const call = await system.openRelay();
       await call.setup();
+      await call.prompt(FAKE_OWNER_PASSPHRASE);
+      system.advanceTime(2_001);
       const turn = call.prompt("Please answer briefly.");
       await vi.waitFor(async () => expect(await call.modelRequests()).toHaveLength(1));
       expect((await system.sendStatus(callSid, "completed", 1)).status).toBe(503);
@@ -312,6 +325,7 @@ describe("fake voice call path", () => {
       await system.claimOutboundTwiML(callSid);
       const call = await system.openRelay();
       await call.setup();
+      await call.prompt(FAKE_OWNER_PASSPHRASE);
       expect((await system.sendStatus(callSid, "failed", 1)).status).toBe(204);
       expect((await system.sendStatus(callSid, "completed", 2)).status).toBe(204);
       expect((await system.sendRelayEnded(callSid, "ended")).status).toBe(204);
@@ -361,6 +375,8 @@ describe("fake voice call path", () => {
       await system.inbound();
       const call = await system.openRelay();
       await call.setup();
+      await call.prompt(FAKE_OWNER_PASSPHRASE);
+      system.advanceTime(2_001);
       const started = performance.now();
       const stalled = call.prompt("Please answer within the call's model budget.");
       await vi.waitFor(async () => expect(await call.modelRequests()).toHaveLength(1));
@@ -396,6 +412,8 @@ describe("fake voice call path", () => {
       await system.inbound();
       const call = await system.openRelay();
       await call.setup();
+      await call.prompt(FAKE_OWNER_PASSPHRASE);
+      system.advanceTime(2_001);
       const json = JSON.stringify({ type: "prompt", voicePrompt: "A partial café prompt", lang: "en-US", last: false });
       const boundary = json + " ".repeat(65_536 - new TextEncoder().encode(json).byteLength);
       expect(new TextEncoder().encode(boundary).byteLength).toBe(65_536);

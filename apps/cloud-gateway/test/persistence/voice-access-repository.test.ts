@@ -341,6 +341,12 @@ describe("VoiceAccessRepository", () => {
       .bind(`VX${"6".repeat(32)}`, now, now, secondSessionId).run();
     await env.DB.prepare("UPDATE call_sessions SET phase = 'connecting' WHERE session_id = ?").bind(secondSessionId).run();
     await env.DB.prepare("UPDATE call_sessions SET phase = 'pre_auth' WHERE session_id = ?").bind(secondSessionId).run();
+    await env.DB.prepare(`INSERT INTO owner_call_step_up_bindings (
+      session_id, call_sid, owner_principal_id, owner_identity_id, direction,
+      lifecycle_generation, requirement, attestation_class, policy, created_at
+    ) VALUES (?, ?, ?, ?, 'inbound', 1, 'waived_passed_a', 'passed_a', 'waive_on_passed_a', ?)`)
+      .bind(secondSessionId, `CA${"6".repeat(32)}`, OWNER_PRINCIPAL_ID, OWNER_IDENTITY_ID, now)
+      .run();
     const binding: RelayBinding = {
       callSid: `CA${"6".repeat(32)}`,
       principalId: OWNER_PRINCIPAL_ID,
@@ -359,6 +365,24 @@ describe("VoiceAccessRepository", () => {
     await expect(repository.requireCurrentAuthority(minted, NOW)).resolves.toEqual(minted);
     await expect(repository.requireCurrentAuthority({ ...minted }, NOW))
       .rejects.toThrow("call_authority_invalid");
+
+    const verifierGuard = await env.DB.prepare(`SELECT sql FROM sqlite_schema
+      WHERE type = 'trigger' AND name = 'owner_passphrase_verifiers_transition_guard'`)
+      .first<{ sql: string }>();
+    if (verifierGuard === null) throw new Error("owner_passphrase_verifier_guard_missing");
+    await env.DB.prepare("DROP TRIGGER owner_passphrase_verifiers_transition_guard").run();
+    await env.DB.prepare(`UPDATE owner_passphrase_verifiers
+      SET status = 'revoked', status_changed_at = ? WHERE status = 'active'`).bind(now).run();
+    try {
+      await expect(repository.rehydrateAuthority({ sessionId: secondSessionId, binding, now: NOW }))
+        .rejects.toThrow("call_authority_invalid");
+      await expect(repository.requireCurrentAuthority(minted, NOW))
+        .rejects.toThrow("call_authority_stale");
+    } finally {
+      await env.DB.prepare(`UPDATE owner_passphrase_verifiers
+        SET status = 'active', status_changed_at = created_at WHERE status = 'revoked'`).run();
+      await env.DB.prepare(verifierGuard.sql).run();
+    }
 
     await repository.createGuestGrant(validCreateInput(ownerAuthority));
     await env.DB.prepare(`UPDATE voice_access_grants SET status = 'active', activated_at = ?, updated_at = ?
