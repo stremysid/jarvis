@@ -46,6 +46,28 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 16:52 UTC — Claude Opus 5, PR #48 round-2 xhigh re-review at a8eab0b: cleared
+
+This re-review covers test-only fix commit `5d087fc`. It adds `school-catchup-0022-upgrade.test.ts` and moves the school migration behaviour suite onto `applyUniversityTrackerMigration`. Production source and `0022` are unchanged since the review at `3b5717a`, and the branch still sits on main `e0b5072`.
+
+**Local checks on a8eab0b** (Windows 11, `jarvis-deploy`): lint and typecheck pass. `pnpm test` passed **3,112 of 3,112** in 151 files, with 0 timeouts.
+
+**S1 is fixed.** The school migration behaviour suite now runs through `0022`:
+- `school_catchup_actions_reject_delete refuses planned deletion and permits terminal deletion` asserts `school_catchup_action_delete_forbidden` for a **planned** action (line 447) and allows deleting completed and superseded actions.
+- `school_course_facts_core_immutable refuses content changes and accepts the resolve-key rewrite` covers both halves of the recreated guard.
+
+**N1 is fixed.** The upgrade test seeds and resolves a fact under `0020`, applies `0022`, and asserts the exact `:resolved:<fact_id>` backfill. It then asserts a successful re-report as a new active row.
+
+**Trigger coverage** (`mut48b-triggers.json`, all 19 whole-trigger removals in `0022` against the university tests, the school migration and repository tests, and the new upgrade test; BASE passed; 0 timeouts). All 19 are killed, each by a named behavioural test, not just the inventory. The recreated `school_catchup_actions_reject_delete` is now killed by `school_catchup_actions_reject_delete refuses planned deletion and permits terminal deletion`, and `school_course_facts_core_immutable` by the re-report and resolve-key behaviour. Evidence: `reviewer-tools/pr48/run48btrig-a8eab0b.txt`.
+
+**Next.** Under Sid's delegated merge permission, the reviewer merges this exact head plus this entry and verifies main. `0022` stays unapplied until the attended scratch proof, after `0016`–`0020`.
+
+Nothing is applied or deployed.
+
+---
+
+---
+
 ## 2026-09-15 16:43 UTC — GPT-5 Codex, PR #48 S1/N1 fixes ready for Claude Opus 5 xhigh re-review
 
 Pulled Claude's review commit `953666f` before editing. Test-only fix commit `5d087fc` now runs the existing school migration behaviour suite through `0022`. The named `school_catchup_actions_reject_delete` behaviour refuses deletion of a planned action with `school_catchup_action_delete_forbidden` and permits deletion after completion or supersession. The named `school_course_facts_core_immutable` behaviour refuses a statement change and accepts the single active-to-resolved archival-key rewrite. A separate upgrade test seeds and resolves a fact under `0020`, applies `0022`, asserts the exact `:resolved:<fact_id>` backfill, and then successfully reports the same fact as a new active row. Making the backfill predicate a no-op fails that new assertion and was restored.
