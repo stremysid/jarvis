@@ -15,17 +15,17 @@ quiz/flashcard coach, and the full university-application track. R5 deadline
 ingestion depends on the deployed R0 gateway, not on PC control; its
 evidence-based weak-spot memory integrates with R2 as that interface lands.
 
-The plan cleared in merged PR #41 and Classroom hourly ingestion merged in PR
-#43. The current first code slice adds the live bot's conversational course
-intake, one evidence-labelled card per course, a replanned daily recovery
-sequence, and today's actions in the morning digest. It uses the existing
-Telegram conversation stack and does not wait for R2 or a school connector.
-Its additive `0020_school_catchup.sql` remains an unapplied candidate until
-review and owner-controlled merge and migration steps. Next: a minimal program
-tracker with current official requirements and dates labelled verified or
-unverified. The Brightspace calendar feed remains a separate PR; none of these
-slices authorizes OAuth consent, a secret operation, migration, deployment,
-school contact or live account access.
+The plan cleared in merged PR #41, Classroom hourly ingestion merged in PR #43,
+and the first live-bot catch-up slice merged in PR #45. The current second code
+slice adds a bounded university program tracker to the same ordinary Telegram
+conversation: programs, requirements and dates are each labelled `verified` or
+`unverified`, and verified details retain their current official source and
+admission cycle. It also closes PR #45 follow-ups F1-F3. Its additive
+`0022_university_tracker.sql` remains an unapplied candidate; `0021` is reserved
+by the concurrent PR #46 work. Next: the Brightspace calendar feed in its own
+PR. None of these slices authorizes OAuth consent, a secret operation,
+migration, deployment, school or university contact, purchase, sign-up,
+submission or live account access.
 
 ## R2 cloud-memory runtime next
 
