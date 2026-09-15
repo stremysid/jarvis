@@ -46,7 +46,7 @@ the wrong shape for this file.
 
 ---
 
-## 2026-09-15 21:26 UTC — GPT-6 Codex, PR #52 ready for Claude max review at 7e05542
+## 2026-09-15 21:26 UTC — GPT-6 Codex, PR #52 ready for Claude max review at 61a0377
 
 Draft [PR #52](https://github.com/ksid1229-ops/jarvis/pull/52) is based on
 current main `ebb757b`; `git diff --stat origin/main...HEAD` contains only this
@@ -57,19 +57,20 @@ branch, so this PR adds `0024_university_application_workflow.sql`.
 The existing ordinary owner Telegram conversation now maintains per-program
 supplement, essay, personal-statement, reference, transcript and scholarship
 items with not-started, drafting, ready and submitted-by-Sid states. Status and
-date changes require exact current-owner evidence; verified dates retain the
-current official HTTPS source and cycle, while unpublished or owner-supplied
-unverified dates stay visibly unverified. The digest lists the next five
+date changes require exact current-owner evidence, and non-null date evidence
+must contain the date. Verified dates retain the current official HTTPS source
+and cycle, while unpublished or owner-supplied unverified dates stay visibly
+unverified. A submitted state requires the whole current owner message and a
+positive first-person report, so conditional, negated or cropped claims fail.
+The digest lists the next five
 unfinished items by due date. Submitted-by-Sid records only Sid's report. The
 shared reply guard also covers uploads and every ordinary/save-failure fallback
 used here, so Jarvis cannot claim an external action.
 
-**Local checks on 7e05542** (Windows 11, isolated application worktree): lint
-and production typecheck pass. The final full suite passes 3,261/3,261 in 160
+**Local checks on 61a0377** (Windows 11, isolated application worktree): lint
+and production typecheck pass. The final full suite passes 3,265/3,265 in 160
 files. The non-gating test typecheck reports the same 142 pre-existing
-diagnostics as `origin/main`, with none in this slice's changed paths. The
-related university, migration, digest and school set passed 122/122 before the
-full run.
+diagnostics as `origin/main`, with none in this slice's changed paths.
 
 **Migration and mutation evidence.** The new table is `WITHOUT ROWID`, its
 insert guard rejects existing primary and natural keys under both REPLACE and
@@ -77,10 +78,11 @@ IGNORE, comments contain no semicolons, and triggers use D1-safe `SELECT RAISE
 ... WHERE`. A generic existing-row REPLACE/IGNORE sweep passes. With the
 reviewer tools at the final code head, BASE passes and all 7 whole-trigger
 removals are killed by their matching named behavior tests. A separate BASE
-passes and all 8 application guard mutations are killed: configured-owner
-writes, submitted-by-Sid evidence, current-message evidence, external-action
-replacement, ordinary and save-failure guard routing, digest verification
-labels, and submitted-item exclusion. There were no timeouts or invalid runs.
+passes and all 10 application guard mutations are killed: configured-owner
+writes; whole-message and positive-context submitted-by-Sid evidence;
+current-message and date-content evidence; external-action replacement;
+ordinary and save-failure guard routing; digest verification labels; and
+submitted-item exclusion. There were no timeouts or invalid runs.
 
 No migration was applied and no deploy, secret operation, account access, live
 request, submission, upload, contact, sign-up, spend or merge occurred. Please
