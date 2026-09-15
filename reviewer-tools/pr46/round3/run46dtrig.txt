@@ -1,0 +1,93 @@
+checked out 2c67441 at 2c67441
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  7 passed (7)
+   Tests  220 passed (220)
+
+== T-owner_call_step_up_disabled_rejections_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts (35 tests | 1 failed) 41317ms
+   Test Files  2 failed | 5 passed (7)
+   Tests  2 failed | 218 passed (220)
+   × pins every 0021 trigger as one complete named definition 4ms
+   × rejects INSERT OR IGNORE and INSERT OR REPLACE collisions on durable refusal rows 1005ms
+
+== T-owner_call_step_up_disabled_rejections_terminalize: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts (126 tests | 1 failed) 149106ms
+   Test Files  4 failed | 3 passed (7)
+   Tests  8 failed | 212 passed (220)
+   × pins every 0021 trigger as one complete named definition 5ms
+   × pins durable guest PIN attempt order, immutability, and deletion 5260ms
+   × rejects with the fixed refusal when step-up is disabled before the relay begins 1323ms
+   × rejects a disabled passed-A waiver with the fixed refusal instead of closing the relay as failed 1071ms
+
+== T-owner_call_step_up_disabled_rejections_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts (35 tests | 1 failed) 47934ms
+   Test Files  2 failed | 5 passed (7)
+   Tests  2 failed | 218 passed (220)
+   × pins every 0021 trigger as one complete named definition 5ms
+   × keeps disabled rejections and completed rejection deliveries immutable and append-only 1046ms
+
+== T-owner_call_step_up_disabled_rejections_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts (35 tests | 1 failed) 51610ms
+   Test Files  2 failed | 5 passed (7)
+   Tests  2 failed | 218 passed (220)
+   × pins every 0021 trigger as one complete named definition 4ms
+   × keeps disabled rejections and completed rejection deliveries immutable and append-only 1099ms
+
+== T-owner_call_step_up_rejection_deliveries_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts (35 tests | 1 failed) 40588ms
+   Test Files  2 failed | 5 passed (7)
+   Tests  2 failed | 218 passed (220)
+   × pins every 0021 trigger as one complete named definition 4ms
+   × rejects INSERT OR IGNORE and INSERT OR REPLACE collisions on durable refusal rows 996ms
+
+== T-owner_call_step_up_rejection_deliveries_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts (35 tests | 1 failed) 54821ms
+   Test Files  2 failed | 5 passed (7)
+   Tests  2 failed | 218 passed (220)
+   × pins every 0021 trigger as one complete named definition 4ms
+   × keeps disabled rejections and completed rejection deliveries immutable and append-only 1197ms
+
+== T-owner_call_step_up_rejection_deliveries_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts (35 tests | 1 failed) 44695ms
+   Test Files  2 failed | 5 passed (7)
+   Tests  2 failed | 218 passed (220)
+   × pins every 0021 trigger as one complete named definition 5ms
+   × keeps disabled rejections and completed rejection deliveries immutable and append-only 1162ms
+
+== T-guest_grant_notices_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/voice/guest-grant-notice.test.ts (7 tests | 1 failed) 7819ms
+   Test Files  2 failed | 5 passed (7)
+   Tests  2 failed | 218 passed (220)
+   × pins every 0021 trigger as one complete named definition 6ms
+   × rejects INSERT OR IGNORE and INSERT OR REPLACE collisions on pending notice rows 1295ms
+
+== T-guest_grant_notices_transition_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/voice/guest-grant-notice.test.ts (7 tests | 1 failed) 7396ms
+   Test Files  2 failed | 5 passed (7)
+   Tests  2 failed | 218 passed (220)
+   × pins every 0021 trigger as one complete named definition 5ms
+   × refuses delivered notice rewrites, rollback to pending, key drift, and deletion 984ms
+
+== T-guest_grant_notices_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/voice/guest-grant-notice.test.ts (7 tests | 1 failed) 7189ms
+   Test Files  2 failed | 5 passed (7)
+   Tests  2 failed | 218 passed (220)
+   × pins every 0021 trigger as one complete named definition 6ms
+   × refuses delivered notice rewrites, rollback to pending, key drift, and deletion 995ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-owner_call_step_up_disabled_rejections_insert_guard
+KILLED    T-owner_call_step_up_disabled_rejections_terminalize
+KILLED    T-owner_call_step_up_disabled_rejections_immutable
+KILLED    T-owner_call_step_up_disabled_rejections_delete_forbidden
+KILLED    T-owner_call_step_up_rejection_deliveries_insert_guard
+KILLED    T-owner_call_step_up_rejection_deliveries_immutable
+KILLED    T-owner_call_step_up_rejection_deliveries_delete_forbidden
+KILLED    T-guest_grant_notices_insert_guard
+KILLED    T-guest_grant_notices_transition_guard
+KILLED    T-guest_grant_notices_delete_forbidden
+back on main, tree clean=true
+(node:17772) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

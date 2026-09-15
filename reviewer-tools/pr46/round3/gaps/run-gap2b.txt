@@ -1,0 +1,40 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/http/inbound-voice.test.ts apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts apps/cloud-gateway/test/voice/call-session-do.test.ts tests/acceptance/fake/voice-owner-call-step-up.test.ts tests/acceptance/fake/voice-owner-passphrase-security.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr40
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+ ❯ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts (35 tests | 1 failed) 42674ms
+     × preserves mismatch ordinals across a Durable Object hibernation boundary 1697ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > preserves mismatch ordinals across a Durable Object hibernation boundary
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ tests/acceptance/fake/voice-owner-call-step-up.test.ts:245:87
+    243|       expect(await call.phase()).toBe("rejected");
+    244|       expect(await authorityCount(call.sessionId)).toBe(0);
+    245|       expect(call.frames().filter((frame) => frame.token === OWNER_STE…
+       |                                                                                       ^
+    246|       expect(call.frames()).toContainEqual({ type: "end", handoffData:…
+    247|       expect(call.stepUpAlerts()).toEqual([{
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 4 passed (5)
+      Tests  1 failed | 239 passed (240)
+   Start at  16:16:02
+   Duration  124.51s (transform 2.94s, setup 0ms, import 7.86s, tests 223.63s, environment 0ms)
+

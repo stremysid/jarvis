@@ -1,0 +1,461 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/http/inbound-voice.test.ts apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts apps/cloud-gateway/test/voice/call-session-do.test.ts tests/acceptance/fake/voice-owner-call-step-up.test.ts tests/acceptance/fake/voice-owner-passphrase-security.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr40
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 3 failed) 12395ms
+     × pins success provenance plus immutable success receipts 2174ms
+     × pins repeat-check timing, one-way resolution, and deletion 1030ms
+     × rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys 1120ms
+ ❯ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts (35 tests | 5 failed) 36768ms
+     × commits the exact success receipt before admitting an inbound owner 1037ms
+     × commits the exact success receipt before admitting an outbound owner 1056ms
+     × does not carry a rejected call's three attempts into a later owner call 1093ms
+     × commits the durable attempt ordinal before starting the 600,000-round verifier 921ms
+     × measures both 600,000-round admission and repeat-suppression KDF paths 951ms
+ ❯ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts (38 tests | 7 failed) 39805ms
+     × requires a real successful verifier result and keeps every inbound candidate representation out of named sinks 1060ms
+     × requires a real successful verifier result and keeps every outbound candidate representation out of named sinks 985ms
+     × suppresses the first post-success phrase repeat before any transcript or model call 963ms
+     × assembles and suppresses a split post-success phrase repeat before any sink 955ms
+     × passes a nonmatching first candidate-shaped final through as ordinary owner speech 889ms
+     × stops buffering short word-list replies after the bounded split-repeat window 854ms
+     × assembles split finals, discards fixed echoes, and clears partial fragments on interruption 866ms
+ ❯ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts (126 tests | 10 failed) 189908ms
+     × clears active authority and transient interaction state on terminal callback invalidation 968ms
+     × ignores a final arriving during KDF work instead of replacing the window alarm 15349ms
+     × alerts the owner when the relay disconnects during the third KDF (close throws=false) 30296ms
+     × alerts the owner when the relay disconnects during the third KDF (close throws=true) 30534ms
+     × executes a recognized owner access draft only after explicit PIN selection and exact confirmation 911ms
+     × keeps ordinary confirm in conversation when no issued owner proposal is current 854ms
+     × invalidates an interrupted proposal and clears partial owner PIN input before a replacement 931ms
+     × drops an issued owner proposal and partial PIN across a core restart 863ms
+     × shares the production owner authority with confirmed access administration without calling the model 972ms
+     × forwards the outbound pre-authentication contract into the production runtime 1576ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 25 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > commits the exact success receipt before admitting an inbound owner
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > commits the exact success receipt before admitting an outbound owner
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ tests/acceptance/fake/voice-owner-call-step-up.test.ts:191:34
+    189|       expect(await authorityCount(call.sessionId)).toBe(0);
+    190|       await call.prompt(FAKE_OWNER_PASSPHRASE);
+    191|       expect(await call.phase()).toBe("active");
+       |                                  ^
+    192|       expect(await authorityCount(call.sessionId)).toBe(1);
+    193|       expect(await env.DB.prepare(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/25]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > does not carry a rejected call's three attempts into a later owner call
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ tests/acceptance/fake/voice-owner-call-step-up.test.ts:333:35
+    331|       await later.prompt(FAKE_OWNER_PASSPHRASE);
+    332|
+    333|       expect(await later.phase()).toBe("active");
+       |                                   ^
+    334|       expect(await authorityCount(later.sessionId)).toBe(1);
+    335|       expect(await system.ownerStepUpAttempts(later.sessionId)).toBe(1…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/25]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > commits the durable attempt ordinal before starting the 600,000-round verifier
+AssertionError: expected [] to deeply equal [ 1 ]
+
+- Expected
++ Received
+
+- [
+-   1,
+- ]
++ []
+
+ ❯ tests/acceptance/fake/voice-owner-call-step-up.test.ts:712:33
+    710|       })();
+    711|       await call.prompt("ablaze abrasion active");
+    712|       expect(reservationsAtKdf).toEqual([1]);
+       |                                 ^
+    713|       expect(spy.mock.calls[0]?.[0]).toMatchObject({ name: "PBKDF2", i…
+    714|     } finally {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/25]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > measures both 600,000-round admission and repeat-suppression KDF paths
+AssertionError: expected [] to deeply equal [ 600000, 600000 ]
+
+- Expected
++ Received
+
+- [
+-   600000,
+-   600000,
+- ]
++ []
+
+ ❯ tests/acceptance/fake/voice-owner-call-step-up.test.ts:741:26
+    739|       const repeatMs = performance.now() - repeatStart;
+    740|
+    741|       expect(iterations).toEqual([600_000, 600_000]);
+       |                          ^
+    742|       expect(admissionMs).toBeGreaterThan(0);
+    743|       expect(repeatMs).toBeGreaterThan(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/25]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > requires a real successful verifier result and keeps every inbound candidate representation out of named sinks
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > requires a real successful verifier result and keeps every outbound candidate representation out of named sinks
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ tests/acceptance/fake/voice-owner-passphrase-security.test.ts:392:36
+    390|         await call.prompt(spoken);
+    391|         expect(logs.slice(beforeCandidate)).toEqual([]);
+    392|         expect(await call.phase()).toBe("active");
+       |                                    ^
+    393|         expect(await ownerAuthorityCount(call.sessionId)).toBe(1);
+    394|         await expect(env.DB.prepare(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/25]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > suppresses the first post-success phrase repeat before any transcript or model call
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ tests/acceptance/fake/voice-owner-passphrase-security.test.ts:570:34
+    568|       const call = await openOwnerCall(system, "inbound");
+    569|       await call.prompt(FAKE_OWNER_PASSPHRASE);
+    570|       expect(await call.phase()).toBe("active");
+       |                                  ^
+    571|       await call.prompt("This final arrives inside the repeat guard.");
+    572|       expect(await call.modelRequests()).toEqual([]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/25]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > assembles and suppresses a split post-success phrase repeat before any sink
+AssertionError: expected null to deeply equal { outcome: 'matched' }
+
+- Expected:
+{
+  "outcome": "matched",
+}
+
++ Received:
+null
+
+ ❯ tests/acceptance/fake/voice-owner-passphrase-security.test.ts:599:38
+    597|       await expect(env.DB.prepare(
+    598|         "SELECT outcome FROM owner_call_step_up_repeat_checks WHERE se…
+    599|       ).bind(call.sessionId).first()).resolves.toEqual({ outcome: "mat…
+       |                                      ^
+    600|       const surfaces = evidenceText([
+    601|         call.frames(), await call.modelRequests(), await call.turns(),
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/25]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > passes a nonmatching first candidate-shaped final through as ordinary owner speech
+AssertionError: expected [] to deeply equal [ ObjectContaining{…} ]
+
+- Expected
++ Received
+
+- [
+-   ObjectContaining {
+-     "userText": "ablaze abrasion active",
+-   },
+- ]
++ []
+
+ ❯ tests/acceptance/fake/voice-owner-passphrase-security.test.ts:617:42
+    615|       await call.prompt(ordinary);
+    616|
+    617|       expect(await call.modelRequests()).toEqual([
+       |                                          ^
+    618|         expect.objectContaining({ userText: ordinary }),
+    619|       ]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/25]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > stops buffering short word-list replies after the bounded split-repeat window
+AssertionError: expected [] to deeply equal [ ObjectContaining{…} ]
+
+- Expected
++ Received
+
+- [
+-   ObjectContaining {
+-     "userText": "good",
+-   },
+- ]
++ []
+
+ ❯ tests/acceptance/fake/voice-owner-passphrase-security.test.ts:637:42
+    635|       system.advanceTime(5_000);
+    636|       await call.prompt("good");
+    637|       expect(await call.modelRequests()).toEqual([
+       |                                          ^
+    638|         expect.objectContaining({ userText: "good" }),
+    639|       ]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/25]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > assembles split finals, discards fixed echoes, and clears partial fragments on interruption
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ tests/acceptance/fake/voice-owner-passphrase-security.test.ts:653:34
+    651|       expect(await system.ownerStepUpAttempts(call.sessionId)).toBe(0);
+    652|       await call.prompt(FAKE_OWNER_PASSPHRASE);
+    653|       expect(await call.phase()).toBe("active");
+       |                                  ^
+    654|     } finally { await system.cleanup(); }
+    655|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/25]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts > owner call step-up migration > pins success provenance plus immutable success receipts
+AssertionError: promise resolved "{ success: true, meta: { …(8) }, …(1) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "meta": {
++     "changed_db": false,
++     "changes": 0,
++     "duration": 0,
++     "last_row_id": 1,
++     "rows_read": 2,
++     "rows_written": 0,
++     "served_by": "miniflare.db",
++     "size_after": 1138688,
++   },
++   "results": [],
++   "success": true,
+  }
+
+ ❯ expectUpdateAndDeleteRejected apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:34:45
+     32| ): Promise<void> {
+     33|   if (!/^[a-z0-9_]+$/u.test(table)) throw new Error("unsafe_test_table…
+     34|   await expect(env.DB.prepare(update).run()).rejects.toThrow(updateErr…
+       |                                             ^
+     35|   await expect(env.DB.prepare(`DELETE FROM ${table}`).run()).rejects.t…
+     36| }
+ ❯ apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:185:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/25]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts > owner call step-up migration > pins repeat-check timing, one-way resolution, and deletion
+Error: D1_ERROR: owner_call_step_up_repeat_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+ ❯ D1DatabaseSessionAlwaysPrimary._sendOrThrow cloudflare-internal:d1-api:188:19
+ ❯ cloudflare-internal:d1-api:478:19
+ ❯ apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:238:7
+    236|         .rejects.toThrow("owner_call_step_up_repeat_invalid");
+    237|       const reservedAt = "2026-08-30T12:00:03.000Z";
+    238|       await env.DB.prepare(`INSERT INTO owner_call_step_up_repeat_chec…
+       |       ^
+    239|         session_id, lifecycle_generation, verifier_version, reserved_a…
+    240|       ) VALUES (?, 1, 1, ?, NULL, NULL)`).bind(call.sessionId, reserve…
+
+Caused by: Error: owner_call_step_up_repeat_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+ ❯ D1DatabaseSessionAlwaysPrimary._sendOrThrow cloudflare-internal:d1-api:189:24
+ ❯ cloudflare-internal:d1-api:478:19
+ ❯ apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:238:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/25]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts > owner call step-up migration > rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys
+Error: D1_ERROR: owner_call_step_up_repeat_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+ ❯ D1DatabaseSessionAlwaysPrimary._sendOrThrow cloudflare-internal:d1-api:188:19
+ ❯ cloudflare-internal:d1-api:478:19
+ ❯ apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:283:7
+    281|       system.advanceTime(2_001);
+    282|       const repeatReservedAt = "2026-08-30T12:00:02.001Z";
+    283|       await env.DB.prepare(`INSERT INTO owner_call_step_up_repeat_chec…
+       |       ^
+    284|         session_id, lifecycle_generation, verifier_version, reserved_a…
+    285|       ) VALUES (?, 1, 1, ?, NULL, NULL)`).bind(successful.sessionId, r…
+
+Caused by: Error: owner_call_step_up_repeat_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+ ❯ D1DatabaseSessionAlwaysPrimary._sendOrThrow cloudflare-internal:d1-api:189:24
+ ❯ cloudflare-internal:d1-api:478:19
+ ❯ apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts:283:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/25]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > clears active authority and transient interaction state on terminal callback invalidation
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ authenticateOwnerAdministration apps/cloud-gateway/test/voice/call-session-do.test.ts:456:34
+    454|     type: "prompt", final: true, language: "en-US", text: OWNER_TEST_P…
+    455|   });
+    456|   expect(harness.instance.phase).toBe("active");
+       |                                  ^
+    457|   harness.advanceTime(OWNER_STEP_UP_REPEAT_MS + 1);
+    458| }
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:1067:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/25]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > ignores a final arriving during KDF work instead of replacing the window alarm
+Error: Test timed out in 15000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:1097:3
+    1095|   });
+    1096|
+    1097|   it("ignores a final arriving during KDF work instead of replacing th…
+       |   ^
+    1098|     const harness = await accessHarness("owner", undefined, true);
+    1099|     const deriveBits = crypto.subtle.deriveBits.bind(crypto.subtle);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/25]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > alerts the owner when the relay disconnects during the third KDF (close throws=false)
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > alerts the owner when the relay disconnects during the third KDF (close throws=true)
+Error: Test timed out in 30000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:1130:25
+    1128|   }, 15_000);
+    1129|
+    1130|   it.each([false, true])("alerts the owner when the relay disconnects …
+       |                         ^
+    1131|     const harness = await accessHarness("owner", undefined, true);
+    1132|     await harness.instance.handleRelayEvent(relaySetup(harness.stored)…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/25]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > executes a recognized owner access draft only after explicit PIN selection and exact confirmation
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ authenticateOwnerAdministration apps/cloud-gateway/test/voice/call-session-do.test.ts:456:34
+    454|     type: "prompt", final: true, language: "en-US", text: OWNER_TEST_P…
+    455|   });
+    456|   expect(harness.instance.phase).toBe("active");
+       |                                  ^
+    457|   harness.advanceTime(OWNER_STEP_UP_REPEAT_MS + 1);
+    458| }
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:1418:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/25]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > keeps ordinary confirm in conversation when no issued owner proposal is current
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ authenticateOwnerAdministration apps/cloud-gateway/test/voice/call-session-do.test.ts:456:34
+    454|     type: "prompt", final: true, language: "en-US", text: OWNER_TEST_P…
+    455|   });
+    456|   expect(harness.instance.phase).toBe("active");
+       |                                  ^
+    457|   harness.advanceTime(OWNER_STEP_UP_REPEAT_MS + 1);
+    458| }
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:1446:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/25]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > invalidates an interrupted proposal and clears partial owner PIN input before a replacement
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ authenticateOwnerAdministration apps/cloud-gateway/test/voice/call-session-do.test.ts:456:34
+    454|     type: "prompt", final: true, language: "en-US", text: OWNER_TEST_P…
+    455|   });
+    456|   expect(harness.instance.phase).toBe("active");
+       |                                  ^
+    457|   harness.advanceTime(OWNER_STEP_UP_REPEAT_MS + 1);
+    458| }
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:1464:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/25]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > drops an issued owner proposal and partial PIN across a core restart
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ authenticateOwnerAdministration apps/cloud-gateway/test/voice/call-session-do.test.ts:456:34
+    454|     type: "prompt", final: true, language: "en-US", text: OWNER_TEST_P…
+    455|   });
+    456|   expect(harness.instance.phase).toBe("active");
+       |                                  ^
+    457|   harness.advanceTime(OWNER_STEP_UP_REPEAT_MS + 1);
+    458| }
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:1505:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/25]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > shares the production owner authority with confirmed access administration without calling the model
+AssertionError: expected null to deeply equal { status: 'pending' }
+
+- Expected:
+{
+  "status": "pending",
+}
+
++ Received:
+null
+
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:2405:84
+    2403|     expect(await env.DB.prepare("SELECT count(*) AS count FROM voice_a…
+    2404|     await call.prompt("confirm");
+    2405|     expect(await env.DB.prepare("SELECT status FROM voice_access_grant…
+       |                                                                                    ^
+    2406|     expect(globalThis.fetch).not.toHaveBeenCalled();
+    2407|     expect(call.close).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/25]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > forwards the outbound pre-authentication contract into the production runtime
+AssertionError: expected 'pre_auth' to be 'active' // Object.is equality
+
+Expected: "active"
+Received: "pre_auth"
+
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:2451:51
+    2449|         .toEqual({ type: "text", token: OUTBOUND_VOICEMAIL_MESSAGE, la…
+    2450|       await call.prompt(OWNER_TEST_PHRASE);
+    2451|       expect(await storedPhase(stored.sessionId)).toBe("active");
+       |                                                   ^
+    2452|       expect(call.close).not.toHaveBeenCalled();
+    2453|       expect(globalThis.fetch).not.toHaveBeenCalled();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/25]⎯
+
+
+ Test Files  4 failed | 1 passed (5)
+      Tests  25 failed | 215 passed (240)
+   Start at  16:10:43
+   Duration  193.23s (transform 2.86s, setup 0ms, import 7.56s, tests 278.90s, environment 0ms)
+

@@ -1,0 +1,37 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/http/inbound-voice.test.ts apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts apps/cloud-gateway/test/voice/call-session-do.test.ts tests/acceptance/fake/voice-owner-call-step-up.test.ts tests/acceptance/fake/voice-owner-passphrase-security.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr40
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+ ❯ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts (38 tests | 1 failed) 61270ms
+     × does not let outbound keypad code 4827 authenticate an owner 1514ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let outbound keypad code 4827 authenticate an owner
+AssertionError: expected 'active' to be 'pre_auth' // Object.is equality
+
+Expected: "pre_auth"
+Received: "active"
+
+ ❯ tests/acceptance/fake/voice-owner-passphrase-security.test.ts:432:34
+    430|       const call = await openOwnerCall(system, direction);
+    431|       await call.pin(new TextEncoder().encode(code));
+    432|       expect(await call.phase()).toBe("pre_auth");
+       |                                  ^
+    433|       expect(await ownerAuthorityCount(call.sessionId)).toBe(0);
+    434|       expect(await system.ownerStepUpAttempts(call.sessionId)).toBe(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 4 passed (5)
+      Tests  1 failed | 239 passed (240)
+   Start at  16:28:38
+   Duration  147.15s (transform 4.69s, setup 0ms, import 11.78s, tests 284.16s, environment 0ms)
+

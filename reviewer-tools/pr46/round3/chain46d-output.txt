@@ -1,0 +1,59 @@
+head 2c67441
+lockfile unchanged
+lint exit 0
+typecheck exit 0
+typecheck:voice-access exit 0
+test exit 0
+ Test Files  157 passed (157)
+      Tests  3217 passed (3217)
+test timeouts: 0
+voice-access exit 0
+ℹ pass 6
+ℹ fail 0
+ Test Files  35 passed (35)
+      Tests  874 passed (874)
+voice timeouts: 0
+== gap base: exit=0  Tests 240 passed (240) timeouts=0 clean=yes
+== gap gap0: exit=1  Tests 25 failed | 215 passed (240) timeouts=2 clean=yes
+== gap gap1: exit=1  Tests 14 failed | 226 passed (240) timeouts=0 clean=yes
+== gap gap2b: exit=1  Tests 1 failed | 239 passed (240) timeouts=0 clean=yes
+== gap gap3b: exit=1  Tests 1 failed | 239 passed (240) timeouts=0 clean=yes
+== gap gap3c: exit=1  Tests 3 failed | 237 passed (240) timeouts=0 clean=yes
+== gap gap3d: exit=1  Tests 2 failed | 238 passed (240) timeouts=0 clean=yes
+== gap gap3e: exit=1  Tests 2 failed | 238 passed (240) timeouts=0 clean=yes
+== gap gap6: exit=1  Tests 2 failed | 238 passed (240) timeouts=0 clean=yes
+== gap gap6b: exit=1  Tests 1 failed | 239 passed (240) timeouts=0 clean=yes
+core probes exit 1
+     × Q1c: deadline alarm during a frame-path rejection blocked in binding() completes it twice 3975ms
+     × Q2c: deadline alarm while the frame-path rejection awaits the alert sink completes it twice 3766ms
+     × Q3c: a failed final alarm clear makes the retry refuse, end and alert a second time 770ms
+     × Q6c: a throwing alarm clear in handleSocketClose skips the pre_auth -> failed transition 788ms
+clean before triggers=yes
+=== summary
+SURVIVED  BASE
+KILLED    T-owner_call_step_up_disabled_rejections_insert_guard
+KILLED    T-owner_call_step_up_disabled_rejections_terminalize
+KILLED    T-owner_call_step_up_disabled_rejections_immutable
+KILLED    T-owner_call_step_up_disabled_rejections_delete_forbidden
+KILLED    T-owner_call_step_up_rejection_deliveries_insert_guard
+KILLED    T-owner_call_step_up_rejection_deliveries_immutable
+KILLED    T-owner_call_step_up_rejection_deliveries_delete_forbidden
+KILLED    T-guest_grant_notices_insert_guard
+KILLED    T-guest_grant_notices_transition_guard
+KILLED    T-guest_grant_notices_delete_forbidden
+back on main, tree clean=true
+trigger timeouts: 0
+BASE: | 0 failed | 
+T-owner_call_step_up_disabled_rejections_insert_guard: | 2 failed | [ pins every 0021 trigger as one complete named definitio] [ rejects INSERT OR IGNORE and INSERT OR REPLACE collisio] 
+T-owner_call_step_up_disabled_rejections_terminalize: | 4 failed | [ pins every 0021 trigger as one complete named definitio] [ pins durable guest PIN attempt order, immutability, and] [ rejects with the fixed refusal when step-up is disabled] [ rejects a disabled passed-A waiver with the fixed refus] 
+T-owner_call_step_up_disabled_rejections_immutable: | 2 failed | [ pins every 0021 trigger as one complete named definitio] [ keeps disabled rejections and completed rejection deliv] 
+T-owner_call_step_up_disabled_rejections_delete_forbidden: | 2 failed | [ pins every 0021 trigger as one complete named definitio] [ keeps disabled rejections and completed rejection deliv] 
+T-owner_call_step_up_rejection_deliveries_insert_guard: | 2 failed | [ pins every 0021 trigger as one complete named definitio] [ rejects INSERT OR IGNORE and INSERT OR REPLACE collisio] 
+T-owner_call_step_up_rejection_deliveries_immutable: | 2 failed | [ pins every 0021 trigger as one complete named definitio] [ keeps disabled rejections and completed rejection deliv] 
+T-owner_call_step_up_rejection_deliveries_delete_forbidden: | 2 failed | [ pins every 0021 trigger as one complete named definitio] [ keeps disabled rejections and completed rejection deliv] 
+T-guest_grant_notices_insert_guard: | 2 failed | [ pins every 0021 trigger as one complete named definitio] [ rejects INSERT OR IGNORE and INSERT OR REPLACE collisio] 
+T-guest_grant_notices_transition_guard: | 2 failed | [ pins every 0021 trigger as one complete named definitio] [ refuses delivered notice rewrites, rollback to pending,] 
+T-guest_grant_notices_delete_forbidden: | 2 failed | [ pins every 0021 trigger as one complete named definitio] [ refuses delivered notice rewrites, rollback to pending,] 
+done 20:56
+
+[exited with code 0]
