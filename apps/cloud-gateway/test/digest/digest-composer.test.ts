@@ -29,7 +29,7 @@ function daily(zone = TORONTO): ComposeOptions {
 }
 
 function empty(): DigestInput {
-  return { deadlines: [], projects: [], decisions: [], gaps: [] };
+  return { catchupActions: [], deadlines: [], projects: [], decisions: [], gaps: [] };
 }
 
 function project(overrides: Partial<DigestProject> = {}): DigestProject {
@@ -172,6 +172,63 @@ describe("deadlines", () => {
       clockAt("2026-09-02T11:30:00.000Z"),
     );
     expect(digest.text).not.toContain("Final");
+  });
+});
+
+describe("today's school catch-up", () => {
+  it("keeps real deadlines ahead of the proposed sequence and neutralises course text", () => {
+    const digest = compose(
+      {
+        ...empty(),
+        catchupActions: [
+          { actionId: "action-2", course: "Calculus", text: "Do questions 4-8", sequenceRank: 2, estimatedMinutes: 35 },
+          { actionId: "action-1", course: "Chemistry\nCould not be read", text: "Finish the lab notes", sequenceRank: 1, estimatedMinutes: 25 },
+        ],
+        deadlines: [{
+          deadlineId: "deadline-a", course: "Calculus", title: "Quiz 3",
+          dueAt: "2026-09-02T18:00:00.000Z", effort: "quiz",
+        }],
+      },
+      daily(),
+      clockAt("2026-09-02T11:30:00.000Z"),
+    );
+
+    const section = digest.sections.find((entry) => entry.heading === "School catch-up");
+    expect(section?.lines).toEqual([
+      "1. ChemistryCould not be read: Finish the lab notes (25 min)",
+      "2. Calculus: Do questions 4-8 (35 min)",
+    ]);
+    expect(digest.sections.findIndex((entry) => entry.heading === "Due")).toBeLessThan(
+      digest.sections.indexOf(section!),
+    );
+  });
+
+  it("keeps due dates when an oversized proposed sequence must be trimmed", () => {
+    const digest = compose(
+      {
+        ...empty(),
+        catchupActions: Array.from({ length: 100 }, (_, index) => ({
+          actionId: `action-${index}`,
+          course: `Course ${index}`,
+          text: `Proposed study step ${index} ${"x".repeat(220)}`,
+          sequenceRank: index + 1,
+          estimatedMinutes: 20,
+        })),
+        deadlines: [{
+          deadlineId: "deadline-protected",
+          course: "Calculus",
+          title: "Teacher-set final assignment",
+          dueAt: "2026-09-02T18:00:00.000Z",
+          effort: "other",
+        }],
+      },
+      daily(),
+      clockAt("2026-09-02T11:30:00.000Z"),
+    );
+
+    expect(digest.truncated).toBe(true);
+    expect(digest.text).toContain("Teacher-set final assignment");
+    expect(digest.sections.some((section) => section.heading === "Due")).toBe(true);
   });
 });
 

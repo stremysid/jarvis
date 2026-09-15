@@ -17,6 +17,7 @@
  */
 
 import type {
+  DigestCatchupAction,
   Digest,
   DigestGap,
   DigestInput,
@@ -160,6 +161,18 @@ function deadlineSection(
   };
 }
 
+function catchupSection(actions: readonly DigestCatchupAction[]): DigestSection | null {
+  if (actions.length === 0) return null;
+  const ordered = [...actions].sort((left, right) =>
+    left.sequenceRank - right.sequenceRank || left.actionId.localeCompare(right.actionId));
+  return {
+    heading: "School catch-up",
+    lines: ordered.map((action) =>
+      `${action.sequenceRank}. ${neutraliseInline(action.course)}: ${neutraliseInline(action.text)} (${action.estimatedMinutes} min)`,
+    ),
+  };
+}
+
 function projectSection(input: DigestInput): DigestSection | null {
   const lines: string[] = [];
   for (const project of input.projects) {
@@ -266,6 +279,7 @@ export function compose(
   const gaps = gapSection(input.gaps);
   const candidates = [
     deadlineSection(input, now, horizon),
+    catchupSection(input.catchupActions),
     projectSection(input),
     decisionSection(input),
     gaps,

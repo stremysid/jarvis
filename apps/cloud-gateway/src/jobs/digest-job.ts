@@ -13,7 +13,7 @@
  * follow, applied one level up.
  */
 
-import { compose, type DigestClock } from "../digest/digest-composer.js";
+import { compose, localDate, type DigestClock } from "../digest/digest-composer.js";
 import type {
   Digest,
   DigestDeadline,
@@ -23,6 +23,7 @@ import type {
 } from "../digest/digest-types.js";
 import type { Deadline, DeadlineSource } from "../deadlines/deadline-types.js";
 import type { DecisionItem } from "../decisions/decision-types.js";
+import type { SchoolCatchupAction } from "../school/school-catchup-types.js";
 import { assessStaleness, type ProjectStalenessReport } from "../projects/stalled-detector.js";
 import { documentAt, type ProjectStatus } from "../projects/project-types.js";
 
@@ -30,6 +31,7 @@ import { documentAt, type ProjectStatus } from "../projects/project-types.js";
 const DEADLINE_HORIZON_DAYS = 7;
 
 export interface DigestSources {
+  readCatchupActions(localDate: string): Promise<readonly SchoolCatchupAction[]>;
   readDeadlines(withinDays: number): Promise<readonly Deadline[]>;
   readDeadlineSources(): Promise<readonly DeadlineSource[]>;
   readProjectStatuses(): Promise<readonly ProjectStatus[]>;
@@ -145,11 +147,15 @@ export async function assembleDigest(
   dependencies: DigestJobDependencies,
 ): Promise<Digest> {
   const gaps: DigestGap[] = [];
+  const observedAt = new Date(dependencies.clock.now().getTime());
+  const observedClock: DigestClock = { now: () => new Date(observedAt.getTime()) };
 
   // Read every source before composing, and read them all even when the
   // first one fails. Short-circuiting would mean one broken source hides
   // whether the others are broken too.
-  const [deadlines, deadlineSources, projects, decisions] = await Promise.all([
+  const today = localDate(observedAt, dependencies.timeZone);
+  const [catchupActions, deadlines, deadlineSources, projects, decisions] = await Promise.all([
+    readOr("School catch-up", () => dependencies.sources.readCatchupActions(today), gaps),
     readOr("Deadlines", () => dependencies.sources.readDeadlines(DEADLINE_HORIZON_DAYS), gaps),
     readOr("Deadline source health", () => dependencies.sources.readDeadlineSources(), gaps),
     readOr("Projects", () => dependencies.sources.readProjectStatuses(), gaps),
@@ -171,7 +177,7 @@ export async function assembleDigest(
   const reports = new Map<string, ProjectStalenessReport>();
   try {
     const assess = dependencies.assess ?? assessStaleness;
-    for (const report of assess(projects, { now: () => dependencies.clock.now() })) {
+    for (const report of assess(projects, observedClock)) {
       reports.set(report.projectId, report);
     }
   } catch (error) {
@@ -181,6 +187,13 @@ export async function assembleDigest(
   }
 
   const input: DigestInput = {
+    catchupActions: catchupActions.map((action) => ({
+      actionId: action.actionId,
+      course: action.courseName,
+      text: action.text,
+      sequenceRank: action.sequenceRank,
+      estimatedMinutes: action.estimatedMinutes,
+    })),
     deadlines: deadlines.map(toDigestDeadline),
     projects: projects.map((status) => toDigestProject(status, reports.get(status.project.projectId))),
     decisions: decisions.map((item) => ({
@@ -191,7 +204,7 @@ export async function assembleDigest(
     gaps,
   };
 
-  return compose(input, { kind, timeZone: dependencies.timeZone }, dependencies.clock);
+  return compose(input, { kind, timeZone: dependencies.timeZone }, observedClock);
 }
 
 export interface DigestJobResult {

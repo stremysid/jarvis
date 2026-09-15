@@ -44,6 +44,8 @@ import { DeepSeekModelAdapter } from "./providers/deepseek-provider.js";
 import { ProviderCircuitBreaker } from "./providers/provider-circuit-breaker.js";
 import { TelegramRestProvider } from "./providers/telegram-provider.js";
 import { Redactor } from "./security/redaction.js";
+import { SchoolCatchupModelAdapter } from "./school/school-catchup-model.js";
+import { SchoolCatchupRepository } from "./school/school-catchup-repository.js";
 export { CallSession } from "./voice/call-session-do.js";
 
 const TELEGRAM_WEBHOOK_PATH = "/telegram/webhook";
@@ -104,10 +106,20 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
 
     const events = new EventRepository(env.DB);
     const repository = new ConversationRepository(env.DB, events);
+    const redactor = new Redactor();
+    const baseModel = new DeepSeekModelAdapter({ apiKey, model: env.DEEPSEEK_MODEL });
+    const model = accepted.principalId === env.OWNER_PRINCIPAL_ID
+      ? new SchoolCatchupModelAdapter({
+        model: baseModel,
+        repository: new SchoolCatchupRepository(env.DB),
+        redactor,
+        timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
+      })
+      : baseModel;
 
     const service = new DefaultConversationService({
       repository,
-      model: new DeepSeekModelAdapter({ apiKey, model: env.DEEPSEEK_MODEL }),
+      model,
       context: new D1ContextRetriever(env.DB),
       dispatcher: new DefaultOutboxDispatcher({
         repository,
@@ -115,7 +127,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         channels: new Map([["telegram", new TelegramRestProvider({ botToken })]]),
         circuitBreaker: providerCircuitBreaker,
       }),
-      redactor: new Redactor(),
+      redactor,
     });
 
     const result = await service.handleTurn({
@@ -212,6 +224,8 @@ function commandContext(env: Env, principalId: string): CommandContext {
     runDigestNow: async () => {
       const digest = await assembleDigest("daily", {
         sources: {
+          readCatchupActions: async (date) =>
+            new SchoolCatchupRepository(env.DB).listActionsForDate(principalId, date),
           readDeadlines: async (withinDays) =>
             new DeadlineRepository(env.DB).listDueWithin({
               from: clock.now(),

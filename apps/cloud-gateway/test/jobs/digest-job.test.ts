@@ -8,6 +8,7 @@ import {
 import type { Deadline, DeadlineSource } from "../../src/deadlines/deadline-types.js";
 import type { DecisionItem } from "../../src/decisions/decision-types.js";
 import type { ProjectStatus } from "../../src/projects/project-types.js";
+import type { SchoolCatchupAction } from "../../src/school/school-catchup-types.js";
 
 /**
  * One question runs through this whole file: what does the owner see when a
@@ -108,6 +109,20 @@ function decision(overrides: Partial<DecisionItem> = {}): DecisionItem {
   } as DecisionItem;
 }
 
+function catchupAction(overrides: Partial<SchoolCatchupAction> = {}): SchoolCatchupAction {
+  return {
+    actionId: "01k3w1t4000000000000000500",
+    courseId: "01k3w1t4000000000000000501",
+    courseName: "Chemistry",
+    localDate: "2026-09-02",
+    sequenceRank: 1,
+    text: "Finish the missed lab notes",
+    estimatedMinutes: 25,
+    status: "planned",
+    ...overrides,
+  } as SchoolCatchupAction;
+}
+
 type DigestDependencyOverrides = Omit<Partial<DigestJobDependencies>, "sources"> & {
   readonly sources?: Partial<DigestSources>;
 };
@@ -115,6 +130,7 @@ type DigestDependencyOverrides = Omit<Partial<DigestJobDependencies>, "sources">
 function deps(overrides: DigestDependencyOverrides = {}): DigestJobDependencies {
   const defaults: DigestJobDependencies = {
     sources: {
+      readCatchupActions: async () => [],
       readDeadlines: async () => [],
       readDeadlineSources: async () => [],
       readProjectStatuses: async () => [],
@@ -134,11 +150,15 @@ function deps(overrides: DigestDependencyOverrides = {}): DigestJobDependencies 
 }
 
 describe("assembling from every source", () => {
-  it("puts deadlines, projects and decisions into one message", async () => {
+  it("puts catch-up actions, deadlines, projects and decisions into one message", async () => {
     const digest = await assembleDigest(
       "daily",
       deps({
         sources: {
+          readCatchupActions: async (date) => {
+            expect(date).toBe("2026-09-02");
+            return [catchupAction()];
+          },
           readDeadlines: async () => [deadline()],
           readProjectStatuses: async () => [status()],
           readOpenDecisions: async () => [decision()],
@@ -147,8 +167,27 @@ describe("assembling from every source", () => {
     );
 
     expect(digest.text).toContain("Quiz 3");
+    expect(digest.text).toContain("Finish the missed lab notes");
     expect(digest.text).toContain("Approve the vendor quote?");
     expect(digest.text).not.toContain("Could not be read");
+  });
+
+  it("uses one clock snapshot for today's catch-up query and the digest date", async () => {
+    const now = vi.fn()
+      .mockReturnValueOnce(new Date("2026-09-03T03:59:59.000Z"))
+      .mockReturnValue(new Date("2026-09-03T04:00:01.000Z"));
+    const digest = await assembleDigest("daily", deps({
+      clock: { now },
+      sources: {
+        readCatchupActions: async (date) => {
+          expect(date).toBe("2026-09-02");
+          return [];
+        },
+      },
+    }));
+
+    expect(digest.text).toContain("Digest -- 2026-09-02");
+    expect(now).toHaveBeenCalledTimes(1);
   });
 
   it("says so plainly when every source is empty", async () => {
@@ -226,6 +265,9 @@ describe("a source that will not answer", () => {
       "daily",
       deps({
         sources: {
+          readCatchupActions: async () => {
+            throw new Error("school plan down");
+          },
           readDeadlines: async () => {
             throw new Error("deadlines down");
           },
@@ -237,7 +279,7 @@ describe("a source that will not answer", () => {
 
     expect(readProjectStatuses).toHaveBeenCalled();
     expect(readOpenDecisions).toHaveBeenCalled();
-    for (const detail of ["deadlines down", "projects down", "decisions down"]) {
+    for (const detail of ["school plan down", "deadlines down", "projects down", "decisions down"]) {
       expect(digest.text).toContain(detail);
     }
   });
@@ -250,6 +292,9 @@ describe("a source that will not answer", () => {
       "daily",
       deps({
         sources: {
+          readCatchupActions: async () => {
+            throw new Error("down");
+          },
           readDeadlines: async () => {
             throw new Error("down");
           },
@@ -265,7 +310,7 @@ describe("a source that will not answer", () => {
     );
 
     expect(result.sent).toBe(true);
-    expect(result.gaps).toBe(3);
+    expect(result.gaps).toBe(4);
     expect(String(send.mock.calls[0]?.[0])).toContain("Could not be read");
   });
 });
