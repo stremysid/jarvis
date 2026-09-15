@@ -1,0 +1,203 @@
+checked out bf16699 at bf16699
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  50 passed (50)
+
+== V01-refused-else-authority: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 1 failed) 30ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × requires a verified owner step-up before inbound and outbound authority 4ms
+
+== V02-authority-matches-claim: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 3 failed) 30ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  3 failed | 47 passed (50)
+   × requires a verified owner step-up before inbound and outbound authority 4ms
+   × accepts a private outbound no-answer result and rejects purpose disclosure 1ms
+   × requires the fixed refusal, clean end, rejection row, and one alert for refused owner step-up 0ms
+
+== V03-outbound-attestation-absent: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  50 passed (50)
+
+== V04-waiver-inbound-only: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 1 failed) 30ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × accepts only the explicit inbound Passed-A waiver while its policy is on 4ms
+
+== V05-waiver-needs-authority: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  50 passed (50)
+
+== V06-waiver-zero-prompts: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 1 failed) 30ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × accepts only the explicit inbound Passed-A waiver while its policy is on 5ms
+
+== V07-passphrase-when-waiver-applies: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 2 failed) 32ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  2 failed | 48 passed (50)
+   × accepts only the explicit inbound Passed-A waiver while its policy is on 4ms
+   × requires the fixed refusal, clean end, rejection row, and one alert for refused owner step-up 1ms
+
+== V08-verified-prompt-min-1: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 1 failed) 31ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × requires a verified owner step-up before inbound and outbound authority 4ms
+
+== V09-verified-attempt-min-1: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 1 failed) 31ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × requires a verified owner step-up before inbound and outbound authority 4ms
+
+== V10-step-up-before-model: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 1 failed) 31ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × requires a verified owner step-up before inbound and outbound authority 4ms
+
+== V11-refused-terminal-rejected: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  50 passed (50)
+
+== V12-refused-zero-authenticated-turns: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  50 passed (50)
+
+== V13-refused-outcome: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  50 passed (50)
+
+== V14-refused-three-attempts: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 1 failed) 29ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × requires the fixed refusal, clean end, rejection row, and one alert for refused owner step-up 5ms
+
+== V15-refused-model-requests: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 1 failed) 28ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × requires the fixed refusal, clean end, rejection row, and one alert for refused owner step-up 4ms
+
+== V16-refused-context-reads: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 1 failed) 31ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × requires the fixed refusal, clean end, rejection row, and one alert for refused owner step-up 5ms
+
+== V17-refused-fixed-refusal: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 1 failed) 29ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × requires the fixed refusal, clean end, rejection row, and one alert for refused owner step-up 4ms
+
+== V18-refused-clean-end: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 1 failed) 29ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × requires the fixed refusal, clean end, rejection row, and one alert for refused owner step-up 5ms
+
+== V19-refused-one-rejection-row: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 1 failed) 28ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × requires the fixed refusal, clean end, rejection row, and one alert for refused owner step-up 4ms
+
+== V20-refused-one-alert: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 1 failed) 28ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × requires the fixed refusal, clean end, rejection row, and one alert for refused owner step-up 5ms
+
+== V21-refused-shared-step-up-check: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 1 failed) 31ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × requires the fixed refusal, clean end, rejection row, and one alert for refused owner step-up 5ms
+
+== V22-no-answer-zero-prompts: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  50 passed (50)
+
+== V23-no-answer-model-requests: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 1 failed) 30ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × accepts a private outbound no-answer result and rejects purpose disclosure 4ms
+
+== V24-no-answer-shared-step-up-check: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 1 failed) 31ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × accepts a private outbound no-answer result and rejects purpose disclosure 4ms
+
+== V25-schema-1-2-accepted: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  50 passed (50)
+
+== V26-audit-record-count: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 1 failed) 32ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × rejects a release audit with missing or duplicate scenario evidence 4ms
+
+== V27-audit-single-commit: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 1 failed) 29ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × rejects a release audit whose scenarios come from different commits 4ms
+
+== V28-secret-owner-pepper: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (34 tests | 1 failed) 31ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × reports missing configuration and secret names without returning their values 5ms
+
+== V29-store-sixth-name: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke-runtime.test.ts (16 tests | 1 failed) 40ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 49 passed (50)
+   × reports whether a fixed final evidence record is already retained 5ms
+
+=== summary
+SURVIVED  BASE
+KILLED    V01-refused-else-authority
+KILLED    V02-authority-matches-claim
+SURVIVED  V03-outbound-attestation-absent
+KILLED    V04-waiver-inbound-only
+SURVIVED  V05-waiver-needs-authority
+KILLED    V06-waiver-zero-prompts
+KILLED    V07-passphrase-when-waiver-applies
+KILLED    V08-verified-prompt-min-1
+KILLED    V09-verified-attempt-min-1
+KILLED    V10-step-up-before-model
+SURVIVED  V11-refused-terminal-rejected
+SURVIVED  V12-refused-zero-authenticated-turns
+SURVIVED  V13-refused-outcome
+KILLED    V14-refused-three-attempts
+KILLED    V15-refused-model-requests
+KILLED    V16-refused-context-reads
+KILLED    V17-refused-fixed-refusal
+KILLED    V18-refused-clean-end
+KILLED    V19-refused-one-rejection-row
+KILLED    V20-refused-one-alert
+KILLED    V21-refused-shared-step-up-check
+SURVIVED  V22-no-answer-zero-prompts
+KILLED    V23-no-answer-model-requests
+KILLED    V24-no-answer-shared-step-up-check
+SURVIVED  V25-schema-1-2-accepted
+KILLED    V26-audit-record-count
+KILLED    V27-audit-single-commit
+KILLED    V28-secret-owner-pepper
+KILLED    V29-store-sixth-name
+back on main, tree clean=true
+(node:19924) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
