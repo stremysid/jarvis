@@ -150,7 +150,28 @@ describe("university application conversation model", () => {
     });
   });
 
-  it("refuses an application due date that is not supported by the current owner message", () => {
+  it("refuses application evidence that is not an exact excerpt of the current owner message", () => {
+    const text = "Add the Schulich scholarship for Queen's.";
+    expect(() => parseOwnerUniversityPlan({
+      engaged: true,
+      programUpdates: [],
+      applicationUpdates: [{
+        itemRef: "new-item-1",
+        programRef: PROGRAM,
+        kind: "scholarship",
+        label: "Schulich scholarship",
+        status: "not_started",
+        statusEvidence: text,
+        dueDate: {
+          date: null,
+          verification: { state: "unverified", sourceUrl: null, cycle: "2027" },
+          evidence: "The deadline is January 15, 2027.",
+        },
+      }],
+    }, text, new Redactor())).toThrow("university_application_model_date_invalid");
+  });
+
+  it("refuses an application date when its current-message evidence does not contain that date", () => {
     const text = "Add the Schulich scholarship for Queen's.";
     expect(() => parseOwnerUniversityPlan({
       engaged: true,
@@ -165,7 +186,7 @@ describe("university application conversation model", () => {
         dueDate: {
           date: "2027-01-15",
           verification: { state: "unverified", sourceUrl: null, cycle: "2027" },
-          evidence: "The deadline is January 15, 2027.",
+          evidence: text,
         },
       }],
     }, text, new Redactor())).toThrow("university_application_model_date_invalid");
@@ -173,6 +194,59 @@ describe("university application conversation model", () => {
 
   it("refuses submitted-by-Sid unless the current owner message explicitly says Sid submitted it", () => {
     const text = "When is my Waterloo AIF submitted?";
+    expect(() => parseOwnerUniversityPlan({
+      engaged: true,
+      programUpdates: [],
+      applicationUpdates: [{
+        itemRef: ITEM,
+        programRef: PROGRAM,
+        kind: null,
+        label: null,
+        status: "submitted_by_sid",
+        statusEvidence: text,
+        dueDate: null,
+      }],
+    }, text, new Redactor())).toThrow("university_application_model_item_invalid");
+  });
+
+  it("accepts submitted-by-Sid when the whole current owner message explicitly reports it", () => {
+    const text = "I submitted my Waterloo AIF.";
+    expect(parseOwnerUniversityPlan({
+      engaged: true,
+      programUpdates: [],
+      applicationUpdates: [{
+        itemRef: ITEM,
+        programRef: PROGRAM,
+        kind: null,
+        label: null,
+        status: "submitted_by_sid",
+        statusEvidence: text,
+        dueDate: null,
+      }],
+    }, text, new Redactor())).toMatchObject({
+      applicationUpdates: [{ status: "submitted_by_sid", statusEvidence: text }],
+    });
+  });
+
+  it("requires the whole current owner message for a submitted-by-Sid update", () => {
+    const text = "I submitted my Waterloo AIF. Please show me what is next.";
+    expect(() => parseOwnerUniversityPlan({
+      engaged: true,
+      programUpdates: [],
+      applicationUpdates: [{
+        itemRef: ITEM,
+        programRef: PROGRAM,
+        kind: null,
+        label: null,
+        status: "submitted_by_sid",
+        statusEvidence: "I submitted my Waterloo AIF.",
+        dueDate: null,
+      }],
+    }, text, new Redactor())).toThrow("university_application_model_item_invalid");
+  });
+
+  it("refuses a submitted claim inside a negated owner message", () => {
+    const text = "I don't think I submitted my Waterloo AIF.";
     expect(() => parseOwnerUniversityPlan({
       engaged: true,
       programUpdates: [],

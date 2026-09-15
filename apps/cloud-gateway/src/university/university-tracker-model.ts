@@ -18,8 +18,12 @@ const NEW_PROGRAM = /^new-[1-9][0-9]{0,2}$/u;
 const NEW_APPLICATION_ITEM = /^new-item-[1-9][0-9]{0,2}$/u;
 const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/u;
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
-const OWNER_SUBMISSION = /\bi(?:['’]ve| have)?\s+(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
+const OWNER_SUBMISSION = /(?:^|[.!?;:]\s+|\b(?:also|and|yes),?\s+)i(?:['’]ve| have)?\s+(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
 const encoder = new TextEncoder();
+const MONTH_WORDS = Object.freeze([
+  "jan(?:uary)?", "feb(?:ruary)?", "mar(?:ch)?", "apr(?:il)?", "may", "jun(?:e)?",
+  "jul(?:y)?", "aug(?:ust)?", "sep(?:t(?:ember)?)?", "oct(?:ober)?", "nov(?:ember)?", "dec(?:ember)?",
+]);
 
 const APPLICATION_KINDS = new Set<UniversityApplicationItemKind>([
   "supplementary_application", "essay", "personal_statement", "reference", "transcript", "scholarship",
@@ -78,6 +82,23 @@ function ownerEvidence(value: unknown, ownerMessage: string, error: string, reda
   const evidence = inline(value, 512, error, redactor);
   if (!ownerMessage.includes(evidence)) throw new TypeError(error);
   return evidence;
+}
+
+function evidenceSupportsDate(evidence: string, date: string): boolean {
+  const [year, month, day] = date.split("-") as [string, string, string];
+  const lower = evidence.toLowerCase();
+  const numericDates = [
+    `${year}-${month}-${day}`, `${year}/${month}/${day}`, `${year}.${month}.${day}`,
+    `${month}/${day}/${year}`, `${month}-${day}-${year}`, `${month}.${day}.${year}`,
+    `${day}/${month}/${year}`, `${day}-${month}-${year}`, `${day}.${month}.${year}`,
+  ];
+  if (numericDates.some((candidate) => lower.includes(candidate))) return true;
+  const monthWord = MONTH_WORDS[Number(month) - 1];
+  if (monthWord === undefined) return false;
+  const dayNumber = String(Number(day));
+  return new RegExp(`\\b${year}\\b`, "u").test(lower)
+    && new RegExp(`\\b${monthWord}\\b`, "iu").test(lower)
+    && new RegExp(`\\b0?${dayNumber}(?:st|nd|rd|th)?\\b`, "iu").test(lower);
 }
 
 function sourceUrl(value: unknown, ownerMessage: string, redactor: Redactor): string | null {
@@ -194,10 +215,14 @@ function applicationDueDate(
   if (checkedVerification.state === "verified" && date === null) {
     throw new TypeError("university_application_model_date_invalid");
   }
+  const evidence = ownerEvidence(item.evidence, ownerMessage, "university_application_model_date_invalid", redactor);
+  if (date !== null && !evidenceSupportsDate(evidence, date)) {
+    throw new TypeError("university_application_model_date_invalid");
+  }
   return Object.freeze({
     date,
     verification: checkedVerification,
-    evidence: ownerEvidence(item.evidence, ownerMessage, "university_application_model_date_invalid", redactor),
+    evidence,
   });
 }
 
@@ -227,7 +252,8 @@ function applicationUpdate(
     || !isNew && (kind !== null || label !== null)
     || status === null && statusEvidence !== null
     || status !== null && statusEvidence === null
-    || status === "submitted_by_sid" && !OWNER_SUBMISSION.test(statusEvidence ?? "")) {
+    || status === "submitted_by_sid"
+      && (statusEvidence !== ownerMessage || !OWNER_SUBMISSION.test(ownerMessage))) {
     throw new TypeError("university_application_model_item_invalid");
   }
   return Object.freeze({
