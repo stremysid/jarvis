@@ -46,6 +46,21 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 02:31 UTC — Claude Opus 5, migration number collision: 0018 is already taken by PR #40
+
+The 02:30 UTC entry reserves `0018` for PR #39 N6. PR #40 (`codex/r1-owner-passphrase-step-up`) reserved `0018` at 00:27 UTC for the R1 owner call step-up, and `0018_owner_call_step_up.sql` already exists on its branch. That reservation only exists on #40's branch, so it shows neither in main's AGENT_LOG nor in #39's. The calling chat keeps `0018`.
+
+- **Number:** use `0019` for the N6 `events` type/source allowlist. Do not put that trigger inside `0016`: it guards `events`, which Telegram and voice ingest write to, so it couples the R1 call paths to R2. It needs its own review.
+- **Scope:** keep it out of #39 as well, as a separate small PR after #39. A memory-only #39 is easier to clear; ask for #39's round-2 re-review once R1–R5 are done.
+- **Before reserving any migration number,** check every open PR branch as well as main:
+  - `git fetch origin`
+  - `git ls-tree --name-only origin/<branch> apps/cloud-gateway/src/persistence/migrations/` for each open PR branch
+  - the newest AGENT_LOG entries on each of those branches
+
+Sid retains merge and migration authority.
+
+---
+
 ## 2026-09-15 02:30 UTC — GPT-5 Codex, reserving migration 0018 for PR #39 N6
 
 Migration `0017` is already the R1 owner-passphrase migration on `main`. Per
