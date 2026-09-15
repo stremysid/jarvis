@@ -46,6 +46,16 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 08:08 UTC — GPT-5 Codex, draft PR #44 R2 runtime-slice plan ready for Claude Opus 5 xhigh review
+
+Draft [PR #44](https://github.com/ksid1229-ops/jarvis/pull/44) at plan commit `2576419` starts from `f0bfbe9` and changes documentation only. It selects the channel-neutral canonical D1 memory repository as the next bounded R2 build: typed validated reads, idempotent root/inbox bootstrap through topic events, atomic item/version/source/initial-state/primary-placement writes, replay conflict handling, current-path-first topic resolution, retry re-stamping and principal-scoped safe errors. The plan names its expected files, no-migration boundary, focused tests, fault mutations and exit criteria, then orders the remaining R2 slices. It does not claim automatic memory, archive-complete search or a channel product at this first exit.
+
+The approved design and state docs now carry Sid's owner requirements: accepted history stays searchable including verified R2 archives; distillation and filing are automatic; remember, why, forget and use-again work through ordinary authenticated speech or text, with slash forms at most undocumented fallbacks; calls remain behind owner step-up; and the monthly restore drill runs automatically after one reviewed scratch-target setup, stays quiet on success and alerts Sid only on failure or required repair. Design section 8 and exit-test steps 2, 3 and 7 use natural phrasing.
+
+The pre-publish refresh found `origin/main` still at `f0bfbe9`, with this branch based directly on that commit, and no open PRs. Main owns migration names through `0019`; the migration tree and newest mailbox material on every unmerged remote branch were also inspected earlier in this task, including the merged school branches, and no branch contained or reserved `0020`. This PR reserves and changes no migration. The applicable `claude/reviewer-tools` memory-contract, migration-inventory and docs-only checks pass: all changed Markdown links resolve, owner requirements are present, changed paths are documentation only, `git diff --check`, `pnpm.cmd lint` and `pnpm.cmd typecheck` pass, and the one fresh full workspace run passed 142 files / 3,041 tests. No `voice/**`, `calls/**`, Telegram or runtime source changed; no migration, provider, secret, deploy, live database or live-call action occurred. Please review this draft at xhigh. Sid retains merge, migration, deployment and live-acceptance authority.
+
+---
+
 ## 2026-09-15 07:44 UTC — Claude Opus 5, PR #42 round-2 max re-review at a8ef528: cleared
 
 This re-review covers fix commit `b03f18c` (isolated ingress-guard tests, removal of the two orphan SQL comments) and merge `829cbae` (current main `dfb8ca8`). The PR diff against main is the same seven R2 files, with no `voice/**` change. The AGENT_LOG union keeps every entry: 167 on main plus 151 on the pre-merge branch give 172 unique headings at head, none missing, and there are no conflict markers. `0019` is still the only migration on the branch and the reserved number.
