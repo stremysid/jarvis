@@ -46,6 +46,38 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 16:19 UTC — Claude Opus 5, PR #48 xhigh review at 3b5717a: changes requested (small)
+
+This review covers R5 slice 2: the conversational university tracker, migration `0022_university_tracker.sql`, and #45 follow-ups F1–F3. The branch sits directly on main `e0b5072` and contains only this work. `0022` is correct: #46 holds `0021` locally, and #47 claims no migration.
+
+**Local checks on 3b5717a** (Windows 11, `jarvis-deploy`): lint and typecheck pass. `pnpm test` passed **3,111 of 3,111** in 150 files, with 0 timeouts.
+
+**#45 follow-ups:**
+- **F1 is fixed.** The reviewer's P5 probe (`pr45/zz-reviewer-pr45.test.ts`) now **fails**: "I've emailed your teacher about the missed lab." is replaced by the neutral external-action line.
+- **F2 is fixed.** Every fact resolve is emitted before any insert.
+- **F3 is fixed.** Resolved facts keep a rewritten `…:resolved:<id>` key for 30 days, and completed actions age out after 30 days.
+
+**Verification labels hold.** "Verified" requires the exact HTTPS URL **and** the admission cycle to appear in the current owner message (`university-tracker-model.ts` `sourceUrl`/`verification`). An identity change on an existing program requires a fresh verification object, and the D1 CHECKs pin verified rows to a URL, cycle and time. The combined contract allows one tracker lane per turn, and either store's failure falls back to the ordinary reply with a fixed line. Remote D1 already runs multi-statement trigger bodies (`0001`, `0014`, `0015`), so `university_programs_update_guard` is fine.
+
+**Trigger coverage** (`mut48-triggers.json`: whole-block removal of all 19 `CREATE TRIGGER` blocks in `0022`, including the two recreated school triggers, against the university and school test files; BASE passed; 0 timeouts). All 19 are killed, and 17 of them by a named behavioural test (caps, provenance, the REPLACE/IGNORE sweep, identity and immutability). Two recreated school triggers need a closer look:
+- `school_course_facts_core_immutable` is killed behaviourally ("stores a re-reported resolved owner fact as a new active fact").
+- **`school_catchup_actions_reject_delete` is killed only by inventory tests** ("installs … every named guard", "installs the school_catchup_actions_reject_delete trigger"). No behavioural test notices it missing.
+
+**S1. The recreated action delete guard has no behavioural test after `0022`.**
+- **What goes wrong:** `0022` drops `school_catchup_actions_reject_delete` and recreates it with `WHEN OLD.status NOT IN ('completed', 'superseded')`. If the recreate is lost, planned actions become silently deletable. Every test would still pass except the name inventory, and a presence check proves nothing. The 0020 behavioural tests don't catch it, because `applySchoolCatchupMigration` applies `0020` only, not the `0022` replacements production will run.
+- **Fix:** add a test with `0022` applied. Deleting a **planned** action raises `school_catchup_action_delete_forbidden`, while deleting completed or superseded actions succeeds. Do the same for the recreated `school_course_facts_core_immutable`: a statement change is refused, and the one allowed resolve-key rewrite is accepted.
+- Better still, run the existing school migration behaviour tests through `0022`. Then rerun the whole-trigger removal; the delete guard must be killed by a named behavioural test.
+
+**N1 (nit).** The data step `UPDATE school_course_facts SET fact_key = … WHERE status = 'resolved'` has no migration test. Seed a resolved fact under `0020`, apply `0022`, and assert the key rewrite and a successful re-report.
+
+**Next.** Fix S1 (and N1 if it's quick) in this same chat, rerun the trigger removals, and request re-review. The reviewer then reruns the trigger spec. `0022` stays unapplied until the attended scratch proof, after `0016`–`0020`.
+
+Nothing is applied or deployed.
+
+---
+
+---
+
 ## 2026-09-15 16:11 UTC — GPT-5 Codex, PR #48 hosted CI blocked before execution
 
 GitHub Actions run `34993352600` started none of its seven jobs; every job has zero steps, and the check annotation says recent account payments failed or the Actions spending limit must be increased. This is an account/billing gate, not a product-test failure, and no billing change was attempted. The exact green local, mutation and migration-sweep evidence remains in the ready-for-review entry below, so Claude review can proceed from the published branch. Sid retains billing, merge, migration and deployment authority.
