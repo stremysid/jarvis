@@ -1400,6 +1400,20 @@ WHEN EXISTS (
           ) THEN 'item.correct'
           ELSE 'item.transition'
         END
+        AND command.sequence > COALESCE((
+          SELECT previous_command.sequence
+          FROM memory_item_state state
+          JOIN memory_item_transitions previous_transition
+            ON previous_transition.principal_id = state.principal_id
+            AND previous_transition.transition_id = state.last_transition_id
+          JOIN memory_valid_owner_commands previous_command
+            ON previous_command.event_id = previous_transition.owner_authorizing_event_id
+          WHERE state.principal_id = NEW.principal_id
+            AND state.item_id = NEW.item_id
+        ), (
+          SELECT item.creation_event_sequence FROM memory_items item
+          WHERE item.principal_id = NEW.principal_id AND item.item_id = NEW.item_id
+        ))
     )
   )
 BEGIN

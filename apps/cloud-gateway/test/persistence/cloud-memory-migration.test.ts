@@ -1128,6 +1128,82 @@ describe.sequential("cloud memory migration", () => {
     }
   });
 
+  it("rejects a correction command issued before the current forget", async () => {
+    const owner = await seedPrincipal();
+    const source = await seedEvent(owner.principalId);
+    const item = await seedActiveItem(owner.principalId, source);
+    const correctionTransitionId = nextUlid();
+    const staleCorrectionCommand = await seedOwnerCommand(
+      owner.principalId,
+      "item.correct",
+      correctionTransitionId,
+    );
+    const forgottenTransitionId = nextUlid();
+    const forgetCommand = await seedOwnerCommand(
+      owner.principalId,
+      "item.forget",
+      forgottenTransitionId,
+      { suppressionIds: [] },
+    );
+    await env.DB.prepare(`INSERT INTO memory_item_transitions (
+      transition_id, principal_id, item_id, transition_number, version_id,
+      lifecycle_state, reason, actor, policy_version, owner_authorizing_event_id, occurred_at
+    ) VALUES (?, ?, ?, 2, ?, 'forgotten', 'owner forget', 'owner',
+      'policy-v1', ?, ?)`)
+      .bind(
+        forgottenTransitionId,
+        owner.principalId,
+        item.itemId,
+        item.versionId,
+        forgetCommand.eventId,
+        laterTimestamp,
+      ).run();
+    const correctedVersionId = nextUlid();
+    await env.DB.prepare(`INSERT INTO memory_item_versions (
+      version_id, principal_id, item_id, version_number, text, text_normalization,
+      text_hash, basis, origin, uncertain, sensitivity, valid_from, valid_to,
+      extractor_version, extractor_model_id, created_at
+    ) VALUES (?, ?, ?, 2, 'I prefer compact reports.', 'NFC', ?, 'stated',
+      'authenticated_first_person', 0, 'normal', NULL, NULL, 'policy-v1', NULL, ?)`)
+      .bind(
+        correctedVersionId,
+        owner.principalId,
+        item.itemId,
+        nextHash(),
+        laterTimestamp,
+      ).run();
+    await env.DB.prepare(`INSERT INTO memory_item_sources (
+      source_id, principal_id, item_id, version_id, source_position, event_id,
+      event_sequence, source_location, r2_segment_id, excerpt, excerpt_hash,
+      channel, occurred_at, created_at
+    ) VALUES (?, ?, ?, ?, 0, ?, ?, 'live', NULL, 'I prefer compact reports.', ?,
+      'telegram', ?, ?)`)
+      .bind(
+        nextUlid(),
+        owner.principalId,
+        item.itemId,
+        correctedVersionId,
+        source.eventId,
+        source.sequence,
+        nextHash(),
+        laterTimestamp,
+        laterTimestamp,
+      ).run();
+    await expect(env.DB.prepare(`INSERT INTO memory_item_transitions (
+      transition_id, principal_id, item_id, transition_number, version_id,
+      lifecycle_state, reason, actor, policy_version, owner_authorizing_event_id, occurred_at
+    ) VALUES (?, ?, ?, 3, ?, 'active', 'stale pre-authorized correction', 'owner',
+      'policy-v1', ?, ?)`)
+      .bind(
+        correctionTransitionId,
+        owner.principalId,
+        item.itemId,
+        correctedVersionId,
+        staleCorrectionCommand.eventId,
+        laterTimestamp,
+      ).run()).rejects.toThrow(/memory_item_transition_invalid/u);
+  });
+
   it("rejects stale lift authority and a correction older than the forget", async () => {
     const owner = await seedPrincipal();
     const source = await seedEvent(owner.principalId);
