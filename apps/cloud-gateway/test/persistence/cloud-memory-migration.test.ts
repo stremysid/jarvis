@@ -580,6 +580,201 @@ const PRE_0016_MEMORY_TABLES = new Set([
   "memory_fact_projection_versions",
 ]);
 
+interface UniqueKeyCollision {
+  readonly label: string;
+  readonly error: RegExp;
+  arrange(): Promise<{
+    readonly sql: string;
+    readonly bindings: readonly unknown[];
+  }>;
+}
+
+async function arrangeVectorCollision(
+  column: "vector_ledger_id" | "mutation_id" | "principal_id" | "item_kind" | "item_id" | "content_hash",
+): Promise<{ readonly sql: string; readonly bindings: readonly unknown[] }> {
+  const leftOwner = await seedPrincipal();
+  const rightOwner = column === "principal_id" ? await seedPrincipal() : leftOwner;
+  const leftVectorId = nextUlid();
+  const rightVectorId = nextUlid();
+  const sharedItemId = nextUlid();
+  const separateIdentity = column === "vector_ledger_id" || column === "mutation_id"
+    || column === "item_id";
+  const leftItemId = separateIdentity ? nextUlid() : sharedItemId;
+  const rightItemId = separateIdentity ? nextUlid() : sharedItemId;
+  const leftKind = column === "item_kind" ? "item" : "episode";
+  const rightKind = "episode";
+  const sharedHash = nextHash();
+  const leftHash = column === "content_hash" ? nextHash() : sharedHash;
+  if (column === "content_hash") serial += 1;
+  const rightHash = column === "content_hash" ? nextHash() : sharedHash;
+  const leftMutationId = `mutation:${leftVectorId}`;
+  const rightMutationId = `mutation:${rightVectorId}`;
+  for (const row of [
+    [leftVectorId, leftOwner.principalId, leftKind, leftItemId, leftHash, leftMutationId],
+    [rightVectorId, rightOwner.principalId, rightKind, rightItemId, rightHash, rightMutationId],
+  ] as const) {
+    await env.DB.prepare(`INSERT INTO memory_vectors (
+      vector_ledger_id, principal_id, item_kind, item_id, embedding_model,
+      dimensions, content_hash, mutation_id, upserted_at, deleted_at
+    ) VALUES (?, ?, ?, ?, '@cf/baai/bge-m3', 1024, ?, ?, ?, NULL)`)
+      .bind(...row, timestamp).run();
+  }
+  const targetValue: Readonly<Record<typeof column, string>> = {
+    vector_ledger_id: rightVectorId,
+    mutation_id: rightMutationId,
+    principal_id: rightOwner.principalId,
+    item_kind: rightKind,
+    item_id: rightItemId,
+    content_hash: rightHash,
+  };
+  return {
+    sql: `UPDATE OR REPLACE memory_vectors
+      SET ${column} = ?, deleted_at = ? WHERE vector_ledger_id = ?`,
+    bindings: [targetValue[column], runtimeTimestamp(), leftVectorId],
+  };
+}
+
+async function arrangeRunCollision(
+  column: "run_id" | "principal_id" | "run_key",
+): Promise<{ readonly sql: string; readonly bindings: readonly unknown[] }> {
+  const leftOwner = await seedPrincipal();
+  const rightOwner = column === "principal_id" ? await seedPrincipal() : leftOwner;
+  const leftRunId = nextUlid();
+  const rightRunId = nextUlid();
+  const sharedRunKey = `collision:${nextUlid()}`;
+  const separateRunKey = column === "run_id" || column === "run_key";
+  const leftRunKey = separateRunKey ? `collision:${nextUlid()}` : sharedRunKey;
+  const rightRunKey = separateRunKey ? `collision:${nextUlid()}` : sharedRunKey;
+  for (const row of [
+    [leftRunId, leftOwner.principalId, leftRunKey],
+    [rightRunId, rightOwner.principalId, rightRunKey],
+  ] as const) {
+    await env.DB.prepare(`INSERT INTO memory_runs (
+      run_id, principal_id, run_key, job, start_event_sequence, end_event_sequence,
+      provider_model_id, price_id, outcome, started_at
+    ) VALUES (?, ?, ?, 'distillation', NULL, NULL, NULL, NULL, 'running', ?)`)
+      .bind(...row, runtimeTimestamp()).run();
+  }
+  const targetValue: Readonly<Record<typeof column, string>> = {
+    run_id: rightRunId,
+    principal_id: rightOwner.principalId,
+    run_key: rightRunKey,
+  };
+  return {
+    sql: `UPDATE OR REPLACE memory_runs SET ${column} = ?, outcome = 'succeeded',
+      completed_at = ? WHERE principal_id = ? AND run_id = ?`,
+    bindings: [targetValue[column], runtimeTimestamp(), leftOwner.principalId, leftRunId],
+  };
+}
+
+async function arrangeCursorNameCollision(): Promise<{
+  readonly sql: string;
+  readonly bindings: readonly unknown[];
+}> {
+  const owner = await seedPrincipal();
+  for (const [cursorName, sequence] of [["fts_items", 9], ["fts_episodes", 5]] as const) {
+    await env.DB.prepare(`INSERT INTO memory_cursors (
+      principal_id, cursor_name, current_event_sequence, updated_at
+    ) VALUES (?, ?, ?, ?)`).bind(owner.principalId, cursorName, sequence, timestamp).run();
+  }
+  return {
+    sql: `UPDATE OR REPLACE memory_cursors SET cursor_name = 'fts_episodes', updated_at = ?
+      WHERE principal_id = ? AND cursor_name = 'fts_items'`,
+    bindings: [runtimeTimestamp(), owner.principalId],
+  };
+}
+
+async function arrangePlacementIdCollision(): Promise<{
+  readonly sql: string;
+  readonly bindings: readonly unknown[];
+}> {
+  const owner = await seedPrincipal();
+  const source = await seedEvent(owner.principalId);
+  const item = await seedActiveItem(owner.principalId, source);
+  const rootTopicId = nextUlid();
+  const sourceTopicId = nextUlid();
+  const targetTopicId = nextUlid();
+  await insertTopicEvent({
+    principalId: owner.principalId,
+    topicId: rootTopicId,
+    operation: "create",
+    newDisplayName: "Collision root",
+    newNormalizedName: `collision-root-${rootTopicId}`,
+  });
+  await insertTopicEvent({
+    principalId: owner.principalId,
+    topicId: sourceTopicId,
+    operation: "create",
+    newParentTopicId: rootTopicId,
+    newDisplayName: "Source",
+    newNormalizedName: `source-${sourceTopicId}`,
+  });
+  await insertTopicEvent({
+    principalId: owner.principalId,
+    topicId: targetTopicId,
+    operation: "create",
+    newParentTopicId: rootTopicId,
+    newDisplayName: "Target",
+    newNormalizedName: `target-${targetTopicId}`,
+  });
+
+  const removedPlacementId = nextUlid();
+  const activePlacementId = nextUlid();
+  const insertPlacement = async (placementId: string): Promise<void> => {
+    await env.DB.prepare(`INSERT INTO memory_item_placement_events (
+      placement_event_id, principal_id, placement_id, placement_event_number,
+      item_id, operation, previous_topic_id, new_topic_id, relation,
+      filing_source, confidence, reason, owner_authorizing_event_id, occurred_at
+    ) VALUES (?, ?, ?, 1, ?, 'place', NULL, ?, 'related', 'rule', 1.0,
+      'unique-key collision fixture', NULL, ?)`)
+      .bind(
+        nextUlid(), owner.principalId, placementId, item.itemId,
+        sourceTopicId, timestamp,
+      ).run();
+  };
+  await insertPlacement(removedPlacementId);
+  await insertPlacement(activePlacementId);
+  await env.DB.prepare(`INSERT INTO memory_item_placement_events (
+    placement_event_id, principal_id, placement_id, placement_event_number,
+    item_id, operation, previous_topic_id, new_topic_id, relation,
+    filing_source, confidence, reason, owner_authorizing_event_id, occurred_at
+  ) VALUES (?, ?, ?, 2, ?, 'remove', ?, NULL, 'related', 'rule', 1.0,
+    'unique-key collision fixture', NULL, ?)`)
+    .bind(
+      nextUlid(), owner.principalId, removedPlacementId, item.itemId,
+      sourceTopicId, laterTimestamp,
+    ).run();
+
+  const mergeTimestamp = runtimeTimestamp();
+  const mergeEventId = await insertTopicEvent({
+    principalId: owner.principalId,
+    topicId: sourceTopicId,
+    operation: "merge",
+    previousDisplayName: "Source",
+    previousNormalizedName: `source-${sourceTopicId}`,
+    mergeTargetTopicId: targetTopicId,
+    movedPlacementIds: [activePlacementId],
+    addedAliases: [{
+      aliasId: nextUlid(),
+      topicId: targetTopicId,
+      displayName: "Source",
+      normalizedName: `source-${sourceTopicId}`,
+      pathAlias: `Collision root/Source/${sourceTopicId}`,
+    }],
+    occurredAt: mergeTimestamp,
+  });
+  return {
+    sql: `UPDATE OR REPLACE memory_item_placement_state SET
+      placement_id = ?, topic_id = ?, last_event_kind = 'topic',
+      last_event_id = ?, updated_at = ?
+      WHERE principal_id = ? AND placement_id = ?`,
+    bindings: [
+      activePlacementId, targetTopicId, mergeEventId, mergeTimestamp,
+      owner.principalId, removedPlacementId,
+    ],
+  };
+}
+
 describe.sequential("cloud memory migration", () => {
   beforeAll(async () => {
     await applyCloudMemoryMigration();
@@ -4397,105 +4592,38 @@ describe.sequential("cloud memory migration", () => {
     });
   }
 
-  it("pins cursor_name against a same-principal UPDATE OR REPLACE collision", async () => {
-    const owner = await seedPrincipal();
-    for (const [cursorName, sequence] of [["fts_items", 9], ["fts_episodes", 5]] as const) {
-      await env.DB.prepare(`INSERT INTO memory_cursors (
-        principal_id, cursor_name, current_event_sequence, updated_at
-      ) VALUES (?, ?, ?, ?)`).bind(owner.principalId, cursorName, sequence, timestamp).run();
-    }
-    await expect(env.DB.prepare(`UPDATE OR REPLACE memory_cursors
-      SET cursor_name = 'fts_episodes', updated_at = ?
-      WHERE principal_id = ? AND cursor_name = 'fts_items'`)
-      .bind(runtimeTimestamp(), owner.principalId).run())
-      .rejects.toThrow(/memory_cursor_transition_invalid/u);
-    expect((await env.DB.prepare(`SELECT cursor_name, current_event_sequence FROM memory_cursors
-      WHERE principal_id = ? ORDER BY cursor_name`).bind(owner.principalId).all()).results)
-      .toEqual([
-        { cursor_name: "fts_episodes", current_event_sequence: 5 },
-        { cursor_name: "fts_items", current_event_sequence: 9 },
-      ]);
-  });
+  const mutableUniqueKeyCollisions: readonly UniqueKeyCollision[] = [
+    {
+      label: "memory_cursors.cursor_name",
+      error: /memory_cursor_transition_invalid/u,
+      arrange: arrangeCursorNameCollision,
+    },
+    ...(["vector_ledger_id", "mutation_id", "principal_id", "item_kind", "item_id", "content_hash"] as const)
+      .map((column): UniqueKeyCollision => ({
+        label: `memory_vectors.${column}`,
+        error: /memory_vector_delete_transition_invalid/u,
+        arrange: () => arrangeVectorCollision(column),
+      })),
+    ...(["run_id", "principal_id", "run_key"] as const)
+      .map((column): UniqueKeyCollision => ({
+        label: `memory_runs.${column}`,
+        error: /memory_run_transition_invalid/u,
+        arrange: () => arrangeRunCollision(column),
+      })),
+    {
+      label: "memory_item_placement_state.placement_id",
+      error: /memory_item_placement_state_requires_event/u,
+      arrange: arrangePlacementIdCollision,
+    },
+  ];
 
-  it("pins vector item_id against a same-principal UPDATE OR REPLACE collision", async () => {
-    const owner = await seedPrincipal();
-    const leftVectorId = nextUlid();
-    const rightVectorId = nextUlid();
-    const leftItemId = nextUlid();
-    const rightItemId = nextUlid();
-    const contentHash = nextHash();
-    for (const [vectorId, itemId] of [
-      [leftVectorId, leftItemId],
-      [rightVectorId, rightItemId],
-    ] as const) {
-      await env.DB.prepare(`INSERT INTO memory_vectors (
-        vector_ledger_id, principal_id, item_kind, item_id, embedding_model,
-        dimensions, content_hash, mutation_id, upserted_at, deleted_at
-      ) VALUES (?, ?, 'item', ?, '@cf/baai/bge-m3', 1024, ?, ?, ?, NULL)`)
-        .bind(
-          vectorId,
-          owner.principalId,
-          itemId,
-          contentHash,
-          `mutation:${vectorId}`,
-          timestamp,
-        ).run();
-    }
-    await expect(env.DB.prepare(`UPDATE OR REPLACE memory_vectors
-      SET item_id = ?, deleted_at = ? WHERE vector_ledger_id = ?`)
-      .bind(rightItemId, runtimeTimestamp(), leftVectorId).run())
-      .rejects.toThrow(/memory_vector_delete_transition_invalid/u);
-    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_vectors
-      WHERE principal_id = ? AND vector_ledger_id IN (?, ?)`)
-      .bind(owner.principalId, leftVectorId, rightVectorId).first()).toEqual({ count: 2 });
-  });
-
-  it("pins run_key against a same-principal UPDATE OR REPLACE collision", async () => {
-    const owner = await seedPrincipal();
-    const priceId = nextUlid();
-    await env.DB.prepare(`INSERT INTO memory_model_prices (
-      price_id, principal_id, provider, model_id, effective_at,
-      input_micros_per_million, output_micros_per_million,
-      cache_read_micros_per_million, currency, source_receipt, created_at
-    ) VALUES (?, ?, 'deepseek', 'deepseek:deepseek-v4-pro', ?, 1, 1, 0,
-      'USD', 'run-key collision price', ?)`).bind(
-      priceId,
-      owner.principalId,
-      timestamp,
-      timestamp,
-    ).run();
-    const leftRunId = nextUlid();
-    const rightRunId = nextUlid();
-    const leftRunKey = `pin:${leftRunId}`;
-    const rightRunKey = `pin:${rightRunId}`;
-    for (const [runId, runKey] of [
-      [leftRunId, leftRunKey],
-      [rightRunId, rightRunKey],
-    ] as const) {
-      await env.DB.prepare(`INSERT INTO memory_runs (
-        run_id, principal_id, run_key, job, start_event_sequence, end_event_sequence,
-        provider_model_id, price_id, outcome, started_at
-      ) VALUES (?, ?, ?, 'distillation', NULL, NULL, 'deepseek:deepseek-v4-pro', ?,
-        'running', ?)`).bind(
-        runId,
-        owner.principalId,
-        runKey,
-        priceId,
-        runtimeTimestamp(),
-      ).run();
-    }
-    await expect(env.DB.prepare(`UPDATE OR REPLACE memory_runs
-      SET run_key = ?, outcome = 'succeeded', completed_at = ?
-      WHERE principal_id = ? AND run_id = ?`).bind(
-      rightRunKey,
-      runtimeTimestamp(),
-      owner.principalId,
-      leftRunId,
-    ).run()).rejects.toThrow(/memory_run_transition_invalid/u);
-    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_runs
-      WHERE principal_id = ? AND run_id IN (?, ?)`)
-      .bind(owner.principalId, leftRunId, rightRunId).first()).toEqual({ count: 2 });
-  });
+  for (const collision of mutableUniqueKeyCollisions) {
+    it(`pins ${collision.label} against its single-column UPDATE OR REPLACE collision`, async () => {
+      const arranged = await collision.arrange();
+      await expect(env.DB.prepare(arranged.sql).bind(...arranged.bindings).run())
+        .rejects.toThrow(collision.error);
+    });
+  }
 
   it("rejects carried OR REPLACE collisions for every partial unique index", async () => {
     const owner = await seedPrincipal();
@@ -4583,7 +4711,7 @@ describe.sequential("cloud memory migration", () => {
     });
   });
 
-  it("sweeps every 0016 table across explicit-rowid, natural-key, and key-update REPLACE paths", async () => {
+  it("sweeps every declared 0016 unique key one column at a time across every REPLACE path", async () => {
     const fixture = await triggerFixture();
     const collisionFixture = await seedTriggerFixture();
     const rowidAliases: Readonly<Record<string, string>> = {
@@ -4700,13 +4828,28 @@ describe.sequential("cloud memory migration", () => {
           .bind(...bindings).run()).rejects.toThrow(new RegExp(insertError, "u"));
       }
       for (const keyGroup of uniqueKeyGroups) {
-        const collisionAssignments = keyGroup.map((keyColumn) =>
-          `"${keyColumn}" = (SELECT "${keyColumn}" FROM ${quotedTable} WHERE ${selector})`
-        ).join(", ");
-        const bindings = [...keyGroup.map(() => collisionFixture.keys[table]), fixture.keys[table]];
-        await expect(env.DB.prepare(`UPDATE OR REPLACE ${quotedTable}
-          SET ${collisionAssignments}${legalUpdate(table)} WHERE ${selector}`)
-          .bind(...bindings).run()).rejects.toThrow(new RegExp(updateError, "u"));
+        for (const keyColumn of keyGroup) {
+          const values = await env.DB.prepare(`SELECT
+            (SELECT "${keyColumn}" FROM ${quotedTable} WHERE ${selector}) AS collision_value,
+            (SELECT "${keyColumn}" FROM ${quotedTable} WHERE ${selector}) AS current_value`)
+            .bind(collisionFixture.keys[table], fixture.keys[table])
+            .first<{ collision_value: unknown; current_value: unknown }>();
+          if (values === null || Object.is(values.collision_value, values.current_value)) continue;
+          const collisionAssignment = `"${keyColumn}" = (
+            SELECT "${keyColumn}" FROM ${quotedTable} WHERE ${selector}
+          )`;
+          let rejection: unknown;
+          try {
+            await env.DB.prepare(`UPDATE OR REPLACE ${quotedTable}
+              SET ${collisionAssignment}${legalUpdate(table)} WHERE ${selector}`)
+              .bind(collisionFixture.keys[table], fixture.keys[table]).run();
+          } catch (error: unknown) {
+            rejection = error;
+          }
+          expect(rejection, `${table}.${keyColumn} must reject`).toBeInstanceOf(Error);
+          expect(String(rejection), `${table}.${keyColumn} must use its named guard`)
+            .toMatch(new RegExp(updateError, "u"));
+        }
       }
 
       const rowidUpdate = rowidAlias === undefined

@@ -126,10 +126,13 @@ the raw receipt; results are verified against the R2 segment before use.
   integer rowid aliases used by their external-content projections.
 - Immutable ledger tables reject UPDATE and DELETE. Owner correction,
   supersession and forget append a version or transition.
-- Runtime transition writers stamp `occurred_at` as
-  `max(now, memory_item_state.updated_at)`, never from model output or a client
-  clock. The schema additionally refuses stamps more than five minutes ahead,
-  so rules cannot wedge later owner corrections with a future timestamp.
+- Every runtime writer obtains its ledger, transition or topic `occurred_at`
+  immediately before the D1 write and obtains a fresh stamp for every retry;
+  queued, model-provided and client-provided timestamps are never reused.
+  Transition writers use `max(now, memory_item_state.updated_at)`. Topic-event
+  writers likewise preserve per-topic monotonicity while remaining within five
+  minutes of D1's wall clock. These bounds prevent stale alias ordering and
+  prevent rules from wedging later owner corrections with a future timestamp.
 - A suppression is active when no `memory_event_suppression_lifts` row names
   it. A raw-history candidate is eligible only when no active suppression
   covers its event id or sequence. Recent-turn context, fast recall, exhaustive
@@ -147,12 +150,12 @@ the raw receipt; results are verified against the R2 segment before use.
   and unauthorised lifts.
 - Owner commands bind the exact operation, mutation id and every material
   operand. Counts in a suppression receipt are recomputed from eligible live
-  and archived conversation receipts; a caller cannot choose them. A dedicated
-  reviewed follow-up migration, planned as `0019`, must also constrain the base
-  `events` table to the trusted owner-command event-type/source/producer tuple
-  before the runtime command producer is enabled. That ingress constraint is
-  deliberately not smuggled into `0016`, which only adds memory tables and
-  their guards.
+  and archived conversation receipts; a caller cannot choose them. Migration
+  `0019` constrains the base `events` table to the trusted owner-command
+  event-type/source/producer tuple and the closed operation set before the
+  runtime command producer is enabled. The `0016` mutation guards compare each
+  complete operand set with the authorized row. The ingress constraint remains
+  separate from `0016`, which only adds memory tables and their guards.
 - The current archive receipt contains neither principal nor event type.
   Consequently, the archived half of a range-suppression count is a count of
   archived event receipts, while the live half is a count of accepted owner
@@ -333,6 +336,10 @@ failure records a retryable observation and does not discard the memory.
   id, then follows any bounded merge redirect. Alias tuples are intentionally
   non-unique so repeated natural renames such as X -> Y -> X -> Y remain
   append-only and never wedge the tree.
+- The runtime PR must query the current active path before consulting aliases.
+  It must stamp a topic event immediately before its write and re-stamp every
+  retry; replaying an earlier queued timestamp is invalid because alias
+  precedence is writer-commit order within the bounded clock-skew window.
 
 Jarvis may propose and automatically apply low-risk organization changes, but
 it reports them in the digest and retains a reversible transition history. A
@@ -448,10 +455,11 @@ searchable as history regardless of whether the distilled proposal is active.
 Every privileged memory mutation consumes a canonical `memory.owner_command`
 event from the dedicated `memory-control` source. Its payload names the exact
 operation, target and operands; a broad or stale owner message is not reusable
-authority. Before any runtime producer can emit these events, a separate
-reviewed `0019` migration must add the base-events
-event-type/source/producer allowlist noted in section 3.3. It is a separate PR
-after `0016`, because it affects the shared Telegram and voice event ingress.
+authority. Before any runtime producer can emit these events, migration `0019`
+must pass its separate review of the base-events event-type/source/producer
+and operation allowlists noted in section 3.3. The operation-specific operands
+remain fail-closed in the `0016` mutation guards. `0019` stays separate because
+it affects the shared Telegram and voice event ingress.
 
 A later tier-3 erasure design must handle live events, content-addressed R2
 segments, indexes and locked backups. R2 does not imply that hiding has erased
