@@ -218,6 +218,45 @@ async function expectCode(
   throw new Error(`expected_memory_repository_error:${code}`);
 }
 
+function omitCanonicalTextHash(statement: D1PreparedStatement): D1PreparedStatement {
+  return new Proxy(statement, {
+    get(target, property, receiver): unknown {
+      if (property === "bind") {
+        return (...values: unknown[]) => omitCanonicalTextHash(target.bind(...values));
+      }
+      if (property === "all") {
+        return async <T>(): Promise<D1Result<T>> => {
+          const result = await target.all<T>();
+          const first = result.results[0];
+          if (first === undefined || first === null || typeof first !== "object") return result;
+          const changed = { ...first } as Record<string, unknown>;
+          delete changed.text_hash;
+          return { ...result, results: [changed as T, ...result.results.slice(1)] };
+        };
+      }
+      const value = Reflect.get(target, property, receiver) as unknown;
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as D1PreparedStatement;
+}
+
+function databaseWithMalformedCanonicalRow(database: D1Database): D1Database {
+  return new Proxy(database, {
+    get(target, property, receiver): unknown {
+      if (property === "prepare") {
+        return (query: string): D1PreparedStatement => {
+          const statement = target.prepare(query);
+          return query.includes("FROM memory_items item")
+            ? omitCanonicalTextHash(statement)
+            : statement;
+        };
+      }
+      const value = Reflect.get(target, property, receiver) as unknown;
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as D1Database;
+}
+
 async function createTopic(
   principalId: string,
   parentTopicId: Ulid,
@@ -581,6 +620,17 @@ describe("MemoryRepository", () => {
     });
     await expectCode(
       badTimestamp.repository.readCurrentItem(badTimestamp.principalId, badTimestamp.input.itemId),
+      "memory_corrupt",
+    );
+  });
+
+  it("fails closed when D1 returns a canonical row with a missing field", async () => {
+    const prepared = await fixture();
+    await prepared.repository.commitInitialItem(prepared.input);
+    const malformed = new MemoryRepository(databaseWithMalformedCanonicalRow(env.DB));
+
+    await expectCode(
+      malformed.readCurrentItem(prepared.principalId, prepared.input.itemId),
       "memory_corrupt",
     );
   });
