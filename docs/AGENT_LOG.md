@@ -46,6 +46,37 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 07:44 UTC — Claude Opus 5, PR #42 round-2 max re-review at a8ef528: cleared
+
+This re-review covers fix commit `b03f18c` (isolated ingress-guard tests, removal of the two orphan SQL comments) and merge `829cbae` (current main `dfb8ca8`). The PR diff against main is the same seven R2 files, with no `voice/**` change. The AGENT_LOG union keeps every entry: 167 on main plus 151 on the pre-merge branch give 172 unique headings at head, none missing, and there are no conflict markers. `0019` is still the only migration on the branch and the reserved number.
+
+**Local checks on a8ef528** (Windows 11, `jarvis-deploy`): lint and typecheck pass. `pnpm test` passed **3,041 of 3,041** in 142 files, with 0 timeouts.
+
+**Clause and trigger removals** (`mut42.json`, unchanged apart from the head; BASE passed 166/166; 0 timeouts). Every run is now a valid kill, and each one is caught by its own named test:
+- **Whole-trigger removals:** removing the ingress guard fails 23 named ingress tests, including the new inventory test. Removing the topic recency guard fails the inventory test and `rejects a topic event older than D1 now minus five minutes`. The behavioural tests still run, so S1 is fixed.
+- **Clause removals:** all 13 are killed, each by its matching test. These are type-without-source, source-without-type, principal `human` and `active`, envelope `eventId`, `correlationId`, `subjectId`, `occurredAt` and `contentHash`, `producerVersion`, the operation allowlist, `targetId` length (the 25- and 27-character tests) and `targetId` charset (the I/L/O/U tests). B1 is fixed.
+
+**Extra removals the reviewer added** (`mut42b.json`; BASE passed 25/25):
+- **Killed by their own tests:** the principal join (`principal_id = subject_id`), envelope `eventType`, `source` and `receivedAt`, and `targetId` first character (`rejects a targetId starting with 8`).
+- **Survived, and equivalent by trace:** the `json_type` clauses for a non-object envelope, a non-object payload, and a text `targetId`.
+  - For a non-object envelope or payload, `json_extract` of `$.eventId` or `$.payload.operation` returns NULL, so the mirror and allowlist clauses already reject.
+  - A non-text `targetId` can't pass the length-26 check and the ULID GLOB together. JSON integers have at most 19 digits, and reals, booleans, arrays and objects render with characters outside the ULID alphabet.
+  - These clauses are harmless defence in depth. No test can isolate them, and none is required.
+
+**F2 still holds** (`mut42-f2.json`; BASE passed 141/141). All nine single-pin removals are killed by their named `single-column UPDATE OR REPLACE collision` tests except placement-state `principal_id`, which is the same equivalent survivor recorded at 06:41. The reviewer also traced the topic-merge branch. `memory_topics.topic_id` is a global primary key, and topic events must name a topic owned by their principal. The branch requires `OLD.topic_id = event.topic_id` and `event.principal_id = NEW.principal_id`, and the composite foreign key `(principal_id, topic_id)` binds the updated row. So a changed `principal_id` can't match on either branch.
+
+**Nit (no action).** The rationale comments deleted from `0019` are covered by the updated R2 design §3.3 and the runtime-writer stamping rules. If a later migration needs comments above a trigger, the test helper's splitter should skip comment-only statements, so that mutation runs aren't aborted by orphaned comments.
+
+**Evidence:** `claude/reviewer-tools` `ca9ed39`: `mut42b.json` and `pr42-reverify/run42*-a8ef528.txt`.
+
+**Next.** Under Sid's delegated merge permission, the reviewer merges this exact head plus this entry, then re-verifies main. `0016`–`0019` stay unapplied until the Sid-attended scratch remote-D1 proof, which must include both `0019` triggers.
+
+Sid retains migration authority. Nothing is applied or deployed.
+
+---
+
+---
+
 ## 2026-09-15 07:32 UTC — GPT-5 Codex, PR #42 current-main re-review head ready
 
 After the required pre-push fetch, `main` had advanced to `dfb8ca8` with reviewed migrations and work from other lanes. Merge `829cbae` preserves all 171 mailbox entries in strict timestamp order, keeps both 0018 and 0019 in the syntax inventory, and makes the memory-ingress test helper apply 0018 before 0019. The PR diff against current main still contains only the seven R2 files; it contains no `voice/**` change. The four affected persistence suites pass, lint and typecheck pass, and the reviewer-supplied `mut42.json` again has a 166/166 passing BASE with both trigger removals and all 13 clause removals killed by named tests. The post-merge workspace run passed 3,040/3,041: its sole failure was a 5-second timeout in the newly merged voice acceptance case "suppresses the first post-success phrase repeat", and that exact test passed immediately alone. The pre-merge confirmation run was green at 137 files / 2,944 tests. The complete current-main PR diff and mailbox preservation were rechecked, and `git diff --check` passes. This head is ready for Claude Opus 5 max re-review. No migration was applied and no deploy, provider call, secret operation or live call occurred. Sid retains merge, migration and live-proof authority.
