@@ -16,7 +16,7 @@ import {
 import { GuestPinVerifier } from "../security/guest-pin-verifier.js";
 import { CapabilityRegistry, type CapabilitySnapshot } from "./capability-registry.js";
 import type { OwnerAccessDraft } from "./owner-access-intent.js";
-import type { GuestGrantNoticeOperation, GuestGrantNoticeSink } from "./guest-grant-notice.js";
+import type { GuestGrantNoticeSink } from "./guest-grant-notice.js";
 import {
   type OwnerCallAuthority,
   VoiceAccessAuthorityService,
@@ -678,27 +678,33 @@ export class OwnerAccessService {
   }
 
   async #notice(
-    authority: Readonly<{ principalId: string }>,
     mutationId: Ulid,
-    operation: GuestGrantNoticeOperation,
-    maskedTarget: string | null,
     now: Date,
   ): Promise<string> {
     if (this.#notices === undefined) return "";
     try {
-      await this.#notices.notify({
-        ownerPrincipalId: authority.principalId,
-        mutationId,
-        operation,
-        maskedTarget: maskedTarget ?? "masked caller",
-        occurredAt: now,
-      });
+      await this.#notices.notify({ mutationId, now });
       return "";
     } catch {
       // The grant mutation has already committed and cannot be rolled back.
       // Tell the owner on the call that the independent notice was not confirmed.
       return " The Telegram notice could not be confirmed.";
     }
+  }
+
+  async #mutateAndNotice(
+    mutationId: Ulid,
+    now: Date,
+    mutation: () => Promise<unknown>,
+  ): Promise<string> {
+    let failure: Readonly<{ error: unknown }> | null = null;
+    try { await mutation(); }
+    catch (error) { failure = Object.freeze({ error }); }
+    // A D1 batch can commit before its response is lost. Always consult the
+    // mutation-owned outbox row, including when the repository call throws.
+    const notice = await this.#notice(mutationId, now);
+    if (failure !== null) throw failure.error;
+    return notice;
   }
 
   async execute(input: {
@@ -772,75 +778,76 @@ export class OwnerAccessService {
 
         const mutationId = safeUlid(this.#idFactory(new Date(nowEpoch)));
         if (state.grantId === null || state.providerE164 === null) throw safeError("owner_access_operation_failed");
+        const grantId = state.grantId;
+        const providerE164 = state.providerE164;
         if (state.draft.kind === "add") {
           if (pinBytes === null || state.snapshot === null) throw safeError("owner_access_operation_failed");
-          const pinVerifier = await this.#verifier.create(state.grantId, pinBytes);
+          const snapshot = state.snapshot;
+          const pinVerifier = await this.#verifier.create(grantId, pinBytes);
           const requestHash = await this.#requestHash(state, mutationId, pinVerifier.digestBase64);
-          await this.#repository.createGuestGrant({
+          const notice = await this.#mutateAndNotice(mutationId, now, () => this.#repository.createGuestGrant({
             mutationId,
             requestHash,
             ownerAuthority: persisted,
             ownerIdentityId: state.proposal.ownerIdentityId,
-            grantId: state.grantId,
-            guestPrincipalId: `principal:voice-guest:${state.grantId}`,
-            guestIdentityId: `identity:voice-guest:${state.grantId}`,
-            providerE164: state.providerE164,
-            capabilityIds: state.snapshot.capabilityIds,
-            resourceScopes: state.snapshot.resourceScopes,
-            accessDocumentHash: state.snapshot.accessDocumentHash,
+            grantId,
+            guestPrincipalId: `principal:voice-guest:${grantId}`,
+            guestIdentityId: `identity:voice-guest:${grantId}`,
+            providerE164,
+            capabilityIds: snapshot.capabilityIds,
+            resourceScopes: snapshot.resourceScopes,
+            accessDocumentHash: snapshot.accessDocumentHash,
             pinVerifier,
             now,
-          });
-          const notice = await this.#notice(persisted, mutationId, "created", state.proposal.maskedTarget, now);
+          }));
           return this.#result("created", `Caller ${state.proposal.maskedTarget ?? "masked"} is allowed.${notice}`);
         }
         if (state.expectedGrantVersion === null) throw safeError("owner_access_operation_failed");
+        const expectedGrantVersion = state.expectedGrantVersion;
         if (state.draft.kind === "replace_permissions") {
           if (state.snapshot === null) throw safeError("owner_access_operation_failed");
+          const snapshot = state.snapshot;
           const requestHash = await this.#requestHash(state, mutationId, null);
-          await this.#repository.replacePermissions({
+          const notice = await this.#mutateAndNotice(mutationId, now, () => this.#repository.replacePermissions({
             mutationId,
             requestHash,
             ownerAuthority: persisted,
             ownerIdentityId: state.proposal.ownerIdentityId,
-            grantId: state.grantId,
-            expectedGrantVersion: state.expectedGrantVersion,
-            capabilityIds: state.snapshot.capabilityIds,
-            resourceScopes: state.snapshot.resourceScopes,
-            accessDocumentHash: state.snapshot.accessDocumentHash,
+            grantId,
+            expectedGrantVersion,
+            capabilityIds: snapshot.capabilityIds,
+            resourceScopes: snapshot.resourceScopes,
+            accessDocumentHash: snapshot.accessDocumentHash,
             now,
-          });
-          const notice = await this.#notice(persisted, mutationId, "permissions_changed", state.proposal.maskedTarget, now);
+          }));
           return this.#result("changed", `Permissions changed for ${state.proposal.maskedTarget ?? "the caller"}.${notice}`);
         }
         if (state.draft.kind === "rotate_pin") {
           if (pinBytes === null) throw safeError("owner_access_operation_failed");
-          const pinVerifier = await this.#verifier.create(state.grantId, pinBytes);
+          const pinVerifier = await this.#verifier.create(grantId, pinBytes);
           const requestHash = await this.#requestHash(state, mutationId, pinVerifier.digestBase64);
-          await this.#repository.rotatePin({
+          const notice = await this.#mutateAndNotice(mutationId, now, () => this.#repository.rotatePin({
             mutationId,
             requestHash,
             ownerAuthority: persisted,
             ownerIdentityId: state.proposal.ownerIdentityId,
-            grantId: state.grantId,
-            expectedGrantVersion: state.expectedGrantVersion,
+            grantId,
+            expectedGrantVersion,
             pinVerifier,
             now,
-          });
-          const notice = await this.#notice(persisted, mutationId, "pin_rotated", state.proposal.maskedTarget, now);
+          }));
           return this.#result("rotated", `The PIN changed for ${state.proposal.maskedTarget ?? "the caller"}.${notice}`);
         }
         const requestHash = await this.#requestHash(state, mutationId, null);
-        await this.#repository.revokeGrant({
+        const notice = await this.#mutateAndNotice(mutationId, now, () => this.#repository.revokeGrant({
           mutationId,
           requestHash,
           ownerAuthority: persisted,
           ownerIdentityId: state.proposal.ownerIdentityId,
-          grantId: state.grantId,
-          expectedGrantVersion: state.expectedGrantVersion,
+          grantId,
+          expectedGrantVersion,
           now,
-        });
-        const notice = await this.#notice(persisted, mutationId, "revoked", state.proposal.maskedTarget, now);
+        }));
         return this.#result("revoked", `Access revoked for ${state.proposal.maskedTarget ?? "the caller"}.${notice}`);
       } catch (error) {
         if (error instanceof Error && error.message.startsWith("owner_access_")) throw error;

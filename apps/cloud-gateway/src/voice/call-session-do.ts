@@ -768,6 +768,10 @@ export class CallSessionCore {
     return this.#session.phase;
   }
 
+  get canResumeRejectedOwnerStepUp(): boolean {
+    return this.#session.phase === "rejected" && this.#interaction.kind === "owner_step_up";
+  }
+
   validateRelaySetup(actual: RelaySetupEvent): void {
     if (
       this.#session.phase !== "created"
@@ -803,7 +807,12 @@ export class CallSessionCore {
         this.#clearOwnerStepUpFragments();
         this.#clearOwnerRepeatFragments();
         if (this.#interaction.kind === "owner_step_up" && this.#ownerStepUp !== null) {
-          const state = await this.#ownerStepUp.state(this.#session.sessionId);
+          const observedAt = this.#now();
+          const state = await this.#ownerStepUp.reconcileState(this.#session.sessionId, observedAt);
+          if (state.rejectionReason !== null) {
+            await this.#rejectOwnerStepUp(observedAt, true);
+            return;
+          }
           this.#ownerStepUpDeadlineAt = state.deadlineAt;
           if (this.#ownerStepUpDeadlineAt !== null) {
             await this.#ownerStepUpAlarm?.arm({
@@ -905,7 +914,14 @@ export class CallSessionCore {
           await this.#ownerStepUp.assertWaiverAvailable(this.#session.sessionId);
           await this.#mintWaivedOwner(observedAt);
         } else if (binding.requirement === "required") {
-          const window = await this.#ownerStepUp.begin(this.#session.sessionId, observedAt);
+          let window;
+          try { window = await this.#ownerStepUp.begin(this.#session.sessionId, observedAt); }
+          catch (error) {
+            if (!(error instanceof Error) || error.message !== "owner_step_up_disabled") throw error;
+            this.#interaction = Object.freeze({ kind: "owner_step_up" });
+            await this.#rejectOwnerStepUp(observedAt, true);
+            return;
+          }
           this.#ownerStepUpDeadlineAt = window.deadlineAt;
           this.#interaction = Object.freeze({ kind: "owner_step_up" });
           await this.#ownerStepUpAlarm.arm({
@@ -1184,6 +1200,7 @@ export class CallSessionCore {
     const binding = await this.#ownerStepUp.binding(this.#session.sessionId);
     this.#session = rejected;
     this.#clearOwnerStepUpFragments();
+    if (await this.#ownerStepUp.rejectionDelivered(this.#session.sessionId)) return;
     try { await this.#relay.sendNeutralText(OWNER_STEP_UP_REJECTED); }
     catch { /* A disconnected caller must not prevent the owner's alert. */ }
     try {
@@ -1207,6 +1224,7 @@ export class CallSessionCore {
         // Alert delivery is durable and retriable. It cannot reopen or weaken a rejected call.
       }
     }
+    await this.#ownerStepUp.recordRejectionDelivered(this.#session.sessionId, observedAt);
   }
 
   async #completeOwnerStepUp(candidate: string, observedAt: Date): Promise<void> {
@@ -1255,10 +1273,12 @@ export class CallSessionCore {
   async #handleOwnerStepUpPrompt(event: Extract<RelayEvent, { type: "prompt" }>): Promise<void> {
     if (!event.final || this.#isFixedStepUpEcho(event.text) || this.#ownerStepUpVerificationInFlight) return;
     const observedAt = this.#now();
-    if (this.#ownerStepUpDeadlineAt === null) {
-      const state = await this.#ownerStepUp!.state(this.#session.sessionId);
-      this.#ownerStepUpDeadlineAt = state.deadlineAt;
+    const state = await this.#ownerStepUp!.reconcileState(this.#session.sessionId, observedAt);
+    if (state.rejectionReason !== null) {
+      await this.#rejectOwnerStepUp(observedAt, true);
+      return;
     }
+    this.#ownerStepUpDeadlineAt = state.deadlineAt;
     if (this.#ownerStepUpDeadlineAt !== null && observedAt.toISOString() >= this.#ownerStepUpDeadlineAt) {
       await this.#rejectOwnerStepUp(observedAt);
       return;
@@ -1312,7 +1332,7 @@ export class CallSessionCore {
       return;
     }
     const observedAt = this.#now();
-    const state = await this.#ownerStepUp!.state(this.#session.sessionId);
+    const state = await this.#ownerStepUp!.reconcileState(this.#session.sessionId, observedAt);
     if (state.rejectionReason !== null) {
       // expire() may have committed immediately before the previous invocation
       // failed. The durable verdict does not prove that refusal/end/alert ran.
@@ -2092,7 +2112,12 @@ export class CallSession extends DurableObject<Env> {
     | { readonly kind: "unavailable" }
   > {
     const cached = this.#cores.get(socket);
-    if (cached !== undefined) return { kind: "ready", core: cached };
+    if (cached !== undefined) {
+      if (cached.phase === "rejected" && (!resumeRejected || !cached.canResumeRejectedOwnerStepUp)) {
+        return { kind: "mismatch" };
+      }
+      return { kind: "ready", core: cached };
+    }
     const socketSessionId = snapshotSocketSessionId(socket);
     const initialization = await this.#readInitialization();
     if (await this.ctx.storage.get(TERMINATION_KEY) !== undefined) return { kind: "mismatch" };
@@ -2110,6 +2135,20 @@ export class CallSession extends DurableObject<Env> {
       || TERMINAL_PHASES.has(session.phase) && !(resumeRejected && session.phase === "rejected")) {
       return { kind: "mismatch" };
     }
+    if (session.phase === "rejected") {
+      let binding: { session_id: string } | null;
+      try {
+        binding = await this.env.DB.prepare(`SELECT binding.session_id
+          FROM owner_call_step_up_bindings binding
+          JOIN call_sessions session ON session.session_id = binding.session_id
+          WHERE binding.session_id = ? AND binding.requirement = 'required'
+            AND session.access_kind = 'owner' AND session.activation_only = 0`)
+          .bind(session.sessionId).first<{ session_id: string }>();
+      } catch {
+        return { kind: "unavailable" };
+      }
+      if (binding === null) return { kind: "mismatch" };
+    }
     if (this.#runtimeFactory === null) return { kind: "unavailable" };
     let core: CallSessionCore;
     try {
@@ -2126,6 +2165,7 @@ export class CallSession extends DurableObject<Env> {
       return { kind: "unavailable" };
     }
     if (!(core instanceof CallSessionCore)) return { kind: "unavailable" };
+    if (session.phase === "rejected" && !core.canResumeRejectedOwnerStepUp) return { kind: "mismatch" };
     this.#cores.set(socket, core);
     return { kind: "ready", core };
   }

@@ -56,7 +56,9 @@ export interface CommandContext {
   /** Bound to the accepted event; neither the parser nor caller chooses a destination. */
   readonly calls?: { request(): Promise<string> };
   /** Bound to the accepted Telegram receipt; this command cannot re-enable step-up. */
-  readonly ownerStepUp?: { disable(): Promise<"disabled" | "already_disabled" | "unconfigured"> };
+  readonly ownerStepUp?: {
+    disable(): Promise<"disabled" | "already_disabled" | "unconfigured" | "private_chat_required">;
+  };
   readonly now: () => Date;
 }
 
@@ -209,6 +211,9 @@ export async function runCommand(
         if (context.ownerStepUp === undefined) return [unavailable("Owner call step-up controls")];
         try {
           const outcome = await context.ownerStepUp.disable();
+          if (outcome === "private_chat_required") {
+            return one("Use /disable-owner-step-up --confirm in your private chat with Jarvis.");
+          }
           if (outcome === "unconfigured") return one("Owner call step-up is not configured.");
           if (outcome === "already_disabled") {
             return one("Owner call step-up is already disabled. A new device-signed CLI generate is required to re-enable it.");

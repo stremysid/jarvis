@@ -18,6 +18,7 @@ import cloudMemorySql from "../../src/persistence/migrations/0016_cloud_memory.s
 import ownerPassphraseSql from "../../src/persistence/migrations/0017_owner_passphrase.sql?raw";
 import ownerCallStepUpSql from "../../src/persistence/migrations/0018_owner_call_step_up.sql?raw";
 import memoryIngressSql from "../../src/persistence/migrations/0019_memory_ingress.sql?raw";
+import voiceOwnerDeliverySql from "../../src/persistence/migrations/0021_voice_owner_delivery.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
@@ -25,6 +26,7 @@ let cloudMemoryMigrated: Promise<void> | undefined;
 let ownerPassphraseMigrated: Promise<void> | undefined;
 let ownerCallStepUpMigrated: Promise<void> | undefined;
 let memoryIngressMigrated: Promise<void> | undefined;
+let voiceOwnerDeliveryMigrated: Promise<void> | undefined;
 
 /**
  * Split a migration into the statements D1 applies one at a time.
@@ -137,10 +139,24 @@ export async function applyOwnerCallStepUpMigration(): Promise<void> {
   await ownerCallStepUpMigrated;
 }
 
+/** Applies durable refusal completion and guest-notice delivery after current main. */
+export async function applyVoiceOwnerDeliveryMigration(): Promise<void> {
+  // This migration depends on 0018 but not the intervening memory schema.
+  // Keeping the isolated voice fixtures narrow avoids installing unrelated
+  // runtime controls that those fixtures deliberately replace with fakes.
+  await applyOwnerCallStepUpMigration();
+  voiceOwnerDeliveryMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0021_voice_owner_delivery.sql", queries: splitMigration(voiceOwnerDeliverySql) },
+  ]);
+  await voiceOwnerDeliveryMigrated;
+}
+
 /** Test-only reset for immutable per-call step-up and guest-attempt records. */
 export async function clearOwnerCallStepUpDataForTest(): Promise<void> {
-  await applyOwnerCallStepUpMigration();
+  await applyVoiceOwnerDeliveryMigration();
   const tables = [
+    "guest_grant_notices", "owner_call_step_up_rejection_deliveries",
+    "owner_call_step_up_disabled_rejections",
     "owner_call_step_up_repeat_checks", "owner_call_step_up_rejections",
     "owner_call_step_up_successes", "owner_call_step_up_reprompts",
     "owner_call_step_up_attempts", "owner_call_step_up_windows",

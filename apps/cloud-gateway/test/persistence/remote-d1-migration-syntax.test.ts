@@ -30,6 +30,7 @@ describe("remote D1 migration trigger syntax", () => {
       "0017_owner_passphrase.sql",
       "0018_owner_call_step_up.sql",
       "0019_memory_ingress.sql",
+      "0021_voice_owner_delivery.sql",
     ]);
   });
 

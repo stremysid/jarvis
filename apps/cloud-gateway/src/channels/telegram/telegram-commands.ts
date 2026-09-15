@@ -18,9 +18,9 @@
  * bot silently ignores half of them.
  */
 const COMMAND_PATTERN = /^\/([a-z_]{1,32})(?:@([A-Za-z0-9_]{1,32}))?(?:\s+([\s\S]*))?$/u;
-// Migration 0017 binds the disable receipt to this exact bare command shape;
-// accepting Telegram's addressed form here would advertise an action D1 must reject.
-const OWNER_STEP_UP_COMMAND_PATTERN = /^\/(disable-owner-step-up)(?:\s+([\s\S]*))?$/u;
+// Migration 0017 binds the state change to one exact lowercase bare receipt.
+// Near forms still route here so the model cannot improvise around the gate.
+const OWNER_STEP_UP_COMMAND_PATTERN = /^\/(disable-owner-step-up)(?:@([A-Za-z0-9_]{1,32}))?(?:\s+([\s\S]*))?$/iu;
 
 export type CommandName =
   | "help"
@@ -92,9 +92,10 @@ export function parseCommand(text: string, botUsername: string | null): CommandP
   // replying "unknown command" to a message that never was one.
   if (ownerStepUpMatch === null && ordinaryMatch === null) return { kind: "text" };
 
-  const name = ownerStepUpMatch?.[1] ?? ordinaryMatch?.[1] ?? "";
-  const addressed = ordinaryMatch?.[2];
-  const rest = ownerStepUpMatch?.[2] ?? ordinaryMatch?.[3];
+  const matchedName = ownerStepUpMatch?.[1] ?? ordinaryMatch?.[1] ?? "";
+  const name = ownerStepUpMatch === null ? matchedName : "disable-owner-step-up";
+  const addressed = ownerStepUpMatch?.[2] ?? ordinaryMatch?.[2];
+  const rest = ownerStepUpMatch?.[3] ?? ordinaryMatch?.[3];
   if (
     addressed !== undefined
     && botUsername !== null
@@ -111,8 +112,12 @@ export function parseCommand(text: string, botUsername: string | null): CommandP
     name: name as CommandName,
     // A call must validate all the supplied text. Truncation or ignoring a
     // second line could turn a non-final --confirm into permission to dial.
-    argument: name === "call" || name === "disable-owner-step-up"
-      ? line.slice(1 + name.length + (addressed === undefined ? 0 : addressed.length + 1)).trim()
+    argument: name === "disable-owner-step-up"
+      ? matchedName === name && addressed === undefined
+        ? line.slice(1 + name.length).trim()
+        : ""
+      : name === "call"
+        ? line.slice(1 + name.length + (addressed === undefined ? 0 : addressed.length + 1)).trim()
       : (rest ?? "").trim().slice(0, MAX_ARGUMENT_CHARACTERS),
     addressedTo: addressed ?? null,
   };

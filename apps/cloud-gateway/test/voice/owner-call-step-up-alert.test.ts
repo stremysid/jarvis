@@ -51,6 +51,7 @@ describe("owner call step-up alert coalescing", () => {
     expect(sent).toHaveLength(2);
     expect(sent[0]).toMatchObject({ chatId: CHAT_ID });
     expect(sent[0]?.text).toContain("Total observations: 1.");
+    expect(sent[0]?.text).toContain("/disable-owner-step-up --confirm");
     expect(sent[1]?.text).toContain("Total observations: 3.");
     expect(sent[1]?.text).toContain("Caller attestation category: absent.");
     expect(sent.map(({ text }) => text)).not.toContainEqual(expect.stringMatching(/passphrase candidate|phone|\+1/iu));

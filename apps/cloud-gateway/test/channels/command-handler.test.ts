@@ -111,6 +111,12 @@ describe("owner call step-up disable", () => {
     expect(reply).toBe("Owner call step-up disabled. A new device-signed CLI generate is required to re-enable it.");
   });
 
+  it("directs a non-private disable request to the owner's private chat", async () => {
+    const disable = vi.fn(async () => "private_chat_required" as const);
+    expect(await text("disable-owner-step-up", "--confirm", context({ ownerStepUp: { disable } })))
+      .toBe("Use /disable-owner-step-up --confirm in your private chat with Jarvis.");
+  });
+
   it("contains disable failures without exposing their private detail", async () => {
     const reply = await text("disable-owner-step-up", "--confirm", context({ ownerStepUp: {
       disable: async () => { throw new Error("private D1 body"); },

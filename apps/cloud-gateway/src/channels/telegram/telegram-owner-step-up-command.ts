@@ -1,7 +1,7 @@
 import { newUlid } from "../../../../../packages/contracts/src/index.js";
 import type { AcceptedTelegramUpdate } from "./telegram-webhook.js";
 
-export type OwnerStepUpDisableOutcome = "disabled" | "already_disabled" | "unconfigured";
+export type OwnerStepUpDisableOutcome = "disabled" | "already_disabled" | "unconfigured" | "private_chat_required";
 
 function stateChanged(error: unknown): boolean {
   return error instanceof Error && (
@@ -35,6 +35,7 @@ export class D1TelegramOwnerStepUpCommands {
     if (accepted.text !== "/disable-owner-step-up --confirm") {
       throw new Error("owner_step_up_disable_confirmation_invalid");
     }
+    if (accepted.chatId !== accepted.telegramUserId) return "private_chat_required";
     const head = await this.#head();
     if (head === null) return "unconfigured";
     if (head.status === "disabled") return "already_disabled";

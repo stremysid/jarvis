@@ -15,7 +15,7 @@ import {
   TargetGuestResourceScopeResolver,
 } from "../../src/voice/owner-access-service.js";
 import { VoiceAccessAuthorityService } from "../../src/voice/voice-access-authority.js";
-import type { GuestGrantNoticeSink } from "../../src/voice/guest-grant-notice.js";
+import { D1GuestGrantNoticeSink, type GuestGrantNoticeSink } from "../../src/voice/guest-grant-notice.js";
 import {
   clearVoiceAccessFixture,
   NOW,
@@ -242,15 +242,17 @@ describe("OwnerAccessService", () => {
       .first<{ status: string; grant_version: number }>();
     expect(stored).toEqual({ status: "revoked", grant_version: 4 });
     expect(notify.mock.calls.map(([notice]) => ({
-      operation: notice.operation,
-      maskedTarget: notice.maskedTarget,
-      occurredAt: notice.occurredAt.toISOString(),
+      mutationId: notice.mutationId,
+      now: notice.now.toISOString(),
     }))).toEqual([
-      { operation: "created", maskedTarget: "+1******0111", occurredAt: new Date(NOW.valueOf() + 1).toISOString() },
-      { operation: "permissions_changed", maskedTarget: "+1******0111", occurredAt: new Date(NOW.valueOf() + 3).toISOString() },
-      { operation: "pin_rotated", maskedTarget: "+1******0111", occurredAt: new Date(NOW.valueOf() + 5).toISOString() },
-      { operation: "revoked", maskedTarget: "+1******0111", occurredAt: new Date(NOW.valueOf() + 9).toISOString() },
+      { mutationId: "01k3w1t4000000000000000601", now: new Date(NOW.valueOf() + 1).toISOString() },
+      { mutationId: "01k3w1t4000000000000000602", now: new Date(NOW.valueOf() + 3).toISOString() },
+      { mutationId: "01k3w1t4000000000000000603", now: new Date(NOW.valueOf() + 5).toISOString() },
+      { mutationId: "01k3w1t4000000000000000604", now: new Date(NOW.valueOf() + 9).toISOString() },
     ]);
+    await expect(env.DB.prepare(
+      "SELECT count(*) AS count FROM guest_grant_notices WHERE status = 'pending'",
+    ).first()).resolves.toEqual({ count: 4 });
   });
 
   it("keeps a committed guest mutation and warns the owner when its Telegram notice fails", async () => {
@@ -284,6 +286,46 @@ describe("OwnerAccessService", () => {
     });
     await expect(env.DB.prepare("SELECT status FROM voice_access_grants").first<{ status: string }>())
       .resolves.toEqual({ status: "pending" });
+  });
+
+  it("delivers the durable notice when the mutation commits before its repository response fails", async () => {
+    await env.DB.prepare(
+      "INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES ('identity:telegram-owner', ?, 'telegram', '12345', 'active', ?, ?)",
+    ).bind(OWNER_PRINCIPAL_ID, NOW.toISOString(), NOW.toISOString()).run();
+    const sendMessage = vi.fn(async () => ({ providerMessageId: "903" }));
+    const committedCreate = repository.createGuestGrant.bind(repository);
+    vi.spyOn(repository, "createGuestGrant").mockImplementationOnce(async (input) => {
+      await committedCreate(input);
+      throw new Error("response_lost_after_commit");
+    });
+    const service = new OwnerAccessService({
+      repository,
+      registry,
+      authorities,
+      verifier,
+      idFactory: sequentialIds(),
+      proposalIdFactory: () => "owner-access-proposal:commit-then-throw",
+      defaultGuestPin: () => "1357",
+      notices: new D1GuestGrantNoticeSink(env.DB, { sendMessage }),
+    });
+    const proposal = await service.prepare({
+      ownerAuthority,
+      sessionId: OWNER_SESSION_ID,
+      draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["conversation"] },
+      now: NOW,
+    });
+
+    await expect(service.execute({
+      proposal,
+      ownerAuthority,
+      pinSelection: { kind: "default" },
+      now: new Date(NOW.valueOf() + 1),
+    })).rejects.toThrow("owner_access_operation_failed");
+
+    expect(sendMessage).toHaveBeenCalledOnce();
+    await expect(env.DB.prepare(
+      "SELECT status, provider_message_id FROM guest_grant_notices",
+    ).first()).resolves.toEqual({ status: "delivered", provider_message_id: "903" });
   });
 
   it("maps every closed guest permission phrase and still rejects owner-only authority", async () => {

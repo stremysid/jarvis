@@ -6,7 +6,7 @@ import { createFakeCallingSystem } from "./voice-call-system.js";
 import { FAKE_GUEST_PEPPER, FAKE_PIN_A, FAKE_PIN_B, seedFakeGuest } from "./voice-access-system.js";
 
 describe("fake voice guest access", () => {
-  it("keeps the three-try guest PIN limit across Durable Object hibernation", async () => {
+  it("closes an evicted guest relay that sends another prompt after three wrong PINs", async () => {
     const system = await createFakeCallingSystem();
     try {
       const guest = await seedFakeGuest("a");
@@ -15,13 +15,17 @@ describe("fake voice guest access", () => {
       await call.setup();
       await call.pin(FAKE_PIN_B());
       await call.pin(FAKE_PIN_B());
-      await call.hibernate();
       await call.pin(FAKE_PIN_B());
 
       await expect(call.phase()).resolves.toBe("rejected");
       await expect(env.DB.prepare(
         "SELECT count(*) AS count FROM guest_call_pin_attempts WHERE session_id = ?",
       ).bind(call.sessionId).first()).resolves.toEqual({ count: 3 });
+
+      await call.hibernate();
+      await call.prompt("prompt after rejected guest eviction");
+
+      await vi.waitFor(() => expect(call.closeCodes()).toContain(1008));
     } finally { await system.cleanup(); }
   }, 15_000);
 

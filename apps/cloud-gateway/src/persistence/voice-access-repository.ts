@@ -550,6 +550,20 @@ function maskNumber(value: string): string {
   return `${visiblePrefix}${"*".repeat(value.length - visiblePrefix.length - 4)}${value.slice(-4)}`;
 }
 
+function pendingGuestGrantNotice(
+  database: D1Database,
+  mutationId: Ulid,
+  ownerPrincipalId: string,
+  createdAt: string,
+): D1PreparedStatement {
+  return database.prepare(`INSERT INTO guest_grant_notices (
+    mutation_id, owner_principal_id, status, claim_id, claim_expires_at,
+    provider_message_id, created_at, delivered_at
+  ) SELECT ?, ?, 'pending', NULL, NULL, NULL, ?, NULL
+    WHERE EXISTS (SELECT 1 FROM voice_access_grant_events WHERE event_id = ?)`)
+    .bind(mutationId, ownerPrincipalId, createdAt, mutationId);
+}
+
 function issueAuthority(row: Pick<AuthorityRow,
   "session_id" | "authority_kind" | "principal_id" | "identity_id" | "grant_id" | "grant_version"
   | "access_document_hash" | "authenticated_at" | "expires_at"
@@ -1060,12 +1074,15 @@ export class VoiceAccessRepository {
           nowIso,
           ...ownerGuard,
         ),
+      pendingGuestGrantNotice(this.#database, mutationId, ownerAuthority.principalId, nowIso),
     ];
     const fault = this.#faultStatement("create");
     const eventResultIndex = fault === null ? 3 : 4;
+    const noticeResultIndex = fault === null ? 4 : 5;
     if (fault !== null) statements.splice(3, 0, fault);
     const results = await this.#transactions.batch(statements);
-    if ([0, 1, 2, eventResultIndex].some((index) => (results[index]?.meta.changes ?? 0) !== 1)) {
+    if ([0, 1, 2, eventResultIndex, noticeResultIndex]
+      .some((index) => (results[index]?.meta.changes ?? 0) !== 1)) {
       await this.#requireOwnerAuthority(ownerAuthority, captured.ownerIdentityId, captured.now);
       throw new Error("voice_access_write_failed");
     }
@@ -1140,12 +1157,15 @@ export class VoiceAccessRepository {
           grantId, nextVersion, accessDocumentHash,
           ...ownerGuard,
         ),
+      pendingGuestGrantNotice(this.#database, mutationId, ownerAuthority.principalId, nowIso),
     ];
     const fault = this.#faultStatement("replace");
     const eventResultIndex = fault === null ? 1 : 2;
+    const noticeResultIndex = fault === null ? 2 : 3;
     if (fault !== null) statements.splice(1, 0, fault);
     const results = await this.#transactions.batch(statements);
-    if ((results[0]?.meta.changes ?? 0) !== 1 || (results[eventResultIndex]?.meta.changes ?? 0) !== 1) {
+    if ((results[0]?.meta.changes ?? 0) !== 1 || (results[eventResultIndex]?.meta.changes ?? 0) !== 1
+      || (results[noticeResultIndex]?.meta.changes ?? 0) !== 1) {
       await this.#requireOwnerAuthority(ownerAuthority, captured.ownerIdentityId, captured.now);
       throw new Error("voice_access_grant_stale");
     }
@@ -1211,12 +1231,15 @@ export class VoiceAccessRepository {
           grantId, nextVersion, pinVerifier.saltBase64, pinVerifier.digestBase64,
           ...ownerGuard,
         ),
+      pendingGuestGrantNotice(this.#database, mutationId, ownerAuthority.principalId, nowIso),
     ];
     const fault = this.#faultStatement("rotate");
     const eventResultIndex = fault === null ? 1 : 2;
+    const noticeResultIndex = fault === null ? 2 : 3;
     if (fault !== null) statements.splice(1, 0, fault);
     const results = await this.#transactions.batch(statements);
-    if ((results[0]?.meta.changes ?? 0) !== 1 || (results[eventResultIndex]?.meta.changes ?? 0) !== 1) {
+    if ((results[0]?.meta.changes ?? 0) !== 1 || (results[eventResultIndex]?.meta.changes ?? 0) !== 1
+      || (results[noticeResultIndex]?.meta.changes ?? 0) !== 1) {
       await this.#requireOwnerAuthority(ownerAuthority, captured.ownerIdentityId, captured.now);
       throw new Error("voice_access_grant_stale");
     }
@@ -1274,13 +1297,16 @@ export class VoiceAccessRepository {
           JSON.stringify(current.capabilityIds), current.accessDocumentHash, nowIso, grantId, nextVersion,
           ...ownerGuard,
         ),
+      pendingGuestGrantNotice(this.#database, mutationId, ownerAuthority.principalId, nowIso),
     ];
     const fault = this.#faultStatement("revoke");
     const eventResultIndex = fault === null ? 2 : 3;
+    const noticeResultIndex = fault === null ? 3 : 4;
     if (fault !== null) statements.splice(2, 0, fault);
     const results = await this.#transactions.batch(statements);
     if ((results[0]?.meta.changes ?? 0) !== 1 || (results[1]?.meta.changes ?? 0) !== 1
-      || (results[eventResultIndex]?.meta.changes ?? 0) !== 1) {
+      || (results[eventResultIndex]?.meta.changes ?? 0) !== 1
+      || (results[noticeResultIndex]?.meta.changes ?? 0) !== 1) {
       await this.#requireOwnerAuthority(ownerAuthority, captured.ownerIdentityId, captured.now);
       throw new Error("voice_access_grant_stale");
     }
