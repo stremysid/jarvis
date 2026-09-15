@@ -146,6 +146,47 @@ describe("UniversityTrackerRepository", () => {
     });
   });
 
+  it("refuses to carry stale verification onto a changed program identity", async () => {
+    const principalId = "principal:university-stale-verification";
+    const firstTurn = "01k5fb9pg00000000000000915" as Ulid;
+    await seedTurn(principalId, firstTurn, "I'm considering Waterloo Computer Science for 2027.");
+    const repository = new UniversityTrackerRepository(env.DB);
+    await repository.applyOwnerPlan({
+      principalId,
+      turnId: firstTurn,
+      responseHash: "7".repeat(64),
+      plan: unverifiedPlan(),
+      now: NOW,
+    });
+    const program = (await repository.readSnapshot(principalId)).programs[0]!;
+    const secondTurn = "01k5fb9pg00000000000000916" as Ulid;
+    const secondNow = new Date("2026-09-15T15:05:00.000Z");
+    await seedTurn(principalId, secondTurn, "Change that to Software Engineering.", secondNow);
+    await expect(repository.applyOwnerPlan({
+      principalId,
+      turnId: secondTurn,
+      responseHash: "8".repeat(64),
+      now: secondNow,
+      plan: {
+        engaged: true,
+        programUpdates: [{
+          programRef: program.programId,
+          university: null,
+          campus: null,
+          programName: "Software Engineering",
+          ouacCode: null,
+          verification: null,
+          addRequirements: [],
+          addDates: [],
+          resolveItemIds: [],
+        }],
+      },
+    })).rejects.toThrow("university_tracker_verification_invalid");
+    await expect(repository.readSnapshot(principalId)).resolves.toMatchObject({
+      programs: [{ programName: "Computer Science", verification: { state: "unverified" } }],
+    });
+  });
+
   it("retains a resolved requirement while allowing the owner to report it again", async () => {
     const principalId = "principal:university-rereported";
     const firstTurn = "01k5fb9pg00000000000000920" as Ulid;

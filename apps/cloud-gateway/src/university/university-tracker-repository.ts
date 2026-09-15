@@ -240,7 +240,6 @@ export class UniversityTrackerRepository {
       program.programId, program.requirements.length + program.dates.length,
     ]));
     const finalProgramIds = new Set(programsById.keys());
-    const programIdsByRef = new Map<string, Ulid>();
     const seenRefs = new Set<string>();
     const statements: D1PreparedStatement[] = [];
     const resolves: D1PreparedStatement[] = [];
@@ -263,8 +262,12 @@ export class UniversityTrackerRepository {
         if (!programsById.has(existingId)) throw new TypeError("university_tracker_program_unknown");
         programId = existingId;
       }
-      programIdsByRef.set(update.programRef, programId);
       const existing = programsById.get(programId);
+      if (existing !== undefined && update.verification === null
+        && (update.university !== null || update.campus !== null || update.programName !== null
+          || update.ouacCode !== null)) {
+        throw new TypeError("university_tracker_verification_invalid");
+      }
       const university = update.university === null ? existing?.university ?? null
         : inline(update.university, "university_program_invalid", 160);
       const programName = update.programName === null ? existing?.programName ?? null
