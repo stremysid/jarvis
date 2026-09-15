@@ -1,28 +1,48 @@
 # Known issues
 
-## Owner calls lack the decided passphrase boundary
+## Owner-call step-up has five deferred failure and concurrency edges
 
-Inbound owner admission currently trusts the enrolled `From` number after
-Twilio request verification. A valid Twilio signature proves the request came
-through Twilio; it does not prove the caller is Sid. The runtime does not read
-or bind STIR/SHAKEN attestation, so someone who spoofs the enrolled number is
-granted owner authority and can reach private memory and guest-access controls.
+PR #40 keeps inbound calling closed and adds the durable passphrase boundary,
+but five low-severity edges remain before live acceptance:
 
-Outbound has the sibling gap. After an exact relay binding succeeds, the call
-session says the neutral line and immediately grants owner authority. It has no
-human-versus-answering-machine detection. A voicemail greeting delivered as a
-final transcript can be treated as owner input and can cause a memory-backed
-response to be spoken into the recording. The runtime also does not
-automatically state the outbound command's authorized purpose.
+- An attempt's `resolved_at` uses the observation time captured before the
+  600,000-round KDF. A slow verifier can therefore commit a timestamp that
+  predates the actual completion and the 60-second deadline.
+- If the verifier throws after its durable attempt row is reserved, that row
+  remains unresolved and the relay closes with code 1011. The caller does not
+  receive the fixed refusal, clean end frame, or rejection alert.
+- The outbound slot reservation trigger recognizes exactly two inbound owner
+  sessions in `pre_auth`. If inconsistent or future state ever leaves more than
+  two such rows, the reservation no longer applies.
+- Concurrent identical `bind`, `begin`, or rejection deliveries can both pass
+  their read-before-insert check. The losing insert fails closed through a
+  guard trigger instead of re-reading and returning the matching durable row.
+- Concurrent post-success transcript finals are not serialized inside one
+  call-session core. Reordered D1 completions could assemble split passphrase
+  words out of order and pass the mismatch onward as ordinary speech.
 
-Sid decided on a spoken passphrase for every inbound and outbound owner call,
-three tries before the call ends, no persistent lockout, and a Passed-A waiver
-that is built but switched off. The reviewed design chooses three generated
-words and an evidence gate for any later waiver enablement. Until step-up ships
-and passes live acceptance, both paths are release blockers and inbound must
-remain closed. The passphrase protects private disclosure to voicemail;
-answering-machine detection remains an optional cost optimization. The
-security contract and implementation order are in
+The 60-second deadline, a final arriving during KDF work, and refusal delivery
+ahead of the alert sink are fixed and covered on PR #40. The five items above
+must be resolved or explicitly accepted before inbound opening and the attended
+voice smoke.
+
+## Owner-call passphrase boundary awaits rollout and live acceptance
+
+Production still trusts the enrolled owner number without a human step-up. A
+valid Twilio signature proves that a request came through Twilio; it does not
+prove the caller is Sid. Outbound calls have the sibling voicemail-disclosure
+risk because Jarvis cannot distinguish Sid from an answering-machine greeting.
+
+PR #40 implements the decided passphrase boundary for inbound and outbound
+owner calls, binds the exact attestation class, and keeps the Passed-A waiver
+dormant. That code does not protect production until migration `0018` is
+reviewed and applied, the Worker is deployed, a verifier is generated, and the
+attended voice smoke passes. Answering-machine detection remains outside R1.
+
+Sid chose three generated words, three tries before the call ends, no
+persistent lockout, and an evidence gate for any later waiver enablement.
+Until rollout and live acceptance, both paths remain release blockers and
+inbound must stay closed. The security contract and implementation order are in
 [`docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md`](docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md).
 
 ## Guest PIN attempt counts reset when a call Durable Object hibernates

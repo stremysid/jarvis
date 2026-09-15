@@ -26,7 +26,10 @@ import {
   OWNER_STEP_UP_VERIFIED,
 } from "../../../apps/cloud-gateway/src/voice/owner-call-step-up.js";
 import { OUTBOUND_VOICEMAIL_MESSAGE } from "../../../apps/cloud-gateway/src/voice/outbound.js";
-import { createFakeCallingSystem, type FakeCallingSystem } from "./voice-call-system.js";
+import {
+  createFakeCallingSystem as createBaseFakeCallingSystem,
+  type FakeCallingSystem,
+} from "./voice-call-system.js";
 import { FAKE_OWNER_PASSPHRASE } from "./voice-access-system.js";
 import type { FakeRelayCall } from "./voice-relay-system.js";
 
@@ -47,6 +50,13 @@ interface KnownAnswerVectors {
 }
 
 const vectors = JSON.parse(vectorsText) as KnownAnswerVectors;
+const FUTURE_TEST_NOW = new Date("2099-01-01T00:00:00.000Z");
+
+function createFakeCallingSystem(
+  input: NonNullable<Parameters<typeof createBaseFakeCallingSystem>[0]> = {},
+): ReturnType<typeof createBaseFakeCallingSystem> {
+  return createBaseFakeCallingSystem({ now: FUTURE_TEST_NOW, ...input });
+}
 
 function bytes(base64: string): Uint8Array {
   return Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
@@ -215,21 +225,83 @@ async function openOwnerCall(
   return call;
 }
 
+const CONSOLE_METHODS = [
+  "assert", "clear", "count", "countReset", "debug", "dir", "dirxml", "error",
+  "group", "groupCollapsed", "groupEnd", "info", "log", "table", "time", "timeEnd",
+  "timeLog", "trace", "warn",
+] as const;
+
+function spyOnEveryConsoleMethod(logs: unknown[]): readonly ReturnType<typeof vi.spyOn>[] {
+  const target = console as unknown as Record<string, (...args: unknown[]) => unknown>;
+  return CONSOLE_METHODS.map((method) => vi.spyOn(target, method).mockImplementation((...args: unknown[]) => {
+    logs.push([method, ...args]);
+  }));
+}
+
 function evidenceText(value: unknown): string {
   const seen = new WeakSet<object>();
-  return JSON.stringify(value, (_key, item: unknown) => {
-    if (item instanceof ArrayBuffer) return Array.from(new Uint8Array(item));
+  const evidence: string[] = [];
+  const recordBytes = (bytesValue: Uint8Array): void => {
+    const bytes = Uint8Array.from(bytesValue);
+    evidence.push(new TextDecoder().decode(bytes));
+    evidence.push(Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(""));
+    evidence.push(btoa(String.fromCharCode(...bytes)));
+    evidence.push(Array.from(bytes).join(","));
+  };
+  const visit = (item: unknown): void => {
+    if (typeof item === "string") {
+      evidence.push(item);
+      return;
+    }
+    if (item instanceof ArrayBuffer) {
+      recordBytes(new Uint8Array(item));
+      return;
+    }
     if (ArrayBuffer.isView(item)) {
-      return Array.from(new Uint8Array(item.buffer, item.byteOffset, item.byteLength));
+      recordBytes(new Uint8Array(item.buffer, item.byteOffset, item.byteLength));
+      return;
     }
-    if (item instanceof Map) return Array.from(item.entries());
-    if (item instanceof Set) return Array.from(item.values());
+    if (Array.isArray(item)) {
+      if (item.length > 0 && item.every((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 255)) {
+        recordBytes(Uint8Array.from(item as number[]));
+      }
+      for (const entry of item) visit(entry);
+      return;
+    }
+    if (item instanceof Map) {
+      for (const [key, entry] of item) {
+        visit(key);
+        visit(entry);
+      }
+      return;
+    }
+    if (item instanceof Set) {
+      for (const entry of item) visit(entry);
+      return;
+    }
     if (typeof item === "object" && item !== null) {
-      if (seen.has(item)) return "[circular]";
+      if (seen.has(item)) return;
       seen.add(item);
+      for (const key of Reflect.ownKeys(item)) {
+        visit(String(key));
+        visit((item as Record<PropertyKey, unknown>)[key]);
+      }
+      return;
     }
-    return item;
-  });
+    if (item !== undefined && item !== null) evidence.push(String(item));
+  };
+  visit(value);
+  return evidence.join("\n").toLowerCase();
+}
+
+async function digestForms(...values: readonly string[]): Promise<readonly string[]> {
+  const forms: string[] = [];
+  for (const value of values) {
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+    forms.push(Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join(""));
+    forms.push(btoa(String.fromCharCode(...digest)));
+  }
+  return forms.map((value) => value.toLowerCase());
 }
 
 async function d1Evidence(): Promise<readonly unknown[]> {
@@ -297,9 +369,8 @@ describe("owner-call passphrase security contract", () => {
     "requires a real successful verifier result and keeps every %s candidate representation out of named sinks",
     async (direction) => {
       const system = await createFakeCallingSystem();
-      const logs: unknown[][] = [];
-      const spies = (["debug", "info", "log", "warn", "error"] as const)
-        .map((method) => vi.spyOn(console, method).mockImplementation((...args: unknown[]) => { logs.push(args); }));
+      const logs: unknown[] = [];
+      const spies = spyOnEveryConsoleMethod(logs);
       const spoken = "ABLAZE,  ABRASION!  ABRASIVE.";
       try {
         const call = await openOwnerCall(system, direction);
@@ -313,14 +384,8 @@ describe("owner-call passphrase security contract", () => {
         expect(call.frames().filter((frame) => frame.token === OWNER_STEP_UP_VERIFIED)).toHaveLength(1);
         expect(await call.modelRequests()).toEqual([]);
         expect(await call.turns()).toEqual([]);
-        expect(logs.slice(beforeCandidate)).toEqual([]);
 
-        const rawHash = Array.from(new Uint8Array(await crypto.subtle.digest(
-          "SHA-256", new TextEncoder().encode(spoken),
-        )), (byte) => byte.toString(16).padStart(2, "0")).join("");
-        const canonicalHash = Array.from(new Uint8Array(await crypto.subtle.digest(
-          "SHA-256", new TextEncoder().encode(FAKE_OWNER_PASSPHRASE),
-        )), (byte) => byte.toString(16).padStart(2, "0")).join("");
+        const digests = await digestForms(spoken, FAKE_OWNER_PASSPHRASE);
         const surfaces = evidenceText([
           logs,
           call.frames(),
@@ -333,13 +398,10 @@ describe("owner-call passphrase security contract", () => {
         ]);
         for (const secret of [
           spoken,
-          spoken.toUpperCase(),
           FAKE_OWNER_PASSPHRASE,
-          evidenceText(FAKE_OWNER_PASSPHRASE.split(" ")),
-          rawHash,
-          canonicalHash,
+          ...digests,
           ...FAKE_OWNER_PASSPHRASE.split(" "),
-        ]) expect(surfaces).not.toContain(secret);
+        ]) expect(surfaces).not.toContain(secret.toLowerCase());
       } finally {
         for (const spy of spies) spy.mockRestore();
         await system.cleanup();
@@ -348,16 +410,20 @@ describe("owner-call passphrase security contract", () => {
     20_000,
   );
 
-  it("does not let keypad input authenticate an owner", async () => {
+  it.each([
+    ["inbound", "4827"], ["inbound", "0000"], ["inbound", "1357"], ["inbound", "9999"],
+    ["outbound", "4827"], ["outbound", "0000"], ["outbound", "1357"], ["outbound", "9999"],
+  ] as const)("does not let %s keypad code %s authenticate an owner", async (direction, code) => {
     const system = await createFakeCallingSystem();
     try {
-      const call = await openOwnerCall(system, "inbound");
-      await call.pin(Uint8Array.from([52, 56, 50, 55]));
+      const call = await openOwnerCall(system, direction);
+      await call.pin(new TextEncoder().encode(code));
       expect(await call.phase()).toBe("pre_auth");
       expect(await ownerAuthorityCount(call.sessionId)).toBe(0);
       expect(await system.ownerStepUpAttempts(call.sessionId)).toBe(0);
+      expect(await call.modelRequests()).toEqual([]);
     } finally { await system.cleanup(); }
-  });
+  }, 20_000);
 
   it.each([undefined, "", "passphrase_always", "unknown_policy"])(
     "keeps exact Passed-A behind the phrase when policy is %j",
@@ -436,7 +502,7 @@ describe("owner-call passphrase security contract", () => {
       await env.DB.prepare("DROP TRIGGER owner_passphrase_verifiers_transition_guard").run();
       await env.DB.prepare(`UPDATE owner_passphrase_verifiers
         SET status = 'revoked', status_changed_at = ? WHERE status = 'active'`)
-        .bind("2026-08-30T12:00:01.000Z").run();
+        .bind("2099-01-01T00:00:01.000Z").run();
 
       await active.prompt("What is on my calendar?");
       await vi.waitFor(() => expect(active.closeCodes()).toContain(1011));
@@ -475,12 +541,12 @@ describe("owner-call passphrase security contract", () => {
       const authority = await authorities.rehydrate({
         sessionId: stored.sessionId,
         binding: stored.binding,
-        now: new Date("2026-08-30T12:00:00.000Z"),
+        now: FUTURE_TEST_NOW,
       });
 
-      await expect(authorities.authorize(authority, "access.manage", new Date("2026-08-30T12:00:00.000Z")))
+      await expect(authorities.authorize(authority, "access.manage", FUTURE_TEST_NOW))
         .rejects.toThrow("owner_step_up_required");
-      await expect(authorities.authorize(authority, "conversation.basic", new Date("2026-08-30T12:00:00.000Z")))
+      await expect(authorities.authorize(authority, "conversation.basic", FUTURE_TEST_NOW))
         .resolves.toBe(authority);
     } finally { await system.cleanup(); }
   });
@@ -546,6 +612,23 @@ describe("owner-call passphrase security contract", () => {
     } finally { await system.cleanup(); }
   });
 
+  it("stops buffering short word-list replies after the bounded split-repeat window", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      const call = await openOwnerCall(system, "inbound");
+      await call.prompt(FAKE_OWNER_PASSPHRASE);
+      system.advanceTime(2_001);
+      await call.prompt("good");
+      expect(await call.modelRequests()).toEqual([]);
+
+      system.advanceTime(5_000);
+      await call.prompt("good");
+      expect(await call.modelRequests()).toEqual([
+        expect.objectContaining({ userText: "good" }),
+      ]);
+    } finally { await system.cleanup(); }
+  }, 20_000);
+
   it("assembles split finals, discards fixed echoes, and clears partial fragments on interruption", async () => {
     const system = await createFakeCallingSystem();
     try {
@@ -562,20 +645,43 @@ describe("owner-call passphrase security contract", () => {
 
   it("uses clean ConversationRelay end plus callback Hangup after exactly three mismatches", async () => {
     const system = await createFakeCallingSystem();
+    const logs: unknown[] = [];
+    const spies = spyOnEveryConsoleMethod(logs);
+    const wrongCandidates = [
+      "ablaze abrasion active", "ablaze abrasion activist", "ablaze abrasion activity",
+    ] as const;
     try {
       const call = await openOwnerCall(system, "inbound");
-      for (const wrong of [
-        "ablaze abrasion active", "ablaze abrasion activist", "ablaze abrasion activity",
-      ]) await call.prompt(wrong);
+      const beforeCandidates = logs.length;
+      for (const wrong of wrongCandidates) await call.prompt(wrong);
       expect(await call.phase()).toBe("rejected");
       expect(call.frames().filter((frame) => frame.token === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
       expect(call.frames()).toContainEqual({ type: "end", handoffData: OWNER_STEP_UP_HANDOFF_DATA });
       expect(call.closeCodes()).toEqual([]);
+      expect(call.stepUpAlerts()).toHaveLength(1);
+      const surfaces = evidenceText([
+        logs.slice(beforeCandidates),
+        call.frames(),
+        call.closeEvents(),
+        call.stepUpAlerts(),
+        await call.modelRequests(),
+        await call.turns(),
+        await call.durableStorage(),
+        await call.durableSqlStorage(),
+        await d1Evidence(),
+      ]);
+      const candidateDigests = await digestForms(...wrongCandidates);
+      for (const secret of [...wrongCandidates, ...candidateDigests]) {
+        expect(surfaces).not.toContain(secret.toLowerCase());
+      }
       const callback = await system.sendRelayEnded(
         call.callSid, "ended", call.providerSessionId, OWNER_STEP_UP_HANDOFF_DATA,
       );
       expect(callback.status).toBe(200);
       expect(await callback.text()).toBe("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Hangup/></Response>");
-    } finally { await system.cleanup(); }
-  });
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+      await system.cleanup();
+    }
+  }, 30_000);
 });

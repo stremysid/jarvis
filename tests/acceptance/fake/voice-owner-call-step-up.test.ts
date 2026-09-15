@@ -6,7 +6,15 @@ import {
   OWNER_STEP_UP_VERIFIED,
 } from "../../../apps/cloud-gateway/src/voice/owner-call-step-up.js";
 import { FAKE_OWNER_PASSPHRASE } from "./voice-access-system.js";
-import { createFakeCallingSystem } from "./voice-call-system.js";
+import { createFakeCallingSystem as createBaseFakeCallingSystem } from "./voice-call-system.js";
+
+const FUTURE_TEST_NOW = new Date("2099-01-01T00:00:00.000Z");
+
+function createFakeCallingSystem(
+  input: NonNullable<Parameters<typeof createBaseFakeCallingSystem>[0]> = {},
+): ReturnType<typeof createBaseFakeCallingSystem> {
+  return createBaseFakeCallingSystem({ now: FUTURE_TEST_NOW, ...input });
+}
 
 async function authorityCount(sessionId: string): Promise<number> {
   return (await env.DB.prepare(
@@ -65,7 +73,7 @@ describe("owner call passphrase step-up", () => {
       expect(callback.status).toBe(200);
       expect(await callback.text()).toContain("<Hangup/>");
     } finally { await system.cleanup(); }
-  });
+  }, 20_000);
 
   it("preserves mismatch ordinals across a Durable Object hibernation boundary", async () => {
     const system = await createFakeCallingSystem();
@@ -83,8 +91,21 @@ describe("owner call passphrase step-up", () => {
       expect(await system.ownerStepUpAttempts(call.sessionId)).toBe(3);
       expect(await call.phase()).toBe("rejected");
       expect(await authorityCount(call.sessionId)).toBe(0);
+      expect(call.frames().filter((frame) => frame.token === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
+      expect(call.frames()).toContainEqual({ type: "end", handoffData: OWNER_STEP_UP_HANDOFF_DATA });
+      expect(call.stepUpAlerts()).toEqual([{
+        ownerPrincipalId: "principal:owner",
+        alertClass: "rejected",
+        direction: "inbound",
+        attestationClass: "absent",
+      }]);
+      const callback = await system.sendRelayEnded(
+        call.callSid, "ended", call.providerSessionId, OWNER_STEP_UP_HANDOFF_DATA,
+      );
+      expect(callback.status).toBe(200);
+      expect(await callback.text()).toContain("<Hangup/>");
     } finally { await system.cleanup(); }
-  });
+  }, 20_000);
 
   it("does not carry a rejected call's three attempts into a later owner call", async () => {
     const system = await createFakeCallingSystem();
@@ -106,7 +127,7 @@ describe("owner call passphrase step-up", () => {
       expect(await authorityCount(later.sessionId)).toBe(1);
       expect(await system.ownerStepUpAttempts(later.sessionId)).toBe(1);
     } finally { await system.cleanup(); }
-  });
+  }, 30_000);
 
   it("reserves one outbound-owner slot when two inbound owner relays are waiting in pre-auth", async () => {
     const system = await createFakeCallingSystem();
@@ -145,6 +166,64 @@ describe("owner call passphrase step-up", () => {
     } finally { await system.cleanup(); }
   });
 
+  it("restores the persisted deadline before accepting a post-hibernation fragment", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      const call = await system.openRelay();
+      await call.setup();
+      await call.hibernate();
+      system.advanceTime(60_001);
+
+      await call.prompt("ablaze");
+
+      expect(await call.phase()).toBe("rejected");
+      expect(await system.ownerStepUpAttempts(call.sessionId)).toBe(0);
+      expect((await env.DB.prepare(
+        "SELECT count(*) AS count FROM owner_call_step_up_reprompts WHERE session_id = ?",
+      ).bind(call.sessionId).first<{ count: number }>())?.count).toBe(0);
+      expect(call.frames().filter((frame) => frame.token === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
+      expect(call.frames()).toContainEqual({ type: "end", handoffData: OWNER_STEP_UP_HANDOFF_DATA });
+    } finally { await system.cleanup(); }
+  }, 20_000);
+
+  it.each([false, true])(
+    "keeps the original deadline after an assembly alarm and rejects silence (hibernate=%s)",
+    async (hibernate) => {
+      const system = await createFakeCallingSystem({ now: new Date("2099-01-01T00:00:00.000Z") });
+      try {
+        expect((await system.inbound()).status).toBe(200);
+        const call = await system.openRelay();
+        await call.setup();
+        await call.prompt("ablaze");
+        if (hibernate) await call.hibernate();
+
+        system.advanceTime(1_501);
+        await call.fireAlarm();
+        expect(await call.phase()).toBe("pre_auth");
+        expect((await env.DB.prepare(
+          "SELECT count(*) AS count FROM owner_call_step_up_reprompts WHERE session_id = ?",
+        ).bind(call.sessionId).first<{ count: number }>())?.count).toBe(1);
+        expect(await call.durableStorage()).toMatchObject({
+          "call-session.owner-step-up-alarm.v1": expect.objectContaining({ kind: "window" }),
+        });
+
+        system.advanceTime(58_500);
+        await call.fireAlarm();
+        expect(await call.phase()).toBe("rejected");
+        expect(call.frames().filter((frame) => frame.token === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
+        expect(call.frames()).toContainEqual({ type: "end", handoffData: OWNER_STEP_UP_HANDOFF_DATA });
+        expect(call.stepUpAlerts()).toHaveLength(1);
+        const callback = await system.sendRelayEnded(
+          call.callSid, "ended", call.providerSessionId, OWNER_STEP_UP_HANDOFF_DATA,
+        );
+        expect(callback.status).toBe(200);
+        expect(await callback.text()).toContain("<Hangup/>");
+      } finally { await system.cleanup(); }
+    },
+    30_000,
+  );
+
   it("retains the durable deadline alarm when the first handler attempt throws", async () => {
     const system = await createFakeCallingSystem({ now: new Date("2099-01-01T00:00:00.000Z") });
     let renamed = false;
@@ -173,6 +252,34 @@ describe("owner call passphrase step-up", () => {
       await system.cleanup();
     }
   }, 15_000);
+
+  it("retains the deadline when an evicted alarm cannot reconstruct its core", async () => {
+    const system = await createFakeCallingSystem({ now: new Date("2099-01-01T00:00:00.000Z") });
+    let renamed = false;
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      const call = await system.openRelay();
+      await call.setup();
+      await call.hibernate();
+      system.advanceTime(60_001);
+      await env.DB.prepare("ALTER TABLE call_sessions RENAME TO call_sessions_unavailable").run();
+      renamed = true;
+
+      await expect(call.fireAlarm()).rejects.toThrow("owner_step_up_alarm_runtime_unavailable");
+      expect(await call.durableStorage()).toHaveProperty("call-session.owner-step-up-alarm.v1");
+
+      await env.DB.prepare("ALTER TABLE call_sessions_unavailable RENAME TO call_sessions").run();
+      renamed = false;
+      await call.fireAlarm();
+      expect(await call.phase()).toBe("rejected");
+      expect(call.frames().filter((frame) => frame.token === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
+      expect(call.frames()).toContainEqual({ type: "end", handoffData: OWNER_STEP_UP_HANDOFF_DATA });
+      expect(call.stepUpAlerts()).toHaveLength(1);
+    } finally {
+      if (renamed) await env.DB.prepare("ALTER TABLE call_sessions_unavailable RENAME TO call_sessions").run();
+      await system.cleanup();
+    }
+  }, 30_000);
 
   it("caps non-candidate assembly re-prompts durably without spending mismatch attempts", async () => {
     const system = await createFakeCallingSystem({ now: new Date("2099-01-01T00:00:00.000Z") });

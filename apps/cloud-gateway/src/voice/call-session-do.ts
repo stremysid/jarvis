@@ -1098,7 +1098,7 @@ export class CallSessionCore {
       this.#clearOwnerRepeatFragments();
       return null;
     }
-    if (status !== "available") {
+    if (status !== "fragment" && status !== "available") {
       this.#clearOwnerRepeatFragments();
       return text;
     }
@@ -1109,6 +1109,10 @@ export class CallSessionCore {
 
     const wordCount = ownerPassphraseFragmentWordCount(text);
     if (wordCount === null) {
+      this.#clearOwnerRepeatFragments();
+      return text;
+    }
+    if (status === "available" && wordCount < 3) {
       this.#clearOwnerRepeatFragments();
       return text;
     }
@@ -1156,7 +1160,15 @@ export class CallSessionCore {
     if (rejected === null || rejected.phase !== "rejected") throw new Error("owner_step_up_rejection_failed");
     this.#session = rejected;
     this.#clearOwnerStepUpFragments();
-    await this.#ownerStepUpAlarm?.clear();
+    let alarmClearFailed = false;
+    try { await this.#ownerStepUpAlarm?.clear(); }
+    catch { alarmClearFailed = true; }
+    await this.#relay.sendNeutralText(OWNER_STEP_UP_REJECTED);
+    try {
+      if (this.#relay.end === undefined) throw new Error("relay_end_unavailable");
+      await this.#relay.end(OWNER_STEP_UP_HANDOFF_DATA);
+    }
+    catch { this.#relay.close(1008); }
     const binding = await this.#ownerStepUp.binding(this.#session.sessionId);
     if (binding !== null && this.#ownerStepUpAlerts !== null) {
       try {
@@ -1171,12 +1183,7 @@ export class CallSessionCore {
         // Alert delivery is durable and retriable. It cannot reopen or weaken a rejected call.
       }
     }
-    await this.#relay.sendNeutralText(OWNER_STEP_UP_REJECTED);
-    try {
-      if (this.#relay.end === undefined) throw new Error("relay_end_unavailable");
-      await this.#relay.end(OWNER_STEP_UP_HANDOFF_DATA);
-    }
-    catch { this.#relay.close(1008); }
+    if (alarmClearFailed) throw new Error("owner_step_up_alarm_clear_failed");
   }
 
   async #completeOwnerStepUp(candidate: string, observedAt: Date): Promise<void> {
@@ -1223,8 +1230,12 @@ export class CallSessionCore {
   }
 
   async #handleOwnerStepUpPrompt(event: Extract<RelayEvent, { type: "prompt" }>): Promise<void> {
-    if (!event.final || this.#isFixedStepUpEcho(event.text)) return;
+    if (!event.final || this.#isFixedStepUpEcho(event.text) || this.#ownerStepUpVerificationInFlight) return;
     const observedAt = this.#now();
+    if (this.#ownerStepUpDeadlineAt === null) {
+      const state = await this.#ownerStepUp!.state(this.#session.sessionId);
+      this.#ownerStepUpDeadlineAt = state.deadlineAt;
+    }
     if (this.#ownerStepUpDeadlineAt !== null && observedAt.toISOString() >= this.#ownerStepUpDeadlineAt) {
       await this.#rejectOwnerStepUp(observedAt);
       return;
@@ -1258,10 +1269,16 @@ export class CallSessionCore {
   }
 
   async handleOwnerStepUpAlarm(kind: "window" | "assembly", lifecycleGeneration: 1): Promise<void> {
-    if (lifecycleGeneration !== 1 || this.#session.phase !== "pre_auth" || this.#interaction.kind !== "owner_step_up") return;
+    if (lifecycleGeneration !== 1 || this.#session.phase !== "pre_auth" || this.#interaction.kind !== "owner_step_up") {
+      await this.#ownerStepUpAlarm?.clear();
+      return;
+    }
     const observedAt = this.#now();
     const state = await this.#ownerStepUp!.state(this.#session.sessionId);
-    if (state.deadlineAt === null || state.rejectionReason !== null) return;
+    if (state.deadlineAt === null || state.rejectionReason !== null) {
+      await this.#ownerStepUpAlarm?.clear();
+      return;
+    }
     this.#ownerStepUpDeadlineAt = state.deadlineAt;
     if (observedAt.toISOString() >= state.deadlineAt) {
       await this.#rejectOwnerStepUp(observedAt);
@@ -1697,11 +1714,21 @@ export class CallSession extends DurableObject<Env> {
       return;
     }
     const sockets = this.ctx.getWebSockets();
+    let handled = false;
     for (const socket of sockets) {
       const resolved = await this.#resolveCore(socket);
-      if (resolved.kind === "ready") await resolved.core.handleOwnerStepUpAlarm(stored.kind, 1);
+      if (resolved.kind === "unavailable") throw new Error("owner_step_up_alarm_runtime_unavailable");
+      if (resolved.kind === "mismatch") {
+        await this.#clearOwnerStepUpAlarm();
+        handled = true;
+        continue;
+      }
+      if (resolved.kind === "ready") {
+        await resolved.core.handleOwnerStepUpAlarm(stored.kind, 1);
+        handled = true;
+      }
     }
-    await this.ctx.storage.delete(OWNER_STEP_UP_ALARM_KEY);
+    if (!handled) throw new Error("owner_step_up_alarm_runtime_unavailable");
   }
 
   async terminate(value: CallSessionTermination): Promise<CallSessionTerminationResult> {

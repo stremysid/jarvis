@@ -699,6 +699,8 @@ async function accessHarness(
   } as unknown as ConversationService;
   const close = vi.fn<(code: number) => void>();
   const sendNeutralText = vi.fn<(text: string) => Promise<void>>(async () => undefined);
+  const armOwnerStepUpAlarm = vi.fn(async () => undefined);
+  const clearOwnerStepUpAlarm = vi.fn(async () => undefined);
   let currentNow = new Date(NOW);
   const instance = new CallSessionCore({
     capacity,
@@ -710,7 +712,7 @@ async function accessHarness(
     activation: null,
     ownerAccess,
     ownerStepUp,
-    ownerStepUpAlarm: { async arm() {}, async clear() {} },
+    ownerStepUpAlarm: { arm: armOwnerStepUpAlarm, clear: clearOwnerStepUpAlarm },
     conversation,
     relay: {
       close,
@@ -732,6 +734,8 @@ async function accessHarness(
     conversation,
     close,
     sendNeutralText,
+    armOwnerStepUpAlarm,
+    clearOwnerStepUpAlarm,
     advanceTime(milliseconds: number) {
       currentNow = new Date(currentNow.valueOf() + milliseconds);
     },
@@ -1079,6 +1083,39 @@ describe("CallSessionCore owner and guest access", () => {
     expect(harness.instance.phase).toBe("rejected");
     expect(harness.close).toHaveBeenCalledExactlyOnceWith(1008);
   });
+
+  it("ignores a final arriving during KDF work instead of replacing the window alarm", async () => {
+    const harness = await accessHarness("owner", undefined, true);
+    const deriveBits = crypto.subtle.deriveBits.bind(crypto.subtle);
+    let announceStarted!: () => void;
+    let releaseVerifier!: () => void;
+    const started = new Promise<void>((resolve) => { announceStarted = resolve; });
+    const blocked = new Promise<void>((resolve) => { releaseVerifier = resolve; });
+    const spy = vi.spyOn(crypto.subtle, "deriveBits").mockImplementation(async (algorithm, baseKey, length) => {
+      announceStarted();
+      await blocked;
+      return deriveBits(algorithm, baseKey, length);
+    });
+    try {
+      await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+      const first = harness.instance.handleRelayEvent({
+        type: "prompt", final: true, language: "en-US", text: "ablaze abrasion active",
+      });
+      await started;
+      await harness.instance.handleRelayEvent({
+        type: "prompt", final: true, language: "en-US", text: "ablaze",
+      });
+      releaseVerifier();
+      await first;
+
+      expect(harness.instance.phase).toBe("pre_auth");
+      expect(harness.armOwnerStepUpAlarm.mock.calls.at(-1)?.[0]).toMatchObject({ kind: "window" });
+      expect(harness.sendNeutralText).not.toHaveBeenCalledWith("Please say only your passphrase.");
+    } finally {
+      releaseVerifier();
+      spy.mockRestore();
+    }
+  }, 15_000);
 
   it("does not start a conversation turn when termination wins during authorization", async () => {
     const harness = await accessHarness("owner");
@@ -2058,8 +2095,11 @@ describe("CallSession production composition", () => {
       await object.initialize(capturedInitialization);
     });
     await restart();
-    const send = (frame: unknown) => runInDurableObject(stub, async () => {
+    const send = (frame: unknown) => runInDurableObject(stub, async (_instance, state) => {
       await object.webSocketMessage(relay.socket, JSON.stringify(frame));
+      // This production-composition harness freezes Date in August 2026.
+      // Alarm behavior is covered by the future-clock fake-call tests.
+      await state.storage.deleteAlarm();
     });
     return {
       ...relay, restart,

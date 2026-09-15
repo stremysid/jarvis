@@ -221,9 +221,13 @@ export class FakeRelaySessions {
     const session = this.requireSession(sessionId);
     const sendFrame = (frame: string | ArrayBuffer): Promise<void> => runInDurableObject(
       session.stub,
-      async () => {
+      async (_instance, state) => {
         if (session.server === null) throw new Error("fake_relay_not_open");
         await session.object.webSocketMessage(session.server, frame);
+        // Historical fixtures use a 2026 logical clock. Do not let Workerd's
+        // real wall clock auto-fire those alarms; alarm tests invoke alarm()
+        // explicitly and use a future logical clock.
+        if (this.now().valueOf() < Date.now()) await state.storage.deleteAlarm();
       },
     );
     return Object.freeze({

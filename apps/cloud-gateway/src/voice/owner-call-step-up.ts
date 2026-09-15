@@ -17,6 +17,7 @@ export const OWNER_STEP_UP_HANDOFF_DATA = "jarvis:owner-step-up-rejected:v1";
 export const OWNER_STEP_UP_WINDOW_MS = 60_000;
 export const OWNER_STEP_UP_ASSEMBLY_MS = 1_500;
 export const OWNER_STEP_UP_REPEAT_MS = 2_000;
+export const OWNER_STEP_UP_REPEAT_FRAGMENT_MS = OWNER_STEP_UP_REPEAT_MS + OWNER_STEP_UP_ASSEMBLY_MS;
 
 export type OwnerCallerIdPolicy = "passphrase_always" | "waive_on_passed_a" | "invalid";
 export type OwnerAttestationClass = "passed_a" | "absent" | "other" | "not_applicable";
@@ -272,7 +273,7 @@ export class OwnerCallStepUpService {
     const at = iso(now);
     const status = await this.repeatStatus(sessionId, now);
     if (status === "guard") return "suppress";
-    if (status !== "available") return "continue";
+    if (status !== "fragment" && status !== "available") return "continue";
     let canonical: Uint8Array;
     try { canonical = canonicalizeOwnerPassphrase(candidate); }
     catch { return "continue"; }
@@ -291,16 +292,24 @@ export class OwnerCallStepUpService {
     return matched ? "suppress" : "continue";
   }
 
-  async repeatStatus(sessionId: Ulid, now: Date): Promise<"guard" | "available" | "spent" | "inactive"> {
+  async repeatStatus(
+    sessionId: Ulid,
+    now: Date,
+  ): Promise<"guard" | "fragment" | "available" | "spent" | "inactive"> {
     const state = await this.state(sessionId);
     if (state.verifiedAt === null) return "inactive";
-    if (iso(now) <= new Date(new Date(state.verifiedAt).valueOf() + OWNER_STEP_UP_REPEAT_MS).toISOString()) {
+    const observedAt = iso(now);
+    const verifiedAt = new Date(state.verifiedAt).valueOf();
+    if (observedAt <= new Date(verifiedAt + OWNER_STEP_UP_REPEAT_MS).toISOString()) {
       return "guard";
     }
     const existing = await this.#database.prepare(
       "SELECT session_id FROM owner_call_step_up_repeat_checks WHERE session_id = ?",
     ).bind(sessionId).first<{ session_id: string }>();
-    return existing === null ? "available" : "spent";
+    if (existing !== null) return "spent";
+    return observedAt <= new Date(verifiedAt + OWNER_STEP_UP_REPEAT_FRAGMENT_MS).toISOString()
+      ? "fragment"
+      : "available";
   }
 
   async state(sessionId: Ulid): Promise<Readonly<{
