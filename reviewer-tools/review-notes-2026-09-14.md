@@ -167,3 +167,5 @@ Facts gathered so far, for the final AGENT_LOG entries. All checks ran locally o
 - #36 union-merged with main as 1be6191 (0 entries lost). #37 max review 23:09 UTC at b438666: changes requested (S1 0016 coupling, S2 STT-variant words, S3 no disable/revoke transition, 11 mutation survivors). pnpm 2607/2610 (3 flakes 73/73 isolated), pytest 829/32. KAT recomputed with Node crypto: match.
 
 - #38 review 23:45 UTC at f9b528f (code = 3f884b5): cleared with nits N1 (would vs I would like / contraction), N2 (decimal + interior ! vectors). pnpm 2635/2638 (3 flakes 126/126 isolated), pytest 860/32, ruff+mypy clean. Probes v1+v2 9/9 fail (all fixed). mut38 14/17 killed.
+
+- #37 re-review 00:01 UTC at 66d99fa: changes requested (small). S1 disable guard pins producerVersion cloud-gateway@0.1.0 (hard-coded webhook constant). pnpm 2687/2687, pytest 871/32. Word list v2 + new KAT verified. mut37b 17/23 killed; survivors D2 freshness, D8 unverified telegram identity, D4 scope, D6 event type, D9 inactive head, PY7.
