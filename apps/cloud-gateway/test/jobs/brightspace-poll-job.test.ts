@@ -1,7 +1,13 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DeadlineRepository } from "../../src/deadlines/deadline-repository.js";
-import { buildJobTable, type JobEnvironment } from "../../src/jobs/job-table.js";
+import {
+  buildJobTable,
+  refreshBrightspace,
+  runOnDemandBrightspaceRefresh,
+  selectBrightspaceWindow,
+  type JobEnvironment,
+} from "../../src/jobs/job-table.js";
 import { resetArchiveFixture } from "../archive/archive-fixture.js";
 import { resetDeadlineTables } from "../deadlines/deadline-fixture.js";
 import { applySchoolCatchupMigration } from "../persistence/migration.js";
@@ -39,6 +45,89 @@ function datedFeed(count: number): string {
   return [...lines, "END:VCALENDAR", ""].join("\r\n");
 }
 
+function inWindowFeed(count: number, includeCancellation = false, pastCount = 0): string {
+  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0"];
+  for (let index = count - 1; index >= 0; index -= 1) {
+    const due = new Date(NOW.getTime() + (index + 1) * 3_600_000);
+    const stamp = due.toISOString().replace(/[-:]/gu, "").replace(".000Z", "Z");
+    lines.push(
+      "BEGIN:VEVENT",
+      `UID:window-${index}`,
+      `SUMMARY:Window item ${index}`,
+      "CATEGORIES:Course",
+      `DTSTART:${stamp}`,
+      "END:VEVENT",
+    );
+  }
+  for (let index = 0; index < pastCount; index += 1) {
+    const due = new Date(NOW.getTime() - (index + 1) * 3_600_000);
+    const stamp = due.toISOString().replace(/[-:]/gu, "").replace(".000Z", "Z");
+    lines.push(
+      "BEGIN:VEVENT",
+      `UID:past-window-${index}`,
+      `SUMMARY:Past window item ${index}`,
+      "CATEGORIES:Course",
+      `DTSTART:${stamp}`,
+      "END:VEVENT",
+    );
+  }
+  if (includeCancellation) {
+    lines.push(
+      "BEGIN:VEVENT",
+      "UID:brightspace-item-1",
+      "STATUS:CANCELLED",
+      "DTSTART:20260918T183000Z",
+      "END:VEVENT",
+    );
+  }
+  return [...lines, "END:VCALENDAR", ""].join("\r\n");
+}
+
+function cancellationStressFeed(liveCount: number, cancellationCount: number): string {
+  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0"];
+  for (let index = 0; index < liveCount; index += 1) {
+    const due = new Date(NOW.getTime() + (index + 1) * 3_600_000);
+    const stamp = due.toISOString().replace(/[-:]/gu, "").replace(".000Z", "Z");
+    lines.push(
+      "BEGIN:VEVENT",
+      `UID:live-${index}`,
+      `SUMMARY:Live item ${index}`,
+      `DTSTART:${stamp}`,
+      "END:VEVENT",
+    );
+  }
+  for (let index = 0; index < cancellationCount; index += 1) {
+    const due = new Date(NOW.getTime() + (index + 1) * 60_000);
+    const stamp = due.toISOString().replace(/[-:]/gu, "").replace(".000Z", "Z");
+    lines.push(
+      "BEGIN:VTODO",
+      `UID:cancelled-${index}`,
+      "STATUS:COMPLETED",
+      `DUE:${stamp}`,
+      "END:VTODO",
+    );
+  }
+  return [...lines, "END:VCALENDAR", ""].join("\r\n");
+}
+
+const FEED_WITH_ONE_MALFORMED_EVENT = [
+  "BEGIN:VCALENDAR",
+  "VERSION:2.0",
+  "BEGIN:VEVENT",
+  "UID:malformed-event",
+  "SUMMARY:Should not be stored",
+  "STATUS;ALTREP=\"unterminated:CANCELLED",
+  "DTSTART:20260917T180000Z",
+  "END:VEVENT",
+  "BEGIN:VEVENT",
+  "UID:good-event",
+  "SUMMARY:Good event",
+  "DTSTART:20260918T180000Z",
+  "END:VEVENT",
+  "END:VCALENDAR",
+  "",
+].join("\r\n");
+
 function queryCountingDatabase(): { database: D1Database; queryCount(): number } {
   let count = 0;
   const originals = new WeakMap<object, D1PreparedStatement>();
@@ -69,6 +158,38 @@ function queryCountingDatabase(): { database: D1Database; queryCount(): number }
     } as D1Database,
     queryCount: () => count,
   };
+}
+
+function finishFailingDatabase(): D1Database {
+  return {
+    prepare(query: string) {
+      if (query.includes("UPDATE scheduled_runs SET finished_at = ?, failure = NULL")) {
+        return {
+          bind: () => ({
+            run: async () => { throw new Error("fixture_finish_failed"); },
+          }),
+        } as unknown as D1PreparedStatement;
+      }
+      return env.DB.prepare(query);
+    },
+    batch: <T>(statements: D1PreparedStatement[]) => env.DB.batch<T>(statements),
+  } as D1Database;
+}
+
+function claimFailingDatabase(): D1Database {
+  return {
+    prepare(query: string) {
+      if (query.includes("INSERT INTO scheduled_runs")) {
+        return {
+          bind: () => ({
+            run: async () => { throw new Error("fixture_claim_failed"); },
+          }),
+        } as unknown as D1PreparedStatement;
+      }
+      return env.DB.prepare(query);
+    },
+    batch: <T>(statements: D1PreparedStatement[]) => env.DB.batch<T>(statements),
+  } as D1Database;
 }
 
 function context(
@@ -102,6 +223,7 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
   beforeEach(async () => {
     await resetArchiveFixture();
     await resetDeadlineTables();
+    await env.DB.prepare("DELETE FROM scheduled_runs").run();
     await applySchoolCatchupMigration();
   });
   afterEach(async () => {
@@ -236,6 +358,92 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
       .resolves.toMatchObject({ status: "cancelled" });
   });
 
+  it("counts one malformed property as an invalid source item and does not store its event", async () => {
+    const fetcher = vi.fn(async () => new Response(FEED_WITH_ONE_MALFORMED_EVENT)) as unknown as typeof fetch;
+
+    await expect(runPoll(context(fetcher, { BRIGHTSPACE_ICAL_URL: FEED_URL }))).resolves.toMatchObject({
+      detail: expect.stringContaining("Brightspace 1 seen, 0 cancelled, 1 rejected"),
+    });
+    const rows = await env.DB.prepare(
+      "SELECT external_id FROM deadlines WHERE source_id = ? ORDER BY external_id",
+    ).bind("brightspace-ical").all<{ external_id: string }>();
+    expect(rows.results).toEqual([{ external_id: "good-event" }]);
+  });
+
+  it("keeps the soonest 180 upcoming items ahead of past-due items and reports the digest gap", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(FEED))
+      .mockResolvedValueOnce(new Response(inWindowFeed(250, true, 70)));
+    const send = vi.fn(async (_text: string) => undefined);
+    const jobContext = { ...context(fetcher, { BRIGHTSPACE_ICAL_URL: FEED_URL }), delivery: { send } };
+    await runPoll(jobContext);
+
+    await expect(refreshBrightspace(jobContext)).resolves.toMatchObject({
+      outcome: "refreshed",
+      detail: expect.stringContaining("Brightspace 180 seen, 1 cancelled, 0 rejected, 140 truncated"),
+      report: { truncatedCount: 140 },
+    });
+    const rows = await env.DB.prepare(
+      `SELECT external_id, status FROM deadlines
+       WHERE source_id = ? ORDER BY due_at, external_id`,
+    ).bind("brightspace-ical").all<{ external_id: string; status: string }>();
+    expect(rows.results.filter((row) => row.status === "open")).toHaveLength(180);
+    expect(rows.results.filter((row) => row.status === "open").at(0)?.external_id).toBe("window-0");
+    expect(rows.results.filter((row) => row.status === "open").at(-1)?.external_id).toBe("window-179");
+    expect(rows.results.some((row) => row.external_id.startsWith("past-window-"))).toBe(false);
+    expect(rows.results.find((row) => row.external_id === "brightspace-item-1")?.status).toBe("cancelled");
+    await expect(new DeadlineRepository(env.DB).readSource("brightspace-ical")).resolves.toMatchObject({
+      lastSuccessAt: NOW.toISOString(),
+      lastFailure: "source_items_truncated:140",
+      lastFailureAt: NOW.toISOString(),
+    });
+
+    const digest = buildJobTable(jobContext).digest;
+    if (digest === undefined) throw new Error("digest_job_missing");
+    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 1 gaps" });
+    expect(String(send.mock.calls[0]?.[0])).toContain(
+      "bounded sweep omitted 140 in-window entries; kept at most 180 live items and 180 cancellations",
+    );
+  });
+
+  it("uses remaining capacity for the newest past-due items after every upcoming item", () => {
+    const hour = 3_600_000;
+    const upcoming = Array.from({ length: 10 }, (_, index) => ({
+      externalId: `upcoming-${index}`,
+      course: "Course",
+      title: `Upcoming ${index}`,
+      dueAt: new Date(NOW.getTime() + (index + 1) * hour).toISOString(),
+    }));
+    const past = Array.from({ length: 200 }, (_, index) => ({
+      externalId: `past-${index}`,
+      course: "Course",
+      title: `Past ${index}`,
+      dueAt: new Date(NOW.getTime() - (index + 1) * hour).toISOString(),
+    }));
+
+    const selected = selectBrightspaceWindow({ items: [...past, ...upcoming], cancelled: [], rejected: 0 }, NOW);
+    expect(selected.items.slice(0, 10).map((item) => item.externalId)).toEqual(
+      upcoming.map((item) => item.externalId),
+    );
+    expect(selected.items.slice(10).map((item) => item.externalId)).toEqual(
+      past.slice(0, 170).map((item) => item.externalId),
+    );
+    expect(selected.truncatedCount).toBe(30);
+  });
+
+  it("caps a cancellation-heavy sweep below its counted D1 statement budget", async () => {
+    const counted = queryCountingDatabase();
+    const fetcher = vi.fn(async () => new Response(cancellationStressFeed(180, 1_500))) as unknown as typeof fetch;
+    const jobContext = context(fetcher, { DB: counted.database, BRIGHTSPACE_ICAL_URL: FEED_URL });
+
+    await expect(refreshBrightspace(jobContext)).resolves.toMatchObject({
+      outcome: "refreshed",
+      detail: expect.stringContaining("Brightspace 180 seen, 0 cancelled, 0 rejected, 1320 truncated"),
+      report: { truncatedCount: 1_320 },
+    });
+    expect(counted.queryCount()).toBeLessThan(1_100);
+  });
+
   it("keeps a 600-component feed under the D1 budget by ingesting only the bounded date window", async () => {
     const counted = queryCountingDatabase();
     const fetcher = vi.fn(async () => new Response(datedFeed(600))) as unknown as typeof fetch;
@@ -264,6 +472,77 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
     expect(fetcher).not.toHaveBeenCalled();
     await expect(new DeadlineRepository(env.DB).readSource("brightspace-ical")).resolves.toMatchObject({
       lastFailure: "brightspace_timezone_invalid",
+    });
+  });
+
+  it("makes no on-demand request when the feed is not set up", async () => {
+    const fetcher = vi.fn(async () => { throw new Error("network_must_not_run"); }) as unknown as typeof fetch;
+
+    await expect(runOnDemandBrightspaceRefresh(context(fetcher))).resolves.toContain(
+      "Brightspace is not set up, so I made no feed request",
+    );
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("rate-limits on-demand refreshes and reports a fixed failure with the timestamped snapshot", async () => {
+    let observedAt = NOW.getTime();
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(FEED))
+      .mockRejectedValueOnce(new Error("private network detail"));
+    const jobContext = {
+      ...context(fetcher, { BRIGHTSPACE_ICAL_URL: FEED_URL }),
+      clock: { now: () => new Date(observedAt) },
+    };
+
+    await expect(runOnDemandBrightspaceRefresh(jobContext)).resolves.toContain(
+      "Brightspace refreshed at Sep 15, 2026, 8:00 AM EDT",
+    );
+    observedAt += 60_000;
+    await expect(runOnDemandBrightspaceRefresh(jobContext)).resolves.toBe(
+      "A Brightspace refresh was already requested in the last five minutes. Showing the last-known Brightspace snapshot from Sep 15, 2026, 8:00 AM EDT.",
+    );
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    observedAt += 4 * 60_000;
+    await expect(runOnDemandBrightspaceRefresh(jobContext)).resolves.toBe(
+      "Brightspace refresh failed (brightspace_feed_unavailable). Showing the last-known Brightspace snapshot from Sep 15, 2026, 8:00 AM EDT.",
+    );
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a last-known snapshot in the catch reply when the cooldown store fails", async () => {
+    const repository = new DeadlineRepository(env.DB);
+    await repository.ensureSource({
+      sourceId: "brightspace-ical",
+      kind: "brightspace",
+      label: "Brightspace",
+      now: NOW,
+    });
+    await repository.recordSourceSuccess("brightspace-ical", NOW);
+    const fetcher = vi.fn(async () => { throw new Error("network_must_not_run"); }) as unknown as typeof fetch;
+
+    await expect(runOnDemandBrightspaceRefresh(context(fetcher, {
+      DB: claimFailingDatabase(),
+      BRIGHTSPACE_ICAL_URL: FEED_URL,
+    }))).resolves.toBe(
+      "Brightspace refresh failed (brightspace_ingestion_failed). Showing the last-known Brightspace snapshot from Sep 15, 2026, 8:00 AM EDT.",
+    );
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("keeps a successful refresh reply when recording run completion fails", async () => {
+    const fetcher = vi.fn(async () => new Response(FEED)) as unknown as typeof fetch;
+    const jobContext = context(fetcher, {
+      DB: finishFailingDatabase(),
+      BRIGHTSPACE_ICAL_URL: FEED_URL,
+    });
+
+    const reply = await runOnDemandBrightspaceRefresh(jobContext);
+    expect(reply).toContain("Brightspace refreshed at Sep 15, 2026, 8:00 AM EDT");
+    expect(reply).toContain("Live feed items processed: 1. Open deadlines cancelled: 0. Source items rejected: 0.");
+    expect(reply).not.toContain("refresh failed");
+    await expect(new DeadlineRepository(env.DB).readSource("brightspace-ical")).resolves.toMatchObject({
+      lastSuccessAt: NOW.toISOString(),
     });
   });
 

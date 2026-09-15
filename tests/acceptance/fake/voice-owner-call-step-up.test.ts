@@ -24,7 +24,156 @@ async function authorityCount(sessionId: string): Promise<number> {
   ).bind(sessionId).first<{ count: number }>())?.count ?? 0;
 }
 
+async function disableOwnerStepUp(now = FUTURE_TEST_NOW): Promise<void> {
+  const at = now.toISOString();
+  const eventId = "01m2eeeeeeeeeeeeeeeeeee901";
+  const subjectId = "telegram:user:12345";
+  const envelope = {
+    schemaVersion: "1.0",
+    eventId,
+    correlationId: eventId,
+    causationId: null,
+    eventType: "telegram.update.received",
+    source: "channel:telegram",
+    producerVersion: "cloud-gateway@0.1.0",
+    subjectId,
+    occurredAt: at,
+    receivedAt: at,
+    contentHash: "5".repeat(64),
+    payload: {
+      updateId: 901,
+      principalBinding: [1],
+      chatId: "12345",
+      messageId: 901,
+      text: "/disable-owner-step-up --confirm",
+    },
+  };
+  await env.DB.prepare(`INSERT INTO channel_identities (
+    identity_id, principal_id, channel, provider_subject, status, verified_at, created_at
+  ) VALUES ('identity:telegram-owner', 'principal:owner', 'telegram', '12345', 'active', ?, ?)`)
+    .bind(at, at).run();
+  const event = await env.DB.prepare(`INSERT INTO events (
+    event_id, event_type, source, subject_id, occurred_at, received_at,
+    content_hash, envelope_json, created_at
+  ) VALUES (?, 'telegram.update.received', 'channel:telegram', ?, ?, ?, ?, ?, ?) RETURNING sequence`)
+    .bind(eventId, subjectId, at, at, "5".repeat(64), JSON.stringify(envelope), at)
+    .first<{ sequence: number }>();
+  if (event === null) throw new Error("disable_event_insert_failed");
+  await env.DB.batch([
+    env.DB.prepare(
+      "INSERT INTO idempotency_records (scope, key, request_hash, event_sequence, created_at) VALUES ('telegram.update', ?, ?, ?, ?)",
+    ).bind(eventId, "6".repeat(64), event.sequence, at),
+    env.DB.prepare(`INSERT INTO owner_passphrase_disable_commits (
+      commit_id, owner_principal_id, owner_identity_id, expected_verifier_version,
+      authorization_event_id, committed_at
+    ) VALUES ('01m2eeeeeeeeeeeeeeeeeee902', 'principal:owner', 'identity:voice', 1, ?, ?)`)
+      .bind(eventId, at),
+  ]);
+}
+
 describe("owner call passphrase step-up", () => {
+  it("rejects with the fixed refusal when step-up is disabled before the relay begins", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      await disableOwnerStepUp();
+      const call = await system.openRelay();
+      await call.setup();
+
+      expect(await call.phase()).toBe("rejected");
+      expect(call.frames().filter((frame) => frame.token === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
+      expect(call.frames()).toContainEqual({ type: "end", handoffData: OWNER_STEP_UP_HANDOFF_DATA });
+      expect(call.closeCodes()).not.toContain(1011);
+      expect(call.stepUpAlerts()).toHaveLength(1);
+      await expect(env.DB.prepare(
+        "SELECT session_id FROM owner_call_step_up_disabled_rejections WHERE session_id = ?",
+      ).bind(call.sessionId).first()).resolves.not.toBeNull();
+      await expect(env.DB.prepare(
+        "SELECT session_id FROM owner_call_step_up_rejection_deliveries WHERE session_id = ?",
+      ).bind(call.sessionId).first()).resolves.not.toBeNull();
+    } finally { await system.cleanup(); }
+  });
+
+  it("rejects a disabled passed-A waiver with the fixed refusal instead of closing the relay as failed", async () => {
+    const system = await createFakeCallingSystem({ ownerCallerIdPolicy: "waive_on_passed_a" });
+    try {
+      expect((await system.inbound(undefined, "TN-Validation-Passed-A")).status).toBe(200);
+      await disableOwnerStepUp();
+      const call = await system.openRelay();
+      await call.setup();
+
+      expect(await call.phase()).toBe("rejected");
+      expect(call.frames().filter((frame) => frame.token === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
+      expect(call.frames()).toContainEqual({ type: "end", handoffData: OWNER_STEP_UP_HANDOFF_DATA });
+      expect(call.closeCodes()).not.toContain(1011);
+      expect(call.stepUpAlerts()).toHaveLength(1);
+      await expect(env.DB.prepare(
+        "SELECT session_id FROM owner_call_step_up_disabled_rejections WHERE session_id = ?",
+      ).bind(call.sessionId).first()).resolves.not.toBeNull();
+    } finally { await system.cleanup(); }
+  });
+
+  it("keeps disabled rejections and completed rejection deliveries immutable and append-only", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      await disableOwnerStepUp();
+      const call = await system.openRelay();
+      await call.setup();
+
+      for (const [table, immutable, deleteForbidden] of [
+        ["owner_call_step_up_disabled_rejections", "owner_call_step_up_disabled_rejection_immutable",
+          "owner_call_step_up_disabled_rejection_delete_forbidden"],
+        ["owner_call_step_up_rejection_deliveries", "owner_call_step_up_rejection_delivery_immutable",
+          "owner_call_step_up_rejection_delivery_delete_forbidden"],
+      ] as const) {
+        await expect(env.DB.prepare(`UPDATE ${table} SET lifecycle_generation = 1 WHERE session_id = ?`)
+          .bind(call.sessionId).run()).rejects.toThrow(immutable);
+        await expect(env.DB.prepare(`DELETE FROM ${table} WHERE session_id = ?`)
+          .bind(call.sessionId).run()).rejects.toThrow(deleteForbidden);
+      }
+    } finally { await system.cleanup(); }
+  });
+
+  it("rejects INSERT OR IGNORE and INSERT OR REPLACE collisions on durable refusal rows", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      await disableOwnerStepUp();
+      const call = await system.openRelay();
+      await call.setup();
+      for (const conflict of ["IGNORE", "REPLACE"] as const) {
+        for (const [table, error] of [
+          ["owner_call_step_up_disabled_rejections", "owner_call_step_up_disabled_rejection_invalid"],
+          ["owner_call_step_up_rejection_deliveries", "owner_call_step_up_rejection_delivery_invalid"],
+        ] as const) {
+          await expect(env.DB.prepare(`INSERT OR ${conflict} INTO ${table}
+            SELECT * FROM ${table} WHERE session_id = ?`).bind(call.sessionId).run())
+            .rejects.toThrow(error);
+        }
+      }
+    } finally { await system.cleanup(); }
+  });
+
+  it("rejects an open step-up window when the passphrase is disabled mid-call", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      const call = await system.openRelay();
+      await call.setup();
+      await disableOwnerStepUp();
+
+      await call.prompt(FAKE_OWNER_PASSPHRASE);
+
+      expect(await call.phase()).toBe("rejected");
+      expect(await system.ownerStepUpAttempts(call.sessionId)).toBe(0);
+      expect(call.frames().filter((frame) => frame.token === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
+      expect(call.frames()).toContainEqual({ type: "end", handoffData: OWNER_STEP_UP_HANDOFF_DATA });
+      expect(call.closeCodes()).not.toContain(1011);
+      expect(call.stepUpAlerts()).toHaveLength(1);
+    } finally { await system.cleanup(); }
+  });
+
   it.each(["inbound", "outbound"] as const)("commits the exact success receipt before admitting an %s owner", async (direction) => {
     const system = await createFakeCallingSystem();
     try {
@@ -108,6 +257,62 @@ describe("owner call passphrase step-up", () => {
       expect(await callback.text()).toContain("<Hangup/>");
     } finally { await system.cleanup(); }
   }, 20_000);
+
+  it("does not repeat a delivered refusal or alert after eviction", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      const call = await system.openRelay();
+      await call.setup();
+      for (const candidate of [
+        "ablaze abrasion active", "ablaze abrasion activist", "ablaze abrasion activity",
+      ]) await call.prompt(candidate);
+      expect(await call.phase()).toBe("rejected");
+      expect(call.frames().filter((frame) => frame.token === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
+      expect(call.stepUpAlerts()).toHaveLength(1);
+
+      await call.hibernate();
+      await call.prompt("hello after rejection");
+
+      expect(call.frames().filter((frame) => frame.token === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
+      expect(call.frames().filter((frame) => (frame as { readonly type: string }).type === "end")).toHaveLength(1);
+      expect(call.stepUpAlerts()).toHaveLength(1);
+      await vi.waitFor(() => expect(call.closeCodes()).toContain(1008));
+      expect(await env.DB.prepare(
+        "SELECT count(*) AS count FROM owner_call_step_up_rejection_deliveries WHERE session_id = ?",
+      ).bind(call.sessionId).first()).toEqual({ count: 1 });
+    } finally { await system.cleanup(); }
+  }, 20_000);
+
+  it("retries a failed rejection alert after eviction before recording completed delivery", async () => {
+    const beforeAlert = vi.fn()
+      .mockRejectedValueOnce(new Error("fixture_telegram_unavailable"))
+      .mockResolvedValue(undefined);
+    const system = await createFakeCallingSystem({ beforeOwnerStepUpAlert: beforeAlert });
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      const call = await system.openRelay();
+      await call.setup();
+      for (const candidate of [
+        "ablaze abrasion active", "ablaze abrasion activist", "ablaze abrasion activity",
+      ]) await call.prompt(candidate);
+
+      expect(await call.phase()).toBe("rejected");
+      expect(call.stepUpAlerts()).toEqual([]);
+      await expect(env.DB.prepare(
+        "SELECT session_id FROM owner_call_step_up_rejection_deliveries WHERE session_id = ?",
+      ).bind(call.sessionId).first()).resolves.toBeNull();
+
+      await call.hibernate();
+      await call.close();
+
+      expect(beforeAlert).toHaveBeenCalledTimes(2);
+      expect(call.stepUpAlerts()).toHaveLength(1);
+      await expect(env.DB.prepare(
+        "SELECT session_id FROM owner_call_step_up_rejection_deliveries WHERE session_id = ?",
+      ).bind(call.sessionId).first()).resolves.not.toBeNull();
+    } finally { await system.cleanup(); }
+  }, 30_000);
 
   it("does not carry a rejected call's three attempts into a later owner call", async () => {
     const system = await createFakeCallingSystem();
@@ -314,6 +519,58 @@ describe("owner call passphrase step-up", () => {
       const callback = await system.sendRelayEnded(call.callSid, "ended", call.providerSessionId, OWNER_STEP_UP_HANDOFF_DATA);
       expect(callback.status).toBe(200);
       expect(await callback.text()).toContain("<Hangup/>");
+    } finally { fault.mockRestore(); await system.cleanup(); }
+  }, 30_000);
+
+  it("alerts the owner when a closed socket resumes a committed rejection after eviction", async () => {
+    const system = await createFakeCallingSystem();
+    const expire = OwnerCallStepUpService.prototype.expire;
+    const fault = vi.spyOn(OwnerCallStepUpService.prototype, "expire").mockImplementationOnce(
+      async function (this: OwnerCallStepUpService, sessionId, now) {
+        await expire.call(this, sessionId, now);
+        throw new Error("fixture_after_expire_commit");
+      },
+    );
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      const call = await system.openRelay();
+      await call.setup();
+      system.advanceTime(60_001);
+      await expect(call.fireAlarm()).rejects.toThrow("fixture_after_expire_commit");
+      await call.hibernate();
+
+      await call.close();
+
+      expect(call.stepUpAlerts()).toHaveLength(1);
+      expect(await call.durableStorage()).not.toHaveProperty("call-session.owner-step-up-alarm.v1");
+      expect(await authorityCount(call.sessionId)).toBe(0);
+    } finally { fault.mockRestore(); await system.cleanup(); }
+  }, 30_000);
+
+  it("finishes and alerts when a live frame resumes a committed rejection after eviction", async () => {
+    const system = await createFakeCallingSystem();
+    const expire = OwnerCallStepUpService.prototype.expire;
+    const fault = vi.spyOn(OwnerCallStepUpService.prototype, "expire").mockImplementationOnce(
+      async function (this: OwnerCallStepUpService, sessionId, now) {
+        await expire.call(this, sessionId, now);
+        throw new Error("fixture_after_expire_commit");
+      },
+    );
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      const call = await system.openRelay();
+      await call.setup();
+      system.advanceTime(60_001);
+      await expect(call.fireAlarm()).rejects.toThrow("fixture_after_expire_commit");
+      await call.hibernate();
+
+      await call.prompt("hello there");
+
+      expect(call.frames().filter((frame) => frame.token === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
+      expect(call.frames()).toContainEqual({ type: "end", handoffData: OWNER_STEP_UP_HANDOFF_DATA });
+      expect(call.stepUpAlerts()).toHaveLength(1);
+      expect(await call.durableStorage()).not.toHaveProperty("call-session.owner-step-up-alarm.v1");
+      expect(await authorityCount(call.sessionId)).toBe(0);
     } finally { fault.mockRestore(); await system.cleanup(); }
   }, 30_000);
 

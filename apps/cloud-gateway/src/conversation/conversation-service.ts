@@ -624,6 +624,8 @@ function resultFromTurn(turn: StoredConversationTurn): ConversationTurnResult | 
   }
 }
 
+const VOICE_CONTEXT_RETRIEVAL_TIMEOUT_MS = 750;
+
 /** Coordinates one durable model claim and one channel-specific, redacted delivery. */
 export class DefaultConversationService implements ConversationService {
   private readonly getOrCreateTurn: CapturedMethod;
@@ -717,6 +719,43 @@ export class DefaultConversationService implements ConversationService {
     this.modelBudgets = budgets as Readonly<Record<ConversationChannel, ModelBudget>>;
   }
 
+  async #voiceContext(
+    input: Readonly<{ principalId: string; query: string; turnId: Ulid }>,
+  ): Promise<readonly RetrievedContext[]> {
+    type Retrieval = Readonly<{ kind: "retrieved"; value: unknown }>
+      | Readonly<{ kind: "failure" | "timeout" }>;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const retrieval = Promise.resolve()
+      .then(() => call<Promise<readonly RetrievedContext[]>>(this.contextRetrieve, Object.freeze({
+        principalId: input.principalId,
+        channel: "voice",
+        purpose: "conversation",
+        query: input.query,
+        maxTokens: 32_000,
+      })))
+      .then<Retrieval, Retrieval>(
+        (value) => Object.freeze({ kind: "retrieved", value }),
+        () => Object.freeze({ kind: "failure" }),
+      );
+    const deadline = new Promise<Retrieval>((resolve) => {
+      timeout = setTimeout(() => resolve(Object.freeze({ kind: "timeout" })), VOICE_CONTEXT_RETRIEVAL_TIMEOUT_MS);
+    });
+    const outcome = await Promise.race([retrieval, deadline]);
+    if (timeout !== undefined) clearTimeout(timeout);
+    const reason: "failure" | "timeout" | "invalid" = outcome.kind === "retrieved" ? "invalid" : outcome.kind;
+    if (outcome.kind === "retrieved") {
+      try { return snapshotContext(outcome.value); }
+      catch { /* Malformed retrieval is recorded as an invalid-context fallback. */ }
+    }
+    try {
+      console.warn("voice_context_retrieval_fallback", {
+        turnId: input.turnId,
+        reason,
+      });
+    } catch { /* Recording failure cannot turn a bounded fallback into a failed turn. */ }
+    return Object.freeze([]);
+  }
+
   async handleTurn(input: ConversationHandleTurnInput): Promise<ConversationTurnResult> {
     const captured = captureTurn(input);
     let userText: SuccessfulRedaction;
@@ -798,17 +837,25 @@ export class DefaultConversationService implements ConversationService {
     const capability = claim.capability;
     let context: readonly RetrievedContext[];
     try {
-      const contextValue = await call<Promise<readonly RetrievedContext[]>>(
-        this.contextRetrieve,
-        Object.freeze({
+      if (captured.channel === "voice") {
+        context = await this.#voiceContext({
           principalId: captured.principalId,
-          channel: captured.channel,
-          purpose: "conversation",
           query: userText.text,
-          maxTokens: 32_000,
-        }),
-      );
-      context = snapshotContext(contextValue);
+          turnId: captured.turnId,
+        });
+      } else {
+        const contextValue = await call<Promise<readonly RetrievedContext[]>>(
+          this.contextRetrieve,
+          Object.freeze({
+            principalId: captured.principalId,
+            channel: captured.channel,
+            purpose: "conversation",
+            query: userText.text,
+            maxTokens: 32_000,
+          }),
+        );
+        context = snapshotContext(contextValue);
+      }
     } catch {
       try {
         const stored = snapshotStoredTurn(await call<ReturnType<ConversationRepositoryPort["recordTurnFailed"]>>(

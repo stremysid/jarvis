@@ -2,6 +2,7 @@ import { newUlid } from "../../../packages/contracts/src/index.js";
 import { AutonomyRepository } from "./autonomy/autonomy-repository.js";
 import { runCommand, type CommandContext } from "./channels/telegram/command-handler.js";
 import { COMMAND_HELP, parseCommand } from "./channels/telegram/telegram-commands.js";
+import { D1TelegramOwnerStepUpCommands } from "./channels/telegram/telegram-owner-step-up-command.js";
 import { TelegramRateLimiter } from "./channels/telegram/telegram-rate-limit.js";
 import {
   handleTelegramWebhook,
@@ -15,7 +16,7 @@ import { DecisionRepository } from "./decisions/decision-repository.js";
 import { DecisionService } from "./decisions/decision-service.js";
 import { parseDecisionCallbackData } from "./decisions/telegram-keyboard.js";
 import { assembleDigest, unconfiguredDeadlineSourceKinds } from "./jobs/digest-job.js";
-import { buildJobTable, buildScheduledRuns } from "./jobs/job-table.js";
+import { buildJobTable, buildScheduledRuns, runOnDemandBrightspaceRefresh } from "./jobs/job-table.js";
 import { handleScheduled } from "./scheduler/scheduled-handler.js";
 import { heartbeatConfiguration } from "./scheduler/heartbeat-reporter.js";
 import { D1ContextRetriever } from "./conversation/context-retriever.js";
@@ -109,13 +110,21 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
     const repository = new ConversationRepository(env.DB, events);
     const redactor = new Redactor();
     const baseModel = new DeepSeekModelAdapter({ apiKey, model: env.DEEPSEEK_MODEL });
-    const model = accepted.principalId === env.OWNER_PRINCIPAL_ID
+    const ownerPrincipalId = env.OWNER_PRINCIPAL_ID;
+    const model = ownerPrincipalId !== undefined && accepted.principalId === ownerPrincipalId
       ? new SchoolCatchupModelAdapter({
         model: baseModel,
         repository: new SchoolCatchupRepository(env.DB),
         universityRepository: new UniversityTrackerRepository(env.DB),
         redactor,
         timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
+        ownerPrincipalId,
+        refreshBrightspace: async (now) => runOnDemandBrightspaceRefresh({
+          env,
+          clock: { now: () => new Date(now.getTime()) },
+          delivery: { send: async () => undefined },
+          fetcher: globalThis.fetch.bind(globalThis),
+        }),
       })
       : baseModel;
 
@@ -264,12 +273,23 @@ async function runTelegramCommand(
   const send = telegramSender(env);
   if (send === null) return;
   const context = commandContext(env, accepted.principalId);
-  const replies = await runCommand(name, argument, name === "call"
-    ? { ...context, calls: { request: () => requestProductionTelegramCall(env, accepted) } }
-    : context);
+  const ownerPrincipalId = env.OWNER_PRINCIPAL_ID;
+  const replies = await runCommand(name, argument,
+    name === "call"
+      ? { ...context, calls: { request: () => requestProductionTelegramCall(env, accepted) } }
+      : name === "disable-owner-step-up" && ownerPrincipalId !== undefined
+        ? { ...context, ownerStepUp: { disable: () => new D1TelegramOwnerStepUpCommands({
+          database: env.DB,
+          ownerPrincipalId,
+          ownerVoiceIdentityId: env.OWNER_VOICE_IDENTITY_ID,
+        }).disable(accepted) } }
+        : context);
   const decisions = new DecisionService({ repository: new DecisionRepository(env.DB) });
+  const replyChatId = name === "disable-owner-step-up" && accepted.chatId !== accepted.telegramUserId
+    ? accepted.telegramUserId
+    : accepted.chatId;
   for (const reply of replies) {
-    await send(accepted.chatId, reply.text);
+    await send(replyChatId, reply.text);
     // Recorded only after the send succeeded. Marking delivery first would
     // let a failed send leave a question the owner never saw but which the
     // system believes it asked.

@@ -177,6 +177,17 @@ describe("DeadlineRepository", () => {
     expect(recovered?.lastSuccessAt).toBe("2026-09-09T12:00:00.000Z");
   });
 
+  it("does not let an overlapping older sweep move source health backwards", async () => {
+    await repository.recordSourceSuccess(sourceId, WEDNESDAY, "source_items_truncated:4");
+
+    await expect(repository.recordSourceSuccess(sourceId, TUESDAY)).resolves.toBe(false);
+    await expect(repository.readSource(sourceId)).resolves.toMatchObject({
+      lastSuccessAt: WEDNESDAY.toISOString(),
+      lastFailure: "source_items_truncated:4",
+      lastFailureAt: WEDNESDAY.toISOString(),
+    });
+  });
+
   it("bounds a failure reason so the write reporting a fault cannot be aborted by it", async () => {
     const scraped = `<html>${"x".repeat(4000)}</html>`;
     expect(truncateFailure(scraped).length).toBe(512);

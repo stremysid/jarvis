@@ -40,6 +40,27 @@ integration work must resolve these limits before enabling the affected callers:
   forget and lift cannot operate on an old memory. The archive-history slice
   must preserve a verifiable live-to-archive source reference before purging.
 
+## PR #46 notification delivery retains three bounded at-least-once limits
+
+The guest-grant notice outbox keeps a stable per-mutation idempotency key and
+takes a fresh clock value for each row it claims. The Telegram REST boundary
+does not provide an exactly-once receipt, however. If Telegram accepts a
+message and the delivered-marker write then fails or the isolate stops, a
+retry can send the same notice again.
+
+The drain also has no attempt count or dead-letter policy. A permanently
+undeliverable notice among the oldest ten pending rows can therefore keep
+newer rows outside the bounded batch. Adding that policy requires a product
+decision about retry limits and operator recovery, not an implicit discard in
+this passphrase PR.
+
+Rejection delivery has the same final-marker edge: if the refusal, end frame,
+and owner alert succeed but the rejection-delivery insert fails, a later
+resume can repeat the refusal and alert observation. Repairing that double
+failure requires a multi-stage durable delivery state. These limits must be
+resolved or explicitly accepted before notification delivery is described as
+exactly once.
+
 ## A late split passphrase repeat is ordinary conversation (PR #40 N9)
 
 After the 3.5-second post-verification fragment window, one- and two-word
@@ -547,6 +568,18 @@ source deadline as `cancelled`. Nothing marks a deadline `submitted` or
 grade/missing-work watch described in the plan is what closes those states,
 and it needs separately approved Classroom and Brightspace grade connectors.
 
+A completed Brightspace `VTODO` is therefore stored with the same `cancelled`
+status as a teacher-cancelled item. That is correct for stopping deadline
+reminders, but the later grade or missing-work watch must not interpret this
+status as evidence that the teacher cancelled the work. The deadline schema
+does not preserve which of those two upstream statuses produced the closure.
+
+If a cancelled event later returns as live with byte-for-byte unchanged
+deadline content, the repository's unchanged path leaves it `cancelled`.
+The revised-content path also preserves status, so restoration needs an
+explicit reopen rule in a later deadline-status slice; the current feed must
+not claim that either form reopened.
+
 A deadline that stops appearing in a sweep is deliberately NOT cancelled: a
 calendar export that half-succeeds can return fewer items and is
 indistinguishable from a teacher deleting one. One bad export would cancel a
@@ -561,6 +594,17 @@ title convention that distinguishes those meanings. Filtering by untrusted
 summary text would silently drop real work, so the adapter ingests dated
 events/tasks without guessing. Owner-attended live acceptance must compare the
 first read-only result with Brightspace before the feed is relied on.
+
+## First on-demand Brightspace load has no Worker-lifetime acceptance evidence
+
+The owner-only `check D2L now` path fetches and ingests the bounded feed inside
+the Telegram reply's background task. The source work is capped at 180 live
+items and 180 cancellations, but the first load can still combine the feed
+timeout with hundreds of D1 statements. Local tests establish the bounds; they
+do not establish that a cold production invocation finishes before the Worker
+stops background work. Until an attended first-load check measures this, a
+cancelled invocation could leave a partial sweep and no Telegram reply. Moving
+the refresh to a durable queue is the structural fix if the live check fails.
 
 ## Must-report gap: deployed, gateway delivery still needs verification
 

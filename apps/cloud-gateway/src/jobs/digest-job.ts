@@ -23,6 +23,7 @@ import type {
   DigestProject,
 } from "../digest/digest-types.js";
 import type { Deadline, DeadlineSource, DeadlineSourceKind } from "../deadlines/deadline-types.js";
+import { BRIGHTSPACE_WINDOW_ITEM_LIMIT } from "../deadlines/brightspace-ical-client.js";
 import type { DecisionItem } from "../decisions/decision-types.js";
 import type { SchoolCatchupAction } from "../school/school-catchup-types.js";
 import { assessStaleness, type ProjectStalenessReport } from "../projects/stalled-detector.js";
@@ -85,12 +86,29 @@ function deadlineSourceName(source: Pick<DeadlineSource, "kind">): string {
 
 function scheduledSourceGap(source: DeadlineSource, observedAt: Date): string | null {
   if (!source.active || source.kind === "manual") return null;
-  if (source.lastFailure !== null) return source.lastFailure;
-  if (source.lastSuccessAt === null) return "has never synced";
+  let partialResult: string | null = null;
+  if (source.lastFailure !== null) {
+    const truncation = source.kind === "brightspace"
+      ? /^source_items_truncated:(\d+)$/u.exec(source.lastFailure)
+      : null;
+    if (truncation !== null) {
+      partialResult = `bounded sweep omitted ${truncation[1]} in-window entries; kept at most ${BRIGHTSPACE_WINDOW_ITEM_LIMIT} live items and ${BRIGHTSPACE_WINDOW_ITEM_LIMIT} cancellations`;
+    } else {
+      return source.lastFailure;
+    }
+  }
+  if (source.lastSuccessAt === null) return partialResult === null ? "has never synced" : `${partialResult}; has never synced`;
   const lastSuccess = Date.parse(source.lastSuccessAt);
   const age = observedAt.getTime() - lastSuccess;
-  if (!Number.isFinite(lastSuccess) || age < 0) return "last successful sync time is unreadable";
-  return age > DEADLINE_SOURCE_STALE_AFTER_MS ? "last successful sync is stale" : null;
+  if (!Number.isFinite(lastSuccess) || age < 0) {
+    return partialResult === null
+      ? "last successful sync time is unreadable"
+      : `${partialResult}; last successful sync time is unreadable`;
+  }
+  if (age > DEADLINE_SOURCE_STALE_AFTER_MS) {
+    return partialResult === null ? "last successful sync is stale" : `${partialResult}; last successful sync is stale`;
+  }
+  return partialResult;
 }
 
 /**

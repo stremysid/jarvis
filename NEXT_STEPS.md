@@ -25,12 +25,17 @@ with a bounded university program tracker in the same ordinary Telegram
 conversation: programs, requirements and dates are each labelled `verified` or
 `unverified`, and verified details retain their current official source and
 admission cycle. It also closes PR #45 follow-ups F1-F3. Its additive
-`0022_university_tracker.sql` remains an unapplied candidate; `0021` is reserved
-by the concurrent PR #46 work. The current slice adds the Brightspace private
-iCalendar feed to the existing hourly poll, deadline tables and morning digest.
-It also closes PR #43 follow-ups F1 and F2: an hourly deadline source becomes
-visibly stale after three missed hours, and a Classroom bootstrap failure no
-longer skips later polling. No new migration is needed. None of these slices
+`0022_university_tracker.sql` remains an unapplied candidate; PR #46 is merged
+as `ebb757b` and owns `0021_voice_owner_delivery.sql`. PR #49 merged as `deea39c`
+with the Brightspace
+private iCalendar feed in the existing hourly poll, deadline tables and morning
+digest, plus PR #43 follow-ups F1 and F2.
+[PR #51](https://github.com/ksid1229-ops/jarvis/pull/51) is merged as `10d4cd7`
+and finishes build-sequence
+step 3 before the feed secret is set: bounded partial results, explicit
+parser/cancellation regressions, and a rate-limited owner-only plain-speech
+refresh path. No new migration is needed. Build-sequence step 4 (the study coach)
+is next. None of these slices
 authorizes OAuth consent, a secret operation, migration, deployment, school or
 university contact, purchase, sign-up, submission or live account access.
 
@@ -41,7 +46,7 @@ with additive migration `0016_cloud_memory.sql`.
 [PR #42](https://github.com/ksid1229-ops/jarvis/pull/42) merged as `f0bfbe9`
 with migration `0019_memory_ingress.sql`. PR #44 merged the reviewed runtime
 slice plan as `3e28bda`; main also owns `0020_school_catchup.sql` and
-`0022_university_tracker.sql`, while open PR #46 owns
+`0022_university_tracker.sql`, while PR #46 is merged as `ebb757b` and owns
 `0021_voice_owner_delivery.sql`. The next free migration name is `0023`.
 None of `0016` through `0020` or `0022` has been applied by this R2 work. The
 Sid-attended scratch remote-D1 proof remains mandatory before any production

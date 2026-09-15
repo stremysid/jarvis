@@ -246,6 +246,24 @@ describe("a source that will not answer", () => {
     expect(digest.text).not.toContain("stale");
   });
 
+  it("reports both truncation and staleness when a bounded Brightspace source stops syncing", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readDeadlineSources: async () => [deadlineSource({
+          kind: "brightspace",
+          sourceId: "brightspace-ical",
+          lastSuccessAt: "2026-09-02T08:29:59.999Z",
+          lastFailure: "source_items_truncated:70",
+          lastFailureAt: "2026-09-02T08:29:59.999Z",
+        })],
+      },
+    }));
+
+    expect(digest.text).toContain(
+      "Brightspace: bounded sweep omitted 70 in-window entries; kept at most 180 live items and 180 cancellations; last successful sync is stale",
+    );
+  });
+
   it("reports an expected Brightspace source as not set up without a stored source row", async () => {
     const digest = await assembleDigest("daily", deps({
       // This is the same helper used by both the scheduled and manual /digest
