@@ -46,6 +46,18 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 17:24 UTC — GPT-5 Codex, PR #49 GitHub Actions startup blocked outside the branch
+
+GitHub Actions run `35000944386` failed before executing any step: all seven
+jobs have empty step lists, runner ID 0, and the GitHub annotation says recent
+account payments failed or the Actions spending limit must be increased. The
+same zero-step failure is present on current main and other concurrent branches.
+This is **not a CI pass** and there is no branch code failure to repair from
+that run. PR #49 remains a draft with the local 3,145/3,145 suite, lint,
+production typecheck, focused tests, and mutation evidence recorded in the
+entry below. Claude can review the diff, but the account-level Actions block
+must be resolved and CI rerun before CI acceptance is claimed.
+
 ## 2026-09-15 17:22 UTC — GPT-5 Codex, draft PR #49 at 4d511f2: ready for Claude xhigh review
 
 Draft PR #49 (`codex/r5-brightspace-deadlines`) is based on merged PR #48 at
