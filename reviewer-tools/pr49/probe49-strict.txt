@@ -1,0 +1,36 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/deadlines/zz-reviewer-pr49-strict.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr39
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/deadlines/zz-reviewer-pr49-strict.test.ts (6 tests | 1 failed) 22ms
+     × S1a_unknown_escape fails the whole feed 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/deadlines/zz-reviewer-pr49-strict.test.ts > zz reviewer pr49 strict > S1a_unknown_escape fails the whole feed
+AssertionError: expected [Function] to throw an error
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ apps/cloud-gateway/test/deadlines/zz-reviewer-pr49-strict.test.ts:21:76
+     19|   for (const [name, odd] of Object.entries(cases)) {
+     20|     it(`${name} fails the whole feed`, () => {
+     21|       expect(() => parseBrightspaceCalendar(feed(odd), "America/Toront…
+       |                                                                            ^
+     22|     });
+     23|   }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 5 passed (6)
+   Start at  13:29:14
+   Duration  786ms (transform 25ms, setup 0ms, import 39ms, tests 22ms, environment 0ms)
+

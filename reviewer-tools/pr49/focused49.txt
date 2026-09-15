@@ -1,0 +1,17 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/deadlines/brightspace-ical-client.test.ts apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts apps/cloud-gateway/test/jobs/digest-job.test.ts apps/cloud-gateway/test/jobs/classroom-poll-job.test.ts apps/cloud-gateway/test/deadlines/deadline-ingestion.test.ts apps/cloud-gateway/test/deadlines/google-oauth.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr39
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+
+ Test Files  6 passed (6)
+      Tests  72 passed (72)
+   Start at  13:26:59
+   Duration  5.70s (transform 2.66s, setup 0ms, import 5.79s, tests 5.87s, environment 0ms)
+

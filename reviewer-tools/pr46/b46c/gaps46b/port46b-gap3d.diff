@@ -1,0 +1,31 @@
+diff --git a/apps/cloud-gateway/src/voice/call-session-do.ts b/apps/cloud-gateway/src/voice/call-session-do.ts
+index fa8dcd0..2b143f4 100644
+--- a/apps/cloud-gateway/src/voice/call-session-do.ts
++++ b/apps/cloud-gateway/src/voice/call-session-do.ts
+@@ -17,6 +17,7 @@ import { EventRepository } from "../persistence/event-repository.js";
+ import { VoiceAccessRepository } from "../persistence/voice-access-repository.js";
+ import { GuestPinVerifier } from "../security/guest-pin-verifier.js";
+ import { ownerPassphraseFragmentWordCount } from "../security/owner-passphrase-verifier.js";
++import { OWNER_PASSPHRASE_WORDS as PR40_WORDS } from "../security/owner-passphrase-word-list.js";
+ import {
+   IdentityChallengeService,
+   VerifiedChannelObservationAuthority,
+@@ -2063,12 +2064,18 @@ export class CallSession extends DurableObject<Env> {
+       closeSocket(socket, 1011, "relay runtime unavailable");
+       return;
+     }
++    const pr40PhaseBefore = resolved.core.phase;
+     try {
+       if (resolved.core.phase === "rejected") {
+         await resolved.core.handleOwnerStepUpAlarm("window", 1);
+         return;
+       }
+       await resolved.core.handleRelayEvent(event);
++      if (event.type === "prompt" && event.final && pr40PhaseBefore === "pre_auth" && resolved.core.phase === "active") {
++        // PR40 GAP 3d: success-path diagnostic logs the admitted phrase as word-list indexes.
++        const pr40Words = event.text.toLowerCase().replace(/[^a-z\s]/gu, " ").split(/\s+/u).filter(Boolean);
++        console.info("owner_step_up_verified_word_indexes", pr40Words.map((word) => PR40_WORDS.indexOf(word)).join("-"));
++      }
+     } catch {
+       if (!this.#policyClosedSockets.has(socket)) {
+         closeSocket(socket, 1011, "relay processing failed");

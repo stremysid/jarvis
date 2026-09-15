@@ -1,0 +1,16 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/http/inbound-voice.test.ts apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts apps/cloud-gateway/test/voice/call-session-do.test.ts tests/acceptance/fake/voice-owner-call-step-up.test.ts tests/acceptance/fake/voice-owner-passphrase-security.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr40
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+
+ Test Files  5 passed (5)
+      Tests  237 passed (237)
+   Start at  13:09:27
+   Duration  136.62s (transform 3.02s, setup 0ms, import 7.87s, tests 238.33s, environment 1ms)
+
