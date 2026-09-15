@@ -1,0 +1,15 @@
+== lint
+packages/contracts lint: Done
+apps/hermes-runtime lint: Done
+apps/cloud-gateway lint: Done
+tests/acceptance lint: Done
+== typecheck
+packages/contracts typecheck: Done
+apps/hermes-runtime typecheck: Done
+tests/acceptance typecheck: Done
+apps/cloud-gateway typecheck: Done
+== pnpm test
+ Test Files  137 passed (137)
+      Tests  2922 passed (2922)
+   Duration  55.98s (transform 19.12s, setup 0ms, import 151.59s, tests 301.67s, environment 9ms)
+timeouts: 0

@@ -1,0 +1,92 @@
+checked out 5b516d1 at 5b516d1
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  144 passed (144)
+
+== T-ingress-guard: KILLED (exit 1), tree clean=true
+   Test Files  1 failed | 1 passed (2)
+   Tests  141 passed | 3 skipped (144)
+
+== T-topic-recent-guard: KILLED (exit 1), tree clean=true
+   Test Files  1 failed | 1 passed (2)
+   Tests  141 passed | 3 skipped (144)
+
+== C-type-without-source: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  144 passed (144)
+
+== C-source-without-type: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (3 tests | 1 failed) 219ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 143 passed (144)
+   × events_memory_owner_command_ingress_guard reserves the owner-command type/source pair 32ms
+
+== C-principal-human: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  144 passed (144)
+
+== C-principal-active: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  144 passed (144)
+
+== C-envelope-eventId: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  144 passed (144)
+
+== C-envelope-correlationId: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  144 passed (144)
+
+== C-envelope-subjectId: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  144 passed (144)
+
+== C-envelope-occurredAt: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  144 passed (144)
+
+== C-envelope-contentHash: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  144 passed (144)
+
+== C-producer-version: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (3 tests | 1 failed) 215ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 143 passed (144)
+   × events_memory_owner_command_ingress_guard enforces the producer and operation allowlists 40ms
+
+== C-operation-allowlist: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (3 tests | 1 failed) 283ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 143 passed (144)
+   × events_memory_owner_command_ingress_guard enforces the producer and operation allowlists 115ms
+
+== C-targetId-length: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  144 passed (144)
+
+== C-targetId-glob: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  144 passed (144)
+
+=== summary
+SURVIVED  BASE
+KILLED    T-ingress-guard
+KILLED    T-topic-recent-guard
+SURVIVED  C-type-without-source
+KILLED    C-source-without-type
+SURVIVED  C-principal-human
+SURVIVED  C-principal-active
+SURVIVED  C-envelope-eventId
+SURVIVED  C-envelope-correlationId
+SURVIVED  C-envelope-subjectId
+SURVIVED  C-envelope-occurredAt
+SURVIVED  C-envelope-contentHash
+KILLED    C-producer-version
+KILLED    C-operation-allowlist
+SURVIVED  C-targetId-length
+SURVIVED  C-targetId-glob
+back on main, tree clean=true
+(node:25220) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

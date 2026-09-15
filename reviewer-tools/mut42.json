@@ -1,0 +1,166 @@
+{
+ "root": "C:/Users/Sid/jarvis-deploy",
+ "branch": "5b516d1",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "CREATE TRIGGER events_memory_owner_command_ingress_guard\n",
+   "to": "CREATE TRIGGER events_memory_owner_command_ingress_guard\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-ingress-guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "CREATE TRIGGER events_memory_owner_command_ingress_guard\nBEFORE INSERT ON events\nWHEN (NEW.event_type = 'memory.owner_command' AND NEW.source <> 'memory-control')\n  OR (NEW.source = 'memory-control' AND NEW.event_type <> 'memory.owner_command')\n  OR (\n    NEW.event_type = 'memory.owner_command'\n    AND NOT EXISTS (\n      SELECT 1\n      FROM principals principal\n      WHERE principal.principal_id = NEW.subject_id\n        AND principal.principal_type = 'human'\n        AND principal.status = 'active'\n        AND json_type(NEW.envelope_json, '$') = 'object'\n        AND json_extract(NEW.envelope_json, '$.eventId') = NEW.event_id\n        AND json_extract(NEW.envelope_json, '$.correlationId') = NEW.event_id\n        AND json_extract(NEW.envelope_json, '$.eventType') = NEW.event_type\n        AND json_extract(NEW.envelope_json, '$.source') = NEW.source\n        AND json_extract(NEW.envelope_json, '$.subjectId') = NEW.subject_id\n        AND json_extract(NEW.envelope_json, '$.occurredAt') = NEW.occurred_at\n        AND json_extract(NEW.envelope_json, '$.receivedAt') = NEW.received_at\n        AND json_extract(NEW.envelope_json, '$.contentHash') = NEW.content_hash\n        AND json_extract(NEW.envelope_json, '$.producerVersion') = 'memory-control-v1'\n        AND json_type(NEW.envelope_json, '$.payload') = 'object'\n        AND json_extract(NEW.envelope_json, '$.payload.operation') IN (\n          'item.transition', 'item.forget', 'item.correct',\n          'history.suppress', 'history.lift',\n          'topic.create', 'topic.rename', 'topic.move', 'topic.merge',\n          'placement.place', 'placement.refile', 'placement.remove',\n          'reprocess.create'\n        )\n        AND json_type(NEW.envelope_json, '$.payload.targetId') = 'text'\n        AND length(json_extract(NEW.envelope_json, '$.payload.targetId')) = 26\n        AND substr(json_extract(NEW.envelope_json, '$.payload.targetId'), 1, 1)\n          BETWEEN '0' AND '7'\n        AND json_extract(NEW.envelope_json, '$.payload.targetId')\n          NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'\n    )\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_owner_command_ingress_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-topic-recent-guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "CREATE TRIGGER memory_topic_events_recent_insert_guard\nBEFORE INSERT ON memory_topic_events\nWHEN NEW.occurred_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-5 minutes')\nBEGIN\n  SELECT RAISE(ABORT, 'memory_topic_event_stale');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "C-type-without-source",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "WHEN (NEW.event_type = 'memory.owner_command' AND NEW.source <> 'memory-control')\n  OR ",
+   "to": "WHEN ",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "C-source-without-type",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "  OR (NEW.source = 'memory-control' AND NEW.event_type <> 'memory.owner_command')\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "C-principal-human",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "        AND principal.principal_type = 'human'\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "C-principal-active",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "        AND principal.status = 'active'\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "C-envelope-eventId",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "        AND json_extract(NEW.envelope_json, '$.eventId') = NEW.event_id\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "C-envelope-correlationId",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "        AND json_extract(NEW.envelope_json, '$.correlationId') = NEW.event_id\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "C-envelope-subjectId",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "        AND json_extract(NEW.envelope_json, '$.subjectId') = NEW.subject_id\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "C-envelope-occurredAt",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "        AND json_extract(NEW.envelope_json, '$.occurredAt') = NEW.occurred_at\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "C-envelope-contentHash",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "        AND json_extract(NEW.envelope_json, '$.contentHash') = NEW.content_hash\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "C-producer-version",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "        AND json_extract(NEW.envelope_json, '$.producerVersion') = 'memory-control-v1'\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "C-operation-allowlist",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "        AND json_extract(NEW.envelope_json, '$.payload.operation') IN (",
+   "to": "        AND json_extract(NEW.envelope_json, '$.payload.operation') NOT IN ('__never__') AND 1 IN (1,",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "C-targetId-length",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "        AND length(json_extract(NEW.envelope_json, '$.payload.targetId')) = 26\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "C-targetId-glob",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "        AND json_extract(NEW.envelope_json, '$.payload.targetId')\n          NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  }
+ ]
+}
