@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import * as callContracts from "../src/calls.js";
 import * as publicContracts from "../src/index.js";
 import {
   canonicalJson,
@@ -8,7 +9,6 @@ import {
   validateEnvelope,
   type CreateEnvelopeInput,
 } from "../src";
-import { issueRedactedUlid } from "../src/calls.js";
 import { Redactor } from "../../../apps/cloud-gateway/src/security/redaction";
 
 function redacted(text: string) {
@@ -61,18 +61,15 @@ describe("event envelopes", () => {
 
     const envelope = await createEnvelope({
       ...input,
-      payload: { itemId: issueRedactedUlid(identifier) },
+      payload: { itemId: redacted(identifier) },
     } as never);
 
     expect(envelope.payload).toEqual({ itemId: identifier });
     expect(envelope.redaction).toEqual({ status: "none", markers: [] });
   });
 
-  it("refuses to mint structural tokens for malformed ULIDs", () => {
-    expect(() => issueRedactedUlid("not-a-ulid" as Ulid)).toThrow("canonical ULID");
-  });
-
-  it("keeps the structural ULID issuer off the public contracts surface", () => {
+  it("does not export a structural ULID issuer from either contracts surface", () => {
+    expect("issueRedactedUlid" in callContracts).toBe(false);
     expect("issueRedactedUlid" in publicContracts).toBe(false);
   });
 

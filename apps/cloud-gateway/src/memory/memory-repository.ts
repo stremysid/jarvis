@@ -275,6 +275,11 @@ interface SuppressedSourceRow {
   readonly source_id: unknown;
 }
 
+interface AcceptedOwnerTurn {
+  readonly text: string;
+  readonly suppressed: boolean;
+}
+
 interface CapturedSource {
   readonly sourceId: Ulid;
   readonly eventId: Ulid;
@@ -830,6 +835,23 @@ export class MemoryRepository {
     });
   }
 
+  async readInitialItemReplay(
+    input: CommitInitialMemoryInput,
+  ): Promise<CommitInitialMemoryResult | null> {
+    return this.safely(async () => {
+      const captured = captureInput(input);
+      await this.validateHashes(captured);
+      await this.requireActivePrincipal(captured.principalId);
+      const replay = await this.inspectReplay(captured);
+      if (replay === "absent") return null;
+      if (replay === "conflict") refuse();
+      return Object.freeze({
+        item: await this.readCurrentItemInternal(captured.principalId, captured.itemId),
+        replayed: true,
+      });
+    });
+  }
+
   async readCurrentItem(principalIdInput: string, itemIdInput: Ulid): Promise<CanonicalMemoryItem> {
     return this.safely(async () => {
       const principalId = safeInputText(principalIdInput, 256);
@@ -1023,30 +1045,13 @@ export class MemoryRepository {
       exactRow(principal, new Set(["principal_id", "principal_type", "status"]));
       if (principal.principal_id !== principalId
         || principal.principal_type !== "human" || principal.status !== "active") refuse();
-      const row = await this.database.prepare(`SELECT event_id, sequence, subject_id, occurred_at,
-        event_type, content_hash, envelope_json FROM events
-        WHERE event_id = ? AND sequence = ? AND subject_id = ?`)
-        .bind(eventId, eventSequence, principalId).first<EventReceiptRow>();
-      if (row === null) refuse();
-      exactRow(row, eventReceiptFields);
-      if (rowUlid(row.event_id) !== eventId
-        || rowInteger(row.sequence, 1, Number.MAX_SAFE_INTEGER) !== eventSequence
-        || rowPrincipal(row.subject_id, principalId) !== principalId
-        || rowTimestamp(row.occurred_at) !== occurredAt) refuse();
-      const envelope = await this.validateLiveEventEvidence(row, principalId, eventId, null);
-      if (envelope.eventType !== "conversation.user_committed"
-        || envelope.source !== "conversation"
-        || envelope.producerVersion !== "conversation-v1"
-        || liveEventChannel(envelope.eventType, envelope.payload) !== channel
-        || envelope.payload === null || typeof envelope.payload !== "object"
-        || Array.isArray(envelope.payload)) refuse();
-      const payload = envelope.payload;
-      const payloadKeys = new Set(Object.keys(payload));
-      if (payloadKeys.size !== 5
-        || ["schemaCode", "channelCode", "sensitivityCode", "historyEligible", "text"]
-          .some((field) => !payloadKeys.has(field))
-        || payload.schemaCode !== 1 || payload.sensitivityCode !== 1
-        || payload.historyEligible !== true) refuse();
+      const text = await this.readOwnerTurnText(
+        principalId,
+        eventId,
+        eventSequence,
+        occurredAt,
+        channel,
+      );
       const newerTurn = await this.database.prepare(`SELECT 1 AS count FROM events
         WHERE subject_id = ? AND sequence > ?
           AND event_type = 'conversation.user_committed'
@@ -1056,7 +1061,58 @@ export class MemoryRepository {
         if (rowInteger(newerTurn.count, 1, 1) !== 1) corrupt();
         refuse();
       }
-      return safeRowText(payload.text, 32_768);
+      return text;
+    });
+  }
+
+  async readAcceptedOwnerTurn(
+    input: MemoryOwnerTurnInput,
+    ownerCommandEventIdInput: Ulid,
+  ): Promise<AcceptedOwnerTurn> {
+    return this.safely(async () => {
+      const principalId = safeInputText(input.principalId, 256);
+      const eventId = inputUlid(input.eventId);
+      const ownerCommandEventId = inputUlid(ownerCommandEventIdInput);
+      const eventSequence = inputInteger(input.eventSequence, 1, Number.MAX_SAFE_INTEGER);
+      const occurredAt = inputTimestamp(input.occurredAt);
+      const channel = inputEnum(input.channel, new Set(["telegram", "voice", "system"] as const));
+      inputEnum(input.memoryIntent, new Set(["remember", "forget", "lift", "explain"] as const));
+      const flags = [
+        input.forwarded,
+        input.quoted,
+        input.pasted,
+        input.hasAttachment,
+        input.modelGenerated,
+        input.toolGenerated,
+        input.guest,
+      ];
+      if (flags.some((flag) => typeof flag !== "boolean") || flags.some(Boolean)) refuse();
+      const acceptedCommand = await this.database.prepare(`SELECT 1 AS count
+        FROM memory_valid_owner_commands
+        WHERE event_id = ? AND subject_id = ?
+          AND json_extract(envelope_json, '$.causationId') = ?
+          AND json_extract(envelope_json, '$.payload.operation') = 'item.transition'
+        LIMIT 1`).bind(ownerCommandEventId, principalId, eventId).first<CountRow>();
+      if (acceptedCommand === null) refuse();
+      exactRow(acceptedCommand, new Set(["count"]));
+      if (rowInteger(acceptedCommand.count, 1, 1) !== 1) corrupt();
+      const text = await this.readOwnerTurnText(
+        principalId,
+        eventId,
+        eventSequence,
+        occurredAt,
+        channel,
+      );
+      const suppression = await this.database.prepare(`SELECT 1 AS count
+        FROM memory_active_event_suppressions
+        WHERE principal_id = ? AND (
+          target_event_id = ? OR ? BETWEEN start_event_sequence AND end_event_sequence
+        ) LIMIT 1`).bind(principalId, eventId, eventSequence).first<CountRow>();
+      if (suppression !== null) {
+        exactRow(suppression, new Set(["count"]));
+        if (rowInteger(suppression.count, 1, 1) !== 1) corrupt();
+      }
+      return Object.freeze({ text, suppressed: suppression !== null });
     });
   }
 
@@ -1611,6 +1667,40 @@ export class MemoryRepository {
       eventSequence,
       source,
     );
+  }
+
+  private async readOwnerTurnText(
+    principalId: string,
+    eventId: Ulid,
+    eventSequence: number,
+    occurredAt: string,
+    channel: MemorySourceChannel,
+  ): Promise<string> {
+    const row = await this.database.prepare(`SELECT event_id, sequence, subject_id, occurred_at,
+      event_type, content_hash, envelope_json FROM events
+      WHERE event_id = ? AND sequence = ? AND subject_id = ?`)
+      .bind(eventId, eventSequence, principalId).first<EventReceiptRow>();
+    if (row === null) refuse();
+    exactRow(row, eventReceiptFields);
+    if (rowUlid(row.event_id) !== eventId
+      || rowInteger(row.sequence, 1, Number.MAX_SAFE_INTEGER) !== eventSequence
+      || rowPrincipal(row.subject_id, principalId) !== principalId
+      || rowTimestamp(row.occurred_at) !== occurredAt) refuse();
+    const envelope = await this.validateLiveEventEvidence(row, principalId, eventId, null);
+    if (envelope.eventType !== "conversation.user_committed"
+      || envelope.source !== "conversation"
+      || envelope.producerVersion !== "conversation-v1"
+      || liveEventChannel(envelope.eventType, envelope.payload) !== channel
+      || envelope.payload === null || typeof envelope.payload !== "object"
+      || Array.isArray(envelope.payload)) refuse();
+    const payload = envelope.payload;
+    const payloadKeys = new Set(Object.keys(payload));
+    if (payloadKeys.size !== 5
+      || ["schemaCode", "channelCode", "sensitivityCode", "historyEligible", "text"]
+        .some((field) => !payloadKeys.has(field))
+      || payload.schemaCode !== 1 || payload.sensitivityCode !== 1
+      || payload.historyEligible !== true) refuse();
+    return safeRowText(payload.text, 32_768);
   }
 
   private async validateArchivedEventEvidence(

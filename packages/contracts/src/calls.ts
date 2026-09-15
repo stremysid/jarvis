@@ -109,6 +109,7 @@ export function sanitizeRedaction(text: string, fieldMarker?: RedactionMarker): 
   try {
     if (typeof text !== "string" || !text.isWellFormed()) return { ok: false, category: "ingest_redaction_failed" };
     if (fieldMarker !== undefined) return issueSanitizedRedaction(REPLACEMENT[fieldMarker], [fieldMarker]);
+    if (LOWERCASE_ULID.test(text)) return issueSanitizedRedaction(text, []);
     const markers: RedactionMarker[] = [];
     const mark = (marker: RedactionMarker) => {
       if (!markers.includes(marker)) markers.push(marker);
@@ -147,18 +148,6 @@ export function sanitizeRedaction(text: string, fieldMarker?: RedactionMarker): 
   } catch {
     return { ok: false, category: "ingest_redaction_failed" };
   }
-}
-
-/**
- * Mints an envelope-safe token for a grammar-validated ULID. This is an
- * internal structural escape hatch and is deliberately absent from the
- * package's public index.
- */
-export function issueRedactedUlid(value: Ulid): SuccessfulRedaction {
-  if (typeof value !== "string" || !LOWERCASE_ULID.test(value)) {
-    throw new TypeError("redacted ULID must be a lowercase canonical ULID");
-  }
-  return issueSanitizedRedaction(value, []);
 }
 
 export interface Redactor {

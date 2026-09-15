@@ -1,6 +1,6 @@
 # Known issues
 
-## Owner memory controls have four deferred integration limits
+## Owner memory controls have seven deferred integration limits
 
 PR #50 keeps the channel-neutral owner-control boundary closed, but later
 integration work must resolve these limits before enabling the affected callers:
@@ -9,8 +9,9 @@ integration work must resolve these limits before enabling the affected callers:
   `conversation.user_committed` persists no closed provenance code. The service
   can reject forwarded, quoted, pasted, attachment and guest flags only as
   assertions from its trusted caller; it cannot verify them against the event
-  ledger. Telegram and voice ingress must persist an owner-typed provenance code,
-  and `validateOwnerTurn` must require it.
+  ledger. `memoryIntent` is likewise the adapter's unverified classification.
+  Telegram and voice ingress must persist owner-typed provenance and intent
+  codes, and `validateOwnerTurn` must require them.
 - **F2, required before any topic move or merge caller:** moving the canonical
   inbox away from the root, or merging it, makes `bootstrapTopics` refuse every
   later remember request. A future caller must either forbid those operations for
@@ -25,6 +26,19 @@ integration work must resolve these limits before enabling the affected callers:
 - **N8:** each remember, explain, forget or lift request accepts exactly one
   resolved target. The future adapter must state that limit and ask the owner to
   disambiguate or repeat multi-target requests rather than silently selecting one.
+- **Round-2 N2:** a forget or lift that loses a race after its owner command is
+  appended leaves an unapplied command and consumes that turn's mutation key.
+  The adapter must ask the owner to repeat the request, or a later storage slice
+  must make command acceptance and the memory mutation one atomic boundary.
+- **Round-2 N3:** lifting an inferred item back to `proposed` records an owner
+  transition because the current schema binds corrections to owner commands.
+  Rules therefore cannot promote or reject it. Add a confirmation control or a
+  rules-compatible restoration path before proposed-memory restore is exposed.
+- **Archive-history handoff:** archive purge deletes delivered `events`, while
+  immutable memory sources remain marked `live`. Their creation and source
+  receipt checks then map the missing event to `memory_corrupt`, so explain,
+  forget and lift cannot operate on an old memory. The archive-history slice
+  must preserve a verifiable live-to-archive source reference before purging.
 
 ## A late split passphrase repeat is ordinary conversation (PR #40 N9)
 

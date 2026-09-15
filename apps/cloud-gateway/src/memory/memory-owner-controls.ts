@@ -8,7 +8,6 @@ import {
   type Sha256Hex,
   type Ulid,
 } from "../../../../packages/contracts/src/index.js";
-import { issueRedactedUlid } from "../../../../packages/contracts/src/calls.js";
 import { Redactor } from "../security/redaction.js";
 import {
   EventRepository,
@@ -16,10 +15,10 @@ import {
   type AppendedEvent,
 } from "../persistence/event-repository.js";
 import { MemoryRepository } from "./memory-repository.js";
-import { isAuthenticatedFirstPersonQuote } from "./extraction-policy.js";
 import {
   MemoryRepositoryError,
   type CanonicalMemoryItem,
+  type CommitInitialMemoryInput,
   type ForgetMemoryItemInput,
   type LiftMemoryItemInput,
   type MemoryControlIntent,
@@ -38,12 +37,13 @@ const MEMORY_KINDS = new Set<MemoryKind>(["fact", "preference", "plan", "decisio
 const MEMORY_SENSITIVITIES = new Set<MemorySensitivity>(["normal", "sensitive"]);
 const MEMORY_CONTROL_INTENTS = new Set<MemoryControlIntent>(["remember", "forget", "lift", "explain"]);
 const REMEMBER_CONTROL_PREFIXES = [
-  /^(?:please[ \t]+)?remember[ \t]+that:[ \t]*/iu,
-  /^(?:please[ \t]+)?remember[ \t]+that[ \t]+/iu,
+  /^(?:please[ \t]+)?remember(?:[ \t]*,[ \t]*|[ \t]+)that:[ \t]*/iu,
+  /^(?:please[ \t]+)?remember(?:[ \t]*,[ \t]*|[ \t]+)that[ \t]+/iu,
   /^(?:please[ \t]+)?remember:[ \t]*/iu,
-  /^(?:please[ \t]+)?remember[ \t]+/iu,
+  /^(?:please[ \t]+)?remember(?:[ \t]*,[ \t]*|[ \t]+)/iu,
 ] as const;
-const NEGATION = /(?<![A-Za-z0-9_])(?:not|never|no[ \t]+longer)(?![A-Za-z0-9_])|n['’]t(?![A-Za-z0-9_])/iu;
+const APOSTROPHE_LOOKALIKES = /[\u02bc\u2018\u2019\u2032\uff07`]/gu;
+const ZERO_WIDTH_CHARACTERS = /[\u200b-\u200d\u2060\ufeff]/gu;
 
 export interface RememberMemoryInput {
   readonly ownerTurn: MemoryOwnerTurnInput;
@@ -74,7 +74,7 @@ export interface MemoryForgetReceipt {
 }
 
 export interface MemoryLiftReceipt {
-  readonly item: CanonicalMemoryItem;
+  readonly item: CanonicalMemoryItem | MemoryTextSuppressedItem;
   readonly liftedSuppressionCount: number;
   readonly retrievable: boolean;
   readonly receipt: string;
@@ -105,11 +105,12 @@ interface StoredControlReceipt {
   readonly request_hash: unknown;
 }
 
-type MemoryTextSuppressedItem = Omit<CanonicalMemoryItem, "version" | "sources"> & Readonly<{
+type MemoryTextSuppressedItem = Omit<CanonicalMemoryItem, "version" | "sources" | "topicPath"> & Readonly<{
   version: Omit<CanonicalMemoryItem["version"], "text" | "textHash">
     & Readonly<{ text: null; textHash: null }>;
   sources: readonly (Omit<CanonicalMemoryItem["sources"][number], "excerpt" | "excerptHash">
     & Readonly<{ excerpt: null; excerptHash: null }>)[];
+  topicPath: CanonicalMemoryItem["topicPath"];
 }>;
 
 type JsonRecord = Readonly<Record<string, JsonValue>>;
@@ -196,7 +197,6 @@ function exactKeys(value: JsonRecord, fields: readonly string[]): void {
 
 function redactPayload(value: JsonValue): RedactedJsonValue {
   if (typeof value === "string") {
-    if (ULID.test(value)) return issueRedactedUlid(value as Ulid);
     const result = redactor.redactText(value);
     if (!result.ok || result.text !== value) refuse();
     return result;
@@ -232,7 +232,15 @@ function suppressMemoryText(item: CanonicalMemoryItem): MemoryTextSuppressedItem
       excerpt: null,
       excerptHash: null,
     }))),
+    topicPath: Object.freeze([]),
   });
+}
+
+function redactUnretrievableItem(
+  item: CanonicalMemoryItem,
+  visibility: Readonly<{ retrievable: boolean }>,
+): CanonicalMemoryItem | MemoryTextSuppressedItem {
+  return visibility.retrievable ? item : suppressMemoryText(item);
 }
 
 function decodeStoredCommand<T>(value: JsonValue, decode: (payload: JsonValue) => T): T {
@@ -253,16 +261,16 @@ function rememberRemainder(ownerText: string): string {
   return source;
 }
 
-function isAuthorizedRememberText(text: string, ownerText: string): boolean {
-  const remainder = rememberRemainder(ownerText);
-  if (remainder.length === 0 || text !== text.trim()) return false;
-  if (text === remainder) return true;
-  if (NEGATION.test(remainder) && !NEGATION.test(text)) return false;
-  return isAuthenticatedFirstPersonQuote({
-    quote: text,
-    sourceText: remainder,
-    authenticatedOwner: true,
-  });
+function normalizeRememberComparison(value: string): string {
+  return value
+    .replace(APOSTROPHE_LOOKALIKES, "'")
+    .replace(ZERO_WIDTH_CHARACTERS, "");
+}
+
+function isAuthorizedRememberText(text: string, remainder: string): boolean {
+  return remainder.length > 0
+    && text === text.trim()
+    && normalizeRememberComparison(text) === normalizeRememberComparison(remainder);
 }
 
 function rememberPayload(value: JsonValue): Readonly<{
@@ -388,15 +396,27 @@ export class MemoryOwnerControlsService {
       ]);
       const key = commandKey(ownerTurn, "remember");
       const existing = await this.hasCommand(key, requestHash);
+      let acceptedTurn: Readonly<{ text: string; suppressed: boolean }>;
+      let sourceExcerpt: string;
       let command: AppendedEvent;
       if (existing) {
         command = await this.appendCommand(ownerTurn, key, requestHash, {
           operation: "item.transition",
           targetId: this.nextId(),
         });
+        acceptedTurn = await this.memory.readAcceptedOwnerTurn(
+          ownerTurn,
+          command.envelope.eventId,
+        );
+        sourceExcerpt = this.memory.validateItemText(rememberRemainder(acceptedTurn.text));
+        if (!isAuthorizedRememberText(text, sourceExcerpt)) refuse();
       } else {
-        const ownerText = await this.memory.validateOwnerTurn(ownerTurn, "remember");
-        if (!isAuthorizedRememberText(text, ownerText)) refuse();
+        acceptedTurn = Object.freeze({
+          text: await this.memory.validateOwnerTurn(ownerTurn, "remember"),
+          suppressed: false,
+        });
+        sourceExcerpt = this.memory.validateItemText(rememberRemainder(acceptedTurn.text));
+        if (!isAuthorizedRememberText(text, sourceExcerpt)) refuse();
         const topics = await this.memory.bootstrapTopics(ownerTurn.principalId);
         const transitionId = this.nextId();
         command = await this.appendCommand(ownerTurn, key, requestHash, {
@@ -412,7 +432,7 @@ export class MemoryOwnerControlsService {
         });
       }
       const payload = decodeStoredCommand(command.envelope.payload, rememberPayload);
-      const result = await this.memory.commitInitialItem({
+      const commitInput = Object.freeze<CommitInitialMemoryInput>({
         principalId: ownerTurn.principalId,
         itemId: payload.itemId,
         kind,
@@ -437,8 +457,8 @@ export class MemoryOwnerControlsService {
           eventSequence: ownerTurn.eventSequence,
           sourceLocation: "live",
           r2SegmentId: null,
-          excerpt: text,
-          excerptHash: await sha256Hex(text),
+          excerpt: sourceExcerpt,
+          excerptHash: await sha256Hex(sourceExcerpt),
           channel: ownerTurn.channel,
           occurredAt: ownerTurn.occurredAt,
         }],
@@ -458,14 +478,27 @@ export class MemoryOwnerControlsService {
           reason: "owner memory starts in the explicit inbox",
         },
       });
+      const result = existing && acceptedTurn.suppressed
+        ? await this.memory.readInitialItemReplay(commitInput)
+        : await this.memory.commitInitialItem(commitInput);
+      if (result === null) refuse();
       const replayed = command.replayed || result.replayed;
       const transitionIsCurrent = result.item.lifecycle.transitionId === payload.transitionId;
+      const visibility = await this.memory.readItemVisibility(ownerTurn.principalId, payload.itemId);
+      const visibleItem = redactUnretrievableItem(result.item, visibility);
+      const returnedItem = replayed && !transitionIsCurrent
+        ? suppressMemoryText(result.item)
+        : visibleItem;
       return Object.freeze({
-        item: replayed && !transitionIsCurrent ? suppressMemoryText(result.item) : result.item,
+        item: returnedItem,
         receipt: replayed && !transitionIsCurrent
           ? result.item.lifecycle.state === "forgotten"
             ? "That remember request was already handled; the memory is currently hidden."
             : "That remember request was already handled; the memory has changed since then."
+          : !visibility.retrievable
+            ? replayed
+              ? "That remember request was already handled; the memory is currently hidden."
+              : "Remembered 1 memory, but it is currently hidden by another forgotten memory from the same conversation turn."
           : "Remembered 1 memory. You can ask in ordinary language to forget it.",
         replayed,
       });
@@ -480,26 +513,22 @@ export class MemoryOwnerControlsService {
       await this.memory.validateOwnerTurn(ownerTurn, "explain");
       const item = await this.memory.readCurrentItem(ownerTurn.principalId, itemId);
       const visibility = await this.memory.readItemVisibility(ownerTurn.principalId, itemId);
-      const hidden = item.lifecycle.state === "forgotten";
-      const suppressedSourceIds = new Set(visibility.suppressedSourceIds);
+      const visibleItem = redactUnretrievableItem(item, visibility);
+      const hidden = !visibility.retrievable;
       return Object.freeze({
         itemId,
         state: item.lifecycle.state,
         uncertain: item.version.uncertain,
-        topicPath: hidden
-          ? Object.freeze([])
-          : Object.freeze(item.topicPath.map((entry) => entry.displayName)),
-        text: hidden ? null : item.version.text,
-        sources: Object.freeze(item.sources.map((source) => Object.freeze({
+        topicPath: Object.freeze(visibleItem.topicPath.map((entry) => entry.displayName)),
+        text: visibleItem.version.text,
+        sources: Object.freeze(visibleItem.sources.map((source) => Object.freeze({
           eventId: source.eventId,
           occurredAt: source.occurredAt,
           channel: source.channel,
-          excerpt: hidden || suppressedSourceIds.has(source.sourceId) ? null : source.excerpt,
+          excerpt: source.excerpt,
         }))),
         receipt: hidden
           ? "Explained 1 hidden memory without revealing its text; nothing changed."
-          : suppressedSourceIds.size > 0
-            ? "Explained 1 memory; hidden source excerpts were not revealed; nothing changed."
           : "Explained 1 memory from verified evidence; nothing changed.",
       });
     });
@@ -607,7 +636,7 @@ export class MemoryOwnerControlsService {
       });
       const visibility = await this.memory.readItemVisibility(ownerTurn.principalId, itemId);
       return Object.freeze({
-        item: result.item,
+        item: redactUnretrievableItem(result.item, visibility),
         liftedSuppressionCount: result.liftedSuppressionCount,
         retrievable: visibility.retrievable,
         receipt: result.item.lifecycle.state === "proposed"

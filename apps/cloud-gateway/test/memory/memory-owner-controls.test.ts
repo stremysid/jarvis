@@ -283,6 +283,7 @@ describe("MemoryOwnerControlsService", () => {
     });
     expect(replay.item.sources[0]?.excerpt).toBeNull();
     expect(replay.item.sources[0]?.excerptHash).toBeNull();
+    expect(replay.item.topicPath).toEqual([]);
     expect(JSON.stringify(replay)).not.toContain("I prefer dark mode.");
     expect(await commandCount()).toBe(beforeReplay);
   });
@@ -342,6 +343,9 @@ describe("MemoryOwnerControlsService", () => {
     ["a reported-speech fragment", "Remember my brother said Sid failed calculus.", "Sid failed calculus."],
     ["a conditional fragment", "Remember if I get into Waterloo I will move.", "I will move."],
     ["a mid-word fragment", "Remember I prefer teal.", "I prefer tea"],
+    ["a condition changed by the preceding sentence", "Remember my plan if Waterloo rejects me. I'll take a gap year.", "I'll take a gap year."],
+    ["reported speech changed by the preceding sentence", "Remember what Sam texted me. I'm quitting the team.", "I'm quitting the team."],
+    ["a claim retracted by the following sentence", "Remember I failed calculus. Jk.", "I failed calculus."],
   ])("refuses %s before recording a command", async (_label, ownerText, requestedText) => {
     const turn = await seedTurn(ownerText);
     const before = await commandCount();
@@ -355,6 +359,57 @@ describe("MemoryOwnerControlsService", () => {
     expect(await env.DB.prepare(
       "SELECT count(*) AS count FROM memory_items WHERE creation_event_id = ?",
     ).bind(turn.input.eventId).first()).toEqual({ count: 0 });
+  });
+
+  it.each([
+    ["an apostrophe lookalike", "Remember, I donʼt use tables.", "I don't use tables."],
+    ["a zero-width character", "Remember, I prefer\u200b concise notes.", "I prefer concise notes."],
+  ])("normalizes %s only for whole-remainder comparison", async (_label, ownerText, text) => {
+    const turn = await seedTurn(ownerText);
+
+    const result = await new MemoryOwnerControlsService(env.DB).remember(rememberInput(turn, text));
+
+    expect(result.item.version.text).toBe(text);
+    expect(result.item.lifecycle.actor).toBe("owner");
+    expect(result.item.sources[0]?.excerpt).toBe(ownerText.replace(/^Remember,[ ]?/u, ""));
+  });
+
+  it("does not complete an accepted remember command after its source turn is suppressed", async () => {
+    const sourceText = "I prefer dark mode. I prefer compact menus.";
+    const sourceTurn = await seedTurn(`Remember, ${sourceText}`);
+    const sibling = await commitItemFromTurn(sourceTurn, "I prefer compact menus.");
+    const input = rememberInput(sourceTurn, sourceText);
+    const faultingMemory = createMemoryRepositoryForTest(env.DB, {
+      batchFault: (operation) => operation === "commit"
+        ? env.DB.prepare("INSERT INTO memory_owner_controls_missing_fault_target(value) VALUES (1)")
+        : null,
+    });
+    const beforeAttempt = await commandCount();
+
+    await expectCode(
+      new MemoryOwnerControlsService(env.DB, faultingMemory).remember(input),
+      "memory_unavailable",
+    );
+    expect(await commandCount()).toBe(beforeAttempt + 1);
+    const forgetTurn = await seedTurn(
+      "Forget my compact menu preference.",
+      { memoryIntent: "forget" },
+    );
+    await new MemoryOwnerControlsService(env.DB).forget({
+      ownerTurn: forgetTurn.input,
+      candidateItemIds: [sibling.itemId],
+    });
+    const beforeRetry = await commandCount();
+
+    await expectCode(
+      new MemoryOwnerControlsService(env.DB).remember(input),
+      "memory_refused",
+    );
+
+    expect(await commandCount()).toBe(beforeRetry);
+    expect(await env.DB.prepare(
+      "SELECT count(*) AS count FROM memory_items WHERE creation_event_id = ?",
+    ).bind(sourceTurn.input.eventId).first()).toEqual({ count: 1 });
   });
 
   it("refuses memory text over the canonical byte limit before recording a command", async () => {
@@ -656,7 +711,7 @@ describe("MemoryOwnerControlsService", () => {
   it("explains deterministic provenance without a command or a mutation", async () => {
     const rememberedTurn = await seedTurn("Remember that my summaries use plain language.");
     const remembered = await new MemoryOwnerControlsService(env.DB).remember(
-      rememberInput(rememberedTurn, "my summaries use plain language"),
+      rememberInput(rememberedTurn, "my summaries use plain language."),
     );
     const whyTurn = await seedTurn(
       "Why do you remember my summary preference?",
@@ -674,12 +729,12 @@ describe("MemoryOwnerControlsService", () => {
       state: "active",
       uncertain: false,
       topicPath: ["Memory", "Inbox / Needs filing"],
-      text: "my summaries use plain language",
+      text: "my summaries use plain language.",
       sources: [{
         eventId: rememberedTurn.input.eventId,
         occurredAt: rememberedTurn.input.occurredAt,
         channel: "telegram",
-        excerpt: "my summaries use plain language",
+        excerpt: "my summaries use plain language.",
       }],
     });
     expect(explanation.receipt).toBe("Explained 1 memory from verified evidence; nothing changed.");
@@ -778,9 +833,11 @@ describe("MemoryOwnerControlsService", () => {
   });
 
   it("reports sibling memories hidden by a forget and a restore that remains suppressed", async () => {
-    const sourceTurn = await seedTurn("I prefer dark mode. I prefer compact menus.");
+    const rememberedText = "I prefer dark mode. I prefer compact menus.";
+    const sourceTurn = await seedTurn(`Remember, ${rememberedText}`);
     const service = new MemoryOwnerControlsService(env.DB);
-    const first = await service.remember(rememberInput(sourceTurn, "I prefer dark mode."));
+    const input = rememberInput(sourceTurn, rememberedText);
+    const first = await service.remember(input);
     const sibling = await commitItemFromTurn(sourceTurn, "I prefer compact menus.");
     const forgetFirstTurn = await seedTurn(
       "Forget my dark mode preference.",
@@ -804,10 +861,23 @@ describe("MemoryOwnerControlsService", () => {
     });
     expect(siblingExplanation).toMatchObject({
       state: "active",
-      text: "I prefer compact menus.",
+      topicPath: [],
+      text: null,
       sources: [{ excerpt: null }],
-      receipt: "Explained 1 memory; hidden source excerpts were not revealed; nothing changed.",
+      receipt: "Explained 1 hidden memory without revealing its text; nothing changed.",
     });
+    expect(JSON.stringify(siblingExplanation)).not.toContain("I prefer compact menus.");
+    const replay = await service.remember(input);
+    expect(replay).toMatchObject({
+      replayed: true,
+      item: {
+        topicPath: [],
+        version: { text: null, textHash: null },
+        sources: [{ excerpt: null, excerptHash: null }],
+      },
+      receipt: "That remember request was already handled; the memory is currently hidden.",
+    });
+    expect(JSON.stringify(replay)).not.toContain(rememberedText);
 
     const forgetSiblingTurn = await seedTurn(
       "Forget my compact menu preference.",
@@ -828,6 +898,12 @@ describe("MemoryOwnerControlsService", () => {
 
     expect(restored.retrievable).toBe(false);
     expect(restored.receipt).toContain("still hidden because another forgotten memory");
+    expect(restored.item).toMatchObject({
+      topicPath: [],
+      version: { text: null, textHash: null },
+      sources: [{ excerpt: null, excerptHash: null }],
+    });
+    expect(JSON.stringify(restored)).not.toContain(rememberedText);
     expect(await env.DB.prepare(
       "SELECT count(*) AS count FROM memory_retrievable_item_versions WHERE item_id = ?",
     ).bind(first.item.itemId).first()).toEqual({ count: 0 });
