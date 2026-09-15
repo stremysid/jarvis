@@ -1,0 +1,98 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/voice/call-session-do.test.ts -t reverify3
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr40
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts (130 tests | 4 failed | 126 skipped) 10163ms
+     × Q1c: deadline alarm during a frame-path rejection blocked in binding() completes it twice 3999ms
+     × Q2c: deadline alarm while the frame-path rejection awaits the alert sink completes it twice 3960ms
+     × Q3c: a failed final alarm clear makes the retry refuse, end and alert a second time 867ms
+     × Q6c: a throwing alarm clear in handleSocketClose skips the pre_auth -> failed transition 1334ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > PR40 reverify3 core probes > Q1c: deadline alarm during a frame-path rejection blocked in binding() completes it twice
+AssertionError: refusals=1 alerts=1 closes=1: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:3057:60
+    3055|       await frame; await alarm;
+    3056|       const report = `refusals=${refusals(h)} alerts=${h.ownerStepUpAl…
+    3057|       expect(h.ownerStepUpAlert.mock.calls.length, report).toBe(2);
+       |                                                            ^
+    3058|       expect(refusals(h), report).toBe(2);
+    3059|     } finally { go(); spy.mockRestore(); }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > PR40 reverify3 core probes > Q2c: deadline alarm while the frame-path rejection awaits the alert sink completes it twice
+AssertionError: refusals=1 alerts=1 closes=1: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:3078:60
+    3076|       await frame; await alarm;
+    3077|       const report = `refusals=${refusals(h)} alerts=${h.ownerStepUpAl…
+    3078|       expect(h.ownerStepUpAlert.mock.calls.length, report).toBe(2);
+       |                                                            ^
+    3079|       expect(refusals(h), report).toBe(2);
+    3080|     } finally { go(); }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > PR40 reverify3 core probes > Q3c: a failed final alarm clear makes the retry refuse, end and alert a second time
+AssertionError: refusals=1 alerts=1 closes=1: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:3092:58
+    3090|     await h.instance.handleOwnerStepUpAlarm("window", 1); // runtime r…
+    3091|     const report = `refusals=${refusals(h)} alerts=${h.ownerStepUpAler…
+    3092|     expect(h.ownerStepUpAlert.mock.calls.length, report).toBe(2);
+       |                                                          ^
+    3093|     expect(refusals(h), report).toBe(2);
+    3094|   }, 30_000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > PR40 reverify3 core probe Q6c > Q6c: a throwing alarm clear in handleSocketClose skips the pre_auth -> failed transition
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+undefined
+
+ ❯ apps/cloud-gateway/test/voice/call-session-do.test.ts:3104:64
+    3102|     await h.instance.handleRelayEvent(relaySetup(h.stored));
+    3103|     h.clearOwnerStepUpAlarm.mockRejectedValueOnce(new Error("probe_sto…
+    3104|     await expect(h.instance.handleSocketClose("socket_closed")).reject…
+       |                                                                ^
+    3105|     expect((await h.repo.getCallSession(h.stored.sessionId))?.phase).t…
+    3106|   }, 30_000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 126 skipped (130)
+   Start at  13:33:45
+   Duration  12.23s (transform 781ms, setup 0ms, import 1.41s, tests 10.16s, environment 0ms)
+

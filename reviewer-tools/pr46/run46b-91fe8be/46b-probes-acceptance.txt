@@ -1,0 +1,59 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run tests/acceptance/fake/zz-reviewer-pr40-reverify3.test.ts -t reverify3
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr40
+
+Using secrets defined in process.env
+ ❯ |default| tests/acceptance/fake/zz-reviewer-pr40-reverify3.test.ts (3 tests | 3 failed) 3398ms
+     × Q1: a frame-path deadline rejection racing the deadline alarm refuses and alerts twice 770ms
+     × Q4: hang-up after eviction on an interrupted rejection: observe alert and retries 1164ms
+     × Q5: a frame after eviction on an interrupted rejection: observe close, refusal and alert 1464ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| tests/acceptance/fake/zz-reviewer-pr40-reverify3.test.ts > PR40 reverify3 probes > Q1: a frame-path deadline rejection racing the deadline alarm refuses and alerts twice
+AssertionError: reached=yes | alarmWhileBlocked={"ok":false,"v":"threw:Error: Cannot perform I/O on behalf of a different Durable Object. I/O objects (such as streams, request/response bodies, and others) created in the context of one Durable Object cannot be accessed from a different Durable Object in the same isolate. This is a limitation of Cloudflare Workers which allows us to improve overall performance. (I/O type: OutgoingFactory)"} | frame={"ok":true} | alarmAfter={"ok":false,"v":"threw:Error: Cannot perform I/O on behalf of a different Durable Object. I/O objects (such as streams, request/response bodies, and others) created in the context of one Durable Object cannot be accessed from a different Durable Object in the same isolate. This is a limitation of Cloudflare Workers which allows us to improve overall performance. (I/O type: OutgoingFactory)"} | refusals=1 ends=1 alerts=1 bindingCalls=1 closeCodes=[] phase=rejected: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ tests/acceptance/fake/zz-reviewer-pr40-reverify3.test.ts:58:50
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |default| tests/acceptance/fake/zz-reviewer-pr40-reverify3.test.ts > PR40 reverify3 probes > Q4: hang-up after eviction on an interrupted rejection: observe alert and retries
+AssertionError: expected 'REPORT keyAfterClose=false r1={"ok":t…' to be '' // Object.is equality
+
+- Expected
++ Received
+
++ REPORT keyAfterClose=false r1={"ok":true} r5={"ok":true} alerts=1 refusals=1 keyEnd=false
+
+ ❯ tests/acceptance/fake/zz-reviewer-pr40-reverify3.test.ts:91:32
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |default| tests/acceptance/fake/zz-reviewer-pr40-reverify3.test.ts > PR40 reverify3 probes > Q5: a frame after eviction on an interrupted rejection: observe close, refusal and alert
+AssertionError: expected 'REPORT closeCodesAfterFrame=[] r1={"o…' to be '' // Object.is equality
+
+- Expected
++ Received
+
++ REPORT closeCodesAfterFrame=[] r1={"ok":true} refusals=1 alerts=1 keyEnd=false
+
+ ❯ tests/acceptance/fake/zz-reviewer-pr40-reverify3.test.ts:118:32
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed (3)
+   Start at  13:33:37
+   Duration  5.31s (transform 704ms, setup 0ms, import 1.27s, tests 3.40s, environment 0ms)
+

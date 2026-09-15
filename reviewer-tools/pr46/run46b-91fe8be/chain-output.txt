@@ -1,0 +1,43 @@
+head 91fe8be
+lockfile unchanged
+lint exit 0
+typecheck exit 0
+typecheck:voice-access exit 0
+test exit 0
+ Test Files  148 passed (148)
+      Tests  3113 passed (3113)
+test timeouts: 0
+voice-access exit 0
+ℹ pass 6
+ℹ fail 0
+ Test Files  35 passed (35)
+      Tests  866 passed (866)
+voice timeouts: 0
+== gap base: exit=0  Tests 237 passed (237) timeouts=0 clean=yes
+== gap gap0: exit=1  Tests 25 failed | 212 passed (237) timeouts=2 clean=yes
+== gap gap1: exit=1  Tests 14 failed | 223 passed (237) timeouts=0 clean=yes
+== gap gap2b: exit=1  Tests 1 failed | 236 passed (237) timeouts=0 clean=yes
+== gap gap3b: exit=1  Tests 1 failed | 236 passed (237) timeouts=0 clean=yes
+== gap gap3c: exit=1  Tests 3 failed | 234 passed (237) timeouts=0 clean=yes
+== gap gap3d: exit=1  Tests 2 failed | 235 passed (237) timeouts=0 clean=yes
+== gap gap3e: exit=1  Tests 2 failed | 235 passed (237) timeouts=0 clean=yes
+== gap gap6: exit=1  Tests 2 failed | 235 passed (237) timeouts=0 clean=yes
+== gap gap6b: exit=1  Tests 1 failed | 236 passed (237) timeouts=0 clean=yes
+acceptance probes exit 1
+     × Q1: a frame-path deadline rejection racing the deadline alarm refuses and alerts twice 770ms
+     × Q4: hang-up after eviction on an interrupted rejection: observe alert and retries 1164ms
+     × Q5: a frame after eviction on an interrupted rejection: observe close, refusal and alert 1464ms
+AssertionError: reached=yes | alarmWhileBlocked={"ok":false,"v":"threw:Error: Cannot perform I/O on behalf of a different Durable Object. I/O objects (such as streams, request/response bodies, and others) created in the context of one Durable Object cannot be accessed from a different Durable Object in the same isolate. This is a limitation of Cloudflare Workers which allows us to improve overall performance. (I/O type: OutgoingFactory)"} | frame={"ok":true} | alarmAfter={"ok":false,"v":"threw:Error: Cannot perform I/O on behalf of a different Durable Object. I/O objects (such as streams, request/response bodies, and others) created in the context of one Durable Object cannot be accessed from a different Durable Object in the same isolate. This is a limitation of Cloudflare Workers which allows us to improve overall performance. (I/O type: OutgoingFactory)"} | refusals=1 ends=1 alerts=1 bindingCalls=1 closeCodes=[] phase=rejected: expected 1 to be 2 // Object.is equality
+AssertionError: expected 'REPORT keyAfterClose=false r1={"ok":t…' to be '' // Object.is equality
++ REPORT keyAfterClose=false r1={"ok":true} r5={"ok":true} alerts=1 refusals=1 keyEnd=false
+AssertionError: expected 'REPORT closeCodesAfterFrame=[] r1={"o…' to be '' // Object.is equality
+core probes exit 1
+     × Q1c: deadline alarm during a frame-path rejection blocked in binding() completes it twice 3999ms
+     × Q2c: deadline alarm while the frame-path rejection awaits the alert sink completes it twice 3960ms
+     × Q3c: a failed final alarm clear makes the retry refuse, end and alert a second time 867ms
+     × Q6c: a throwing alarm clear in handleSocketClose skips the pre_auth -> failed transition 1334ms
+clean before triggers=yes
+trigger timeouts: 0
+ |  failed | 
+
+[exited with code 0]
