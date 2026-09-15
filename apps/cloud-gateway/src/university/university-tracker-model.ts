@@ -20,18 +20,22 @@ const NEW_PROGRAM = /^new-[1-9][0-9]{0,2}$/u;
 const NEW_APPLICATION_ITEM = /^new-item-[1-9][0-9]{0,2}$/u;
 const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/u;
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
-const OWNER_SUBMISSION = /(?:^|[.!?;:]\s+|\b(?:also|and|yes),?\s+)i(?:['’]ve| have)?\s+(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
+const OWNER_SUBMISSION = /(?:\bi(?:['’]ve| have)?\s+(?:(?:already|just|now|successfully)\s+)?|^(?:(?:already|just|now|successfully)\s+)?)(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
 const CONDITIONAL_OR_QUESTION = /\?|\b(?:if|unless|maybe|perhaps|might|could|would)\b/iu;
+const HEARSAY = /\b(?:thinks?|heard|said|might|maybe)\b/iu;
 const NEGATION = /\b(?:not|never|none|nothing|haven't|hasn't|hadn't|didn't|don't|doesn't|won't|can't|cannot|couldn't|wouldn't|shouldn't|isn't|aren't|wasn't|weren't)\b|n['’]t\b/iu;
 const RETRACTION = /\b(?:actually|correction|wait|jk|just\s+kidding|didn't\s+go\s+through|did\s+not\s+go\s+through)\b/iu;
-const SUBMISSION_CORRECTION = /\b(?:didn't|did\s+not|wasn't|was\s+not|never)\s+(?:submit|send|upload|turn\s+in)|\b(?:submission|upload)\b.{0,48}\b(?:failed|crashed|rejected)|\bdid(?:n't|\s+not)\s+go\s+through\b|\b(?:undo|reopen|mark)\b.{0,48}\bnot\s+submitted\b/iu;
-const RETIREMENT = /\b(?:not\s+(?:applying|doing|needed)|skip(?:ping)?|remove|duplicate|wrong\s+item|don't\s+need|do\s+not\s+need|no\s+longer\s+need)\b/iu;
+const SUBMISSION_CORRECTION = /\b(?:didn't|did\s+not|wasn't|was\s+not|never)\s+(?:(?:actually|really|successfully|just|ever)\s+){0,2}(?:submit|send|upload|turn\s+in)|\b(?:submission|upload)\b.{0,48}\b(?:failed|crashed|rejected)|\bdid(?:n't|\s+not)\s+go\s+through\b|\b(?:undo|reopen|mark)\b.{0,48}\bnot\s+submitted\b/iu;
+const RETIREMENT = /\b(?:not\s+(?:applying|needed)|skip(?:ping)?|remove|duplicate|wrong\s+item|no\s+longer\s+need)\b/iu;
+const BARE_DONT_NEED = /\b(?:don't|do\s+not)\s+need\b/iu;
 const REACTIVATION = /\b(?:changed\s+my\s+mind|restore|resume|keep|need\s+(?:this|the)|doing\s+(?:this|the)|applying\s+(?:after\s+all|to)|going\s+ahead)\b/iu;
 const NOT_STARTED_REPORT = /\b(?:haven't|have\s+not|hadn't|had\s+not|didn't|did\s+not)\s+(?:started|begun|worked\s+on)|\bnot\s+started\b/iu;
-const DRAFTING_REPORT = /\b(?:i(?:['’]m|\s+am)\s+(?:drafting|working\s+on)|i(?:['’]ve|\s+have)\s+(?:started|begun)|started\s+(?:my|the)|draft(?:ing)?\s+(?:my|the))\b/iu;
-const READY_REPORT = /\b(?:i(?:['’]ve|\s+have|\s)\s*(?:finished|completed)|ready\s+to\s+submit|(?:draft|essay|application|aif|statement|reference|transcript)\s+is\s+ready)\b/iu;
+const DRAFTING_REPORT = /\b(?:i(?:['’]m|\s+am)\s+(?:drafting|working\s+on)|i(?:['’]ve|\s+have)\s+(?:started|begun)|(?:started|began)\s+(?:my|the)|draft(?:ing)?\s+(?:my|the))\b/iu;
+const READY_REPORT = /\b(?:i(?:['’]ve|\s+have|\s)\s*(?:finished|completed)|i(?:['’]m|\s+am)\s+done\s+with|ready\s+to\s+submit|(?:draft|essay|application|aif|statement|reference|transcript)\s+is\s+ready)\b/iu;
 const DATE_CORRECTION = /\b(?:wrong|incorrect|remove|clear|unknown|unpublished|not\s+published|no\s+longer)\b.{0,48}\b(?:date|deadline)\b|\b(?:date|deadline)\b.{0,48}\b(?:wrong|incorrect|remove|clear|unknown|unpublished|not\s+published|no\s+longer)\b/iu;
-const LABEL_METADATA = /\b(?:verified|unverified)\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[/.]\d{1,2}[/.]\d{2,4}\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}\b/iu;
+const LABEL_METADATA = /\b(?:verified|unverified)\b|\b\d{4}[-/.]\d{2}[-/.]\d{2}\b|\b\d{1,2}[/.]\d{1,2}[/.]\d{2,4}\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2},?\s+20\d{2}\b|\b\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+20\d{2})?\s*$/iu;
+const JOINT_OWNER_SUBMISSION = /\b(?:m(?:s|r)\.?|dr\.?)\s+\p{L}+[\p{L}'’.-]*\s+and\s+i\s+(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
+const REPORTED_OWNER_SUBMISSION = /\b(?:asked|said|told)\b.{0,64}\bi\s+(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
 const ADMISSION_CYCLE = /^20\d{2}(?:[-–]20\d{2})?$/u;
 const encoder = new TextEncoder();
 const MONTH_WORDS = Object.freeze([
@@ -101,8 +105,23 @@ function optionalInline(value: unknown, maximumBytes: number, error: string, red
   return value === null ? null : inline(value, maximumBytes, error, redactor);
 }
 
+function evidenceValue(value: unknown, maximumBytes: number, error: string, redactor: Redactor): string {
+  if (typeof value !== "string") throw new TypeError(error);
+  const text = value.trim();
+  if (text.length === 0 || !text.isWellFormed() || text !== text.normalize("NFC")
+    || encoder.encode(text).byteLength > maximumBytes
+    || text.split(/\r?\n/u).some((line) => UNSAFE_INLINE.test(line))) throw new TypeError(error);
+  const redacted = redactor.redactText(text);
+  if (!redacted.ok || typeof redacted.text !== "string") throw new TypeError(error);
+  const checked = redacted.text.trim();
+  if (checked.length === 0 || !checked.isWellFormed() || checked !== checked.normalize("NFC")
+    || encoder.encode(checked).byteLength > maximumBytes
+    || checked.split(/\r?\n/u).some((line) => UNSAFE_INLINE.test(line))) throw new TypeError(error);
+  return checked;
+}
+
 function ownerEvidence(value: unknown, ownerMessage: string, error: string, redactor: Redactor): string {
-  const evidence = inline(value, 512, error, redactor);
+  const evidence = evidenceValue(value, 512, error, redactor);
   if (!ownerMessage.includes(evidence)) throw new TypeError(error);
   return evidence;
 }
@@ -116,6 +135,26 @@ function mentions(value: string, candidate: string): boolean {
   return normalizedCandidate.length > 0 && evidenceText(value).includes(normalizedCandidate);
 }
 
+function containsLabel(value: string, label: string): boolean {
+  const normalize = (text: string): string => text.normalize("NFC").toLocaleLowerCase("en-CA")
+    .replace(/\s+/gu, " ").trim();
+  const candidate = normalize(label);
+  return candidate.length > 0 && normalize(value).includes(candidate);
+}
+
+function clauses(value: string, splitCommas: boolean): readonly string[] {
+  const withoutMonthDots = value.replace(
+    /\b(jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\./giu,
+    "$1",
+  );
+  const sentences = withoutMonthDots.match(/[^.;!?\r\n]+[.;!?]?/gu) ?? [];
+  const connector = splitCommas
+    ? /,\s*(?:and\s+)?|\b(?:and|but|then)\b/iu
+    : /\b(?:and|but|then)\b/iu;
+  return Object.freeze(sentences.flatMap((sentence) => sentence.split(connector))
+    .map((clause) => clause.trim()).filter((clause) => clause.length > 0));
+}
+
 function evidenceSupportsDate(evidence: string, date: string): boolean {
   const [year, month, day] = date.split("-") as [string, string, string];
   const lower = evidence.toLocaleLowerCase("en-CA");
@@ -123,8 +162,8 @@ function evidenceSupportsDate(evidence: string, date: string): boolean {
   const monthWord = MONTH_WORDS[Number(month) - 1];
   if (monthWord === undefined) return false;
   const dayNumber = String(Number(day));
-  if (new RegExp(`\\b(?:${monthWord})\\s+0?${dayNumber}(?:st|nd|rd|th)?(?:,)?\\s+${year}\\b`, "iu").test(lower)
-    || new RegExp(`\\b0?${dayNumber}(?:st|nd|rd|th)?\\s+(?:of\\s+)?(?:${monthWord})(?:,)?\\s+${year}\\b`, "iu").test(lower)) {
+  if (new RegExp(`\\b(?:${monthWord})\\.?\\s+0?${dayNumber}(?:st|nd|rd|th)?(?:,)?\\s+${year}\\b`, "iu").test(lower)
+    || new RegExp(`\\b0?${dayNumber}(?:st|nd|rd|th)?\\s+(?:of\\s+)?(?:${monthWord})\\.?(?:,)?\\s+${year}\\b`, "iu").test(lower)) {
     return true;
   }
   const targetMonth = Number(month);
@@ -137,6 +176,14 @@ function evidenceSupportsDate(evidence: string, date: string): boolean {
       || second > 12 && first === targetMonth && second === targetDay) return true;
   }
   return false;
+}
+
+function evidenceSupportsCycle(evidence: string, cycle: string): boolean {
+  const escaped = cycle.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  return new RegExp(
+    `(?:\\b${escaped}\\s+(?:admission\\s+)?cycle\\b|\\b(?:admission\\s+)?cycle\\s+(?:is\\s+)?${escaped}\\b|\\b(?:fall|winter|spring|summer)\\s+${escaped}\\b)`,
+    "iu",
+  ).test(evidence);
 }
 
 function sourceUrl(value: unknown, ownerMessage: string, redactor: Redactor): string | null {
@@ -244,7 +291,11 @@ function applicationDueDate(
   ownerMessage: string,
   redactor: Redactor,
   existingItem: UniversityApplicationItem | null,
-  namesItem: boolean,
+  itemRef: string,
+  label: string | null,
+  kind: UniversityApplicationItemKind | null,
+  program: ApplicationProgramContext | null,
+  snapshot: UniversityTrackerSnapshot | null,
 ): OwnerApplicationDueDateUpdate {
   const item = exactRecord(value, ["date", "verification", "evidence"], "university_application_model_date_invalid");
   const date = item.date === null ? null : inline(item.date, 10, "university_application_model_date_invalid", redactor);
@@ -260,23 +311,52 @@ function applicationDueDate(
   if (date !== null && !evidenceSupportsDate(evidence, date)) {
     throw new TypeError("university_application_model_date_invalid");
   }
+  const dateClauses = date === null ? Object.freeze([]) : clauses(ownerMessage, false).filter((clause) =>
+    evidenceSupportsDate(clause, date)
+    && clauseNamesOnlyItem(clause, itemRef, label, kind, program, snapshot));
+  if (date !== null && dateClauses.length === 0) throw new TypeError("university_application_model_date_invalid");
+  if (date !== null && existingItem?.dueDate !== null && existingItem?.dueDate !== undefined
+    && date !== existingItem.dueDate
+    && (evidence !== ownerMessage || CONDITIONAL_OR_QUESTION.test(ownerMessage) || HEARSAY.test(ownerMessage))) {
+    throw new TypeError("university_application_model_date_invalid");
+  }
   if (checkedVerification.state === "verified"
     && (checkedVerification.sourceUrl === null || checkedVerification.cycle === null
-      || !evidence.includes(checkedVerification.sourceUrl) || !evidence.includes(checkedVerification.cycle))) {
+      || !dateClauses.some((clause) => clause.includes(checkedVerification.sourceUrl ?? "")
+        && evidenceSupportsCycle(clause, checkedVerification.cycle ?? "")))) {
     throw new TypeError("university_application_model_date_invalid");
   }
   if (date === null && existingItem !== null && existingItem.dueDate !== null
-    && (evidence !== ownerMessage || !namesItem || !DATE_CORRECTION.test(ownerMessage))) {
+    && (evidence !== ownerMessage || !clauses(ownerMessage, false).some((clause) =>
+      clauseNamesOnlyItem(clause, itemRef, label, kind, program, snapshot)
+      && DATE_CORRECTION.test(clause) && !NEGATION.test(clause)
+      && !CONDITIONAL_OR_QUESTION.test(clause) && !HEARSAY.test(clause)))) {
     throw new TypeError("university_application_model_date_invalid");
   }
+  const effectiveVerification: OwnerUniversityVerification = existingItem?.dueDate === date
+    && existingItem.verification.state === "verified" && checkedVerification.state === "unverified"
+    ? Object.freeze({
+      state: "verified",
+      sourceUrl: existingItem.verification.sourceUrl,
+      cycle: existingItem.verification.cycle,
+    })
+    : checkedVerification;
   return Object.freeze({
     date,
-    verification: checkedVerification,
+    verification: effectiveVerification,
     evidence,
   });
 }
 
 type ApplicationProgramContext = Pick<UniversityProgram, "university" | "programName">;
+
+function programAliases(program: ApplicationProgramContext): readonly string[] {
+  return Object.freeze([
+    program.university,
+    program.university.replace(/^university\s+of\s+/iu, "").replace(/\s+university$/iu, ""),
+    program.programName,
+  ].filter((value, index, values) => value.length > 0 && values.indexOf(value) === index));
+}
 
 function namesApplicationItem(
   evidence: string,
@@ -287,7 +367,60 @@ function namesApplicationItem(
   if (label !== null && mentions(evidence, label)) return true;
   if (kind === null || program === null) return false;
   return KIND_WORDS[kind].some((word) => mentions(evidence, word))
-    && (mentions(evidence, program.university) || mentions(evidence, program.programName));
+    && programAliases(program).some((name) => mentions(evidence, name));
+}
+
+function namedApplicationItems(
+  evidence: string,
+  snapshot: UniversityTrackerSnapshot | null,
+): readonly UniversityApplicationItem[] {
+  if (snapshot === null) return Object.freeze([]);
+  const entries = snapshot.programs.flatMap((program) => program.applicationItems.map((item) => ({ item, program })));
+  const exact = entries.filter(({ item }) => mentions(evidence, item.label));
+  const programKind = entries.filter(({ item, program }) =>
+    KIND_WORDS[item.kind].some((word) => mentions(evidence, word))
+    && programAliases(program).some((name) => mentions(evidence, name)));
+  if (exact.length > 0) {
+    const additional = programKind.filter(({ item, program }) => !exact.some((candidate) =>
+      candidate.item.kind === item.kind && candidate.program.programId === program.programId));
+    return Object.freeze([...exact, ...additional].map(({ item }) => item));
+  }
+  if (programKind.length > 0) return Object.freeze(programKind.map(({ item }) => item));
+  const kindOnly = entries.filter(({ item }) => KIND_WORDS[item.kind].some((word) => mentions(evidence, word)));
+  return Object.freeze(kindOnly.map(({ item }) => item));
+}
+
+function clauseNamesOnlyItem(
+  clause: string,
+  itemRef: string,
+  label: string | null,
+  kind: UniversityApplicationItemKind | null,
+  program: ApplicationProgramContext | null,
+  snapshot: UniversityTrackerSnapshot | null,
+): boolean {
+  const named = namedApplicationItems(clause, snapshot);
+  if (ULID.test(itemRef)) {
+    if (named.length > 0) return named.length === 1 && named[0]?.itemId === itemRef;
+    return snapshot === null && namesApplicationItem(clause, label, kind, program);
+  }
+  return namesApplicationItem(clause, label, kind, program);
+}
+
+function bareDontNeedTargetsItem(clause: string, label: string | null): boolean {
+  const match = BARE_DONT_NEED.exec(clause);
+  if (match === null || label === null) return false;
+  const tail = clause.slice(match.index + match[0].length).trim()
+    .replace(/^(?:this|the|my)\s+/iu, "").replace(/[.!?]+$/u, "").trim();
+  const normalizedLabel = label.normalize("NFC").toLocaleLowerCase("en-CA").replace(/\s+/gu, " ").trim();
+  const normalizedTail = tail.normalize("NFC").toLocaleLowerCase("en-CA").replace(/\s+/gu, " ").trim();
+  return normalizedTail === normalizedLabel || normalizedTail === `${normalizedLabel} anymore`;
+}
+
+function retirementNegated(clause: string): boolean {
+  const withoutRetirementNegation = clause
+    .replace(/\bnot\s+(?:applying|needed)\b/giu, "")
+    .replace(/\bno\s+longer\s+need\b/giu, "");
+  return NEGATION.test(withoutRetirementNegation);
 }
 
 function supportsStatus(
@@ -295,25 +428,42 @@ function supportsStatus(
   evidence: string,
   isNew: boolean,
   existingStatus: UniversityApplicationItemStatus | null,
+  itemRef: string,
+  label: string | null,
+  kind: UniversityApplicationItemKind | null,
+  program: ApplicationProgramContext | null,
+  snapshot: UniversityTrackerSnapshot | null,
 ): boolean {
-  if (existingStatus === "submitted_by_sid" && status !== "submitted_by_sid") {
-    return SUBMISSION_CORRECTION.test(evidence);
+  const namedClauses = clauses(evidence, true).filter((clause) =>
+    clauseNamesOnlyItem(clause, itemRef, label, kind, program, snapshot));
+  if (status === "submitted_by_sid") {
+    return !JOINT_OWNER_SUBMISSION.test(evidence) && !REPORTED_OWNER_SUBMISSION.test(evidence)
+      && !RETRACTION.test(evidence) && namedClauses.some((clause) =>
+      OWNER_SUBMISSION.test(clause) && !NEGATION.test(clause)
+      && !RETRACTION.test(clause) && !CONDITIONAL_OR_QUESTION.test(clause));
+  }
+  if (existingStatus === "submitted_by_sid") {
+    return namedClauses.some((clause) =>
+      SUBMISSION_CORRECTION.test(clause) && !CONDITIONAL_OR_QUESTION.test(clause));
   }
   if (existingStatus === "not_needed_by_sid" && status !== "not_needed_by_sid") {
-    return !CONDITIONAL_OR_QUESTION.test(evidence) && REACTIVATION.test(evidence);
-  }
-  if (status === "submitted_by_sid") {
-    return OWNER_SUBMISSION.test(evidence) && !NEGATION.test(evidence)
-      && !RETRACTION.test(evidence) && !CONDITIONAL_OR_QUESTION.test(evidence);
+    return namedClauses.some((clause) =>
+      REACTIVATION.test(clause) && !NEGATION.test(clause)
+      && !RETRACTION.test(clause) && !CONDITIONAL_OR_QUESTION.test(clause));
   }
   if (status === "not_needed_by_sid") {
-    return !CONDITIONAL_OR_QUESTION.test(evidence) && RETIREMENT.test(evidence);
+    return namedClauses.some((clause) => !CONDITIONAL_OR_QUESTION.test(clause)
+      && !RETRACTION.test(clause)
+      && (RETIREMENT.test(clause) && !retirementNegated(clause)
+        || bareDontNeedTargetsItem(clause, label)));
   }
-  if (isNew && status === "not_started") return true;
-  if (CONDITIONAL_OR_QUESTION.test(evidence) || RETRACTION.test(evidence)) return false;
-  if (status === "not_started") return NOT_STARTED_REPORT.test(evidence);
-  if (NEGATION.test(evidence)) return false;
-  return status === "drafting" ? DRAFTING_REPORT.test(evidence) : READY_REPORT.test(evidence);
+  if (isNew && status === "not_started") return namedClauses.length > 0;
+  return namedClauses.some((clause) => {
+    if (CONDITIONAL_OR_QUESTION.test(clause) || RETRACTION.test(clause)) return false;
+    if (status === "not_started") return NOT_STARTED_REPORT.test(clause);
+    if (NEGATION.test(clause)) return false;
+    return status === "drafting" ? DRAFTING_REPORT.test(clause) : READY_REPORT.test(clause);
+  });
 }
 
 function applicationUpdate(
@@ -353,17 +503,36 @@ function applicationUpdate(
     : snapshotProgram;
   const effectiveKind = kind ?? existingItem?.kind ?? null;
   const effectiveLabel = label ?? existingItem?.label ?? null;
-  const namesItem = namesApplicationItem(ownerMessage, effectiveLabel, effectiveKind, program);
   const dueDate = item.dueDate === null ? null
-    : applicationDueDate(item.dueDate, ownerMessage, redactor, existingItem, namesItem);
+    : applicationDueDate(
+      item.dueDate,
+      ownerMessage,
+      redactor,
+      existingItem,
+      item.itemRef,
+      effectiveLabel,
+      effectiveKind,
+      program,
+      snapshot,
+    );
   if (isNew && (kind === null || label === null || status === null || statusEvidence === null || dueDate === null)
     || !isNew && (kind !== null || label !== null)
     || isNew && status === "not_needed_by_sid"
-    || isNew && (LABEL_METADATA.test(label ?? "") || !mentions(ownerMessage, label ?? ""))
+    || isNew && (LABEL_METADATA.test(label ?? "") || !containsLabel(ownerMessage, label ?? ""))
     || status === null && statusEvidence !== null
     || status !== null && statusEvidence === null
-    || status !== null && (statusEvidence !== ownerMessage || !namesItem
-      || !supportsStatus(status, ownerMessage, isNew, existingItem?.status ?? null))) {
+    || status !== null && (statusEvidence !== ownerMessage
+      || !supportsStatus(
+        status,
+        ownerMessage,
+        isNew,
+        existingItem?.status ?? null,
+        item.itemRef,
+        effectiveLabel,
+        effectiveKind,
+        program,
+        snapshot,
+      ))) {
     throw new TypeError("university_application_model_item_invalid");
   }
   return Object.freeze({
@@ -383,6 +552,7 @@ export function parseOwnerUniversityPlan(
   redactor: Redactor,
   snapshot: UniversityTrackerSnapshot | null = null,
 ): OwnerUniversityPlan {
+  const currentOwnerMessage = ownerMessage.trim();
   const item = exactRecord(
     value,
     ["engaged", "programUpdates", "applicationUpdates"],
@@ -390,12 +560,12 @@ export function parseOwnerUniversityPlan(
   );
   if (typeof item.engaged !== "boolean") throw new TypeError("university_tracker_model_response_invalid");
   const programUpdates = Object.freeze(denseArray(item.programUpdates, 16, "university_tracker_model_response_invalid")
-    .map((entry) => programUpdate(entry, ownerMessage, redactor)));
+    .map((entry) => programUpdate(entry, currentOwnerMessage, redactor)));
   const applicationUpdates = Object.freeze(denseArray(
     item.applicationUpdates,
     32,
     "university_tracker_model_response_invalid",
-  ).map((entry) => applicationUpdate(entry, ownerMessage, redactor, snapshot, programUpdates)));
+  ).map((entry) => applicationUpdate(entry, currentOwnerMessage, redactor, snapshot, programUpdates)));
   if (applicationUpdates.filter((update) => update.status === "submitted_by_sid").length > 1) {
     throw new TypeError("university_application_model_item_invalid");
   }
@@ -406,17 +576,10 @@ export function parseOwnerUniversityPlan(
 }
 
 export function universityStateJson(snapshot: UniversityTrackerSnapshot, ownerMessage = ""): string {
-  return canonicalJson(snapshot.programs.map((program) => ({
-    programId: program.programId,
-    university: program.university,
-    campus: program.campus,
-    programName: program.programName,
-    ouacCode: program.ouacCode,
-    verification: program.verification,
-    requirements: program.requirements,
-    dates: program.dates,
-    applicationItems: program.applicationItems.filter((item) =>
-      item.status !== "submitted_by_sid" && item.status !== "not_needed_by_sid").map((item) => ({
+  return canonicalJson(snapshot.programs.map((program) => {
+    const namedProgram = programAliases(program).some((name) => mentions(ownerMessage, name));
+    const applicationItems = program.applicationItems.filter((item) =>
+      item.status !== "submitted_by_sid" && item.status !== "not_needed_by_sid").map((item) => namedProgram ? {
         itemId: item.itemId,
         kind: item.kind,
         label: item.label,
@@ -427,14 +590,51 @@ export function universityStateJson(snapshot: UniversityTrackerSnapshot, ownerMe
           sourceUrl: item.verification.sourceUrl,
           cycle: item.verification.cycle,
         },
-      })),
-    inactiveApplicationItems: program.applicationItems.filter((item) =>
+      } : {
+        itemId: item.itemId,
+        label: item.label,
+        status: item.status,
+        dueDate: item.dueDate,
+        verificationState: item.verification.state,
+      });
+    const inactiveApplicationItems = program.applicationItems.filter((item) =>
       (item.status === "submitted_by_sid" || item.status === "not_needed_by_sid")
       && namesApplicationItem(ownerMessage, item.label, item.kind, program)).map((item) => ({
         itemId: item.itemId,
         kind: item.kind,
         label: item.label,
         status: item.status,
+      }));
+    if (!namedProgram) return {
+      programId: program.programId,
+      university: program.university,
+      programName: program.programName,
+      verificationState: program.verification.state,
+      requirements: program.requirements.map((item) => ({
+        itemId: item.itemId,
+        label: item.label,
+        verificationState: item.verification.state,
       })),
-  })) as unknown as JsonValue);
+      dates: program.dates.map((item) => ({
+        itemId: item.itemId,
+        label: item.label,
+        date: item.date,
+        verificationState: item.verification.state,
+      })),
+      applicationItems,
+      inactiveApplicationItems,
+    };
+    return {
+      programId: program.programId,
+      university: program.university,
+      campus: program.campus,
+      programName: program.programName,
+      ouacCode: program.ouacCode,
+      verification: program.verification,
+      requirements: program.requirements,
+      dates: program.dates,
+      applicationItems,
+      inactiveApplicationItems,
+    };
+  }) as unknown as JsonValue);
 }

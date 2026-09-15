@@ -237,6 +237,83 @@ describe("0024 university application workflow migration", () => {
       .rejects.toThrow(/university_application_item_state_invalid/u);
   });
 
+  it("requires a newer verification timestamp before verified source metadata changes", async () => {
+    const principalId = "principal:application-migration-verified-source";
+    const { programId, turnId } = await seedProgram(principalId);
+    const itemId = newUlid(new Date("2026-09-15T18:00:01.000Z"));
+    await insertItem({ principalId, programId, turnId, itemId }).run();
+    const verified = new Date("2026-09-15T18:05:00.000Z");
+    const verifiedTurn = newUlid(verified);
+    await seedTurn(principalId, verifiedTurn, "The official date is January 15, 2027.");
+    await env.DB.prepare(`UPDATE university_application_items
+      SET due_date = '2027-01-15', verification_state = 'verified',
+          source_url = 'https://example.edu/deadline', admission_cycle = '2027 cycle',
+          verified_at = ?1, source_turn_id = ?2, updated_at = ?1
+      WHERE principal_id = ?3 AND item_id = ?4`)
+      .bind(verified.toISOString(), verifiedTurn, principalId, itemId).run();
+    const later = new Date("2026-09-15T18:10:00.000Z");
+    const laterTurn = newUlid(later);
+    await seedTurn(principalId, laterTurn, "Use a different source.");
+
+    await expect(env.DB.prepare(`UPDATE university_application_items
+      SET source_url = 'https://example.edu/replaced', admission_cycle = '2028 cycle',
+          source_turn_id = ?1, updated_at = ?2
+      WHERE principal_id = ?3 AND item_id = ?4`)
+      .bind(laterTurn, later.toISOString(), principalId, itemId).run())
+      .rejects.toThrow(/university_application_item_state_invalid/u);
+  });
+
+  it("refuses a verification timestamp that moves backwards", async () => {
+    const principalId = "principal:application-migration-verification-backdate";
+    const { programId, turnId } = await seedProgram(principalId);
+    const itemId = newUlid(new Date("2026-09-15T18:00:01.000Z"));
+    await insertItem({ principalId, programId, turnId, itemId }).run();
+    const verified = new Date("2026-09-15T18:05:00.000Z");
+    const verifiedTurn = newUlid(verified);
+    await seedTurn(principalId, verifiedTurn, "The official date is January 15, 2027.");
+    await env.DB.prepare(`UPDATE university_application_items
+      SET due_date = '2027-01-15', verification_state = 'verified',
+          source_url = 'https://example.edu/deadline', admission_cycle = '2027 cycle',
+          verified_at = ?1, source_turn_id = ?2, updated_at = ?1
+      WHERE principal_id = ?3 AND item_id = ?4`)
+      .bind(verified.toISOString(), verifiedTurn, principalId, itemId).run();
+    const later = new Date("2026-09-15T18:10:00.000Z");
+    const laterTurn = newUlid(later);
+    await seedTurn(principalId, laterTurn, "Keep the source but backdate it.");
+
+    await expect(env.DB.prepare(`UPDATE university_application_items
+      SET verified_at = ?1, source_turn_id = ?2, updated_at = ?3
+      WHERE principal_id = ?4 AND item_id = ?5`)
+      .bind(NOW.toISOString(), laterTurn, later.toISOString(), principalId, itemId).run())
+      .rejects.toThrow(/university_application_item_state_invalid/u);
+  });
+
+  it("refuses an older source turn when leaving submitted or retired history", async () => {
+    const principalId = "principal:application-migration-older-correction";
+    const { programId, turnId } = await seedProgram(principalId);
+    const terminalAt = new Date("2026-09-15T18:05:00.000Z");
+    const terminalTurn = newUlid(terminalAt);
+    await seedTurn(principalId, terminalTurn, "I submitted the application item.");
+    const updated = new Date("2026-09-15T18:10:00.000Z");
+    for (const [index, status] of (["submitted_by_sid", "not_needed_by_sid"] as const).entries()) {
+      const itemId = newUlid(new Date(Date.parse("2026-09-15T18:05:01.000Z") + index));
+      await insertItem({
+        principalId,
+        programId,
+        turnId: terminalTurn,
+        itemId,
+        itemKey: `supplementary_application | terminal ${index}`,
+        label: `Terminal ${index}`,
+        status,
+      }).run();
+      await expect(env.DB.prepare(`UPDATE university_application_items
+        SET item_status = 'ready', submitted_at = NULL, source_turn_id = ?1, updated_at = ?2
+        WHERE principal_id = ?3 AND item_id = ?4`)
+        .bind(turnId, updated.toISOString(), principalId, itemId).run())
+        .rejects.toThrow(/university_application_item_state_invalid/u);
+    }
+  });
+
   it("refuses deletion of an application item", async () => {
     const principalId = "principal:application-migration-delete";
     const { programId, turnId } = await seedProgram(principalId);

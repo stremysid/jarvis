@@ -160,6 +160,24 @@ BEGIN
       NEW.verification_state = 'verified'
       AND NEW.due_date IS NOT OLD.due_date
       AND NEW.verified_at IS OLD.verified_at
+    )
+    OR (
+      OLD.verification_state = 'verified'
+      AND NEW.verification_state = 'verified'
+      AND (
+        NEW.source_url IS NOT OLD.source_url
+        OR NEW.admission_cycle IS NOT OLD.admission_cycle
+      )
+      AND (
+        NEW.verified_at IS NULL
+        OR NEW.verified_at <= OLD.verified_at
+      )
+    )
+    OR NEW.verified_at < OLD.verified_at
+    OR (
+      OLD.item_status IN ('submitted_by_sid', 'not_needed_by_sid')
+      AND NEW.item_status != OLD.item_status
+      AND NEW.source_turn_id < OLD.source_turn_id
     );
 END;
 

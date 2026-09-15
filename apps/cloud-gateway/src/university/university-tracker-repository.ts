@@ -114,6 +114,15 @@ function inline(value: unknown, error: string, maximumBytes: number): string {
   return text;
 }
 
+function evidence(value: unknown, error: string, maximumBytes: number): string {
+  if (typeof value !== "string") throw new TypeError(error);
+  const text = value.trim();
+  if (text.length === 0 || !text.isWellFormed() || text !== text.normalize("NFC")
+    || encoder.encode(text).byteLength > maximumBytes
+    || text.split(/\r?\n/u).some((line) => UNSAFE_INLINE.test(line))) throw new TypeError(error);
+  return text;
+}
+
 function optionalInline(value: unknown, error: string, maximumBytes: number): string | null {
   return value === null ? null : inline(value, error, maximumBytes);
 }
@@ -506,7 +515,8 @@ export class UniversityTrackerRepository {
     for (const programId of finalProgramIds) {
       if (!knownApplicationKeys.has(programId)) knownApplicationKeys.set(programId, new Set());
     }
-    const applicationStatements: D1PreparedStatement[] = [];
+    const applicationStatusStatements: D1PreparedStatement[] = [];
+    const applicationInsertStatements: D1PreparedStatement[] = [];
     for (const update of input.plan.applicationUpdates ?? []) {
       if (seenApplicationRefs.has(update.itemRef)) {
         throw new TypeError("university_application_item_ref_duplicate");
@@ -538,24 +548,31 @@ export class UniversityTrackerRepository {
         throw new TypeError("university_application_item_invalid");
       }
       const dedupe = applicationItemKey(kind, label);
-      if (existingId === null && knownApplicationKeys.get(programId)?.has(dedupe)) continue;
+      if (existingId === null && knownApplicationKeys.get(programId)?.has(dedupe)) {
+        throw new TypeError("university_application_item_exists");
+      }
       if (update.status === null && update.statusEvidence !== null
         || update.status !== null && update.statusEvidence === null) {
         throw new TypeError("university_application_item_invalid");
       }
       if (update.statusEvidence !== null) {
-        inline(update.statusEvidence, "university_application_item_invalid", 512);
+        evidence(update.statusEvidence, "university_application_item_invalid", 512);
       }
       const currentVerification = existingRecord?.item.verification;
       const currentDueDate = existingRecord?.item.dueDate;
       let dueDate = currentDueDate ?? null;
       let dueVerification = currentVerification ?? null;
       if (update.dueDate !== null) {
-        inline(update.dueDate.evidence, "university_application_item_invalid", 512);
+        evidence(update.dueDate.evidence, "university_application_item_invalid", 512);
         dueDate = update.dueDate.date === null
           ? null
           : date(update.dueDate.date, "university_application_item_invalid");
-        dueVerification = checkedVerification(update.dueDate.verification, nowIso);
+        dueVerification = existingRecord !== undefined && dueDate === currentDueDate
+          && update.dueDate.verification.state === currentVerification?.state
+          && update.dueDate.verification.sourceUrl === currentVerification.sourceUrl
+          && update.dueDate.verification.cycle === currentVerification.cycle
+          ? currentVerification
+          : checkedVerification(update.dueDate.verification, nowIso);
         if (dueVerification.state === "verified" && dueDate === null) {
           throw new TypeError("university_application_item_invalid");
         }
@@ -585,7 +602,7 @@ export class UniversityTrackerRepository {
           applicationItemCount += 1;
         }
         const itemId = newUlid(now);
-        applicationStatements.push(this.database.prepare(`INSERT INTO university_application_items (
+        applicationInsertStatements.push(this.database.prepare(`INSERT INTO university_application_items (
           principal_id, program_id, item_id, item_key, item_kind, item_label, item_status,
           due_date, verification_state, source_url, admission_cycle, verified_at,
           source_turn_id, submitted_at, created_at, updated_at
@@ -601,7 +618,7 @@ export class UniversityTrackerRepository {
           applicationItemCounts.set(programId, (applicationItemCounts.get(programId) ?? 0) - 1);
           applicationItemCount -= 1;
         }
-        applicationStatements.push(this.database.prepare(`UPDATE university_application_items
+        applicationStatusStatements.push(this.database.prepare(`UPDATE university_application_items
           SET item_status = ?1, due_date = ?2, verification_state = ?3, source_url = ?4,
               admission_cycle = ?5, verified_at = ?6, source_turn_id = ?7,
               submitted_at = ?8, updated_at = ?9
@@ -609,23 +626,21 @@ export class UniversityTrackerRepository {
           .bind(status, dueDate, dueVerification.state, dueVerification.sourceUrl, dueVerification.cycle,
             dueVerification.verifiedAt, turnId, submittedAt, nowIso, principalId, existingId));
       }
-      if ((applicationItemCounts.get(programId) ?? 0) > MAX_APPLICATION_ITEMS_PER_PROGRAM) {
-        throw new RangeError("university_application_item_limit_exceeded");
-      }
-      if ((applicationHistoryCounts.get(programId) ?? 0) > MAX_APPLICATION_HISTORY_ITEMS_PER_PROGRAM) {
-        throw new RangeError("university_application_item_limit_exceeded");
-      }
     }
     if (finalProgramIds.size > MAX_PROGRAMS) throw new RangeError("university_tracker_program_limit_exceeded");
     if ([...activeItemCounts.values()].reduce((sum, count) => sum + count, 0) > MAX_ITEMS) {
       throw new RangeError("university_tracker_item_limit_exceeded");
     }
     if (applicationItemCount > MAX_APPLICATION_ITEMS
-      || applicationHistoryCount > MAX_APPLICATION_HISTORY_ITEMS) {
+      || applicationHistoryCount > MAX_APPLICATION_HISTORY_ITEMS
+      || [...applicationItemCounts.values()].some((count) => count > MAX_APPLICATION_ITEMS_PER_PROGRAM)
+      || [...applicationHistoryCounts.values()].some((count) => count > MAX_APPLICATION_HISTORY_ITEMS_PER_PROGRAM)) {
       throw new RangeError("university_application_item_limit_exceeded");
     }
     statements.push(...resolves, ...inserts);
-    statements.push(...applicationStatements);
+    // Retirements must release capacity before any same-plan insert reaches the
+    // database trigger. The repository already validates the final counts.
+    statements.push(...applicationStatusStatements, ...applicationInsertStatements);
     statements.push(this.database.prepare(`INSERT INTO university_tracker_turn_receipts (
       principal_id, turn_id, response_hash, applied_at
     ) VALUES (?1, ?2, ?3, ?4)`).bind(principalId, turnId, input.responseHash, nowIso));

@@ -34,13 +34,18 @@ const SECRET_ADVISORY = new RegExp(
   String.raw`\b(?:never|do\s+not|don't|should\s+not|shouldn't)\s+(?:send|paste|share|tell|give|provide|hand)\b.{0,64}\b(?:your\s+)?${SECRET_NAMES}\b`,
   "giu",
 );
+const THIRD_PARTY = String.raw`\b(?:m(?:s|r)\.?\s+\p{L}[\p{L}'’.-]*|dr\.?\s+\p{L}[\p{L}'’.-]*|(?:your\s+)?(?:teacher|referee|counsellor|guidance(?:\s+office)?|school|university)|ouac(?![-\s]+style))\b`;
 const FALSE_EXTERNAL_COMPLETIONS = Object.freeze([
-  /\b(?:(?:i(?:['’](?:ve|m))?|we(?:['’](?:ve|re))?)|jarvis)\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?(?:paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|sent|sending|sent\s+in|sending\s+in|turned\s+in|turning\s+in|signed\s+up|signing\s+up|registered|registering|contacted|contacting|emailed|emailing|messaged|messaging|called|reached\s+out|reaching\s+out|forwarded|forwarding|requested|requesting|asked|asking|notified|notifying|filed|filing)\b/iu,
-  /\b(?:submitted|uploaded|sent|sent\s+in|turned\s+in|forwarded|filed|registered|purchased|paid\s+for)\b.{0,40}\bfor\s+you\b/iu,
-  /\b(?:your\s+)?(?:application|aif|supplement|essay|personal\s+statement|transcript|reference|scholarship|form|request)\b.{0,64}\b(?:is|was|has\s+been|have\s+been)\s+(?:already\s+|just\s+|now\s+)?(?:submitted|uploaded|sent|forwarded|turned\s+in|filed)\b/iu,
-  /\b(?:your\s+)?(?:teacher|referee|reference|guidance\s+office|counsellor|school|university|parent)\b.{0,32}\b(?:has|have|was|were)\s+been\s+(?:contacted|emailed|messaged|called)\b/iu,
+  /\b(?:(?:i(?:['’](?:ve|m))?|we(?:['’](?:ve|re))?)|jarvis)\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?(?:paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|sent\s+in|sending\s+in|turned\s+in|turning\s+in|signed\s+up|signing\s+up|registered|registering|handed\s+in|applied|put\s+in|booked)\b/iu,
+  /\b(?:(?:i(?:['’](?:ve|m))?|we(?:['’](?:ve|re))?)|jarvis)\b.{0,24}\bcompleted\b.{0,32}\bsubmission\b/iu,
+  /\b(?:submitted|uploaded|sent|sent\s+in|turned\s+in|forwarded|filed|registered|purchased|paid\s+for|applied|booked)\b.{0,40}\bfor\s+you\b/iu,
+  new RegExp(String.raw`\b(?:(?:i(?:['’](?:ve|m))?|we(?:['’](?:ve|re))?)|jarvis)\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?(?:sent|sending|forwarded|forwarding|notified|notifying|told|shared|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|reached\s+out|reaching\s+out|let)\b.{0,48}(?:${THIRD_PARTY}|\bfor\s+you\b)`, "iu"),
+  new RegExp(String.raw`\b${THIRD_PARTY}\b.{0,32}\b(?:has|have|was|were)\s+(?:already\s+|just\s+|now\s+)?been\s+(?:contacted|emailed|messaged|called|notified)\b`, "iu"),
   /\b(?:(?:i(?:['’]ve)?|we(?:['’](?:ve|re))?))\s+(?:have\s+)?(?:spent|spending)\b.{0,48}\b(?:fee|money|funds|dollars?|cad|usd)\b/iu,
+  /^\s*submitted\s*[!.]/iu,
 ]);
+const PASSIVE_EXTERNAL_COMPLETION = /\b(?:your\s+)?(?:application|aif|supplement|essay|personal\s+statement|transcript|reference|scholarship|form|request)\b.{0,64}\b(?:(?:is|was|have)\s+(?:already\s+|just\s+|now\s+)?(?:submitted|uploaded|sent|forwarded|turned\s+in|filed)|has\s+(?:(?:already|now)\s+)?been\s+(?:submitted|uploaded|sent|forwarded|turned\s+in|filed)|got\s+(?:submitted|uploaded|sent|forwarded|turned\s+in|filed)|is\s+(?:already\s+|just\s+|now\s+)?in\b)/giu;
+const PASSIVE_ADVICE_CONTEXT = /\b(?:once|after|when|until|before|whether|make\s+sure|check|if)\b/iu;
 const PLAN_SAVE_COMPLETIONS = Object.freeze([
   /\b(?:i|we|jarvis)\b.{0,32}\b(?:saved|updated|recorded|stored|added|changed|replanned)\b.{0,64}\b(?:school|course|catch-?up|plan|action|fact|university|program|requirement|date|tracker)\b/iu,
   /\b(?:school|course|catch-?up|plan|university|program|tracker)\b.{0,32}\b(?:has|is|was)\s+(?:been\s+)?(?:saved|updated|recorded|stored|changed|replanned)\b/iu,
@@ -215,12 +220,36 @@ function safeReply(
   return guardReplyClaims(reply);
 }
 
+function sentenceAround(value: string, start: number, end: number): { readonly text: string; readonly start: number } {
+  const before = Math.max(value.lastIndexOf(".", start - 1), value.lastIndexOf("!", start - 1),
+    value.lastIndexOf("?", start - 1), value.lastIndexOf("\n", start - 1));
+  const endings = [value.indexOf(".", end), value.indexOf("!", end), value.indexOf("?", end), value.indexOf("\n", end)]
+    .filter((index) => index >= 0);
+  const after = endings.length === 0 ? value.length : Math.min(...endings);
+  return Object.freeze({ text: value.slice(before + 1, after + 1), start: before + 1 });
+}
+
+function hasPassiveExternalCompletion(reply: string): boolean {
+  PASSIVE_EXTERNAL_COMPLETION.lastIndex = 0;
+  for (const match of reply.matchAll(PASSIVE_EXTERNAL_COMPLETION)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    const sentence = sentenceAround(reply, start, end);
+    const before = sentence.text.slice(0, start - sentence.start);
+    const after = reply.slice(end, end + 24);
+    if (PASSIVE_ADVICE_CONTEXT.test(before) || /\bby\s+you\b/iu.test(after)
+      || /\byou\s+(?:said|told\s+me)\b/iu.test(sentence.text)) continue;
+    return true;
+  }
+  return false;
+}
+
 function guardReplyClaims(reply: string): string {
   const withoutAdvisories = reply.replace(SECRET_ADVISORY, "");
   if (SECRET_REQUESTS.some((pattern) => pattern.test(withoutAdvisories))) {
     return SECRET_REPLACEMENT;
   }
-  if (FALSE_EXTERNAL_COMPLETIONS.some((pattern) => pattern.test(reply))) {
+  if (FALSE_EXTERNAL_COMPLETIONS.some((pattern) => pattern.test(reply)) || hasPassiveExternalCompletion(reply)) {
     return EXTERNAL_ACTION_REPLACEMENT;
   }
   if (BRIGHTSPACE_CHECK_COMPLETIONS.some((pattern) => pattern.test(reply))) {
@@ -346,7 +375,7 @@ For universityEngaged, follow these rules:
 - Resolve an item only when the owner clearly corrects or removes it.
 - applicationUpdates maintains per-program supplementary applications, essays, personal statements, references, transcripts and scholarships. Each item has exactly {"itemRef":string,"programRef":string,"kind":"supplementary_application"|"essay"|"personal_statement"|"reference"|"transcript"|"scholarship"|null,"label":string|null,"status":"not_started"|"drafting"|"ready"|"submitted_by_sid"|"not_needed_by_sid"|null,"statusEvidence":string|null,"dueDate":{"date":"YYYY-MM-DD"|null,"verification":{"state":"verified"|"unverified","sourceUrl":string|null,"cycle":string|null},"evidence":string}|null}.
 - Use an existing itemId or unique new-item-N reference. New items require an existing programId or a new-N programRef created in the same response, kind, label, status, exact statusEvidence copied from owner_message_json, and a dueDate object. Use an unverified null date when the owner supplied no current-cycle date. On existing items, kind and label are null, and null status or dueDate means no change.
-- Every non-null statusEvidence is the whole current owner message and names that exact item by label, or by kind plus university or program. Evidence for a non-null date must contain one unambiguous contiguous date. Treat "finished my draft" as ready, not submitted. Use at most one submitted_by_sid update per turn, only when Sid positively says in first person that he submitted, sent in, turned in or uploaded that named item, with no question, conditional, negation or retraction. Use not_needed_by_sid only when Sid explicitly says the named item is duplicate, wrong, skipped or no longer needed. A later whole owner message may correct submitted_by_sid or reactivate not_needed_by_sid when it names the item and explicitly says so.
+- Every non-null statusEvidence is the whole current owner message. The clause carrying the status wording must name that exact item by label, or unambiguously by kind plus university or program, and must name no other application item. Evidence for a non-null date must contain one unambiguous contiguous date in the same clause as the item. Treat "finished my draft" as ready, not submitted. Use at most one submitted_by_sid update per turn, only when Sid positively says in first person that he submitted, sent in, turned in or uploaded that named item, with no question, conditional, negation or retraction in that clause. Use not_needed_by_sid only when Sid explicitly says in the named clause that the item is duplicate, wrong, skipped or no longer needed. A later whole owner message may correct submitted_by_sid or reactivate not_needed_by_sid when one clause names the item and explicitly says so.
 - inactiveApplicationItems contains only submitted or not-needed history named by the current owner message. Use its itemId only for an explicit correction or reactivation supported by that whole message.
 - Do not guess an application item, program, requirement or date. Store only details Sid supplies in the current message. Every due date is visibly verified or unverified under the same current official URL and cycle rule above.
 

@@ -332,7 +332,7 @@ describe("UniversityTrackerRepository application workflow", () => {
     ]);
   });
 
-  it("skips a response-local duplicate of an existing application item", async () => {
+  it("visibly refuses a response-local duplicate of an existing application item", async () => {
     const principalId = "principal:application-repository-duplicate";
     const turnId = newUlid(NOW);
     const evidence = "Add my Waterloo AIF to the checklist.";
@@ -359,7 +359,7 @@ describe("UniversityTrackerRepository application workflow", () => {
     const secondNow = new Date("2026-09-15T19:00:00.000Z");
     const secondTurn = newUlid(secondNow);
     await seedTurn(principalId, secondTurn, evidence, secondNow);
-    await repository.applyOwnerPlan({
+    await expect(repository.applyOwnerPlan({
       principalId, turnId: secondTurn, responseHash: "b".repeat(64), now: secondNow,
       plan: {
         engaged: true, programUpdates: [],
@@ -369,11 +369,69 @@ describe("UniversityTrackerRepository application workflow", () => {
           dueDate: { date: null, verification: { state: "unverified", sourceUrl: null, cycle: "2027" }, evidence },
         }],
       },
-    });
+    })).rejects.toThrow("university_application_item_exists");
     await expect(repository.readSnapshot(principalId)).resolves.toMatchObject({
       programs: [{ applicationItems: [{ label: "Waterloo AIF" }] }],
     });
     expect((await repository.readSnapshot(principalId)).programs[0]?.applicationItems).toHaveLength(1);
+  });
+
+  it("applies retirements before inserts when the final plan stays at the active cap", async () => {
+    const principalId = "principal:application-repository-cap-order";
+    const firstTurn = newUlid(NOW);
+    await seedTurn(principalId, firstTurn, "Track Test University Engineering.");
+    const repository = new UniversityTrackerRepository(env.DB);
+    await repository.applyOwnerPlan({
+      principalId, turnId: firstTurn, responseHash: "e".repeat(64), now: NOW,
+      plan: {
+        engaged: true,
+        programUpdates: [{
+          programRef: "new-1", university: "Test University", campus: null,
+          programName: "Engineering", ouacCode: null,
+          verification: { state: "unverified", sourceUrl: null, cycle: "2027" },
+          addRequirements: [], addDates: [], resolveItemIds: [],
+        }],
+        applicationUpdates: [],
+      },
+    });
+    const program = (await repository.readSnapshot(principalId)).programs[0]!;
+    await env.DB.batch(Array.from({ length: 32 }, (_, index) => {
+      const itemId = newUlid(new Date(NOW.getTime() + index + 1));
+      return env.DB.prepare(`INSERT INTO university_application_items (
+        principal_id, program_id, item_id, item_key, item_kind, item_label, item_status,
+        due_date, verification_state, source_url, admission_cycle, verified_at,
+        source_turn_id, submitted_at, created_at, updated_at
+      ) VALUES (?1, ?2, ?3, ?4, 'essay', ?5, 'not_started', NULL, 'unverified',
+        NULL, '2027', NULL, ?6, NULL, ?7, ?7)`)
+        .bind(principalId, program.programId, itemId, `essay | ordered ${index}`,
+          `Ordered ${index}`, firstTurn, NOW.toISOString());
+    }));
+    const current = (await repository.readSnapshot(principalId)).programs[0]!;
+    const later = new Date("2026-09-15T19:10:00.000Z");
+    const laterTurn = newUlid(later);
+    const evidence = "Retire Ordered 0 and add Replacement essay.";
+    await seedTurn(principalId, laterTurn, evidence, later);
+
+    await expect(repository.applyOwnerPlan({
+      principalId, turnId: laterTurn, responseHash: "f".repeat(64), now: later,
+      plan: {
+        engaged: true, programUpdates: [],
+        applicationUpdates: [{
+          itemRef: "new-item-1", programRef: current.programId, kind: "essay",
+          label: "Replacement essay", status: "not_started", statusEvidence: evidence,
+          dueDate: { date: null, verification: { state: "unverified", sourceUrl: null, cycle: "2027" }, evidence },
+        }, {
+          itemRef: current.applicationItems[0]!.itemId, programRef: current.programId,
+          kind: null, label: null, status: "not_needed_by_sid", statusEvidence: evidence, dueDate: null,
+        }],
+      },
+    })).resolves.toBeUndefined();
+    const saved = (await repository.readSnapshot(principalId)).programs[0]!.applicationItems;
+    expect(saved.filter((item) => item.status !== "not_needed_by_sid")).toHaveLength(32);
+    expect(saved).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "Ordered 0", status: "not_needed_by_sid" }),
+      expect.objectContaining({ label: "Replacement essay", status: "not_started" }),
+    ]));
   });
 
   it("counts cap-held items under inactive programs before attempting a save", async () => {
