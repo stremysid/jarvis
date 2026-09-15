@@ -145,6 +145,10 @@ async function seedActiveItem(
   return { itemId, versionId, sourceId, transitionId };
 }
 
+function runtimeTimestamp(): string {
+  return new Date().toISOString();
+}
+
 function migrationTriggerSql(name: string): string {
   const sql = cloudMemorySql.replaceAll("\r\n", "\n");
   const marker = `CREATE TRIGGER ${name}\n`;
@@ -255,9 +259,12 @@ interface TopicEventInput {
   readonly occurredAt?: string;
 }
 
-async function insertTopicEvent(input: TopicEventInput, orReplace = false): Promise<string> {
+async function insertTopicEvent(
+  input: TopicEventInput,
+  conflictAction: "" | "OR IGNORE" | "OR REPLACE" = "",
+): Promise<string> {
   const topicEventId = input.topicEventId ?? nextUlid();
-  await env.DB.prepare(`INSERT ${orReplace ? "OR REPLACE " : ""}INTO memory_topic_events (
+  await env.DB.prepare(`INSERT ${conflictAction === "" ? "" : `${conflictAction} `}INTO memory_topic_events (
     topic_event_id, principal_id, topic_id, operation, previous_parent_topic_id,
     new_parent_topic_id, previous_display_name, previous_normalized_name,
     new_display_name, new_normalized_name, merge_target_topic_id,
@@ -456,6 +463,7 @@ async function seedTriggerFixture(): Promise<TriggerFixture> {
     'USD', 'fixture price', ?)`)
     .bind(priceId, owner.principalId, timestamp, timestamp).run();
   const runId = nextUlid();
+  const runStartedAt = runtimeTimestamp();
   await env.DB.prepare(`INSERT INTO memory_runs (
     run_id, principal_id, run_key, job, start_event_sequence, end_event_sequence,
     provider_model_id, price_id, outcome, started_at
@@ -463,7 +471,7 @@ async function seedTriggerFixture(): Promise<TriggerFixture> {
     'running', ?)`)
     .bind(
       runId, owner.principalId, `fixture:${runId}`,
-      source.sequence, source.sequence, priceId, timestamp,
+      source.sequence, source.sequence, priceId, runStartedAt,
     ).run();
   const costEntryId = nextUlid();
   await env.DB.prepare(`INSERT INTO memory_cost_ledger (
@@ -472,7 +480,7 @@ async function seedTriggerFixture(): Promise<TriggerFixture> {
     price_id, occurred_at
   ) VALUES (?, ?, ?, 'reservation', NULL, 'deepseek', 'deepseek:deepseek-v4-pro',
     'normal_monthly', NULL, 1, ?, ?)`)
-    .bind(costEntryId, owner.principalId, runId, priceId, timestamp).run();
+    .bind(costEntryId, owner.principalId, runId, priceId, runStartedAt).run();
 
   const reprocessJobId = nextUlid();
   const reprocessCommand = await seedOwnerCommand(
@@ -1051,7 +1059,7 @@ describe.sequential("cloud memory migration", () => {
         aliasId: nextUlid(), topicId: renameSourceId, displayName: "Rename source",
         normalizedName: "rename source", pathAlias: "Root/Rename source",
       }],
-    }, true)).rejects.toThrow(/memory_topic_event_invalid/u);
+    }, "OR REPLACE")).rejects.toThrow(/memory_topic_event_invalid/u);
     expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_topics WHERE topic_id = ?")
       .bind(renameSiblingId).first()).toEqual({ count: 1 });
 
@@ -1062,7 +1070,7 @@ describe.sequential("cloud memory migration", () => {
     await expect(insertTopicEvent({
       principalId: owner.principalId, topicId: moveSourceId, operation: "move",
       previousParentTopicId: moveParentAId, newParentTopicId: moveParentBId,
-    }, true)).rejects.toThrow(/memory_topic_event_invalid/u);
+    }, "OR REPLACE")).rejects.toThrow(/memory_topic_event_invalid/u);
     expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_topics WHERE topic_id = ?")
       .bind(moveSiblingId).first()).toEqual({ count: 1 });
 
@@ -1079,9 +1087,138 @@ describe.sequential("cloud memory migration", () => {
         aliasId: nextUlid(), topicId: mergeTargetId, displayName: "Merge source",
         normalizedName: "merge source", pathAlias: "Root/Merge source",
       }],
-    }, true)).rejects.toThrow(/memory_topic_event_invalid/u);
+    }, "OR REPLACE")).rejects.toThrow(/memory_topic_event_invalid/u);
     expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_topics WHERE topic_id = ?")
       .bind(mergeSiblingId).first()).toEqual({ count: 1 });
+  });
+
+  it("refuses OR IGNORE topic events whose apply rows would be incomplete", async () => {
+    const owner = await seedPrincipal();
+    const rootId = nextUlid();
+    await insertTopicEvent({
+      principalId: owner.principalId, topicId: rootId, operation: "create",
+      newDisplayName: "Root", newNormalizedName: "root",
+    });
+    const longName = "N".repeat(300);
+    const ignoredCreateId = nextUlid();
+    await insertTopicEvent({
+      topicEventId: ignoredCreateId,
+      principalId: owner.principalId,
+      topicId: nextUlid(),
+      operation: "create",
+      newParentTopicId: rootId,
+      newDisplayName: longName,
+      newNormalizedName: "ignored-create",
+    }, "OR IGNORE");
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_topic_events WHERE topic_event_id = ?")
+      .bind(ignoredCreateId).first()).toEqual({ count: 0 });
+
+    const childId = nextUlid();
+    await insertTopicEvent({
+      principalId: owner.principalId, topicId: childId, operation: "create",
+      newParentTopicId: rootId, newDisplayName: "Before", newNormalizedName: "before",
+    });
+    const ignoredRenameId = nextUlid();
+    await insertTopicEvent({
+      topicEventId: ignoredRenameId,
+      principalId: owner.principalId,
+      topicId: childId,
+      operation: "rename",
+      previousDisplayName: "Before",
+      previousNormalizedName: "before",
+      newDisplayName: longName,
+      newNormalizedName: "ignored-rename",
+      addedAliases: [{
+        aliasId: nextUlid(), topicId: childId, displayName: "Before",
+        normalizedName: "before", pathAlias: "Root/Before",
+      }],
+    }, "OR IGNORE");
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_topic_events WHERE topic_event_id = ?")
+      .bind(ignoredRenameId).first()).toEqual({ count: 0 });
+
+    const malformedAliasEventId = nextUlid();
+    await expect(insertTopicEvent({
+      topicEventId: malformedAliasEventId,
+      principalId: owner.principalId,
+      topicId: childId,
+      operation: "rename",
+      previousDisplayName: "Before",
+      previousNormalizedName: "before",
+      newDisplayName: "After",
+      newNormalizedName: "after",
+      addedAliases: [{
+        aliasId: "not-a-ulid", topicId: childId, displayName: "Before",
+        normalizedName: "before", pathAlias: "Root/Before",
+      }],
+    }, "OR IGNORE")).rejects.toThrow(/memory_topic_event_invalid/u);
+    expect(await env.DB.prepare("SELECT display_name, last_topic_event_id FROM memory_topics WHERE topic_id = ?")
+      .bind(childId).first()).toEqual({ display_name: "Before", last_topic_event_id: expect.any(String) });
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_topic_events WHERE topic_event_id = ?")
+      .bind(malformedAliasEventId).first()).toEqual({ count: 0 });
+
+    for (const malformedAlias of [
+      { displayName: longName, normalizedName: "before", pathAlias: "Root/Before" },
+      { displayName: "Before", normalizedName: longName, pathAlias: "Root/Before" },
+      { displayName: "Before", normalizedName: "before", pathAlias: "P".repeat(2049) },
+    ]) {
+      const topicEventId = nextUlid();
+      await expect(insertTopicEvent({
+        topicEventId,
+        principalId: owner.principalId,
+        topicId: childId,
+        operation: "rename",
+        previousDisplayName: "Before",
+        previousNormalizedName: "before",
+        newDisplayName: "After",
+        newNormalizedName: "after",
+        addedAliases: [{ aliasId: nextUlid(), topicId: childId, ...malformedAlias }],
+      }, "OR IGNORE")).rejects.toThrow(/memory_topic_event_invalid/u);
+      expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_topic_events WHERE topic_event_id = ?")
+        .bind(topicEventId).first()).toEqual({ count: 0 });
+    }
+  });
+
+  it("refuses OR IGNORE item-transition and placement-event rows before apply", async () => {
+    const owner = await seedPrincipal();
+    const source = await seedEvent(owner.principalId);
+    const item = await seedActiveItem(owner.principalId, source, "proposed");
+    const invalidTransitionId = nextUlid();
+    await expect(env.DB.prepare(`INSERT OR IGNORE INTO memory_item_transitions (
+      transition_id, principal_id, item_id, transition_number, version_id,
+      lifecycle_state, reason, actor, policy_version, owner_authorizing_event_id, occurred_at
+    ) VALUES (?, ?, ?, 2, ?, 'invalid-state', 'OR IGNORE probe', 'rules',
+      'policy-v1', NULL, ?)`)
+      .bind(invalidTransitionId, owner.principalId, item.itemId, item.versionId, timestamp).run())
+      .rejects.toThrow(/memory_item_transition_invalid/u);
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_item_transitions WHERE transition_id = ?")
+      .bind(invalidTransitionId).first()).toEqual({ count: 0 });
+    expect(await env.DB.prepare(`SELECT lifecycle_state FROM memory_item_state
+      WHERE principal_id = ? AND item_id = ?`).bind(owner.principalId, item.itemId).first())
+      .toEqual({ lifecycle_state: "proposed" });
+
+    const rootId = nextUlid();
+    await insertTopicEvent({
+      principalId: owner.principalId, topicId: rootId, operation: "create",
+      newDisplayName: "Root", newNormalizedName: "root",
+    });
+    const invalidPlacementEventId = nextUlid();
+    const placementId = nextUlid();
+    const placementResult = await env.DB.prepare(`INSERT OR IGNORE INTO memory_item_placement_events (
+      placement_event_id, principal_id, placement_id, placement_event_number,
+      item_id, operation, previous_topic_id, new_topic_id, relation,
+      filing_source, confidence, reason, owner_authorizing_event_id, occurred_at
+    ) VALUES (?, ?, ?, 1, ?, 'place', NULL, ?, 'invalid-relation', 'rule', 1.0,
+      'OR IGNORE probe', NULL, ?)`)
+      .bind(
+        invalidPlacementEventId, owner.principalId, placementId,
+        item.itemId, rootId, timestamp,
+      ).run();
+    expect(placementResult.meta.changes).toBe(0);
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_item_placement_events
+      WHERE placement_event_id = ?`).bind(invalidPlacementEventId).first()).toEqual({ count: 0 });
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_item_placement_state
+      WHERE principal_id = ? AND placement_id = ?`).bind(owner.principalId, placementId).first())
+      .toEqual({ count: 0 });
   });
 
   it("rejects a merge older than any child it would reparent", async () => {
@@ -1118,6 +1255,48 @@ describe.sequential("cloud memory migration", () => {
       }],
       occurredAt: timestamp,
     })).rejects.toThrow(/memory_topic_event_invalid/u);
+  });
+
+  it("merges a topic into its own parent before reparenting a same-named child", async () => {
+    const owner = await seedPrincipal();
+    const rootId = nextUlid();
+    const parentId = nextUlid();
+    const sourceId = nextUlid();
+    const childId = nextUlid();
+    for (const [topicId, parentTopicId, displayName] of [
+      [rootId, null, "Root"],
+      [parentId, rootId, "Parent"],
+      [sourceId, parentId, "Shared"],
+      [childId, sourceId, "Shared"],
+    ] as const) {
+      await insertTopicEvent({
+        principalId: owner.principalId,
+        topicId,
+        operation: "create",
+        newParentTopicId: parentTopicId,
+        newDisplayName: displayName,
+        newNormalizedName: displayName.toLowerCase(),
+      });
+    }
+    await insertTopicEvent({
+      principalId: owner.principalId,
+      topicId: sourceId,
+      operation: "merge",
+      previousDisplayName: "Shared",
+      previousNormalizedName: "shared",
+      mergeTargetTopicId: parentId,
+      reparentedChildIds: [childId],
+      addedAliases: [{
+        aliasId: nextUlid(), topicId: parentId, displayName: "Shared",
+        normalizedName: "shared", pathAlias: "Root/Parent/Shared",
+      }],
+    });
+    expect(await env.DB.prepare(`SELECT status, redirect_to_topic_id FROM memory_topics
+      WHERE principal_id = ? AND topic_id = ?`).bind(owner.principalId, sourceId).first())
+      .toEqual({ status: "merged", redirect_to_topic_id: parentId });
+    expect(await env.DB.prepare(`SELECT parent_topic_id, status FROM memory_topics
+      WHERE principal_id = ? AND topic_id = ?`).bind(owner.principalId, childId).first())
+      .toEqual({ parent_topic_id: parentId, status: "active" });
   });
 
   it("keeps FTS projections current and enforces bounded run, cost, vector, cursor, and reprocessing state", async () => {
@@ -1182,11 +1361,15 @@ describe.sequential("cloud memory migration", () => {
       0, 'USD', 'reviewed price receipt', ?)`)
       .bind(priceId, owner.principalId, timestamp, timestamp).run();
     const runId = nextUlid();
+    const runStartedAt = runtimeTimestamp();
     await env.DB.prepare(`INSERT INTO memory_runs (
       run_id, principal_id, run_key, job, start_event_sequence, end_event_sequence,
       provider_model_id, price_id, outcome, started_at
     ) VALUES (?, ?, ?, 'distillation', ?, ?, 'deepseek:deepseek-v4-pro', ?, 'running', ?)`)
-      .bind(runId, owner.principalId, `run:${runId}`, source.sequence, source.sequence, priceId, timestamp).run();
+      .bind(
+        runId, owner.principalId, `run:${runId}`,
+        source.sequence, source.sequence, priceId, runStartedAt,
+      ).run();
     const reservationId = nextUlid();
     await env.DB.prepare(`INSERT INTO memory_cost_ledger (
       cost_entry_id, principal_id, run_id, entry_type, reservation_entry_id,
@@ -1194,26 +1377,26 @@ describe.sequential("cloud memory migration", () => {
       price_id, occurred_at
     ) VALUES (?, ?, ?, 'reservation', NULL, 'deepseek', 'deepseek:deepseek-v4-pro',
       'normal_monthly', NULL, 1000, ?, ?)`)
-      .bind(reservationId, owner.principalId, runId, priceId, timestamp).run();
+      .bind(reservationId, owner.principalId, runId, priceId, runStartedAt).run();
     await env.DB.prepare(`INSERT INTO memory_cost_ledger (
       cost_entry_id, principal_id, run_id, entry_type, reservation_entry_id,
       provider, model_id, budget_class, reprocess_job_id, amount_micros,
       price_id, occurred_at
     ) VALUES (?, ?, ?, 'settlement', ?, 'deepseek', 'deepseek:deepseek-v4-pro',
       'normal_monthly', NULL, 750, ?, ?)`)
-      .bind(nextUlid(), owner.principalId, runId, reservationId, priceId, laterTimestamp).run();
+      .bind(nextUlid(), owner.principalId, runId, reservationId, priceId, runtimeTimestamp()).run();
     await expect(env.DB.prepare(`INSERT INTO memory_cost_ledger (
       cost_entry_id, principal_id, run_id, entry_type, reservation_entry_id,
       provider, model_id, budget_class, reprocess_job_id, amount_micros,
       price_id, occurred_at
     ) VALUES (?, ?, ?, 'release', ?, 'deepseek', 'deepseek:deepseek-v4-pro',
       'normal_monthly', NULL, 250, ?, ?)`)
-      .bind(nextUlid(), owner.principalId, runId, reservationId, priceId, laterTimestamp).run())
+      .bind(nextUlid(), owner.principalId, runId, reservationId, priceId, runtimeTimestamp()).run())
       .rejects.toThrow(/memory_cost_entry_lineage_invalid/u);
     await env.DB.prepare(`UPDATE memory_runs SET outcome = 'succeeded', completed_at = ?,
       input_event_count = 1, created_item_count = 1, input_tokens = 10,
       output_tokens = 5, reserved_cost_micros = 1000, settled_cost_micros = 750
-      WHERE run_id = ?`).bind(laterTimestamp, runId).run();
+      WHERE run_id = ?`).bind(runtimeTimestamp(), runId).run();
     await expect(env.DB.prepare("UPDATE memory_runs SET settled_cost_micros = 800 WHERE run_id = ?")
       .bind(runId).run()).rejects.toThrow(/memory_run_transition_invalid/u);
 
@@ -2418,7 +2601,7 @@ describe.sequential("cloud memory migration", () => {
       'running', ?)`)
       .bind(
         reprocessRunId, owner.principalId, `reprocess:${reprocessRunId}`, jobId,
-        source.sequence, source.sequence, priceId, timestamp,
+        source.sequence, source.sequence, priceId, runtimeTimestamp(),
       ).run();
     const insertReservation = (runId: string, targetJobId: string, amount: number) =>
       env.DB.prepare(`INSERT INTO memory_cost_ledger (
@@ -2427,7 +2610,10 @@ describe.sequential("cloud memory migration", () => {
         price_id, occurred_at
       ) VALUES (?, ?, ?, 'reservation', NULL, 'deepseek', 'deepseek:deepseek-v4-pro',
         'reprocessing', ?, ?, ?, ?)`)
-        .bind(nextUlid(), owner.principalId, runId, targetJobId, amount, priceId, timestamp).run();
+        .bind(
+          nextUlid(), owner.principalId, runId, targetJobId,
+          amount, priceId, runtimeTimestamp(),
+        ).run();
     await insertReservation(reprocessRunId, jobId, 60);
     await expect(insertReservation(reprocessRunId, jobId, 41))
       .rejects.toThrow(/memory_cost_entry_lineage_invalid/u);
@@ -2440,7 +2626,7 @@ describe.sequential("cloud memory migration", () => {
       'running', ?)`)
       .bind(
         normalRunId, owner.principalId, `normal:${normalRunId}`,
-        source.sequence, source.sequence, priceId, timestamp,
+        source.sequence, source.sequence, priceId, runtimeTimestamp(),
       ).run();
     await expect(insertReservation(normalRunId, jobId, 1))
       .rejects.toThrow(/memory_cost_entry_lineage_invalid/u);
@@ -2481,7 +2667,7 @@ describe.sequential("cloud memory migration", () => {
       'running', ?)`)
       .bind(
         dryRunId, owner.principalId, `dry:${dryRunId}`, dryJobId,
-        source.sequence, source.sequence, priceId, timestamp,
+        source.sequence, source.sequence, priceId, runtimeTimestamp(),
       ).run();
     await expect(insertReservation(dryRunId, dryJobId, 1))
       .rejects.toThrow(/memory_cost_entry_lineage_invalid/u);
@@ -2550,7 +2736,7 @@ describe.sequential("cloud memory migration", () => {
           start,
           end,
           priceId,
-          timestamp,
+          runtimeTimestamp(),
         ).run();
     await expect(insertRun(nextUlid(), first.sequence, outside.sequence))
       .rejects.toThrow(/memory_run_initial_state_invalid/u);
@@ -2576,7 +2762,7 @@ describe.sequential("cloud memory migration", () => {
         jobId,
         amount,
         priceId,
-        laterTimestamp,
+        runtimeTimestamp(),
       ).run();
     await insertCost("reservation", 100, null, reservationId);
     await env.DB.prepare(`UPDATE memory_reprocess_jobs
@@ -2646,6 +2832,41 @@ describe.sequential("cloud memory migration", () => {
         nextUlid(), fixture.ownerId, fixture.keys.memory_runs,
         fixture.keys.memory_model_prices, future,
       ).run()).rejects.toThrow(/memory_cost_entry_lineage_invalid/u);
+  });
+
+  it("rejects a backdated reservation on a run that crossed a monthly boundary", async () => {
+    const owner = await seedPrincipal();
+    const priceId = nextUlid();
+    await env.DB.prepare(`INSERT INTO memory_model_prices (
+      price_id, principal_id, provider, model_id, effective_at,
+      input_micros_per_million, output_micros_per_million,
+      cache_read_micros_per_million, currency, source_receipt, created_at
+    ) VALUES (?, ?, 'deepseek', 'deepseek:deepseek-v4-pro', ?, 1, 1, 0,
+      'USD', 'month-boundary test price', ?)`)
+      .bind(priceId, owner.principalId, timestamp, timestamp).run();
+    const runId = nextUlid();
+    const oldRunStart = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
+    const backdatedReservation = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString();
+    const runGuard = migrationTriggerSql("memory_runs_insert_guard");
+    await env.DB.prepare("DROP TRIGGER memory_runs_insert_guard").run();
+    try {
+      await env.DB.prepare(`INSERT INTO memory_runs (
+        run_id, principal_id, run_key, job, start_event_sequence, end_event_sequence,
+        provider_model_id, price_id, outcome, started_at
+      ) VALUES (?, ?, ?, 'distillation', NULL, NULL, 'deepseek:deepseek-v4-pro', ?,
+        'running', ?)`)
+        .bind(runId, owner.principalId, `month-boundary:${runId}`, priceId, oldRunStart).run();
+    } finally {
+      await env.DB.prepare(runGuard).run();
+    }
+    await expect(env.DB.prepare(`INSERT INTO memory_cost_ledger (
+      cost_entry_id, principal_id, run_id, entry_type, reservation_entry_id,
+      provider, model_id, budget_class, reprocess_job_id, amount_micros,
+      price_id, occurred_at
+    ) VALUES (?, ?, ?, 'reservation', NULL, 'deepseek', 'deepseek:deepseek-v4-pro',
+      'normal_monthly', NULL, 1, ?, ?)`)
+      .bind(nextUlid(), owner.principalId, runId, priceId, backdatedReservation).run())
+      .rejects.toThrow(/memory_cost_entry_lineage_invalid/u);
   });
 
   it("pins item-state keys against UPDATE OR REPLACE", async () => {
@@ -3163,6 +3384,13 @@ describe.sequential("cloud memory migration", () => {
       new Date(Date.now() + 10 * 60 * 1000).toISOString(),
     )).rejects.toThrow(/memory_item_transition_invalid/u);
 
+    const farFutureStamp = await seedOwnerActivatedPlan(timestamp);
+    await expect(insertRulesExpiry(
+      farFutureStamp.itemId,
+      farFutureStamp.versionId,
+      new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    )).rejects.toThrow(/memory_item_transition_invalid/u);
+
     const outOfOrder = await seedOwnerActivatedPlan(timestamp);
     await expect(insertRulesExpiry(outOfOrder.itemId, outOfOrder.versionId, timestamp))
       .rejects.toThrow(/memory_item_transition_invalid/u);
@@ -3221,7 +3449,7 @@ describe.sequential("cloud memory migration", () => {
     const staleTransitionId = nextUlid();
     const staleCommand = await seedOwnerCommand(
       owner.principalId,
-      "item.correct",
+      "item.transition",
       staleTransitionId,
       { itemId, versionId: secondVersionId, lifecycleState: "active" },
     );
@@ -3944,29 +4172,29 @@ describe.sequential("cloud memory migration", () => {
   }
 
   const insertGuards = [
-    ["memory_items_insert_guard", "memory_items", "item_id", "memory_item_creation_event_invalid"],
-    ["memory_item_versions_insert_guard", "memory_item_versions", "version_id", "memory_item_version_lineage_invalid"],
-    ["memory_item_sources_insert_guard", "memory_item_sources", "source_id", "memory_item_source_receipt_invalid"],
-    ["memory_item_transitions_insert_guard", "memory_item_transitions", "transition_id", "memory_item_transition_invalid"],
-    ["memory_item_state_insert_guard", "memory_item_state", "item_id", "memory_item_state_requires_transition"],
-    ["memory_event_suppressions_insert_guard", "memory_event_suppressions", "suppression_id", "memory_event_suppression_invalid"],
-    ["memory_event_suppression_lifts_insert_guard", "memory_event_suppression_lifts", "lift_id", "memory_event_suppression_lift_invalid"],
-    ["memory_item_links_insert_guard", "memory_item_links", "link_id", "memory_item_link_transition_invalid"],
-    ["memory_topic_events_insert_guard", "memory_topic_events", "topic_event_id", "memory_topic_event_invalid"],
-    ["memory_topics_insert_guard", "memory_topics", "topic_id", "memory_topic_requires_event"],
-    ["memory_topic_aliases_insert_guard", "memory_topic_aliases", "alias_id", "memory_topic_alias_requires_event"],
-    ["memory_item_placement_events_insert_guard", "memory_item_placement_events", "placement_event_id", "memory_item_placement_event_invalid"],
-    ["memory_item_placement_state_insert_guard", "memory_item_placement_state", "placement_id", "memory_item_placement_state_requires_event"],
-    ["memory_episodes_insert_guard", "memory_episodes", "episode_id", "memory_episode_duplicate"],
-    ["memory_episode_sources_insert_guard", "memory_episode_sources", "source_id", "memory_episode_source_receipt_invalid"],
-    ["memory_history_chunks_insert_guard", "memory_history_chunks", "chunk_id", "memory_history_chunk_receipt_invalid"],
-    ["memory_history_coverage_insert_guard", "memory_history_coverage", "coverage_id", "memory_history_coverage_receipt_invalid"],
-    ["memory_vectors_insert_guard", "memory_vectors", "vector_ledger_id", "memory_vector_duplicate"],
-    ["memory_model_prices_insert_guard", "memory_model_prices", "price_id", "memory_model_price_duplicate"],
-    ["memory_runs_insert_guard", "memory_runs", "run_id", "memory_run_initial_state_invalid"],
-    ["memory_reprocess_jobs_insert_guard", "memory_reprocess_jobs", "job_id", "memory_reprocess_job_authorization_invalid"],
-    ["memory_cost_ledger_insert_guard", "memory_cost_ledger", "cost_entry_id", "memory_cost_entry_lineage_invalid"],
-    ["memory_cursors_insert_guard", "memory_cursors", "principal_id", "memory_cursor_duplicate"],
+    ["memory_items_insert_guard", "memory_items", "item_id", "memory_item_creation_event_invalid", "memory_item_immutable"],
+    ["memory_item_versions_insert_guard", "memory_item_versions", "version_id", "memory_item_version_lineage_invalid", "memory_item_version_immutable"],
+    ["memory_item_sources_insert_guard", "memory_item_sources", "source_id", "memory_item_source_receipt_invalid", "memory_item_source_immutable"],
+    ["memory_item_transitions_insert_guard", "memory_item_transitions", "transition_id", "memory_item_transition_invalid", "memory_item_transition_immutable"],
+    ["memory_item_state_insert_guard", "memory_item_state", "item_id", "memory_item_state_requires_transition", "memory_item_state_requires_transition"],
+    ["memory_event_suppressions_insert_guard", "memory_event_suppressions", "suppression_id", "memory_event_suppression_invalid", "memory_event_suppression_immutable"],
+    ["memory_event_suppression_lifts_insert_guard", "memory_event_suppression_lifts", "lift_id", "memory_event_suppression_lift_invalid", "memory_event_suppression_lift_immutable"],
+    ["memory_item_links_insert_guard", "memory_item_links", "link_id", "memory_item_link_transition_invalid", "memory_item_link_immutable"],
+    ["memory_topic_events_insert_guard", "memory_topic_events", "topic_event_id", "memory_topic_event_invalid", "memory_topic_event_immutable"],
+    ["memory_topics_insert_guard", "memory_topics", "topic_id", "memory_topic_requires_event", "memory_topic_update_requires_event"],
+    ["memory_topic_aliases_insert_guard", "memory_topic_aliases", "alias_id", "memory_topic_alias_requires_event", "memory_topic_alias_immutable"],
+    ["memory_item_placement_events_insert_guard", "memory_item_placement_events", "placement_event_id", "memory_item_placement_event_invalid", "memory_item_placement_event_immutable"],
+    ["memory_item_placement_state_insert_guard", "memory_item_placement_state", "placement_id", "memory_item_placement_state_requires_event", "memory_item_placement_state_requires_event"],
+    ["memory_episodes_insert_guard", "memory_episodes", "episode_id", "memory_episode_duplicate", "memory_episode_immutable"],
+    ["memory_episode_sources_insert_guard", "memory_episode_sources", "source_id", "memory_episode_source_receipt_invalid", "memory_episode_source_immutable"],
+    ["memory_history_chunks_insert_guard", "memory_history_chunks", "chunk_id", "memory_history_chunk_receipt_invalid", "memory_history_chunk_immutable"],
+    ["memory_history_coverage_insert_guard", "memory_history_coverage", "coverage_id", "memory_history_coverage_receipt_invalid", "memory_history_coverage_immutable"],
+    ["memory_vectors_insert_guard", "memory_vectors", "vector_ledger_id", "memory_vector_duplicate", "memory_vector_delete_transition_invalid"],
+    ["memory_model_prices_insert_guard", "memory_model_prices", "price_id", "memory_model_price_duplicate", "memory_model_price_immutable"],
+    ["memory_runs_insert_guard", "memory_runs", "run_id", "memory_run_initial_state_invalid", "memory_run_transition_invalid"],
+    ["memory_reprocess_jobs_insert_guard", "memory_reprocess_jobs", "job_id", "memory_reprocess_job_authorization_invalid", "memory_reprocess_job_transition_invalid"],
+    ["memory_cost_ledger_insert_guard", "memory_cost_ledger", "cost_entry_id", "memory_cost_entry_lineage_invalid", "memory_cost_entry_immutable"],
+    ["memory_cursors_insert_guard", "memory_cursors", "principal_id", "memory_cursor_duplicate", "memory_cursor_transition_invalid"],
   ] as const;
 
   for (const [trigger, table, keyColumn, error] of insertGuards) {
@@ -3982,18 +4210,43 @@ describe.sequential("cloud memory migration", () => {
 
   it("sweeps every 0016 table across explicit-rowid, natural-key, and key-update REPLACE paths", async () => {
     const fixture = await triggerFixture();
+    const collisionFixture = await seedTriggerFixture();
     const rowidAliases: Readonly<Record<string, string>> = {
       memory_item_versions: "version_rowid",
       memory_episodes: "episode_rowid",
       memory_history_chunks: "chunk_rowid",
     };
+    const schemaTables = await env.DB.prepare(`SELECT name FROM sqlite_schema
+      WHERE type = 'table' AND name GLOB 'memory_*'
+        AND name NOT GLOB 'memory_fact_projection*'
+        AND name NOT GLOB 'memory_item_fts*'
+        AND name NOT GLOB 'memory_episode_fts*'
+        AND name NOT GLOB 'memory_history_fts*'
+      ORDER BY name`).all<{ name: string }>();
+    expect(schemaTables.results.map((row) => row.name)).toEqual([...EXPECTED_TABLES]);
     const tableList = await env.DB.prepare("PRAGMA table_list").all<{
       name: string;
       wr: number;
     }>();
     const withoutRowid = new Map(tableList.results.map((row) => [row.name, row.wr]));
+    const legalUpdate = (table: string): string => {
+      if (table === "memory_vectors") {
+        return ", deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
+      }
+      if (table === "memory_runs") {
+        return ", outcome = 'succeeded', completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
+      }
+      if (table === "memory_reprocess_jobs") {
+        return `, status = 'cancelled', final_receipt_hash = '${"a".repeat(64)}',
+          updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
+      }
+      if (table === "memory_cursors") {
+        return ", updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
+      }
+      return "";
+    };
 
-    for (const [, table, selectorColumn] of insertGuards) {
+    for (const [, table, selectorColumn, insertError, updateError] of insertGuards) {
       const quotedTable = `"${table}"`;
       const selector = table === "memory_cursors"
         ? `${selectorColumn} = ? AND cursor_name = 'fts_items'`
@@ -4008,7 +4261,7 @@ describe.sequential("cloud memory migration", () => {
 
       await expect(env.DB.prepare(`INSERT OR REPLACE INTO ${quotedTable} (${columnList})
         SELECT ${columnList} FROM ${quotedTable} WHERE ${selector}`)
-        .bind(fixture.keys[table]).run()).rejects.toThrow();
+        .bind(fixture.keys[table]).run()).rejects.toThrow(new RegExp(insertError, "u"));
 
       const rowidAlias = rowidAliases[table];
       if (rowidAlias === undefined) {
@@ -4024,39 +4277,70 @@ describe.sequential("cloud memory migration", () => {
           .join(", ");
         await expect(env.DB.prepare(`INSERT OR REPLACE INTO ${quotedTable} (${explicitColumns})
           SELECT ${explicitValues} FROM ${quotedTable} WHERE ${selector}`)
-          .bind(fixture.keys[table]).run()).rejects.toThrow();
+          .bind(fixture.keys[table]).run()).rejects.toThrow(new RegExp(insertError, "u"));
       }
 
       const indexList = await env.DB.prepare(`PRAGMA index_list(${quotedTable})`).all<{
         name: string;
         unique: number;
+        partial: number;
       }>();
-      const keyColumns = new Set(columns.filter((column) => column.pk > 0)
-        .map((column) => column.name));
-      for (const index of indexList.results.filter((index) => index.unique === 1)) {
+      const primaryKey = columns.filter((column) => column.pk > 0)
+        .sort((left, right) => left.pk - right.pk).map((column) => column.name);
+      const keyGroups: string[][] = [primaryKey];
+      for (const index of indexList.results.filter(
+        (candidate) => candidate.unique === 1 && candidate.partial === 0,
+      )) {
         const quotedIndex = `"${index.name.replaceAll('"', '""')}"`;
         const indexInfo = await env.DB.prepare(`PRAGMA index_info(${quotedIndex})`)
-          .all<{ name: string | null }>();
-        for (const column of indexInfo.results) {
-          if (column.name !== null) keyColumns.add(column.name);
-        }
+          .all<{ name: string | null; seqno: number }>();
+        if (indexInfo.results.some((column) => column.name === null)) continue;
+        keyGroups.push(indexInfo.results.sort((left, right) => left.seqno - right.seqno)
+          .map((column) => column.name as string));
       }
-      expect(keyColumns.size, `${table} must expose at least one declared key`).toBeGreaterThan(0);
-      for (const keyColumn of keyColumns) {
-        const column = columns.find((candidate) => candidate.name === keyColumn);
-        if (column === undefined) throw new Error(`memory_replace_sweep_column_missing:${table}.${keyColumn}`);
-        const replacement = column.type === "INTEGER"
-          ? `COALESCE("${keyColumn}", 0) + 1000000000`
-          : `COALESCE("${keyColumn}", '') || ':replace-probe'`;
+      const uniqueKeyGroups = [...new Map(keyGroups.filter((group) => group.length > 0)
+        .map((group) => [group.join("\u0000"), group])).values()];
+      expect(uniqueKeyGroups.length, `${table} must expose at least one declared key`).toBeGreaterThan(0);
+      for (const keyGroup of uniqueKeyGroups.slice(1)) {
+        const freshPrimaryKey = primaryKey.find((column) => !keyGroup.includes(column));
+        if (freshPrimaryKey === undefined) continue;
+        const primaryColumn = columns.find((column) => column.name === freshPrimaryKey);
+        if (primaryColumn === undefined) {
+          throw new Error(`memory_replace_sweep_primary_key_missing:${table}.${freshPrimaryKey}`);
+        }
+        const freshValue = primaryColumn.type === "INTEGER"
+          ? `"${freshPrimaryKey}" + 1000000000`
+          : "?";
+        const clonedValues = columns.map((column) =>
+          column.name === freshPrimaryKey ? freshValue : `"${column.name}"`
+        ).join(", ");
+        const bindings = primaryColumn.type === "INTEGER"
+          ? [fixture.keys[table]]
+          : [nextUlid(), fixture.keys[table]];
+        await expect(env.DB.prepare(`INSERT OR REPLACE INTO ${quotedTable} (${columnList})
+          SELECT ${clonedValues} FROM ${quotedTable} WHERE ${selector}`)
+          .bind(...bindings).run()).rejects.toThrow(new RegExp(insertError, "u"));
+      }
+      for (const keyGroup of uniqueKeyGroups) {
+        const collisionAssignments = keyGroup.map((keyColumn) =>
+          `"${keyColumn}" = (SELECT "${keyColumn}" FROM ${quotedTable} WHERE ${selector})`
+        ).join(", ");
+        const bindings = [...keyGroup.map(() => collisionFixture.keys[table]), fixture.keys[table]];
         await expect(env.DB.prepare(`UPDATE OR REPLACE ${quotedTable}
-          SET "${keyColumn}" = ${replacement} WHERE ${selector}`)
-          .bind(fixture.keys[table]).run()).rejects.toThrow();
+          SET ${collisionAssignments}${legalUpdate(table)} WHERE ${selector}`)
+          .bind(...bindings).run()).rejects.toThrow(new RegExp(updateError, "u"));
       }
 
       const rowidUpdate = rowidAlias === undefined
         ? `UPDATE OR REPLACE ${quotedTable} SET rowid = rowid WHERE ${selector}`
-        : `UPDATE OR REPLACE ${quotedTable} SET rowid = rowid + 1000000000 WHERE ${selector}`;
-      await expect(env.DB.prepare(rowidUpdate).bind(fixture.keys[table]).run()).rejects.toThrow();
+        : `UPDATE OR REPLACE ${quotedTable}
+          SET rowid = (SELECT rowid FROM ${quotedTable} WHERE ${selector}) WHERE ${selector}`;
+      const rowidBindings = rowidAlias === undefined
+        ? [fixture.keys[table]]
+        : [collisionFixture.keys[table], fixture.keys[table]];
+      const rowidError = rowidAlias === undefined ? /rowid/u : new RegExp(updateError, "u");
+      await expect(env.DB.prepare(rowidUpdate).bind(...rowidBindings).run())
+        .rejects.toThrow(rowidError);
     }
   });
 

@@ -318,10 +318,30 @@ CREATE TABLE memory_topic_events (
   operation TEXT NOT NULL CHECK (operation IN ('create', 'rename', 'move', 'merge')),
   previous_parent_topic_id TEXT,
   new_parent_topic_id TEXT,
-  previous_display_name TEXT,
-  previous_normalized_name TEXT,
-  new_display_name TEXT,
-  new_normalized_name TEXT,
+  previous_display_name TEXT CHECK (
+    previous_display_name IS NULL OR (
+      length(CAST(previous_display_name AS BLOB)) BETWEEN 1 AND 256
+      AND instr(previous_display_name, char(0)) = 0
+      AND previous_display_name NOT GLOB ('*[' || char(1) || '-' || char(31)
+        || char(127) || '-' || char(159) || char(8232) || char(8233) || ']*')
+    )
+  ),
+  previous_normalized_name TEXT CHECK (
+    previous_normalized_name IS NULL
+    OR length(CAST(previous_normalized_name AS BLOB)) BETWEEN 1 AND 256
+  ),
+  new_display_name TEXT CHECK (
+    new_display_name IS NULL OR (
+      length(CAST(new_display_name AS BLOB)) BETWEEN 1 AND 256
+      AND instr(new_display_name, char(0)) = 0
+      AND new_display_name NOT GLOB ('*[' || char(1) || '-' || char(31)
+        || char(127) || '-' || char(159) || char(8232) || char(8233) || ']*')
+    )
+  ),
+  new_normalized_name TEXT CHECK (
+    new_normalized_name IS NULL
+    OR length(CAST(new_normalized_name AS BLOB)) BETWEEN 1 AND 256
+  ),
   merge_target_topic_id TEXT,
   reparented_child_ids_json TEXT NOT NULL CHECK (
     json_valid(reparented_child_ids_json)
@@ -2078,6 +2098,7 @@ WHEN EXISTS (
           ON sibling.principal_id = child.principal_id
           AND sibling.parent_topic_id = NEW.merge_target_topic_id
           AND sibling.topic_id <> child.topic_id
+          AND sibling.topic_id <> NEW.topic_id
           AND sibling.status = 'active'
           AND sibling.normalized_name = child.normalized_name
         WHERE child.principal_id = NEW.principal_id
@@ -2126,6 +2147,12 @@ WHEN EXISTS (
       OR json_type(entry.value, '$.displayName') <> 'text'
       OR json_type(entry.value, '$.normalizedName') <> 'text'
       OR json_type(entry.value, '$.pathAlias') <> 'text'
+      OR length(json_extract(entry.value, '$.aliasId')) <> 26
+      OR substr(json_extract(entry.value, '$.aliasId'), 1, 1) NOT BETWEEN '0' AND '7'
+      OR json_extract(entry.value, '$.aliasId') GLOB '*[^0-9a-hjkmnp-tv-z]*'
+      OR length(CAST(json_extract(entry.value, '$.displayName') AS BLOB)) NOT BETWEEN 1 AND 256
+      OR length(CAST(json_extract(entry.value, '$.normalizedName') AS BLOB)) NOT BETWEEN 1 AND 256
+      OR length(CAST(json_extract(entry.value, '$.pathAlias') AS BLOB)) NOT BETWEEN 1 AND 2048
       OR json_extract(entry.value, '$.topicId') IS NOT
         COALESCE(NEW.merge_target_topic_id, NEW.topic_id)
   )
@@ -2170,6 +2197,14 @@ BEGIN
     AND principal_id = NEW.principal_id AND topic_id = NEW.topic_id;
 
   UPDATE memory_topics SET
+    status = 'merged',
+    redirect_to_topic_id = NEW.merge_target_topic_id,
+    last_topic_event_id = NEW.topic_event_id,
+    updated_at = NEW.occurred_at
+  WHERE NEW.operation = 'merge'
+    AND principal_id = NEW.principal_id AND topic_id = NEW.topic_id;
+
+  UPDATE memory_topics SET
     parent_topic_id = NEW.merge_target_topic_id,
     last_topic_event_id = NEW.topic_event_id,
     updated_at = NEW.occurred_at
@@ -2192,13 +2227,6 @@ BEGIN
       WHERE entry.value = memory_item_placement_state.placement_id
     );
 
-  UPDATE memory_topics SET
-    status = 'merged',
-    redirect_to_topic_id = NEW.merge_target_topic_id,
-    last_topic_event_id = NEW.topic_event_id,
-    updated_at = NEW.occurred_at
-  WHERE NEW.operation = 'merge'
-    AND principal_id = NEW.principal_id AND topic_id = NEW.topic_id;
 END;
 
 CREATE TRIGGER memory_topics_insert_guard
@@ -2860,6 +2888,8 @@ WHEN EXISTS (
     WHERE entry.cost_entry_id = NEW.cost_entry_id
   )
   OR NEW.occurred_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+5 minutes')
+  OR (NEW.entry_type = 'reservation'
+    AND NEW.occurred_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-5 minutes'))
   OR NOT EXISTS (
     SELECT 1 FROM memory_runs run
     WHERE run.principal_id = NEW.principal_id

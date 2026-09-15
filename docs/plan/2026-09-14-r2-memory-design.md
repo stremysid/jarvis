@@ -126,6 +126,10 @@ the raw receipt; results are verified against the R2 segment before use.
   integer rowid aliases used by their external-content projections.
 - Immutable ledger tables reject UPDATE and DELETE. Owner correction,
   supersession and forget append a version or transition.
+- Runtime transition writers stamp `occurred_at` as
+  `max(now, memory_item_state.updated_at)`, never from model output or a client
+  clock. The schema additionally refuses stamps more than five minutes ahead,
+  so rules cannot wedge later owner corrections with a future timestamp.
 - A suppression is active when no `memory_event_suppression_lifts` row names
   it. A raw-history candidate is eligible only when no active suppression
   covers its event id or sequence. Recent-turn context, fast recall, exhaustive
@@ -493,8 +497,11 @@ name. The comparison is an owner/reviewer-run provider operation, not a live
 call by this builder.
 
 Every paid run reserves a worst-case amount before dispatch so concurrent jobs
-cannot cross the cap. Completion reconciles the reservation against observed
-tokens and the matching provider/model price record. If the provider's actual
+cannot cross the cap. A reservation is stamped at dispatch time and must be
+within five minutes of D1's wall clock; a long-running run cannot backdate new
+reservations into an earlier monthly bucket. Completion reconciles the
+reservation against observed tokens and the matching provider/model price
+record. If the provider's actual
 charge exceeds the reservation, Jarvis settles the reserved amount and appends
 one explicit positive `overrun` entry for the excess. It never hides a real
 charge to preserve the appearance of compliance; settled cost plus overruns
