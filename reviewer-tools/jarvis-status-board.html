@@ -219,7 +219,7 @@
 
     <div class="task">
       <strong>Nothing needs you right now</strong>
-      <p>I'm reviewing the newest PR (<a href="https://github.com/ksid1229-ops/jarvis/pull/39">#39</a>). The calling chat is building secret-phrase step 2. I bring you merges as they're ready.</p>
+      <p>The memory chat is fixing the memory database (<a href="https://github.com/ksid1229-ops/jarvis/pull/39">#39</a>). The calling chat is building secret-phrase step 2 (<a href="https://github.com/ksid1229-ops/jarvis/pull/40">#40</a>). I review each one as it lands and bring you merges.</p>
     </div>
   </div>
 
@@ -227,10 +227,16 @@
     <h2>Pull requests</h2>
     <div class="ledger">
       <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/40">#40</a>
+        <span class="what">Secret phrase, step 2 of 3</span>
+        <span class="pill ready">Checking</span>
+        <span class="detail">Jarvis asks for your phrase on every call before giving owner access, with 3 tries and then a hang-up. No one found a way to get owner access on a call without the phrase. I'm finishing checks; a few fixes are likely. Nothing to deploy.</span>
+      </div>
+      <div class="row">
         <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/39">#39</a>
         <span class="what">Memory database</span>
         <span class="pill warn">Needs fixes</span>
-        <span class="detail">The tables that will hold Jarvis's memory. Not ready: a few ways "forget that" could be quietly undone, and a hole where an old message of yours could approve re-reading old chats at up to $1,000. Codex fixes these next. Nothing is applied or deployed.</span>
+        <span class="detail">The tables that will hold Jarvis's memory. Almost done: every safety rule is tested, and each round finds less. One gap is left in how the database handles one kind of "replace" write, which could let hidden memories come back. There are also two smaller rule fixes. Nothing is applied or deployed.</span>
       </div>
       <div class="row">
         <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/38">#38</a>

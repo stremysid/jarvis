@@ -164,6 +164,7 @@
     color: var(--warn);
     border: 1px solid var(--warn);
   }
+  .pill.ok { color: var(--good); border-color: var(--good); background: var(--good-soft); }
 
   @media (max-width: 560px) {
     body { font-size: 18px; }
@@ -225,14 +226,14 @@
       <div class="piece">
         <a class="num" href="https://github.com/ksid1229-ops/jarvis/pull/36">#36</a>
         <span class="what">The full memory plan</span>
-        <span class="pill">Needs fixes</span>
-        <span class="detail">Solid overall. Before it's merged, "forget that" must also hide the old chat itself, not just the memory pulled from it.</span>
+        <span class="pill ok">Merged</span>
+        <span class="detail">In. "Forget that" now hides the old chat too. Your plan to move to Claude or GPT when DeepSeek credit runs out is built in: you get a warning first, then you set the new cap.</span>
       </div>
       <div class="piece">
         <a class="num" href="https://github.com/ksid1229-ops/jarvis/pull/35">#35</a>
         <span class="what">Fact or guess, and the filing tree</span>
-        <span class="pill">Needs fixes</span>
-        <span class="detail">Jarvis could take "I don't know if I want to move to Boston" as "I want to move to Boston" and treat it as fact. Codex fixes that first.</span>
+        <span class="pill ok">Merged</span>
+        <span class="detail">In. Jarvis only counts a whole, plain sentence you said as fact. Questions and "if" or "maybe" sentences stay marked as guesses.</span>
       </div>
     </div>
     <p class="note">I check every piece before you merge it. Nothing touches live Jarvis without your yes.</p>
