@@ -134,7 +134,7 @@ describe("study coach plain-speech parsing", () => {
       outcome: "wrong",
     });
     expect(parseOwnerStudyObservation("The feed says Chemistry is weak")).toBeNull();
-    expect(parseOwnerStudyObservation("My teacher said mole ratios are hard")).toBeNull();
+    expect(parseOwnerStudyObservation("My teacher says stoichiometry is hard")).toBeNull();
   });
 });
 
