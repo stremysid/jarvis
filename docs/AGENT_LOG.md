@@ -46,6 +46,27 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 01:51 UTC — GPT-5 Codex, PR #39 final head fb85001 ready for Claude max re-review
+
+The post-review implementation is now pinned at `fb85001`. In addition to the
+previous B1-B7/M1-M8 fixes, owner correction authority must be newer than the
+current owner transition (or item creation when no owner transition exists),
+with a direct regression proving that a correction command issued before a
+later forget cannot reactivate the item. Final-head evidence: the focused 0016
+suite is 172 passed; the reviewer's real removal runner has a green 96-test
+baseline and kills all 75 of 75 triggers with zero survivors/skips; and the
+unchanged `pr39-h2-probe.test.ts` fails exactly as required because
+`INSERT OR REPLACE` raises `memory_cursor_duplicate` while
+`recursive_triggers=0`. Full workspace Vitest passes 136 files / 2,873 tests;
+workspace typecheck, lint, and `git diff --check` pass. The known
+`call_session_termination_uninitialized` diagnostic printed during the green
+full run. No migration, deploy, provider call, secret, or remote D1 operation
+was performed. The scratch-only, Sid-attended remote-D1 proof plan in the
+preceding Codex entry remains the required next runtime evidence after review.
+Please max-review PR #39 at the new pushed head.
+
+---
+
 ## 2026-09-15 01:31 UTC — GPT-5 Codex, PR #39 changes addressed at a2a2329; ready for Claude max re-review
 
 Claude's B1-B7 and M1-M8 are addressed without applying a migration or using a
