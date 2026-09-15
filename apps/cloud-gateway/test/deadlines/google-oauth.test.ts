@@ -14,8 +14,10 @@ function json(body: unknown, status = 200): Response {
 describe("GoogleOAuthTokenProvider", () => {
   it("exchanges the refresh token at Google's fixed endpoint and caches the short-lived token", async () => {
     let now = new Date("2026-09-15T12:00:00.000Z");
-    const fetchMock = vi.fn(async (_input: unknown, _init?: RequestInit) =>
-      json({ access_token: "access-token", expires_in: 3600, token_type: "Bearer" }));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      new Request(input, init);
+      return json({ access_token: "access-token", expires_in: 3600, token_type: "Bearer" });
+    });
     const fetchImplementation = fetchMock as unknown as typeof fetch;
     const provider = new GoogleOAuthTokenProvider({
       credentials: CREDENTIALS,
@@ -31,7 +33,7 @@ describe("GoogleOAuthTokenProvider", () => {
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://oauth2.googleapis.com/token");
     expect(init.method).toBe("POST");
-    expect(init.redirect).toBe("error");
+    expect(init.redirect).toBe("manual");
     const body = new URLSearchParams(String(init.body));
     expect(body.get("grant_type")).toBe("refresh_token");
     expect(body.get("client_id")).toBe(CREDENTIALS.clientId);
@@ -65,6 +67,17 @@ describe("GoogleOAuthTokenProvider", () => {
     expect((error as Error).message).not.toContain("do-not-repeat");
     expect((error as GoogleOAuthRequestError).transient).toBe(false);
     expect((error as GoogleOAuthRequestError).status).toBe(400);
+  });
+
+  it("refuses a token-endpoint redirect without following its location", async () => {
+    const fetchImplementation = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      new Request(input, init);
+      return new Response(null, { status: 302, headers: { location: "https://login.example/" } });
+    }) as unknown as typeof fetch;
+    const provider = new GoogleOAuthTokenProvider({ credentials: CREDENTIALS, fetchImplementation });
+
+    await expect(provider.getAccessToken()).rejects.toThrow("google_oauth_rejected");
+    expect(fetchImplementation).toHaveBeenCalledTimes(1);
   });
 
   it("refuses malformed credentials before making a request", async () => {

@@ -11,7 +11,7 @@
  * and the API's own `alternateLink` and `materials` are URLs into a system we
  * do not control -- so nothing here follows a link from the response, and the
  * only fields read are the ones a deadline is made of. The result is a plain
- * `RawDeadlineItem`, the same shape the Brightspace scraper will produce, and
+ * `RawDeadlineItem`, the same shape the Brightspace calendar feed produces, and
  * nothing downstream can tell them apart.
  */
 

@@ -83,6 +83,7 @@ All other string bindings are optional in `env.ts`, so they stay out of
 | Private repository polling | `GITHUB_TOKEN` with read-only access to tracked repositories |
 | R1 calling, deferred | `OWNER_PRINCIPAL_ID`, `IDENTITY_CHALLENGE_HMAC_KEY_VERSION`, `OWNER_PASSPHRASE_PEPPER_V1`, `PUBLIC_ORIGIN`, `TWILIO_ACCOUNT_SID`, `TWILIO_API_KEY_SID`, `TWILIO_API_KEY_SECRET`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_E164`, `DEFAULT_GUEST_PIN` |
 | Classroom ingestion, owner setup after review | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`; see the [Google Classroom OAuth runbook](google-classroom-oauth.md) |
+| Brightspace calendar ingestion, owner setup after review | `BRIGHTSPACE_ICAL_URL`; see the [Brightspace calendar-feed runbook](brightspace-calendar-feed.md) |
 
 `OWNER_PRINCIPAL_ID` must identify the existing owner. `DIGEST_TIMEZONE`
 is the owner's IANA timezone, and `TELEGRAM_BOT_USERNAME` omits the `@`.

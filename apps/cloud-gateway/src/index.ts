@@ -14,7 +14,7 @@ import { QuietWindowService } from "./deadlines/quiet-windows.js";
 import { DecisionRepository } from "./decisions/decision-repository.js";
 import { DecisionService } from "./decisions/decision-service.js";
 import { parseDecisionCallbackData } from "./decisions/telegram-keyboard.js";
-import { assembleDigest } from "./jobs/digest-job.js";
+import { assembleDigest, unconfiguredDeadlineSourceKinds } from "./jobs/digest-job.js";
 import { buildJobTable, buildScheduledRuns } from "./jobs/job-table.js";
 import { handleScheduled } from "./scheduler/scheduled-handler.js";
 import { heartbeatConfiguration } from "./scheduler/heartbeat-reporter.js";
@@ -233,7 +233,7 @@ function commandContext(env: Env, principalId: string): CommandContext {
               from: clock.now(),
               to: new Date(clock.now().getTime() + withinDays * 86_400_000),
             }),
-          readDeadlineSources: async () => new DeadlineRepository(env.DB).listSources({ activeOnly: true }),
+          readDeadlineSources: async () => new DeadlineRepository(env.DB).listSources(),
           readProjectStatuses: async () => new ProjectRepository(env.DB).readActiveProjectStatuses(),
           readOpenDecisions: async () =>
             new DecisionService({ repository: new DecisionRepository(env.DB) }).queue(principalId),
@@ -241,6 +241,7 @@ function commandContext(env: Env, principalId: string): CommandContext {
         delivery: { send: async () => undefined },
         clock,
         timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
+        unconfiguredDeadlineSourceKinds: unconfiguredDeadlineSourceKinds(env),
       });
       return digest.text;
     },

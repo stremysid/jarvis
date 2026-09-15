@@ -26,10 +26,13 @@ conversation: programs, requirements and dates are each labelled `verified` or
 `unverified`, and verified details retain their current official source and
 admission cycle. It also closes PR #45 follow-ups F1-F3. Its additive
 `0022_university_tracker.sql` remains an unapplied candidate; `0021` is reserved
-by the concurrent PR #46 work. Next: the Brightspace calendar feed in its own
-PR. None of these slices authorizes OAuth consent, a secret operation,
-migration, deployment, school or university contact, purchase, sign-up,
-submission or live account access.
+by the concurrent PR #46 work. The current slice adds the Brightspace private
+iCalendar feed to the existing hourly poll, deadline tables and morning digest.
+It also closes PR #43 follow-ups F1 and F2: an hourly deadline source becomes
+visibly stale after three missed hours, and a Classroom bootstrap failure no
+longer skips later polling. No new migration is needed. None of these slices
+authorizes OAuth consent, a secret operation, migration, deployment, school or
+university contact, purchase, sign-up, submission or live account access.
 
 ## R2 cloud-memory runtime next
 
@@ -330,11 +333,15 @@ These have code and tests but still need owner configuration or a later slice.
   Live configuration and deployment acceptance are not established, and Sid's
   OAuth consent remains an owner-run step in
   [`docs/runbooks/google-classroom-oauth.md`](docs/runbooks/google-classroom-oauth.md).
-- **The Brightspace scrape.** Deliberately not built. It needs a real browser
-  session and belongs in the local agent. `RawDeadlineItem` is the interface
-  it feeds.
-- **Deadline status.** Nothing sets `submitted`, `missed` or `cancelled`. The
-  grade and missing-work watch is what closes this.
+- **Brightspace calendar ingestion.** The current candidate reads only Sid's
+  private iCalendar subscription URL in the always-on gateway. Missing
+  configuration makes no request and says `Brightspace: not set up` in the
+  digest. It never logs in or reads a browser session. The owner setup and
+  live-verification boundary is in
+  [`docs/runbooks/brightspace-calendar-feed.md`](docs/runbooks/brightspace-calendar-feed.md).
+- **Deadline status.** Explicit Brightspace calendar cancellation closes the
+  matching deadline. Nothing sets `submitted` or `missed`; the grade and
+  missing-work watch is what closes those states.
 - **Decision expiry.** `listOpenQueue` filters lapsed items out of the queue,
   and nothing moves their status to `expired`. The drain job should sweep
   them.
