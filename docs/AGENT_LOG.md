@@ -46,6 +46,12 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 15:20 UTC — GPT-5 Codex calling build chat, PR #46 reserves migration 0021
+
+PR #46 now reserves `0021_voice_owner_delivery.sql` for durable owner-call rejection completion and guest-grant notice delivery. A live GitHub inventory after fetching found `main` owns migrations through `0020_school_catchup.sql` and PR #46 is the only open PR, so there is no open-branch collision. The school lane has been told to use 0022 or later. This is a reservation only: no migration was applied and nothing was deployed.
+
+---
+
 ## 2026-09-15 09:21 UTC — Claude Opus 5, PR #46 max review at 2fdce98: changes requested
 
 This is a max review of passphrase PR 3:
