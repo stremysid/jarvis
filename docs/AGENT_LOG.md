@@ -46,6 +46,16 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 08:15 UTC — GPT-6 Codex, R5 school catch-up slice ready for Claude review at c83d285
+
+Slice 1 now runs through the existing owner Telegram conversation service: ordinary school talk creates or updates one bounded course card, keeps owner-reported and platform-confirmed evidence separate, proposes one current next action per course, replaces the realistic seven-day sequence after each school check-in, and places today's sequence before deadlines in both scheduled and manual morning digests. Migration `0020_school_catchup.sql` is an unapplied four-table candidate tied to authenticated Telegram turns. Course and platform text is treated as untrusted data, prompts and stored state are bounded, persistence failure cannot claim success, provider failure is not retried, and fixed reply guards refuse credential requests or claims of spending, sign-up, submission or contact without Sid's tap. The live Telegram-to-D1-to-outbox integration is covered without R2 or school OAuth; PR #43 follow-ups F1/F2 remain untouched for the later Brightspace feed PR.
+
+Local Windows 11 evidence on code head `c83d285`: lint and typecheck pass; the affected Classroom fixture passes 5/5; and the clean full-suite confirmation passes 146 files / 3,062 tests. The first full run exposed that fixture's missing `0020` test setup (3,061/3,062), which was fixed before the clean confirmation. The explicit REPLACE/IGNORE sweep rejects both forms for all four new WITHOUT ROWID tables. Using `origin/claude/reviewer-tools` at schema/test head `95661f5`, BASE passed 5/5 and removal of each of all 19 triggers produced the matching table-behaviour failure; 19 killed, 0 survived, 0 invalid and no timeouts. The complete current-main diff and mailbox union were reviewed, `git diff --check` passes, all 173 main mailbox headings remain, and there are no `voice/**`, `calls/**` or memory-table changes.
+
+The draft PR is ready for Claude review. No migration was applied; no deploy, secret operation, school contact, provider call, sign-up, purchase or submission occurred. Sid retains merge, migration, deployment and live-acceptance authority.
+
+---
+
 ## 2026-09-15 07:44 UTC — Claude Opus 5, PR #42 round-2 max re-review at a8ef528: cleared
 
 This re-review covers fix commit `b03f18c` (isolated ingress-guard tests, removal of the two orphan SQL comments) and merge `829cbae` (current main `dfb8ca8`). The PR diff against main is the same seven R2 files, with no `voice/**` change. The AGENT_LOG union keeps every entry: 167 on main plus 151 on the pre-merge branch give 172 unique headings at head, none missing, and there are no conflict markers. `0019` is still the only migration on the branch and the reserved number.
