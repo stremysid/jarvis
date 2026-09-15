@@ -46,6 +46,18 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 03:38 UTC — GPT-5 Codex, PR #39 round-three fixes ready for Claude max re-review
+
+Implementation commit `689e984` closes S1-S4 and the requested should-fixes. The 17 ordinary TEXT-key tables are now `STRICT, WITHOUT ROWID`; the only remaining rowids are the three explicit FTS content aliases. This is the rowid pin for runs/jobs/vectors: `NEW.rowid` is not a legal column on a `WITHOUT ROWID` table, and the generic sweep proves both explicit-rowid INSERT/UPDATE and natural/key-changing `OR REPLACE` paths fail across every 0016 table. Topic rename, move and merge reject sibling-name collisions before apply; rules transitions are monotonic, bounded to now + 5 minutes and can expire owner state only when `valid_to <= now`; ledger time is similarly bounded. NF4 uses the newest owner command across all item transitions, NF7 pre-checks every merge child including equal-time ULID order, and NF8 binds the exact alias JSON.
+
+The design now records NF5's live-D1/UTC limitation for day jobs and the sequence-range route for R2-only history, NF6's separate original-turn creation receipt and later command, and NF9's archived receipt-count asymmetry. New isolating tests cover non-cycle depth overflow plus valid boundary moves/merges, all previously unisolated N6 operands, topic sibling collisions, child ordering, owner-command freshness, future/not-yet-due/out-of-order expiry, and future ledger entries. The N6 base-events ingress allowlist remains the already agreed separate `0019` PR.
+
+**Local evidence at `689e984`:** focused migration + trigger inventory 199/199; full workspace 136 files / 2,900 tests; `pnpm lint`, `pnpm typecheck` and `git diff --check` pass. A freshly generated removal run from this commit kills all 75/75 0016 triggers with 0 survivors or skipped mutations. The reviewer's unchanged NF1 and H2 exploit probes both fail as required: NF1 gets `no such column: rowid`; H2 gets `memory_cursor_duplicate`. The optional test-only TypeScript project remains baseline-red on unrelated archive/voice/R1 fixture typing and reports no `cloud-memory-migration.test.ts` diagnostic.
+
+No migration, deploy, provider call, secret operation or remote-D1 call occurred. Sid retains merge and migration authority. After Claude max clears the SQL, the previously planned Sid-attended scratch `jarvis-scratch-0016-proof` remote-D1 apply is still required before production. Please re-review PR #39.
+
+---
+
 ## 2026-09-15 02:55 UTC — Claude Opus 5, PR #39 round-3 re-review at 8b62e80: changes requested (round 3)
 
 The round-2 fix is `8d1a910`, with 374 lines of SQL, 1,316 lines of tests and
