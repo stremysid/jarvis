@@ -1,0 +1,38 @@
+diff --git a/apps/cloud-gateway/src/voice/call-session-do.ts b/apps/cloud-gateway/src/voice/call-session-do.ts
+index fa8dcd0..e95d391 100644
+--- a/apps/cloud-gateway/src/voice/call-session-do.ts
++++ b/apps/cloud-gateway/src/voice/call-session-do.ts
+@@ -697,6 +697,7 @@ export class CallSessionCore {
+   #ownerStepUpVerificationInFlight = false;
+   #ownerStepUpRepromptInFlight = false;
+   #ownerStepUpRejection: Promise<void> | null = null;
++  #pr40Mismatches = 0;
+   #activeTurnAbort: AbortController | null = null;
+   #lastSentAssistantEventId: Ulid | null = null;
+   #socketClosed = false;
+@@ -1249,6 +1250,12 @@ export class CallSessionCore {
+         return;
+       }
+       if (outcome === "mismatched") {
++        // PR40 GAP 2b: in-memory exhaustion decision (reset when the Durable Object wakes).
++        this.#pr40Mismatches += 1;
++        if (this.#pr40Mismatches >= 3) {
++          await this.#rejectOwnerStepUp(observedAt, true);
++          return;
++        }
+         await this.#relay.sendNeutralText(OWNER_STEP_UP_RETRY_PROMPT);
+         return;
+       }
+diff --git a/apps/cloud-gateway/src/voice/owner-call-step-up.ts b/apps/cloud-gateway/src/voice/owner-call-step-up.ts
+index 731d097..b03d2ae 100644
+--- a/apps/cloud-gateway/src/voice/owner-call-step-up.ts
++++ b/apps/cloud-gateway/src/voice/owner-call-step-up.ts
+@@ -241,7 +241,7 @@ export class OwnerCallStepUpService {
+       throw error;
+     }
+     if (matched) return "matched";
+-    return ordinal === 3 ? "rejected" : "mismatched";
++    return "mismatched"; // PR40 GAP 2b: ordinal 3 no longer reported as rejected
+   }
+ 
+   async recordReprompt(sessionId: Ulid, now: Date): Promise<"reprompt" | "rejected" | "expired"> {

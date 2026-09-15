@@ -1,0 +1,171 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr40",
+ "branch": "91fe8be",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0021_voice_owner_delivery.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_disabled_rejections_insert_guard\n",
+   "to": "CREATE TRIGGER owner_call_step_up_disabled_rejections_insert_guard\n",
+   "tests": [
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts",
+    "tests/acceptance/fake/voice-owner-call-step-up.test.ts",
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/migration-schema.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/voice/owner-access-service.test.ts",
+    "apps/cloud-gateway/test/voice/call-session-do.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_disabled_rejections_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0021_voice_owner_delivery.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_disabled_rejections_insert_guard\nBEFORE INSERT ON owner_call_step_up_disabled_rejections\nWHEN EXISTS (\n  SELECT 1 FROM owner_call_step_up_disabled_rejections existing\n  WHERE existing.session_id = NEW.session_id\n) OR NOT EXISTS (\n  SELECT 1 FROM owner_call_step_up_bindings binding\n  JOIN call_sessions session ON session.session_id = binding.session_id\n  JOIN owner_passphrase_heads head ON head.singleton_id = 1\n  JOIN owner_passphrase_verifiers verifier\n    ON verifier.owner_identity_id = head.owner_identity_id\n    AND verifier.verifier_version = head.verifier_version\n  WHERE binding.session_id = NEW.session_id\n    AND binding.lifecycle_generation = NEW.lifecycle_generation\n    AND binding.requirement = 'required'\n    AND session.phase = 'pre_auth'\n    AND session.access_kind = 'owner'\n    AND session.activation_only = 0\n    AND session.provider_connected_at IS NOT NULL\n    AND NEW.rejected_at >= session.provider_connected_at\n    AND NEW.rejected_at >= binding.created_at\n    AND head.owner_principal_id = binding.owner_principal_id\n    AND head.owner_identity_id = binding.owner_identity_id\n    AND head.status = 'disabled'\n    AND verifier.status = 'revoked'\n    AND NOT EXISTS (\n      SELECT 1 FROM owner_call_step_up_successes success WHERE success.session_id = NEW.session_id\n    )\n    AND NOT EXISTS (\n      SELECT 1 FROM owner_call_step_up_rejections rejection WHERE rejection.session_id = NEW.session_id\n    )\n)\nBEGIN\n  SELECT RAISE(ABORT, 'owner_call_step_up_disabled_rejection_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts",
+    "tests/acceptance/fake/voice-owner-call-step-up.test.ts",
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/migration-schema.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/voice/owner-access-service.test.ts",
+    "apps/cloud-gateway/test/voice/call-session-do.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_disabled_rejections_terminalize",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0021_voice_owner_delivery.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_disabled_rejections_terminalize\nAFTER INSERT ON owner_call_step_up_disabled_rejections\nBEGIN\n  UPDATE call_sessions SET phase = 'rejected', updated_at = NEW.rejected_at\n  WHERE session_id = NEW.session_id AND phase = 'pre_auth';\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts",
+    "tests/acceptance/fake/voice-owner-call-step-up.test.ts",
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/migration-schema.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/voice/owner-access-service.test.ts",
+    "apps/cloud-gateway/test/voice/call-session-do.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_disabled_rejections_immutable",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0021_voice_owner_delivery.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_disabled_rejections_immutable\nBEFORE UPDATE ON owner_call_step_up_disabled_rejections\nBEGIN\n  SELECT RAISE(ABORT, 'owner_call_step_up_disabled_rejection_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts",
+    "tests/acceptance/fake/voice-owner-call-step-up.test.ts",
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/migration-schema.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/voice/owner-access-service.test.ts",
+    "apps/cloud-gateway/test/voice/call-session-do.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_disabled_rejections_delete_forbidden",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0021_voice_owner_delivery.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_disabled_rejections_delete_forbidden\nBEFORE DELETE ON owner_call_step_up_disabled_rejections\nBEGIN\n  SELECT RAISE(ABORT, 'owner_call_step_up_disabled_rejection_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts",
+    "tests/acceptance/fake/voice-owner-call-step-up.test.ts",
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/migration-schema.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/voice/owner-access-service.test.ts",
+    "apps/cloud-gateway/test/voice/call-session-do.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_rejection_deliveries_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0021_voice_owner_delivery.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_rejection_deliveries_insert_guard\nBEFORE INSERT ON owner_call_step_up_rejection_deliveries\nWHEN EXISTS (\n  SELECT 1 FROM owner_call_step_up_rejection_deliveries existing\n  WHERE existing.session_id = NEW.session_id\n) OR NOT EXISTS (\n  SELECT 1 FROM owner_call_step_up_bindings binding\n  JOIN call_sessions session ON session.session_id = binding.session_id\n  WHERE binding.session_id = NEW.session_id\n    AND binding.lifecycle_generation = NEW.lifecycle_generation\n    AND binding.requirement = 'required'\n    AND session.phase = 'rejected'\n    AND (\n      EXISTS (\n        SELECT 1 FROM owner_call_step_up_rejections rejection\n        WHERE rejection.session_id = NEW.session_id\n          AND NEW.delivered_at >= rejection.rejected_at\n      )\n      OR EXISTS (\n        SELECT 1 FROM owner_call_step_up_disabled_rejections rejection\n        WHERE rejection.session_id = NEW.session_id\n          AND NEW.delivered_at >= rejection.rejected_at\n      )\n    )\n)\nBEGIN\n  SELECT RAISE(ABORT, 'owner_call_step_up_rejection_delivery_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts",
+    "tests/acceptance/fake/voice-owner-call-step-up.test.ts",
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/migration-schema.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/voice/owner-access-service.test.ts",
+    "apps/cloud-gateway/test/voice/call-session-do.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_rejection_deliveries_immutable",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0021_voice_owner_delivery.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_rejection_deliveries_immutable\nBEFORE UPDATE ON owner_call_step_up_rejection_deliveries\nBEGIN\n  SELECT RAISE(ABORT, 'owner_call_step_up_rejection_delivery_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts",
+    "tests/acceptance/fake/voice-owner-call-step-up.test.ts",
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/migration-schema.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/voice/owner-access-service.test.ts",
+    "apps/cloud-gateway/test/voice/call-session-do.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_rejection_deliveries_delete_forbidden",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0021_voice_owner_delivery.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_rejection_deliveries_delete_forbidden\nBEFORE DELETE ON owner_call_step_up_rejection_deliveries\nBEGIN\n  SELECT RAISE(ABORT, 'owner_call_step_up_rejection_delivery_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts",
+    "tests/acceptance/fake/voice-owner-call-step-up.test.ts",
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/migration-schema.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/voice/owner-access-service.test.ts",
+    "apps/cloud-gateway/test/voice/call-session-do.test.ts"
+   ]
+  },
+  {
+   "id": "T-guest_grant_notices_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0021_voice_owner_delivery.sql",
+   "from": "CREATE TRIGGER guest_grant_notices_insert_guard\nBEFORE INSERT ON guest_grant_notices\nWHEN EXISTS (\n  SELECT 1 FROM guest_grant_notices existing WHERE existing.mutation_id = NEW.mutation_id\n) OR NEW.status <> 'pending'\n  OR NEW.claim_id IS NOT NULL\n  OR NEW.claim_expires_at IS NOT NULL\n  OR NEW.provider_message_id IS NOT NULL\n  OR NEW.delivered_at IS NOT NULL\n  OR NOT EXISTS (\n    SELECT 1 FROM voice_access_grant_events event\n    JOIN voice_owner_identity owner ON owner.singleton_id = 1\n      AND owner.identity_id = event.owner_identity_id\n    WHERE event.event_id = NEW.mutation_id\n      AND event.created_at = NEW.created_at\n      AND event.event_type IN ('created', 'permissions_replaced', 'pin_rotated', 'revoked')\n      AND owner.principal_id = NEW.owner_principal_id\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'guest_grant_notice_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts",
+    "tests/acceptance/fake/voice-owner-call-step-up.test.ts",
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/migration-schema.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/voice/owner-access-service.test.ts",
+    "apps/cloud-gateway/test/voice/call-session-do.test.ts"
+   ]
+  },
+  {
+   "id": "T-guest_grant_notices_transition_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0021_voice_owner_delivery.sql",
+   "from": "CREATE TRIGGER guest_grant_notices_transition_guard\nBEFORE UPDATE ON guest_grant_notices\nWHEN NEW.mutation_id IS NOT OLD.mutation_id\n  OR NEW.owner_principal_id IS NOT OLD.owner_principal_id\n  OR NEW.created_at IS NOT OLD.created_at\n  OR NOT (\n    OLD.status = 'pending' AND OLD.claim_id IS NULL\n      AND NEW.status = 'pending' AND NEW.claim_id IS NOT NULL\n      AND NEW.claim_expires_at IS NOT NULL AND NEW.claim_expires_at > OLD.created_at\n      AND NEW.provider_message_id IS NULL AND NEW.delivered_at IS NULL\n    OR OLD.status = 'pending' AND OLD.claim_id IS NOT NULL\n      AND NEW.status = 'pending' AND NEW.claim_id IS NULL AND NEW.claim_expires_at IS NULL\n      AND NEW.provider_message_id IS NULL AND NEW.delivered_at IS NULL\n    OR OLD.status = 'pending' AND OLD.claim_id IS NOT NULL\n      AND NEW.status = 'delivered' AND NEW.claim_id IS NULL AND NEW.claim_expires_at IS NULL\n      AND NEW.provider_message_id IS NOT NULL\n      AND NEW.delivered_at IS NOT NULL AND NEW.delivered_at >= OLD.created_at\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'guest_grant_notice_transition_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts",
+    "tests/acceptance/fake/voice-owner-call-step-up.test.ts",
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/migration-schema.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/voice/owner-access-service.test.ts",
+    "apps/cloud-gateway/test/voice/call-session-do.test.ts"
+   ]
+  },
+  {
+   "id": "T-guest_grant_notices_delete_forbidden",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0021_voice_owner_delivery.sql",
+   "from": "CREATE TRIGGER guest_grant_notices_delete_forbidden\nBEFORE DELETE ON guest_grant_notices\nBEGIN\n  SELECT RAISE(ABORT, 'guest_grant_notice_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts",
+    "tests/acceptance/fake/voice-owner-call-step-up.test.ts",
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/migration-schema.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/voice/owner-access-service.test.ts",
+    "apps/cloud-gateway/test/voice/call-session-do.test.ts"
+   ]
+  }
+ ]
+}
