@@ -1,0 +1,117 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/persistence/zz-reviewer-pr45.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-deploy
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/persistence/zz-reviewer-pr45.test.ts (5 tests | 5 failed) 331ms
+     × P1: UPDATE OR REPLACE on course_key silently deletes another card (bypasses reject_delete) 44ms
+     × P2: re-reporting a fact that was resolved earlier makes the whole owner plan fail 71ms
+     × P3: a code-fenced JSON reply never engages and pays for a second full model call 16ms
+     × P4: a model plan that omits one course's next action fails the whole owner turn 54ms
+     × P5: contracted first-person completion claims bypass the external-action reply guard 2ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/persistence/zz-reviewer-pr45.test.ts > PR45 reviewer probes > P1: UPDATE OR REPLACE on course_key silently deletes another card (bypasses reject_delete)
+Error: D1_ERROR: school_course_card_course_key_conflict: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+ ❯ D1DatabaseSessionAlwaysPrimary._sendOrThrow cloudflare-internal:d1-api:188:19
+ ❯ cloudflare-internal:d1-api:478:19
+ ❯ apps/cloud-gateway/test/persistence/zz-reviewer-pr45.test.ts:53:5
+     51|     const victim = await insertBareCard(principalId, turnId, "physics"…
+     52|     const mover = await insertBareCard(principalId, turnId, "chemistry…
+     53|     await env.DB.prepare(`UPDATE OR REPLACE school_course_cards SET co…
+       |     ^
+     54|       WHERE principal_id = ?1 AND course_id = ?2`).bind(principalId, m…
+     55|     const remaining = await env.DB.prepare(`SELECT course_id FROM scho…
+
+Caused by: Error: school_course_card_course_key_conflict: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+ ❯ D1DatabaseSessionAlwaysPrimary._sendOrThrow cloudflare-internal:d1-api:189:24
+ ❯ cloudflare-internal:d1-api:478:19
+ ❯ apps/cloud-gateway/test/persistence/zz-reviewer-pr45.test.ts:53:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/persistence/zz-reviewer-pr45.test.ts > PR45 reviewer probes > P2: re-reporting a fact that was resolved earlier makes the whole owner plan fail
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+undefined
+
+ ❯ apps/cloud-gateway/test/persistence/zz-reviewer-pr45.test.ts:87:77
+     85|     await repository.applyOwnerPlan(plan(second, courseId, [factId], f…
+     86|     const third = await addTurn(principalId);
+     87|     await expect(repository.applyOwnerPlan(plan(third, courseId, [], t…
+       |                                                                             ^
+     88|   });
+     89|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/persistence/zz-reviewer-pr45.test.ts > PR45 reviewer probes > P3: a code-fenced JSON reply never engages and pays for a second full model call
+AssertionError: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ apps/cloud-gateway/test/persistence/zz-reviewer-pr45.test.ts:115:19
+    113|       userText: "hello", context: [],
+    114|     } as never)) text += token.text;
+    115|     expect(calls).toBe(2);
+       |                   ^
+    116|     expect(applied).toBe(false);
+    117|     expect(text).toBe("plain fallback reply");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/persistence/zz-reviewer-pr45.test.ts > PR45 reviewer probes > P4: a model plan that omits one course's next action fails the whole owner turn
+AssertionError: promise resolved "undefined" instead of rejecting
+
+- Expected:
+Error {
+  "message": "rejected promise",
+}
+
++ Received:
+undefined
+
+ ❯ apps/cloud-gateway/test/persistence/zz-reviewer-pr45.test.ts:163:28
+    161|       } as never)) { /* drain */ }
+    162|     };
+    163|     await expect(consume()).rejects.toThrow(/school_catchup_persistenc…
+       |                            ^
+    164|   });
+    165|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/persistence/zz-reviewer-pr45.test.ts > PR45 reviewer probes > P5: contracted first-person completion claims bypass the external-action reply guard
+AssertionError: expected 'I can\'t confirm that action. Spendin…' to be 'We\'ve submitted the assignment for y…' // Object.is equality
+
+Expected: "We've submitted the assignment for you."
+Received: "I can't confirm that action. Spending, sign-ups, submissions, and contacting people require your tap."
+
+ ❯ apps/cloud-gateway/test/persistence/zz-reviewer-pr45.test.ts:179:26
+    177|         engaged: false, reply: claim, courseUpdates: [], completeActio…
+    178|       }, redactor);
+    179|       expect(plan.reply).toBe(claim);
+       |                          ^
+    180|     }
+    181|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed (5)
+   Start at  08:03:27
+   Duration  1.97s (transform 557ms, setup 0ms, import 1.06s, tests 331ms, environment 0ms)
+

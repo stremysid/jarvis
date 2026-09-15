@@ -1,0 +1,281 @@
+{
+ "root": "C:/Users/Sid/jarvis-deploy",
+ "branch": "7d37ece",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_course_cards_insert_guard\n",
+   "to": "CREATE TRIGGER school_course_cards_insert_guard\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_course_cards_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_course_cards_insert_guard\nBEFORE INSERT ON school_course_cards\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_card_insert_conflict') WHERE EXISTS (\n    SELECT 1 FROM school_course_cards\n    WHERE principal_id = NEW.principal_id\n      AND (course_id = NEW.course_id OR course_key = NEW.course_key)\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_course_cards_active_cap_insert",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_course_cards_active_cap_insert\nBEFORE INSERT ON school_course_cards\nWHEN NEW.active = 1\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_card_limit_exceeded') WHERE (\n    SELECT COUNT(*) FROM school_course_cards\n    WHERE principal_id = NEW.principal_id AND active = 1\n  ) >= 12;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_course_cards_active_cap_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_course_cards_active_cap_update\nBEFORE UPDATE ON school_course_cards\nWHEN OLD.active = 0 AND NEW.active = 1\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_card_limit_exceeded') WHERE (\n    SELECT COUNT(*) FROM school_course_cards\n    WHERE principal_id = NEW.principal_id AND active = 1\n  ) >= 12;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_course_cards_require_owner_turn_insert",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_course_cards_require_owner_turn_insert\nBEFORE INSERT ON school_course_cards\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_card_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.owner_source_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel = 'telegram'\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_course_cards_require_owner_turn_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_course_cards_require_owner_turn_update\nBEFORE UPDATE ON school_course_cards\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_card_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.owner_source_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel = 'telegram'\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_course_cards_primary_key_immutable",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_course_cards_primary_key_immutable\nBEFORE UPDATE ON school_course_cards\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_card_primary_key_immutable')\n  WHERE NEW.principal_id IS NOT OLD.principal_id\n    OR NEW.course_id IS NOT OLD.course_id\n    OR NEW.created_at IS NOT OLD.created_at;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_course_cards_course_key_unique_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_course_cards_course_key_unique_update\nBEFORE UPDATE ON school_course_cards\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_card_course_key_conflict') WHERE EXISTS (\n    SELECT 1 FROM school_course_cards\n    WHERE principal_id = NEW.principal_id\n      AND course_key = NEW.course_key\n      AND course_id IS NOT OLD.course_id\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_course_cards_reject_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_course_cards_reject_delete\nBEFORE DELETE ON school_course_cards\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_card_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_course_facts_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_course_facts_insert_guard\nBEFORE INSERT ON school_course_facts\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_fact_insert_conflict') WHERE EXISTS (\n    SELECT 1 FROM school_course_facts\n    WHERE principal_id = NEW.principal_id\n      AND (\n        fact_id = NEW.fact_id\n        OR (\n          course_id = NEW.course_id\n          AND fact_kind = NEW.fact_kind\n          AND evidence_source = NEW.evidence_source\n          AND fact_key = NEW.fact_key\n        )\n      )\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_course_facts_active_cap_insert",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_course_facts_active_cap_insert\nBEFORE INSERT ON school_course_facts\nWHEN NEW.status = 'active'\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_fact_limit_exceeded') WHERE (\n    SELECT COUNT(*) FROM school_course_facts\n    WHERE principal_id = NEW.principal_id AND status = 'active'\n  ) >= 48 OR (\n    SELECT COUNT(*) FROM school_course_facts\n    WHERE principal_id = NEW.principal_id\n      AND course_id = NEW.course_id\n      AND status = 'active'\n  ) >= 16;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_course_facts_require_owner_turn",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_course_facts_require_owner_turn\nBEFORE INSERT ON school_course_facts\nWHEN NEW.evidence_source = 'owner_reported'\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_fact_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel = 'telegram'\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_course_facts_core_immutable",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_course_facts_core_immutable\nBEFORE UPDATE ON school_course_facts\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_fact_core_immutable') WHERE\n    NEW.principal_id IS NOT OLD.principal_id\n    OR NEW.course_id IS NOT OLD.course_id\n    OR NEW.fact_id IS NOT OLD.fact_id\n    OR NEW.fact_key IS NOT OLD.fact_key\n    OR NEW.fact_kind IS NOT OLD.fact_kind\n    OR NEW.statement IS NOT OLD.statement\n    OR NEW.evidence_source IS NOT OLD.evidence_source\n    OR NEW.source_turn_id IS NOT OLD.source_turn_id\n    OR NEW.source_ref IS NOT OLD.source_ref\n    OR NEW.observed_at IS NOT OLD.observed_at;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_course_facts_status_transition",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_course_facts_status_transition\nBEFORE UPDATE ON school_course_facts\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_fact_status_invalid') WHERE NOT (\n    NEW.status = OLD.status OR (OLD.status = 'active' AND NEW.status = 'resolved')\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_course_facts_reject_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_course_facts_reject_delete\nBEFORE DELETE ON school_course_facts\nWHEN OLD.status != 'resolved'\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_fact_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_catchup_actions_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_catchup_actions_insert_guard\nBEFORE INSERT ON school_catchup_actions\nBEGIN\n  SELECT RAISE(ABORT, 'school_catchup_action_insert_conflict') WHERE EXISTS (\n    SELECT 1 FROM school_catchup_actions\n    WHERE principal_id = NEW.principal_id AND action_id = NEW.action_id\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_catchup_actions_planned_cap_insert",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_catchup_actions_planned_cap_insert\nBEFORE INSERT ON school_catchup_actions\nWHEN NEW.status = 'planned'\nBEGIN\n  SELECT RAISE(ABORT, 'school_catchup_action_limit_exceeded') WHERE (\n    SELECT COUNT(*) FROM school_catchup_actions\n    WHERE principal_id = NEW.principal_id AND status = 'planned'\n  ) >= 21 OR (\n    SELECT COUNT(*) FROM school_catchup_actions\n    WHERE principal_id = NEW.principal_id\n      AND local_date = NEW.local_date\n      AND status = 'planned'\n  ) >= 3 OR COALESCE((\n    SELECT SUM(estimated_minutes) FROM school_catchup_actions\n    WHERE principal_id = NEW.principal_id\n      AND local_date = NEW.local_date\n      AND status = 'planned'\n  ), 0) + NEW.estimated_minutes > 180;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_catchup_actions_require_plan_turn",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_catchup_actions_require_plan_turn\nBEFORE INSERT ON school_catchup_actions\nBEGIN\n  SELECT RAISE(ABORT, 'school_catchup_action_plan_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.plan_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel = 'telegram'\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_catchup_actions_core_immutable",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_catchup_actions_core_immutable\nBEFORE UPDATE ON school_catchup_actions\nBEGIN\n  SELECT RAISE(ABORT, 'school_catchup_action_core_immutable') WHERE\n    NEW.principal_id IS NOT OLD.principal_id\n    OR NEW.action_id IS NOT OLD.action_id\n    OR NEW.course_id IS NOT OLD.course_id\n    OR NEW.local_date IS NOT OLD.local_date\n    OR NEW.sequence_rank IS NOT OLD.sequence_rank\n    OR NEW.action_text IS NOT OLD.action_text\n    OR NEW.estimated_minutes IS NOT OLD.estimated_minutes\n    OR NEW.plan_turn_id IS NOT OLD.plan_turn_id\n    OR NEW.created_at IS NOT OLD.created_at;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_catchup_actions_status_transition",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_catchup_actions_status_transition\nBEFORE UPDATE ON school_catchup_actions\nBEGIN\n  SELECT RAISE(ABORT, 'school_catchup_action_status_invalid') WHERE NOT (\n    NEW.status = OLD.status\n    OR (OLD.status = 'planned' AND NEW.status IN ('completed', 'superseded'))\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_catchup_actions_reject_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_catchup_actions_reject_delete\nBEFORE DELETE ON school_catchup_actions\nWHEN OLD.status != 'superseded'\nBEGIN\n  SELECT RAISE(ABORT, 'school_catchup_action_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_catchup_turn_receipts_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_catchup_turn_receipts_insert_guard\nBEFORE INSERT ON school_catchup_turn_receipts\nBEGIN\n  SELECT RAISE(ABORT, 'school_catchup_receipt_insert_conflict') WHERE EXISTS (\n    SELECT 1 FROM school_catchup_turn_receipts\n    WHERE principal_id = NEW.principal_id AND turn_id = NEW.turn_id\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_catchup_turn_receipts_require_turn",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_catchup_turn_receipts_require_turn\nBEFORE INSERT ON school_catchup_turn_receipts\nBEGIN\n  SELECT RAISE(ABORT, 'school_catchup_receipt_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.turn_id\n      AND principal_id = NEW.principal_id\n      AND channel = 'telegram'\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_catchup_turn_receipts_reject_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_catchup_turn_receipts_reject_update\nBEFORE UPDATE ON school_catchup_turn_receipts\nBEGIN\n  SELECT RAISE(ABORT, 'school_catchup_receipt_update_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_catchup_turn_receipts_reject_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0020_school_catchup.sql",
+   "from": "CREATE TRIGGER school_catchup_turn_receipts_reject_delete\nBEFORE DELETE ON school_catchup_turn_receipts\nBEGIN\n  SELECT RAISE(ABORT, 'school_catchup_receipt_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts"
+   ]
+  }
+ ]
+}

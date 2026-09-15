@@ -5,7 +5,7 @@ import { newUlid, type Ulid } from "../../../../packages/contracts/src/index.js"
 import { ConversationRepository } from "../../src/conversation/conversation-repository.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
-import { SchoolCatchupModelAdapter } from "../../src/school/school-catchup-model.js";
+import { SchoolCatchupModelAdapter, parseOwnerCatchupPlan } from "../../src/school/school-catchup-model.js";
 import { SchoolCatchupRepository } from "../../src/school/school-catchup-repository.js";
 import { applySchoolCatchupMigration } from "./migration.js";
 
@@ -161,5 +161,22 @@ describe("PR45 reviewer probes", () => {
       } as never)) { /* drain */ }
     };
     await expect(consume()).rejects.toThrow(/school_catchup_persistence_failed/u);
+  });
+
+  // Round-2 probe (re-review at 7d37ece). PASS = the contracted forms "I've" / "We've"
+  // slip past FALSE_EXTERNAL_COMPLETIONS, so a false claim of contacting or submitting
+  // reaches Sid unchanged.
+  it("P5: contracted first-person completion claims bypass the external-action reply guard", async () => {
+    const redactor = new Redactor();
+    for (const claim of [
+      "I've emailed your teacher about the missed lab.",
+      "We've submitted the assignment for you.",
+      "I've already paid the registration fee.",
+    ]) {
+      const plan = parseOwnerCatchupPlan({
+        engaged: false, reply: claim, courseUpdates: [], completeActionIds: [], plan: [],
+      }, redactor);
+      expect(plan.reply).toBe(claim);
+    }
   });
 });
