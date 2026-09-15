@@ -27,11 +27,16 @@ export interface LiveSmokeEvidenceRequest extends LiveSmokeExecutionRequest {
   readonly correlationId: string;
 }
 
-export interface LiveVoiceSmokeAdapters {
+export interface LiveSmokeScenarioDriverAdapter {
   readonly preflight: (scenario: VoiceSmokeScenario) => Promise<unknown>;
   readonly execute: (request: Readonly<LiveSmokeExecutionRequest>) => Promise<unknown>;
+}
+
+export interface EnrolledOperatorEvidenceQueryAdapter {
   readonly queryEvidence: (request: Readonly<LiveSmokeEvidenceRequest>) => Promise<unknown>;
 }
+
+export type LiveVoiceSmokeAdapters = LiveSmokeScenarioDriverAdapter & EnrolledOperatorEvidenceQueryAdapter;
 
 const PREFLIGHT_FIELDS = ["schemaVersion", "operatorAuthorized", "readiness", "fakeGatePassed", "deployedCommitSha"] as const;
 const RECEIPT_FIELDS = ["schemaVersion", "scenario", "correlationId"] as const;

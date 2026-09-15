@@ -25,7 +25,7 @@ const inboundConversationTurn = {
 } as const satisfies ConversationTurnResult;
 
 const inboundEvidence = {
-  schemaVersion: "1.2",
+  schemaVersion: "1.3",
   generatorVersion: "0.1.0",
   status: "passed",
   scenario: "inbound",
@@ -37,9 +37,14 @@ const inboundEvidence = {
   terminalState: "completed",
   eventIds: [inboundConversationTurn.committedUserEventId, inboundConversationTurn.sentAssistantEventId],
   authenticatedTurns: 20,
-  authenticationMode: "owner_identity_pin_free",
-  pinPromptCount: 0,
-  pinAttemptCount: 0,
+  authenticationMode: "owner_passphrase",
+  ownerStepUpOutcome: "verified",
+  ownerStepUpPromptCount: 1,
+  ownerStepUpAttemptCount: 1,
+  callerIdAttestation: "passed_a",
+  ownerCallerIdPolicy: "passphrase_always",
+  ownerAuthorityGranted: true,
+  ownerStepUpBeforeFirstModelTurn: true,
   interruptions: 1,
   firstAudibleMs: Array<number>(20).fill(3_000),
   interruptionStopMs: [900],
@@ -60,7 +65,7 @@ const inboundEvidence = {
 } as const;
 
 const commonEvidence = {
-  schemaVersion: "1.2",
+  schemaVersion: "1.3",
   generatorVersion: "0.1.0",
   status: "passed",
   commitSha: "a".repeat(40),
@@ -90,9 +95,14 @@ const outboundAnswerEvidence = {
   manifestKey: "outbound_answer",
   terminalState: "completed",
   authenticatedTurns: 1,
-  authenticationMode: "owner_identity_pin_free",
-  pinPromptCount: 0,
-  pinAttemptCount: 0,
+  authenticationMode: "owner_passphrase",
+  ownerStepUpOutcome: "verified",
+  ownerStepUpPromptCount: 1,
+  ownerStepUpAttemptCount: 1,
+  callerIdAttestation: "absent",
+  ownerCallerIdPolicy: "waive_on_passed_a",
+  ownerAuthorityGranted: true,
+  ownerStepUpBeforeFirstModelTurn: true,
   recipientAuthenticated: true,
   neutralGreetingBeforeAuthentication: true,
   purposeDisclosedAfterAuthentication: true,
@@ -121,11 +131,43 @@ const outboundNoAnswerEvidence = {
   scenario: "outbound-no-answer",
   manifestKey: "outbound_no_answer",
   terminalState: "no-answer",
+  authenticationMode: "owner_passphrase",
+  ownerStepUpOutcome: "refused",
+  ownerStepUpPromptCount: 0,
+  ownerStepUpAttemptCount: 0,
+  callerIdAttestation: "absent",
+  ownerCallerIdPolicy: "passphrase_always",
+  ownerAuthorityGranted: false,
   callAttempts: 1,
   recipientAuthenticated: false,
   purposeDisclosed: false,
   privateMessageLeft: false,
+  modelRequests: 0,
+  personalContextReads: 0,
   statusCallbackSchema: "verified",
+} as const;
+
+const ownerStepUpRefusedEvidence = {
+  ...commonEvidence,
+  scenario: "owner-step-up-refused",
+  manifestKey: "owner_step_up_refused",
+  correlationId: "01j00000000000000000000006",
+  terminalState: "rejected",
+  eventIds: ["01j00000000000000000000007"],
+  authenticatedTurns: 0,
+  authenticationMode: "owner_passphrase",
+  ownerStepUpOutcome: "refused",
+  ownerStepUpPromptCount: 3,
+  ownerStepUpAttemptCount: 3,
+  callerIdAttestation: "other",
+  ownerCallerIdPolicy: "waive_on_passed_a",
+  ownerAuthorityGranted: false,
+  modelRequests: 0,
+  personalContextReads: 0,
+  fixedRefusalDelivered: true,
+  cleanEndFrameSent: true,
+  rejectionRowCount: 1,
+  ownerAlertCount: 1,
 } as const;
 
 const failureEvidence = {
@@ -150,6 +192,37 @@ const failureEvidence = {
   modelFailureCode: "model_failed" as const satisfies ConversationFailureCode,
   modelFailureCategory: "provider" as const satisfies ConversationFailureCategory,
 } as const;
+
+const OWNER_STEP_UP_FIELDS = [
+  "ownerStepUpOutcome",
+  "ownerStepUpPromptCount",
+  "ownerStepUpAttemptCount",
+  "callerIdAttestation",
+  "ownerCallerIdPolicy",
+  "ownerAuthorityGranted",
+  "ownerStepUpBeforeFirstModelTurn",
+] as const;
+
+function legacyOwnerEvidence(value: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const legacy = { ...value };
+  for (const field of OWNER_STEP_UP_FIELDS) delete legacy[field];
+  return {
+    ...legacy,
+    schemaVersion: "1.2",
+    authenticationMode: "owner_identity_pin_free",
+    pinPromptCount: 0,
+    pinAttemptCount: 0,
+  };
+}
+
+function legacyEvidence(value: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const legacy = { ...value };
+  for (const field of OWNER_STEP_UP_FIELDS) delete legacy[field];
+  delete legacy.authenticationMode;
+  delete legacy.modelRequests;
+  delete legacy.personalContextReads;
+  return { ...legacy, schemaVersion: "1.2" };
+}
 
 describe("validateEvidence", () => {
   it("accepts a complete redacted inbound release sample", () => {
@@ -196,17 +269,46 @@ describe("validateEvidence", () => {
     expect(() => validateEvidence({ ...outboundAnswerEvidence, assistantHistoryCommitted: true })).toThrow(/^unsafe_or_incomplete_evidence$/u);
   });
 
-  it("requires PIN-free owner evidence for live inbound and answered outbound", () => {
+  it("requires a verified owner step-up before inbound and outbound authority", () => {
     for (const evidence of [inboundEvidence, outboundAnswerEvidence]) {
       expect(validateEvidence(evidence)).toBe(true);
-      expect(() => validateEvidence({ ...evidence, authenticationMode: "guest_pin" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
-      expect(() => validateEvidence({ ...evidence, pinPromptCount: 1 })).toThrow(/^unsafe_or_incomplete_evidence$/u);
-      expect(() => validateEvidence({ ...evidence, pinAttemptCount: 1 })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+      expect(() => validateEvidence({ ...evidence, ownerStepUpOutcome: "refused" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+      expect(() => validateEvidence({ ...evidence, ownerAuthorityGranted: false })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+      expect(() => validateEvidence({ ...evidence, ownerStepUpBeforeFirstModelTurn: false })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+      expect(() => validateEvidence({ ...evidence, authenticationMode: "owner_identity_pin_free" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
     }
   });
 
-  it("rejects the retired schema 1.1 contract", () => {
-    expect(() => validateEvidence({ ...inboundEvidence, schemaVersion: "1.1" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+  it("accepts only the explicit inbound Passed-A waiver while its policy is on", () => {
+    const waived = {
+      ...inboundEvidence,
+      authenticationMode: "owner_attested_waiver",
+      ownerStepUpOutcome: "waived_passed_a",
+      ownerStepUpPromptCount: 0,
+      ownerStepUpAttemptCount: 0,
+      callerIdAttestation: "passed_a",
+      ownerCallerIdPolicy: "waive_on_passed_a",
+    };
+
+    expect(validateEvidence(waived)).toBe(true);
+    expect(() => validateEvidence({ ...waived, ownerCallerIdPolicy: "passphrase_always" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    expect(() => validateEvidence({ ...waived, callerIdAttestation: "other" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    expect(() => validateEvidence({ ...waived, authenticationMode: "owner_passphrase" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    expect(() => validateEvidence({ ...waived, ownerStepUpPromptCount: 1 })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    expect(() => validateEvidence({ ...waived, ownerStepUpAttemptCount: 1 })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    expect(() => validateEvidence({ ...inboundEvidence, ownerCallerIdPolicy: "waive_on_passed_a" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    expect(() => validateEvidence({
+      ...outboundAnswerEvidence,
+      authenticationMode: "owner_attested_waiver",
+      ownerStepUpOutcome: "waived_passed_a",
+      ownerStepUpPromptCount: 0,
+      ownerStepUpAttemptCount: 0,
+      callerIdAttestation: "passed_a",
+    })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+  });
+
+  it("rejects the retired 1.2 PIN-free owner contract", () => {
+    expect(() => validateEvidence(legacyOwnerEvidence(inboundEvidence))).toThrow(/^unsafe_or_incomplete_evidence$/u);
   });
 
   it("requires Task 5 voice_sent evidence without inventing delivery acknowledgement", () => {
@@ -230,6 +332,33 @@ describe("validateEvidence", () => {
   it("accepts a private outbound no-answer result and rejects purpose disclosure", () => {
     expect(validateEvidence(outboundNoAnswerEvidence)).toBe(true);
     expect(() => validateEvidence({ ...outboundNoAnswerEvidence, purposeDisclosed: true })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    expect(() => validateEvidence({ ...outboundNoAnswerEvidence, ownerStepUpOutcome: "verified" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    expect(() => validateEvidence({ ...outboundNoAnswerEvidence, ownerAuthorityGranted: true })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    expect(() => validateEvidence({ ...outboundNoAnswerEvidence, modelRequests: 1 })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    expect(() => validateEvidence({ ...outboundNoAnswerEvidence, personalContextReads: 1 })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+  });
+
+  it("requires the fixed refusal, clean end, rejection row, and one alert for refused owner step-up", () => {
+    expect(validateEvidence(ownerStepUpRefusedEvidence)).toBe(true);
+    for (const unsafe of [
+      { ...ownerStepUpRefusedEvidence, ownerStepUpPromptCount: 2 },
+      { ...ownerStepUpRefusedEvidence, ownerStepUpAttemptCount: 2 },
+      { ...ownerStepUpRefusedEvidence, authenticationMode: "owner_attested_waiver" },
+      { ...ownerStepUpRefusedEvidence, ownerAuthorityGranted: true },
+      { ...ownerStepUpRefusedEvidence, fixedRefusalDelivered: false },
+      { ...ownerStepUpRefusedEvidence, cleanEndFrameSent: false },
+      { ...ownerStepUpRefusedEvidence, rejectionRowCount: 0 },
+      { ...ownerStepUpRefusedEvidence, rejectionRowCount: 2 },
+      { ...ownerStepUpRefusedEvidence, ownerAlertCount: 0 },
+      { ...ownerStepUpRefusedEvidence, ownerAlertCount: 2 },
+      { ...ownerStepUpRefusedEvidence, modelRequests: 1 },
+      { ...ownerStepUpRefusedEvidence, personalContextReads: 1 },
+      {
+        ...ownerStepUpRefusedEvidence,
+        callerIdAttestation: "passed_a",
+        ownerCallerIdPolicy: "waive_on_passed_a",
+      },
+    ]) expect(() => validateEvidence(unsafe)).toThrow(/^unsafe_or_incomplete_evidence$/u);
   });
 
   it("accepts safe failure evidence only when no new callback was authorized", () => {
@@ -288,6 +417,7 @@ const completeGate = {
   secretPresence: {
     DEEPSEEK_API_KEY: true,
     GUEST_PIN_PEPPER_V1: true,
+    OWNER_PASSPHRASE_PEPPER_V1: true,
     TWILIO_ACCOUNT_SID: true,
     TWILIO_API_KEY_SECRET: true,
     TWILIO_API_KEY_SID: true,
@@ -323,7 +453,7 @@ describe("runVoiceSmoke", () => {
       status: "skipped",
       reason: "missing_required_prerequisites",
       missingConfiguration: ["JARVIS_DEVICE_ID", "JARVIS_DEVICE_KEY_PATH", "JARVIS_PRINCIPAL_ID", "OWNER_VOICE_IDENTITY_ID"],
-      missingSecrets: ["DEEPSEEK_API_KEY", "GUEST_PIN_PEPPER_V1", "TWILIO_API_KEY_SECRET", "TWILIO_API_KEY_SID", "TWILIO_AUTH_TOKEN"],
+      missingSecrets: ["DEEPSEEK_API_KEY", "GUEST_PIN_PEPPER_V1", "OWNER_PASSPHRASE_PEPPER_V1", "TWILIO_API_KEY_SECRET", "TWILIO_API_KEY_SID", "TWILIO_AUTH_TOKEN"],
     });
     expect(JSON.stringify(result)).not.toContain("synthetic-present");
     expect(JSON.stringify(result)).not.toContain("PIN_VERIFIER_JSON");
@@ -430,8 +560,19 @@ describe("offline evidence lifecycle", () => {
       unauthorizedEvidence,
       outboundAnswerEvidence,
       outboundNoAnswerEvidence,
+      ownerStepUpRefusedEvidence,
       failureEvidence,
     ])).toBe(true);
+  });
+
+  it("rejects the complete former five-record PIN-free release set", () => {
+    expect(() => auditVoiceEvidence([
+      legacyOwnerEvidence(inboundEvidence),
+      { ...unauthorizedEvidence, schemaVersion: "1.2" },
+      legacyOwnerEvidence(outboundAnswerEvidence),
+      legacyEvidence(outboundNoAnswerEvidence),
+      { ...failureEvidence, schemaVersion: "1.2" },
+    ])).toThrow(/^release_voice_evidence_incomplete$/u);
   });
 
   it("rejects a release audit with missing or duplicate scenario evidence", () => {
@@ -440,6 +581,7 @@ describe("offline evidence lifecycle", () => {
       unauthorizedEvidence,
       outboundAnswerEvidence,
       outboundNoAnswerEvidence,
+      failureEvidence,
     ])).toThrow(/^release_voice_evidence_incomplete$/u);
     expect(() => auditVoiceEvidence([
       inboundEvidence,
@@ -447,6 +589,7 @@ describe("offline evidence lifecycle", () => {
       unauthorizedEvidence,
       outboundAnswerEvidence,
       outboundNoAnswerEvidence,
+      ownerStepUpRefusedEvidence,
       failureEvidence,
     ])).toThrow(/^release_voice_evidence_incomplete$/u);
   });
@@ -457,17 +600,19 @@ describe("offline evidence lifecycle", () => {
       unauthorizedEvidence,
       outboundAnswerEvidence,
       outboundNoAnswerEvidence,
+      ownerStepUpRefusedEvidence,
       { ...failureEvidence, commitSha: "b".repeat(40) },
     ])).toThrow(/^release_voice_evidence_incomplete$/u);
   });
 
-  it("cleanup removes only the five generated final evidence names", async () => {
+  it("cleanup removes only the six generated final evidence names", async () => {
     const store = new MemoryEvidenceStore();
     for (const name of [
       "inbound.json",
       "unauthorized-caller.json",
       "outbound-answer.json",
       "outbound-no-answer.json",
+      "owner-step-up-refused.json",
       "failure-callbacks.json",
       "operator-notes.txt",
     ]) store.files.set(name, "synthetic");
@@ -616,6 +761,10 @@ describe("safe command contract", () => {
     });
     expect(parseSmokeArguments(["--", "--scenario", "inbound"])).toEqual({
       scenario: "inbound",
+      executeLive: false,
+    });
+    expect(parseSmokeArguments(["--scenario", "owner-step-up-refused"])).toEqual({
+      scenario: "owner-step-up-refused",
       executeLive: false,
     });
   });

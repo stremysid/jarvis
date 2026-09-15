@@ -185,9 +185,12 @@ not drive R1 or R2 implementation. Measure the shared R2 retriever against the
 back to no extra context.
 
 Run `pnpm test:voice-access` and `pnpm typecheck:voice-access` locally.
-The passphrase implementation must expand `pnpm release:voice-gate` from five
-retained live records to six by adding `owner-step-up-refused`; until then its
-PIN-free owner schema is superseded and cannot support an R1 release claim.
+The live-evidence contract now requires six retained records, including
+`owner-step-up-refused`, and rejects the former PIN-free five-record schema.
+Owner-path evidence records verified, refused or explicitly enabled exact
+Passed-A waiver outcomes; no owner authority is accepted without one of the
+two successful step-up outcomes. No retained live evidence exists yet, so this
+contract change does not itself support an R1 release claim.
 Fake success is not live acceptance. PR #23's review fixes at `695e762` are
 included in merged `main` through PR #25. Item 1's code merged through PR #25
 as `fd39301`. It composes the real Durable Object runtime and
