@@ -15,13 +15,17 @@ quiz/flashcard coach, and the full university-application track. R5 deadline
 ingestion depends on the deployed R0 gateway, not on PC control; its
 evidence-based weak-spot memory integrates with R2 as that interface lands.
 
-First code slice after plan clearance: the live bot's conversational course
-intake and per-course recovery plan. Second: a minimal program tracker with
-current official requirements and dates labelled verified or unverified. Both
-use the existing live stack and proceed without waiting for R2 or a school
-connector. Classroom wiring and the Brightspace calendar feed follow as
-separate draft PRs; none authorizes OAuth consent, a secret operation,
-migration, deployment, school contact or live account access.
+The plan cleared in merged PR #41 and Classroom hourly ingestion merged in PR
+#43. The current first code slice adds the live bot's conversational course
+intake, one evidence-labelled card per course, a replanned daily recovery
+sequence, and today's actions in the morning digest. It uses the existing
+Telegram conversation stack and does not wait for R2 or a school connector.
+Its additive `0020_school_catchup.sql` remains an unapplied candidate until
+review and owner-controlled merge and migration steps. Next: a minimal program
+tracker with current official requirements and dates labelled verified or
+unverified. The Brightspace calendar feed remains a separate PR; none of these
+slices authorizes OAuth consent, a secret operation, migration, deployment,
+school contact or live account access.
 
 ## R2 cloud-memory schema candidate
 
@@ -311,12 +315,13 @@ BUILDING.md; the cross-vendor gate and stop rules remain in force.
 
 These have code and tests but still need owner configuration or a later slice.
 
-- **Google Classroom ingestion.** The R5 code candidate wires
+- **Google Classroom ingestion.** Merged PR #43 wires
   `classroom-client.ts` and `deadline-ingestion.ts` into the hourly poll behind
   all three Google OAuth bindings. With no bindings it performs no Google call;
   partial or failed configuration becomes visible source health in the digest.
-  It is a draft PR, not deployed, and Sid's OAuth consent remains an owner-run
-  step in [`docs/runbooks/google-classroom-oauth.md`](docs/runbooks/google-classroom-oauth.md).
+  Live configuration and deployment acceptance are not established, and Sid's
+  OAuth consent remains an owner-run step in
+  [`docs/runbooks/google-classroom-oauth.md`](docs/runbooks/google-classroom-oauth.md).
 - **The Brightspace scrape.** Deliberately not built. It needs a real browser
   session and belongs in the local agent. `RawDeadlineItem` is the interface
   it feeds.

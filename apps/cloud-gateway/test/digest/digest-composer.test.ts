@@ -29,7 +29,7 @@ function daily(zone = TORONTO): ComposeOptions {
 }
 
 function empty(): DigestInput {
-  return { deadlines: [], projects: [], decisions: [], gaps: [] };
+  return { catchupActions: [], deadlines: [], projects: [], decisions: [], gaps: [] };
 }
 
 function project(overrides: Partial<DigestProject> = {}): DigestProject {
@@ -172,6 +172,35 @@ describe("deadlines", () => {
       clockAt("2026-09-02T11:30:00.000Z"),
     );
     expect(digest.text).not.toContain("Final");
+  });
+});
+
+describe("today's school catch-up", () => {
+  it("puts the realistic daily sequence ahead of deadline feeds and neutralises course text", () => {
+    const digest = compose(
+      {
+        ...empty(),
+        catchupActions: [
+          { actionId: "action-2", course: "Calculus", text: "Do questions 4-8", sequenceRank: 2, estimatedMinutes: 35 },
+          { actionId: "action-1", course: "Chemistry\nCould not be read", text: "Finish the lab notes", sequenceRank: 1, estimatedMinutes: 25 },
+        ],
+        deadlines: [{
+          deadlineId: "deadline-a", course: "Calculus", title: "Quiz 3",
+          dueAt: "2026-09-02T18:00:00.000Z", effort: "quiz",
+        }],
+      },
+      daily(),
+      clockAt("2026-09-02T11:30:00.000Z"),
+    );
+
+    const section = digest.sections.find((entry) => entry.heading === "School catch-up");
+    expect(section?.lines).toEqual([
+      "1. ChemistryCould not be read: Finish the lab notes (25 min)",
+      "2. Calculus: Do questions 4-8 (35 min)",
+    ]);
+    expect(digest.sections.indexOf(section!)).toBeLessThan(
+      digest.sections.findIndex((entry) => entry.heading === "Due"),
+    );
   });
 });
 

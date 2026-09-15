@@ -17,12 +17,14 @@ import voiceRuntimeSql from "../../src/persistence/migrations/0015_voice_runtime
 import cloudMemorySql from "../../src/persistence/migrations/0016_cloud_memory.sql?raw";
 import ownerPassphraseSql from "../../src/persistence/migrations/0017_owner_passphrase.sql?raw";
 import ownerCallStepUpSql from "../../src/persistence/migrations/0018_owner_call_step_up.sql?raw";
+import schoolCatchupSql from "../../src/persistence/migrations/0020_school_catchup.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
 let cloudMemoryMigrated: Promise<void> | undefined;
 let ownerPassphraseMigrated: Promise<void> | undefined;
 let ownerCallStepUpMigrated: Promise<void> | undefined;
+let schoolCatchupMigrated: Promise<void> | undefined;
 
 /**
  * Split a migration into the statements D1 applies one at a time.
@@ -123,6 +125,15 @@ export async function applyOwnerCallStepUpMigration(): Promise<void> {
     { name: "0018_owner_call_step_up.sql", queries: splitMigration(ownerCallStepUpSql) },
   ]);
   await ownerCallStepUpMigrated;
+}
+
+/** Applies the private school catch-up store to the isolated D1 test binding. */
+export async function applySchoolCatchupMigration(): Promise<void> {
+  await applyFoundationMigration();
+  schoolCatchupMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0020_school_catchup.sql", queries: splitMigration(schoolCatchupSql) },
+  ]);
+  await schoolCatchupMigrated;
 }
 
 /** Test-only reset for immutable per-call step-up and guest-attempt records. */
