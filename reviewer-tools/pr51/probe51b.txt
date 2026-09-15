@@ -1,0 +1,39 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/jobs/zz-reviewer-pr51-window.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr39
+
+Using secrets defined in process.env
+stdout | apps/cloud-gateway/test/jobs/zz-reviewer-pr51-window.test.ts > zzreviewerpr51 > S1 past-due items fill the 180 cap ahead of upcoming ones
+S1 REPORT keptPast=0 keptFuture=180 truncated=140
+
+ ❯ |default| apps/cloud-gateway/test/jobs/zz-reviewer-pr51-window.test.ts (1 test | 1 failed) 8ms
+     × S1 past-due items fill the 180 cap ahead of upcoming ones 7ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/jobs/zz-reviewer-pr51-window.test.ts > zzreviewerpr51 > S1 past-due items fill the 180 cap ahead of upcoming ones
+AssertionError: expected +0 to be 70 // Object.is equality
+
+- Expected
++ Received
+
+- 70
++ 0
+
+ ❯ apps/cloud-gateway/test/jobs/zz-reviewer-pr51-window.test.ts:15:22
+     13|     const keptFuture = selected.items.length - keptPast;
+     14|     console.log(`S1 REPORT keptPast=${keptPast} keptFuture=${keptFutur…
+     15|     expect(keptPast).toBe(70);
+       |                      ^
+     16|     expect(keptFuture).toBe(110);
+     17|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  16:38:48
+   Duration  975ms (transform 179ms, setup 0ms, import 299ms, tests 8ms, environment 0ms)
+

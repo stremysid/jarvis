@@ -1,0 +1,12 @@
+$ pnpm -r --if-present typecheck
+Scope: 5 of 6 workspace projects
+apps/cloud-gateway typecheck$ tsc --noEmit
+apps/hermes-runtime typecheck$ node --check src/canonical-json.mjs && node --check src/validate-manifests.mjs && node --check src/validate-runs-wire.mjs && node --check src/generate-sbom.mjs
+apps/watchdog typecheck$ tsc --noEmit
+packages/contracts typecheck$ tsc --noEmit
+apps/watchdog typecheck: Done
+tests/acceptance typecheck$ tsc --noEmit
+packages/contracts typecheck: Done
+apps/hermes-runtime typecheck: Done
+tests/acceptance typecheck: Done
+apps/cloud-gateway typecheck: Done

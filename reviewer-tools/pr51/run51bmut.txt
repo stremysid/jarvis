@@ -1,0 +1,87 @@
+checked out fe1289d at fe1289d
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  18 passed (18)
+
+== U1-upcoming-first: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (18 tests | 1 failed) 8288ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 17 passed (18)
+   × uses remaining capacity for the newest past-due items after every upcoming item 162ms
+
+== U2-newest-past-first: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (18 tests | 1 failed) 9609ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 17 passed (18)
+   × uses remaining capacity for the newest past-due items after every upcoming item 174ms
+
+== U3-cancellation-cap: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (18 tests | 1 failed) 14910ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 17 passed (18)
+   × caps a cancellation-heavy sweep below its counted D1 statement budget 6626ms
+
+== U4-cancellations-counted-in-truncation: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (18 tests | 1 failed) 10742ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 35 passed (36)
+   × caps a cancellation-heavy sweep below its counted D1 statement budget 2672ms
+
+== S2-stale-with-truncation: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/digest-job.test.ts (18 tests | 1 failed) 45ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 35 passed (36)
+   × reports both truncation and staleness when a bounded Brightspace source stops syncing 9ms
+
+== F1-phrase-end-anchor: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/school/school-catchup-model.test.ts (18 tests | 2 failed) 52ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 16 passed (18)
+   × sends a message that merely starts with the refresh phrase through the model 6ms
+   × guards the ordinary retry after invalid structured output from claiming a D2L check 1ms
+
+== N3a-structured-claim-guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/school/school-catchup-model.test.ts (18 tests | 1 failed) 47ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 17 passed (18)
+   × replaces a model claim that it checked D2L for a near-miss request 7ms
+
+== N3b-ordinary-claim-guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/school/school-catchup-model.test.ts (18 tests | 2 failed) 49ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 16 passed (18)
+   × replaces a false D2L check claim on the ordinary fallback path too 6ms
+   × guards the ordinary retry after invalid structured output from claiming a D2L check 2ms
+
+== N3c-fallback-claim-guard: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  18 passed (18)
+
+== N4-monotonic-success: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  39 passed (39)
+
+== N1-toronto-snapshot-time: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (18 tests | 2 failed) 8594ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 16 passed (18)
+   × rate-limits on-demand refreshes and reports a fixed failure with the timestamped snapshot 189ms
+   × keeps a last-known snapshot in the catch reply when the cooldown store fails 174ms
+
+=== summary
+SURVIVED  BASE
+KILLED    U1-upcoming-first
+KILLED    U2-newest-past-first
+KILLED    U3-cancellation-cap
+KILLED    U4-cancellations-counted-in-truncation
+KILLED    S2-stale-with-truncation
+KILLED    F1-phrase-end-anchor
+KILLED    N3a-structured-claim-guard
+KILLED    N3b-ordinary-claim-guard
+SURVIVED  N3c-fallback-claim-guard
+SURVIVED  N4-monotonic-success
+KILLED    N1-toronto-snapshot-time
+back on main, tree clean=true
+(node:20196) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
