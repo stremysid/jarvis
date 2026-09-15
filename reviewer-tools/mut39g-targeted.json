@@ -1,0 +1,159 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr40",
+ "branch": "5ef0ce5",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_items_insert_guard\n",
+   "to": "CREATE TRIGGER memory_items_insert_guard\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "R-alias-tuple-unique-restored",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "  UNIQUE (principal_id, alias_id),\n",
+   "to": "  UNIQUE (principal_id, alias_id),\n  UNIQUE (principal_id, normalized_alias, path_alias),\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "R-ledger-bound-reservation-only",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "  OR NEW.occurred_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-5 minutes')\n",
+   "to": "  OR (NEW.entry_type = 'reservation'\n    AND NEW.occurred_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-5 minutes'))\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "R-cursor-name-pin",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "  OR NEW.cursor_name <> OLD.cursor_name\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "R-vector-item-id-pin",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "  OR NEW.item_kind <> OLD.item_kind\n  OR NEW.item_id <> OLD.item_id\n",
+   "to": "  OR NEW.item_kind <> OLD.item_kind\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "R-run-key-pin",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "  OR NEW.run_key <> OLD.run_key\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "R-topic-create-sibling-clause",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "      OR (topic.principal_id = NEW.principal_id\n        AND topic.parent_topic_id IS NEW.parent_topic_id\n        AND topic.normalized_name = NEW.normalized_name\n        AND topic.status = 'active')\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "R-one-primary-clause",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "      AND (state.placement_id = NEW.placement_id\n        OR (state.item_id = NEW.item_id AND state.relation = 'primary'\n          AND state.status = 'active' AND NEW.relation = 'primary' AND NEW.status = 'active'))\n",
+   "to": "      AND (state.placement_id = NEW.placement_id)\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "R-event-new-normalized-name-check",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "  new_normalized_name TEXT CHECK (\n    new_normalized_name IS NULL\n    OR length(CAST(new_normalized_name AS BLOB)) BETWEEN 1 AND 256\n  ),\n",
+   "to": "  new_normalized_name TEXT,\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "X-vector-content-hash-pin",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "  OR NEW.content_hash <> OLD.content_hash\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "X-vector-embedding-model-pin",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "  OR NEW.embedding_model <> OLD.embedding_model\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "X-run-job-pin",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "  OR NEW.job <> OLD.job\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "X-run-started-at-pin",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "  OR NEW.started_at <> OLD.started_at\n  OR (\n    NEW.job = 'reprocessing'\n    AND NOT EXISTS (\n      SELECT 1 FROM memory_reprocess_jobs job\n      WHERE job.principal_id = NEW.principal_id\n        AND job.job_id = NEW.reprocess_job_id\n        AND NEW.input_event_count",
+   "to": "  OR (\n    NEW.job = 'reprocessing'\n    AND NOT EXISTS (\n      SELECT 1 FROM memory_reprocess_jobs job\n      WHERE job.principal_id = NEW.principal_id\n        AND job.job_id = NEW.reprocess_job_id\n        AND NEW.input_event_count",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "X-item-state-item-id-pin",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "  OR NEW.item_id <> OLD.item_id\n  OR NEW.last_transition_number <> OLD.last_transition_number + 1\n",
+   "to": "  OR NEW.last_transition_number <> OLD.last_transition_number + 1\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "X-placement-state-relation-pin",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "  OR NEW.item_id <> OLD.item_id\n  OR NEW.relation <> OLD.relation\n",
+   "to": "  OR NEW.item_id <> OLD.item_id\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "X-placement-state-item-id-pin",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "  OR NEW.item_id <> OLD.item_id\n  OR NEW.relation <> OLD.relation\n",
+   "to": "  OR NEW.relation <> OLD.relation\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "X-cursor-sequence-monotonic",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "  OR NEW.current_event_sequence < OLD.current_event_sequence\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  }
+ ]
+}

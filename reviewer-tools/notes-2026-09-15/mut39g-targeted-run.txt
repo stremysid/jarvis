@@ -1,0 +1,113 @@
+checked out 5ef0ce5 at 5ef0ce5
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  133 passed (133)
+
+== R-alias-tuple-unique-restored: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (133 tests | 2 failed) 4558ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 131 passed (133)
+   × retains repeated natural rename aliases and resolves the newest alias 23ms
+   × merges a topic into its own parent before reparenting a same-named child 25ms
+
+== R-ledger-bound-reservation-only: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (133 tests | 1 failed) 5310ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 132 passed (133)
+   × rejects every backdated ledger entry type on a run that crossed a monthly boundary 141ms
+
+== R-cursor-name-pin: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (133 tests | 1 failed) 5059ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 132 passed (133)
+   × pins cursor_name against a same-principal UPDATE OR REPLACE collision 25ms
+
+== R-vector-item-id-pin: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (133 tests | 1 failed) 5133ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 132 passed (133)
+   × pins vector item_id against a same-principal UPDATE OR REPLACE collision 26ms
+
+== R-run-key-pin: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (133 tests | 1 failed) 4632ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 132 passed (133)
+   × pins run_key against a same-principal UPDATE OR REPLACE collision 35ms
+
+== R-topic-create-sibling-clause: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (133 tests | 1 failed) 4659ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 132 passed (133)
+   × rejects carried OR REPLACE collisions for every partial unique index 35ms
+
+== R-one-primary-clause: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (133 tests | 1 failed) 3803ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 132 passed (133)
+   × rejects carried OR REPLACE collisions for every partial unique index 80ms
+
+== R-event-new-normalized-name-check: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (133 tests | 1 failed) 5292ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 132 passed (133)
+   × refuses OR IGNORE topic events whose apply rows would be incomplete 28ms
+
+== X-vector-content-hash-pin: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  133 passed (133)
+
+== X-vector-embedding-model-pin: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  133 passed (133)
+
+== X-run-job-pin: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  133 passed (133)
+
+== X-run-started-at-pin: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  133 passed (133)
+
+== X-item-state-item-id-pin: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (133 tests | 1 failed) 3814ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 132 passed (133)
+   × pins item-state keys against UPDATE OR REPLACE 69ms
+
+== X-placement-state-relation-pin: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  133 passed (133)
+
+== X-placement-state-item-id-pin: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  133 passed (133)
+
+== X-cursor-sequence-monotonic: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (133 tests | 2 failed) 4240ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 131 passed (133)
+   × keeps FTS projections current and enforces bounded run, cost, vector, cursor, and reprocessing state 91ms
+   × memory_cursors_monotonic_update rejects a cursor rewind 3ms
+
+=== summary
+SURVIVED  BASE
+KILLED    R-alias-tuple-unique-restored
+KILLED    R-ledger-bound-reservation-only
+KILLED    R-cursor-name-pin
+KILLED    R-vector-item-id-pin
+KILLED    R-run-key-pin
+KILLED    R-topic-create-sibling-clause
+KILLED    R-one-primary-clause
+KILLED    R-event-new-normalized-name-check
+SURVIVED  X-vector-content-hash-pin
+SURVIVED  X-vector-embedding-model-pin
+SURVIVED  X-run-job-pin
+SURVIVED  X-run-started-at-pin
+KILLED    X-item-state-item-id-pin
+SURVIVED  X-placement-state-relation-pin
+SURVIVED  X-placement-state-item-id-pin
+KILLED    X-cursor-sequence-monotonic
+back on main, tree clean=true
+(node:21252) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

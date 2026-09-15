@@ -1,0 +1,30 @@
+     64|   const original = triggerSql(name);
+     65|   if (from !== null && original.split(from).length !== 2) {
+     66|     throw new Error(`probe_mutation_anchor_not_unique:${name}`);
+       |           ^
+     67|   }
+     68|   await env.DB.prepare(`DROP TRIGGER ${name}`).run();
+ ❯ apps/cloud-gateway/test/persistence/zz-verify6-pins.test.ts:318:11
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+ FAIL  |default| apps/cloud-gateway/test/persistence/zz-verify6-pins.test.ts > PR #39 round-5 verifier probes > V7c embedding_model (mutant) pin removed: a same-principal UPDATE OR REPLACE collision deletes another vector row
+Error: D1_ERROR: CHECK constraint failed: embedding_model = '@cf/baai/bge-m3': SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_CHECK)
+ ❯ D1DatabaseSessionAlwaysPrimary._sendOrThrow cloudflare-internal:d1-api:188:19
+ ❯ cloudflare-internal:d1-api:478:19
+ ❯ vector apps/cloud-gateway/test/persistence/zz-verify6-pins.test.ts:387:9
+    385|       const vector = async (h: string, model: string) => {
+    386|         const id = ulid();
+    387|         await env.DB.prepare(`INSERT INTO memory_vectors (
+       |         ^
+    388|           vector_ledger_id, principal_id, item_kind, item_id, embeddin…
+    389|           dimensions, content_hash, mutation_id, upserted_at, deleted_…
+ ❯ apps/cloud-gateway/test/persistence/zz-verify6-pins.test.ts:397:17
+Caused by: Error: CHECK constraint failed: embedding_model = '@cf/baai/bge-m3': SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_CHECK)
+ ❯ D1DatabaseSessionAlwaysPrimary._sendOrThrow cloudflare-internal:d1-api:189:24
+ ❯ cloudflare-internal:d1-api:478:19
+ ❯ vector apps/cloud-gateway/test/persistence/zz-verify6-pins.test.ts:387:9
+ ❯ apps/cloud-gateway/test/persistence/zz-verify6-pins.test.ts:397:17
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+ Test Files  1 failed (1)
+      Tests  5 failed | 7 passed (12)
+   Start at  01:26:41
+   Duration  2.07s (transform 546ms, setup 0ms, import 1.03s, tests 391ms, environment 0ms)

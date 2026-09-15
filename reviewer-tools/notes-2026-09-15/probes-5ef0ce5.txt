@@ -1,0 +1,23 @@
+== round-5 verifier probes (V1, V2, V5 must FAIL; V3, V4 head-behaviour; V6-V10 mutant probes pass on any head)
+     × V1 (head) a topic renamed X->Y->X cannot be renamed to Y again: the required old-name alias already exists 20ms
+     × V2 (head) own-parent merge (F5) leaves one path naming two topics, and the surviving child's first rename is then refused 20ms
+     × V5 (head) settlement and overrun on a month-crossing run can be stamped 35 days back, into the prior month 18ms
+     × V8 (mutant) with the alias (name, path) duplicate clause removed, a carried REPLACE rename deletes another topic's alias while the sweep's clone stays refused 12ms
+AssertionError: promise resolved "'01k3w1v800000000000000nbka'" instead of rejecting
+AssertionError: promise resolved "'01k3w1v800000000000000nbkq'" instead of rejecting
+Error: D1_ERROR: memory_cost_entry_lineage_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+Caused by: Error: memory_cost_entry_lineage_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+Error: probe_mutation_anchor_not_unique:memory_topic_aliases_insert_guard
+     66|     throw new Error(`probe_mutation_anchor_not_unique:${name}`);
+ Test Files  1 failed (1)
+      Tests  4 failed | 6 passed (10)
+== round-4 verifier probes (P2a-c must FAIL)
+     × P2a carried OR IGNORE: rename event commits while the over-long topic rename is silently skipped 21ms
+     × P2b carried OR IGNORE: create event commits with no topic row 11ms
+     × P2c carried OR IGNORE: rename applies while its required alias row (malformed aliasId) is silently dropped 8ms
+ Test Files  1 failed (1)
+      Tests  3 failed | 5 passed (8)
+== round-3 independent probes + H2/NF1 (expect 8 fail, 4 controls pass)
+ Test Files  6 failed (6)
+      Tests  8 failed | 4 passed (12)
+status after probes:[]
