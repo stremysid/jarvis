@@ -16,7 +16,7 @@ CREATE TABLE memory_items (
   ),
   created_at TEXT NOT NULL CHECK (strftime('%Y-%m-%dT%H:%M:%fZ', created_at) IS created_at),
   UNIQUE (principal_id, item_id)
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE memory_item_versions (
   version_rowid INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,7 +109,7 @@ CREATE TABLE memory_item_sources (
     (source_location = 'live' AND r2_segment_id IS NULL)
     OR (source_location = 'archived' AND r2_segment_id IS NOT NULL)
   )
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE memory_item_transitions (
   transition_id TEXT PRIMARY KEY CHECK (
@@ -144,7 +144,7 @@ CREATE TABLE memory_item_transitions (
     (actor = 'owner' AND owner_authorizing_event_id IS NOT NULL)
     OR (actor = 'rules' AND owner_authorizing_event_id IS NULL)
   )
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE memory_item_state (
   principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE RESTRICT,
@@ -217,7 +217,7 @@ CREATE TABLE memory_event_suppressions (
     (forgotten_transition_id IS NULL AND source_id IS NULL)
     OR (forgotten_transition_id IS NOT NULL AND source_id IS NOT NULL)
   )
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE memory_event_suppression_lifts (
   lift_id TEXT PRIMARY KEY CHECK (
@@ -240,7 +240,7 @@ CREATE TABLE memory_event_suppression_lifts (
     REFERENCES memory_event_suppressions(principal_id, suppression_id) ON DELETE RESTRICT,
   FOREIGN KEY (principal_id, correction_transition_id)
     REFERENCES memory_item_transitions(principal_id, transition_id) ON DELETE RESTRICT
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE memory_item_links (
   link_id TEXT PRIMARY KEY CHECK (
@@ -262,7 +262,7 @@ CREATE TABLE memory_item_links (
   FOREIGN KEY (principal_id, authorizing_transition_id)
     REFERENCES memory_item_transitions(principal_id, transition_id) ON DELETE RESTRICT,
   CHECK (source_item_id <> target_item_id)
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE memory_topics (
   topic_id TEXT PRIMARY KEY CHECK (
@@ -295,7 +295,7 @@ CREATE TABLE memory_topics (
     OR (status = 'merged' AND redirect_to_topic_id IS NOT NULL)
   ),
   CHECK (redirect_to_topic_id IS NULL OR redirect_to_topic_id <> topic_id)
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE UNIQUE INDEX memory_topics_one_root
 ON memory_topics(principal_id)
@@ -383,7 +383,7 @@ CREATE TABLE memory_topic_events (
       AND new_normalized_name IS NULL
       AND merge_target_topic_id IS NOT NULL)
   )
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE memory_topic_aliases (
   alias_id TEXT PRIMARY KEY CHECK (
@@ -403,7 +403,7 @@ CREATE TABLE memory_topic_aliases (
     REFERENCES memory_topics(principal_id, topic_id) ON DELETE RESTRICT,
   FOREIGN KEY (principal_id, created_by_topic_event_id)
     REFERENCES memory_topic_events(principal_id, topic_event_id) ON DELETE RESTRICT
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE memory_item_placement_events (
   placement_event_id TEXT PRIMARY KEY CHECK (
@@ -447,7 +447,7 @@ CREATE TABLE memory_item_placement_events (
     OR (operation = 'refile' AND previous_topic_id IS NOT NULL AND new_topic_id IS NOT NULL)
     OR (operation = 'remove' AND previous_topic_id IS NOT NULL AND new_topic_id IS NULL)
   )
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE memory_item_placement_state (
   principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE RESTRICT,
@@ -536,7 +536,7 @@ CREATE TABLE memory_episode_sources (
     (source_location = 'live' AND r2_segment_id IS NULL)
     OR (source_location = 'archived' AND r2_segment_id IS NOT NULL)
   )
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE memory_history_chunks (
   chunk_rowid INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -601,7 +601,7 @@ CREATE TABLE memory_history_coverage (
     (indexing_outcome = 'indexed' AND failure_code IS NULL)
     OR (indexing_outcome = 'failed' AND failure_code IS NOT NULL)
   )
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE memory_vectors (
   vector_ledger_id TEXT PRIMARY KEY CHECK (
@@ -623,7 +623,7 @@ CREATE TABLE memory_vectors (
   ),
   UNIQUE (principal_id, vector_ledger_id),
   UNIQUE (principal_id, item_kind, item_id, embedding_model, content_hash)
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE memory_model_prices (
   price_id TEXT PRIMARY KEY CHECK (
@@ -652,7 +652,7 @@ CREATE TABLE memory_model_prices (
   created_at TEXT NOT NULL CHECK (strftime('%Y-%m-%dT%H:%M:%fZ', created_at) IS created_at),
   UNIQUE (principal_id, price_id),
   UNIQUE (principal_id, model_id, effective_at)
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE memory_runs (
   run_id TEXT PRIMARY KEY CHECK (
@@ -726,7 +726,7 @@ CREATE TABLE memory_runs (
       AND completed_at IS NOT NULL AND failure_code IS NULL)
     OR (outcome = 'failed' AND completed_at IS NOT NULL AND failure_code IS NOT NULL)
   )
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE memory_reprocess_jobs (
   job_id TEXT PRIMARY KEY CHECK (
@@ -789,7 +789,7 @@ CREATE TABLE memory_reprocess_jobs (
     OR (status = 'failed' AND final_receipt_hash IS NOT NULL AND failure_code IS NOT NULL)
     OR (status = 'cancelled' AND final_receipt_hash IS NOT NULL)
   )
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE memory_cost_ledger (
   cost_entry_id TEXT PRIMARY KEY CHECK (
@@ -829,7 +829,7 @@ CREATE TABLE memory_cost_ledger (
     (budget_class = 'normal_monthly' AND reprocess_job_id IS NULL)
     OR (budget_class = 'reprocessing' AND reprocess_job_id IS NOT NULL)
   )
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE memory_cursors (
   principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE RESTRICT,
@@ -1317,6 +1317,13 @@ WHEN EXISTS (
         AND transition_row.item_id = NEW.item_id
         AND transition_row.transition_number = NEW.transition_number)
   )
+  OR NEW.occurred_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+5 minutes')
+  OR EXISTS (
+    SELECT 1 FROM memory_item_state state
+    WHERE state.principal_id = NEW.principal_id
+      AND state.item_id = NEW.item_id
+      AND NEW.occurred_at < state.updated_at
+  )
   OR NOT EXISTS (
     SELECT 1 FROM memory_item_versions version
     WHERE version.principal_id = NEW.principal_id
@@ -1382,7 +1389,7 @@ WHEN EXISTS (
           NEW.lifecycle_state = 'expired'
           AND NEW.version_id = state.current_version_id
           AND current_version.valid_to IS NOT NULL
-          AND current_version.valid_to <= NEW.occurred_at
+          AND current_version.valid_to <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
         )
     )
   )
@@ -1468,15 +1475,12 @@ WHEN EXISTS (
         AND json_extract(command.envelope_json, '$.payload.versionId') = NEW.version_id
         AND json_extract(command.envelope_json, '$.payload.lifecycleState') = NEW.lifecycle_state
         AND command.sequence > COALESCE((
-          SELECT previous_command.sequence
-          FROM memory_item_state state
-          JOIN memory_item_transitions previous_transition
-            ON previous_transition.principal_id = state.principal_id
-            AND previous_transition.transition_id = state.last_transition_id
+          SELECT max(previous_command.sequence)
+          FROM memory_item_transitions previous_transition
           JOIN memory_valid_owner_commands previous_command
             ON previous_command.event_id = previous_transition.owner_authorizing_event_id
-          WHERE state.principal_id = NEW.principal_id
-            AND state.item_id = NEW.item_id
+          WHERE previous_transition.principal_id = NEW.principal_id
+            AND previous_transition.item_id = NEW.item_id
         ), (
           SELECT item.creation_event_sequence FROM memory_items item
           WHERE item.principal_id = NEW.principal_id AND item.item_id = NEW.item_id
@@ -1833,6 +1837,8 @@ WHEN EXISTS (
         AND json_extract(command.envelope_json, '$.payload.newDisplayName') IS NEW.new_display_name
         AND json_extract(command.envelope_json, '$.payload.newNormalizedName') IS NEW.new_normalized_name
         AND json_extract(command.envelope_json, '$.payload.mergeTargetTopicId') IS NEW.merge_target_topic_id
+        AND json(json_extract(command.envelope_json, '$.payload.addedAliases'))
+          = json(NEW.added_aliases_json)
     )
   )
   OR (
@@ -1904,6 +1910,18 @@ WHEN EXISTS (
       )
       OR NEW.previous_display_name = NEW.new_display_name
       OR NEW.previous_normalized_name = NEW.new_normalized_name
+      OR EXISTS (
+        SELECT 1
+        FROM memory_topics source
+        JOIN memory_topics sibling
+          ON sibling.principal_id = source.principal_id
+          AND sibling.parent_topic_id IS source.parent_topic_id
+          AND sibling.topic_id <> source.topic_id
+          AND sibling.status = 'active'
+          AND sibling.normalized_name = NEW.new_normalized_name
+        WHERE source.principal_id = NEW.principal_id
+          AND source.topic_id = NEW.topic_id
+      )
       OR json_array_length(NEW.reparented_child_ids_json) <> 0
       OR json_array_length(NEW.moved_placement_ids_json) <> 0
       OR json_array_length(NEW.added_aliases_json) = 0
@@ -1926,6 +1944,18 @@ WHEN EXISTS (
           AND parent.status = 'active'
       )
       OR NEW.topic_id = NEW.new_parent_topic_id
+      OR EXISTS (
+        SELECT 1
+        FROM memory_topics source
+        JOIN memory_topics sibling
+          ON sibling.principal_id = source.principal_id
+          AND sibling.parent_topic_id = NEW.new_parent_topic_id
+          AND sibling.topic_id <> source.topic_id
+          AND sibling.status = 'active'
+          AND sibling.normalized_name = source.normalized_name
+        WHERE source.principal_id = NEW.principal_id
+          AND source.topic_id = NEW.topic_id
+      )
       OR EXISTS (
         WITH RECURSIVE
         ancestors(topic_id, parent_topic_id, depth) AS (
@@ -2039,6 +2069,34 @@ WHEN EXISTS (
           AND NOT EXISTS (
             SELECT 1 FROM json_each(NEW.reparented_child_ids_json) entry
             WHERE entry.value = child.topic_id
+          )
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM memory_topics child
+        JOIN memory_topics sibling
+          ON sibling.principal_id = child.principal_id
+          AND sibling.parent_topic_id = NEW.merge_target_topic_id
+          AND sibling.topic_id <> child.topic_id
+          AND sibling.status = 'active'
+          AND sibling.normalized_name = child.normalized_name
+        WHERE child.principal_id = NEW.principal_id
+          AND child.parent_topic_id = NEW.topic_id
+          AND child.status = 'active'
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM memory_topics child
+        JOIN memory_topic_events child_event
+          ON child_event.principal_id = child.principal_id
+          AND child_event.topic_event_id = child.last_topic_event_id
+        WHERE child.principal_id = NEW.principal_id
+          AND child.parent_topic_id = NEW.topic_id
+          AND child.status = 'active'
+          AND NOT (
+            NEW.occurred_at > child_event.occurred_at
+            OR (NEW.occurred_at = child_event.occurred_at
+              AND NEW.topic_event_id > child_event.topic_event_id)
           )
       )
       OR json_array_length(NEW.moved_placement_ids_json) <> (
@@ -2801,6 +2859,7 @@ WHEN EXISTS (
     SELECT 1 FROM memory_cost_ledger entry
     WHERE entry.cost_entry_id = NEW.cost_entry_id
   )
+  OR NEW.occurred_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+5 minutes')
   OR NOT EXISTS (
     SELECT 1 FROM memory_runs run
     WHERE run.principal_id = NEW.principal_id

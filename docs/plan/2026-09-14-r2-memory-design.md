@@ -121,6 +121,9 @@ the raw receipt; results are verified against the R2 segment before use.
 - IDs are ULIDs; timestamps are UTC ISO-8601 milliseconds; money is stored as
   integer micros; bounded text refuses redaction-changing or control-character
   input rather than silently rewriting it.
+- Every ordinary text-key table is `WITHOUT ROWID`, closing SQLite's hidden
+  rowid replacement path. Only the three FTS5 content tables retain explicit
+  integer rowid aliases used by their external-content projections.
 - Immutable ledger tables reject UPDATE and DELETE. Owner correction,
   supersession and forget append a version or transition.
 - A suppression is active when no `memory_event_suppression_lifts` row names
@@ -146,6 +149,13 @@ the raw receipt; results are verified against the R2 segment before use.
   before the runtime command producer is enabled. That ingress constraint is
   deliberately not smuggled into `0016`, which only adds memory tables and
   their guards.
+- The current archive receipt contains neither principal nor event type.
+  Consequently, the archived half of a range-suppression count is a count of
+  archived event receipts, while the live half is a count of accepted owner
+  conversation turns. The runtime and owner receipt must label this asymmetry
+  explicitly and reproduce the schema calculation exactly. A later archive
+  catalog migration may restore uniformly owner-and-type-scoped turn counts;
+  `0016` does not claim that stronger guarantee.
 - A model-proposed version is always `origin = model` and uncertain. It cannot
   set lifecycle state, claim owner origin, self-confirm or authorize a topic
   operation.
@@ -394,7 +404,10 @@ searchable as history regardless of whether the distilled proposal is active.
 ## 8. Owner controls and receipts
 
 - **`/remember`** stores Sid's supplied text immediately without a model call,
-  after the normal redaction and bounds checks, and files it into the tree.
+  after the normal redaction and bounds checks, and files it into the tree. The
+  item's creation receipt is the original accepted owner conversation turn;
+  the later dedicated `memory.owner_command` is separate authorization for the
+  exact transition. The command is never reused as the creation event.
 - **`/why <words>`** is deterministic. It shows matching memory state,
   uncertainty, topic path, source date/channel, verified excerpt and stable
   event id. A model never composes the receipt.
@@ -511,7 +524,11 @@ USD 5 monthly pool, so re-distilling old history cannot starve hourly memory.
 Normal distillation has dispatch priority if both queues contend for provider
 credit. For a date-range job, each run's concrete first and last event must
 belong to the owner and fall inside the authorized day range, and no owner event
-inside that sequence interval may fall outside it. Only a pending or running,
+inside that sequence interval may fall outside it. In `0016`, dates mean UTC
+calendar days and this mode is limited to history still present in live D1,
+because the archive receipt has no occurrence timestamp. Reprocessing purged or
+R2-only history therefore uses an explicit sequence-range job; a date-range job
+must fail closed rather than claim archived coverage. Only a pending or running,
 non-dry-run job may reserve spend. A run may still settle or release its open
 reservation after the job reaches a terminal state, so cancellation and failure
 cannot strand money in the ledger. Reprocessing checkpoints progress, is
