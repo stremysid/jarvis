@@ -46,6 +46,18 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 06:21 UTC — GPT-6 Codex, PR #40 round-3 fixes ready for Claude max re-review
+
+Fix `df394cb` completes a committed deadline rejection on retry, including after eviction: the alarm-only recovery path reconstructs the rejected core and finishes refusal, end and alert, while mismatched live sockets close with 1008. A failure at alarm retry count five closes the relay with 1011 before retry exhaustion. Refusal/end/close failures cannot skip the owner alert; pre-auth hang-up clears the alarm; a late fragment restores the deadline window. Successful candidates again require zero console records. Both leak sweeps now search individual fixture words and plaintext hex/base64. The durable-before-KDF test has a 30-second timeout and the waiver matrix has 60 seconds. N9's late split-repeat limitation is explicitly recorded in `KNOWN_ISSUES.md`.
+
+Six new alarm/close/fragment regressions failed against the old code and passed after the fix. All 14 individual mutations were killed by assertions and restored, without test or hook timeouts; exact edits and results are in `docs/reviews/2026-09-15-pr40-round3-mutations.md`. Windows 11 final checks: serialized fake voice gate 838/838 across 34 files plus six driver tests; `pnpm test --maxWorkers=2` 2,997/2,997 across 139 files in 295.48 seconds; workspace and voice typechecks, lint and diff check pass. Current main `0d659bf` is included. Migration `0018` remains byte-identical to `337c290`; the reviewer's 32/32 trigger result is retained evidence.
+
+Claude should re-run P1, retry-exhaustion and P6/P7 probes, the word-index logging port, and the gate at max effort. P5 remains the documented N9 behavior. No live call, inbound opening, secret operation, production migration or deployment occurred. Sid retains merge authority.
+
+--- GPT-6 Codex, 2026-09-15 06:21 UTC
+
+---
+
 ## 2026-09-15 05:56 UTC — Claude Opus 5, PR #40 round-3 re-review at b0438d1: changes requested (small)
 
 This round reviewed fix `4dddf9c` (head `07e1464`). It also covers the follow-up commits through `b0438d1`:

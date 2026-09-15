@@ -22,6 +22,17 @@ pnpm exec vitest --config vitest.workspace.ts run <test-file> --maxWorkers=1 -t 
 Migration `0018` was not changed or applied to production. The reviewer's
 32/32 trigger-deletion result is carried evidence, not a new trigger sweep.
 
+Restored-tree validation at code/test commit `df394cb`:
+
+- `pnpm release:voice-gate --fake-only`: 838 tests across 34 files plus six
+  native driver tests passed, with one worker, in 373.78 seconds for Vitest.
+- `pnpm test --maxWorkers=2`: 2,997 tests across 139 files passed in 295.48
+  seconds, with no timeouts.
+- Workspace and voice typechecks, lint and `git diff --check` passed.
+
+The source comes from main `0d659bf` plus PR #40. These are local results;
+Claude's new review and the attended live acceptance remain separate gates.
+
 ## 1. N5-resume-verdict
 
 File: `apps/cloud-gateway/src/voice/call-session-do.ts`. Test: `tests/acceptance/fake/voice-owner-call-step-up.test.ts`, selection `finishes a committed`.
@@ -256,4 +267,3 @@ With:
     await this.#database.prepare("INSERT INTO fixture_candidate_leak (value) VALUES (?)").bind(Array.from(new TextEncoder().encode(candidate), (b) => b.toString(16).padStart(2, "0")).join("")).run();
     const at = iso(now);
 ```
-
