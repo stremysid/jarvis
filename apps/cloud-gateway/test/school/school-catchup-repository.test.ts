@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
-import type { Ulid } from "../../../../packages/contracts/src/index.js";
+import { newUlid, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { ConversationRepository } from "../../src/conversation/conversation-repository.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
@@ -55,6 +55,60 @@ beforeAll(async () => {
 });
 
 describe("SchoolCatchupRepository", () => {
+  it("clamps valid legacy rows that exceed the read caps", async () => {
+    const principalId = "principal:school-read-clamp";
+    const courseIds = Array.from({ length: 13 }, (_, index) => newUlid(new Date(NOW.getTime() + index)));
+    const courseRows = courseIds.map((courseId, index) => ({
+      principal_id: principalId,
+      course_id: courseId,
+      course_name: `Course ${index}`,
+      course_name_source: "owner_reported",
+      platform_name: null,
+      platform_source: null,
+    }));
+    const factRows = Array.from({ length: 17 }, (_, index) => ({
+      principal_id: principalId,
+      course_id: courseIds[0]!,
+      fact_id: newUlid(new Date(NOW.getTime() + 100 + index)),
+      fact_kind: "weak_area",
+      statement: `Weak area ${index}`,
+      evidence_source: "owner_reported",
+      observed_at: NOW.toISOString(),
+      status: "active",
+      resolved_at: null,
+    }));
+    const actionRows = Array.from({ length: 22 }, (_, index) => ({
+      principal_id: principalId,
+      action_id: newUlid(new Date(NOW.getTime() + 200 + index)),
+      course_id: courseIds[index % 12]!,
+      course_name: `Course ${index % 12}`,
+      local_date: TODAY,
+      sequence_rank: 1,
+      action_text: `Action ${index}`,
+      estimated_minutes: 10,
+      status: "planned",
+    }));
+    const database = {
+      prepare(query: string) {
+        const results = query.includes("FROM school_course_cards")
+          ? courseRows
+          : query.includes("FROM school_course_facts")
+            ? factRows
+            : actionRows;
+        const statement = {
+          bind: () => statement,
+          all: async () => ({ results }),
+        };
+        return statement;
+      },
+    } as unknown as D1Database;
+
+    const snapshot = await new SchoolCatchupRepository(database).readSnapshot(principalId, TODAY);
+    expect(snapshot.courses).toHaveLength(12);
+    expect(snapshot.courses[0]?.ownerReportedFacts).toHaveLength(16);
+    expect(snapshot.courses.filter((course) => course.currentNextAction !== null)).toHaveLength(12);
+  });
+
   it("keeps one course card with separately labelled evidence and a current next action", async () => {
     const principalId = "principal:school-cards";
     const turnId = "01k5fb9pg00000000000000600" as Ulid;
@@ -98,7 +152,7 @@ describe("SchoolCatchupRepository", () => {
     ]);
   });
 
-  it("replans after a check-in while retaining completed and superseded history", async () => {
+  it("replans after a check-in while pruning resolved facts and superseded actions", async () => {
     const principalId = "principal:school-replan";
     const firstTurn = "01k5fb9pg00000000000000610" as Ulid;
     await seedTelegramTurn(principalId, firstTurn, "I need a chemistry catch-up plan.");
@@ -155,11 +209,107 @@ describe("SchoolCatchupRepository", () => {
     expect(history.results).toEqual([
       { status: "completed", count: 1 },
       { status: "planned", count: 1 },
-      { status: "superseded", count: 1 },
     ]);
+    const resolvedFacts = await env.DB.prepare(`SELECT COUNT(*) AS count FROM school_course_facts
+      WHERE principal_id = ?1 AND status = 'resolved'`).bind(principalId).first<{ count: number }>();
+    expect(resolvedFacts?.count).toBe(0);
     const receipts = await env.DB.prepare(`SELECT COUNT(*) AS count FROM school_catchup_turn_receipts
       WHERE principal_id = ?1`).bind(principalId).first<{ count: number }>();
     expect(receipts?.count).toBe(2);
+  });
+
+  it("stores a re-reported resolved owner fact as a new active fact", async () => {
+    const principalId = "principal:school-fact-rereported";
+    const firstTurn = "01k5fb9pg00000000000000640" as Ulid;
+    await seedTelegramTurn(principalId, firstTurn, "I missed the acid-base lab.");
+    const repository = new SchoolCatchupRepository(env.DB);
+    await repository.applyOwnerPlan({
+      principalId, turnId: firstTurn, today: TODAY, responseHash: "1".repeat(64), plan: initialPlan(), now: NOW,
+    });
+    const first = await repository.readSnapshot(principalId, TODAY);
+    const course = first.courses[0]!;
+    const fact = course.ownerReportedFacts.find((item) => item.kind === "missed_work")!;
+
+    const addTurn = async (turnId: Ulid, text: string, now: Date): Promise<void> => {
+      const redacted = new Redactor().redactText(text);
+      if (!redacted.ok) throw new Error("school_fixture_redaction_failed");
+      await new ConversationRepository(env.DB, new EventRepository(env.DB)).getOrCreateTurn({
+        turnId,
+        sessionId: `telegram:${principalId}`,
+        principalId,
+        channel: "telegram",
+        userText: redacted,
+        now,
+      });
+    };
+    const secondTurn = "01k5fb9pg00000000000000641" as Ulid;
+    const secondNow = new Date("2026-09-15T12:00:00.000Z");
+    await addTurn(secondTurn, "That lab is handled now.", secondNow);
+    await repository.applyOwnerPlan({
+      principalId,
+      turnId: secondTurn,
+      today: TODAY,
+      responseHash: "2".repeat(64),
+      now: secondNow,
+      plan: {
+        engaged: true,
+        reply: "Resolved.",
+        courseUpdates: [{
+          courseRef: course.courseId,
+          name: null,
+          platform: null,
+          addFacts: [],
+          resolveFactIds: [fact.factId],
+        }],
+        completeActionIds: [],
+        plan: [{
+          courseRef: course.courseId,
+          localDate: TODAY,
+          sequenceRank: 1,
+          text: "Review the next lesson",
+          estimatedMinutes: 20,
+        }],
+      },
+    });
+
+    const thirdTurn = "01k5fb9pg00000000000000642" as Ulid;
+    const thirdNow = new Date("2026-09-15T12:30:00.000Z");
+    await addTurn(thirdTurn, "Actually, I still missed the acid-base lab.", thirdNow);
+    await repository.applyOwnerPlan({
+      principalId,
+      turnId: thirdTurn,
+      today: TODAY,
+      responseHash: "3".repeat(64),
+      now: thirdNow,
+      plan: {
+        engaged: true,
+        reply: "I put it back on the active catch-up list.",
+        courseUpdates: [{
+          courseRef: course.courseId,
+          name: null,
+          platform: null,
+          addFacts: [{ kind: "missed_work", statement: "The acid-base lab was missed during the absence" }],
+          resolveFactIds: [],
+        }],
+        completeActionIds: [],
+        plan: [{
+          courseRef: course.courseId,
+          localDate: TODAY,
+          sequenceRank: 1,
+          text: "Recover the acid-base lab",
+          estimatedMinutes: 25,
+        }],
+      },
+    });
+
+    const current = await repository.readSnapshot(principalId, TODAY);
+    const rereported = current.courses[0]?.ownerReportedFacts
+      .find((item) => item.kind === "missed_work");
+    expect(rereported).toMatchObject({
+      statement: "The acid-base lab was missed during the absence",
+      status: "active",
+    });
+    expect(rereported?.factId).not.toBe(fact.factId);
   });
 
   it("rejects an unrealistic day atomically", async () => {
@@ -204,5 +354,102 @@ describe("SchoolCatchupRepository", () => {
       principalId, turnId, today: TODAY, responseHash: "e".repeat(64), plan, now: NOW,
     })).rejects.toThrow("school_catchup_course_limit_exceeded");
     await expect(repository.readSnapshot(principalId, TODAY)).resolves.toMatchObject({ courses: [] });
+  });
+
+  it("keeps the persisted course set readable when two concurrent plans race the cap", async () => {
+    const principalId = "principal:school-concurrent-cap";
+    const seedTurn = "01k5fb9pg00000000000000650" as Ulid;
+    await seedTelegramTurn(principalId, seedTurn, "Here are eleven of my courses.");
+    const repository = new SchoolCatchupRepository(env.DB);
+    const courseUpdates = Array.from({ length: 11 }, (_, index) => ({
+      courseRef: `new-${index + 1}`,
+      name: `Course ${index + 1}`,
+      platform: null,
+      addFacts: [],
+      resolveFactIds: [],
+    }));
+    const dates = Array.from({ length: 7 }, (_, index) =>
+      new Date(Date.UTC(2026, 8, 15 + index)).toISOString().slice(0, 10));
+    await repository.applyOwnerPlan({
+      principalId,
+      turnId: seedTurn,
+      today: TODAY,
+      responseHash: "4".repeat(64),
+      now: NOW,
+      plan: {
+        engaged: true,
+        reply: "Seeded.",
+        courseUpdates,
+        completeActionIds: [],
+        plan: courseUpdates.map((course, index) => ({
+          courseRef: course.courseRef,
+          localDate: dates[Math.floor(index / 2)]!,
+          sequenceRank: index % 2 + 1,
+          text: `Catch up course ${index + 1}`,
+          estimatedMinutes: 15,
+        })),
+      },
+    });
+    const current = await repository.readSnapshot(principalId, TODAY);
+    expect(current.courses).toHaveLength(11);
+
+    const addTurn = async (turnId: Ulid, now: Date): Promise<void> => {
+      const redacted = new Redactor().redactText("I also take one more course.");
+      if (!redacted.ok) throw new Error("school_fixture_redaction_failed");
+      await new ConversationRepository(env.DB, new EventRepository(env.DB)).getOrCreateTurn({
+        turnId,
+        sessionId: `telegram:${principalId}`,
+        principalId,
+        channel: "telegram",
+        userText: redacted,
+        now,
+      });
+    };
+    const firstTurn = "01k5fb9pg00000000000000651" as Ulid;
+    const secondTurn = "01k5fb9pg00000000000000652" as Ulid;
+    const firstNow = new Date("2026-09-15T12:00:00.000Z");
+    const secondNow = new Date("2026-09-15T12:00:01.000Z");
+    await addTurn(firstTurn, firstNow);
+    await addTurn(secondTurn, secondNow);
+    const racingPlan = (name: string): OwnerCatchupPlan => ({
+      engaged: true,
+      reply: `Added ${name}.`,
+      courseUpdates: [{ courseRef: "new-1", name, platform: null, addFacts: [], resolveFactIds: [] }],
+      completeActionIds: [],
+      plan: [
+        ...current.courses.map((course, index) => ({
+          courseRef: course.courseId,
+          localDate: dates[Math.floor(index / 2)]!,
+          sequenceRank: index % 2 + 1,
+          text: `Continue ${course.name}`,
+          estimatedMinutes: 15,
+        })),
+        {
+          courseRef: "new-1",
+          localDate: dates[5]!,
+          sequenceRank: 2,
+          text: `Start ${name}`,
+          estimatedMinutes: 15,
+        },
+      ],
+    });
+    const results = await Promise.allSettled([
+      repository.applyOwnerPlan({
+        principalId, turnId: firstTurn, today: TODAY, responseHash: "5".repeat(64),
+        plan: racingPlan("Course 12A"), now: firstNow,
+      }),
+      repository.applyOwnerPlan({
+        principalId, turnId: secondTurn, today: TODAY, responseHash: "6".repeat(64),
+        plan: racingPlan("Course 12B"), now: secondNow,
+      }),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+    await expect(repository.readSnapshot(principalId, TODAY)).resolves.toMatchObject({
+      courses: expect.arrayContaining(current.courses.map((course) => expect.objectContaining({ courseId: course.courseId }))),
+    });
+    const after = await repository.readSnapshot(principalId, TODAY);
+    expect(after.courses).toHaveLength(12);
   });
 });

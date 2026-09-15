@@ -161,6 +161,26 @@ BEGIN
   );
 END;
 
+CREATE TRIGGER school_course_cards_active_cap_insert
+BEFORE INSERT ON school_course_cards
+WHEN NEW.active = 1
+BEGIN
+  SELECT RAISE(ABORT, 'school_course_card_limit_exceeded') WHERE (
+    SELECT COUNT(*) FROM school_course_cards
+    WHERE principal_id = NEW.principal_id AND active = 1
+  ) >= 12;
+END;
+
+CREATE TRIGGER school_course_cards_active_cap_update
+BEFORE UPDATE ON school_course_cards
+WHEN OLD.active = 0 AND NEW.active = 1
+BEGIN
+  SELECT RAISE(ABORT, 'school_course_card_limit_exceeded') WHERE (
+    SELECT COUNT(*) FROM school_course_cards
+    WHERE principal_id = NEW.principal_id AND active = 1
+  ) >= 12;
+END;
+
 CREATE TRIGGER school_course_cards_require_owner_turn_insert
 BEFORE INSERT ON school_course_cards
 BEGIN
@@ -187,7 +207,20 @@ CREATE TRIGGER school_course_cards_primary_key_immutable
 BEFORE UPDATE ON school_course_cards
 BEGIN
   SELECT RAISE(ABORT, 'school_course_card_primary_key_immutable')
-  WHERE NEW.principal_id IS NOT OLD.principal_id OR NEW.course_id IS NOT OLD.course_id;
+  WHERE NEW.principal_id IS NOT OLD.principal_id
+    OR NEW.course_id IS NOT OLD.course_id
+    OR NEW.created_at IS NOT OLD.created_at;
+END;
+
+CREATE TRIGGER school_course_cards_course_key_unique_update
+BEFORE UPDATE ON school_course_cards
+BEGIN
+  SELECT RAISE(ABORT, 'school_course_card_course_key_conflict') WHERE EXISTS (
+    SELECT 1 FROM school_course_cards
+    WHERE principal_id = NEW.principal_id
+      AND course_key = NEW.course_key
+      AND course_id IS NOT OLD.course_id
+  );
 END;
 
 CREATE TRIGGER school_course_cards_reject_delete
@@ -212,6 +245,21 @@ BEGIN
         )
       )
   );
+END;
+
+CREATE TRIGGER school_course_facts_active_cap_insert
+BEFORE INSERT ON school_course_facts
+WHEN NEW.status = 'active'
+BEGIN
+  SELECT RAISE(ABORT, 'school_course_fact_limit_exceeded') WHERE (
+    SELECT COUNT(*) FROM school_course_facts
+    WHERE principal_id = NEW.principal_id AND status = 'active'
+  ) >= 48 OR (
+    SELECT COUNT(*) FROM school_course_facts
+    WHERE principal_id = NEW.principal_id
+      AND course_id = NEW.course_id
+      AND status = 'active'
+  ) >= 16;
 END;
 
 CREATE TRIGGER school_course_facts_require_owner_turn
@@ -252,6 +300,7 @@ END;
 
 CREATE TRIGGER school_course_facts_reject_delete
 BEFORE DELETE ON school_course_facts
+WHEN OLD.status != 'resolved'
 BEGIN
   SELECT RAISE(ABORT, 'school_course_fact_delete_forbidden');
 END;
@@ -263,6 +312,26 @@ BEGIN
     SELECT 1 FROM school_catchup_actions
     WHERE principal_id = NEW.principal_id AND action_id = NEW.action_id
   );
+END;
+
+CREATE TRIGGER school_catchup_actions_planned_cap_insert
+BEFORE INSERT ON school_catchup_actions
+WHEN NEW.status = 'planned'
+BEGIN
+  SELECT RAISE(ABORT, 'school_catchup_action_limit_exceeded') WHERE (
+    SELECT COUNT(*) FROM school_catchup_actions
+    WHERE principal_id = NEW.principal_id AND status = 'planned'
+  ) >= 21 OR (
+    SELECT COUNT(*) FROM school_catchup_actions
+    WHERE principal_id = NEW.principal_id
+      AND local_date = NEW.local_date
+      AND status = 'planned'
+  ) >= 3 OR COALESCE((
+    SELECT SUM(estimated_minutes) FROM school_catchup_actions
+    WHERE principal_id = NEW.principal_id
+      AND local_date = NEW.local_date
+      AND status = 'planned'
+  ), 0) + NEW.estimated_minutes > 180;
 END;
 
 CREATE TRIGGER school_catchup_actions_require_plan_turn
@@ -302,6 +371,7 @@ END;
 
 CREATE TRIGGER school_catchup_actions_reject_delete
 BEFORE DELETE ON school_catchup_actions
+WHEN OLD.status != 'superseded'
 BEGIN
   SELECT RAISE(ABORT, 'school_catchup_action_delete_forbidden');
 END;

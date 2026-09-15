@@ -278,8 +278,8 @@ export function compose(
 
   const gaps = gapSection(input.gaps);
   const candidates = [
-    catchupSection(input.catchupActions),
     deadlineSection(input, now, horizon),
+    catchupSection(input.catchupActions),
     projectSection(input),
     decisionSection(input),
     gaps,

@@ -176,7 +176,7 @@ describe("deadlines", () => {
 });
 
 describe("today's school catch-up", () => {
-  it("puts the realistic daily sequence ahead of deadline feeds and neutralises course text", () => {
+  it("keeps real deadlines ahead of the proposed sequence and neutralises course text", () => {
     const digest = compose(
       {
         ...empty(),
@@ -198,9 +198,37 @@ describe("today's school catch-up", () => {
       "1. ChemistryCould not be read: Finish the lab notes (25 min)",
       "2. Calculus: Do questions 4-8 (35 min)",
     ]);
-    expect(digest.sections.indexOf(section!)).toBeLessThan(
-      digest.sections.findIndex((entry) => entry.heading === "Due"),
+    expect(digest.sections.findIndex((entry) => entry.heading === "Due")).toBeLessThan(
+      digest.sections.indexOf(section!),
     );
+  });
+
+  it("keeps due dates when an oversized proposed sequence must be trimmed", () => {
+    const digest = compose(
+      {
+        ...empty(),
+        catchupActions: Array.from({ length: 100 }, (_, index) => ({
+          actionId: `action-${index}`,
+          course: `Course ${index}`,
+          text: `Proposed study step ${index} ${"x".repeat(220)}`,
+          sequenceRank: index + 1,
+          estimatedMinutes: 20,
+        })),
+        deadlines: [{
+          deadlineId: "deadline-protected",
+          course: "Calculus",
+          title: "Teacher-set final assignment",
+          dueAt: "2026-09-02T18:00:00.000Z",
+          effort: "other",
+        }],
+      },
+      daily(),
+      clockAt("2026-09-02T11:30:00.000Z"),
+    );
+
+    expect(digest.truncated).toBe(true);
+    expect(digest.text).toContain("Teacher-set final assignment");
+    expect(digest.sections.some((section) => section.heading === "Due")).toBe(true);
   });
 });
 
