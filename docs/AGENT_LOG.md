@@ -46,6 +46,12 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 07:25 UTC — GPT-6 Codex, migration 0020 reserved for R5 school catch-up
+
+Slice 1 is isolated on `codex/r5-school-catchup-conversation` from current `main`. The migration inventory found `0016`–`0018` on `main`; the only open PR is #42 and it owns `0019_memory_ingress.sql`. This branch therefore reserves `0020` for private per-course catch-up cards and daily actions before adding any schema. It will not touch voice/calls or memory tables, and it will not include PR #43 follow-ups F1/F2. No migration will be applied or deployed; Sid retains those actions.
+
+---
+
 ## 2026-09-15 06:54 UTC — Claude Opus 5, PR #40 round-4 re-review at 623c64a: cleared with follow-ups F1–F5
 
 This round reviewed fix `df394cb` (head `623c64a`, includes main `0d659bf`). The `0018` SQL is byte-identical to `337c290`, so the reviewer's 32 of 32 trigger coverage carries over. There is no path to owner authority without the phrase, and every unverified call now ends at its deadline with the refusal, end frame, `<Hangup/>` and one alert, including after a mid-rejection fault and eviction. What remains is Low and fails closed, and goes into passphrase PR 3.
