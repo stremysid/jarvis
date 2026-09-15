@@ -288,15 +288,16 @@ between items, but production, secrets, merging and consequential actions
 remain his. After R0 passes, R1 requires Claude Opus 5 **max** review under
 BUILDING.md; the cross-vendor gate and stop rules remain in force.
 
-## Built and unwired
+## Built and configuration-gated
 
-These have code and tests and nothing calls them yet.
+These have code and tests but still need owner configuration or a later slice.
 
-- **Google Classroom ingestion.** `classroom-client.ts` and
-  `deadline-ingestion.ts` exist; the hourly poll job does not call them,
-  because no deployment holds the Google OAuth credentials. Until it does,
-  `deadline_sources` has nothing writing to it and the deadline half of the
-  digest is empty rather than stale.
+- **Google Classroom ingestion.** The R5 code candidate wires
+  `classroom-client.ts` and `deadline-ingestion.ts` into the hourly poll behind
+  all three Google OAuth bindings. With no bindings it performs no Google call;
+  partial or failed configuration becomes visible source health in the digest.
+  It is a draft PR, not deployed, and Sid's OAuth consent remains an owner-run
+  step in [`docs/runbooks/google-classroom-oauth.md`](docs/runbooks/google-classroom-oauth.md).
 - **The Brightspace scrape.** Deliberately not built. It needs a real browser
   session and belongs in the local agent. `RawDeadlineItem` is the interface
   it feeds.
