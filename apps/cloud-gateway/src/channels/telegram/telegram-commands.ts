@@ -21,6 +21,7 @@ const COMMAND_PATTERN = /^\/([a-z_]{1,32})(?:@([A-Za-z0-9_]{1,32}))?(?:\s+([\s\S
 // Migration 0017 binds the state change to one exact lowercase bare receipt.
 // Near forms still route here so the model cannot improvise around the gate.
 const OWNER_STEP_UP_COMMAND_PATTERN = /^\/(disable-owner-step-up)(?:@([A-Za-z0-9_]{1,32}))?(?:\s+([\s\S]*))?$/iu;
+const OWNER_STEP_UP_NEAR_PATTERN = /^\/disable[-\u2010-\u2015\u2212\ufe58\ufe63\uff0d]owner[-\u2010-\u2015\u2212\ufe58\ufe63\uff0d]step(?:[-\u2010-\u2015\u2212\ufe58\ufe63\uff0d]?)up(?:@([A-Za-z0-9_]{1,32}))?[\s\S]*$/iu;
 
 export type CommandName =
   | "help"
@@ -86,19 +87,22 @@ export function parseCommand(text: string, botUsername: string | null): CommandP
   // message, and a pasted block below a command should not become part of it.
   const firstLine = line.split("\n", 1)[0] ?? "";
   const ownerStepUpMatch = OWNER_STEP_UP_COMMAND_PATTERN.exec(firstLine);
-  const ordinaryMatch = ownerStepUpMatch === null ? COMMAND_PATTERN.exec(firstLine) : null;
+  const ownerStepUpNearMatch = ownerStepUpMatch === null ? OWNER_STEP_UP_NEAR_PATTERN.exec(firstLine) : null;
+  const ownerStepUpLike = ownerStepUpMatch ?? ownerStepUpNearMatch;
+  const ordinaryMatch = ownerStepUpLike === null ? COMMAND_PATTERN.exec(firstLine) : null;
   // A slash followed by something that is not a command shape -- "/", "/123",
   // or any other hyphenated name -- is text. Reporting it as unknown would mean
   // replying "unknown command" to a message that never was one.
-  if (ownerStepUpMatch === null && ordinaryMatch === null) return { kind: "text" };
+  if (ownerStepUpLike === null && ordinaryMatch === null) return { kind: "text" };
 
   const matchedName = ownerStepUpMatch?.[1] ?? ordinaryMatch?.[1] ?? "";
-  const name = ownerStepUpMatch === null ? matchedName : "disable-owner-step-up";
-  const addressed = ownerStepUpMatch?.[2] ?? ordinaryMatch?.[2];
+  const name = ownerStepUpLike === null ? matchedName : "disable-owner-step-up";
+  const addressed = ownerStepUpMatch?.[2] ?? ownerStepUpNearMatch?.[1] ?? ordinaryMatch?.[2];
   const rest = ownerStepUpMatch?.[3] ?? ordinaryMatch?.[3];
   if (
     addressed !== undefined
     && botUsername !== null
+    && ownerStepUpLike === null
     // Telegram usernames are case-insensitive.
     && addressed.toLowerCase() !== botUsername.toLowerCase()
   ) {
@@ -113,7 +117,7 @@ export function parseCommand(text: string, botUsername: string | null): CommandP
     // A call must validate all the supplied text. Truncation or ignoring a
     // second line could turn a non-final --confirm into permission to dial.
     argument: name === "disable-owner-step-up"
-      ? matchedName === name && addressed === undefined
+      ? ownerStepUpMatch !== null && matchedName === name && addressed === undefined
         ? line.slice(1 + name.length).trim()
         : ""
       : name === "call"

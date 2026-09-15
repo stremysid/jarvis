@@ -61,7 +61,16 @@ describe("recognising a command", () => {
     expect(parse("/Disable-Owner-Step-Up --confirm")).toEqual({
       kind: "command", name: "disable-owner-step-up", argument: "", addressedTo: null,
     });
-    expect(parse("/disable-owner-step-up@some_other_bot --confirm")).toEqual({ kind: "text" });
+    expect(parse("/disable-owner-step-up@some_other_bot --confirm")).toEqual({
+      kind: "command", name: "disable-owner-step-up", argument: "", addressedTo: "some_other_bot",
+    });
+    for (const text of [
+      "/disable-owner-step-up--confirm",
+      "/disable-owner-stepup --confirm",
+      "/disable\u2011owner\u2011step\u2011up --confirm",
+    ]) {
+      expect(parse(text)).toMatchObject({ kind: "command", name: "disable-owner-step-up", argument: "" });
+    }
     expect(parse("/not-a-command")).toEqual({ kind: "text" });
     expect(parse("/enable-owner-step-up --confirm")).toEqual({ kind: "text" });
   });

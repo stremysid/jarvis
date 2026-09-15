@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { D1OwnerStepUpAlertSink } from "../../src/voice/owner-call-step-up.js";
 import {
   applyOwnerCallStepUpMigration,
@@ -83,6 +83,35 @@ describe("owner call step-up alert coalescing", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]).not.toMatch(/attestation/iu);
     expect(sent[0]).toContain("outbound owner call");
+  });
+
+  it("releases a failed delivery claim so the same rejection can retry immediately", async () => {
+    const sendMessage = vi.fn()
+      .mockRejectedValueOnce(new Error("telegram_unavailable"))
+      .mockResolvedValueOnce({ providerMessageId: "2" });
+    const sink = new D1OwnerStepUpAlertSink(env.DB, { sendMessage });
+    const alert = () => sink.alert({
+      ownerPrincipalId: OWNER,
+      alertClass: "rejected" as const,
+      direction: "inbound" as const,
+      attestationClass: "absent" as const,
+      now: NOW,
+    });
+
+    await expect(alert()).rejects.toThrow("telegram_unavailable");
+    await expect(env.DB.prepare(`SELECT last_sent_at, claim_id, claim_expires_at
+      FROM owner_call_step_up_alerts WHERE owner_principal_id = ? AND alert_class = 'rejected'
+        AND direction = 'inbound'`).bind(OWNER).first()).resolves.toEqual({
+      last_sent_at: null, claim_id: null, claim_expires_at: null,
+    });
+
+    await expect(alert()).resolves.toBeUndefined();
+    expect(sendMessage).toHaveBeenCalledTimes(2);
+    await expect(env.DB.prepare(`SELECT last_sent_at, claim_id, claim_expires_at
+      FROM owner_call_step_up_alerts WHERE owner_principal_id = ? AND alert_class = 'rejected'
+        AND direction = 'inbound'`).bind(OWNER).first()).resolves.toEqual({
+      last_sent_at: NOW.toISOString(), claim_id: null, claim_expires_at: null,
+    });
   });
 
   it("coalesces owner-identity admission refusals under their own fixed alert class", async () => {

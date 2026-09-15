@@ -911,7 +911,16 @@ export class CallSessionCore {
         const binding = await this.#ownerStepUp.binding(this.#session.sessionId);
         if (binding === null) throw new Error("owner_step_up_binding_missing");
         if (binding.requirement === "waived_passed_a") {
-          await this.#ownerStepUp.assertWaiverAvailable(this.#session.sessionId);
+          try {
+            await this.#ownerStepUp.assertWaiverAvailable(this.#session.sessionId);
+          } catch (error) {
+            if (!(error instanceof Error) || error.message !== "owner_step_up_unavailable") throw error;
+            this.#interaction = Object.freeze({ kind: "owner_step_up" });
+            const state = await this.#ownerStepUp.reconcileState(this.#session.sessionId, observedAt);
+            if (state.rejectionReason === null) throw error;
+            await this.#rejectOwnerStepUp(observedAt, true);
+            return;
+          }
           await this.#mintWaivedOwner(observedAt);
         } else if (binding.requirement === "required") {
           let window;
@@ -1200,7 +1209,11 @@ export class CallSessionCore {
     const binding = await this.#ownerStepUp.binding(this.#session.sessionId);
     this.#session = rejected;
     this.#clearOwnerStepUpFragments();
-    if (await this.#ownerStepUp.rejectionDelivered(this.#session.sessionId)) return;
+    if (await this.#ownerStepUp.rejectionDelivered(this.#session.sessionId)) {
+      try { this.#relay.close(1008); }
+      catch { /* The provider may already have closed after the prior end frame. */ }
+      return;
+    }
     try { await this.#relay.sendNeutralText(OWNER_STEP_UP_REJECTED); }
     catch { /* A disconnected caller must not prevent the owner's alert. */ }
     try {
@@ -1212,17 +1225,13 @@ export class CallSessionCore {
       catch { /* The relay may already have closed during verification. */ }
     }
     if (binding !== null && this.#ownerStepUpAlerts !== null) {
-      try {
-        await this.#ownerStepUpAlerts.alert({
-          ownerPrincipalId: binding.ownerPrincipalId,
-          alertClass: "rejected",
-          direction: binding.direction,
-          attestationClass: binding.attestationClass,
-          now: observedAt,
-        });
-      } catch {
-        // Alert delivery is durable and retriable. It cannot reopen or weaken a rejected call.
-      }
+      await this.#ownerStepUpAlerts.alert({
+        ownerPrincipalId: binding.ownerPrincipalId,
+        alertClass: "rejected",
+        direction: binding.direction,
+        attestationClass: binding.attestationClass,
+        now: observedAt,
+      });
     }
     await this.#ownerStepUp.recordRejectionDelivered(this.#session.sessionId, observedAt);
   }
@@ -2141,7 +2150,13 @@ export class CallSession extends DurableObject<Env> {
         binding = await this.env.DB.prepare(`SELECT binding.session_id
           FROM owner_call_step_up_bindings binding
           JOIN call_sessions session ON session.session_id = binding.session_id
-          WHERE binding.session_id = ? AND binding.requirement = 'required'
+          WHERE binding.session_id = ? AND (
+              binding.requirement = 'required'
+              OR binding.requirement = 'waived_passed_a' AND EXISTS (
+                SELECT 1 FROM owner_call_step_up_disabled_rejections disabled
+                WHERE disabled.session_id = binding.session_id
+              )
+            )
             AND session.access_kind = 'owner' AND session.activation_only = 0`)
           .bind(session.sessionId).first<{ session_id: string }>();
       } catch {

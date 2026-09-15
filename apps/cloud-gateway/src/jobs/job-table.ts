@@ -206,6 +206,7 @@ async function drain(context: JobEnvironment): Promise<JobOutcome> {
           botToken: context.env.TELEGRAM_BOT_TOKEN,
           fetchImplementation: context.fetcher,
         }),
+        () => context.clock.now(),
       ).drain(context.clock.now());
     const open = await new DecisionService({
       repository: new DecisionRepository(context.env.DB),

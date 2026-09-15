@@ -1,5 +1,26 @@
 # Known issues
 
+## PR #46 notification delivery retains three bounded at-least-once limits
+
+The guest-grant notice outbox keeps a stable per-mutation idempotency key and
+takes a fresh clock value for each row it claims. The Telegram REST boundary
+does not provide an exactly-once receipt, however. If Telegram accepts a
+message and the delivered-marker write then fails or the isolate stops, a
+retry can send the same notice again.
+
+The drain also has no attempt count or dead-letter policy. A permanently
+undeliverable notice among the oldest ten pending rows can therefore keep
+newer rows outside the bounded batch. Adding that policy requires a product
+decision about retry limits and operator recovery, not an implicit discard in
+this passphrase PR.
+
+Rejection delivery has the same final-marker edge: if the refusal, end frame,
+and owner alert succeed but the rejection-delivery insert fails, a later
+resume can repeat the refusal and alert observation. Repairing that double
+failure requires a multi-stage durable delivery state. These limits must be
+resolved or explicitly accepted before notification delivery is described as
+exactly once.
+
 ## A late split passphrase repeat is ordinary conversation (PR #40 N9)
 
 After the 3.5-second post-verification fragment window, one- and two-word

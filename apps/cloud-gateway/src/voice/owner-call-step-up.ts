@@ -423,7 +423,7 @@ export class OwnerCallStepUpService {
         AND head.owner_principal_id = binding.owner_principal_id
         AND head.owner_identity_id = binding.owner_identity_id
         AND head.status = 'disabled'
-      WHERE binding.session_id = ? AND binding.requirement = 'required'`)
+      WHERE binding.session_id = ? AND binding.requirement IN ('required', 'waived_passed_a')`)
       .bind(sessionId).first<{ session_id: string }>();
     if (disabled === null) return false;
     try {
@@ -520,26 +520,38 @@ export class D1OwnerStepUpAlertSink implements OwnerStepUpAlertSink {
       input.ownerPrincipalId, input.alertClass, input.direction,
     ).first<{ claim_id: string | null; observation_count: number }>();
     if (claimed === null || claimed.claim_id !== claimId) return;
-    const chatId = await new DeviceRepository(this.database).findOwnerTelegramChat(input.ownerPrincipalId);
-    if (chatId === null) throw new Error("owner_step_up_alert_unavailable");
-    const text = input.alertClass === "configuration"
-      ? "Jarvis owner call verification is unavailable because its passphrase configuration is invalid."
-      : input.alertClass === "admission_refused"
-        ? `Jarvis refused an ${input.direction} owner call because all call-session slots were occupied.`
-          + (input.direction === "inbound" ? ` Caller attestation category: ${input.attestationClass}.` : "")
-          + ` Total observations: ${claimed.observation_count}.`
-        : `Jarvis ended an ${input.direction} owner call after passphrase verification failed.`
-          + (input.direction === "inbound" ? ` Caller attestation category: ${input.attestationClass}.` : "")
-          + ` Total observations: ${claimed.observation_count}.`
-          + " To disable spoken owner-call step-up, use /disable-owner-step-up --confirm in your private chat.";
-    const result: TelegramSendMessageResult = await this.telegram.sendMessage({
-      chatId, text, idempotencyKey: `owner-step-up:${input.ownerPrincipalId}:${input.alertClass}:${input.direction}:${at.slice(0, 16)}`,
-    });
-    if (!/^[1-9][0-9]{0,19}$/u.test(result.providerMessageId)) throw new Error("owner_step_up_alert_unavailable");
-    const recorded = await this.database.prepare(`UPDATE owner_call_step_up_alerts
-      SET last_sent_at = ?, claim_id = NULL, claim_expires_at = NULL
-      WHERE owner_principal_id = ? AND alert_class = ? AND direction = ? AND claim_id = ?`)
-      .bind(at, input.ownerPrincipalId, input.alertClass, input.direction, claimId).run();
-    if (recorded.meta.changes !== 1) throw new Error("owner_step_up_alert_unavailable");
+    try {
+      const chatId = await new DeviceRepository(this.database).findOwnerTelegramChat(input.ownerPrincipalId);
+      if (chatId === null) throw new Error("owner_step_up_alert_unavailable");
+      const text = input.alertClass === "configuration"
+        ? "Jarvis owner call verification is unavailable because its passphrase configuration is invalid."
+        : input.alertClass === "admission_refused"
+          ? `Jarvis refused an ${input.direction} owner call because all call-session slots were occupied.`
+            + (input.direction === "inbound" ? ` Caller attestation category: ${input.attestationClass}.` : "")
+            + ` Total observations: ${claimed.observation_count}.`
+          : `Jarvis ended an ${input.direction} owner call after passphrase verification failed.`
+            + (input.direction === "inbound" ? ` Caller attestation category: ${input.attestationClass}.` : "")
+            + ` Total observations: ${claimed.observation_count}.`
+            + " To disable spoken owner-call step-up, use /disable-owner-step-up --confirm in your private chat.";
+      const result: TelegramSendMessageResult = await this.telegram.sendMessage({
+        chatId, text, idempotencyKey: `owner-step-up:${input.ownerPrincipalId}:${input.alertClass}:${input.direction}:${at.slice(0, 16)}`,
+      });
+      if (!/^[1-9][0-9]{0,19}$/u.test(result.providerMessageId)) throw new Error("owner_step_up_alert_unavailable");
+      const recorded = await this.database.prepare(`UPDATE owner_call_step_up_alerts
+        SET last_sent_at = ?, claim_id = NULL, claim_expires_at = NULL
+        WHERE owner_principal_id = ? AND alert_class = ? AND direction = ? AND claim_id = ?`)
+        .bind(at, input.ownerPrincipalId, input.alertClass, input.direction, claimId).run();
+      if (recorded.meta.changes !== 1) throw new Error("owner_step_up_alert_unavailable");
+    } catch (error) {
+      try {
+        await this.database.prepare(`UPDATE owner_call_step_up_alerts
+          SET claim_id = NULL, claim_expires_at = NULL
+          WHERE owner_principal_id = ? AND alert_class = ? AND direction = ? AND claim_id = ?`)
+          .bind(input.ownerPrincipalId, input.alertClass, input.direction, claimId).run();
+      } catch {
+        // An uncleared claim expires after 30 seconds and remains fail-closed.
+      }
+      throw error;
+    }
   }
 }

@@ -47,6 +47,7 @@ export class D1GuestGrantNoticeSink implements GuestGrantNoticeSink {
   constructor(
     private readonly database: D1Database,
     private readonly telegram: Pick<TelegramProvider, "sendMessage">,
+    private readonly now?: () => Date,
   ) {}
 
   async notify(input: Parameters<GuestGrantNoticeSink["notify"]>[0]): Promise<void> {
@@ -129,7 +130,10 @@ export class D1GuestGrantNoticeSink implements GuestGrantNoticeSink {
     let failed = 0;
     for (const row of rows.results) {
       try {
-        await this.notify({ mutationId: row.mutation_id as Ulid, now });
+        await this.notify({
+          mutationId: row.mutation_id as Ulid,
+          now: this.now === undefined ? new Date(now) : this.now(),
+        });
         delivered += 1;
       } catch {
         failed += 1;

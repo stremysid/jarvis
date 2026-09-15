@@ -82,6 +82,10 @@ describe("Telegram owner call step-up disable", () => {
     "/Disable-Owner-Step-Up --confirm",
     "/disable-owner-step-up@jarvis_sid_bot --confirm",
     "/DISABLE-OWNER-STEP-UP@Jarvis_Sid_Bot --confirm",
+    "/disable-owner-step-up@OtherBot --confirm",
+    "/disable-owner-step-up--confirm",
+    "/disable-owner-stepup --confirm",
+    "/disable\u2011owner\u2011step\u2011up --confirm",
   ])("returns fixed usage for %s without invoking a model", async (text) => {
     const system = await createFakeTelegramCallingSystem();
     const urls: string[] = [];
@@ -107,6 +111,7 @@ describe("Telegram owner call step-up disable", () => {
         OWNER_PRINCIPAL_ID: "principal:owner",
         OWNER_VOICE_IDENTITY_ID: "identity:voice",
         TELEGRAM_BOT_TOKEN: "8123456789:AAHrandomlookingsecretvaluethatislongenough",
+        TELEGRAM_BOT_USERNAME: "jarvis_sid_bot",
         TELEGRAM_WEBHOOK_SECRET: "webhook-secret-value",
       }, ctx);
       expect(response.status).toBe(200);
@@ -132,6 +137,42 @@ describe("Telegram owner call step-up disable", () => {
       expect(await env.DB.prepare("SELECT count(*) AS count FROM owner_passphrase_disable_commits").first())
         .toEqual({ count: 0 });
     } finally { await system.cleanup(); }
+  });
+
+  it("sends a group disable refusal only to the owner's private chat", async () => {
+    const system = await createFakeTelegramCallingSystem();
+    const sent: unknown[] = [];
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      sent.push(JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify({ ok: true, result: { message_id: 905 } }), { status: 200 });
+    });
+    try {
+      const ctx = createExecutionContext();
+      const response = await worker.fetch(new Request("https://worker.internal/telegram/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-telegram-bot-api-secret-token": "webhook-secret-value",
+        },
+        body: JSON.stringify({ update_id: 82, message: {
+          message_id: 982, from: { id: 12345 }, chat: { id: -10012345 },
+          text: "/disable-owner-step-up --confirm",
+        } }),
+      }), {
+        ...env,
+        OWNER_PRINCIPAL_ID: "principal:owner",
+        OWNER_VOICE_IDENTITY_ID: "identity:voice",
+        TELEGRAM_BOT_TOKEN: "8123456789:AAHrandomlookingsecretvaluethatislongenough",
+        TELEGRAM_WEBHOOK_SECRET: "webhook-secret-value",
+      }, ctx);
+      expect(response.status).toBe(200);
+      await waitOnExecutionContext(ctx);
+      expect(sent).toEqual([expect.objectContaining({
+        chat_id: "12345",
+        text: "Use /disable-owner-step-up --confirm in your private chat with Jarvis.",
+      })]);
+      expect(await env.DB.prepare("SELECT status FROM owner_passphrase_heads").first()).toEqual({ status: "active" });
+    } finally { fetch.mockRestore(); await system.cleanup(); }
   });
 
   it("refuses an authenticated guest through the migration-backed owner binding", async () => {

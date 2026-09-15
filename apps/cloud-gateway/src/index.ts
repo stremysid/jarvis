@@ -276,8 +276,11 @@ async function runTelegramCommand(
         }).disable(accepted) } }
         : context);
   const decisions = new DecisionService({ repository: new DecisionRepository(env.DB) });
+  const replyChatId = name === "disable-owner-step-up" && accepted.chatId !== accepted.telegramUserId
+    ? accepted.telegramUserId
+    : accepted.chatId;
   for (const reply of replies) {
-    await send(accepted.chatId, reply.text);
+    await send(replyChatId, reply.text);
     // Recorded only after the send succeeded. Marking delivery first would
     // let a failed send leave a question the owner never saw but which the
     // system believes it asked.

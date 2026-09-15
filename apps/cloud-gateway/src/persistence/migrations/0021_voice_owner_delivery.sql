@@ -60,7 +60,7 @@ WHEN EXISTS (
     AND verifier.verifier_version = head.verifier_version
   WHERE binding.session_id = NEW.session_id
     AND binding.lifecycle_generation = NEW.lifecycle_generation
-    AND binding.requirement = 'required'
+    AND binding.requirement IN ('required', 'waived_passed_a')
     AND session.phase = 'pre_auth'
     AND session.access_kind = 'owner'
     AND session.activation_only = 0
@@ -111,7 +111,7 @@ WHEN EXISTS (
   JOIN call_sessions session ON session.session_id = binding.session_id
   WHERE binding.session_id = NEW.session_id
     AND binding.lifecycle_generation = NEW.lifecycle_generation
-    AND binding.requirement = 'required'
+    AND binding.requirement IN ('required', 'waived_passed_a')
     AND session.phase = 'rejected'
     AND (
       EXISTS (
