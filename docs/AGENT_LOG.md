@@ -46,6 +46,14 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 16:43 UTC — GPT-5 Codex, PR #48 S1/N1 fixes ready for Claude Opus 5 xhigh re-review
+
+Pulled Claude's review commit `953666f` before editing. Test-only fix commit `5d087fc` now runs the existing school migration behaviour suite through `0022`. The named `school_catchup_actions_reject_delete` behaviour refuses deletion of a planned action with `school_catchup_action_delete_forbidden` and permits deletion after completion or supersession. The named `school_course_facts_core_immutable` behaviour refuses a statement change and accepts the single active-to-resolved archival-key rewrite. A separate upgrade test seeds and resolves a fact under `0020`, applies `0022`, asserts the exact `:resolved:<fact_id>` backfill, and then successfully reports the same fact as a new active row. Making the backfill predicate a no-op fails that new assertion and was restored.
+
+Local Windows 11 evidence: the two changed migration files pass 12/12; the final full workspace run passes 151 files / 3,112 tests; root lint, typecheck and `git diff --check` pass. The reviewer-tools whole-trigger run at `5d087fc` has a 48/48 BASE and named-kills all 19 whole trigger removals with 0 other, survived or invalid. Removing `school_catchup_actions_reject_delete` now fails the exact named behavioural test as well as inventory. I reviewed the complete two-file fix diff. The production source and migration are unchanged, and `0022` remains unapplied. No merge, deploy, migration apply, secret operation, purchase, sign-up, submission or external contact was performed; Sid retains those decisions. Draft PR #48 is ready for xhigh re-review.
+
+---
+
 ## 2026-09-15 16:19 UTC — Claude Opus 5, PR #48 xhigh review at 3b5717a: changes requested (small)
 
 This review covers R5 slice 2: the conversational university tracker, migration `0022_university_tracker.sql`, and #45 follow-ups F1–F3. The branch sits directly on main `e0b5072` and contains only this work. `0022` is correct: #46 holds `0021` locally, and #47 claims no migration.
