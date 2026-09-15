@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
+import cloudMemorySql from "../../src/persistence/migrations/0016_cloud_memory.sql?raw";
 import { applyCloudMemoryMigration } from "./migration.js";
 
 const testClock = Date.now();
@@ -142,6 +143,15 @@ async function seedActiveItem(
       transitionId, principalId, itemId, versionId, initialLifecycleState, timestamp,
     ).run();
   return { itemId, versionId, sourceId, transitionId };
+}
+
+function migrationTriggerSql(name: string): string {
+  const sql = cloudMemorySql.replaceAll("\r\n", "\n");
+  const marker = `CREATE TRIGGER ${name}\n`;
+  const start = sql.indexOf(marker);
+  const end = sql.indexOf("\nEND;", start);
+  if (start < 0 || end < 0) throw new Error(`memory_test_trigger_missing:${name}`);
+  return sql.slice(start, end + "\nEND;".length);
 }
 
 interface OwnerTransitionInput {
@@ -3570,6 +3580,52 @@ describe.sequential("cloud memory migration", () => {
       addedAliases: [{
         aliasId: nextUlid(), topicId: mergeTargetId, displayName: "Overflowing merge 0",
         normalizedName: "overflowing merge 0", pathAlias: "Depth 1/Overflowing merge 0",
+      }],
+    })).rejects.toThrow(/memory_topic_event_invalid/u);
+  });
+
+  it("rejects an unfinished depth-64 ancestor walk independently of cycle and depth-sum checks", async () => {
+    const owner = await seedPrincipal();
+    const rootId = nextUlid();
+    let deepTargetId = rootId;
+    let sourceId = "";
+    await env.DB.exec("DROP TRIGGER memory_topic_events_insert_guard");
+    try {
+      await insertTopicEvent({
+        principalId: owner.principalId, topicId: rootId, operation: "create",
+        newDisplayName: "Corrupt depth 1", newNormalizedName: "corrupt depth 1",
+      });
+      for (let depth = 2; depth <= 65; depth += 1) {
+        const topicId = nextUlid();
+        await insertTopicEvent({
+          principalId: owner.principalId, topicId, operation: "create",
+          newParentTopicId: deepTargetId,
+          newDisplayName: `Corrupt depth ${depth}`,
+          newNormalizedName: `corrupt depth ${depth}`,
+        });
+        deepTargetId = topicId;
+      }
+      sourceId = nextUlid();
+      await insertTopicEvent({
+        principalId: owner.principalId, topicId: sourceId, operation: "create",
+        newParentTopicId: rootId,
+        newDisplayName: "Childless merge source",
+        newNormalizedName: "childless merge source",
+      });
+    } finally {
+      await env.DB.prepare(migrationTriggerSql("memory_topic_events_insert_guard")).run();
+    }
+
+    await expect(insertTopicEvent({
+      principalId: owner.principalId, topicId: sourceId, operation: "merge",
+      previousDisplayName: "Childless merge source",
+      previousNormalizedName: "childless merge source",
+      mergeTargetTopicId: deepTargetId,
+      addedAliases: [{
+        aliasId: nextUlid(), topicId: deepTargetId,
+        displayName: "Childless merge source",
+        normalizedName: "childless merge source",
+        pathAlias: "Corrupt depth 1/Childless merge source",
       }],
     })).rejects.toThrow(/memory_topic_event_invalid/u);
   });
