@@ -9,7 +9,10 @@ import type { Env } from "../env.js";
 import { ArchivalService } from "../archive/archival-service.js";
 import { ArchivalWorker } from "../archive/archival-worker.js";
 import { ARCHIVE_SEGMENT_LIMITS } from "../archive/segment-codec.js";
+import { ClassroomClient, ClassroomRequestError } from "../deadlines/classroom-client.js";
+import { DeadlineIngestion } from "../deadlines/deadline-ingestion.js";
 import { DeadlineRepository } from "../deadlines/deadline-repository.js";
+import { GoogleOAuthRequestError, GoogleOAuthTokenProvider } from "../deadlines/google-oauth.js";
 import { DecisionRepository } from "../decisions/decision-repository.js";
 import { DecisionService } from "../decisions/decision-service.js";
 import { GitHubClient } from "../projects/github-client.js";
@@ -30,16 +33,83 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+const CLASSROOM_SOURCE_ID = "google-classroom";
+
+function classroomFailure(error: unknown): string {
+  if (error instanceof ClassroomRequestError || error instanceof GoogleOAuthRequestError) return error.message;
+  // External response bodies and credentials never belong in source health.
+  // Unknown failures get a stable code rather than an arbitrary exception.
+  return "classroom_ingestion_failed";
+}
+
+async function pollClassroom(context: JobEnvironment): Promise<string> {
+  const credentials = [
+    context.env.GOOGLE_CLIENT_ID,
+    context.env.GOOGLE_CLIENT_SECRET,
+    context.env.GOOGLE_REFRESH_TOKEN,
+  ] as const;
+  const repository = new DeadlineRepository(context.env.DB);
+  if (credentials.every((value) => value === undefined)) {
+    const existing = await repository.readSource(CLASSROOM_SOURCE_ID);
+    if (existing === null) return "Classroom not configured";
+    if (!existing.active) return "Classroom source inactive";
+    await new DeadlineIngestion({ repository, now: () => context.clock.now() }).ingest(existing.sourceId, {
+      kind: "failed",
+      reason: "classroom_configuration_missing",
+    });
+    return "Classroom configuration missing";
+  }
+
+  const source = await repository.ensureSource({
+    sourceId: CLASSROOM_SOURCE_ID,
+    kind: "classroom",
+    label: "Google Classroom",
+    now: context.clock.now(),
+  });
+  const ingestion = new DeadlineIngestion({ repository, now: () => context.clock.now() });
+
+  if (!source.active) return "Classroom source inactive";
+  if (credentials.some((value) => value === undefined || value.length === 0)) {
+    await ingestion.ingest(source.sourceId, { kind: "failed", reason: "classroom_configuration_incomplete" });
+    return "Classroom configuration incomplete";
+  }
+
+  try {
+    const tokens = new GoogleOAuthTokenProvider({
+      credentials: {
+        clientId: credentials[0] as string,
+        clientSecret: credentials[1] as string,
+        refreshToken: credentials[2] as string,
+      },
+      fetchImplementation: context.fetcher,
+      now: () => context.clock.now(),
+    });
+    const client = new ClassroomClient({
+      accessToken: () => tokens.getAccessToken(),
+      fetchImplementation: context.fetcher,
+      // Timed Classroom fields are UTC. The zone is used only to turn a
+      // date-only assignment into the end of the owner's local school day.
+      timeZone: context.env.DIGEST_TIMEZONE ?? "America/Toronto",
+    });
+    const report = await ingestion.ingest(source.sourceId, {
+      kind: "items",
+      items: await client.collectDeadlines(),
+    });
+    const seen = report.created.length + report.moved.length + report.unchanged;
+    return `Classroom ${seen} seen, ${report.rejected.length} rejected, ${report.disappeared.length} absent`;
+  } catch (error) {
+    const failure = classroomFailure(error);
+    await ingestion.ingest(source.sourceId, { kind: "failed", reason: failure });
+    return `Classroom failed (${failure})`;
+  }
+}
+
 /**
  * The hourly reach-out.
  *
- * Archives one bounded segment before the optional project poll.
- * The Classroom sweep belongs in this same job
- * -- same cadence, same run key, same "reach out to other people's systems"
- * shape -- and is not wired in because it needs the Google OAuth credentials
- * that no deployment holds yet. `deadline_sources` therefore has nothing
- * writing to it, which means the deadline half of the digest is empty rather
- * than stale.
+ * Archives one bounded segment, then performs the configuration-gated
+ * Classroom sweep before the optional project poll. Each network source
+ * records its own failure without claiming the other work did not run.
  */
 async function poll(context: JobEnvironment): Promise<JobOutcome> {
   // Reuse the archive's retention, readback, sealing and purge checks unchanged.
@@ -47,8 +117,9 @@ async function poll(context: JobEnvironment): Promise<JobOutcome> {
   const archive = new ArchivalWorker(new ArchivalService({ database: context.env.DB, bucket: context.env.ARCHIVE }));
   const segment = await archive.run(context.clock.now(), ARCHIVE_SEGMENT_LIMITS.maxEventCount);
   const archived = segment === null ? "nothing eligible for archival" : `${segment.eventCount} archived`;
+  const classroom = await pollClassroom(context);
   const token = context.env.GITHUB_TOKEN;
-  if (token === undefined) return { ok: true, detail: `${archived}; project poll not configured` };
+  if (token === undefined) return { ok: true, detail: `${archived}; ${classroom}; project poll not configured` };
 
   const poller = new ProjectPoller({
     projects: new ProjectRepository(context.env.DB),
@@ -62,8 +133,8 @@ async function poll(context: JobEnvironment): Promise<JobOutcome> {
   // six is a fact about that repository; failing the whole job would claim
   // the other five were not polled either.
   return failed.length === 0
-    ? { ok: true, detail: `${archived}; ${outcomes.length} polled` }
-    : { ok: true, detail: `${archived}; ${outcomes.length - failed.length} polled, ${failed.length} failed` };
+    ? { ok: true, detail: `${archived}; ${classroom}; ${outcomes.length} polled` }
+    : { ok: true, detail: `${archived}; ${classroom}; ${outcomes.length - failed.length} polled, ${failed.length} failed` };
 }
 
 async function digest(
@@ -90,6 +161,7 @@ async function digest(
           from: context.clock.now(),
           to: new Date(context.clock.now().getTime() + withinDays * 86_400_000),
         }),
+      readDeadlineSources: async () => deadlines.listSources({ activeOnly: true }),
       readProjectStatuses: async () => projects.readActiveProjectStatuses(),
       readOpenDecisions: async () => decisions.queue(principalId),
     },

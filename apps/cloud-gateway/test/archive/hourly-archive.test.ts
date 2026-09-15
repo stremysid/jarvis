@@ -8,9 +8,15 @@ import { appendEvents, markDelivered, resetArchiveFixture, setCreatedAt } from "
 
 async function hourly(iso = "2026-12-01T00:00:00.000Z") {
   const ctx = createExecutionContext();
-  // Deliberately no GitHub configuration: archival must still run.
+  // Deliberately no network-source configuration: archival must still run.
   await worker.scheduled(createScheduledController({ cron: "0 * * * *", scheduledTime: Date.parse(iso) }),
-    { ...env, GITHUB_TOKEN: undefined }, ctx);
+    {
+      ...env,
+      GITHUB_TOKEN: undefined,
+      GOOGLE_CLIENT_ID: undefined,
+      GOOGLE_CLIENT_SECRET: undefined,
+      GOOGLE_REFRESH_TOKEN: undefined,
+    }, ctx);
   await waitOnExecutionContext(ctx);
 }
 

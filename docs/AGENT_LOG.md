@@ -66,6 +66,48 @@ Sid retains merge authority. This PR changes no runtime, account, secret, migrat
 
 ---
 
+## 2026-09-15 06:35 UTC — Claude Opus 5, PR #43 review at 5729b09: cleared with follow-ups F1–F2
+
+This reviews the R5 Classroom hourly ingestion. The branch merges cleanly with main, and no lockfile change or migration is included.
+
+**Local checks on 5729b09** (Windows 11, `jarvis-pr39`): lint and typecheck pass. `pnpm test` passed **2,920 of 2,920** in 138 files with 0 timeouts.
+
+**What was checked (reviewer reading of the full diff):**
+- **Credentials and OAuth** (`google-oauth.ts`): refresh-token exchange only at Google's fixed token endpoint, with `redirect: "error"` so a redirect can't replay the secret to another origin. Malformed credentials are refused before any request. Errors carry fixed codes only and never Google's response body (tested). The token is cached per invocation with a 60 s skew. Concurrent calls share one refresh.
+- **Classroom client:** the local-time interpretation knob is removed. Timed `dueDate`/`dueTime` are UTC per the API contract, which is correct and tested (18:30 UTC stays 18:30 UTC). Date-only work maps to 23:59:59.999 local, documented as synthetic, consistent with #41's corrected plan. Every Classroom error message is a fixed code.
+- **Job wiring** (`job-table.ts`):
+  - With all three secrets absent, nothing contacts Google and no source is created.
+  - Partial configuration, or configuration removed after a source existed, records a visible source failure without a request.
+  - Unknown exceptions map to the stable `classroom_ingestion_failed`.
+  - `ensureSource` is idempotent and doesn't reactivate an owner-disabled source (tested).
+  - A failed sweep computes no disappearances, so nothing is marked gone.
+- **Digest:** last-known deadlines stay visible while a failed source is named with a fixed kind label, not source-supplied text. That keeps "source could not be read" distinct from "nothing due".
+- **Runbook** (`google-classroom-oauth.md`): exactly two read-only scopes, with a note that `coursework.me.readonly` can expose grades. It names the admin and under-18 preflights and the 7-day Testing expiry, says to stop rather than work around policy, puts no secrets in chat or files, uses PowerShell 7 with `cd` first and `npx.cmd`, and verifies read-only afterwards. It correctly states that it authorizes no deployment.
+
+**F1 (Low). Staleness isn't surfaced when the sweep stops running.** The digest names a source only when `last_failure` is set. If the hourly job stops firing (cron misconfiguration, or a deploy without the trigger), `last_success_at` just ages and the digest keeps showing old deadlines as current, against the plan's "stale vs no work" rule. Add a gap when an active source's `last_success_at` is older than a threshold (for example 3 h for the hourly Classroom sweep), with a test.
+
+**F2 (Low). A D1 error in the Classroom bootstrap fails the whole hourly job.** `readSource`, `ensureSource` and the configuration-missing `ingest` run outside `pollClassroom`'s try. A thrown D1 error there propagates out of `poll()` after archival has run, and skips the project poll. Wrap the whole Classroom step so a failure becomes a detail string (`classroom_ingestion_failed`) and the project poll still runs, with a test.
+
+**Order note.** The revised #41 plan makes Classroom slice 3. Merging this early is fine, because nothing activates without Sid's OAuth setup and a reviewed deployment. The school chat's next PR should still be slice 1, the catch-up conversation.
+
+**Next.** Sid may merge #43. F1 and F2 go into the next school PR that touches the digest or jobs (the Brightspace feed PR at the latest). Activation stays a separate owner-attended step: OAuth runbook, secrets, deploy.
+
+Sid retains merge authority. Merging deploys nothing and sets no secret.
+
+---
+
+## 2026-09-15 06:27 UTC — GPT-5 Codex, PR #43 CI did not start
+
+Draft PR #43 is published at `f3c0319`, but GitHub Actions run `34936950406` started none of its seven jobs. The check annotation says recent account payments failed or the spending limit must be increased. This is an account/billing gate, not a product-test failure; no billing change was attempted. Local evidence remains the green 138-file / 2920-test suite, green lint/typecheck, focused 61-test pass and killed configuration-gate mutant recorded below. Claude review can proceed from the branch evidence. Sid retains billing, merge and production authority.
+
+---
+
+## 2026-09-15 06:25 UTC — GPT-5 Codex, R5 Classroom wiring ready for Claude review
+
+Task 2 is isolated on `codex/r5-classroom-hourly-ingestion` from current main. The hourly poll now treats all three absent Google bindings as disabled, records partial/removed configuration and Google failures on the stable `google-classroom` source, refreshes short-lived access tokens without logging response bodies or following token-endpoint redirects, and ingests the existing Classroom client output. Timed `dueDate`/`dueTime` fields are fixed to the documented UTC contract; date-only items still map conservatively to local end-of-day, and KNOWN_ISSUES says native date-only precision needs a later separately numbered migration. The daily and manual digests retain last-known deadlines while naming active source failures. The PowerShell 7 owner runbook starts with the exact `cd`, uses `pnpm.cmd`/`npx.cmd`, requests only the two read scopes, covers school/under-18 controls and Testing-mode token expiry, and never puts a secret in an argument or file. Open PR inventory at 06:14 UTC was #40 (`0018`), #41 (docs only), and #42 (`0019`); this branch claims no migration. `pnpm.cmd lint` passed, the fresh full suite passed 138 files / 2920 tests, and the focused suite passed 61 tests. A representative reversed configuration-gate mutant was rejected by 4 of 5 poll tests; after restoration all 5 passed. The full suite still emits its known voice-test `call_session_termination_uninitialized` diagnostic but exits green; this branch does not modify `voice/**`, `calls/**` or memory tables. No OAuth consent, secret operation, migration, deployment or live access occurred. Ready for Claude review; Sid retains merge and production authority.
+
+---
+
 ## 2026-09-15 06:20 UTC — GPT-5 Codex, PR #41 revision ready for Claude review
 
 Addressed Claude's 06:04 review without changing runtime or claiming a migration. R5 now starts immediately in parallel: the live-bot catch-up plan is slice 1 and the minimal current-source university tracker is slice 2, neither gated on R2 or school integrations. The plan names the later R2 provenance/forget integration. Brightspace now has three owner outcomes with the private iCal feed in Cloudflare recommended first, school-approved OAuth as the richer upgrade, and browser automation held behind the D2L/board terms check; it restores Telegram MFA and `check D2L now`. Classroom preflights now cover administrator controls, under-18 restrictions, seven-day Testing tokens and possible verification, with owner-reported work as fallback. The plan is explicitly view-only, labels Classroom missing work as derived, adds plain-speech coach correction/forget controls, and states that the instant-only deadline schema cannot preserve date-only semantics without a later separately numbered migration. DECISIONS, NEXT_STEPS and the roadmap carry the same build order. `git diff --check` passes. Ready for Claude review at the next commit; Sid retains merge, contact, secret, migration and deployment authority.
@@ -219,6 +261,8 @@ Implementation commit `2fc8dc6` closes the round-five requests. Alias tuples are
 
 — GPT-5 Codex, 2026-09-15 05:12 UTC
 
+---
+
 ## 2026-09-15 04:54 UTC — Claude Opus 5, PR #39 round-5 re-review at 4189a2e: changes requested (small)
 
 This round reviewed fix `c4923bf`. The head is `4189a2e`, and the branch merges cleanly with main at `2619f02`. Round 4's S1–S3 and F5–F7 are fixed and runtime-proven, and there is no High or Medium issue. Two Low SQL issues remain. Both are cheaper to fix in `0016` now than in a later migration, because one needs a UNIQUE constraint changed. There are also a few test gaps. If these land cleanly with no new High or Medium, the reviewer expects to clear #39 on the next round.
@@ -288,6 +332,8 @@ The three lows were cheap enough to fix rather than defer: merge retires a sourc
 No migration, deploy, provider call, secret operation or remote-D1 call occurred. Sid still owns merge and migration application. After Claude clears the SQL, the Sid-attended scratch remote-D1 proof remains required before production and must include the constructs listed in the preceding Claude entry. The ingress allowlist remains the separate `0019` PR. Please re-review PR #39 at `c4923bf`.
 
 — GPT-5 Codex, 2026-09-15 04:31 UTC
+
+---
 
 ## 2026-09-15 03:58 UTC — Claude Opus 5, PR #39 round-4 re-review at 30219fd: changes requested (small)
 
@@ -885,40 +931,6 @@ deployment authority.
 
 ---
 
-## 2026-09-14 00:18 UTC — Claude Opus 5, PR #37 second re-review at aad3a7f: cleared
-
-The fix is `783efff`; `aad3a7f` only adds the request entry. Main is unchanged at
-`b8b47bd`, and the branch merges cleanly.
-
-**S1 is fixed.** The `producerVersion` clause is gone from 0017; a grep finds 0
-occurrences. A new test commits a disable citing an event with producer
-`cloud-gateway@9.0.0` and gets a disabled head, so a gateway version bump can no
-longer lock the owner out of `/disable-owner-step-up`.
-
-**The disable-guard gaps are closed.** There are dedicated refusals for:
-- a receipt more than 5 minutes after the event (22:39:59 → 22:45:01);
-- a receipt scope other than `telegram.update`;
-- an event type other than `telegram.update.received`;
-- a Telegram identity with `verified_at` NULL;
-- a head, or current verifier, that is not active.
-
-PY7 is pinned: status on a disabled verifier prints the fixed message and exits
-1.
-
-**Local checks on aad3a7f** (Windows 11, `jarvis-deploy`): `pnpm test`: 2,693 of 2,694 passed. The one failure is the known archival tail-read timeout, which passes 46 of 46 in isolation. Workspace typecheck, voice typecheck and lint pass. local-agent: pytest 872 passed, 32 skipped; Ruff clean; mypy clean (58 files).
-
-**Mutations** (`mut37c.json`, the same 23 plus 2 baselines as `mut37b`):
-all 23 were killed, with no survivors. That includes every disable-guard clause (D1–D9), the 403 owner-mismatch mapping (R403), the insert-guard bindings (M4 and M6), the second first-commit branch (M1), the verifier checks (V2, V5 and V7), request-salt validation (S4) and every CLI check (PY2, PY3, PY5, PY7 and PY8).
-
-Sid retains merge authority. #37 is a draft, so it needs "Ready for review"
-before it can merge. Merging makes migration `0017` available but does not apply
-it. Rollout follows `docs/runbooks/owner-passphrase.md` with Sid-attended steps:
-set the pepper secret, apply pending migrations, deploy, then `generate`.
-Inbound calling stays closed until the call step-up PR ships and one attended
-spoken verification passes.
-
----
-
 ## 2026-09-15 00:10 UTC — GPT-6 Codex, PR #37 small re-review fixes ready at 783efff
 
 Removed the disable trigger's duplicated `cloud-gateway@0.1.0` producer pin
@@ -933,64 +945,6 @@ and voice typecheck, Ruff, mypy, and diff checks pass. Migration `0017` now has
 SHA-256 `298714b826d0c237ff96d9b4cc992ba070728414a7f12e83042b94885ab29f41`.
 PR #37 remains draft and is ready for Claude max re-review; no live call,
 secret, applied migration, deployment, or production command was performed.
-
-## 2026-09-14 00:01 UTC — Claude Opus 5, PR #37 re-review at 66d99fa: changes requested (small)
-
-S1–S3, N1, N2 and the mutation gaps are addressed. One new should-fix is in the
-disable guard. Both merges of main are clean: no main AGENT_LOG entry is
-missing, the reviewer's review entry is kept, and the tree against main is only
-#37's 28 files.
-
-**Local checks on 66d99fa** (Windows 11, `jarvis-deploy`):
-- `pnpm test`: 2,687 of 2,687 passed. Workspace typecheck, voice typecheck and
-  lint pass.
-- local-agent: pytest 871 passed, 32 skipped; Ruff clean; mypy clean (58 files).
-
-**Verified independently.**
-- Word list `eff-long-cmudict-2026-09-v2`: 2,048 unique entries, all
-  `[a-z]{4,8}`. Its SHA-256 over the words joined by newlines, with a trailing
-  newline, is `52cfd230…` as pinned. None of the reviewed speech variants (okay,
-  alright, awhile, online, hangup, maybe, twice) remain, nor do the other
-  sampled join/split risks.
-- The new KAT recomputed with Node `crypto` ("ablaze abrasion abrasive",
-  version 7) matches the fixture digest.
-- The disable guard's event binding matches the real webhook:
-  - the subject is `telegram:user:<id>` from the authenticated sender;
-  - the idempotency scope is `telegram.update`;
-  - the accepted payload key is `text`, which holds the redacted text, and the
-    confirm command contains nothing the redactor changes.
-- Rollout (S1): the runbook and NEXT_STEPS now say `0017` may apply before
-  `0016`.
-- N1: a mismatched configured owner returns 403 `owner_passphrase_owner_mismatch`
-  after authentication, with its own CLI message.
-- N2: the design records that any future phone-identity replacement needs a
-  passphrase-head migration.
-
-**S1. The disable guard pins the gateway's producer version.** It requires
-`json_extract(envelope_json, '$.producerVersion') = 'cloud-gateway@0.1.0'`,
-which duplicates the hard-coded `PRODUCER_VERSION` in `telegram-webhook.ts`.
-That constant matches the package version, and no other migration pins it.
-After Sid applies `0017`, any future bump makes `/disable-owner-step-up`
-permanently unable to commit. That locks the owner out of the one recovery
-switch the design promises, and only a new migration can fix it. The event is
-already bound by type, source, sender identity, receipt scope, the
-`eventId`/`contentHash` cross-checks, exact text and a 5-minute window. Drop the
-producer-version clause, or make it a pinned shared constant with a test that
-fails if the webhook value and the trigger literal differ.
-
-**Mutations** (`mut37b.json`): 23 mutations plus 2 baselines; 17 were killed. All 11 survivors from the first review are now killed (V2, V5, V7, S2, S4, M1, M4, M6, PY2, PY3 and PY5), along with R403, D1, D3, D5, D7 and PY8. Six survivors remain, and each needs a killing test:
-- D2: the 5-minute freshness window. A disable citing an event older than 5 minutes is accepted when the clause is removed.
-- D8: an owner Telegram identity with `verified_at IS NULL`.
-- D4: an idempotency receipt whose scope is not `telegram.update`.
-- D6: an event type other than `telegram.update.received`. The `text` clause partly backstops it today; pin it anyway.
-- D9: disabling while the head or verifier is not active. The unique version key and the publish `WHERE` backstop it today; pin it anyway.
-- PY7: the CLI's disabled-status message and exit code.
-
-**Nit.** The M1 test asserts the trigger SQL contains the branch text. That
-pins the source text rather than the behaviour. It is acceptable only because
-the singleton head key backstops that branch today.
-
-Sid retains merge authority. Nothing here is deployed. #37 is still a draft.
 
 ---
 
@@ -1172,6 +1126,7 @@ NEXT_STEPS that PR 3 must reserve its own migration.
   passphrase-head migration. Note that in the design.
 
 Sid retains merge authority. Nothing here is deployed.
+
 ---
 
 ## 2026-09-14 23:00 UTC — Claude Opus 5, PR #36 re-review at 09ef0cf: cleared (docs only)
@@ -3294,6 +3249,40 @@ against a vacuous glob.
 
 ---
 
+## 2026-09-14 00:18 UTC — Claude Opus 5, PR #37 second re-review at aad3a7f: cleared
+
+The fix is `783efff`; `aad3a7f` only adds the request entry. Main is unchanged at
+`b8b47bd`, and the branch merges cleanly.
+
+**S1 is fixed.** The `producerVersion` clause is gone from 0017; a grep finds 0
+occurrences. A new test commits a disable citing an event with producer
+`cloud-gateway@9.0.0` and gets a disabled head, so a gateway version bump can no
+longer lock the owner out of `/disable-owner-step-up`.
+
+**The disable-guard gaps are closed.** There are dedicated refusals for:
+- a receipt more than 5 minutes after the event (22:39:59 → 22:45:01);
+- a receipt scope other than `telegram.update`;
+- an event type other than `telegram.update.received`;
+- a Telegram identity with `verified_at` NULL;
+- a head, or current verifier, that is not active.
+
+PY7 is pinned: status on a disabled verifier prints the fixed message and exits
+1.
+
+**Local checks on aad3a7f** (Windows 11, `jarvis-deploy`): `pnpm test`: 2,693 of 2,694 passed. The one failure is the known archival tail-read timeout, which passes 46 of 46 in isolation. Workspace typecheck, voice typecheck and lint pass. local-agent: pytest 872 passed, 32 skipped; Ruff clean; mypy clean (58 files).
+
+**Mutations** (`mut37c.json`, the same 23 plus 2 baselines as `mut37b`):
+all 23 were killed, with no survivors. That includes every disable-guard clause (D1–D9), the 403 owner-mismatch mapping (R403), the insert-guard bindings (M4 and M6), the second first-commit branch (M1), the verifier checks (V2, V5 and V7), request-salt validation (S4) and every CLI check (PY2, PY3, PY5, PY7 and PY8).
+
+Sid retains merge authority. #37 is a draft, so it needs "Ready for review"
+before it can merge. Merging makes migration `0017` available but does not apply
+it. Rollout follows `docs/runbooks/owner-passphrase.md` with Sid-attended steps:
+set the pepper secret, apply pending migrations, deploy, then `generate`.
+Inbound calling stays closed until the call step-up PR ships and one attended
+spoken verification passes.
+
+---
+
 ## 2026-09-14 00:08 UTC — Codex builder, R1 rollout follow-ups
 
 Opened draft PR #27 from `origin/claude/r1-rollout-log` for the requested
@@ -3309,6 +3298,66 @@ hashes and are absent from the PR diff. The focused set passes 92 / 4 and the
 Windows workspace passes 2,517 / 124; lint passes. The test-only typecheck
 retains 118 pre-existing diagnostics and reports none in the new file. No
 migration, deployment, secret or production source was changed.
+
+---
+
+## 2026-09-14 00:01 UTC — Claude Opus 5, PR #37 re-review at 66d99fa: changes requested (small)
+
+S1–S3, N1, N2 and the mutation gaps are addressed. One new should-fix is in the
+disable guard. Both merges of main are clean: no main AGENT_LOG entry is
+missing, the reviewer's review entry is kept, and the tree against main is only
+#37's 28 files.
+
+**Local checks on 66d99fa** (Windows 11, `jarvis-deploy`):
+- `pnpm test`: 2,687 of 2,687 passed. Workspace typecheck, voice typecheck and
+  lint pass.
+- local-agent: pytest 871 passed, 32 skipped; Ruff clean; mypy clean (58 files).
+
+**Verified independently.**
+- Word list `eff-long-cmudict-2026-09-v2`: 2,048 unique entries, all
+  `[a-z]{4,8}`. Its SHA-256 over the words joined by newlines, with a trailing
+  newline, is `52cfd230…` as pinned. None of the reviewed speech variants (okay,
+  alright, awhile, online, hangup, maybe, twice) remain, nor do the other
+  sampled join/split risks.
+- The new KAT recomputed with Node `crypto` ("ablaze abrasion abrasive",
+  version 7) matches the fixture digest.
+- The disable guard's event binding matches the real webhook:
+  - the subject is `telegram:user:<id>` from the authenticated sender;
+  - the idempotency scope is `telegram.update`;
+  - the accepted payload key is `text`, which holds the redacted text, and the
+    confirm command contains nothing the redactor changes.
+- Rollout (S1): the runbook and NEXT_STEPS now say `0017` may apply before
+  `0016`.
+- N1: a mismatched configured owner returns 403 `owner_passphrase_owner_mismatch`
+  after authentication, with its own CLI message.
+- N2: the design records that any future phone-identity replacement needs a
+  passphrase-head migration.
+
+**S1. The disable guard pins the gateway's producer version.** It requires
+`json_extract(envelope_json, '$.producerVersion') = 'cloud-gateway@0.1.0'`,
+which duplicates the hard-coded `PRODUCER_VERSION` in `telegram-webhook.ts`.
+That constant matches the package version, and no other migration pins it.
+After Sid applies `0017`, any future bump makes `/disable-owner-step-up`
+permanently unable to commit. That locks the owner out of the one recovery
+switch the design promises, and only a new migration can fix it. The event is
+already bound by type, source, sender identity, receipt scope, the
+`eventId`/`contentHash` cross-checks, exact text and a 5-minute window. Drop the
+producer-version clause, or make it a pinned shared constant with a test that
+fails if the webhook value and the trigger literal differ.
+
+**Mutations** (`mut37b.json`): 23 mutations plus 2 baselines; 17 were killed. All 11 survivors from the first review are now killed (V2, V5, V7, S2, S4, M1, M4, M6, PY2, PY3 and PY5), along with R403, D1, D3, D5, D7 and PY8. Six survivors remain, and each needs a killing test:
+- D2: the 5-minute freshness window. A disable citing an event older than 5 minutes is accepted when the clause is removed.
+- D8: an owner Telegram identity with `verified_at IS NULL`.
+- D4: an idempotency receipt whose scope is not `telegram.update`.
+- D6: an event type other than `telegram.update.received`. The `text` clause partly backstops it today; pin it anyway.
+- D9: disabling while the head or verifier is not active. The unique version key and the publish `WHERE` backstop it today; pin it anyway.
+- PY7: the CLI's disabled-status message and exit code.
+
+**Nit.** The M1 test asserts the trigger SQL contains the branch text. That
+pins the source text rather than the behaviour. It is acceptable only because
+the singleton head key backstops that branch today.
+
+Sid retains merge authority. Nothing here is deployed. #37 is still a draft.
 
 ---
 
