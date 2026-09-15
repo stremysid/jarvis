@@ -1263,11 +1263,15 @@ describe("CallSessionCore owner and guest access", () => {
     const recordReprompt = harness.ownerStepUp.recordReprompt.bind(harness.ownerStepUp);
     let announceReprompt!: () => void;
     let releaseReprompt!: () => void;
+    let repromptCalls = 0;
     const repromptStarted = new Promise<void>((resolve) => { announceReprompt = resolve; });
     const repromptBlocked = new Promise<void>((resolve) => { releaseReprompt = resolve; });
     const spy = vi.spyOn(harness.ownerStepUp, "recordReprompt").mockImplementation(async (sessionId, now) => {
-      announceReprompt();
-      await repromptBlocked;
+      repromptCalls += 1;
+      if (repromptCalls === 1) {
+        announceReprompt();
+        await repromptBlocked;
+      }
       return recordReprompt(sessionId, now);
     });
     try {
