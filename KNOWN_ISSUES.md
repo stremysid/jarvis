@@ -1,5 +1,38 @@
 # Known issues
 
+## University application workflow has six deferred integration and presentation limits
+
+PR #52 binds every application status report to the named item, keeps correction
+and retirement reversible on a later owner turn, and requires a verified
+application due date's URL and cycle in the same evidence. These limits remain:
+
+- **Forwarded and quoted Telegram text:** accepted Telegram text and
+  `ModelAdapterStreamInput` carry no persisted forwarded/quoted provenance.
+  The parser therefore cannot distinguish Sid's own words from a forwarded
+  teacher message. Item naming, one-submission-per-turn and the later correction
+  path reduce the reach, but the channel-adapter work must add trusted provenance
+  before forwarded text can be categorically refused as `submitted_by_sid`.
+- **Official and current-cycle verification:** application due-date evidence now
+  binds its syntactically valid admission cycle and HTTPS URL to one excerpt, but
+  the service still cannot establish that an arbitrary HTTPS host is official or
+  that the supplied cycle is current. The older program/requirement/date paths
+  also retain their message-wide source check. Inject a clock-defined application
+  cycle and an official-source policy in the next university verification slice.
+- **Saved submission versus guarded reply:** a valid owner-reported submission
+  can be stored while an unsafe model reply is replaced with the generic external
+  action refusal. The state is correct, but the same turn lacks a deterministic
+  receipt naming the item Jarvis recorded.
+- **Migration ordering:** code deployed before unapplied `0024` treats the missing
+  application table as a snapshot failure and falls back to ordinary conversation,
+  pausing both school and university tracker writes. Apply the separately reviewed
+  migration before deploying this code, or add a missing-table compatibility read.
+- **Digest presentation:** overdue application items sort first but are not marked
+  overdue, and verified application dates do not show their admission cycle.
+- **Long or multiline submission reports:** application evidence is a single
+  safe inline value capped at 512 UTF-8 bytes. Longer or multiline owner reports
+  fail closed and cannot record `submitted_by_sid`; the reply does not yet explain
+  that evidence limit.
+
 ## Owner memory controls have seven deferred integration limits
 
 PR #50 keeps the channel-neutral owner-control boundary closed, but later

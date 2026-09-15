@@ -169,7 +169,7 @@ describe("UniversityTrackerRepository application workflow", () => {
     });
   });
 
-  it("keeps submitted-by-Sid as owner-reported history and removes it from upcoming digest items", async () => {
+  it("keeps submitted-by-Sid as owner-reported history and lets a later owner turn correct it", async () => {
     const principalId = "principal:application-repository-submitted";
     const firstTurn = newUlid(NOW);
     const firstEvidence = "Add my Queen's Commerce essay with an unverified November 1, 2026 due date.";
@@ -237,5 +237,200 @@ describe("UniversityTrackerRepository application workflow", () => {
     const submitted = (await repository.readSnapshot(principalId)).programs[0]!.applicationItems[0]!;
     expect(submitted).toMatchObject({ status: "submitted_by_sid", submittedAt: secondNow.toISOString() });
     await expect(repository.listApplicationItemsByDueDate(principalId)).resolves.toEqual([]);
+
+    const correctionNow = new Date("2026-09-15T18:45:00.000Z");
+    const correctionTurn = newUlid(correctionNow);
+    const correction = "I didn't submit the Queen's Commerce essay; put it back as ready.";
+    await seedTurn(principalId, correctionTurn, correction, correctionNow);
+    await repository.applyOwnerPlan({
+      principalId,
+      turnId: correctionTurn,
+      responseHash: "6".repeat(64),
+      now: correctionNow,
+      plan: {
+        engaged: true,
+        programUpdates: [],
+        applicationUpdates: [{
+          itemRef: item.itemId,
+          programRef: program.programId,
+          kind: null,
+          label: null,
+          status: "ready",
+          statusEvidence: correction,
+          dueDate: null,
+        }],
+      },
+    });
+
+    await expect(repository.readSnapshot(principalId)).resolves.toMatchObject({
+      programs: [{ applicationItems: [{ status: "ready", submittedAt: null, sourceTurnId: correctionTurn }] }],
+    });
+    await expect(repository.listApplicationItemsByDueDate(principalId)).resolves.toHaveLength(1);
+  });
+
+  it("retires an owner-reported item from the digest and can reactivate it later", async () => {
+    const principalId = "principal:application-repository-retired";
+    const firstTurn = newUlid(NOW);
+    const evidence = "Add my Waterloo AIF to the checklist.";
+    await seedTurn(principalId, firstTurn, evidence);
+    const repository = new UniversityTrackerRepository(env.DB);
+    await repository.applyOwnerPlan({
+      principalId,
+      turnId: firstTurn,
+      responseHash: "7".repeat(64),
+      now: NOW,
+      plan: {
+        engaged: true,
+        programUpdates: [{
+          programRef: "new-1", university: "University of Waterloo", campus: null,
+          programName: "Computer Science", ouacCode: null,
+          verification: { state: "unverified", sourceUrl: null, cycle: "2027" },
+          addRequirements: [], addDates: [], resolveItemIds: [],
+        }],
+        applicationUpdates: [{
+          itemRef: "new-item-1", programRef: "new-1", kind: "supplementary_application",
+          label: "Waterloo AIF", status: "not_started", statusEvidence: evidence,
+          dueDate: { date: null, verification: { state: "unverified", sourceUrl: null, cycle: "2027" }, evidence },
+        }],
+      },
+    });
+    const program = (await repository.readSnapshot(principalId)).programs[0]!;
+    const item = program.applicationItems[0]!;
+
+    const retireNow = new Date("2026-09-15T18:50:00.000Z");
+    const retireTurn = newUlid(retireNow);
+    const retire = "I am not applying, so mark the Waterloo AIF not needed.";
+    await seedTurn(principalId, retireTurn, retire, retireNow);
+    await repository.applyOwnerPlan({
+      principalId, turnId: retireTurn, responseHash: "8".repeat(64), now: retireNow,
+      plan: {
+        engaged: true, programUpdates: [],
+        applicationUpdates: [{
+          itemRef: item.itemId, programRef: program.programId, kind: null, label: null,
+          status: "not_needed_by_sid", statusEvidence: retire, dueDate: null,
+        }],
+      },
+    });
+    await expect(repository.listApplicationItemsByDueDate(principalId)).resolves.toEqual([]);
+
+    const restoreNow = new Date("2026-09-15T18:55:00.000Z");
+    const restoreTurn = newUlid(restoreNow);
+    const restore = "I changed my mind; restore the Waterloo AIF to drafting.";
+    await seedTurn(principalId, restoreTurn, restore, restoreNow);
+    await repository.applyOwnerPlan({
+      principalId, turnId: restoreTurn, responseHash: "9".repeat(64), now: restoreNow,
+      plan: {
+        engaged: true, programUpdates: [],
+        applicationUpdates: [{
+          itemRef: item.itemId, programRef: program.programId, kind: null, label: null,
+          status: "drafting", statusEvidence: restore, dueDate: null,
+        }],
+      },
+    });
+    await expect(repository.listApplicationItemsByDueDate(principalId)).resolves.toMatchObject([
+      { itemId: item.itemId, status: "drafting" },
+    ]);
+  });
+
+  it("skips a response-local duplicate of an existing application item", async () => {
+    const principalId = "principal:application-repository-duplicate";
+    const turnId = newUlid(NOW);
+    const evidence = "Add my Waterloo AIF to the checklist.";
+    await seedTurn(principalId, turnId, evidence);
+    const repository = new UniversityTrackerRepository(env.DB);
+    await repository.applyOwnerPlan({
+      principalId, turnId, responseHash: "a".repeat(64), now: NOW,
+      plan: {
+        engaged: true,
+        programUpdates: [{
+          programRef: "new-1", university: "University of Waterloo", campus: null,
+          programName: "Computer Science", ouacCode: null,
+          verification: { state: "unverified", sourceUrl: null, cycle: "2027" },
+          addRequirements: [], addDates: [], resolveItemIds: [],
+        }],
+        applicationUpdates: [{
+          itemRef: "new-item-1", programRef: "new-1", kind: "supplementary_application",
+          label: "Waterloo AIF", status: "not_started", statusEvidence: evidence,
+          dueDate: { date: null, verification: { state: "unverified", sourceUrl: null, cycle: "2027" }, evidence },
+        }],
+      },
+    });
+    const program = (await repository.readSnapshot(principalId)).programs[0]!;
+    const secondNow = new Date("2026-09-15T19:00:00.000Z");
+    const secondTurn = newUlid(secondNow);
+    await seedTurn(principalId, secondTurn, evidence, secondNow);
+    await repository.applyOwnerPlan({
+      principalId, turnId: secondTurn, responseHash: "b".repeat(64), now: secondNow,
+      plan: {
+        engaged: true, programUpdates: [],
+        applicationUpdates: [{
+          itemRef: "new-item-1", programRef: program.programId, kind: "supplementary_application",
+          label: "Waterloo AIF", status: "not_started", statusEvidence: evidence,
+          dueDate: { date: null, verification: { state: "unverified", sourceUrl: null, cycle: "2027" }, evidence },
+        }],
+      },
+    });
+    await expect(repository.readSnapshot(principalId)).resolves.toMatchObject({
+      programs: [{ applicationItems: [{ label: "Waterloo AIF" }] }],
+    });
+    expect((await repository.readSnapshot(principalId)).programs[0]?.applicationItems).toHaveLength(1);
+  });
+
+  it("counts cap-held items under inactive programs before attempting a save", async () => {
+    const principalId = "principal:application-repository-inactive-cap";
+    const firstTurn = newUlid(NOW);
+    await seedTurn(principalId, firstTurn, "Track five test programs.");
+    const repository = new UniversityTrackerRepository(env.DB);
+    await repository.applyOwnerPlan({
+      principalId, turnId: firstTurn, responseHash: "c".repeat(64), now: NOW,
+      plan: {
+        engaged: true,
+        programUpdates: Array.from({ length: 5 }, (_, index) => ({
+          programRef: `new-${index + 1}`,
+          university: `Test University ${index}`,
+          campus: null,
+          programName: `Program ${index}`,
+          ouacCode: null,
+          verification: { state: "unverified" as const, sourceUrl: null, cycle: "2027" },
+          addRequirements: [], addDates: [], resolveItemIds: [],
+        })),
+        applicationUpdates: [],
+      },
+    });
+    const programs = (await repository.readSnapshot(principalId)).programs;
+    for (const program of programs.slice(0, 4)) {
+      const inserts = Array.from({ length: 32 }, (_, index) => {
+        const itemId = newUlid(new Date(NOW.getTime() + index + 1));
+        return env.DB.prepare(`INSERT INTO university_application_items (
+          principal_id, program_id, item_id, item_key, item_kind, item_label, item_status,
+          due_date, verification_state, source_url, admission_cycle, verified_at,
+          source_turn_id, submitted_at, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, 'essay', ?5, 'not_started', NULL, 'unverified',
+          NULL, '2027', NULL, ?6, NULL, ?7, ?7)`)
+          .bind(principalId, program.programId, itemId, `essay | cap ${program.programId} ${index}`,
+            `Cap ${index}`, firstTurn, NOW.toISOString());
+      });
+      await env.DB.batch(inserts);
+      await env.DB.prepare(`UPDATE university_programs
+        SET active = 0, owner_source_turn_id = ?1, updated_at = ?2
+        WHERE principal_id = ?3 AND program_id = ?4`)
+        .bind(firstTurn, NOW.toISOString(), principalId, program.programId).run();
+    }
+    const activeProgram = (await repository.readSnapshot(principalId)).programs[0]!;
+    const later = new Date("2026-09-15T19:05:00.000Z");
+    const laterTurn = newUlid(later);
+    const evidence = "Add the final essay checklist item.";
+    await seedTurn(principalId, laterTurn, evidence, later);
+    await expect(repository.applyOwnerPlan({
+      principalId, turnId: laterTurn, responseHash: "d".repeat(64), now: later,
+      plan: {
+        engaged: true, programUpdates: [],
+        applicationUpdates: [{
+          itemRef: "new-item-1", programRef: activeProgram.programId, kind: "essay",
+          label: "Final essay", status: "not_started", statusEvidence: evidence,
+          dueDate: { date: null, verification: { state: "unverified", sourceUrl: null, cycle: "2027" }, evidence },
+        }],
+      },
+    })).rejects.toBeInstanceOf(RangeError);
   });
 });

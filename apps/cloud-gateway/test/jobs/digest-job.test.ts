@@ -138,6 +138,7 @@ function applicationItem(
     status: "not_started",
     dueDate: "2026-11-01",
     verification: { state: "unverified", sourceUrl: null, cycle: "2027", verifiedAt: null },
+    sourceTurnId: "01k3w1t4000000000000000601" as Ulid,
     submittedAt: null,
     updatedAt: NOW,
     ...overrides,

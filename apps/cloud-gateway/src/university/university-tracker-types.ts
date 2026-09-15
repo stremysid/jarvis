@@ -9,7 +9,12 @@ export type UniversityApplicationItemKind =
   | "reference"
   | "transcript"
   | "scholarship";
-export type UniversityApplicationItemStatus = "not_started" | "drafting" | "ready" | "submitted_by_sid";
+export type UniversityApplicationItemStatus =
+  | "not_started"
+  | "drafting"
+  | "ready"
+  | "submitted_by_sid"
+  | "not_needed_by_sid";
 
 export interface UniversityVerification {
   readonly state: UniversityVerificationState;
@@ -34,6 +39,7 @@ export interface UniversityApplicationItem {
   readonly status: UniversityApplicationItemStatus;
   readonly dueDate: string | null;
   readonly verification: UniversityVerification;
+  readonly sourceTurnId: Ulid;
   readonly submittedAt: string | null;
   readonly updatedAt: string;
 }

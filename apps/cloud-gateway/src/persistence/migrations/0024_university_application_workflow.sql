@@ -20,7 +20,7 @@ CREATE TABLE university_application_items (
     AND instr(item_label, char(13)) = 0
   ),
   item_status TEXT NOT NULL CHECK (item_status IN (
-    'not_started', 'drafting', 'ready', 'submitted_by_sid'
+    'not_started', 'drafting', 'ready', 'submitted_by_sid', 'not_needed_by_sid'
   )),
   due_date TEXT CHECK (
     due_date IS NULL OR (
@@ -73,9 +73,32 @@ BEGIN
   SELECT RAISE(ABORT, 'university_application_item_limit_exceeded') WHERE (
     SELECT COUNT(*) FROM university_application_items
     WHERE principal_id = NEW.principal_id
+  ) >= 256 OR (
+    SELECT COUNT(*) FROM university_application_items
+    WHERE principal_id = NEW.principal_id AND program_id = NEW.program_id
+  ) >= 64 OR (
+    NEW.item_status != 'not_needed_by_sid' AND ((
+      SELECT COUNT(*) FROM university_application_items
+      WHERE principal_id = NEW.principal_id AND item_status != 'not_needed_by_sid'
+    ) >= 128 OR (
+      SELECT COUNT(*) FROM university_application_items
+      WHERE principal_id = NEW.principal_id AND program_id = NEW.program_id
+        AND item_status != 'not_needed_by_sid'
+    ) >= 32)
+  );
+END;
+
+CREATE TRIGGER university_application_items_cap_reactivate
+BEFORE UPDATE ON university_application_items
+WHEN OLD.item_status = 'not_needed_by_sid' AND NEW.item_status != 'not_needed_by_sid'
+BEGIN
+  SELECT RAISE(ABORT, 'university_application_item_limit_exceeded') WHERE (
+    SELECT COUNT(*) FROM university_application_items
+    WHERE principal_id = NEW.principal_id AND item_status != 'not_needed_by_sid'
   ) >= 128 OR (
     SELECT COUNT(*) FROM university_application_items
     WHERE principal_id = NEW.principal_id AND program_id = NEW.program_id
+      AND item_status != 'not_needed_by_sid'
   ) >= 32;
 END;
 
@@ -114,11 +137,30 @@ BEGIN
     OR NEW.created_at IS NOT OLD.created_at;
 END;
 
-CREATE TRIGGER university_application_items_submitted_terminal
+CREATE TRIGGER university_application_items_status_correction_guard
 BEFORE UPDATE ON university_application_items
 BEGIN
   SELECT RAISE(ABORT, 'university_application_item_status_invalid')
-  WHERE OLD.item_status = 'submitted_by_sid' AND NEW.item_status != 'submitted_by_sid';
+  WHERE OLD.item_status IN ('submitted_by_sid', 'not_needed_by_sid')
+    AND NEW.item_status != OLD.item_status
+    AND NEW.source_turn_id IS OLD.source_turn_id;
+END;
+
+CREATE TRIGGER university_application_items_state_consistent_update
+BEFORE UPDATE ON university_application_items
+BEGIN
+  SELECT RAISE(ABORT, 'university_application_item_state_invalid') WHERE
+    NEW.updated_at < OLD.updated_at
+    OR (
+      OLD.item_status = 'submitted_by_sid'
+      AND NEW.item_status = 'submitted_by_sid'
+      AND NEW.submitted_at IS NOT OLD.submitted_at
+    )
+    OR (
+      NEW.verification_state = 'verified'
+      AND NEW.due_date IS NOT OLD.due_date
+      AND NEW.verified_at IS OLD.verified_at
+    );
 END;
 
 CREATE TRIGGER university_application_items_reject_delete

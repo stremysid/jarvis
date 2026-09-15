@@ -61,7 +61,7 @@ function insertItem(input: {
   readonly itemId?: Ulid;
   readonly itemKey?: string;
   readonly label?: string;
-  readonly status?: "not_started" | "drafting" | "ready" | "submitted_by_sid";
+  readonly status?: "not_started" | "drafting" | "ready" | "submitted_by_sid" | "not_needed_by_sid";
 }): D1PreparedStatement {
   const itemId = input.itemId ?? newUlid(NOW);
   const label = input.label ?? "Supplementary form";
@@ -153,7 +153,7 @@ describe("0024 university application workflow migration", () => {
       .rejects.toThrow(/university_application_item_core_immutable/u);
   });
 
-  it("does not let a submitted-by-Sid item move backwards", async () => {
+  it("allows a later owner turn, but not the same turn, to correct submitted-by-Sid", async () => {
     const principalId = "principal:application-migration-submitted";
     const { programId, turnId } = await seedProgram(principalId);
     const itemId = newUlid(NOW);
@@ -163,6 +163,78 @@ describe("0024 university application workflow migration", () => {
       WHERE principal_id = ?3 AND item_id = ?4`)
       .bind(turnId, NOW.toISOString(), principalId, itemId).run())
       .rejects.toThrow(/university_application_item_status_invalid/u);
+
+    const later = new Date("2026-09-15T18:05:00.000Z");
+    const laterTurn = newUlid(later);
+    await seedTurn(principalId, laterTurn, "I didn't submit this item.");
+    await expect(env.DB.prepare(`UPDATE university_application_items
+      SET item_status = 'ready', submitted_at = NULL, source_turn_id = ?1, updated_at = ?2
+      WHERE principal_id = ?3 AND item_id = ?4`)
+      .bind(laterTurn, later.toISOString(), principalId, itemId).run()).resolves.toBeDefined();
+  });
+
+  it("refuses reactivating a retired item when its program is already at the active cap", async () => {
+    const principalId = "principal:application-migration-reactivate-cap";
+    const { programId, turnId } = await seedProgram(principalId);
+    for (let index = 0; index < 32; index += 1) {
+      await insertItem({
+        principalId, programId, turnId, itemKey: `essay | active ${index}`, label: `Active ${index}`,
+      }).run();
+    }
+    const retiredId = newUlid(new Date("2026-09-15T18:01:00.000Z"));
+    await insertItem({
+      principalId, programId, turnId, itemId: retiredId,
+      itemKey: "essay | retired", label: "Retired", status: "not_needed_by_sid",
+    }).run();
+    const later = new Date("2026-09-15T18:05:00.000Z");
+    const laterTurn = newUlid(later);
+    await seedTurn(principalId, laterTurn, "Restore the retired application item.");
+    await expect(env.DB.prepare(`UPDATE university_application_items
+      SET item_status = 'ready', source_turn_id = ?1, updated_at = ?2
+      WHERE principal_id = ?3 AND item_id = ?4`)
+      .bind(laterTurn, later.toISOString(), principalId, retiredId).run())
+      .rejects.toThrow(/university_application_item_limit_exceeded/u);
+  });
+
+  it("keeps submitted timestamps, verified dates and update time internally consistent", async () => {
+    const principalId = "principal:application-migration-state-consistent";
+    const { programId, turnId } = await seedProgram(principalId);
+    const submittedId = newUlid(NOW);
+    await insertItem({ principalId, programId, turnId, itemId: submittedId, status: "submitted_by_sid" }).run();
+    const later = new Date("2026-09-15T18:05:00.000Z");
+    const laterTurn = newUlid(later);
+    await seedTurn(principalId, laterTurn);
+    await expect(env.DB.prepare(`UPDATE university_application_items
+      SET submitted_at = ?1, source_turn_id = ?2, updated_at = ?1
+      WHERE principal_id = ?3 AND item_id = ?4`)
+      .bind(later.toISOString(), laterTurn, principalId, submittedId).run())
+      .rejects.toThrow(/university_application_item_state_invalid/u);
+
+    const ordinaryId = newUlid(new Date("2026-09-15T18:00:01.000Z"));
+    await insertItem({
+      principalId, programId, turnId, itemId: ordinaryId,
+      itemKey: "supplementary_application | ordinary", label: "Ordinary",
+    }).run();
+    await expect(env.DB.prepare(`UPDATE university_application_items
+      SET source_turn_id = ?1, updated_at = '2026-09-15T17:59:59.000Z'
+      WHERE principal_id = ?2 AND item_id = ?3`)
+      .bind(laterTurn, principalId, ordinaryId).run())
+      .rejects.toThrow(/university_application_item_state_invalid/u);
+
+    await env.DB.prepare(`UPDATE university_application_items
+      SET due_date = '2027-01-15', verification_state = 'verified',
+          source_url = 'https://example.edu/deadline', admission_cycle = '2027',
+          verified_at = ?1, source_turn_id = ?2, updated_at = ?1
+      WHERE principal_id = ?3 AND item_id = ?4`)
+      .bind(later.toISOString(), laterTurn, principalId, ordinaryId).run();
+    const newest = new Date("2026-09-15T18:10:00.000Z");
+    const newestTurn = newUlid(newest);
+    await seedTurn(principalId, newestTurn);
+    await expect(env.DB.prepare(`UPDATE university_application_items
+      SET due_date = '2027-01-16', source_turn_id = ?1, updated_at = ?2
+      WHERE principal_id = ?3 AND item_id = ?4`)
+      .bind(newestTurn, newest.toISOString(), principalId, ordinaryId).run())
+      .rejects.toThrow(/university_application_item_state_invalid/u);
   });
 
   it("refuses deletion of an application item", async () => {

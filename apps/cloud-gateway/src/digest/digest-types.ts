@@ -56,7 +56,7 @@ export interface DigestApplicationItem {
   readonly university: string;
   readonly programName: string;
   readonly label: string;
-  readonly status: "not_started" | "drafting" | "ready" | "submitted_by_sid";
+  readonly status: "not_started" | "drafting" | "ready" | "submitted_by_sid" | "not_needed_by_sid";
   readonly dueDate: string | null;
   readonly verificationState: "verified" | "unverified";
 }

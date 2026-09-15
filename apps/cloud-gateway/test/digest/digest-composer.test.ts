@@ -96,6 +96,7 @@ describe("university application priorities", () => {
       ...empty(),
       applicationItems: [
         applicationItem({ itemId: "f", label: "Submitted item", status: "submitted_by_sid", dueDate: "2026-09-20" }),
+        applicationItem({ itemId: "g", label: "Retired item", status: "not_needed_by_sid", dueDate: "2026-09-19" }),
         applicationItem({ itemId: "c", label: "Third", dueDate: "2026-11-03", verificationState: "unverified" }),
         applicationItem({ itemId: "none", label: "No published date", dueDate: null, verificationState: "unverified" }),
         applicationItem({ itemId: "a", label: "First", dueDate: "2026-11-01", verificationState: "unverified" }),
@@ -112,6 +113,7 @@ describe("university application priorities", () => {
     ]);
     expect(digest.text).toContain("First [drafting; due 2026-11-01 (unverified)]");
     expect(digest.text).not.toContain("Submitted item");
+    expect(digest.text).not.toContain("Retired item");
     expect(digest.text).not.toContain("No published date");
   });
 

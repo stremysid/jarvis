@@ -48,6 +48,7 @@ describe("university tracker Telegram integration", () => {
       ) VALUES (?1, ?2, 'telegram', '44119900', 'active', ?3, ?3)`)
         .bind(identityId, principalId, NOW.toISOString()),
     ]);
+    const ownerMessage = "I'm considering Waterloo Computer Science. I heard it needs calculus and English. The date might be January, but I haven't checked the official 2027 page. Also add the entrance scholarship to the checklist.";
     const structuredReply = JSON.stringify({
       schoolEngaged: false,
       universityEngaged: true,
@@ -80,11 +81,11 @@ describe("university tracker Telegram integration", () => {
         kind: "scholarship",
         label: "Entrance scholarship",
         status: "not_started",
-        statusEvidence: "Also add the entrance scholarship to the checklist.",
+        statusEvidence: ownerMessage,
         dueDate: {
           date: null,
           verification: { state: "unverified", sourceUrl: null, cycle: "2027" },
-          evidence: "Also add the entrance scholarship to the checklist.",
+          evidence: ownerMessage,
         },
       }],
     });
@@ -121,7 +122,7 @@ describe("university tracker Telegram integration", () => {
       sessionId: "telegram:university-integration",
       principalId,
       turnId: TURN,
-      text: "I'm considering Waterloo Computer Science. I heard it needs calculus and English. The date might be January, but I haven't checked the official 2027 page. Also add the entrance scholarship to the checklist.",
+      text: ownerMessage,
       signal: new AbortController().signal,
       channel: "telegram",
       kind: "outbox",

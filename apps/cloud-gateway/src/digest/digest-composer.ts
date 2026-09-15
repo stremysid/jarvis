@@ -178,12 +178,13 @@ function catchupSection(actions: readonly DigestCatchupAction[]): DigestSection 
 function applicationStatus(status: DigestApplicationItem["status"]): string {
   if (status === "not_started") return "not started";
   if (status === "submitted_by_sid") return "submitted by Sid";
+  if (status === "not_needed_by_sid") return "not needed by Sid";
   return status;
 }
 
 function applicationSection(items: readonly DigestApplicationItem[]): DigestSection | null {
   const ordered = [...items]
-    .filter((item) => item.status !== "submitted_by_sid")
+    .filter((item) => item.status !== "submitted_by_sid" && item.status !== "not_needed_by_sid")
     .sort((left, right) => {
       if (left.dueDate === null && right.dueDate !== null) return 1;
       if (left.dueDate !== null && right.dueDate === null) return -1;

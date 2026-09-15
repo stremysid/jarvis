@@ -25,13 +25,15 @@ const MAX_ITEMS_PER_PROGRAM = 32;
 const MAX_ITEMS = 128;
 const MAX_APPLICATION_ITEMS_PER_PROGRAM = 32;
 const MAX_APPLICATION_ITEMS = 128;
+const MAX_APPLICATION_HISTORY_ITEMS_PER_PROGRAM = 64;
+const MAX_APPLICATION_HISTORY_ITEMS = 256;
 const encoder = new TextEncoder();
 
 const APPLICATION_KINDS = new Set<UniversityApplicationItemKind>([
   "supplementary_application", "essay", "personal_statement", "reference", "transcript", "scholarship",
 ]);
 const APPLICATION_STATUSES = new Set<UniversityApplicationItemStatus>([
-  "not_started", "drafting", "ready", "submitted_by_sid",
+  "not_started", "drafting", "ready", "submitted_by_sid", "not_needed_by_sid",
 ]);
 
 interface ProgramRow {
@@ -73,8 +75,14 @@ interface ApplicationItemRow {
   source_url: string | null;
   admission_cycle: string | null;
   verified_at: string | null;
+  source_turn_id: string;
   submitted_at: string | null;
   updated_at: string;
+}
+
+interface ApplicationCountRow {
+  program_id: string;
+  item_status: UniversityApplicationItemStatus;
 }
 
 interface ApplicationDigestRow extends ApplicationItemRow {
@@ -215,6 +223,7 @@ function applicationItemFromRow(value: ApplicationItemRow, expectedPrincipal: st
     status: value.item_status,
     dueDate,
     verification: verificationFromRow(value, "university_application_item_row_invalid"),
+    sourceTurnId: ulid(value.source_turn_id, "university_application_item_row_invalid"),
     submittedAt,
     updatedAt: iso(value.updated_at, "university_application_item_row_invalid"),
   });
@@ -267,11 +276,11 @@ export class UniversityTrackerRepository {
         LIMIT 128`).bind(principalId).all<ItemRow>(),
       this.database.prepare(`SELECT principal_id, program_id, item_id, item_kind, item_label,
           item_status, due_date, verification_state, source_url, admission_cycle, verified_at,
-          submitted_at, updated_at
+          source_turn_id, submitted_at, updated_at
         FROM university_application_items
         WHERE principal_id = ?1
         ORDER BY program_id, item_kind, item_key, item_id
-        LIMIT 128`).bind(principalId).all<ApplicationItemRow>(),
+        LIMIT 256`).bind(principalId).all<ApplicationItemRow>(),
     ]);
     const programs = rows(programResult).slice(0, MAX_PROGRAMS).map((row) => programFromRow(row, principalId));
     const programIds = new Set(programs.map((program) => program.programId));
@@ -284,11 +293,11 @@ export class UniversityTrackerRepository {
       if (items.length < MAX_ITEMS_PER_PROGRAM) items.push(item);
       itemsByProgram.set(row.program_id as Ulid, items);
     }
-    for (const row of rows(applicationResult).slice(0, MAX_APPLICATION_ITEMS)) {
+    for (const row of rows(applicationResult).slice(0, MAX_APPLICATION_HISTORY_ITEMS)) {
       if (!programIds.has(row.program_id as Ulid)) continue;
       const item = applicationItemFromRow(row, principalId);
       const items = applicationItemsByProgram.get(row.program_id as Ulid) ?? [];
-      if (items.length < MAX_APPLICATION_ITEMS_PER_PROGRAM) items.push(item);
+      if (items.length < MAX_APPLICATION_HISTORY_ITEMS_PER_PROGRAM) items.push(item);
       applicationItemsByProgram.set(row.program_id as Ulid, items);
     }
     return Object.freeze({
@@ -315,12 +324,14 @@ export class UniversityTrackerRepository {
     }
     const result = await this.database.prepare(`SELECT i.principal_id, i.program_id, i.item_id,
         i.item_kind, i.item_label, i.item_status, i.due_date, i.verification_state, i.source_url,
-        i.admission_cycle, i.verified_at, i.submitted_at, i.updated_at,
+        i.admission_cycle, i.verified_at, i.source_turn_id, i.submitted_at, i.updated_at,
         p.university_name, p.program_name
       FROM university_application_items i
       JOIN university_programs p
         ON p.principal_id = i.principal_id AND p.program_id = i.program_id
-      WHERE i.principal_id = ?1 AND i.item_status != 'submitted_by_sid' AND p.active = 1
+      WHERE i.principal_id = ?1
+        AND i.item_status NOT IN ('submitted_by_sid', 'not_needed_by_sid')
+        AND p.active = 1
       ORDER BY i.due_date IS NULL, i.due_date, i.item_id
       LIMIT ?2`).bind(principalId, limit).all<ApplicationDigestRow>();
     return Object.freeze(rows(result).map((row) => Object.freeze({
@@ -345,7 +356,14 @@ export class UniversityTrackerRepository {
       return;
     }
 
-    const current = await this.readSnapshot(principalId);
+    const [current, applicationCountResult] = await Promise.all([
+      this.readSnapshot(principalId),
+      this.database.prepare(`SELECT program_id, item_status
+        FROM university_application_items
+        WHERE principal_id = ?1
+        ORDER BY program_id, item_id
+        LIMIT 256`).bind(principalId).all<ApplicationCountRow>(),
+    ]);
     const programsById = new Map(current.programs.map((program) => [program.programId, program]));
     const itemsById = new Map(current.programs.flatMap((program) =>
       [...program.requirements, ...program.dates].map((item) => [item.itemId, program.programId] as const)));
@@ -354,9 +372,20 @@ export class UniversityTrackerRepository {
     const activeItemCounts = new Map(current.programs.map((program) => [
       program.programId, program.requirements.length + program.dates.length,
     ]));
-    const applicationItemCounts = new Map(current.programs.map((program) => [
-      program.programId, program.applicationItems.length,
-    ]));
+    const applicationItemCounts = new Map<Ulid, number>();
+    const applicationHistoryCounts = new Map<Ulid, number>();
+    for (const row of rows(applicationCountResult)) {
+      const programId = ulid(row.program_id, "university_application_item_count_invalid");
+      if (!APPLICATION_STATUSES.has(row.item_status)) {
+        throw new TypeError("university_application_item_count_invalid");
+      }
+      applicationHistoryCounts.set(programId, (applicationHistoryCounts.get(programId) ?? 0) + 1);
+      if (row.item_status !== "not_needed_by_sid") {
+        applicationItemCounts.set(programId, (applicationItemCounts.get(programId) ?? 0) + 1);
+      }
+    }
+    let applicationItemCount = [...applicationItemCounts.values()].reduce((sum, count) => sum + count, 0);
+    let applicationHistoryCount = [...applicationHistoryCounts.values()].reduce((sum, count) => sum + count, 0);
     const finalProgramIds = new Set(programsById.keys());
     const seenRefs = new Set<string>();
     const responseProgramIds = new Map<string, Ulid>();
@@ -378,6 +407,7 @@ export class UniversityTrackerRepository {
         finalProgramIds.add(programId);
         activeItemCounts.set(programId, 0);
         applicationItemCounts.set(programId, 0);
+        applicationHistoryCounts.set(programId, 0);
       } else {
         if (!programsById.has(existingId)) throw new TypeError("university_tracker_program_unknown");
         programId = existingId;
@@ -469,6 +499,13 @@ export class UniversityTrackerRepository {
     }
 
     const seenApplicationRefs = new Set<string>();
+    const knownApplicationKeys = new Map(current.programs.map((program) => [
+      program.programId,
+      new Set(program.applicationItems.map((item) => applicationItemKey(item.kind, item.label))),
+    ]));
+    for (const programId of finalProgramIds) {
+      if (!knownApplicationKeys.has(programId)) knownApplicationKeys.set(programId, new Set());
+    }
     const applicationStatements: D1PreparedStatement[] = [];
     for (const update of input.plan.applicationUpdates ?? []) {
       if (seenApplicationRefs.has(update.itemRef)) {
@@ -500,6 +537,8 @@ export class UniversityTrackerRepository {
         || status === undefined || !APPLICATION_STATUSES.has(status)) {
         throw new TypeError("university_application_item_invalid");
       }
+      const dedupe = applicationItemKey(kind, label);
+      if (existingId === null && knownApplicationKeys.get(programId)?.has(dedupe)) continue;
       if (update.status === null && update.statusEvidence !== null
         || update.status !== null && update.statusEvidence === null) {
         throw new TypeError("university_application_item_invalid");
@@ -525,23 +564,43 @@ export class UniversityTrackerRepository {
         || existingId === null && (update.status === null || update.statusEvidence === null)) {
         throw new TypeError("university_application_item_invalid");
       }
-      if (existingRecord?.item.status === "submitted_by_sid" && status !== "submitted_by_sid") {
+      if (existingRecord !== undefined
+        && (existingRecord.item.status === "submitted_by_sid"
+          || existingRecord.item.status === "not_needed_by_sid")
+        && status !== existingRecord.item.status
+        && existingRecord.item.sourceTurnId === turnId) {
         throw new TypeError("university_application_item_status_invalid");
       }
-      const submittedAt = existingRecord?.item.submittedAt
-        ?? (status === "submitted_by_sid" ? nowIso : null);
+      const submittedAt = status === "submitted_by_sid"
+        ? existingRecord?.item.status === "submitted_by_sid"
+          ? existingRecord.item.submittedAt
+          : nowIso
+        : null;
       if (existingId === null) {
-        applicationItemCounts.set(programId, (applicationItemCounts.get(programId) ?? 0) + 1);
+        knownApplicationKeys.get(programId)?.add(dedupe);
+        applicationHistoryCounts.set(programId, (applicationHistoryCounts.get(programId) ?? 0) + 1);
+        applicationHistoryCount += 1;
+        if (status !== "not_needed_by_sid") {
+          applicationItemCounts.set(programId, (applicationItemCounts.get(programId) ?? 0) + 1);
+          applicationItemCount += 1;
+        }
         const itemId = newUlid(now);
         applicationStatements.push(this.database.prepare(`INSERT INTO university_application_items (
           principal_id, program_id, item_id, item_key, item_kind, item_label, item_status,
           due_date, verification_state, source_url, admission_cycle, verified_at,
           source_turn_id, submitted_at, created_at, updated_at
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?15)`)
-          .bind(principalId, programId, itemId, applicationItemKey(kind, label), kind, label, status,
+          .bind(principalId, programId, itemId, dedupe, kind, label, status,
             dueDate, dueVerification.state, dueVerification.sourceUrl, dueVerification.cycle,
             dueVerification.verifiedAt, turnId, submittedAt, nowIso));
       } else if (update.status !== null || update.dueDate !== null) {
+        if (existingRecord?.item.status === "not_needed_by_sid" && status !== "not_needed_by_sid") {
+          applicationItemCounts.set(programId, (applicationItemCounts.get(programId) ?? 0) + 1);
+          applicationItemCount += 1;
+        } else if (existingRecord?.item.status !== "not_needed_by_sid" && status === "not_needed_by_sid") {
+          applicationItemCounts.set(programId, (applicationItemCounts.get(programId) ?? 0) - 1);
+          applicationItemCount -= 1;
+        }
         applicationStatements.push(this.database.prepare(`UPDATE university_application_items
           SET item_status = ?1, due_date = ?2, verification_state = ?3, source_url = ?4,
               admission_cycle = ?5, verified_at = ?6, source_turn_id = ?7,
@@ -553,12 +612,16 @@ export class UniversityTrackerRepository {
       if ((applicationItemCounts.get(programId) ?? 0) > MAX_APPLICATION_ITEMS_PER_PROGRAM) {
         throw new RangeError("university_application_item_limit_exceeded");
       }
+      if ((applicationHistoryCounts.get(programId) ?? 0) > MAX_APPLICATION_HISTORY_ITEMS_PER_PROGRAM) {
+        throw new RangeError("university_application_item_limit_exceeded");
+      }
     }
     if (finalProgramIds.size > MAX_PROGRAMS) throw new RangeError("university_tracker_program_limit_exceeded");
     if ([...activeItemCounts.values()].reduce((sum, count) => sum + count, 0) > MAX_ITEMS) {
       throw new RangeError("university_tracker_item_limit_exceeded");
     }
-    if ([...applicationItemCounts.values()].reduce((sum, count) => sum + count, 0) > MAX_APPLICATION_ITEMS) {
+    if (applicationItemCount > MAX_APPLICATION_ITEMS
+      || applicationHistoryCount > MAX_APPLICATION_HISTORY_ITEMS) {
       throw new RangeError("university_application_item_limit_exceeded");
     }
     statements.push(...resolves, ...inserts);

@@ -33,12 +33,14 @@ const CHANGED_SCHOOL_TRIGGER_NAMES = [
 ] as const;
 const APPLICATION_TRIGGER_NAMES = [
   "university_application_items_cap_insert",
+  "university_application_items_cap_reactivate",
   "university_application_items_core_immutable",
   "university_application_items_insert_guard",
   "university_application_items_reject_delete",
   "university_application_items_require_owner_turn_insert",
   "university_application_items_require_owner_turn_update",
-  "university_application_items_submitted_terminal",
+  "university_application_items_state_consistent_update",
+  "university_application_items_status_correction_guard",
 ] as const;
 
 async function seedTurn(principalId: string, turnId: Ulid, text = "Track a university program."): Promise<void> {
