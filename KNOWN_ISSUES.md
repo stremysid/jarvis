@@ -612,10 +612,10 @@ The first study-coach slice keeps its weak-area evidence, cited practice and
 plain-speech check-in settings in separate operational D1 tables. Direct owner
 Telegram turns can correct or forget those operational records, while
 forwarded, quoted, model and feed text cannot. The R2 channel-neutral
-owner-controls service is still under review, so this slice deliberately does
-not depend on it and does not claim that an R2 forget request reaches these
-tables. A later reviewed integration must route the same owner control to both
-stores without weakening either store's provenance checks.
+owner-controls service is now merged but is not composed into Telegram, so this
+slice deliberately does not depend on it and does not claim that an R2 forget
+request reaches these tables. A later reviewed integration must route the same
+owner control to both stores without weakening either store's provenance checks.
 
 ## Must-report gap: deployed, gateway delivery still needs verification
 
