@@ -3,6 +3,7 @@ import type { Ulid } from "../../../../packages/contracts/src/index.js";
 import type { ModelAdapter, ModelAdapterStreamInput, ModelToken } from "../../src/model/model-types.js";
 import { Redactor } from "../../src/security/redaction.js";
 import {
+  guardSchoolReply,
   isBrightspaceRefreshRequest,
   parseOwnerCatchupPlan,
   SchoolCatchupModelAdapter,
@@ -403,6 +404,11 @@ describe("SchoolCatchupModelAdapter", () => {
       engaged: false, reply, courseUpdates: [], completeActionIds: [], plan: [],
     }, new Redactor());
     expect(parsed.reply).toBe(reply);
+  });
+
+  it("leaves an explicit Brightspace non-check unchanged", () => {
+    const reply = "I haven't checked D2L; I only used the dates you pasted.";
+    expect(guardSchoolReply(reply, new Redactor())).toBe(reply);
   });
 
   it.each([

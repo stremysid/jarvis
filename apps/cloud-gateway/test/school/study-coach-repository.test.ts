@@ -105,6 +105,68 @@ describe("StudyCoachRepository", () => {
     });
   });
 
+  it("syncs new weak-area facts even when owner evidence fills the course cap", async () => {
+    const item = await seedCourse("context-at-cap", "Essay due Friday", "due_work");
+    const repository = new StudyCoachRepository(env.DB);
+    for (let index = 0; index < 24; index += 1) {
+      const text = `Owner evidence ${index}`;
+      const turnId = await addTurn(item.principalId, text, 10 + index);
+      await repository.recordOwnerObservation({
+        principalId: item.principalId,
+        turnId,
+        courseId: item.courseId,
+        topic: `owner topic ${index}`,
+        outcome: "uncertain",
+        evidenceText: text,
+        today: TODAY,
+        now: new Date(NOW.getTime() + 10 + index),
+      });
+    }
+    const factsTurn = await addTurn(item.principalId, "Add current weak areas", 1_000);
+    await new SchoolCatchupRepository(env.DB).applyOwnerPlan({
+      principalId: item.principalId,
+      turnId: factsTurn,
+      today: TODAY,
+      responseHash: "d".repeat(64),
+      now: new Date(NOW.getTime() + 1_000),
+      plan: {
+        engaged: true,
+        reply: "Updated weak areas",
+        courseUpdates: [{
+          courseRef: item.courseId,
+          name: "Chemistry",
+          platform: "D2L",
+          addFacts: [
+            { kind: "weak_area", statement: "Balancing equations" },
+            { kind: "weak_area", statement: "Mole ratios" },
+            { kind: "weak_area", statement: "Titration setup" },
+          ],
+          resolveFactIds: [],
+        }],
+        completeActionIds: [],
+        plan: [{
+          courseRef: item.courseId,
+          localDate: TODAY,
+          sequenceRank: 1,
+          text: "Review current weak areas",
+          estimatedMinutes: 20,
+        }],
+      },
+    });
+
+    await repository.syncCourseContext(
+      item.principalId,
+      TODAY,
+      new Date(NOW.getTime() + 2_000),
+    );
+
+    const count = await env.DB.prepare(`SELECT COUNT(*) AS count
+      FROM school_study_evidence
+      WHERE principal_id = ?1 AND course_id = ?2 AND evidence_kind = 'course_context'`)
+      .bind(item.principalId, item.courseId).first<{ count: number }>();
+    expect(count?.count).toBe(3);
+  });
+
   it("requires repeated evidence before deriving a supported weak-area view", async () => {
     const item = await seedCourse("repeat", "Stoichiometry");
     const repository = new StudyCoachRepository(env.DB);
@@ -289,10 +351,75 @@ describe("StudyCoachRepository", () => {
     expect(topic).toBeUndefined();
   });
 
-  it("counts only weak signals when describing check-in confidence", async () => {
+  it("does not retire owner evidence when an owner-topic answer or retried turn adds no evidence", async () => {
+    const item = await seedCourse("unsupported-at-cap");
+    const repository = new StudyCoachRepository(env.DB);
+    let firstEvidenceTurn: Ulid | null = null;
+    for (let index = 0; index < 24; index += 1) {
+      const text = `Cap evidence ${index}`;
+      const turnId = await addTurn(item.principalId, text, 10 + index);
+      firstEvidenceTurn ??= turnId;
+      await repository.recordOwnerObservation({
+        principalId: item.principalId,
+        turnId,
+        courseId: item.courseId,
+        topic: `cap topic ${index}`,
+        outcome: "uncertain",
+        evidenceText: text,
+        today: TODAY,
+        now: new Date(NOW.getTime() + 10 + index),
+      });
+    }
+    const practiceTurn = await addTurn(item.principalId, "quiz me on mitosis", 100);
+    await repository.createPractice({
+      principalId: item.principalId,
+      courseId: item.courseId,
+      mode: "quiz",
+      source: {
+        kind: "owner_topic",
+        turnId: practiceTurn,
+        excerpt: "mitosis",
+        observedAt: new Date(NOW.getTime() + 100).toISOString(),
+      },
+      items: [{ question: "What is mitosis?", answer: "cell division", sourceQuote: "unsupported" }],
+      now: new Date(NOW.getTime() + 100),
+    });
+    const answerTurn = await addTurn(item.principalId, "cell division", 200);
+    await repository.answerActiveQuiz({
+      principalId: item.principalId,
+      turnId: answerTurn,
+      answer: "cell division",
+      today: TODAY,
+      now: new Date(NOW.getTime() + 200),
+    });
+
+    const counts = async (): Promise<{ active: number; superseded: number } | null> => env.DB.prepare(`SELECT
+        COUNT(*) FILTER (WHERE status = 'active') AS active,
+        COUNT(*) FILTER (WHERE status = 'superseded') AS superseded
+      FROM school_study_evidence
+      WHERE principal_id = ?1 AND course_id = ?2 AND evidence_kind != 'course_context'`)
+      .bind(item.principalId, item.courseId).first<{ active: number; superseded: number }>();
+    await expect(counts()).resolves.toEqual({ active: 24, superseded: 0 });
+
+    if (firstEvidenceTurn === null) throw new Error("study_coach_retry_fixture_missing");
+    await repository.recordOwnerObservation({
+      principalId: item.principalId,
+      turnId: firstEvidenceTurn,
+      courseId: item.courseId,
+      topic: "cap topic 0",
+      outcome: "uncertain",
+      evidenceText: "Cap evidence 0",
+      today: TODAY,
+      now: new Date(NOW.getTime() + 300),
+    });
+    await expect(counts()).resolves.toEqual({ active: 24, superseded: 0 });
+  });
+
+  it("uses the topic summary's weak-versus-easy judgment for check-in confidence", async () => {
     const item = await seedCourse("weak-count", "Unrelated weak fact");
     const repository = new StudyCoachRepository(env.DB);
-    for (const [index, outcome] of (["wrong", "easy", "easy"] as const).entries()) {
+    const outcomes = ["uncertain", "uncertain", "uncertain", "easy", "easy", "easy", "easy", "easy"] as const;
+    for (const [index, outcome] of outcomes.entries()) {
       const text = `mole ratios ${outcome} ${index}`;
       const turnId = await addTurn(item.principalId, text, 1_000 + index);
       await repository.recordOwnerObservation({
@@ -306,13 +433,18 @@ describe("StudyCoachRepository", () => {
         now: new Date(NOW.getTime() + 1_000 + index),
       });
     }
-    await expect(repository.claimDigestCheckIn({
+    const summary = (await repository.readSnapshot(item.principalId, TODAY)).courses[0]?.topics
+      .find((topic) => topic.topic === "mole ratios");
+    expect(summary?.confidence).toBe("low");
+    const checkIn = await repository.claimDigestCheckIn({
       principalId: item.principalId,
       today: TODAY,
       weekday: 1,
       minuteOfDay: 450,
       now: new Date(NOW.getTime() + 5_000),
-    })).resolves.toMatchObject({ topic: "mole ratios", evidenceCount: 1, confidence: "low" });
+    });
+    expect(checkIn).toMatchObject({ topic: "mole ratios", evidenceCount: 3, confidence: "low" });
+    expect(checkIn?.confidence).toBe(summary?.confidence);
   });
 
   it("does not turn a due-work course fact into a weak-area check-in", async () => {

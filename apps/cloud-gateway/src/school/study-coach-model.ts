@@ -21,6 +21,7 @@ const UNSAFE_INLINE = /[\p{C}\r\n]/u;
 const WEEKEND_MASK = (1 << 0) | (1 << 6);
 const QUIZ_ANSWER_WINDOW_MS = 30 * 60 * 1_000;
 const MAX_QUIZ_ANSWER_BYTES = 256;
+const CLOSED_QUIZ_FALLBACK_PREFIX = "I closed the previous quiz before answering normally.\n\n";
 const encoder = new TextEncoder();
 
 interface StudyCoachModelDependencies {
@@ -201,7 +202,7 @@ function resolveObservationCourse(
   }
   const matches = snapshot.courses.filter((course) => course.topics.some((topic) =>
     phraseMatches(topic.topic, observation.topic))
-    || course.facts.some((fact) => phraseMatches(fact.statement, observation.topic))
+    || course.facts.some((fact) => fact.kind === "weak_area" && phraseMatches(fact.statement, observation.topic))
     || phraseMatches(course.name, observation.topic));
   return matches.length === 1 ? matches[0]! : null;
 }
@@ -233,7 +234,7 @@ function plausiblyAnswersQuiz(item: StudyPracticeItem, text: string, now: Date):
   if (/^(?:ok(?:ay)?|thanks?(?:\s+you)?|hello|hi|hey|cool|alright|sure)[.!]*$/iu.test(trimmed)
     || /^(?:what|when|where|why|who|how|can|could|would|will|please|check|refresh|update|help|plan|remind|tell)\b/iu.test(trimmed)
     || /\b(?:d2l|brightspace|deadline|due\s+(?:today|tomorrow|this\s+week)|schedule|calendar|application|ouac)\b/iu.test(trimmed)
-    || /\b(?:is|was|feels?|found|finished|got)\b/iu.test(trimmed)) return false;
+    || /\b(?:feels?|found|finished|got)\b/iu.test(trimmed)) return false;
   return trimmed.split(/\s+/u).length <= 12;
 }
 
@@ -519,7 +520,12 @@ export class StudyCoachModelAdapter implements ModelAdapter {
 
     if (snapshot.activeQuiz !== null) {
       if (!plausiblyAnswersQuiz(snapshot.activeQuiz, input.userText, now)) {
-        await attemptStudyOperation(() => this.dependencies.repository.dismissActiveQuiz(input.principalId, now));
+        const dismissed = await attemptStudyOperation(
+          () => this.dependencies.repository.dismissActiveQuiz(input.principalId, now),
+        );
+        if (dismissed.ok && dismissed.value > 0) {
+          yield Object.freeze({ index: 0, text: CLOSED_QUIZ_FALLBACK_PREFIX });
+        }
         yield* this.dependencies.fallbackModel.stream(input);
         return;
       }

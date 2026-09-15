@@ -262,19 +262,7 @@ export class StudyCoachRepository {
     await this.retireStaleEvidence(principalId, now);
     const result = await this.database.prepare(`WITH missing AS (
         SELECT f.principal_id, f.course_id, f.fact_id, f.fact_kind, f.statement,
-          f.evidence_source, f.observed_at,
-          ROW_NUMBER() OVER (
-            PARTITION BY f.course_id ORDER BY f.observed_at DESC, f.fact_id DESC
-          ) AS course_rank,
-          (SELECT COUNT(*) FROM school_study_evidence e
-            WHERE e.principal_id = f.principal_id AND e.course_id = f.course_id
-              AND e.status = 'active'
-              AND (e.evidence_kind != 'course_context' OR EXISTS (
-                SELECT 1 FROM school_course_facts active_fact
-                WHERE active_fact.principal_id = e.principal_id
-                  AND active_fact.fact_id = e.source_fact_id
-                  AND active_fact.status = 'active'
-              ))) AS active_course_count
+          f.evidence_source, f.observed_at
         FROM school_course_facts f
         WHERE f.principal_id = ?1 AND f.status = 'active' AND f.fact_kind = 'weak_area'
           AND NOT EXISTS (
@@ -286,16 +274,7 @@ export class StudyCoachRepository {
       SELECT principal_id, course_id, fact_id, fact_kind, statement,
         evidence_source, observed_at
       FROM missing
-      WHERE course_rank <= 24 - active_course_count
-      ORDER BY observed_at DESC, fact_id DESC
-      LIMIT max(0, 96 - (SELECT COUNT(*) FROM school_study_evidence e
-        WHERE e.principal_id = ?1 AND e.status = 'active'
-          AND (e.evidence_kind != 'course_context' OR EXISTS (
-            SELECT 1 FROM school_course_facts active_fact
-            WHERE active_fact.principal_id = e.principal_id
-              AND active_fact.fact_id = e.source_fact_id
-              AND active_fact.status = 'active'
-          ))))`).bind(principalId).all<FactRow>();
+      ORDER BY observed_at DESC, fact_id DESC`).bind(principalId).all<FactRow>();
     const statements = rows(result).map((row) => {
       const fact = this.requireFact(row, principalId);
       const key = topicKey(fact.statement);
@@ -394,7 +373,8 @@ export class StudyCoachRepository {
       throw new TypeError("school_study_observation_invalid");
     }
     const key = topicKey(topic);
-    await this.database.batch([...this.retirementStatements(principalId, courseId, now), this.database.prepare(`INSERT INTO school_study_evidence (
+    const sourceKey = `turn:${turnId}`;
+    await this.database.batch([...this.retirementStatements(principalId, courseId, now, sourceKey), this.database.prepare(`INSERT INTO school_study_evidence (
         principal_id, evidence_id, source_key, course_id, topic_key, topic, outcome,
         evidence_kind, evidence_text, confidence, source_turn_id, source_fact_id,
         source_practice_item_id, observed_at, practice_due_on, last_prompted_on,
@@ -403,7 +383,7 @@ export class StudyCoachRepository {
         NULL, NULL, ?10, ?11, NULL, 'active', NULL, NULL, ?10, ?10
       WHERE NOT EXISTS (
         SELECT 1 FROM school_study_evidence WHERE principal_id = ?1 AND source_key = ?3
-      )`).bind(principalId, newUlid(now), `turn:${turnId}`, courseId,
+      )`).bind(principalId, newUlid(now), sourceKey, courseId,
         key, topic, input.outcome, evidenceText, turnId, now.toISOString(),
         input.outcome === "easy" ? addDays(today, 7) : today)]);
   }
@@ -532,25 +512,26 @@ export class StudyCoachRepository {
     if (!Number.isFinite(now.getTime())) throw new TypeError("school_study_time_invalid");
     const nowIso = now.toISOString();
     const evidenceText = answer;
-    const statements: D1PreparedStatement[] = [
-      ...this.retirementStatements(principalId, item.courseId, now),
-      this.database.prepare(`UPDATE school_practice_items
+    const statements: D1PreparedStatement[] = [this.database.prepare(`UPDATE school_practice_items
         SET status = 'answered', owner_answer = ?1, result = ?2, result_turn_id = ?3,
           answered_at = ?4, updated_at = ?4
         WHERE principal_id = ?5 AND item_id = ?6 AND status = 'open'`)
-        .bind(answer, result, turnId, nowIso, principalId, item.itemId),
-    ];
-    if (item.answerSupport === "supported") statements.push(this.database.prepare(`INSERT INTO school_study_evidence (
+        .bind(answer, result, turnId, nowIso, principalId, item.itemId)];
+    if (item.answerSupport === "supported") {
+      const sourceKey = `practice:${item.itemId}`;
+      statements.unshift(...this.retirementStatements(principalId, item.courseId, now, sourceKey));
+      statements.push(this.database.prepare(`INSERT INTO school_study_evidence (
         principal_id, evidence_id, source_key, course_id, topic_key, topic, outcome,
         evidence_kind, evidence_text, confidence, source_turn_id, source_fact_id,
         source_practice_item_id, observed_at, practice_due_on, last_prompted_on,
         status, control_turn_id, controlled_at, created_at, updated_at
       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'practice_result', ?8, ?9, ?10,
         NULL, ?11, ?12, ?13, NULL, 'active', NULL, NULL, ?12, ?12)`)
-        .bind(principalId, newUlid(now), `practice:${item.itemId}`, item.courseId,
+        .bind(principalId, newUlid(now), sourceKey, item.courseId,
           topicKey(item.sourceExcerpt), item.sourceExcerpt, result, evidenceText,
           item.answerSupport === "supported" ? "medium" : "low", turnId, item.itemId,
           nowIso, result === "easy" ? addDays(today, 7) : today));
+    }
     await this.database.batch(statements);
     return Object.freeze({ item, result });
   }
@@ -633,7 +614,7 @@ export class StudyCoachRepository {
       LEFT JOIN school_course_facts f
         ON f.principal_id = e.principal_id AND f.fact_id = e.source_fact_id
       WHERE e.principal_id = ?1 AND e.course_id = ?2 AND e.topic_key = ?3
-        AND e.status = 'active' AND e.outcome IN ('uncertain', 'wrong')
+        AND e.status = 'active'
         AND (e.evidence_kind != 'course_context' OR f.status = 'active')`)
       .bind(principalId, row.course_id, row.topic_key).first<{ weak_count: number; easy_count: number }>();
     const point = evidencePoint(row, principalId);
@@ -665,7 +646,12 @@ export class StudyCoachRepository {
         AND observed_at < ?3`).bind(now.toISOString(), principalId, cutoff.toISOString()).run();
   }
 
-  private retirementStatements(principalId: string, courseId: Ulid, now: Date): readonly D1PreparedStatement[] {
+  private retirementStatements(
+    principalId: string,
+    courseId: Ulid,
+    now: Date,
+    sourceKey: string,
+  ): readonly D1PreparedStatement[] {
     const nowIso = now.toISOString();
     const cutoff = new Date(now.getTime());
     cutoff.setUTCDate(cutoff.getUTCDate() - EVIDENCE_RETENTION_DAYS);
@@ -673,7 +659,11 @@ export class StudyCoachRepository {
       this.database.prepare(`UPDATE school_study_evidence
         SET status = 'superseded', updated_at = ?1
         WHERE principal_id = ?2 AND status = 'active' AND evidence_kind != 'course_context'
-          AND observed_at < ?3`).bind(nowIso, principalId, cutoff.toISOString()),
+          AND observed_at < ?3
+          AND NOT EXISTS (
+            SELECT 1 FROM school_study_evidence existing
+            WHERE existing.principal_id = ?2 AND existing.source_key = ?4
+          )`).bind(nowIso, principalId, cutoff.toISOString(), sourceKey),
       this.database.prepare(`UPDATE school_study_evidence
         SET status = 'superseded', updated_at = ?1
         WHERE principal_id = ?2 AND evidence_id IN (
@@ -684,7 +674,10 @@ export class StudyCoachRepository {
           LIMIT max(0, (SELECT COUNT(*) FROM school_study_evidence active
             WHERE active.principal_id = ?2 AND active.course_id = ?3 AND active.status = 'active'
               AND active.evidence_kind != 'course_context') - 23)
-        )`).bind(nowIso, principalId, courseId),
+        ) AND NOT EXISTS (
+          SELECT 1 FROM school_study_evidence existing
+          WHERE existing.principal_id = ?2 AND existing.source_key = ?4
+        )`).bind(nowIso, principalId, courseId, sourceKey),
       this.database.prepare(`UPDATE school_study_evidence
         SET status = 'superseded', updated_at = ?1
         WHERE principal_id = ?2 AND evidence_id IN (
@@ -695,7 +688,10 @@ export class StudyCoachRepository {
           LIMIT max(0, (SELECT COUNT(*) FROM school_study_evidence active
             WHERE active.principal_id = ?2 AND active.status = 'active'
               AND active.evidence_kind != 'course_context') - 95)
-        )`).bind(nowIso, principalId),
+        ) AND NOT EXISTS (
+          SELECT 1 FROM school_study_evidence existing
+          WHERE existing.principal_id = ?2 AND existing.source_key = ?3
+        )`).bind(nowIso, principalId, sourceKey),
     ]);
   }
 

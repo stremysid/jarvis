@@ -52,6 +52,9 @@ const BRIGHTSPACE_CHECK_DISCUSSION = Object.freeze([
   /\b(?:looked\s+at|reviewed)\s+(?:the\s+)?(?:d2l|brightspace)\s+(?:dates?|text|details?)\s+you\s+(?:pasted|sent|shared)\b/iu,
   /\bjarvis\b.{0,32}\b(?:checked|refreshed|synced|looked\s+at)\b.{0,40}\b(?:d2l|brightspace)\b\s+(?:an?|one|\d+)\s+(?:minute|hour|day|week)s?\s+ago\b/iu,
 ]);
+const BRIGHTSPACE_CHECK_DENIALS = Object.freeze([
+  /\b(?:i|we|jarvis)\s+(?:haven['’]t|have\s+not|didn['’]t|did\s+not)\s+(?:checked|refreshed|synced|looked\s+at)\s+(?:your\s+)?(?:d2l|brightspace)\b/giu,
+]);
 const OWNER_ACKNOWLEDGEMENT = /^\s*(?:ok(?:ay)?|thanks?(?:\s+you)?|got\s+it|sounds\s+good|cool|alright|sure|👍)\s*[.!]?\s*$/iu;
 const BRIGHTSPACE_REFRESH_REQUEST = /^\s*(?:jarvis[,\s]+)?(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:check|refresh|update)\s+(?:my\s+)?(?:d2l|brightspace)(?:\s+(?:calendar|deadlines?|feed))?\s+(?:right\s+)?now(?:\s*,?\s*please)?[.!?]*\s*$/iu;
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
@@ -211,7 +214,7 @@ function planAction(
 }
 
 function isFalseBrightspaceCheckCompletion(reply: string): boolean {
-  const claimsOnly = BRIGHTSPACE_CHECK_DISCUSSION.reduce(
+  const claimsOnly = [...BRIGHTSPACE_CHECK_DISCUSSION, ...BRIGHTSPACE_CHECK_DENIALS].reduce(
     (remaining, discussion) => remaining.replace(discussion, ""),
     reply,
   );

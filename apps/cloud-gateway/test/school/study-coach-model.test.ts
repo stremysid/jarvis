@@ -51,7 +51,11 @@ async function addTurn(principalId: string, text: string, offset = 0): Promise<U
   return turnId;
 }
 
-async function seed(suffix: string, fact = "Titration calculations feel uncertain"): Promise<{
+async function seed(
+  suffix: string,
+  fact = "Titration calculations feel uncertain",
+  factKind: "weak_area" | "due_work" | "missed_work" = "weak_area",
+): Promise<{
   principalId: string;
   courseId: Ulid;
   factId: Ulid;
@@ -74,7 +78,7 @@ async function seed(suffix: string, fact = "Titration calculations feel uncertai
       reply: "Plan",
       courseUpdates: [{
         courseRef: "new-1", name: "Chemistry", platform: "D2L",
-        addFacts: [{ kind: "weak_area", statement: fact }], resolveFactIds: [],
+        addFacts: [{ kind: factKind, statement: fact }], resolveFactIds: [],
       }],
       completeActionIds: [],
       plan: [{
@@ -231,6 +235,20 @@ describe("StudyCoachModelAdapter", () => {
       .toBe(false);
   });
 
+  it("does not match a one-word topic against an unrelated due-work fact", async () => {
+    const item = await seed("ordinary-friday", "Lab report due Friday", "due_work");
+    const text = "Friday is hard";
+    const turnId = await addTurn(item.principalId, text, 1_000);
+    const fallback = new FakeModel(["ordinary answer"]);
+
+    await expect(collect(adapter(item.principalId, fallback, new FakeModel([])).stream(
+      input(item.principalId, turnId, text),
+    ))).resolves.toBe("ordinary answer");
+    expect(fallback.inputs).toHaveLength(1);
+    expect((await new StudyCoachRepository(env.DB).readSnapshot(item.principalId, TODAY))
+      .courses[0]?.topics.some((topic) => topic.topic === "Friday")).toBe(false);
+  });
+
   it("keeps study handling on Sid's own text when Telegram includes an in-chat quote", async () => {
     const item = await seed("quoted-direct");
     const classified = classifyTelegramUpdate({
@@ -260,7 +278,7 @@ describe("StudyCoachModelAdapter", () => {
     const turnId = await addTurn(item.principalId, "What's due tomorrow?", 1_000);
     await expect(collect(adapter(item.principalId, fallback, new FakeModel([])).stream(
       input(item.principalId, turnId, "What's due tomorrow?"),
-    ))).resolves.toBe("Ordinary answer");
+    ))).resolves.toBe("I closed the previous quiz before answering normally.\n\nOrdinary answer");
     expect(fallback.inputs).toHaveLength(1);
     expect((await new StudyCoachRepository(env.DB).readSnapshot(item.principalId, TODAY)).activeQuiz).toBeNull();
   });
@@ -276,6 +294,38 @@ describe("StudyCoachModelAdapter", () => {
       today: TODAY,
       now: new Date(NOW.getTime() + 1_000),
     })).resolves.toMatchObject({ result: "easy", item: { answerSupport: "supported" } });
+  });
+
+  it.each([
+    "Mitosis is cell division",
+    "It was the Krebs cycle",
+    "Water is the reactant",
+    "The answer is 42",
+  ])("records the supported sentence-shaped quiz answer: %s", async (answer) => {
+    const suffix = `sentence-answer-${answer.length}-${answer.codePointAt(0) ?? 0}`;
+    const item = await seed(suffix, answer);
+    const repository = new StudyCoachRepository(env.DB);
+    await repository.createPractice({
+      principalId: item.principalId,
+      courseId: item.courseId,
+      mode: "quiz",
+      source: { kind: "course_fact", factId: item.factId, excerpt: answer, observedAt: NOW.toISOString() },
+      items: [{ question: "What is the answer?", answer, sourceQuote: answer }],
+      now: NOW,
+    });
+    const turnId = await addTurn(item.principalId, answer, 1_000);
+    const fallback = new FakeModel(["ordinary answer"]);
+
+    const response = await collect(adapter(
+      item.principalId,
+      fallback,
+      new FakeModel([]),
+      true,
+      () => new Date(NOW.getTime() + 1_000),
+    ).stream(input(item.principalId, turnId, answer)));
+
+    expect(response).toContain("Recorded as easy.");
+    expect(fallback.inputs).toHaveLength(0);
   });
 
   it("Q2 normalizes unit spacing, a leading contraction, articles and punctuation", async () => {
@@ -315,7 +365,7 @@ describe("StudyCoachModelAdapter", () => {
       const turnId = await addTurn(item.principalId, text, 1_000);
       await expect(collect(adapter(item.principalId, fallback, new FakeModel([])).stream(
         input(item.principalId, turnId, text),
-      ))).resolves.toBe("ordinary answer");
+      ))).resolves.toBe("I closed the previous quiz before answering normally.\n\nordinary answer");
       expect(fallback.inputs).toHaveLength(1);
     },
   );
@@ -338,7 +388,7 @@ describe("StudyCoachModelAdapter", () => {
     const turnId = await addTurn(item.principalId, "mitochondria", 31 * 60 * 1_000);
     await expect(collect(adapter(item.principalId, fallback, new FakeModel([]), true, () => late).stream(
       input(item.principalId, turnId, "mitochondria"),
-    ))).resolves.toBe("ordinary answer");
+    ))).resolves.toBe("I closed the previous quiz before answering normally.\n\nordinary answer");
     expect((await new StudyCoachRepository(env.DB).readSnapshot(item.principalId, TODAY)).activeQuiz).toBeNull();
   });
 

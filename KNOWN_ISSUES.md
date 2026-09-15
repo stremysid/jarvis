@@ -629,6 +629,17 @@ durable candidate/receipt boundary so a post-send write failure does not turn
 an at-least-once cron retry into a duplicate digest. Until that boundary is
 designed, check-ins are useful prompts but are not guaranteed delivery.
 
+## Study-coach retirement and forget controls are one-way
+
+The first study-coach slice supersedes active owner and practice evidence after
+30 days, as well as when it must make room under the active-evidence caps.
+`superseded` is terminal, so an old point cannot return to the operational view.
+The plain-speech forget control is narrower still: it requires the exact
+"forget that X is/was a weak spot" shape, affects only active evidence, and has
+no undo. The immutable source history remains available for a later reviewed
+recall/control integration, but the current study-coach snapshot, summaries and
+check-ins do not expose those retired or forgotten points.
+
 ## Must-report gap: deployed, gateway delivery still needs verification
 
 R0 item 6 adds `WATCHDOG_REQUIRED_COMPONENTS`, default `cloud-gateway`.
