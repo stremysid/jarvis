@@ -33,6 +33,10 @@ import {
   handleOwnerPhoneEnrollmentRequest,
   isOwnerPhoneEnrollmentPath,
 } from "./http/owner-phone-enrollment-routes.js";
+import {
+  handleOwnerPassphraseRequest,
+  isOwnerPassphrasePath,
+} from "./http/owner-passphrase-routes.js";
 import { DeviceRepository } from "./persistence/device-repository.js";
 import { EventRepository } from "./persistence/event-repository.js";
 import { PolicyService } from "./policy/policy-service.js";
@@ -357,6 +361,7 @@ ${COMMAND_HELP}`));
 
     // Device-signed; authentication is the signature, not the path.
     if (isOwnerPhoneEnrollmentPath(pathname)) return handleOwnerPhoneEnrollmentRequest(request, env);
+    if (isOwnerPassphrasePath(pathname)) return handleOwnerPassphraseRequest(request, env);
     if (isSyncPath(pathname)) return handleSyncRequest(request, env);
 
     if (isVoicePath(request)) return handleProductionVoiceRequest(request, env);

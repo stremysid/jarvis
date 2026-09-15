@@ -15,10 +15,12 @@ import scheduledRunsSql from "../../src/persistence/migrations/0013_scheduled_ru
 import memoryProjectionSql from "../../src/persistence/migrations/0014_memory_projection.sql?raw";
 import voiceRuntimeSql from "../../src/persistence/migrations/0015_voice_runtime.sql?raw";
 import cloudMemorySql from "../../src/persistence/migrations/0016_cloud_memory.sql?raw";
+import ownerPassphraseSql from "../../src/persistence/migrations/0017_owner_passphrase.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
 let cloudMemoryMigrated: Promise<void> | undefined;
+let ownerPassphraseMigrated: Promise<void> | undefined;
 
 /**
  * Split a migration into the statements D1 applies one at a time.
@@ -101,6 +103,39 @@ export async function applyCloudMemoryMigration(): Promise<void> {
     { name: "0016_cloud_memory.sql", queries: splitMigration(cloudMemorySql) },
   ]);
   await cloudMemoryMigrated;
+}
+
+/** Applies the owner-passphrase verifier schema after the current R1 runtime. */
+export async function applyOwnerPassphraseMigration(): Promise<void> {
+  await applyVoiceRuntimeMigration();
+  ownerPassphraseMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0017_owner_passphrase.sql", queries: splitMigration(ownerPassphraseSql) },
+  ]);
+  await ownerPassphraseMigrated;
+}
+
+/** Test-only reset for append-only owner-passphrase history. */
+export async function clearOwnerPassphraseDataForTest(): Promise<void> {
+  await applyOwnerPassphraseMigration();
+  const deleteGuards = [
+    "owner_passphrase_heads_delete_forbidden",
+    "owner_passphrase_disable_commits_delete_forbidden",
+    "owner_passphrase_rotation_commits_delete_forbidden",
+    "owner_passphrase_verifiers_delete_forbidden",
+  ] as const;
+  const installed = await env.DB.prepare(
+    `SELECT name, sql FROM sqlite_schema WHERE type = 'trigger'
+     AND name IN (${deleteGuards.map(() => "?").join(", ")})`,
+  ).bind(...deleteGuards).all<{ name: string; sql: string }>();
+  for (const name of deleteGuards) await env.DB.prepare(`DROP TRIGGER IF EXISTS ${name}`).run();
+  try {
+    await env.DB.prepare("DELETE FROM owner_passphrase_heads").run();
+    await env.DB.prepare("DELETE FROM owner_passphrase_disable_commits").run();
+    await env.DB.prepare("DELETE FROM owner_passphrase_rotation_commits").run();
+    await env.DB.prepare("DELETE FROM owner_passphrase_verifiers").run();
+  } finally {
+    for (const guard of installed.results) await env.DB.prepare(guard.sql).run();
+  }
 }
 
 const MEMORY_PROJECTION_DELETE_GUARDS = Object.freeze([

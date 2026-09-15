@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "1.0",
+  "canonicalizerVersion": "ascii-v1",
+  "wordListVersion": "eff-long-cmudict-2026-09-v2",
+  "validCanonicalization": [
+    {
+      "input": "  ABLAZE,\tabrasion!\nABRASIVE.  ",
+      "canonical": "ablaze abrasion abrasive"
+    },
+    {
+      "input": "\"ablaze\" 'abrasion' abrasive?",
+      "canonical": "ablaze abrasion abrasive"
+    }
+  ],
+  "invalidCandidates": [
+    "café abrasion abrasive",
+    "ablaze abrasion",
+    "ablaze abrasion okay",
+    "ablaze-abrasion-abrasive"
+  ],
+  "verifier": {
+    "ownerIdentityId": "identity:owner:voice",
+    "verifierVersion": 7,
+    "phrase": "ablaze abrasion abrasive",
+    "pepperBase64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+    "saltBase64": "oKGio6SlpqeoqaqrrK2urw==",
+    "digestBase64": "d43fzp6T7IUFNctDqb1DYp2TNmAQ3XRIC0eKzAFW9Xk="
+  }
+}

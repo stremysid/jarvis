@@ -53,11 +53,13 @@ speech-to-text processor before Jarvis receives final text. Their retention is
 outside this claim. The product must not imply end-to-end secrecy from those
 processors.
 
-JavaScript strings cannot be zeroed. Candidate text therefore stays within one
-narrow prompt-handler stack frame. Canonical byte arrays, derived HMAC input,
-and KDF buffers are cleared in `finally` blocks before the handler returns.
-Fixed prompts, refusals, acknowledgements, alerts, and errors contain no
-candidate or match detail.
+JavaScript strings cannot be zeroed. Candidate fragments and assembled text
+therefore stay in one call-session instance's memory only and are never
+persisted. They are cleared after assembly, on interruption, on lifecycle
+change, and on close. Canonical byte arrays, derived HMAC input, and KDF
+buffers are cleared in `finally` blocks before the handler returns. Fixed
+prompts, refusals, acknowledgements, alerts, and errors contain no candidate or
+match detail.
 
 The phrase protects private context from caller-ID spoofing, a SIM swap, a
 person holding the phone, and an answering machine that accepts an outbound
@@ -69,9 +71,11 @@ waiver retains SIM-swap, possession, and carrier mis-attestation risk.
 The phrase is generated, never chosen or typed. A Worker-side CSPRNG performs
 three independent, unbiased draws with replacement from a versioned list of
 exactly 2,048 common, phonetically distinct `en-US` words. Repetition is valid
-and preserves the stated 33-bit space. The list excludes number words,
-homophones, spelling variants such as Canadian and American pairs, compounds,
-hyphenated words, and long words that are unreliable in the configured STT.
+and preserves the stated 33-bit space. The list excludes number words, known
+speech-to-text split/join variants, non-US spelling variants, and any word that
+splits into two CMUdict entries of at least two letters. Hash-ranked greedy
+selection permits alternate pronunciations while ensuring that no two retained
+words share a CMUdict pronunciation. Hyphenated and long words remain excluded.
 Sid may discard a generated phrase and request a complete re-roll.
 
 Canonical phrases contain only lowercase ASCII `a-z` and single ASCII spaces.
@@ -84,6 +88,11 @@ One active verifier record is bound to the configured owner identity. It
 stores algorithm, domain version, word-list version, pepper version, iteration
 count, random salt, digest, creation time, status, and monotonic verifier
 version. It never stores words.
+
+The current `voice_owner_identity` singleton is immutable, so a verifier head
+keyed to that identity is sound for R1. Any future phone-identity replacement
+must include a reviewed passphrase-head migration rather than repointing or
+silently reusing the existing head.
 
 Verifier construction follows the reviewed guest-PIN shape with a separate
 domain and secret:
@@ -110,7 +119,11 @@ Telegram with the owner-only confirmed command
 `/disable-owner-step-up --confirm`. It revokes the verifier and makes every
 owner call play a fixed refusal until the signed CLI generates a replacement.
 The command never accepts, displays, or replaces a phrase. Rejection alerts
-link to this recovery action.
+link to this recovery action. Migration `0017` provides this state machine: an
+immutable disable receipt is bound to the exact accepted owner Telegram event,
+then atomically changes the active verifier to revoked and the head to disabled.
+The signed device generates a new monotonic verifier version to re-enable; the
+revoked verifier is never restored.
 
 ## Trusted binding and attestation
 
@@ -312,9 +325,11 @@ The interview is outside this PR and must not drive R1 or R2 implementation.
 ## Voice latency and retrieval
 
 Passphrase step-up adds speech endpointing, one 600,000-iteration verification,
-and one D1 commit before a fixed acknowledgement. It is outside the
-authenticated-turn first-audible measurement but should add only a few seconds
-to call entry.
+and one D1 commit before a fixed acknowledgement. Repeat suppression also runs
+one extra 600,000-iteration verification for the first candidate-shaped active
+final. Both KDF paths must be measured in the latency evidence. They are
+outside the authenticated-turn first-audible measurement but should add only a
+few seconds to call entry.
 
 The shared R2 context retriever is measured against the 4,000 ms p95
 first-audible release gate, not the model's 30-second total deadline. Voice
