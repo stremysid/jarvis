@@ -1,0 +1,163 @@
+checked out 4ec4ea4 at 4ec4ea4
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  10 passed (10)
+
+== T-school_course_cards_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts (5 tests | 2 failed) 460ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 8 passed (10)
+   × installs four private WITHOUT ROWID tables and every guard 10ms
+   × protects course-card identity, replacement and owner-turn provenance 94ms
+
+== T-school_course_cards_require_owner_turn_insert: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts (5 tests | 2 failed) 449ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 8 passed (10)
+   × installs four private WITHOUT ROWID tables and every guard 9ms
+   × protects course-card identity, replacement and owner-turn provenance 92ms
+
+== T-school_course_cards_require_owner_turn_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts (5 tests | 2 failed) 479ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 8 passed (10)
+   × installs four private WITHOUT ROWID tables and every guard 10ms
+   × protects course-card identity, replacement and owner-turn provenance 99ms
+
+== T-school_course_cards_primary_key_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts (5 tests | 2 failed) 475ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 8 passed (10)
+   × installs four private WITHOUT ROWID tables and every guard 10ms
+   × protects course-card identity, replacement and owner-turn provenance 103ms
+
+== T-school_course_cards_reject_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts (5 tests | 2 failed) 462ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 8 passed (10)
+   × installs four private WITHOUT ROWID tables and every guard 9ms
+   × protects course-card identity, replacement and owner-turn provenance 96ms
+
+== T-school_course_facts_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts (5 tests | 2 failed) 477ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 8 passed (10)
+   × installs four private WITHOUT ROWID tables and every guard 10ms
+   × protects fact evidence, immutable content and one-way resolution 66ms
+
+== T-school_course_facts_require_owner_turn: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts (5 tests | 2 failed) 463ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 8 passed (10)
+   × installs four private WITHOUT ROWID tables and every guard 10ms
+   × protects fact evidence, immutable content and one-way resolution 69ms
+
+== T-school_course_facts_core_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts (5 tests | 2 failed) 456ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 8 passed (10)
+   × installs four private WITHOUT ROWID tables and every guard 10ms
+   × protects fact evidence, immutable content and one-way resolution 71ms
+
+== T-school_course_facts_status_transition: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts (5 tests | 2 failed) 456ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 8 passed (10)
+   × installs four private WITHOUT ROWID tables and every guard 9ms
+   × protects fact evidence, immutable content and one-way resolution 71ms
+
+== T-school_course_facts_reject_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts (5 tests | 2 failed) 462ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 8 passed (10)
+   × installs four private WITHOUT ROWID tables and every guard 9ms
+   × protects fact evidence, immutable content and one-way resolution 72ms
+
+== T-school_catchup_actions_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts (5 tests | 2 failed) 453ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 8 passed (10)
+   × installs four private WITHOUT ROWID tables and every guard 10ms
+   × protects action provenance, immutable plan content and one-way completion 56ms
+
+== T-school_catchup_actions_require_plan_turn: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts (5 tests | 2 failed) 465ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 8 passed (10)
+   × installs four private WITHOUT ROWID tables and every guard 10ms
+   × protects action provenance, immutable plan content and one-way completion 59ms
+
+== T-school_catchup_actions_core_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts (5 tests | 2 failed) 470ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 8 passed (10)
+   × installs four private WITHOUT ROWID tables and every guard 11ms
+   × protects action provenance, immutable plan content and one-way completion 57ms
+
+== T-school_catchup_actions_status_transition: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts (5 tests | 2 failed) 464ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 8 passed (10)
+   × installs four private WITHOUT ROWID tables and every guard 10ms
+   × protects action provenance, immutable plan content and one-way completion 61ms
+
+== T-school_catchup_actions_reject_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts (5 tests | 2 failed) 457ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 8 passed (10)
+   × installs four private WITHOUT ROWID tables and every guard 9ms
+   × protects action provenance, immutable plan content and one-way completion 61ms
+
+== T-school_catchup_turn_receipts_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts (5 tests | 2 failed) 462ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 8 passed (10)
+   × installs four private WITHOUT ROWID tables and every guard 10ms
+   × keeps turn receipts immutable, owner-bound and replacement-safe 57ms
+
+== T-school_catchup_turn_receipts_require_turn: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts (5 tests | 2 failed) 471ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 8 passed (10)
+   × installs four private WITHOUT ROWID tables and every guard 10ms
+   × keeps turn receipts immutable, owner-bound and replacement-safe 64ms
+
+== T-school_catchup_turn_receipts_reject_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts (5 tests | 2 failed) 471ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 8 passed (10)
+   × installs four private WITHOUT ROWID tables and every guard 12ms
+   × keeps turn receipts immutable, owner-bound and replacement-safe 61ms
+
+== T-school_catchup_turn_receipts_reject_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts (5 tests | 2 failed) 501ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 8 passed (10)
+   × installs four private WITHOUT ROWID tables and every guard 12ms
+   × keeps turn receipts immutable, owner-bound and replacement-safe 63ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-school_course_cards_insert_guard
+KILLED    T-school_course_cards_require_owner_turn_insert
+KILLED    T-school_course_cards_require_owner_turn_update
+KILLED    T-school_course_cards_primary_key_immutable
+KILLED    T-school_course_cards_reject_delete
+KILLED    T-school_course_facts_insert_guard
+KILLED    T-school_course_facts_require_owner_turn
+KILLED    T-school_course_facts_core_immutable
+KILLED    T-school_course_facts_status_transition
+KILLED    T-school_course_facts_reject_delete
+KILLED    T-school_catchup_actions_insert_guard
+KILLED    T-school_catchup_actions_require_plan_turn
+KILLED    T-school_catchup_actions_core_immutable
+KILLED    T-school_catchup_actions_status_transition
+KILLED    T-school_catchup_actions_reject_delete
+KILLED    T-school_catchup_turn_receipts_insert_guard
+KILLED    T-school_catchup_turn_receipts_require_turn
+KILLED    T-school_catchup_turn_receipts_reject_update
+KILLED    T-school_catchup_turn_receipts_reject_delete
+back on main, tree clean=true
+(node:2884) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
