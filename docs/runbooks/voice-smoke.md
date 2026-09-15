@@ -345,8 +345,9 @@ The `outbound-no-answer` record reports `ownerStepUpOutcome: "refused"`, zero
 step-up prompts and attempts, no owner authority, and zero model or personal-
 context reads. The `owner-step-up-refused` record is an inbound owner-path call
 with three prompts and three complete wrong candidates. It requires the fixed
-refusal, clean ConversationRelay end frame, exactly one durable rejection row
-and exactly one owner alert, with zero authenticated turns, model requests, personal-context
+refusal sent to the provider, a clean ConversationRelay end frame, exactly one
+durable rejection row and exactly one owner alert, with zero authenticated turns,
+model requests, personal-context
 reads or owner authority. A Passed-A call under an enabled waiver cannot satisfy
 this refusal scenario because that call would skip the phrase.
 

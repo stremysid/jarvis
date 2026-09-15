@@ -193,7 +193,7 @@ const OWNER_STEP_UP_REFUSED_FIELDS = [
   "ownerAuthorityGranted",
   "modelRequests",
   "personalContextReads",
-  "fixedRefusalDelivered",
+  "fixedRefusalSentToProvider",
   "cleanEndFrameSent",
   "rejectionRowCount",
   "ownerAlertCount",
@@ -483,7 +483,7 @@ function validateOwnerStepUpRefused(value: unknown): void {
     || evidence.ownerStepUpAttemptCount !== 3
     || evidence.modelRequests !== 0
     || evidence.personalContextReads !== 0
-    || evidence.fixedRefusalDelivered !== true
+    || evidence.fixedRefusalSentToProvider !== true
     || evidence.cleanEndFrameSent !== true
     || evidence.rejectionRowCount !== 1
     || evidence.ownerAlertCount !== 1

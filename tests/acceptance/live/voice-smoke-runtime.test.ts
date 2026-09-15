@@ -78,7 +78,7 @@ const ownerStepUpRefusedEvidence = Object.freeze({
   ownerAuthorityGranted: false,
   modelRequests: 0,
   personalContextReads: 0,
-  fixedRefusalDelivered: true,
+  fixedRefusalSentToProvider: true,
   cleanEndFrameSent: true,
   rejectionRowCount: 1,
   ownerAlertCount: 1,
