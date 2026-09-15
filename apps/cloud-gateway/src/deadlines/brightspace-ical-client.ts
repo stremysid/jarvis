@@ -16,7 +16,7 @@ const MAXIMUM_FEED_URL_CHARACTERS = 4_096;
 const MAXIMUM_COMPONENTS = 2_000;
 const MAXIMUM_PROPERTIES_PER_COMPONENT = 256;
 const DEFAULT_TIMEOUT_MS = 10_000;
-/** The bounded live-item set one sweep writes; cancellations remain additive. */
+/** Separate live-item and cancellation caps keep one sweep inside its D1 budget. */
 export const BRIGHTSPACE_WINDOW_ITEM_LIMIT = 180;
 const UNSAFE_URL_CHARACTERS = /[\s\p{Cc}\p{Cf}]/u;
 const CONTENT_NAME = /^[A-Z0-9_.-]+$/u;

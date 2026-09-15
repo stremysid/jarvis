@@ -156,18 +156,32 @@ export function selectBrightspaceWindow(
   };
   const inWindowItems = result.items.filter((item) => inside(item.dueAt));
   const items = [...inWindowItems]
-    .sort((left, right) => left.dueAt < right.dueAt
-      ? -1
-      : left.dueAt > right.dueAt
-        ? 1
-        : left.externalId < right.externalId ? -1 : left.externalId > right.externalId ? 1 : 0)
+    .sort((left, right) => {
+      const leftDue = Date.parse(left.dueAt);
+      const rightDue = Date.parse(right.dueAt);
+      const leftUpcoming = leftDue >= at;
+      const rightUpcoming = rightDue >= at;
+      if (leftUpcoming !== rightUpcoming) return leftUpcoming ? -1 : 1;
+      if (leftDue !== rightDue) return leftUpcoming ? leftDue - rightDue : rightDue - leftDue;
+      return left.externalId < right.externalId ? -1 : left.externalId > right.externalId ? 1 : 0;
+    })
     .slice(0, BRIGHTSPACE_WINDOW_ITEM_LIMIT);
-  const cancelled = result.cancelled.filter((item) => inside(item.dueAt));
+  const inWindowCancelled = result.cancelled.filter((item) => inside(item.dueAt));
+  const cancelled = [...inWindowCancelled]
+    .sort((left, right) => {
+      const leftDue = Date.parse(left.dueAt);
+      const rightDue = Date.parse(right.dueAt);
+      const distance = Math.abs(leftDue - at) - Math.abs(rightDue - at);
+      if (distance !== 0) return distance;
+      if (leftDue !== rightDue) return leftDue - rightDue;
+      return left.externalId < right.externalId ? -1 : left.externalId > right.externalId ? 1 : 0;
+    })
+    .slice(0, BRIGHTSPACE_WINDOW_ITEM_LIMIT);
   return Object.freeze({
     items: Object.freeze(items),
     cancelled: Object.freeze(cancelled),
     rejected: result.rejected,
-    truncatedCount: inWindowItems.length - items.length,
+    truncatedCount: inWindowItems.length - items.length + inWindowCancelled.length - cancelled.length,
   });
 }
 
@@ -240,27 +254,57 @@ async function pollBrightspace(context: JobEnvironment): Promise<string> {
   return (await refreshBrightspace(context)).detail;
 }
 
-function lastKnownSnapshot(lastSuccessAt: string | null): string {
+function replyTime(instant: string, timeZone: string): string {
+  const parsed = new Date(instant);
+  if (Number.isNaN(parsed.getTime())) return "an unreadable time";
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    }).format(parsed);
+  } catch {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Toronto",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      timeZoneName: "short",
+    }).format(parsed);
+  }
+}
+
+function lastKnownSnapshot(lastSuccessAt: string | null, timeZone: string): string {
   return lastSuccessAt === null
     ? "No last-known Brightspace snapshot is available."
-    : `Showing the last-known Brightspace snapshot from ${lastSuccessAt}.`;
+    : `Showing the last-known Brightspace snapshot from ${replyTime(lastSuccessAt, timeZone)}.`;
 }
 
 /** Refresh the private feed from one owner Telegram turn, under a durable cooldown. */
 export async function runOnDemandBrightspaceRefresh(context: JobEnvironment): Promise<string> {
   const observedAt = new Date(context.clock.now().getTime());
   const clock = { now: () => new Date(observedAt.getTime()) };
+  const timeZone = context.env.DIGEST_TIMEZONE ?? "America/Toronto";
   let claim: { readonly job: string; readonly runKey: string } | null = null;
   let runs: ScheduledRunRepository | null = null;
+  let repository: DeadlineRepository | null = null;
+  let lastSuccessAt: string | null | undefined;
   try {
-    const repository = new DeadlineRepository(context.env.DB);
+    repository = new DeadlineRepository(context.env.DB);
     const existing = await repository.readSource(BRIGHTSPACE_SOURCE_ID);
+    lastSuccessAt = existing?.lastSuccessAt ?? null;
     const feedUrl = context.env.BRIGHTSPACE_ICAL_URL;
     if (feedUrl === undefined || feedUrl.length === 0) {
-      return `Brightspace is not set up, so I made no feed request. ${lastKnownSnapshot(existing?.lastSuccessAt ?? null)}`;
+      return `Brightspace is not set up, so I made no feed request. ${lastKnownSnapshot(lastSuccessAt, timeZone)}`;
     }
     if (existing !== null && !existing.active) {
-      return `Brightspace refresh is disabled, so I made no feed request. ${lastKnownSnapshot(existing.lastSuccessAt)}`;
+      return `Brightspace refresh is disabled, so I made no feed request. ${lastKnownSnapshot(existing.lastSuccessAt, timeZone)}`;
     }
 
     runs = new ScheduledRunRepository(context.env.DB, clock);
@@ -274,28 +318,41 @@ export async function runOnDemandBrightspaceRefresh(context: JobEnvironment): Pr
     );
     if (admitted === null) {
       const current = await repository.readSource(BRIGHTSPACE_SOURCE_ID);
-      return `A Brightspace refresh was already requested in the last five minutes. ${lastKnownSnapshot(current?.lastSuccessAt ?? null)}`;
+      lastSuccessAt = current?.lastSuccessAt ?? null;
+      return `A Brightspace refresh was already requested in the last five minutes. ${lastKnownSnapshot(lastSuccessAt, timeZone)}`;
     }
 
     const result = await refreshBrightspace({ ...context, clock });
-    await runs.finish(claim);
+    try {
+      await runs.finish(claim);
+    } catch {
+      try { await runs.fail(claim, "brightspace_run_finish_failed"); } catch { /* Source health and the reply still carry the outcome. */ }
+    }
     if (result.outcome === "refreshed") {
       const seen = result.report.created.length + result.report.moved.length + result.report.unchanged;
       const bounded = result.report.truncatedCount === 0
         ? ""
-        : ` The digest is showing the next ${BRIGHTSPACE_WINDOW_ITEM_LIMIT} Brightspace items; ${result.report.truncatedCount} later in-window items were omitted.`;
-      return `Brightspace refreshed at ${result.report.observedAt}. ${seen} items are current.${bounded}`;
+        : ` The bounded sweep omitted ${result.report.truncatedCount} in-window entries.`;
+      return `Brightspace refreshed at ${replyTime(result.report.observedAt, timeZone)}. Live feed items processed: ${seen}. Open deadlines cancelled: ${result.report.cancelled.length}. Source items rejected: ${result.report.rejected.length}.${bounded}`;
     }
     if (result.outcome === "failed") {
-      return `Brightspace refresh failed (${result.failure}). ${lastKnownSnapshot(result.lastSuccessAt)}`;
+      return `Brightspace refresh failed (${result.failure}). ${lastKnownSnapshot(result.lastSuccessAt, timeZone)}`;
     }
     const setup = result.outcome === "inactive" ? "disabled" : "not set up";
-    return `Brightspace is ${setup}, so I made no feed request. ${lastKnownSnapshot(result.lastSuccessAt)}`;
+    return `Brightspace is ${setup}, so I made no feed request. ${lastKnownSnapshot(result.lastSuccessAt, timeZone)}`;
   } catch {
     if (runs !== null && claim !== null) {
       try { await runs.fail(claim, "brightspace_ingestion_failed"); } catch { /* The reply remains the only available failure signal. */ }
     }
-    return "Brightspace refresh failed (brightspace_ingestion_failed). No last-known Brightspace snapshot is available.";
+    if (repository !== null) {
+      try {
+        lastSuccessAt = (await repository.readSource(BRIGHTSPACE_SOURCE_ID))?.lastSuccessAt ?? null;
+      } catch { /* The fixed reply below distinguishes an unreadable snapshot from an absent one. */ }
+    }
+    const snapshot = lastSuccessAt === undefined
+      ? "I couldn't read the last-known Brightspace snapshot."
+      : lastKnownSnapshot(lastSuccessAt, timeZone);
+    return `Brightspace refresh failed (brightspace_ingestion_failed). ${snapshot}`;
   }
 }
 

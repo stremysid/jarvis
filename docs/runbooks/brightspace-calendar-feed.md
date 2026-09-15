@@ -95,9 +95,11 @@ After setup and an approved deployment, Sid can say `check D2L now` in his
 ordinary Telegram conversation. This is an owner-only natural-language turn,
 not a slash command. It uses the same bounded feed path as the hourly job and
 allows at most one request per five minutes across Worker isolates. The reply
-names a successful refresh time, a fixed failure code with the timestamped
-last-known snapshot, or the timestamped snapshot used during the cooldown. It
-makes no feed request while the URL is absent or the source is disabled.
+names a successful refresh time in the configured owner timezone, a fixed
+failure code with the timestamped last-known snapshot, or the timestamped
+snapshot used during the cooldown. It makes no feed request while the URL is
+absent or the source is disabled. The first production load still needs the
+runtime-duration acceptance recorded in `KNOWN_ISSUES.md`.
 
 Source-health meanings are fixed codes and never contain the private URL or
 response body:
@@ -116,8 +118,10 @@ response body:
 - `brightspace_feed_too_large` or `brightspace_feed_invalid`: the response is
   outside the bounded iCalendar contract. Last-known deadlines stay visible
   and the digest names the source failure.
-- `source_items_truncated:<count>`: the refresh succeeded, but more than 180
-  live items fell inside the 14-days-past/120-days-ahead window. Jarvis keeps
-  the soonest 180 plus every in-window cancellation, records how many later
-  items were omitted, and the digest says it is `showing the next 180
-  Brightspace items` instead of treating the whole source as failed.
+- `source_items_truncated:<count>`: the refresh succeeded, but the
+  14-days-past/120-days-ahead window exceeded its bounded write set. Jarvis
+  keeps upcoming live items first (soonest first), then the newest past-due
+  live items, and separately keeps the 180 cancellations nearest to now. It
+  records every omitted live item or cancellation and reports that bounded
+  partial result in the digest instead of treating the whole source as failed.
+  A stale bounded source reports both the truncation and stale-sync gaps.

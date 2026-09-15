@@ -44,6 +44,10 @@ const PLAN_SAVE_COMPLETIONS = Object.freeze([
   /\b(?:school|course|catch-?up|plan|university|program|tracker)\b.{0,32}\b(?:has|is|was)\s+(?:been\s+)?(?:saved|updated|recorded|stored|changed|replanned)\b/iu,
   /\b(?:saved|updated|recorded|stored|added)\b.{0,48}\b(?:to|in)\s+(?:your\s+)?(?:school|course|catch-?up|plan|university|program|tracker)\b/iu,
 ]);
+const BRIGHTSPACE_CHECK_COMPLETIONS = Object.freeze([
+  /\b(?:i|we|jarvis)\b.{0,32}\b(?:checked|refreshed|synced|looked\s+at)\b.{0,40}\b(?:d2l|brightspace)\b/iu,
+  /\b(?:d2l|brightspace)\b.{0,40}\b(?:has|is|was)\s+(?:already\s+|just\s+)?(?:checked|refreshed|synced)\b/iu,
+]);
 const OWNER_ACKNOWLEDGEMENT = /^\s*(?:ok(?:ay)?|thanks?(?:\s+you)?|got\s+it|sounds\s+good|cool|alright|sure|👍)\s*[.!]?\s*$/iu;
 const BRIGHTSPACE_REFRESH_REQUEST = /^\s*(?:jarvis[,\s]+)?(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:check|refresh|update)\s+(?:my\s+)?(?:d2l|brightspace)(?:\s+(?:calendar|deadlines?|feed))?\s+(?:right\s+)?now(?:\s*,?\s*please)?[.!?]*\s*$/iu;
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
@@ -55,6 +59,7 @@ const UNSAVED_UNIVERSITY_FALLBACK_REPLY = "I can still help with the university 
 const ACKNOWLEDGEMENT_REPLY = "Got it.";
 const SECRET_REPLACEMENT = "I can't accept passwords, tokens, recovery codes, or MFA codes. Complete credential steps only on the provider's own page.";
 const EXTERNAL_ACTION_REPLACEMENT = "I can't confirm that action. Spending, sign-ups, submissions, and contacting people require your tap.";
+const BRIGHTSPACE_CHECK_REPLACEMENT = "I haven't checked D2L. Say 'check D2L now' to run the bounded refresh.";
 
 interface SchoolCatchupModelDependencies {
   readonly model: ModelAdapter;
@@ -211,6 +216,9 @@ function safeReply(
   }
   if (FALSE_EXTERNAL_COMPLETIONS.some((pattern) => pattern.test(reply))) {
     return EXTERNAL_ACTION_REPLACEMENT;
+  }
+  if (BRIGHTSPACE_CHECK_COMPLETIONS.some((pattern) => pattern.test(reply))) {
+    return BRIGHTSPACE_CHECK_REPLACEMENT;
   }
   return reply;
 }
@@ -396,12 +404,27 @@ async function* fallbackWithSaveFailure(
   scope: "school" | "university",
 ): AsyncIterable<ModelToken> {
   const ordinaryReply = (await collectJson(model.stream(input))).trim();
-  const safeReply = PLAN_SAVE_COMPLETIONS.some((pattern) => pattern.test(ordinaryReply))
-    ? scope === "school" ? UNSAVED_FALLBACK_REPLY : UNSAVED_UNIVERSITY_FALLBACK_REPLY
-    : ordinaryReply;
+  const safeReply = BRIGHTSPACE_CHECK_COMPLETIONS.some((pattern) => pattern.test(ordinaryReply))
+    ? BRIGHTSPACE_CHECK_REPLACEMENT
+    : PLAN_SAVE_COMPLETIONS.some((pattern) => pattern.test(ordinaryReply))
+      ? scope === "school" ? UNSAVED_FALLBACK_REPLY : UNSAVED_UNIVERSITY_FALLBACK_REPLY
+      : ordinaryReply;
   const failureLine = scope === "school" ? SAVE_FAILURE_LINE : UNIVERSITY_SAVE_FAILURE_LINE;
   const text = safeReply.length === 0 ? failureLine : `${safeReply}\n\n${failureLine}`;
   yield Object.freeze({ index: 0, text });
+}
+
+async function* guardedOrdinaryReply(
+  model: ModelAdapter,
+  input: ModelAdapterStreamInput,
+): AsyncIterable<ModelToken> {
+  const reply = (await collectJson(model.stream(input))).trim();
+  yield Object.freeze({
+    index: 0,
+    text: BRIGHTSPACE_CHECK_COMPLETIONS.some((pattern) => pattern.test(reply))
+      ? BRIGHTSPACE_CHECK_REPLACEMENT
+      : reply,
+  });
 }
 
 /** Converts one owner Telegram model response into both a durable plan revision and a natural reply. */
@@ -428,7 +451,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       } catch {
         yield Object.freeze({
           index: 0,
-          text: "Brightspace refresh failed (brightspace_ingestion_failed). No last-known Brightspace snapshot is available.",
+          text: "Brightspace refresh failed (brightspace_ingestion_failed). I couldn't read the last-known Brightspace snapshot.",
         });
       }
       return;
@@ -448,14 +471,14 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
     } catch {
       // A missing migration or a malformed private row must not take down the
       // owner's ordinary Telegram conversation.
-      yield* this.dependencies.model.stream(input);
+      yield* guardedOrdinaryReply(this.dependencies.model, input);
       return;
     }
     const structuredPrompt = promptFor(input, snapshot, today, universitySnapshot);
     if (encoder.encode(structuredPrompt).byteLength > MAX_STRUCTURED_PROMPT_BYTES) {
       // Preserve the existing bot when bounded school state cannot fit safely
       // inside the provider request envelope.
-      yield* this.dependencies.model.stream(input);
+      yield* guardedOrdinaryReply(this.dependencies.model, input);
       return;
     }
     const structuredInput: ModelAdapterStreamInput = Object.freeze({
@@ -489,7 +512,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
     } catch {
       // Preserve the existing bot for ordinary conversation if a provider ever
       // ignores the JSON contract. No school mutation is claimed on this path.
-      yield* this.dependencies.model.stream(input);
+      yield* guardedOrdinaryReply(this.dependencies.model, input);
       return;
     }
     if (schoolPlan.engaged) {

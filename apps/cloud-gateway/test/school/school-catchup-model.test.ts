@@ -522,4 +522,93 @@ describe("SchoolCatchupModelAdapter", () => {
     expect(isBrightspaceRefreshRequest("check D2L now")).toBe(true);
     expect(isBrightspaceRefreshRequest("/check D2L now")).toBe(false);
   });
+
+  it("sends a message that merely starts with the refresh phrase through the model", async () => {
+    const model = new SequenceModel([JSON.stringify({
+      engaged: false,
+      reply: "I can help you work out what is due Friday.",
+      courseUpdates: [],
+      completeActionIds: [],
+      plan: [],
+    })]);
+    const refreshBrightspace = vi.fn(async () => "unexpected refresh");
+    const adapter = new SchoolCatchupModelAdapter({
+      model,
+      repository: { readSnapshot: async () => snapshot(), applyOwnerPlan: async () => undefined },
+      redactor: new Redactor(),
+      timeZone: "America/Toronto",
+      now: () => NOW,
+      ownerPrincipalId: "principal:owner",
+      refreshBrightspace,
+    });
+
+    await expect(collect(adapter.stream(input({
+      userText: "check D2L now and tell me what's due Friday",
+    })))).resolves.toBe("I can help you work out what is due Friday.");
+    expect(refreshBrightspace).not.toHaveBeenCalled();
+    expect(model.requests).toHaveLength(1);
+  });
+
+  it("replaces a model claim that it checked D2L for a near-miss request", async () => {
+    const model = new SequenceModel([JSON.stringify({
+      engaged: false,
+      reply: "I checked D2L just now and nothing changed.",
+      courseUpdates: [],
+      completeActionIds: [],
+      plan: [],
+    })]);
+    const refreshBrightspace = vi.fn(async () => "unexpected refresh");
+    const adapter = new SchoolCatchupModelAdapter({
+      model,
+      repository: { readSnapshot: async () => snapshot(), applyOwnerPlan: async () => undefined },
+      redactor: new Redactor(),
+      timeZone: "America/Toronto",
+      now: () => NOW,
+      ownerPrincipalId: "principal:owner",
+      refreshBrightspace,
+    });
+
+    await expect(collect(adapter.stream(input({ userText: "did you check d2l?" })))).resolves.toBe(
+      "I haven't checked D2L. Say 'check D2L now' to run the bounded refresh.",
+    );
+    expect(refreshBrightspace).not.toHaveBeenCalled();
+  });
+
+  it("replaces a false D2L check claim on the ordinary fallback path too", async () => {
+    const model = new SequenceModel(["I checked Brightspace and there is nothing new."]);
+    const adapter = new SchoolCatchupModelAdapter({
+      model,
+      repository: {
+        readSnapshot: async () => { throw new Error("fixture_snapshot_failed"); },
+        applyOwnerPlan: async () => undefined,
+      },
+      redactor: new Redactor(),
+      timeZone: "America/Toronto",
+      now: () => NOW,
+      ownerPrincipalId: "principal:owner",
+      refreshBrightspace: async () => "unexpected refresh",
+    });
+
+    await expect(collect(adapter.stream(input({ userText: "any new D2L stuff?" })))).resolves.toBe(
+      "I haven't checked D2L. Say 'check D2L now' to run the bounded refresh.",
+    );
+  });
+
+  it("guards the ordinary retry after invalid structured output from claiming a D2L check", async () => {
+    const model = new SequenceModel(["not json", "I refreshed D2L and found no changes."]);
+    const adapter = new SchoolCatchupModelAdapter({
+      model,
+      repository: { readSnapshot: async () => snapshot(), applyOwnerPlan: async () => undefined },
+      redactor: new Redactor(),
+      timeZone: "America/Toronto",
+      now: () => NOW,
+      ownerPrincipalId: "principal:owner",
+      refreshBrightspace: async () => "unexpected refresh",
+    });
+
+    await expect(collect(adapter.stream(input({ userText: "check D2L now thanks" })))).resolves.toBe(
+      "I haven't checked D2L. Say 'check D2L now' to run the bounded refresh.",
+    );
+    expect(model.requests).toHaveLength(2);
+  });
 });

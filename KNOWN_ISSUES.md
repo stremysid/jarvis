@@ -534,6 +534,17 @@ summary text would silently drop real work, so the adapter ingests dated
 events/tasks without guessing. Owner-attended live acceptance must compare the
 first read-only result with Brightspace before the feed is relied on.
 
+## First on-demand Brightspace load has no Worker-lifetime acceptance evidence
+
+The owner-only `check D2L now` path fetches and ingests the bounded feed inside
+the Telegram reply's background task. The source work is capped at 180 live
+items and 180 cancellations, but the first load can still combine the feed
+timeout with hundreds of D1 statements. Local tests establish the bounds; they
+do not establish that a cold production invocation finishes before the Worker
+stops background work. Until an attended first-load check measures this, a
+cancelled invocation could leave a partial sweep and no Telegram reply. Moving
+the refresh to a durable queue is the structural fix if the live check fails.
+
 ## Must-report gap: deployed, gateway delivery still needs verification
 
 R0 item 6 adds `WATCHDOG_REQUIRED_COMPONENTS`, default `cloud-gateway`.
