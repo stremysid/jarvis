@@ -1,0 +1,95 @@
+checked out a25a5fd at a25a5fd
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  14 passed (14)
+
+== T1-window-cap: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (14 tests | 1 failed) 6071ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 13 passed (14)
+   × keeps the soonest 180 of 250 in-window items plus cancellations and reports the digest gap 2199ms
+
+== T2-soonest-first: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (14 tests | 1 failed) 6753ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 13 passed (14)
+   × keeps the soonest 180 of 250 in-window items plus cancellations and reports the digest gap 2049ms
+
+== T3-truncated-count: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (14 tests | 1 failed) 5781ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 30 passed (31)
+   × keeps the soonest 180 of 250 in-window items plus cancellations and reports the digest gap 1722ms
+
+== T4-truncation-passed-to-ingestion: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (14 tests | 1 failed) 6674ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 30 passed (31)
+   × keeps the soonest 180 of 250 in-window items plus cancellations and reports the digest gap 1859ms
+
+== T5-failed-reply-keeps-snapshot: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (14 tests | 1 failed) 6563ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 13 passed (14)
+   × rate-limits on-demand refreshes and reports a fixed failure with the timestamped snapshot 223ms
+
+== C1-durable-cooldown: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (14 tests | 1 failed) 8280ms
+   Test Files  2 failed (2)
+   Tests  3 failed | 27 passed (30)
+   × admits one cooldown claim across different request keys when callers race 13ms
+   × keeps a cooldown closed until the full interval has elapsed 8ms
+   × rate-limits on-demand refreshes and reports a fixed failure with the timestamped snapshot 206ms
+
+== I1-truncation-health-gap: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (14 tests | 1 failed) 5708ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 49 passed (50)
+   × keeps the soonest 180 of 250 in-window items plus cancellations and reports the digest gap 1742ms
+
+== R1-health-gap-persisted: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (14 tests | 1 failed) 5793ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 52 passed (53)
+   × keeps the soonest 180 of 250 in-window items plus cancellations and reports the digest gap 1678ms
+
+== D1-digest-truncation-wording: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (14 tests | 1 failed) 6261ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 30 passed (31)
+   × keeps the soonest 180 of 250 in-window items plus cancellations and reports the digest gap 2236ms
+
+== M1-owner-only-refresh: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/school/school-catchup-model.test.ts (14 tests | 1 failed) 45ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 13 passed (14)
+   × handles a plain-speech D2L refresh only on the owner's own Telegram turn 5ms
+
+== M2-phrase-anchored-start: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/school/school-catchup-model.test.ts (14 tests | 1 failed) 42ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 13 passed (14)
+   × handles a plain-speech D2L refresh only on the owner's own Telegram turn 5ms
+
+== M3-phrase-anchored-end: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  14 passed (14)
+
+=== summary
+SURVIVED  BASE
+KILLED    T1-window-cap
+KILLED    T2-soonest-first
+KILLED    T3-truncated-count
+KILLED    T4-truncation-passed-to-ingestion
+KILLED    T5-failed-reply-keeps-snapshot
+KILLED    C1-durable-cooldown
+KILLED    I1-truncation-health-gap
+KILLED    R1-health-gap-persisted
+KILLED    D1-digest-truncation-wording
+KILLED    M1-owner-only-refresh
+KILLED    M2-phrase-anchored-start
+SURVIVED  M3-phrase-anchored-end
+back on main, tree clean=true
+(node:19512) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

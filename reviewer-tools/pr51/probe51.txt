@@ -1,0 +1,12 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/jobs/zz-reviewer-pr51-window.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr39
+
+Using secrets defined in process.env
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  15:09:03
+   Duration  1.00s (transform 178ms, setup 0ms, import 321ms, tests 4ms, environment 0ms)
+
