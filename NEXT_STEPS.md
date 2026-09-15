@@ -4,6 +4,23 @@ The milestone order is in [the roadmap](docs/plan/2026-09-03-jarvis-roadmap.md).
 **R0 passed on 2026-09-11 and R1 is open.** Do not resume superseded
 implementation plans.
 
+## School and university priority: R5 starts alongside R1 and R2
+
+Sid moved school and university support ahead of R3 and R4 on 2026-09-15. The
+reviewable scope is in
+[`docs/plan/2026-09-15-school-university-plan.md`](docs/plan/2026-09-15-school-university-plan.md):
+conversational course/program intake, one catch-up plan per course, Classroom
+and Brightspace deadlines, grades and missing-work watch, a proactive
+quiz/flashcard coach, and the full university-application track. R5 deadline
+ingestion depends on the deployed R0 gateway, not on PC control; its
+evidence-based weak-spot memory integrates with R2 as that interface lands.
+
+First code slice after the plan review: wire the existing Google Classroom
+client and deadline ingestion into the hourly job behind configuration, use the
+API's UTC due fields, render them in the digest timezone, and add a PowerShell 7
+owner OAuth runbook. This is a separate draft PR. It performs no OAuth consent,
+secret operation, migration, deployment or live account access.
+
 ## R2 cloud-memory schema candidate
 
 PR #38 merged at `b8b47bd`. Draft

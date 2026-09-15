@@ -4,6 +4,28 @@
 - R2 is the archive store.
 - Authentication state does not use eventually consistent KV.
 
+## School and university are the next product priority (2026-09-15, owner decision)
+
+Sid is in Grade 12 in Ontario, has two missed weeks to catch up, and expects to
+begin university applications soon. R5 therefore moves directly after the
+active R1 calling and R2 cloud-memory work, ahead of R3 hands and R4 St. Remy.
+Its deadline-only name is superseded by the school and university milestone in
+[`docs/plan/2026-09-15-school-university-plan.md`](docs/plan/2026-09-15-school-university-plan.md).
+
+Jarvis gathers Sid's courses, school context and target programs through
+conversation, not homework forms. It provides a per-course catch-up plan,
+Classroom and Brightspace deadlines, grades and missing-work watch, proactive
+study coaching, quizzes and flashcards, and a complete university-application
+track. Exact application dates and requirements stay unverified until read
+from a current official source. Spending, sign-up, submission, transcript
+release and contact with another person always require Sid's tap.
+
+The Brightspace host remains Sid's later choice among the outcome options in
+the plan. The recommended outcome is a school-approved, least-privilege OAuth
+API connector in the always-on Cloudflare gateway; the initial fallback is the
+existing Windows browser while its PC is on. Cloud browser automation requires
+a separate policy/security review and an owner-approved cost ceiling.
+
 ## R2 cloud memory direction and corrected attribution (2026-09-14, delegated design decision)
 
 Sid's requirement is the outcome: Jarvis keeps every accepted conversation,
