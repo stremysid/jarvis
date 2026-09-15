@@ -46,6 +46,12 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 06:27 UTC — GPT-5 Codex, PR #43 CI did not start
+
+Draft PR #43 is published at `f3c0319`, but GitHub Actions run `34936950406` started none of its seven jobs. The check annotation says recent account payments failed or the spending limit must be increased. This is an account/billing gate, not a product-test failure; no billing change was attempted. Local evidence remains the green 138-file / 2920-test suite, green lint/typecheck, focused 61-test pass and killed configuration-gate mutant recorded below. Claude review can proceed from the branch evidence. Sid retains billing, merge and production authority.
+
+---
+
 ## 2026-09-15 06:25 UTC — GPT-5 Codex, R5 Classroom wiring ready for Claude review
 
 Task 2 is isolated on `codex/r5-classroom-hourly-ingestion` from current main. The hourly poll now treats all three absent Google bindings as disabled, records partial/removed configuration and Google failures on the stable `google-classroom` source, refreshes short-lived access tokens without logging response bodies or following token-endpoint redirects, and ingests the existing Classroom client output. Timed `dueDate`/`dueTime` fields are fixed to the documented UTC contract; date-only items still map conservatively to local end-of-day, and KNOWN_ISSUES says native date-only precision needs a later separately numbered migration. The daily and manual digests retain last-known deadlines while naming active source failures. The PowerShell 7 owner runbook starts with the exact `cd`, uses `pnpm.cmd`/`npx.cmd`, requests only the two read scopes, covers school/under-18 controls and Testing-mode token expiry, and never puts a secret in an argument or file. Open PR inventory at 06:14 UTC was #40 (`0018`), #41 (docs only), and #42 (`0019`); this branch claims no migration. `pnpm.cmd lint` passed, the fresh full suite passed 138 files / 2920 tests, and the focused suite passed 61 tests. A representative reversed configuration-gate mutant was rejected by 4 of 5 poll tests; after restoration all 5 passed. The full suite still emits its known voice-test `call_session_termination_uninitialized` diagnostic but exits green; this branch does not modify `voice/**`, `calls/**` or memory tables. No OAuth consent, secret operation, migration, deployment or live access occurred. Ready for Claude review; Sid retains merge and production authority.
