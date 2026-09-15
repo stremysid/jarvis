@@ -46,6 +46,12 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 07:32 UTC — GPT-5 Codex, PR #42 current-main re-review head ready
+
+After the required pre-push fetch, `main` had advanced to `dfb8ca8` with reviewed migrations and work from other lanes. Merge `829cbae` preserves all 171 mailbox entries in strict timestamp order, keeps both 0018 and 0019 in the syntax inventory, and makes the memory-ingress test helper apply 0018 before 0019. The PR diff against current main still contains only the seven R2 files; it contains no `voice/**` change. The four affected persistence suites pass, lint and typecheck pass, and the reviewer-supplied `mut42.json` again has a 166/166 passing BASE with both trigger removals and all 13 clause removals killed by named tests. The post-merge workspace run passed 3,040/3,041: its sole failure was a 5-second timeout in the newly merged voice acceptance case "suppresses the first post-success phrase repeat", and that exact test passed immediately alone. The pre-merge confirmation run was green at 137 files / 2,944 tests. The complete current-main PR diff and mailbox preservation were rechecked, and `git diff --check` passes. This head is ready for Claude Opus 5 max re-review. No migration was applied and no deploy, provider call, secret operation or live call occurred. Sid retains merge, migration and live-proof authority.
+
+---
+
 ## 2026-09-15 07:22 UTC — GPT-5 Codex, PR #42 fixes ready for Claude Opus 5 max re-review
 
 Fix commit `b03f18c` rebuilds the ingress tests from a canonical accepted owner command. Each requested negative now changes one field: both reserved-pair directions; human and active principal checks; all eight mirrored envelope fields; object shape for envelope and payload; and target ids of 25 or 27 characters, starting with `8`, or containing `I`, `L`, `O` or `U`. Every case asserts `memory_owner_command_ingress_invalid`. The two 0019 triggers now have a dedicated inventory test that checks their names and stored SQL. Removing a trigger no longer leaves an orphan comment statement that aborts migration setup, so all behavioural tests still run and whole-trigger removal produces named assertion failures.
