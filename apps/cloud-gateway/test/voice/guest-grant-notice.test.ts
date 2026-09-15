@@ -25,6 +25,14 @@ describe("D1GuestGrantNoticeSink", () => {
   });
   afterEach(() => clearVoiceAccessFixture(env.DB));
 
+  it("rejects INSERT OR IGNORE and INSERT OR REPLACE collisions on pending notice rows", async () => {
+    for (const conflict of ["IGNORE", "REPLACE"] as const) {
+      await expect(env.DB.prepare(`INSERT OR ${conflict} INTO guest_grant_notices
+        SELECT * FROM guest_grant_notices WHERE mutation_id = ?`).bind(MUTATION_ID).run())
+        .rejects.toThrow("guest_grant_notice_invalid");
+    }
+  });
+
   it("delivers one persisted notice without repeating it after the delivered marker is recorded", async () => {
     const sendMessage = vi.fn(async () => ({ providerMessageId: "901" }));
     const sink = new D1GuestGrantNoticeSink(env.DB, { sendMessage });

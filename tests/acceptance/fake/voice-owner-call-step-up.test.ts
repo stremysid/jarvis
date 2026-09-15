@@ -94,6 +94,26 @@ describe("owner call passphrase step-up", () => {
     } finally { await system.cleanup(); }
   });
 
+  it("rejects INSERT OR IGNORE and INSERT OR REPLACE collisions on durable refusal rows", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      await disableOwnerStepUp();
+      const call = await system.openRelay();
+      await call.setup();
+      for (const conflict of ["IGNORE", "REPLACE"] as const) {
+        for (const [table, error] of [
+          ["owner_call_step_up_disabled_rejections", "owner_call_step_up_disabled_rejection_invalid"],
+          ["owner_call_step_up_rejection_deliveries", "owner_call_step_up_rejection_delivery_invalid"],
+        ] as const) {
+          await expect(env.DB.prepare(`INSERT OR ${conflict} INTO ${table}
+            SELECT * FROM ${table} WHERE session_id = ?`).bind(call.sessionId).run())
+            .rejects.toThrow(error);
+        }
+      }
+    } finally { await system.cleanup(); }
+  });
+
   it("rejects an open step-up window when the passphrase is disabled mid-call", async () => {
     const system = await createFakeCallingSystem();
     try {
