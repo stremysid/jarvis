@@ -11,6 +11,7 @@ import { DeepSeekModelAdapter, DEFAULT_MODEL } from "../providers/deepseek-provi
 import { ProviderCircuitBreaker } from "../providers/provider-circuit-breaker.js";
 import { TelegramRestProvider } from "../providers/telegram-provider.js";
 import { GuestPinVerifier } from "../security/guest-pin-verifier.js";
+import { OwnerPassphraseVerifier } from "../security/owner-passphrase-verifier.js";
 import { Redactor } from "../security/redaction.js";
 import { IdentityChallengeService, VerifiedChannelObservationAuthority } from "../sync/identity-challenge.js";
 import { decodeCanonicalBase64, DeviceRequestVerifier } from "../sync/signed-request.js";
@@ -22,6 +23,7 @@ import { CapabilityRegistry } from "./capability-registry.js";
 import { AuthenticationAttemptBudget } from "./inbound-auth.js";
 import { OwnerAccessService } from "./owner-access-service.js";
 import { GuestPinProofIssuer, VoiceAccessAuthorityService } from "./voice-access-authority.js";
+import { D1OwnerStepUpAlertSink, OwnerCallStepUpService } from "./owner-call-step-up.js";
 
 function configured(value: unknown, pattern: RegExp): string {
   if (typeof value !== "string" || !pattern.test(value)) throw new TypeError("voice_runtime_configuration_invalid");
@@ -39,6 +41,7 @@ export function readVoiceRuntimeConfiguration(env: Env) {
     budgetPepper: decodeCanonicalBase64(env.AUTHENTICATION_BUDGET_PEPPER, 32, "voice_runtime_configuration_invalid"),
     challengePepper: decodeCanonicalBase64(env.IDENTITY_CHALLENGE_HMAC_PEPPER, 32, "voice_runtime_configuration_invalid"),
     challengeKeyVersion: configured(env.IDENTITY_CHALLENGE_HMAC_KEY_VERSION, /^[A-Za-z0-9][A-Za-z0-9:._-]{0,63}$/u),
+    ownerPassphrasePepper: decodeCanonicalBase64(env.OWNER_PASSPHRASE_PEPPER_V1, 32, "voice_runtime_configuration_invalid"),
   });
 }
 
@@ -66,6 +69,12 @@ export function createProductionCallSessionCore(
   const verifier = new GuestPinVerifier(configuration.guestPepper);
   const budgets = new AuthenticationAttemptBudget(env.DB, configuration.budgetPepper);
   const guestAuthentication = new GuestCallAuthentication({ repository: access, budgets, verifier, proofs });
+  const ownerStepUp = new OwnerCallStepUpService(
+    env.DB, new OwnerPassphraseVerifier(configuration.ownerPassphrasePepper, "v1"),
+  );
+  const ownerStepUpAlerts = new D1OwnerStepUpAlertSink(
+    env.DB, new TelegramRestProvider({ botToken: configuration.telegramToken }),
+  );
   const defaultGuestPin = env.DEFAULT_GUEST_PIN;
   const ownerAccess = new OwnerAccessService({
     repository: access, registry, authorities, verifier,
@@ -105,7 +114,8 @@ export function createProductionCallSessionCore(
     expectedAccountSid: configuration.accountSid,
     repository: calls,
     authority: authorities,
-    guestAuthentication, ownerAccess, activation, conversation,
+    guestAuthentication, ownerAccess, activation, conversation, ownerStepUp, ownerStepUpAlerts,
+    ownerStepUpAlarm: input.ownerStepUpAlarm,
     relay: input.relay,
     ...(input.initialization.binding.direction === "outbound" && "preAuthentication" in input.initialization
       ? { preAuthentication: input.initialization.preAuthentication }

@@ -92,6 +92,8 @@ export function createVoiceRouteDependencies(input: VoiceRouteConstruction): Voi
       expectedInboundE164: ownData(inboundPorts, "expectedInboundE164") as string,
       ownerIdentityId: ownData(inboundPorts, "ownerIdentityId") as string,
       currentChallengeHmacKeyVersion: ownData(inboundPorts, "currentChallengeHmacKeyVersion") as string,
+      ownerCallerIdPolicy: ownData(inboundPorts, "ownerCallerIdPolicy"),
+      ownerStepUp: ownData(inboundPorts, "ownerStepUp") as InboundVoiceDependencies["ownerStepUp"],
       sessions: ownData(inboundPorts, "sessions") as InboundVoiceDependencies["sessions"],
       initializeSession: ownData(inboundPorts, "initializeSession") as InboundVoiceDependencies["initializeSession"],
       now: (ownData(inboundPorts, "now") ?? (() => new Date())) as () => Date,
@@ -104,6 +106,7 @@ export function createVoiceRouteDependencies(input: VoiceRouteConstruction): Voi
       ownerIdentityId: ownData(outboundPorts, "ownerIdentityId") as string,
       recipients: ownData(outboundPorts, "recipients") as OutboundTwiMLDependencies["recipients"],
       calls: ownData(outboundPorts, "calls") as OutboundTwiMLDependencies["calls"],
+      ownerStepUp: ownData(outboundPorts, "ownerStepUp") as OutboundTwiMLDependencies["ownerStepUp"],
       initializeSession: ownData(outboundPorts, "initializeSession") as OutboundTwiMLDependencies["initializeSession"],
       now: (ownData(outboundPorts, "now") ?? (() => new Date())) as () => Date,
     });

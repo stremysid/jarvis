@@ -6,6 +6,8 @@ import { CapabilityRegistry } from "../../../apps/cloud-gateway/src/voice/capabi
 // Public synthetic material shared by fixture enrollment and the fake runtime.
 export const FAKE_GUEST_PEPPER = () => new Uint8Array(32).fill(12);
 export const FAKE_BUDGET_PEPPER = () => new Uint8Array(32).fill(13);
+export const FAKE_OWNER_PASSPHRASE = "ablaze abrasion abrasive";
+export const FAKE_OWNER_PASSPHRASE_PEPPER = () => new Uint8Array(32).fill(29);
 export const FAKE_PIN_A = () => Uint8Array.from([52, 56, 50, 55]);
 export const FAKE_PIN_B = () => Uint8Array.from([49, 51, 53, 55]);
 export const FAKE_VOICE_REGISTRY = () => new CapabilityRegistry({ installed: ["conversation.basic", "access.manage"] });

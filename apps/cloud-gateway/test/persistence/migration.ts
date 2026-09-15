@@ -15,10 +15,12 @@ import scheduledRunsSql from "../../src/persistence/migrations/0013_scheduled_ru
 import memoryProjectionSql from "../../src/persistence/migrations/0014_memory_projection.sql?raw";
 import voiceRuntimeSql from "../../src/persistence/migrations/0015_voice_runtime.sql?raw";
 import ownerPassphraseSql from "../../src/persistence/migrations/0017_owner_passphrase.sql?raw";
+import ownerCallStepUpSql from "../../src/persistence/migrations/0018_owner_call_step_up.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
 let ownerPassphraseMigrated: Promise<void> | undefined;
+let ownerCallStepUpMigrated: Promise<void> | undefined;
 
 /**
  * Split a migration into the statements D1 applies one at a time.
@@ -96,11 +98,46 @@ export async function applyVoiceRuntimeMigration(): Promise<void> {
 
 /** Applies the owner-passphrase verifier schema after the current R1 runtime. */
 export async function applyOwnerPassphraseMigration(): Promise<void> {
-  await applyVoiceRuntimeMigration();
+  await applyFoundationMigration();
   ownerPassphraseMigrated ??= applyD1Migrations(env.DB, [
     { name: "0017_owner_passphrase.sql", queries: splitMigration(ownerPassphraseSql) },
   ]);
   await ownerPassphraseMigrated;
+}
+
+/** Applies the durable owner-call step-up schema and authority boundary. */
+export async function applyOwnerCallStepUpMigration(): Promise<void> {
+  await applyOwnerPassphraseMigration();
+  ownerCallStepUpMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0018_owner_call_step_up.sql", queries: splitMigration(ownerCallStepUpSql) },
+  ]);
+  await ownerCallStepUpMigrated;
+}
+
+/** Test-only reset for immutable per-call step-up and guest-attempt records. */
+export async function clearOwnerCallStepUpDataForTest(): Promise<void> {
+  await applyOwnerCallStepUpMigration();
+  const tables = [
+    "owner_call_step_up_repeat_checks", "owner_call_step_up_rejections",
+    "owner_call_step_up_successes", "owner_call_step_up_reprompts",
+    "owner_call_step_up_attempts", "owner_call_step_up_windows",
+    "owner_call_step_up_bindings", "guest_call_pin_attempts",
+  ] as const;
+  const guards = await env.DB.prepare(
+    `SELECT name, sql FROM sqlite_schema WHERE type = 'trigger' AND tbl_name IN (${tables.map(() => "?").join(", ")})`,
+  ).bind(...tables).all<{ name: string; sql: string }>();
+  for (const guard of guards.results) await env.DB.prepare(`DROP TRIGGER IF EXISTS ${guard.name}`).run();
+  await env.DB.prepare("DROP TRIGGER IF EXISTS call_session_authorities_delete_forbidden").run();
+  try {
+    await env.DB.prepare("DELETE FROM call_session_authorities").run();
+    for (const table of tables) await env.DB.prepare(`DELETE FROM ${table}`).run();
+    await env.DB.prepare("DELETE FROM owner_call_step_up_alerts").run();
+  } finally {
+    for (const guard of guards.results) await env.DB.prepare(guard.sql).run();
+    await env.DB.prepare(`CREATE TRIGGER call_session_authorities_delete_forbidden
+      BEFORE DELETE ON call_session_authorities
+      BEGIN SELECT RAISE(ABORT, 'call_session_authority_delete_forbidden'); END`).run();
+  }
 }
 
 /** Test-only reset for append-only owner-passphrase history. */

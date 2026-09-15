@@ -15,6 +15,7 @@ import { snapshotOutboundCallRequest } from "../policy/policy-engine.js";
 import type { PolicyDecision, PolicyEngineContract, PolicyReason } from "../policy/policy-types.js";
 import { snapshotTrustedPublicOrigin } from "../security/trusted-public-origin.js";
 import { renderConversationRelayTwiML } from "./twiml.js";
+import type { OwnerCallStepUpService } from "./owner-call-step-up.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const CALL_SID = /^CA[0-9A-Fa-f]{32}$/u;
@@ -52,7 +53,7 @@ const SESSION_FIELDS = new Set([
 ]);
 const DISPATCH_DEPENDENCY_FIELDS = new Set(["policy", "dispatcher"]);
 const TWIML_DEPENDENCY_FIELDS = new Set([
-  "twilio", "publicOrigin", "ownerIdentityId", "recipients", "calls", "initializeSession", "now",
+  "twilio", "publicOrigin", "ownerIdentityId", "recipients", "calls", "ownerStepUp", "initializeSession", "now",
 ]);
 
 export const OUTBOUND_VOICEMAIL_MESSAGE = "Jarvis called for Sid. No private message was left." as const;
@@ -98,6 +99,7 @@ export interface OutboundTwiMLDependencies {
   ownerIdentityId: string;
   recipients: OutboundRecipientIdentityLookup;
   calls: Pick<CallRepository, "claimExpectedCall" | "getOrCreateOutboundSession">;
+  ownerStepUp: Pick<OwnerCallStepUpService, "bind">;
   initializeSession: OutboundSessionInitializer["initialize"];
   now?: () => Date;
 }
@@ -336,6 +338,7 @@ export async function claimOutboundTwiML(
   const recipientLookup = captured === null ? null : snapshotMethod(captured.recipients, "resolveActiveVerifiedVoiceIdentityId");
   const expectedCallClaim = captured === null ? null : snapshotMethod(captured.calls, "claimExpectedCall");
   const outboundSession = captured === null ? null : snapshotMethod(captured.calls, "getOrCreateOutboundSession");
+  const ownerStepUp = captured === null ? null : snapshotMethod(captured.ownerStepUp, "bind");
   const initializeSession = captured?.initializeSession;
   const now = (captured?.now ?? (() => new Date())) as (() => Date) | unknown;
   const trustedOrigin = snapshotTrustedPublicOrigin(captured?.publicOrigin);
@@ -344,6 +347,7 @@ export async function claimOutboundTwiML(
     || recipientLookup === null
     || expectedCallClaim === null
     || outboundSession === null
+    || ownerStepUp === null
     || typeof initializeSession !== "function"
     || typeof now !== "function"
     || trustedOrigin === null
@@ -418,6 +422,23 @@ export async function claimOutboundTwiML(
   }
   const session = snapshotOutboundSession(stored, attemptId, binding);
   if (session === null) return neutral("unavailable", 503);
+
+  try {
+    await ownerStepUp.method.call(ownerStepUp.receiver, Object.freeze({
+      sessionId: session.sessionId,
+      callSid: session.callSid,
+      ownerPrincipalId: session.binding.principalId,
+      ownerIdentityId: session.binding.identityId,
+      direction: "outbound" as const,
+      lifecycleGeneration: 1 as const,
+      requirement: "required" as const,
+      attestationClass: "not_applicable" as const,
+      policy: "passphrase_always" as const,
+      createdAt: observedAt.toISOString(),
+    }));
+  } catch {
+    return neutral("unavailable", 503);
+  }
 
   let body: string;
   try {

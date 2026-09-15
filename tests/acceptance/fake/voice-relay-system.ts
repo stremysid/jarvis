@@ -8,6 +8,7 @@ import type { CallRepository } from "../../../apps/cloud-gateway/src/persistence
 import { EventRepository } from "../../../apps/cloud-gateway/src/persistence/event-repository.js";
 import { VoiceAccessRepository } from "../../../apps/cloud-gateway/src/persistence/voice-access-repository.js";
 import { GuestPinVerifier } from "../../../apps/cloud-gateway/src/security/guest-pin-verifier.js";
+import { OwnerPassphraseVerifier } from "../../../apps/cloud-gateway/src/security/owner-passphrase-verifier.js";
 import { FakeModelProvider, type FakeModelProviderOptions } from "../../../apps/cloud-gateway/src/providers/fake-model-provider.js";
 import { Redactor } from "../../../apps/cloud-gateway/src/security/redaction.js";
 import {
@@ -22,7 +23,10 @@ import {
 import { AuthenticationAttemptBudget } from "../../../apps/cloud-gateway/src/voice/inbound-auth.js";
 import { DurableObjectCallSessionTerminator } from "../../../apps/cloud-gateway/src/voice/call-session-terminator.js";
 import { GuestPinProofIssuer, VoiceAccessAuthorityService } from "../../../apps/cloud-gateway/src/voice/voice-access-authority.js";
-import { FAKE_BUDGET_PEPPER, FAKE_GUEST_PEPPER, FAKE_VOICE_REGISTRY } from "./voice-access-system.js";
+import { OwnerCallStepUpService } from "../../../apps/cloud-gateway/src/voice/owner-call-step-up.js";
+import {
+  FAKE_BUDGET_PEPPER, FAKE_GUEST_PEPPER, FAKE_OWNER_PASSPHRASE_PEPPER, FAKE_VOICE_REGISTRY,
+} from "./voice-access-system.js";
 
 export const FAKE_ACCOUNT_SID = `AC${"6".repeat(32)}`;
 
@@ -98,6 +102,9 @@ export class FakeRelaySessions {
         repository: access, proofs, verifier: new GuestPinVerifier(FAKE_GUEST_PEPPER()),
         budgets: new AuthenticationAttemptBudget(env.DB, FAKE_BUDGET_PEPPER()),
       });
+      const ownerStepUp = new OwnerCallStepUpService(
+        env.DB, new OwnerPassphraseVerifier(FAKE_OWNER_PASSPHRASE_PEPPER(), "v1"),
+      );
       const model = new FakeModelProvider(this.modelOptions);
       const conversation = new DefaultConversationService({
         repository: new ConversationRepository(env.DB, new EventRepository(env.DB)),
@@ -114,6 +121,9 @@ export class FakeRelaySessions {
         repository: this.repository,
         authority,
         guestAuthentication,
+        ownerStepUp,
+        ownerStepUpAlerts: { async alert(): Promise<void> {} },
+        ownerStepUpAlarm: input.ownerStepUpAlarm,
         conversation,
         relay: input.relay,
         ...(input.initialization.binding.direction === "outbound" && "preAuthentication" in input.initialization

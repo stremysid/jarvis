@@ -101,6 +101,8 @@ function dependencies(overrides: Partial<InboundVoiceDependencies> = {}) {
     expectedInboundE164: EXPECTED_TO,
     ownerIdentityId: "identity:voice",
     currentChallengeHmacKeyVersion: "hmac-v1",
+    ownerCallerIdPolicy: undefined,
+    ownerStepUp: { bind: vi.fn(async (input) => input) },
     sessions: { getOrCreateInboundSession },
     initializeSession,
     now: () => new Date("2026-08-30T12:00:00.000Z"),

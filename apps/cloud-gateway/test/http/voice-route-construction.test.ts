@@ -30,6 +30,8 @@ describe("createVoiceRouteDependencies", () => {
         expectedInboundE164: "+14165550100",
         ownerIdentityId: "identity:voice",
         currentChallengeHmacKeyVersion: "hmac-v1",
+        ownerCallerIdPolicy: undefined,
+        ownerStepUp: { bind: async (input) => input },
         sessions: {
           getOrCreateInboundSession: async () => { throw new Error("must not run"); },
         },
@@ -105,6 +107,7 @@ describe("createVoiceRouteDependencies", () => {
         claimExpectedCall: async () => null,
         getOrCreateOutboundSession: async () => { throw new Error("must not run"); },
       },
+      ownerStepUp: { bind: async (input) => input },
       initializeSession: async () => undefined,
       now: () => new Date("2026-08-30T12:00:00.000Z"),
     }, {

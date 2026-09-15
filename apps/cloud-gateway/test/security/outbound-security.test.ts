@@ -127,6 +127,7 @@ describe("outbound TwiML claim security boundary", () => {
       ownerIdentityId: "identity:voice",
       recipients: { resolveActiveVerifiedVoiceIdentityId },
       calls: repository,
+      ownerStepUp: { bind: vi.fn(async (input) => input) },
       initializeSession,
       now: () => observedAt,
     };

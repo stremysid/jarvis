@@ -39,6 +39,17 @@ import {
   type OutboundPreAuthenticationContract,
   type OutboundSessionInitialization,
 } from "./outbound.js";
+import {
+  OWNER_STEP_UP_ASSEMBLY_MS,
+  OWNER_STEP_UP_FORMAT_PROMPT,
+  OWNER_STEP_UP_HANDOFF_DATA,
+  OWNER_STEP_UP_PROMPT,
+  OWNER_STEP_UP_REJECTED,
+  OWNER_STEP_UP_RETRY_PROMPT,
+  OWNER_STEP_UP_VERIFIED,
+  type OwnerCallStepUpService,
+  type OwnerStepUpAlertSink,
+} from "./owner-call-step-up.js";
 
 type RelaySetupEvent = Extract<RelayEvent, { type: "setup" }>;
 type RelayDtmfEvent = Extract<RelayEvent, { type: "dtmf" }>;
@@ -52,6 +63,13 @@ const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const MAX_RELAY_FRAME_BYTES = 64 * 1024;
 const INITIALIZATION_KEY = "call-session.initialization.v1";
 const TERMINATION_KEY = "call-session.termination.v1";
+const OWNER_STEP_UP_ALARM_KEY = "call-session.owner-step-up-alarm.v1";
+interface StoredOwnerStepUpAlarm {
+  readonly sessionId: Ulid;
+  readonly lifecycleGeneration: 1;
+  readonly kind: "window" | "assembly";
+  readonly deadlineAt: string;
+}
 const BINDING_FIELDS = new Set([
   "callSid", "principalId", "identityId", "destinationIdentityId", "relayNonce",
   "direction", "activationOnly", "activationChallengeId",
@@ -446,6 +464,7 @@ export interface CallSessionRelay {
   sendToken(token: ModelToken): Promise<void>;
   finish(finalText: string): Promise<void>;
   cancelOutput(): Promise<void>;
+  end?(handoffData: string): Promise<void>;
 }
 
 function snapshotTermination(value: unknown): Readonly<CallSessionTermination> {
@@ -540,7 +559,7 @@ export class GuestCallAuthentication {
     readonly sessionId: Ulid;
     readonly binding: RelayBinding;
     readonly now: Date;
-  }): Promise<GuestPinAuthenticationProof | null> {
+  }): Promise<Readonly<{ proof: GuestPinAuthenticationProof | null; attemptOrdinal: number }>> {
     const input = exactDataRecord(
       value,
       GUEST_AUTHENTICATION_INPUT_FIELDS,
@@ -568,6 +587,7 @@ export class GuestCallAuthentication {
       pinDigits.fill(0);
       throw new Error("authentication_budget_exhausted");
     }
+    const attemptOrdinal = await this.#repository.reserveGuestPinAttempt(input.sessionId as Ulid, now);
     const grant = await this.#repository.getGuestGrant(binding.guestGrantId);
     if (
       grant === null
@@ -580,8 +600,10 @@ export class GuestCallAuthentication {
       pinDigits.fill(0);
       throw new Error("call_authority_stale");
     }
-    if (!await this.#verifier.verify(grant.grantId, pinDigits, grant.pinVerifier)) return null;
-    return this.#proofs.issue({
+    if (!await this.#verifier.verify(grant.grantId, pinDigits, grant.pinVerifier)) {
+      return Object.freeze({ proof: null, attemptOrdinal });
+    }
+    const proof = this.#proofs.issue({
       sessionId: input.sessionId as Ulid,
       callSid: binding.callSid,
       relayNonce: binding.relayNonce,
@@ -593,10 +615,12 @@ export class GuestCallAuthentication {
       accessDocumentHash: grant.accessDocumentHash,
       authenticatedAt: now,
     });
+    return Object.freeze({ proof, attemptOrdinal });
   }
 }
 
 type CallInteraction =
+  | Readonly<{ kind: "owner_step_up" }>
   | Readonly<{ kind: "owner_enrollment" }>
   | Readonly<{ kind: "guest_pin" }>
   | Readonly<{ kind: "conversation" }>
@@ -616,11 +640,24 @@ export interface CallSessionCoreSetup {
   readonly guestAuthentication?: GuestCallAuthentication | null;
   readonly activation?: PhoneActivationChallengeConfirmer | null;
   readonly ownerAccess?: OwnerAccessService | null;
+  readonly ownerStepUp?: OwnerCallStepUpService | null;
+  readonly ownerStepUpAlerts?: OwnerStepUpAlertSink | null;
+  readonly ownerStepUpAlarm?: OwnerStepUpAlarmPort | null;
   readonly conversation?: ConversationService | null;
   readonly preAuthentication?: OutboundPreAuthenticationContract;
   readonly relay: CallSessionRelay;
   readonly newTurnId?: () => Ulid;
   readonly now: () => Date;
+}
+
+export interface OwnerStepUpAlarmPort {
+  arm(input: Readonly<{
+    sessionId: Ulid;
+    lifecycleGeneration: 1;
+    kind: "window" | "assembly";
+    deadlineAt: string;
+  }>): Promise<void>;
+  clear(): Promise<void>;
 }
 
 /**
@@ -636,6 +673,9 @@ export class CallSessionCore {
   readonly #guestAuthentication: GuestCallAuthentication | null;
   readonly #activation: PhoneActivationChallengeConfirmer | null;
   readonly #ownerAccess: OwnerAccessService | null;
+  readonly #ownerStepUp: OwnerCallStepUpService | null;
+  readonly #ownerStepUpAlerts: OwnerStepUpAlertSink | null;
+  readonly #ownerStepUpAlarm: OwnerStepUpAlarmPort | null;
   readonly #conversation: ConversationService | null;
   readonly #assertCapacity: () => Promise<void>;
   readonly #preAuthentication: OutboundPreAuthenticationContract | null;
@@ -648,7 +688,10 @@ export class CallSessionCore {
   readonly #ownerAccessPin = new FourDigitPinCapture();
   #activationDigits = "";
   #activationAttempted = false;
-  #failedPinAttempts = 0;
+  #ownerStepUpFragments: string[] = [];
+  #ownerStepUpFragmentStartedAt: number | null = null;
+  #ownerStepUpDeadlineAt: string | null = null;
+  #ownerStepUpVerificationInFlight = false;
   #activeTurnAbort: AbortController | null = null;
   #lastSentAssistantEventId: Ulid | null = null;
   #socketClosed = false;
@@ -672,6 +715,12 @@ export class CallSessionCore {
         && !(input.activation instanceof PhoneActivationChallengeConfirmer)
       || input.ownerAccess !== undefined && input.ownerAccess !== null
         && !(input.ownerAccess instanceof OwnerAccessService)
+      || input.ownerStepUp !== undefined && input.ownerStepUp !== null
+        && typeof input.ownerStepUp.verifyCandidate !== "function"
+      || input.ownerStepUpAlerts !== undefined && input.ownerStepUpAlerts !== null
+        && typeof input.ownerStepUpAlerts.alert !== "function"
+      || input.ownerStepUpAlarm !== undefined && input.ownerStepUpAlarm !== null
+        && (typeof input.ownerStepUpAlarm.arm !== "function" || typeof input.ownerStepUpAlarm.clear !== "function")
       || typeof input.expectedAccountSid !== "string"
       || !ACCOUNT_SID.test(input.expectedAccountSid)
     ) {
@@ -684,6 +733,9 @@ export class CallSessionCore {
     this.#guestAuthentication = input.guestAuthentication ?? null;
     this.#activation = input.activation ?? null;
     this.#ownerAccess = input.ownerAccess ?? null;
+    this.#ownerStepUp = input.ownerStepUp ?? null;
+    this.#ownerStepUpAlerts = input.ownerStepUpAlerts ?? null;
+    this.#ownerStepUpAlarm = input.ownerStepUpAlarm ?? null;
     this.#conversation = input.conversation ?? null;
     this.#assertCapacity = assertCapacity.bind(capacity);
     this.#preAuthentication = input.preAuthentication === undefined
@@ -703,7 +755,7 @@ export class CallSessionCore {
         ? "guest_pin"
         : input.session.binding.activationOnly
           ? "owner_enrollment"
-          : "conversation",
+          : "owner_step_up",
     }) as CallInteraction;
   }
 
@@ -827,23 +879,44 @@ export class CallSessionCore {
           );
         }
       } else if (this.#authorityService !== null && this.#session.binding.accessKind === "owner") {
-        this.#authority = await this.#authorityService.mintOwner({
-          sessionId: this.#session.sessionId,
-          binding: this.#session.binding,
-          now: observedAt,
-        });
-        const authenticated = await this.#repository.getCallSession(this.#session.sessionId);
-        if (authenticated === null || authenticated.phase !== "authenticated") {
-          throw new Error("call_authority_write_failed");
+        if (this.#ownerStepUp === null || this.#ownerStepUpAlarm === null) {
+          throw new Error("owner_step_up_unavailable");
         }
-        this.#session = authenticated;
-        await this.#transition("active", observedAt);
-        this.#interaction = Object.freeze({ kind: "conversation" });
+        const binding = await this.#ownerStepUp.binding(this.#session.sessionId);
+        if (binding === null) throw new Error("owner_step_up_binding_missing");
+        if (binding.requirement === "waived_passed_a") {
+          await this.#mintWaivedOwner(observedAt);
+        } else if (binding.requirement === "required") {
+          const window = await this.#ownerStepUp.begin(this.#session.sessionId, observedAt);
+          this.#ownerStepUpDeadlineAt = window.deadlineAt;
+          this.#interaction = Object.freeze({ kind: "owner_step_up" });
+          await this.#ownerStepUpAlarm.arm({
+            sessionId: this.#session.sessionId, lifecycleGeneration: 1,
+            kind: "window", deadlineAt: window.deadlineAt,
+          });
+          if (enteredPreAuthentication) await this.#relay.sendNeutralText(OWNER_STEP_UP_PROMPT);
+        } else {
+          throw new Error("owner_step_up_binding_invalid");
+        }
       } else if (this.#authorityService !== null && this.#session.binding.accessKind === "guest") {
         this.#interaction = Object.freeze({ kind: "guest_pin" });
         if (enteredPreAuthentication) await this.#relay.sendNeutralText("Enter your four digit PIN.");
       }
     }
+  }
+
+  async #mintWaivedOwner(observedAt: Date): Promise<void> {
+    if (this.#authorityService === null) throw new Error("owner_authority_unavailable");
+    this.#authority = await this.#authorityService.mintOwner({
+      sessionId: this.#session.sessionId,
+      binding: this.#session.binding,
+      now: observedAt,
+    });
+    const authenticated = await this.#repository.getCallSession(this.#session.sessionId);
+    if (authenticated === null || authenticated.phase !== "authenticated") throw new Error("call_authority_write_failed");
+    this.#session = authenticated;
+    await this.#transition("active", observedAt);
+    this.#interaction = Object.freeze({ kind: "conversation" });
   }
 
   async #rehydrateAuthority(observedAt: Date): Promise<void> {
@@ -992,7 +1065,149 @@ export class CallSessionCore {
     }
   }
 
+  #clearOwnerStepUpFragments(): void {
+    this.#ownerStepUpFragments = [];
+    this.#ownerStepUpFragmentStartedAt = null;
+  }
+
+  #isFixedStepUpEcho(text: string): boolean {
+    return text === OWNER_STEP_UP_PROMPT || text === OWNER_STEP_UP_RETRY_PROMPT
+      || text === OWNER_STEP_UP_FORMAT_PROMPT || text === OWNER_STEP_UP_VERIFIED
+      || text === OWNER_STEP_UP_REJECTED;
+  }
+
+  async #rejectOwnerStepUp(observedAt: Date, alreadyDurable = false): Promise<void> {
+    if (this.#ownerStepUp === null) throw new Error("owner_step_up_unavailable");
+    if (!alreadyDurable) await this.#ownerStepUp.expire(this.#session.sessionId, observedAt);
+    const rejected = await this.#repository.getCallSession(this.#session.sessionId);
+    if (rejected === null || rejected.phase !== "rejected") throw new Error("owner_step_up_rejection_failed");
+    this.#session = rejected;
+    this.#clearOwnerStepUpFragments();
+    await this.#ownerStepUpAlarm?.clear();
+    const binding = await this.#ownerStepUp.binding(this.#session.sessionId);
+    if (binding !== null && this.#ownerStepUpAlerts !== null) {
+      try {
+        await this.#ownerStepUpAlerts.alert({
+          ownerPrincipalId: binding.ownerPrincipalId,
+          alertClass: "rejected",
+          direction: binding.direction,
+          attestationClass: binding.attestationClass,
+          now: observedAt,
+        });
+      } catch {
+        // Alert delivery is durable and retriable. It cannot reopen or weaken a rejected call.
+      }
+    }
+    await this.#relay.sendNeutralText(OWNER_STEP_UP_REJECTED);
+    try {
+      if (this.#relay.end === undefined) throw new Error("relay_end_unavailable");
+      await this.#relay.end(OWNER_STEP_UP_HANDOFF_DATA);
+    }
+    catch { this.#relay.close(1008); }
+  }
+
+  async #completeOwnerStepUp(candidate: string, observedAt: Date): Promise<void> {
+    if (this.#ownerStepUp === null || this.#authorityService === null || this.#ownerStepUpVerificationInFlight) return;
+    this.#ownerStepUpVerificationInFlight = true;
+    try {
+      const outcome = await this.#ownerStepUp.verifyCandidate(this.#session.sessionId, candidate, observedAt);
+      candidate = "";
+      if (outcome === "not_candidate") {
+        const reprompt = await this.#ownerStepUp.recordReprompt(this.#session.sessionId, observedAt);
+        if (reprompt === "rejected") await this.#rejectOwnerStepUp(observedAt, true);
+        else if (reprompt === "expired") await this.#rejectOwnerStepUp(observedAt);
+        else await this.#relay.sendNeutralText(OWNER_STEP_UP_FORMAT_PROMPT);
+        return;
+      }
+      if (outcome === "expired") {
+        await this.#rejectOwnerStepUp(observedAt);
+        return;
+      }
+      if (outcome === "rejected") {
+        await this.#rejectOwnerStepUp(observedAt, true);
+        return;
+      }
+      if (outcome === "mismatched") {
+        await this.#relay.sendNeutralText(OWNER_STEP_UP_RETRY_PROMPT);
+        return;
+      }
+
+      // The match trigger has already committed the receipt, authority and authenticated phase.
+      const authenticated = await this.#repository.getCallSession(this.#session.sessionId);
+      if (authenticated === null || authenticated.phase !== "authenticated") throw new Error("owner_step_up_commit_missing");
+      this.#session = authenticated;
+      this.#authority = await this.#authorityService.rehydrate({
+        sessionId: this.#session.sessionId, binding: this.#session.binding, now: observedAt,
+      });
+      await this.#transition("active", observedAt);
+      this.#interaction = Object.freeze({ kind: "conversation" });
+      await this.#ownerStepUpAlarm?.clear();
+      await this.#relay.sendNeutralText(OWNER_STEP_UP_VERIFIED);
+    } finally {
+      candidate = "";
+      this.#ownerStepUpVerificationInFlight = false;
+    }
+  }
+
+  async #handleOwnerStepUpPrompt(event: Extract<RelayEvent, { type: "prompt" }>): Promise<void> {
+    if (!event.final || this.#isFixedStepUpEcho(event.text)) return;
+    const observedAt = this.#now();
+    if (this.#ownerStepUpDeadlineAt !== null && observedAt.toISOString() >= this.#ownerStepUpDeadlineAt) {
+      await this.#rejectOwnerStepUp(observedAt);
+      return;
+    }
+    if (this.#ownerStepUpFragmentStartedAt === null) this.#ownerStepUpFragmentStartedAt = observedAt.valueOf();
+    if (observedAt.valueOf() - this.#ownerStepUpFragmentStartedAt > OWNER_STEP_UP_ASSEMBLY_MS) {
+      this.#clearOwnerStepUpFragments();
+      const reprompt = await this.#ownerStepUp!.recordReprompt(this.#session.sessionId, observedAt);
+      if (reprompt !== "reprompt") await this.#rejectOwnerStepUp(observedAt, reprompt === "rejected");
+      else await this.#relay.sendNeutralText(OWNER_STEP_UP_FORMAT_PROMPT);
+      return;
+    }
+    this.#ownerStepUpFragments.push(event.text);
+    const candidate = this.#ownerStepUpFragments.join(" ");
+    const tokenCount = candidate.split(" ").filter(Boolean).length;
+    if (tokenCount < 3) {
+      await this.#ownerStepUpAlarm?.arm({
+        sessionId: this.#session.sessionId, lifecycleGeneration: 1, kind: "assembly",
+        deadlineAt: new Date(this.#ownerStepUpFragmentStartedAt + OWNER_STEP_UP_ASSEMBLY_MS).toISOString(),
+      });
+      return;
+    }
+    this.#clearOwnerStepUpFragments();
+    if (this.#ownerStepUpDeadlineAt !== null) {
+      await this.#ownerStepUpAlarm?.arm({
+        sessionId: this.#session.sessionId, lifecycleGeneration: 1, kind: "window",
+        deadlineAt: this.#ownerStepUpDeadlineAt,
+      });
+    }
+    await this.#completeOwnerStepUp(candidate, observedAt);
+  }
+
+  async handleOwnerStepUpAlarm(kind: "window" | "assembly", lifecycleGeneration: 1): Promise<void> {
+    if (lifecycleGeneration !== 1 || this.#session.phase !== "pre_auth" || this.#interaction.kind !== "owner_step_up") return;
+    const observedAt = this.#now();
+    if (kind === "window") {
+      await this.#rejectOwnerStepUp(observedAt);
+      return;
+    }
+    this.#clearOwnerStepUpFragments();
+    const outcome = await this.#ownerStepUp!.recordReprompt(this.#session.sessionId, observedAt);
+    if (outcome !== "reprompt") {
+      await this.#rejectOwnerStepUp(observedAt, outcome === "rejected");
+      return;
+    }
+    await this.#relay.sendNeutralText(OWNER_STEP_UP_FORMAT_PROMPT);
+    if (this.#ownerStepUpDeadlineAt !== null) await this.#ownerStepUpAlarm?.arm({
+      sessionId: this.#session.sessionId, lifecycleGeneration: 1, kind: "window", deadlineAt: this.#ownerStepUpDeadlineAt,
+    });
+  }
+
   async #handlePrompt(event: Extract<RelayEvent, { type: "prompt" }>): Promise<void> {
+    if (this.#interaction.kind === "owner_step_up" && this.#session.phase === "pre_auth") {
+      await this.#handleOwnerStepUpPrompt(event);
+      return;
+    }
     if (
       this.#authorityService !== null
       && this.#interaction.kind === "guest_pin"
@@ -1008,6 +1223,10 @@ export class CallSessionCore {
       return;
     }
     if (!event.final || this.#session.phase !== "active" || event.text.length === 0) return;
+    if (this.#isFixedStepUpEcho(event.text)) return;
+    if (this.#authority?.kind === "owner" && this.#ownerStepUp !== null) {
+      if (await this.#ownerStepUp.verifyRepeat(this.#session.sessionId, event.text, this.#now()) === "suppress") return;
+    }
     if (event.language !== "en-US") throw new Error("turn_language_unsupported");
     if (Array.from(event.text).length > 8_000 || encoder.encode(event.text).byteLength > 65_536) {
       throw new Error("turn_too_large");
@@ -1135,9 +1354,9 @@ export class CallSessionCore {
       if (this.#guestAuthentication === null || this.#authorityService === null) {
         throw new Error("guest_authentication_unavailable");
       }
-      let proof: GuestPinAuthenticationProof | null;
+      let result: Readonly<{ proof: GuestPinAuthenticationProof | null; attemptOrdinal: number }>;
       try {
-        proof = await this.#guestAuthentication.authenticate({
+        result = await this.#guestAuthentication.authenticate({
           pinDigits: candidate,
           sessionId: this.#session.sessionId,
           binding: this.#session.binding,
@@ -1148,16 +1367,15 @@ export class CallSessionCore {
         await this.#transition("rejected", observedAt);
         return;
       }
-      if (proof === null) {
-        const result = evaluatePinAttempt({ failedAttempts: this.#failedPinAttempts, pinMatches: false });
-        this.#failedPinAttempts = result.nextFailedAttempts;
-        if (result.terminateCall) await this.#transition("rejected", observedAt);
+      if (result.proof === null) {
+        const decision = evaluatePinAttempt({ failedAttempts: result.attemptOrdinal - 1, pinMatches: false });
+        if (decision.terminateCall) await this.#transition("rejected", observedAt);
         return;
       }
       this.#authority = await this.#authorityService.mintGuest({
         sessionId: this.#session.sessionId,
         binding: this.#session.binding,
-        pinProof: proof,
+        pinProof: result.proof,
         now: observedAt,
       });
       const authenticated = await this.#repository.getCallSession(this.#session.sessionId);
@@ -1165,7 +1383,6 @@ export class CallSessionCore {
         throw new Error("call_authority_write_failed");
       }
       this.#session = authenticated;
-      this.#failedPinAttempts = 0;
       await this.#transition("active", observedAt);
       this.#interaction = Object.freeze({ kind: "conversation" });
     } finally {
@@ -1266,7 +1483,6 @@ export class CallSessionCore {
     this.#lastSentAssistantEventId = null;
     this.#activationDigits = "";
     this.#activationAttempted = false;
-    this.#failedPinAttempts = 0;
     this.#clearOwnerAccessState();
     this.#clearAuthenticationState();
     this.#authorityService?.invalidate(this.#authority);
@@ -1297,6 +1513,7 @@ export interface CallSessionRuntimeInput {
   readonly initialization: Readonly<CallSessionInitialization>;
   readonly session: Readonly<StoredCallSession>;
   readonly relay: CallSessionRelay;
+  readonly ownerStepUpAlarm: OwnerStepUpAlarmPort;
 }
 
 /** Tests may replace the production graph through this trusted in-process adapter. */
@@ -1323,6 +1540,9 @@ function socketRelay(socket: WebSocket, markPolicyClosed: () => void): CallSessi
     },
     cancelOutput(): Promise<void> {
       return Promise.resolve();
+    },
+    end(handoffData: string): Promise<void> {
+      return send(Object.freeze({ type: "end", handoffData }));
     },
   });
 }
@@ -1366,6 +1586,34 @@ export class CallSession extends DurableObject<Env> {
         throw new Error("call_session_initialization_conflict");
       }
     });
+  }
+
+  async #armOwnerStepUpAlarm(input: StoredOwnerStepUpAlarm): Promise<void> {
+    if (input.sessionId !== this.ctx.id.name || !canonicalTimestamp(input.deadlineAt)) {
+      throw new Error("owner_step_up_alarm_invalid");
+    }
+    await this.ctx.storage.put(OWNER_STEP_UP_ALARM_KEY, input);
+    await this.ctx.storage.setAlarm(new Date(input.deadlineAt));
+  }
+
+  async #clearOwnerStepUpAlarm(): Promise<void> {
+    await this.ctx.storage.delete(OWNER_STEP_UP_ALARM_KEY);
+    await this.ctx.storage.deleteAlarm();
+  }
+
+  override async alarm(): Promise<void> {
+    const stored = await this.ctx.storage.get<StoredOwnerStepUpAlarm>(OWNER_STEP_UP_ALARM_KEY);
+    if (stored === undefined || stored.sessionId !== this.ctx.id.name || stored.lifecycleGeneration !== 1
+      || stored.kind !== "window" && stored.kind !== "assembly" || !canonicalTimestamp(stored.deadlineAt)) {
+      await this.#clearOwnerStepUpAlarm();
+      return;
+    }
+    await this.ctx.storage.delete(OWNER_STEP_UP_ALARM_KEY);
+    const sockets = this.ctx.getWebSockets();
+    for (const socket of sockets) {
+      const resolved = await this.#resolveCore(socket);
+      if (resolved.kind === "ready") await resolved.core.handleOwnerStepUpAlarm(stored.kind, 1);
+    }
   }
 
   async terminate(value: CallSessionTermination): Promise<CallSessionTerminationResult> {
@@ -1450,6 +1698,7 @@ export class CallSession extends DurableObject<Env> {
     if (cleanupFailed) throw terminationFailure("call_session_termination_cleanup_failed");
 
     this.#cores.clear();
+    await this.#clearOwnerStepUpAlarm();
     for (const socket of this.ctx.getWebSockets()) closeSocket(socket, 1000, "call ended");
     await this.ctx.storage.transaction(async (transaction) => {
       const currentValue = await transaction.get<unknown>(TERMINATION_KEY);
@@ -1660,6 +1909,10 @@ export class CallSession extends DurableObject<Env> {
         initialization,
         session,
         relay: socketRelay(socket, () => this.#policyClosedSockets.add(socket)),
+        ownerStepUpAlarm: Object.freeze({
+          arm: (input: StoredOwnerStepUpAlarm) => this.#armOwnerStepUpAlarm(input),
+          clear: () => this.#clearOwnerStepUpAlarm(),
+        }),
       }));
     } catch {
       return { kind: "unavailable" };
