@@ -117,6 +117,29 @@ Until rollout and live acceptance, both paths remain release blockers and
 inbound must stay closed. The security contract and implementation order are in
 [`docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md`](docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md).
 
+## R1 live voice evidence has three deferred observability limits
+
+The release evidence can observe one durable rejection row, one durable
+rejection-delivery row, and whether the shared owner alert was sent or
+coalesced. It cannot prove per session that the fixed refusal reached the
+provider or whether ConversationRelay ended through the clean `end` frame or
+the policy-close fallback. A runtime follow-up must persist per-session
+`refusal_sent`, end mode, and alert disposition before retained evidence claims
+those facts. That follow-up needs a migration and is deliberately outside PR
+#54.
+
+Sid has not required a paid live scenario for an answered outbound call that
+fails step-up, such as voicemail or another person answering. This is the live-
+evidence form of the existing outbound voicemail gap above. Adding an
+`outbound-step-up-refused` release scenario means another paid call and waits
+for Sid's explicit decision; PR #54 records the gap but does not add it.
+
+The local evidence store also retains only a passing record. It has no ledger
+of failed paid attempts, so an operator could clean up and retry until a lucky
+latency or delivery result passes without the audit detecting the earlier
+runs. Add a retained, correlation-bound attempt ledger before describing the
+live gate as resistant to selective retry.
+
 ## Guest PIN attempt counts reset when a call Durable Object hibernates
 
 The guest path keeps `#failedPinAttempts` in the in-memory call-session core.
