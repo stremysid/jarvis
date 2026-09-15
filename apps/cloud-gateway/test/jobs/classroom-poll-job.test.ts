@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DeadlineRepository } from "../../src/deadlines/deadline-repository.js";
 import { buildJobTable, type JobEnvironment } from "../../src/jobs/job-table.js";
+import { ProjectPoller } from "../../src/projects/project-poller.js";
 import { resetArchiveFixture } from "../archive/archive-fixture.js";
 import { resetDeadlineTables } from "../deadlines/deadline-fixture.js";
 import { applySchoolCatchupMigration } from "../persistence/migration.js";
@@ -29,6 +30,7 @@ function context(
       GOOGLE_CLIENT_ID: undefined,
       GOOGLE_CLIENT_SECRET: undefined,
       GOOGLE_REFRESH_TOKEN: undefined,
+      BRIGHTSPACE_ICAL_URL: undefined,
       ...overrides,
     },
     clock: { now: () => new Date(NOW) },
@@ -100,8 +102,9 @@ describe("hourly Classroom ingestion", () => {
 
     const digest = buildJobTable(jobContext).digest;
     if (digest === undefined) throw new Error("digest_job_missing");
-    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent" });
+    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 1 gaps" });
     expect(String(send.mock.calls[0]?.[0])).toContain("Unit 1 Quiz");
+    expect(String(send.mock.calls[0]?.[0])).toContain("Brightspace: not set up");
   });
 
   it("does not contact Google or create a source when all configuration is absent", async () => {
@@ -159,5 +162,20 @@ describe("hourly Classroom ingestion", () => {
     expect(result).toMatchObject({ ok: true, detail: expect.stringContaining("google_oauth_rejected") });
     expect(source?.lastFailure).toBe("google_oauth_rejected");
     expect(source?.lastFailure).not.toContain("credential-detail");
+  });
+
+  it("turns a Classroom bootstrap failure into source health and still runs the project poll", async () => {
+    vi.spyOn(DeadlineRepository.prototype, "readSource").mockRejectedValue(new Error("D1 detail must not escape"));
+    const projectPoll = vi.spyOn(ProjectPoller.prototype, "pollActiveProjects").mockResolvedValue([]);
+    const fetcher = vi.fn(async () => { throw new Error("network_must_not_run"); }) as unknown as typeof fetch;
+
+    const result = await runPoll(context(fetcher, { ...CONFIGURED, GITHUB_TOKEN: "read-only-token" }));
+
+    expect(result).toMatchObject({
+      ok: true,
+      detail: expect.stringContaining("Classroom failed (classroom_ingestion_failed)"),
+    });
+    expect(JSON.stringify(result)).not.toContain("D1 detail");
+    expect(projectPoll).toHaveBeenCalledTimes(1);
   });
 });

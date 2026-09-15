@@ -14,6 +14,7 @@
  */
 
 import { compose, localDate, type DigestClock } from "../digest/digest-composer.js";
+import type { Env } from "../env.js";
 import type {
   Digest,
   DigestDeadline,
@@ -21,7 +22,7 @@ import type {
   DigestInput,
   DigestProject,
 } from "../digest/digest-types.js";
-import type { Deadline, DeadlineSource } from "../deadlines/deadline-types.js";
+import type { Deadline, DeadlineSource, DeadlineSourceKind } from "../deadlines/deadline-types.js";
 import type { DecisionItem } from "../decisions/decision-types.js";
 import type { SchoolCatchupAction } from "../school/school-catchup-types.js";
 import { assessStaleness, type ProjectStalenessReport } from "../projects/stalled-detector.js";
@@ -29,6 +30,8 @@ import { documentAt, type ProjectStatus } from "../projects/project-types.js";
 
 /** How far ahead the digest looks for deadlines. */
 const DEADLINE_HORIZON_DAYS = 7;
+/** Hourly sources get two missed firings before the third makes staleness visible. */
+const DEADLINE_SOURCE_STALE_AFTER_MS = 3 * 60 * 60 * 1_000;
 
 export interface DigestSources {
   readCatchupActions(localDate: string): Promise<readonly SchoolCatchupAction[]>;
@@ -47,6 +50,8 @@ export interface DigestJobDependencies {
   readonly delivery: DigestDelivery;
   readonly clock: DigestClock;
   readonly timeZone: string;
+  /** Fixed source kinds known to be absent from configuration at compose time. */
+  readonly unconfiguredDeadlineSourceKinds?: readonly DeadlineSourceKind[];
   /**
    * Injected only so the failure path below can be exercised.
    *
@@ -60,14 +65,32 @@ export interface DigestJobDependencies {
   readonly assess?: typeof assessStaleness;
 }
 
+export function unconfiguredDeadlineSourceKinds(
+  env: Pick<Env, "BRIGHTSPACE_ICAL_URL">,
+): readonly DeadlineSourceKind[] {
+  return env.BRIGHTSPACE_ICAL_URL === undefined || env.BRIGHTSPACE_ICAL_URL.length === 0
+    ? Object.freeze(["brightspace"])
+    : Object.freeze([]);
+}
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function deadlineSourceName(source: DeadlineSource): string {
+function deadlineSourceName(source: Pick<DeadlineSource, "kind">): string {
   if (source.kind === "classroom") return "Google Classroom";
   if (source.kind === "brightspace") return "Brightspace";
   return "Manual deadlines";
+}
+
+function scheduledSourceGap(source: DeadlineSource, observedAt: Date): string | null {
+  if (!source.active || source.kind === "manual") return null;
+  if (source.lastFailure !== null) return source.lastFailure;
+  if (source.lastSuccessAt === null) return "has never synced";
+  const lastSuccess = Date.parse(source.lastSuccessAt);
+  const age = observedAt.getTime() - lastSuccess;
+  if (!Number.isFinite(lastSuccess) || age < 0) return "last successful sync time is unreadable";
+  return age > DEADLINE_SOURCE_STALE_AFTER_MS ? "last successful sync is stale" : null;
 }
 
 /**
@@ -162,13 +185,28 @@ export async function assembleDigest(
     readOr("Decision queue", () => dependencies.sources.readOpenDecisions(), gaps),
   ]);
 
+  const unconfigured = new Set(dependencies.unconfiguredDeadlineSourceKinds ?? []);
+  for (const kind of unconfigured) {
+    if (kind === "manual") continue;
+    const lastKnown = deadlineSources.find((source) => source.kind === kind);
+    const detail = lastKnown === undefined
+      ? "not set up"
+      : lastKnown.lastSuccessAt === null
+        ? "configuration removed; no successful sync is available"
+        : `configuration removed; showing last-known deadlines from ${localDate(new Date(lastKnown.lastSuccessAt), dependencies.timeZone)}`;
+    gaps.push({ source: deadlineSourceName({ kind }), detail });
+  }
+
   // Keep the last known deadlines visible while saying that their source is
-  // stale. Dropping the deadlines would turn a sync fault into "nothing due".
+  // failed or stale. Dropping the deadlines would turn a sync fault into
+  // "nothing due".
   for (const source of deadlineSources) {
-    if (!source.active || source.lastFailure === null) continue;
+    if (unconfigured.has(source.kind)) continue;
+    const detail = scheduledSourceGap(source, observedAt);
+    if (detail === null) continue;
     // The stored label is source data. Gap source names are structural text in
     // the composer, so select a fixed label from the validated kind instead.
-    gaps.push({ source: deadlineSourceName(source), detail: source.lastFailure });
+    gaps.push({ source: deadlineSourceName(source), detail });
   }
 
   // Staleness is derived here rather than stored, because "stale" is a

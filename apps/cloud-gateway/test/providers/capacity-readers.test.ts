@@ -26,23 +26,27 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 describe("Capacity provider readers", () => {
   it("reads current credit from the fixed balance endpoint and timestamps the start of the read", async () => {
     let instant = new Date(at);
-    const fetcher = vi.fn<typeof fetch>(async () => {
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      new Request(input, init);
       instant = new Date(instant.getTime() + 1000);
       return Response.json(creditBody());
     });
     expect(await credit(fetcher, () => instant).read(signal())).toEqual({ amount: 12.5, currency: "USD", observedAt: at });
     expect(fetcher).toHaveBeenCalledWith("https://api.deepseek.com/user/balance", expect.objectContaining({
-      method: "GET", redirect: "error", cache: "no-store",
+      method: "GET", redirect: "manual", cache: "no-store",
       headers: { authorization: "Bearer synthetic-model-key", accept: "application/json" },
     }));
   });
 
   it("reads one account-wide totalprice record for the current UTC day and preserves its actual as_of", async () => {
-    const fetcher = vi.fn<typeof fetch>(response(usageBody()));
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      new Request(input, init);
+      return Response.json(usageBody());
+    });
     expect(await voice(fetcher).read(signal())).toEqual({ amount: 1.25, currency: "USD", observedAt: "2026-09-13T15:59:31.000Z" });
     expect(fetcher).toHaveBeenCalledWith(
       `https://api.twilio.com/2010-04-01/Accounts/${account}/Usage/Records/Today.json?Category=totalprice`,
-      expect.objectContaining({ method: "GET", redirect: "error", cache: "no-store",
+      expect.objectContaining({ method: "GET", redirect: "manual", cache: "no-store",
         headers: { authorization: `Basic ${btoa(`${key}:synthetic-voice-key`)}`, accept: "application/json" } }),
     );
   });
@@ -117,6 +121,15 @@ describe("Capacity provider readers", () => {
       await expect(build(async () => make()).read(signal())).rejects.toThrow(/^capacity_unavailable$/);
     }
     await expect(build(async () => { throw new Error("synthetic private request details"); }).read(signal())).rejects.toThrow(/^capacity_unavailable$/);
+  });
+
+  it.each([credit, voice])("refuses a redirect without following its location", async (build) => {
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      new Request(input, init);
+      return new Response(null, { status: 302, headers: { location: "https://login.example/" } });
+    });
+    await expect(build(fetcher).read(signal())).rejects.toThrow("capacity_unavailable");
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it("accepts an exactly bounded response and refuses the next byte", async () => {

@@ -31,6 +31,7 @@ required = [
 # No monetary defaults. Capacity alerts also require OWNER_PRINCIPAL_ID.
 # Classroom ingestion: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
 # GOOGLE_REFRESH_TOKEN.
+# Brightspace calendar ingestion: BRIGHTSPACE_ICAL_URL.
 
 [exports.CallSession]
 type = "durable-object"

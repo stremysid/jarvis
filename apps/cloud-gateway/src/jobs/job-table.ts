@@ -10,6 +10,11 @@ import { ArchivalService } from "../archive/archival-service.js";
 import { ArchivalWorker } from "../archive/archival-worker.js";
 import { ARCHIVE_SEGMENT_LIMITS } from "../archive/segment-codec.js";
 import { ClassroomClient, ClassroomRequestError } from "../deadlines/classroom-client.js";
+import {
+  BrightspaceFeedError,
+  BrightspaceIcalClient,
+  type BrightspaceCalendarResult,
+} from "../deadlines/brightspace-ical-client.js";
 import { DeadlineIngestion } from "../deadlines/deadline-ingestion.js";
 import { DeadlineRepository } from "../deadlines/deadline-repository.js";
 import { GoogleOAuthRequestError, GoogleOAuthTokenProvider } from "../deadlines/google-oauth.js";
@@ -23,7 +28,7 @@ import { ScheduledRunRepository } from "../scheduler/scheduled-run-repository.js
 import { SchoolCatchupRepository } from "../school/school-catchup-repository.js";
 import type { JobOutcome, JobTable } from "../scheduler/scheduled-handler.js";
 import { D1GuestGrantNoticeSink } from "../voice/guest-grant-notice.js";
-import { runDigestJob, type DigestDelivery } from "./digest-job.js";
+import { runDigestJob, unconfiguredDeadlineSourceKinds, type DigestDelivery } from "./digest-job.js";
 
 export interface JobEnvironment {
   readonly env: Env;
@@ -37,6 +42,10 @@ function describe(error: unknown): string {
 }
 
 const CLASSROOM_SOURCE_ID = "google-classroom";
+const BRIGHTSPACE_SOURCE_ID = "brightspace-ical";
+const BRIGHTSPACE_PAST_WINDOW_MS = 14 * 86_400_000;
+const BRIGHTSPACE_FUTURE_WINDOW_MS = 120 * 86_400_000;
+const MAXIMUM_BRIGHTSPACE_WINDOW_ITEMS = 180;
 
 function classroomFailure(error: unknown): string {
   if (error instanceof ClassroomRequestError || error instanceof GoogleOAuthRequestError) return error.message;
@@ -107,22 +116,116 @@ async function pollClassroom(context: JobEnvironment): Promise<string> {
   }
 }
 
+function brightspaceFailure(error: unknown): string {
+  if (error instanceof BrightspaceFeedError) return error.message;
+  return "brightspace_ingestion_failed";
+}
+
+export function selectBrightspaceWindow(
+  result: BrightspaceCalendarResult,
+  now: Date,
+): BrightspaceCalendarResult {
+  const at = now.getTime();
+  const inside = (dueAt: string): boolean => {
+    const due = Date.parse(dueAt);
+    return Number.isFinite(due)
+      && due >= at - BRIGHTSPACE_PAST_WINDOW_MS
+      && due < at + BRIGHTSPACE_FUTURE_WINDOW_MS;
+  };
+  const items = result.items.filter((item) => inside(item.dueAt));
+  const cancelled = result.cancelled.filter((item) => inside(item.dueAt));
+  if (items.length + cancelled.length > MAXIMUM_BRIGHTSPACE_WINDOW_ITEMS) {
+    throw new BrightspaceFeedError("brightspace_feed_too_many_items", null, false);
+  }
+  return Object.freeze({ items: Object.freeze(items), cancelled: Object.freeze(cancelled), rejected: result.rejected });
+}
+
+async function pollBrightspace(context: JobEnvironment): Promise<string> {
+  const repository = new DeadlineRepository(context.env.DB);
+  const feedUrl = context.env.BRIGHTSPACE_ICAL_URL;
+  if (feedUrl === undefined || feedUrl.length === 0) {
+    const existing = await repository.readSource(BRIGHTSPACE_SOURCE_ID);
+    if (existing === null) return "Brightspace not configured";
+    if (!existing.active) return "Brightspace source inactive";
+    await new DeadlineIngestion({ repository, now: () => context.clock.now() }).ingest(existing.sourceId, {
+      kind: "failed",
+      reason: "brightspace_configuration_missing",
+    });
+    return "Brightspace configuration missing";
+  }
+
+  const source = await repository.ensureSource({
+    sourceId: BRIGHTSPACE_SOURCE_ID,
+    kind: "brightspace",
+    label: "Brightspace",
+    now: context.clock.now(),
+  });
+  if (!source.active) return "Brightspace source inactive";
+  const ingestion = new DeadlineIngestion({ repository, now: () => context.clock.now() });
+  try {
+    const client = new BrightspaceIcalClient({
+      feedUrl,
+      timeZone: context.env.DIGEST_TIMEZONE ?? "America/Toronto",
+      fetchImplementation: context.fetcher,
+    });
+    const collected = selectBrightspaceWindow(await client.collectDeadlines(), context.clock.now());
+    const report = await ingestion.ingest(source.sourceId, {
+      kind: "items",
+      items: collected.items,
+      cancelledExternalIds: collected.cancelled.map((item) => item.externalId),
+      sourceRejectedCount: collected.rejected,
+    });
+    const seen = report.created.length + report.moved.length + report.unchanged;
+    return `Brightspace ${seen} seen, ${report.cancelled.length} cancelled, ${report.rejected.length} rejected, ${report.disappeared.length} absent`;
+  } catch (error) {
+    const failure = brightspaceFailure(error);
+    await ingestion.ingest(source.sourceId, { kind: "failed", reason: failure });
+    return `Brightspace failed (${failure})`;
+  }
+}
+
+async function safeSourcePoll(
+  label: string,
+  failureCode: string,
+  run: () => Promise<string>,
+): Promise<string> {
+  try {
+    return await run();
+  } catch {
+    // Bootstrap and source-health writes can themselves fail. Keep the hourly
+    // run moving so one D1/source fault does not skip every later poll.
+    return `${label} failed (${failureCode})`;
+  }
+}
+
 /**
  * The hourly reach-out.
  *
  * Archives one bounded segment, then performs the configuration-gated
- * Classroom sweep before the optional project poll. Each network source
- * records its own failure without claiming the other work did not run.
+ * Classroom and Brightspace sweeps before the optional project poll. Each
+ * network source records its own failure without claiming the other work did
+ * not run.
  */
 async function poll(context: JobEnvironment): Promise<JobOutcome> {
   // Reuse the archive's retention, readback, sealing and purge checks unchanged.
   // A missing GitHub credential must not disable local D1-to-R2 maintenance.
-  const archive = new ArchivalWorker(new ArchivalService({ database: context.env.DB, bucket: context.env.ARCHIVE }));
-  const segment = await archive.run(context.clock.now(), ARCHIVE_SEGMENT_LIMITS.maxEventCount);
-  const archived = segment === null ? "nothing eligible for archival" : `${segment.eventCount} archived`;
-  const classroom = await pollClassroom(context);
+  let archived: string;
+  try {
+    const archive = new ArchivalWorker(new ArchivalService({ database: context.env.DB, bucket: context.env.ARCHIVE }));
+    const segment = await archive.run(context.clock.now(), ARCHIVE_SEGMENT_LIMITS.maxEventCount);
+    archived = segment === null ? "nothing eligible for archival" : `${segment.eventCount} archived`;
+  } catch {
+    archived = "archival failed (archive_operation_failed)";
+  }
+  const classroom = await safeSourcePoll("Classroom", "classroom_ingestion_failed", () => pollClassroom(context));
+  const brightspace = await safeSourcePoll(
+    "Brightspace",
+    "brightspace_ingestion_failed",
+    () => pollBrightspace(context),
+  );
+  const sourceDetail = `${classroom}; ${brightspace}`;
   const token = context.env.GITHUB_TOKEN;
-  if (token === undefined) return { ok: true, detail: `${archived}; ${classroom}; project poll not configured` };
+  if (token === undefined) return { ok: true, detail: `${archived}; ${sourceDetail}; project poll not configured` };
 
   const poller = new ProjectPoller({
     projects: new ProjectRepository(context.env.DB),
@@ -136,8 +239,8 @@ async function poll(context: JobEnvironment): Promise<JobOutcome> {
   // six is a fact about that repository; failing the whole job would claim
   // the other five were not polled either.
   return failed.length === 0
-    ? { ok: true, detail: `${archived}; ${classroom}; ${outcomes.length} polled` }
-    : { ok: true, detail: `${archived}; ${classroom}; ${outcomes.length - failed.length} polled, ${failed.length} failed` };
+    ? { ok: true, detail: `${archived}; ${sourceDetail}; ${outcomes.length} polled` }
+    : { ok: true, detail: `${archived}; ${sourceDetail}; ${outcomes.length - failed.length} polled, ${failed.length} failed` };
 }
 
 async function digest(
@@ -167,13 +270,14 @@ async function digest(
           from: context.clock.now(),
           to: new Date(context.clock.now().getTime() + withinDays * 86_400_000),
         }),
-      readDeadlineSources: async () => deadlines.listSources({ activeOnly: true }),
+      readDeadlineSources: async () => deadlines.listSources(),
       readProjectStatuses: async () => projects.readActiveProjectStatuses(),
       readOpenDecisions: async () => decisions.queue(principalId),
     },
     delivery: context.delivery,
     clock: context.clock,
     timeZone,
+    unconfiguredDeadlineSourceKinds: unconfiguredDeadlineSourceKinds(context.env),
   });
 
   return { ok: true, detail: result.gaps === 0 ? "sent" : `sent with ${result.gaps} gaps` };
