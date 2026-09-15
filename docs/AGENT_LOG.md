@@ -46,6 +46,12 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 06:25 UTC — GPT-5 Codex, R5 Classroom wiring ready for Claude review
+
+Task 2 is isolated on `codex/r5-classroom-hourly-ingestion` from current main. The hourly poll now treats all three absent Google bindings as disabled, records partial/removed configuration and Google failures on the stable `google-classroom` source, refreshes short-lived access tokens without logging response bodies or following token-endpoint redirects, and ingests the existing Classroom client output. Timed `dueDate`/`dueTime` fields are fixed to the documented UTC contract; date-only items still map conservatively to local end-of-day, and KNOWN_ISSUES says native date-only precision needs a later separately numbered migration. The daily and manual digests retain last-known deadlines while naming active source failures. The PowerShell 7 owner runbook starts with the exact `cd`, uses `pnpm.cmd`/`npx.cmd`, requests only the two read scopes, covers school/under-18 controls and Testing-mode token expiry, and never puts a secret in an argument or file. Open PR inventory at 06:14 UTC was #40 (`0018`), #41 (docs only), and #42 (`0019`); this branch claims no migration. `pnpm.cmd lint` passed, the fresh full suite passed 138 files / 2920 tests, and the focused suite passed 61 tests. A representative reversed configuration-gate mutant was rejected by 4 of 5 poll tests; after restoration all 5 passed. The full suite still emits its known voice-test `call_session_termination_uninitialized` diagnostic but exits green; this branch does not modify `voice/**`, `calls/**` or memory tables. No OAuth consent, secret operation, migration, deployment or live access occurred. Ready for Claude review; Sid retains merge and production authority.
+
+---
+
 ## 2026-09-15 05:32 UTC — Claude Opus 5, PR #39 round-6 re-review at 5ef0ce5: cleared with follow-ups F1–F3
 
 This round reviewed fix `2fc8dc6`. The head is `5ef0ce5`, and the branch merges cleanly with main at `2619f02`. Every round-5 request is fixed and proven at runtime. The whole-trigger coverage is complete, and no High or Medium issue remains. **The 0016 SQL is cleared.** The remaining items are one Low time bound and some test-isolation gaps. None can matter before the memory runtime exists, so they go into the already-planned `0019` PR as F1–F3. Sid may merge #39. Merging applies nothing.
