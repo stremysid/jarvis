@@ -14,6 +14,7 @@
  */
 
 import { compose, localDate, type DigestClock } from "../digest/digest-composer.js";
+import type { Env } from "../env.js";
 import type {
   Digest,
   DigestDeadline,
@@ -62,6 +63,14 @@ export interface DigestJobDependencies {
    * rather than delete it.
    */
   readonly assess?: typeof assessStaleness;
+}
+
+export function unconfiguredDeadlineSourceKinds(
+  env: Pick<Env, "BRIGHTSPACE_ICAL_URL">,
+): readonly DeadlineSourceKind[] {
+  return env.BRIGHTSPACE_ICAL_URL === undefined || env.BRIGHTSPACE_ICAL_URL.length === 0
+    ? Object.freeze(["brightspace"])
+    : Object.freeze([]);
 }
 
 function describe(error: unknown): string {
@@ -179,7 +188,13 @@ export async function assembleDigest(
   const unconfigured = new Set(dependencies.unconfiguredDeadlineSourceKinds ?? []);
   for (const kind of unconfigured) {
     if (kind === "manual") continue;
-    gaps.push({ source: deadlineSourceName({ kind }), detail: "not set up" });
+    const lastKnown = deadlineSources.find((source) => source.kind === kind);
+    const detail = lastKnown === undefined
+      ? "not set up"
+      : lastKnown.lastSuccessAt === null
+        ? "configuration removed; no successful sync is available"
+        : `configuration removed; showing last-known deadlines from ${localDate(new Date(lastKnown.lastSuccessAt), dependencies.timeZone)}`;
+    gaps.push({ source: deadlineSourceName({ kind }), detail });
   }
 
   // Keep the last known deadlines visible while saying that their source is

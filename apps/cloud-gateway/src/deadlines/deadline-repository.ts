@@ -369,6 +369,24 @@ export class DeadlineRepository {
     const observedAt = toInstant(new Date(input.now.getTime()));
     const contentHash = await deadlineContentHash({ course, title, dueAt });
 
+    // The common hourly path is one statement per unchanged item. Reading
+    // first and then touching last_seen_at tripled the D1 cost of a steady
+    // school feed before the caller even computed disappearances.
+    const unchanged = await this.#database.prepare(
+      `UPDATE deadlines
+       SET last_seen_at = CASE WHEN last_seen_at <= ? THEN ? ELSE last_seen_at END
+       WHERE source_id = ? AND external_id = ? AND content_hash = ?
+       RETURNING *`,
+    ).bind(observedAt, observedAt, sourceId, externalId, contentHash).first<DeadlineRow>();
+    if (unchanged !== null) {
+      return Object.freeze({
+        outcome: "unchanged" as const,
+        deadline: toDeadline(unchanged),
+        revisionId: null,
+        previous: null,
+      });
+    }
+
     for (let attempt = 0; attempt < UPSERT_ATTEMPTS; attempt += 1) {
       const existing = await this.#readRow(sourceId, externalId);
 
@@ -409,12 +427,9 @@ export class DeadlineRepository {
       }
 
       if (existing.content_hash === contentHash) {
-        await this.#database.prepare(
-          "UPDATE deadlines SET last_seen_at = ? WHERE deadline_id = ? AND last_seen_at <= ?",
-        ).bind(observedAt, existing.deadline_id, observedAt).run();
         return Object.freeze({
           outcome: "unchanged" as const,
-          deadline: await this.#requireDeadline(existing.deadline_id),
+          deadline: toDeadline(existing),
           revisionId: null,
           previous: null,
         });
@@ -452,6 +467,20 @@ export class DeadlineRepository {
     }
 
     throw new Error("deadline_upsert_contended");
+  }
+
+  /** Close only an explicit upstream cancellation; absence alone stays recoverable. */
+  async cancelOpenByExternalId(sourceId: string, externalId: string, now: Date): Promise<Deadline | null> {
+    const requiredSourceId = requireText(sourceId, "deadline_source_id", MAXIMUM_IDENTIFIER_CHARACTERS);
+    const requiredExternalId = requireText(externalId, "deadline_external_id", MAXIMUM_IDENTIFIER_CHARACTERS);
+    const observedAt = toInstant(new Date(now.getTime()));
+    const row = await this.#database.prepare(
+      `UPDATE deadlines
+       SET status = 'cancelled', last_seen_at = CASE WHEN last_seen_at <= ? THEN ? ELSE last_seen_at END
+       WHERE source_id = ? AND external_id = ? AND status = 'open'
+       RETURNING *`,
+    ).bind(observedAt, observedAt, requiredSourceId, requiredExternalId).first<DeadlineRow>();
+    return row === null ? null : toDeadline(row);
   }
 
   /** Deadlines due in `[from, to)`. Half-open so consecutive digest windows neither overlap nor skip. */

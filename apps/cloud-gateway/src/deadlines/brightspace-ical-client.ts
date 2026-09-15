@@ -17,7 +17,7 @@ const MAXIMUM_COMPONENTS = 2_000;
 const MAXIMUM_PROPERTIES_PER_COMPONENT = 256;
 const DEFAULT_TIMEOUT_MS = 10_000;
 const UNSAFE_URL_CHARACTERS = /[\s\p{Cc}\p{Cf}]/u;
-const CONTENT_NAME = /^[A-Z0-9-]+(?:\.[A-Z0-9-]+)?$/u;
+const CONTENT_NAME = /^[A-Z0-9_.-]+$/u;
 const DATE = /^(\d{4})(\d{2})(\d{2})$/u;
 const DATE_TIME = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/u;
 
@@ -27,7 +27,9 @@ export type BrightspaceFeedFailureCode =
   | "brightspace_feed_rejected"
   | "brightspace_feed_unavailable"
   | "brightspace_feed_too_large"
-  | "brightspace_feed_invalid";
+  | "brightspace_feed_too_many_items"
+  | "brightspace_feed_invalid"
+  | "brightspace_timezone_invalid";
 
 /** A fixed-code failure. Neither the bearer URL nor upstream content is retained. */
 export class BrightspaceFeedError extends Error {
@@ -56,8 +58,26 @@ interface ContentProperty {
 }
 
 interface CalendarComponent {
-  readonly kind: "VEVENT" | "VTODO";
+  readonly kind: "VEVENT" | "VTODO" | "VTIMEZONE";
   readonly properties: ReadonlyMap<string, readonly ContentProperty[]>;
+  readonly invalid: boolean;
+}
+
+export interface BrightspaceCancelledDeadline {
+  readonly externalId: string;
+  readonly dueAt: string;
+}
+
+export interface BrightspaceCalendarResult {
+  readonly items: readonly RawDeadlineItem[];
+  readonly cancelled: readonly BrightspaceCancelledDeadline[];
+  readonly rejected: number;
+}
+
+class ComponentRejected extends Error {}
+
+function rejectComponent(): never {
+  throw new ComponentRejected();
 }
 
 function failure(
@@ -109,7 +129,7 @@ function splitOutsideQuotes(value: string, separator: string): string[] {
       start = index + 1;
     }
   }
-  if (quoted) throw failure("brightspace_feed_invalid");
+  if (quoted) rejectComponent();
   parts.push(value.slice(start));
   return parts;
 }
@@ -127,7 +147,7 @@ function contentSeparator(line: string): number {
 function parameterValue(value: string): string {
   if (value.startsWith('"') || value.endsWith('"')) {
     if (!(value.startsWith('"') && value.endsWith('"')) || value.length < 2) {
-      throw failure("brightspace_feed_invalid");
+      rejectComponent();
     }
     return value.slice(1, -1);
   }
@@ -136,17 +156,17 @@ function parameterValue(value: string): string {
 
 function parseContentLine(line: string): ContentProperty {
   const separator = contentSeparator(line);
-  if (separator <= 0) throw failure("brightspace_feed_invalid");
+  if (separator <= 0) rejectComponent();
   const header = splitOutsideQuotes(line.slice(0, separator), ";");
   const rawName = header.shift()?.toUpperCase() ?? "";
-  if (!CONTENT_NAME.test(rawName)) throw failure("brightspace_feed_invalid");
+  if (!CONTENT_NAME.test(rawName)) rejectComponent();
   const name = rawName.slice(rawName.lastIndexOf(".") + 1);
   const parameters = new Map<string, string>();
   for (const raw of header) {
     const equals = raw.indexOf("=");
-    if (equals <= 0) throw failure("brightspace_feed_invalid");
+    if (equals <= 0) rejectComponent();
     const key = raw.slice(0, equals).toUpperCase();
-    if (!/^[A-Z0-9-]+$/u.test(key) || parameters.has(key)) throw failure("brightspace_feed_invalid");
+    if (!/^[A-Z0-9_-]+$/u.test(key) || parameters.has(key)) rejectComponent();
     parameters.set(key, parameterValue(raw.slice(equals + 1)));
   }
   return Object.freeze({ name, parameters, value: line.slice(separator + 1) });
@@ -184,22 +204,34 @@ function parseComponents(value: string): readonly CalendarComponent[] {
   const components: CalendarComponent[] = [];
   const stack: string[] = [];
   let sawCalendar = false;
-  let currentKind: "VEVENT" | "VTODO" | null = null;
+  let currentKind: CalendarComponent["kind"] | null = null;
   let currentProperties = new Map<string, ContentProperty[]>();
   let propertyCount = 0;
+  let currentInvalid = false;
 
   for (const line of unfold(value)) {
-    const property = parseContentLine(line);
+    let property: ContentProperty;
+    try {
+      property = parseContentLine(line);
+    } catch (error) {
+      if (error instanceof ComponentRejected && currentKind !== null) {
+        currentInvalid = true;
+        continue;
+      }
+      if (error instanceof ComponentRejected) continue;
+      throw error;
+    }
     if (property.name === "BEGIN") {
       const kind = property.value.toUpperCase();
       if (!/^[A-Z0-9-]+$/u.test(kind)) throw failure("brightspace_feed_invalid");
       if (stack.length === 0) {
         if (kind !== "VCALENDAR" || sawCalendar) throw failure("brightspace_feed_invalid");
         sawCalendar = true;
-      } else if (stack.length === 1 && (kind === "VEVENT" || kind === "VTODO")) {
+      } else if (stack.length === 1 && (kind === "VEVENT" || kind === "VTODO" || kind === "VTIMEZONE")) {
         currentKind = kind;
         currentProperties = new Map();
         propertyCount = 0;
+        currentInvalid = false;
       }
       stack.push(kind);
       continue;
@@ -208,7 +240,7 @@ function parseComponents(value: string): readonly CalendarComponent[] {
       const kind = property.value.toUpperCase();
       if (stack.pop() !== kind) throw failure("brightspace_feed_invalid");
       if (currentKind === kind && stack.length === 1) {
-        components.push(Object.freeze({ kind: currentKind, properties: currentProperties }));
+        components.push(Object.freeze({ kind: currentKind, properties: currentProperties, invalid: currentInvalid }));
         if (components.length > MAXIMUM_COMPONENTS) throw failure("brightspace_feed_invalid");
         currentKind = null;
         currentProperties = new Map();
@@ -230,7 +262,7 @@ function one(
   required: boolean,
 ): ContentProperty | null {
   const values = component.properties.get(name) ?? [];
-  if (values.length > 1 || (required && values.length !== 1)) throw failure("brightspace_feed_invalid");
+  if (values.length > 1 || (required && values.length !== 1)) rejectComponent();
   return values[0] ?? null;
 }
 
@@ -243,10 +275,10 @@ function unescapeText(value: string): string {
       continue;
     }
     const escaped = value[++index];
-    if (escaped === undefined) throw failure("brightspace_feed_invalid");
+    if (escaped === undefined) rejectComponent();
     if (escaped === "n" || escaped === "N") result += "\n";
     else if (escaped === "\\" || escaped === "," || escaped === ";") result += escaped;
-    else throw failure("brightspace_feed_invalid");
+    else rejectComponent();
   }
   return result;
 }
@@ -282,9 +314,7 @@ function zoneFormatter(timeZone: string): Intl.DateTimeFormat {
       minute: "2-digit",
       second: "2-digit",
     });
-  } catch {
-    throw failure("brightspace_feed_invalid");
-  }
+  } catch { rejectComponent(); }
   formatterCache.set(timeZone, formatter);
   return formatter;
 }
@@ -304,7 +334,7 @@ function formattedWall(instant: number, formatter: Intl.DateTimeFormat): Omit<Wa
   const field = (type: string): number => {
     const raw = parts.find((part) => part.type === type)?.value;
     const parsed = raw === undefined ? Number.NaN : Number(raw);
-    if (!Number.isSafeInteger(parsed)) throw failure("brightspace_feed_invalid");
+    if (!Number.isSafeInteger(parsed)) rejectComponent();
     return parsed;
   };
   return {
@@ -322,16 +352,35 @@ function zoneOffsetMilliseconds(instant: number, formatter: Intl.DateTimeFormat)
 function localInstant(wall: WallTime, timeZone: string): string {
   const formatter = zoneFormatter(timeZone);
   const naive = Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute, wall.second, wall.millisecond);
-  const first = naive - zoneOffsetMilliseconds(naive, formatter);
-  const instant = naive - zoneOffsetMilliseconds(first, formatter);
-  const roundTrip = formattedWall(instant, formatter);
-  if (
-    roundTrip.year !== wall.year || roundTrip.month !== wall.month || roundTrip.day !== wall.day
-    || roundTrip.hour !== wall.hour || roundTrip.minute !== wall.minute || roundTrip.second !== wall.second
-  ) {
-    throw failure("brightspace_feed_invalid");
+  const offsets = new Set([
+    zoneOffsetMilliseconds(naive - 86_400_000, formatter),
+    zoneOffsetMilliseconds(naive, formatter),
+    zoneOffsetMilliseconds(naive + 86_400_000, formatter),
+  ]);
+  const candidates = [...offsets]
+    .map((offset) => naive - offset)
+    .filter((instant) => {
+      const roundTrip = formattedWall(instant, formatter);
+      return roundTrip.year === wall.year && roundTrip.month === wall.month && roundTrip.day === wall.day
+        && roundTrip.hour === wall.hour && roundTrip.minute === wall.minute && roundTrip.second === wall.second;
+    })
+    .sort((left, right) => left - right);
+  if (candidates[0] !== undefined) return new Date(candidates[0]).toISOString();
+
+  // RFC local times can land in a daylight-saving gap. Calendar applications
+  // conventionally move that wall time forward by the size of the gap.
+  const beforeOffset = zoneOffsetMilliseconds(naive - 86_400_000, formatter);
+  const shifted = naive - beforeOffset;
+  const roundTrip = formattedWall(shifted, formatter);
+  const shiftedWall = Date.UTC(
+    roundTrip.year, roundTrip.month - 1, roundTrip.day,
+    roundTrip.hour, roundTrip.minute, roundTrip.second,
+  );
+  const gap = shiftedWall - naive;
+  if (gap > 0 && gap <= 3 * 60 * 60 * 1_000 && offsets.size > 1) {
+    return new Date(shifted).toISOString();
   }
-  return new Date(instant).toISOString();
+  rejectComponent();
 }
 
 function validCalendarDate(year: number, month: number, day: number): boolean {
@@ -341,25 +390,29 @@ function validCalendarDate(year: number, month: number, day: number): boolean {
 
 function numberAt(match: RegExpMatchArray, index: number): number {
   const value = Number(match[index]);
-  if (!Number.isSafeInteger(value)) throw failure("brightspace_feed_invalid");
+  if (!Number.isSafeInteger(value)) rejectComponent();
   return value;
 }
 
-function calendarInstant(property: ContentProperty, defaultTimeZone: string): string {
+function calendarInstant(
+  property: ContentProperty,
+  defaultTimeZone: string,
+  timeZoneAliases: ReadonlyMap<string, string>,
+): string {
   const valueType = property.parameters.get("VALUE")?.toUpperCase() ?? "DATE-TIME";
   const timeZone = property.parameters.get("TZID");
   if (valueType === "DATE") {
     const match = property.value.match(DATE);
-    if (match === null || timeZone !== undefined) throw failure("brightspace_feed_invalid");
+    if (match === null || timeZone !== undefined) rejectComponent();
     const year = numberAt(match, 1);
     const month = numberAt(match, 2);
     const day = numberAt(match, 3);
-    if (!validCalendarDate(year, month, day)) throw failure("brightspace_feed_invalid");
+    if (!validCalendarDate(year, month, day)) rejectComponent();
     return localInstant({ year, month, day, hour: 23, minute: 59, second: 59, millisecond: 999 }, defaultTimeZone);
   }
-  if (valueType !== "DATE-TIME") throw failure("brightspace_feed_invalid");
+  if (valueType !== "DATE-TIME") rejectComponent();
   const match = property.value.match(DATE_TIME);
-  if (match === null) throw failure("brightspace_feed_invalid");
+  if (match === null) rejectComponent();
   const year = numberAt(match, 1);
   const month = numberAt(match, 2);
   const day = numberAt(match, 3);
@@ -367,15 +420,15 @@ function calendarInstant(property: ContentProperty, defaultTimeZone: string): st
   const minute = numberAt(match, 5);
   const second = numberAt(match, 6);
   if (!validCalendarDate(year, month, day) || hour > 23 || minute > 59 || second > 59) {
-    throw failure("brightspace_feed_invalid");
+    rejectComponent();
   }
   if (match[7] === "Z") {
-    if (timeZone !== undefined) throw failure("brightspace_feed_invalid");
+    if (timeZone !== undefined) rejectComponent();
     return new Date(Date.UTC(year, month - 1, day, hour, minute, second)).toISOString();
   }
   return localInstant(
     { year, month, day, hour, minute, second, millisecond: 0 },
-    timeZone ?? defaultTimeZone,
+    timeZone === undefined ? defaultTimeZone : (timeZoneAliases.get(timeZone) ?? timeZone),
   );
 }
 
@@ -385,39 +438,80 @@ function externalId(component: CalendarComponent, uid: ContentProperty): string 
   return recurrence === null ? base : `${base}:${recurrence.value}`;
 }
 
-function toDeadline(component: CalendarComponent, defaultTimeZone: string): RawDeadlineItem | null {
+function toDeadline(
+  component: CalendarComponent,
+  defaultTimeZone: string,
+  timeZoneAliases: ReadonlyMap<string, string>,
+): RawDeadlineItem | BrightspaceCancelledDeadline | null {
   const status = one(component, "STATUS", false);
   const normalizedStatus = status === null ? "" : unescapeText(status.value).trim().toUpperCase();
-  if (normalizedStatus === "CANCELLED" || normalizedStatus === "COMPLETED") return null;
-
   const due = one(component, component.kind === "VEVENT" ? "DTSTART" : "DUE", false);
   if (due === null) return null;
   const uid = one(component, "UID", true);
+  if (uid === null) rejectComponent();
+  const identifier = externalId(component, uid);
+  const dueAt = calendarInstant(due, defaultTimeZone, timeZoneAliases);
+  if (normalizedStatus === "CANCELLED" || normalizedStatus === "COMPLETED") {
+    return Object.freeze({ externalId: identifier, dueAt });
+  }
   const summary = one(component, "SUMMARY", true);
-  const category = one(component, "CATEGORIES", false);
-  if (uid === null || summary === null) throw failure("brightspace_feed_invalid");
+  const category = component.properties.get("CATEGORIES")?.[0] ?? null;
+  if (summary === null) rejectComponent();
   const course = category === null ? "Brightspace" : firstTextValue(category.value).trim() || "Brightspace";
   return Object.freeze({
-    externalId: externalId(component, uid),
+    externalId: identifier,
     course,
     title: unescapeText(summary.value),
-    dueAt: calendarInstant(due, defaultTimeZone),
+    dueAt,
   });
 }
 
 /** Parse the one calendar object a Brightspace subscription returns. */
-export function parseBrightspaceCalendar(value: string, defaultTimeZone: string): readonly RawDeadlineItem[] {
+export function parseBrightspaceCalendarResult(value: string, defaultTimeZone: string): BrightspaceCalendarResult {
   const items: RawDeadlineItem[] = [];
+  const cancelled: BrightspaceCancelledDeadline[] = [];
   const identifiers = new Set<string>();
-  for (const component of parseComponents(value)) {
-    const item = toDeadline(component, defaultTimeZone);
-    if (item === null) continue;
-    const identifier = item.externalId.normalize("NFC");
-    if (identifiers.has(identifier)) throw failure("brightspace_feed_invalid");
-    identifiers.add(identifier);
-    items.push(item);
+  let rejected = 0;
+  const components = parseComponents(value);
+  const timeZoneAliases = new Map<string, string>();
+  for (const component of components) {
+    if (component.kind !== "VTIMEZONE" || component.invalid) continue;
+    try {
+      const identifier = one(component, "TZID", true);
+      const location = one(component, "X-LIC-LOCATION", false);
+      if (identifier === null || location === null) continue;
+      zoneFormatter(location.value);
+      timeZoneAliases.set(identifier.value, location.value);
+    } catch (error) {
+      if (!(error instanceof ComponentRejected)) throw error;
+    }
   }
-  return Object.freeze(items);
+  for (const component of components) {
+    if (component.kind === "VTIMEZONE") continue;
+    try {
+      if (component.invalid) rejectComponent();
+      const item = toDeadline(component, defaultTimeZone, timeZoneAliases);
+      if (item === null) continue;
+      const identifier = item.externalId.normalize("NFC");
+      if (identifiers.has(identifier)) rejectComponent();
+      identifiers.add(identifier);
+      if ("title" in item) items.push(item);
+      else cancelled.push(item);
+    } catch (error) {
+      if (!(error instanceof ComponentRejected)) throw error;
+      rejected += 1;
+    }
+  }
+  return Object.freeze({
+    items: Object.freeze(items),
+    cancelled: Object.freeze(cancelled),
+    rejected,
+  });
+}
+
+/** Backward-compatible item view for callers that do not process cancellation metadata. */
+export function parseBrightspaceCalendar(value: string, defaultTimeZone: string): readonly RawDeadlineItem[] {
+  return parseBrightspaceCalendarResult(value, defaultTimeZone).items;
 }
 
 async function readBounded(response: Response): Promise<string> {
@@ -463,7 +557,11 @@ export class BrightspaceIcalClient {
     this.#feedUrl = requireFeedUrl(options.feedUrl);
     this.#timeZone = options.timeZone;
     // Validate the owner's configured zone before making the bearer request.
-    zoneFormatter(this.#timeZone);
+    try {
+      zoneFormatter(this.#timeZone);
+    } catch {
+      throw failure("brightspace_timezone_invalid");
+    }
     this.#fetch = options.fetchImplementation ?? globalThis.fetch.bind(globalThis);
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     if (!Number.isSafeInteger(this.#timeoutMs) || this.#timeoutMs < 1 || this.#timeoutMs > 60_000) {
@@ -471,7 +569,7 @@ export class BrightspaceIcalClient {
     }
   }
 
-  async collectDeadlines(): Promise<readonly RawDeadlineItem[]> {
+  async collectDeadlines(): Promise<BrightspaceCalendarResult> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -485,11 +583,16 @@ export class BrightspaceIcalClient {
         const response = await this.#fetch(this.#feedUrl, {
           method: "GET",
           headers: { accept: "text/calendar" },
-          redirect: "error",
+          redirect: "manual",
           cache: "no-store",
           signal: controller.signal,
         });
-        if (response.redirected || (response.status >= 300 && response.status < 400)) {
+        if (
+          response.redirected
+          || (response.type as string) === "opaqueredirect"
+          || response.status === 0
+          || (response.status >= 300 && response.status < 400)
+        ) {
           void response.body?.cancel().catch(() => undefined);
           throw failure("brightspace_feed_redirected", response.status);
         }
@@ -498,8 +601,12 @@ export class BrightspaceIcalClient {
           const transient = response.status === 429 || response.status >= 500;
           throw failure(transient ? "brightspace_feed_unavailable" : "brightspace_feed_rejected", response.status, transient);
         }
-        return parseBrightspaceCalendar(await readBounded(response), this.#timeZone);
+        return parseBrightspaceCalendarResult(await readBounded(response), this.#timeZone);
       })();
+      // Promise.race does not cancel its loser. Observe a late request/read
+      // rejection after the timeout has already won so Workers never reports
+      // it as unhandled.
+      void requestAndRead.catch(() => undefined);
       return await Promise.race([requestAndRead, timedOut]);
     } catch (error) {
       if (error instanceof BrightspaceFeedError) throw error;

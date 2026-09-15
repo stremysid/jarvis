@@ -106,7 +106,7 @@ export class GoogleOAuthTokenProvider {
         // A redirect must never replay the client secret or refresh token to a
         // second origin. Google's token endpoint is fixed and should answer
         // directly.
-        redirect: "error",
+        redirect: "manual",
         signal: controller.signal,
       });
     } catch {
@@ -115,6 +115,15 @@ export class GoogleOAuthTokenProvider {
       clearTimeout(timer);
     }
 
+    if (
+      response.redirected
+      || (response.type as string) === "opaqueredirect"
+      || response.status === 0
+      || (response.status >= 300 && response.status < 400)
+    ) {
+      void response.body?.cancel().catch(() => undefined);
+      throw new GoogleOAuthRequestError("google_oauth_rejected", response.status, false);
+    }
     if (!response.ok) {
       const transient = response.status === 429 || response.status >= 500;
       throw new GoogleOAuthRequestError(

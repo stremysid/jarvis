@@ -41,7 +41,12 @@ const MAXIMUM_IDENTIFIER_CHARACTERS = 256;
  * than a quiet week.
  */
 export type SourceSweep =
-  | { readonly kind: "items"; readonly items: readonly RawDeadlineItem[] }
+  | {
+    readonly kind: "items";
+    readonly items: readonly RawDeadlineItem[];
+    readonly cancelledExternalIds?: readonly string[];
+    readonly sourceRejectedCount?: number;
+  }
   | { readonly kind: "failed"; readonly reason: string };
 
 export type RejectionReason =
@@ -51,7 +56,8 @@ export type RejectionReason =
   | "invalid_due_at"
   | "invalid_effort"
   | "invalid_lead_minutes"
-  | "duplicate_external_id";
+  | "duplicate_external_id"
+  | "invalid_source_item";
 
 export interface RejectedDeadlineItem {
   /** Present when we could read one; a rejected item may not have had a usable id. */
@@ -74,6 +80,7 @@ export interface DeadlineIngestionReport {
   readonly failure: string | null;
   readonly created: readonly Deadline[];
   readonly moved: readonly MovedDeadline[];
+  readonly cancelled: readonly Deadline[];
   readonly unchanged: number;
   /**
    * Open deadlines this source did not mention. Reported, never written to.
@@ -246,6 +253,7 @@ export class DeadlineIngestion {
         failure,
         created: Object.freeze([]),
         moved: Object.freeze([]),
+        cancelled: Object.freeze([]),
         unchanged: 0,
         disappeared: Object.freeze([]),
         rejected: Object.freeze([]),
@@ -255,9 +263,18 @@ export class DeadlineIngestion {
 
     const created: Deadline[] = [];
     const moved: MovedDeadline[] = [];
+    const cancelled: Deadline[] = [];
     const rejected: RejectedDeadlineItem[] = [];
     const seen = new Set<string>();
     let unchanged = 0;
+
+    const sourceRejectedCount = sweep.sourceRejectedCount ?? 0;
+    if (!Number.isSafeInteger(sourceRejectedCount) || sourceRejectedCount < 0 || sourceRejectedCount > 2_000) {
+      throw new TypeError("deadline_source_rejected_count_invalid");
+    }
+    for (let index = 0; index < sourceRejectedCount; index += 1) {
+      rejected.push(Object.freeze({ externalId: null, reason: "invalid_source_item" as const }));
+    }
 
     try {
       for (const raw of sweep.items) {
@@ -300,6 +317,21 @@ export class DeadlineIngestion {
           }));
         } else unchanged += 1;
       }
+
+      for (const rawExternalId of sweep.cancelledExternalIds ?? []) {
+        const normalized = normalizeIdentifier(rawExternalId);
+        if (normalized === null) {
+          rejected.push(Object.freeze({ externalId: null, reason: "missing_external_id" as const }));
+          continue;
+        }
+        if (seen.has(normalized)) {
+          rejected.push(Object.freeze({ externalId: normalized, reason: "duplicate_external_id" as const }));
+          continue;
+        }
+        seen.add(normalized);
+        const closed = await this.#repository.cancelOpenByExternalId(sourceId, normalized, now);
+        if (closed !== null) cancelled.push(closed);
+      }
     } catch (error) {
       // The failure column is the alert channel. A write that throws halfway
       // through must not leave the source looking like it last succeeded just
@@ -319,12 +351,24 @@ export class DeadlineIngestion {
       failure: null,
       created: Object.freeze(created),
       moved: Object.freeze(moved),
+      cancelled: Object.freeze(cancelled),
       unchanged,
       disappeared,
       rejected: Object.freeze(rejected),
-      emptySweep: sweep.items.length === 0 && disappeared.length > 0,
+      emptySweep: sweep.items.length === 0 && (sweep.cancelledExternalIds?.length ?? 0) === 0 && disappeared.length > 0,
     });
   }
+}
+
+function normalizeIdentifier(value: unknown): string | null {
+  const raw = typeof value === "string" ? value.trim() : "";
+  const normalized = raw.normalize("NFC");
+  return normalized.length > 0
+    && normalized.length <= MAXIMUM_IDENTIFIER_CHARACTERS
+    && normalized.isWellFormed()
+    && !UNSAFE_IDENTIFIER_CHARACTERS.test(normalized)
+    ? normalized
+    : null;
 }
 
 /** A short, bounded description of a thrown value, for the failure column. */

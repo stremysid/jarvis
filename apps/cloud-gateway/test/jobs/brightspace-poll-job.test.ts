@@ -22,6 +22,55 @@ const FEED = [
   "",
 ].join("\r\n");
 
+function datedFeed(count: number): string {
+  const lines = ["BEGIN:VCALENDAR", "VERSION:2.0"];
+  for (let index = 0; index < count; index += 1) {
+    const due = new Date(NOW.getTime() + (index - 100) * 86_400_000);
+    const stamp = due.toISOString().replace(/[-:]/gu, "").replace(".000Z", "Z");
+    lines.push(
+      "BEGIN:VEVENT",
+      `UID:bounded-${index}`,
+      `SUMMARY:Assignment ${index}`,
+      "CATEGORIES:Course",
+      `DTSTART:${stamp}`,
+      "END:VEVENT",
+    );
+  }
+  return [...lines, "END:VCALENDAR", ""].join("\r\n");
+}
+
+function queryCountingDatabase(): { database: D1Database; queryCount(): number } {
+  let count = 0;
+  const originals = new WeakMap<object, D1PreparedStatement>();
+  const wrap = (statement: D1PreparedStatement): D1PreparedStatement => {
+    const wrapped = {
+      bind: (...values: unknown[]) => wrap(statement.bind(...values)),
+      first: async <T>(columnName?: string) => {
+        count += 1;
+        return columnName === undefined ? statement.first<T>() : statement.first<T>(columnName);
+      },
+      run: async <T>() => { count += 1; return statement.run<T>(); },
+      all: async <T>() => { count += 1; return statement.all<T>(); },
+      raw: async (options?: { columnNames?: boolean }) => {
+        count += 1;
+        return options?.columnNames === true ? statement.raw({ columnNames: true }) : statement.raw();
+      },
+    } as D1PreparedStatement;
+    originals.set(wrapped as object, statement);
+    return wrapped;
+  };
+  return {
+    database: {
+      prepare: (query: string) => wrap(env.DB.prepare(query)),
+      batch: async <T>(statements: D1PreparedStatement[]) => {
+        count += statements.length;
+        return env.DB.batch<T>(statements.map((statement) => originals.get(statement as object) ?? statement));
+      },
+    } as D1Database,
+    queryCount: () => count,
+  };
+}
+
 function context(
   fetcher: typeof fetch,
   overrides: Partial<JobEnvironment["env"]> = {},
@@ -69,7 +118,7 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
 
     await expect(runPoll(jobContext)).resolves.toMatchObject({
       ok: true,
-      detail: expect.stringContaining("Brightspace 1 seen, 0 rejected, 0 absent"),
+      detail: expect.stringContaining("Brightspace 1 seen, 0 cancelled, 0 rejected, 0 absent"),
     });
 
     const repository = new DeadlineRepository(env.DB);
@@ -166,5 +215,71 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
     expect(source?.lastFailure).toBe("brightspace_feed_rejected");
     expect(JSON.stringify(result)).not.toContain("fixture-private-marker");
     expect(JSON.stringify(source)).not.toContain("provider detail");
+  });
+
+  it("closes an open deadline only when the feed explicitly cancels it", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(FEED))
+      .mockResolvedValueOnce(new Response(FEED.replace(
+        "SUMMARY:Unit 2 Project",
+        "STATUS:CANCELLED\r\nSUMMARY:Unit 2 Project",
+      )));
+    const jobContext = context(fetcher, { BRIGHTSPACE_ICAL_URL: FEED_URL });
+
+    await runPoll(jobContext);
+    await expect(new DeadlineRepository(env.DB).readByExternalId("brightspace-ical", "brightspace-item-1"))
+      .resolves.toMatchObject({ status: "open" });
+    await expect(runPoll(jobContext)).resolves.toMatchObject({
+      detail: expect.stringContaining("0 seen, 1 cancelled"),
+    });
+    await expect(new DeadlineRepository(env.DB).readByExternalId("brightspace-ical", "brightspace-item-1"))
+      .resolves.toMatchObject({ status: "cancelled" });
+  });
+
+  it("keeps a 600-component feed under the D1 budget by ingesting only the bounded date window", async () => {
+    const counted = queryCountingDatabase();
+    const fetcher = vi.fn(async () => new Response(datedFeed(600))) as unknown as typeof fetch;
+    const jobContext = context(fetcher, { DB: counted.database, BRIGHTSPACE_ICAL_URL: FEED_URL });
+
+    await expect(runPoll(jobContext)).resolves.toMatchObject({
+      detail: expect.stringContaining("Brightspace 134 seen"),
+    });
+    const firstRunQueries = counted.queryCount();
+    expect(firstRunQueries).toBeLessThan(800);
+
+    await runPoll(jobContext);
+    expect(counted.queryCount() - firstRunQueries).toBeLessThan(180);
+  });
+
+  it("records an owner configuration error without contacting the private feed", async () => {
+    const fetcher = vi.fn(async () => { throw new Error("network_must_not_run"); }) as unknown as typeof fetch;
+    const jobContext = context(fetcher, {
+      BRIGHTSPACE_ICAL_URL: FEED_URL,
+      DIGEST_TIMEZONE: "not/a-time-zone",
+    });
+
+    await expect(runPoll(jobContext)).resolves.toMatchObject({
+      detail: expect.stringContaining("brightspace_timezone_invalid"),
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+    await expect(new DeadlineRepository(env.DB).readSource("brightspace-ical")).resolves.toMatchObject({
+      lastFailure: "brightspace_timezone_invalid",
+    });
+  });
+
+  it("continues source polling when archival fails", async () => {
+    const database = {
+      prepare(query: string) {
+        if (query.includes("FROM archive_state")) throw new Error("fixture_archive_failed");
+        return env.DB.prepare(query);
+      },
+      batch: <T>(statements: D1PreparedStatement[]) => env.DB.batch<T>(statements),
+    } as D1Database;
+    const fetcher = vi.fn(async () => new Response(FEED)) as unknown as typeof fetch;
+
+    await expect(runPoll(context(fetcher, { DB: database, BRIGHTSPACE_ICAL_URL: FEED_URL }))).resolves.toMatchObject({
+      detail: expect.stringContaining("archival failed (archive_operation_failed); Classroom not configured; Brightspace 1 seen"),
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });

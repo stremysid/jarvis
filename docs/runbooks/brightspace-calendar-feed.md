@@ -24,9 +24,18 @@ Official setup reference: [D2L's calendar-feed instructions](https://community.d
    into chat, a repository file, a command argument, a screenshot, or an
    evidence log. Jarvis needs the feed URL, not a downloaded `.ics` file.
 
-D2L describes the feed as calendar events and tasks. It does not provide
-grades or authoritative submission/missing-work state. Those remain a later,
-separately approved connector.
+D2L describes the feed as calendar events and tasks. Its documentation also
+says availability start/end dates and due dates can both appear in Calendar,
+but does not document an iCalendar property or title convention that reliably
+distinguishes those meanings. Jarvis therefore treats each dated event/task as
+a candidate deadline and does not guess from untrusted titles. Live acceptance
+must compare the resulting list with the Brightspace UI before relying on it.
+The feed does not provide grades or authoritative submission/missing-work
+state. Those remain a later, separately approved connector.
+
+References: [availability and due dates in Content](https://community.d2l.com/brightspace/kb/articles/3378-add-availability-and-due-dates-in-content),
+[Calendar events and tasks](https://community.d2l.com/brightspace/kb/articles/18042-manage-course-events-with-the-calendar-tool),
+and [upcoming work in Brightspace Pulse](https://community.d2l.com/brightspace/kb/articles/33744-view-upcoming-work-in-brightspace-pulse).
 
 ## Store the Worker secret from PowerShell 7
 
@@ -93,6 +102,9 @@ body:
   revoke/reissue the feed through Brightspace; do not supply a password.
 - `brightspace_feed_unavailable`: a timeout, rate limit, server error, or
   network failure. The next hourly run retries normally.
-- `brightspace_feed_too_large` or `brightspace_feed_invalid`: the response is
+- `brightspace_timezone_invalid`: `DIGEST_TIMEZONE` is not an IANA timezone.
+  Correct Worker configuration; re-copying the private feed URL will not help.
+- `brightspace_feed_too_large`, `brightspace_feed_too_many_items`, or
+  `brightspace_feed_invalid`: the response is
   outside the bounded iCalendar contract. Last-known deadlines stay visible
   and the digest names the source failure.

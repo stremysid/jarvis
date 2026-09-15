@@ -499,18 +499,28 @@ but the store cannot preserve that the source supplied date-only precision.
 Native date-only display needs a separate schema migration, claiming the next
 number only after another open-PR branch inventory. This PR claims no migration.
 
-## Nothing moves a deadline out of `open`
+## Only an explicit calendar cancellation moves a deadline out of `open`
 
-`deadlines.status` supports `submitted`, `missed` and `cancelled`, and nothing
-sets any of them. A deadline that has passed stays `open` forever. The
-grade/missing-work watch described in the plan is what closes this, and it
-needs the Classroom grades endpoint and the Brightspace grades scrape.
+Brightspace `STATUS:CANCELLED` and `STATUS:COMPLETED` now close the matching
+source deadline as `cancelled`. Nothing marks a deadline `submitted` or
+`missed`, and a deadline that merely passes stays `open` forever. The
+grade/missing-work watch described in the plan is what closes those states,
+and it needs separately approved Classroom and Brightspace grade connectors.
 
 A deadline that stops appearing in a sweep is deliberately NOT cancelled: a
-Brightspace scrape that half-succeeds because the page markup moved returns
-fewer items and is indistinguishable from a teacher deleting one. One bad
-scrape would cancel a term of real deadlines. It stays open and is reported as
-disappeared instead.
+calendar export that half-succeeds can return fewer items and is
+indistinguishable from a teacher deleting one. One bad export would cancel a
+term of real deadlines. It stays open and is reported as disappeared instead.
+
+## Brightspace does not document due-versus-availability iCalendar semantics
+
+D2L documents that calendar feeds export events and tasks, and separately that
+availability start/end dates and due dates can all appear in Calendar. The
+public documentation does not identify an iCalendar property, category, or
+title convention that distinguishes those meanings. Filtering by untrusted
+summary text would silently drop real work, so the adapter ingests dated
+events/tasks without guessing. Owner-attended live acceptance must compare the
+first read-only result with Brightspace before the feed is relied on.
 
 ## Must-report gap: deployed, gateway delivery still needs verification
 

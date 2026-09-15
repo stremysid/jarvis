@@ -10,7 +10,11 @@ import { ArchivalService } from "../archive/archival-service.js";
 import { ArchivalWorker } from "../archive/archival-worker.js";
 import { ARCHIVE_SEGMENT_LIMITS } from "../archive/segment-codec.js";
 import { ClassroomClient, ClassroomRequestError } from "../deadlines/classroom-client.js";
-import { BrightspaceFeedError, BrightspaceIcalClient } from "../deadlines/brightspace-ical-client.js";
+import {
+  BrightspaceFeedError,
+  BrightspaceIcalClient,
+  type BrightspaceCalendarResult,
+} from "../deadlines/brightspace-ical-client.js";
 import { DeadlineIngestion } from "../deadlines/deadline-ingestion.js";
 import { DeadlineRepository } from "../deadlines/deadline-repository.js";
 import { GoogleOAuthRequestError, GoogleOAuthTokenProvider } from "../deadlines/google-oauth.js";
@@ -22,7 +26,7 @@ import { ProjectRepository } from "../projects/project-repository.js";
 import { ScheduledRunRepository } from "../scheduler/scheduled-run-repository.js";
 import { SchoolCatchupRepository } from "../school/school-catchup-repository.js";
 import type { JobOutcome, JobTable } from "../scheduler/scheduled-handler.js";
-import { runDigestJob, type DigestDelivery } from "./digest-job.js";
+import { runDigestJob, unconfiguredDeadlineSourceKinds, type DigestDelivery } from "./digest-job.js";
 
 export interface JobEnvironment {
   readonly env: Env;
@@ -37,6 +41,9 @@ function describe(error: unknown): string {
 
 const CLASSROOM_SOURCE_ID = "google-classroom";
 const BRIGHTSPACE_SOURCE_ID = "brightspace-ical";
+const BRIGHTSPACE_PAST_WINDOW_MS = 14 * 86_400_000;
+const BRIGHTSPACE_FUTURE_WINDOW_MS = 120 * 86_400_000;
+const MAXIMUM_BRIGHTSPACE_WINDOW_ITEMS = 180;
 
 function classroomFailure(error: unknown): string {
   if (error instanceof ClassroomRequestError || error instanceof GoogleOAuthRequestError) return error.message;
@@ -112,6 +119,25 @@ function brightspaceFailure(error: unknown): string {
   return "brightspace_ingestion_failed";
 }
 
+export function selectBrightspaceWindow(
+  result: BrightspaceCalendarResult,
+  now: Date,
+): BrightspaceCalendarResult {
+  const at = now.getTime();
+  const inside = (dueAt: string): boolean => {
+    const due = Date.parse(dueAt);
+    return Number.isFinite(due)
+      && due >= at - BRIGHTSPACE_PAST_WINDOW_MS
+      && due < at + BRIGHTSPACE_FUTURE_WINDOW_MS;
+  };
+  const items = result.items.filter((item) => inside(item.dueAt));
+  const cancelled = result.cancelled.filter((item) => inside(item.dueAt));
+  if (items.length + cancelled.length > MAXIMUM_BRIGHTSPACE_WINDOW_ITEMS) {
+    throw new BrightspaceFeedError("brightspace_feed_too_many_items", null, false);
+  }
+  return Object.freeze({ items: Object.freeze(items), cancelled: Object.freeze(cancelled), rejected: result.rejected });
+}
+
 async function pollBrightspace(context: JobEnvironment): Promise<string> {
   const repository = new DeadlineRepository(context.env.DB);
   const feedUrl = context.env.BRIGHTSPACE_ICAL_URL;
@@ -140,12 +166,15 @@ async function pollBrightspace(context: JobEnvironment): Promise<string> {
       timeZone: context.env.DIGEST_TIMEZONE ?? "America/Toronto",
       fetchImplementation: context.fetcher,
     });
+    const collected = selectBrightspaceWindow(await client.collectDeadlines(), context.clock.now());
     const report = await ingestion.ingest(source.sourceId, {
       kind: "items",
-      items: await client.collectDeadlines(),
+      items: collected.items,
+      cancelledExternalIds: collected.cancelled.map((item) => item.externalId),
+      sourceRejectedCount: collected.rejected,
     });
     const seen = report.created.length + report.moved.length + report.unchanged;
-    return `Brightspace ${seen} seen, ${report.rejected.length} rejected, ${report.disappeared.length} absent`;
+    return `Brightspace ${seen} seen, ${report.cancelled.length} cancelled, ${report.rejected.length} rejected, ${report.disappeared.length} absent`;
   } catch (error) {
     const failure = brightspaceFailure(error);
     await ingestion.ingest(source.sourceId, { kind: "failed", reason: failure });
@@ -178,9 +207,14 @@ async function safeSourcePoll(
 async function poll(context: JobEnvironment): Promise<JobOutcome> {
   // Reuse the archive's retention, readback, sealing and purge checks unchanged.
   // A missing GitHub credential must not disable local D1-to-R2 maintenance.
-  const archive = new ArchivalWorker(new ArchivalService({ database: context.env.DB, bucket: context.env.ARCHIVE }));
-  const segment = await archive.run(context.clock.now(), ARCHIVE_SEGMENT_LIMITS.maxEventCount);
-  const archived = segment === null ? "nothing eligible for archival" : `${segment.eventCount} archived`;
+  let archived: string;
+  try {
+    const archive = new ArchivalWorker(new ArchivalService({ database: context.env.DB, bucket: context.env.ARCHIVE }));
+    const segment = await archive.run(context.clock.now(), ARCHIVE_SEGMENT_LIMITS.maxEventCount);
+    archived = segment === null ? "nothing eligible for archival" : `${segment.eventCount} archived`;
+  } catch {
+    archived = "archival failed (archive_operation_failed)";
+  }
   const classroom = await safeSourcePoll("Classroom", "classroom_ingestion_failed", () => pollClassroom(context));
   const brightspace = await safeSourcePoll(
     "Brightspace",
@@ -234,17 +268,14 @@ async function digest(
           from: context.clock.now(),
           to: new Date(context.clock.now().getTime() + withinDays * 86_400_000),
         }),
-      readDeadlineSources: async () => deadlines.listSources({ activeOnly: true }),
+      readDeadlineSources: async () => deadlines.listSources(),
       readProjectStatuses: async () => projects.readActiveProjectStatuses(),
       readOpenDecisions: async () => decisions.queue(principalId),
     },
     delivery: context.delivery,
     clock: context.clock,
     timeZone,
-    unconfiguredDeadlineSourceKinds:
-      context.env.BRIGHTSPACE_ICAL_URL === undefined || context.env.BRIGHTSPACE_ICAL_URL.length === 0
-        ? ["brightspace"]
-        : [],
+    unconfiguredDeadlineSourceKinds: unconfiguredDeadlineSourceKinds(context.env),
   });
 
   return { ok: true, detail: result.gaps === 0 ? "sent" : `sent with ${result.gaps} gaps` };

@@ -3,6 +3,7 @@ import {
   BrightspaceFeedError,
   BrightspaceIcalClient,
   parseBrightspaceCalendar,
+  parseBrightspaceCalendarResult,
 } from "../../src/deadlines/brightspace-ical-client.js";
 
 const FEED_URL = "https://school.example/d2l/le/calendar/feed/user.ics?subscription=fixture-only";
@@ -102,14 +103,53 @@ describe("parsing a Brightspace calendar feed", () => {
     }]);
   });
 
-  it.each([
-    ["not a calendar", "missing calendar envelope"],
-    [calendar(...event("UID:x", "SUMMARY:Impossible", "DTSTART:20260230T120000Z")), "impossible date"],
-    [calendar(...event("UID:x", "SUMMARY:Missing date value type", "DTSTART:20260918")), "date without VALUE=DATE"],
-    [calendar(...event("UID:x", "SUMMARY:Missing id", "DTSTART:20260918T120000Z"), ...event("UID:x", "SUMMARY:Duplicate id", "DTSTART:20260919T120000Z")), "duplicate id"],
-    [calendar(...event("UID:x", "SUMMARY:Unknown escape\\q", "DTSTART:20260918T120000Z")), "unknown text escape"],
-  ])("rejects %s as a fixed invalid-feed failure (%s)", (input) => {
-    expect(() => parseBrightspaceCalendar(input, TORONTO)).toThrow("brightspace_feed_invalid");
+  it("fails the feed for a malformed calendar envelope", () => {
+    expect(() => parseBrightspaceCalendar("not a calendar", TORONTO)).toThrow("brightspace_feed_invalid");
+  });
+
+  it("rejects malformed components without dropping valid neighbours", () => {
+    const parsed = parseBrightspaceCalendarResult(calendar(
+      ...event("UID:good", "SUMMARY:Good", "DTSTART:20260918T120000Z"),
+      ...event("UID:bad-date", "SUMMARY:Impossible", "DTSTART:20260230T120000Z"),
+      ...event("UID:bad-escape", "SUMMARY:Unknown escape\\q", "DTSTART:20260918T120000Z"),
+      ...event("UID:good", "SUMMARY:Duplicate id", "DTSTART:20260919T120000Z"),
+    ), TORONTO);
+
+    expect(parsed.items.map((item) => item.externalId)).toEqual(["good"]);
+    expect(parsed.rejected).toBe(3);
+  });
+
+  it("accepts extension underscores, chooses the first CATEGORIES property, resolves DST gaps, and isolates an unknown TZID", () => {
+    const parsed = parseBrightspaceCalendarResult(calendar(
+      ...event(
+        "UID:gap",
+        "SUMMARY:Gap time",
+        "X_SCHOOL_EXTENSION:untrusted",
+        "CATEGORIES:First course",
+        "CATEGORIES:Second course",
+        "DTSTART;TZID=America/Toronto:20270314T023000",
+      ),
+      ...event("UID:unknown-zone", "SUMMARY:Bad zone", "DTSTART;TZID=School_Custom:20260918T120000"),
+    ), TORONTO);
+
+    expect(parsed.items).toEqual([{
+      externalId: "gap",
+      course: "First course",
+      title: "Gap time",
+      dueAt: "2027-03-14T07:30:00.000Z",
+    }]);
+    expect(parsed.rejected).toBe(1);
+  });
+
+  it("uses an IANA location declared by VTIMEZONE for a custom TZID", () => {
+    const parsed = parseBrightspaceCalendar(calendar(
+      "BEGIN:VTIMEZONE",
+      "TZID:School_Custom",
+      "X-LIC-LOCATION:America/Toronto",
+      "END:VTIMEZONE",
+      ...event("UID:custom-zone", "SUMMARY:Lab", "DTSTART;TZID=School_Custom:20260918T143000"),
+    ), TORONTO);
+    expect(parsed[0]?.dueAt).toBe("2026-09-18T18:30:00.000Z");
   });
 });
 
@@ -117,21 +157,24 @@ describe("fetching a private Brightspace calendar feed", () => {
   afterEach(() => vi.useRealTimers());
 
   it("makes one bounded non-cached GET to the configured URL and follows no calendar field", async () => {
-    const fetcher = vi.fn(async () => new Response(calendar(
-      ...event(
-        "UID:event-4",
-        "SUMMARY:Read the URL only as text",
-        "URL:https://evil.example/second-request",
-        "DTSTART:20260918T183000Z",
-      ),
-    ), { headers: { "content-type": "text/calendar; charset=utf-8" } })) as unknown as typeof fetch;
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      new Request(input, init);
+      return new Response(calendar(
+        ...event(
+          "UID:event-4",
+          "SUMMARY:Read the URL only as text",
+          "URL:https://evil.example/second-request",
+          "DTSTART:20260918T183000Z",
+        ),
+      ), { headers: { "content-type": "text/calendar; charset=utf-8" } });
+    }) as unknown as typeof fetch;
     const client = new BrightspaceIcalClient({ feedUrl: FEED_URL, timeZone: TORONTO, fetchImplementation: fetcher });
 
-    await expect(client.collectDeadlines()).resolves.toHaveLength(1);
+    await expect(client.collectDeadlines()).resolves.toMatchObject({ items: [{ externalId: "event-4" }] });
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(fetcher).toHaveBeenCalledWith(FEED_URL, expect.objectContaining({
       method: "GET",
-      redirect: "error",
+      redirect: "manual",
       cache: "no-store",
       headers: { accept: "text/calendar" },
     }));
@@ -147,8 +190,18 @@ describe("fetching a private Brightspace calendar feed", () => {
     },
   );
 
+  it("refuses a 302 response without following its location", async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      new Request(input, init);
+      return new Response(null, { status: 302, headers: { location: "https://login.example/" } });
+    }) as unknown as typeof fetch;
+    const client = new BrightspaceIcalClient({ feedUrl: FEED_URL, timeZone: TORONTO, fetchImplementation: fetcher });
+
+    await expect(client.collectDeadlines()).rejects.toThrow("brightspace_feed_redirected");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
-    [302, "brightspace_feed_redirected"],
     [401, "brightspace_feed_rejected"],
     [403, "brightspace_feed_rejected"],
     [429, "brightspace_feed_unavailable"],
@@ -185,6 +238,24 @@ describe("fetching a private Brightspace calendar feed", () => {
     const assertion = expect(result).rejects.toThrow("brightspace_feed_unavailable");
     await vi.advanceTimersByTimeAsync(50);
     await assertion;
+  });
+
+  it("observes a request rejection that loses the timeout race", async () => {
+    vi.useFakeTimers();
+    let rejectFetch: ((reason: Error) => void) | undefined;
+    const fetcher = vi.fn(() => new Promise<Response>((_resolve, reject) => { rejectFetch = reject; })) as unknown as typeof fetch;
+    const client = new BrightspaceIcalClient({
+      feedUrl: FEED_URL,
+      timeZone: TORONTO,
+      fetchImplementation: fetcher,
+      timeoutMs: 50,
+    });
+
+    const assertion = expect(client.collectDeadlines()).rejects.toThrow("brightspace_feed_unavailable");
+    await vi.advanceTimersByTimeAsync(50);
+    await assertion;
+    rejectFetch?.(new Error("late fixture rejection"));
+    await Promise.resolve();
   });
 
   it("keeps the timeout active while an accepted response body stalls", async () => {
