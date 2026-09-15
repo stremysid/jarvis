@@ -185,14 +185,36 @@ its review-fix rounds. A fresh chat starts only after the PR merges.
    Validate exact sources, classify evidence in code, file low-confidence
    items into the explicit inbox, advance the cursor only after the item batch,
    and make budget/provider failures visible without blocking raw retention.
-   Use a fake provider until Sid separately approves the paid comparison.
-4. **Unified text recall and plain-speech controls.** Replace the historical
-   device projection in conversational retrieval with eligible `0016` items
-   plus live/R2 history. Add subtree area questions and deterministic evidence
-   receipts. Route ordinary authenticated text such as “remember that …”,
-   “why do you think that?”, “forget that” and “use that memory again” before
-   the model. Ambiguous targets ask a plain-language follow-up and do not
-   mutate. Any slash forms remain absent from help and onboarding.
+   Use a fake provider for implementation. The reviewed paid comparison may run
+   as soon as Sid separately approves its bounded spend; it does not wait for
+   slice 8.
+4. **Unified Telegram text recall and plain-speech controls.** Add a new
+   memory-aware retriever and compose it only in the Telegram path in
+   `apps/cloud-gateway/src/index.ts`, replacing the historical device projection
+   there with eligible `0016` items plus live/R2 history. Add subtree area
+   questions and deterministic evidence receipts. Do not change
+   `D1ContextRetriever` or the composition in
+   `apps/cloud-gateway/src/voice/production-runtime.ts`; calls keep their current
+   retrieval behavior until slice 7.
+
+   Only the authenticated owner's own current Telegram turn can trigger a
+   control. Forwarded, quoted or pasted content, attachments, retrieved memory,
+   model or tool output, and every guest message remain untrusted data and never
+   trigger one. Route a clear memory request such as “remember that …”, “why do
+   you think that?”, “forget that memory” or “use that memory again” before the
+   model. “Forget that” meaning “never mind” remains conversation, not a control.
+   Ambiguous memory targets ask a plain-language follow-up and do not mutate.
+   Each applied control returns a one-line plain-language receipt that names
+   the change, gives the ordinary way to undo it, and contains no hidden text.
+   Slash forms remain absent from help and onboarding.
+
+   Focused tests prove that forwarded or quoted control-like wording,
+   conversational “forget that”, and guest wording do not mutate; one exact
+   current-owner request mutates exactly once and returns a one-line receipt
+   with its ordinary undo phrasing and no hidden text.
+   Slice exit requires `voice/production-runtime.ts` composition and the shared
+   `D1ContextRetriever` behavior to remain unchanged, with their existing tests
+   passing unchanged.
 5. **Meaning search and rebuild.** Add Workers AI `bge-m3` indexing,
    mutation receipts, D1 state rechecks, model-specific rebuilds and atomic
    index swap after coverage verification. Literal and recent-context fallback
@@ -205,15 +227,19 @@ its review-fix rounds. A fresh chat starts only after the PR merges.
    separate destructive owner operation.
 7. **Voice integration.** Reuse the same recall and ordinary-language control
    services after owner step-up, with the shared 750 ms retrieval timeout and
-   no exhaustive archive walk before first audio. Before any edit under
+   no exhaustive archive walk before first audio. The onboarding-call interview
+   writes each accepted answer through the same remember path as a `stated`
+   item; it does not introduce a voice-specific memory writer. Before any edit
+   under
    `apps/cloud-gateway/src/voice/**` or `calls/**`, post the intended files and
    behavior in `docs/AGENT_LOG.md` and wait for the calling lane to coordinate.
-8. **Evaluation, rollout and live acceptance.** Run the reviewed offline model
-   comparison only after Sid approves the paid operation, configure the chosen
-   provider and cap, complete the scratch remote-D1 proof, and leave migration,
-   deployment and secrets to Sid. Then run the all-PCs-off exit test, including
-   automatic recall, plain-speech controls, archived small-detail recall,
-   uncertainty, hide/lift, backup status and the unchanged voice latency gate.
+8. **Rollout and live acceptance.** Configure a provider only after a reviewed
+   comparison result is available and Sid selects its cap; the comparison may
+   have run after any earlier slice once Sid approved its bounded spend.
+   Complete the scratch remote-D1 proof, and leave migration, deployment and
+   secrets to Sid. Then run the all-PCs-off exit test, including automatic
+   recall, plain-speech controls, archived small-detail recall, uncertainty,
+   hide/lift, backup status and the unchanged voice latency gate.
 
 The optional one-way Obsidian-format export remains outside R2.
 

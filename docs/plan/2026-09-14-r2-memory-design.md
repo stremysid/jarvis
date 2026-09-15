@@ -440,6 +440,20 @@ On a call, a memory-control phrase is eligible only after the owner step-up has
 passed. Before owner authority, it cannot create a command event, reveal a
 receipt or change memory.
 
+Only the authenticated owner's own current turn can supply control authority.
+For Telegram this is the current authenticated owner message; for calls it is
+the current owner utterance after step-up. Guest sessions can never trigger a
+memory control. Forwarded, quoted or pasted content, attachments, retrieved
+memory, and model or tool output remain untrusted data even when they contain
+control-like words. Adapters route intent from the first-party turn envelope,
+not from a combined prompt or retrieved context.
+
+A phrase must clearly refer to memory to be a control. Conversational wording
+such as “forget that” meaning “never mind” continues as conversation and emits
+no command event. Every applied control replies with a one-line plain receipt.
+It names what changed (or says that an explanation changed nothing), gives the
+ordinary phrase that reverses any change, and never repeats hidden text.
+
 - **Remember this** stores Sid's supplied text immediately without a model
   call, after the normal redaction and bounds checks, and files it into the
   tree. The item's creation receipt is the original accepted owner conversation
