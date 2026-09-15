@@ -332,7 +332,7 @@ describe("SchoolCatchupModelAdapter", () => {
     });
 
     await expect(collect(adapter.stream(input()))).resolves.toBe(
-      "I can't confirm that action. Spending, sign-ups, submissions, and contacting people require your tap.",
+      "I can't confirm that action. Spending, sign-ups, uploads, submissions, and contacting people require your tap.",
     );
   });
 
@@ -351,6 +351,10 @@ describe("SchoolCatchupModelAdapter", () => {
       "We’re signed up for the portal.",
       "I’ve contacted the university.",
       "We’ve called your teacher.",
+      "I've uploaded your application.",
+      "I've sent in your application.",
+      "I reached out to your referee.",
+      "We're spending the application fee now.",
       "Paste your verification code.",
       "Tell me your password.",
       "Send me your OAuth token.",

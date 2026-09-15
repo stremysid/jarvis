@@ -51,6 +51,16 @@ export interface DigestCatchupAction {
   readonly estimatedMinutes: number;
 }
 
+export interface DigestApplicationItem {
+  readonly itemId: string;
+  readonly university: string;
+  readonly programName: string;
+  readonly label: string;
+  readonly status: "not_started" | "drafting" | "ready" | "submitted_by_sid";
+  readonly dueDate: string | null;
+  readonly verificationState: "verified" | "unverified";
+}
+
 /**
  * A source that could not be read.
  *
@@ -66,6 +76,7 @@ export interface DigestGap {
 
 export interface DigestInput {
   readonly catchupActions: readonly DigestCatchupAction[];
+  readonly applicationItems: readonly DigestApplicationItem[];
   readonly deadlines: readonly DigestDeadline[];
   readonly projects: readonly DigestProject[];
   readonly decisions: readonly DigestDecision[];

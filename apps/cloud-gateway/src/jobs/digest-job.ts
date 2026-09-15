@@ -26,6 +26,7 @@ import type { Deadline, DeadlineSource, DeadlineSourceKind } from "../deadlines/
 import { BRIGHTSPACE_WINDOW_ITEM_LIMIT } from "../deadlines/brightspace-ical-client.js";
 import type { DecisionItem } from "../decisions/decision-types.js";
 import type { SchoolCatchupAction } from "../school/school-catchup-types.js";
+import type { UniversityApplicationDigestItem } from "../university/university-tracker-types.js";
 import { assessStaleness, type ProjectStalenessReport } from "../projects/stalled-detector.js";
 import { documentAt, type ProjectStatus } from "../projects/project-types.js";
 
@@ -36,6 +37,7 @@ const DEADLINE_SOURCE_STALE_AFTER_MS = 3 * 60 * 60 * 1_000;
 
 export interface DigestSources {
   readCatchupActions(localDate: string): Promise<readonly SchoolCatchupAction[]>;
+  readApplicationItems(): Promise<readonly UniversityApplicationDigestItem[]>;
   readDeadlines(withinDays: number): Promise<readonly Deadline[]>;
   readDeadlineSources(): Promise<readonly DeadlineSource[]>;
   readProjectStatuses(): Promise<readonly ProjectStatus[]>;
@@ -195,8 +197,9 @@ export async function assembleDigest(
   // first one fails. Short-circuiting would mean one broken source hides
   // whether the others are broken too.
   const today = localDate(observedAt, dependencies.timeZone);
-  const [catchupActions, deadlines, deadlineSources, projects, decisions] = await Promise.all([
+  const [catchupActions, applicationItems, deadlines, deadlineSources, projects, decisions] = await Promise.all([
     readOr("School catch-up", () => dependencies.sources.readCatchupActions(today), gaps),
+    readOr("University applications", () => dependencies.sources.readApplicationItems(), gaps),
     readOr("Deadlines", () => dependencies.sources.readDeadlines(DEADLINE_HORIZON_DAYS), gaps),
     readOr("Deadline source health", () => dependencies.sources.readDeadlineSources(), gaps),
     readOr("Projects", () => dependencies.sources.readProjectStatuses(), gaps),
@@ -249,6 +252,15 @@ export async function assembleDigest(
       text: action.text,
       sequenceRank: action.sequenceRank,
       estimatedMinutes: action.estimatedMinutes,
+    })),
+    applicationItems: applicationItems.map((item) => ({
+      itemId: item.itemId,
+      university: item.university,
+      programName: item.programName,
+      label: item.label,
+      status: item.status,
+      dueDate: item.dueDate,
+      verificationState: item.verification.state,
     })),
     deadlines: deadlines.map(toDigestDeadline),
     projects: projects.map((status) => toDigestProject(status, reports.get(status.project.projectId))),

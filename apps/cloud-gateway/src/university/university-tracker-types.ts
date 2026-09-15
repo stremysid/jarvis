@@ -2,6 +2,14 @@ import type { Ulid } from "../../../../packages/contracts/src/index.js";
 
 export type UniversityVerificationState = "verified" | "unverified";
 export type UniversityTrackerItemKind = "requirement" | "date";
+export type UniversityApplicationItemKind =
+  | "supplementary_application"
+  | "essay"
+  | "personal_statement"
+  | "reference"
+  | "transcript"
+  | "scholarship";
+export type UniversityApplicationItemStatus = "not_started" | "drafting" | "ready" | "submitted_by_sid";
 
 export interface UniversityVerification {
   readonly state: UniversityVerificationState;
@@ -19,6 +27,22 @@ export interface UniversityTrackerItem {
   readonly verification: UniversityVerification;
 }
 
+export interface UniversityApplicationItem {
+  readonly itemId: Ulid;
+  readonly kind: UniversityApplicationItemKind;
+  readonly label: string;
+  readonly status: UniversityApplicationItemStatus;
+  readonly dueDate: string | null;
+  readonly verification: UniversityVerification;
+  readonly submittedAt: string | null;
+  readonly updatedAt: string;
+}
+
+export interface UniversityApplicationDigestItem extends UniversityApplicationItem {
+  readonly university: string;
+  readonly programName: string;
+}
+
 export interface UniversityProgram {
   readonly programId: Ulid;
   readonly university: string;
@@ -28,6 +52,7 @@ export interface UniversityProgram {
   readonly verification: UniversityVerification;
   readonly requirements: readonly UniversityTrackerItem[];
   readonly dates: readonly UniversityTrackerItem[];
+  readonly applicationItems: readonly UniversityApplicationItem[];
 }
 
 export interface UniversityTrackerSnapshot {
@@ -66,9 +91,30 @@ export interface OwnerUniversityProgramUpdate {
   readonly resolveItemIds: readonly Ulid[];
 }
 
+export interface OwnerApplicationDueDateUpdate {
+  readonly date: string | null;
+  readonly verification: OwnerUniversityVerification;
+  /** Exact current-owner text supporting either the supplied date or its absence. */
+  readonly evidence: string;
+}
+
+export interface OwnerUniversityApplicationUpdate {
+  /** Existing item ULID or a response-local reference such as `new-item-1`. */
+  readonly itemRef: string;
+  /** Existing program ULID or a response-local program reference from this response. */
+  readonly programRef: string;
+  readonly kind: UniversityApplicationItemKind | null;
+  readonly label: string | null;
+  readonly status: UniversityApplicationItemStatus | null;
+  /** Exact current-owner text supporting a status change. */
+  readonly statusEvidence: string | null;
+  readonly dueDate: OwnerApplicationDueDateUpdate | null;
+}
+
 export interface OwnerUniversityPlan {
   readonly engaged: boolean;
   readonly programUpdates: readonly OwnerUniversityProgramUpdate[];
+  readonly applicationUpdates: readonly OwnerUniversityApplicationUpdate[];
 }
 
 export interface ApplyOwnerUniversityPlanInput {

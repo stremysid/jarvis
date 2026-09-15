@@ -1,19 +1,32 @@
 import type { JsonValue, Ulid } from "../../../../packages/contracts/src/index.js";
 import { canonicalJson } from "../../../../packages/contracts/src/index.js";
 import type {
+  OwnerApplicationDueDateUpdate,
+  OwnerUniversityApplicationUpdate,
   OwnerUniversityDateAddition,
   OwnerUniversityPlan,
   OwnerUniversityProgramUpdate,
   OwnerUniversityRequirementAddition,
   OwnerUniversityVerification,
+  UniversityApplicationItemKind,
+  UniversityApplicationItemStatus,
   UniversityTrackerSnapshot,
 } from "./university-tracker-types.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const NEW_PROGRAM = /^new-[1-9][0-9]{0,2}$/u;
+const NEW_APPLICATION_ITEM = /^new-item-[1-9][0-9]{0,2}$/u;
 const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/u;
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
+const OWNER_SUBMISSION = /\bi(?:['’]ve| have)?\s+(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
 const encoder = new TextEncoder();
+
+const APPLICATION_KINDS = new Set<UniversityApplicationItemKind>([
+  "supplementary_application", "essay", "personal_statement", "reference", "transcript", "scholarship",
+]);
+const APPLICATION_STATUSES = new Set<UniversityApplicationItemStatus>([
+  "not_started", "drafting", "ready", "submitted_by_sid",
+]);
 
 type Redactor = { redactText(text: string): { readonly ok: boolean; readonly text?: string } };
 
@@ -59,6 +72,12 @@ function inline(value: unknown, maximumBytes: number, error: string, redactor: R
 
 function optionalInline(value: unknown, maximumBytes: number, error: string, redactor: Redactor): string | null {
   return value === null ? null : inline(value, maximumBytes, error, redactor);
+}
+
+function ownerEvidence(value: unknown, ownerMessage: string, error: string, redactor: Redactor): string {
+  const evidence = inline(value, 512, error, redactor);
+  if (!ownerMessage.includes(evidence)) throw new TypeError(error);
+  return evidence;
 }
 
 function sourceUrl(value: unknown, ownerMessage: string, redactor: Redactor): string | null {
@@ -160,13 +179,86 @@ function programUpdate(value: unknown, ownerMessage: string, redactor: Redactor)
   });
 }
 
+function applicationDueDate(
+  value: unknown,
+  ownerMessage: string,
+  redactor: Redactor,
+): OwnerApplicationDueDateUpdate {
+  const item = exactRecord(value, ["date", "verification", "evidence"], "university_application_model_date_invalid");
+  const date = item.date === null ? null : inline(item.date, 10, "university_application_model_date_invalid", redactor);
+  if (date !== null && (!LOCAL_DATE.test(date)
+    || new Date(`${date}T00:00:00.000Z`).toISOString().slice(0, 10) !== date)) {
+    throw new TypeError("university_application_model_date_invalid");
+  }
+  const checkedVerification = verification(item.verification, ownerMessage, redactor);
+  if (checkedVerification.state === "verified" && date === null) {
+    throw new TypeError("university_application_model_date_invalid");
+  }
+  return Object.freeze({
+    date,
+    verification: checkedVerification,
+    evidence: ownerEvidence(item.evidence, ownerMessage, "university_application_model_date_invalid", redactor),
+  });
+}
+
+function applicationUpdate(
+  value: unknown,
+  ownerMessage: string,
+  redactor: Redactor,
+): OwnerUniversityApplicationUpdate {
+  const item = exactRecord(value, [
+    "itemRef", "programRef", "kind", "label", "status", "statusEvidence", "dueDate",
+  ], "university_application_model_item_invalid");
+  if (typeof item.itemRef !== "string" || !ULID.test(item.itemRef) && !NEW_APPLICATION_ITEM.test(item.itemRef)
+    || typeof item.programRef !== "string" || !ULID.test(item.programRef) && !NEW_PROGRAM.test(item.programRef)) {
+    throw new TypeError("university_application_model_item_invalid");
+  }
+  const kind = item.kind === null ? null : item.kind as UniversityApplicationItemKind;
+  const status = item.status === null ? null : item.status as UniversityApplicationItemStatus;
+  if (kind !== null && !APPLICATION_KINDS.has(kind) || status !== null && !APPLICATION_STATUSES.has(status)) {
+    throw new TypeError("university_application_model_item_invalid");
+  }
+  const label = optionalInline(item.label, 160, "university_application_model_item_invalid", redactor);
+  const statusEvidence = item.statusEvidence === null ? null
+    : ownerEvidence(item.statusEvidence, ownerMessage, "university_application_model_item_invalid", redactor);
+  const dueDate = item.dueDate === null ? null : applicationDueDate(item.dueDate, ownerMessage, redactor);
+  const isNew = NEW_APPLICATION_ITEM.test(item.itemRef);
+  if (isNew && (kind === null || label === null || status === null || statusEvidence === null || dueDate === null)
+    || !isNew && (kind !== null || label !== null)
+    || status === null && statusEvidence !== null
+    || status !== null && statusEvidence === null
+    || status === "submitted_by_sid" && !OWNER_SUBMISSION.test(statusEvidence ?? "")) {
+    throw new TypeError("university_application_model_item_invalid");
+  }
+  return Object.freeze({
+    itemRef: item.itemRef,
+    programRef: item.programRef,
+    kind,
+    label,
+    status,
+    statusEvidence,
+    dueDate,
+  });
+}
+
 export function parseOwnerUniversityPlan(value: unknown, ownerMessage: string, redactor: Redactor): OwnerUniversityPlan {
-  const item = exactRecord(value, ["engaged", "programUpdates"], "university_tracker_model_response_invalid");
+  const item = exactRecord(
+    value,
+    ["engaged", "programUpdates", "applicationUpdates"],
+    "university_tracker_model_response_invalid",
+  );
   if (typeof item.engaged !== "boolean") throw new TypeError("university_tracker_model_response_invalid");
   const programUpdates = Object.freeze(denseArray(item.programUpdates, 16, "university_tracker_model_response_invalid")
     .map((entry) => programUpdate(entry, ownerMessage, redactor)));
-  if (!item.engaged && programUpdates.length > 0) throw new TypeError("university_tracker_model_response_invalid");
-  return Object.freeze({ engaged: item.engaged, programUpdates });
+  const applicationUpdates = Object.freeze(denseArray(
+    item.applicationUpdates,
+    32,
+    "university_tracker_model_response_invalid",
+  ).map((entry) => applicationUpdate(entry, ownerMessage, redactor)));
+  if (!item.engaged && (programUpdates.length > 0 || applicationUpdates.length > 0)) {
+    throw new TypeError("university_tracker_model_response_invalid");
+  }
+  return Object.freeze({ engaged: item.engaged, programUpdates, applicationUpdates });
 }
 
 export function universityStateJson(snapshot: UniversityTrackerSnapshot): string {
@@ -179,5 +271,6 @@ export function universityStateJson(snapshot: UniversityTrackerSnapshot): string
     verification: program.verification,
     requirements: program.requirements,
     dates: program.dates,
+    applicationItems: program.applicationItems,
   })) as unknown as JsonValue);
 }

@@ -237,6 +237,8 @@ function commandContext(env: Env, principalId: string): CommandContext {
         sources: {
           readCatchupActions: async (date) =>
             new SchoolCatchupRepository(env.DB).listActionsForDate(principalId, date),
+          readApplicationItems: async () =>
+            new UniversityTrackerRepository(env.DB).listApplicationItemsByDueDate(principalId),
           readDeadlines: async (withinDays) =>
             new DeadlineRepository(env.DB).listDueWithin({
               from: clock.now(),

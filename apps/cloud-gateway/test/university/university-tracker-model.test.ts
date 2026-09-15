@@ -82,6 +82,7 @@ function verifiedResponse(): string {
       }],
       resolveItemIds: [],
     }],
+    applicationUpdates: [],
   });
 }
 
@@ -128,6 +129,7 @@ describe("university conversation model", () => {
         addDates: [],
         resolveItemIds: [],
       }],
+      applicationUpdates: [],
     }, "I might apply to Waterloo Computer Science.", new Redactor())).toThrow(
       "university_tracker_model_verification_invalid",
     );

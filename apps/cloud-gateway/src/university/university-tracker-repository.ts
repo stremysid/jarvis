@@ -2,6 +2,10 @@ import { newUlid, type Ulid } from "../../../../packages/contracts/src/index.js"
 import type {
   ApplyOwnerUniversityPlanInput,
   OwnerUniversityVerification,
+  UniversityApplicationDigestItem,
+  UniversityApplicationItem,
+  UniversityApplicationItemKind,
+  UniversityApplicationItemStatus,
   UniversityProgram,
   UniversityTrackerItem,
   UniversityTrackerItemKind,
@@ -14,11 +18,21 @@ const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
 const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/u;
 const RESPONSE_LOCAL_PROGRAM = /^new-[1-9][0-9]{0,2}$/u;
+const RESPONSE_LOCAL_APPLICATION_ITEM = /^new-item-[1-9][0-9]{0,2}$/u;
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
 const MAX_PROGRAMS = 16;
 const MAX_ITEMS_PER_PROGRAM = 32;
 const MAX_ITEMS = 128;
+const MAX_APPLICATION_ITEMS_PER_PROGRAM = 32;
+const MAX_APPLICATION_ITEMS = 128;
 const encoder = new TextEncoder();
+
+const APPLICATION_KINDS = new Set<UniversityApplicationItemKind>([
+  "supplementary_application", "essay", "personal_statement", "reference", "transcript", "scholarship",
+]);
+const APPLICATION_STATUSES = new Set<UniversityApplicationItemStatus>([
+  "not_started", "drafting", "ready", "submitted_by_sid",
+]);
 
 interface ProgramRow {
   principal_id: string;
@@ -47,8 +61,36 @@ interface ItemRow {
   verified_at: string | null;
 }
 
+interface ApplicationItemRow {
+  principal_id: string;
+  program_id: string;
+  item_id: string;
+  item_kind: UniversityApplicationItemKind;
+  item_label: string;
+  item_status: UniversityApplicationItemStatus;
+  due_date: string | null;
+  verification_state: UniversityVerificationState;
+  source_url: string | null;
+  admission_cycle: string | null;
+  verified_at: string | null;
+  submitted_at: string | null;
+  updated_at: string;
+}
+
+interface ApplicationDigestRow extends ApplicationItemRow {
+  university_name: string;
+  program_name: string;
+}
+
 interface ReceiptRow {
   response_hash: string;
+}
+
+interface VerificationRow {
+  verification_state: UniversityVerificationState;
+  source_url: string | null;
+  admission_cycle: string | null;
+  verified_at: string | null;
 }
 
 function rows<T>(result: D1Result<T>): readonly T[] {
@@ -130,7 +172,7 @@ function checkedVerification(
   });
 }
 
-function verificationFromRow(value: ProgramRow | ItemRow, error: string): UniversityVerification {
+function verificationFromRow(value: VerificationRow, error: string): UniversityVerification {
   if (value.verification_state !== "verified" && value.verification_state !== "unverified") throw new TypeError(error);
   const url = sourceUrl(value.source_url, error);
   const cycle = optionalInline(value.admission_cycle, error, 64);
@@ -140,7 +182,10 @@ function verificationFromRow(value: ProgramRow | ItemRow, error: string): Univer
   return Object.freeze({ state: value.verification_state, sourceUrl: url, cycle, verifiedAt });
 }
 
-function programFromRow(value: ProgramRow, expectedPrincipal: string): Omit<UniversityProgram, "requirements" | "dates"> {
+function programFromRow(
+  value: ProgramRow,
+  expectedPrincipal: string,
+): Omit<UniversityProgram, "requirements" | "dates" | "applicationItems"> {
   if (value.principal_id !== expectedPrincipal) throw new TypeError("university_program_row_invalid");
   return Object.freeze({
     programId: ulid(value.program_id, "university_program_row_invalid"),
@@ -149,6 +194,29 @@ function programFromRow(value: ProgramRow, expectedPrincipal: string): Omit<Univ
     programName: inline(value.program_name, "university_program_row_invalid", 160),
     ouacCode: optionalInline(value.ouac_code, "university_program_row_invalid", 32),
     verification: verificationFromRow(value, "university_program_row_invalid"),
+  });
+}
+
+function applicationItemFromRow(value: ApplicationItemRow, expectedPrincipal: string): UniversityApplicationItem {
+  if (value.principal_id !== expectedPrincipal || !APPLICATION_KINDS.has(value.item_kind)
+    || !APPLICATION_STATUSES.has(value.item_status)) throw new TypeError("university_application_item_row_invalid");
+  const dueDate = value.due_date === null ? null : date(value.due_date, "university_application_item_row_invalid");
+  const submittedAt = value.submitted_at === null
+    ? null
+    : iso(value.submitted_at, "university_application_item_row_invalid");
+  if (value.item_status === "submitted_by_sid" && submittedAt === null
+    || value.item_status !== "submitted_by_sid" && submittedAt !== null) {
+    throw new TypeError("university_application_item_row_invalid");
+  }
+  return Object.freeze({
+    itemId: ulid(value.item_id, "university_application_item_row_invalid"),
+    kind: value.item_kind,
+    label: inline(value.item_label, "university_application_item_row_invalid", 160),
+    status: value.item_status,
+    dueDate,
+    verification: verificationFromRow(value, "university_application_item_row_invalid"),
+    submittedAt,
+    updatedAt: iso(value.updated_at, "university_application_item_row_invalid"),
   });
 }
 
@@ -175,12 +243,16 @@ function itemKey(kind: UniversityTrackerItemKind, label: string, detail: string 
     "university_item_invalid", 768);
 }
 
+function applicationItemKey(kind: UniversityApplicationItemKind, label: string): string {
+  return normalizedKey([kind, label], "university_application_item_invalid", 256);
+}
+
 export class UniversityTrackerRepository {
   constructor(private readonly database: D1Database) {}
 
   async readSnapshot(principalIdValue: string): Promise<UniversityTrackerSnapshot> {
     const principalId = principal(principalIdValue);
-    const [programResult, itemResult] = await Promise.all([
+    const [programResult, itemResult, applicationResult] = await Promise.all([
       this.database.prepare(`SELECT principal_id, program_id, university_name, campus_name, program_name,
           ouac_code, verification_state, source_url, admission_cycle, verified_at
         FROM university_programs
@@ -193,16 +265,31 @@ export class UniversityTrackerRepository {
         WHERE principal_id = ?1 AND status = 'active'
         ORDER BY program_id, item_kind, item_key, item_id
         LIMIT 128`).bind(principalId).all<ItemRow>(),
+      this.database.prepare(`SELECT principal_id, program_id, item_id, item_kind, item_label,
+          item_status, due_date, verification_state, source_url, admission_cycle, verified_at,
+          submitted_at, updated_at
+        FROM university_application_items
+        WHERE principal_id = ?1
+        ORDER BY program_id, item_kind, item_key, item_id
+        LIMIT 128`).bind(principalId).all<ApplicationItemRow>(),
     ]);
     const programs = rows(programResult).slice(0, MAX_PROGRAMS).map((row) => programFromRow(row, principalId));
     const programIds = new Set(programs.map((program) => program.programId));
     const itemsByProgram = new Map<Ulid, UniversityTrackerItem[]>();
+    const applicationItemsByProgram = new Map<Ulid, UniversityApplicationItem[]>();
     for (const row of rows(itemResult).slice(0, MAX_ITEMS)) {
       if (!programIds.has(row.program_id as Ulid)) continue;
       const item = itemFromRow(row, principalId);
       const items = itemsByProgram.get(row.program_id as Ulid) ?? [];
       if (items.length < MAX_ITEMS_PER_PROGRAM) items.push(item);
       itemsByProgram.set(row.program_id as Ulid, items);
+    }
+    for (const row of rows(applicationResult).slice(0, MAX_APPLICATION_ITEMS)) {
+      if (!programIds.has(row.program_id as Ulid)) continue;
+      const item = applicationItemFromRow(row, principalId);
+      const items = applicationItemsByProgram.get(row.program_id as Ulid) ?? [];
+      if (items.length < MAX_APPLICATION_ITEMS_PER_PROGRAM) items.push(item);
+      applicationItemsByProgram.set(row.program_id as Ulid, items);
     }
     return Object.freeze({
       principalId,
@@ -212,9 +299,35 @@ export class UniversityTrackerRepository {
           ...program,
           requirements: Object.freeze(items.filter((item) => item.kind === "requirement")),
           dates: Object.freeze(items.filter((item) => item.kind === "date")),
+          applicationItems: Object.freeze(applicationItemsByProgram.get(program.programId) ?? []),
         });
       })),
     });
+  }
+
+  async listApplicationItemsByDueDate(
+    principalIdValue: string,
+    limit = 5,
+  ): Promise<readonly UniversityApplicationDigestItem[]> {
+    const principalId = principal(principalIdValue);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 10) {
+      throw new RangeError("university_application_digest_limit_invalid");
+    }
+    const result = await this.database.prepare(`SELECT i.principal_id, i.program_id, i.item_id,
+        i.item_kind, i.item_label, i.item_status, i.due_date, i.verification_state, i.source_url,
+        i.admission_cycle, i.verified_at, i.submitted_at, i.updated_at,
+        p.university_name, p.program_name
+      FROM university_application_items i
+      JOIN university_programs p
+        ON p.principal_id = i.principal_id AND p.program_id = i.program_id
+      WHERE i.principal_id = ?1 AND i.item_status != 'submitted_by_sid' AND p.active = 1
+      ORDER BY i.due_date IS NULL, i.due_date, i.item_id
+      LIMIT ?2`).bind(principalId, limit).all<ApplicationDigestRow>();
+    return Object.freeze(rows(result).map((row) => Object.freeze({
+      ...applicationItemFromRow(row, principalId),
+      university: inline(row.university_name, "university_application_digest_row_invalid", 160),
+      programName: inline(row.program_name, "university_application_digest_row_invalid", 160),
+    })));
   }
 
   async applyOwnerPlan(input: ApplyOwnerUniversityPlanInput): Promise<void> {
@@ -236,11 +349,17 @@ export class UniversityTrackerRepository {
     const programsById = new Map(current.programs.map((program) => [program.programId, program]));
     const itemsById = new Map(current.programs.flatMap((program) =>
       [...program.requirements, ...program.dates].map((item) => [item.itemId, program.programId] as const)));
+    const applicationItemsById = new Map(current.programs.flatMap((program) =>
+      program.applicationItems.map((item) => [item.itemId, { item, programId: program.programId }] as const)));
     const activeItemCounts = new Map(current.programs.map((program) => [
       program.programId, program.requirements.length + program.dates.length,
     ]));
+    const applicationItemCounts = new Map(current.programs.map((program) => [
+      program.programId, program.applicationItems.length,
+    ]));
     const finalProgramIds = new Set(programsById.keys());
     const seenRefs = new Set<string>();
+    const responseProgramIds = new Map<string, Ulid>();
     const statements: D1PreparedStatement[] = [];
     const resolves: D1PreparedStatement[] = [];
     const inserts: D1PreparedStatement[] = [];
@@ -258,10 +377,12 @@ export class UniversityTrackerRepository {
         programId = newUlid(now);
         finalProgramIds.add(programId);
         activeItemCounts.set(programId, 0);
+        applicationItemCounts.set(programId, 0);
       } else {
         if (!programsById.has(existingId)) throw new TypeError("university_tracker_program_unknown");
         programId = existingId;
       }
+      responseProgramIds.set(update.programRef, programId);
       const existing = programsById.get(programId);
       if (existing !== undefined && update.verification === null
         && (update.university !== null || update.campus !== null || update.programName !== null
@@ -346,11 +467,102 @@ export class UniversityTrackerRepository {
         throw new RangeError("university_tracker_item_limit_exceeded");
       }
     }
+
+    const seenApplicationRefs = new Set<string>();
+    const applicationStatements: D1PreparedStatement[] = [];
+    for (const update of input.plan.applicationUpdates ?? []) {
+      if (seenApplicationRefs.has(update.itemRef)) {
+        throw new TypeError("university_application_item_ref_duplicate");
+      }
+      seenApplicationRefs.add(update.itemRef);
+      const programId = ULID.test(update.programRef)
+        ? update.programRef as Ulid
+        : responseProgramIds.get(update.programRef);
+      if (programId === undefined || !finalProgramIds.has(programId)) {
+        throw new TypeError("university_application_program_unknown");
+      }
+      const existingId = ULID.test(update.itemRef) ? update.itemRef as Ulid : null;
+      const existingRecord = existingId === null ? undefined : applicationItemsById.get(existingId);
+      if (existingId === null && !RESPONSE_LOCAL_APPLICATION_ITEM.test(update.itemRef)
+        || existingId !== null && existingRecord === undefined
+        || existingRecord !== undefined && existingRecord.programId !== programId) {
+        throw new TypeError("university_application_item_ref_invalid");
+      }
+      if (existingRecord !== undefined && (update.kind !== null || update.label !== null)) {
+        throw new TypeError("university_application_item_invalid");
+      }
+      const kind = update.kind ?? existingRecord?.item.kind;
+      const label = update.label === null || update.label === undefined
+        ? existingRecord?.item.label
+        : inline(update.label, "university_application_item_invalid", 160);
+      const status = update.status ?? existingRecord?.item.status;
+      if (kind === undefined || !APPLICATION_KINDS.has(kind) || label === undefined
+        || status === undefined || !APPLICATION_STATUSES.has(status)) {
+        throw new TypeError("university_application_item_invalid");
+      }
+      if (update.status === null && update.statusEvidence !== null
+        || update.status !== null && update.statusEvidence === null) {
+        throw new TypeError("university_application_item_invalid");
+      }
+      if (update.statusEvidence !== null) {
+        inline(update.statusEvidence, "university_application_item_invalid", 512);
+      }
+      const currentVerification = existingRecord?.item.verification;
+      const currentDueDate = existingRecord?.item.dueDate;
+      let dueDate = currentDueDate ?? null;
+      let dueVerification = currentVerification ?? null;
+      if (update.dueDate !== null) {
+        inline(update.dueDate.evidence, "university_application_item_invalid", 512);
+        dueDate = update.dueDate.date === null
+          ? null
+          : date(update.dueDate.date, "university_application_item_invalid");
+        dueVerification = checkedVerification(update.dueDate.verification, nowIso);
+        if (dueVerification.state === "verified" && dueDate === null) {
+          throw new TypeError("university_application_item_invalid");
+        }
+      }
+      if (dueVerification === null || existingId === null && update.dueDate === null
+        || existingId === null && (update.status === null || update.statusEvidence === null)) {
+        throw new TypeError("university_application_item_invalid");
+      }
+      if (existingRecord?.item.status === "submitted_by_sid" && status !== "submitted_by_sid") {
+        throw new TypeError("university_application_item_status_invalid");
+      }
+      const submittedAt = existingRecord?.item.submittedAt
+        ?? (status === "submitted_by_sid" ? nowIso : null);
+      if (existingId === null) {
+        applicationItemCounts.set(programId, (applicationItemCounts.get(programId) ?? 0) + 1);
+        const itemId = newUlid(now);
+        applicationStatements.push(this.database.prepare(`INSERT INTO university_application_items (
+          principal_id, program_id, item_id, item_key, item_kind, item_label, item_status,
+          due_date, verification_state, source_url, admission_cycle, verified_at,
+          source_turn_id, submitted_at, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?15)`)
+          .bind(principalId, programId, itemId, applicationItemKey(kind, label), kind, label, status,
+            dueDate, dueVerification.state, dueVerification.sourceUrl, dueVerification.cycle,
+            dueVerification.verifiedAt, turnId, submittedAt, nowIso));
+      } else if (update.status !== null || update.dueDate !== null) {
+        applicationStatements.push(this.database.prepare(`UPDATE university_application_items
+          SET item_status = ?1, due_date = ?2, verification_state = ?3, source_url = ?4,
+              admission_cycle = ?5, verified_at = ?6, source_turn_id = ?7,
+              submitted_at = ?8, updated_at = ?9
+          WHERE principal_id = ?10 AND item_id = ?11`)
+          .bind(status, dueDate, dueVerification.state, dueVerification.sourceUrl, dueVerification.cycle,
+            dueVerification.verifiedAt, turnId, submittedAt, nowIso, principalId, existingId));
+      }
+      if ((applicationItemCounts.get(programId) ?? 0) > MAX_APPLICATION_ITEMS_PER_PROGRAM) {
+        throw new RangeError("university_application_item_limit_exceeded");
+      }
+    }
     if (finalProgramIds.size > MAX_PROGRAMS) throw new RangeError("university_tracker_program_limit_exceeded");
     if ([...activeItemCounts.values()].reduce((sum, count) => sum + count, 0) > MAX_ITEMS) {
       throw new RangeError("university_tracker_item_limit_exceeded");
     }
+    if ([...applicationItemCounts.values()].reduce((sum, count) => sum + count, 0) > MAX_APPLICATION_ITEMS) {
+      throw new RangeError("university_application_item_limit_exceeded");
+    }
     statements.push(...resolves, ...inserts);
+    statements.push(...applicationStatements);
     statements.push(this.database.prepare(`INSERT INTO university_tracker_turn_receipts (
       principal_id, turn_id, response_hash, applied_at
     ) VALUES (?1, ?2, ?3, ?4)`).bind(principalId, turnId, input.responseHash, nowIso));

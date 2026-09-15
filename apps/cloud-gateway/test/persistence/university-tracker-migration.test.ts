@@ -5,7 +5,7 @@ import { ConversationRepository } from "../../src/conversation/conversation-repo
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { UniversityTrackerRepository } from "../../src/university/university-tracker-repository.js";
-import { applyUniversityTrackerMigration } from "./migration.js";
+import { applyUniversityApplicationWorkflowMigration } from "./migration.js";
 
 const NOW = new Date("2026-09-15T17:00:00.000Z");
 const UNIVERSITY_TRIGGER_NAMES = [
@@ -31,6 +31,15 @@ const CHANGED_SCHOOL_TRIGGER_NAMES = [
   "school_catchup_actions_reject_delete",
   "school_course_facts_core_immutable",
 ] as const;
+const APPLICATION_TRIGGER_NAMES = [
+  "university_application_items_cap_insert",
+  "university_application_items_core_immutable",
+  "university_application_items_insert_guard",
+  "university_application_items_reject_delete",
+  "university_application_items_require_owner_turn_insert",
+  "university_application_items_require_owner_turn_update",
+  "university_application_items_submitted_terminal",
+] as const;
 
 async function seedTurn(principalId: string, turnId: Ulid, text = "Track a university program."): Promise<void> {
   await env.DB.prepare(`INSERT OR IGNORE INTO principals (
@@ -49,21 +58,25 @@ async function seedTurn(principalId: string, turnId: Ulid, text = "Track a unive
 }
 
 beforeAll(async () => {
-  await applyUniversityTrackerMigration();
+  await applyUniversityApplicationWorkflowMigration();
 });
 
-describe("0022 university tracker migration", () => {
+describe("university tracker migrations through 0024", () => {
   it("installs the bounded program and item schema with every named guard", async () => {
     const tables = await env.DB.prepare(`SELECT name FROM sqlite_master
       WHERE type = 'table' AND name LIKE 'university_%' ORDER BY name`).all<{ name: string }>();
     expect(tables.results.map((row) => row.name)).toEqual([
+      "university_application_items",
       "university_program_items",
       "university_programs",
       "university_tracker_turn_receipts",
     ]);
     const triggers = await env.DB.prepare(`SELECT name FROM sqlite_master
       WHERE type = 'trigger' AND name LIKE 'university_%' ORDER BY name`).all<{ name: string }>();
-    expect(triggers.results.map((row) => row.name)).toEqual(UNIVERSITY_TRIGGER_NAMES);
+    expect(triggers.results.map((row) => row.name)).toEqual([
+      ...APPLICATION_TRIGGER_NAMES,
+      ...UNIVERSITY_TRIGGER_NAMES,
+    ]);
     const changedSchoolGuards = await env.DB.prepare(`SELECT name, sql FROM sqlite_master
       WHERE type = 'trigger' AND name IN (
         'school_course_facts_core_immutable',
@@ -75,7 +88,7 @@ describe("0022 university tracker migration", () => {
     await expect(env.DB.prepare("PRAGMA foreign_key_check").all()).resolves.toMatchObject({ results: [] });
   });
 
-  it.each([...UNIVERSITY_TRIGGER_NAMES, ...CHANGED_SCHOOL_TRIGGER_NAMES])(
+  it.each([...APPLICATION_TRIGGER_NAMES, ...UNIVERSITY_TRIGGER_NAMES, ...CHANGED_SCHOOL_TRIGGER_NAMES])(
     "installs the %s trigger",
     async (triggerName) => {
       const trigger = await env.DB.prepare(`SELECT name FROM sqlite_master
@@ -111,6 +124,7 @@ describe("0022 university tracker migration", () => {
           addDates: [],
           resolveItemIds: [],
         }],
+        applicationUpdates: [],
       },
     });
     const snapshot = await repository.readSnapshot(principalId);
@@ -175,6 +189,7 @@ describe("0022 university tracker migration", () => {
           addDates: [],
           resolveItemIds: [],
         }],
+        applicationUpdates: [],
       },
     });
     await addProgram(firstTurn, "One", "4");
@@ -296,6 +311,7 @@ describe("0022 university tracker migration", () => {
           addDates: [],
           resolveItemIds: [],
         }],
+        applicationUpdates: [],
       },
     });
     const snapshot = await repository.readSnapshot(principalId);

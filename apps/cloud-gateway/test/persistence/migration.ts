@@ -21,6 +21,7 @@ import memoryIngressSql from "../../src/persistence/migrations/0019_memory_ingre
 import schoolCatchupSql from "../../src/persistence/migrations/0020_school_catchup.sql?raw";
 import voiceOwnerDeliverySql from "../../src/persistence/migrations/0021_voice_owner_delivery.sql?raw";
 import universityTrackerSql from "../../src/persistence/migrations/0022_university_tracker.sql?raw";
+import universityApplicationWorkflowSql from "../../src/persistence/migrations/0024_university_application_workflow.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
@@ -31,6 +32,7 @@ let memoryIngressMigrated: Promise<void> | undefined;
 let schoolCatchupMigrated: Promise<void> | undefined;
 let voiceOwnerDeliveryMigrated: Promise<void> | undefined;
 let universityTrackerMigrated: Promise<void> | undefined;
+let universityApplicationWorkflowMigrated: Promise<void> | undefined;
 
 /**
  * Split a migration into the statements D1 applies one at a time.
@@ -171,6 +173,15 @@ export async function applyUniversityTrackerMigration(): Promise<void> {
     { name: "0022_university_tracker.sql", queries: splitMigration(universityTrackerSql) },
   ]);
   await universityTrackerMigrated;
+}
+
+/** Applies the owner-reported application checklist after the university shortlist. */
+export async function applyUniversityApplicationWorkflowMigration(): Promise<void> {
+  await applyUniversityTrackerMigration();
+  universityApplicationWorkflowMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0024_university_application_workflow.sql", queries: splitMigration(universityApplicationWorkflowSql) },
+  ]);
+  await universityApplicationWorkflowMigrated;
 }
 
 /** Test-only reset for immutable per-call step-up and guest-attempt records. */
