@@ -17,6 +17,7 @@ export type VoiceSmokeScenario = typeof VOICE_SMOKE_SCENARIOS[number];
 export type OwnerStepUpOutcome = "verified" | "refused" | "waived_passed_a" | "not_started";
 
 export const LIVE_VOICE_SMOKE_CONFIRMATION = "I_AUTHORIZE_PAID_VOICE_SMOKE";
+const AUDIT_CLOCK_SKEW_MS = 5 * 60_000;
 
 export const REQUIRED_LIVE_CONFIGURATION = Object.freeze([
   "JARVIS_CLOUD_BASE_URL",
@@ -688,7 +689,9 @@ export function auditVoiceEvidence(records: readonly unknown[], auditTime = new 
         if (eventIds.has(eventId)) throw new Error();
         eventIds.add(eventId);
       }
-      if (Date.parse(dataField(record as object, "startedAt") as string) > auditTimeMs) throw new Error();
+      if (
+        Date.parse(dataField(record as object, "startedAt") as string) > auditTimeMs + AUDIT_CLOCK_SKEW_MS
+      ) throw new Error();
       if (
         scenario === "inbound"
         || scenario === "outbound-answer"

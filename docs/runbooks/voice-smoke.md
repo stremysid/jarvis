@@ -357,6 +357,10 @@ durable rejection row, exactly one rejection-delivery row, and
 `ownerAlertDisposition: "sent"`, with zero authenticated turns, model requests,
 personal-context reads or owner authority. Start this refusal scenario at least
 15 minutes after any earlier owner rejection so its alert cannot be coalesced.
+A refusal ending through a third re-prompt (`reprompts_exhausted`) or the
+60-second window (`deadline_expired`) is invalid evidence, must be re-run at
+additional provider cost, and is a failed paid scenario requiring stop and
+review before any retry.
 A Passed-A call under an enabled waiver cannot satisfy this refusal scenario
 because that call would skip the phrase.
 

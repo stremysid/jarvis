@@ -383,9 +383,19 @@ describe("validateEvidence", () => {
     expect(() => validateEvidence({ ...outboundNoAnswerEvidence, ownerStepUpAttemptCount: 1 })).toThrow(/^unsafe_or_incomplete_evidence$/u);
   });
 
-  it("requires outbound owner evidence to use the not_applicable attestation binding", () => {
+  it("rejects an answered outbound call granted owner authority with no step-up", () => {
+    expect(() => validateEvidence({
+      ...outboundAnswerEvidence,
+      ownerStepUpOutcome: "not_started",
+      ownerStepUpPromptCount: 0,
+      ownerStepUpAttemptCount: 0,
+    })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+  });
+
+  it("binds the not_applicable attestation to outbound owner evidence only", () => {
     expect(() => validateEvidence({ ...outboundAnswerEvidence, callerIdAttestation: "absent" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
     expect(() => validateEvidence({ ...outboundNoAnswerEvidence, callerIdAttestation: "absent" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    expect(() => validateEvidence({ ...inboundEvidence, callerIdAttestation: "not_applicable" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
     expect(() => validateEvidence({ ...outboundAnswerEvidence, ownerCallerIdPolicy: "waive_on_passed_a" })).toThrow(
       /^unsafe_or_incomplete_evidence$/u,
     );
@@ -786,8 +796,14 @@ describe("offline evidence lifecycle", () => {
     ], auditTime)).toThrow(/^release_voice_evidence_incomplete$/u);
   });
 
-  it("rejects a record whose call starts after the audit time", () => {
-    expect(() => auditVoiceEvidence([
+  it("rejects an invalid audit time", () => {
+    expect(() => auditVoiceEvidence(completeEvidenceSet, new Date("nonsense"))).toThrow(
+      /^release_voice_evidence_incomplete$/u,
+    );
+  });
+
+  it("allows bounded clock skew but rejects implausibly future evidence", () => {
+    expect(auditVoiceEvidence([
       inboundEvidence,
       unauthorizedEvidence,
       outboundAnswerEvidence,
@@ -797,6 +813,18 @@ describe("offline evidence lifecycle", () => {
         ...failureEvidence,
         startedAt: "2026-08-30T00:01:00.000Z",
         endedAt: "2026-08-30T00:02:00.000Z",
+      },
+    ], auditTime)).toBe(true);
+    expect(() => auditVoiceEvidence([
+      inboundEvidence,
+      unauthorizedEvidence,
+      outboundAnswerEvidence,
+      outboundNoAnswerEvidence,
+      ownerStepUpRefusedEvidence,
+      {
+        ...failureEvidence,
+        startedAt: "2099-01-01T00:00:00.000Z",
+        endedAt: "2099-01-01T00:01:00.000Z",
       },
     ], auditTime)).toThrow(/^release_voice_evidence_incomplete$/u);
   });
