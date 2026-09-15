@@ -672,7 +672,16 @@ describe("offline evidence lifecycle", () => {
     ], auditTime)).toThrow(/^release_voice_evidence_incomplete$/u);
     expect(() => auditVoiceEvidence([
       inboundEvidence,
-      inboundEvidence,
+      {
+        ...inboundEvidence,
+        correlationId: "01j0000000000000000000000e",
+        eventIds: ["01j0000000000000000000000f", "01j0000000000000000000000g"],
+        conversationTurnResult: {
+          ...inboundEvidence.conversationTurnResult,
+          committedUserEventId: "01j0000000000000000000000f",
+          sentAssistantEventId: "01j0000000000000000000000g",
+        },
+      },
       unauthorizedEvidence,
       outboundAnswerEvidence,
       outboundNoAnswerEvidence,
