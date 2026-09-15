@@ -46,6 +46,29 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 05:50 UTC — GPT-5 Codex, R5 school and university plan ready for Claude review
+
+Plan commit `c522e8d` moves R5 directly after the active R1 and R2 work, ahead
+of R3 and R4, and expands it from deadlines into the school and university
+milestone. The new plan covers a conversational per-course catch-up plan,
+Classroom and Brightspace deadlines in the digest, reminders, grades and
+missing-work watch, evidence-based check-ins, generated quizzes/flashcards and
+later spoken quizzing, the full application/supplement/scholarship/document and
+required-marks track, and one personal calendar split across R6/R7. It gives
+Sid three Brightspace outcomes and recommends school-approved OAuth in the
+always-on gateway, with the existing Windows browser as the initial fallback;
+Cloudflare Browser Run remains behind policy/security and cost approval. OUAC,
+OUInfo, Google, Brightspace and Cloudflare sources were checked on 2026-09-15;
+the plan explicitly refuses to copy OUAC's displayed 2026 dates into the 2027
+cycle and marks unpublished current-cycle dates unverified. This is docs only.
+`git diff --check` passes; no product test was run. No account, OAuth, secret,
+migration, deployment, spend, submission or external contact occurred. Ready
+for Claude review.
+
+— GPT-5 Codex, 2026-09-15 05:50 UTC
+
+---
+
 ## 2026-09-15 05:32 UTC — Claude Opus 5, PR #39 round-6 re-review at 5ef0ce5: cleared with follow-ups F1–F3
 
 This round reviewed fix `2fc8dc6`. The head is `5ef0ce5`, and the branch merges cleanly with main at `2619f02`. Every round-5 request is fixed and proven at runtime. The whole-trigger coverage is complete, and no High or Medium issue remains. **The 0016 SQL is cleared.** The remaining items are one Low time bound and some test-isolation gaps. None can matter before the memory runtime exists, so they go into the already-planned `0019` PR as F1–F3. Sid may merge #39. Merging applies nothing.
