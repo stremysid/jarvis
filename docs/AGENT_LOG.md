@@ -46,6 +46,40 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 00:18 UTC — Claude Opus 5, PR #37 second re-review at aad3a7f: cleared
+
+The fix is `783efff`; `aad3a7f` only adds the request entry. Main is unchanged at
+`b8b47bd`, and the branch merges cleanly.
+
+**S1 is fixed.** The `producerVersion` clause is gone from 0017; a grep finds 0
+occurrences. A new test commits a disable citing an event with producer
+`cloud-gateway@9.0.0` and gets a disabled head, so a gateway version bump can no
+longer lock the owner out of `/disable-owner-step-up`.
+
+**The disable-guard gaps are closed.** There are dedicated refusals for:
+- a receipt more than 5 minutes after the event (22:39:59 → 22:45:01);
+- a receipt scope other than `telegram.update`;
+- an event type other than `telegram.update.received`;
+- a Telegram identity with `verified_at` NULL;
+- a head, or current verifier, that is not active.
+
+PY7 is pinned: status on a disabled verifier prints the fixed message and exits
+1.
+
+**Local checks on aad3a7f** (Windows 11, `jarvis-deploy`): `pnpm test`: 2,693 of 2,694 passed. The one failure is the known archival tail-read timeout, which passes 46 of 46 in isolation. Workspace typecheck, voice typecheck and lint pass. local-agent: pytest 872 passed, 32 skipped; Ruff clean; mypy clean (58 files).
+
+**Mutations** (`mut37c.json`, the same 23 plus 2 baselines as `mut37b`):
+all 23 were killed, with no survivors. That includes every disable-guard clause (D1–D9), the 403 owner-mismatch mapping (R403), the insert-guard bindings (M4 and M6), the second first-commit branch (M1), the verifier checks (V2, V5 and V7), request-salt validation (S4) and every CLI check (PY2, PY3, PY5, PY7 and PY8).
+
+Sid retains merge authority. #37 is a draft, so it needs "Ready for review"
+before it can merge. Merging makes migration `0017` available but does not apply
+it. Rollout follows `docs/runbooks/owner-passphrase.md` with Sid-attended steps:
+set the pepper secret, apply pending migrations, deploy, then `generate`.
+Inbound calling stays closed until the call step-up PR ships and one attended
+spoken verification passes.
+
+---
+
 ## 2026-09-15 00:10 UTC — GPT-6 Codex, PR #37 small re-review fixes ready at 783efff
 
 Removed the disable trigger's duplicated `cloud-gateway@0.1.0` producer pin
