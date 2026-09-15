@@ -276,7 +276,10 @@ describe("validateEvidence", () => {
       expect(() => validateEvidence({ ...evidence, ownerAuthorityGranted: false })).toThrow(/^unsafe_or_incomplete_evidence$/u);
       expect(() => validateEvidence({ ...evidence, ownerStepUpBeforeFirstModelTurn: false })).toThrow(/^unsafe_or_incomplete_evidence$/u);
       expect(() => validateEvidence({ ...evidence, authenticationMode: "owner_identity_pin_free" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+      expect(() => validateEvidence({ ...evidence, ownerStepUpPromptCount: 0 })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+      expect(() => validateEvidence({ ...evidence, ownerStepUpAttemptCount: 0 })).toThrow(/^unsafe_or_incomplete_evidence$/u);
     }
+    expect(validateEvidence({ ...inboundEvidence, ownerStepUpPromptCount: 2, ownerStepUpAttemptCount: 2 })).toBe(true);
   });
 
   it("accepts only the explicit inbound Passed-A waiver while its policy is on", () => {

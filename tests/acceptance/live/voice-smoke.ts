@@ -331,7 +331,7 @@ function validateOwnerStepUp(
     || attestation !== "passed_a" && attestation !== "other" && attestation !== "absent"
     || policy !== "passphrase_always" && policy !== "waive_on_passed_a"
     || evidence.ownerAuthorityGranted !== claimsOwnerAuthority
-    || !validInteger(evidence.ownerStepUpPromptCount, 0, 3)
+    || !validInteger(evidence.ownerStepUpPromptCount, 0, 5)
     || !validInteger(evidence.ownerStepUpAttemptCount, 0, 3)
     || direction === "outbound" && outcome !== "waived_passed_a" && attestation !== "absent"
   ) unsafe();
@@ -354,7 +354,7 @@ function validateOwnerStepUp(
     if (outcome === "verified") {
       if (
         !claimsOwnerAuthority
-        || evidence.ownerStepUpPromptCount !== 1
+        || !validInteger(evidence.ownerStepUpPromptCount, 1, 5)
         || !validInteger(evidence.ownerStepUpAttemptCount, 1, 3)
       ) unsafe();
     } else if (claimsOwnerAuthority) unsafe();
