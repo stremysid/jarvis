@@ -372,6 +372,7 @@ describe("validateEvidence", () => {
     expect(validateEvidence(outboundNoAnswerEvidence)).toBe(true);
     expect(() => validateEvidence({ ...outboundNoAnswerEvidence, purposeDisclosed: true })).toThrow(/^unsafe_or_incomplete_evidence$/u);
     expect(() => validateEvidence({ ...outboundNoAnswerEvidence, ownerStepUpOutcome: "verified" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    expect(() => validateEvidence({ ...outboundNoAnswerEvidence, ownerStepUpOutcome: "refused" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
     expect(() => validateEvidence({ ...outboundNoAnswerEvidence, ownerAuthorityGranted: true })).toThrow(/^unsafe_or_incomplete_evidence$/u);
     expect(() => validateEvidence({ ...outboundNoAnswerEvidence, modelRequests: 1 })).toThrow(/^unsafe_or_incomplete_evidence$/u);
     expect(() => validateEvidence({ ...outboundNoAnswerEvidence, personalContextReads: 1 })).toThrow(/^unsafe_or_incomplete_evidence$/u);
@@ -385,6 +386,9 @@ describe("validateEvidence", () => {
   it("requires outbound owner evidence to use the not_applicable attestation binding", () => {
     expect(() => validateEvidence({ ...outboundAnswerEvidence, callerIdAttestation: "absent" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
     expect(() => validateEvidence({ ...outboundNoAnswerEvidence, callerIdAttestation: "absent" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+    expect(() => validateEvidence({ ...outboundAnswerEvidence, ownerCallerIdPolicy: "waive_on_passed_a" })).toThrow(
+      /^unsafe_or_incomplete_evidence$/u,
+    );
   });
 
   it("requires observable rejection delivery and a sent owner alert for refused owner step-up", () => {
@@ -424,6 +428,12 @@ describe("validateEvidence", () => {
 
   it("requires refused owner step-up to have zero authenticated turns", () => {
     expect(() => validateEvidence({ ...ownerStepUpRefusedEvidence, authenticatedTurns: 1 })).toThrow(
+      /^unsafe_or_incomplete_evidence$/u,
+    );
+  });
+
+  it("rejects negative-zero refusal re-prompt counts", () => {
+    expect(() => validateEvidence({ ...ownerStepUpRefusedEvidence, ownerStepUpRepromptCount: -0 })).toThrow(
       /^unsafe_or_incomplete_evidence$/u,
     );
   });
@@ -738,9 +748,9 @@ describe("offline evidence lifecycle", () => {
     expect(() => auditVoiceEvidence([
       inboundEvidence,
       unauthorizedEvidence,
-      { ...outboundAnswerEvidence, ownerCallerIdPolicy: "waive_on_passed_a" },
+      outboundAnswerEvidence,
       outboundNoAnswerEvidence,
-      ownerStepUpRefusedEvidence,
+      { ...ownerStepUpRefusedEvidence, ownerCallerIdPolicy: "waive_on_passed_a" },
       failureEvidence,
     ], auditTime)).toThrow(/^release_voice_evidence_incomplete$/u);
   });
