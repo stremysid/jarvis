@@ -1,6 +1,6 @@
 # Handoff
 
-Current as of **2026-09-14**. Verify the current branch and checks before
+Current as of **2026-09-15**. Verify the current branch and checks before
 using this checkpoint. R0 passed; calling remains R1.
 
 PR #25 merged as `fd39301` after max review. Production D1 now has migrations
@@ -10,7 +10,7 @@ because Twilio is not configured; outbound calling is separately disabled by
 `outbound_runtime_controls.enabled = 0`. The release gate still requires the
 retained live-call evidence.
 
-## R1 is active; R2 schema foundations are merged but unapplied
+## R1 is active; R2 runtime foundation is under review
 
 R0 passed on 2026-09-11. R1 depends on R0 and is entirely cloud-side.
 PR #23 supplied item 2's fake calling/access matrix and confirmed Telegram
@@ -154,19 +154,44 @@ later optional one-way export and is not built or read back in R2.
 PRs #35, #36 and #38 merged the extraction policy, topic reducer, evaluator and
 approved design. PR #39 merged additive `0016_cloud_memory.sql` as `0d659bf`;
 PR #42 merged the owner-command ingress boundary in
-`0019_memory_ingress.sql` as `f0bfbe9`. Main therefore owns migration names
-through `0019`, but this work applied none of `0016` through `0019`. They still
-require the reviewed, Sid-attended scratch remote-D1 proof before Sid decides
-on a production apply.
+`0019_memory_ingress.sql` as `f0bfbe9`; PR #44 merged the reviewed runtime-slice
+plan as `3e28bda`; and school PR #45 brought main to `e0b5072` with
+`0020_school_catchup.sql`. Main therefore owns migration names through `0020`,
+but this R2 work applied none of them. The R2 migrations still require the
+reviewed, Sid-attended scratch remote-D1 proof before Sid decides on a
+production apply.
 
-No new runtime writer, archive-complete history index, automatic distillation
-Workflow or channel adapter is enabled yet. The next slice is the
-channel-neutral canonical memory repository in
+Draft [PR #47](https://github.com/ksid1229-ops/jarvis/pull/47) is the first
+slice in
 [`plan/2026-09-15-r2-memory-runtime-slices.md`](plan/2026-09-15-r2-memory-runtime-slices.md).
-Sid will use ordinary speech and text rather than learned commands. After one
-reviewed scratch-target setup, restore drills run automatically and alert him
-only on failure. No live call, provider call, migration application, secret
-operation or deployment was performed by this planning work.
+It adds the channel-neutral D1 repository for root/inbox bootstrap, exact source
+validation, atomic initial item writes, canonical reads and current-path-first
+topic resolution. It is deliberately uncomposed: no channel adapter,
+archive-complete history index, automatic distillation Workflow, provider or
+scheduled job uses it. It changes no migration and performs no live call,
+provider call, migration application, secret operation or deployment. After
+independent review and merge, the next R2 PR is the channel-neutral
+owner-controls service. Sid will eventually use ordinary speech and text rather
+than learned commands; that channel behavior is not part of PR #47.
+
+Reviewer pre-probes on the first ready head exposed that a live event receipt
+could accompany an exact excerpt absent from the event. Fix `052f1fc` now
+validates the canonical event envelope and its row mirrors, derives its live
+channel, and refuses an absent excerpt before the write boundary. The archived
+principal probe did not reach the repository because its fixture failed the
+existing archive seal comparison; the merged design already records that the
+archive catalog lacks principal and event-type evidence, so archived-only
+material remains restricted to uncertain, proposed model memory.
+
+Final local validation on implementation head `052f1fc` passes the two focused
+repository files (17 tests), workspace lint and typecheck, and the complete
+workspace suite (148 files / 3,094 tests) with Vitest bounded to four workers.
+The repository's known non-gating test typecheck has no error in the new memory
+source or tests. All eight final-source faults were caught, including exact
+live-excerpt provenance, then the source file returned to SHA-256
+`e3c668563ee074abd3294688a437892b117c9936146ab95d1dc69b3f96b5ead7`.
+This is local evidence only; independent Claude xhigh review is pending and no
+live acceptance is claimed.
 
 PR #16 at `27b232f` has completed the reviewer's requested changes. The
 reviewer independently verified migration byte identity, all five trigger
