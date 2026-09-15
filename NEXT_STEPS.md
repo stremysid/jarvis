@@ -4,6 +4,16 @@ The milestone order is in [the roadmap](docs/plan/2026-09-03-jarvis-roadmap.md).
 **R0 passed on 2026-09-11 and R1 is open.** Do not resume superseded
 implementation plans.
 
+## R2 cloud-memory schema candidate
+
+PR #38 merged at `b8b47bd`. Draft
+[PR #39](https://github.com/ksid1229-ops/jarvis/pull/39) now carries the
+separate additive `0016_cloud_memory.sql` candidate from current `main`, plus
+its trigger-removal mutations, behavioral migration tests and #38's final
+shared-vector nits. It awaits Claude Opus 5 max review. Do not apply `0016`,
+deploy, or start provider/model evaluation from this branch. Sid owns merge,
+migration and deployment after the review clears it.
+
 ## R2 item 3: fact projection
 
 Item 2 merged through [PR #13](https://github.com/ksid1229-ops/jarvis/pull/13)
