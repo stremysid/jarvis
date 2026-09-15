@@ -507,6 +507,18 @@ source deadline as `cancelled`. Nothing marks a deadline `submitted` or
 grade/missing-work watch described in the plan is what closes those states,
 and it needs separately approved Classroom and Brightspace grade connectors.
 
+A completed Brightspace `VTODO` is therefore stored with the same `cancelled`
+status as a teacher-cancelled item. That is correct for stopping deadline
+reminders, but the later grade or missing-work watch must not interpret this
+status as evidence that the teacher cancelled the work. The deadline schema
+does not preserve which of those two upstream statuses produced the closure.
+
+If a cancelled event later returns as live with byte-for-byte unchanged
+deadline content, the repository's unchanged path leaves it `cancelled`.
+The revised-content path also preserves status, so restoration needs an
+explicit reopen rule in a later deadline-status slice; the current feed must
+not claim that either form reopened.
+
 A deadline that stops appearing in a sweep is deliberately NOT cancelled: a
 calendar export that half-succeeds can return fewer items and is
 indistinguishable from a teacher deleting one. One bad export would cancel a

@@ -23,6 +23,7 @@ import type {
   DigestProject,
 } from "../digest/digest-types.js";
 import type { Deadline, DeadlineSource, DeadlineSourceKind } from "../deadlines/deadline-types.js";
+import { BRIGHTSPACE_WINDOW_ITEM_LIMIT } from "../deadlines/brightspace-ical-client.js";
 import type { DecisionItem } from "../decisions/decision-types.js";
 import type { SchoolCatchupAction } from "../school/school-catchup-types.js";
 import { assessStaleness, type ProjectStalenessReport } from "../projects/stalled-detector.js";
@@ -85,7 +86,12 @@ function deadlineSourceName(source: Pick<DeadlineSource, "kind">): string {
 
 function scheduledSourceGap(source: DeadlineSource, observedAt: Date): string | null {
   if (!source.active || source.kind === "manual") return null;
-  if (source.lastFailure !== null) return source.lastFailure;
+  if (source.lastFailure !== null) {
+    if (source.kind === "brightspace" && /^source_items_truncated:\d+$/u.test(source.lastFailure)) {
+      return `showing the next ${BRIGHTSPACE_WINDOW_ITEM_LIMIT} Brightspace items`;
+    }
+    return source.lastFailure;
+  }
   if (source.lastSuccessAt === null) return "has never synced";
   const lastSuccess = Date.parse(source.lastSuccessAt);
   const age = observedAt.getTime() - lastSuccess;

@@ -16,6 +16,8 @@ const MAXIMUM_FEED_URL_CHARACTERS = 4_096;
 const MAXIMUM_COMPONENTS = 2_000;
 const MAXIMUM_PROPERTIES_PER_COMPONENT = 256;
 const DEFAULT_TIMEOUT_MS = 10_000;
+/** The bounded live-item set one sweep writes; cancellations remain additive. */
+export const BRIGHTSPACE_WINDOW_ITEM_LIMIT = 180;
 const UNSAFE_URL_CHARACTERS = /[\s\p{Cc}\p{Cf}]/u;
 const CONTENT_NAME = /^[A-Z0-9_.-]+$/u;
 const DATE = /^(\d{4})(\d{2})(\d{2})$/u;
@@ -27,7 +29,6 @@ export type BrightspaceFeedFailureCode =
   | "brightspace_feed_rejected"
   | "brightspace_feed_unavailable"
   | "brightspace_feed_too_large"
-  | "brightspace_feed_too_many_items"
   | "brightspace_feed_invalid"
   | "brightspace_timezone_invalid";
 

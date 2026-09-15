@@ -75,9 +75,10 @@ PowerShell 7 window:
 ```
 
 Expected outcome: one active `brightspace-ical` row, a recent
-`last_success_at`, and null failure fields. Confirm one real event's date and
-time against Brightspace and the next morning digest. This is **live
-acceptance**; local parser, ingestion, and digest tests do not establish it.
+`last_success_at`, and either null failure fields or the bounded partial-result
+code described below. Confirm one real event's date and time against
+Brightspace and the next morning digest. This is **live acceptance**; local
+parser, ingestion, and digest tests do not establish it.
 
 Date-only entries use 23:59:59.999 in `DIGEST_TIMEZONE` as a conservative
 reminder because the current deadline table stores only instants. A floating
@@ -90,8 +91,16 @@ says `Brightspace: not set up`. If a previously configured URL is removed, the
 stored source records `brightspace_configuration_missing` and retains its
 last-known deadlines rather than claiming the feed is empty.
 
-Failure meanings are fixed codes and never contain the private URL or response
-body:
+After setup and an approved deployment, Sid can say `check D2L now` in his
+ordinary Telegram conversation. This is an owner-only natural-language turn,
+not a slash command. It uses the same bounded feed path as the hourly job and
+allows at most one request per five minutes across Worker isolates. The reply
+names a successful refresh time, a fixed failure code with the timestamped
+last-known snapshot, or the timestamped snapshot used during the cooldown. It
+makes no feed request while the URL is absent or the source is disabled.
+
+Source-health meanings are fixed codes and never contain the private URL or
+response body:
 
 - `brightspace_feed_url_invalid`: the configured value is not an acceptable
   HTTPS subscription URL. Re-copy it through the attended setup above.
@@ -104,7 +113,11 @@ body:
   network failure. The next hourly run retries normally.
 - `brightspace_timezone_invalid`: `DIGEST_TIMEZONE` is not an IANA timezone.
   Correct Worker configuration; re-copying the private feed URL will not help.
-- `brightspace_feed_too_large`, `brightspace_feed_too_many_items`, or
-  `brightspace_feed_invalid`: the response is
+- `brightspace_feed_too_large` or `brightspace_feed_invalid`: the response is
   outside the bounded iCalendar contract. Last-known deadlines stay visible
   and the digest names the source failure.
+- `source_items_truncated:<count>`: the refresh succeeded, but more than 180
+  live items fell inside the 14-days-past/120-days-ahead window. Jarvis keeps
+  the soonest 180 plus every in-window cancellation, records how many later
+  items were omitted, and the digest says it is `showing the next 180
+  Brightspace items` instead of treating the whole source as failed.

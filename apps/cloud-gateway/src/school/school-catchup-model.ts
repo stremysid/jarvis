@@ -45,6 +45,7 @@ const PLAN_SAVE_COMPLETIONS = Object.freeze([
   /\b(?:saved|updated|recorded|stored|added)\b.{0,48}\b(?:to|in)\s+(?:your\s+)?(?:school|course|catch-?up|plan|university|program|tracker)\b/iu,
 ]);
 const OWNER_ACKNOWLEDGEMENT = /^\s*(?:ok(?:ay)?|thanks?(?:\s+you)?|got\s+it|sounds\s+good|cool|alright|sure|👍)\s*[.!]?\s*$/iu;
+const BRIGHTSPACE_REFRESH_REQUEST = /^\s*(?:jarvis[,\s]+)?(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:check|refresh|update)\s+(?:my\s+)?(?:d2l|brightspace)(?:\s+(?:calendar|deadlines?|feed))?\s+(?:right\s+)?now(?:\s*,?\s*please)?[.!?]*\s*$/iu;
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
 const encoder = new TextEncoder();
 const SAVE_FAILURE_LINE = "I couldn't update your school plan.";
@@ -62,6 +63,13 @@ interface SchoolCatchupModelDependencies {
   readonly redactor: { redactText(text: string): { readonly ok: boolean; readonly text?: string } };
   readonly timeZone: string;
   readonly now?: () => Date;
+  readonly ownerPrincipalId?: string;
+  readonly refreshBrightspace?: (now: Date) => Promise<string>;
+}
+
+/** A narrow natural-language intent, deliberately separate from slash commands. */
+export function isBrightspaceRefreshRequest(text: string): boolean {
+  return text.isWellFormed() && BRIGHTSPACE_REFRESH_REQUEST.test(text.normalize("NFC"));
 }
 
 function exactRecord(value: unknown, fields: readonly string[], error: string): Record<string, unknown> {
@@ -410,6 +418,21 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       return;
     }
     const now = new Date(this.now().getTime());
+    if (
+      this.dependencies.refreshBrightspace !== undefined
+      && input.principalId === this.dependencies.ownerPrincipalId
+      && isBrightspaceRefreshRequest(input.userText)
+    ) {
+      try {
+        yield Object.freeze({ index: 0, text: await this.dependencies.refreshBrightspace(now) });
+      } catch {
+        yield Object.freeze({
+          index: 0,
+          text: "Brightspace refresh failed (brightspace_ingestion_failed). No last-known Brightspace snapshot is available.",
+        });
+      }
+      return;
+    }
     const today = localDate(now, this.dependencies.timeZone);
     let snapshot: SchoolCatchupSnapshot;
     let universitySnapshot: UniversityTrackerSnapshot | null = null;

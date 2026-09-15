@@ -62,6 +62,25 @@ export class ScheduledRunRepository {
     return { ...claim, startedAt };
   }
 
+  /** Atomically admits one run only when this job has been quiet since the supplied instant. */
+  async claimAfterCooldown(claim: RunClaim, notBefore: Date): Promise<ClaimedRun | null> {
+    const startedAt = this.#clock.now().toISOString();
+    const earliest = new Date(notBefore.getTime()).toISOString();
+    const result = await this.#database
+      .prepare(
+        `INSERT INTO scheduled_runs (job, run_key, started_at)
+         SELECT ?, ?, ?
+         WHERE NOT EXISTS (
+           SELECT 1 FROM scheduled_runs WHERE job = ? AND started_at > ?
+         )
+         ON CONFLICT (job, run_key) DO NOTHING`,
+      )
+      .bind(claim.job, claim.runKey, startedAt, claim.job, earliest)
+      .run();
+    if ((result.meta.changes ?? 0) === 0) return null;
+    return { ...claim, startedAt };
+  }
+
   /** Mark a claimed run finished. Called only on the path that claimed it. */
   async finish(claim: RunClaim): Promise<void> {
     await this.#database

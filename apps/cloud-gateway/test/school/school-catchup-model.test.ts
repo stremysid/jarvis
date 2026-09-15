@@ -3,6 +3,7 @@ import type { Ulid } from "../../../../packages/contracts/src/index.js";
 import type { ModelAdapter, ModelAdapterStreamInput, ModelToken } from "../../src/model/model-types.js";
 import { Redactor } from "../../src/security/redaction.js";
 import {
+  isBrightspaceRefreshRequest,
   parseOwnerCatchupPlan,
   SchoolCatchupModelAdapter,
 } from "../../src/school/school-catchup-model.js";
@@ -475,5 +476,50 @@ describe("SchoolCatchupModelAdapter", () => {
       "I can still help with the school work in your message.\n\nI couldn't update your school plan.",
     );
     expect(reply).not.toContain("updated your school plan");
+  });
+
+  it("handles a plain-speech D2L refresh only on the owner's own Telegram turn", async () => {
+    const ordinary = JSON.stringify({
+      engaged: false,
+      reply: "Ordinary reply.",
+      courseUpdates: [],
+      completeActionIds: [],
+      plan: [],
+    });
+    const model = new SequenceModel([ordinary, "Voice reply."]);
+    const readSnapshot = vi.fn(async () => snapshot());
+    const refreshBrightspace = vi.fn(async () => "Brightspace refreshed at 2026-09-15T11:30:00.000Z.");
+    const adapter = new SchoolCatchupModelAdapter({
+      model,
+      repository: { readSnapshot, applyOwnerPlan: async () => undefined },
+      redactor: new Redactor(),
+      timeZone: "America/Toronto",
+      now: () => NOW,
+      ownerPrincipalId: "principal:owner",
+      refreshBrightspace,
+    });
+
+    await expect(collect(adapter.stream(input({ userText: "Can you check D2L now, please?" })))).resolves.toBe(
+      "Brightspace refreshed at 2026-09-15T11:30:00.000Z.",
+    );
+    expect(refreshBrightspace).toHaveBeenCalledWith(NOW);
+    expect(readSnapshot).not.toHaveBeenCalled();
+    expect(model.requests).toEqual([]);
+
+    await expect(collect(adapter.stream(input({
+      principalId: "principal:guest",
+      userText: "Can you check D2L now, please?",
+    })))).resolves.toBe("Ordinary reply.");
+    expect(refreshBrightspace).toHaveBeenCalledTimes(1);
+    expect(model.requests).toHaveLength(1);
+
+    await expect(collect(adapter.stream(input({
+      channel: "voice",
+      userText: "Check Brightspace now.",
+    })))).resolves.toBe("Voice reply.");
+    expect(refreshBrightspace).toHaveBeenCalledTimes(1);
+    expect(model.requests).toHaveLength(2);
+    expect(isBrightspaceRefreshRequest("check D2L now")).toBe(true);
+    expect(isBrightspaceRefreshRequest("/check D2L now")).toBe(false);
   });
 });
