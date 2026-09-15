@@ -1,0 +1,89 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/memory-owner-controls.test.ts -t zzreviewerpr50
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-deploy
+
+Using secrets defined in process.env
+stdout | apps/cloud-gateway/test/memory/memory-owner-controls.test.ts > zzreviewerpr50 > L1 an over-long remember is refused only after a command event is written
+L1 REPORT memory_refused 1 1
+
+ ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (30 tests | 4 failed | 26 skipped) 295ms
+     × H1a remembers a meaning-flipping fragment as an owner-stated fact 21ms
+     × H1b remembers a mid-word fragment 13ms
+     × M1 replaying remember after forget returns the hidden text with a Remembered receipt 83ms
+     × L1 an over-long remember is refused only after a command event is written 19ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts > zzreviewerpr50 > H1a remembers a meaning-flipping fragment as an owner-stated fact
+MemoryRepositoryError: memory_refused
+ ❯ refuse apps/cloud-gateway/src/memory/memory-owner-controls.ts:121:9
+    119|
+    120| function refuse(): never {
+    121|   throw new MemoryRepositoryError("memory_refused");
+       |         ^
+    122| }
+    123|
+ ❯ apps/cloud-gateway/src/memory/memory-owner-controls.ts:399:57
+ ❯ MemoryOwnerControlsService.safely apps/cloud-gateway/src/memory/memory-owner-controls.ts:699:14
+ ❯ apps/cloud-gateway/test/memory/memory-owner-controls.test.ts:912:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts > zzreviewerpr50 > H1b remembers a mid-word fragment
+MemoryRepositoryError: memory_refused
+ ❯ refuse apps/cloud-gateway/src/memory/memory-owner-controls.ts:121:9
+    119|
+    120| function refuse(): never {
+    121|   throw new MemoryRepositoryError("memory_refused");
+       |         ^
+    122| }
+    123|
+ ❯ apps/cloud-gateway/src/memory/memory-owner-controls.ts:399:57
+ ❯ MemoryOwnerControlsService.safely apps/cloud-gateway/src/memory/memory-owner-controls.ts:699:14
+ ❯ apps/cloud-gateway/test/memory/memory-owner-controls.test.ts:921:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts > zzreviewerpr50 > M1 replaying remember after forget returns the hidden text with a Remembered receipt
+MemoryRepositoryError: memory_refused
+ ❯ refuse apps/cloud-gateway/src/memory/memory-owner-controls.ts:121:9
+    119|
+    120| function refuse(): never {
+    121|   throw new MemoryRepositoryError("memory_refused");
+       |         ^
+    122| }
+    123|
+ ❯ requireMemoryIntent apps/cloud-gateway/src/memory/memory-owner-controls.ts:223:40
+ ❯ apps/cloud-gateway/src/memory/memory-owner-controls.ts:511:7
+ ❯ MemoryOwnerControlsService.safely apps/cloud-gateway/src/memory/memory-owner-controls.ts:699:20
+ ❯ MemoryOwnerControlsService.forget apps/cloud-gateway/src/memory/memory-owner-controls.ts:509:17
+ ❯ apps/cloud-gateway/test/memory/memory-owner-controls.test.ts:930:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts > zzreviewerpr50 > L1 an over-long remember is refused only after a command event is written
+AssertionError: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ apps/cloud-gateway/test/memory/memory-owner-controls.test.ts:947:34
+    945|     console.log("L1 REPORT", code, before, await commandCount());
+    946|     expect(code).toBe("memory_refused");
+    947|     expect(await commandCount()).toBe(before + 1);
+       |                                  ^
+    948|   });
+    949| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 26 skipped (30)
+   Start at  16:47:36
+   Duration  2.33s (transform 734ms, setup 0ms, import 1.36s, tests 295ms, environment 0ms)
+

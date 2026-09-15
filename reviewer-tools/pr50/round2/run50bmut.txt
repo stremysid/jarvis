@@ -1,0 +1,126 @@
+checked out ccf7c12 at ccf7c12
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  26 passed (26)
+
+== B1a-negation-guard: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  26 passed (26)
+
+== B1b-whole-sentence-quote: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (26 tests | 4 failed) 3202ms
+   Test Files  1 failed (1)
+   Tests  4 failed | 22 passed (26)
+   × refuses a reported-speech fragment before recording a command 70ms
+   × refuses a conditional fragment before recording a command 72ms
+   × refuses a mid-word fragment before recording a command 72ms
+   × refuses text absent from the owner's turn without recording a command or canonical item 49ms
+
+== B1c-prefix-strip: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (26 tests | 14 failed) 1367ms
+   Test Files  1 failed (1)
+   Tests  14 failed | 12 passed (26)
+   × remembers exact text from the authenticated owner's current turn and replays it exactly 18ms
+   × suppresses text when a remember replay is no longer the current transition 12ms
+   × reports a malformed stored owner command as corrupt 13ms
+   × preserves a valid command ULID containing a six-digit run 12ms
+
+== B1d-extraction-negation-framing: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (47 tests | 2 failed) 13ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  2 failed | 71 passed (73)
+   × keeps the complete negated first-person sentence out of automatic trust: I am not allergic to peanuts. 4ms
+   × keeps the complete negated first-person sentence out of automatic trust: I never share private notes. 1ms
+
+== S1-stale-replay-suppression: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (26 tests | 1 failed) 3954ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 25 passed (26)
+   × suppresses text when a remember replay is no longer the current transition 174ms
+
+== S2a-service-intent-check: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  26 passed (26)
+
+== S2b-one-mutation-key-per-event: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (26 tests | 2 failed) 3138ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 24 passed (26)
+   × refuses a second different mutation authorized by one owner event 160ms
+   × atomically accepts at most one concurrent mutation for one owner event 210ms
+
+== S2c-repository-intent-check: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  40 passed (40)
+
+== S3a-suppressed-excerpt: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (26 tests | 1 failed) 2808ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 25 passed (26)
+   × reports sibling memories hidden by a forget and a restore that remains suppressed 262ms
+
+== S3b-sibling-count: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (26 tests | 1 failed) 2816ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 25 passed (26)
+   × reports sibling memories hidden by a forget and a restore that remains suppressed 226ms
+
+== S3c-lift-retrievability: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (26 tests | 2 failed) 2978ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 24 passed (26)
+   × reports sibling memories hidden by a forget and a restore that remains suppressed 466ms
+   × restores a forgotten proposed model memory to proposed rather than promoting it 236ms
+
+== S4-prevalidate-text: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (26 tests | 1 failed) 3049ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 25 passed (26)
+   × refuses memory text over the canonical byte limit before recording a command 31ms
+
+== N2-restore-prior-state: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (26 tests | 1 failed) 3529ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 25 passed (26)
+   × restores a forgotten proposed model memory to proposed rather than promoting it 218ms
+
+== N5-newest-user-turn-only: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (26 tests | 1 failed) 2945ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 25 passed (26)
+   × accepts a current owner request after an assistant delivery 66ms
+
+== N6-stored-command-corrupt: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (26 tests | 1 failed) 3516ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 25 passed (26)
+   × reports a malformed stored owner command as corrupt 84ms
+
+== F3-turn-channel: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (26 tests | 1 failed) 3192ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 25 passed (26)
+   × refuses an owner turn whose claimed channel differs from its stored channel 57ms
+
+=== summary
+SURVIVED  BASE
+SURVIVED  B1a-negation-guard
+KILLED    B1b-whole-sentence-quote
+KILLED    B1c-prefix-strip
+KILLED    B1d-extraction-negation-framing
+KILLED    S1-stale-replay-suppression
+SURVIVED  S2a-service-intent-check
+KILLED    S2b-one-mutation-key-per-event
+SURVIVED  S2c-repository-intent-check
+KILLED    S3a-suppressed-excerpt
+KILLED    S3b-sibling-count
+KILLED    S3c-lift-retrievability
+KILLED    S4-prevalidate-text
+KILLED    N2-restore-prior-state
+KILLED    N5-newest-user-turn-only
+KILLED    N6-stored-command-corrupt
+KILLED    F3-turn-channel
+back on main, tree clean=true
+(node:16724) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
