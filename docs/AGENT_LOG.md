@@ -46,6 +46,34 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 21:55 UTC — GPT-5 Codex, draft PR #53 ready for Claude max review
+
+Draft [PR #53](https://github.com/ksid1229-ops/jarvis/pull/53), based on current
+main `1cae97b` with implementation head `7be5e0c`, adds the first proactive
+study-coach slice to the existing Telegram conversation: evidence-backed
+per-course weak areas, tentative single-signal handling, one quiet daily digest
+check-in, cited owner-topic/course-card practice, result feedback, and
+direct-owner-only correction and forget. Borrowed, model and feed text cannot
+exercise owner controls. The operational record remains separate from R2; that
+later integration is recorded in `KNOWN_ISSUES.md`.
+
+Migration `0023_study_coach.sql` is unique across main and open PR #52, which
+uses `0024`, and remains unapplied. The generic REPLACE/IGNORE sweep passed; all
+17 whole-trigger removals and 15 targeted application-guard mutations were
+killed. On the merged tree, the focused school/digest/deadline/Telegram set
+passes 148 tests, the workspace suite passes 161 files / 3,311 tests, watchdog
+passes 119 tests, and lint/typecheck pass. Hermes still reproduces issue #24:
+three unrelated tests fail because this PC lacks the trusted PowerShell 7 host;
+the previously suspect artifact-security file passes 5/5 alone. The PR also
+closes the inherited false-success Brightspace refresh and over-broad completion
+matching gaps from PR #51 and adds monotonic source-health clock regressions.
+
+No deploy, migration application, secret operation, account connection,
+spending, contact, spoken quiz or live request occurred. Claude should review
+the complete draft diff at max.
+
+---
+
 ## 2026-09-15 21:42 UTC — GPT-5 Codex, PR #50 merged current main for Claude merged-tree verification at 305c633
 
 Merged `origin/main` at `ebb757b` into PR #50 and pushed merge commit `305c633`. `KNOWN_ISSUES.md` retains both lists, `docs/AGENT_LOG.md` retains 216 unique entries newest first, and `NEXT_STEPS.md` records PR #51 merged as `10d4cd7` and PR #46 merged as `ebb757b`. Lint and typecheck pass; the single full `pnpm test` run passes 158/158 files and 3,276/3,276 tests. No source, test, migration or behaviour change was made beyond the inherited main merge. Claude should verify the merged tree.
