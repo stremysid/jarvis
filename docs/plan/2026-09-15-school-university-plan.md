@@ -6,8 +6,9 @@ migration or deployment.
 Sid is in Grade 12 in Ontario, has an owner-reported two-week absence to catch
 up from, and expects to begin university applications soon. School and
 university support is therefore the next product priority alongside the active
-R1 calling and R2 memory work. R5 starts from the already-built deadline store
-and digest; it does not wait for R3 PC control or R4 St. Remy.
+R1 calling and R2 memory work. The first conversational slices start now on the
+live Telegram/gateway stack; they do not wait for R1, R2, R3 PC control, R4 St.
+Remy, or either school platform integration.
 
 ## Outcomes
 
@@ -43,6 +44,12 @@ answer with rough statements such as "chemistry is caught up except the lab";
 Jarvis records that as owner-reported and keeps it visibly distinct from a
 platform-confirmed submission or grade.
 
+The early course cards and program shortlist use the existing operational
+store. Once R2 memory is available, owner-confirmed course facts, weak-area
+evidence and preferences gain its provenance, `/why` and `/forget` behavior.
+That later integration enriches the coach; it does not gate catch-up planning
+or current-cycle university research.
+
 The conversation never asks Sid to paste a password, OAuth token, recovery
 code or MFA code into chat. Owner OAuth is an attended setup described in a
 runbook, and secrets go straight to the configured secret store.
@@ -67,7 +74,8 @@ to correct teacher-specific or offline work the platforms cannot see, and
 replans after each check-in. It never marks work complete merely because a due
 date passed or an assignment disappeared from a scrape.
 
-The morning digest contains a short school section: today's commitments,
+Jarvis is view-only on Classroom and Brightspace. It never submits, marks,
+deletes or changes school work. The morning digest contains a short school section: today's commitments,
 overdue or missing work, the next few verified deadlines, the catch-up action
 for each course, and an explicit health line for Classroom and Brightspace.
 "No work due" and "source could not be read" must remain different states.
@@ -78,13 +86,35 @@ Google Classroom runs in the always-on Cloudflare gateway. The existing
 `classroom-client.ts` and `deadline-ingestion.ts` are wired behind explicit
 configuration. The API describes `dueDate` and `dueTime` as UTC; ingestion
 stores an RFC 3339 UTC instant and presentation converts it to the configured
-`DIGEST_TIMEZONE`. Date-only work keeps date-only semantics rather than
-inventing midnight. One owner-observed assignment is still required to confirm
-that the school's Classroom UI and the API agree before the times are called
-live-accepted.
+`DIGEST_TIMEZONE`. The existing schema has only `deadlines.due_at TEXT NOT NULL`
+and cannot preserve "date only" as a distinct value. The first ingestion slice
+maps a date-only item to the end of that local day as a conservative reminder;
+it must not claim the teacher supplied that time. Durable date-only semantics
+require a later schema migration in a separate PR, using the next free number
+only after another open-branch check. This docs PR claims no migration. One
+owner-observed assignment is still required to confirm that the school's
+Classroom UI and the API agree before timed reminders are called live-accepted.
+
+Classroom OAuth has blocking preflights, each with the same fallback: keep
+owner-reported assignments visible until access is approved.
+
+- A school administrator can restrict third-party access to Classroom data or
+  block an unconfigured app. Sid requests access only with a tap; Jarvis does
+  not work around the policy.
+- Google Workspace for Education can apply stricter controls to accounts
+  designated under 18. Whether Sid's school permits this client is unverified
+  until its consent flow succeeds or the administrator approves it.
+- An external OAuth app in Testing mode normally issues a seven-day refresh
+  token for these non-basic scopes. The preflight must choose a durable,
+  policy-compliant publishing/audience state before calling the connector
+  always-on. If Google requires app verification for the selected production
+  use and scopes, access stays owner-reported until that review clears.
 
 Classroom submission data supplies turned-in, returned, late and assigned
-state where the owner's granted scopes expose it. Brightspace supplies the
+state where the owner's granted scopes expose it. Classroom does not supply a
+single authoritative `missing` state: Jarvis derives missing work from due
+time plus assigned/submission evidence, labels it **derived**, and shows the
+inputs. Brightspace supplies the
 same outcomes only through the access route Sid selects below. A lower grade or
 new missing-work observation produces a same-day alert; routine deadline
 reminders stay in the digest unless their configured urgency threshold is
@@ -95,24 +125,25 @@ All platform titles and course content are untrusted text. They may be quoted,
 summarized or used to make study material, but never treated as instructions to
 Jarvis or as authority for an external action.
 
-## Where Brightspace access runs: Sid chooses the outcome
+## Where Brightspace access runs: feed first, with owner taps
 
-The Brightspace OAuth documentation requires application registration in the
-administrator's Manage Extensibility tool. That makes school-approved API
-access the best outcome but not something Jarvis can assume is available.
+These are outcomes for Sid to choose between. The product recommendation fixes
+the build order so work does not stall on an abstract architecture question:
+Sid accepts A by tapping to copy his private calendar-feed URL, or chooses B by
+tapping to contact the school about an API. The feed URL is a bearer credential
+and goes directly into Worker secrets, never chat or source.
 
 | Option | Outcome for Sid | What must be true | Cost and limits |
 |---|---|---|---|
-| **A. School-approved Brightspace OAuth API in Cloudflare — recommended** | Deadlines, submissions and grades refresh overnight with every PC off. The morning digest uses a stable, scoped API rather than page selectors. | The school board enables a least-privilege application and the necessary read scopes. Contacting the school or accepting registration terms requires Sid's tap. | No new host. Availability and fields depend on the board's Brightspace configuration. Until the board confirms it, this outcome is **unverified**. |
-| **B. Cloudflare Browser Run session** | The gateway can read UI-only Brightspace data overnight even when both Windows PCs are off. | A security review approves storing a revocable school session in the cloud; the school's terms permit automation; SSO and MFA can be completed through an attended, owner-tapped flow. | More brittle than an API and exposes the school session to a cloud browser. Browser Run has included usage and paid overage; enabling any possible charge requires Sid's tap. |
-| **C. Existing Windows browser session** | No school session is moved to a cloud browser. Jarvis reads Brightspace only while the selected PC and its normal browser profile are available, then uploads sanitized deadline observations. | Sid chooses the PC and completes MFA when requested. | Nothing refreshes overnight. The digest uses the last successful snapshot with its age and catches up when the PC is next on. |
+| **A. Private Brightspace iCal feed polled by Cloudflare — recommended first** | Due-dated calendar events refresh overnight with every PC off, without a stored login, browser, MFA loop or school contact. | Sid's board exposes **Enable Calendar Feeds** and Sid taps to copy the tokenized subscription URL into Worker secrets. D2L documents the org switch as on by default, but availability and actual course coverage are **unverified for Sid's board**. | No new host or browser cost. It does not carry grades or submission state. Pair it with Brightspace grade/feedback notification emails if the board offers them; email ingestion remains a later reviewed route. |
+| **B. School-approved Brightspace OAuth API in Cloudflare — upgrade** | Deadlines, submissions and grades can refresh overnight through a scoped interface. | The school registers a least-privilege application in Manage Extensibility and grants the read scopes. Contacting the school or accepting terms requires Sid's tap. | No new host. Approval could take weeks and available fields remain **unverified** until the board confirms them. Feed A keeps deadline work moving meanwhile. |
+| **C. Browser automation — held pending terms review** | On a selected Windows PC, data refreshes only while that PC and browser are on; in Cloudflare Browser Run it could refresh overnight but moves a revocable school session into a cloud browser. | First establish that the board's licence and acceptable-use policy permit it. D2L's published EULA restricts robots or other automatic extraction, and whether that text binds Sid directly or through the board is **unverified**. Any login route uses attended MFA through Telegram; Windows automation also depends on R3, and Browser Run needs a separate security review and cost tap. | Brittle page selectors, login/session risk, and either honest overnight staleness on Windows or possible cloud-browser charges. It is not an approved fallback today. |
 
-Recommendation: try A first because it gives the reliable all-PCs-off outcome
-with the narrowest interface. If the school will not enable it, begin with C so
-catch-up work can proceed without putting a school login into a new cloud
-browser. Consider B only after a separate policy/security review and an
-owner-approved cost ceiling. Jarvis asks Sid to choose in conversation; this
-plan does not make the choice for him.
+Recommendation: implement A first, then B if Sid chooses to ask the school for
+the richer grade/submission outcome. C is not eligible until the terms question
+is cleared. In every route Sid can say **"check D2L now"** for an on-demand
+refresh; the response says whether it refreshed, was blocked by MFA, or is
+showing a timestamped last-known snapshot.
 
 ## Proactive study coach
 
@@ -132,6 +163,12 @@ statements. It shows the evidence and confidence, allows correction, and never
 turns one low mark into a durable judgment. Generated quizzes and flashcards
 cite the source lesson, assignment or owner instruction. Unsupported answers
 are labeled uncertain rather than supplied as fact.
+
+Owner controls stay conversational: "forget that chemistry is a weak spot",
+"that mark was entered wrong", and "stop checking in on weekends" update the
+same records without requiring commands or a settings form. Until R2 lands,
+forgetting removes the coach's operational weak-area record; with R2 it also
+uses the reviewed provenance and deletion/receipt path.
 
 Jarvis can create built-in question sets and flashcards without another
 account. When an outside tool would materially help, it searches current
@@ -221,18 +258,27 @@ calendar that later has to be merged.
 
 ## Build sequence
 
-1. **Conversation and recovery plan.** Gather courses, platform coverage,
-   missed work and target programs; produce the first per-course catch-up plan.
-2. **Classroom deadlines.** Wire the existing client into the hourly job behind
-   configuration, use UTC due fields, render in local time and add digest tests
-   plus the owner OAuth runbook.
-3. **Status and coaching.** Add submission/grade observations, missing-work
-   transitions, reminders, check-ins, quizzes and flashcards.
-4. **Brightspace path.** Record Sid's choice among A–C, build only that route,
-   and prove source-failure versus no-work behavior.
-5. **University tracker.** Add current-source verification, mark projection,
-   supplements, scholarships and controlled document/reference workflows.
-6. **Calendar bridge.** Define the shared read model for R6 and the reversible
+1. **Conversation and recovery plan on the live bot.** Gather courses,
+   platform coverage and missed work; produce the first per-course catch-up
+   plan without waiting for R2 or platform OAuth.
+2. **Minimal university tracker on the live bot.** Gather the program shortlist
+   and publish current official requirements/dates as verified or visibly
+   unverified, with an initial required-marks view. This also does not wait for
+   R2 or a school connector.
+3. **Deadline feeds and digest.** Poll the Brightspace calendar feed first and
+   wire Classroom behind configuration; use UTC for Classroom timed fields,
+   disclose the date-only schema limit, show source health, and support
+   "check D2L now". Owner-reported items remain the fallback.
+4. **Study coach.** Add regular check-ins, evidence-based weak-area records,
+   cited quizzes and flashcards, conversational correction/forget controls,
+   and spoken practice after R1 calls are live.
+5. **Grades and missing work.** Add submission/grade observations, derived and
+   labelled missing-work transitions, and Brightspace notification/API input
+   only through an approved route.
+6. **Full application and document workflow.** Add supplements, scholarships,
+   essays, personal statements, references, transcripts, offers and controlled
+   contact/submission steps.
+7. **Calendar bridge.** Define the shared read model for R6 and the reversible
    write boundary for R7.
 
 Each implementation slice gets a separate reviewed PR. No live account setup,
@@ -260,7 +306,12 @@ Sid's tap.
 - [OUAC Undergraduate — Academic Information for Group A](https://www.ouac.on.ca/guide/undergrad-academic-information/)
 - [OUInfo program index](https://ouinfo.ca/) and [OUInfo scholarships](https://ouinfo.ca/scholarships/)
 - [Google Classroom `CourseWork` resource](https://developers.google.com/workspace/classroom/reference/rest/v1/courses.courseWork)
+- [Google Workspace administrator app-access controls](https://support.google.com/a/answer/7281227)
+- [Google OAuth refresh-token expiry rules](https://developers.google.com/identity/protocols/oauth2#expiration)
 - [Brightspace OAuth 2 authentication](https://docs.valence.desire2learn.com/basic/oauth2.html)
+- [Brightspace calendar-feed instructions](https://community.d2l.com/brightspace/kb/articles/18042-manage-course-events-with-the-calendar-tool)
+- [Brightspace calendar-feed configuration](https://community.d2l.com/brightspace/kb/articles/4439-schedule-configuration-variables)
+- [Brightspace end-user licence agreement](https://www.d2l.com/legal/brightspace-eula/)
 - [Cloudflare Browser Run overview](https://developers.cloudflare.com/browser-run/get-started/) and [pricing](https://developers.cloudflare.com/browser-run/pricing/)
 
 The OUAC and university pages are live sources. Jarvis rechecks them for the

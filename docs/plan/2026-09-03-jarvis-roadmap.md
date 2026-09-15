@@ -192,7 +192,7 @@ from, its state, and the milestone in section 7 that delivers it.
 | Poll every tracked repo's four status documents; stalled-project detector | plan §2, §5 | built | R0 |
 | Real-time ping when KNOWN_ISSUES or DECISIONS changes | plan §2 | absent | R7 |
 | Google Classroom deadlines | plan §3 | unwired | R5 |
-| Brightspace deadlines through a browser host/path Sid chooses when R5 starts, MFA via Telegram | plan §3; corrected Sep 14 | absent; host/path undecided | R5 |
+| Brightspace deadlines through a private calendar feed in Cloudflare first; school-approved OAuth as the grades/submissions upgrade; browser automation held for terms review, with MFA via Telegram if ever approved | plan §3; corrected Sep 15 | absent; board feed availability unverified | R5 |
 | One deadline store, conflict flagging, effort-scaled reminders, exam quiet hours | plan §3, §5 | built, empty | R0, R5 |
 | Per-course catch-up plan, proactive study coach, quizzes and flashcards | Sid, Sep 15; [school plan](2026-09-15-school-university-plan.md) | absent | **R5** |
 | Grade and missing-work watch | plan §5; Sid, Sep 15 | absent | R5 |
@@ -253,8 +253,10 @@ from, its state, and the milestone in section 7 that delivers it.
   production systems always need a tap, in every mode, whatever the model's
   confidence. This now includes St. Remy production.
 - No tier-2 action before shadow mode has run on that device.
-- Brightspace scraping is polite: a few runs a day, alert rather than
-  silently fail, a human in the loop for MFA.
+- Brightspace browser extraction is not authorized until the published D2L
+  EULA and the board's licence/acceptable-use terms are cleared. If a login
+  route is later approved, it runs only at a low rate, alerts rather than
+  silently failing, and keeps a human in the loop for MFA through Telegram.
 - Voice audio is never stored. PIN digits never reach a transcript, a model,
   a log or an event.
 - Hermes holds its own model key and nothing else. Its built-in memory files
@@ -490,35 +492,36 @@ R2 implementation.
 
 ### R5. School and university, v1.2
 
-This is the next product priority alongside the active R1 and R2 work, ahead
-of R3 and R4. The deadline/data slice depends on the deployed R0 gateway; the
-personalized weak-area record integrates with R2 memory as that interface
-lands. The complete scope and official-source rules are in the
+This starts now alongside the active R1 and R2 work, ahead of R3 and R4. The
+first catch-up and university slices use the live Telegram/gateway stack and
+wait for neither R2 nor a platform connector. Deadline ingestion depends on
+the deployed R0 gateway; weak-area provenance and conversational forget
+controls integrate with R2 when it lands without gating the early work. The
+complete scope and official-source rules are in the
 [school and university plan](2026-09-15-school-university-plan.md).
 
-1. Gather courses, platform coverage, missed work, weak areas and target
-   programs through conversation, never a homework form. Keep one current
-   catch-up plan and next action per course.
-2. Wire Google Classroom into the hourly cloud job behind explicit
-   configuration. Treat the API's due fields as UTC, preserve date-only work,
-   render in the digest timezone, and require one real assignment for live
-   time acceptance.
-3. Let Sid choose the Brightspace outcome described in the school plan:
-   school-approved OAuth API in Cloudflare (recommended), Cloudflare Browser
-   Run after a separate policy/security/cost review, or the existing Windows
-   browser with honest overnight staleness. Build only the selected route.
-4. Put deadlines, source health and catch-up actions in the morning digest.
-   Add configurable reminders, submission status, grade changes and
-   missing-work alerts without treating a disappeared scrape item as complete.
-5. Add regular conversational check-ins and an evidence-based study coach.
-   Generate cited quizzes and flashcards automatically; add optional spoken
-   quizzing when R1 calls are live. Search current official pages for free
-   tools, with a tap before any sign-up, spending or school-data transfer.
-6. Track target programs, verified admission requirements, OUAC/application,
-   supplementary and scholarship deadlines, essays and personal statements,
-   references, transcripts, offers and the marks Sid needs. Do not copy a
-   prior-cycle date or mark an unsourced date verified. Submissions, payments,
-   transcript releases and contact with another person always require a tap.
+1. On the live bot, gather courses, platform coverage and missed work through
+   conversation, never a homework form. Keep one current catch-up plan and
+   next action per course without waiting for R2 or OAuth.
+2. On the live bot, gather a program shortlist and build the minimal university
+   tracker from current official sources: requirements, dates and required
+   marks, each verified or visibly unverified. This also does not wait for R2.
+3. Poll Sid's private Brightspace iCal feed from Cloudflare if his board exposes
+   it, with school-approved OAuth as the later grade/submission upgrade. Wire
+   Classroom behind explicit configuration. Put deadlines, source health and
+   "check D2L now" in the digest. Classroom timed fields are UTC; the current
+   instant-only schema maps date-only items to local end-of-day and cannot
+   preserve date-only semantics without a separately numbered migration.
+4. Add regular conversational check-ins and an evidence-based study coach.
+   Generate cited quizzes and flashcards automatically, support plain-speech
+   correction and forgetting, and add spoken quizzing after R1 calls are live.
+5. Add submission/grade observations and explicitly derived missing-work
+   alerts. Classroom has no authoritative `missing` state. Use Brightspace
+   grade/feedback notifications or API data only through an approved route.
+6. Expand the application track to OUAC, supplements, scholarships, essays and
+   personal statements, references, transcripts, offers and controlled
+   contact/submission steps. Never copy a prior-cycle date or call an unsourced
+   date verified. Payments, transcript releases and contact always need a tap.
 7. Feed verified commitments into the later personal calendar: R6 supplies
    the combined read agenda and departure reminders; R7 supplies reversible
    calendar writes and protected focus blocks. Do not create a second school
@@ -700,7 +703,7 @@ here and move NEXT_STEPS.md to the next one.
 | R0 Green and deployed | | passed | 2026-09-11 |
 | R1 Calling | v1.0, first release | active; draft PR #40 open | |
 | R2 Cloud memory | v1.1 | active; 0016 schema merged, not applied | |
-| R5 School and university | v1.2 | plan ready for review | |
+| R5 School and university | v1.2 | plan revision ready for re-review | |
 | R3 Hands | v1.3 | not started | |
 | R4 St. Remy | v1.4 | not started | |
 | R6 Reach | v1.5 | not started | |

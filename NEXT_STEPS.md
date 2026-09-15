@@ -15,11 +15,13 @@ quiz/flashcard coach, and the full university-application track. R5 deadline
 ingestion depends on the deployed R0 gateway, not on PC control; its
 evidence-based weak-spot memory integrates with R2 as that interface lands.
 
-First code slice after the plan review: wire the existing Google Classroom
-client and deadline ingestion into the hourly job behind configuration, use the
-API's UTC due fields, render them in the digest timezone, and add a PowerShell 7
-owner OAuth runbook. This is a separate draft PR. It performs no OAuth consent,
-secret operation, migration, deployment or live account access.
+First code slice after plan clearance: the live bot's conversational course
+intake and per-course recovery plan. Second: a minimal program tracker with
+current official requirements and dates labelled verified or unverified. Both
+use the existing live stack and proceed without waiting for R2 or a school
+connector. Classroom wiring and the Brightspace calendar feed follow as
+separate draft PRs; none authorizes OAuth consent, a secret operation,
+migration, deployment, school contact or live account access.
 
 ## R2 cloud-memory schema candidate
 
