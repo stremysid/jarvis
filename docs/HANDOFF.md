@@ -10,7 +10,7 @@ because Twilio is not configured; outbound calling is separately disabled by
 `outbound_runtime_controls.enabled = 0`. The release gate still requires the
 retained live-call evidence.
 
-## R1 is active; R2 `0016` is a review-only schema candidate
+## R1 is active; R2 schema foundations are merged but unapplied
 
 R0 passed on 2026-09-11. R1 depends on R0 and is entirely cloud-side.
 PR #23 supplied item 2's fake calling/access matrix and confirmed Telegram
@@ -146,34 +146,27 @@ planning-session choice Sid never made and is now historical. Do not port,
 provision or depend on it.
 
 Sid requires the best cloud memory, usable with every PC off, and delegated
-the design. The reviewer recorded the decision at `951675e`: D1 is
-authoritative for the event ledger, versioned memory items, receipts and topic
-tree. D1 FTS5 and Vectorize are rebuildable indexes; full-history recall also
-walks verified R2 archive segments. Obsidian is only a later optional one-way
-export and is not built or read back in R2. Sid approved a future private
-GitHub destination with sensitive-category exclusions, but not repository
-creation, credentials, paid service or a live push. Draft PR #39 now contains
-the additive `0016_cloud_memory.sql` candidate and isolated-D1 tests; it has not
-been applied. Sid applies it only after the schema PR passes Claude max review.
-The merged design defines the table contract,
-event-level forget suppression, distillation, receipts, custom nightly export
-and all-PCs-off exit test. Its provider-qualified memory setting supports
-DeepSeek, Anthropic and OpenAI; USD 5.00 is the normal DeepSeek default, a
-Claude/GPT switch requires Sid to set a new cap after seeing projected cost,
-and reprocessing has its own owner-approved one-time limit. No live call,
-provider call, migration or deployment was performed.
+the design. D1 is authoritative for the event ledger, versioned memory items,
+receipts and topic tree. D1 FTS5 and Vectorize are rebuildable indexes;
+full-history recall also walks verified R2 archive segments. Obsidian is only a
+later optional one-way export and is not built or read back in R2.
 
-PR #35 merged at `fb7c864` with the storage-independent extraction policy,
-topic-tree reducer and offline evaluator. PR #36 passed Claude review at
-`1be6191` and merged through `fcd55ef` with the D1-authoritative design. PR #38
-merged through `b8b47bd` and closes #35 follow-ups F1–F4 before any paid model comparison: scaled
-evaluation scoring, shared whole-sentence uncertainty vectors, a one-sentence
-trusted-quote rule, expanded hedge handling and a case-only alias regression.
-Its contract-only amendments also make `/forget` report whole-turn counts, add
-an append-only owner-authorized suppression lift, and require recent-turn
-context to skip actively hidden events. Draft PR #39 implements that approved
-contract as migration `0016`, uses only remote-D1-compatible trigger guards,
-and keeps migration application as Sid's post-review operation.
+PRs #35, #36 and #38 merged the extraction policy, topic reducer, evaluator and
+approved design. PR #39 merged additive `0016_cloud_memory.sql` as `0d659bf`;
+PR #42 merged the owner-command ingress boundary in
+`0019_memory_ingress.sql` as `f0bfbe9`. Main therefore owns migration names
+through `0019`, but this work applied none of `0016` through `0019`. They still
+require the reviewed, Sid-attended scratch remote-D1 proof before Sid decides
+on a production apply.
+
+No new runtime writer, archive-complete history index, automatic distillation
+Workflow or channel adapter is enabled yet. The next slice is the
+channel-neutral canonical memory repository in
+[`plan/2026-09-15-r2-memory-runtime-slices.md`](plan/2026-09-15-r2-memory-runtime-slices.md).
+Sid will use ordinary speech and text rather than learned commands. After one
+reviewed scratch-target setup, restore drills run automatically and alert him
+only on failure. No live call, provider call, migration application, secret
+operation or deployment was performed by this planning work.
 
 PR #16 at `27b232f` has completed the reviewer's requested changes. The
 reviewer independently verified migration byte identity, all five trigger

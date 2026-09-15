@@ -50,6 +50,21 @@ are rebuildable search indexes; Workers AI `bge-m3` supplies embeddings. Live
 D1 events plus verified R2 archive segments remain the complete conversation
 record.
 
+Memory is automatic and does not assign Sid a curation job. Every accepted,
+redacted conversation remains searchable regardless of importance, including
+after it moves into an R2 archive segment. Distillation and filing happen on
+their own; Sid uses ordinary authenticated speech or text when he wants Jarvis
+to remember something immediately, explain its evidence, hide it or use it
+again. Slash commands may exist only as hidden fallbacks and are not taught,
+listed in help or required by acceptance. On calls, those intents cannot act or
+reveal memory until the owner step-up has passed.
+
+Backup verification is automatic too. Sid performs one reviewed setup of a
+non-production scratch target. Scheduled restore drills then run without a
+monthly owner task, record successful receipts quietly, and alert Sid only on
+failure or required repair. A production restore remains a separate destructive
+owner operation.
+
 Obsidian is not the memory store and is not built in R2. The ledger and topic
 tree stay compatible with a later optional **one-way** Obsidian-format Markdown
 export: folders mirror areas, stable block ids identify memory lines, and
@@ -70,9 +85,10 @@ work. Do not describe either choice as Sid's decision.
 
 D1 must support the topic tree Sid requested: areas, sub-areas and deeper
 levels; automatic filing; reversible rename, move and merge history; subtree
-answers; and full-history search independent of filing. Migration number
-`0016` remains reserved for the later reviewed schema PR; no migration is
-created or authorized by this documentation decision.
+answers; and full-history search independent of filing. Migrations `0016` and
+`0019` are merged on main but remain unapplied. This documentation decision
+creates and reserves no migration; any later schema slice checks every open PR
+branch and its `docs/AGENT_LOG.md` before choosing a number.
 The extraction setting is provider-qualified and supports reviewed DeepSeek,
 Anthropic Claude and OpenAI GPT adapters. It starts with
 `deepseek:deepseek-v4-pro`. Before finalizing it, compare the same sanitized
@@ -160,7 +176,7 @@ instead. Migration numbers carry no meaning beyond order, and the plan's file
 table is the thing that is now out of date rather than the code.
 
 This remains an explanation of existing files, not the current cloud-memory
-plan. R2's new D1 ledger keeps the separately reserved migration number `0016`.
+plan. R2's new D1 ledger uses migration `0016`, now merged but unapplied.
 
 ## The Obsidian adapter shipped in two stages (2026-09-02; historical)
 
