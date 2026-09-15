@@ -6,6 +6,7 @@ import type { ModelAdapter, ModelAdapterStreamInput, ModelToken } from "../../sr
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { classifyTelegramUpdate } from "../../src/channels/telegram/telegram-types.js";
 import { Redactor } from "../../src/security/redaction.js";
+import { StreamingOutputRedactor } from "../../src/security/streaming-output-redactor.js";
 import { SchoolCatchupRepository } from "../../src/school/school-catchup-repository.js";
 import {
   parseOwnerStudyObservation,
@@ -30,8 +31,16 @@ class FakeModel implements ModelAdapter {
 }
 
 async function collect(stream: AsyncIterable<ModelToken>): Promise<string> {
+  const outputRedactor = new StreamingOutputRedactor(new Redactor());
   let text = "";
-  for await (const token of stream) text += token.text;
+  let expectedIndex = 0;
+  for await (const token of stream) {
+    expect(token.index).toBe(expectedIndex);
+    outputRedactor.push(token);
+    text += token.text;
+    expectedIndex += 1;
+  }
+  outputRedactor.complete();
   return text;
 }
 

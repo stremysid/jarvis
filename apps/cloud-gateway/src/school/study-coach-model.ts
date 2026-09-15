@@ -524,7 +524,9 @@ export class StudyCoachModelAdapter implements ModelAdapter {
           () => this.dependencies.repository.dismissActiveQuiz(input.principalId, now),
         );
         if (dismissed.ok && dismissed.value > 0) {
-          yield Object.freeze({ index: 0, text: CLOSED_QUIZ_FALLBACK_PREFIX });
+          const ordinaryReply = await collect(this.dependencies.fallbackModel.stream(input));
+          yield Object.freeze({ index: 0, text: `${CLOSED_QUIZ_FALLBACK_PREFIX}${ordinaryReply}` });
+          return;
         }
         yield* this.dependencies.fallbackModel.stream(input);
         return;

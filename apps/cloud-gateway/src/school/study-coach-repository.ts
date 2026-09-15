@@ -260,6 +260,8 @@ export class StudyCoachRepository {
     const now = new Date(nowValue.getTime());
     if (!Number.isFinite(now.getTime())) throw new TypeError("school_study_time_invalid");
     await this.retireStaleEvidence(principalId, now);
+    // Migration 0020's active-fact trigger bounds this D1 batch to 48 statements per principal;
+    // changing that cap requires an explicit limit here so one sync cannot grow without bound.
     const result = await this.database.prepare(`WITH missing AS (
         SELECT f.principal_id, f.course_id, f.fact_id, f.fact_kind, f.statement,
           f.evidence_source, f.observed_at
