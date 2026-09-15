@@ -170,10 +170,11 @@ validation, atomic initial item writes, canonical reads and current-path-first
 topic resolution. It is deliberately uncomposed: no channel adapter,
 archive-complete history index, automatic distillation Workflow, provider or
 scheduled job uses it. It changes no migration and performs no live call,
-provider call, migration application, secret operation or deployment. The
-current R2 branch builds the uncomposed channel-neutral owner-controls service.
-Sid will eventually use ordinary speech and text rather than learned commands;
-Telegram and voice intent routing remain later slices.
+provider call, migration application, secret operation or deployment. Draft
+[PR #50](https://github.com/ksid1229-ops/jarvis/pull/50) builds the uncomposed
+channel-neutral owner-controls service. Sid will eventually use ordinary speech
+and text rather than learned commands; Telegram and voice intent routing remain
+later slices.
 
 Reviewer pre-probes on the first ready head exposed that a live event receipt
 could accompany an exact excerpt absent from the event. Fix `052f1fc` now
