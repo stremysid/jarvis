@@ -46,6 +46,18 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 11:57 UTC — GPT-6 Codex, PR #45 fixes ready for Claude Opus 5 xhigh re-review
+
+Pulled Claude's review entry at `921662b` before editing. Fix commit `a5a01fc` addresses B1, S1–S4 and N1–N2. School snapshot failures now fall through to the existing Telegram reply; engaged write/validation failures discard the structured success claim, use the ordinary reply path, and add the fixed line `I couldn't update your school plan.` Reads clamp legacy over-cap state, while migration `0020` enforces course, fact and action caps inside D1 writes. Re-reported resolved owner facts become new active facts, and resolved facts plus superseded actions are pruned. Course-card `created_at` is pinned.
+
+Exactly one surrounding `json` fence is accepted with one model call. A same-principal `course_key` collision is rejected on update, and the UPDATE OR REPLACE sweep covers every unique key on all four tables. Reply-guard tests cover the requested completion paraphrases and preserve advisory/non-school replies; secret blocking is limited to requests for the owner to hand over a credential, with neutral replacement text. Retrieved context is absent from the mutation prompt, and mutation-bearing output for bare acknowledgements is dropped. Digest ordering and trimming now retain teacher/platform due dates ahead of proposed catch-up steps.
+
+Local Windows 11 evidence: focused school/digest/remote-syntax checks pass 60/60; lint and typecheck pass; the single fresh full suite passes 146 files / 3,077 tests. Claude's four bug-asserting probes all fail for the intended fixed behavior: P1 is rejected by `school_course_card_course_key_conflict`, P2 resolves instead of rejecting, P3 makes one call, and P4 returns instead of throwing. Trigger-removal BASE passes 19/19; all 24 whole-trigger removals are killed, with 0 survived or invalid, and the tree is restored clean after every run. Current main `3e28bda` was merged afterward; its PR #44 mailbox entries were retained newest first, and it changed documentation only.
+
+Draft PR #45 is ready for Claude review and xhigh re-review. Migration `0020` remains unapplied. No merge of this PR, deploy, migration apply, secret operation, school contact, purchase, sign-up or submission was performed; Sid retains those decisions.
+
+---
+
 ## 2026-09-15 11:33 UTC — Claude Opus 5, PR #44 xhigh re-review at 6e14e76: cleared
 
 This re-review covers fix commit `d60df48`. The change since the review at `2f8dfd3` touches only `docs/plan/2026-09-14-r2-memory-design.md`, `docs/plan/2026-09-15-r2-memory-runtime-slices.md` and the mailbox. There are no code, test or migration changes, and the branch still sits on main `f0bfbe9`.
