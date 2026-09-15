@@ -1,0 +1,87 @@
+checked out 16bf448 at 16bf448
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  7 passed (7)
+   Tests  215 passed (215)
+
+== T-owner_call_step_up_disabled_rejections_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts (32 tests | 1 failed) 40896ms
+   Test Files  2 failed | 5 passed (7)
+   Tests  2 failed | 213 passed (215)
+   × pins every 0021 trigger as one complete named definition 4ms
+   × rejects INSERT OR IGNORE and INSERT OR REPLACE collisions on durable refusal rows 1219ms
+
+== T-owner_call_step_up_disabled_rejections_terminalize: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts (32 tests | 3 failed) 41447ms
+   Test Files  2 failed | 5 passed (7)
+   Tests  4 failed | 211 passed (215)
+   × pins every 0021 trigger as one complete named definition 6ms
+   × rejects with the fixed refusal when step-up is disabled before the relay begins 1400ms
+   × rejects INSERT OR IGNORE and INSERT OR REPLACE collisions on durable refusal rows 1205ms
+   × rejects an open step-up window when the passphrase is disabled mid-call 1205ms
+
+== T-owner_call_step_up_disabled_rejections_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts (11 tests | 1 failed) 9ms
+   Test Files  1 failed | 6 passed (7)
+   Tests  1 failed | 214 passed (215)
+   × pins every 0021 trigger as one complete named definition 5ms
+
+== T-owner_call_step_up_disabled_rejections_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts (11 tests | 1 failed) 11ms
+   Test Files  1 failed | 6 passed (7)
+   Tests  1 failed | 214 passed (215)
+   × pins every 0021 trigger as one complete named definition 6ms
+
+== T-owner_call_step_up_rejection_deliveries_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts (32 tests | 1 failed) 41173ms
+   Test Files  2 failed | 5 passed (7)
+   Tests  2 failed | 213 passed (215)
+   × pins every 0021 trigger as one complete named definition 5ms
+   × rejects INSERT OR IGNORE and INSERT OR REPLACE collisions on durable refusal rows 1456ms
+
+== T-owner_call_step_up_rejection_deliveries_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts (11 tests | 1 failed) 9ms
+   Test Files  1 failed | 6 passed (7)
+   Tests  1 failed | 214 passed (215)
+   × pins every 0021 trigger as one complete named definition 4ms
+
+== T-owner_call_step_up_rejection_deliveries_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts (11 tests | 1 failed) 9ms
+   Test Files  1 failed | 6 passed (7)
+   Tests  1 failed | 214 passed (215)
+   × pins every 0021 trigger as one complete named definition 5ms
+
+== T-guest_grant_notices_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/voice/guest-grant-notice.test.ts (5 tests | 1 failed) 6034ms
+   Test Files  2 failed | 5 passed (7)
+   Tests  2 failed | 213 passed (215)
+   × pins every 0021 trigger as one complete named definition 5ms
+   × rejects INSERT OR IGNORE and INSERT OR REPLACE collisions on pending notice rows 1360ms
+
+== T-guest_grant_notices_transition_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts (11 tests | 1 failed) 10ms
+   Test Files  1 failed | 6 passed (7)
+   Tests  1 failed | 214 passed (215)
+   × pins every 0021 trigger as one complete named definition 6ms
+
+== T-guest_grant_notices_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts (11 tests | 1 failed) 9ms
+   Test Files  1 failed | 6 passed (7)
+   Tests  1 failed | 214 passed (215)
+   × pins every 0021 trigger as one complete named definition 5ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-owner_call_step_up_disabled_rejections_insert_guard
+KILLED    T-owner_call_step_up_disabled_rejections_terminalize
+KILLED    T-owner_call_step_up_disabled_rejections_immutable
+KILLED    T-owner_call_step_up_disabled_rejections_delete_forbidden
+KILLED    T-owner_call_step_up_rejection_deliveries_insert_guard
+KILLED    T-owner_call_step_up_rejection_deliveries_immutable
+KILLED    T-owner_call_step_up_rejection_deliveries_delete_forbidden
+KILLED    T-guest_grant_notices_insert_guard
+KILLED    T-guest_grant_notices_transition_guard
+KILLED    T-guest_grant_notices_delete_forbidden
+back on main, tree clean=true
+(node:25728) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
