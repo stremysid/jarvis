@@ -68,6 +68,15 @@ describe("event envelopes", () => {
     expect(envelope.redaction).toEqual({ status: "none", markers: [] });
   });
 
+  it("redacts six authentication digits when a canonical ULID is only part of the text", () => {
+    const result = redacted("Reference 01abcde123456fghjkmnpqrstv is not a structural field.");
+
+    expect(result.text).toBe(
+      "Reference 01abcde[REDACTED_AUTH_DIGITS]fghjkmnpqrstv is not a structural field.",
+    );
+    expect(result.markers).toContain("authentication_digits");
+  });
+
   it("does not export a structural ULID issuer from either contracts surface", () => {
     expect("issueRedactedUlid" in callContracts).toBe(false);
     expect("issueRedactedUlid" in publicContracts).toBe(false);

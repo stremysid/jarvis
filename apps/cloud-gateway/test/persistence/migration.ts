@@ -21,6 +21,7 @@ import memoryIngressSql from "../../src/persistence/migrations/0019_memory_ingre
 import schoolCatchupSql from "../../src/persistence/migrations/0020_school_catchup.sql?raw";
 import voiceOwnerDeliverySql from "../../src/persistence/migrations/0021_voice_owner_delivery.sql?raw";
 import universityTrackerSql from "../../src/persistence/migrations/0022_university_tracker.sql?raw";
+import archiveLiteralHistorySql from "../../src/persistence/migrations/0025_archive_literal_history.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
@@ -31,6 +32,7 @@ let memoryIngressMigrated: Promise<void> | undefined;
 let schoolCatchupMigrated: Promise<void> | undefined;
 let voiceOwnerDeliveryMigrated: Promise<void> | undefined;
 let universityTrackerMigrated: Promise<void> | undefined;
+let archiveLiteralHistoryMigrated: Promise<void> | undefined;
 
 /**
  * Split a migration into the statements D1 applies one at a time.
@@ -171,6 +173,15 @@ export async function applyUniversityTrackerMigration(): Promise<void> {
     { name: "0022_university_tracker.sql", queries: splitMigration(universityTrackerSql) },
   ]);
   await universityTrackerMigrated;
+}
+
+/** Applies durable archive-complete literal-search jobs after memory ingress. */
+export async function applyArchiveLiteralHistoryMigration(): Promise<void> {
+  await applyMemoryIngressMigration();
+  archiveLiteralHistoryMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0025_archive_literal_history.sql", queries: splitMigration(archiveLiteralHistorySql) },
+  ]);
+  await archiveLiteralHistoryMigrated;
 }
 
 /** Test-only reset for immutable per-call step-up and guest-attempt records. */

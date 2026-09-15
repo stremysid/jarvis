@@ -126,6 +126,7 @@ interface SourceRow {
   readonly event_sequence: unknown;
   readonly source_location: unknown;
   readonly r2_segment_id: unknown;
+  readonly current_r2_segment_id: unknown;
   readonly excerpt: unknown;
   readonly excerpt_hash: unknown;
   readonly channel: unknown;
@@ -375,7 +376,7 @@ const versionFields = new Set([
 const sourceFields = new Set([
   "source_id", "principal_id", "item_id", "version_id", "source_position", "event_id",
   "event_sequence", "source_location", "r2_segment_id", "excerpt", "excerpt_hash",
-  "channel", "occurred_at", "created_at",
+  "current_r2_segment_id", "channel", "occurred_at", "created_at",
 ]);
 const transitionFields = new Set([
   "transition_id", "principal_id", "item_id", "transition_number", "version_id",
@@ -1645,7 +1646,6 @@ export class MemoryRepository {
         await this.validateLiveEventEvidence(row, principalId, eventId, source);
         return;
       }
-      if (sourceLocation === "live") refuse();
     }
     const archived = await this.database.prepare(`SELECT event_id, event_sequence, segment_id,
       envelope_sha256, content_hash
@@ -1680,13 +1680,34 @@ export class MemoryRepository {
       event_type, content_hash, envelope_json FROM events
       WHERE event_id = ? AND sequence = ? AND subject_id = ?`)
       .bind(eventId, eventSequence, principalId).first<EventReceiptRow>();
-    if (row === null) refuse();
-    exactRow(row, eventReceiptFields);
-    if (rowUlid(row.event_id) !== eventId
-      || rowInteger(row.sequence, 1, Number.MAX_SAFE_INTEGER) !== eventSequence
-      || rowPrincipal(row.subject_id, principalId) !== principalId
-      || rowTimestamp(row.occurred_at) !== occurredAt) refuse();
-    const envelope = await this.validateLiveEventEvidence(row, principalId, eventId, null);
+    let envelope: Awaited<ReturnType<typeof validateEnvelope>>;
+    if (row !== null) {
+      exactRow(row, eventReceiptFields);
+      if (rowUlid(row.event_id) !== eventId
+        || rowInteger(row.sequence, 1, Number.MAX_SAFE_INTEGER) !== eventSequence
+        || rowPrincipal(row.subject_id, principalId) !== principalId
+        || rowTimestamp(row.occurred_at) !== occurredAt) refuse();
+      envelope = await this.validateLiveEventEvidence(row, principalId, eventId, null);
+    } else {
+      const archived = await this.database.prepare(`SELECT event_id, event_sequence, segment_id,
+        envelope_sha256, content_hash FROM archive_segment_events
+        WHERE event_id = ? AND event_sequence = ?`)
+        .bind(eventId, eventSequence).first<ArchivedReceiptRow>();
+      if (archived === null) refuse();
+      exactRow(archived, new Set([
+        "event_id", "event_sequence", "segment_id", "envelope_sha256", "content_hash",
+      ]));
+      if (rowUlid(archived.event_id) !== eventId
+        || rowInteger(archived.event_sequence, 1, Number.MAX_SAFE_INTEGER) !== eventSequence) refuse();
+      envelope = await this.validateArchivedEventEvidence(
+        archived,
+        principalId,
+        eventId,
+        eventSequence,
+        null,
+      );
+      if (envelope.occurredAt !== occurredAt) refuse();
+    }
     if (envelope.eventType !== "conversation.user_committed"
       || envelope.source !== "conversation"
       || envelope.producerVersion !== "conversation-v1"
@@ -1709,7 +1730,7 @@ export class MemoryRepository {
     eventId: Ulid,
     eventSequence: number,
     source: SourceReceiptExpectation | null,
-  ): Promise<void> {
+  ): Promise<Awaited<ReturnType<typeof validateEnvelope>>> {
     if (this.archivedEventReader === undefined) refuse();
     const events = await this.archivedEventReader.readArchivedRange(eventSequence - 1, 1);
     const archived = events[0];
@@ -1730,6 +1751,7 @@ export class MemoryRepository {
       || liveEventChannel(envelope.eventType, envelope.payload) !== source.channel
       || !payloadContainsExactExcerpt(envelope.payload, source.excerpt)
     )) refuse();
+    return envelope;
   }
 
   private async requireActiveTopic(principalId: string, topicId: Ulid): Promise<void> {
@@ -1850,7 +1872,8 @@ export class MemoryRepository {
         WHERE principal_id = ? AND (version_id = ? OR (item_id = ? AND version_number = 1))`)
         .bind(input.principalId, input.version.versionId, input.itemId).all<VersionRow>(),
       this.database.prepare(`SELECT source_id, principal_id, item_id, version_id, source_position,
-        event_id, event_sequence, source_location, r2_segment_id, excerpt, excerpt_hash,
+        event_id, event_sequence, source_location, r2_segment_id,
+        NULL AS current_r2_segment_id, excerpt, excerpt_hash,
         channel, occurred_at, created_at FROM memory_item_sources
         WHERE principal_id = ? AND (version_id = ? OR source_id IN (${sourcePlaceholders}))`)
         .bind(
@@ -2200,12 +2223,17 @@ export class MemoryRepository {
     itemId: Ulid,
     versionId: Ulid,
   ): Promise<readonly CanonicalMemorySource[]> {
-    const result = await this.database.prepare(`SELECT source_id, principal_id, item_id,
-      version_id, source_position, event_id, event_sequence, source_location,
-      r2_segment_id, excerpt, excerpt_hash, channel, occurred_at, created_at
-      FROM memory_item_sources
-      WHERE principal_id = ? AND item_id = ? AND version_id = ?
-      ORDER BY source_position ASC`)
+    const result = await this.database.prepare(`SELECT source.source_id, source.principal_id,
+      source.item_id, source.version_id, source.source_position, source.event_id,
+      source.event_sequence, source.source_location, source.r2_segment_id,
+      archived.segment_id AS current_r2_segment_id, source.excerpt, source.excerpt_hash,
+      source.channel, source.occurred_at, source.created_at
+      FROM memory_item_sources source
+      LEFT JOIN archive_segment_events archived
+        ON archived.event_id = source.event_id
+        AND archived.event_sequence = source.event_sequence
+      WHERE source.principal_id = ? AND source.item_id = ? AND source.version_id = ?
+      ORDER BY source.source_position ASC`)
       .bind(principalId, itemId, versionId).all<SourceRow>();
     if (result.results.length < 1 || result.results.length > 8) corrupt();
     const sources: CanonicalMemorySource[] = [];
@@ -2219,10 +2247,14 @@ export class MemoryRepository {
         || rowInteger(row.source_position, 0, 7) !== position) corrupt();
       const eventId = rowUlid(row.event_id);
       const eventSequence = rowInteger(row.event_sequence, 1, Number.MAX_SAFE_INTEGER);
-      const sourceLocation = rowEnum(row.source_location, new Set(["live", "archived"] as const));
-      const r2SegmentId = optionalRowHash(row.r2_segment_id);
-      if ((sourceLocation === "live" && r2SegmentId !== null)
-        || (sourceLocation === "archived" && r2SegmentId === null)) corrupt();
+      const storedSourceLocation = rowEnum(row.source_location, new Set(["live", "archived"] as const));
+      const storedR2SegmentId = optionalRowHash(row.r2_segment_id);
+      const currentR2SegmentId = optionalRowHash(row.current_r2_segment_id);
+      if ((storedSourceLocation === "live" && storedR2SegmentId !== null)
+        || (storedSourceLocation === "archived" && storedR2SegmentId === null)
+        || (storedSourceLocation === "archived" && currentR2SegmentId !== storedR2SegmentId)) corrupt();
+      const sourceLocation = currentR2SegmentId === null ? storedSourceLocation : "archived";
+      const r2SegmentId = currentR2SegmentId ?? storedR2SegmentId;
       const excerpt = safeRowText(row.excerpt, 8192);
       const excerptHash = rowHash(row.excerpt_hash);
       if (await sha256Hex(excerpt) !== excerptHash) corrupt();

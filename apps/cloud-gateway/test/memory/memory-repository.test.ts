@@ -9,6 +9,7 @@ import {
 } from "../../../../packages/contracts/src/index.js";
 import { MemoryRepository } from "../../src/memory/memory-repository.js";
 import type { ArchivedEventReader } from "../../src/archive/tiered-event-reader.js";
+import type { AppendedEvent } from "../../src/persistence/event-repository.js";
 import {
   MEMORY_INBOX_DISPLAY_NAME,
   MEMORY_ROOT_DISPLAY_NAME,
@@ -44,14 +45,14 @@ function nextTimestamp(): string {
   return new Date(topicClock).toISOString();
 }
 
-async function seedPrincipal(): Promise<string> {
+async function seedPrincipal(principalType: "human" | "service" = "service"): Promise<string> {
   principalSerial += 1;
   const principalId = `principal:memory-runtime:${principalSerial}:${newUlid()}`;
   const now = new Date().toISOString();
   await env.DB.prepare(`INSERT INTO principals (
     principal_id, principal_type, status, display_name, created_at, updated_at
-  ) VALUES (?, 'service', 'active', 'memory runtime test', ?, ?)`)
-    .bind(principalId, now, now).run();
+  ) VALUES (?, ?, 'active', 'memory runtime test', ?, ?)`)
+    .bind(principalId, principalType, now, now).run();
   return principalId;
 }
 
@@ -167,6 +168,94 @@ async function seedArchivedReceipt(
       },
     },
   };
+}
+
+async function archiveExistingLiveReceipt(source: SeededEvent): Promise<ArchivedReceipt> {
+  const stored = await env.DB.prepare(`SELECT envelope_json, content_hash FROM events
+    WHERE sequence = ? AND event_id = ?`).bind(source.sequence, source.eventId)
+    .first<{ envelope_json: string; content_hash: string }>();
+  if (stored === null) throw new Error("memory_repository_live_archive_source_missing");
+  const storedEnvelope = JSON.parse(stored.envelope_json) as AppendedEvent["envelope"];
+  const envelope = { ...storedEnvelope, eventSequence: source.sequence } as AppendedEvent["envelope"];
+  const manifestId = await sha256Hex(`handoff-manifest:${source.eventId}`);
+  const segmentId = await sha256Hex(`handoff-segment:${source.eventId}`);
+  const guard = await env.DB.prepare(`SELECT sql FROM sqlite_schema
+    WHERE type = 'trigger' AND name = 'archive_manifests_require_next_range'`)
+    .first<{ sql: string }>();
+  if (guard === null) throw new Error("memory_repository_archive_guard_missing");
+  await env.DB.prepare("DROP TRIGGER archive_manifests_require_next_range").run();
+  try {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO archive_manifests (
+        manifest_id, start_sequence, end_sequence, event_count, status, created_at, sealed_at
+      ) VALUES (?, ?, ?, 1, 'sealed', ?, ?)`)
+        .bind(manifestId, source.sequence, source.sequence, source.occurredAt, source.occurredAt),
+      env.DB.prepare(`INSERT INTO archive_segments (
+        segment_id, manifest_id, object_key, compressed_sha256,
+        compressed_byte_length, uncompressed_byte_length, codec, created_at
+      ) VALUES (?, ?, ?, ?, 1, 1, 'jarvis-gzip-ndjson-v1', ?)`)
+        .bind(
+          segmentId,
+          manifestId,
+          `memory-handoff-test/${segmentId}.ndjson.gz`,
+          segmentId,
+          source.occurredAt,
+        ),
+      env.DB.prepare(`INSERT INTO archive_segment_events (
+        event_sequence, event_id, segment_id, envelope_sha256, content_hash, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?)`)
+        .bind(
+          source.sequence,
+          source.eventId,
+          segmentId,
+          await sha256Hex(canonicalJson(envelope)),
+          stored.content_hash,
+          source.occurredAt,
+        ),
+    ]);
+  } finally {
+    await env.DB.prepare(guard.sql).run();
+  }
+  await env.DB.prepare("DELETE FROM events WHERE sequence = ? AND event_id = ?")
+    .bind(source.sequence, source.eventId).run();
+  return {
+    ...source,
+    segmentId,
+    reader: {
+      async readArchivedRange(afterSequence, limit) {
+        return afterSequence === source.sequence - 1 && limit === 1
+          ? [{ eventSequence: source.sequence, envelope, replayed: true }]
+          : [];
+      },
+    },
+  };
+}
+
+async function cleanupHandoffArchive(segmentId: Sha256Hex): Promise<void> {
+  const segment = await env.DB.prepare("SELECT manifest_id FROM archive_segments WHERE segment_id = ?")
+    .bind(segmentId).first<{ manifest_id: string }>();
+  if (segment === null) throw new Error("memory_repository_handoff_segment_missing");
+  const triggerNames = [
+    "archive_segment_events_no_delete",
+    "archive_segments_no_delete",
+    "archive_manifests_no_delete",
+  ] as const;
+  const guards = await env.DB.prepare(`SELECT name, sql FROM sqlite_schema
+    WHERE type = 'trigger' AND name IN (${triggerNames.map(() => "?").join(", ")})`)
+    .bind(...triggerNames).all<{ name: string; sql: string }>();
+  if (guards.results.length !== triggerNames.length) {
+    throw new Error("memory_repository_handoff_delete_guard_missing");
+  }
+  for (const guard of guards.results) await env.DB.prepare(`DROP TRIGGER ${guard.name}`).run();
+  try {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM archive_segment_events WHERE segment_id = ?").bind(segmentId),
+      env.DB.prepare("DELETE FROM archive_segments WHERE segment_id = ?").bind(segmentId),
+      env.DB.prepare("DELETE FROM archive_manifests WHERE manifest_id = ?").bind(segment.manifest_id),
+    ]);
+  } finally {
+    for (const guard of guards.results) await env.DB.prepare(guard.sql).run();
+  }
 }
 
 async function fixture(repository = new MemoryRepository(env.DB)): Promise<Fixture> {
@@ -652,6 +741,57 @@ describe("MemoryRepository", () => {
       lifecycle: { state: "proposed" },
       sources: [{ sourceLocation: "archived", r2SegmentId: archived.segmentId }],
     });
+  });
+
+  it("continues reading an immutable live source after its event moves to an archive segment", async () => {
+    const prepared = await fixture();
+    await prepared.repository.commitInitialItem(prepared.input);
+    const archived = await archiveExistingLiveReceipt(prepared.source);
+    const repository = new MemoryRepository(env.DB, { archivedEventReader: archived.reader });
+
+    try {
+      await expect(repository.readCurrentItem(prepared.principalId, prepared.input.itemId))
+        .resolves.toMatchObject({
+          version: { text: prepared.input.version.text },
+          sources: [{
+            eventId: prepared.source.eventId,
+            eventSequence: prepared.source.sequence,
+            sourceLocation: "archived",
+            r2SegmentId: archived.segmentId,
+            excerpt: prepared.input.version.text,
+          }],
+        });
+    } finally {
+      await cleanupHandoffArchive(archived.segmentId);
+    }
+  });
+
+  it("validates a remembered owner turn from its verified archive event after live purge", async () => {
+    const principalId = await seedPrincipal("human");
+    const text = "Please remember that archived controls still work.";
+    const source = await seedEvent(principalId, text);
+    const archived = await archiveExistingLiveReceipt(source);
+    const repository = new MemoryRepository(env.DB, { archivedEventReader: archived.reader });
+
+    try {
+      await expect(repository.validateOwnerTurn({
+        principalId,
+        eventId: source.eventId,
+        eventSequence: source.sequence,
+        occurredAt: source.occurredAt,
+        channel: "telegram",
+        memoryIntent: "remember",
+        forwarded: false,
+        quoted: false,
+        pasted: false,
+        hasAttachment: false,
+        modelGenerated: false,
+        toolGenerated: false,
+        guest: false,
+      }, "remember")).resolves.toBe(text);
+    } finally {
+      await cleanupHandoffArchive(archived.segmentId);
+    }
   });
 
   it("binds archived receipts to their subject principal", async () => {

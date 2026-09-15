@@ -259,6 +259,25 @@ describe("MemoryOwnerControlsService", () => {
     });
   });
 
+  it("refuses remember recovery through a valid command accepted for a different owner turn", async () => {
+    const targetTurn = await seedTurn("Please remember that the archive color is amber.");
+    const acceptedTurn = await seedTurn("Please remember that the review color is violet.");
+    await new MemoryOwnerControlsService(env.DB).remember(
+      rememberInput(acceptedTurn, "the review color is violet."),
+    );
+    const unrelatedCommand = await env.DB.prepare(`SELECT event_id FROM events
+      WHERE subject_id = ? AND event_type = 'memory.owner_command'
+      ORDER BY sequence DESC LIMIT 1`).bind(OWNER_ID).first<{ event_id: Ulid }>();
+    if (unrelatedCommand === null) throw new Error("memory_owner_unrelated_command_missing");
+
+    await expectCode(
+      new MemoryRepository(env.DB).readAcceptedOwnerTurn(targetTurn.input, unrelatedCommand.event_id),
+      "memory_refused",
+    );
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_items
+      WHERE creation_event_id = ?`).bind(targetTurn.input.eventId).first("count")).toBe(0);
+  });
+
   it("suppresses text when a remember replay is no longer the current transition", async () => {
     const turn = await seedTurn("Remember that I prefer dark mode.");
     const service = new MemoryOwnerControlsService(env.DB);
