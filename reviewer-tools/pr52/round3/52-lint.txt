@@ -1,0 +1,12 @@
+$ pnpm -r --if-present lint
+Scope: 5 of 6 workspace projects
+apps/cloud-gateway lint$ tsc --noEmit
+apps/watchdog lint$ tsc --noEmit
+packages/contracts lint$ tsc --noEmit
+apps/hermes-runtime lint$ node --check src/canonical-json.mjs && node --check src/validate-manifests.mjs && node --check src/validate-runs-wire.mjs && node --check src/generate-sbom.mjs
+apps/watchdog lint: Done
+tests/acceptance lint$ tsc --noEmit
+packages/contracts lint: Done
+apps/hermes-runtime lint: Done
+tests/acceptance lint: Done
+apps/cloud-gateway lint: Done
