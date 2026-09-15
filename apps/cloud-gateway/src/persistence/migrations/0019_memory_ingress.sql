@@ -1,8 +1,3 @@
--- Privileged memory commands use one reserved event type and source pair.
--- Every accepted command must also be the canonical envelope emitted by the
--- reviewed memory-control producer for an active human principal. The 0016
--- mutation guards bind the operation, target and every material operand to the
--- exact row the command authorizes.
 CREATE TRIGGER events_memory_owner_command_ingress_guard
 BEFORE INSERT ON events
 WHEN (NEW.event_type = 'memory.owner_command' AND NEW.source <> 'memory-control')
@@ -45,8 +40,6 @@ BEGIN
   SELECT RAISE(ABORT, 'memory_owner_command_ingress_invalid');
 END;
 
--- Topic order and alias precedence use writer-stamped time. Refuse stale
--- queued or retried writes so commit order cannot be reversed by an old stamp.
 CREATE TRIGGER memory_topic_events_recent_insert_guard
 BEFORE INSERT ON memory_topic_events
 WHEN NEW.occurred_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-5 minutes')
