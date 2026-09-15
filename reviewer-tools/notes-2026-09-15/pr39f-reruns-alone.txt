@@ -1,0 +1,9 @@
+== alone: apps/cloud-gateway/test/archive/archival-service.test.ts
+ Test Files  1 passed (1)
+      Tests  46 passed (46)
+== alone: tests/acceptance/fake/voice-call-path.test.ts
+ Test Files  1 passed (1)
+      Tests  18 passed (18)
+== alone: tests/acceptance/fake/voice-telegram-call.test.ts
+ Test Files  1 passed (1)
+      Tests  44 passed (44)

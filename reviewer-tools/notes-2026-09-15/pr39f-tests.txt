@@ -1,0 +1,19 @@
+HEAD 4189a2e
+== lint
+packages/contracts lint: Done
+apps/hermes-runtime lint: Done
+apps/cloud-gateway lint: Done
+tests/acceptance lint: Done
+== typecheck
+packages/contracts typecheck: Done
+apps/hermes-runtime typecheck: Done
+tests/acceptance typecheck: Done
+apps/cloud-gateway typecheck: Done
+== pnpm test
+ Test Files  3 failed | 133 passed (136)
+      Tests  3 failed | 2902 passed (2905)
+   Duration  124.32s (transform 70.65s, setup 0ms, import 653.74s, tests 609.93s, environment 24ms)
+timeouts: 3
+      1  FAIL  |default| apps/cloud-gateway/test/archive/archival-service.test.ts
+      1  FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts
+      1  FAIL  |default| tests/acceptance/fake/voice-telegram-call.test.ts

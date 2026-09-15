@@ -1,0 +1,96 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "4189a2e",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_items_insert_guard\n",
+   "to": "CREATE TRIGGER memory_items_insert_guard\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "M-nf4-baseline-revert",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "          SELECT max(previous_command.sequence)\n          FROM memory_item_transitions previous_transition\n          JOIN memory_valid_owner_commands previous_command\n            ON previous_command.event_id = previous_transition.owner_authorizing_event_id\n          WHERE previous_transition.principal_id = NEW.principal_id\n            AND previous_transition.item_id = NEW.item_id",
+   "to": "          SELECT previous_command.sequence\n          FROM memory_item_state state\n          JOIN memory_item_transitions previous_transition\n            ON previous_transition.principal_id = state.principal_id\n            AND previous_transition.transition_id = state.last_transition_id\n          JOIN memory_valid_owner_commands previous_command\n            ON previous_command.event_id = previous_transition.owner_authorizing_event_id\n          WHERE state.principal_id = NEW.principal_id\n            AND state.item_id = NEW.item_id",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "M-transition-future-bound",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "  OR NEW.occurred_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+5 minutes')\n  OR EXISTS (\n    SELECT 1 FROM memory_item_state state",
+   "to": "  OR EXISTS (\n    SELECT 1 FROM memory_item_state state",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "M-vector-mutation-pin",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "  OR NEW.mutation_id <> OLD.mutation_id\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "M-alias-id-validation",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "      OR length(json_extract(entry.value, '$.aliasId')) <> 26\n      OR substr(json_extract(entry.value, '$.aliasId'), 1, 1) NOT BETWEEN '0' AND '7'\n      OR json_extract(entry.value, '$.aliasId') GLOB '*[^0-9a-hjkmnp-tv-z]*'\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "M-alias-length-validation",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "      OR length(CAST(json_extract(entry.value, '$.displayName') AS BLOB)) NOT BETWEEN 1 AND 256\n      OR length(CAST(json_extract(entry.value, '$.normalizedName') AS BLOB)) NOT BETWEEN 1 AND 256\n      OR length(CAST(json_extract(entry.value, '$.pathAlias') AS BLOB)) NOT BETWEEN 1 AND 2048\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "M-event-new-display-name-check",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "  new_display_name TEXT CHECK (\n    new_display_name IS NULL OR (\n      length(CAST(new_display_name AS BLOB)) BETWEEN 1 AND 256\n      AND instr(new_display_name, char(0)) = 0\n      AND new_display_name NOT GLOB ('*[' || char(1) || '-' || char(31)\n        || char(127) || '-' || char(159) || char(8232) || char(8233) || ']*')\n    )\n  ),\n",
+   "to": "  new_display_name TEXT,\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "M-event-new-normalized-name-check",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "  new_normalized_name TEXT CHECK (\n    new_normalized_name IS NULL\n    OR length(CAST(new_normalized_name AS BLOB)) BETWEEN 1 AND 256\n  ),\n",
+   "to": "  new_normalized_name TEXT,\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "M-reservation-lower-bound",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "  OR (NEW.entry_type = 'reservation'\n    AND NEW.occurred_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-5 minutes'))\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "M-merge-own-parent-exclusion",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "          AND sibling.topic_id <> NEW.topic_id\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  }
+ ]
+}

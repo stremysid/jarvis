@@ -1,0 +1,72 @@
+checked out 4189a2e at 4189a2e
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  128 passed (128)
+
+== M-nf4-baseline-revert: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (128 tests | 1 failed) 3965ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 127 passed (128)
+   × rejects a preissued owner command after any newer owner transition 55ms
+
+== M-transition-future-bound: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (128 tests | 1 failed) 4338ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 127 passed (128)
+   × bounds rules expiry by wall clock and the current state timestamp 83ms
+
+== M-vector-mutation-pin: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (128 tests | 1 failed) 4442ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 127 passed (128)
+   × sweeps every 0016 table across explicit-rowid, natural-key, and key-update REPLACE paths 905ms
+
+== M-alias-id-validation: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (128 tests | 1 failed) 4489ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 127 passed (128)
+   × refuses OR IGNORE topic events whose apply rows would be incomplete 34ms
+
+== M-alias-length-validation: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (128 tests | 1 failed) 3815ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 127 passed (128)
+   × refuses OR IGNORE topic events whose apply rows would be incomplete 37ms
+
+== M-event-new-display-name-check: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (128 tests | 1 failed) 4392ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 127 passed (128)
+   × refuses OR IGNORE topic events whose apply rows would be incomplete 25ms
+
+== M-event-new-normalized-name-check: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  128 passed (128)
+
+== M-reservation-lower-bound: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (128 tests | 1 failed) 4137ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 127 passed (128)
+   × rejects a backdated reservation on a run that crossed a monthly boundary 21ms
+
+== M-merge-own-parent-exclusion: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (128 tests | 1 failed) 3801ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 127 passed (128)
+   × merges a topic into its own parent before reparenting a same-named child 15ms
+
+=== summary
+SURVIVED  BASE
+KILLED    M-nf4-baseline-revert
+KILLED    M-transition-future-bound
+KILLED    M-vector-mutation-pin
+KILLED    M-alias-id-validation
+KILLED    M-alias-length-validation
+KILLED    M-event-new-display-name-check
+SURVIVED  M-event-new-normalized-name-check
+KILLED    M-reservation-lower-bound
+KILLED    M-merge-own-parent-exclusion
+back on main, tree clean=true
+(node:5648) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

@@ -1,0 +1,14 @@
+== round-4 verifier probes (P1b, P2a-c, P3, P4b must FAIL; P1a/P4a are head-behaviour probes)
+     × P2a carried OR IGNORE: rename event commits while the over-long topic rename is silently skipped 18ms
+     × P2b carried OR IGNORE: create event commits with no topic row 10ms
+     × P2c carried OR IGNORE: rename applies while its required alias row (malformed aliasId) is silently dropped 8ms
+AssertionError: expected { n: +0 } to deeply equal { n: 1 }
+AssertionError: expected { n: +0 } to deeply equal { n: 1 }
+Error: D1_ERROR: memory_topic_event_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+Caused by: Error: memory_topic_event_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+ Test Files  1 failed (1)
+      Tests  3 failed | 5 passed (8)
+== round-3 independent probes + H2/NF1 (must FAIL, natural-key control may pass)
+ Test Files  6 failed (6)
+      Tests  8 failed | 4 passed (12)
+status after:[]

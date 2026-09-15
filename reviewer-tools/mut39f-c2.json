@@ -1,0 +1,186 @@
+{
+ "root": "C:/Users/Sid/jarvis-deploy",
+ "branch": "4189a2e",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_items_insert_guard\n",
+   "to": "CREATE TRIGGER memory_items_insert_guard\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_item_placement_events_immutable_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_item_placement_events_immutable_update\nBEFORE UPDATE ON memory_item_placement_events\nBEGIN\n  SELECT RAISE(ABORT, 'memory_item_placement_event_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_item_placement_events_immutable_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_item_placement_events_immutable_delete\nBEFORE DELETE ON memory_item_placement_events\nBEGIN\n  SELECT RAISE(ABORT, 'memory_item_placement_event_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_episodes_immutable_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_episodes_immutable_update\nBEFORE UPDATE ON memory_episodes\nBEGIN\n  SELECT RAISE(ABORT, 'memory_episode_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_episodes_immutable_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_episodes_immutable_delete\nBEFORE DELETE ON memory_episodes\nBEGIN\n  SELECT RAISE(ABORT, 'memory_episode_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_episode_sources_immutable_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_episode_sources_immutable_update\nBEFORE UPDATE ON memory_episode_sources\nBEGIN\n  SELECT RAISE(ABORT, 'memory_episode_source_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_episode_sources_immutable_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_episode_sources_immutable_delete\nBEFORE DELETE ON memory_episode_sources\nBEGIN\n  SELECT RAISE(ABORT, 'memory_episode_source_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_history_coverage_immutable_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_history_coverage_immutable_update\nBEFORE UPDATE ON memory_history_coverage\nBEGIN\n  SELECT RAISE(ABORT, 'memory_history_coverage_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_history_coverage_immutable_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_history_coverage_immutable_delete\nBEFORE DELETE ON memory_history_coverage\nBEGIN\n  SELECT RAISE(ABORT, 'memory_history_coverage_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_model_prices_immutable_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_model_prices_immutable_update\nBEFORE UPDATE ON memory_model_prices\nBEGIN\n  SELECT RAISE(ABORT, 'memory_model_price_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_model_prices_immutable_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_model_prices_immutable_delete\nBEFORE DELETE ON memory_model_prices\nBEGIN\n  SELECT RAISE(ABORT, 'memory_model_price_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_cost_ledger_immutable_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_cost_ledger_immutable_update\nBEFORE UPDATE ON memory_cost_ledger\nBEGIN\n  SELECT RAISE(ABORT, 'memory_cost_entry_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_cost_ledger_immutable_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_cost_ledger_immutable_delete\nBEFORE DELETE ON memory_cost_ledger\nBEGIN\n  SELECT RAISE(ABORT, 'memory_cost_entry_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_item_versions_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_item_versions_insert_guard\nBEFORE INSERT ON memory_item_versions\nWHEN (NEW.version_rowid IS NOT NULL AND EXISTS (\n    SELECT 1 FROM memory_item_versions version\n    WHERE version.version_rowid = NEW.version_rowid\n  ))\n  OR EXISTS (\n    SELECT 1 FROM memory_item_versions version\n    WHERE version.version_id = NEW.version_id\n      OR (version.principal_id = NEW.principal_id\n        AND version.item_id = NEW.item_id\n        AND version.version_number = NEW.version_number)\n  )\n  OR NOT EXISTS (\n    SELECT 1 FROM memory_items item\n    WHERE item.principal_id = NEW.principal_id AND item.item_id = NEW.item_id\n  )\n  OR NEW.version_number <> COALESCE((\n    SELECT MAX(version.version_number) + 1\n    FROM memory_item_versions version\n    WHERE version.principal_id = NEW.principal_id AND version.item_id = NEW.item_id\n  ), 1)\nBEGIN\n  SELECT RAISE(ABORT, 'memory_item_version_lineage_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_item_sources_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_item_sources_insert_guard\nBEFORE INSERT ON memory_item_sources\nWHEN EXISTS (\n    SELECT 1 FROM memory_item_sources source\n    WHERE source.source_id = NEW.source_id\n      OR (source.principal_id = NEW.principal_id\n        AND source.version_id = NEW.version_id\n        AND (source.source_position = NEW.source_position OR source.event_id = NEW.event_id))\n  )\n  OR NOT EXISTS (\n    SELECT 1 FROM memory_item_versions version\n    WHERE version.principal_id = NEW.principal_id\n      AND version.item_id = NEW.item_id\n      AND version.version_id = NEW.version_id\n  )\n  OR (\n    NEW.source_location = 'live'\n    AND NOT EXISTS (\n      SELECT 1 FROM events event\n      WHERE event.event_id = NEW.event_id\n        AND event.sequence = NEW.event_sequence\n        AND event.subject_id = NEW.principal_id\n    )\n  )\n  OR (\n    NEW.source_location = 'archived'\n    AND NOT EXISTS (\n      SELECT 1 FROM archive_segment_events archived\n      WHERE archived.event_id = NEW.event_id\n        AND archived.event_sequence = NEW.event_sequence\n        AND archived.segment_id = NEW.r2_segment_id\n    )\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_item_source_receipt_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_item_transitions_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_item_transitions_insert_guard\nBEFORE INSERT ON memory_item_transitions\nWHEN EXISTS (\n    SELECT 1 FROM memory_item_transitions transition_row\n    WHERE transition_row.transition_id = NEW.transition_id\n      OR (transition_row.principal_id = NEW.principal_id\n        AND transition_row.item_id = NEW.item_id\n        AND transition_row.transition_number = NEW.transition_number)\n  )\n  OR NEW.occurred_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+5 minutes')\n  OR EXISTS (\n    SELECT 1 FROM memory_item_state state\n    WHERE state.principal_id = NEW.principal_id\n      AND state.item_id = NEW.item_id\n      AND NEW.occurred_at < state.updated_at\n  )\n  OR NOT EXISTS (\n    SELECT 1 FROM memory_item_versions version\n    WHERE version.principal_id = NEW.principal_id\n      AND version.item_id = NEW.item_id\n      AND version.version_id = NEW.version_id\n  )\n  OR NEW.transition_number <> COALESCE((\n    SELECT state.last_transition_number + 1\n    FROM memory_item_state state\n    WHERE state.principal_id = NEW.principal_id AND state.item_id = NEW.item_id\n  ), 1)\n  OR (\n    NOT EXISTS (\n      SELECT 1 FROM memory_item_state state\n      WHERE state.principal_id = NEW.principal_id AND state.item_id = NEW.item_id\n    )\n    AND NEW.lifecycle_state NOT IN ('proposed', 'active')\n  )\n  OR EXISTS (\n    SELECT 1 FROM memory_item_state state\n    JOIN memory_item_versions current_version\n      ON current_version.principal_id = state.principal_id\n      AND current_version.version_id = state.current_version_id\n    JOIN memory_item_versions next_version\n      ON next_version.principal_id = NEW.principal_id\n      AND next_version.version_id = NEW.version_id\n    WHERE state.principal_id = NEW.principal_id AND state.item_id = NEW.item_id\n      AND NOT (\n        (state.lifecycle_state = 'proposed'\n          AND NEW.lifecycle_state IN ('active', 'rejected', 'forgotten', 'expired'))\n        OR (state.lifecycle_state = 'active'\n          AND NEW.lifecycle_state IN ('superseded', 'forgotten', 'expired'))\n        OR (state.lifecycle_state IN ('rejected', 'superseded', 'forgotten', 'expired')\n          AND NEW.lifecycle_state IN ('proposed', 'active')\n          AND next_version.version_number > current_version.version_number)\n      )\n  )\n  OR (NEW.actor = 'rules' AND NEW.lifecycle_state IN ('rejected', 'superseded', 'forgotten'))\n  OR (\n    NEW.actor <> 'owner'\n    AND EXISTS (\n      SELECT 1 FROM memory_item_state state\n      WHERE state.principal_id = NEW.principal_id\n        AND state.item_id = NEW.item_id\n        AND state.lifecycle_state IN ('forgotten', 'rejected')\n    )\n  )\n  OR (\n    NEW.actor <> 'owner'\n    AND EXISTS (\n      SELECT 1\n      FROM memory_item_state state\n      JOIN memory_item_transitions current_transition\n        ON current_transition.principal_id = state.principal_id\n        AND current_transition.transition_id = state.last_transition_id\n      JOIN memory_item_versions current_version\n        ON current_version.principal_id = state.principal_id\n        AND current_version.version_id = state.current_version_id\n      WHERE state.principal_id = NEW.principal_id\n        AND state.item_id = NEW.item_id\n        AND current_transition.actor = 'owner'\n        AND NOT (\n          NEW.lifecycle_state = 'expired'\n          AND NEW.version_id = state.current_version_id\n          AND current_version.valid_to IS NOT NULL\n          AND current_version.valid_to <= strftime('%Y-%m-%dT%H:%M:%fZ', 'now')\n        )\n    )\n  )\n  OR (\n    NEW.lifecycle_state = 'active'\n    AND (\n      NOT EXISTS (\n        SELECT 1 FROM memory_item_sources source\n        WHERE source.principal_id = NEW.principal_id\n          AND source.version_id = NEW.version_id\n      )\n      OR EXISTS (\n      SELECT 1 FROM memory_item_versions version\n      WHERE version.principal_id = NEW.principal_id\n        AND version.version_id = NEW.version_id\n        AND version.origin NOT IN ('authenticated_first_person', 'deterministic_observation')\n      )\n      OR EXISTS (\n        SELECT 1 FROM memory_item_versions version\n        WHERE version.principal_id = NEW.principal_id\n          AND version.version_id = NEW.version_id\n          AND version.basis = 'confirmed'\n          AND NEW.actor <> 'owner'\n      )\n      OR (\n        EXISTS (\n          SELECT 1 FROM memory_item_versions version\n          WHERE version.principal_id = NEW.principal_id\n            AND version.version_id = NEW.version_id\n            AND version.origin = 'authenticated_first_person'\n        )\n        AND NOT EXISTS (\n          SELECT 1 FROM memory_item_sources source\n          JOIN events event\n            ON event.event_id = source.event_id\n            AND event.sequence = source.event_sequence\n          WHERE source.principal_id = NEW.principal_id\n            AND source.version_id = NEW.version_id\n            AND source.source_location = 'live'\n            AND event.subject_id = NEW.principal_id\n            AND event.event_type = 'conversation.user_committed'\n        )\n        AND NOT (\n          NEW.actor = 'owner'\n          AND EXISTS (\n            SELECT 1 FROM memory_item_versions version\n            WHERE version.principal_id = NEW.principal_id\n              AND version.version_id = NEW.version_id\n              AND version.basis = 'confirmed'\n          )\n          AND EXISTS (\n            SELECT 1 FROM memory_item_sources source\n            JOIN archive_segment_events archived\n              ON archived.event_id = source.event_id\n              AND archived.event_sequence = source.event_sequence\n              AND archived.segment_id = source.r2_segment_id\n            WHERE source.principal_id = NEW.principal_id\n              AND source.version_id = NEW.version_id\n              AND source.source_location = 'archived'\n          )\n        )\n      )\n    )\n  )\n  OR (\n    NEW.actor = 'owner'\n    AND NOT EXISTS (\n      SELECT 1 FROM memory_valid_owner_commands command\n      WHERE command.event_id = NEW.owner_authorizing_event_id\n        AND command.subject_id = NEW.principal_id\n        AND json_extract(command.envelope_json, '$.payload.targetId') = NEW.transition_id\n        AND json_extract(command.envelope_json, '$.payload.operation') = CASE\n          WHEN NEW.lifecycle_state = 'forgotten' THEN 'item.forget'\n          WHEN EXISTS (\n            SELECT 1 FROM memory_item_state state\n            WHERE state.principal_id = NEW.principal_id\n              AND state.item_id = NEW.item_id\n              AND state.lifecycle_state IN ('forgotten', 'rejected')\n          ) THEN 'item.correct'\n          ELSE 'item.transition'\n        END\n        AND json_extract(command.envelope_json, '$.payload.itemId') = NEW.item_id\n        AND json_extract(command.envelope_json, '$.payload.versionId') = NEW.version_id\n        AND json_extract(command.envelope_json, '$.payload.lifecycleState') = NEW.lifecycle_state\n        AND command.sequence > COALESCE((\n          SELECT max(previous_command.sequence)\n          FROM memory_item_transitions previous_transition\n          JOIN memory_valid_owner_commands previous_command\n            ON previous_command.event_id = previous_transition.owner_authorizing_event_id\n          WHERE previous_transition.principal_id = NEW.principal_id\n            AND previous_transition.item_id = NEW.item_id\n        ), (\n          SELECT item.creation_event_sequence FROM memory_items item\n          WHERE item.principal_id = NEW.principal_id AND item.item_id = NEW.item_id\n        ))\n    )\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_item_transition_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_item_transitions_apply_state",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_item_transitions_apply_state\nAFTER INSERT ON memory_item_transitions\nBEGIN\n  INSERT INTO memory_item_state (\n    principal_id, item_id, current_version_id, lifecycle_state,\n    last_transition_id, last_transition_number, updated_at\n  ) SELECT\n    NEW.principal_id, NEW.item_id, NEW.version_id, NEW.lifecycle_state,\n    NEW.transition_id, NEW.transition_number, NEW.occurred_at\n  WHERE NOT EXISTS (\n    SELECT 1 FROM memory_item_state state\n    WHERE state.principal_id = NEW.principal_id AND state.item_id = NEW.item_id\n  );\n\n  UPDATE memory_item_state SET\n    current_version_id = NEW.version_id,\n    lifecycle_state = NEW.lifecycle_state,\n    last_transition_id = NEW.transition_id,\n    last_transition_number = NEW.transition_number,\n    updated_at = NEW.occurred_at\n  WHERE principal_id = NEW.principal_id\n    AND item_id = NEW.item_id\n    AND last_transition_number = NEW.transition_number - 1;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_item_state_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_item_state_insert_guard\nBEFORE INSERT ON memory_item_state\nWHEN EXISTS (\n    SELECT 1 FROM memory_item_state state\n    WHERE state.principal_id = NEW.principal_id AND state.item_id = NEW.item_id\n  )\n  OR NOT EXISTS (\n  SELECT 1 FROM memory_item_transitions transition_row\n  WHERE transition_row.principal_id = NEW.principal_id\n    AND transition_row.item_id = NEW.item_id\n    AND transition_row.transition_id = NEW.last_transition_id\n    AND transition_row.transition_number = NEW.last_transition_number\n    AND transition_row.version_id = NEW.current_version_id\n    AND transition_row.lifecycle_state = NEW.lifecycle_state\n    AND transition_row.occurred_at = NEW.updated_at\n)\nBEGIN\n  SELECT RAISE(ABORT, 'memory_item_state_requires_transition');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_item_state_update_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_item_state_update_guard\nBEFORE UPDATE ON memory_item_state\nWHEN NEW.principal_id <> OLD.principal_id\n  OR NEW.item_id <> OLD.item_id\n  OR NEW.last_transition_number <> OLD.last_transition_number + 1\n  OR NOT EXISTS (\n    SELECT 1 FROM memory_item_transitions transition_row\n    WHERE transition_row.principal_id = NEW.principal_id\n      AND transition_row.item_id = NEW.item_id\n      AND transition_row.transition_id = NEW.last_transition_id\n      AND transition_row.transition_number = NEW.last_transition_number\n      AND transition_row.version_id = NEW.current_version_id\n      AND transition_row.lifecycle_state = NEW.lifecycle_state\n      AND transition_row.occurred_at = NEW.updated_at\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_item_state_requires_transition');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_item_state_delete_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_item_state_delete_guard\nBEFORE DELETE ON memory_item_state\nBEGIN\n  SELECT RAISE(ABORT, 'memory_item_state_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  }
+ ]
+}
