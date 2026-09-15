@@ -5,26 +5,26 @@
 PR #40 keeps inbound calling closed and adds the durable passphrase boundary,
 but five low-severity edges remain before live acceptance:
 
-- An attempt's `resolved_at` uses the observation time captured before the
+- **F9:** An attempt's `resolved_at` uses the observation time captured before the
   600,000-round KDF. A slow verifier can therefore commit a timestamp that
   predates the actual completion and the 60-second deadline.
-- If the verifier throws after its durable attempt row is reserved, that row
+- **F10:** If the verifier throws after its durable attempt row is reserved, that row
   remains unresolved and the relay closes with code 1011. The caller does not
   receive the fixed refusal, clean end frame, or rejection alert.
-- The outbound slot reservation trigger recognizes exactly two inbound owner
+- **F11:** The outbound slot reservation trigger recognizes exactly two inbound owner
   sessions in `pre_auth`. If inconsistent or future state ever leaves more than
   two such rows, the reservation no longer applies.
-- Concurrent identical `bind`, `begin`, or rejection deliveries can both pass
+- **N3:** Concurrent identical `bind`, `begin`, or rejection deliveries can both pass
   their read-before-insert check. The losing insert fails closed through a
   guard trigger instead of re-reading and returning the matching durable row.
-- Concurrent post-success transcript finals are not serialized inside one
+- **N4:** Concurrent post-success transcript finals are not serialized inside one
   call-session core. Reordered D1 completions could assemble split passphrase
   words out of order and pass the mismatch onward as ordinary speech.
 
-The 60-second deadline, a final arriving during KDF work, and refusal delivery
-ahead of the alert sink are fixed and covered on PR #40. The five items above
-must be resolved or explicitly accepted before inbound opening and the attended
-voice smoke.
+Deadline restoration after eviction (F6), a final arriving during KDF work
+(F7), and refusal delivery ahead of the alert sink (F14) are fixed and covered
+on PR #40. The five items above must be resolved or explicitly accepted before
+inbound opening and the attended voice smoke.
 
 ## Owner-call passphrase boundary awaits rollout and live acceptance
 
