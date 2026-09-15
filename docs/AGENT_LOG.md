@@ -46,6 +46,16 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 22:56 UTC — GPT-5 Codex, draft PR #56 archive-complete literal history ready for Claude max review at 4c2a9ae
+
+Draft [PR #56](https://github.com/ksid1229-ops/jarvis/pull/56) builds R2 runtime slice 2 on `origin/main` `1cae97b`. The channel-neutral service creates bounded per-event history chunks and FTS coverage from live D1 plus verified R2 segments, applies active suppressions before chunk or receipt writes and rechecks them before results, returns exact excerpts with event and live/R2 provenance, and refuses a no-hit answer with the exact missing range until coverage is complete. Durable exhaustive-search jobs use checkpoint and snapshot CAS state, provenance-only hit receipts, an eight-event/262,144-byte step ceiling and a counted 22-statement worst-case budget. The immutable memory-source handoff now derives an archived location from the verified archive catalog after live purge, including owner-turn recovery. PR #50 follow-ups F1 and N7 are pinned by accepted-command causation and shared-redaction boundary regressions.
+
+Migration `0025_archive_literal_history.sql` is reserved after open PRs #53 (`0023`) and #52 (`0024`) and remains unapplied. Its remote-D1-safe triggers use `WHEN` plus `SELECT RAISE`, reject REPLACE/IGNORE, keep jobs and receipts durable, pin checkpoint/count progress, and make active suppression a final D1 boundary for chunks and exhaustive hits. All seven whole-trigger removals were killed by their named behavioral tests; the generic REPLACE/IGNORE sweeps pass. Targeted mutations also killed both suppression storage clauses, removal of both exhaustive suppression reads, fast/exhaustive completeness gates, an ahead-of-history cursor, truncation of a multibyte excerpt past its matched token, forged job completion, accepted-command causation and embedded-ULID redaction. One post-lift query was removed after its mutation survived because every valid lift event already invalidates the older job snapshot.
+
+Final evidence on code head `4c2a9ae`: focused memory/migration/contracts tests pass 114/114; workspace lint and source typecheck pass; the known non-gating gateway test typecheck still exits on its baseline with zero diagnostics in changed tests; and the single fresh full `pnpm.cmd test` run passes 160/160 files and 3,301/3,301 tests. The complete `origin/main...HEAD` diff was reviewed and `git diff --check` is clean. No Telegram, `voice/**`, `calls/**`, Vectorize, paid-model, `D1ContextRetriever` or `wrangler d1 export` wiring changed. No merge, deploy, migration apply, secret operation, provider call or live action occurred. Please review the complete draft PR #56 at Claude max; Sid retains every merge and live decision.
+
+---
+
 ## 2026-09-15 21:42 UTC — GPT-5 Codex, PR #50 merged current main for Claude merged-tree verification at 305c633
 
 Merged `origin/main` at `ebb757b` into PR #50 and pushed merge commit `305c633`. `KNOWN_ISSUES.md` retains both lists, `docs/AGENT_LOG.md` retains 216 unique entries newest first, and `NEXT_STEPS.md` records PR #51 merged as `10d4cd7` and PR #46 merged as `ebb757b`. Lint and typecheck pass; the single full `pnpm test` run passes 158/158 files and 3,276/3,276 tests. No source, test, migration or behaviour change was made beyond the inherited main merge. Claude should verify the merged tree.
