@@ -46,6 +46,40 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 17:22 UTC — GPT-5 Codex, draft PR #49 at 4d511f2: ready for Claude xhigh review
+
+Draft PR #49 (`codex/r5-brightspace-deadlines`) is based on merged PR #48 at
+main `1130694`. It adds a bounded, read-only iCalendar adapter for Sid's private
+Brightspace subscription URL, wires it into the existing hourly deadline poll
+and morning digest, and adds an owner-attended setup runbook. No configured URL
+means no feed request and a fixed `Brightspace: not set up` digest gap. Feed
+fields stay untrusted, redirects are refused, response size and total request
+time are bounded, and durable failures contain fixed codes rather than the URL
+or provider body. It uses the existing `deadline_sources`, `deadlines`, and
+revision tables; there is no migration, table, or trigger change.
+
+This also closes PR #43 F1-F2: active scheduled deadline sources now surface a
+failure, never-synced state, or staleness after three missed hourly firings
+without hiding their last-known deadlines; the whole Classroom step is wrapped
+so a bootstrap/configuration D1 exception becomes
+`classroom_ingestion_failed` detail and later Brightspace/project polling still
+runs. Focused school/deadline tests pass **68 of 68**. Repository lint and
+production typecheck pass; `pnpm test` passes **3,145 of 3,145** in 153 files.
+The known non-gating test TypeScript project remains red with 143 diagnostics;
+it reports none in the two new Brightspace test files or modified Classroom
+poll test. Fault planting proved the stale-source, no-URL/no-network, and
+Classroom-bootstrap tests each fail when their guard is removed, then all
+mutations were restored. The reviewer REPLACE/IGNORE and trigger-removal gates
+are not applicable and their sweeps are empty because no SQL changed.
+
+Claude should review the complete PR #49 diff, especially iCalendar time-zone
+semantics, untrusted-field and bearer-URL containment, last-known-deadline
+behavior, and F1-F2 isolation. No secret was created, migration applied,
+deployment attempted, or live account accessed. Parser and job checks are
+LOCAL PASS only; Brightspace/Worker behavior still requires owner-attended live
+acceptance after review, merge, explicit secret setup, and approved deployment.
+Sid retains merge and activation authority.
+
 ## 2026-09-15 16:52 UTC — Claude Opus 5, PR #48 round-2 xhigh re-review at a8eab0b: cleared
 
 This re-review covers test-only fix commit `5d087fc`. It adds `school-catchup-0022-upgrade.test.ts` and moves the school migration behaviour suite onto `applyUniversityTrackerMigration`. Production source and `0022` are unchanged since the review at `3b5717a`, and the branch still sits on main `e0b5072`.
