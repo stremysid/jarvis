@@ -10,7 +10,7 @@ import {
 } from "../../src/jobs/job-table.js";
 import { resetArchiveFixture } from "../archive/archive-fixture.js";
 import { resetDeadlineTables } from "../deadlines/deadline-fixture.js";
-import { applySchoolCatchupMigration } from "../persistence/migration.js";
+import { applyUniversityApplicationWorkflowMigration } from "../persistence/migration.js";
 
 const NOW = new Date("2026-09-15T12:00:00.000Z");
 const FEED_URL = "https://school.example/d2l/le/calendar/feed/user.ics?subscription=fixture-only";
@@ -224,7 +224,7 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
     await resetArchiveFixture();
     await resetDeadlineTables();
     await env.DB.prepare("DELETE FROM scheduled_runs").run();
-    await applySchoolCatchupMigration();
+    await applyUniversityApplicationWorkflowMigration();
   });
   afterEach(async () => {
     vi.restoreAllMocks();

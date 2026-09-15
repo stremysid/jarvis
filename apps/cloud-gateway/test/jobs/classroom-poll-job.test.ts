@@ -5,7 +5,7 @@ import { buildJobTable, type JobEnvironment } from "../../src/jobs/job-table.js"
 import { ProjectPoller } from "../../src/projects/project-poller.js";
 import { resetArchiveFixture } from "../archive/archive-fixture.js";
 import { resetDeadlineTables } from "../deadlines/deadline-fixture.js";
-import { applySchoolCatchupMigration } from "../persistence/migration.js";
+import { applyUniversityApplicationWorkflowMigration } from "../persistence/migration.js";
 
 const NOW = new Date("2026-09-15T12:00:00.000Z");
 const CONFIGURED = {
@@ -49,7 +49,7 @@ describe("hourly Classroom ingestion", () => {
   beforeEach(async () => {
     await resetArchiveFixture();
     await resetDeadlineTables();
-    await applySchoolCatchupMigration();
+    await applyUniversityApplicationWorkflowMigration();
   });
   afterEach(async () => {
     vi.restoreAllMocks();
