@@ -743,15 +743,6 @@ export class LiteralHistoryService {
           }),
         });
       }
-      const lifted = await this.firstLiftAfter(principalId, job.completedAt ?? job.updatedAt, job.snapshotEventSequence);
-      if (lifted !== null) {
-        return Object.freeze({
-          status: "incomplete",
-          hits: Object.freeze(hits),
-          searchedThroughEventSequence: job.snapshotEventSequence,
-          missingRange: Object.freeze({ startEventSequence: lifted, endEventSequence: lifted }),
-        });
-      }
       return hits.length === 0
         ? Object.freeze({
           status: "no_hit" as const,
@@ -1188,33 +1179,4 @@ export class LiteralHistoryService {
     });
   }
 
-  private async firstLiftAfter(
-    principalId: string,
-    afterTimestamp: string,
-    throughSequence: number,
-  ): Promise<number | null> {
-    const row = await this.options.database.prepare(`SELECT MIN(COALESCE(
-        suppression.start_event_sequence,
-        (SELECT sequence FROM events WHERE event_id = suppression.target_event_id),
-        (SELECT event_sequence FROM archive_segment_events
-          WHERE event_id = suppression.target_event_id)
-      )) AS event_sequence
-      FROM memory_event_suppression_lifts lift
-      JOIN memory_event_suppressions suppression
-        ON suppression.principal_id = lift.principal_id
-        AND suppression.suppression_id = lift.suppression_id
-      WHERE lift.principal_id = ? AND lift.created_at > ?
-        AND COALESCE(
-          suppression.start_event_sequence,
-          (SELECT sequence FROM events WHERE event_id = suppression.target_event_id),
-          (SELECT event_sequence FROM archive_segment_events
-            WHERE event_id = suppression.target_event_id)
-        ) <= ?`).bind(principalId, afterTimestamp, throughSequence)
-      .first<{ event_sequence: unknown }>();
-    if (row === null) corrupt();
-    exactRow(row, new Set(["event_sequence"]));
-    return row.event_sequence === null
-      ? null
-      : rowInteger(row.event_sequence, 1, throughSequence);
-  }
 }
