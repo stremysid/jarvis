@@ -1,0 +1,13 @@
+diff --git a/apps/cloud-gateway/src/voice/owner-call-step-up.ts b/apps/cloud-gateway/src/voice/owner-call-step-up.ts
+index b8670d5..eefc6cc 100644
+--- a/apps/cloud-gateway/src/voice/owner-call-step-up.ts
++++ b/apps/cloud-gateway/src/voice/owner-call-step-up.ts
+@@ -215,7 +215,7 @@ export class OwnerCallStepUpService {
+     ) VALUES (?, 1, ?, ?, ?, NULL, NULL)`)
+       .bind(sessionId, ordinal, row.verifier_version, at).run();
+     let matched = false;
+-    try { matched = await this.#verifier.verify((await this.#requiredBinding(sessionId)).ownerIdentityId, candidate, this.#record(row)); }
++    try { matched = false; /* PR40 GAP 0: never-accepting stub, verifier never consulted */ }
+     finally { candidate = ""; }
+     const resolvedAt = iso(now);
+     await this.#database.prepare(`UPDATE owner_call_step_up_attempts SET outcome = ?, resolved_at = ?

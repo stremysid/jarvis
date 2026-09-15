@@ -1,0 +1,26 @@
+== base: exit=0  Tests 233 passed (233) timeouts=0 clean=yes
+== gap0: exit=1  Tests 25 failed | 208 passed (233) timeouts=2 clean=yes
+     × pins success provenance plus immutable success receipts 1789ms
+     × pins repeat-check timing, one-way resolution, and deletion 892ms
+     × rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys 890ms
+== gap1: exit=1  Tests 14 failed | 219 passed (233) timeouts=0 clean=yes
+     × commits the exact success receipt before admitting an inbound owner 1284ms
+     × commits the exact success receipt before admitting an outbound owner 1163ms
+     × requires a real successful verifier result and keeps every inbound candidate representation out of named sinks 1142ms
+== gap2b: exit=1  Tests 1 failed | 232 passed (233) timeouts=0 clean=yes
+     × preserves mismatch ordinals across a Durable Object hibernation boundary 1545ms
+== gap3b: exit=1 Binary file C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-handoff-documentation-c01991/f6ee0749-e25d-4c90-830f-7ef6bbf969c9/scratchpad/gaps/run46-gap3b.txt matches timeouts=0 clean=yes
+Binary file C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-handoff-documentation-c01991/f6ee0749-e25d-4c90-830f-7ef6bbf969c9/scratchpad/gaps/run46-gap3b.txt matches
+== gap3c: exit=1 Binary file C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-handoff-documentation-c01991/f6ee0749-e25d-4c90-830f-7ef6bbf969c9/scratchpad/gaps/run46-gap3c.txt matches timeouts=0 clean=yes
+Binary file C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-handoff-documentation-c01991/f6ee0749-e25d-4c90-830f-7ef6bbf969c9/scratchpad/gaps/run46-gap3c.txt matches
+== gap3d: exit=1  Tests 2 failed | 231 passed (233) timeouts=0 clean=yes
+     × requires a real successful verifier result and keeps every inbound candidate representation out of named sinks 1084ms
+     × requires a real successful verifier result and keeps every outbound candidate representation out of named sinks 1742ms
+== gap3e: exit=1  Tests 2 failed | 231 passed (233) timeouts=0 clean=yes
+     × requires a real successful verifier result and keeps every inbound candidate representation out of named sinks 1080ms
+     × requires a real successful verifier result and keeps every outbound candidate representation out of named sinks 1105ms
+== gap6: exit=1  Tests 2 failed | 231 passed (233) timeouts=0 clean=yes
+     × does not let inbound keypad code 4827 authenticate an owner 882ms
+     × does not let outbound keypad code 4827 authenticate an owner 911ms
+== gap6b: exit=1  Tests 1 failed | 232 passed (233) timeouts=0 clean=yes
+     × does not let outbound keypad code 4827 authenticate an owner 900ms

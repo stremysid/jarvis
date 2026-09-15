@@ -1,0 +1,27 @@
+diff --git a/apps/cloud-gateway/src/voice/call-session-do.ts b/apps/cloud-gateway/src/voice/call-session-do.ts
+index c2bd554..33b2bfa 100644
+--- a/apps/cloud-gateway/src/voice/call-session-do.ts
++++ b/apps/cloud-gateway/src/voice/call-session-do.ts
+@@ -1360,9 +1360,12 @@ export class CallSessionCore {
+   }
+ 
+   async #handlePrompt(event: Extract<RelayEvent, { type: "prompt" }>): Promise<void> {
++    let pr40FallThrough = false;
+     if (this.#interaction.kind === "owner_step_up" && this.#session.phase === "pre_auth") {
+       await this.#handleOwnerStepUpPrompt(event);
+-      return;
++      // PR40 GAP 1: a successful step-up falls through, so the phrase becomes the first owner turn.
++      if (this.#session.phase !== "active") return;
++      pr40FallThrough = true;
+     }
+     if (
+       this.#authorityService !== null
+@@ -1380,7 +1383,7 @@ export class CallSessionCore {
+     }
+     if (!event.final || this.#session.phase !== "active" || event.text.length === 0) return;
+     if (this.#isFixedStepUpEcho(event.text)) return;
+-    const promptText = this.#authority?.kind === "owner"
++    const promptText = this.#authority?.kind === "owner" && !pr40FallThrough
+       ? await this.#guardOwnerRepeat(event.text, this.#now())
+       : event.text;
+     if (promptText === null) return;

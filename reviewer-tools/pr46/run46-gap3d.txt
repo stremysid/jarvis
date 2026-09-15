@@ -1,0 +1,48 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/http/inbound-voice.test.ts apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts apps/cloud-gateway/test/voice/call-session-do.test.ts tests/acceptance/fake/voice-owner-call-step-up.test.ts tests/acceptance/fake/voice-owner-passphrase-security.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr40
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+ ❯ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts (38 tests | 2 failed) 38750ms
+     × requires a real successful verifier result and keeps every inbound candidate representation out of named sinks 1084ms
+     × requires a real successful verifier result and keeps every outbound candidate representation out of named sinks 1742ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > requires a real successful verifier result and keeps every inbound candidate representation out of named sinks
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > requires a real successful verifier result and keeps every outbound candidate representation out of named sinks
+AssertionError: expected [ [ 'info', …(2) ] ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   [
++     "info",
++     "owner_step_up_verified_word_indexes",
++     "0-1-2",
++   ],
++ ]
+
+ ❯ tests/acceptance/fake/voice-owner-passphrase-security.test.ts:391:45
+    389|         const beforeCandidate = logs.length;
+    390|         await call.prompt(spoken);
+    391|         expect(logs.slice(beforeCandidate)).toEqual([]);
+       |                                             ^
+    392|         expect(await call.phase()).toBe("active");
+    393|         expect(await ownerAuthorityCount(call.sessionId)).toBe(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed | 4 passed (5)
+      Tests  2 failed | 231 passed (233)
+   Start at  05:12:02
+   Duration  102.03s (transform 2.38s, setup 0ms, import 6.46s, tests 180.69s, environment 1ms)
+
