@@ -40,6 +40,29 @@ describe("DeadlineRepository", () => {
     });
   }
 
+  it("ensures a stable scheduled source idempotently without reactivating an owner-disabled source", async () => {
+    await resetDeadlineTables();
+    const first = await repository.ensureSource({
+      sourceId: "google-classroom",
+      kind: "classroom",
+      label: "Google Classroom",
+      now: MONDAY,
+      active: false,
+    });
+    const second = await repository.ensureSource({
+      sourceId: "google-classroom",
+      kind: "classroom",
+      label: "Renamed by code",
+      now: TUESDAY,
+      active: true,
+    });
+
+    expect(first.sourceId).toBe("google-classroom");
+    expect(second).toEqual(first);
+    expect(second.active).toBe(false);
+    expect(await repository.listSources()).toHaveLength(1);
+  });
+
   it("writes a new deadline and its first version together, so the history starts where the deadline does", async () => {
     const result = await upsert();
 

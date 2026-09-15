@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { assembleDigest, runDigestJob, type DigestJobDependencies } from "../../src/jobs/digest-job.js";
-import type { Deadline } from "../../src/deadlines/deadline-types.js";
+import {
+  assembleDigest,
+  runDigestJob,
+  type DigestJobDependencies,
+  type DigestSources,
+} from "../../src/jobs/digest-job.js";
+import type { Deadline, DeadlineSource } from "../../src/deadlines/deadline-types.js";
 import type { DecisionItem } from "../../src/decisions/decision-types.js";
 import type { ProjectStatus } from "../../src/projects/project-types.js";
 
@@ -34,6 +39,20 @@ function deadline(overrides: Partial<Deadline> = {}): Deadline {
     remindedAt: null,
     ...overrides,
   } as Deadline;
+}
+
+function deadlineSource(overrides: Partial<DeadlineSource> = {}): DeadlineSource {
+  return {
+    sourceId: "source-a",
+    kind: "classroom",
+    label: "Google Classroom",
+    active: true,
+    lastSuccessAt: NOW,
+    lastFailure: null,
+    lastFailureAt: null,
+    createdAt: NOW,
+    ...overrides,
+  };
 }
 
 function status(overrides: Partial<ProjectStatus> = {}): ProjectStatus {
@@ -89,17 +108,28 @@ function decision(overrides: Partial<DecisionItem> = {}): DecisionItem {
   } as DecisionItem;
 }
 
-function deps(overrides: Partial<DigestJobDependencies> = {}): DigestJobDependencies {
-  return {
+type DigestDependencyOverrides = Omit<Partial<DigestJobDependencies>, "sources"> & {
+  readonly sources?: Partial<DigestSources>;
+};
+
+function deps(overrides: DigestDependencyOverrides = {}): DigestJobDependencies {
+  const defaults: DigestJobDependencies = {
     sources: {
       readDeadlines: async () => [],
+      readDeadlineSources: async () => [],
       readProjectStatuses: async () => [],
       readOpenDecisions: async () => [],
     },
     delivery: { send: vi.fn(async () => undefined) },
     clock: { now: () => new Date(NOW) },
     timeZone: TORONTO,
+  };
+  return {
+    ...defaults,
     ...overrides,
+    // Individual tests replace only the source they exercise. Keep the other
+    // readers real so a new digest source cannot disappear from the suite.
+    sources: { ...defaults.sources, ...overrides.sources },
   };
 }
 
@@ -128,6 +158,26 @@ describe("assembling from every source", () => {
 });
 
 describe("a source that will not answer", () => {
+  it("keeps last-known deadlines visible while naming a failed Classroom sweep", async () => {
+    const digest = await assembleDigest(
+      "daily",
+      deps({
+        sources: {
+          readDeadlines: async () => [deadline()],
+          readDeadlineSources: async () => [deadlineSource({
+            lastFailure: "classroom_rejected",
+            lastFailureAt: NOW,
+          })],
+          readProjectStatuses: async () => [],
+          readOpenDecisions: async () => [],
+        },
+      }),
+    );
+
+    expect(digest.text).toContain("Quiz 3");
+    expect(digest.text).toContain("Google Classroom: classroom_rejected");
+  });
+
   it("names it as a gap instead of throwing", async () => {
     const digest = await assembleDigest(
       "daily",

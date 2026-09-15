@@ -255,6 +255,28 @@ export class DeadlineRepository {
     return created;
   }
 
+  /**
+   * Create one source with a stable id, or return the row already carrying it.
+   * Scheduled jobs are retried and overlap during deploys, so bootstrap must be
+   * idempotent rather than a read-then-insert race. An existing id with a
+   * different kind is corruption or an ownership collision and is refused.
+   */
+  async ensureSource(input: CreateDeadlineSourceInput & { readonly sourceId: string }): Promise<DeadlineSource> {
+    const sourceId = requireText(input.sourceId, "deadline_source_id", MAXIMUM_IDENTIFIER_CHARACTERS);
+    const label = requireText(input.label, "deadline_source_label", MAXIMUM_TITLE_CHARACTERS);
+    if (!DEADLINE_SOURCE_KINDS.includes(input.kind)) throw new TypeError("deadline_source_kind_invalid");
+    const createdAt = toInstant(new Date(input.now.getTime()));
+    await this.#database.prepare(
+      `INSERT INTO deadline_sources (source_id, kind, label, active, last_success_at, last_failure, last_failure_at, created_at)
+       VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?)
+       ON CONFLICT(source_id) DO NOTHING`,
+    ).bind(sourceId, input.kind, label, input.active === false ? 0 : 1, createdAt).run();
+    const source = await this.readSource(sourceId);
+    if (source === null) throw new Error("deadline_source_write_failed");
+    if (source.kind !== input.kind) throw new Error("deadline_source_kind_conflict");
+    return source;
+  }
+
   async readSource(sourceId: string): Promise<DeadlineSource | null> {
     const row = await this.#database.prepare("SELECT * FROM deadline_sources WHERE source_id = ?")
       .bind(sourceId).first<DeadlineSourceRow>();

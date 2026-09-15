@@ -71,25 +71,8 @@ export interface ClassroomCourseWork {
   readonly dueTime: ClassroomTimeOfDay | null;
 }
 
-/**
- * How to read the `dueDate`/`dueTime` pair when both are present.
- *
- * This is a knob because the two authorities disagree. The Classroom API
- * reference says both fields are in UTC; the project's plan describes them as
- * being in the course's local sense, which is also how they behave to anyone
- * reading the Classroom UI. Getting it wrong is a four- or five-hour error in
- * every reminder -- large enough to matter, small enough that nobody notices
- * it is systematic.
- *
- * The default follows the documented contract. The knob exists so that one
- * look at one real assignment settles it with a config change rather than a
- * rewrite, and so that both readings are covered by a test in the meantime.
- */
-export type DueFieldInterpretation = "utc" | "local";
-
 export interface ClassroomDueOptions {
   readonly timeZone: string;
-  readonly interpretDueFieldsAs: DueFieldInterpretation;
 }
 
 export interface ClassroomClientOptions {
@@ -97,7 +80,6 @@ export interface ClassroomClientOptions {
   readonly accessToken: () => Promise<string>;
   readonly fetchImplementation?: typeof fetch;
   readonly timeZone?: string;
-  readonly interpretDueFieldsAs?: DueFieldInterpretation;
   readonly timeoutMs?: number;
 }
 
@@ -207,14 +189,15 @@ function zoneFormatter(timeZone: string): Intl.DateTimeFormat {
  *     material, not something to remind about, and it returns null rather than
  *     being given an invented date.
  *
- *   - `dueDate` and `dueTime`: read together, per `interpretDueFieldsAs`.
+ *   - `dueDate` and `dueTime`: read together as UTC, which is the Classroom
+ *     API's documented contract. This is deliberately not configurable: a
+ *     local-time switch would make identical API data mean two instants.
  *     Note that `dueTime: {}` reaches this branch and means midnight; only an
  *     absent `dueTime` reaches the next one.
  *
  *   - `dueDate` with no `dueTime`: the end of that calendar day in the owner's
- *     zone -- 23:59:59.999 local. This case is resolved locally whatever the
- *     interpretation setting says, because there is no time to interpret, only
- *     a day to choose a meaning for. Reading it as midnight UTC would put a
+ *     zone -- 23:59:59.999 local. There is no time to interpret, only a day to
+ *     choose a meaning for. Reading it as midnight UTC would put a
  *     Tuesday deadline at 20:00 Monday local: a day early, and often already
  *     in the past at the moment we ingest it, which would make it vanish from
  *     every forward-looking query.
@@ -251,10 +234,6 @@ export function classroomDueInstant(
   const second = optionalInteger(time.seconds, 0, 59);
   if (hour === null || minute === null || second === null) return null;
 
-  if (options.interpretDueFieldsAs === "local") {
-    const instant = zonedInstant({ year, month, day, hour, minute, second, millisecond: 0 }, formatter);
-    return calendarSafe(instant, year, month, day) ? new Date(instant).toISOString() : null;
-  }
   const instant = Date.UTC(year, month - 1, day, hour, minute, second, 0);
   return calendarSafe(instant, year, month, day) ? new Date(instant).toISOString() : null;
 }
@@ -290,10 +269,7 @@ export class ClassroomClient {
     // Validated at construction so a bad zone is a startup error rather than a
     // wrong reminder time discovered in March.
     zoneFormatter(timeZone);
-    this.#dueOptions = Object.freeze({
-      timeZone,
-      interpretDueFieldsAs: options.interpretDueFieldsAs ?? "utc",
-    });
+    this.#dueOptions = Object.freeze({ timeZone });
   }
 
   /** Active courses only. An archived course's assignments are not deadlines. */

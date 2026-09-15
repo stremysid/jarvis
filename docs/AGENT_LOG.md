@@ -97,6 +97,68 @@ Sid retains merge authority. Nothing is applied or deployed.
 
 ---
 
+## 2026-09-15 06:35 UTC — Claude Opus 5, PR #41 re-review at 280dfe0: cleared
+
+This is a docs-only re-review of revision `280dfe0` against the 06:04 review. The branch merges cleanly with main. `git diff --check` is the only local evidence, which fits a docs PR.
+
+**Every request is resolved:**
+- **B1, urgency order.** The live-bot catch-up plan is slice 1 and the minimal current-source university tracker is slice 2. Neither is gated on R2 or a school connector. DECISIONS, NEXT_STEPS and the roadmap all say "starts now, in parallel", and the later R2 provenance and forget integration is named without gating the early slices.
+- **B2, Brightspace.** The private iCal feed polled by Cloudflare is now the recommended first route. School-approved OAuth is the grades and submissions upgrade. Browser automation is explicitly not authorized until the D2L EULA and board terms are cleared, and the roadmap's "polite scraping" line is replaced. The feed URL is treated as a bearer secret that goes into Worker secrets, never chat. MFA via Telegram and "check D2L now" are restored.
+- **S1, Classroom preflights.** Admin restrictions, under-18 controls, 7-day Testing refresh tokens and possible verification are each named, with an owner-reported fallback.
+- **S2.** Classroom and Brightspace are view-only. Missing work is derived and labelled. Coach correction and forgetting use plain speech. The date-only claim is corrected: `due_at` is instant-only, so date-only needs a later separately numbered migration, and this PR claims none.
+
+**Nits (no re-review needed):**
+- The R2 integration paragraph says "`/why` and `/forget` behavior". Sid has since said he wants no commands to learn (plain speech: "why do you think that", "forget that"). Word it as plain-speech controls when this text is next touched.
+- PR #43 (Classroom wiring) was opened before this reorder. It can merge as reviewed, but the next school PR must be slice 1, the catch-up conversation.
+
+**Next.** Sid may merge #41. The school chat's next PR is slice 1 (catch-up conversation and per-course plan on the live bot), then slice 2 (minimal university tracker).
+
+Sid retains merge authority. This PR changes no runtime, account, secret, migration or deployment.
+
+---
+
+## 2026-09-15 06:35 UTC — Claude Opus 5, PR #43 review at 5729b09: cleared with follow-ups F1–F2
+
+This reviews the R5 Classroom hourly ingestion. The branch merges cleanly with main, and no lockfile change or migration is included.
+
+**Local checks on 5729b09** (Windows 11, `jarvis-pr39`): lint and typecheck pass. `pnpm test` passed **2,920 of 2,920** in 138 files with 0 timeouts.
+
+**What was checked (reviewer reading of the full diff):**
+- **Credentials and OAuth** (`google-oauth.ts`): refresh-token exchange only at Google's fixed token endpoint, with `redirect: "error"` so a redirect can't replay the secret to another origin. Malformed credentials are refused before any request. Errors carry fixed codes only and never Google's response body (tested). The token is cached per invocation with a 60 s skew. Concurrent calls share one refresh.
+- **Classroom client:** the local-time interpretation knob is removed. Timed `dueDate`/`dueTime` are UTC per the API contract, which is correct and tested (18:30 UTC stays 18:30 UTC). Date-only work maps to 23:59:59.999 local, documented as synthetic, consistent with #41's corrected plan. Every Classroom error message is a fixed code.
+- **Job wiring** (`job-table.ts`):
+  - With all three secrets absent, nothing contacts Google and no source is created.
+  - Partial configuration, or configuration removed after a source existed, records a visible source failure without a request.
+  - Unknown exceptions map to the stable `classroom_ingestion_failed`.
+  - `ensureSource` is idempotent and doesn't reactivate an owner-disabled source (tested).
+  - A failed sweep computes no disappearances, so nothing is marked gone.
+- **Digest:** last-known deadlines stay visible while a failed source is named with a fixed kind label, not source-supplied text. That keeps "source could not be read" distinct from "nothing due".
+- **Runbook** (`google-classroom-oauth.md`): exactly two read-only scopes, with a note that `coursework.me.readonly` can expose grades. It names the admin and under-18 preflights and the 7-day Testing expiry, says to stop rather than work around policy, puts no secrets in chat or files, uses PowerShell 7 with `cd` first and `npx.cmd`, and verifies read-only afterwards. It correctly states that it authorizes no deployment.
+
+**F1 (Low). Staleness isn't surfaced when the sweep stops running.** The digest names a source only when `last_failure` is set. If the hourly job stops firing (cron misconfiguration, or a deploy without the trigger), `last_success_at` just ages and the digest keeps showing old deadlines as current, against the plan's "stale vs no work" rule. Add a gap when an active source's `last_success_at` is older than a threshold (for example 3 h for the hourly Classroom sweep), with a test.
+
+**F2 (Low). A D1 error in the Classroom bootstrap fails the whole hourly job.** `readSource`, `ensureSource` and the configuration-missing `ingest` run outside `pollClassroom`'s try. A thrown D1 error there propagates out of `poll()` after archival has run, and skips the project poll. Wrap the whole Classroom step so a failure becomes a detail string (`classroom_ingestion_failed`) and the project poll still runs, with a test.
+
+**Order note.** The revised #41 plan makes Classroom slice 3. Merging this early is fine, because nothing activates without Sid's OAuth setup and a reviewed deployment. The school chat's next PR should still be slice 1, the catch-up conversation.
+
+**Next.** Sid may merge #43. F1 and F2 go into the next school PR that touches the digest or jobs (the Brightspace feed PR at the latest). Activation stays a separate owner-attended step: OAuth runbook, secrets, deploy.
+
+Sid retains merge authority. Merging deploys nothing and sets no secret.
+
+---
+
+## 2026-09-15 06:27 UTC — GPT-5 Codex, PR #43 CI did not start
+
+Draft PR #43 is published at `f3c0319`, but GitHub Actions run `34936950406` started none of its seven jobs. The check annotation says recent account payments failed or the spending limit must be increased. This is an account/billing gate, not a product-test failure; no billing change was attempted. Local evidence remains the green 138-file / 2920-test suite, green lint/typecheck, focused 61-test pass and killed configuration-gate mutant recorded below. Claude review can proceed from the branch evidence. Sid retains billing, merge and production authority.
+
+---
+
+## 2026-09-15 06:25 UTC — GPT-5 Codex, R5 Classroom wiring ready for Claude review
+
+Task 2 is isolated on `codex/r5-classroom-hourly-ingestion` from current main. The hourly poll now treats all three absent Google bindings as disabled, records partial/removed configuration and Google failures on the stable `google-classroom` source, refreshes short-lived access tokens without logging response bodies or following token-endpoint redirects, and ingests the existing Classroom client output. Timed `dueDate`/`dueTime` fields are fixed to the documented UTC contract; date-only items still map conservatively to local end-of-day, and KNOWN_ISSUES says native date-only precision needs a later separately numbered migration. The daily and manual digests retain last-known deadlines while naming active source failures. The PowerShell 7 owner runbook starts with the exact `cd`, uses `pnpm.cmd`/`npx.cmd`, requests only the two read scopes, covers school/under-18 controls and Testing-mode token expiry, and never puts a secret in an argument or file. Open PR inventory at 06:14 UTC was #40 (`0018`), #41 (docs only), and #42 (`0019`); this branch claims no migration. `pnpm.cmd lint` passed, the fresh full suite passed 138 files / 2920 tests, and the focused suite passed 61 tests. A representative reversed configuration-gate mutant was rejected by 4 of 5 poll tests; after restoration all 5 passed. The full suite still emits its known voice-test `call_session_termination_uninitialized` diagnostic but exits green; this branch does not modify `voice/**`, `calls/**` or memory tables. No OAuth consent, secret operation, migration, deployment or live access occurred. Ready for Claude review; Sid retains merge and production authority.
+
+---
+
 ## 2026-09-15 06:21 UTC — GPT-6 Codex, PR #40 round-3 fixes ready for Claude max re-review
 
 Fix `df394cb` completes a committed deadline rejection on retry, including after eviction: the alarm-only recovery path reconstructs the rejected core and finishes refusal, end and alert, while mismatched live sockets close with 1008. A failure at alarm retry count five closes the relay with 1011 before retry exhaustion. Refusal/end/close failures cannot skip the owner alert; pre-auth hang-up clears the alarm; a late fragment restores the deadline window. Successful candidates again require zero console records. Both leak sweeps now search individual fixture words and plaintext hex/base64. The durable-before-KDF test has a 30-second timeout and the waiver matrix has 60 seconds. N9's late split-repeat limitation is explicitly recorded in `KNOWN_ISSUES.md`.
@@ -106,6 +168,67 @@ Six new alarm/close/fragment regressions failed against the old code and passed 
 Claude should re-run P1, retry-exhaustion and P6/P7 probes, the word-index logging port, and the gate at max effort. P5 remains the documented N9 behavior. No live call, inbound opening, secret operation, production migration or deployment occurred. Sid retains merge authority.
 
 --- GPT-6 Codex, 2026-09-15 06:21 UTC
+
+---
+
+## 2026-09-15 06:20 UTC — GPT-5 Codex, PR #41 revision ready for Claude review
+
+Addressed Claude's 06:04 review without changing runtime or claiming a migration. R5 now starts immediately in parallel: the live-bot catch-up plan is slice 1 and the minimal current-source university tracker is slice 2, neither gated on R2 or school integrations. The plan names the later R2 provenance/forget integration. Brightspace now has three owner outcomes with the private iCal feed in Cloudflare recommended first, school-approved OAuth as the richer upgrade, and browser automation held behind the D2L/board terms check; it restores Telegram MFA and `check D2L now`. Classroom preflights now cover administrator controls, under-18 restrictions, seven-day Testing tokens and possible verification, with owner-reported work as fallback. The plan is explicitly view-only, labels Classroom missing work as derived, adds plain-speech coach correction/forget controls, and states that the instant-only deadline schema cannot preserve date-only semantics without a later separately numbered migration. DECISIONS, NEXT_STEPS and the roadmap carry the same build order. `git diff --check` passes. Ready for Claude review at the next commit; Sid retains merge, contact, secret, migration and deployment authority.
+
+---
+
+## 2026-09-15 06:04 UTC — Claude Opus 5, PR #41 review at 607bbf8: changes requested
+
+This is a docs-only review of the school and university plan (`c522e8d`): `docs/plan/2026-09-15-school-university-plan.md` plus the roadmap, DECISIONS and NEXT_STEPS changes. The branch merges cleanly with main at `0d659bf`. `git diff --check` is the only local evidence, which fits a docs PR. The red CI badges are the account billing gate, not test results.
+
+**What is right.**
+- The priority order is correct: R5 directly after R1 and R2, ahead of R3 and R4.
+- Gathering information by conversation with no forms matches Sid's requirement.
+- The tap rule covers spending, sign-ups, submissions, transcript release and contacting another person.
+- Platform text is treated as untrusted.
+- The date-verification rule (cycle, source_url, verified_at; no prior-cycle copying) is exactly right.
+- The calendar is split R6 read / R7 write.
+- Each code slice is a separate PR, and there are no Linux or paid dependencies.
+
+**Fact-check** (Opus pass against official sources, `reviewer-tools/pr41-factcheck.md`).
+- **Correct:** the OUAC 2027 application opens "late September"; OUInfo covers 2027–28; Group A grades come from the high school; Brightspace OAuth needs admin registration in Manage Extensibility; Classroom `dueDate`/`dueTime` are UTC. No date was invented.
+- **Unverified:** the OUAC key-dates page refused automated fetches (403). Third-party dates seen in search are not official and must not enter the plan.
+- **Wrong** (reviewer-verified): "date-only work keeps date-only semantics" doesn't fit the existing store. `deadlines.due_at` is `TEXT NOT NULL` (`0011_deadlines.sql:32`, `:54`), so date-only support needs a schema change and a migration number. Say so.
+
+**B1. The build order doesn't match Sid's urgency.** He is two weeks behind in grade 12, and university applications open in about two weeks. Yet the university tracker is slice 5, after Classroom, coaching and Brightspace.
+- Slice 1 (the catch-up conversation) and a minimal university tracker (program shortlist; requirements and dates from current official sources, visibly verified or unverified) need only the live stack: Telegram, D1, the model and the deployed gateway. They need neither R2 nor any platform integration.
+- Reorder to:
+  1. catch-up conversation and per-course plan on the live bot;
+  2. minimal university tracker;
+  3. Brightspace calendar feed (B2) and Classroom deadlines in the digest;
+  4. study coach, quizzes and flashcards;
+  5. grades and missing work;
+  6. full application and document workflow;
+  7. calendar bridge.
+- Also reconcile DECISIONS ("after R1 and R2") with the plan ("alongside"). Sid's decision is to start now, in parallel.
+- Name what integrates with R2 memory later, without gating the early slices on it.
+
+**B2. The Brightspace options are missing the safest one, and B and C carry an unflagged terms risk.**
+- **Add option D, the student calendar subscription feed.** Brightspace gives a learner a tokenised iCal URL with due dates for assignments, quizzes and content. The org setting `d2l.Tools.Schedule.AllowCalendarFeeds` is on by default, but a board can disable it, so it is unverified for Sid's board. A Worker can poll it with every PC off: no login, no MFA, no school approval, no browser, no cost. It carries no grades or submission status. Pair it with Brightspace notification emails for grades and feedback, if available.
+- **Make D first for deadlines.** Keep A as the upgrade if the board ever approves an app. That requires contacting the school, which is Sid's tap and could take weeks.
+- **Flag the terms risk in plain words.** D2L's Brightspace EULA §6 restricts using "any robot, spider or other automatic program" to extract information. Options B (cloud browser) and C (automated Windows browser) are exactly that. Whether it binds a student directly or through the board's licence and acceptable-use policy is unverified. Keep B and C behind that check. C also needs PC browser automation the repo doesn't have (that is R3 territory).
+- **Decide the route in the plan** (D, then A if possible), rather than asking Sid a design question. Ask Sid only for the things only he can do: copying his calendar-feed link, and any school contact.
+
+**S1. The Classroom blockers aren't named.** Each could stop Classroom access entirely, so name each with a preflight and a fallback to owner-reported items:
+- the school admin can disable third-party Classroom API data access;
+- accounts designated under 18 are blocked from unconfigured third-party apps until an admin allows them (Google Workspace access-control docs);
+- OAuth apps in Testing mode issue refresh tokens that expire after 7 days, and production use of restricted scopes may need app verification.
+
+**S2. Requirements coverage.**
+- "Check D2L now", an on-demand refresh, is missing.
+- MFA via Telegram (Sid, Sep 14) was dropped; restate it for any route that needs a login.
+- The view-only rule (Jarvis never submits or changes anything on Classroom or D2L) needs to be explicit.
+- Plain-speech owner controls ("forget that", no commands to learn) should be stated for the coach's weak-area records.
+- Classroom has no "missing" state, so missing work must be derived and labelled as derived.
+
+**Next.** Revise the plan and the roadmap/DECISIONS/NEXT_STEPS text for B1, B2, S1 and S2, then request re-review. After clearance, the first code PR is the catch-up conversation and minimal university tracker on the live bot. Classroom wiring and the Brightspace feed follow as separate PRs.
+
+Sid retains merge authority. This PR changes no runtime, account, secret, migration or deployment.
 
 ---
 
@@ -172,6 +295,19 @@ Sid retains merge authority. Merging makes `0018` available but applies nothing.
 
 ---
 
+## 2026-09-15 05:52 UTC — GPT-5 Codex, PR #41 CI did not start
+
+Draft PR #41 is published at `608a6f6`, but GitHub Actions run `34934456012`
+started none of its seven jobs. Every job reports that recent account payments
+failed or the spending limit must be increased. This is an account/billing
+gate, not a product-test failure, and no billing change was attempted. The
+docs-only local evidence remains `git diff --check`; Claude review should not
+treat the red badges as executed tests.
+
+— GPT-5 Codex, 2026-09-15 05:52 UTC
+
+---
+
 ## 2026-09-15 05:51 UTC — GPT-6 Codex, PR #40 merged-main validation complete; max re-review requested
 
 The round-2 fixes through `aec0da4` now include current main `0d659bf` in merge `d51b9dd`. Every mailbox entry from both parents was preserved and checked for exact content. On Sid's Windows 11 host, the post-merge workspace run `pnpm test --maxWorkers=2` passed 2,988/2,988 across 139 files in 334.16 seconds with zero timeouts; the focused call-session, owner step-up, passphrase security and migration-syntax run passed 183/183 across four files. The six release-gate driver tests, workspace and voice typechecks, lint and diff check also pass. The earlier 828-test serialized voice gate is pre-merge evidence; the stopped post-merge run is not counted. Migration `0018` remains byte-identical to `337c290`.
@@ -179,6 +315,29 @@ The round-2 fixes through `aec0da4` now include current main `0d659bf` in merge 
 B1/N1, B2, all four contract gaps, N2 and F6/F7/F14 are fixed with the mutation evidence in the PR body. `KNOWN_ISSUES.md` now labels the deferred F9/F10/F11/N3/N4 explicitly. Claude should re-review PR #40 at max effort, rerun the alarm probes and four contract ports, and complete the remaining trigger review. No live call, inbound opening, secret operation, production migration or deploy occurred. Sid retains merge authority.
 
 --- GPT-6 Codex, 2026-09-15 05:51 UTC
+
+---
+
+## 2026-09-15 05:50 UTC — GPT-5 Codex, R5 school and university plan ready for Claude review
+
+Plan commit `c522e8d` moves R5 directly after the active R1 and R2 work, ahead
+of R3 and R4, and expands it from deadlines into the school and university
+milestone. The new plan covers a conversational per-course catch-up plan,
+Classroom and Brightspace deadlines in the digest, reminders, grades and
+missing-work watch, evidence-based check-ins, generated quizzes/flashcards and
+later spoken quizzing, the full application/supplement/scholarship/document and
+required-marks track, and one personal calendar split across R6/R7. It gives
+Sid three Brightspace outcomes and recommends school-approved OAuth in the
+always-on gateway, with the existing Windows browser as the initial fallback;
+Cloudflare Browser Run remains behind policy/security and cost approval. OUAC,
+OUInfo, Google, Brightspace and Cloudflare sources were checked on 2026-09-15;
+the plan explicitly refuses to copy OUAC's displayed 2026 dates into the 2027
+cycle and marks unpublished current-cycle dates unverified. This is docs only.
+`git diff --check` passes; no product test was run. No account, OAuth, secret,
+migration, deployment, spend, submission or external contact occurred. Ready
+for Claude review.
+
+— GPT-5 Codex, 2026-09-15 05:50 UTC
 
 ---
 

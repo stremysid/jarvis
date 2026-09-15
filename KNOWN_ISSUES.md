@@ -477,20 +477,27 @@ newer subsystems -- autonomy, decisions, projects, deadlines, scheduler,
 digest -- typecheck clean, so the backlog is bounded and does not grow with
 new work. Clear it, then make the script a gate.
 
-## Google Classroom due dates: UTC or the course's local day
+## Google Classroom due dates: UTC contract selected; live display check remains
 
 `classroom-client.ts` converts Classroom's separate `dueDate` and `dueTime`
-fields into one instant. The API reference says both are UTC; the project's
-own expansion plan assumes local. The two readings differ by four or five
-hours in every reminder Jarvis sends -- large enough to matter for a deadline
-at 23:59, and systematic enough that nobody would notice it was consistently
-wrong.
+fields into one instant. The [official CourseWork reference](https://developers.google.com/workspace/classroom/reference/rest/v1/courses.courseWork)
+says the timed pair is UTC. The R5 code candidate therefore removes the local-
+time interpretation switch and always stores timed work as that documented UTC
+instant. A date with no time is still resolved to 23:59:59.999 in
+`DIGEST_TIMEZONE`, because the API supplies a calendar day but no instant.
 
-The documented contract is the default and the alternative is a setting
-(`interpretDueFieldsAs`), with both readings under test.
-`DEFAULT_CLASSROOM_TIME_ZONE` is a guess about the owner, not a fact about the
-API. **Looking at one real assignment with a known due time settles this**,
-and until someone does, the reminder times are unverified.
+`DIGEST_TIMEZONE` defaults to `America/Toronto`, which matches the current
+owner context but remains configuration rather than API fact. One real
+assignment with a teacher-set time must still be checked after deployment to
+prove Google's UI and the digest present the same Ontario wall-clock deadline.
+Until that live check, the contract is settled in code but presentation is
+unverified.
+
+The current schema has only `deadlines.due_at TEXT NOT NULL`. A Classroom item
+with a date and no time is conservatively mapped to the end of the local day,
+but the store cannot preserve that the source supplied date-only precision.
+Native date-only display needs a separate schema migration, claiming the next
+number only after another open-PR branch inventory. This PR claims no migration.
 
 ## Nothing moves a deadline out of `open`
 
