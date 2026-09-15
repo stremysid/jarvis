@@ -46,6 +46,55 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 17:00 UTC — Claude Opus 5, PR #47 xhigh review at 074312c: cleared with follow-ups F1–F4 (merge main first)
+
+This review covers R2 slice 1: the channel-neutral canonical D1 memory repository (`memory-types.ts`, `memory-repository.ts`), its two focused test files, and fix `052f1fc`. The diff is exactly the planned source and tests plus handoff docs. There is no migration, and no Telegram, voice, calls, scheduler, provider, Vectorize or archive-index change. **The branch no longer merges cleanly with main `1130694`.** `NEXT_STEPS.md` conflicts (with #48), as does the mailbox.
+
+**Local checks on 074312c** (Windows 11, `jarvis-deploy`): lint and typecheck pass. `pnpm test` passed **3,094 of 3,094** in 148 files, with 0 timeouts. On the earlier head `3ff786a`, the only failure was `owner-call-step-up-migration` "pins success provenance" at 5 s under parallel builder load. It passed 11/11 alone, so it was a load flake.
+
+**Reviewer probe Q1** (`pr47/zz-reviewer-pr47.test.ts`, which asserts the gap exists): on `d719d85` it **passed**. The repository accepted an `active`, stated memory "I am allergic to penicillin." whose live source event said something else. On `074312c` it now **fails**: the fabricated excerpt is refused (`memory_corrupt`, because the probe's hand-built envelope is non-canonical). The builder's own valid-envelope test, "refuses an exact excerpt that is absent from its live source event before reaching the write batch", covers the canonical case.
+
+**Fix `052f1fc`, verified by reading.** A live source now loads the event row with `event_type`, `content_hash` and `envelope_json`. The envelope is re-validated with `validateEnvelope`, and its id, type, subject, hash and `occurred_at` mirrors must match the row. The source channel is derived from `payload.channelCode`, and the exact excerpt must appear as a substring of a payload string (a bounded walk of at most 16,384 nodes, depth 64). Otherwise the write is refused before the batch. Stored rows are re-checked the same way on read.
+
+**Fault spot checks** (`mut47.json`, against both memory test files; BASE passed; 0 timeouts):
+- **Killed by named tests:**
+  - M1, removing the live-excerpt containment check: "refuses an exact excerpt that is absent from its live source event…".
+  - M2, dropping the canonical read's principal filter: "uses the principal filter even when another principal has the requested item identity" and "keeps item reads scoped to the authenticated principal".
+  - M3, removing source prevalidation: "validates every source event for the principal before reaching the write batch".
+  - M4, skipping current-path-first: "resolves a current active path before aliases…".
+- **Survived:** M5, removing the `liveEventChannel(…) !== source.channel` check. See F4.
+
+The builder's own eight planted faults are listed in its 16:48 entry.
+
+**What holds, by reading:**
+- Every read and write binds the principal, and returned rows are re-checked against it.
+- The item, version, sources, transition and primary placement commit in one D1 batch.
+- Each retry takes fresh timestamps.
+- An exact replay returns the stored item, while the same ids with different material are refused.
+- Canonical reads re-derive state and fail closed.
+- Current active paths win over aliases, newest aliases win among aliases, and redirects are bounded at 64.
+- D1 details stay behind five stable error codes.
+- `0016`'s transition guard keeps model and third-party origins out of `active`. A rules-authored `active` first-person item needs a **live** `conversation.user_committed` source from the same principal, so archived-only material can't become active without owner confirmation.
+
+**F1 (before slice 2 exposes archived recall).** Archived receipts aren't bound to the principal. `archive_segment_events` has no subject column, so the archived branch of `validateReceipt` and the `0016` source guard accept any archived event id. Archived `occurred_at` isn't compared either. The PR's own passing test "accepts a verified archived receipt only as an uncertain proposed item" commits with an archive row unrelated to its principal. Today this is contained (single owner; archived-only material stays proposed). Slice 2 must bind archived events to their subject before any archived content reaches recall.
+
+**F2 (topic-controls slice).** `bootstrapTopics` refuses once the owner renames the root away from `Memory`, and it creates a second `Inbox / Needs filing` if the inbox is renamed. Find the root and inbox by stable identity, not display name.
+
+**F3 (low).** The `beforeBatch` and `batchFault` test seams are public `MemoryRepositoryOptions`, so a production composition could inject statements into the atomic batch. Expose them only through a test-only factory.
+
+**F4 (low).** No test pins the derived live channel. Removing `liveEventChannel(eventType, envelope.payload) !== source.channel` (M5) leaves every test green, so a Telegram event could be recorded as a voice source. Add a test that refuses a channel mismatch.
+
+**Next.**
+- **Memory chat:** in this same chat, merge current `origin/main` (`1130694`). Resolve `NEXT_STEPS.md` keeping both sides, and union the mailbox. Push, and post in AGENT_LOG. Make no source changes.
+- **Reviewer:** check that the merged head differs from `074312c` only by main's changes and the resolved docs, then merge it under Sid's delegated permission and verify main.
+- **Follow-ups:** F1–F4 go into the next memory PR (the owner-controls service), or slice 2 as noted.
+
+Nothing is applied or deployed.
+
+---
+
+---
+
 ## 2026-09-15 16:48 UTC — GPT-5 Codex, PR #47 live-source fix ready for Claude Opus 5 xhigh re-review at 052f1fc
 
 The reviewer pre-probes on `claude/reviewer-tools` at `96c89de` found one real gap on the first ready head: a valid live receipt could accompany an exact excerpt absent from its event. Fix `052f1fc` validates the canonical event envelope and its row mirrors, derives the live channel, and refuses an absent excerpt before the D1 write boundary. Its archived-principal probe was invalid because the fixture failed the existing archive seal comparison before repository validation; the merged design's explicit archive-catalog evidence limit remains enforced by allowing archived-only material only as uncertain, proposed model memory. No schema gap or migration claim was introduced.
