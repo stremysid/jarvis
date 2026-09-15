@@ -51,7 +51,7 @@ export interface FakeRelayCall {
   pin(digits: Uint8Array): Promise<void>;
   interrupt(): Promise<void>;
   hibernate(): Promise<void>;
-  fireAlarm(): Promise<void>;
+  fireAlarm(info?: AlarmInvocationInfo): Promise<void>;
   sendFrame(frame: string | ArrayBuffer): Promise<void>;
   modelRequests(): Promise<readonly { principalId: string; userText: string; timeoutMs: number; context: readonly { text: string }[] }[]>;
   emitToken(text: string): Promise<void>;
@@ -254,7 +254,7 @@ export class FakeRelaySessions {
       hibernate: () => runInDurableObject(session.stub, async (_instance, state) => {
         session.object = new CallSession(state, env, session.factory);
       }),
-      fireAlarm: () => runInDurableObject(session.stub, async () => session.object.alarm()),
+      fireAlarm: (info?: AlarmInvocationInfo) => runInDurableObject(session.stub, async () => session.object.alarm(info)),
       sendFrame,
       modelRequests: () => runInDurableObject(session.stub, async () => session.model.requests
         .filter((request) => request.operation === "streamText")

@@ -1121,6 +1121,42 @@ describe("CallSessionCore owner and guest access", () => {
     }
   }, 15_000);
 
+  it.each([false, true])("alerts the owner when the relay disconnects during the third KDF (close throws=%s)", async (closeThrows) => {
+    const harness = await accessHarness("owner", undefined, true);
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    for (const text of ["ablaze abrasion active", "ablaze abrasion activist"]) {
+      await harness.instance.handleRelayEvent({ type: "prompt", final: true, language: "en-US", text });
+    }
+    let announceStarted!: () => void;
+    let releaseVerifier!: () => void;
+    const started = new Promise<void>((resolve) => { announceStarted = resolve; });
+    const blocked = new Promise<void>((resolve) => { releaseVerifier = resolve; });
+    const deriveBits = crypto.subtle.deriveBits.bind(crypto.subtle);
+    const spy = vi.spyOn(crypto.subtle, "deriveBits").mockImplementation(async (algorithm, key, length) => {
+      announceStarted();
+      await blocked;
+      return deriveBits(algorithm, key, length);
+    });
+    const pending = harness.instance.handleRelayEvent({
+      type: "prompt", final: true, language: "en-US", text: "ablaze abrasion activity",
+    });
+    void pending.catch(() => undefined);
+    try {
+      await started;
+      // The peer hangs up before its close event is delivered to this core.
+      // The in-flight verification then discovers that the wire cannot send.
+      harness.sendNeutralText.mockRejectedValue(new Error("fixture_peer_disconnected"));
+      if (closeThrows) harness.close.mockImplementation(() => { throw new Error("fixture_already_closed"); });
+      releaseVerifier();
+      await expect(pending).resolves.toBeUndefined();
+      expect(harness.instance.phase).toBe("rejected");
+      expect(harness.sendNeutralText).toHaveBeenCalledWith(OWNER_STEP_UP_REJECTED);
+      expect(harness.close).toHaveBeenCalledWith(1008);
+      expect(harness.ownerStepUpAlert).toHaveBeenCalledOnce();
+      expect(harness.clearOwnerStepUpAlarm).toHaveBeenCalledOnce();
+    } finally { releaseVerifier(); await pending.catch(() => undefined); spy.mockRestore(); }
+  }, 30_000);
+
   it("delivers the refusal before waiting for the rejection alert sink", async () => {
     const harness = await accessHarness("owner", undefined, true);
     let announceAlert!: () => void;

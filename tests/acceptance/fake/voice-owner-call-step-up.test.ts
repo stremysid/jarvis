@@ -1,9 +1,11 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
+import { CallRepository } from "../../../apps/cloud-gateway/src/persistence/call-repository.js";
 import {
   OWNER_STEP_UP_HANDOFF_DATA,
   OWNER_STEP_UP_REJECTED,
   OWNER_STEP_UP_VERIFIED,
+  OwnerCallStepUpService,
 } from "../../../apps/cloud-gateway/src/voice/owner-call-step-up.js";
 import { FAKE_OWNER_PASSPHRASE } from "./voice-access-system.js";
 import { createFakeCallingSystem as createBaseFakeCallingSystem } from "./voice-call-system.js";
@@ -281,6 +283,112 @@ describe("owner call passphrase step-up", () => {
     }
   }, 30_000);
 
+  it.each([false, true])("finishes a committed deadline rejection after a failed alarm (hibernate=%s)", async (hibernate) => {
+    const system = await createFakeCallingSystem();
+    const expire = OwnerCallStepUpService.prototype.expire;
+    const fault = vi.spyOn(OwnerCallStepUpService.prototype, "expire").mockImplementationOnce(async function (this: OwnerCallStepUpService, sessionId, now) {
+      await expire.call(this, sessionId, now);
+      throw new Error("fixture_after_expire_commit");
+    });
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      const call = await system.openRelay();
+      await call.setup();
+      system.advanceTime(60_001);
+      await expect(call.fireAlarm()).rejects.toThrow("fixture_after_expire_commit");
+      expect(await call.phase()).toBe("rejected");
+      expect(await call.durableStorage()).toHaveProperty("call-session.owner-step-up-alarm.v1");
+      expect(call.frames().filter((frame) => frame.token === OWNER_STEP_UP_REJECTED)).toHaveLength(0);
+      if (hibernate) await call.hibernate();
+      await call.fireAlarm({ retryCount: 1, isRetry: true, scheduledTime: FUTURE_TEST_NOW.valueOf() + 60_000 });
+      expect(call.frames().filter((frame) => frame.token === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
+      expect(call.frames()).toContainEqual({ type: "end", handoffData: OWNER_STEP_UP_HANDOFF_DATA });
+      expect(call.stepUpAlerts()).toHaveLength(1);
+      expect(await authorityCount(call.sessionId)).toBe(0);
+      expect(await call.durableStorage()).not.toHaveProperty("call-session.owner-step-up-alarm.v1");
+      await call.fireAlarm();
+      expect(call.stepUpAlerts()).toHaveLength(1);
+      expect(call.frames().filter((frame) => frame.token === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
+      expect((await env.DB.prepare("SELECT count(*) AS count FROM owner_call_step_up_rejections WHERE session_id = ?")
+        .bind(call.sessionId).first<{ count: number }>())?.count).toBe(1);
+      const callback = await system.sendRelayEnded(call.callSid, "ended", call.providerSessionId, OWNER_STEP_UP_HANDOFF_DATA);
+      expect(callback.status).toBe(200);
+      expect(await callback.text()).toContain("<Hangup/>");
+    } finally { fault.mockRestore(); await system.cleanup(); }
+  }, 30_000);
+
+  it("closes a live socket when an evicted alarm can no longer match its durable session", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      const call = await system.openRelay();
+      await call.setup();
+      await call.hibernate();
+      const missing = vi.spyOn(CallRepository.prototype, "getCallSession").mockResolvedValueOnce(null);
+      try {
+        await call.fireAlarm();
+        await vi.waitFor(() => expect(call.closeCodes()).toContain(1008));
+        expect(await call.durableStorage()).not.toHaveProperty("call-session.owner-step-up-alarm.v1");
+        expect(await authorityCount(call.sessionId)).toBe(0);
+      } finally { missing.mockRestore(); }
+    } finally { await system.cleanup(); }
+  }, 20_000);
+
+  it("closes the relay before repeated alarm failures exhaust the runtime retry budget", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      const call = await system.openRelay();
+      await call.setup();
+      system.advanceTime(60_001);
+      const fault = vi.spyOn(OwnerCallStepUpService.prototype, "state").mockRejectedValue(new Error("fixture_storage_outage"));
+      try {
+        await expect(call.fireAlarm({ retryCount: 4, isRetry: true, scheduledTime: FUTURE_TEST_NOW.valueOf() + 60_000 }))
+          .rejects.toThrow("fixture_storage_outage");
+        expect(call.closeCodes()).toEqual([]);
+        expect(await call.durableStorage()).toHaveProperty("call-session.owner-step-up-alarm.v1");
+        await expect(call.fireAlarm({ retryCount: 5, isRetry: true, scheduledTime: FUTURE_TEST_NOW.valueOf() + 60_000 }))
+          .resolves.toBeUndefined();
+        await vi.waitFor(() => expect(call.closeCodes()).toContain(1011));
+        expect(await call.durableStorage()).not.toHaveProperty("call-session.owner-step-up-alarm.v1");
+        expect(await authorityCount(call.sessionId)).toBe(0);
+      } finally { fault.mockRestore(); }
+    } finally { await system.cleanup(); }
+  }, 30_000);
+
+  it.each([false, true])("clears a pre-auth hang-up's alarm without waiting for a retry (hibernate=%s)", async (hibernate) => {
+    const system = await createFakeCallingSystem();
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      const call = await system.openRelay();
+      await call.setup();
+      if (hibernate) await call.hibernate();
+      await call.close();
+      expect(await call.phase()).toBe("failed");
+      expect(await call.durableStorage()).not.toHaveProperty("call-session.owner-step-up-alarm.v1");
+      await expect(call.fireAlarm()).resolves.toBeUndefined();
+    } finally { await system.cleanup(); }
+  }, 20_000);
+
+  it("re-arms the deadline after a late fragment so the old assembly alarm cannot spend another re-prompt", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      const call = await system.openRelay();
+      await call.setup();
+      await call.prompt("ablaze");
+      system.advanceTime(1_501);
+      await call.prompt("abrasion");
+      expect(await call.durableStorage()).toMatchObject({
+        "call-session.owner-step-up-alarm.v1": expect.objectContaining({ kind: "window" }),
+      });
+      await call.fireAlarm();
+      expect((await env.DB.prepare("SELECT count(*) AS count FROM owner_call_step_up_reprompts WHERE session_id = ?")
+        .bind(call.sessionId).first<{ count: number }>())?.count).toBe(1);
+      expect(await call.phase()).toBe("pre_auth");
+    } finally { await system.cleanup(); }
+  }, 20_000);
+
   it("caps non-candidate assembly re-prompts durably without spending mismatch attempts", async () => {
     const system = await createFakeCallingSystem({ now: new Date("2099-01-01T00:00:00.000Z") });
     try {
@@ -350,7 +458,7 @@ describe("owner call passphrase step-up", () => {
       spy.mockRestore();
       await system.cleanup();
     }
-  });
+  }, 30_000);
 
   it("measures both 600,000-round admission and repeat-suppression KDF paths", async () => {
     const system = await createFakeCallingSystem();

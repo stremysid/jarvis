@@ -1,5 +1,16 @@
 # Known issues
 
+## A late split passphrase repeat is ordinary conversation (PR #40 N9)
+
+After the 3.5-second post-verification fragment window, one- and two-word
+finals are treated as ordinary owner speech. A phrase repeated as separate
+finals after that window can therefore reach the model and transcript. An
+unspent single repeat comparison still checks a complete three-word final;
+it does not assemble arbitrarily late fragments. This is the bounded
+single-compare design's tradeoff for preserving short replies such as "good",
+not a claim that every later repetition is removed. Revisit that tradeoff
+before the attended smoke if broader repeat suppression is required.
+
 ## Owner-call step-up has five deferred failure and concurrency edges
 
 PR #40 keeps inbound calling closed and adds the durable passphrase boundary,

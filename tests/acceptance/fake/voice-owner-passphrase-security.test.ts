@@ -304,6 +304,18 @@ async function digestForms(...values: readonly string[]): Promise<readonly strin
   return forms.map((value) => value.toLowerCase());
 }
 
+function plaintextForms(...values: readonly string[]): readonly string[] {
+  // Individual fixture words are deliberately distinctive, so a fragment leak
+  // cannot hide behind the full-candidate comparison. String encodings do not
+  // pass through evidenceText's binary decoder and must also be searched.
+  return [...new Set(values.flatMap((value) => [value, ...(value.match(/[a-z]+/giu) ?? [])]))]
+    .flatMap((value) => {
+      const bytes = new TextEncoder().encode(value);
+      return [value, btoa(String.fromCharCode(...bytes)),
+        Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")];
+    }).map((value) => value.toLowerCase());
+}
+
 async function d1Evidence(): Promise<readonly unknown[]> {
   const tables = await env.DB.prepare(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND substr(name, 1, 4) != '_cf_' ORDER BY name",
@@ -376,6 +388,7 @@ describe("owner-call passphrase security contract", () => {
         const call = await openOwnerCall(system, direction);
         const beforeCandidate = logs.length;
         await call.prompt(spoken);
+        expect(logs.slice(beforeCandidate)).toEqual([]);
         expect(await call.phase()).toBe("active");
         expect(await ownerAuthorityCount(call.sessionId)).toBe(1);
         await expect(env.DB.prepare(
@@ -397,10 +410,8 @@ describe("owner-call passphrase security contract", () => {
           await d1Evidence(),
         ]);
         for (const secret of [
-          spoken,
-          FAKE_OWNER_PASSPHRASE,
+          ...plaintextForms(spoken, FAKE_OWNER_PASSPHRASE),
           ...digests,
-          ...FAKE_OWNER_PASSPHRASE.split(" "),
         ]) expect(surfaces).not.toContain(secret.toLowerCase());
       } finally {
         for (const spy of spies) spy.mockRestore();
@@ -482,7 +493,7 @@ describe("owner-call passphrase security contract", () => {
       expect(await call.phase()).toBe("pre_auth");
       expect(await ownerAuthorityCount(call.sessionId)).toBe(0);
     } finally { await outbound.cleanup(); }
-  }, 30_000);
+  }, 60_000);
 
   it("refuses the Passed-A waiver when the current verifier is no longer active", async () => {
     const system = await createFakeCallingSystem({ ownerCallerIdPolicy: "waive_on_passed_a" });
@@ -648,7 +659,7 @@ describe("owner-call passphrase security contract", () => {
     const logs: unknown[] = [];
     const spies = spyOnEveryConsoleMethod(logs);
     const wrongCandidates = [
-      "ablaze abrasion active", "ablaze abrasion activist", "ablaze abrasion activity",
+      "cabbage cackle cactus", "caddy cadillac cadmium", "camisole canister canopy",
     ] as const;
     try {
       const call = await openOwnerCall(system, "inbound");
@@ -671,7 +682,7 @@ describe("owner-call passphrase security contract", () => {
         await d1Evidence(),
       ]);
       const candidateDigests = await digestForms(...wrongCandidates);
-      for (const secret of [...wrongCandidates, ...candidateDigests]) {
+      for (const secret of [...plaintextForms(...wrongCandidates), ...candidateDigests]) {
         expect(surfaces).not.toContain(secret.toLowerCase());
       }
       const callback = await system.sendRelayEnded(

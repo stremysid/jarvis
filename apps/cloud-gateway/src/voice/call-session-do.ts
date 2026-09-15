@@ -1158,18 +1158,21 @@ export class CallSessionCore {
     if (!alreadyDurable) await this.#ownerStepUp.expire(this.#session.sessionId, observedAt);
     const rejected = await this.#repository.getCallSession(this.#session.sessionId);
     if (rejected === null || rejected.phase !== "rejected") throw new Error("owner_step_up_rejection_failed");
+    // Read everything required for the alert before completing the in-memory
+    // rejection. A failed read must leave the durable alarm available to retry.
+    const binding = await this.#ownerStepUp.binding(this.#session.sessionId);
     this.#session = rejected;
     this.#clearOwnerStepUpFragments();
-    let alarmClearFailed = false;
-    try { await this.#ownerStepUpAlarm?.clear(); }
-    catch { alarmClearFailed = true; }
-    await this.#relay.sendNeutralText(OWNER_STEP_UP_REJECTED);
+    try { await this.#relay.sendNeutralText(OWNER_STEP_UP_REJECTED); }
+    catch { /* A disconnected caller must not prevent the owner's alert. */ }
     try {
       if (this.#relay.end === undefined) throw new Error("relay_end_unavailable");
       await this.#relay.end(OWNER_STEP_UP_HANDOFF_DATA);
     }
-    catch { this.#relay.close(1008); }
-    const binding = await this.#ownerStepUp.binding(this.#session.sessionId);
+    catch {
+      try { this.#relay.close(1008); }
+      catch { /* The relay may already have closed during verification. */ }
+    }
     if (binding !== null && this.#ownerStepUpAlerts !== null) {
       try {
         await this.#ownerStepUpAlerts.alert({
@@ -1183,7 +1186,7 @@ export class CallSessionCore {
         // Alert delivery is durable and retriable. It cannot reopen or weaken a rejected call.
       }
     }
-    if (alarmClearFailed) throw new Error("owner_step_up_alarm_clear_failed");
+    await this.#ownerStepUpAlarm?.clear();
   }
 
   async #completeOwnerStepUp(candidate: string, observedAt: Date): Promise<void> {
@@ -1245,7 +1248,12 @@ export class CallSessionCore {
       this.#clearOwnerStepUpFragments();
       const reprompt = await this.#ownerStepUp!.recordReprompt(this.#session.sessionId, observedAt);
       if (reprompt !== "reprompt") await this.#rejectOwnerStepUp(observedAt, reprompt === "rejected");
-      else await this.#relay.sendNeutralText(OWNER_STEP_UP_FORMAT_PROMPT);
+      else {
+        if (this.#ownerStepUpDeadlineAt !== null) await this.#ownerStepUpAlarm?.arm({
+          sessionId: this.#session.sessionId, lifecycleGeneration: 1, kind: "window", deadlineAt: this.#ownerStepUpDeadlineAt,
+        });
+        await this.#relay.sendNeutralText(OWNER_STEP_UP_FORMAT_PROMPT);
+      }
       return;
     }
     this.#ownerStepUpFragments.push(event.text);
@@ -1269,13 +1277,20 @@ export class CallSessionCore {
   }
 
   async handleOwnerStepUpAlarm(kind: "window" | "assembly", lifecycleGeneration: 1): Promise<void> {
-    if (lifecycleGeneration !== 1 || this.#session.phase !== "pre_auth" || this.#interaction.kind !== "owner_step_up") {
+    if (lifecycleGeneration !== 1 || this.#session.phase !== "pre_auth" && this.#session.phase !== "rejected"
+      || this.#interaction.kind !== "owner_step_up") {
       await this.#ownerStepUpAlarm?.clear();
       return;
     }
     const observedAt = this.#now();
     const state = await this.#ownerStepUp!.state(this.#session.sessionId);
-    if (state.deadlineAt === null || state.rejectionReason !== null) {
+    if (state.rejectionReason !== null) {
+      // expire() may have committed immediately before the previous invocation
+      // failed. The durable verdict does not prove that refusal/end/alert ran.
+      await this.#rejectOwnerStepUp(observedAt, true);
+      return;
+    }
+    if (state.deadlineAt === null) {
       await this.#ownerStepUpAlarm?.clear();
       return;
     }
@@ -1541,6 +1556,7 @@ export class CallSessionCore {
 
   async handleSocketClose(reason: "socket_closed" | "provider_error" = "socket_closed"): Promise<void> {
     if (this.#socketClosed) return;
+    await this.#ownerStepUpAlarm?.clear();
     this.#socketClosed = true;
     await this.#cancelCurrentOutput();
     this.#activationDigits = "";
@@ -1706,7 +1722,18 @@ export class CallSession extends DurableObject<Env> {
     await this.ctx.storage.deleteAlarm();
   }
 
-  override async alarm(): Promise<void> {
+  override async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
+    try { await this.#handleOwnerStepUpAlarm(); }
+    catch (error) {
+      // Cloudflare retries an alarm at most six times. Close before the final
+      // retry rather than leaving a silent call open through a long D1 outage.
+      if ((alarmInfo?.retryCount ?? 0) < 5) throw error;
+      for (const socket of this.ctx.getWebSockets()) closeSocket(socket, 1011, "relay runtime unavailable");
+      await this.#clearOwnerStepUpAlarm();
+    }
+  }
+
+  async #handleOwnerStepUpAlarm(): Promise<void> {
     const stored = await this.ctx.storage.get<StoredOwnerStepUpAlarm>(OWNER_STEP_UP_ALARM_KEY);
     if (stored === undefined || stored.sessionId !== this.ctx.id.name || stored.lifecycleGeneration !== 1
       || stored.kind !== "window" && stored.kind !== "assembly" || !canonicalTimestamp(stored.deadlineAt)) {
@@ -1716,9 +1743,10 @@ export class CallSession extends DurableObject<Env> {
     const sockets = this.ctx.getWebSockets();
     let handled = false;
     for (const socket of sockets) {
-      const resolved = await this.#resolveCore(socket);
+      const resolved = await this.#resolveCore(socket, true);
       if (resolved.kind === "unavailable") throw new Error("owner_step_up_alarm_runtime_unavailable");
       if (resolved.kind === "mismatch") {
+        closeSocket(socket, 1008, "relay session mismatch");
         await this.#clearOwnerStepUpAlarm();
         handled = true;
         continue;
@@ -1993,7 +2021,7 @@ export class CallSession extends DurableObject<Env> {
     catch { throw new Error("call_session_initialization_corrupt"); }
   }
 
-  async #resolveCore(socket: WebSocket): Promise<
+  async #resolveCore(socket: WebSocket, resumeRejected = false): Promise<
     | { readonly kind: "ready"; readonly core: CallSessionCore }
     | { readonly kind: "mismatch" }
     | { readonly kind: "unavailable" }
@@ -2014,7 +2042,7 @@ export class CallSession extends DurableObject<Env> {
       return { kind: "unavailable" };
     }
     if (session === null || !initializationMatchesSession(initialization, session)
-      || TERMINAL_PHASES.has(session.phase)) {
+      || TERMINAL_PHASES.has(session.phase) && !(resumeRejected && session.phase === "rejected")) {
       return { kind: "mismatch" };
     }
     if (this.#runtimeFactory === null) return { kind: "unavailable" };
