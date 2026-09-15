@@ -1,0 +1,286 @@
+{
+ "root": "C:/Users/Sid/jarvis-deploy",
+ "branch": "a8eab0b",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER school_course_facts_core_immutable\n",
+   "to": "CREATE TRIGGER school_course_facts_core_immutable\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_course_facts_core_immutable",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER school_course_facts_core_immutable\nBEFORE UPDATE ON school_course_facts\nBEGIN\n  SELECT RAISE(ABORT, 'school_course_fact_core_immutable') WHERE\n    NEW.principal_id IS NOT OLD.principal_id\n    OR NEW.course_id IS NOT OLD.course_id\n    OR NEW.fact_id IS NOT OLD.fact_id\n    OR (\n      NEW.fact_key IS NOT OLD.fact_key\n      AND NOT (\n        OLD.status = 'active'\n        AND NEW.status = 'resolved'\n        AND NEW.fact_key = substr(OLD.fact_key, 1, 476) || ':resolved:' || OLD.fact_id\n      )\n    )\n    OR NEW.fact_kind IS NOT OLD.fact_kind\n    OR NEW.statement IS NOT OLD.statement\n    OR NEW.evidence_source IS NOT OLD.evidence_source\n    OR NEW.source_turn_id IS NOT OLD.source_turn_id\n    OR NEW.source_ref IS NOT OLD.source_ref\n    OR NEW.observed_at IS NOT OLD.observed_at;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_catchup_actions_reject_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER school_catchup_actions_reject_delete\nBEFORE DELETE ON school_catchup_actions\nWHEN OLD.status NOT IN ('completed', 'superseded')\nBEGIN\n  SELECT RAISE(ABORT, 'school_catchup_action_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_programs_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER university_programs_insert_guard\nBEFORE INSERT ON university_programs\nBEGIN\n  SELECT RAISE(ABORT, 'university_program_insert_conflict') WHERE EXISTS (\n    SELECT 1 FROM university_programs\n    WHERE principal_id = NEW.principal_id\n      AND (program_id = NEW.program_id OR program_key = NEW.program_key)\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_programs_active_cap_insert",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER university_programs_active_cap_insert\nBEFORE INSERT ON university_programs\nWHEN NEW.active = 1\nBEGIN\n  SELECT RAISE(ABORT, 'university_program_limit_exceeded') WHERE (\n    SELECT COUNT(*) FROM university_programs\n    WHERE principal_id = NEW.principal_id AND active = 1\n  ) >= 16;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_programs_active_cap_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER university_programs_active_cap_update\nBEFORE UPDATE ON university_programs\nWHEN OLD.active = 0 AND NEW.active = 1\nBEGIN\n  SELECT RAISE(ABORT, 'university_program_limit_exceeded') WHERE (\n    SELECT COUNT(*) FROM university_programs\n    WHERE principal_id = NEW.principal_id AND active = 1\n  ) >= 16;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_programs_require_owner_turn_insert",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER university_programs_require_owner_turn_insert\nBEFORE INSERT ON university_programs\nBEGIN\n  SELECT RAISE(ABORT, 'university_program_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.owner_source_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel = 'telegram'\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_programs_require_owner_turn_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER university_programs_require_owner_turn_update\nBEFORE UPDATE ON university_programs\nBEGIN\n  SELECT RAISE(ABORT, 'university_program_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.owner_source_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel = 'telegram'\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_programs_update_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER university_programs_update_guard\nBEFORE UPDATE ON university_programs\nBEGIN\n  SELECT RAISE(ABORT, 'university_program_identity_invalid')\n  WHERE NEW.principal_id IS NOT OLD.principal_id\n    OR NEW.program_id IS NOT OLD.program_id\n    OR NEW.created_at IS NOT OLD.created_at;\n  SELECT RAISE(ABORT, 'university_program_key_conflict') WHERE EXISTS (\n    SELECT 1 FROM university_programs\n    WHERE principal_id = NEW.principal_id\n      AND program_key = NEW.program_key\n      AND program_id IS NOT OLD.program_id\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_programs_reject_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER university_programs_reject_delete\nBEFORE DELETE ON university_programs\nBEGIN\n  SELECT RAISE(ABORT, 'university_program_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_program_items_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER university_program_items_insert_guard\nBEFORE INSERT ON university_program_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_item_insert_conflict') WHERE EXISTS (\n    SELECT 1 FROM university_program_items\n    WHERE principal_id = NEW.principal_id\n      AND (item_id = NEW.item_id OR (program_id = NEW.program_id AND item_key = NEW.item_key))\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_program_items_active_cap_insert",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER university_program_items_active_cap_insert\nBEFORE INSERT ON university_program_items\nWHEN NEW.status = 'active'\nBEGIN\n  SELECT RAISE(ABORT, 'university_item_limit_exceeded') WHERE (\n    SELECT COUNT(*) FROM university_program_items\n    WHERE principal_id = NEW.principal_id AND status = 'active'\n  ) >= 128 OR (\n    SELECT COUNT(*) FROM university_program_items\n    WHERE principal_id = NEW.principal_id\n      AND program_id = NEW.program_id\n      AND status = 'active'\n  ) >= 32;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_program_items_require_owner_turn",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER university_program_items_require_owner_turn\nBEFORE INSERT ON university_program_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_item_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel = 'telegram'\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_program_items_core_immutable",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER university_program_items_core_immutable\nBEFORE UPDATE ON university_program_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_item_core_immutable') WHERE\n    NEW.principal_id IS NOT OLD.principal_id\n    OR NEW.program_id IS NOT OLD.program_id\n    OR NEW.item_id IS NOT OLD.item_id\n    OR (\n      NEW.item_key IS NOT OLD.item_key\n      AND NOT (\n        OLD.status = 'active'\n        AND NEW.status = 'resolved'\n        AND NEW.item_key = substr(OLD.item_key, 1, 732) || ':resolved:' || OLD.item_id\n      )\n    )\n    OR NEW.item_kind IS NOT OLD.item_kind\n    OR NEW.item_label IS NOT OLD.item_label\n    OR NEW.item_detail IS NOT OLD.item_detail\n    OR NEW.date_value IS NOT OLD.date_value\n    OR NEW.verification_state IS NOT OLD.verification_state\n    OR NEW.source_url IS NOT OLD.source_url\n    OR NEW.admission_cycle IS NOT OLD.admission_cycle\n    OR NEW.verified_at IS NOT OLD.verified_at\n    OR NEW.source_turn_id IS NOT OLD.source_turn_id\n    OR NEW.created_at IS NOT OLD.created_at;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_program_items_status_transition",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER university_program_items_status_transition\nBEFORE UPDATE ON university_program_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_item_status_invalid') WHERE NOT (\n    NEW.status = OLD.status OR (OLD.status = 'active' AND NEW.status = 'resolved')\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_program_items_reject_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER university_program_items_reject_delete\nBEFORE DELETE ON university_program_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_item_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_tracker_turn_receipts_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER university_tracker_turn_receipts_insert_guard\nBEFORE INSERT ON university_tracker_turn_receipts\nBEGIN\n  SELECT RAISE(ABORT, 'university_tracker_receipt_insert_conflict') WHERE EXISTS (\n    SELECT 1 FROM university_tracker_turn_receipts\n    WHERE principal_id = NEW.principal_id AND turn_id = NEW.turn_id\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_tracker_turn_receipts_require_turn",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER university_tracker_turn_receipts_require_turn\nBEFORE INSERT ON university_tracker_turn_receipts\nBEGIN\n  SELECT RAISE(ABORT, 'university_tracker_receipt_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.turn_id\n      AND principal_id = NEW.principal_id\n      AND channel = 'telegram'\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_tracker_turn_receipts_reject_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER university_tracker_turn_receipts_reject_update\nBEFORE UPDATE ON university_tracker_turn_receipts\nBEGIN\n  SELECT RAISE(ABORT, 'university_tracker_receipt_update_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_tracker_turn_receipts_reject_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0022_university_tracker.sql",
+   "from": "CREATE TRIGGER university_tracker_turn_receipts_reject_delete\nBEFORE DELETE ON university_tracker_turn_receipts\nBEGIN\n  SELECT RAISE(ABORT, 'university_tracker_receipt_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-catchup-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-0022-upgrade.test.ts"
+   ]
+  }
+ ]
+}
