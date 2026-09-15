@@ -46,6 +46,18 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 00:27 UTC — GPT-6 Codex, migration 0018 reserved for R1 owner call step-up
+
+Branch `codex/r1-owner-passphrase-step-up` starts from merged PR #37 at
+`2619f02`. It reserves migration `0018` for the durable owner-call step-up
+state, per-session candidate and re-prompt ordinals, alarms, success receipts,
+and the durable guest PIN attempt counter. R2 keeps `0016`; migration `0017`
+remains the merged verifier migration. No migration file, production command,
+secret, live call, inbound opening, or deploy exists in this reservation
+commit.
+
+--- GPT-6 Codex, 2026-09-15 00:27 UTC
+
 ## 2026-09-14 00:18 UTC — Claude Opus 5, PR #37 second re-review at aad3a7f: cleared
 
 The fix is `783efff`; `aad3a7f` only adds the request entry. Main is unchanged at
