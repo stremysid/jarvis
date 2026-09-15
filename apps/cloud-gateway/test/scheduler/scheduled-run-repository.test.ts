@@ -89,6 +89,38 @@ describe("ScheduledRunRepository", () => {
     expect(outcomes.filter((outcome) => outcome !== null)).toHaveLength(1);
   });
 
+  it("admits one cooldown claim across different request keys when callers race", async () => {
+    const clock = new StepClock("2026-09-02T11:30:00.000Z");
+    const runs = repository(clock);
+    const outcomes = await Promise.all(["one", "two", "three"].map((runKey) =>
+      runs.claimAfterCooldown(
+        { job: "brightspace_on_demand", runKey },
+        new Date("2026-09-02T11:25:00.000Z"),
+      )));
+    expect(outcomes.filter((outcome) => outcome !== null)).toHaveLength(1);
+  });
+
+  it("keeps a cooldown closed until the full interval has elapsed", async () => {
+    const clock = new StepClock("2026-09-02T11:30:00.000Z");
+    const runs = repository(clock);
+    await expect(runs.claimAfterCooldown(
+      { job: "brightspace_on_demand", runKey: "first" },
+      new Date("2026-09-02T11:25:00.000Z"),
+    )).resolves.not.toBeNull();
+
+    clock.advance(299);
+    await expect(runs.claimAfterCooldown(
+      { job: "brightspace_on_demand", runKey: "early" },
+      new Date("2026-09-02T11:29:59.000Z"),
+    )).resolves.toBeNull();
+
+    clock.advance(1);
+    await expect(runs.claimAfterCooldown(
+      { job: "brightspace_on_demand", runKey: "ready" },
+      new Date("2026-09-02T11:30:00.000Z"),
+    )).resolves.not.toBeNull();
+  });
+
   it("records a failure against the run rather than losing it", async () => {
     const clock = new StepClock("2026-09-02T11:30:00.000Z");
     const runs = repository(clock);

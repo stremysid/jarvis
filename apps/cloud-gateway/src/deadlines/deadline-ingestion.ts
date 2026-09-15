@@ -46,6 +46,8 @@ export type SourceSweep =
     readonly items: readonly RawDeadlineItem[];
     readonly cancelledExternalIds?: readonly string[];
     readonly sourceRejectedCount?: number;
+    /** Valid source items omitted by a caller's bounded window. */
+    readonly sourceTruncatedCount?: number;
   }
   | { readonly kind: "failed"; readonly reason: string };
 
@@ -88,6 +90,8 @@ export interface DeadlineIngestionReport {
    */
   readonly disappeared: readonly Deadline[];
   readonly rejected: readonly RejectedDeadlineItem[];
+  /** Valid source items deliberately omitted to keep the sweep bounded. */
+  readonly truncatedCount: number;
   /**
    * A sweep that succeeded and returned nothing while open deadlines still
    * stand. Flagged rather than acted on, because it is what both "term ended"
@@ -257,6 +261,7 @@ export class DeadlineIngestion {
         unchanged: 0,
         disappeared: Object.freeze([]),
         rejected: Object.freeze([]),
+        truncatedCount: 0,
         emptySweep: false,
       });
     }
@@ -274,6 +279,10 @@ export class DeadlineIngestion {
     }
     for (let index = 0; index < sourceRejectedCount; index += 1) {
       rejected.push(Object.freeze({ externalId: null, reason: "invalid_source_item" as const }));
+    }
+    const sourceTruncatedCount = sweep.sourceTruncatedCount ?? 0;
+    if (!Number.isSafeInteger(sourceTruncatedCount) || sourceTruncatedCount < 0 || sourceTruncatedCount > 2_000) {
+      throw new TypeError("deadline_source_truncated_count_invalid");
     }
 
     try {
@@ -342,7 +351,11 @@ export class DeadlineIngestion {
     }
 
     const disappeared = await this.#repository.listOpenNotSeenSince(sourceId, observedAt);
-    await this.#repository.recordSourceSuccess(sourceId, now);
+    await this.#repository.recordSourceSuccess(
+      sourceId,
+      now,
+      sourceTruncatedCount === 0 ? null : `source_items_truncated:${sourceTruncatedCount}`,
+    );
 
     return Object.freeze({
       sourceId,
@@ -355,6 +368,7 @@ export class DeadlineIngestion {
       unchanged,
       disappeared,
       rejected: Object.freeze(rejected),
+      truncatedCount: sourceTruncatedCount,
       emptySweep: sweep.items.length === 0 && (sweep.cancelledExternalIds?.length ?? 0) === 0 && disappeared.length > 0,
     });
   }
