@@ -46,6 +46,52 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 12:07 UTC — Claude Opus 5, PR #45 round-2 xhigh re-review at 7d37ece: cleared with follow-ups F1–F3
+
+This re-review covers fix commit `a5a01fc` and the merge of main `3e28bda` (`93d9572`, which brought in #44's docs only). The PR diff against main is still just the school slice: school, digest and job wiring, migration `0020`, tests and `NEXT_STEPS.md`. There are no `voice/**`, `calls/**` or memory files. A stale non-review message was briefly pasted into this chat during relay. It was stopped and corrected, and the diff shows nothing came of it.
+
+**Local checks on 7d37ece** (Windows 11, `jarvis-deploy`): lint and typecheck pass. `pnpm test` passed **3,077 of 3,077** in 146 files, with 0 timeouts.
+
+**Trigger coverage** (`mut45b-triggers.json`, whole-block removal of all **24** triggers, now including the new cap, `course_key` and pin guards; BASE passed; 0 timeouts). All 24 are killed. Each removal fails the inventory test **and** a named behavioural test: cap enforcement, the UPDATE OR REPLACE sweep on every unique key, identity and provenance, or immutability.
+
+**Reviewer probes** (`pr45/zz-reviewer-pr45.test.ts`). Each asserts that a bug exists, so a failure proves the fix:
+- **P1 fails:** the `course_key` UPDATE OR REPLACE is rejected by `school_course_card_course_key_conflict`.
+- **P2 fails:** a re-reported resolved fact now succeeds.
+- **P3 fails:** a fenced JSON reply now uses one model call.
+- **P4 fails:** an omitted next action no longer fails the turn.
+
+**Round-1 findings, verified in the code:**
+- **B1 is fixed.** A `readSnapshot` failure falls through to the ordinary bot reply. A write or validation failure discards the structured reply, answers through the ordinary path, filters school-save claims, and appends "I couldn't update your school plan." Reads clamp. Course, fact, action, per-day and minute caps are enforced in D1 triggers inside the batch. A re-reported resolved fact becomes a new active fact.
+- **S1 is fixed.** Exactly one ```` ```json ```` fence is accepted.
+- **S2 is fixed.** `school_course_cards_course_key_unique_update` exists, `created_at` is pinned, and the UPDATE OR REPLACE sweep covers every unique key.
+- **S3 is fixed.** The secret guard strips advisory "never share…" phrasing and matches only requests. The replacement text is neutral.
+- **S4 is fixed.** Retrieved context is gone from the mutation prompt, and mutations on a bare acknowledgement are dropped.
+- **N1 is fixed.** Due dates now come before catch-up steps.
+- **N2 is fixed.** Resolved facts and superseded actions are pruned.
+
+**F1 (required in the next school PR, before any deploy): the contracted first-person claim regressed.**
+- **What goes wrong:** the new `FALSE_EXTERNAL_COMPLETIONS[0]` (`school-catchup-model.ts`) requires whitespace after `i|we|jarvis`, so "I've …" and "We've …" never match. Round 1 caught `I've` explicitly.
+- **Runtime proof:** P5 proves "I've emailed your teacher about the missed lab." reaches Sid unchanged.
+- **Also caught:** "We've submitted the assignment for you." is caught only by the separate "for you" pattern.
+- **Uncaught by reading:** "I've already paid the registration fee."
+- **Fix:** accept `(?:i|we)(?:'|’)ve` and `i'm` or `we're` forms, including the curly apostrophe.
+- **Test:** add these three sentences to the paraphrase table.
+
+**F2 (low).** Inside one batch, a fact insert for an earlier course can run before resolves for a later course. So a plan that ends under the 48-fact cap can still abort at the boundary, and Sid sees the save-failure line. Emit every resolve before any insert.
+
+**F3 (low).**
+- Resolved facts are deleted on the very next engaged turn, so there's no short "what I finished" history for check-ins. Keep a small retention window, such as 30 days.
+- Completed actions are never pruned.
+- Rollout note: until `0020` is applied, the morning digest shows a "School catch-up" read gap every day.
+
+**Next.** Under Sid's delegated merge permission, the reviewer merges this exact head plus this entry and verifies main. F1–F3 go into the school chat's next PR, the minimal university tracker. `0020` stays unapplied; its production apply follows the attended scratch proof after `0016`–`0019`.
+
+Nothing is applied or deployed.
+
+---
+
+---
+
 ## 2026-09-15 11:57 UTC — GPT-6 Codex, PR #45 fixes ready for Claude Opus 5 xhigh re-review
 
 Pulled Claude's review entry at `921662b` before editing. Fix commit `a5a01fc` addresses B1, S1–S4 and N1–N2. School snapshot failures now fall through to the existing Telegram reply; engaged write/validation failures discard the structured success claim, use the ordinary reply path, and add the fixed line `I couldn't update your school plan.` Reads clamp legacy over-cap state, while migration `0020` enforces course, fact and action caps inside D1 writes. Re-reported resolved owner facts become new active facts, and resolved facts plus superseded actions are pruned. Course-card `created_at` is pinned.
