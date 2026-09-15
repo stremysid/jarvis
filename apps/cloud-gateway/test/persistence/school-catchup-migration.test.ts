@@ -5,7 +5,7 @@ import { ConversationRepository } from "../../src/conversation/conversation-repo
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { SchoolCatchupRepository } from "../../src/school/school-catchup-repository.js";
-import { applySchoolCatchupMigration } from "./migration.js";
+import { applyUniversityTrackerMigration } from "./migration.js";
 
 const NOW = new Date("2026-09-15T11:30:00.000Z");
 const TODAY = "2026-09-15";
@@ -80,10 +80,10 @@ async function graph(suffix: string) {
 }
 
 beforeAll(async () => {
-  await applySchoolCatchupMigration();
+  await applyUniversityTrackerMigration();
 });
 
-describe("0020 school catch-up migration", () => {
+describe("school catch-up schema through 0022", () => {
   it("installs four private WITHOUT ROWID tables and every guard", async () => {
     const tables = await env.DB.prepare(`SELECT name, sql FROM sqlite_schema
       WHERE type = 'table' AND name LIKE 'school_%' ORDER BY name`).all<{ name: string; sql: string }>();
@@ -395,7 +395,7 @@ describe("0020 school catch-up migration", () => {
       .rejects.toThrow(/school_catchup_action_limit_exceeded/u);
   });
 
-  it("protects fact evidence, immutable content and one-way resolution", async () => {
+  it("school_course_facts_core_immutable refuses content changes and accepts the resolve-key rewrite", async () => {
     const item = await graph("facts");
     await expect(env.DB.prepare(`INSERT OR REPLACE INTO school_course_facts
       SELECT * FROM school_course_facts WHERE principal_id = ?1 AND fact_id = ?2`)
@@ -415,8 +415,11 @@ describe("0020 school catch-up migration", () => {
       .rejects.toThrow(/school_course_fact_core_immutable/u);
     await expect(env.DB.prepare(`DELETE FROM school_course_facts WHERE principal_id = ?1 AND fact_id = ?2`)
       .bind(item.principalId, item.factId).run()).rejects.toThrow(/school_course_fact_delete_forbidden/u);
-    await env.DB.prepare(`UPDATE school_course_facts SET status = 'resolved', resolved_at = ?1, updated_at = ?1
-      WHERE principal_id = ?2 AND fact_id = ?3`).bind(NOW.toISOString(), item.principalId, item.factId).run();
+    await expect(env.DB.prepare(`UPDATE school_course_facts
+      SET fact_key = substr(fact_key, 1, 476) || ':resolved:' || fact_id,
+          status = 'resolved', resolved_at = ?1, updated_at = ?1
+      WHERE principal_id = ?2 AND fact_id = ?3`).bind(NOW.toISOString(), item.principalId, item.factId).run())
+      .resolves.toBeDefined();
     await expect(env.DB.prepare(`UPDATE school_course_facts SET status = 'active', resolved_at = NULL
       WHERE principal_id = ?1 AND fact_id = ?2`).bind(item.principalId, item.factId).run())
       .rejects.toThrow(/school_course_fact_status_invalid/u);
@@ -424,7 +427,7 @@ describe("0020 school catch-up migration", () => {
       .bind(item.principalId, item.factId).run()).resolves.toBeDefined();
   });
 
-  it("protects action provenance, immutable plan content and one-way completion", async () => {
+  it("school_catchup_actions_reject_delete refuses planned deletion and permits terminal deletion", async () => {
     const item = await graph("actions");
     await expect(env.DB.prepare(`INSERT OR REPLACE INTO school_catchup_actions
       SELECT * FROM school_catchup_actions WHERE principal_id = ?1 AND action_id = ?2`)
@@ -449,7 +452,15 @@ describe("0020 school catch-up migration", () => {
       WHERE principal_id = ?1 AND action_id = ?2`).bind(item.principalId, item.actionId).run())
       .rejects.toThrow(/school_catchup_action_status_invalid/u);
     await expect(env.DB.prepare(`DELETE FROM school_catchup_actions WHERE principal_id = ?1 AND action_id = ?2`)
-      .bind(item.principalId, item.actionId).run()).rejects.toThrow(/school_catchup_action_delete_forbidden/u);
+      .bind(item.principalId, item.actionId).run()).resolves.toBeDefined();
+
+    const superseded = await graph("actions-superseded");
+    await env.DB.prepare(`UPDATE school_catchup_actions
+      SET status = 'superseded', superseded_at = ?1, updated_at = ?1
+      WHERE principal_id = ?2 AND action_id = ?3`)
+      .bind(NOW.toISOString(), superseded.principalId, superseded.actionId).run();
+    await expect(env.DB.prepare(`DELETE FROM school_catchup_actions WHERE principal_id = ?1 AND action_id = ?2`)
+      .bind(superseded.principalId, superseded.actionId).run()).resolves.toBeDefined();
   });
 
   it("keeps turn receipts immutable, owner-bound and replacement-safe", async () => {
