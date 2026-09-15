@@ -42,7 +42,17 @@ _FIRST_PERSON_TOKEN = re.compile(
 _FIRST_PERSON_UNTRUSTED_FRAMING = (
     re.compile(r"(?<![A-Za-z0-9_])(?:if|unless|whether|when)(?![A-Za-z0-9_])", re.I | re.ASCII),
     re.compile(
-        r"(?<![A-Za-z0-9_])(?:maybe|might|probably|perhaps|could|would)(?![A-Za-z0-9_])",
+        r"(?<![A-Za-z0-9_])(?:maybe|might|probably|perhaps|could)(?![A-Za-z0-9_])",
+        re.I | re.ASCII,
+    ),
+    re.compile(
+        r"(?<![A-Za-z0-9_])would(?!\s+(?:like|love|prefer|rather)(?![A-Za-z0-9_]))"
+        r"(?![A-Za-z0-9_])",
+        re.I | re.ASCII,
+    ),
+    re.compile(
+        r"(?<![A-Za-z0-9_])i['\N{RIGHT SINGLE QUOTATION MARK}]d"
+        r"(?!\s+(?:like|love|prefer|rather)(?![A-Za-z0-9_]))(?![A-Za-z0-9_])",
         re.I | re.ASCII,
     ),
     re.compile(r"(?<![A-Za-z0-9_])i\s+(?:think|guess|suppose)(?![A-Za-z0-9_])", re.I | re.ASCII),

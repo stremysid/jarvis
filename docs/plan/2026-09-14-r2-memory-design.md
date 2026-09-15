@@ -1,10 +1,11 @@
 # R2 memory design
 
-**Status: D1-authoritative design draft for review.** The reviewer recorded the
+**Status: D1-authoritative design approved; `0016` schema candidate under review.** The reviewer recorded the
 storage decision in `docs/AGENT_LOG.md` at `951675e`: D1 is the authoritative
 memory ledger and topic tree; D1 FTS5 and Vectorize are rebuildable indexes;
 Obsidian is only a later optional one-way export. This document defines the
-planned table contract but does not add or authorize migration `0016`.
+table contract implemented by the additive `0016` candidate. The candidate is
+not authorization to apply it; that remains Sid's operation after review.
 
 The research and fact-check in `docs/research/` remain the evidence base. This
 document carries Sid's later requirements where they supersede the original
@@ -55,7 +56,7 @@ owner-confirmed material; erasure is not part of R2.
   optional one-way Markdown export without making that export a runtime
   dependency or an input to memory.
 
-## 3. Chosen storage and planned `0016` contract
+## 3. Chosen storage and `0016` contract
 
 ### 3.1 Authority and write path
 
@@ -77,10 +78,9 @@ The optional Obsidian-shaped copy is deliberately outside this write path. It
 may later render D1 state to Markdown, but it is never read back into D1, search
 or prompts. The exporter is not part of R2.
 
-### 3.2 Planned D1 tables
+### 3.2 D1 tables
 
-The later additive migration remains named `0016_cloud_memory.sql`. Its planned
-tables are:
+The additive schema candidate is named `0016_cloud_memory.sql`. Its tables are:
 
 | Table | Purpose and critical fields |
 |---|---|
@@ -146,13 +146,15 @@ the raw receipt; results are verified against the R2 segment before use.
 - Topic moves reject cycles; sibling names are unique after normalization;
   merge redirects are bounded and cycle-free.
 - State and placement projections change only through their append-only event
-  triggers. Later migration tests must mutate every trigger and prove refusal.
+  triggers. Migration tests must mutate every trigger and prove refusal. Each
+  trigger has a dedicated removal mutation, while behavioral tests exercise
+  the protected invariants, including direct projection writes.
 - Use remote-D1-compatible `WHEN ... BEGIN SELECT RAISE(...)` trigger guards or
   CHECK constraints. Do not use `SELECT CASE ... RAISE`, which remote D1 does
   not accept reliably.
 - Sid applies migration `0016` only after its separate PR passes Claude Opus 5
-  max review. The design and pure-logic follow-up PRs create no SQL and perform
-  no migration.
+  max review. This PR adds the reviewed SQL candidate and applies it only to an
+  isolated test database; it does not apply a migration to any live database.
 
 ### 3.4 Index freshness and rebuild
 
@@ -353,9 +355,12 @@ An owner question, conditional (`if`, `unless`, `whether`, `when`), negated or
 hedged statement, or reported speech never receives trusted first-person origin;
 it falls to `inferred` and uncertain while remaining searchable. Deterministic
 hedge framing includes `maybe`, `might`, `probably`, `perhaps`, `I think`, `I
-guess`, `I suppose`, `could` and `would`. A trusted quote contains exactly one
-sentence; multiple sentences cannot inherit trust from a first-person token in
-only one of them.
+guess`, `I suppose`, `could` and conditional `would`, including contracted
+`I'd`. Explicit preference constructions using `would like`, `would love`,
+`would prefer` or `would rather` remain stated preferences, with the same rule
+for `I'd`; other `would`/`I'd` statements remain uncertain. A trusted quote
+contains exactly one sentence; multiple sentences cannot inherit trust from a
+first-person token in only one of them.
 
 Eligible uncertain items enter ordinary conversational context with an explicit
 uncertain label, so Jarvis can use likely preferences or plans without hiding

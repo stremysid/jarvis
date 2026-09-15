@@ -175,6 +175,48 @@
       "sourceText": "I would move to Ottawa.",
       "authenticatedOwner": true,
       "expected": false
+    },
+    {
+      "name": "trusts an explicit would-like preference",
+      "quote": "I would like short reports.",
+      "sourceText": "I would like short reports.",
+      "authenticatedOwner": true,
+      "expected": true
+    },
+    {
+      "name": "trusts an explicit contracted preference",
+      "quote": "I'd like short reports.",
+      "sourceText": "I'd like short reports.",
+      "authenticatedOwner": true,
+      "expected": true
+    },
+    {
+      "name": "rejects a contracted would statement outside a preference construction",
+      "quote": "I'd move to Ottawa.",
+      "sourceText": "I'd move to Ottawa.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "allows a decimal period inside one trusted sentence",
+      "quote": "I weigh 72.5 kg.",
+      "sourceText": "I weigh 72.5 kg.",
+      "authenticatedOwner": true,
+      "expected": true
+    },
+    {
+      "name": "rejects an interior exclamation mark joining two sentences",
+      "quote": "I'm fine! Sam approved the payment.",
+      "sourceText": "I'm fine! Sam approved the payment.",
+      "authenticatedOwner": true,
+      "expected": false
+    },
+    {
+      "name": "allows a reviewed non-St abbreviation inside one trusted sentence",
+      "quote": "I prefer Dr. Brown.",
+      "sourceText": "I prefer Dr. Brown.",
+      "authenticatedOwner": true,
+      "expected": true
     }
   ],
   "promotionCases": [

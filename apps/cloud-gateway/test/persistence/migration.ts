@@ -14,9 +14,11 @@ import livenessSql from "../../src/persistence/migrations/0012_liveness.sql?raw"
 import scheduledRunsSql from "../../src/persistence/migrations/0013_scheduled_runs.sql?raw";
 import memoryProjectionSql from "../../src/persistence/migrations/0014_memory_projection.sql?raw";
 import voiceRuntimeSql from "../../src/persistence/migrations/0015_voice_runtime.sql?raw";
+import cloudMemorySql from "../../src/persistence/migrations/0016_cloud_memory.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
+let cloudMemoryMigrated: Promise<void> | undefined;
 
 /**
  * Split a migration into the statements D1 applies one at a time.
@@ -90,6 +92,15 @@ export async function applyVoiceRuntimeMigration(): Promise<void> {
     { name: "0015_voice_runtime.sql", queries: splitMigration(voiceRuntimeSql) },
   ]);
   await voiceRuntimeMigrated;
+}
+
+/** Applies the reviewed cloud-memory schema only to the isolated D1 test binding. */
+export async function applyCloudMemoryMigration(): Promise<void> {
+  await applyVoiceRuntimeMigration();
+  cloudMemoryMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0016_cloud_memory.sql", queries: splitMigration(cloudMemorySql) },
+  ]);
+  await cloudMemoryMigrated;
 }
 
 const MEMORY_PROJECTION_DELETE_GUARDS = Object.freeze([

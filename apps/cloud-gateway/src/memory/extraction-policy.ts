@@ -55,7 +55,9 @@ const FORBIDDEN_PROPOSAL_KEYS = new Set([
 const FIRST_PERSON_TOKEN = /(?<![A-Za-z0-9_])(?:i(?:['’](?:m|ve|d|ll))?|me|my|mine|myself)(?![A-Za-z0-9_])/iu;
 const FIRST_PERSON_UNTRUSTED_FRAMING = [
   /(?<![A-Za-z0-9_])(?:if|unless|whether|when)(?![A-Za-z0-9_])/iu,
-  /(?<![A-Za-z0-9_])(?:maybe|might|probably|perhaps|could|would)(?![A-Za-z0-9_])/iu,
+  /(?<![A-Za-z0-9_])(?:maybe|might|probably|perhaps|could)(?![A-Za-z0-9_])/iu,
+  /(?<![A-Za-z0-9_])would(?!\s+(?:like|love|prefer|rather)(?![A-Za-z0-9_]))(?![A-Za-z0-9_])/iu,
+  /(?<![A-Za-z0-9_])i['’]d(?!\s+(?:like|love|prefer|rather)(?![A-Za-z0-9_]))(?![A-Za-z0-9_])/iu,
   /(?<![A-Za-z0-9_])i\s+(?:think|guess|suppose)(?![A-Za-z0-9_])/iu,
   /(?<![A-Za-z0-9_])i\s+(?:do\s+not|don['’]t)\s+know(?![A-Za-z0-9_])/iu,
   /(?<![A-Za-z0-9_])not\s+sure(?![A-Za-z0-9_])/iu,
