@@ -16,11 +16,13 @@ import memoryProjectionSql from "../../src/persistence/migrations/0014_memory_pr
 import voiceRuntimeSql from "../../src/persistence/migrations/0015_voice_runtime.sql?raw";
 import cloudMemorySql from "../../src/persistence/migrations/0016_cloud_memory.sql?raw";
 import ownerPassphraseSql from "../../src/persistence/migrations/0017_owner_passphrase.sql?raw";
+import memoryIngressSql from "../../src/persistence/migrations/0019_memory_ingress.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
 let cloudMemoryMigrated: Promise<void> | undefined;
 let ownerPassphraseMigrated: Promise<void> | undefined;
+let memoryIngressMigrated: Promise<void> | undefined;
 
 /**
  * Split a migration into the statements D1 applies one at a time.
@@ -103,6 +105,16 @@ export async function applyCloudMemoryMigration(): Promise<void> {
     { name: "0016_cloud_memory.sql", queries: splitMigration(cloudMemorySql) },
   ]);
   await cloudMemoryMigrated;
+}
+
+/** Applies the privileged memory-command ingress contract after 0016. */
+export async function applyMemoryIngressMigration(): Promise<void> {
+  await applyCloudMemoryMigration();
+  await applyOwnerPassphraseMigration();
+  memoryIngressMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0019_memory_ingress.sql", queries: splitMigration(memoryIngressSql) },
+  ]);
+  await memoryIngressMigrated;
 }
 
 /** Applies the owner-passphrase verifier schema after the current R1 runtime. */
