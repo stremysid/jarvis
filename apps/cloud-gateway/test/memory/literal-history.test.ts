@@ -14,6 +14,7 @@ import { ArchiveRepository } from "../../src/archive/archive-repository.js";
 import { TieredEventReader } from "../../src/archive/tiered-event-reader.js";
 import {
   LITERAL_HISTORY_EXHAUSTIVE_STEP_LIMITS,
+  LITERAL_HISTORY_SEARCH_LIMITS,
   LiteralHistoryError,
   LiteralHistoryService,
 } from "../../src/memory/literal-history.js";
@@ -324,6 +325,66 @@ describe("LiteralHistoryService", () => {
       .resolves.toEqual({ status: "no_hit", hits: [], searchedThroughEventSequence: 2 });
   });
 
+  it("keeps the maximum interactive literal search inside its declared D1 statement budget", async () => {
+    const time = clock();
+    const live = new EventRepository(env.DB);
+    for (let index = 0; index < LITERAL_HISTORY_SEARCH_LIMITS.resultsExamined; index += 1) {
+      await appendConversation(live, time, `Budget quartz event ${index}.`);
+    }
+    await service(live, time).indexNext({
+      principalId: OWNER_ID,
+      maxEvents: 16,
+      maxTextBytes: 262_144,
+    });
+    const counted = queryCountingDatabase();
+    const tiered = new TieredEventReader({
+      live: new EventRepository(counted.database),
+      archive: new ArchivalService({ database: counted.database, bucket: env.ARCHIVE }),
+      state: new ArchiveRepository(counted.database),
+    });
+    const literal = new LiteralHistoryService({
+      database: counted.database,
+      events: tiered,
+      archive: new ArchiveRepository(counted.database),
+      now: time.now,
+      nextId: () => newUlid(time.now()),
+    });
+    counted.reset();
+
+    const result = await literal.searchLiteral({
+      principalId: OWNER_ID,
+      query: "quartz",
+      maxResults: LITERAL_HISTORY_SEARCH_LIMITS.resultsExamined,
+    });
+
+    expect(result).toMatchObject({
+      status: "hits",
+      hits: { length: LITERAL_HISTORY_SEARCH_LIMITS.resultsExamined },
+    });
+    expect(LITERAL_HISTORY_SEARCH_LIMITS.d1Statements).toBe(62);
+    expect(counted.queryCount()).toBeLessThanOrEqual(LITERAL_HISTORY_SEARCH_LIMITS.d1Statements);
+  });
+
+  it("advances indexing when the wall clock moves behind the stored cursor timestamp", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    await appendConversation(events, time, "The first clock-floor event.");
+    const literal = service(events, time);
+    await literal.indexNext({ principalId: OWNER_ID, maxEvents: 1 });
+    const firstCursor = await env.DB.prepare(`SELECT updated_at FROM memory_cursors
+      WHERE principal_id = ? AND cursor_name = 'fts_history'`)
+      .bind(OWNER_ID).first<string>("updated_at");
+    await appendConversation(events, time, "The second clock-floor event.");
+    time.advance(-5_000);
+
+    await expect(literal.indexNext({ principalId: OWNER_ID, maxEvents: 1 }))
+      .resolves.toMatchObject({ endEventSequence: 2, eventsExamined: 1 });
+    const cursor = await env.DB.prepare(`SELECT current_event_sequence, updated_at
+      FROM memory_cursors WHERE principal_id = ? AND cursor_name = 'fts_history'`)
+      .bind(OWNER_ID).first<{ current_event_sequence: number; updated_at: string }>();
+    expect(cursor).toEqual({ current_event_sequence: 2, updated_at: firstCursor });
+  });
+
   it("refuses a no-hit answer when the coverage cursor is ahead of tiered history", async () => {
     const time = clock();
     const events = new EventRepository(env.DB);
@@ -490,6 +551,56 @@ describe("LiteralHistoryService", () => {
       });
   });
 
+  it("fails one indexing batch when archival wins the source-location race and recovers on retry", async () => {
+    const time = clock();
+    const live = new EventRepository(env.DB);
+    const target = await appendConversation(live, time, "The racing archive receipt is exact.");
+    await env.DB.batch([
+      env.DB.prepare("UPDATE events SET created_at = ? WHERE sequence = ?")
+        .bind("2026-01-01T00:00:00.000Z", target.eventSequence),
+      env.DB.prepare(`UPDATE outbox SET status = 'delivered', delivered_at = ?
+        WHERE event_sequence = ?`).bind("2026-01-02T00:00:00.000Z", target.eventSequence),
+    ]);
+    const archive = new ArchivalService({ database: env.DB, bucket: env.ARCHIVE });
+    let racePending = true;
+    const racingDatabase = {
+      prepare: (query: string) => env.DB.prepare(query),
+      batch: async <T>(statements: D1PreparedStatement[]) => {
+        if (racePending) {
+          racePending = false;
+          const manifest = await archive.archiveEligible(new Date("2026-12-01T00:00:00.000Z"), 24);
+          if (manifest === null) throw new Error("literal_history_race_archive_missing");
+        }
+        return env.DB.batch<T>(statements);
+      },
+    } as D1Database;
+    const racing = new LiteralHistoryService({
+      database: racingDatabase,
+      events: live,
+      archive: new ArchiveRepository(env.DB),
+      now: time.now,
+      nextId: () => newUlid(time.now()),
+    });
+
+    await expect(racing.indexNext({ principalId: OWNER_ID, maxEvents: 1 }))
+      .rejects.toEqual(new LiteralHistoryError("memory_history_unavailable"));
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_cursors
+      WHERE principal_id = ? AND cursor_name = 'fts_history'`)
+      .bind(OWNER_ID).first("count")).toBe(0);
+
+    const tiered = new TieredEventReader({
+      live,
+      archive,
+      state: new ArchiveRepository(env.DB),
+    });
+    await expect(service(tiered, time).indexNext({ principalId: OWNER_ID, maxEvents: 1 }))
+      .resolves.toMatchObject({
+        startEventSequence: target.eventSequence,
+        endEventSequence: target.eventSequence,
+        chunksWritten: 1,
+      });
+  });
+
   it("advances complete literal coverage across every verified R2 segment", async () => {
     const time = clock();
     const live = new EventRepository(env.DB);
@@ -597,6 +708,50 @@ describe("LiteralHistoryService", () => {
       .resolves.toMatchObject({ status: "hits", hits: [{ eventSequence: 3 }, { eventSequence: 1 }] });
   });
 
+  it("fails an unrecoverable exhaustive step and starts a new attempt for the same job key", async () => {
+    const time = clock();
+    const live = new EventRepository(env.DB);
+    await appendConversation(live, time, "The corrupt walk source exists.");
+    const unavailableEvents = {
+      latestSequence: () => live.latestSequence(),
+      readRange: async () => [],
+    };
+    const literal = new LiteralHistoryService({
+      database: env.DB,
+      events: unavailableEvents,
+      archive: new ArchiveRepository(env.DB),
+      now: time.now,
+      nextId: () => newUlid(time.now()),
+    });
+    const firstJobId = newUlid(time.now());
+    await literal.createExhaustiveSearch({
+      principalId: OWNER_ID,
+      jobId: firstJobId,
+      jobKey: "retry-corrupt-walk",
+      query: "corrupt",
+    });
+
+    await expect(literal.runExhaustiveSearchStep({
+      principalId: OWNER_ID,
+      jobId: firstJobId,
+    })).rejects.toEqual(new LiteralHistoryError("memory_history_corrupt"));
+    expect(await env.DB.prepare(`SELECT status, failure_code FROM memory_literal_search_jobs
+      WHERE principal_id = ? AND job_id = ?`).bind(OWNER_ID, firstJobId).first())
+      .toEqual({ status: "failed", failure_code: "history_step_corrupt" });
+
+    const replacementJobId = newUlid(new Date(time.advance()));
+    await expect(literal.createExhaustiveSearch({
+      principalId: OWNER_ID,
+      jobId: replacementJobId,
+      jobKey: "retry-corrupt-walk",
+      query: "corrupt",
+    })).resolves.toMatchObject({
+      jobId: replacementJobId,
+      attempt: 2,
+      status: "pending",
+    });
+  });
+
   it("counts the worst-case exhaustive step inside the declared D1 and CPU budgets", async () => {
     const time = clock();
     const events = new EventRepository(env.DB);
@@ -611,6 +766,16 @@ describe("LiteralHistoryService", () => {
     const archive = new ArchivalService({ database: env.DB, bucket: env.ARCHIVE });
     await expect(archive.archiveEligible(new Date("2026-12-01T00:00:00.000Z"), 24))
       .resolves.not.toBeNull();
+    const indexedTiered = new TieredEventReader({
+      live: events,
+      archive,
+      state: new ArchiveRepository(env.DB),
+    });
+    await service(indexedTiered, time).indexNext({
+      principalId: OWNER_ID,
+      maxEvents: 16,
+      maxTextBytes: 262_144,
+    });
     const counted = queryCountingDatabase();
     const countedArchive = new ArchivalService({ database: counted.database, bucket: env.ARCHIVE });
     const tiered = new TieredEventReader({

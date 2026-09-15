@@ -9,6 +9,9 @@ CREATE TABLE memory_literal_search_jobs (
   ),
   principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE RESTRICT,
   job_key TEXT NOT NULL CHECK (length(CAST(job_key AS BLOB)) BETWEEN 1 AND 128),
+  attempt INTEGER NOT NULL DEFAULT 1 CHECK (
+    typeof(attempt) = 'integer' AND attempt > 0
+  ),
   query_text TEXT NOT NULL CHECK (
     length(CAST(query_text AS BLOB)) BETWEEN 1 AND 1024
     AND instr(query_text, char(0)) = 0
@@ -47,7 +50,7 @@ CREATE TABLE memory_literal_search_jobs (
     )
   ),
   UNIQUE (principal_id, job_id),
-  UNIQUE (principal_id, job_key),
+  UNIQUE (principal_id, job_key, attempt),
   CHECK (
     (status IN ('pending', 'running') AND completed_at IS NULL AND failure_code IS NULL)
     OR (status = 'succeeded' AND completed_at IS NOT NULL AND failure_code IS NULL)
@@ -77,6 +80,9 @@ CREATE TABLE memory_literal_search_hits (
 
 CREATE INDEX memory_literal_search_jobs_status_lookup
 ON memory_literal_search_jobs(principal_id, status, updated_at, job_id);
+
+CREATE INDEX memory_literal_search_jobs_key_lookup
+ON memory_literal_search_jobs(principal_id, job_key, attempt DESC);
 
 DROP TRIGGER memory_history_chunks_insert_guard;
 
@@ -129,7 +135,8 @@ BEFORE INSERT ON memory_literal_search_jobs
 WHEN EXISTS (
     SELECT 1 FROM memory_literal_search_jobs job
     WHERE job.job_id = NEW.job_id
-      OR (job.principal_id = NEW.principal_id AND job.job_key = NEW.job_key)
+      OR (job.principal_id = NEW.principal_id
+        AND job.job_key = NEW.job_key AND job.attempt = NEW.attempt)
   )
   OR NEW.status <> 'pending'
   OR NEW.checkpoint_event_sequence <> 0
@@ -156,6 +163,7 @@ BEFORE UPDATE ON memory_literal_search_jobs
 WHEN NEW.job_id <> OLD.job_id
   OR NEW.principal_id <> OLD.principal_id
   OR NEW.job_key <> OLD.job_key
+  OR NEW.attempt <> OLD.attempt
   OR NEW.query_text <> OLD.query_text
   OR NEW.query_hash <> OLD.query_hash
   OR NEW.snapshot_event_sequence <> OLD.snapshot_event_sequence
@@ -166,8 +174,14 @@ WHEN NEW.job_id <> OLD.job_id
   OR NEW.matched_event_count < OLD.matched_event_count
   OR NEW.matched_event_count > NEW.scanned_event_count
   OR NEW.scanned_event_count <> NEW.checkpoint_event_sequence
+  -- The service can examine at most eight maximum-sized events in one step.
+  OR NEW.checkpoint_event_sequence - OLD.checkpoint_event_sequence > 8
   OR NEW.matched_event_count - OLD.matched_event_count
     > NEW.scanned_event_count - OLD.scanned_event_count
+  OR NEW.matched_event_count <> (
+    SELECT count(*) FROM memory_literal_search_hits hit
+    WHERE hit.principal_id = NEW.principal_id AND hit.job_id = NEW.job_id
+  )
   OR (NEW.completed_at IS NOT NULL AND NEW.completed_at < NEW.updated_at)
   OR NOT (
     (OLD.status = 'pending' AND NEW.status = 'running')
@@ -175,6 +189,12 @@ WHEN NEW.job_id <> OLD.job_id
   )
   OR (NEW.status = 'succeeded'
     AND NEW.checkpoint_event_sequence <> NEW.snapshot_event_sequence)
+  OR NOT EXISTS (
+    SELECT 1 FROM principals principal
+    WHERE principal.principal_id = NEW.principal_id
+      AND principal.principal_type = 'human'
+      AND principal.status = 'active'
+  )
 BEGIN
   SELECT RAISE(ABORT, 'memory_literal_search_job_transition_invalid');
 END;
@@ -209,9 +229,23 @@ WHEN EXISTS (
       AND event.content_hash = NEW.content_hash
     UNION
     SELECT 1 FROM archive_segment_events archived
+    JOIN memory_history_coverage coverage
+      ON coverage.principal_id = NEW.principal_id
+      AND coverage.start_event_sequence = archived.event_sequence
+      AND coverage.end_event_sequence = archived.event_sequence
+      AND coverage.source_location = 'archived'
+      AND coverage.r2_segment_id = archived.segment_id
+      AND coverage.indexing_outcome = 'indexed'
+      AND coverage.content_hash = archived.envelope_sha256
     WHERE archived.event_sequence = NEW.event_sequence
       AND archived.event_id = NEW.event_id
       AND archived.content_hash = NEW.content_hash
+  )
+  OR NOT EXISTS (
+    SELECT 1 FROM principals principal
+    WHERE principal.principal_id = NEW.principal_id
+      AND principal.principal_type = 'human'
+      AND principal.status = 'active'
   )
   OR EXISTS (
     SELECT 1 FROM memory_active_event_suppressions suppression

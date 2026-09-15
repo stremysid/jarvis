@@ -37,6 +37,11 @@ export const LITERAL_HISTORY_EXHAUSTIVE_STEP_LIMITS = Object.freeze({
   textBytesExamined: MAX_JOB_TEXT_BYTES,
 });
 
+export const LITERAL_HISTORY_SEARCH_LIMITS = Object.freeze({
+  d1Statements: 62,
+  resultsExamined: MAX_SEARCH_RESULTS,
+});
+
 export type LiteralHistoryErrorCode =
   | "memory_history_corrupt"
   | "memory_history_not_found"
@@ -114,6 +119,7 @@ export interface ExhaustiveSearchJob {
   readonly jobId: Ulid;
   readonly principalId: string;
   readonly jobKey: string;
+  readonly attempt: number;
   readonly query: string;
   readonly snapshotEventSequence: number;
   readonly checkpointEventSequence: number;
@@ -164,6 +170,7 @@ interface JobRow {
   readonly job_id: unknown;
   readonly principal_id: unknown;
   readonly job_key: unknown;
+  readonly attempt: unknown;
   readonly query_text: unknown;
   readonly query_hash: unknown;
   readonly snapshot_event_sequence: unknown;
@@ -416,7 +423,7 @@ const SUPPRESSION_FIELDS = new Set([
 ]);
 const PROVENANCE_FIELDS = new Set(["segment_id", "suppressed"]);
 const JOB_FIELDS = new Set([
-  "job_id", "principal_id", "job_key", "query_text", "query_hash",
+  "job_id", "principal_id", "job_key", "attempt", "query_text", "query_hash",
   "snapshot_event_sequence", "checkpoint_event_sequence", "scanned_event_count",
   "matched_event_count", "status", "failure_code", "created_at", "updated_at",
   "completed_at",
@@ -469,7 +476,15 @@ export class LiteralHistoryService {
         });
       }
       const eventLimit = Math.min(maxEvents, Math.max(1, Math.floor(maxTextBytes / MAX_EVENT_TEXT_BYTES)));
-      const result = await this.indexSequences(principalId, cursor.sequence, eventLimit, maxTextBytes, false);
+      const result = await this.indexSequences(
+        principalId,
+        cursor.sequence,
+        eventLimit,
+        maxTextBytes,
+        false,
+        undefined,
+        cursor.updatedAt ?? undefined,
+      );
       return Object.freeze({
         ...result,
         refreshed: false,
@@ -550,19 +565,32 @@ export class LiteralHistoryService {
       searchTerms(query);
       const queryHash = await sha256Hex(query);
       const existing = await this.readJobByKey(principalId, jobKey);
+      let attempt = 1;
       if (existing !== null) {
-        if (existing.jobId !== jobId || existing.query !== query) refuse();
-        return existing;
+        if (existing.query !== query) refuse();
+        if (existing.jobId === jobId) return existing;
+        if (existing.status === "pending" || existing.status === "running") refuse();
+        attempt = existing.attempt + 1;
       }
       const snapshot = await this.options.events.latestSequence();
       if (!Number.isSafeInteger(snapshot) || snapshot < 0) corrupt();
       const timestamp = nowTimestamp(this.options.now);
       await this.options.database.prepare(`INSERT INTO memory_literal_search_jobs (
-        job_id, principal_id, job_key, query_text, query_hash, snapshot_event_sequence,
+        job_id, principal_id, job_key, attempt, query_text, query_hash, snapshot_event_sequence,
         checkpoint_event_sequence, scanned_event_count, matched_event_count, status,
         failure_code, created_at, updated_at, completed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, 'pending', NULL, ?, ?, NULL)`)
-        .bind(jobId, principalId, jobKey, query, queryHash, snapshot, timestamp, timestamp).run();
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 'pending', NULL, ?, ?, NULL)`)
+        .bind(
+          jobId,
+          principalId,
+          jobKey,
+          attempt,
+          query,
+          queryHash,
+          snapshot,
+          timestamp,
+          timestamp,
+        ).run();
       return this.requireJob(principalId, jobId);
     });
   }
@@ -598,93 +626,105 @@ export class LiteralHistoryService {
         job = await this.requireJob(principalId, jobId);
         budget.d1Statements += 1;
       }
-      if (job.checkpointEventSequence === job.snapshotEventSequence) {
-        const timestamp = nowTimestamp(this.options.now, job.updatedAt);
-        budget.d1Statements += 1;
-        await this.options.database.prepare(`UPDATE memory_literal_search_jobs
-          SET status = 'succeeded', updated_at = ?, completed_at = ?
-          WHERE principal_id = ? AND job_id = ? AND status = 'running'`)
-          .bind(timestamp, timestamp, principalId, jobId).run();
-        return Object.freeze({
-          job: await this.requireJob(principalId, jobId),
-          budget: Object.freeze({ ...budget, d1Statements: budget.d1Statements + 1 }),
-        });
-      }
-
-      const readLimit = Math.min(
-        maxEvents,
-        Math.max(1, Math.floor(maxTextBytes / MAX_EVENT_TEXT_BYTES)),
-        job.snapshotEventSequence - job.checkpointEventSequence,
-      );
-      budget.d1Statements += TIERED_READ_D1_STATEMENT_CEILING;
-      const events = await this.options.events.readRange(job.checkpointEventSequence, readLimit);
-      if (events.length === 0) corrupt();
-      const lastSequence = events.at(-1)?.eventSequence;
-      if (lastSequence === undefined || lastSequence > job.snapshotEventSequence) corrupt();
-      const suppressions = await this.readSuppressions(
-        principalId,
-        events[0]!.eventSequence,
-        lastSequence,
-      );
-      budget.d1Statements += 1;
-      const terms = searchTerms(job.query);
-      const candidates: HistoryEvent[] = [];
-      for (let index = 0; index < events.length; index += 1) {
-        const raw = events[index]!;
-        if (raw.eventSequence !== job.checkpointEventSequence + index + 1) corrupt();
-        budget.eventsExamined += 1;
-        const event = await historyEvent(raw, principalId);
-        if (event === null) continue;
-        budget.textBytesExamined += event.textBytes;
-        if (budget.textBytesExamined > maxTextBytes) corrupt();
-        if (!this.isSuppressed(event, suppressions) && matchSpan(event.text, terms.folded) !== null) {
-          candidates.push(event);
+      try {
+        if (job.checkpointEventSequence === job.snapshotEventSequence) {
+          const timestamp = nowTimestamp(this.options.now, job.updatedAt);
+          budget.d1Statements += 1;
+          await this.options.database.prepare(`UPDATE memory_literal_search_jobs
+            SET status = 'succeeded', updated_at = ?, completed_at = ?
+            WHERE principal_id = ? AND job_id = ? AND status = 'running'`)
+            .bind(timestamp, timestamp, principalId, jobId).run();
+          return Object.freeze({
+            job: await this.requireJob(principalId, jobId),
+            budget: Object.freeze({ ...budget, d1Statements: budget.d1Statements + 1 }),
+          });
         }
-      }
-      const finalSuppressions = await this.readSuppressions(
-        principalId,
-        events[0]!.eventSequence,
-        lastSequence,
-      );
-      budget.d1Statements += 1;
-      const hits = candidates.filter((event) => !this.isSuppressed(event, finalSuppressions));
-      const timestamp = nowTimestamp(this.options.now, job.updatedAt);
-      const completed = lastSequence === job.snapshotEventSequence;
-      const statements: D1PreparedStatement[] = hits.map((event) => this.options.database.prepare(
-        `INSERT INTO memory_literal_search_hits (
-          principal_id, job_id, event_sequence, event_id, content_hash, found_at
-        ) VALUES (?, ?, ?, ?, ?, ?)`,
-      ).bind(
-        principalId,
-        jobId,
-        event.eventSequence,
-        event.eventId,
-        event.contentHash,
-        timestamp,
-      ));
-      statements.push(this.options.database.prepare(`UPDATE memory_literal_search_jobs
-        SET checkpoint_event_sequence = ?,
-          scanned_event_count = scanned_event_count + ?,
-          matched_event_count = matched_event_count + ?,
-          status = ?, updated_at = ?, completed_at = ?
-        WHERE principal_id = ? AND job_id = ? AND status = 'running'
-          AND checkpoint_event_sequence = ?`)
-        .bind(
+
+        const readLimit = Math.min(
+          maxEvents,
+          Math.max(1, Math.floor(maxTextBytes / MAX_EVENT_TEXT_BYTES)),
+          job.snapshotEventSequence - job.checkpointEventSequence,
+        );
+        budget.d1Statements += TIERED_READ_D1_STATEMENT_CEILING;
+        const events = await this.options.events.readRange(job.checkpointEventSequence, readLimit);
+        if (events.length === 0) corrupt();
+        const lastSequence = events.at(-1)?.eventSequence;
+        if (lastSequence === undefined || lastSequence > job.snapshotEventSequence) corrupt();
+        const suppressions = await this.readSuppressions(
+          principalId,
+          events[0]!.eventSequence,
           lastSequence,
-          events.length,
-          hits.length,
-          completed ? "succeeded" : "running",
-          timestamp,
-          completed ? timestamp : null,
+        );
+        budget.d1Statements += 1;
+        const terms = searchTerms(job.query);
+        const candidates: HistoryEvent[] = [];
+        for (let index = 0; index < events.length; index += 1) {
+          const raw = events[index]!;
+          if (raw.eventSequence !== job.checkpointEventSequence + index + 1) corrupt();
+          budget.eventsExamined += 1;
+          const event = await historyEvent(raw, principalId);
+          if (event === null) continue;
+          budget.textBytesExamined += event.textBytes;
+          if (budget.textBytesExamined > maxTextBytes) corrupt();
+          if (!this.isSuppressed(event, suppressions) && matchSpan(event.text, terms.folded) !== null) {
+            candidates.push(event);
+          }
+        }
+        const finalSuppressions = await this.readSuppressions(
+          principalId,
+          events[0]!.eventSequence,
+          lastSequence,
+        );
+        budget.d1Statements += 1;
+        const hits = candidates.filter((event) => !this.isSuppressed(event, finalSuppressions));
+        const timestamp = nowTimestamp(this.options.now, job.updatedAt);
+        const completed = lastSequence === job.snapshotEventSequence;
+        const statements: D1PreparedStatement[] = hits.map((event) => this.options.database.prepare(
+          `INSERT INTO memory_literal_search_hits (
+            principal_id, job_id, event_sequence, event_id, content_hash, found_at
+          ) VALUES (?, ?, ?, ?, ?, ?)`,
+        ).bind(
           principalId,
           jobId,
-          job.checkpointEventSequence,
+          event.eventSequence,
+          event.eventId,
+          event.contentHash,
+          timestamp,
         ));
-      budget.d1Statements += statements.length;
-      await this.options.database.batch(statements);
-      budget.d1Statements += 1;
-      job = await this.requireJob(principalId, jobId);
-      return Object.freeze({ job, budget: Object.freeze(budget) });
+        statements.push(this.options.database.prepare(`UPDATE memory_literal_search_jobs
+          SET checkpoint_event_sequence = ?,
+            scanned_event_count = scanned_event_count + ?,
+            matched_event_count = matched_event_count + ?,
+            status = ?, updated_at = ?, completed_at = ?
+          WHERE principal_id = ? AND job_id = ? AND status = 'running'
+            AND checkpoint_event_sequence = ?`)
+          .bind(
+            lastSequence,
+            events.length,
+            hits.length,
+            completed ? "succeeded" : "running",
+            timestamp,
+            completed ? timestamp : null,
+            principalId,
+            jobId,
+            job.checkpointEventSequence,
+          ));
+        budget.d1Statements += statements.length;
+        await this.options.database.batch(statements);
+        budget.d1Statements += 1;
+        job = await this.requireJob(principalId, jobId);
+        return Object.freeze({ job, budget: Object.freeze(budget) });
+      } catch (error) {
+        if (error instanceof LiteralHistoryError && error.code === "memory_history_corrupt") {
+          const timestamp = nowTimestamp(this.options.now, job.updatedAt);
+          await this.options.database.prepare(`UPDATE memory_literal_search_jobs
+            SET status = 'failed', failure_code = 'history_step_corrupt',
+              updated_at = ?, completed_at = ?
+            WHERE principal_id = ? AND job_id = ? AND status = 'running'`)
+            .bind(timestamp, timestamp, principalId, jobId).run();
+        }
+        throw error;
+      }
     });
   }
 
@@ -862,6 +902,7 @@ export class LiteralHistoryService {
     maxTextBytes: number,
     refresh: boolean,
     changedAt?: string,
+    updatedAtFloor?: string,
   ): Promise<Omit<HistoryIndexStepResult, "refreshed" | "complete">> {
     const before = await this.options.archive.readState();
     if (before.circuitState !== "closed") unavailable();
@@ -895,7 +936,7 @@ export class LiteralHistoryService {
     }
     if (endSequence === afterSequence) corrupt();
     const suppressions = await this.readSuppressions(principalId, firstSequence, endSequence);
-    const timestamp = nowTimestamp(this.options.now, changedAt);
+    const timestamp = nowTimestamp(this.options.now, changedAt ?? updatedAtFloor);
     const statements: D1PreparedStatement[] = [];
     let chunksWritten = 0;
     for (const event of decoded) {
@@ -1124,17 +1165,18 @@ export class LiteralHistoryService {
   }
 
   private async readJobByKey(principalId: string, jobKey: string): Promise<ExhaustiveSearchJob | null> {
-    const row = await this.options.database.prepare(`SELECT job_id, principal_id, job_key,
+    const row = await this.options.database.prepare(`SELECT job_id, principal_id, job_key, attempt,
         query_text, query_hash, snapshot_event_sequence, checkpoint_event_sequence,
         scanned_event_count, matched_event_count, status, failure_code,
         created_at, updated_at, completed_at
-      FROM memory_literal_search_jobs WHERE principal_id = ? AND job_key = ?`)
+      FROM memory_literal_search_jobs WHERE principal_id = ? AND job_key = ?
+      ORDER BY attempt DESC LIMIT 1`)
       .bind(principalId, jobKey).first<JobRow>();
     return row === null ? null : this.job(row, principalId);
   }
 
   private async requireJob(principalId: string, jobId: Ulid): Promise<ExhaustiveSearchJob> {
-    const row = await this.options.database.prepare(`SELECT job_id, principal_id, job_key,
+    const row = await this.options.database.prepare(`SELECT job_id, principal_id, job_key, attempt,
         query_text, query_hash, snapshot_event_sequence, checkpoint_event_sequence,
         scanned_event_count, matched_event_count, status, failure_code,
         created_at, updated_at, completed_at
@@ -1149,6 +1191,7 @@ export class LiteralHistoryService {
     const jobId = rowUlid(row.job_id);
     if (row.principal_id !== principalId) corrupt();
     const jobKey = rowText(row.job_key, 128);
+    const attempt = rowInteger(row.attempt, 1, Number.MAX_SAFE_INTEGER);
     const query = rowText(row.query_text, MAX_QUERY_BYTES);
     if (rowHash(row.query_hash) !== await sha256Hex(query)) corrupt();
     const snapshotEventSequence = rowInteger(row.snapshot_event_sequence, 0, Number.MAX_SAFE_INTEGER);
@@ -1177,6 +1220,7 @@ export class LiteralHistoryService {
       jobId,
       principalId,
       jobKey,
+      attempt,
       query,
       snapshotEventSequence,
       checkpointEventSequence,

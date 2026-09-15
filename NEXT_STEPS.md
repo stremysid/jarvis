@@ -72,7 +72,11 @@ with its channel-neutral owner-controls successor and no migration or channel
 wiring. Draft [PR #56](https://github.com/ksid1229-ops/jarvis/pull/56) builds
 the second slice: suppression-safe live/R2 literal coverage, exact provenance
 results and a bounded resumable exhaustive-search job. Migration `0025` is
-unapplied, and the later dependency order remains unchanged.
+unapplied, and the later dependency order remains unchanged. Although the
+service accepts `MAX_JOB_EVENTS = 16`, the 262,144-byte step budget and the
+32,768-byte per-event ceiling make eight events the real maximum per step.
+Runtime slices 3 and 4 must supply a durable driver for the potentially long
+walk; this slice intentionally has no scheduler or composition.
 
 ## R2 item 3: fact projection
 

@@ -1335,6 +1335,12 @@ export class MemoryRepository {
       if (replay !== null) return replay;
       const prepared = await this.prepareLiftItem(principalId, itemId);
       const item = prepared.item;
+      // Once every first-person source is archive-only, the owner's lift is
+      // the confirmation that lets the active transition retain that evidence.
+      const restoredBasis = item.version.origin === "authenticated_first_person"
+        && item.sources.every((source) => source.sourceLocation === "archived")
+        ? "confirmed"
+        : item.version.basis;
       if (item.version.versionId !== previousVersionId
         || prepared.restoredLifecycleState !== lifecycleState
         || item.sources.length !== sourceIds.length
@@ -1356,7 +1362,7 @@ export class MemoryRepository {
             item.version.versionNumber + 1,
             item.version.text,
             item.version.textHash,
-            item.version.basis,
+            restoredBasis,
             item.version.origin,
             item.version.uncertain ? 1 : 0,
             item.version.sensitivity,
@@ -1871,6 +1877,8 @@ export class MemoryRepository {
         extractor_version, extractor_model_id, created_at FROM memory_item_versions
         WHERE principal_id = ? AND (version_id = ? OR (item_id = ? AND version_number = 1))`)
         .bind(input.principalId, input.version.versionId, input.itemId).all<VersionRow>(),
+      // Replay compares the source location originally committed. Canonical reads
+      // separately derive its current live/archive location from the archive catalog.
       this.database.prepare(`SELECT source_id, principal_id, item_id, version_id, source_position,
         event_id, event_sequence, source_location, r2_segment_id,
         NULL AS current_r2_segment_id, excerpt, excerpt_hash,

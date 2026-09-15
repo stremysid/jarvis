@@ -34,6 +34,21 @@ integration work must resolve these limits before enabling the affected callers:
   transition because the current schema binds corrections to owner commands.
   Rules therefore cannot promote or reject it. Add a confirmation control or a
   rules-compatible restoration path before proposed-memory restore is exposed.
+
+## R2 literal history retains two append-only and reindexing tradeoffs
+
+- Forgetting a turn cannot delete a durable exhaustive-search hit receipt.
+  Result reads re-check active suppressions and return no forgotten text, but
+  the append-only receipt continues to record the event id and content hash that
+  matched the query. Removing that metadata would weaken the immutable job
+  audit and needs an explicit retention decision rather than a hidden delete.
+- `memory_history_chunks` remains deletable because suppression lifts and
+  live-to-archive handoff reindex an event by replacing its derived chunk. A
+  failed or unauthorized delete could therefore leave immutable coverage marked
+  `indexed` while the FTS row is absent. No caller other than the uncomposed
+  literal-history indexer writes this table today; closing the gap requires an
+  atomic replacement protocol or a separate durable current-chunk receipt.
+
 ## PR #46 notification delivery retains three bounded at-least-once limits
 
 The guest-grant notice outbox keeps a stable per-mutation idempotency key and

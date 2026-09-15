@@ -105,11 +105,15 @@ export function isIssuedRedaction(value: unknown): value is SuccessfulRedaction 
  * Removes secrets before minting an opaque, frozen token; failure values never
  * retain the original input.
  */
-export function sanitizeRedaction(text: string, fieldMarker?: RedactionMarker): RedactionResult {
+export function sanitizeRedaction(
+  text: string,
+  fieldMarker?: RedactionMarker,
+  structuralUlid = false,
+): RedactionResult {
   try {
     if (typeof text !== "string" || !text.isWellFormed()) return { ok: false, category: "ingest_redaction_failed" };
     if (fieldMarker !== undefined) return issueSanitizedRedaction(REPLACEMENT[fieldMarker], [fieldMarker]);
-    if (LOWERCASE_ULID.test(text)) return issueSanitizedRedaction(text, []);
+    if (structuralUlid && LOWERCASE_ULID.test(text)) return issueSanitizedRedaction(text, []);
     const markers: RedactionMarker[] = [];
     const mark = (marker: RedactionMarker) => {
       if (!markers.includes(marker)) markers.push(marker);
