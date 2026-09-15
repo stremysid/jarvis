@@ -150,6 +150,27 @@ describe("university application conversation model", () => {
     });
   });
 
+  it("refuses an application due date that is not supported by the current owner message", () => {
+    const text = "Add the Schulich scholarship for Queen's.";
+    expect(() => parseOwnerUniversityPlan({
+      engaged: true,
+      programUpdates: [],
+      applicationUpdates: [{
+        itemRef: "new-item-1",
+        programRef: PROGRAM,
+        kind: "scholarship",
+        label: "Schulich scholarship",
+        status: "not_started",
+        statusEvidence: text,
+        dueDate: {
+          date: "2027-01-15",
+          verification: { state: "unverified", sourceUrl: null, cycle: "2027" },
+          evidence: "The deadline is January 15, 2027.",
+        },
+      }],
+    }, text, new Redactor())).toThrow("university_application_model_date_invalid");
+  });
+
   it("refuses submitted-by-Sid unless the current owner message explicitly says Sid submitted it", () => {
     const text = "When is my Waterloo AIF submitted?";
     expect(() => parseOwnerUniversityPlan({
