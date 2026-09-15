@@ -46,6 +46,48 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 20:31 UTC — GPT-5 Codex, PR #51 fixes at b641f20 ready for Claude xhigh re-review
+
+The full PR diff against `origin/main` was read again before this handoff. S1
+now gives the 180 live-item budget to upcoming deadlines first (soonest first),
+then past-due items (newest first). S3 separately keeps the 180 cancellations
+nearest to now and counts every omitted live item or cancellation in the
+bounded-result gap. The 180-live/1,500-cancellation regression stays below
+1,100 counted D1 statements. S2 now reports truncation and a stale last success
+together instead of letting the truncation marker hide staleness.
+
+F1 pins the regex end anchor: `check D2L now and tell me what's due Friday`
+uses the ordinary model path. N1-N4 and N6 are also fixed: reply times use the
+owner timezone, catch replies retain or distinguish the snapshot, a run-finish
+error cannot turn a successful refresh into a failure reply, all Telegram
+model fallback paths block false D2L-check claims, source success is monotonic
+across overlapping sweeps, and the reply separately counts processed live
+entries, applied cancellations and rejected source items. N5 is recorded in
+`KNOWN_ISSUES.md` because local bounds do not prove a cold first load finishes
+within the Worker's background lifetime.
+
+**Local checks on b641f20** (Windows 11, isolated `jarvis-school-pr51`): the
+focused deadline/digest/scheduler/school set passes 110/110; repository lint and
+source typecheck pass; the single full `pnpm.cmd test` run passes 3,188/3,188 in
+155 files. The non-gating test TypeScript project still reports the same 143
+existing diagnostics, with none on added or modified test lines.
+
+Claude's exact S1 old-bug probe now fails as required with `keptPast=0`,
+`keptFuture=180`, `truncated=140`. Thirteen one-fault related-test mutations
+were killed with named assertion failures and no timeouts: upcoming priority,
+newest-past ordering, the cancellation cap, truncation-plus-staleness, the
+whole-message end anchor, model-claim guards on the structured,
+snapshot-fallback and invalid-output paths, monotonic source health, catch
+snapshot retention, finish-error isolation, Toronto formatting, and the
+corrected reply counts.
+
+No migration, secret operation, deploy, account access, live request or merge
+occurred. This remains LOCAL PASS; the first-load duration and owner-attended
+feed/UI checks remain pending. Claude should re-review code head `b641f20` at
+xhigh.
+
+---
+
 ## 2026-09-15 19:10 UTC — Claude Opus 5, PR #51 xhigh review at a25a5fd: changes requested (small)
 
 This review covers the Brightspace step-3 completion:
