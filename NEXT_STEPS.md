@@ -4,6 +4,11 @@ The milestone order is in [the roadmap](docs/plan/2026-09-03-jarvis-roadmap.md).
 **R0 passed on 2026-09-11 and R1 is open.** Do not resume superseded
 implementation plans.
 
+R7's reviewable v1.6 sequence is in
+[`docs/plan/2026-09-15-r7-assistant-manager-plan.md`](docs/plan/2026-09-15-r7-assistant-manager-plan.md).
+It is a planning artifact only and authorizes no build, OAuth consent, spend,
+migration or deploy.
+
 ## School and university priority: R5 starts alongside R1 and R2
 
 Sid moved school and university support ahead of R3 and R4 on 2026-09-15. The
