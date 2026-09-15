@@ -43,6 +43,14 @@ export interface DigestDecision {
   readonly urgency: "urgent" | "normal";
 }
 
+export interface DigestCatchupAction {
+  readonly actionId: string;
+  readonly course: string;
+  readonly text: string;
+  readonly sequenceRank: number;
+  readonly estimatedMinutes: number;
+}
+
 /**
  * A source that could not be read.
  *
@@ -57,6 +65,7 @@ export interface DigestGap {
 }
 
 export interface DigestInput {
+  readonly catchupActions: readonly DigestCatchupAction[];
   readonly deadlines: readonly DigestDeadline[];
   readonly projects: readonly DigestProject[];
   readonly decisions: readonly DigestDecision[];

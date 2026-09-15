@@ -15,23 +15,36 @@ quiz/flashcard coach, and the full university-application track. R5 deadline
 ingestion depends on the deployed R0 gateway, not on PC control; its
 evidence-based weak-spot memory integrates with R2 as that interface lands.
 
-First code slice after plan clearance: the live bot's conversational course
-intake and per-course recovery plan. Second: a minimal program tracker with
-current official requirements and dates labelled verified or unverified. Both
-use the existing live stack and proceed without waiting for R2 or a school
-connector. Classroom wiring and the Brightspace calendar feed follow as
-separate draft PRs; none authorizes OAuth consent, a secret operation,
-migration, deployment, school contact or live account access.
+The plan cleared in merged PR #41 and Classroom hourly ingestion merged in PR
+#43. The current first code slice adds the live bot's conversational course
+intake, one evidence-labelled card per course, a replanned daily recovery
+sequence, and today's actions in the morning digest. It uses the existing
+Telegram conversation stack and does not wait for R2 or a school connector.
+Its additive `0020_school_catchup.sql` remains an unapplied candidate until
+review and owner-controlled merge and migration steps. Next: a minimal program
+tracker with current official requirements and dates labelled verified or
+unverified. The Brightspace calendar feed remains a separate PR; none of these
+slices authorizes OAuth consent, a secret operation, migration, deployment,
+school contact or live account access.
 
-## R2 cloud-memory schema candidate
+## R2 cloud-memory runtime next
 
-PR #38 merged at `b8b47bd`. Draft
-[PR #39](https://github.com/ksid1229-ops/jarvis/pull/39) now carries the
-separate additive `0016_cloud_memory.sql` candidate from current `main`, plus
-its trigger-removal mutations, behavioral migration tests and #38's final
-shared-vector nits. It awaits Claude Opus 5 max review. Do not apply `0016`,
-deploy, or start provider/model evaluation from this branch. Sid owns merge,
-migration and deployment after the review clears it.
+[PR #39](https://github.com/ksid1229-ops/jarvis/pull/39) merged as `0d659bf`
+with additive migration `0016_cloud_memory.sql`.
+[PR #42](https://github.com/ksid1229-ops/jarvis/pull/42) merged as `f0bfbe9`
+with migration `0019_memory_ingress.sql`. Main owns migration names through
+`0019`; none of `0016` through `0019` has been applied by this work. The
+Sid-attended scratch remote-D1 proof remains mandatory before any production
+apply.
+
+The next buildable R2 slice is the channel-neutral canonical memory repository
+in
+[`docs/plan/2026-09-15-r2-memory-runtime-slices.md`](docs/plan/2026-09-15-r2-memory-runtime-slices.md).
+It uses `0016` and `0019`, claims no migration, and does not touch Telegram,
+voice, calls, providers, scheduled jobs or live systems. Archive-complete
+search, automatic distillation, plain-speech channel controls, meaning search,
+automatic restore drills and voice integration follow in the dependency order
+recorded there.
 
 ## R2 item 3: fact projection
 
@@ -231,37 +244,28 @@ not resolve `pwsh` from inherited PATH. Leave implementation deferred.
 
 ## R2 cloud-memory design
 
-PR #13 is merged. PR #16 at `27b232f` is complete from the reviewer's side;
-the subsequent owner-run Windows results are listed in HANDOFF. No further
-implementation is requested on #16. The Linux home node is historical: it was
-a planning-session choice Sid never made. Do not port it, provision it or make
-R2/R3 depend on it.
+PR #13 and PR #16 are historical device-projection baselines; no further work
+is requested on them. The Linux home node is historical and R2 does not depend
+on it.
 
-Sid requires cloud memory that works with every PC off and delegated the
-design. The reviewer recorded the decision at `951675e`: D1 is authoritative
-for the event ledger, versioned memories, receipts and topic tree; FTS5 and
+Sid requires cloud memory that works with every PC off. D1 is authoritative for
+the event ledger, versioned memories, receipts and topic tree; FTS5 and
 Vectorize are rebuildable indexes, and full-history recall includes verified
-R2 archive segments. Obsidian is only a later optional one-way export and is
-not built in R2.
+R2 archive segments. Obsidian remains a later optional one-way export outside
+R2.
 
-[PR #35](https://github.com/ksid1229-ops/jarvis/pull/35) merged at `fb7c864`
-with the storage-independent extraction policy, topic-tree reducer and offline
-evaluator. [PR #36](https://github.com/ksid1229-ops/jarvis/pull/36) passed
-Claude review at `1be6191` and merged through `fcd55ef`, establishing the
-D1-authoritative design.
+PRs #35, #36 and #38 established the pure policy and approved design. PR #39
+merged the `0016` schema and PR #42 merged the `0019` ingress guard. No runtime
+writer, archive-complete indexer, automatic distillation Workflow or channel
+adapter exists yet. Sid uses ordinary speech and text for remember, why,
+forget and lift actions; slash commands are at most hidden fallbacks. After
+one reviewed scratch-target setup, restore drills run automatically and alert
+Sid only on failure.
 
-Draft [PR #38](https://github.com/ksid1229-ops/jarvis/pull/38) closes #35's
-F1–F4 follow-ups before any paid comparison: suite-scaled evaluator scoring,
-shared whole-sentence uncertainty vectors, one-sentence trusted quotes, expanded
-hedge handling and a case-only alias regression. Its design-only amendments
-also pin the three #36 schema nits: whole-turn forget counts, an append-only
-owner-authorized suppression lift, and suppression-aware recent-turn context.
-It contains no migration or schema SQL and awaits Claude Opus 5 xhigh review.
-
-Keep migration `0016` reserved but uncreated. After #38 passes review and Sid
-merges it, the next small PR defines `0016`; Sid alone applies it after another
-Claude max review. No live model comparison runs without Sid's explicit
-approval. R1 is cloud-side and does not depend on this work.
+Build the channel-neutral runtime foundation next, following
+[`docs/plan/2026-09-15-r2-memory-runtime-slices.md`](docs/plan/2026-09-15-r2-memory-runtime-slices.md).
+No live model comparison runs without Sid's explicit approval. R1 and R5 remain
+independent cloud-side work.
 
 ## Next gate
 
@@ -311,12 +315,13 @@ BUILDING.md; the cross-vendor gate and stop rules remain in force.
 
 These have code and tests but still need owner configuration or a later slice.
 
-- **Google Classroom ingestion.** The R5 code candidate wires
+- **Google Classroom ingestion.** Merged PR #43 wires
   `classroom-client.ts` and `deadline-ingestion.ts` into the hourly poll behind
   all three Google OAuth bindings. With no bindings it performs no Google call;
   partial or failed configuration becomes visible source health in the digest.
-  It is a draft PR, not deployed, and Sid's OAuth consent remains an owner-run
-  step in [`docs/runbooks/google-classroom-oauth.md`](docs/runbooks/google-classroom-oauth.md).
+  Live configuration and deployment acceptance are not established, and Sid's
+  OAuth consent remains an owner-run step in
+  [`docs/runbooks/google-classroom-oauth.md`](docs/runbooks/google-classroom-oauth.md).
 - **The Brightspace scrape.** Deliberately not built. It needs a real browser
   session and belongs in the local agent. `RawDeadlineItem` is the interface
   it feeds.

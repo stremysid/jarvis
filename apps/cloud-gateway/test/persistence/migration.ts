@@ -18,6 +18,7 @@ import cloudMemorySql from "../../src/persistence/migrations/0016_cloud_memory.s
 import ownerPassphraseSql from "../../src/persistence/migrations/0017_owner_passphrase.sql?raw";
 import ownerCallStepUpSql from "../../src/persistence/migrations/0018_owner_call_step_up.sql?raw";
 import memoryIngressSql from "../../src/persistence/migrations/0019_memory_ingress.sql?raw";
+import schoolCatchupSql from "../../src/persistence/migrations/0020_school_catchup.sql?raw";
 import voiceOwnerDeliverySql from "../../src/persistence/migrations/0021_voice_owner_delivery.sql?raw";
 
 let migrated: Promise<void> | undefined;
@@ -26,6 +27,7 @@ let cloudMemoryMigrated: Promise<void> | undefined;
 let ownerPassphraseMigrated: Promise<void> | undefined;
 let ownerCallStepUpMigrated: Promise<void> | undefined;
 let memoryIngressMigrated: Promise<void> | undefined;
+let schoolCatchupMigrated: Promise<void> | undefined;
 let voiceOwnerDeliveryMigrated: Promise<void> | undefined;
 
 /**
@@ -149,6 +151,15 @@ export async function applyVoiceOwnerDeliveryMigration(): Promise<void> {
     { name: "0021_voice_owner_delivery.sql", queries: splitMigration(voiceOwnerDeliverySql) },
   ]);
   await voiceOwnerDeliveryMigrated;
+}
+
+/** Applies the private school catch-up store to the isolated D1 test binding. */
+export async function applySchoolCatchupMigration(): Promise<void> {
+  await applyMemoryIngressMigration();
+  schoolCatchupMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0020_school_catchup.sql", queries: splitMigration(schoolCatchupSql) },
+  ]);
+  await schoolCatchupMigrated;
 }
 
 /** Test-only reset for immutable per-call step-up and guest-attempt records. */

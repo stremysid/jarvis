@@ -20,6 +20,7 @@ import { ProjectPoller } from "../projects/project-poller.js";
 import { ProjectRepository } from "../projects/project-repository.js";
 import { TelegramRestProvider } from "../providers/telegram-provider.js";
 import { ScheduledRunRepository } from "../scheduler/scheduled-run-repository.js";
+import { SchoolCatchupRepository } from "../school/school-catchup-repository.js";
 import type { JobOutcome, JobTable } from "../scheduler/scheduled-handler.js";
 import { D1GuestGrantNoticeSink } from "../voice/guest-grant-notice.js";
 import { runDigestJob, type DigestDelivery } from "./digest-job.js";
@@ -155,9 +156,12 @@ async function digest(
     repository: new DecisionRepository(context.env.DB),
     now: () => context.clock.now(),
   });
+  const school = new SchoolCatchupRepository(context.env.DB);
+  const timeZone = context.env.DIGEST_TIMEZONE ?? "America/Toronto";
 
   const result = await runDigestJob(kind, {
     sources: {
+      readCatchupActions: async (date) => school.listActionsForDate(principalId, date),
       readDeadlines: async (withinDays) =>
         deadlines.listDueWithin({
           from: context.clock.now(),
@@ -169,7 +173,7 @@ async function digest(
     },
     delivery: context.delivery,
     clock: context.clock,
-    timeZone: context.env.DIGEST_TIMEZONE ?? "America/Toronto",
+    timeZone,
   });
 
   return { ok: true, detail: result.gaps === 0 ? "sent" : `sent with ${result.gaps} gaps` };

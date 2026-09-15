@@ -1,11 +1,12 @@
 # R2 memory design
 
-**Status: D1-authoritative design approved; `0016` schema candidate under review.** The reviewer recorded the
+**Status: D1-authoritative design approved; `0016` and `0019` merged but not applied.** The reviewer recorded the
 storage decision in `docs/AGENT_LOG.md` at `951675e`: D1 is the authoritative
 memory ledger and topic tree; D1 FTS5 and Vectorize are rebuildable indexes;
 Obsidian is only a later optional one-way export. This document defines the
-table contract implemented by the additive `0016` candidate. The candidate is
-not authorization to apply it; that remains Sid's operation after review.
+table contract implemented by additive migration `0016` and the owner-command
+ingress boundary added by `0019`. Their presence on main is not authorization
+to apply them; that remains Sid's operation after the reviewed scratch proof.
 
 The research and fact-check in `docs/research/` remain the evidence base. This
 document carries Sid's later requirements where they supersede the original
@@ -72,7 +73,8 @@ with Workers AI `@cf/baai/bge-m3`. Both are disposable projections. Telegram
 and voice fetch the canonical D1 item or exact D1/R2 event after ranking, and
 discard any item hit whose current `memory_item_state` is ineligible. A raw
 history hit is checked against the current D1 forget/suppression policy before
-its exact event is returned, so an archived segment cannot bypass `/forget`.
+its exact event is returned, so an archived segment cannot bypass “forget
+that.”
 
 The optional Obsidian-shaped copy is deliberately outside this write path. It
 may later render D1 state to Markdown, but it is never read back into D1, search
@@ -192,13 +194,14 @@ FTS5 updates in the same D1 transaction as its content row. Vectorize updates
 are asynchronous: the reviewed planning bound is under 30 seconds at median and
 up to two minutes at p99. Therefore a fresh exact memory is available through
 FTS5 immediately, and every Vectorize result is filtered through
-`memory_item_state`; `/forget` never waits for vector deletion.
+`memory_item_state`; forgetting never waits for vector deletion.
 
 A rebuild walks active D1 item versions and summaries, then all live events and
 verified R2 segments for history chunks. It writes to an embedding-model-specific
 index, records each mutation in `memory_vectors`, verifies coverage, and swaps
 the configured index only after counts and sampled hashes pass. Embedding models
-are never mixed in one index.
+are never mixed in one index. Forgetting takes effect from canonical D1 state
+immediately and never waits for vector deletion.
 
 ## 4. Memory layers
 
@@ -383,8 +386,9 @@ the one-repository access step remains his operation after separate review.
 The extractor proposes atomic memories with exact source ids and excerpts.
 Deterministic code, never the model, assigns evidence class and authority:
 
-- `/remember <text>` and an exact first-person owner sentence are `stated`
-  only when the quote is word-bounded and equals the whole sentence;
+- an explicit owner request to remember exact text and an exact first-person
+  owner sentence are `stated` only when the quote is word-bounded and equals
+  the whole sentence;
 - an owner confirmation is `confirmed`;
 - repeated behavior may be `observed` but stays uncertain until the policy or
   owner promotes it;
@@ -422,17 +426,44 @@ uncertain. It may become active only through a newer, exact owner-confirmation
 command over the verified archived source. The raw archived turn remains
 searchable as history regardless of whether the distilled proposal is active.
 
-## 8. Owner controls and receipts
+## 8. Owner controls, ordinary language and receipts
 
-- **`/remember`** stores Sid's supplied text immediately without a model call,
-  after the normal redaction and bounds checks, and files it into the tree. The
-  item's creation receipt is the original accepted owner conversation turn;
-  the later dedicated `memory.owner_command` is separate authorization for the
-  exact transition. The command is never reused as the creation event.
-- **`/why <words>`** is deterministic. It shows matching memory state,
+Sid uses memory through ordinary authenticated speech or text. He can say
+“remember that …”, “why do you think that?”, “forget that” or “use that memory
+again”; he is never required to learn a command vocabulary. The examples are
+ordinary intent, not four magic strings. Text and call adapters use the same
+channel-neutral service. Slash spellings may remain as an undocumented
+diagnostic fallback, but they are absent from help, onboarding and acceptance
+steps.
+
+On a call, a memory-control phrase is eligible only after the owner step-up has
+passed. Before owner authority, it cannot create a command event, reveal a
+receipt or change memory.
+
+Only the authenticated owner's own current turn can supply control authority.
+For Telegram this is the current authenticated owner message; for calls it is
+the current owner utterance after step-up. Guest sessions can never trigger a
+memory control. Forwarded, quoted or pasted content, attachments, retrieved
+memory, and model or tool output remain untrusted data even when they contain
+control-like words. Adapters route intent from the first-party turn envelope,
+not from a combined prompt or retrieved context.
+
+A phrase must clearly refer to memory to be a control. Conversational wording
+such as “forget that” meaning “never mind” continues as conversation and emits
+no command event. Every applied control replies with a one-line plain receipt.
+It names what changed (or says that an explanation changed nothing), gives the
+ordinary phrase that reverses any change, and never repeats hidden text.
+
+- **Remember this** stores Sid's supplied text immediately without a model
+  call, after the normal redaction and bounds checks, and files it into the
+  tree. The item's creation receipt is the original accepted owner conversation
+  turn; the later dedicated `memory.owner_command` is separate authorization
+  for the exact transition. The authorization is never reused as the creation
+  event.
+- **Explain why** is deterministic. It shows matching memory state,
   uncertainty, topic path, source date/channel, verified excerpt and stable
   event id. A model never composes the receipt.
-- **`/forget`** hides by transition and event suppression; it is not erasure.
+- **Forget this** hides by transition and event suppression; it is not erasure.
   The owner-authorized batch appends the item's `forgotten` transition and one
   suppression record for every linked source excerpt (or a bounded sequence
   range for an explicit raw-history request). Suppression hides each complete
@@ -443,14 +474,15 @@ searchable as history regardless of whether the distilled proposal is active.
   topic walks, keyword results, meaning results and full-history answers,
   including results rebuilt from R2 archive segments. The raw event remains in
   the retained record, and Jarvis says so. An owner audit can show that a hidden
-  receipt exists without silently restoring or reusing its text.
-- **Suppression lift** corrects a mistaken hide without deleting its history.
+  receipt exists without silently restoring or reusing its text. If “that” or
+  a description could name more than one target, Jarvis asks a plain-language
+  follow-up and changes nothing until the target is exact.
+- **Use this again** corrects a mistaken hide without deleting its history.
   The authenticated owner action appends one lift per suppression and, for an
   item-level correction, a new lifecycle transition in the same batch. The
   original suppression and its reason remain auditable. Retrieval starts using
   the canonical lifted state immediately; FTS5/history-chunk and Vectorize
-  rebuilds are queued. The owner-facing command name is left to the reviewed
-  implementation PR rather than being invented by the schema.
+  rebuilds are queued.
 
 Every privileged memory mutation consumes a canonical `memory.owner_command`
 event from the dedicated `memory-control` source. Its payload names the exact
@@ -531,7 +563,7 @@ the configured warning headroom. It sends a durable owner warning before the
 credit is expected to run out; unavailable credit or provider refusal records a
 visible blocked outcome and backlog rather than failing quietly. Rejection,
 timeout and no-new-events runs are recorded distinctly. At the normal monthly
-cap, raw conversation retention, `/remember`, `/why`, `/forget` and
+cap, raw conversation retention, ordinary remember, why and forget controls and
 existing-memory recall continue; model distillation and summarization pause
 with an owner-visible backlog and reason.
 
@@ -597,14 +629,15 @@ existing sealed R2 conversation archive remains the backup for older raw
 events; the nightly set includes memory-ledger tables and recent live events
 not yet covered by a sealed archive segment.
 
-A monthly restore drill is an owner-run account operation using a pre-created,
-non-production scratch D1 database. Sid creates/configures that scratch target
-only after the restore procedure is separately reviewed; no scheduled Worker
-creates databases. The drill imports the latest verified set, replays state
-projections, rebuilds all FTS5 tables, rebuilds or dry-runs the Vectorize ledger,
-and compares counts, coverage and sampled source hashes with the manifest.
-Restoring production is a separate destructive owner operation with a Time
-Travel bookmark and rollback; no scheduled job performs it.
+Sid performs one reviewed setup of a pre-created, non-production scratch D1
+database; no scheduled Worker creates databases. After that one-time setup, a
+monthly Workflow runs the restore drill automatically. It imports the latest
+verified set, replays state projections, rebuilds all FTS5 tables, rebuilds or
+dry-runs the Vectorize ledger, and compares counts, coverage and sampled source
+hashes with the manifest. A successful drill records its receipt and stays
+quiet. Only a failed drill or required repair alerts Sid; there is no monthly
+owner chore. Restoring production is a separate destructive owner operation
+with a Time Travel bookmark and rollback; no scheduled job performs it.
 
 ## 11. Voice latency
 
@@ -634,10 +667,11 @@ This is owner-run live acceptance after reviewed migrations and deployment. It
 cannot be satisfied by local mocks, CI, a render, or a running PC agent.
 
 1. Sid turns off every PC and verifies Jarvis remains reachable from the phone.
-2. In a normal sentence, without `/remember`, he states a unique, low-salience
-   detail. After one distillation cycle, a paraphrased question retrieves it and
-   `/why` shows the exact receipt.
-3. He uses `/remember` for a second detail and retrieves it immediately.
+2. In a normal sentence, with no special syntax, he states a unique,
+   low-salience detail. After one distillation cycle, a paraphrased question
+   retrieves it, and “Why do you remember that?” shows the exact receipt.
+3. He says “Please remember that …” with a second detail and retrieves it
+   immediately.
 4. Jarvis files both into a nested test area. "What do you know about <area>?"
    walks the subtree and returns them with their evidence states.
 5. He asks for a known small detail whose source event is already in an R2
@@ -645,13 +679,14 @@ cannot be satisfied by local mocks, CI, a render, or a running PC agent.
    answer did not come only from recent D1 rows or distilled facts.
 6. A deliberately ambiguous statement is returned only as uncertain and is not
    treated as an instruction or permission.
-7. `/forget` hides one item from ordinary recall, meaning search, keyword
-   search, the immediate recent-turn window, its topic walk, and an exhaustive
-   rebuild/walk of the source event's R2 archive segment. The suppression
+7. He says “Forget that detail.” It hides one item from ordinary recall,
+   meaning search, keyword search, the immediate recent-turn window, its topic
+   walk, and an exhaustive rebuild/walk of the source event's R2 archive
+   segment. The suppression
    receipt links the forgotten item to the exact source excerpt, reports how
    many complete source turns were hidden, and accurately states that the
-   original event remains retained. A reviewed owner lift restores eligibility
-   while both suppression and lift remain auditable.
+   original event remains retained. He then says “Use that memory again.” The
+   item becomes eligible while both suppression and lift remain auditable.
 8. The acceptance receipt records that the cloud path completed while all PCs
    were off, which indexes were searched, their coverage watermarks, any
    fallback, and end-to-end latency.
