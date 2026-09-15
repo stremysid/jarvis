@@ -26,6 +26,7 @@ import { ProjectPoller } from "../projects/project-poller.js";
 import { ProjectRepository } from "../projects/project-repository.js";
 import { ScheduledRunRepository } from "../scheduler/scheduled-run-repository.js";
 import { SchoolCatchupRepository } from "../school/school-catchup-repository.js";
+import { StudyCoachRepository } from "../school/study-coach-repository.js";
 import type { JobOutcome, JobTable } from "../scheduler/scheduled-handler.js";
 import { runDigestJob, unconfiguredDeadlineSourceKinds, type DigestDelivery } from "./digest-job.js";
 
@@ -432,11 +433,17 @@ async function digest(
     now: () => context.clock.now(),
   });
   const school = new SchoolCatchupRepository(context.env.DB);
+  const study = new StudyCoachRepository(context.env.DB);
   const timeZone = context.env.DIGEST_TIMEZONE ?? "America/Toronto";
 
   const result = await runDigestJob(kind, {
     sources: {
       readCatchupActions: async (date) => school.listActionsForDate(principalId, date),
+      claimStudyCheckIn: async (date, weekday, minuteOfDay) => {
+        const now = context.clock.now();
+        await study.syncCourseContext(principalId, date, now);
+        return study.claimDigestCheckIn({ principalId, today: date, weekday, minuteOfDay, now });
+      },
       readDeadlines: async (withinDays) =>
         deadlines.listDueWithin({
           from: context.clock.now(),

@@ -26,6 +26,7 @@ import type { Deadline, DeadlineSource, DeadlineSourceKind } from "../deadlines/
 import { BRIGHTSPACE_WINDOW_ITEM_LIMIT } from "../deadlines/brightspace-ical-client.js";
 import type { DecisionItem } from "../decisions/decision-types.js";
 import type { SchoolCatchupAction } from "../school/school-catchup-types.js";
+import type { StudyCheckIn } from "../school/study-coach-types.js";
 import { assessStaleness, type ProjectStalenessReport } from "../projects/stalled-detector.js";
 import { documentAt, type ProjectStatus } from "../projects/project-types.js";
 
@@ -40,6 +41,7 @@ export interface DigestSources {
   readDeadlineSources(): Promise<readonly DeadlineSource[]>;
   readProjectStatuses(): Promise<readonly ProjectStatus[]>;
   readOpenDecisions(): Promise<readonly DecisionItem[]>;
+  claimStudyCheckIn?(localDate: string, weekday: number, minuteOfDay: number): Promise<StudyCheckIn | null>;
 }
 
 export interface DigestDelivery {
@@ -131,6 +133,39 @@ async function readOr<T>(
   }
 }
 
+async function readOneOr<T>(
+  source: string,
+  read: () => Promise<T | null>,
+  gaps: DigestGap[],
+): Promise<T | null> {
+  try {
+    return await read();
+  } catch (error) {
+    gaps.push({ source, detail: describe(error) });
+    return null;
+  }
+}
+
+function localSchedule(instant: Date, timeZone: string): { readonly weekday: number; readonly minuteOfDay: number } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(instant);
+  const value = (type: Intl.DateTimeFormatPartTypes): string | undefined =>
+    parts.find((part) => part.type === type)?.value;
+  const weekdays = new Map(["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day, index) => [day, index]));
+  const weekday = weekdays.get(value("weekday") ?? "");
+  const hour = Number(value("hour"));
+  const minute = Number(value("minute"));
+  if (weekday === undefined || !Number.isInteger(hour) || !Number.isInteger(minute)) {
+    throw new TypeError("study_check_in_local_time_invalid");
+  }
+  return { weekday, minuteOfDay: hour * 60 + minute };
+}
+
 /**
  * Why this project is being escalated, in one line.
  *
@@ -195,12 +230,18 @@ export async function assembleDigest(
   // first one fails. Short-circuiting would mean one broken source hides
   // whether the others are broken too.
   const today = localDate(observedAt, dependencies.timeZone);
-  const [catchupActions, deadlines, deadlineSources, projects, decisions] = await Promise.all([
+  const schedule = localSchedule(observedAt, dependencies.timeZone);
+  const [catchupActions, deadlines, deadlineSources, projects, decisions, studyCheckIn] = await Promise.all([
     readOr("School catch-up", () => dependencies.sources.readCatchupActions(today), gaps),
     readOr("Deadlines", () => dependencies.sources.readDeadlines(DEADLINE_HORIZON_DAYS), gaps),
     readOr("Deadline source health", () => dependencies.sources.readDeadlineSources(), gaps),
     readOr("Projects", () => dependencies.sources.readProjectStatuses(), gaps),
     readOr("Decision queue", () => dependencies.sources.readOpenDecisions(), gaps),
+    dependencies.sources.claimStudyCheckIn === undefined || kind !== "daily"
+      ? Promise.resolve(null)
+      : readOneOr("Study coach", () => dependencies.sources.claimStudyCheckIn!(
+        today, schedule.weekday, schedule.minuteOfDay,
+      ), gaps),
   ]);
 
   const unconfigured = new Set(dependencies.unconfiguredDeadlineSourceKinds ?? []);
@@ -258,6 +299,14 @@ export async function assembleDigest(
       urgency: item.urgency,
     })),
     gaps,
+    studyCheckIn: studyCheckIn === null ? null : {
+      course: studyCheckIn.courseName,
+      topic: studyCheckIn.topic,
+      outcome: studyCheckIn.outcome,
+      evidenceCount: studyCheckIn.evidenceCount,
+      confidence: studyCheckIn.confidence,
+      observedAt: studyCheckIn.observedAt,
+    },
   };
 
   return compose(input, { kind, timeZone: dependencies.timeZone }, observedClock);

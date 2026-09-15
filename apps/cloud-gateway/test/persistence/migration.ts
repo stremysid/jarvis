@@ -20,6 +20,7 @@ import ownerCallStepUpSql from "../../src/persistence/migrations/0018_owner_call
 import memoryIngressSql from "../../src/persistence/migrations/0019_memory_ingress.sql?raw";
 import schoolCatchupSql from "../../src/persistence/migrations/0020_school_catchup.sql?raw";
 import universityTrackerSql from "../../src/persistence/migrations/0022_university_tracker.sql?raw";
+import studyCoachSql from "../../src/persistence/migrations/0023_study_coach.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
@@ -29,6 +30,7 @@ let ownerCallStepUpMigrated: Promise<void> | undefined;
 let memoryIngressMigrated: Promise<void> | undefined;
 let schoolCatchupMigrated: Promise<void> | undefined;
 let universityTrackerMigrated: Promise<void> | undefined;
+let studyCoachMigrated: Promise<void> | undefined;
 
 /**
  * Split a migration into the statements D1 applies one at a time.
@@ -157,6 +159,15 @@ export async function applyUniversityTrackerMigration(): Promise<void> {
     { name: "0022_university_tracker.sql", queries: splitMigration(universityTrackerSql) },
   ]);
   await universityTrackerMigrated;
+}
+
+/** Applies the operational study-coach store after the school trackers. */
+export async function applyStudyCoachMigration(): Promise<void> {
+  await applyUniversityTrackerMigration();
+  studyCoachMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0023_study_coach.sql", queries: splitMigration(studyCoachSql) },
+  ]);
+  await studyCoachMigrated;
 }
 
 /** Test-only reset for immutable per-call step-up and guest-attempt records. */

@@ -478,6 +478,37 @@ describe("SchoolCatchupModelAdapter", () => {
     expect(reply).not.toContain("updated your school plan");
   });
 
+  it("does not release a false D2L check claim after the school update was rejected", async () => {
+    const model = new SequenceModel([JSON.stringify({
+      engaged: true,
+      reply: "I updated the plan.",
+      courseUpdates: [],
+      completeActionIds: [],
+      plan: [{
+        courseRef: COURSE,
+        localDate: "2026-09-15",
+        sequenceRank: 1,
+        text: "Review the lesson",
+        estimatedMinutes: 20,
+      }],
+    }), "I checked D2L just now and nothing changed."]);
+    const adapter = new SchoolCatchupModelAdapter({
+      model,
+      repository: {
+        readSnapshot: async () => snapshot(),
+        applyOwnerPlan: async () => { throw new Error("write rejected"); },
+      },
+      redactor: new Redactor(),
+      timeZone: "America/Toronto",
+      now: () => NOW,
+    });
+
+    const reply = await collect(adapter.stream(input()));
+    expect(reply).toBe(
+      "I haven't checked D2L. Say 'check D2L now' to run the bounded refresh.\n\nI couldn't update your school plan.",
+    );
+  });
+
   it("handles a plain-speech D2L refresh only on the owner's own Telegram turn", async () => {
     const ordinary = JSON.stringify({
       engaged: false,
@@ -572,6 +603,30 @@ describe("SchoolCatchupModelAdapter", () => {
       "I haven't checked D2L. Say 'check D2L now' to run the bounded refresh.",
     );
     expect(refreshBrightspace).not.toHaveBeenCalled();
+  });
+
+  it("does not rewrite discussion of pasted dates or an explicitly historical refresh", async () => {
+    const ordinary = (reply: string): string => JSON.stringify({
+      engaged: false,
+      reply,
+      courseUpdates: [],
+      completeActionIds: [],
+      plan: [],
+    });
+    const model = new SequenceModel([
+      ordinary("I looked at the Brightspace dates you pasted."),
+      ordinary("Jarvis refreshed Brightspace an hour ago."),
+    ]);
+    const adapter = new SchoolCatchupModelAdapter({
+      model,
+      repository: { readSnapshot: async () => snapshot(), applyOwnerPlan: async () => undefined },
+      redactor: new Redactor(),
+      timeZone: "America/Toronto",
+      now: () => NOW,
+    });
+
+    await expect(collect(adapter.stream(input()))).resolves.toBe("I looked at the Brightspace dates you pasted.");
+    await expect(collect(adapter.stream(input()))).resolves.toBe("Jarvis refreshed Brightspace an hour ago.");
   });
 
   it("replaces a false D2L check claim on the ordinary fallback path too", async () => {

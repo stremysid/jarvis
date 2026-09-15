@@ -195,6 +195,39 @@ describe("assembling from every source", () => {
     const digest = await assembleDigest("daily", deps());
     expect(digest.text).toContain("Nothing due, nothing changed, nothing waiting on you.");
   });
+
+  it("adds at most one short coursework check-in to the daily digest", async () => {
+    const claimStudyCheckIn = vi.fn(async () => ({
+      courseName: "Chemistry",
+      topic: "balancing equations",
+      outcome: "uncertain" as const,
+      evidenceCount: 1,
+      confidence: "low" as const,
+      observedAt: "2026-09-01T12:00:00.000Z",
+    }));
+    const digest = await assembleDigest("daily", deps({ sources: { claimStudyCheckIn } }));
+
+    expect(claimStudyCheckIn).toHaveBeenCalledOnce();
+    expect(claimStudyCheckIn).toHaveBeenCalledWith("2026-09-02", 3, 450);
+    expect(digest.text.match(/Coursework check-in/gu)).toHaveLength(1);
+    expect(digest.text).toContain("Chemistry: how does “balancing equations” feel today?");
+    expect(digest.text).toContain("1 evidence point, low confidence; not a fixed judgment");
+  });
+
+  it("does not put the daily coursework check-in into the weekly retro", async () => {
+    const claimStudyCheckIn = vi.fn(async () => ({
+      courseName: "Chemistry",
+      topic: "balancing equations",
+      outcome: "wrong" as const,
+      evidenceCount: 2,
+      confidence: "medium" as const,
+      observedAt: NOW,
+    }));
+    const digest = await assembleDigest("retro", deps({ sources: { claimStudyCheckIn } }));
+
+    expect(claimStudyCheckIn).not.toHaveBeenCalled();
+    expect(digest.text).not.toContain("Coursework check-in");
+  });
 });
 
 describe("a source that will not answer", () => {
@@ -308,6 +341,16 @@ describe("a source that will not answer", () => {
     );
     expect(digest.text).toContain("Could not be read");
     expect(digest.text).toContain("Deadlines: D1 unavailable");
+  });
+
+  it("names a failed study-coach read while keeping the digest", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        claimStudyCheckIn: async () => { throw new Error("study records unavailable"); },
+      },
+    }));
+
+    expect(digest.text).toContain("Study coach: study records unavailable");
   });
 
   it("still reports the sources that did answer", async () => {

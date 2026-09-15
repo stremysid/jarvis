@@ -45,8 +45,8 @@ const PLAN_SAVE_COMPLETIONS = Object.freeze([
   /\b(?:saved|updated|recorded|stored|added)\b.{0,48}\b(?:to|in)\s+(?:your\s+)?(?:school|course|catch-?up|plan|university|program|tracker)\b/iu,
 ]);
 const BRIGHTSPACE_CHECK_COMPLETIONS = Object.freeze([
-  /\b(?:i|we|jarvis)\b.{0,32}\b(?:checked|refreshed|synced|looked\s+at)\b.{0,40}\b(?:d2l|brightspace)\b/iu,
-  /\b(?:d2l|brightspace)\b.{0,40}\b(?:has|is|was)\s+(?:already\s+|just\s+)?(?:checked|refreshed|synced)\b/iu,
+  /\b(?:i|we|jarvis)\s+(?:(?:have|has)\s+)?(?:(?:already|just)\s+)?(?:checked|refreshed|synced)\s+(?:(?:my|your|the)\s+)?(?:d2l|brightspace)\b(?!\s+(?:yesterday|earlier|last\b|(?:an?|one|\d+)\s+(?:minute|hour|day|week)s?\s+ago\b))/iu,
+  /\b(?:d2l|brightspace)\s+(?:has|is)\s+(?:(?:already|just)\s+)?(?:been\s+)?(?:checked|refreshed|synced)\b(?!\s+(?:yesterday|earlier|last\b|(?:an?|one|\d+)\s+(?:minute|hour|day|week)s?\s+ago\b))/iu,
 ]);
 const OWNER_ACKNOWLEDGEMENT = /^\s*(?:ok(?:ay)?|thanks?(?:\s+you)?|got\s+it|sounds\s+good|cool|alright|sure|👍)\s*[.!]?\s*$/iu;
 const BRIGHTSPACE_REFRESH_REQUEST = /^\s*(?:jarvis[,\s]+)?(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:check|refresh|update)\s+(?:my\s+)?(?:d2l|brightspace)(?:\s+(?:calendar|deadlines?|feed))?\s+(?:right\s+)?now(?:\s*,?\s*please)?[.!?]*\s*$/iu;
@@ -70,6 +70,7 @@ interface SchoolCatchupModelDependencies {
   readonly now?: () => Date;
   readonly ownerPrincipalId?: string;
   readonly refreshBrightspace?: (now: Date) => Promise<string>;
+  readonly ownerTurnAuthoritative?: boolean;
 }
 
 /** A narrow natural-language intent, deliberately separate from slash commands. */
@@ -436,7 +437,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
   }
 
   async *stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
-    if (input.channel !== "telegram") {
+    if (input.channel !== "telegram" || this.dependencies.ownerTurnAuthoritative === false) {
       yield* this.dependencies.model.stream(input);
       return;
     }
