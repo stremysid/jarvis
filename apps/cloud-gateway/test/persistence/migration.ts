@@ -16,13 +16,11 @@ import memoryProjectionSql from "../../src/persistence/migrations/0014_memory_pr
 import voiceRuntimeSql from "../../src/persistence/migrations/0015_voice_runtime.sql?raw";
 import cloudMemorySql from "../../src/persistence/migrations/0016_cloud_memory.sql?raw";
 import ownerPassphraseSql from "../../src/persistence/migrations/0017_owner_passphrase.sql?raw";
-import memoryOwnerCommandIngressSql from "../../src/persistence/migrations/0018_memory_owner_command_ingress.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
 let cloudMemoryMigrated: Promise<void> | undefined;
 let ownerPassphraseMigrated: Promise<void> | undefined;
-let memoryOwnerCommandIngressMigrated: Promise<void> | undefined;
 
 /**
  * Split a migration into the statements D1 applies one at a time.
@@ -114,19 +112,6 @@ export async function applyOwnerPassphraseMigration(): Promise<void> {
     { name: "0017_owner_passphrase.sql", queries: splitMigration(ownerPassphraseSql) },
   ]);
   await ownerPassphraseMigrated;
-}
-
-/** Applies the owner-command ingress allowlist after both current R1 and R2 schemas. */
-export async function applyMemoryOwnerCommandIngressMigration(): Promise<void> {
-  await applyCloudMemoryMigration();
-  await applyOwnerPassphraseMigration();
-  memoryOwnerCommandIngressMigrated ??= applyD1Migrations(env.DB, [
-    {
-      name: "0018_memory_owner_command_ingress.sql",
-      queries: splitMigration(memoryOwnerCommandIngressSql),
-    },
-  ]);
-  await memoryOwnerCommandIngressMigrated;
 }
 
 /** Test-only reset for append-only owner-passphrase history. */
