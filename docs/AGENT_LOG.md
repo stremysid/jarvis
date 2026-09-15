@@ -46,6 +46,109 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 03:02 UTC — Claude Opus 5, PR #40 max review at 6b63d08: changes requested
+
+This is a max review of the R1 owner call step-up: migration `0018` (9 tables,
+30 triggers), `owner-call-step-up.ts`, the call-session Durable Object, the
+inbound, outbound and callback paths, the durable guest PIN attempt counter,
+and the dormant Passed-A waiver. It was checked against the merged passphrase
+design and #37's merged `0017`. The branch is based on main `2619f02` and merges
+cleanly.
+
+**Local checks on 6b63d08** (Windows 11, `C:\Users\Sid\jarvis-pr40`): Typecheck, voice typecheck and lint pass. The first full workspace and voice-gate runs overlapped other reviews and showed load timeouts. The 4 affected files then passed 70 of 70 when run alone. On an otherwise idle machine, the full voice gate passed 806 of 811: 4 tests hit the default 5 s timeout, plus one cascade failure (see S2).
+
+**Migration rules.** `0018` has 0 `SELECT CASE … RAISE` and 0 recursive CTEs.
+The authority trigger uses `WHEN … SELECT RAISE` only.
+
+**Trigger coverage** (`mut40-triggers-q1..q4.json`). Each of the 30 trigger
+blocks was removed cleanly, then `owner-call-step-up-migration.test.ts`,
+`call-session-do.test.ts`, `voice-owner-call-step-up.test.ts` and
+`voice-owner-passphrase-security.test.ts` were run. A kill counts only when a
+test actually fails, and unnamed kills were checked by hand against timeouts.
+**Incomplete at the reviewer handoff.** `mut40b-triggers-q1/q2.json` removes 30 trigger blocks and runs only `owner-call-step-up-migration.test.ts` and `call-session-do.test.ts`, because the fake voice files time out under load. The next reviewer reruns both chunks on the fix head and classifies kills with `killcheck.mjs`, hand-checking the unnamed ones. Codex evidence: 48 `WHEN 0` guard mutations.
+
+**Adversarial pass** (Opus agent, `reviewer-tools/pr40-adversarial.md`; the
+reviewer verified every blocker against the code): No caller-level authority bypass was found with the waiver off, which is the
+shipped default. The reviewer read the cited code for every blocker below.
+
+**B1 (F1–F3). `INSERT OR REPLACE` bypasses the 0018 guards, and the binding
+case mints owner authority.**
+- `owner_call_step_up_bindings_insert_guard` (104–141) validates only the new
+  row's shape. It never rejects an existing key.
+- REPLACE deletes the existing binding without firing
+  `owner_call_step_up_bindings_delete_forbidden`, because `recursive_triggers`
+  is 0. The #39 probes proved that on this runtime.
+- So `INSERT OR REPLACE INTO owner_call_step_up_bindings` can turn an inbound
+  owner session's `required` binding into
+  `waived_passed_a / passed_a / waive_on_passed_a`. The shape guard accepts that
+  for an inbound owner session.
+- The authority trigger's waiver branch (495–498) checks only those binding
+  fields, not the waiver setting, so owner authority is inserted with no phrase.
+- The same pattern lets the 60 s window be re-inserted with a later deadline
+  (`owner_call_step_up_windows`, 155–175), and the one-time repeat check be
+  reset (`owner_call_step_up_repeat_checks`, 410–429).
+
+Fix:
+- Add an existing-key (and existing-rowid) rejection to every 0018 insert guard,
+  or declare the tables `WITHOUT ROWID` plus key guards.
+- Make `bind()`, `begin()` and `expire()` read-then-insert, so Twilio webhook
+  retries stay idempotent.
+- Add a REPLACE sweep test over every 0018 table.
+
+The #39 findings are the same class. Fix both with one shared pattern.
+
+**B2 (F5). A D1 hiccup at the deadline leaves a silent call open forever.**
+`CallSessionDO.alarm()` deletes `OWNER_STEP_UP_ALARM_KEY` (`call-session-do.ts`
+1634) before `handleOwnerStepUpAlarm` runs. If handling throws, Durable Objects
+retry the alarm, but the retry sees no stored alarm and just clears it. The
+60-second window therefore never ends that call. Two such spoofed calls hold
+both owner slots and block Sid's own inbound calls. Fix: delete the key only
+after handling succeeds, and make handling idempotent. Add a test where the
+first alarm attempt throws.
+
+**B3 (F4). The dormant waiver ignores a disabled or unconfigured verifier.**
+The waiver branch (`0018` 495–498, `call-session-do.ts` 919–931, and the
+`voice-access-repository.ts` waiver path) never checks the passphrase head. With
+the waiver on, `/disable-owner-step-up` would not stop waived calls. It is off
+today, but the fix belongs in `0018` before it is applied: require the head to
+be `active`, with a current verifier, in the waiver branch.
+
+**S1 (F8, suspected). Split-final repeat suppression.** If speech-to-text
+splits a repeated phrase into fragments after "Verified.", the fragment check
+(`owner-call-step-up.ts` 249–251) misses it. The words then reach model input
+and the transcript, which the design forbids. Either assemble fragments inside
+the post-success guard window before the repeat check, or record the design
+limit and add a test.
+
+**S2. The voice gate is timing-sensitive at the default 5 s.**
+- On an otherwise idle machine, the full `pnpm test:voice-access` run here
+  passed 806 of 811. There were 4 × "Test timed out in 5000ms" (the KAT, step-up
+  success receipt, guest hibernation limit and inbound 5xx cleanup tests), plus
+  one cascade assertion in the guest-log test.
+- The same 4 files passed 70 of 70 when run alone.
+- 600,000-round PBKDF2 tests under the gate's own file parallelism sit right at
+  the limit. `pnpm release:voice-gate` must be reliable, so set explicit
+  timeouts on the KDF-heavy tests, or lower the gate's concurrency.
+
+**Lows (see the report).**
+- Eviction doesn't restore the deadline, so stray alarms consume re-prompts and
+  can refuse a correct phrase in that call.
+- A mid-verify final starts a new fragment.
+- An attempt's `resolved_at` is stamped before the KDF, so a late success can
+  land after the window.
+- A verifier crash ends the call without the refusal line, `<Hangup/>` or
+  alert.
+- The outbound slot reservation only holds when both inbound calls are exactly
+  `pre_auth`.
+
+**Next.** Fix B1–B3, S1 and S2, then request re-review. B1 is the same REPLACE class as #39 S1, so one shared guard pattern plus a REPLACE sweep test is the right shape. The re-review will rerun the trigger removals and add a probe that an `INSERT OR REPLACE` switching a binding to `waived_passed_a` fails, plus a test where the first alarm attempt throws.
+
+Sid retains merge authority. Merging makes migration `0018` available but does
+not apply it. Inbound calling stays closed until rollout and one attended
+spoken verification. Nothing is applied or deployed.
+
+---
+
 ## 2026-09-15 02:40 UTC — GPT-6 Codex, PR #40 owner call step-up ready for Claude max review
 
 Draft PR #40 now implements migration `0018` and the merged owner-call
