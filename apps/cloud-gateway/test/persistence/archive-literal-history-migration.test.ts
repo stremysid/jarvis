@@ -7,6 +7,7 @@ const LATER = "2026-09-15T22:01:00.000Z";
 const PRINCIPAL_ID = "principal:literal-history-migration";
 const JOB_ID = "01k5fsvag00000000000000001";
 const OTHER_JOB_ID = "01k5fsvag00000000000000002";
+const FORGED_JOB_ID = "01k5fsvag00000000000000005";
 const EVENT_ID = "01k5fsvag00000000000000003";
 const QUERY_HASH = "1".repeat(64);
 const CONTENT_HASH = "2".repeat(64);
@@ -103,6 +104,21 @@ describe("0025 archive literal-history migration", () => {
       .rejects.toThrow(/memory_literal_search_job_transition_invalid/u);
   });
 
+  it("memory_literal_search_jobs_update_guard rejects completion without scanning the snapshot", async () => {
+    await insertJob(FORGED_JOB_ID, "forged-completion").run();
+    await env.DB.prepare(`UPDATE memory_literal_search_jobs
+      SET status = 'running', updated_at = ?1
+      WHERE principal_id = ?2 AND job_id = ?3`)
+      .bind(LATER, PRINCIPAL_ID, FORGED_JOB_ID).run();
+
+    await expect(env.DB.prepare(`UPDATE memory_literal_search_jobs
+      SET status = 'succeeded', checkpoint_event_sequence = 1,
+        completed_at = ?1, updated_at = ?1
+      WHERE principal_id = ?2 AND job_id = ?3`)
+      .bind("2026-09-15T22:01:30.000Z", PRINCIPAL_ID, FORGED_JOB_ID).run())
+      .rejects.toThrow(/memory_literal_search_job_transition_invalid/u);
+  });
+
   it("memory_literal_search_jobs_delete_forbidden rejects durable job deletion", async () => {
     await expect(env.DB.prepare(`DELETE FROM memory_literal_search_jobs
       WHERE principal_id = ?1 AND job_id = ?2`).bind(PRINCIPAL_ID, JOB_ID).run())
@@ -154,6 +170,6 @@ describe("0025 archive literal-history migration", () => {
       (SELECT count(*) FROM memory_literal_search_jobs WHERE principal_id = ?1) AS jobs,
       (SELECT count(*) FROM memory_literal_search_hits WHERE principal_id = ?1) AS hits`)
       .bind(PRINCIPAL_ID).first<{ jobs: number; hits: number }>();
-    expect(counts).toEqual({ jobs: 2, hits: 1 });
+    expect(counts).toEqual({ jobs: 3, hits: 1 });
   });
 });

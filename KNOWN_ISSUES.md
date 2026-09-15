@@ -1,6 +1,6 @@
 # Known issues
 
-## Owner memory controls have seven deferred integration limits
+## Owner memory controls have six deferred integration limits
 
 PR #50 keeps the channel-neutral owner-control boundary closed, but later
 integration work must resolve these limits before enabling the affected callers:
@@ -34,12 +34,6 @@ integration work must resolve these limits before enabling the affected callers:
   transition because the current schema binds corrections to owner commands.
   Rules therefore cannot promote or reject it. Add a confirmation control or a
   rules-compatible restoration path before proposed-memory restore is exposed.
-- **Archive-history handoff:** archive purge deletes delivered `events`, while
-  immutable memory sources remain marked `live`. Their creation and source
-  receipt checks then map the missing event to `memory_corrupt`, so explain,
-  forget and lift cannot operate on an old memory. The archive-history slice
-  must preserve a verifiable live-to-archive source reference before purging.
-
 ## PR #46 notification delivery retains three bounded at-least-once limits
 
 The guest-grant notice outbox keeps a stable per-mutation idempotency key and

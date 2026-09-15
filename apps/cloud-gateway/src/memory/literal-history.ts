@@ -204,6 +204,11 @@ interface SearchTerms {
   readonly folded: ReadonlySet<string>;
 }
 
+interface MatchSpan {
+  readonly start: number;
+  readonly end: number;
+}
+
 interface StepBudget {
   d1Statements: number;
   eventsExamined: number;
@@ -331,31 +336,34 @@ function searchTerms(query: string): SearchTerms {
   return Object.freeze({ ftsQuery: quoted.join(" OR "), folded });
 }
 
-function matchOffset(text: string, terms: ReadonlySet<string>): number | null {
+function matchSpan(text: string, terms: ReadonlySet<string>): MatchSpan | null {
   for (const match of text.matchAll(/[\p{L}\p{N}]+/gu)) {
-    if (terms.has(foldTerm(match[0]))) return match.index;
+    if (terms.has(foldTerm(match[0]))) {
+      return Object.freeze({ start: match.index, end: match.index + match[0].length });
+    }
   }
   return null;
 }
 
-function exactExcerpt(text: string, offset: number): string {
+function exactExcerpt(text: string, span: MatchSpan): string {
   if (encoder.encode(text).byteLength <= MAX_EXCERPT_BYTES) return text;
-  let start = Math.max(0, offset - 384);
-  let end = Math.min(text.length, offset + 640);
+  let start = Math.max(0, span.start - 384);
+  let end = Math.min(text.length, span.end + 640);
   if (start > 0 && /[\uDC00-\uDFFF]/u.test(text[start]!)) start -= 1;
   if (end < text.length && /[\uDC00-\uDFFF]/u.test(text[end]!)) end -= 1;
   let excerpt = text.slice(start, end);
-  while (encoder.encode(excerpt).byteLength > MAX_EXCERPT_BYTES && end > offset) {
+  while (encoder.encode(excerpt).byteLength > MAX_EXCERPT_BYTES && end > span.end) {
     end -= 1;
-    if (/[\uDC00-\uDFFF]/u.test(text[end]!)) end -= 1;
+    if (end > span.end && /[\uDC00-\uDFFF]/u.test(text[end]!)) end -= 1;
     excerpt = text.slice(start, end);
   }
-  while (encoder.encode(excerpt).byteLength > MAX_EXCERPT_BYTES && start < offset) {
-    start += 1;
-    if (/[\uDC00-\uDFFF]/u.test(text[start]!)) start += 1;
+  while (encoder.encode(excerpt).byteLength > MAX_EXCERPT_BYTES && start < span.start) {
+    start += (text.codePointAt(start) ?? 0) > 0xFFFF ? 2 : 1;
     excerpt = text.slice(start, end);
   }
-  if (excerpt.length === 0 || !excerpt.isWellFormed()) corrupt();
+  if (encoder.encode(excerpt).byteLength > MAX_EXCERPT_BYTES
+    || start > span.start || end < span.end
+    || excerpt.length === 0 || !excerpt.isWellFormed()) corrupt();
   return excerpt;
 }
 
@@ -449,6 +457,7 @@ export class LiteralHistoryService {
       const cursor = await this.readCursor(principalId);
       const latest = await this.options.events.latestSequence();
       if (!Number.isSafeInteger(latest) || latest < 0) corrupt();
+      if (cursor.sequence > latest) corrupt();
       if (cursor.sequence >= latest) {
         return Object.freeze({
           startEventSequence: null,
@@ -496,11 +505,11 @@ export class LiteralHistoryService {
         const expectedTextHash = rowHash(row.content_hash);
         const event = await this.readHistoryEvent(principalId, sequence);
         if (event === null || await sha256Hex(event.text) !== expectedTextHash) corrupt();
-        const offset = matchOffset(event.text, terms.folded);
-        if (offset === null) corrupt();
+        const span = matchSpan(event.text, terms.folded);
+        if (span === null) corrupt();
         const provenance = await this.readProvenance(principalId, event);
         if (provenance === null) continue;
-        hits.push(await this.hit(event, provenance, offset));
+        hits.push(await this.hit(event, provenance, span));
       }
       const coverage = await this.coverageStatus(principalId);
       if (coverage.missingRange !== null) {
@@ -628,7 +637,7 @@ export class LiteralHistoryService {
         if (event === null) continue;
         budget.textBytesExamined += event.textBytes;
         if (budget.textBytesExamined > maxTextBytes) corrupt();
-        if (!this.isSuppressed(event, suppressions) && matchOffset(event.text, terms.folded) !== null) {
+        if (!this.isSuppressed(event, suppressions) && matchSpan(event.text, terms.folded) !== null) {
           candidates.push(event);
         }
       }
@@ -725,10 +734,10 @@ export class LiteralHistoryService {
         const contentHash = rowHash(row.content_hash);
         const event = await this.readHistoryEvent(principalId, eventSequence);
         if (event === null || event.eventId !== eventId || event.contentHash !== contentHash) corrupt();
-        const offset = matchOffset(event.text, terms.folded);
-        if (offset === null) corrupt();
+        const span = matchSpan(event.text, terms.folded);
+        if (span === null) corrupt();
         const provenance = await this.readProvenance(principalId, event);
-        if (provenance !== null) hits.push(await this.hit(event, provenance, offset));
+        if (provenance !== null) hits.push(await this.hit(event, provenance, span));
       }
       const newest = await this.options.events.latestSequence();
       if (!Number.isSafeInteger(newest) || newest < job.snapshotEventSequence) corrupt();
@@ -1027,6 +1036,7 @@ export class LiteralHistoryService {
     const latest = await this.options.events.latestSequence();
     if (!Number.isSafeInteger(latest) || latest < 0) corrupt();
     const cursor = await this.readCursor(principalId);
+    if (cursor.sequence > latest) corrupt();
     if (cursor.sequence < latest) {
       return {
         searchedThrough: cursor.sequence,
@@ -1088,9 +1098,9 @@ export class LiteralHistoryService {
   private async hit(
     event: HistoryEvent,
     provenance: SourceReceipt,
-    offset: number,
+    span: MatchSpan,
   ): Promise<LiteralHistoryHit> {
-    const excerpt = exactExcerpt(event.text, offset);
+    const excerpt = exactExcerpt(event.text, span);
     return Object.freeze({
       eventId: event.eventId,
       eventSequence: event.eventSequence,

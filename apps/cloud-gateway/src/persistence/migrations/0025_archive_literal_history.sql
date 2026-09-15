@@ -165,6 +165,10 @@ WHEN NEW.job_id <> OLD.job_id
   OR NEW.scanned_event_count < OLD.scanned_event_count
   OR NEW.matched_event_count < OLD.matched_event_count
   OR NEW.matched_event_count > NEW.scanned_event_count
+  OR NEW.scanned_event_count <> NEW.checkpoint_event_sequence
+  OR NEW.matched_event_count - OLD.matched_event_count
+    > NEW.scanned_event_count - OLD.scanned_event_count
+  OR (NEW.completed_at IS NOT NULL AND NEW.completed_at < NEW.updated_at)
   OR NOT (
     (OLD.status = 'pending' AND NEW.status = 'running')
     OR (OLD.status = 'running' AND NEW.status IN ('running', 'succeeded', 'failed'))

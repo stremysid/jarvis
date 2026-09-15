@@ -324,6 +324,36 @@ describe("LiteralHistoryService", () => {
       .resolves.toEqual({ status: "no_hit", hits: [], searchedThroughEventSequence: 2 });
   });
 
+  it("refuses a no-hit answer when the coverage cursor is ahead of tiered history", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    await env.DB.prepare(`INSERT INTO memory_cursors (
+      principal_id, cursor_name, current_event_sequence, updated_at
+    ) VALUES (?, 'fts_history', 1, ?)`)
+      .bind(OWNER_ID, time.now().toISOString()).run();
+    const literal = service(events, time);
+
+    await expect(literal.searchLiteral({ principalId: OWNER_ID, query: "absent" }))
+      .rejects.toEqual(new LiteralHistoryError("memory_history_corrupt"));
+    await expect(literal.indexNext({ principalId: OWNER_ID }))
+      .rejects.toEqual(new LiteralHistoryError("memory_history_corrupt"));
+  });
+
+  it("keeps the matched token inside a bounded multibyte excerpt", async () => {
+    const time = clock();
+    const events = new EventRepository(env.DB);
+    await appendConversation(events, time, `${"界".repeat(600)} quartz ${"界".repeat(600)}`);
+    const literal = service(events, time);
+    await literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 });
+
+    const result = await literal.searchLiteral({ principalId: OWNER_ID, query: "quartz" });
+
+    expect(result.status).toBe("hits");
+    if (result.status !== "hits") throw new Error("literal_history_expected_multibyte_hit");
+    expect(result.hits[0]?.excerpt).toContain("quartz");
+    expect(new TextEncoder().encode(result.hits[0]?.excerpt).byteLength).toBeLessThanOrEqual(1_024);
+  });
+
   it("keeps an active suppression out of chunks, FTS, and results, then reindexes it after a lift", async () => {
     const time = clock();
     const events = new EventRepository(env.DB);
@@ -456,6 +486,51 @@ describe("LiteralHistoryService", () => {
           sourceLocation: "archived",
           r2SegmentId: manifest.compressedSha256,
           excerpt: "The archived zircon receipt is exact.",
+        }],
+      });
+  });
+
+  it("advances complete literal coverage across every verified R2 segment", async () => {
+    const time = clock();
+    const live = new EventRepository(env.DB);
+    const first = await appendConversation(live, time, "The first archived meteor receipt.");
+    const firstArchive = await archiveEvent(live, first);
+    const second = await appendConversation(live, time, "The second archived opal receipt.");
+    const secondArchive = await archiveEvent(live, second);
+    expect(secondArchive.manifest.compressedSha256).not.toBe(firstArchive.manifest.compressedSha256);
+    const tiered = new TieredEventReader({
+      live,
+      archive: secondArchive.archive,
+      state: new ArchiveRepository(env.DB),
+    });
+    const literal = service(tiered, time);
+
+    await expect(literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 }))
+      .resolves.toMatchObject({ endEventSequence: first.eventSequence, complete: false });
+    await expect(literal.searchLiteral({ principalId: OWNER_ID, query: "opal" }))
+      .resolves.toMatchObject({
+        status: "incomplete",
+        missingRange: {
+          startEventSequence: second.eventSequence,
+          endEventSequence: second.eventSequence,
+        },
+      });
+    await expect(literal.indexNext({ principalId: OWNER_ID, maxEvents: 16, maxTextBytes: 262_144 }))
+      .resolves.toMatchObject({ endEventSequence: second.eventSequence, complete: true });
+    await expect(literal.searchLiteral({ principalId: OWNER_ID, query: "meteor" }))
+      .resolves.toMatchObject({
+        status: "hits",
+        hits: [{
+          eventId: first.envelope.eventId,
+          r2SegmentId: firstArchive.manifest.compressedSha256,
+        }],
+      });
+    await expect(literal.searchLiteral({ principalId: OWNER_ID, query: "opal" }))
+      .resolves.toMatchObject({
+        status: "hits",
+        hits: [{
+          eventId: second.envelope.eventId,
+          r2SegmentId: secondArchive.manifest.compressedSha256,
         }],
       });
   });
