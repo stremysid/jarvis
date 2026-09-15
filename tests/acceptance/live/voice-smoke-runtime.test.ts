@@ -73,15 +73,16 @@ const ownerStepUpRefusedEvidence = Object.freeze({
   ownerStepUpOutcome: "refused",
   ownerStepUpPromptCount: 3,
   ownerStepUpAttemptCount: 3,
+  ownerStepUpRepromptCount: 0,
+  ownerStepUpRejectionReason: "attempts_exhausted",
   callerIdAttestation: "other",
-  ownerCallerIdPolicy: "waive_on_passed_a",
+  ownerCallerIdPolicy: "passphrase_always",
   ownerAuthorityGranted: false,
   modelRequests: 0,
   personalContextReads: 0,
-  fixedRefusalSentToProvider: true,
-  cleanEndFrameSent: true,
   rejectionRowCount: 1,
-  ownerAlertCount: 1,
+  rejectionDeliveryRowCount: 1,
+  ownerAlertDisposition: "sent",
 });
 
 const completePreflight = Object.freeze({

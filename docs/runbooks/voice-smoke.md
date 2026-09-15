@@ -326,30 +326,39 @@ timestamps. Unknown keys are rejected, including phone numbers, provider SIDs,
 transcript/PIN fields, authorization data, tokens, raw errors, URLs, headers,
 and provider bodies.
 
-Every owner-path record names `ownerStepUpOutcome` as `verified`, `refused`, or
-`waived_passed_a`, plus its prompt/attempt counts, the aggregate caller-ID
-attestation (`passed_a`, `other`, or `absent`), the configured caller-ID policy,
-and whether owner authority was granted. `verified` uses
+Every owner-path record names `ownerStepUpOutcome` as `verified`, `refused`,
+`waived_passed_a`, or `not_started`, plus its prompt/attempt counts, the
+aggregate caller-ID attestation (`passed_a`, `other`, `absent`, or
+`not_applicable`), the caller-ID policy, and whether owner authority was
+granted. `verified` uses
 `authenticationMode: "owner_passphrase"`. `waived_passed_a` is valid only for
 an inbound exact `passed_a` observation while
 `ownerCallerIdPolicy: "waive_on_passed_a"` is on; it uses
 `authenticationMode: "owner_attested_waiver"` with zero phrase prompts and
-attempts. Outbound evidence can never use the waiver. Any record with owner
-authority also requires `ownerStepUpBeforeFirstModelTurn: true`. The validator
-rejects a refused or malformed step-up paired with owner authority, and rejects
-the retired `owner_identity_pin_free` schema.
+attempts. This per-record waiver shape is retained only for a future optional
+waiver record: it cannot replace the required inbound release record. The six-
+record release audit requires `ownerCallerIdPolicy: "passphrase_always"` on
+every owner path and a `verified` inbound record. Outbound evidence mirrors the
+durable binding with `passphrase_always` and `callerIdAttestation:
+"not_applicable"`; it can never use the waiver. Any record with owner authority
+also requires `ownerStepUpBeforeFirstModelTurn: true`. The validator rejects a
+refused or malformed step-up paired with owner authority, and rejects the
+retired `owner_identity_pin_free` schema.
 
 The inbound sample requires 20 authenticated turns, persistence and recall, a clean hangup, at least one interruption, p95 first-audible latency at or below 4,000 ms, and p95 interruption-stop latency at or below 1,500 ms. Inbound and answered-outbound evidence also pins Deepgram `nova-3-general`, Google `en-US-Journey-O`, the exact configured signed WSS representation, DTMF delivery, and callback-schema verification. Answered outbound must report a verified phrase even when the configured inbound caller-ID policy permits Passed-A waiver.
 
-The `outbound-no-answer` record reports `ownerStepUpOutcome: "refused"`, zero
-step-up prompts and attempts, no owner authority, and zero model or personal-
-context reads. The `owner-step-up-refused` record is an inbound owner-path call
-with three prompts and three complete wrong candidates. It requires the fixed
-refusal sent to the provider, a clean ConversationRelay end frame, exactly one
-durable rejection row and exactly one owner alert, with zero authenticated turns,
-model requests, personal-context
-reads or owner authority. A Passed-A call under an enabled waiver cannot satisfy
-this refusal scenario because that call would skip the phrase.
+The `outbound-no-answer` record reports `ownerStepUpOutcome: "not_started"`,
+zero step-up prompts and attempts, no owner authority, and zero model or
+personal-context reads. The `owner-step-up-refused` record is an inbound owner-
+path call with three complete wrong candidates, zero to two non-candidate
+re-prompts, `ownerStepUpPromptCount` equal to three plus that re-prompt count,
+and `ownerStepUpRejectionReason: "attempts_exhausted"`. It requires exactly one
+durable rejection row, exactly one rejection-delivery row, and
+`ownerAlertDisposition: "sent"`, with zero authenticated turns, model requests,
+personal-context reads or owner authority. Start this refusal scenario at least
+15 minutes after any earlier owner rejection so its alert cannot be coalesced.
+A Passed-A call under an enabled waiver cannot satisfy this refusal scenario
+because that call would skip the phrase.
 
 No provider playback acknowledgement has been proven. Evidence therefore accepts only `assistantOutputEvidence: "sent_to_provider_only"` with `assistantHistoryCommitted: false`; it must never claim delivery to the caller.
 
@@ -359,7 +368,7 @@ These fields validate Task 5 only. They do not assert route wiring, call-session
 
 ## Operator sequence and rollback boundary
 
-With Tasks 6–8 integrated, the release tooling must implement this operator sequence: run fake gates; run `jarvis doctor`; verify authenticated readiness; obtain explicit authorization for each paid scenario; run each scenario once; query only aggregate evidence as the enrolled operator; validate and atomically retain the six required redacted records; then run `pnpm release:voice-gate` before release-manifest aggregation.
+With Tasks 6–8 integrated, the release tooling must implement this operator sequence: run fake gates; run `jarvis doctor`; verify authenticated readiness; obtain explicit authorization for each paid scenario; run each scenario once; query only aggregate evidence as the enrolled operator; validate and atomically retain the six required redacted records; then run `pnpm release:voice-gate` before release-manifest aggregation. The current store has no retained failed-attempt ledger, so a failed paid scenario remains a stop-and-review event rather than permission to retry until one run passes.
 
 On any failure, stop the release, preserve the last known-good deployment identifier, and do not retry an indeterminate outbound dispatch. Task 10 owns deployment and rollback. Worker rollback must use an explicit schema-compatible known-good version and does not roll back D1, R2, or Durable Object state; migrations remain forward-only or require the separately proven encrypted restore procedure. This Task 9 harness never deploys or rolls back anything.
 

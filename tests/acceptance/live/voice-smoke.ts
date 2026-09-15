@@ -14,7 +14,7 @@ export const VOICE_SMOKE_SCENARIOS = [
 ] as const;
 
 export type VoiceSmokeScenario = typeof VOICE_SMOKE_SCENARIOS[number];
-export type OwnerStepUpOutcome = "verified" | "refused" | "waived_passed_a";
+export type OwnerStepUpOutcome = "verified" | "refused" | "waived_passed_a" | "not_started";
 
 export const LIVE_VOICE_SMOKE_CONFIRMATION = "I_AUTHORIZE_PAID_VOICE_SMOKE";
 
@@ -188,15 +188,16 @@ const OWNER_STEP_UP_REFUSED_FIELDS = [
   "ownerStepUpOutcome",
   "ownerStepUpPromptCount",
   "ownerStepUpAttemptCount",
+  "ownerStepUpRepromptCount",
+  "ownerStepUpRejectionReason",
   "callerIdAttestation",
   "ownerCallerIdPolicy",
   "ownerAuthorityGranted",
   "modelRequests",
   "personalContextReads",
-  "fixedRefusalSentToProvider",
-  "cleanEndFrameSent",
   "rejectionRowCount",
-  "ownerAlertCount",
+  "rejectionDeliveryRowCount",
+  "ownerAlertDisposition",
 ] as const;
 
 const FAILURE_FIELDS = [
@@ -327,13 +328,14 @@ function validateOwnerStepUp(
   const attestation = evidence.callerIdAttestation;
   const policy = evidence.ownerCallerIdPolicy;
   if (
-    outcome !== "verified" && outcome !== "refused" && outcome !== "waived_passed_a"
-    || attestation !== "passed_a" && attestation !== "other" && attestation !== "absent"
+    outcome !== "verified" && outcome !== "refused" && outcome !== "waived_passed_a" && outcome !== "not_started"
+    || attestation !== "passed_a" && attestation !== "other" && attestation !== "absent" && attestation !== "not_applicable"
     || policy !== "passphrase_always" && policy !== "waive_on_passed_a"
     || evidence.ownerAuthorityGranted !== claimsOwnerAuthority
     || !validInteger(evidence.ownerStepUpPromptCount, 0, 5)
     || !validInteger(evidence.ownerStepUpAttemptCount, 0, 3)
-    || direction === "outbound" && outcome !== "waived_passed_a" && attestation !== "absent"
+    || direction === "outbound" && attestation !== "not_applicable"
+    || direction === "inbound" && attestation === "not_applicable"
   ) unsafe();
 
   if (outcome === "waived_passed_a") {
@@ -346,9 +348,19 @@ function validateOwnerStepUp(
       || evidence.ownerStepUpPromptCount !== 0
       || evidence.ownerStepUpAttemptCount !== 0
     ) unsafe();
+  } else if (outcome === "not_started") {
+    if (
+      direction !== "outbound"
+      || claimsOwnerAuthority
+      || evidence.authenticationMode !== OWNER_PASSPHRASE_AUTHENTICATION_MODE
+      || policy !== "passphrase_always"
+      || evidence.ownerStepUpPromptCount !== 0
+      || evidence.ownerStepUpAttemptCount !== 0
+    ) unsafe();
   } else {
     if (
       evidence.authenticationMode !== OWNER_PASSPHRASE_AUTHENTICATION_MODE
+      || direction === "outbound" && policy !== "passphrase_always"
       || direction === "inbound" && attestation === "passed_a" && policy === "waive_on_passed_a"
     ) unsafe();
     if (outcome === "verified") {
@@ -356,6 +368,8 @@ function validateOwnerStepUp(
         !claimsOwnerAuthority
         || !validInteger(evidence.ownerStepUpPromptCount, 1, 5)
         || !validInteger(evidence.ownerStepUpAttemptCount, 1, 3)
+        || evidence.ownerStepUpAttemptCount > evidence.ownerStepUpPromptCount
+        || evidence.ownerStepUpPromptCount > evidence.ownerStepUpAttemptCount + 2
       ) unsafe();
     } else if (claimsOwnerAuthority) unsafe();
   }
@@ -463,6 +477,7 @@ function validateOutboundNoAnswer(value: unknown): void {
     || evidence.recipientAuthenticated !== false
     || evidence.purposeDisclosed !== false
     || evidence.privateMessageLeft !== false
+    || evidence.ownerStepUpOutcome !== "not_started"
     || evidence.ownerStepUpPromptCount !== 0
     || evidence.ownerStepUpAttemptCount !== 0
     || evidence.modelRequests !== 0
@@ -479,14 +494,16 @@ function validateOwnerStepUpRefused(value: unknown): void {
     evidence.terminalState !== "rejected"
     || evidence.authenticatedTurns !== 0
     || evidence.ownerStepUpOutcome !== "refused"
-    || evidence.ownerStepUpPromptCount !== 3
     || evidence.ownerStepUpAttemptCount !== 3
+    || !validInteger(evidence.ownerStepUpRepromptCount, 0, 2)
+    || evidence.ownerStepUpPromptCount !== 3 + evidence.ownerStepUpRepromptCount
+    || evidence.ownerStepUpRejectionReason !== "attempts_exhausted"
     || evidence.modelRequests !== 0
     || evidence.personalContextReads !== 0
-    || evidence.fixedRefusalSentToProvider !== true
-    || evidence.cleanEndFrameSent !== true
     || evidence.rejectionRowCount !== 1
-    || evidence.ownerAlertCount !== 1
+    || evidence.rejectionDeliveryRowCount !== 1
+    || evidence.ownerAlertDisposition !== "sent"
+    || Date.parse(evidence.endedAt as string) - Date.parse(evidence.startedAt as string) > 5 * 60_000
   ) unsafe();
   validateOwnerStepUp(evidence, "inbound", false);
 }
@@ -649,17 +666,43 @@ export async function runVoiceSmoke(
   });
 }
 
-export function auditVoiceEvidence(records: readonly unknown[]): true {
+export function auditVoiceEvidence(records: readonly unknown[], auditTime = new Date()): true {
   try {
     if (!Array.isArray(records) || records.length !== VOICE_SMOKE_SCENARIOS.length) throw new Error();
+    const auditTimeMs = auditTime.valueOf();
+    if (!Number.isFinite(auditTimeMs)) throw new Error();
     const scenarios = new Set<unknown>();
     const commitShas = new Set<unknown>();
+    const correlationIds = new Set<unknown>();
+    const eventIds = new Set<string>();
     for (const record of records) {
       validateEvidence(record);
-      scenarios.add(scenarioOf(record));
+      const scenario = scenarioOf(record);
+      scenarios.add(scenario);
       commitShas.add(dataField(record as object, "commitSha"));
+      const correlationId = dataField(record as object, "correlationId");
+      if (correlationIds.has(correlationId)) throw new Error();
+      correlationIds.add(correlationId);
+      const recordEventIds = dataField(record as object, "eventIds") as readonly string[];
+      for (const eventId of recordEventIds) {
+        if (eventIds.has(eventId)) throw new Error();
+        eventIds.add(eventId);
+      }
+      if (Date.parse(dataField(record as object, "startedAt") as string) > auditTimeMs) throw new Error();
+      if (
+        scenario === "inbound"
+        || scenario === "outbound-answer"
+        || scenario === "outbound-no-answer"
+        || scenario === "owner-step-up-refused"
+      ) {
+        if (dataField(record as object, "ownerCallerIdPolicy") !== "passphrase_always") throw new Error();
+        if (scenario === "inbound" && dataField(record as object, "ownerStepUpOutcome") !== "verified") throw new Error();
+      }
     }
     if (scenarios.size !== VOICE_SMOKE_SCENARIOS.length || commitShas.size !== 1) throw new Error();
+    for (const scenario of VOICE_SMOKE_SCENARIOS) {
+      if (!scenarios.has(scenario)) throw new Error();
+    }
     return true;
   } catch {
     throw new Error("release_voice_evidence_incomplete");
