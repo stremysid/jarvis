@@ -1,0 +1,95 @@
+gap 5 at 6b63d08, started 2026-09-15T00:00:06-04:00
+applied gap 5: 1 edits in apps/cloud-gateway/src/voice/owner-call-step-up.ts
+files: tests/acceptance/fake/voice-owner-passphrase-security.test.ts apps/cloud-gateway/test/http/inbound-voice.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr33-tests
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > verifies the original request first and performs zero persistence or initialization when unsigned 4ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > rejects a structural form forged by a foreign verifier authority 1ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > neutralizes a foreign form Proxy without invoking its reflection traps 0ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > passes the original Request exactly once to the verifier without pre-consuming it 3ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > returns the same neutral rejection for missing From 0ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > returns the same neutral rejection for duplicate From 2ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > returns the same neutral rejection for malformed From 0ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > returns the same neutral rejection for wrong To 0ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > returns the same neutral rejection for duplicate To 1ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > returns the same neutral rejection for malformed To 0ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > returns the same neutral rejection for missing CallSid 1ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > returns the same neutral rejection for duplicate CallSid 0ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > returns the same neutral rejection for malformed CallSid 0ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > uses only provider-observed caller data and initializes the exact frozen stored binding 2ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > reuses the durable session creation time when binding a later webhook replay 1ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > renders only exact trusted relay routes and the fixed voice configuration 1ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > maps expected repository rejection inbound_session_rejected to the same neutral 403 1ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > maps expected repository rejection call_session_capacity to the same neutral 403 0ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > maps expected repository rejection call_session_conflict to the same neutral 403 0ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > maps expected repository rejection call_session_expired to the same neutral 403 1ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > emits one fixed owner alert for a capacity refusal without exposing caller data 0ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > returns a neutral unavailable response for internal failures without TwiML or sensitive reflection 1ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > does not invoke accessor-shaped stored session fields 0ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > does not initialize or emit TwiML for an unbound snapshot at its exact setup deadline 1ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > neutralizes a throwing stored-session reflection trap 0ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > keeps initializer failures neutral and never emits the already-rendered TwiML 1ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > snapshots trusted configuration and dependency functions before the verifier await 0ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > rejects top-level dependency accessors without invoking them 1ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > rejects nested dependency method accessors without invoking them 0ms
+ ✓ |default| apps/cloud-gateway/test/http/inbound-voice.test.ts > signed inbound voice webhook > neutralizes a non-string called-number configuration before verification 0ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > pins the reviewed 2,048-word source and performs three independent unbiased draws with replacement 4ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > uses one fresh 16-bit CSPRNG sample per default draw and refuses out-of-range injected indexes 1ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > runs every shared ASCII canonicalization vector and rejects every noncanonical class 1ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > constructs and verifies the shared HMAC plus PBKDF2 known answer 811ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > binds the digest to both identity and monotonic version and clears supplied salt copies 707ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > fails closed on every versioned verifier field instead of accepting a nearby record 340ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps fixed speech outside the complete-candidate language: "Passphrase, please." 1ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps fixed speech outside the complete-candidate language: "Please try your passphrase again." 0ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps fixed speech outside the complete-candidate language: "Please say only your passphrase." 0ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps fixed speech outside the complete-candidate language: "Verified." 0ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps fixed speech outside the complete-candidate language: "Verification failed. Ending this call." 1ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps fixed speech outside the complete-candidate language: "Jarvis called for Sid. No private message was left." 0ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps an inbound owner in pre-auth with no authority, context, model, or owner command before a match 1531ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps an outbound owner in pre-auth with no authority, context, model, or owner command before a match 1116ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > refuses a direct owner-authority write before the matching step-up success receipt 1022ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > requires a real successful verifier result and keeps every inbound candidate representation out of named sinks 1763ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > requires a real successful verifier result and keeps every outbound candidate representation out of named sinks 2516ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let keypad input authenticate an owner 1504ms
+ × |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps exact Passed-A behind the phrase when policy is undefined 993ms
+   → expected 'active' to be 'pre_auth' // Object.is equality
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps exact Passed-A behind the phrase when policy is "" 1135ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps exact Passed-A behind the phrase when policy is "passphrase_always" 1127ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps exact Passed-A behind the phrase when policy is "unknown_policy" 1771ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps the dormant waiver exact, explicit, and inbound-only 14368ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let the dormant caller-ID waiver authorize access management without a phrase 1067ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > suppresses the first post-success phrase repeat before any transcript or model call 1860ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > passes a nonmatching first candidate-shaped final through as ordinary owner speech 1818ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > assembles split finals, discards fixed echoes, and clears partial fragments on interruption 1434ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > uses clean ConversationRelay end plus callback Hangup after exactly three mismatches 2236ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps exact Passed-A behind the phrase when policy is undefined
+AssertionError: expected 'active' to be 'pre_auth' // Object.is equality
+
+Expected: "pre_auth"
+Received: "active"
+
+ ❯ tests/acceptance/fake/voice-owner-passphrase-security.test.ts:368:36
+    366|       try {
+    367|         const call = await openOwnerCall(system, "inbound", "TN-Valida…
+    368|         expect(await call.phase()).toBe("pre_auth");
+       |                                    ^
+    369|         expect(await ownerAuthorityCount(call.sessionId)).toBe(0);
+    370|         expect(call.frames().map((frame) => frame.token)).toContain(OW…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 57 passed (58)
+   Start at  00:00:07
+   Duration  40.95s (transform 613ms, setup 0ms, import 1.26s, tests 39.15s, environment 0ms)
+
+VITEST EXIT 1
+restore status: []
+finished 2026-09-15T00:00:48-04:00

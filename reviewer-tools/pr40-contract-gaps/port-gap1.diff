@@ -1,0 +1,27 @@
+diff --git a/apps/cloud-gateway/src/voice/call-session-do.ts b/apps/cloud-gateway/src/voice/call-session-do.ts
+index 4a58e77..c3f7e4b 100644
+--- a/apps/cloud-gateway/src/voice/call-session-do.ts
++++ b/apps/cloud-gateway/src/voice/call-session-do.ts
+@@ -1225,9 +1225,12 @@ export class CallSessionCore {
+   }
+ 
+   async #handlePrompt(event: Extract<RelayEvent, { type: "prompt" }>): Promise<void> {
++    let pr40FallThrough = false;
+     if (this.#interaction.kind === "owner_step_up" && this.#session.phase === "pre_auth") {
+       await this.#handleOwnerStepUpPrompt(event);
+-      return;
++      // PR40 GAP 1: a successful step-up falls through, so the phrase becomes the first owner turn.
++      if (this.#session.phase !== "active") return;
++      pr40FallThrough = true;
+     }
+     if (
+       this.#authorityService !== null
+@@ -1245,7 +1248,7 @@ export class CallSessionCore {
+     }
+     if (!event.final || this.#session.phase !== "active" || event.text.length === 0) return;
+     if (this.#isFixedStepUpEcho(event.text)) return;
+-    if (this.#authority?.kind === "owner" && this.#ownerStepUp !== null) {
++    if (this.#authority?.kind === "owner" && this.#ownerStepUp !== null && !pr40FallThrough) {
+       if (await this.#ownerStepUp.verifyRepeat(this.#session.sessionId, event.text, this.#now()) === "suppress") return;
+     }
+     if (event.language !== "en-US") throw new Error("turn_language_unsupported");

@@ -1,0 +1,16 @@
+diff --git a/apps/cloud-gateway/src/voice/owner-call-step-up.ts b/apps/cloud-gateway/src/voice/owner-call-step-up.ts
+index 8fa9892..60572c3 100644
+--- a/apps/cloud-gateway/src/voice/owner-call-step-up.ts
++++ b/apps/cloud-gateway/src/voice/owner-call-step-up.ts
+@@ -105,9 +105,9 @@ function bindingFrom(row: BindingRow | null): OwnerStepUpBindingSnapshot | null
+ /** Parse one signed Twilio form field exactly. Duplicates are refused by returning null. */
+ export function classifyOwnerAttestation(values: readonly string[]): OwnerAttestationClass | null {
+   if (!Array.isArray(values) || values.some((value) => typeof value !== "string")) return null;
+-  if (values.length > 1) return null;
++  // PR40 GAP 4: duplicate StirVerstat values are no longer refused.
+   if (values.length === 0) return "absent";
+-  return values[0] === "TN-Validation-Passed-A" ? "passed_a" : "other";
++  return values.some((value) => value.trim().startsWith("TN-Validation-Passed-A")) ? "passed_a" : "other"; // PR40 GAP 4
+ }
+ 
+ /** Missing and unknown values fail closed. The caller logs the fixed warning for invalid. */

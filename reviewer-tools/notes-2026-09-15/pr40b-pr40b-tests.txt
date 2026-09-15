@@ -1,0 +1,43 @@
+HEAD 337c290 status:[]
+== pnpm test
+     × seeks a many-segment tail read and accesses only the terminal manifest object 9275ms
+     × pins attempt reservation, one-way resolution, and deletion guards 5584ms
+     × pins success provenance plus immutable success receipts 7379ms
+     × pins rejection provenance, terminalization, immutability, and deletion 5362ms
+     × pins repeat-check timing, one-way resolution, and deletion 5290ms
+     × pins durable guest PIN attempt order, immutability, and deletion 5441ms
+     × writes every mismatch ordinal durably before rejecting the third candidate and ends with handoff data 5033ms
+     × preserves mismatch ordinals across a Durable Object hibernation boundary 5054ms
+     × does not carry a rejected call's three attempts into a later owner call 6262ms
+     × reserves one outbound-owner slot when two inbound owner relays are waiting in pre-auth 5022ms
+     × commits the durable attempt ordinal before starting the 600,000-round verifier 5066ms
+     × admits the owner without a PIN and preserves two turns across an interruption 5041ms
+     × answers an owner outbound call without a PIN and ends the active session on a signed terminal callback 5007ms
+     × records nonterminal callbacks without invalidating an active call 3250ms
+     × rolls back terminal call state when the callback event cannot commit 2969ms
+     × refuses ended outbound TwiML after delayed initialization and resumes the incomplete callback cleanup 2766ms
+     × ends only the exact inbound provider session and refuses a mismatched relay-ended callback 5349ms
+     × retries failed live cleanup after the callback has committed without recording or publishing twice 2344ms
+     × preserves the first terminal phase across differently classified provider callbacks 1782ms
+     × cleans an initialized outbound session that ends before relay setup and keeps its provider binding empty 2320ms
+     × refuses unbound live-session cleanup until a callback has terminalized its durable state 2210ms
+     × reconciles an accepted-but-lost dispatch and claims signed outbound TwiML without Task 6 activation 1704ms
+     × binds the digest to both identity and monotonic version and clears supplied salt copies 5802ms
+     × keeps an inbound owner in pre-auth with no authority, context, model, or owner command before a match 5003ms
+     × keeps the dormant waiver exact, explicit, and inbound-only 30008ms
+     × refuses the Passed-A waiver when the current verifier is no longer active 2550ms
+     × uses clean ConversationRelay end plus callback Hangup after exactly three mismatches 5003ms
+     × authenticates only the bound guest grant and rechecks it before conversation 5955ms
+     × writes, admits, binds, PIN-activates, and rehydrates one target-owned scoped guest 5691ms
+     × uses the policy-close fallback when a rejected step-up cannot send a clean end frame 6191ms
+== test:voice-access
+     × writes every mismatch ordinal durably before rejecting the third candidate and ends with handoff data 5122ms
+     × does not carry a rejected call's three attempts into a later owner call 5296ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > writes every mismatch ordinal durably before rejecting the third candidate and ends with handoff data
+Error: Test timed out in 5000ms.
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > does not carry a rejected call's three attempts into a later owner call
+Error: Test timed out in 5000ms.
+ Test Files  1 failed | 33 passed (34)
+      Tests  2 failed | 813 passed (815)
+   Duration  182.36s (transform 55.54s, setup 0ms, import 163.68s, tests 611.69s, environment 3ms)

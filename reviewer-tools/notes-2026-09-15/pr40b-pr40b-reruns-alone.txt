@@ -1,0 +1,23 @@
+== alone: apps/cloud-gateway/test/archive/archival-service.test.ts
+ Test Files  1 passed (1)
+      Tests  46 passed (46)
+== alone: apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+== alone: apps/cloud-gateway/test/voice/call-session-do.test.ts
+ Test Files  1 passed (1)
+      Tests  118 passed (118)
+== alone: tests/acceptance/fake/voice-call-path.test.ts
+ FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > ends only the exact inbound provider session and refuses a mismatched relay-ended callback
+Error: Test timed out in 5000ms.
+ Test Files  1 failed (1)
+      Tests  1 failed | 17 passed (18)
+== alone: tests/acceptance/fake/voice-guest-access.test.ts
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+== alone: tests/acceptance/fake/voice-owner-call-step-up.test.ts
+ Test Files  1 passed (1)
+      Tests  15 passed (15)
+== alone: tests/acceptance/fake/voice-owner-passphrase-security.test.ts
+ Test Files  1 passed (1)
+      Tests  30 passed (30)

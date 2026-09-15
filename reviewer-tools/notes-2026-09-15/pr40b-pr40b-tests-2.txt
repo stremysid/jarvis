@@ -1,0 +1,17 @@
+HEAD 337c290 status:[]
+== pnpm test (rerun 2)
+ Test Files  7 failed | 130 passed (137)
+      Tests  24 failed | 2734 passed (2758)
+   Duration  216.01s (transform 55.06s, setup 0ms, import 716.15s, tests 1103.13s, environment 47ms)
+timeouts: 18
+      1  FAIL  |default| apps/cloud-gateway/test/archive/archival-service.test.ts
+      5  FAIL  |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts
+      2  FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts
+      7  FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts
+      1  FAIL  |default| tests/acceptance/fake/voice-guest-access.test.ts
+      3  FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts
+      5  FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts
+== test:voice-access (rerun 2)
+ Test Files  34 passed (34)
+      Tests  815 passed (815)
+   Duration  174.92s (transform 48.82s, setup 0ms, import 197.30s, tests 590.66s, environment 5ms)

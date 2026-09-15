@@ -1,0 +1,63 @@
+diff --git a/apps/cloud-gateway/src/voice/call-session-do.ts b/apps/cloud-gateway/src/voice/call-session-do.ts
+index 4a58e77..c31abe2 100644
+--- a/apps/cloud-gateway/src/voice/call-session-do.ts
++++ b/apps/cloud-gateway/src/voice/call-session-do.ts
+@@ -692,6 +692,7 @@ export class CallSessionCore {
+   #ownerStepUpFragmentStartedAt: number | null = null;
+   #ownerStepUpDeadlineAt: string | null = null;
+   #ownerStepUpVerificationInFlight = false;
++  #pr40Mismatches = 0;
+   #activeTurnAbort: AbortController | null = null;
+   #lastSentAssistantEventId: Ulid | null = null;
+   #socketClosed = false;
+@@ -1139,6 +1140,27 @@ export class CallSessionCore {
+         return;
+       }
+       if (outcome === "mismatched") {
++        // PR40 GAP 2a: in-memory mismatch counter (reset when the Durable Object wakes).
++        this.#pr40Mismatches += 1;
++        if (this.#pr40Mismatches >= 3) {
++          await this.#transition("rejected", observedAt);
++          await this.#ownerStepUpAlarm?.clear();
++          const binding = await this.#ownerStepUp.binding(this.#session.sessionId);
++          if (binding !== null && this.#ownerStepUpAlerts !== null) {
++            try {
++              await this.#ownerStepUpAlerts.alert({
++                ownerPrincipalId: binding.ownerPrincipalId, alertClass: "rejected",
++                direction: binding.direction, attestationClass: binding.attestationClass, now: observedAt,
++              });
++            } catch { /* retriable */ }
++          }
++          await this.#relay.sendNeutralText(OWNER_STEP_UP_REJECTED);
++          try {
++            if (this.#relay.end === undefined) throw new Error("relay_end_unavailable");
++            await this.#relay.end(OWNER_STEP_UP_HANDOFF_DATA);
++          } catch { this.#relay.close(1008); }
++          return;
++        }
+         await this.#relay.sendNeutralText(OWNER_STEP_UP_RETRY_PROMPT);
+         return;
+       }
+diff --git a/apps/cloud-gateway/src/voice/owner-call-step-up.ts b/apps/cloud-gateway/src/voice/owner-call-step-up.ts
+index 8fa9892..e3eb927 100644
+--- a/apps/cloud-gateway/src/voice/owner-call-step-up.ts
++++ b/apps/cloud-gateway/src/voice/owner-call-step-up.ts
+@@ -196,6 +196,9 @@ export class OwnerCallStepUpService {
+     const row = await this.#activeVerifier(sessionId);
+     if (row === null) throw new Error("owner_step_up_unavailable");
+     if (at >= row.deadline_at) return "expired";
++    // PR40 GAP 2a: verify before any durable write; a mismatch leaves no attempt row.
++    const pr40Early = await this.#verifier.verify((await this.#requiredBinding(sessionId)).ownerIdentityId, candidate, this.#record(row));
++    if (!pr40Early) return "mismatched";
+     const count = await this.#database.prepare(`SELECT count(*) AS count FROM owner_call_step_up_attempts
+       WHERE session_id = ? AND lifecycle_generation = 1`).bind(sessionId).first<{ count: number }>();
+     const ordinal = (count?.count ?? 0) + 1;
+@@ -206,7 +209,7 @@ export class OwnerCallStepUpService {
+     ) VALUES (?, 1, ?, ?, ?, NULL, NULL)`)
+       .bind(sessionId, ordinal, row.verifier_version, at).run();
+     let matched = false;
+-    try { matched = await this.#verifier.verify((await this.#requiredBinding(sessionId)).ownerIdentityId, candidate, this.#record(row)); }
++    try { matched = pr40Early; }
+     finally { candidate = ""; }
+     const resolvedAt = iso(now);
+     await this.#database.prepare(`UPDATE owner_call_step_up_attempts SET outcome = ?, resolved_at = ?

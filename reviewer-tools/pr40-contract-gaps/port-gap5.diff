@@ -1,0 +1,13 @@
+diff --git a/apps/cloud-gateway/src/voice/owner-call-step-up.ts b/apps/cloud-gateway/src/voice/owner-call-step-up.ts
+index 8fa9892..4e2b38d 100644
+--- a/apps/cloud-gateway/src/voice/owner-call-step-up.ts
++++ b/apps/cloud-gateway/src/voice/owner-call-step-up.ts
+@@ -112,7 +112,7 @@ export function classifyOwnerAttestation(values: readonly string[]): OwnerAttest
+ 
+ /** Missing and unknown values fail closed. The caller logs the fixed warning for invalid. */
+ export function classifyOwnerCallerIdPolicy(value: unknown): OwnerCallerIdPolicy {
+-  if (value === "waive_on_passed_a") return value;
++  if (value === "waive_on_passed_a" || value === undefined) return "waive_on_passed_a"; // PR40 GAP 5
+   if (value === "passphrase_always" || value === undefined) return "passphrase_always";
+   return "invalid";
+ }

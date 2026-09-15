@@ -1,0 +1,13 @@
+HEAD 337c290 status:[]
+== lint
+packages/contracts lint: Done
+apps/hermes-runtime lint: Done
+apps/cloud-gateway lint: Done
+tests/acceptance lint: Done
+== typecheck
+packages/contracts typecheck: Done
+apps/hermes-runtime typecheck: Done
+apps/cloud-gateway typecheck: Done
+tests/acceptance typecheck: Done
+== typecheck:voice-access
+$ tsc -p tests/acceptance/tsconfig.voice.json

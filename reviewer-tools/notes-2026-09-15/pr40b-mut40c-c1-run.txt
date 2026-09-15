@@ -1,0 +1,37 @@
+checked out 337c290 at 337c290
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  129 passed (129)
+
+== T-owner_call_step_up_bindings_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 2 failed) 24922ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  2 failed | 127 passed (129)
+   × pins the immutable owner binding to the exact stored owner-session snapshot 1628ms
+   × rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys 4134ms
+
+== T-owner_call_step_up_bindings_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 1 failed) 23843ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 128 passed (129)
+   × pins the immutable owner binding to the exact stored owner-session snapshot 769ms
+
+== T-owner_call_step_up_bindings_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 1 failed) 23208ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 128 passed (129)
+   × pins the immutable owner binding to the exact stored owner-session snapshot 778ms
+
+== T-owner_call_step_up_windows_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 2 failed) 25500ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  2 failed | 127 passed (129)
+   × pins the 60-second window guard and window immutability 1496ms
+   × rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys 3641ms
+
+== T-owner_call_step_up_windows_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 1 failed) 20694ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 128 passed (129)
+   × pins the 60-second window guard and window immutability 2168ms
