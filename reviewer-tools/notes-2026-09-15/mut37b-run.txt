@@ -1,0 +1,158 @@
+checked out 66d99fa at 66d99fa
+
+== BASE-TS: SURVIVED (exit 0), tree clean=true
+   Test Files  4 passed (4)
+   Tests  48 passed (48)
+
+== BASE-PY: SURVIVED (exit 0), tree clean=true
+   11 passed in 0.25s
+
+== V2-no-length-cap: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts (6 tests | 1 failed) 1634ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 5 passed (6)
+   × runs every shared ASCII canonicalization vector and rejects every noncanonical class 5ms
+
+== V5-unissued-record: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts (6 tests | 1 failed) 1872ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 5 passed (6)
+   × constructs and verifies the shared HMAC plus PBKDF2 known answer 1030ms
+
+== V7-offlist-candidate-errors: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts (6 tests | 1 failed) 1432ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 5 passed (6)
+   × constructs and verifies the shared HMAC plus PBKDF2 known answer 614ms
+
+== S2-owner-mismatch-unchecked: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/sync/owner-passphrase.test.ts (11 tests | 1 failed) 4076ms
+   Test Files  2 failed (2)
+   Tests  3 failed | 18 passed (21)
+   × returns a distinct fixed error when configured OWNER_PRINCIPAL_ID does not match the authenticated device 87ms
+   × returns a distinct fixed error when configured OWNER_VOICE_IDENTITY_ID does not match the authenticated device 85ms
+   × classifies a valid device bound to a different configured owner separately 106ms
+
+== S4-request-salt-unchecked: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/sync/owner-passphrase.test.ts (11 tests | 1 failed) 3682ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 20 passed (21)
+   × validates the exact request-salt shape after authentication and before generation 105ms
+
+== R403-owner-mismatch-as-500: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/http/owner-passphrase-routes.test.ts (10 tests | 2 failed) 1567ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 8 passed (10)
+   × returns a distinct fixed error when configured OWNER_PRINCIPAL_ID does not match the authenticated device 94ms
+   × returns a distinct fixed error when configured OWNER_VOICE_IDENTITY_ID does not match the authenticated device 94ms
+
+== M1-second-first-commit: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-passphrase-migration.test.ts (21 tests | 1 failed) 2132ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 31 passed (32)
+   × pins the explicit no-second-first-commit branch in the rotation guard 97ms
+
+== M4-insert-key-generation-unbound: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-passphrase-migration.test.ts (21 tests | 1 failed) 2159ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 31 passed (32)
+   × pins the insert guard's exact device-key generation 95ms
+
+== M6-insert-owner-device-unbound: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-passphrase-migration.test.ts (21 tests | 2 failed) 2332ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  2 failed | 30 passed (32)
+   × pins the insert guard's owner-device binding 90ms
+   × pins the insert guard's exact device-key generation 94ms
+
+== D1-any-telegram-text: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-passphrase-migration.test.ts (21 tests | 1 failed) 2548ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 20 passed (21)
+   × pins owner_passphrase_disable_commit_guard to an exact confirmed owner Telegram event 93ms
+
+== D2-no-freshness-window: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  21 passed (21)
+
+== D3-any-telegram-sender: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-passphrase-migration.test.ts (21 tests | 1 failed) 2317ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 20 passed (21)
+   × refuses an exact disable command from a different Telegram principal 96ms
+
+== D4-any-receipt-scope: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  21 passed (21)
+
+== D5-telegram-identity-any-principal: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-passphrase-migration.test.ts (21 tests | 1 failed) 2679ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 20 passed (21)
+   × refuses an exact disable command from a different Telegram principal 96ms
+
+== D6-any-event-type: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  21 passed (21)
+
+== D7-no-reenable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/sync/owner-passphrase.test.ts (11 tests | 1 failed) 4892ms
+   Test Files  2 failed (2)
+   Tests  2 failed | 30 passed (32)
+   × re-enables only by rotating a disabled head to a new device-generated verifier 98ms
+   × reports disabled state and re-enables only by publishing a new signed-device version 881ms
+
+== D8-telegram-identity-unverified: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  21 passed (21)
+
+== D9-disable-inactive-head: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  21 passed (21)
+
+== PY2-version-unchecked: KILLED (exit 1), tree clean=true
+   1 failed, 10 passed in 0.32s
+   FAILED tests/test_owner_passphrase.py::test_client_rejects_each_generated_response_binding[version]
+
+== PY3-no-confirmation: KILLED (exit 1), tree clean=true
+   1 failed, 10 passed in 0.32s
+   FAILED tests/test_owner_passphrase.py::test_generate_requires_exact_confirmation_before_replacing_the_verifier
+
+== PY5-phrase-shape-unchecked: KILLED (exit 1), tree clean=true
+   1 failed, 10 passed in 0.32s
+   FAILED tests/test_owner_passphrase.py::test_client_rejects_each_generated_response_binding[phrase-shape]
+
+== PY7-disabled-status-ok: SURVIVED (exit 0), tree clean=true
+   11 passed in 0.26s
+
+== PY8-403-mismatch-as-auth: KILLED (exit 1), tree clean=true
+   1 failed, 10 passed in 0.32s
+   FAILED tests/test_owner_passphrase.py::test_exact_owner_mismatch_response_has_distinct_operator_guidance
+
+=== summary
+SURVIVED  BASE-TS
+SURVIVED  BASE-PY
+KILLED    V2-no-length-cap
+KILLED    V5-unissued-record
+KILLED    V7-offlist-candidate-errors
+KILLED    S2-owner-mismatch-unchecked
+KILLED    S4-request-salt-unchecked
+KILLED    R403-owner-mismatch-as-500
+KILLED    M1-second-first-commit
+KILLED    M4-insert-key-generation-unbound
+KILLED    M6-insert-owner-device-unbound
+KILLED    D1-any-telegram-text
+SURVIVED  D2-no-freshness-window
+KILLED    D3-any-telegram-sender
+SURVIVED  D4-any-receipt-scope
+KILLED    D5-telegram-identity-any-principal
+SURVIVED  D6-any-event-type
+KILLED    D7-no-reenable
+SURVIVED  D8-telegram-identity-unverified
+SURVIVED  D9-disable-inactive-head
+KILLED    PY2-version-unchecked
+KILLED    PY3-no-confirmation
+KILLED    PY5-phrase-shape-unchecked
+SURVIVED  PY7-disabled-status-ok
+KILLED    PY8-403-mismatch-as-auth
+back on main, tree clean=true

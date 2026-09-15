@@ -1,0 +1,37 @@
+Previous HEAD position was 2619f02 Merge pull request #37 from ksid1229-ops/codex/r1-owner-passphrase-verifier
+HEAD is now at 8b62e80 docs(agent-log): resubmit PR 39 round-two fixes
+8b62e80 docs(agent-log): resubmit PR 39 round-two fixes
+== pnpm test
+
+    at terminationFailure (C:/Users/Sid/jarvis-deploy/apps/cloud-gateway/src/voice/call-session-do.ts:466:10)
+ Test Files  136 passed (136)
+      Tests  2886 passed (2886)
+   Duration  68.41s (transform 37.97s, setup 0ms, import 349.97s, tests 331.70s, environment 13ms)
+== typecheck
+tests/acceptance typecheck: Done
+apps/cloud-gateway typecheck: Done
+== lint
+apps/cloud-gateway lint: Done
+tests/acceptance lint: Done
+== H2 probe (REPLACE test must FAIL)
+ ❯ |default| apps/cloud-gateway/test/persistence/zz-reviewer-h2-probe.test.ts (3 tests | 1 failed) 147ms
+     × H2: INSERT OR REPLACE rewinds the cursor to 0 despite both guards 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+Error: D1_ERROR: memory_cursor_duplicate: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+Caused by: Error: memory_cursor_duplicate: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+      Tests  1 failed | 2 passed (3)
+   Duration  1.69s (transform 504ms, setup 0ms, import 955ms, tests 147ms, environment 0ms)
+== isolated flakes
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 54 passed (55)
+   Duration  19.11s (transform 1.08s, setup 0ms, import 2.29s, tests 31.31s, environment 0ms)
+== pytest
+..............................................                           [100%]
+878 passed, 32 skipped in 27.50s
+== ruff
+All checks passed!
+== mypy
+Success: no issues found in 58 source files
+Previous HEAD position was 8b62e80 docs(agent-log): resubmit PR 39 round-two fixes
+HEAD is now at 2619f02 Merge pull request #37 from ksid1229-ops/codex/r1-owner-passphrase-verifier
+

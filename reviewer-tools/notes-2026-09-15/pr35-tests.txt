@@ -1,0 +1,60 @@
+Previous HEAD position was 726b78b Merge pull request #33 from ksid1229-ops/codex/r1-owner-call-passphrase-design
+HEAD is now at 10347b2 merge R2 GitHub export approval
+10347b2 merge R2 GitHub export approval
+== pnpm test
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+
+ Test Files  128 passed (128)
+      Tests  2556 passed (2556)
+   Start at  17:42:59
+   Duration  57.08s (transform 24.18s, setup 0ms, import 236.18s, tests 276.39s, environment 12ms)
+
+== typecheck
+apps/watchdog typecheck$ tsc --noEmit
+packages/contracts typecheck$ tsc --noEmit
+apps/watchdog typecheck: Done
+tests/acceptance typecheck$ tsc --noEmit
+packages/contracts typecheck: Done
+apps/hermes-runtime typecheck: Done
+apps/cloud-gateway typecheck: Done
+tests/acceptance typecheck: Done
+== lint
+apps/cloud-gateway lint$ tsc --noEmit
+apps/hermes-runtime lint$ node --check src/canonical-json.mjs && node --check src/validate-manifests.mjs && node --check src/validate-runs-wire.mjs && node --check src/generate-sbom.mjs
+apps/watchdog lint: Done
+tests/acceptance lint$ tsc --noEmit
+packages/contracts lint: Done
+apps/hermes-runtime lint: Done
+apps/cloud-gateway lint: Done
+tests/acceptance lint: Done
+== pytest
+........................................................................ [ 68%]
+...............................sssssssssss.s............................ [ 77%]
+........................................................................ [ 85%]
+........................................................................ [ 94%]
+..............................................                           [100%]
+806 passed, 32 skipped in 28.99s
+== ruff
+All checks passed!
+== mypy
+usage: mypy [-h] [-v] [-V] [more options; see below]
+            [-m MODULE] [-p PACKAGE] [-c PROGRAM_TEXT] [files ...]
+mypy: error: Missing target module, package, files, or command.

@@ -1,0 +1,30 @@
+Previous HEAD position was b8b47bd Merge pull request #38 from ksid1229-ops/codex/r2-memory-logic-followups
+HEAD is now at c2fcc96 feat(memory): add D1 cloud memory schema
+c2fcc96 feat(memory): add D1 cloud memory schema
+== pnpm test
+
+    at terminationFailure (C:/Users/Sid/jarvis-deploy/apps/cloud-gateway/src/voice/call-session-do.ts:466:10)
+ ❯ |default| apps/cloud-gateway/test/archive/archival-service.test.ts (46 tests | 1 failed) 37879ms
+     × seeks a many-segment tail read and accesses only the terminal manifest object 7250ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |default| apps/cloud-gateway/test/archive/archival-service.test.ts > ArchivalService > seeks a many-segment tail read and accesses only the terminal manifest object
+ Test Files  1 failed | 131 passed (132)
+      Tests  1 failed | 2720 passed (2721)
+   Duration  125.43s (transform 54.41s, setup 0ms, import 658.47s, tests 585.25s, environment 51ms)
+[ELIFECYCLE] Test failed. See above for more details.
+== typecheck
+apps/cloud-gateway typecheck: Done
+tests/acceptance typecheck: Done
+== typecheck voice
+$ tsc -p tests/acceptance/tsconfig.voice.json
+== lint
+apps/cloud-gateway lint: Done
+tests/acceptance lint: Done
+== pytest
+..................................                                       [100%]
+866 passed, 32 skipped in 37.54s
+== ruff
+All checks passed!
+== mypy
+Success: no issues found in 56 source files
+

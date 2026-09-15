@@ -1,0 +1,5 @@
+{
+  "VERDICT": "cleared",
+  "TESTS": "`pnpm test`: 2,693 of 2,694 passed. The one failure is the known archival tail-read timeout, which passes 46 of 46 in isolation. Workspace typecheck, voice typecheck and lint pass. local-agent: pytest 872 passed, 32 skipped; Ruff clean; mypy clean (58 files).",
+  "MUTATIONS": "all 23 were killed, with no survivors. That includes every disable-guard clause (D1–D9), the 403 owner-mismatch mapping (R403), the insert-guard bindings (M4 and M6), the second first-commit branch (M1), the verifier checks (V2, V5 and V7), request-salt validation (S4) and every CLI check (PY2, PY3, PY5, PY7 and PY8)."
+}

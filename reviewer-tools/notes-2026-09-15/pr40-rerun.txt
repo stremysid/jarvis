@@ -1,0 +1,19 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run tests/acceptance/fake/voice-call-path.test.ts tests/acceptance/fake/voice-owner-call-step-up.test.ts tests/acceptance/fake/voice-owner-passphrase-security.test.ts tests/acceptance/fake/voice-guest-access.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr40
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+uncaught exception; source = Uncaught (in promise); stack = CallSessionTerminationError: call_session_termination_uninitialized
+    at terminationFailure (C:/Users/Sid/jarvis-pr40/apps/cloud-gateway/src/voice/call-session-do.ts:485:10)
+    at CallSession.#terminateOnce (C:/Users/Sid/jarvis-pr40/apps/cloud-gateway/src/voice/call-session-do.ts:1665:40)
+    at CallSession.terminate (C:/Users/Sid/jarvis-pr40/apps/cloud-gateway/src/voice/call-session-do.ts:1655:18)
+
+ Test Files  4 passed (4)
+      Tests  70 passed (70)
+   Start at  22:47:40
+   Duration  64.99s (transform 3.58s, setup 0ms, import 9.17s, tests 160.46s, environment 0ms)
+

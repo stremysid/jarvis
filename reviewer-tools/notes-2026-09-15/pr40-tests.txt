@@ -1,0 +1,52 @@
+HEAD is now at 6b63d08 docs: request max review for call step-up
+6b63d08 docs: request max review for call step-up
+== install
++ wrangler 4.127.1
+
+Done in 1.2s using pnpm v11.19.0
+== pnpm test
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 14 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > requests bounded 5xx retries for inbound cleanup and verifies fragment-free signatures
+ FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > requests bounded 5xx retries for outbound cleanup and verifies fragment-free signatures
+     12|     let fail = true;
+ FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > admits the owner without a PIN and preserves two turns across an interruption
+ FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > answers an owner outbound call without a PIN and ends the active session on a signed terminal callback
+ FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > records nonterminal callbacks without invalidating an active call
+ FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > rolls back terminal call state when the callback event cannot commit
+ FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > refuses ended outbound TwiML after delayed initialization and resumes the incomplete callback cleanup
+ FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > retries failed live cleanup after the callback has committed without recording or publishing twice
+ FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > preserves the first terminal phase across differently classified provider callbacks
+ FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > cleans an initialized outbound session that ends before relay setup and keeps its provider binding empty
+ FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > refuses unbound live-session cleanup until a callback has terminalized its durable state
+ FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > reconciles an accepted-but-lost dispatch and claims signed outbound TwiML without Task 6 activation
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > constructs and verifies the shared HMAC plus PBKDF2 known answer
+ FAIL  |default| apps/cloud-gateway/test/archive/archival-service.test.ts > ArchivalService > seeks a many-segment tail read and accesses only the terminal manifest object
+ Test Files  3 failed | 134 passed (137)
+      Tests  14 failed | 2738 passed (2752)
+   Duration  137.03s (transform 65.93s, setup 0ms, import 444.45s, tests 687.18s, environment 13ms)
+[ELIFECYCLE] Test failed. See above for more details.
+== test:voice-access
+ FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > requests bounded 5xx retries for inbound cleanup and verifies fragment-free signatures
+     12|     let fail = true;
+ FAIL  |default| tests/acceptance/fake/voice-guest-access.test.ts > fake voice guest access > keeps the three-try guest PIN limit across Durable Object hibernation
+ FAIL  |default| tests/acceptance/fake/voice-guest-access.test.ts > fake voice guest access > keeps successful and rejected guest PIN candidates out of logs, replies and recalled memory
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > commits the exact success receipt before admitting an inbound owner
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > writes every mismatch ordinal durably before rejecting the third candidate and ends with handoff data
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > does not carry a rejected call's three attempts into a later owner call
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > constructs and verifies the shared HMAC plus PBKDF2 known answer
+ Test Files  4 failed | 30 passed (34)
+      Tests  7 failed | 804 passed (811)
+   Duration  148.71s (transform 61.25s, setup 0ms, import 208.48s, tests 551.59s, environment 14ms)
+[ELIFECYCLE] Command failed with exit code 1.
+== typecheck
+apps/hermes-runtime typecheck: Done
+apps/cloud-gateway typecheck: Done
+tests/acceptance typecheck: Done
+== typecheck:voice-access
+$ tsc -p tests/acceptance/tsconfig.voice.json
+== lint
+apps/hermes-runtime lint: Done
+apps/cloud-gateway lint: Done
+tests/acceptance lint: Done
+

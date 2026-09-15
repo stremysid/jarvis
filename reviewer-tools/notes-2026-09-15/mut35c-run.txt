@@ -1,0 +1,262 @@
+be0e3fb docs(agent-log): request PR35 re-review
+      Tests  3 passed (3)
+checked out be0e3fb at be0e3fb
+
+== BASE-TS: SURVIVED (exit 0), tree clean=true
+   Test Files  4 passed (4)
+   Tests  114 passed (114)
+
+== BASE-PY: SURVIVED (exit 0), tree clean=true
+   211 passed in 7.08s
+
+== MP6-sensitivity-dropped: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (28 tests | 1 failed) 14ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 113 passed (114)
+   × preserves an explicitly sensitive model proposal 6ms
+
+== PY5-sensitivity-dropped: KILLED (exit 1), tree clean=true
+   1 failed, 210 passed in 6.39s
+   FAILED tests/memory/test_shared_memory_policy.py::test_extraction_validation_matches_shared_vectors[preserves an explicitly sensitive model proposal]
+
+== ME3-foreign-source: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-evaluation.test.ts (14 tests | 1 failed) 12ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 13 passed (14)
+   × reports missing provenance and withholds provenance and topic points 4ms
+
+== ME5-provenance-free: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-evaluation.test.ts (14 tests | 1 failed) 11ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 13 passed (14)
+   × reports missing provenance and withholds provenance and topic points 3ms
+
+== ME6-no-unexpected-penalty: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  14 passed (14)
+
+== ME9-topic-free: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-evaluation.test.ts (14 tests | 1 failed) 11ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 13 passed (14)
+   × reports missing provenance and withholds provenance and topic points 4ms
+
+== MT2-merge-cycle: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/topic-tree.test.ts (9 tests | 1 failed) 12ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 8 passed (9)
+   × rejects invalid root, cycle, duplicate-name, confidence, and transition changes 4ms
+
+== MT3-add-dup-sibling: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/topic-tree.test.ts (9 tests | 1 failed) 12ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 8 passed (9)
+   × rejects invalid root, cycle, duplicate-name, confidence, and transition changes 5ms
+
+== MT4-root-moves: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/topic-tree.test.ts (9 tests | 1 failed) 18ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 8 passed (9)
+   × rejects invalid root, cycle, duplicate-name, confidence, and transition changes 11ms
+
+== MT6-confidence-over-1: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/topic-tree.test.ts (9 tests | 1 failed) 18ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 8 passed (9)
+   × rejects invalid root, cycle, duplicate-name, confidence, and transition changes 10ms
+
+== MT7-root-merges: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/topic-tree.test.ts (9 tests | 1 failed) 19ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 8 passed (9)
+   × rejects invalid root, cycle, duplicate-name, confidence, and transition changes 12ms
+
+== MT8-merge-orphans-children: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/topic-tree.test.ts (9 tests | 1 failed) 18ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 8 passed (9)
+   × reparents merged children so walking the target includes grandchildren 5ms
+
+== MT9-merge-dup-child: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/topic-tree.test.ts (9 tests | 1 failed) 18ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 8 passed (9)
+   × rejects a merge that would create duplicate child names 4ms
+
+== MT10-dup-transition-id: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/topic-tree.test.ts (9 tests | 1 failed) 19ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 8 passed (9)
+   × rejects invalid root, cycle, duplicate-name, confidence, and transition changes 11ms
+
+== NC1-question-allowed: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (28 tests | 1 failed) 20ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 27 passed (28)
+   × rejects a whole owner question 7ms
+
+== NC2-framing-ignored: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (28 tests | 3 failed) 12ms
+   Test Files  1 failed (1)
+   Tests  3 failed | 25 passed (28)
+   × rejects a whole owner conditional 4ms
+   × rejects a whole hedged owner statement 1ms
+   × rejects a whole owner statement framed as reported speech 0ms
+
+== NC3-mid-sentence-start: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (28 tests | 3 failed) 11ms
+   Test Files  1 failed (1)
+   Tests  3 failed | 25 passed (28)
+   × rejects a desired move quoted out of an owner hedge 4ms
+   × rejects a first-person quote inside reported speech 0ms
+   × rejects a future action quoted out of a conditional 1ms
+
+== NC5-maybe-might: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (28 tests | 1 failed) 11ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 27 passed (28)
+   × rejects a whole hedged owner statement 5ms
+
+== NC6-says-said-told: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (28 tests | 1 failed) 11ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 27 passed (28)
+   × rejects a whole owner statement framed as reported speech 4ms
+
+== NC7-i-think: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  28 passed (28)
+
+== NC8-not-sure: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  28 passed (28)
+
+== NC9-dont-know: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  28 passed (28)
+
+== NC10-conditional: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (28 tests | 1 failed) 11ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 27 passed (28)
+   × rejects a whole owner conditional 4ms
+
+== NC11-demote-active: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (28 tests | 1 failed) 11ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 27 passed (28)
+   × automatic promotion never demotes an already active model fact 5ms
+
+== NC12-claimed-origin: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-evaluation.test.ts (14 tests | 1 failed) 11ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 13 passed (14)
+   × rejects extraction-only origins that a candidate cannot verify in code 4ms
+
+== NC13-empty-run-eligible: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-evaluation.test.ts (14 tests | 1 failed) 12ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 13 passed (14)
+   × does not let an empty extraction run qualify for model selection 5ms
+
+== NC14-case-sensitive: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-evaluation.test.ts (14 tests | 2 failed) 12ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 12 passed (14)
+   × normalizes case, punctuation, and whitespace for forbidden claims 4ms
+   × matches a recorded acceptable paraphrase at claim level 2ms
+
+== NC15-punctuation-sensitive: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-evaluation.test.ts (14 tests | 2 failed) 11ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 12 passed (14)
+   × normalizes case, punctuation, and whitespace for forbidden claims 4ms
+   × matches a recorded acceptable paraphrase at claim level 1ms
+
+== NC16-unknown-case: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-evaluation.test.ts (14 tests | 1 failed) 11ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 13 passed (14)
+   × rejects outputs for case ids outside the evaluation suite 4ms
+
+== NC17-moved-children: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/topic-tree.test.ts (9 tests | 1 failed) 20ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 8 passed (9)
+   × merges topics through redirects while preserving filing and transition history 5ms
+
+== NC18-added-aliases: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/topic-tree.test.ts (9 tests | 1 failed) 20ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 8 passed (9)
+   × merges topics through redirects while preserving filing and transition history 6ms
+
+== NC19-alias-dedup: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  9 passed (9)
+
+== NP1-question-allowed: KILLED (exit 1), tree clean=true
+   1 failed, 210 passed in 5.16s
+   FAILED tests/memory/test_shared_memory_policy.py::test_first_person_classifier_matches_shared_vectors[rejects a whole owner question]
+
+== NP2-framing-ignored: KILLED (exit 1), tree clean=true
+   3 failed, 208 passed in 5.88s
+   FAILED tests/memory/test_shared_memory_policy.py::test_first_person_classifier_matches_shared_vectors[rejects a whole owner conditional]
+   FAILED tests/memory/test_shared_memory_policy.py::test_first_person_classifier_matches_shared_vectors[rejects a whole hedged owner statement]
+   FAILED tests/memory/test_shared_memory_policy.py::test_first_person_classifier_matches_shared_vectors[rejects a whole owner statement framed as reported speech]
+
+== NP3-mid-sentence-start: KILLED (exit 1), tree clean=true
+   3 failed, 208 passed in 5.32s
+   FAILED tests/memory/test_shared_memory_policy.py::test_first_person_classifier_matches_shared_vectors[rejects a desired move quoted out of an owner hedge]
+   FAILED tests/memory/test_shared_memory_policy.py::test_first_person_classifier_matches_shared_vectors[rejects a first-person quote inside reported speech]
+   FAILED tests/memory/test_shared_memory_policy.py::test_first_person_classifier_matches_shared_vectors[rejects a future action quoted out of a conditional]
+
+== NP4-demote-active: KILLED (exit 1), tree clean=true
+   1 failed, 210 passed in 5.04s
+   FAILED tests/memory/test_shared_memory_policy.py::test_promotion_engine_matches_shared_vectors[automatic promotion never demotes an already active model fact]
+
+== NP5-says-said-told: KILLED (exit 1), tree clean=true
+   1 failed, 210 passed in 4.24s
+   FAILED tests/memory/test_shared_memory_policy.py::test_first_person_classifier_matches_shared_vectors[rejects a whole owner statement framed as reported speech]
+
+=== summary
+SURVIVED  BASE-TS
+SURVIVED  BASE-PY
+KILLED    MP6-sensitivity-dropped
+KILLED    PY5-sensitivity-dropped
+KILLED    ME3-foreign-source
+KILLED    ME5-provenance-free
+SURVIVED  ME6-no-unexpected-penalty
+KILLED    ME9-topic-free
+KILLED    MT2-merge-cycle
+KILLED    MT3-add-dup-sibling
+KILLED    MT4-root-moves
+KILLED    MT6-confidence-over-1
+KILLED    MT7-root-merges
+KILLED    MT8-merge-orphans-children
+KILLED    MT9-merge-dup-child
+KILLED    MT10-dup-transition-id
+KILLED    NC1-question-allowed
+KILLED    NC2-framing-ignored
+KILLED    NC3-mid-sentence-start
+KILLED    NC5-maybe-might
+KILLED    NC6-says-said-told
+SURVIVED  NC7-i-think
+SURVIVED  NC8-not-sure
+SURVIVED  NC9-dont-know
+KILLED    NC10-conditional
+KILLED    NC11-demote-active
+KILLED    NC12-claimed-origin
+KILLED    NC13-empty-run-eligible
+KILLED    NC14-case-sensitive
+KILLED    NC15-punctuation-sensitive
+KILLED    NC16-unknown-case
+KILLED    NC17-moved-children
+KILLED    NC18-added-aliases
+SURVIVED  NC19-alias-dedup
+KILLED    NP1-question-allowed
+KILLED    NP2-framing-ignored
+KILLED    NP3-mid-sentence-start
+KILLED    NP4-demote-active
+KILLED    NP5-says-said-told
+back on main, tree clean=true

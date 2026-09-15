@@ -1,0 +1,40 @@
+Previous HEAD position was 726b78b Merge pull request #33 from ksid1229-ops/codex/r1-owner-call-passphrase-design
+HEAD is now at b438666 docs(agent-log): request PR 37 max review
+b438666 docs(agent-log): request PR 37 max review
+== pnpm test
+
+    at terminationFailure (C:/Users/Sid/jarvis-deploy/apps/cloud-gateway/src/voice/call-session-do.ts:466:10)
+ ❯ |default| apps/cloud-gateway/test/archive/archival-service.test.ts (46 tests | 1 failed) 41504ms
+     × seeks a many-segment tail read and accesses only the terminal manifest object 8256ms
+ ❯ |default| tests/acceptance/fake/voice-guest-access.test.ts (9 tests | 1 failed) 49150ms
+     × keeps successful and rejected guest PIN candidates out of logs, replies and recalled memory 15027ms
+ ❯ |default| tests/acceptance/fake/voice-call-path.test.ts (18 tests | 1 failed) 65567ms
+     × admits the owner without a PIN and preserves two turns across an interruption 4727ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > admits the owner without a PIN and preserves two turns across an interruption
+ FAIL  |default| tests/acceptance/fake/voice-guest-access.test.ts > fake voice guest access > keeps successful and rejected guest PIN candidates out of logs, replies and recalled memory
+ FAIL  |default| apps/cloud-gateway/test/archive/archival-service.test.ts > ArchivalService > seeks a many-segment tail read and accesses only the terminal manifest object
+ Test Files  3 failed | 128 passed (131)
+      Tests  3 failed | 2607 passed (2610)
+   Duration  124.48s (transform 47.94s, setup 0ms, import 656.23s, tests 640.82s, environment 42ms)
+[ELIFECYCLE] Test failed. See above for more details.
+== typecheck
+packages/contracts typecheck: Done
+apps/hermes-runtime typecheck: Done
+apps/cloud-gateway typecheck: Done
+tests/acceptance typecheck: Done
+== lint
+packages/contracts lint: Done
+apps/hermes-runtime lint: Done
+apps/cloud-gateway lint: Done
+tests/acceptance lint: Done
+== pytest
+........................................................................ [ 83%]
+........................................................................ [ 91%]
+.....................................................................    [100%]
+829 passed, 32 skipped in 28.43s
+== ruff
+All checks passed!
+== mypy
+Success: no issues found in 58 source files
+

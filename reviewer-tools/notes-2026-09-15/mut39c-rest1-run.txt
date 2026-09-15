@@ -1,0 +1,178 @@
+checked out eb70b70 at eb70b70
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  95 passed (95)
+
+== T-memory_item_transitions_immutable_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 964ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_item_transitions_immutable_delete rejects a stored-row delete 8ms
+
+== T-memory_event_suppressions_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 958ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_event_suppressions_immutable_update rejects a stored-row update 8ms
+
+== T-memory_event_suppressions_immutable_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 973ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_event_suppressions_immutable_delete rejects a stored-row delete 7ms
+
+== T-memory_event_suppression_lifts_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 953ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_event_suppression_lifts_immutable_update rejects a stored-row update 9ms
+
+== T-memory_event_suppression_lifts_immutable_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 1000ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × memory_event_suppression_lifts_immutable_delete rejects a stored-row delete 8ms
+   × memory_event_suppression_lifts_insert_guard rejects INSERT OR REPLACE of an existing key 2ms
+
+== T-memory_item_links_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1015ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_item_links_immutable_update rejects a stored-row update 8ms
+
+== T-memory_item_links_immutable_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 1176ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × memory_item_links_immutable_delete rejects a stored-row delete 10ms
+   × memory_item_links_insert_guard rejects INSERT OR REPLACE of an existing key 3ms
+
+== T-memory_topic_events_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1360ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_topic_events_immutable_update rejects a stored-row update 8ms
+
+== T-memory_topic_events_immutable_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 925ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_topic_events_immutable_delete rejects a stored-row delete 8ms
+
+== T-memory_topic_aliases_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 922ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_topic_aliases_immutable_update rejects a stored-row update 8ms
+
+== T-memory_topic_aliases_immutable_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 3 failed) 1332ms
+   Test Files  1 failed (1)
+   Tests  3 failed | 92 passed (95)
+   × memory_topic_aliases_immutable_delete rejects a stored-row delete 8ms
+   × memory_topic_aliases_insert_guard rejects INSERT OR REPLACE of an existing key 3ms
+   × memory_topic_events_apply projects topic changes and aliases 5ms
+
+== T-memory_item_placement_events_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1198ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_item_placement_events_immutable_update rejects a stored-row update 9ms
+
+== T-memory_item_placement_events_immutable_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 2535ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × memory_item_placement_events_immutable_delete rejects a stored-row delete 13ms
+   × memory_item_placement_events_insert_guard rejects INSERT OR REPLACE of an existing key 5ms
+
+== T-memory_episodes_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1311ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_episodes_immutable_update rejects a stored-row update 9ms
+
+== T-memory_episodes_immutable_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1029ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_episodes_immutable_delete rejects a stored-row delete 8ms
+
+== T-memory_episode_sources_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1783ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_episode_sources_immutable_update rejects a stored-row update 8ms
+
+== T-memory_episode_sources_immutable_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 948ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × memory_episode_sources_immutable_delete rejects a stored-row delete 8ms
+   × memory_episode_sources_insert_guard rejects INSERT OR REPLACE of an existing key 2ms
+
+== T-memory_history_coverage_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 946ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_history_coverage_immutable_update rejects a stored-row update 7ms
+
+== T-memory_history_coverage_immutable_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 1045ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × memory_history_coverage_immutable_delete rejects a stored-row delete 8ms
+   × memory_history_coverage_insert_guard rejects INSERT OR REPLACE of an existing key 3ms
+
+== T-memory_model_prices_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1494ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_model_prices_immutable_update rejects a stored-row update 9ms
+
+== T-memory_model_prices_immutable_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1299ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_model_prices_immutable_delete rejects a stored-row delete 8ms
+
+== T-memory_cost_ledger_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1410ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_cost_ledger_immutable_update rejects a stored-row update 8ms
+
+== T-memory_cost_ledger_immutable_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 1050ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × memory_cost_ledger_immutable_delete rejects a stored-row delete 8ms
+   × memory_cost_ledger_insert_guard rejects INSERT OR REPLACE of an existing key 3ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-memory_item_transitions_immutable_delete
+KILLED    T-memory_event_suppressions_immutable_update
+KILLED    T-memory_event_suppressions_immutable_delete
+KILLED    T-memory_event_suppression_lifts_immutable_update
+KILLED    T-memory_event_suppression_lifts_immutable_delete
+KILLED    T-memory_item_links_immutable_update
+KILLED    T-memory_item_links_immutable_delete
+KILLED    T-memory_topic_events_immutable_update
+KILLED    T-memory_topic_events_immutable_delete
+KILLED    T-memory_topic_aliases_immutable_update
+KILLED    T-memory_topic_aliases_immutable_delete
+KILLED    T-memory_item_placement_events_immutable_update
+KILLED    T-memory_item_placement_events_immutable_delete
+KILLED    T-memory_episodes_immutable_update
+KILLED    T-memory_episodes_immutable_delete
+KILLED    T-memory_episode_sources_immutable_update
+KILLED    T-memory_episode_sources_immutable_delete
+KILLED    T-memory_history_coverage_immutable_update
+KILLED    T-memory_history_coverage_immutable_delete
+KILLED    T-memory_model_prices_immutable_update
+KILLED    T-memory_model_prices_immutable_delete
+KILLED    T-memory_cost_ledger_immutable_update
+KILLED    T-memory_cost_ledger_immutable_delete
+back on main, tree clean=true

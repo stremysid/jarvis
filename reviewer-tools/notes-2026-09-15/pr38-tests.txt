@@ -1,0 +1,52 @@
+Previous HEAD position was fb7c864 Merge pull request #35 from ksid1229-ops/codex/r2-memory-pure-logic
+HEAD is now at 3f884b5 fix(memory): close extraction policy follow-ups
+3f884b5 fix(memory): close extraction policy follow-ups
+== pnpm test
+
+ ❯ |default| apps/cloud-gateway/test/model/hermes-token-adapter.test.ts (71 tests | 1 failed) 19412ms
+     × retains an exact-cap delimiter-free frame in bounded segments under bytewise delivery 18648ms
+    at terminationFailure (C:/Users/Sid/jarvis-deploy/apps/cloud-gateway/src/voice/call-session-do.ts:466:10)
+ ❯ |default| apps/cloud-gateway/test/archive/archival-service.test.ts (46 tests | 1 failed) 43685ms
+     × seeks a many-segment tail read and accesses only the terminal manifest object 7836ms
+ ❯ |default| tests/acceptance/fake/voice-guest-access.test.ts (9 tests | 1 failed) 52646ms
+     × keeps successful and rejected guest PIN candidates out of logs, replies and recalled memory 15737ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |default| tests/acceptance/fake/voice-guest-access.test.ts > fake voice guest access > keeps successful and rejected guest PIN candidates out of logs, replies and recalled memory
+ FAIL  |default| apps/cloud-gateway/test/archive/archival-service.test.ts > ArchivalService > seeks a many-segment tail read and accesses only the terminal manifest object
+ FAIL  |default| apps/cloud-gateway/test/model/hermes-token-adapter.test.ts > HermesTokenAdapter strict incremental SSE > retains an exact-cap delimiter-free frame in bounded segments under bytewise delivery
+ Test Files  3 failed | 127 passed (130)
+      Tests  3 failed | 2635 passed (2638)
+   Duration  118.40s (transform 57.41s, setup 0ms, import 632.82s, tests 651.13s, environment 26ms)
+[ELIFECYCLE] Test failed. See above for more details.
+== typecheck
+apps/hermes-runtime typecheck: Done
+apps/cloud-gateway typecheck: Done
+tests/acceptance typecheck: Done
+== lint
+apps/hermes-runtime lint: Done
+apps/cloud-gateway lint: Done
+tests/acceptance lint: Done
+== probe v1+v2
+ ❯ |default| apps/cloud-gateway/test/memory/zz-reviewer-probe2.test.ts (3 tests | 3 failed) 10ms
+     × R1 at 21 expected memories, a valid extra memory scores below a miss 6ms
+     × R2 a two-sentence quote is trusted although the rule is one sentence 3ms
+     × R3 common hedges outside the framing list are trusted 0ms
+ ❯ |default| apps/cloud-gateway/test/memory/zz-reviewer-probe.test.ts (6 tests | 6 failed) 12ms
+     × P1 a meaning-flipping owner substring becomes trusted and auto-promotes 5ms
+     × P1b the evaluator safety gate accepts the flipped quote as a trusted memory 2ms
+     × P2 a candidate claiming deterministic_observation passes the safety gate 1ms
+     × P3 a forbidden memory with changed punctuation or case evades the gate 0ms
+     × P4 faithful paraphrases score exactly like extracting nothing 1ms
+     × P5 a merge transition does not record which children or aliases moved 2ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  9 failed (9)
+   Duration  1.03s (transform 84ms, setup 0ms, import 141ms, tests 22ms, environment 0ms)
+== pytest
+........................................................................ [ 96%]
+............................                                             [100%]
+860 passed, 32 skipped in 34.69s
+== ruff
+All checks passed!
+== mypy
+Success: no issues found in 56 source files
+

@@ -1,0 +1,4 @@
+{
+  "VERDICT": "changes requested (small)",
+  "MUTATIONS": "23 mutations plus 2 baselines; 17 were killed. All 11 survivors from the first review are now killed (V2, V5, V7, S2, S4, M1, M4, M6, PY2, PY3 and PY5), along with R403, D1, D3, D5, D7 and PY8. Six survivors remain, and each needs a killing test:\n- D2: the 5-minute freshness window. A disable citing an event older than 5 minutes is accepted when the clause is removed.\n- D8: an owner Telegram identity with `verified_at IS NULL`.\n- D4: an idempotency receipt whose scope is not `telegram.update`.\n- D6: an event type other than `telegram.update.received`. The `text` clause partly backstops it today; pin it anyway.\n- D9: disabling while the head or verifier is not active. The unique version key and the publish `WHERE` backstop it today; pin it anyway.\n- PY7: the CLI's disabled-status message and exit code."
+}

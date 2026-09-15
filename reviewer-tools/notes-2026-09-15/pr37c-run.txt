@@ -1,0 +1,82 @@
+Previous HEAD position was b8b47bd Merge pull request #38 from ksid1229-ops/codex/r2-memory-logic-followups
+HEAD is now at aad3a7f docs(agent-log): request PR 37 second re-review
+aad3a7f docs(agent-log): request PR 37 second re-review
+== pnpm test
+
+    at terminationFailure (C:/Users/Sid/jarvis-deploy/apps/cloud-gateway/src/voice/call-session-do.ts:466:10)
+ ❯ |default| apps/cloud-gateway/test/archive/archival-service.test.ts (46 tests | 1 failed) 35528ms
+     × seeks a many-segment tail read and accesses only the terminal manifest object 6847ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |default| apps/cloud-gateway/test/archive/archival-service.test.ts > ArchivalService > seeks a many-segment tail read and accesses only the terminal manifest object
+ Test Files  1 failed | 133 passed (134)
+      Tests  1 failed | 2693 passed (2694)
+   Duration  112.01s (transform 54.04s, setup 0ms, import 580.79s, tests 561.78s, environment 31ms)
+[ELIFECYCLE] Test failed. See above for more details.
+== typecheck
+tests/acceptance typecheck: Done
+apps/cloud-gateway typecheck: Done
+== typecheck voice
+$ tsc -p tests/acceptance/tsconfig.voice.json
+== lint
+tests/acceptance lint: Done
+apps/cloud-gateway lint: Done
+== pytest
+........................................                                 [100%]
+872 passed, 32 skipped in 33.98s
+== ruff
+All checks passed!
+== mypy
+Success: no issues found in 58 source files
+== mutations
+== BASE-TS: SURVIVED (exit 0), tree clean=true
+== BASE-PY: SURVIVED (exit 0), tree clean=true
+== V2-no-length-cap: KILLED (exit 1), tree clean=true
+== V5-unissued-record: KILLED (exit 1), tree clean=true
+== V7-offlist-candidate-errors: KILLED (exit 1), tree clean=true
+== S2-owner-mismatch-unchecked: KILLED (exit 1), tree clean=true
+== S4-request-salt-unchecked: KILLED (exit 1), tree clean=true
+== R403-owner-mismatch-as-500: KILLED (exit 1), tree clean=true
+== M1-second-first-commit: KILLED (exit 1), tree clean=true
+== M4-insert-key-generation-unbound: KILLED (exit 1), tree clean=true
+== M6-insert-owner-device-unbound: KILLED (exit 1), tree clean=true
+== D1-any-telegram-text: KILLED (exit 1), tree clean=true
+== D2-no-freshness-window: KILLED (exit 1), tree clean=true
+== D3-any-telegram-sender: KILLED (exit 1), tree clean=true
+== D4-any-receipt-scope: KILLED (exit 1), tree clean=true
+== D5-telegram-identity-any-principal: KILLED (exit 1), tree clean=true
+== D6-any-event-type: KILLED (exit 1), tree clean=true
+== D7-no-reenable: KILLED (exit 1), tree clean=true
+== D8-telegram-identity-unverified: KILLED (exit 1), tree clean=true
+== D9-disable-inactive-head: KILLED (exit 1), tree clean=true
+== PY2-version-unchecked: KILLED (exit 1), tree clean=true
+== PY3-no-confirmation: KILLED (exit 1), tree clean=true
+== PY5-phrase-shape-unchecked: KILLED (exit 1), tree clean=true
+== PY7-disabled-status-ok: KILLED (exit 1), tree clean=true
+== PY8-403-mismatch-as-auth: KILLED (exit 1), tree clean=true
+SURVIVED  BASE-TS
+SURVIVED  BASE-PY
+KILLED    V2-no-length-cap
+KILLED    V5-unissued-record
+KILLED    V7-offlist-candidate-errors
+KILLED    S2-owner-mismatch-unchecked
+KILLED    S4-request-salt-unchecked
+KILLED    R403-owner-mismatch-as-500
+KILLED    M1-second-first-commit
+KILLED    M4-insert-key-generation-unbound
+KILLED    M6-insert-owner-device-unbound
+KILLED    D1-any-telegram-text
+KILLED    D2-no-freshness-window
+KILLED    D3-any-telegram-sender
+KILLED    D4-any-receipt-scope
+KILLED    D5-telegram-identity-any-principal
+KILLED    D6-any-event-type
+KILLED    D7-no-reenable
+KILLED    D8-telegram-identity-unverified
+KILLED    D9-disable-inactive-head
+KILLED    PY2-version-unchecked
+KILLED    PY3-no-confirmation
+KILLED    PY5-phrase-shape-unchecked
+KILLED    PY7-disabled-status-ok
+KILLED    PY8-403-mismatch-as-auth
+back on main, tree clean=true
+

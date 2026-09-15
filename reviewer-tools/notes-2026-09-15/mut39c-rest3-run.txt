@@ -1,0 +1,172 @@
+checked out eb70b70 at eb70b70
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  95 passed (95)
+
+== T-memory_history_chunks_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 1029ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × requires a matching coverage receipt and rejects false live high-water marks 16ms
+   × memory_history_chunks_insert_guard rejects INSERT OR REPLACE of an existing key 3ms
+
+== T-memory_history_chunks_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 962ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × keeps FTS projections current and enforces bounded run, cost, vector, cursor, and reprocessing state 42ms
+   × memory_history_chunks_immutable_update rejects an update without the required transition 2ms
+
+== T-memory_history_coverage_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 4 failed) 991ms
+   Test Files  1 failed (1)
+   Tests  4 failed | 91 passed (95)
+   × keeps FTS projections current and enforces bounded run, cost, vector, cursor, and reprocessing state 91ms
+   × requires a matching coverage receipt and rejects false live high-water marks 9ms
+   × rejects live coverage for a range that has an archived event receipt 9ms
+   × memory_history_coverage_insert_guard rejects INSERT OR REPLACE of an existing key 2ms
+
+== T-memory_vectors_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 977ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_vectors_insert_guard rejects INSERT OR REPLACE of an existing key 8ms
+
+== T-memory_vectors_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 1065ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × keeps FTS projections current and enforces bounded run, cost, vector, cursor, and reprocessing state 87ms
+   × memory_vectors_update_guard rejects an update without the required transition 3ms
+
+== T-memory_vectors_delete_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1109ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_vectors_delete_guard rejects direct projection deletion 8ms
+
+== T-memory_model_prices_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1013ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_model_prices_insert_guard rejects INSERT OR REPLACE of an existing key 13ms
+
+== T-memory_runs_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1090ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_runs_insert_guard rejects INSERT OR REPLACE of an existing key 7ms
+
+== T-memory_runs_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 928ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × keeps FTS projections current and enforces bounded run, cost, vector, cursor, and reprocessing state 59ms
+   × memory_runs_update_guard rejects an update without the required transition 2ms
+
+== T-memory_runs_delete_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1146ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_runs_delete_guard rejects direct projection deletion 8ms
+
+== T-memory_reprocess_jobs_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 3 failed) 1248ms
+   Test Files  1 failed (1)
+   Tests  3 failed | 92 passed (95)
+   × keeps FTS projections current and enforces bounded run, cost, vector, cursor, and reprocessing state 85ms
+   × binds owner authority to a dedicated command with the exact operation and limits 12ms
+   × memory_reprocess_jobs_insert_guard rejects INSERT OR REPLACE of an existing key 4ms
+
+== T-memory_reprocess_jobs_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 1220ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × keeps FTS projections current and enforces bounded run, cost, vector, cursor, and reprocessing state 82ms
+   × memory_reprocess_jobs_update_guard rejects an update without the required transition 2ms
+
+== T-memory_reprocess_jobs_delete_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1114ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_reprocess_jobs_delete_guard rejects direct projection deletion 9ms
+
+== T-memory_cost_ledger_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 4 failed) 1108ms
+   Test Files  1 failed (1)
+   Tests  4 failed | 91 passed (95)
+   × keeps FTS projections current and enforces bounded run, cost, vector, cursor, and reprocessing state 76ms
+   × bounds settlements and releases by their reservation 82ms
+   × enforces the reprocessing budget class, dry-run boundary, and cumulative job limit 24ms
+   × memory_cost_ledger_insert_guard rejects INSERT OR REPLACE of an existing key 4ms
+
+== T-memory_cursors_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1230ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_cursors_insert_guard rejects INSERT OR REPLACE of an existing key 9ms
+
+== T-memory_cursors_monotonic_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 1329ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × keeps FTS projections current and enforces bounded run, cost, vector, cursor, and reprocessing state 101ms
+   × memory_cursors_monotonic_update rejects a cursor rewind 5ms
+
+== T-memory_cursors_delete_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 1726ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × keeps FTS projections current and enforces bounded run, cost, vector, cursor, and reprocessing state 101ms
+   × memory_cursors_delete_guard rejects direct projection deletion 2ms
+
+== T-memory_item_versions_fts_insert: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1299ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × keeps FTS projections current and enforces bounded run, cost, vector, cursor, and reprocessing state 28ms
+
+== T-memory_episodes_fts_insert: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1304ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × keeps FTS projections current and enforces bounded run, cost, vector, cursor, and reprocessing state 44ms
+
+== T-memory_history_chunks_fts_insert: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 1055ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × keeps FTS projections current and enforces bounded run, cost, vector, cursor, and reprocessing state 49ms
+   × memory_history_chunks_fts_delete removes a deleted history chunk 16ms
+
+== T-memory_history_chunks_fts_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1226ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × keeps FTS projections current and enforces bounded run, cost, vector, cursor, and reprocessing state 52ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-memory_history_chunks_insert_guard
+KILLED    T-memory_history_chunks_immutable_update
+KILLED    T-memory_history_coverage_insert_guard
+KILLED    T-memory_vectors_insert_guard
+KILLED    T-memory_vectors_update_guard
+KILLED    T-memory_vectors_delete_guard
+KILLED    T-memory_model_prices_insert_guard
+KILLED    T-memory_runs_insert_guard
+KILLED    T-memory_runs_update_guard
+KILLED    T-memory_runs_delete_guard
+KILLED    T-memory_reprocess_jobs_insert_guard
+KILLED    T-memory_reprocess_jobs_update_guard
+KILLED    T-memory_reprocess_jobs_delete_guard
+KILLED    T-memory_cost_ledger_insert_guard
+KILLED    T-memory_cursors_insert_guard
+KILLED    T-memory_cursors_monotonic_update
+KILLED    T-memory_cursors_delete_guard
+KILLED    T-memory_item_versions_fts_insert
+KILLED    T-memory_episodes_fts_insert
+KILLED    T-memory_history_chunks_fts_insert
+KILLED    T-memory_history_chunks_fts_delete
+back on main, tree clean=true

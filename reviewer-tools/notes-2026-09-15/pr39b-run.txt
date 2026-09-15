@@ -1,0 +1,9 @@
+== pnpm test on 4f2c1c0
+     × seeks a many-segment tail read and accesses only the terminal manifest object 7385ms
+     × keeps successful and rejected guest PIN candidates out of logs, replies and recalled memory 15024ms
+     × activates a pending guest with their bound PIN and never puts its digits in model input or durable conversation 3727ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ Test Files  2 failed | 134 passed (136)
+      Tests  3 failed | 2774 passed (2777)
+apps/cloud-gateway typecheck: Done
+tests/acceptance typecheck: Done

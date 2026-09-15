@@ -1,0 +1,211 @@
+checked out origin/codex/r2-memory-pure-logic at 10347b2
+
+== BASE-TS: SURVIVED (exit 0), tree clean=true
+   Test Files  4 passed (4)
+   Tests  91 passed (91)
+
+== BASE-PY: SURVIVED (exit 0), tree clean=true
+   200 passed in 7.73s
+
+== MP1-unauth-owner: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (17 tests | 1 failed) 10ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 16 passed (17)
+   × rejects first-person words from an unauthenticated speaker 4ms
+
+== MP2-not-verbatim: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (17 tests | 1 failed) 9ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 16 passed (17)
+   × rejects a paraphrase that is not an exact source quote 3ms
+
+== MP3-model-certain: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (17 tests | 1 failed) 10ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 16 passed (17)
+   × model guesses remain proposed and uncertain 4ms
+
+== MP4-revive-superseded: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (17 tests | 1 failed) 10ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 16 passed (17)
+   × superseded facts cannot be revived by automatic promotion 4ms
+
+== MP5-forbidden-keys: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/sync/memory-distill.test.ts (63 tests | 7 failed) 17ms
+   Test Files  2 failed (2)
+   Tests  8 failed | 72 passed (80)
+   × rejects a proposal that attempts to set lifecycle state 4ms
+   × refuses a proposal carrying tool 4ms
+   × refuses a proposal carrying tool_call 0ms
+   × refuses a proposal carrying function 1ms
+
+== MP6-sensitivity-dropped: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  80 passed (80)
+
+== MP7-redaction-change-ok: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/sync/memory-distill.test.ts (63 tests | 1 failed) 15ms
+   Test Files  2 failed (2)
+   Tests  3 failed | 77 passed (80)
+   × rejects a fact containing an unredacted authentication code 4ms
+   × rejects model text that is not NFC normalized 1ms
+   × rejects unprojectable model text 5ms
+
+== ME1-unflagged-guess: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-evaluation.test.ts (6 tests | 2 failed) 10ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 4 passed (6)
+   × makes an unflagged model guess ineligible even when its wording matches 5ms
+   × ranks a safe lower-scoring model ahead of an unsafe higher-scoring model 1ms
+
+== ME2-always-eligible: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-evaluation.test.ts (6 tests | 3 failed) 10ms
+   Test Files  1 failed (1)
+   Tests  3 failed | 3 passed (6)
+   × makes an unflagged model guess ineligible even when its wording matches 4ms
+   × makes a claimed first-person origin ineligible when no exact owner quote supports it 0ms
+   × ranks a safe lower-scoring model ahead of an unsafe higher-scoring model 2ms
+
+== ME3-foreign-source: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  6 passed (6)
+
+== ME4-rank-ignores-safety: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-evaluation.test.ts (6 tests | 1 failed) 9ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 5 passed (6)
+   × ranks a safe lower-scoring model ahead of an unsafe higher-scoring model 5ms
+
+== ME5-provenance-free: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  6 passed (6)
+
+== ME6-no-unexpected-penalty: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  6 passed (6)
+
+== ME7-forbidden-ignored: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-evaluation.test.ts (6 tests | 1 failed) 9ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 5 passed (6)
+   × makes an unflagged model guess ineligible even when its wording matches 5ms
+
+== ME8-golden-guess-certain: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-evaluation.test.ts (6 tests | 1 failed) 8ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 5 passed (6)
+   × rejects a golden model guess that is not marked uncertain 4ms
+
+== ME9-topic-free: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  6 passed (6)
+
+== MT1-move-cycle: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/topic-tree.test.ts (5 tests | 1 failed) 8ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 4 passed (5)
+   × moves a topic with history and rejects a move beneath its own descendant 3ms
+
+== MT2-merge-cycle: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  5 passed (5)
+
+== MT3-add-dup-sibling: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  5 passed (5)
+
+== MT4-root-moves: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  5 passed (5)
+
+== MT5-rename-no-alias: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/topic-tree.test.ts (5 tests | 1 failed) 10ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 4 passed (5)
+   × renames a topic without losing its stable identity or old name 5ms
+
+== MT6-confidence-over-1: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  5 passed (5)
+
+== MT7-root-merges: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  5 passed (5)
+
+== MT8-merge-orphans-children: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  5 passed (5)
+
+== MT9-merge-dup-child: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  5 passed (5)
+
+== MT10-dup-transition-id: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  5 passed (5)
+
+== PY1-unauth-owner: KILLED (exit 1), tree clean=true
+   1 failed, 199 passed in 6.38s
+   FAILED tests/memory/test_shared_memory_policy.py::test_first_person_classifier_matches_shared_vectors[rejects first-person words from an unauthenticated speaker]
+
+== PY2-nfc-check: KILLED (exit 1), tree clean=true
+   1 failed, 199 passed in 4.48s
+   FAILED tests/memory/test_shared_memory_policy.py::test_extraction_validation_matches_shared_vectors[rejects model text that is not NFC normalized]
+
+== PY3-model-origin-trusted: KILLED (exit 1), tree clean=true
+   2 failed, 198 passed in 4.90s
+   FAILED tests/memory/test_distillation.py::test_a_model_proposal_is_always_recorded_as_model_origin
+   FAILED tests/memory/test_shared_memory_policy.py::test_extraction_validation_matches_shared_vectors[normalizes a valid model proposal and ignores a claimed trusted origin]
+
+== PY4-model-certain: KILLED (exit 1), tree clean=true
+   3 failed, 197 passed in 4.28s
+   FAILED tests/memory/test_shared_memory_policy.py::test_promotion_engine_matches_shared_vectors[model guesses remain proposed and uncertain]
+   FAILED tests/memory/test_shared_memory_policy.py::test_extraction_validation_matches_shared_vectors[normalizes a valid model proposal and ignores a claimed trusted origin]
+   FAILED tests/memory/test_shared_memory_policy.py::test_extraction_validation_matches_shared_vectors[defaults omitted confidence and sensitivity without trusting the model]
+
+== PY5-sensitivity-dropped: SURVIVED (exit 0), tree clean=true
+   200 passed in 4.92s
+
+== PY6-not-verbatim: KILLED (exit 1), tree clean=true
+   1 failed, 199 passed in 5.04s
+   FAILED tests/memory/test_shared_memory_policy.py::test_first_person_classifier_matches_shared_vectors[rejects a paraphrase that is not an exact source quote]
+
+=== summary
+SURVIVED  BASE-TS
+SURVIVED  BASE-PY
+KILLED    MP1-unauth-owner
+KILLED    MP2-not-verbatim
+KILLED    MP3-model-certain
+KILLED    MP4-revive-superseded
+KILLED    MP5-forbidden-keys
+SURVIVED  MP6-sensitivity-dropped
+KILLED    MP7-redaction-change-ok
+KILLED    ME1-unflagged-guess
+KILLED    ME2-always-eligible
+SURVIVED  ME3-foreign-source
+KILLED    ME4-rank-ignores-safety
+SURVIVED  ME5-provenance-free
+SURVIVED  ME6-no-unexpected-penalty
+KILLED    ME7-forbidden-ignored
+KILLED    ME8-golden-guess-certain
+SURVIVED  ME9-topic-free
+KILLED    MT1-move-cycle
+SURVIVED  MT2-merge-cycle
+SURVIVED  MT3-add-dup-sibling
+SURVIVED  MT4-root-moves
+KILLED    MT5-rename-no-alias
+SURVIVED  MT6-confidence-over-1
+SURVIVED  MT7-root-merges
+SURVIVED  MT8-merge-orphans-children
+SURVIVED  MT9-merge-dup-child
+SURVIVED  MT10-dup-transition-id
+KILLED    PY1-unauth-owner
+KILLED    PY2-nfc-check
+KILLED    PY3-model-origin-trusted
+KILLED    PY4-model-certain
+SURVIVED  PY5-sensitivity-dropped
+KILLED    PY6-not-verbatim
+back on main, tree clean=true
+(node:23912) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

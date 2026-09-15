@@ -1,0 +1,7 @@
+{
+  "VERDICT": "changes requested (round 3)",
+  "TESTS": "`pnpm test`: 2,886 of 2,886 passed. Typecheck and lint pass. local-agent: pytest 878 passed, 32 skipped; Ruff clean; mypy clean (58 files). A standalone rerun of the known flaky archival and voice-guest files hit one load timeout out of 55, and the full suite passed those same files.",
+  "H2": "the reviewer's unchanged `pr39-h2-probe.test.ts` still fails its REPLACE test with `memory_cursor_duplicate`, so the fix holds.",
+  "MUTATIONS": "**75 of 75 killed**, with 0 survived and 0 invalid. 65 kills were matched to a named test. The other 10 were checked by hand: the relevant behavioral tests failed in milliseconds, with 0 timeouts. For example, removing `memory_topic_events_apply` fails 83 tests, and removing `memory_item_versions_fts_insert` fails the FTS-projection test.",
+  "NEXT": "**Next.** Fix S1–S4 and add the generic REPLACE sweep. The Sid-attended `jarvis-scratch-0016-proof` remote run is still required before any production apply, with the exact PowerShell steps prepared by the reviewer once the SQL clears. The N6 ingress allowlist remains a separate `0019` PR after #39."
+}

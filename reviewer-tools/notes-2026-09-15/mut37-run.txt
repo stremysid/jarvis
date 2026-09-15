@@ -1,0 +1,98 @@
+checked out b438666 at b438666
+
+== BASE-TS: SURVIVED (exit 0), tree clean=true
+   Test Files  4 passed (4)
+   Tests  34 passed (34)
+
+== BASE-PY: SURVIVED (exit 0), tree clean=true
+   7 passed in 0.24s
+
+== V1-no-case-fold: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts (6 tests | 1 failed) 1630ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 5 passed (6)
+   × runs every shared ASCII canonicalization vector and rejects every noncanonical class 3ms
+
+== V2-no-length-cap: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  6 passed (6)
+
+== V4-word-count: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts (6 tests | 1 failed) 1637ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 5 passed (6)
+   × runs every shared ASCII canonicalization vector and rejects every noncanonical class 3ms
+
+== V5-unissued-record: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  6 passed (6)
+
+== V7-offlist-candidate-errors: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  6 passed (6)
+
+== S2-identity-mismatch-unchecked: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  16 passed (16)
+
+== S3-version-skip: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/sync/owner-passphrase.test.ts (8 tests | 1 failed) 3085ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 7 passed (8)
+   × rotates by compare-and-swap and an older signed expectation cannot roll the head back 515ms
+
+== S4-request-salt-unchecked: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  16 passed (16)
+
+== R1-no-body-cap: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/http/owner-passphrase-routes.test.ts (8 tests | 1 failed) 6118ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 7 passed (8)
+   × refuses methods and oversized bodies before generating 5108ms
+
+== M1-second-first-commit: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  20 passed (20)
+
+== M4-insert-key-generation-unbound: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  20 passed (20)
+
+== M6-insert-owner-device-unbound: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  20 passed (20)
+
+== PY2-version-unchecked: SURVIVED (exit 0), tree clean=true
+   7 passed in 0.25s
+
+== PY3-no-confirmation: SURVIVED (exit 0), tree clean=true
+   7 passed in 0.25s
+
+== PY5-phrase-shape-unchecked: SURVIVED (exit 0), tree clean=true
+   7 passed in 0.24s
+
+== PY6-non-windows-allowed: KILLED (exit 1), tree clean=true
+   1 failed, 6 passed in 0.33s
+   FAILED tests/test_owner_passphrase.py::test_generate_requires_windows_and_both_interactive_terminals_before_loading_a_key
+
+=== summary
+SURVIVED  BASE-TS
+SURVIVED  BASE-PY
+KILLED    V1-no-case-fold
+SURVIVED  V2-no-length-cap
+KILLED    V4-word-count
+SURVIVED  V5-unissued-record
+SURVIVED  V7-offlist-candidate-errors
+SURVIVED  S2-identity-mismatch-unchecked
+KILLED    S3-version-skip
+SURVIVED  S4-request-salt-unchecked
+KILLED    R1-no-body-cap
+SURVIVED  M1-second-first-commit
+SURVIVED  M4-insert-key-generation-unbound
+SURVIVED  M6-insert-owner-device-unbound
+SURVIVED  PY2-version-unchecked
+SURVIVED  PY3-no-confirmation
+SURVIVED  PY5-phrase-shape-unchecked
+KILLED    PY6-non-windows-allowed
+back on main, tree clean=true

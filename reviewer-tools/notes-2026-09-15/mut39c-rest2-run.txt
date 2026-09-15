@@ -1,0 +1,201 @@
+checked out eb70b70 at eb70b70
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  95 passed (95)
+
+== T-memory_item_versions_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1154ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_item_versions_insert_guard rejects INSERT OR REPLACE of an existing key 9ms
+
+== T-memory_item_sources_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 1022ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × projects only valid version and lifecycle transitions into retrievable item state 64ms
+   × memory_item_sources_insert_guard rejects INSERT OR REPLACE of an existing key 3ms
+
+== T-memory_item_transitions_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 6 failed) 1158ms
+   Test Files  1 failed (1)
+   Tests  6 failed | 89 passed (95)
+   × projects only valid version and lifecycle transitions into retrievable item state 68ms
+   × requires owner authority to leave forgotten or rejected item state 30ms
+   × binds owner authority to a dedicated command with the exact operation and limits 41ms
+   × keeps inferred and third-party claims uncertain and owner-gates confirmed activation 20ms
+
+== T-memory_item_transitions_apply_state: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 10 failed) 931ms
+   Test Files  1 failed (1)
+   Tests  10 failed | 85 passed (95)
+   × projects only valid version and lifecycle transitions into retrievable item state 21ms
+   × hides recent turns, items, episodes, and history chunks until one authorized lift 27ms
+   × binds item forget suppressions to the forgotten transition and exact source turn 43ms
+   × requires owner authority to leave forgotten or rejected item state 17ms
+
+== T-memory_item_state_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 1487ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × projects only valid version and lifecycle transitions into retrievable item state 36ms
+   × memory_item_state_insert_guard rejects INSERT OR REPLACE of an existing key 5ms
+
+== T-memory_item_state_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 1016ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × projects only valid version and lifecycle transitions into retrievable item state 53ms
+   × memory_item_state_update_guard rejects an update without the required transition 3ms
+
+== T-memory_item_state_delete_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 1093ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × memory_item_state_delete_guard rejects direct projection deletion 10ms
+   × memory_item_transitions_apply_state projects the appended transition 3ms
+
+== T-memory_event_suppressions_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 3 failed) 1020ms
+   Test Files  1 failed (1)
+   Tests  3 failed | 92 passed (95)
+   × hides recent turns, items, episodes, and history chunks until one authorized lift 59ms
+   × binds item forget suppressions to the forgotten transition and exact source turn 52ms
+   × memory_event_suppressions_insert_guard rejects INSERT OR REPLACE of an existing key 6ms
+
+== T-memory_event_suppression_lifts_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 4 failed) 1079ms
+   Test Files  1 failed (1)
+   Tests  4 failed | 91 passed (95)
+   × hides recent turns, items, episodes, and history chunks until one authorized lift 73ms
+   × binds item forget suppressions to the forgotten transition and exact source turn 33ms
+   × rejects stale lift authority and a correction older than the forget 35ms
+   × memory_event_suppression_lifts_insert_guard rejects INSERT OR REPLACE of an existing key 4ms
+
+== T-memory_item_links_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1218ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_item_links_insert_guard rejects INSERT OR REPLACE of an existing key 8ms
+
+== T-memory_topic_events_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 4 failed) 1079ms
+   Test Files  1 failed (1)
+   Tests  4 failed | 91 passed (95)
+   × applies topic create, rename, move, merge, alias, and placement history without cycles 35ms
+   × binds owner authority to a dedicated command with the exact operation and limits 41ms
+   × preserves aliases on moves and merges and rejects unrelated alias targets 16ms
+   × memory_topic_events_insert_guard rejects INSERT OR REPLACE of an existing key 5ms
+
+== T-memory_topic_events_apply: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 79 failed) 797ms
+   Test Files  1 failed (1)
+   Tests  79 failed | 16 passed (95)
+   × applies topic create, rename, move, merge, alias, and placement history without cycles 21ms
+   × bounds settlements and releases by their reservation 39ms
+   × rejects replay of an older topic move before it can create a cycle 6ms
+   × requires monotonic placement events and an active filing target 15ms
+
+== T-memory_topics_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1041ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_topics_insert_guard rejects INSERT OR REPLACE of an existing key 8ms
+
+== T-memory_topics_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 3 failed) 1064ms
+   Test Files  1 failed (1)
+   Tests  3 failed | 92 passed (95)
+   × applies topic create, rename, move, merge, alias, and placement history without cycles 143ms
+   × rejects replay of an older topic move before it can create a cycle 16ms
+   × memory_topics_update_guard rejects an update without the required transition 2ms
+
+== T-memory_topics_delete_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 2177ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_topics_delete_guard rejects direct projection deletion 10ms
+
+== T-memory_topic_aliases_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1031ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_topic_aliases_insert_guard rejects INSERT OR REPLACE of an existing key 8ms
+
+== T-memory_item_placement_events_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 1078ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × requires monotonic placement events and an active filing target 49ms
+   × memory_item_placement_events_insert_guard rejects INSERT OR REPLACE of an existing key 3ms
+
+== T-memory_item_placement_events_apply_state: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 6 failed) 963ms
+   Test Files  1 failed (1)
+   Tests  6 failed | 89 passed (95)
+   × applies topic create, rename, move, merge, alias, and placement history without cycles 35ms
+   × requires monotonic placement events and an active filing target 25ms
+   × memory_item_placement_state_insert_guard rejects INSERT OR REPLACE of an existing key 5ms
+   × memory_item_placement_state_update_guard rejects an update without the required transition 2ms
+
+== T-memory_item_placement_state_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 970ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × applies topic create, rename, move, merge, alias, and placement history without cycles 29ms
+   × memory_item_placement_state_insert_guard rejects INSERT OR REPLACE of an existing key 3ms
+
+== T-memory_item_placement_state_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 1032ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × requires monotonic placement events and an active filing target 42ms
+   × memory_item_placement_state_update_guard rejects an update without the required transition 3ms
+
+== T-memory_item_placement_state_delete_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 979ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × memory_item_placement_state_delete_guard rejects direct projection deletion 8ms
+   × memory_item_placement_events_apply_state projects the appended placement 3ms
+
+== T-memory_episodes_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 1 failed) 1244ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 94 passed (95)
+   × memory_episodes_insert_guard rejects INSERT OR REPLACE of an existing key 11ms
+
+== T-memory_episode_sources_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (95 tests | 2 failed) 1499ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 93 passed (95)
+   × keeps episodes hidden until their complete in-range source set exists 39ms
+   × memory_episode_sources_insert_guard rejects INSERT OR REPLACE of an existing key 3ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-memory_item_versions_insert_guard
+KILLED    T-memory_item_sources_insert_guard
+KILLED    T-memory_item_transitions_insert_guard
+KILLED    T-memory_item_transitions_apply_state
+KILLED    T-memory_item_state_insert_guard
+KILLED    T-memory_item_state_update_guard
+KILLED    T-memory_item_state_delete_guard
+KILLED    T-memory_event_suppressions_insert_guard
+KILLED    T-memory_event_suppression_lifts_insert_guard
+KILLED    T-memory_item_links_insert_guard
+KILLED    T-memory_topic_events_insert_guard
+KILLED    T-memory_topic_events_apply
+KILLED    T-memory_topics_insert_guard
+KILLED    T-memory_topics_update_guard
+KILLED    T-memory_topics_delete_guard
+KILLED    T-memory_topic_aliases_insert_guard
+KILLED    T-memory_item_placement_events_insert_guard
+KILLED    T-memory_item_placement_events_apply_state
+KILLED    T-memory_item_placement_state_insert_guard
+KILLED    T-memory_item_placement_state_update_guard
+KILLED    T-memory_item_placement_state_delete_guard
+KILLED    T-memory_episodes_insert_guard
+KILLED    T-memory_episode_sources_insert_guard
+back on main, tree clean=true

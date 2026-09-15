@@ -1,0 +1,130 @@
+== isolated rerun on 3f884b5
+ Test Files  3 passed (3)
+      Tests  126 passed (126)
+checked out 3f884b5 at 3f884b5
+
+== BASE-TS: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  63 passed (63)
+
+== BASE-PY: SURVIVED (exit 0), tree clean=true
+   221 passed in 5.93s
+
+== F1a-no-penalty: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-evaluation.test.ts (15 tests | 1 failed) 11ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 14 passed (15)
+   × scales an unexpected-memory penalty below a complete miss in a realistic suite 4ms
+
+== F1b-flat-penalty: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-evaluation.test.ts (15 tests | 1 failed) 11ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 14 passed (15)
+   × scales an unexpected-memory penalty below a complete miss in a realistic suite 4ms
+
+== F2a-i-think-guess-suppose: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (38 tests | 3 failed) 12ms
+   Test Files  1 failed (1)
+   Tests  3 failed | 35 passed (38)
+   × rejects a whole owner sentence framed with I think 4ms
+   × rejects a whole owner sentence framed as a guess 1ms
+   × rejects a whole owner sentence framed as a supposition 0ms
+
+== F2b-not-sure: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (38 tests | 1 failed) 11ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 37 passed (38)
+   × rejects a whole owner sentence framed as not sure 4ms
+
+== F2c-dont-know: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (38 tests | 1 failed) 12ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 37 passed (38)
+   × rejects a whole owner sentence framed as not knowing 4ms
+
+== F2d-alias-case-dedup: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/topic-tree.test.ts (10 tests | 1 failed) 18ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 9 passed (10)
+   × deduplicates merge aliases that differ only in case 5ms
+
+== F3a-second-sentence-ignored: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (38 tests | 1 failed) 10ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 37 passed (38)
+   × rejects two sentences combined into one trusted quote 3ms
+
+== F3b-interior-period-ignored: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (38 tests | 1 failed) 12ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 37 passed (38)
+   × rejects two sentences combined into one trusted quote 5ms
+
+== F3c-no-abbreviations: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (38 tests | 1 failed) 12ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 37 passed (38)
+   × accepts a curly-apostrophe first-person contraction 5ms
+
+== F3d-no-decimal: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  38 passed (38)
+
+== F3e-interior-bang: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  38 passed (38)
+
+== F4-new-hedges: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/extraction-policy.test.ts (38 tests | 4 failed) 12ms
+   Test Files  1 failed (1)
+   Tests  4 failed | 34 passed (38)
+   × rejects a whole owner sentence hedged with probably 4ms
+   × rejects a whole owner sentence hedged with perhaps 1ms
+   × rejects a whole owner sentence hedged with could 0ms
+   × rejects a whole owner sentence hedged with would 0ms
+
+== PF3b-interior-period-ignored: KILLED (exit 1), tree clean=true
+   1 failed, 220 passed in 6.32s
+   FAILED tests/memory/test_shared_memory_policy.py::test_first_person_classifier_matches_shared_vectors[rejects two sentences combined into one trusted quote]
+
+== PF3c-no-abbreviations: KILLED (exit 1), tree clean=true
+   1 failed, 220 passed in 6.92s
+   FAILED tests/memory/test_shared_memory_policy.py::test_first_person_classifier_matches_shared_vectors[accepts a curly-apostrophe first-person contraction]
+
+== PF3d-no-decimal: SURVIVED (exit 0), tree clean=true
+   221 passed in 6.93s
+
+== PF4-new-hedges: KILLED (exit 1), tree clean=true
+   4 failed, 217 passed in 8.21s
+   FAILED tests/memory/test_shared_memory_policy.py::test_first_person_classifier_matches_shared_vectors[rejects a whole owner sentence hedged with probably]
+   FAILED tests/memory/test_shared_memory_policy.py::test_first_person_classifier_matches_shared_vectors[rejects a whole owner sentence hedged with perhaps]
+   FAILED tests/memory/test_shared_memory_policy.py::test_first_person_classifier_matches_shared_vectors[rejects a whole owner sentence hedged with could]
+   FAILED tests/memory/test_shared_memory_policy.py::test_first_person_classifier_matches_shared_vectors[rejects a whole owner sentence hedged with would]
+
+== PF2a-i-think-guess-suppose: KILLED (exit 1), tree clean=true
+   3 failed, 218 passed in 5.80s
+   FAILED tests/memory/test_shared_memory_policy.py::test_first_person_classifier_matches_shared_vectors[rejects a whole owner sentence framed with I think]
+   FAILED tests/memory/test_shared_memory_policy.py::test_first_person_classifier_matches_shared_vectors[rejects a whole owner sentence framed as a guess]
+   FAILED tests/memory/test_shared_memory_policy.py::test_first_person_classifier_matches_shared_vectors[rejects a whole owner sentence framed as a supposition]
+
+=== summary
+SURVIVED  BASE-TS
+SURVIVED  BASE-PY
+KILLED    F1a-no-penalty
+KILLED    F1b-flat-penalty
+KILLED    F2a-i-think-guess-suppose
+KILLED    F2b-not-sure
+KILLED    F2c-dont-know
+KILLED    F2d-alias-case-dedup
+KILLED    F3a-second-sentence-ignored
+KILLED    F3b-interior-period-ignored
+KILLED    F3c-no-abbreviations
+SURVIVED  F3d-no-decimal
+SURVIVED  F3e-interior-bang
+KILLED    F4-new-hedges
+KILLED    PF3b-interior-period-ignored
+KILLED    PF3c-no-abbreviations
+SURVIVED  PF3d-no-decimal
+KILLED    PF4-new-hedges
+KILLED    PF2a-i-think-guess-suppose
+back on main, tree clean=true

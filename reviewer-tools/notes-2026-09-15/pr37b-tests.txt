@@ -1,0 +1,28 @@
+Previous HEAD position was fcd55ef Merge pull request #36 from ksid1229-ops/codex/r2-memory-docs
+HEAD is now at 66d99fa Merge remote-tracking branch 'origin/main' into codex/r1-owner-passphrase-verifier
+66d99fa Merge remote-tracking branch 'origin/main' into codex/r1-owner-passphrase-verifier
+== pnpm test
+
+    at terminationFailure (C:/Users/Sid/jarvis-deploy/apps/cloud-gateway/src/voice/call-session-do.ts:466:10)
+ Test Files  134 passed (134)
+      Tests  2687 passed (2687)
+   Duration  73.40s (transform 43.96s, setup 0ms, import 359.16s, tests 358.62s, environment 9ms)
+== typecheck
+apps/hermes-runtime typecheck: Done
+tests/acceptance typecheck: Done
+apps/cloud-gateway typecheck: Done
+== typecheck voice
+$ tsc -p tests/acceptance/tsconfig.voice.json
+== lint
+apps/hermes-runtime lint: Done
+tests/acceptance lint: Done
+apps/cloud-gateway lint: Done
+== pytest
+........................................................................ [ 95%]
+.......................................                                  [100%]
+871 passed, 32 skipped in 28.13s
+== ruff
+All checks passed!
+== mypy
+Success: no issues found in 58 source files
+

@@ -1,0 +1,146 @@
+$ node scripts/voice-release-gate.mjs --fake-only
+✔ runs the real fake-suite entry before the retained-evidence audit (0.9429ms)
+✔ stops at gate_tests and preserves its failure instead of reporting a release pass (0.0999ms)
+✔ stops at fake_calls and preserves its failure instead of reporting a release pass (0.4906ms)
+✔ stops at live_evidence and preserves its failure instead of reporting a release pass (0.0769ms)
+✔ permits a fake-only developer run without mistaking it for evidence acceptance (0.1159ms)
+✔ refuses a process that could not start or did not return an exit status (0.112ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 59.1564
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr40
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+uncaught exception; source = Uncaught (in promise); stack = CallSessionTerminationError: call_session_termination_uninitialized
+    at terminationFailure (C:/Users/Sid/jarvis-pr40/apps/cloud-gateway/src/voice/call-session-do.ts:485:10)
+    at CallSession.#terminateOnce (C:/Users/Sid/jarvis-pr40/apps/cloud-gateway/src/voice/call-session-do.ts:1665:40)
+    at CallSession.terminate (C:/Users/Sid/jarvis-pr40/apps/cloud-gateway/src/voice/call-session-do.ts:1655:18)
+ ❯ |default| tests/acceptance/fake/voice-guest-access.test.ts (10 tests | 2 failed) 38430ms
+     × keeps the three-try guest PIN limit across Durable Object hibernation 5035ms
+     × keeps successful and rejected guest PIN candidates out of logs, replies and recalled memory 7211ms
+ ❯ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts (14 tests | 1 failed) 39253ms
+     × commits the exact success receipt before admitting an inbound owner 5518ms
+ ❯ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts (28 tests | 1 failed) 63376ms
+     × constructs and verifies the shared HMAC plus PBKDF2 known answer 5660ms
+ ❯ |default| tests/acceptance/fake/voice-call-path.test.ts (18 tests | 1 failed) 74353ms
+     × requests bounded 5xx retries for inbound cleanup and verifies fragment-free signatures 5322ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > requests bounded 5xx retries for inbound cleanup and verifies fragment-free signatures
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ tests/acceptance/fake/voice-call-path.test.ts:11:44
+      9|
+     10| describe("fake voice call path", () => {
+     11|   it.each(["inbound", "outbound"] as const)("requests bounded 5xx retr…
+       |                                            ^
+     12|     let fail = true;
+     13|     const system = await createFakeCallingSystem({ beforeTermination: …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-guest-access.test.ts > fake voice guest access > keeps the three-try guest PIN limit across Durable Object hibernation
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ tests/acceptance/fake/voice-guest-access.test.ts:9:3
+      7|
+      8| describe("fake voice guest access", () => {
+      9|   it("keeps the three-try guest PIN limit across Durable Object hibern…
+       |   ^
+     10|     const system = await createFakeCallingSystem();
+     11|     try {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-guest-access.test.ts > fake voice guest access > keeps successful and rejected guest PIN candidates out of logs, replies and recalled memory
+AssertionError: expected undefined to be 'active' // Object.is equality
+
+- Expected:
+"active"
+
++ Received:
+undefined
+
+ ❯ tests/acceptance/fake/voice-guest-access.test.ts:82:37
+     80|       await accepted.pin(FAKE_PIN_A());
+     81|       expect(logs.slice(beforeAcceptedPin)).toEqual([]);
+     82|       await expect(accepted.phase()).resolves.toBe("active");
+       |                                     ^
+     83|       await accepted.prompt("Remember my ordinary chamomile preference…
+     84|       await accepted.prompt("Recall my ordinary preference.");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > commits the exact success receipt before admitting an inbound owner
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ tests/acceptance/fake/voice-owner-call-step-up.test.ts:18:44
+     16|
+     17| describe("owner call passphrase step-up", () => {
+     18|   it.each(["inbound", "outbound"] as const)("commits the exact success…
+       |                                            ^
+     19|     const system = await createFakeCallingSystem();
+     20|     try {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > constructs and verifies the shared HMAC plus PBKDF2 known answer
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ tests/acceptance/fake/voice-owner-passphrase-security.test.ts:129:3
+    127|   });
+    128|
+    129|   it("constructs and verifies the shared HMAC plus PBKDF2 known answer…
+       |   ^
+    130|     const vector = vectors.verifier;
+    131|     const verifier = new OwnerPassphraseVerifier(bytes(vector.pepperBa…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  4 failed | 30 passed (34)
+      Tests  5 failed | 806 passed (811)
+   Start at  22:51:31
+   Duration  145.45s (transform 56.45s, setup 0ms, import 199.87s, tests 541.94s, environment 2ms)
+
+[ELIFECYCLE] Command failed with exit code 1.

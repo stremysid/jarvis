@@ -1,0 +1,48 @@
+Previous HEAD position was 726b78b Merge pull request #33 from ksid1229-ops/codex/r1-owner-call-passphrase-design
+HEAD is now at be0e3fb docs(agent-log): request PR35 re-review
+be0e3fb docs(agent-log): request PR35 re-review
+== pnpm test
+
+    at terminationFailure (C:/Users/Sid/jarvis-deploy/apps/cloud-gateway/src/voice/call-session-do.ts:466:10)
+ ❯ |default| apps/cloud-gateway/test/archive/archival-service.test.ts (46 tests | 1 failed) 38175ms
+     × seeks a many-segment tail read and accesses only the terminal manifest object 6861ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |default| apps/cloud-gateway/test/archive/archival-service.test.ts > ArchivalService > seeks a many-segment tail read and accesses only the terminal manifest object
+ Test Files  1 failed | 129 passed (130)
+      Tests  1 failed | 2625 passed (2626)
+   Duration  130.08s (transform 50.67s, setup 0ms, import 654.97s, tests 602.46s, environment 37ms)
+[ELIFECYCLE] Test failed. See above for more details.
+== typecheck
+apps/hermes-runtime typecheck: Done
+apps/cloud-gateway typecheck: Done
+tests/acceptance typecheck: Done
+== lint
+apps/hermes-runtime lint: Done
+apps/cloud-gateway lint: Done
+tests/acceptance lint: Done
+== probe
+ ❯ |default| apps/cloud-gateway/test/memory/zz-reviewer-probe.test.ts (6 tests | 6 failed) 14ms
+     × P1 a meaning-flipping owner substring becomes trusted and auto-promotes 7ms
+     × P1b the evaluator safety gate accepts the flipped quote as a trusted memory 3ms
+     × P2 a candidate claiming deterministic_observation passes the safety gate 1ms
+     × P3 a forbidden memory with changed punctuation or case evades the gate 0ms
+     × P4 faithful paraphrases score exactly like extracting nothing 1ms
+     × P5 a merge transition does not record which children or aliases moved 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected false to be true // Object.is equality
+AssertionError: expected [ { caseId: 'hedged-owner', …(2) } ] to deeply equal []
+AssertionError: expected [ { …(3) } ] to deeply equal []
+AssertionError: expected [ { …(3) } ] to deeply equal []
+AssertionError: expected 1 to be +0 // Object.is equality
+TypeError: Cannot read properties of undefined (reading 'transitionId')
+      Tests  6 failed (6)
+   Duration  854ms (transform 48ms, setup 0ms, import 78ms, tests 14ms, environment 0ms)
+== pytest
+........................................................................ [ 97%]
+..................                                                       [100%]
+850 passed, 32 skipped in 36.92s
+== ruff
+All checks passed!
+== mypy
+Success: no issues found in 56 source files
+
