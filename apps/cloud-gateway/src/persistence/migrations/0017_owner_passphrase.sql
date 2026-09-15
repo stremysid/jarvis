@@ -272,7 +272,6 @@ WHEN NOT EXISTS (
     AND json_extract(event.envelope_json, '$.correlationId') = event.event_id
     AND json_extract(event.envelope_json, '$.eventType') = event.event_type
     AND json_extract(event.envelope_json, '$.source') = event.source
-    AND json_extract(event.envelope_json, '$.producerVersion') = 'cloud-gateway@0.1.0'
     AND json_extract(event.envelope_json, '$.subjectId') = event.subject_id
     AND json_extract(event.envelope_json, '$.occurredAt') = event.occurred_at
     AND json_extract(event.envelope_json, '$.receivedAt') = event.received_at

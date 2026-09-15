@@ -112,20 +112,32 @@ describe("owner passphrase migration guards", () => {
 
   async function acceptedDisableEvent(
     eventId: string,
-    text = "/disable-owner-step-up --confirm",
-    subjectId = "telegram:user:44112233",
+    overrides: Partial<{
+      text: string;
+      subjectId: string;
+      receivedAt: string;
+      eventType: string;
+      receiptScope: string;
+      producerVersion: string;
+    }> = {},
   ): Promise<void> {
+    const text = overrides.text ?? "/disable-owner-step-up --confirm";
+    const subjectId = overrides.subjectId ?? "telegram:user:44112233";
+    const receivedAt = overrides.receivedAt ?? later;
+    const eventType = overrides.eventType ?? "telegram.update.received";
+    const receiptScope = overrides.receiptScope ?? "telegram.update";
+    const producerVersion = overrides.producerVersion ?? "cloud-gateway@0.1.0";
     const envelope = {
       schemaVersion: "1.0",
       eventId,
       correlationId: eventId,
       causationId: null,
-      eventType: "telegram.update.received",
+      eventType,
       source: "channel:telegram",
-      producerVersion: "cloud-gateway@0.1.0",
+      producerVersion,
       subjectId,
-      occurredAt: later,
-      receivedAt: later,
+      occurredAt: receivedAt,
+      receivedAt,
       contentHash: "5".repeat(64),
       payload: { updateId: 7, principalBinding: [1], chatId: "44112233", messageId: 9, text },
     };
@@ -133,13 +145,13 @@ describe("owner passphrase migration guards", () => {
       `INSERT INTO events (
         event_id, event_type, source, subject_id, occurred_at, received_at,
         content_hash, envelope_json, created_at
-      ) VALUES (?, 'telegram.update.received', 'channel:telegram', ?, ?, ?, ?, ?, ?) RETURNING sequence`,
-    ).bind(eventId, subjectId, later, later, "5".repeat(64), JSON.stringify(envelope), later)
+      ) VALUES (?, ?, 'channel:telegram', ?, ?, ?, ?, ?, ?) RETURNING sequence`,
+    ).bind(eventId, eventType, subjectId, receivedAt, receivedAt, "5".repeat(64), JSON.stringify(envelope), receivedAt)
       .first<{ sequence: number }>();
     if (event === null) throw new Error("disable_event_insert_failed");
     await env.DB.prepare(
-      "INSERT INTO idempotency_records (scope, key, request_hash, event_sequence, created_at) VALUES ('telegram.update', ?, ?, ?, ?)",
-    ).bind(eventId, "6".repeat(64), event.sequence, later).run();
+      "INSERT INTO idempotency_records (scope, key, request_hash, event_sequence, created_at) VALUES (?, ?, ?, ?, ?)",
+    ).bind(receiptScope, eventId, "6".repeat(64), event.sequence, receivedAt).run();
   }
 
   function disable(commitId: string, eventId: string, version = 1): D1PreparedStatement {
@@ -272,7 +284,7 @@ describe("owner passphrase migration guards", () => {
   it("pins owner_passphrase_disable_commit_guard to an exact confirmed owner Telegram event", async () => {
     await publishFirst();
     const eventId = "01m2bbbbbbbbbbbbbbbbbbb101";
-    await acceptedDisableEvent(eventId, "/disable-owner-step-up");
+    await acceptedDisableEvent(eventId, { text: "/disable-owner-step-up" });
     await expect(disable("01m2bbbbbbbbbbbbbbbbbbb102", eventId).run())
       .rejects.toThrow(/owner_passphrase_disable_state_changed/u);
     expect(await env.DB.prepare("SELECT status FROM owner_passphrase_heads").first())
@@ -282,11 +294,92 @@ describe("owner passphrase migration guards", () => {
   it("refuses an exact disable command from a different Telegram principal", async () => {
     await publishFirst();
     const eventId = "01m2bbbbbbbbbbbbbbbbbbb112";
-    await acceptedDisableEvent(eventId, "/disable-owner-step-up --confirm", "telegram:user:99887766");
+    await acceptedDisableEvent(eventId, { subjectId: "telegram:user:99887766" });
     await expect(disable("01m2bbbbbbbbbbbbbbbbbbb113", eventId).run())
       .rejects.toThrow(/owner_passphrase_disable_state_changed/u);
     expect(await env.DB.prepare("SELECT status FROM owner_passphrase_heads").first())
       .toEqual({ status: "active" });
+  });
+
+  it("keeps owner disable recovery valid across gateway producer-version changes", async () => {
+    await publishFirst();
+    const eventId = "01m2bbbbbbbbbbbbbbbbbbb114";
+    await acceptedDisableEvent(eventId, { producerVersion: "cloud-gateway@9.0.0" });
+    await disable("01m2bbbbbbbbbbbbbbbbbbb115", eventId).run();
+    expect(await env.DB.prepare("SELECT status FROM owner_passphrase_heads").first())
+      .toEqual({ status: "disabled" });
+  });
+
+  it("refuses a disable receipt more than five minutes after its accepted event", async () => {
+    await publishFirst();
+    const eventId = "01m2bbbbbbbbbbbbbbbbbbb116";
+    await acceptedDisableEvent(eventId, { receivedAt: "2026-09-14T22:39:59.000Z" });
+    await expect(disable("01m2bbbbbbbbbbbbbbbbbbb117", eventId).run())
+      .rejects.toThrow(/owner_passphrase_disable_state_changed/u);
+  });
+
+  it("refuses a disable event without a telegram.update receipt", async () => {
+    await publishFirst();
+    const eventId = "01m2bbbbbbbbbbbbbbbbbbb118";
+    await acceptedDisableEvent(eventId, { receiptScope: "telegram:update" });
+    await expect(disable("01m2bbbbbbbbbbbbbbbbbbb119", eventId).run())
+      .rejects.toThrow(/owner_passphrase_disable_state_changed/u);
+  });
+
+  it("refuses a disable event whose type is not telegram.update.received", async () => {
+    await publishFirst();
+    const eventId = "01m2bbbbbbbbbbbbbbbbbbb120";
+    await acceptedDisableEvent(eventId, { eventType: "telegram.message.received" });
+    await expect(disable("01m2bbbbbbbbbbbbbbbbbbb121", eventId).run())
+      .rejects.toThrow(/owner_passphrase_disable_state_changed/u);
+  });
+
+  it("refuses an active Telegram identity whose verification marker is missing", async () => {
+    await publishFirst();
+    await env.DB.prepare("PRAGMA ignore_check_constraints = ON").run();
+    try {
+      await env.DB.prepare(
+        "UPDATE channel_identities SET verified_at = NULL WHERE identity_id = 'identity:owner:telegram'",
+      ).run();
+    } finally {
+      await env.DB.prepare("PRAGMA ignore_check_constraints = OFF").run();
+    }
+    const eventId = "01m2bbbbbbbbbbbbbbbbbbb122";
+    await acceptedDisableEvent(eventId);
+    await expect(disable("01m2bbbbbbbbbbbbbbbbbbb123", eventId).run())
+      .rejects.toThrow(/owner_passphrase_disable_state_changed/u);
+  });
+
+  it.each([
+    {
+      component: "head",
+      guard: "owner_passphrase_heads_update_guard",
+      update: "UPDATE owner_passphrase_heads SET status = 'disabled', updated_at = ?",
+      eventId: "01m2bbbbbbbbbbbbbbbbbbb124",
+      commitId: "01m2bbbbbbbbbbbbbbbbbbb125",
+    },
+    {
+      component: "current verifier",
+      guard: "owner_passphrase_verifiers_transition_guard",
+      update: "UPDATE owner_passphrase_verifiers SET status = 'revoked', status_changed_at = ?",
+      eventId: "01m2bbbbbbbbbbbbbbbbbbb126",
+      commitId: "01m2bbbbbbbbbbbbbbbbbbb127",
+    },
+  ])("refuses disable when the $component is not active", async ({ guard, update, eventId, commitId }) => {
+    await publishFirst();
+    const installed = await env.DB.prepare(
+      "SELECT sql FROM sqlite_schema WHERE type = 'trigger' AND name = ?",
+    ).bind(guard).first<{ sql: string }>();
+    if (installed === null) throw new Error("owner_passphrase_test_guard_missing");
+    await env.DB.prepare(`DROP TRIGGER ${guard}`).run();
+    try {
+      await env.DB.prepare(update).bind(later).run();
+    } finally {
+      await env.DB.prepare(installed.sql).run();
+    }
+    await acceptedDisableEvent(eventId);
+    await expect(disable(commitId, eventId).run())
+      .rejects.toThrow(/owner_passphrase_disable_state_changed/u);
   });
 
   it("pins owner_passphrase_disable_commit_publish", async () => {

@@ -229,6 +229,20 @@ def test_generate_requires_exact_confirmation_before_replacing_the_verifier(
     assert capsys.readouterr().out.strip() == "owner passphrase generation cancelled"
 
 
+def test_status_reports_disabled_verifier_as_an_operator_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class Client:
+        def status(self) -> OwnerPassphraseStatus:
+            return OwnerPassphraseStatus(7, "disabled")
+
+    monkeypatch.setattr("jarvis_local.owner_passphrase._is_windows", lambda: True)
+    monkeypatch.setattr("jarvis_local.owner_passphrase._client", lambda _config: Client())
+    assert run_owner_passphrase(JarvisLocalConfig.load(CONFIG), "status") == 1
+    assert capsys.readouterr().out.strip() == "owner passphrase is disabled at verifier version 7"
+
+
 def test_status_never_displays_a_phrase_and_main_routes_nested_commands(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
