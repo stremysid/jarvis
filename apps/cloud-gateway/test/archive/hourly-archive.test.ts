@@ -62,7 +62,7 @@ describe("hourly archival through the Worker entrypoint", () => {
     expect(await env.DB.prepare("SELECT sealed_through FROM archive_state").first("sealed_through")).toBe(1);
   });
 
-  it("records an upload failure without sealing or purging the source events", async () => {
+  it("isolates an upload failure without sealing, purging, or skipping later hourly work", async () => {
     await appendEvents(1);
     await setCreatedAt(1, "2026-09-01T00:00:00.000Z");
     await markDelivered(1);
@@ -70,9 +70,13 @@ describe("hourly archival through the Worker entrypoint", () => {
     await hourly();
     expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM events").first("n")).toBe(1);
     expect(await env.DB.prepare("SELECT sealed_through FROM archive_state").first("sealed_through")).toBe(0);
-    expect(await env.DB.prepare("SELECT failure FROM scheduled_runs WHERE job = 'poll'").first("failure")).toBeTruthy();
+    expect(await env.DB.prepare("SELECT failure FROM scheduled_runs WHERE job = 'poll'").first("failure")).toBeNull();
     expect(reports).toContainEqual(["scheduled", expect.objectContaining({
-      jobs: [expect.objectContaining({ job: "poll", result: "failed" })], heartbeat: null,
+      jobs: [expect.objectContaining({
+        job: "poll",
+        result: "ran",
+        detail: expect.stringContaining("archival failed (archive_operation_failed); Classroom not configured; Brightspace not configured"),
+      })],
     })]);
   });
 });
