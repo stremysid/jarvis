@@ -1,0 +1,38 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/zz-reviewer-pr47.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-deploy
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/memory/zz-reviewer-pr47.test.ts (2 tests | 1 failed) 260ms
+     × Q2: an archived event with no link to the principal is accepted as that principal's memory source 36ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/zz-reviewer-pr47.test.ts > PR47 reviewer probes > Q2: an archived event with no link to the principal is accepted as that principal's memory source
+Error: D1_ERROR: archive_seal_compare_failed: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+ ❯ D1DatabaseSessionAlwaysPrimary._sendOrThrow cloudflare-internal:d1-api:188:19
+ ❯ cloudflare-internal:d1-api:137:19
+ ❯ seedArchivedEventForSomeoneElse apps/cloud-gateway/test/memory/zz-reviewer-pr47.test.ts:37:3
+     35|   const manifestId = await sha256Hex(`manifest:${eventId}`);
+     36|   const segmentId = await sha256Hex(`segment:${eventId}`);
+     37|   await env.DB.batch([
+       |   ^
+     38|     env.DB.prepare(`INSERT INTO archive_manifests (
+     39|       manifest_id, start_sequence, end_sequence, event_count, status, …
+ ❯ apps/cloud-gateway/test/memory/zz-reviewer-pr47.test.ts:122:21
+
+Caused by: Error: archive_seal_compare_failed: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+ ❯ D1DatabaseSessionAlwaysPrimary._sendOrThrow cloudflare-internal:d1-api:189:24
+ ❯ cloudflare-internal:d1-api:137:19
+ ❯ seedArchivedEventForSomeoneElse apps/cloud-gateway/test/memory/zz-reviewer-pr47.test.ts:37:3
+ ❯ apps/cloud-gateway/test/memory/zz-reviewer-pr47.test.ts:122:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  12:22:20
+   Duration  2.48s (transform 759ms, setup 0ms, import 1.39s, tests 260ms, environment 0ms)
+
