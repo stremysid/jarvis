@@ -1,0 +1,46 @@
+checked out 074312c at 074312c
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  17 passed (17)
+
+== M1-live-excerpt-provenance: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-repository-faults.test.ts (7 tests | 1 failed) 608ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 16 passed (17)
+   × refuses an exact excerpt that is absent from its live source event before reaching the write batch 61ms
+
+== M2-canonical-principal-filter: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-repository.test.ts (10 tests | 1 failed) 1148ms
+   Test Files  2 failed (2)
+   Tests  2 failed | 15 passed (17)
+   × uses the principal filter even when another principal has the requested item identity 69ms
+   × keeps item reads scoped to the authenticated principal 59ms
+
+== M3-source-prevalidation: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-repository-faults.test.ts (7 tests | 2 failed) 613ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  2 failed | 15 passed (17)
+   × validates every source event for the principal before reaching the write batch 78ms
+   × refuses an exact excerpt that is absent from its live source event before reaching the write batch 73ms
+
+== M4-current-path-first: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-repository.test.ts (10 tests | 1 failed) 1182ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 16 passed (17)
+   × resolves a current active path before aliases and repeated aliases newest first 44ms
+
+== M5-live-channel-derivation: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  17 passed (17)
+
+=== summary
+SURVIVED  BASE
+KILLED    M1-live-excerpt-provenance
+KILLED    M2-canonical-principal-filter
+KILLED    M3-source-prevalidation
+KILLED    M4-current-path-first
+SURVIVED  M5-live-channel-derivation
+back on main, tree clean=true
+(node:4260) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

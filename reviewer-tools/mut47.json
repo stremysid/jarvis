@@ -1,0 +1,66 @@
+{
+ "root": "C:/Users/Sid/jarvis-deploy",
+ "branch": "074312c",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/memory/memory-repository.ts",
+   "from": "export class MemoryRepository {",
+   "to": "export class MemoryRepository {",
+   "tests": [
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository-faults.test.ts"
+   ]
+  },
+  {
+   "id": "M1-live-excerpt-provenance",
+   "file": "apps/cloud-gateway/src/memory/memory-repository.ts",
+   "from": "      || !payloadContainsExactExcerpt(envelope.payload, source.excerpt)\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository-faults.test.ts"
+   ]
+  },
+  {
+   "id": "M2-canonical-principal-filter",
+   "file": "apps/cloud-gateway/src/memory/memory-repository.ts",
+   "from": "WHERE item.principal_id = ? AND item.item_id = ?",
+   "to": "WHERE (item.principal_id = ? OR 1 = 1) AND item.item_id = ?",
+   "tests": [
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository-faults.test.ts"
+   ]
+  },
+  {
+   "id": "M3-source-prevalidation",
+   "file": "apps/cloud-gateway/src/memory/memory-repository.ts",
+   "from": "        await this.validateSourceReceipts(captured);\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository-faults.test.ts"
+   ]
+  },
+  {
+   "id": "M4-current-path-first",
+   "file": "apps/cloud-gateway/src/memory/memory-repository.ts",
+   "from": "const current = await this.resolveCurrentPath(principalId, components.map((part) => part.normalized));",
+   "to": "const current = null;",
+   "tests": [
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository-faults.test.ts"
+   ]
+  },
+  {
+   "id": "M5-live-channel-derivation",
+   "file": "apps/cloud-gateway/src/memory/memory-repository.ts",
+   "from": "      liveEventChannel(eventType, envelope.payload) !== source.channel\n      || ",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository-faults.test.ts"
+   ]
+  }
+ ]
+}

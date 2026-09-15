@@ -1,0 +1,35 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/zz-reviewer-pr47.test.ts -t Q1
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-deploy
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/memory/zz-reviewer-pr47.test.ts (2 tests | 1 failed | 1 skipped) 211ms
+     × Q1: a stated, active memory is accepted with an excerpt that never appears in its live source event 46ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/zz-reviewer-pr47.test.ts > PR47 reviewer probes > Q1: a stated, active memory is accepted with an excerpt that never appears in its live source event
+MemoryRepositoryError: memory_corrupt
+ ❯ corrupt apps/cloud-gateway/src/memory/memory-repository.ts:355:9
+    353|
+    354| function corrupt(): never {
+    355|   throw new MemoryRepositoryError("memory_corrupt");
+       |         ^
+    356| }
+    357|
+ ❯ MemoryRepository.validateLiveEventEvidence apps/cloud-gateway/src/memory/memory-repository.ts:1402:7
+ ❯ MemoryRepository.validateReceipt apps/cloud-gateway/src/memory/memory-repository.ts:937:9
+ ❯ MemoryRepository.validateSourceReceipts apps/cloud-gateway/src/memory/memory-repository.ts:902:5
+ ❯ apps/cloud-gateway/src/memory/memory-repository.ts:725:9
+ ❯ MemoryRepository.safely apps/cloud-gateway/src/memory/memory-repository.ts:802:14
+ ❯ apps/cloud-gateway/test/memory/zz-reviewer-pr47.test.ts:110:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 skipped (2)
+   Start at  12:57:51
+   Duration  2.15s (transform 695ms, setup 0ms, import 1.27s, tests 211ms, environment 0ms)
+
