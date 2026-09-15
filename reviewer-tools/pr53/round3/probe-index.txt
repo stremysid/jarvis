@@ -1,0 +1,36 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/school/zz-reviewer-pr53c-probe.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr39
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/school/zz-reviewer-pr53c-probe.test.ts (1 test | 1 failed) 7ms
+     × P1 index: the closed-quiz notice and the fallback reply survive the output redactor 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/school/zz-reviewer-pr53c-probe.test.ts > zzreviewerpr53c > P1 index: the closed-quiz notice and the fallback reply survive the output redactor
+AssertionError: expected [Function] to not throw an error but 'StreamingOutputRedactionError: stream…' was thrown
+
+- Expected:
+undefined
+
++ Received:
+"StreamingOutputRedactionError: stream_redaction_input_invalid"
+
+ ❯ apps/cloud-gateway/test/school/zz-reviewer-pr53c-probe.test.ts:19:89
+     17|     const output = new StreamingOutputRedactor(new Redactor());
+     18|     output.push(Object.freeze({ index: 0, text: "I closed the previous…
+     19|     expect(() => output.push(Object.freeze({ index: 0, text: "Ordinary…
+       |                                                                                         ^
+     20|   });
+     21| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  19:34:47
+   Duration  661ms (transform 29ms, setup 0ms, import 44ms, tests 7ms, environment 0ms)
+
