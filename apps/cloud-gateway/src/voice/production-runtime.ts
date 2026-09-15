@@ -22,6 +22,7 @@ import {
 import { CapabilityRegistry } from "./capability-registry.js";
 import { AuthenticationAttemptBudget } from "./inbound-auth.js";
 import { OwnerAccessService } from "./owner-access-service.js";
+import { D1GuestGrantNoticeSink } from "./guest-grant-notice.js";
 import { GuestPinProofIssuer, VoiceAccessAuthorityService } from "./voice-access-authority.js";
 import { D1OwnerStepUpAlertSink, OwnerCallStepUpService } from "./owner-call-step-up.js";
 
@@ -78,6 +79,9 @@ export function createProductionCallSessionCore(
   const defaultGuestPin = env.DEFAULT_GUEST_PIN;
   const ownerAccess = new OwnerAccessService({
     repository: access, registry, authorities, verifier,
+    notices: new D1GuestGrantNoticeSink(
+      env.DB, new TelegramRestProvider({ botToken: configuration.telegramToken }),
+    ),
     ...(defaultGuestPin === undefined ? {} : { defaultGuestPin: () => defaultGuestPin }),
   });
   const observations = new VerifiedChannelObservationAuthority();

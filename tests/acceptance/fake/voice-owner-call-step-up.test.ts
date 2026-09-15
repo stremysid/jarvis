@@ -317,6 +317,58 @@ describe("owner call passphrase step-up", () => {
     } finally { fault.mockRestore(); await system.cleanup(); }
   }, 30_000);
 
+  it("alerts the owner when a closed socket resumes a committed rejection after eviction", async () => {
+    const system = await createFakeCallingSystem();
+    const expire = OwnerCallStepUpService.prototype.expire;
+    const fault = vi.spyOn(OwnerCallStepUpService.prototype, "expire").mockImplementationOnce(
+      async function (this: OwnerCallStepUpService, sessionId, now) {
+        await expire.call(this, sessionId, now);
+        throw new Error("fixture_after_expire_commit");
+      },
+    );
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      const call = await system.openRelay();
+      await call.setup();
+      system.advanceTime(60_001);
+      await expect(call.fireAlarm()).rejects.toThrow("fixture_after_expire_commit");
+      await call.hibernate();
+
+      await call.close();
+
+      expect(call.stepUpAlerts()).toHaveLength(1);
+      expect(await call.durableStorage()).not.toHaveProperty("call-session.owner-step-up-alarm.v1");
+      expect(await authorityCount(call.sessionId)).toBe(0);
+    } finally { fault.mockRestore(); await system.cleanup(); }
+  }, 30_000);
+
+  it("finishes and alerts when a live frame resumes a committed rejection after eviction", async () => {
+    const system = await createFakeCallingSystem();
+    const expire = OwnerCallStepUpService.prototype.expire;
+    const fault = vi.spyOn(OwnerCallStepUpService.prototype, "expire").mockImplementationOnce(
+      async function (this: OwnerCallStepUpService, sessionId, now) {
+        await expire.call(this, sessionId, now);
+        throw new Error("fixture_after_expire_commit");
+      },
+    );
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      const call = await system.openRelay();
+      await call.setup();
+      system.advanceTime(60_001);
+      await expect(call.fireAlarm()).rejects.toThrow("fixture_after_expire_commit");
+      await call.hibernate();
+
+      await call.prompt("hello there");
+
+      expect(call.frames().filter((frame) => frame.token === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
+      expect(call.frames()).toContainEqual({ type: "end", handoffData: OWNER_STEP_UP_HANDOFF_DATA });
+      expect(call.stepUpAlerts()).toHaveLength(1);
+      expect(await call.durableStorage()).not.toHaveProperty("call-session.owner-step-up-alarm.v1");
+      expect(await authorityCount(call.sessionId)).toBe(0);
+    } finally { fault.mockRestore(); await system.cleanup(); }
+  }, 30_000);
+
   it("closes a live socket when an evicted alarm can no longer match its durable session", async () => {
     const system = await createFakeCallingSystem();
     try {

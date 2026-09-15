@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   GUEST_CAPABILITY_IDS,
   type GuestCapabilityId,
@@ -15,6 +15,7 @@ import {
   TargetGuestResourceScopeResolver,
 } from "../../src/voice/owner-access-service.js";
 import { VoiceAccessAuthorityService } from "../../src/voice/voice-access-authority.js";
+import type { GuestGrantNoticeSink } from "../../src/voice/guest-grant-notice.js";
 import {
   clearVoiceAccessFixture,
   NOW,
@@ -147,6 +148,7 @@ describe("OwnerAccessService", () => {
 
   it("uses the default PIN only inside execute and supports replace, rotate, list, and revoke", async () => {
     let defaultReads = 0;
+    const notify = vi.fn<GuestGrantNoticeSink["notify"]>(async () => undefined);
     const service = new OwnerAccessService({
       repository,
       registry,
@@ -158,6 +160,7 @@ describe("OwnerAccessService", () => {
         defaultReads += 1;
         return "1357";
       },
+      notices: { notify },
     });
 
     const add = await service.prepare({
@@ -238,6 +241,49 @@ describe("OwnerAccessService", () => {
     const stored = await env.DB.prepare("SELECT status, grant_version FROM voice_access_grants")
       .first<{ status: string; grant_version: number }>();
     expect(stored).toEqual({ status: "revoked", grant_version: 4 });
+    expect(notify.mock.calls.map(([notice]) => ({
+      operation: notice.operation,
+      maskedTarget: notice.maskedTarget,
+      occurredAt: notice.occurredAt.toISOString(),
+    }))).toEqual([
+      { operation: "created", maskedTarget: "+1******0111", occurredAt: new Date(NOW.valueOf() + 1).toISOString() },
+      { operation: "permissions_changed", maskedTarget: "+1******0111", occurredAt: new Date(NOW.valueOf() + 3).toISOString() },
+      { operation: "pin_rotated", maskedTarget: "+1******0111", occurredAt: new Date(NOW.valueOf() + 5).toISOString() },
+      { operation: "revoked", maskedTarget: "+1******0111", occurredAt: new Date(NOW.valueOf() + 9).toISOString() },
+    ]);
+  });
+
+  it("keeps a committed guest mutation and warns the owner when its Telegram notice fails", async () => {
+    const service = new OwnerAccessService({
+      repository,
+      registry,
+      authorities,
+      verifier,
+      idFactory: sequentialIds(),
+      proposalIdFactory: () => "owner-access-proposal:notice-failure",
+      defaultGuestPin: () => "1357",
+      notices: { async notify() { throw new Error("telegram_unavailable"); } },
+    });
+    const proposal = await service.prepare({
+      ownerAuthority,
+      sessionId: OWNER_SESSION_ID,
+      draft: { kind: "add", providerE164: GUEST_E164, permissionPhrases: ["conversation"] },
+      now: NOW,
+    });
+
+    const result = await service.execute({
+      proposal,
+      ownerAuthority,
+      pinSelection: { kind: "default" },
+      now: new Date(NOW.valueOf() + 1),
+    });
+
+    expect(result).toEqual({
+      outcome: "created",
+      speech: "Caller +1******0111 is allowed. The Telegram notice could not be confirmed.",
+    });
+    await expect(env.DB.prepare("SELECT status FROM voice_access_grants").first<{ status: string }>())
+      .resolves.toEqual({ status: "pending" });
   });
 
   it("maps every closed guest permission phrase and still rejects owner-only authority", async () => {

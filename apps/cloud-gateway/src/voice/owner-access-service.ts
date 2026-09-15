@@ -16,6 +16,7 @@ import {
 import { GuestPinVerifier } from "../security/guest-pin-verifier.js";
 import { CapabilityRegistry, type CapabilitySnapshot } from "./capability-registry.js";
 import type { OwnerAccessDraft } from "./owner-access-intent.js";
+import type { GuestGrantNoticeOperation, GuestGrantNoticeSink } from "./guest-grant-notice.js";
 import {
   type OwnerCallAuthority,
   VoiceAccessAuthorityService,
@@ -46,6 +47,7 @@ export interface OwnerAccessServiceDependencies {
   readonly idFactory?: (now: Date) => Ulid;
   readonly proposalIdFactory?: () => string;
   readonly defaultGuestPin?: () => unknown;
+  readonly notices?: GuestGrantNoticeSink;
 }
 
 export interface OwnerAccessExecutionResult {
@@ -88,7 +90,7 @@ const PERMISSION_PHRASE = /^[a-z][a-z0-9]*(?: [a-z][a-z0-9]*){0,3}$/u;
 const OPAQUE_SCOPE_ID = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/u;
 const DEPENDENCY_FIELDS = new Set([
   "repository", "registry", "authorities", "verifier", "scopeResolver", "idFactory", "proposalIdFactory",
-  "defaultGuestPin",
+  "defaultGuestPin", "notices",
 ]);
 const REQUIRED_DEPENDENCY_FIELDS = new Set(["repository", "registry", "authorities", "verifier"]);
 const PREPARE_FIELDS = new Set(["ownerAuthority", "sessionId", "draft", "now"]);
@@ -504,6 +506,7 @@ export class OwnerAccessService {
   readonly #idFactory: (now: Date) => Ulid;
   readonly #proposalIdFactory: () => string;
   readonly #defaultGuestPin: (() => unknown) | undefined;
+  readonly #notices: GuestGrantNoticeSink | undefined;
   readonly #issued = new WeakMap<object, PreparedState>();
   readonly #currentBySession = new Map<Ulid, PreparedOwnerAccessProposal>();
 
@@ -539,12 +542,15 @@ export class OwnerAccessService {
     const idFactory = captured.idFactory ?? ((now: Date) => newUlid(now));
     const proposalIdFactory = captured.proposalIdFactory ?? (() => `owner-access-proposal:${crypto.randomUUID()}`);
     const defaultGuestPin = captured.defaultGuestPin;
+    const notices = captured.notices;
     if (
       !(repository instanceof VoiceAccessRepository) || !(registry instanceof CapabilityRegistry)
       || !(authorities instanceof VoiceAccessAuthorityService) || !(verifier instanceof GuestPinVerifier)
       || !(scopeResolver instanceof TargetGuestResourceScopeResolver)
       || typeof idFactory !== "function" || typeof proposalIdFactory !== "function"
       || (defaultGuestPin !== undefined && typeof defaultGuestPin !== "function")
+      || (notices !== undefined && (notices === null || typeof notices !== "object"
+        || typeof (notices as GuestGrantNoticeSink).notify !== "function"))
     ) {
       invalidInput();
     }
@@ -556,6 +562,7 @@ export class OwnerAccessService {
     this.#idFactory = idFactory as (now: Date) => Ulid;
     this.#proposalIdFactory = proposalIdFactory as () => string;
     this.#defaultGuestPin = defaultGuestPin as (() => unknown) | undefined;
+    this.#notices = notices as GuestGrantNoticeSink | undefined;
   }
 
   async #ownerAuthority(value: unknown, now: Date): Promise<OwnerCallAuthority> {
@@ -670,6 +677,30 @@ export class OwnerAccessService {
     return Object.freeze({ outcome, speech });
   }
 
+  async #notice(
+    authority: Readonly<{ principalId: string }>,
+    mutationId: Ulid,
+    operation: GuestGrantNoticeOperation,
+    maskedTarget: string | null,
+    now: Date,
+  ): Promise<string> {
+    if (this.#notices === undefined) return "";
+    try {
+      await this.#notices.notify({
+        ownerPrincipalId: authority.principalId,
+        mutationId,
+        operation,
+        maskedTarget: maskedTarget ?? "masked caller",
+        occurredAt: now,
+      });
+      return "";
+    } catch {
+      // The grant mutation has already committed and cannot be rolled back.
+      // Tell the owner on the call that the independent notice was not confirmed.
+      return " The Telegram notice could not be confirmed.";
+    }
+  }
+
   async execute(input: {
     proposal: PreparedOwnerAccessProposal;
     ownerAuthority: OwnerCallAuthority;
@@ -760,7 +791,8 @@ export class OwnerAccessService {
             pinVerifier,
             now,
           });
-          return this.#result("created", `Caller ${state.proposal.maskedTarget ?? "masked"} is allowed.`);
+          const notice = await this.#notice(persisted, mutationId, "created", state.proposal.maskedTarget, now);
+          return this.#result("created", `Caller ${state.proposal.maskedTarget ?? "masked"} is allowed.${notice}`);
         }
         if (state.expectedGrantVersion === null) throw safeError("owner_access_operation_failed");
         if (state.draft.kind === "replace_permissions") {
@@ -778,7 +810,8 @@ export class OwnerAccessService {
             accessDocumentHash: state.snapshot.accessDocumentHash,
             now,
           });
-          return this.#result("changed", `Permissions changed for ${state.proposal.maskedTarget ?? "the caller"}.`);
+          const notice = await this.#notice(persisted, mutationId, "permissions_changed", state.proposal.maskedTarget, now);
+          return this.#result("changed", `Permissions changed for ${state.proposal.maskedTarget ?? "the caller"}.${notice}`);
         }
         if (state.draft.kind === "rotate_pin") {
           if (pinBytes === null) throw safeError("owner_access_operation_failed");
@@ -794,7 +827,8 @@ export class OwnerAccessService {
             pinVerifier,
             now,
           });
-          return this.#result("rotated", `The PIN changed for ${state.proposal.maskedTarget ?? "the caller"}.`);
+          const notice = await this.#notice(persisted, mutationId, "pin_rotated", state.proposal.maskedTarget, now);
+          return this.#result("rotated", `The PIN changed for ${state.proposal.maskedTarget ?? "the caller"}.${notice}`);
         }
         const requestHash = await this.#requestHash(state, mutationId, null);
         await this.#repository.revokeGrant({
@@ -806,7 +840,8 @@ export class OwnerAccessService {
           expectedGrantVersion: state.expectedGrantVersion,
           now,
         });
-        return this.#result("revoked", `Access revoked for ${state.proposal.maskedTarget ?? "the caller"}.`);
+        const notice = await this.#notice(persisted, mutationId, "revoked", state.proposal.maskedTarget, now);
+        return this.#result("revoked", `Access revoked for ${state.proposal.maskedTarget ?? "the caller"}.${notice}`);
       } catch (error) {
         if (error instanceof Error && error.message.startsWith("owner_access_")) throw error;
         throw safeError("owner_access_operation_failed");

@@ -17,7 +17,7 @@
  * bare in a private chat. Both forms must resolve to the same command or the
  * bot silently ignores half of them.
  */
-const COMMAND_PATTERN = /^\/([a-z_]{1,32})(?:@([A-Za-z0-9_]{1,32}))?(?:\s+([\s\S]*))?$/u;
+const COMMAND_PATTERN = /^\/([a-z_-]{1,32})(?:@([A-Za-z0-9_]{1,32}))?(?:\s+([\s\S]*))?$/u;
 
 export type CommandName =
   | "help"
@@ -27,6 +27,7 @@ export type CommandName =
   | "exam"
   | "shadow"
   | "call"
+  | "disable-owner-step-up"
   | "vault";
 
 const KNOWN_COMMANDS: ReadonlySet<string> = new Set<CommandName>([
@@ -37,6 +38,7 @@ const KNOWN_COMMANDS: ReadonlySet<string> = new Set<CommandName>([
   "exam",
   "shadow",
   "call",
+  "disable-owner-step-up",
   "vault",
 ]);
 
@@ -81,8 +83,8 @@ export function parseCommand(text: string, botUsername: string | null): CommandP
   // message, and a pasted block below a command should not become part of it.
   const firstLine = line.split("\n", 1)[0] ?? "";
   const match = COMMAND_PATTERN.exec(firstLine);
-  // A slash followed by something that is not a command shape -- "/", "/123",
-  // "/a-b" -- is text. Reporting it as an unknown command would mean replying
+  // A slash followed by something that is not a command shape -- "/" or
+  // "/123" -- is text. Reporting it as an unknown command would mean replying
   // "unknown command" to a message that never was one.
   if (match === null) return { kind: "text" };
 
@@ -96,14 +98,16 @@ export function parseCommand(text: string, botUsername: string | null): CommandP
     return { kind: "text" };
   }
 
-  if (!KNOWN_COMMANDS.has(name)) return { kind: "unknown_command", attempted: name };
+  if (!KNOWN_COMMANDS.has(name)) {
+    return name.includes("-") ? { kind: "text" } : { kind: "unknown_command", attempted: name };
+  }
 
   return {
     kind: "command",
     name: name as CommandName,
     // A call must validate all the supplied text. Truncation or ignoring a
     // second line could turn a non-final --confirm into permission to dial.
-    argument: name === "call"
+    argument: name === "call" || name === "disable-owner-step-up"
       ? line.slice(1 + name.length + (addressed === undefined ? 0 : addressed.length + 1)).trim()
       : (rest ?? "").trim().slice(0, MAX_ARGUMENT_CHARACTERS),
     addressedTo: addressed ?? null,
@@ -136,5 +140,6 @@ export const COMMAND_HELP: string = [
   "/shadow on|off - whether Jarvis acts or only reports",
   "/vault <query> - search your notes",
   "/call <reason> --confirm - call your verified phone (owner only)",
+  "/disable-owner-step-up --confirm - disable spoken owner-call step-up",
   "/help - this",
 ].join("\n");

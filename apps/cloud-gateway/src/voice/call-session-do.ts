@@ -695,6 +695,8 @@ export class CallSessionCore {
   #ownerRepeatFragmentStartedAt: number | null = null;
   #ownerStepUpDeadlineAt: string | null = null;
   #ownerStepUpVerificationInFlight = false;
+  #ownerStepUpRepromptInFlight = false;
+  #ownerStepUpRejection: Promise<void> | null = null;
   #activeTurnAbort: AbortController | null = null;
   #lastSentAssistantEventId: Ulid | null = null;
   #socketClosed = false;
@@ -1154,6 +1156,25 @@ export class CallSessionCore {
   }
 
   async #rejectOwnerStepUp(observedAt: Date, alreadyDurable = false): Promise<void> {
+    let delivery = this.#ownerStepUpRejection;
+    if (delivery === null) {
+      delivery = this.#deliverOwnerStepUpRejection(observedAt, alreadyDurable);
+      this.#ownerStepUpRejection = delivery;
+      try {
+        await delivery;
+      } catch (error) {
+        if (this.#ownerStepUpRejection === delivery) this.#ownerStepUpRejection = null;
+        throw error;
+      }
+    } else {
+      await delivery;
+    }
+    // Delivery and alarm acknowledgement are separate. A failed final clear
+    // may be retried without speaking, ending, or alerting a second time.
+    await this.#ownerStepUpAlarm?.clear();
+  }
+
+  async #deliverOwnerStepUpRejection(observedAt: Date, alreadyDurable: boolean): Promise<void> {
     if (this.#ownerStepUp === null) throw new Error("owner_step_up_unavailable");
     if (!alreadyDurable) await this.#ownerStepUp.expire(this.#session.sessionId, observedAt);
     const rejected = await this.#repository.getCallSession(this.#session.sessionId);
@@ -1186,7 +1207,6 @@ export class CallSessionCore {
         // Alert delivery is durable and retriable. It cannot reopen or weaken a rejected call.
       }
     }
-    await this.#ownerStepUpAlarm?.clear();
   }
 
   async #completeOwnerStepUp(candidate: string, observedAt: Date): Promise<void> {
@@ -1246,13 +1266,22 @@ export class CallSessionCore {
     if (this.#ownerStepUpFragmentStartedAt === null) this.#ownerStepUpFragmentStartedAt = observedAt.valueOf();
     if (observedAt.valueOf() - this.#ownerStepUpFragmentStartedAt > OWNER_STEP_UP_ASSEMBLY_MS) {
       this.#clearOwnerStepUpFragments();
-      const reprompt = await this.#ownerStepUp!.recordReprompt(this.#session.sessionId, observedAt);
-      if (reprompt !== "reprompt") await this.#rejectOwnerStepUp(observedAt, reprompt === "rejected");
-      else {
+      if (this.#ownerStepUpRepromptInFlight) return;
+      this.#ownerStepUpRepromptInFlight = true;
+      try {
+        // Replace the stale assembly alarm before the durable reprompt write.
+        // A late alarm delivered during that write therefore observes only
+        // the window deadline and cannot consume a second reprompt.
         if (this.#ownerStepUpDeadlineAt !== null) await this.#ownerStepUpAlarm?.arm({
           sessionId: this.#session.sessionId, lifecycleGeneration: 1, kind: "window", deadlineAt: this.#ownerStepUpDeadlineAt,
         });
-        await this.#relay.sendNeutralText(OWNER_STEP_UP_FORMAT_PROMPT);
+        const reprompt = await this.#ownerStepUp!.recordReprompt(this.#session.sessionId, observedAt);
+        if (reprompt !== "reprompt") await this.#rejectOwnerStepUp(observedAt, reprompt === "rejected");
+        else {
+          await this.#relay.sendNeutralText(OWNER_STEP_UP_FORMAT_PROMPT);
+        }
+      } finally {
+        this.#ownerStepUpRepromptInFlight = false;
       }
       return;
     }
@@ -1306,16 +1335,28 @@ export class CallSessionCore {
       });
       return;
     }
-    this.#clearOwnerStepUpFragments();
-    const outcome = await this.#ownerStepUp!.recordReprompt(this.#session.sessionId, observedAt);
-    if (outcome !== "reprompt") {
-      await this.#rejectOwnerStepUp(observedAt, outcome === "rejected");
+    if (this.#ownerStepUpRepromptInFlight) {
+      if (this.#ownerStepUpDeadlineAt !== null) await this.#ownerStepUpAlarm?.arm({
+        sessionId: this.#session.sessionId, lifecycleGeneration: 1,
+        kind: "window", deadlineAt: this.#ownerStepUpDeadlineAt,
+      });
       return;
     }
-    await this.#relay.sendNeutralText(OWNER_STEP_UP_FORMAT_PROMPT);
-    if (this.#ownerStepUpDeadlineAt !== null) await this.#ownerStepUpAlarm?.arm({
-      sessionId: this.#session.sessionId, lifecycleGeneration: 1, kind: "window", deadlineAt: this.#ownerStepUpDeadlineAt,
-    });
+    this.#clearOwnerStepUpFragments();
+    this.#ownerStepUpRepromptInFlight = true;
+    try {
+      const outcome = await this.#ownerStepUp!.recordReprompt(this.#session.sessionId, observedAt);
+      if (outcome !== "reprompt") {
+        await this.#rejectOwnerStepUp(observedAt, outcome === "rejected");
+        return;
+      }
+      await this.#relay.sendNeutralText(OWNER_STEP_UP_FORMAT_PROMPT);
+      if (this.#ownerStepUpDeadlineAt !== null) await this.#ownerStepUpAlarm?.arm({
+        sessionId: this.#session.sessionId, lifecycleGeneration: 1, kind: "window", deadlineAt: this.#ownerStepUpDeadlineAt,
+      });
+    } finally {
+      this.#ownerStepUpRepromptInFlight = false;
+    }
   }
 
   async #handlePrompt(event: Extract<RelayEvent, { type: "prompt" }>): Promise<void> {
@@ -1556,28 +1597,42 @@ export class CallSessionCore {
 
   async handleSocketClose(reason: "socket_closed" | "provider_error" = "socket_closed"): Promise<void> {
     if (this.#socketClosed) return;
-    await this.#ownerStepUpAlarm?.clear();
     this.#socketClosed = true;
-    await this.#cancelCurrentOutput();
-    this.#activationDigits = "";
-    const observedAt = this.#now();
-    if (this.#session.phase === "completed" || this.#session.phase === "rejected"
-      || this.#session.phase === "failed" || this.#session.phase === "expired") return;
-    if (reason === "provider_error") {
+    let terminalized = false;
+    try {
+      await this.#cancelCurrentOutput();
+      this.#activationDigits = "";
+      const observedAt = this.#now();
+      if (this.#session.phase === "completed" || this.#session.phase === "rejected"
+        || this.#session.phase === "failed" || this.#session.phase === "expired") {
+        terminalized = true;
+        return;
+      }
+      if (reason === "provider_error") {
+        await this.#transition("failed", observedAt);
+        terminalized = true;
+        return;
+      }
+      if (this.#session.phase === "active"
+        || this.#session.phase === "authenticated" && !this.#session.binding.activationOnly) {
+        await this.#transition("ending", observedAt);
+        await this.#transition("completed", observedAt);
+        terminalized = true;
+        return;
+      }
+      if (this.#session.phase === "ending") {
+        await this.#transition("completed", observedAt);
+        terminalized = true;
+        return;
+      }
       await this.#transition("failed", observedAt);
-      return;
+      terminalized = true;
+    } finally {
+      if (terminalized) {
+        try { await this.#ownerStepUpAlarm?.clear(); }
+        catch { /* The durable terminal phase is authoritative; a stale alarm may retry its own clear. */ }
+      }
     }
-    if (this.#session.phase === "active"
-      || this.#session.phase === "authenticated" && !this.#session.binding.activationOnly) {
-      await this.#transition("ending", observedAt);
-      await this.#transition("completed", observedAt);
-      return;
-    }
-    if (this.#session.phase === "ending") {
-      await this.#transition("completed", observedAt);
-      return;
-    }
-    await this.#transition("failed", observedAt);
   }
 
   async terminate(phase: DurableCallSessionTerminalPhase): Promise<void> {
@@ -1979,7 +2034,7 @@ export class CallSession extends DurableObject<Env> {
       return;
     }
 
-    const resolved = await this.#resolveCore(socket);
+    const resolved = await this.#resolveCore(socket, true);
     if (resolved.kind === "mismatch") {
       closeSocket(socket, 1008, "relay session mismatch");
       return;
@@ -1989,6 +2044,10 @@ export class CallSession extends DurableObject<Env> {
       return;
     }
     try {
+      if (resolved.core.phase === "rejected") {
+        await resolved.core.handleOwnerStepUpAlarm("window", 1);
+        return;
+      }
       await resolved.core.handleRelayEvent(event);
     } catch {
       if (!this.#policyClosedSockets.has(socket)) {
@@ -2003,14 +2062,20 @@ export class CallSession extends DurableObject<Env> {
     _reason: string,
     _wasClean: boolean,
   ): Promise<void> {
-    const resolved = await this.#resolveCore(socket);
-    if (resolved.kind === "ready") await resolved.core.handleSocketClose("socket_closed");
+    const resolved = await this.#resolveCore(socket, true);
+    if (resolved.kind === "ready") {
+      if (resolved.core.phase === "rejected") await resolved.core.handleOwnerStepUpAlarm("window", 1);
+      else await resolved.core.handleSocketClose("socket_closed");
+    }
     this.#cores.delete(socket);
   }
 
   override async webSocketError(socket: WebSocket, _error: unknown): Promise<void> {
-    const resolved = await this.#resolveCore(socket);
-    if (resolved.kind === "ready") await resolved.core.handleSocketClose("provider_error");
+    const resolved = await this.#resolveCore(socket, true);
+    if (resolved.kind === "ready") {
+      if (resolved.core.phase === "rejected") await resolved.core.handleOwnerStepUpAlarm("window", 1);
+      else await resolved.core.handleSocketClose("provider_error");
+    }
     this.#cores.delete(socket);
   }
 
