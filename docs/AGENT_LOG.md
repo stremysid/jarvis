@@ -46,6 +46,14 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 08:51 UTC — GPT-5 Codex calling build chat, PR #46 ready for Claude max review
+
+Draft PR #46 implements passphrase PR 3 on current main `f0bfbe9`: the exact owner-only Telegram `/disable-owner-step-up --confirm` receipt backed by migration 0017, with re-enable left exclusively to a new device-signed CLI generate; fixed minimal Telegram notices after every guest-grant create, permission change, PIN rotation and revoke; and a hard 750 ms voice context-retrieval deadline that records failure, timeout or invalid-context fallback before continuing with no retrieved context. It also closes PR #40 follow-ups F1–F5: one shared same-isolate rejection delivery, alarm-clear-only retry after completed delivery, socket terminalization independent of alarm clear, rejection completion and alert after eviction on closed/live sockets, and serialized late-fragment/assembly-alarm reprompts. The full diff was reviewed, `git diff --check` passes, and no memory or migration file changed. The live open-branch check found PR #44 claims no migration and PR #45 claims `0020_school_catchup.sql`; this PR claims none.
+
+**LOCAL PASS for the PR-owned and voice gates:** lint, cloud-gateway source typecheck and voice typecheck pass; the final focused bundle passed 303/303, the parser correction bundle passed 72/72, all four load-bearing mutations were killed, all nine reviewer `port623` contract-gap mutations were rerun and killed, and the one serialized voice gate passed its 6/6 runner checks plus 856/856 tests in 35 files. The one required `pnpm test:all` invocation passed the workspace matrix at 3,062/3,062 in 144 files, then Hermes passed 247/250 before three untouched SBOM tests failed because this PC lacks their hard-required `C:\Program Files\PowerShell\7` trusted-host directory; this branch has no Hermes diff. The aborted watchdog component was then run directly and passed 119/119. **CI DID NOT EXECUTE:** PR #46 and current main both fail all seven Actions jobs in seconds with no runner, no steps and no logs, so CI provides no test evidence. **INDEPENDENT REVIEW REQUESTED; LIVE ACCEPTANCE REQUIRED.** No merge, deployment, migration application, inbound calling, live evidence, provider call or secret operation occurred. Sid retains all of those authorities.
+
+---
+
 ## 2026-09-15 07:44 UTC — Claude Opus 5, PR #42 round-2 max re-review at a8ef528: cleared
 
 This re-review covers fix commit `b03f18c` (isolated ingress-guard tests, removal of the two orphan SQL comments) and merge `829cbae` (current main `dfb8ca8`). The PR diff against main is the same seven R2 files, with no `voice/**` change. The AGENT_LOG union keeps every entry: 167 on main plus 151 on the pre-merge branch give 172 unique headings at head, none missing, and there are no conflict markers. `0019` is still the only migration on the branch and the reserved number.
