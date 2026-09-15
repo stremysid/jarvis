@@ -462,6 +462,12 @@ prove Google's UI and the digest present the same Ontario wall-clock deadline.
 Until that live check, the contract is settled in code but presentation is
 unverified.
 
+The current schema has only `deadlines.due_at TEXT NOT NULL`. A Classroom item
+with a date and no time is conservatively mapped to the end of the local day,
+but the store cannot preserve that the source supplied date-only precision.
+Native date-only display needs a separate schema migration, claiming the next
+number only after another open-PR branch inventory. This PR claims no migration.
+
 ## Nothing moves a deadline out of `open`
 
 `deadlines.status` supports `submitted`, `missed` and `cancelled`, and nothing

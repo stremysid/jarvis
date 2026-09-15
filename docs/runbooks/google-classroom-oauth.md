@@ -15,6 +15,8 @@ Official references:
 - [Google's Classroom scope list](https://developers.google.com/workspace/classroom/guides/auth)
 - [Google's OAuth Playground](https://developers.google.com/oauthplayground/)
 - [Google's offline-access and refresh-token flow](https://developers.google.com/identity/protocols/oauth2/web-server#offline)
+- [Google's refresh-token expiration rules](https://developers.google.com/identity/protocols/oauth2#expiration)
+- [Google Workspace administrator app-access controls](https://support.google.com/a/answer/7281227)
 - [Google's coursework-list endpoint](https://developers.google.com/workspace/classroom/reference/rest/v1/courses.courseWork/list)
 
 ## What Sid approves
@@ -35,30 +37,39 @@ refresh an access token when Sid's PCs are off.
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), Sid taps to
    create or select a project and enables the Google Classroom API.
-2. Configure the OAuth consent screen for Sid's school account. If the project
-   is in testing, add only Sid as a test user. A school-managed account may
-   require administrator approval; stop and ask the administrator rather than
-   weakening the scopes or using someone else's account.
-3. Create an OAuth client of type **Web application**. Add this exact authorized
+2. Preflight the school policy before generating a credential. A Workspace
+   administrator can block unconfigured third-party apps, and Education
+   accounts designated under 18 can have stricter controls. If consent says the
+   institution must review the app, Sid may tap to request that review; stop
+   rather than weakening the scopes or using someone else's account.
+3. Configure the OAuth consent screen for Sid's school account. An external
+   app in **Testing** normally issues a refresh token that expires after seven
+   days when it requests more than basic identity scopes. That is acceptable
+   only for a labelled short preflight, not an always-on production connector.
+   Before activation, establish the durable publishing/audience state and any
+   Google or school verification it requires. If that cannot be established,
+   keep using owner-reported deadlines.
+4. Create an OAuth client of type **Web application**. Add this exact authorized
    redirect URI:
 
    ```text
    https://developers.google.com/oauthplayground
    ```
 
-4. Open [Google's OAuth Playground](https://developers.google.com/oauthplayground/).
+5. Open [Google's OAuth Playground](https://developers.google.com/oauthplayground/).
    In its settings, select **Use your own OAuth credentials**, **Server-side**,
    **Offline**, and **Consent Screen**. Google states that the Playground sends
    these credentials to its server to proxy the flow and does not log them.
-5. Paste that client's ID and secret into the Playground. Enter only the two
+6. Paste that client's ID and secret into the Playground. Enter only the two
    scopes above, authorize them while signed in as Sid's school account, then
    exchange the authorization code for tokens.
-6. Keep the resulting refresh token private. Do not paste the client secret or
+7. Keep the resulting refresh token private. Do not paste the client secret or
    either token into chat, a repository file, a command argument, a screenshot,
    or an evidence log. Google's generic Playground credentials issue refresh
    tokens that expire after 24 hours; **Use your own OAuth credentials** avoids
-   that Playground-specific expiry.
-7. After the refresh token exists, remove the Playground redirect URI from the
+   that Playground-specific expiry. It does **not** override Google's separate
+   seven-day expiry for an external app left in Testing.
+8. After the refresh token exists, remove the Playground redirect URI from the
    OAuth client. The already-issued refresh token does not use a redirect URI.
 
 If no refresh token appears, revoke the test grant in the Google account and
@@ -107,6 +118,12 @@ Expected outcome: one active `google-classroom` row, a recent
 whose teacher set both a date and a time: the stored instant and the morning
 digest must represent the same Ontario wall-clock deadline shown in Classroom.
 This is **live acceptance**, not established by the local tests.
+
+The current deadline schema stores only an instant. For coursework with a date
+but no teacher-set time, this slice uses the end of that day in
+`DIGEST_TIMEZONE` as a conservative reminder. It cannot preserve or display
+native date-only precision without a later schema migration; do not describe
+that synthetic end-of-day value as a time the teacher set.
 
 Failure meanings:
 
