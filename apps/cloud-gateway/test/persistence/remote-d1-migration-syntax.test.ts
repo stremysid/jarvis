@@ -28,6 +28,7 @@ describe("remote D1 migration trigger syntax", () => {
       "0015_voice_runtime.sql",
       "0016_cloud_memory.sql",
       "0017_owner_passphrase.sql",
+      "0018_memory_owner_command_ingress.sql",
     ]);
   });
 
