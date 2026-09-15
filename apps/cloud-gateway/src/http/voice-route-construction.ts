@@ -94,6 +94,7 @@ export function createVoiceRouteDependencies(input: VoiceRouteConstruction): Voi
       currentChallengeHmacKeyVersion: ownData(inboundPorts, "currentChallengeHmacKeyVersion") as string,
       ownerCallerIdPolicy: ownData(inboundPorts, "ownerCallerIdPolicy"),
       ownerStepUp: ownData(inboundPorts, "ownerStepUp") as InboundVoiceDependencies["ownerStepUp"],
+      ownerStepUpAlerts: ownData(inboundPorts, "ownerStepUpAlerts") as InboundVoiceDependencies["ownerStepUpAlerts"],
       sessions: ownData(inboundPorts, "sessions") as InboundVoiceDependencies["sessions"],
       initializeSession: ownData(inboundPorts, "initializeSession") as InboundVoiceDependencies["initializeSession"],
       now: (ownData(inboundPorts, "now") ?? (() => new Date())) as () => Date,
@@ -107,6 +108,7 @@ export function createVoiceRouteDependencies(input: VoiceRouteConstruction): Voi
       recipients: ownData(outboundPorts, "recipients") as OutboundTwiMLDependencies["recipients"],
       calls: ownData(outboundPorts, "calls") as OutboundTwiMLDependencies["calls"],
       ownerStepUp: ownData(outboundPorts, "ownerStepUp") as OutboundTwiMLDependencies["ownerStepUp"],
+      ownerStepUpAlerts: ownData(outboundPorts, "ownerStepUpAlerts") as OutboundTwiMLDependencies["ownerStepUpAlerts"],
       initializeSession: ownData(outboundPorts, "initializeSession") as OutboundTwiMLDependencies["initializeSession"],
       now: (ownData(outboundPorts, "now") ?? (() => new Date())) as () => Date,
     });

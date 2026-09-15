@@ -341,6 +341,12 @@ describe("VoiceAccessRepository", () => {
       .bind(`VX${"6".repeat(32)}`, now, now, secondSessionId).run();
     await env.DB.prepare("UPDATE call_sessions SET phase = 'connecting' WHERE session_id = ?").bind(secondSessionId).run();
     await env.DB.prepare("UPDATE call_sessions SET phase = 'pre_auth' WHERE session_id = ?").bind(secondSessionId).run();
+    await env.DB.prepare(`INSERT INTO owner_call_step_up_bindings (
+      session_id, call_sid, owner_principal_id, owner_identity_id, direction,
+      lifecycle_generation, requirement, attestation_class, policy, created_at
+    ) VALUES (?, ?, ?, ?, 'inbound', 1, 'waived_passed_a', 'passed_a', 'waive_on_passed_a', ?)`)
+      .bind(secondSessionId, `CA${"6".repeat(32)}`, OWNER_PRINCIPAL_ID, OWNER_IDENTITY_ID, now)
+      .run();
     const binding: RelayBinding = {
       callSid: `CA${"6".repeat(32)}`,
       principalId: OWNER_PRINCIPAL_ID,

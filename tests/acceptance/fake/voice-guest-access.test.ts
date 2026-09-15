@@ -6,6 +6,25 @@ import { createFakeCallingSystem } from "./voice-call-system.js";
 import { FAKE_GUEST_PEPPER, FAKE_PIN_A, FAKE_PIN_B, seedFakeGuest } from "./voice-access-system.js";
 
 describe("fake voice guest access", () => {
+  it("keeps the three-try guest PIN limit across Durable Object hibernation", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      const guest = await seedFakeGuest("a");
+      expect((await system.inbound(guest.caller)).status).toBe(200);
+      const call = await system.openRelay();
+      await call.setup();
+      await call.pin(FAKE_PIN_B());
+      await call.pin(FAKE_PIN_B());
+      await call.hibernate();
+      await call.pin(FAKE_PIN_B());
+
+      await expect(call.phase()).resolves.toBe("rejected");
+      await expect(env.DB.prepare(
+        "SELECT count(*) AS count FROM guest_call_pin_attempts WHERE session_id = ?",
+      ).bind(call.sessionId).first()).resolves.toEqual({ count: 3 });
+    } finally { await system.cleanup(); }
+  });
+
   it("refuses a verified active identity with no grant before creating a relay or consuming PIN work", async () => {
     const system = await createFakeCallingSystem();
     try {

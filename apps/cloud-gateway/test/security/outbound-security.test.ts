@@ -1,7 +1,10 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RelayBinding, Ulid } from "../../../../packages/contracts/src/index.js";
-import { CallRepository } from "../../src/persistence/call-repository.js";
+import {
+  CallRepository,
+  callSessionAdmissionFailure,
+} from "../../src/persistence/call-repository.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import type { TwilioRequestVerifier } from "../../src/providers/provider-types.js";
 import { TwilioSignatureVerifier } from "../../src/providers/twilio-verifier.js";
@@ -111,6 +114,8 @@ describe("outbound TwiML claim security boundary", () => {
   let observedAt: Date;
   let initializeSession: ReturnType<typeof vi.fn>;
   let resolveActiveVerifiedVoiceIdentityId: ReturnType<typeof vi.fn>;
+  let ownerStepUpBind: ReturnType<typeof vi.fn>;
+  let ownerStepUpAlert: ReturnType<typeof vi.fn>;
   let dependencies: OutboundTwiMLDependencies;
 
   beforeEach(async () => {
@@ -121,13 +126,16 @@ describe("outbound TwiML claim security boundary", () => {
     await seedAttempt(repository);
     initializeSession = vi.fn(async () => undefined);
     resolveActiveVerifiedVoiceIdentityId = vi.fn(async () => "identity:voice");
+    ownerStepUpBind = vi.fn(async (input) => input);
+    ownerStepUpAlert = vi.fn(async () => undefined);
     dependencies = {
       twilio: new TwilioSignatureVerifier({ authToken: AUTH_TOKEN }),
       publicOrigin: PUBLIC_ORIGIN,
       ownerIdentityId: "identity:voice",
       recipients: { resolveActiveVerifiedVoiceIdentityId },
       calls: repository,
-      ownerStepUp: { bind: vi.fn(async (input) => input) },
+      ownerStepUp: { bind: ownerStepUpBind },
+      ownerStepUpAlerts: { alert: ownerStepUpAlert },
       initializeSession,
       now: () => observedAt,
     };
@@ -156,6 +164,9 @@ describe("outbound TwiML claim security boundary", () => {
     expect(await retry.text()).toBe(await first.clone().text());
     expect(await first.text()).toContain(`name="relayNonce" value="${NONCE}"`);
     expect(initializeSession).toHaveBeenCalledTimes(2);
+    expect(ownerStepUpBind.mock.calls.map(([binding]) => binding.createdAt)).toEqual([
+      NOW.toISOString(), NOW.toISOString(),
+    ]);
     expect(initializeSession).toHaveBeenLastCalledWith(expect.objectContaining({
       sessionId: ATTEMPT_ID,
       relaySetupExpiresAt: null,
@@ -206,6 +217,32 @@ describe("outbound TwiML claim security boundary", () => {
     await env.DB.prepare("UPDATE channel_identities SET status = 'disabled' WHERE identity_id = 'identity:voice'").run();
     const response = await claimOutboundTwiML(await signedRequest(), ATTEMPT_ID, dependencies);
     expect(response.status).toBe(403);
+    expect(initializeSession).not.toHaveBeenCalled();
+  });
+
+  it("coalesces an owner-only outbound capacity refusal without disclosing the destination", async () => {
+    dependencies.calls = {
+      claimExpectedCall: repository.claimExpectedCall.bind(repository),
+      getOrCreateOutboundSession: vi.fn(async () => {
+        throw callSessionAdmissionFailure("call_session_capacity", {
+          principalId: "principal:owner",
+          accessKind: "owner",
+        });
+      }),
+    };
+
+    const response = await claimOutboundTwiML(await signedRequest(), ATTEMPT_ID, dependencies);
+
+    expect(response.status).toBe(403);
+    expect(ownerStepUpAlert).toHaveBeenCalledOnce();
+    expect(ownerStepUpAlert).toHaveBeenCalledWith({
+      ownerPrincipalId: "principal:owner",
+      alertClass: "admission_refused",
+      direction: "outbound",
+      attestationClass: "not_applicable",
+      now: NOW,
+    });
+    expect(JSON.stringify(ownerStepUpAlert.mock.calls)).not.toContain(DESTINATION);
     expect(initializeSession).not.toHaveBeenCalled();
   });
 

@@ -14,7 +14,9 @@ import { FakeModelProvider, type FakeModelProviderOptions } from "../../src/prov
 import { CallRepository, type StoredCallSession } from "../../src/persistence/call-repository.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { VoiceAccessRepository } from "../../src/persistence/voice-access-repository.js";
+import { OwnerPassphraseRepository } from "../../src/persistence/owner-passphrase-repository.js";
 import { GuestPinVerifier } from "../../src/security/guest-pin-verifier.js";
+import { OwnerPassphraseVerifier } from "../../src/security/owner-passphrase-verifier.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { IdentityChallengeService, VerifiedChannelObservationAuthority } from "../../src/sync/identity-challenge.js";
 import { DeviceRequestVerifier } from "../../src/sync/signed-request.js";
@@ -41,6 +43,10 @@ import {
   VoiceAccessAuthorityService,
 } from "../../src/voice/voice-access-authority.js";
 import {
+  OWNER_STEP_UP_REPEAT_MS,
+  OwnerCallStepUpService,
+} from "../../src/voice/owner-call-step-up.js";
+import {
   canonicalize,
   newUlid,
   sha256Hex,
@@ -54,11 +60,14 @@ import {
 } from "../../src/voice/outbound.js";
 import {
   applyFoundationMigration,
+  applyOwnerCallStepUpMigration,
   applyVoiceRuntimeMigration,
   clearAuthenticationAttemptReservationsForTest,
   clearCallSessionsForTest,
   clearConversationDataForTest,
   clearOutboundCallAttemptsForTest,
+  clearOwnerCallStepUpDataForTest,
+  clearOwnerPassphraseDataForTest,
   clearVoiceAccessDataForTest,
 } from "../persistence/migration.js";
 import {
@@ -85,6 +94,13 @@ const OUTBOUND_CALL_SID = `CA${"7".repeat(32)}`;
 const OUTBOUND_RELAY_NONCE = `${"E".repeat(42)}Q`;
 const GUEST_GRANT_ID = "01k3wceg000000000000000105" as Ulid;
 const GUEST_E164 = "+14165550111";
+const OWNER_TEST_PHRASE = "ablaze abrasion abrasive";
+const OWNER_TEST_PEPPER = new Uint8Array(32).fill(29);
+
+async function applyCallStepUpTestMigrations(): Promise<void> {
+  await applyVoiceRuntimeMigration();
+  await applyOwnerCallStepUpMigration();
+}
 
 function base64(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes));
@@ -96,10 +112,12 @@ function base64Url(bytes: Uint8Array): string {
 
 async function clearFixture(): Promise<void> {
   await env.DB.prepare("DELETE FROM provider_events").run();
+  await clearOwnerCallStepUpDataForTest();
   await clearCallSessionsForTest();
   await clearAuthenticationAttemptReservationsForTest();
   await clearOutboundCallAttemptsForTest();
   await clearConversationDataForTest();
+  await clearOwnerPassphraseDataForTest();
   await clearVoiceAccessDataForTest();
   await env.DB.batch([
     env.DB.prepare("DELETE FROM request_nonces"),
@@ -186,13 +204,49 @@ function repository(): CallRepository {
 async function createInboundSession(
   repo: CallRepository,
   currentChallengeHmacKeyVersion = "hmac-v1",
+  requirePassphrase = false,
 ): Promise<StoredCallSession> {
-  return repo.getOrCreateInboundSession({
+  const stored = await repo.getOrCreateInboundSession({
     callSid: CALL_SID,
     callerE164: "+14165550123",
     ownerIdentityId: "identity:voice",
     currentChallengeHmacKeyVersion,
     now: NOW,
+  });
+  await new OwnerCallStepUpService(
+    env.DB,
+    new OwnerPassphraseVerifier(OWNER_TEST_PEPPER, "v1"),
+  ).bind({
+    sessionId: stored.sessionId,
+    callSid: stored.callSid,
+    ownerPrincipalId: stored.binding.principalId,
+    ownerIdentityId: stored.binding.identityId,
+    direction: stored.direction,
+    lifecycleGeneration: 1,
+    requirement: stored.binding.activationOnly ? "not_applicable" : requirePassphrase ? "required" : "waived_passed_a",
+    attestationClass: stored.binding.activationOnly ? "not_applicable" : requirePassphrase ? "absent" : "passed_a",
+    policy: stored.binding.activationOnly ? "not_applicable" : requirePassphrase ? "passphrase_always" : "waive_on_passed_a",
+    createdAt: NOW.toISOString(),
+  });
+  return stored;
+}
+
+async function seedActiveOwnerPassphrase(): Promise<void> {
+  const verifier = new OwnerPassphraseVerifier(
+    OWNER_TEST_PEPPER,
+    "v1",
+    () => new Uint8Array(16).fill(7),
+  );
+  const record = await verifier.create("identity:voice", 1, OWNER_TEST_PHRASE);
+  await new OwnerPassphraseRepository(env.DB).rotate({
+    verified: {
+      deviceId: "device:owner", principalId: "principal:owner", audience: DEVICE_AUDIENCE,
+      issuedAt: NOW.toISOString(), nonce: "test", bodyHash: "3".repeat(64), keyId: "key:owner",
+      keyFingerprint: "a".repeat(64), keyGeneration: 1, body: {},
+    },
+    ownerPrincipalId: "principal:owner", ownerIdentityId: "identity:voice",
+    expectedVerifierVersion: null, record,
+    commitId: "01m2ccccccccccccccccccc099", committedAt: NOW.toISOString(),
   });
 }
 
@@ -232,6 +286,10 @@ function makeCore(input: {
       new CapabilityRegistry({ installed: ["conversation.basic", "access.manage"] }),
     )
     : input.authority;
+  const ownerStepUp = new OwnerCallStepUpService(
+    env.DB,
+    new OwnerPassphraseVerifier(OWNER_TEST_PEPPER, "v1"),
+  );
   const turnIds = [...(input.turnIds ?? [TURN_ID])];
   const newTurnId = vi.fn(() => {
     const turnId = turnIds.shift();
@@ -255,6 +313,8 @@ function makeCore(input: {
       guestAuthentication: input.guestAuthentication ?? null,
       activation: input.activation ?? null,
       ownerAccess: input.ownerAccess ?? null,
+      ownerStepUp,
+      ownerStepUpAlarm: { async arm() {}, async clear() {} },
       conversation: input.conversation ?? null,
       relay: { close, sendNeutralText, sendToken, finish, cancelOutput },
       newTurnId,
@@ -361,6 +421,17 @@ async function sendDigits(session: CallSessionCore, digits: string): Promise<voi
   for (const digit of digits) {
     await session.handleRelayEvent({ type: "dtmf", digit });
   }
+}
+
+async function authenticateOwnerAdministration(
+  harness: Awaited<ReturnType<typeof accessHarness>>,
+): Promise<void> {
+  await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+  await harness.instance.handleRelayEvent({
+    type: "prompt", final: true, language: "en-US", text: OWNER_TEST_PHRASE,
+  });
+  expect(harness.instance.phase).toBe("active");
+  harness.advanceTime(OWNER_STEP_UP_REPEAT_MS + 1);
 }
 
 async function reservationCount(): Promise<number> {
@@ -540,7 +611,7 @@ async function accessHarness(
   );
   if (kind === "guest") await seedPendingGuestAccess(registry, pinVerifier);
   const stored = kind === "owner"
-    ? await createInboundSession(repo)
+    ? await createInboundSession(repo, "hmac-v1", withOwnerAdministration)
     : await repo.getOrCreateInboundSession({
       callSid: CALL_SID,
       callerE164: GUEST_E164,
@@ -550,6 +621,27 @@ async function accessHarness(
     });
   const proofs = new GuestPinProofIssuer();
   const authority = new VoiceAccessAuthorityService(voiceRepository, registry, proofs);
+  const ownerStepUp = new OwnerCallStepUpService(
+    env.DB,
+    new OwnerPassphraseVerifier(OWNER_TEST_PEPPER, "v1"),
+  );
+  if (kind === "owner" && withOwnerAdministration) {
+    await seedActiveOwnerPassphrase();
+  }
+  if (kind === "owner") {
+    await ownerStepUp.bind({
+      sessionId: stored.sessionId,
+      callSid: stored.callSid,
+      ownerPrincipalId: stored.binding.principalId,
+      ownerIdentityId: stored.binding.identityId,
+      direction: stored.direction,
+      lifecycleGeneration: 1,
+      requirement: withOwnerAdministration ? "required" : "waived_passed_a",
+      attestationClass: withOwnerAdministration ? "absent" : "passed_a",
+      policy: withOwnerAdministration ? "passphrase_always" : "waive_on_passed_a",
+      createdAt: NOW.toISOString(),
+    });
+  }
   const budgets = new AuthenticationAttemptBudget(
     env.DB,
     PEPPER,
@@ -586,6 +678,7 @@ async function accessHarness(
   } as unknown as ConversationService;
   const close = vi.fn<(code: number) => void>();
   const sendNeutralText = vi.fn<(text: string) => Promise<void>>(async () => undefined);
+  let currentNow = new Date(NOW);
   const instance = new CallSessionCore({
     capacity,
     session: stored,
@@ -595,6 +688,8 @@ async function accessHarness(
     guestAuthentication,
     activation: null,
     ownerAccess,
+    ownerStepUp,
+    ownerStepUpAlarm: { async arm() {}, async clear() {} },
     conversation,
     relay: {
       close,
@@ -603,7 +698,7 @@ async function accessHarness(
       finish: async () => undefined,
       cancelOutput: async () => undefined,
     },
-    now: () => new Date(NOW),
+    now: () => new Date(currentNow),
   } as never);
   return {
     repo,
@@ -616,12 +711,15 @@ async function accessHarness(
     conversation,
     close,
     sendNeutralText,
+    advanceTime(milliseconds: number) {
+      currentNow = new Date(currentNow.valueOf() + milliseconds);
+    },
     instance,
   };
 }
 
 describe("CallSessionCore owner and guest access", () => {
-  beforeEach(applyFoundationMigration);
+  beforeEach(applyCallStepUpTestMigrations);
   afterEach(clearFixture);
 
   it("rejects a structural authentication-budget lookalike at guest construction", () => {
@@ -912,7 +1010,7 @@ describe("CallSessionCore owner and guest access", () => {
   it("clears active authority and transient interaction state on terminal callback invalidation", async () => {
     const harness = await accessHarness("owner", undefined, true);
     const invalidate = vi.spyOn(harness.authority, "invalidate");
-    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    await authenticateOwnerAdministration(harness);
 
     await harness.instance.terminate("completed");
 
@@ -925,6 +1023,21 @@ describe("CallSessionCore owner and guest access", () => {
       text: "confirm",
     });
     expect(harness.conversation.handleTurn).not.toHaveBeenCalled();
+  });
+
+  it("uses the policy-close fallback when a rejected step-up cannot send a clean end frame", async () => {
+    const harness = await accessHarness("owner", undefined, true);
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    for (const candidate of [
+      "ablaze abrasion active", "ablaze abrasion activist", "ablaze abrasion activity",
+    ]) {
+      await harness.instance.handleRelayEvent({
+        type: "prompt", final: true, language: "en-US", text: candidate,
+      });
+    }
+
+    expect(harness.instance.phase).toBe("rejected");
+    expect(harness.close).toHaveBeenCalledExactlyOnceWith(1008);
   });
 
   it("does not start a conversation turn when termination wins during authorization", async () => {
@@ -1052,7 +1165,7 @@ describe("CallSessionCore owner and guest access", () => {
 
   it("executes a recognized owner access draft only after explicit PIN selection and exact confirmation", async () => {
     const harness = await accessHarness("owner", undefined, true);
-    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    await authenticateOwnerAdministration(harness);
 
     await harness.instance.handleRelayEvent({
       type: "prompt",
@@ -1080,7 +1193,7 @@ describe("CallSessionCore owner and guest access", () => {
 
   it("keeps ordinary confirm in conversation when no issued owner proposal is current", async () => {
     const harness = await accessHarness("owner", undefined, true);
-    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    await authenticateOwnerAdministration(harness);
 
     await harness.instance.handleRelayEvent({
       type: "prompt",
@@ -1098,7 +1211,7 @@ describe("CallSessionCore owner and guest access", () => {
     const harness = await accessHarness("owner", undefined, true);
     if (harness.ownerAccess === null) throw new Error("fixture_owner_access_missing");
     const invalidate = vi.spyOn(harness.ownerAccess, "invalidate");
-    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    await authenticateOwnerAdministration(harness);
     await harness.instance.handleRelayEvent({
       type: "prompt",
       final: true,
@@ -1139,7 +1252,7 @@ describe("CallSessionCore owner and guest access", () => {
 
   it("drops an issued owner proposal and partial PIN across a core restart", async () => {
     const harness = await accessHarness("owner", undefined, true);
-    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    await authenticateOwnerAdministration(harness);
     await harness.instance.handleRelayEvent({
       type: "prompt",
       final: true,
@@ -1178,7 +1291,7 @@ describe("CallSessionCore owner and guest access", () => {
 
 describe("CallSessionCore access, enrollment, and conversation", () => {
   beforeEach(async () => {
-    await applyFoundationMigration();
+    await applyCallStepUpTestMigrations();
     await clearFixture();
     await seedActiveVoiceIdentity();
   });
@@ -1551,7 +1664,7 @@ describe("CallSessionCore access, enrollment, and conversation", () => {
 
 describe("CallSession capacity admission", () => {
   const prompt = { type: "prompt", text: "An ordinary question", language: "en-US", final: true } as const;
-  beforeEach(async () => { await applyFoundationMigration(); await clearFixture(); await seedActiveVoiceIdentity(); });
+  beforeEach(async () => { await applyCallStepUpTestMigrations(); await clearFixture(); await seedActiveVoiceIdentity(); });
   afterEach(async () => { vi.restoreAllMocks(); await clearFixture(); });
 
   function blocked() {
@@ -1883,6 +1996,7 @@ describe("CallSession production composition", () => {
       DEEPSEEK_MODEL: "synthetic-runtime-model",
       TELEGRAM_BOT_TOKEN: `123456789:${"s".repeat(35)}`,
       GUEST_PIN_PEPPER_V1: base64(new Uint8Array(32).fill(12)),
+      OWNER_PASSPHRASE_PEPPER_V1: base64(OWNER_TEST_PEPPER),
       AUTHENTICATION_BUDGET_PEPPER: base64(PEPPER),
       IDENTITY_CHALLENGE_HMAC_PEPPER: base64(new Uint8Array(32).fill(11)),
       IDENTITY_CHALLENGE_HMAC_KEY_VERSION: "identity-hmac-v1",
@@ -1918,7 +2032,7 @@ describe("CallSession production composition", () => {
   }
 
   beforeEach(async () => {
-    await applyVoiceRuntimeMigration();
+    await applyCallStepUpTestMigrations();
     await env.DB.prepare("DELETE FROM capacity_alert_crossings").run();
     await clearFixture();
     await runInDurableObject(callSessionStub(SESSION_ID), async (_instance, state) => { await state.storage.deleteAll(); });
@@ -2026,8 +2140,11 @@ describe("CallSession production composition", () => {
 
   it("shares the production owner authority with confirmed access administration without calling the model", async () => {
     await seedActiveVoiceIdentity();
-    const call = await runtime(await createInboundSession(repository()));
+    await seedActiveOwnerPassphrase();
+    const call = await runtime(await createInboundSession(repository(), "hmac-v1", true));
     await call.setup();
+    await call.prompt(OWNER_TEST_PHRASE);
+    vi.advanceTimersByTime(OWNER_STEP_UP_REPEAT_MS + 1);
     await call.prompt(`allow ${GUEST_E164} with conversation`);
     await call.digits("2468");
     expect(await env.DB.prepare("SELECT count(*) AS count FROM voice_access_grants").first()).toEqual({ count: 0 });
@@ -2077,6 +2194,7 @@ describe("CallSession production composition", () => {
       await call.setup();
       expect(call.send.mock.calls.map(([frame]) => JSON.parse(String(frame)))[0])
         .toEqual({ type: "text", token: OUTBOUND_VOICEMAIL_MESSAGE, last: true });
+      await call.prompt(OWNER_TEST_PHRASE);
       expect(await storedPhase(stored.sessionId)).toBe("active");
       expect(call.close).not.toHaveBeenCalled();
       expect(globalThis.fetch).not.toHaveBeenCalled();
@@ -2099,7 +2217,7 @@ describe("CallSession production composition", () => {
     ["missing challenge version", "IDENTITY_CHALLENGE_HMAC_KEY_VERSION", ""],
     ["oversized challenge version", "IDENTITY_CHALLENGE_HMAC_KEY_VERSION", "s".repeat(65)],
     ["control in challenge version", "IDENTITY_CHALLENGE_HMAC_KEY_VERSION", "v1\nv2"],
-    ...["GUEST_PIN_PEPPER_V1", "AUTHENTICATION_BUDGET_PEPPER", "IDENTITY_CHALLENGE_HMAC_PEPPER"].flatMap((key) => [
+    ...["GUEST_PIN_PEPPER_V1", "OWNER_PASSPHRASE_PEPPER_V1", "AUTHENTICATION_BUDGET_PEPPER", "IDENTITY_CHALLENGE_HMAC_PEPPER"].flatMap((key) => [
       [`short ${key}`, key, base64(new Uint8Array(31))],
       [`long ${key}`, key, base64(new Uint8Array(33))],
       [`noncanonical ${key}`, key, `${"A".repeat(42)}B=`],
@@ -2135,7 +2253,7 @@ describe("CallSession production composition", () => {
 
 describe("CallSession Durable Object boundary", () => {
   beforeEach(async () => {
-    await applyFoundationMigration();
+    await applyCallStepUpTestMigrations();
     await clearFixture();
     await runInDurableObject(callSessionStub(SESSION_ID), async (_instance, state) => {
       await state.storage.deleteAll();

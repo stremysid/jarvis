@@ -1,6 +1,7 @@
 import type { RelayBinding, Ulid } from "../../../../packages/contracts/src/index.js";
 import { twilioCleanupUrl } from "../providers/twilio-cleanup-url.js";
 import {
+  callSessionAdmissionContext,
   isCallSessionAdmissionError,
   type StoredCallSession,
 } from "../persistence/call-repository.js";
@@ -16,6 +17,7 @@ import {
   classifyOwnerAttestation,
   classifyOwnerCallerIdPolicy,
   ownerStepUpRequirement,
+  type OwnerStepUpAlertSink,
   type OwnerCallStepUpService,
 } from "./owner-call-step-up.js";
 
@@ -28,6 +30,7 @@ export interface InboundVoiceDependencies {
   currentChallengeHmacKeyVersion: string;
   ownerCallerIdPolicy: unknown;
   ownerStepUp: Pick<OwnerCallStepUpService, "bind">;
+  ownerStepUpAlerts: Pick<OwnerStepUpAlertSink, "alert">;
   sessions: {
     getOrCreateInboundSession(input: {
       callSid: string;
@@ -48,6 +51,7 @@ export interface InboundVoiceDependencies {
 interface SessionSnapshot {
   readonly sessionId: Ulid;
   readonly callSid: string;
+  readonly createdAt: string;
   readonly relaySetupExpiresAt: string;
   readonly binding: RelayBinding;
 }
@@ -70,7 +74,7 @@ const BINDING_FIELDS = new Set([
 ]);
 const DEPENDENCY_FIELDS = new Set([
   "twilio", "exactInboundWebhookUrl", "publicOrigin", "expectedInboundE164",
-  "ownerIdentityId", "currentChallengeHmacKeyVersion", "ownerCallerIdPolicy", "ownerStepUp",
+  "ownerIdentityId", "currentChallengeHmacKeyVersion", "ownerCallerIdPolicy", "ownerStepUp", "ownerStepUpAlerts",
   "sessions", "initializeSession", "now",
 ]);
 
@@ -235,6 +239,7 @@ function snapshotSession(value: unknown, expectedCallSid: string, observedAt: st
   return Object.freeze({
     sessionId: session.sessionId as Ulid,
     callSid: expectedCallSid,
+    createdAt: session.createdAt,
     relaySetupExpiresAt: session.relaySetupExpiresAt,
     binding: frozenBinding,
   });
@@ -268,6 +273,8 @@ export async function handleInboundVoiceWebhook(
   let currentChallengeHmacKeyVersion: string;
   let bindOwnerStepUp: OwnerCallStepUpService["bind"];
   let ownerStepUpThis: Pick<OwnerCallStepUpService, "bind">;
+  let alertOwnerStepUp: OwnerStepUpAlertSink["alert"];
+  let ownerStepUpAlertsThis: Pick<OwnerStepUpAlertSink, "alert">;
   let now: () => Date;
   let trustedOrigin: ReturnType<typeof snapshotTrustedPublicOrigin>;
   const captured = snapshotDependencies(deps);
@@ -275,6 +282,7 @@ export async function handleInboundVoiceWebhook(
   const verifier = snapshotMethod(captured.twilio, "verifyWebhook");
   const sessionRepository = snapshotMethod(captured.sessions, "getOrCreateInboundSession");
   const ownerStepUp = snapshotMethod(captured.ownerStepUp, "bind");
+  const ownerStepUpAlerts = snapshotMethod(captured.ownerStepUpAlerts, "alert");
   verifierThis = verifier?.receiver as TwilioRequestVerifier;
   verifyWebhook = verifier?.method as TwilioRequestVerifier["verifyWebhook"];
   sessionsThis = sessionRepository?.receiver as InboundVoiceDependencies["sessions"];
@@ -286,6 +294,8 @@ export async function handleInboundVoiceWebhook(
   currentChallengeHmacKeyVersion = captured.currentChallengeHmacKeyVersion as string;
   ownerStepUpThis = ownerStepUp?.receiver as Pick<OwnerCallStepUpService, "bind">;
   bindOwnerStepUp = ownerStepUp?.method as OwnerCallStepUpService["bind"];
+  ownerStepUpAlertsThis = ownerStepUpAlerts?.receiver as Pick<OwnerStepUpAlertSink, "alert">;
+  alertOwnerStepUp = ownerStepUpAlerts?.method as OwnerStepUpAlertSink["alert"];
   now = (captured.now ?? (() => new Date())) as () => Date;
   trustedOrigin = snapshotTrustedPublicOrigin(captured.publicOrigin);
   let inboundUrl: ReturnType<typeof snapshotUrl> = null;
@@ -300,6 +310,7 @@ export async function handleInboundVoiceWebhook(
     || typeof getOrCreateInboundSession !== "function"
     || typeof initializeSession !== "function"
     || typeof bindOwnerStepUp !== "function"
+    || typeof alertOwnerStepUp !== "function"
     || typeof now !== "function"
     || trustedOrigin === null
     || !isTrustedFixedUrl(inboundUrl, trustedOrigin, "https:", "/voice/inbound")
@@ -359,6 +370,21 @@ export async function handleInboundVoiceWebhook(
       now: observedAt,
     });
   } catch (error) {
+    const admission = callSessionAdmissionContext(error);
+    if (admission?.code === "call_session_capacity" && admission.accessKind === "owner"
+      && admission.principalId !== null) {
+      try {
+        await alertOwnerStepUp.call(ownerStepUpAlertsThis, {
+          ownerPrincipalId: admission.principalId,
+          alertClass: "admission_refused",
+          direction: "inbound",
+          attestationClass: attestation,
+          now: observedAt,
+        });
+      } catch {
+        // Admission remains refused even when its owner notification needs a later retry.
+      }
+    }
     return isCallSessionAdmissionError(error)
       ? neutral("forbidden", 403)
       : neutral("unavailable", 503);
@@ -379,7 +405,7 @@ export async function handleInboundVoiceWebhook(
       requirement: applicable ? ownerStepUpRequirement("inbound", policy, attestation) : "not_applicable" as const,
       attestationClass: applicable ? attestation : "not_applicable" as const,
       policy: applicable ? policy : "not_applicable" as const,
-      createdAt: observedAt.toISOString(),
+      createdAt: session.createdAt,
     }));
   } catch {
     return neutral("unavailable", 503);

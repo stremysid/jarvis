@@ -240,11 +240,16 @@ export class OwnerCallStepUpService {
     candidate: string,
     now: Date,
   ): Promise<"suppress" | "continue"> {
+    const at = iso(now);
+    const state = await this.state(sessionId);
+    if (state.verifiedAt === null) return "continue";
+    if (at <= new Date(new Date(state.verifiedAt).valueOf() + OWNER_STEP_UP_REPEAT_MS).toISOString()) {
+      return "suppress";
+    }
     let canonical: Uint8Array;
     try { canonical = canonicalizeOwnerPassphrase(candidate); }
     catch { return "continue"; }
     canonical.fill(0);
-    const at = iso(now);
     const row = await this.#activeVerifier(sessionId);
     if (row === null) return "continue";
     const claim = await this.#database.prepare(`INSERT INTO owner_call_step_up_repeat_checks (
@@ -335,7 +340,7 @@ export class OwnerCallStepUpService {
 export interface OwnerStepUpAlertSink {
   alert(input: Readonly<{
     ownerPrincipalId: string;
-    alertClass: "rejected" | "configuration";
+    alertClass: "rejected" | "configuration" | "admission_refused";
     direction: "inbound" | "outbound";
     attestationClass: OwnerAttestationClass;
     now: Date;
@@ -362,21 +367,30 @@ export class D1OwnerStepUpAlertSink implements OwnerStepUpAlertSink {
       last_observed_at = excluded.last_observed_at,
       observation_count = owner_call_step_up_alerts.observation_count + 1,
       attestation_class = excluded.attestation_class,
-      claim_id = excluded.claim_id, claim_expires_at = excluded.claim_expires_at
-    WHERE (owner_call_step_up_alerts.last_sent_at IS NULL OR owner_call_step_up_alerts.last_sent_at <= ?)
-      AND (owner_call_step_up_alerts.claim_expires_at IS NULL OR owner_call_step_up_alerts.claim_expires_at <= ?)
-    RETURNING claim_id`).bind(
+      claim_id = CASE
+        WHEN (owner_call_step_up_alerts.last_sent_at IS NULL OR owner_call_step_up_alerts.last_sent_at <= ?)
+          AND (owner_call_step_up_alerts.claim_expires_at IS NULL OR owner_call_step_up_alerts.claim_expires_at <= ?)
+        THEN excluded.claim_id ELSE owner_call_step_up_alerts.claim_id END,
+      claim_expires_at = CASE
+        WHEN (owner_call_step_up_alerts.last_sent_at IS NULL OR owner_call_step_up_alerts.last_sent_at <= ?)
+          AND (owner_call_step_up_alerts.claim_expires_at IS NULL OR owner_call_step_up_alerts.claim_expires_at <= ?)
+        THEN excluded.claim_expires_at ELSE owner_call_step_up_alerts.claim_expires_at END
+    RETURNING claim_id, observation_count`).bind(
       input.ownerPrincipalId, input.alertClass, input.direction, input.attestationClass,
-      at, at, claimId, claimExpiresAt, eligibleBefore, at,
-    ).first<{ claim_id: string }>();
-    if (claimed === null) return;
-    if (claimed.claim_id !== claimId) throw new Error("owner_step_up_alert_unavailable");
+      at, at, claimId, claimExpiresAt, eligibleBefore, at, eligibleBefore, at,
+    ).first<{ claim_id: string | null; observation_count: number }>();
+    if (claimed === null || claimed.claim_id !== claimId) return;
     const chatId = await new DeviceRepository(this.database).findOwnerTelegramChat(input.ownerPrincipalId);
     if (chatId === null) throw new Error("owner_step_up_alert_unavailable");
     const text = input.alertClass === "configuration"
       ? "Jarvis owner call verification is unavailable because its passphrase configuration is invalid."
-      : `Jarvis ended an ${input.direction} owner call after passphrase verification failed.`
-        + (input.direction === "inbound" ? ` Caller attestation category: ${input.attestationClass}.` : "");
+      : input.alertClass === "admission_refused"
+        ? `Jarvis refused an ${input.direction} owner call because all call-session slots were occupied.`
+          + (input.direction === "inbound" ? ` Caller attestation category: ${input.attestationClass}.` : "")
+          + ` Total observations: ${claimed.observation_count}.`
+        : `Jarvis ended an ${input.direction} owner call after passphrase verification failed.`
+          + (input.direction === "inbound" ? ` Caller attestation category: ${input.attestationClass}.` : "")
+          + ` Total observations: ${claimed.observation_count}.`;
     const result: TelegramSendMessageResult = await this.telegram.sendMessage({
       chatId, text, idempotencyKey: `owner-step-up:${input.ownerPrincipalId}:${input.alertClass}:${input.direction}:${at.slice(0, 16)}`,
     });

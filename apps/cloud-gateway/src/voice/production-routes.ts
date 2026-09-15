@@ -12,12 +12,17 @@ import { D1OutboundPolicyContext } from "../policy/outbound-controls.js";
 import { PolicyEngine } from "../policy/policy-engine.js";
 import { TwilioRestProvider } from "../providers/twilio-provider.js";
 import { TwilioSignatureVerifier } from "../providers/twilio-verifier.js";
+import { TelegramRestProvider } from "../providers/telegram-provider.js";
 import { OwnerPassphraseVerifier } from "../security/owner-passphrase-verifier.js";
 import { decodeCanonicalBase64 } from "../sync/signed-request.js";
 import { snapshotTrustedPublicOrigin } from "../security/trusted-public-origin.js";
 import { D1OutboundRecipientIdentityLookup } from "./outbound-recipient-lookup.js";
 import { readVoiceRuntimeConfiguration } from "./production-runtime.js";
-import { classifyOwnerCallerIdPolicy, OwnerCallStepUpService } from "./owner-call-step-up.js";
+import {
+  classifyOwnerCallerIdPolicy,
+  D1OwnerStepUpAlertSink,
+  OwnerCallStepUpService,
+} from "./owner-call-step-up.js";
 
 let invalidCallerIdPolicyWarningEmitted = false;
 
@@ -45,6 +50,10 @@ export function createProductionVoiceRoutes(env: Env, now: () => Date = () => ne
   const ownerStepUp = new OwnerCallStepUpService(env.DB, new OwnerPassphraseVerifier(
     decodeCanonicalBase64(env.OWNER_PASSPHRASE_PEPPER_V1, 32, "voice_transport_configuration_invalid"), "v1",
   ));
+  const ownerStepUpAlerts = new D1OwnerStepUpAlertSink(
+    env.DB,
+    new TelegramRestProvider({ botToken: configured(env.TELEGRAM_BOT_TOKEN, /^[0-9]{5,20}:[A-Za-z0-9_-]{30,}$/u) }),
+  );
   if (classifyOwnerCallerIdPolicy(env.OWNER_CALLER_ID_POLICY) === "invalid" && !invalidCallerIdPolicyWarningEmitted) {
     invalidCallerIdPolicyWarningEmitted = true;
     console.warn("owner_call_step_up_policy_invalid; passphrase remains required");
@@ -57,14 +66,15 @@ export function createProductionVoiceRoutes(env: Env, now: () => Date = () => ne
       expectedInboundE164: env.TWILIO_FROM_E164 ?? "", ownerIdentityId: env.OWNER_VOICE_IDENTITY_ID,
       currentChallengeHmacKeyVersion: env.IDENTITY_CHALLENGE_HMAC_KEY_VERSION ?? "",
       ownerCallerIdPolicy: env.OWNER_CALLER_ID_POLICY,
-      ownerStepUp,
+      ownerStepUp, ownerStepUpAlerts,
       sessions: calls, initializeSession: (input) => {
         if (input.relaySetupExpiresAt === null) throw new TypeError("inbound_initialization_invalid");
         return session(input.sessionId).initialize({ ...input, relaySetupExpiresAt: input.relaySetupExpiresAt });
       }, now,
     },
     outbound: { ownerIdentityId: env.OWNER_VOICE_IDENTITY_ID, recipients: new D1OutboundRecipientIdentityLookup(env.DB),
-      calls, ownerStepUp, initializeSession: (input) => session(input.sessionId).initialize(input), now },
+      calls, ownerStepUp, ownerStepUpAlerts,
+      initializeSession: (input) => session(input.sessionId).initialize(input), now },
     callbacks: new D1TwilioCallbackRecorder({ database: env.DB, calls,
       terminateSession: (input) => session(input.sessionId).terminate(input), now }),
     relaySession: (request, sessionId) => session(sessionId).fetch(request),

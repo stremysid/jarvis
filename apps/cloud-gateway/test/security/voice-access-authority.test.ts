@@ -85,6 +85,14 @@ async function seedPreAuthSession(sessionId: Ulid, value: RelayBinding): Promise
     .bind(now, sessionId).run();
   await env.DB.prepare("UPDATE call_sessions SET phase = 'pre_auth', updated_at = ? WHERE session_id = ?")
     .bind(now, sessionId).run();
+  if (value.accessKind === "owner") {
+    await env.DB.prepare(`INSERT INTO owner_call_step_up_bindings (
+      session_id, call_sid, owner_principal_id, owner_identity_id, direction,
+      lifecycle_generation, requirement, attestation_class, policy, created_at
+    ) VALUES (?, ?, ?, ?, 'inbound', 1, 'waived_passed_a', 'passed_a', 'waive_on_passed_a', ?)`)
+      .bind(sessionId, value.callSid, value.principalId, value.identityId, now)
+      .run();
+  }
 }
 
 describe("VoiceAccessAuthorityService", () => {
@@ -146,7 +154,7 @@ describe("VoiceAccessAuthorityService", () => {
 
     expect(() => service.snapshot({ ...owner })).toThrow("call_authority_invalid");
     await expect(service.authorize(owner, "conversation.basic", NOW)).resolves.toBe(owner);
-    await expect(service.authorize(owner, "access.manage", NOW)).resolves.toBe(owner);
+    await expect(service.authorize(owner, "access.manage", NOW)).rejects.toThrow("owner_step_up_required");
     await expect(service.mintOwner({
       sessionId: OWNER_RUNTIME_SESSION,
       binding: Object.freeze({ ...relayBinding, relayNonce: `${"9".repeat(42)}A` }),

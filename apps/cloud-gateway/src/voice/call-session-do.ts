@@ -795,6 +795,17 @@ export class CallSessionCore {
         await this.#handlePrompt(event);
         return;
       case "interrupt":
+        this.#clearOwnerStepUpFragments();
+        if (this.#interaction.kind === "owner_step_up" && this.#ownerStepUp !== null) {
+          const state = await this.#ownerStepUp.state(this.#session.sessionId);
+          this.#ownerStepUpDeadlineAt = state.deadlineAt;
+          if (this.#ownerStepUpDeadlineAt !== null) {
+            await this.#ownerStepUpAlarm?.arm({
+              sessionId: this.#session.sessionId, lifecycleGeneration: 1,
+              kind: "window", deadlineAt: this.#ownerStepUpDeadlineAt,
+            });
+          }
+        }
         await this.#cancelCurrentOutput();
         return;
       case "error":
@@ -1187,8 +1198,18 @@ export class CallSessionCore {
   async handleOwnerStepUpAlarm(kind: "window" | "assembly", lifecycleGeneration: 1): Promise<void> {
     if (lifecycleGeneration !== 1 || this.#session.phase !== "pre_auth" || this.#interaction.kind !== "owner_step_up") return;
     const observedAt = this.#now();
-    if (kind === "window") {
+    const state = await this.#ownerStepUp!.state(this.#session.sessionId);
+    if (state.deadlineAt === null || state.rejectionReason !== null) return;
+    this.#ownerStepUpDeadlineAt = state.deadlineAt;
+    if (observedAt.toISOString() >= state.deadlineAt) {
       await this.#rejectOwnerStepUp(observedAt);
+      return;
+    }
+    if (kind === "window") {
+      await this.#ownerStepUpAlarm?.arm({
+        sessionId: this.#session.sessionId, lifecycleGeneration: 1,
+        kind: "window", deadlineAt: state.deadlineAt,
+      });
       return;
     }
     this.#clearOwnerStepUpFragments();
@@ -1481,6 +1502,7 @@ export class CallSessionCore {
     this.#activeTurnAbort?.abort();
     this.#activeTurnAbort = null;
     this.#lastSentAssistantEventId = null;
+    this.#clearOwnerStepUpFragments();
     this.#activationDigits = "";
     this.#activationAttempted = false;
     this.#clearOwnerAccessState();
@@ -1501,6 +1523,7 @@ export class CallSessionCore {
     });
     if (TERMINAL_PHASES.has(nextPhase)) {
       this.#lifecycleGeneration += 1;
+      this.#clearOwnerStepUpFragments();
       this.#authorityService?.invalidate(this.#authority);
       this.#authority = null;
       this.#clearOwnerAccessState();

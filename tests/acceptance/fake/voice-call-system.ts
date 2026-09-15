@@ -1,7 +1,7 @@
 import { permittedOutboundControls } from "../../../apps/cloud-gateway/test/policy/outbound-controls-fixture.js";
 import { env } from "cloudflare:test";
 import { CapacityGuard } from "../../../apps/cloud-gateway/src/archive/capacity-guard.js";
-import type { OutboundCallCommand, Ulid } from "../../../packages/contracts/src/index.js";
+import type { OutboundCallCommand, Sha256Hex, Ulid } from "../../../packages/contracts/src/index.js";
 import {
   OutboundCallDispatcher,
   type OutboundCallDispatchResult,
@@ -103,8 +103,8 @@ async function seedAuthorizedCommand(principalId: string, now: Date): Promise<vo
   await new OwnerPassphraseRepository(env.DB).rotate({
     verified: {
       deviceId: "device:home", principalId, audience: "jarvis-local-agent",
-      issuedAt: timestamp, nonce: "n", bodyHash: "3".repeat(64), keyId: "key:home",
-      keyFingerprint: "1".repeat(64), keyGeneration: 1, body: {},
+      issuedAt: timestamp, nonce: "n", bodyHash: "3".repeat(64) as Sha256Hex, keyId: "key:home",
+      keyFingerprint: "1".repeat(64) as Sha256Hex, keyGeneration: 1, body: {},
     },
     ownerPrincipalId: principalId, ownerIdentityId: "identity:voice", expectedVerifierVersion: null,
     record, commitId: "01m2ccccccccccccccccccc001", committedAt: timestamp,
@@ -159,6 +159,7 @@ export interface FakeCallingSystem extends FakeOutboundCallingSystem {
   pinAttempts(): Promise<number>;
   conversationTurnCount(): Promise<number>;
   ownerStepUpAttempts(sessionId: Ulid): Promise<number>;
+  advanceTime(milliseconds: number): void;
   sendRelayEnded(callSid: string, sessionStatus: string, providerSessionId?: string, handoffData?: string): Promise<Response>;
   terminations(): readonly CallSessionTermination[];
   terminationRecord(sessionId: Ulid): Promise<unknown>;
@@ -240,6 +241,7 @@ export async function createFakeCallingSystem(input: {
       currentChallengeHmacKeyVersion: "hmac-v1",
       ownerCallerIdPolicy: input.ownerCallerIdPolicy,
       ownerStepUp,
+      ownerStepUpAlerts: { async alert(): Promise<void> {} },
       sessions: repository,
       initializeSession,
       now: () => new Date(now),
@@ -255,6 +257,7 @@ export async function createFakeCallingSystem(input: {
         },
       },
       ownerStepUp,
+      ownerStepUpAlerts: { async alert(): Promise<void> {} },
       initializeSession: async (initialization) => {
         await initializeSession(initialization);
         initializationLog.push(initialization);
@@ -266,7 +269,7 @@ export async function createFakeCallingSystem(input: {
   });
 
   return Object.freeze({
-    inbound: async (caller = DESTINATION, stirVerstat) => routeVoiceRequest(
+    inbound: async (caller = DESTINATION, stirVerstat?: string | readonly string[]) => routeVoiceRequest(
       await signedPost(twilio, "/voice/inbound", "https://jarvis.example/voice/inbound",
         new URLSearchParams([
           ["From", caller], ["To", "+14165550100"],
@@ -323,9 +326,10 @@ export async function createFakeCallingSystem(input: {
     dispatchIntent: () => repository.resolveDispatchIntent(COMMAND_ID),
     conversationTurnCount: async () => (await env.DB.prepare("SELECT COUNT(*) AS count FROM conversation_turns")
       .first<{ count: number }>())?.count ?? 0,
-    ownerStepUpAttempts: async (sessionId) => (await env.DB.prepare(
+    ownerStepUpAttempts: async (sessionId: Ulid) => (await env.DB.prepare(
       "SELECT count(*) AS count FROM owner_call_step_up_attempts WHERE session_id = ?",
     ).bind(sessionId).first<{ count: number }>())?.count ?? 0,
+    advanceTime: (milliseconds: number) => { now.setTime(now.valueOf() + milliseconds); },
     twilioRequests: () => twilio.requests,
     initializations: () => Object.freeze([...initializationLog]),
     cleanup: async () => { await relays.cleanup(); await clearFixture(); },

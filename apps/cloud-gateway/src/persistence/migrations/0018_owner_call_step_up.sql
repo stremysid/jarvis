@@ -88,7 +88,7 @@ CREATE TABLE guest_call_pin_attempts (
 
 CREATE TABLE owner_call_step_up_alerts (
   owner_principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE RESTRICT,
-  alert_class TEXT NOT NULL CHECK (alert_class IN ('rejected', 'configuration')),
+  alert_class TEXT NOT NULL CHECK (alert_class IN ('rejected', 'configuration', 'admission_refused')),
   direction TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
   attestation_class TEXT NOT NULL CHECK (attestation_class IN ('passed_a', 'absent', 'other', 'not_applicable')),
   first_observed_at TEXT NOT NULL CHECK (strftime('%Y-%m-%dT%H:%M:%fZ', first_observed_at) IS first_observed_at),
@@ -105,24 +105,27 @@ CREATE TRIGGER owner_call_step_up_bindings_insert_guard
 BEFORE INSERT ON owner_call_step_up_bindings
 WHEN NOT EXISTS (
   SELECT 1 FROM call_sessions session
-  JOIN voice_owner_identity owner ON owner.singleton_id = 1
   WHERE session.session_id = NEW.session_id
     AND session.call_sid = NEW.call_sid
     AND session.principal_id = NEW.owner_principal_id
     AND session.identity_id = NEW.owner_identity_id
     AND session.direction = NEW.direction
     AND session.created_at = NEW.created_at
-    AND owner.principal_id = NEW.owner_principal_id
-    AND owner.identity_id = NEW.owner_identity_id
     AND (
-      session.activation_only = 1 AND NEW.requirement = 'not_applicable'
+      session.access_kind = 'guest' AND NEW.requirement = 'not_applicable'
         AND NEW.attestation_class = 'not_applicable' AND NEW.policy = 'not_applicable'
-      OR session.access_kind = 'guest' AND NEW.requirement = 'not_applicable'
-        AND NEW.attestation_class = 'not_applicable' AND NEW.policy = 'not_applicable'
-      OR session.activation_only = 0 AND session.access_kind = 'owner' AND session.direction = 'outbound'
-        AND NEW.requirement = 'required' AND NEW.attestation_class = 'not_applicable'
-        AND NEW.policy = 'passphrase_always'
-      OR session.activation_only = 0 AND session.access_kind = 'owner' AND session.direction = 'inbound'
+      OR EXISTS (
+        SELECT 1 FROM voice_owner_identity owner
+        WHERE owner.singleton_id = 1
+          AND owner.principal_id = NEW.owner_principal_id
+          AND owner.identity_id = NEW.owner_identity_id
+      ) AND (
+        session.activation_only = 1 AND NEW.requirement = 'not_applicable'
+          AND NEW.attestation_class = 'not_applicable' AND NEW.policy = 'not_applicable'
+        OR session.activation_only = 0 AND session.access_kind = 'owner' AND session.direction = 'outbound'
+          AND NEW.requirement = 'required' AND NEW.attestation_class = 'not_applicable'
+          AND NEW.policy = 'passphrase_always'
+        OR session.activation_only = 0 AND session.access_kind = 'owner' AND session.direction = 'inbound'
         AND (
           NEW.requirement = 'waived_passed_a' AND NEW.attestation_class = 'passed_a'
             AND NEW.policy = 'waive_on_passed_a'
@@ -130,6 +133,7 @@ WHEN NOT EXISTS (
             NEW.attestation_class = 'passed_a' AND NEW.policy = 'waive_on_passed_a'
           )
         )
+      )
     )
 )
 BEGIN
@@ -415,8 +419,7 @@ WHEN NEW.outcome IS NOT NULL OR NEW.resolved_at IS NOT NULL OR NOT EXISTS (
     AND success.lifecycle_generation = NEW.lifecycle_generation
     AND success.verifier_version = NEW.verifier_version
     AND session.phase = 'active'
-    AND NEW.reserved_at >= success.verified_at
-    AND NEW.reserved_at <= strftime('%Y-%m-%dT%H:%M:%fZ', success.verified_at, '+2 seconds')
+    AND NEW.reserved_at > strftime('%Y-%m-%dT%H:%M:%fZ', success.verified_at, '+2 seconds')
     AND head.owner_identity_id = success.owner_identity_id
     AND head.verifier_version = success.verifier_version
     AND head.status = 'active' AND verifier.status = 'active'

@@ -16,14 +16,19 @@ import {
   CallSessionCore,
   GuestCallAuthentication,
   type CallSessionInitialization,
+  type CallSessionRuntimeFactory,
   type CallSessionTermination,
   type CallSessionTerminationResult,
   type CallSessionTerminalPhase,
 } from "../../../apps/cloud-gateway/src/voice/call-session-do.js";
 import { AuthenticationAttemptBudget } from "../../../apps/cloud-gateway/src/voice/inbound-auth.js";
 import { DurableObjectCallSessionTerminator } from "../../../apps/cloud-gateway/src/voice/call-session-terminator.js";
+import { OwnerAccessService } from "../../../apps/cloud-gateway/src/voice/owner-access-service.js";
 import { GuestPinProofIssuer, VoiceAccessAuthorityService } from "../../../apps/cloud-gateway/src/voice/voice-access-authority.js";
-import { OwnerCallStepUpService } from "../../../apps/cloud-gateway/src/voice/owner-call-step-up.js";
+import {
+  OWNER_STEP_UP_VERIFIED,
+  OwnerCallStepUpService,
+} from "../../../apps/cloud-gateway/src/voice/owner-call-step-up.js";
 import {
   FAKE_BUDGET_PEPPER, FAKE_GUEST_PEPPER, FAKE_OWNER_PASSPHRASE_PEPPER, FAKE_VOICE_REGISTRY,
 } from "./voice-access-system.js";
@@ -45,14 +50,25 @@ export interface FakeRelayCall {
   prompt(text: string): Promise<void>;
   pin(digits: Uint8Array): Promise<void>;
   interrupt(): Promise<void>;
+  hibernate(): Promise<void>;
+  fireAlarm(): Promise<void>;
   sendFrame(frame: string | ArrayBuffer): Promise<void>;
   modelRequests(): Promise<readonly { principalId: string; userText: string; timeoutMs: number; context: readonly { text: string }[] }[]>;
   emitToken(text: string): Promise<void>;
   completeModel(): Promise<void>;
   frames(): readonly RelayTextFrame[];
   closeCodes(): readonly number[];
+  closeEvents(): readonly Readonly<{ code: number; reason: string }>[];
+  stepUpAlerts(): readonly Readonly<{
+    ownerPrincipalId: string;
+    alertClass: "rejected" | "configuration" | "admission_refused";
+    direction: "inbound" | "outbound";
+    attestationClass: string;
+  }>[];
+  authorityCountsAtVerified(): readonly number[];
   phase(): Promise<string | undefined>;
   durableStorage(): Promise<Readonly<Record<string, unknown>>>;
+  durableSqlStorage(): Promise<readonly unknown[]>;
   turns(): Promise<readonly {
     state: string;
     sent_assistant_event_id: string | null;
@@ -65,13 +81,22 @@ export interface FakeRelayCall {
 type SessionStub = ReturnType<typeof env.CALL_SESSION.get>;
 interface InitializedRelay {
   readonly stub: SessionStub;
-  readonly object: CallSession;
+  object: CallSession;
+  readonly factory: CallSessionRuntimeFactory;
   readonly initialization: Readonly<CallSessionInitialization>;
   readonly model: FakeModelProvider;
   client: WebSocket | null;
   server: WebSocket | null;
   readonly frames: RelayTextFrame[];
   readonly closeCodes: number[];
+  readonly closeEvents: Array<Readonly<{ code: number; reason: string }>>;
+  readonly stepUpAlerts: Array<Readonly<{
+    ownerPrincipalId: string;
+    alertClass: "rejected" | "configuration" | "admission_refused";
+    direction: "inbound" | "outbound";
+    attestationClass: string;
+  }>>;
+  readonly authorityCountsAtVerified: number[];
   readonly providerSessionId: string;
 }
 
@@ -97,15 +122,26 @@ export class FakeRelaySessions {
     await runInDurableObject(stub, async (_instance, state) => {
       const access = new VoiceAccessRepository(env.DB);
       const proofs = new GuestPinProofIssuer();
-      const authority = new VoiceAccessAuthorityService(access, FAKE_VOICE_REGISTRY(), proofs);
+      const registry = FAKE_VOICE_REGISTRY();
+      const authority = new VoiceAccessAuthorityService(access, registry, proofs);
+      const guestVerifier = new GuestPinVerifier(FAKE_GUEST_PEPPER());
       const guestAuthentication = new GuestCallAuthentication({
-        repository: access, proofs, verifier: new GuestPinVerifier(FAKE_GUEST_PEPPER()),
+        repository: access, proofs, verifier: guestVerifier,
         budgets: new AuthenticationAttemptBudget(env.DB, FAKE_BUDGET_PEPPER()),
+      });
+      const ownerAccess = new OwnerAccessService({
+        repository: access,
+        registry,
+        authorities: authority,
+        verifier: guestVerifier,
+        defaultGuestPin: () => "1357",
       });
       const ownerStepUp = new OwnerCallStepUpService(
         env.DB, new OwnerPassphraseVerifier(FAKE_OWNER_PASSPHRASE_PEPPER(), "v1"),
       );
       const model = new FakeModelProvider(this.modelOptions);
+      const authorityCountsAtVerified: number[] = [];
+      const stepUpAlerts: InitializedRelay["stepUpAlerts"] = [];
       const conversation = new DefaultConversationService({
         repository: new ConversationRepository(env.DB, new EventRepository(env.DB)),
         model: new DefaultModelAdapter(model),
@@ -114,25 +150,46 @@ export class FakeRelaySessions {
         redactor: new Redactor(),
         now: this.now,
       });
-      const object = new CallSession(state, env, (input) => new CallSessionCore({
+      const factory: CallSessionRuntimeFactory = (input) => new CallSessionCore({
         capacity: { async assertAcceptingNewTurn(): Promise<void> {} },
         session: input.session,
         expectedAccountSid: FAKE_ACCOUNT_SID,
         repository: this.repository,
         authority,
         guestAuthentication,
+        ownerAccess,
         ownerStepUp,
-        ownerStepUpAlerts: { async alert(): Promise<void> {} },
+        ownerStepUpAlerts: { async alert(input): Promise<void> {
+          stepUpAlerts.push(Object.freeze({
+            ownerPrincipalId: input.ownerPrincipalId,
+            alertClass: input.alertClass,
+            direction: input.direction,
+            attestationClass: input.attestationClass,
+          }));
+        } },
         ownerStepUpAlarm: input.ownerStepUpAlarm,
         conversation,
-        relay: input.relay,
+        relay: {
+          ...input.relay,
+          sendNeutralText: async (text) => {
+            if (text === OWNER_STEP_UP_VERIFIED) {
+              const row = await env.DB.prepare(`SELECT count(*) AS count FROM call_session_authorities
+                WHERE session_id = ? AND authority_kind = 'owner'`)
+                .bind(input.session.sessionId).first<{ count: number }>();
+              authorityCountsAtVerified.push(row?.count ?? -1);
+            }
+            await input.relay.sendNeutralText(text);
+          },
+        },
         ...(input.initialization.binding.direction === "outbound" && "preAuthentication" in input.initialization
           ? { preAuthentication: input.initialization.preAuthentication }
           : {}),
         now: this.now,
-      }));
+      });
+      const object = new CallSession(state, env, factory);
       this.sessions.set(initialization.sessionId, {
-        stub, object, initialization, model, client: null, server: null, frames: [], closeCodes: [],
+        stub, object, factory, initialization, model, client: null, server: null, frames: [], closeCodes: [], closeEvents: [],
+        authorityCountsAtVerified, stepUpAlerts,
         providerSessionId: `VX${(++this.providerSequence).toString(16).padStart(32, "0")}`,
       });
     });
@@ -151,7 +208,10 @@ export class FakeRelaySessions {
         if (typeof event.data !== "string") throw new Error("fake_relay_binary_output");
         session.frames.push(JSON.parse(event.data) as RelayTextFrame);
       });
-      session.client.addEventListener("close", (event) => { session.closeCodes.push(event.code); });
+      session.client.addEventListener("close", (event) => {
+        session.closeCodes.push(event.code);
+        session.closeEvents.push(Object.freeze({ code: event.code, reason: event.reason }));
+      });
     });
     if (response === undefined) throw new Error("fake_relay_upgrade_missing");
     return response;
@@ -187,6 +247,10 @@ export class FakeRelaySessions {
       interrupt: () => sendFrame(JSON.stringify({
         type: "interrupt", utteranceUntilInterrupt: "This response must stop", durationUntilInterruptMs: 100,
       })),
+      hibernate: () => runInDurableObject(session.stub, async (_instance, state) => {
+        session.object = new CallSession(state, env, session.factory);
+      }),
+      fireAlarm: () => runInDurableObject(session.stub, async () => session.object.alarm()),
       sendFrame,
       modelRequests: () => runInDurableObject(session.stub, async () => session.model.requests
         .filter((request) => request.operation === "streamText")
@@ -198,9 +262,20 @@ export class FakeRelaySessions {
       completeModel: () => runInDurableObject(session.stub, async () => { session.model.complete(); }),
       frames: () => [...session.frames],
       closeCodes: () => [...session.closeCodes],
+      closeEvents: () => [...session.closeEvents],
+      stepUpAlerts: () => [...session.stepUpAlerts],
+      authorityCountsAtVerified: () => [...session.authorityCountsAtVerified],
       phase: async () => (await this.repository.getCallSession(sessionId))?.phase,
       durableStorage: () => runInDurableObject(session.stub, async (_instance, state) =>
         Object.fromEntries(await state.storage.list())),
+      durableSqlStorage: () => runInDurableObject(session.stub, async (_instance, state) => {
+        const tables = state.storage.sql.exec<{ name: string }>(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND substr(name, 1, 4) != '_cf_' ORDER BY name",
+        ).toArray();
+        return tables.flatMap(({ name }) => /^[A-Za-z0-9_]+$/u.test(name)
+          ? state.storage.sql.exec(`SELECT * FROM ${name}`).toArray()
+          : []);
+      }),
       turns: async () => (await env.DB.prepare(`SELECT state, sent_assistant_event_id, delivered_assistant_event_id
         FROM conversation_turns WHERE session_id = ? ORDER BY rowid`).bind(sessionId)
         .all<{ state: string; sent_assistant_event_id: string | null; delivered_assistant_event_id: string | null }>()).results,
