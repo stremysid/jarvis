@@ -250,8 +250,7 @@ function commandContext(env: Env, principalId: string): CommandContext {
           claimStudyCheckIn: async (date, weekday, minuteOfDay) => {
             const study = new StudyCoachRepository(env.DB);
             const now = clock.now();
-            await study.syncCourseContext(principalId, date, now);
-            return study.claimDigestCheckIn({ principalId, today: date, weekday, minuteOfDay, now });
+            return study.syncAndClaimDigestCheckIn({ principalId, today: date, weekday, minuteOfDay, now });
           },
           readDeadlines: async (withinDays) =>
             new DeadlineRepository(env.DB).listDueWithin({

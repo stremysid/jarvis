@@ -553,6 +553,17 @@ export class StudyCoachRepository {
     return result.meta.changes;
   }
 
+  async syncAndClaimDigestCheckIn(input: {
+    readonly principalId: string;
+    readonly today: string;
+    readonly weekday: number;
+    readonly minuteOfDay: number;
+    readonly now: Date;
+  }): Promise<StudyCheckIn | null> {
+    await this.syncCourseContext(input.principalId, input.today, input.now);
+    return this.claimDigestCheckIn(input);
+  }
+
   async claimDigestCheckIn(input: {
     readonly principalId: string;
     readonly today: string;

@@ -441,8 +441,7 @@ async function digest(
       readCatchupActions: async (date) => school.listActionsForDate(principalId, date),
       claimStudyCheckIn: async (date, weekday, minuteOfDay) => {
         const now = context.clock.now();
-        await study.syncCourseContext(principalId, date, now);
-        return study.claimDigestCheckIn({ principalId, today: date, weekday, minuteOfDay, now });
+        return study.syncAndClaimDigestCheckIn({ principalId, today: date, weekday, minuteOfDay, now });
       },
       readDeadlines: async (withinDays) =>
         deadlines.listDueWithin({

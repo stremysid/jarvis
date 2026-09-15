@@ -128,8 +128,7 @@ describe("StudyCoachRepository", () => {
   it("claims only one due check-in and honors conversational weekend and quiet settings", async () => {
     const item = await seedCourse("checkin");
     const repository = new StudyCoachRepository(env.DB);
-    await repository.syncCourseContext(item.principalId, TODAY, NOW);
-    const first = await repository.claimDigestCheckIn({
+    const first = await repository.syncAndClaimDigestCheckIn({
       principalId: item.principalId, today: TODAY, weekday: 1, minuteOfDay: 450, now: NOW,
     });
     expect(first).toMatchObject({
