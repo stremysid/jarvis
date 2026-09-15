@@ -174,12 +174,22 @@ independent review and merge, the next R2 PR is the channel-neutral
 owner-controls service. Sid will eventually use ordinary speech and text rather
 than learned commands; that channel behavior is not part of PR #47.
 
-Local validation on implementation/documentation head `d719d85` passes the two
-focused repository files (16 tests), lint, typecheck and the complete workspace
-suite (148 files / 3,093 tests) with Vitest bounded to four workers to coexist
-with the other active Jarvis tasks. All seven planted repository faults were
-caught, then the source file returned to SHA-256
-`dd7eaf307c728ddf76b28f15d7e39759cb9c63765fcc5fa65dd451304d885705`.
+Reviewer pre-probes on the first ready head exposed that a live event receipt
+could accompany an exact excerpt absent from the event. Fix `052f1fc` now
+validates the canonical event envelope and its row mirrors, derives its live
+channel, and refuses an absent excerpt before the write boundary. The archived
+principal probe did not reach the repository because its fixture failed the
+existing archive seal comparison; the merged design already records that the
+archive catalog lacks principal and event-type evidence, so archived-only
+material remains restricted to uncertain, proposed model memory.
+
+Final local validation on implementation head `052f1fc` passes the two focused
+repository files (17 tests), workspace lint and typecheck, and the complete
+workspace suite (148 files / 3,094 tests) with Vitest bounded to four workers.
+The repository's known non-gating test typecheck has no error in the new memory
+source or tests. All eight final-source faults were caught, including exact
+live-excerpt provenance, then the source file returned to SHA-256
+`e3c668563ee074abd3294688a437892b117c9936146ab95d1dc69b3f96b5ead7`.
 This is local evidence only; independent Claude xhigh review is pending and no
 live acceptance is claimed.
 

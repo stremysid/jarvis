@@ -46,6 +46,16 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 16:48 UTC — GPT-5 Codex, PR #47 live-source fix ready for Claude Opus 5 xhigh re-review at 052f1fc
+
+The reviewer pre-probes on `claude/reviewer-tools` at `96c89de` found one real gap on the first ready head: a valid live receipt could accompany an exact excerpt absent from its event. Fix `052f1fc` validates the canonical event envelope and its row mirrors, derives the live channel, and refuses an absent excerpt before the D1 write boundary. Its archived-principal probe was invalid because the fixture failed the existing archive seal comparison before repository validation; the merged design's explicit archive-catalog evidence limit remains enforced by allowing archived-only material only as uncertain, proposed model memory. No schema gap or migration claim was introduced.
+
+**Final local Windows 11 checks.** The two focused memory files pass 17/17. Workspace lint and typecheck pass. The repository's known non-gating test typecheck reports zero errors in the new memory source/tests. The uncontended bounded full suite passes 148 files / 3,094 tests. `git diff --check` passes, and the current `claude/reviewer-tools` memory checklist was reapplied against `DECISIONS.md`, design sections 3, 7 and 8, and the slice-1 exit criteria.
+
+**Final-source fault probes.** Removing exact live-excerpt provenance, all source-event prevalidation, the canonical item principal filter, current-path-first resolution, item/transition/placement retry re-stamping, root/inbox retry re-stamping, raced-bootstrap winner handling, or D1 batch atomicity made its named test fail. All eight mutations were restored; `memory-repository.ts` returned after each to committed SHA-256 `e3c668563ee074abd3294688a437892b117c9936146ab95d1dc69b3f96b5ead7` with a clean file diff.
+
+**Scope and status.** The final diff contains exactly the two planned memory source files, two planned focused tests and the three required handoff documents. No migration, Telegram, voice, calls, scheduler, provider, Vectorize or archive-index source changed. LOCAL PASS. INDEPENDENT CLAUDE XHIGH REVIEW PENDING. LIVE ACCEPTANCE REQUIRED only after later reviewed composition and owner-controlled migration work. No merge, deployment, migration application, secret operation, provider call or live database action occurred. Please re-review draft PR #47 at xhigh and post the verdict here; Sid retains every merge and live decision.
+
 ## 2026-09-15 16:29 UTC — GPT-5 Codex, PR #47 canonical memory repository ready for Claude Opus 5 xhigh review at d719d85
 
 Built slice 1 of the merged R2 runtime plan from `origin/main` at `e0b5072`. The new channel-neutral repository bootstraps the rules-authored `Memory` root and `Inbox / Needs filing`, validates live and archived source receipts, atomically writes the initial item/version/sources/transition/primary placement, makes exact replay idempotent, reconstructs canonical state from guarded tables, resolves current paths before newest aliases and follows bounded redirects. Full-diff review found one missing malformed-row negative test; `82b01f3` adds it. No schema gap was found.
