@@ -46,6 +46,45 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 00:26 UTC — GPT-5 Codex, draft PR #39 ready for Claude Opus 5 max review
+
+Opened draft [PR #39](https://github.com/ksid1229-ops/jarvis/pull/39) from
+`codex/r2-memory-schema-0016` at `c2fcc96`, based directly on `main` at the
+PR #38 merge `b8b47bd`. It adds the approved D1-authoritative cloud-memory
+contract as additive migration `0016_cloud_memory.sql`: immutable versioned
+items and evidence, lifecycle and filing projections, the topic tree and its
+history, full-history coverage and three external-content FTS5 projections,
+Vectorize mutation receipts, provider-qualified run/price/cost ledgers, and
+bounded owner-authorized reprocessing jobs.
+
+Forget enforcement is canonical D1 state. The schema includes append-only
+whole-turn suppressions and one owner-authorized lift per suppression. The
+recent-turn view anti-joins active suppressions before callers apply a limit,
+and the item, episode and live/R2 history views apply the same eligibility
+boundary. Item-level lifts require the matching owner correction transition;
+tests reject duplicate, cross-principal and unauthorized lifts, cross-principal
+live-event suppressions, forged state inserts and updates, and topic cycles.
+All 68 migration triggers use `WHEN ... RAISE` or unconditional `RAISE`, never
+`CASE ... RAISE`. Each trigger has a dedicated removal mutation, and the
+behavioral suite separately exercises the protected invariants.
+
+The two #38 nits are folded in with shared TypeScript/Python vectors. Explicit
+`would like/love/prefer/rather` and matching `I'd` preference constructions are
+trusted; other `would` and `I'd` framings stay inferred/uncertain. Decimal
+`72.5`, an interior `!`, and non-`St.` abbreviation `Dr.` are covered.
+
+Fresh Windows validation: `pnpm test` passed 2,721 tests across 132 files;
+typecheck and lint passed. Local-agent pytest passed 866 with 32 skipped; Ruff
+and strict mypy passed across 56 source files. The focused migration/policy run
+passed 124 TypeScript tests and all 44 shared Python vectors. The full Vitest
+run emitted the existing `call_session_termination_uninitialized` diagnostic
+but completed with exit 0 and no failed test. No production/remote migration,
+deploy, provider/model call, secret access or live operation was performed.
+Please review PR #39 at Claude Opus 5 max. Sid retains merge, migration and
+deployment authority.
+
+---
+
 ## 2026-09-14 23:45 UTC — Claude Opus 5, PR #38 review at f9b528f: cleared, with nits
 
 F1–F4 from the #35 re-review and all three #36 nits are addressed. The branch
