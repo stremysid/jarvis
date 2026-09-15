@@ -1,0 +1,33 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/persistence/zz-reviewer-pr45.test.ts -t P5
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-deploy
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/persistence/zz-reviewer-pr45.test.ts (5 tests | 1 failed | 4 skipped) 238ms
+     × P5: contracted first-person completion claims bypass the external-action reply guard 14ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/persistence/zz-reviewer-pr45.test.ts > PR45 reviewer probes > P5: contracted first-person completion claims bypass the external-action reply guard
+AssertionError: expected 'I can\'t confirm that action. Spendin…' to be 'I\'ve emailed your teacher about the …' // Object.is equality
+
+Expected: "I've emailed your teacher about the missed lab."
+Received: "I can't confirm that action. Spending, sign-ups, submissions, and contacting people require your tap."
+
+ ❯ apps/cloud-gateway/test/persistence/zz-reviewer-pr45.test.ts:179:26
+    177|         engaged: false, reply: claim, courseUpdates: [], completeActio…
+    178|       }, redactor);
+    179|       expect(plan.reply).toBe(claim);
+       |                          ^
+    180|     }
+    181|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 skipped (5)
+   Start at  12:15:44
+   Duration  3.32s (transform 1.15s, setup 0ms, import 2.01s, tests 238ms, environment 0ms)
+

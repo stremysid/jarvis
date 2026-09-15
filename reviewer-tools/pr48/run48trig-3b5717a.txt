@@ -1,0 +1,186 @@
+checked out 3b5717a at 3b5717a
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  5 passed (5)
+   Tests  48 passed (48)
+
+== T-school_course_facts_core_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/school/school-catchup-repository.test.ts (8 tests | 1 failed) 997ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  3 failed | 45 passed (48)
+   × installs the bounded program and item schema with every named guard 16ms
+   × installs the school_course_facts_core_immutable trigger 4ms
+   × stores a re-reported resolved owner fact as a new active fact 63ms
+
+== T-school_catchup_actions_reject_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts (24 tests | 2 failed) 1001ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  2 failed | 46 passed (48)
+   × installs the bounded program and item schema with every named guard 19ms
+   × installs the school_catchup_actions_reject_delete trigger 4ms
+
+== T-university_programs_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts (24 tests | 4 failed) 604ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  4 failed | 44 passed (48)
+   × installs the bounded program and item schema with every named guard 16ms
+   × installs the university_programs_insert_guard trigger 3ms
+   × rejects false verification and unsafe program replacement paths 84ms
+   × rejects REPLACE and IGNORE on every program, item, and receipt unique key 83ms
+
+== T-university_programs_active_cap_insert: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts (24 tests | 3 failed) 655ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  3 failed | 45 passed (48)
+   × installs the bounded program and item schema with every named guard 16ms
+   × installs the university_programs_active_cap_insert trigger 4ms
+   × enforces program and active-item caps inside D1 writes 32ms
+
+== T-university_programs_active_cap_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts (24 tests | 3 failed) 675ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  3 failed | 45 passed (48)
+   × installs the bounded program and item schema with every named guard 16ms
+   × installs the university_programs_active_cap_update trigger 5ms
+   × enforces program and active-item caps inside D1 writes 35ms
+
+== T-university_programs_require_owner_turn_insert: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts (24 tests | 3 failed) 574ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  3 failed | 45 passed (48)
+   × installs the bounded program and item schema with every named guard 12ms
+   × installs the university_programs_require_owner_turn_insert trigger 4ms
+   × requires same-principal Telegram turns 45ms
+
+== T-university_programs_require_owner_turn_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts (24 tests | 3 failed) 588ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  3 failed | 45 passed (48)
+   × installs the bounded program and item schema with every named guard 14ms
+   × installs the university_programs_require_owner_turn_update trigger 4ms
+   × requires same-principal Telegram turns 61ms
+
+== T-university_programs_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts (24 tests | 4 failed) 576ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  4 failed | 44 passed (48)
+   × installs the bounded program and item schema with every named guard 13ms
+   × installs the university_programs_update_guard trigger 5ms
+   × rejects false verification and unsafe program replacement paths 76ms
+   × rejects REPLACE and IGNORE on every program, item, and receipt unique key 87ms
+
+== T-university_programs_reject_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts (24 tests | 3 failed) 576ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  3 failed | 45 passed (48)
+   × installs the bounded program and item schema with every named guard 12ms
+   × installs the university_programs_reject_delete trigger 4ms
+   × rejects false verification and unsafe program replacement paths 86ms
+
+== T-university_program_items_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts (24 tests | 4 failed) 595ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  4 failed | 44 passed (48)
+   × installs the bounded program and item schema with every named guard 15ms
+   × installs the university_program_items_insert_guard trigger 3ms
+   × rejects false verification and unsafe program replacement paths 87ms
+   × rejects REPLACE and IGNORE on every program, item, and receipt unique key 74ms
+
+== T-university_program_items_active_cap_insert: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts (24 tests | 3 failed) 603ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  3 failed | 45 passed (48)
+   × installs the bounded program and item schema with every named guard 15ms
+   × installs the university_program_items_active_cap_insert trigger 5ms
+   × enforces program and active-item caps inside D1 writes 40ms
+
+== T-university_program_items_require_owner_turn: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts (24 tests | 3 failed) 599ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  3 failed | 45 passed (48)
+   × installs the bounded program and item schema with every named guard 11ms
+   × installs the university_program_items_require_owner_turn trigger 4ms
+   × requires same-principal Telegram turns 65ms
+
+== T-university_program_items_core_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts (24 tests | 4 failed) 588ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  4 failed | 44 passed (48)
+   × installs the bounded program and item schema with every named guard 14ms
+   × installs the university_program_items_core_immutable trigger 4ms
+   × rejects false verification and unsafe program replacement paths 85ms
+   × rejects REPLACE and IGNORE on every program, item, and receipt unique key 91ms
+
+== T-university_program_items_status_transition: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts (24 tests | 3 failed) 584ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  3 failed | 45 passed (48)
+   × installs the bounded program and item schema with every named guard 13ms
+   × installs the university_program_items_status_transition trigger 3ms
+   × requires same-principal Telegram turns 66ms
+
+== T-university_program_items_reject_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts (24 tests | 3 failed) 582ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  3 failed | 45 passed (48)
+   × installs the bounded program and item schema with every named guard 13ms
+   × installs the university_program_items_reject_delete trigger 3ms
+   × rejects false verification and unsafe program replacement paths 86ms
+
+== T-university_tracker_turn_receipts_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts (24 tests | 3 failed) 603ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  3 failed | 45 passed (48)
+   × installs the bounded program and item schema with every named guard 16ms
+   × installs the university_tracker_turn_receipts_insert_guard trigger 4ms
+   × rejects REPLACE and IGNORE on every program, item, and receipt unique key 74ms
+
+== T-university_tracker_turn_receipts_require_turn: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts (24 tests | 3 failed) 713ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  3 failed | 45 passed (48)
+   × installs the bounded program and item schema with every named guard 15ms
+   × installs the university_tracker_turn_receipts_require_turn trigger 4ms
+   × requires same-principal Telegram turns 56ms
+
+== T-university_tracker_turn_receipts_reject_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts (24 tests | 4 failed) 670ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  4 failed | 44 passed (48)
+   × installs the bounded program and item schema with every named guard 17ms
+   × installs the university_tracker_turn_receipts_reject_update trigger 5ms
+   × rejects false verification and unsafe program replacement paths 79ms
+   × rejects REPLACE and IGNORE on every program, item, and receipt unique key 109ms
+
+== T-university_tracker_turn_receipts_reject_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts (24 tests | 3 failed) 662ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  3 failed | 45 passed (48)
+   × installs the bounded program and item schema with every named guard 20ms
+   × installs the university_tracker_turn_receipts_reject_delete trigger 4ms
+   × rejects false verification and unsafe program replacement paths 82ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-school_course_facts_core_immutable
+KILLED    T-school_catchup_actions_reject_delete
+KILLED    T-university_programs_insert_guard
+KILLED    T-university_programs_active_cap_insert
+KILLED    T-university_programs_active_cap_update
+KILLED    T-university_programs_require_owner_turn_insert
+KILLED    T-university_programs_require_owner_turn_update
+KILLED    T-university_programs_update_guard
+KILLED    T-university_programs_reject_delete
+KILLED    T-university_program_items_insert_guard
+KILLED    T-university_program_items_active_cap_insert
+KILLED    T-university_program_items_require_owner_turn
+KILLED    T-university_program_items_core_immutable
+KILLED    T-university_program_items_status_transition
+KILLED    T-university_program_items_reject_delete
+KILLED    T-university_tracker_turn_receipts_insert_guard
+KILLED    T-university_tracker_turn_receipts_require_turn
+KILLED    T-university_tracker_turn_receipts_reject_update
+KILLED    T-university_tracker_turn_receipts_reject_delete
+back on main, tree clean=true
+(node:32088) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
