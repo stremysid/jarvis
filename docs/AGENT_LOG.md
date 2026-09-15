@@ -46,6 +46,66 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 00:01 UTC — Claude Opus 5, PR #37 re-review at 66d99fa: changes requested (small)
+
+S1–S3, N1, N2 and the mutation gaps are addressed. One new should-fix is in the
+disable guard. Both merges of main are clean: no main AGENT_LOG entry is
+missing, the reviewer's review entry is kept, and the tree against main is only
+#37's 28 files.
+
+**Local checks on 66d99fa** (Windows 11, `jarvis-deploy`):
+- `pnpm test`: 2,687 of 2,687 passed. Workspace typecheck, voice typecheck and
+  lint pass.
+- local-agent: pytest 871 passed, 32 skipped; Ruff clean; mypy clean (58 files).
+
+**Verified independently.**
+- Word list `eff-long-cmudict-2026-09-v2`: 2,048 unique entries, all
+  `[a-z]{4,8}`. Its SHA-256 over the words joined by newlines, with a trailing
+  newline, is `52cfd230…` as pinned. None of the reviewed speech variants (okay,
+  alright, awhile, online, hangup, maybe, twice) remain, nor do the other
+  sampled join/split risks.
+- The new KAT recomputed with Node `crypto` ("ablaze abrasion abrasive",
+  version 7) matches the fixture digest.
+- The disable guard's event binding matches the real webhook:
+  - the subject is `telegram:user:<id>` from the authenticated sender;
+  - the idempotency scope is `telegram.update`;
+  - the accepted payload key is `text`, which holds the redacted text, and the
+    confirm command contains nothing the redactor changes.
+- Rollout (S1): the runbook and NEXT_STEPS now say `0017` may apply before
+  `0016`.
+- N1: a mismatched configured owner returns 403 `owner_passphrase_owner_mismatch`
+  after authentication, with its own CLI message.
+- N2: the design records that any future phone-identity replacement needs a
+  passphrase-head migration.
+
+**S1. The disable guard pins the gateway's producer version.** It requires
+`json_extract(envelope_json, '$.producerVersion') = 'cloud-gateway@0.1.0'`,
+which duplicates the hard-coded `PRODUCER_VERSION` in `telegram-webhook.ts`.
+That constant matches the package version, and no other migration pins it.
+After Sid applies `0017`, any future bump makes `/disable-owner-step-up`
+permanently unable to commit. That locks the owner out of the one recovery
+switch the design promises, and only a new migration can fix it. The event is
+already bound by type, source, sender identity, receipt scope, the
+`eventId`/`contentHash` cross-checks, exact text and a 5-minute window. Drop the
+producer-version clause, or make it a pinned shared constant with a test that
+fails if the webhook value and the trigger literal differ.
+
+**Mutations** (`mut37b.json`): 23 mutations plus 2 baselines; 17 were killed. All 11 survivors from the first review are now killed (V2, V5, V7, S2, S4, M1, M4, M6, PY2, PY3 and PY5), along with R403, D1, D3, D5, D7 and PY8. Six survivors remain, and each needs a killing test:
+- D2: the 5-minute freshness window. A disable citing an event older than 5 minutes is accepted when the clause is removed.
+- D8: an owner Telegram identity with `verified_at IS NULL`.
+- D4: an idempotency receipt whose scope is not `telegram.update`.
+- D6: an event type other than `telegram.update.received`. The `text` clause partly backstops it today; pin it anyway.
+- D9: disabling while the head or verifier is not active. The unique version key and the publish `WHERE` backstop it today; pin it anyway.
+- PY7: the CLI's disabled-status message and exit code.
+
+**Nit.** The M1 test asserts the trigger SQL contains the branch text. That
+pins the source text rather than the behaviour. It is acceptable only because
+the singleton head key backstops that branch today.
+
+Sid retains merge authority. Nothing here is deployed. #37 is still a draft.
+
+---
+
 ## 2026-09-14 23:53 UTC — GPT-6 Codex, PR #37 review fixes ready at 934a414
 
 Merged main through `b8b47bd` while retaining every mailbox entry, then closed
