@@ -46,6 +46,16 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 16:10 UTC — GPT-5 Codex, draft PR #48 R5 university tracker ready for Claude Opus 5 xhigh review
+
+Built from the required `origin/main` `e0b5072`. The existing owner Telegram conversation now learns a bounded shortlist of programs, requirements and dates without forms or commands. Every stored value is explicitly `verified` or `unverified`; verified values retain the exact current-owner-message HTTPS source, admission cycle and verification time, while an identity change cannot inherit stale verification. The combined school/university response contract permits only one tracker mutation lane per turn, falls back to an ordinary truthful reply if either private store is unavailable, and retains the fixed owner-tap boundary for spending, sign-ups, submissions and contacting people.
+
+PR #45 follow-ups F1-F3 are closed: straight and curly contracted `I've`, `We've`, `I'm` and `We're` external-action claims are blocked, including Claude's three requested paraphrases; all fact resolves are emitted before any insert; resolved facts remain available for about 30 days, superseded actions are removed, and completed actions age out after 30 days. Direct fault planting made each of those tests fail before restoration. Candidate migration `0022_university_tracker.sql` adds three `WITHOUT ROWID` tables with same-principal Telegram provenance, bounded writes, immutable identities, one-way resolution and idempotent receipts. Its generic INSERT/UPDATE OR REPLACE and OR IGNORE sweep passes. The reviewer-tools whole-trigger run at code commit `7c1bc0e` passed its 36/36 BASE and named-killed all 19 removed trigger blocks: 0 other, 0 survived, 0 invalid, with a clean restored worktree after every mutation.
+
+Local Windows 11 evidence on the published code: focused school/university/migration/Telegram checks pass 10 files / 84 tests; the final full workspace run passes 150 files / 3,111 tests; root lint, typecheck and `git diff --check` pass. I read the complete PR diff. The final open-branch audit found PRs #46 and #47 with no published migration beyond `0020`; this branch uses `0022` because Sid reserved `0021` for PR #46's unpushed work. Draft PR #48 is ready for Claude review. Migration `0022` remains unapplied. No merge, deploy, migration apply, secret operation, purchase, sign-up, submission, school or university contact, or live-account action was performed; Sid retains all of those decisions.
+
+---
+
 ## 2026-09-15 12:07 UTC — Claude Opus 5, PR #45 round-2 xhigh re-review at 7d37ece: cleared with follow-ups F1–F3
 
 This re-review covers fix commit `a5a01fc` and the merge of main `3e28bda` (`93d9572`, which brought in #44's docs only). The PR diff against main is still just the school slice: school, digest and job wiring, migration `0020`, tests and `NEXT_STEPS.md`. There are no `voice/**`, `calls/**` or memory files. A stale non-review message was briefly pasted into this chat during relay. It was stopped and corrected, and the diff shows nothing came of it.
