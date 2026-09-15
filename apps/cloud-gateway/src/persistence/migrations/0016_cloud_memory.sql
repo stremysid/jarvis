@@ -798,7 +798,7 @@ CREATE TABLE memory_cost_ledger (
   ),
   principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE RESTRICT,
   run_id TEXT NOT NULL,
-  entry_type TEXT NOT NULL CHECK (entry_type IN ('reservation', 'settlement', 'release')),
+  entry_type TEXT NOT NULL CHECK (entry_type IN ('reservation', 'settlement', 'release', 'overrun')),
   reservation_entry_id TEXT,
   provider TEXT NOT NULL CHECK (provider IN ('deepseek', 'anthropic', 'openai')),
   model_id TEXT NOT NULL CHECK (
@@ -823,6 +823,7 @@ CREATE TABLE memory_cost_ledger (
   CHECK (
     (entry_type = 'reservation' AND reservation_entry_id IS NULL AND amount_micros > 0)
     OR (entry_type IN ('settlement', 'release') AND reservation_entry_id IS NOT NULL)
+    OR (entry_type = 'overrun' AND reservation_entry_id IS NOT NULL AND amount_micros > 0)
   ),
   CHECK (
     (budget_class = 'normal_monthly' AND reprocess_job_id IS NULL)
@@ -974,6 +975,24 @@ WHERE NOT EXISTS (
       )
     WHERE source.principal_id = episode.principal_id
       AND source.episode_id = episode.episode_id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM memory_active_event_suppressions suppression
+    WHERE suppression.principal_id = episode.principal_id
+      AND (
+        (suppression.start_event_sequence <= episode.end_event_sequence
+          AND suppression.end_event_sequence >= episode.start_event_sequence)
+        OR EXISTS (
+          SELECT 1 FROM events event
+          WHERE event.event_id = suppression.target_event_id
+            AND event.sequence BETWEEN episode.start_event_sequence AND episode.end_event_sequence
+        )
+        OR EXISTS (
+          SELECT 1 FROM archive_segment_events archived
+          WHERE archived.event_id = suppression.target_event_id
+            AND archived.event_sequence BETWEEN episode.start_event_sequence AND episode.end_event_sequence
+        )
+      )
   );
 
 CREATE VIEW memory_retrievable_history_chunks AS
@@ -1228,7 +1247,11 @@ END;
 
 CREATE TRIGGER memory_item_versions_insert_guard
 BEFORE INSERT ON memory_item_versions
-WHEN EXISTS (
+WHEN (NEW.version_rowid IS NOT NULL AND EXISTS (
+    SELECT 1 FROM memory_item_versions version
+    WHERE version.version_rowid = NEW.version_rowid
+  ))
+  OR EXISTS (
     SELECT 1 FROM memory_item_versions version
     WHERE version.version_id = NEW.version_id
       OR (version.principal_id = NEW.principal_id
@@ -1342,6 +1365,28 @@ WHEN EXISTS (
     )
   )
   OR (
+    NEW.actor <> 'owner'
+    AND EXISTS (
+      SELECT 1
+      FROM memory_item_state state
+      JOIN memory_item_transitions current_transition
+        ON current_transition.principal_id = state.principal_id
+        AND current_transition.transition_id = state.last_transition_id
+      JOIN memory_item_versions current_version
+        ON current_version.principal_id = state.principal_id
+        AND current_version.version_id = state.current_version_id
+      WHERE state.principal_id = NEW.principal_id
+        AND state.item_id = NEW.item_id
+        AND current_transition.actor = 'owner'
+        AND NOT (
+          NEW.lifecycle_state = 'expired'
+          AND NEW.version_id = state.current_version_id
+          AND current_version.valid_to IS NOT NULL
+          AND current_version.valid_to <= NEW.occurred_at
+        )
+    )
+  )
+  OR (
     NEW.lifecycle_state = 'active'
     AND (
       NOT EXISTS (
@@ -1380,6 +1425,25 @@ WHEN EXISTS (
             AND event.subject_id = NEW.principal_id
             AND event.event_type = 'conversation.user_committed'
         )
+        AND NOT (
+          NEW.actor = 'owner'
+          AND EXISTS (
+            SELECT 1 FROM memory_item_versions version
+            WHERE version.principal_id = NEW.principal_id
+              AND version.version_id = NEW.version_id
+              AND version.basis = 'confirmed'
+          )
+          AND EXISTS (
+            SELECT 1 FROM memory_item_sources source
+            JOIN archive_segment_events archived
+              ON archived.event_id = source.event_id
+              AND archived.event_sequence = source.event_sequence
+              AND archived.segment_id = source.r2_segment_id
+            WHERE source.principal_id = NEW.principal_id
+              AND source.version_id = NEW.version_id
+              AND source.source_location = 'archived'
+          )
+        )
       )
     )
   )
@@ -1400,6 +1464,9 @@ WHEN EXISTS (
           ) THEN 'item.correct'
           ELSE 'item.transition'
         END
+        AND json_extract(command.envelope_json, '$.payload.itemId') = NEW.item_id
+        AND json_extract(command.envelope_json, '$.payload.versionId') = NEW.version_id
+        AND json_extract(command.envelope_json, '$.payload.lifecycleState') = NEW.lifecycle_state
         AND command.sequence > COALESCE((
           SELECT previous_command.sequence
           FROM memory_item_state state
@@ -1467,7 +1534,9 @@ END;
 
 CREATE TRIGGER memory_item_state_update_guard
 BEFORE UPDATE ON memory_item_state
-WHEN NEW.last_transition_number <> OLD.last_transition_number + 1
+WHEN NEW.principal_id <> OLD.principal_id
+  OR NEW.item_id <> OLD.item_id
+  OR NEW.last_transition_number <> OLD.last_transition_number + 1
   OR NOT EXISTS (
     SELECT 1 FROM memory_item_transitions transition_row
     WHERE transition_row.principal_id = NEW.principal_id
@@ -1501,13 +1570,24 @@ WHEN EXISTS (
       AND (
         (NEW.forgotten_transition_id IS NULL
           AND json_extract(command.envelope_json, '$.payload.operation') = 'history.suppress'
-          AND json_extract(command.envelope_json, '$.payload.targetId') = NEW.suppression_id)
+          AND json_extract(command.envelope_json, '$.payload.targetId') = NEW.suppression_id
+          AND json_extract(command.envelope_json, '$.payload.targetEventId') IS NEW.target_event_id
+          AND json_extract(command.envelope_json, '$.payload.startEventSequence') IS NEW.start_event_sequence
+          AND json_extract(command.envelope_json, '$.payload.endEventSequence') IS NEW.end_event_sequence
+          AND json_extract(command.envelope_json, '$.payload.newlyHiddenTurnCount') = NEW.newly_hidden_turn_count
+          AND json_extract(command.envelope_json, '$.payload.totalCoveredTurnCount') = NEW.total_covered_turn_count)
         OR (NEW.forgotten_transition_id IS NOT NULL
           AND json_extract(command.envelope_json, '$.payload.operation') = 'item.forget'
           AND json_extract(command.envelope_json, '$.payload.targetId') = NEW.forgotten_transition_id
           AND EXISTS (
-            SELECT 1 FROM json_each(command.envelope_json, '$.payload.suppressionIds') entry
-            WHERE entry.value = NEW.suppression_id
+            SELECT 1 FROM json_each(command.envelope_json, '$.payload.suppressions') entry
+            WHERE json_extract(entry.value, '$.suppressionId') = NEW.suppression_id
+              AND json_extract(entry.value, '$.targetEventId') IS NEW.target_event_id
+              AND json_extract(entry.value, '$.startEventSequence') IS NEW.start_event_sequence
+              AND json_extract(entry.value, '$.endEventSequence') IS NEW.end_event_sequence
+              AND json_extract(entry.value, '$.sourceId') = NEW.source_id
+              AND json_extract(entry.value, '$.newlyHiddenTurnCount') = NEW.newly_hidden_turn_count
+              AND json_extract(entry.value, '$.totalCoveredTurnCount') = NEW.total_covered_turn_count
           ))
       )
       AND (
@@ -1544,10 +1624,66 @@ WHEN EXISTS (
       WHERE archived.event_sequence BETWEEN NEW.start_event_sequence AND NEW.end_event_sequence
     )
   )
-  OR (NEW.target_event_id IS NOT NULL AND NEW.total_covered_turn_count <> 1)
+  OR (
+    NEW.target_event_id IS NOT NULL
+    AND (
+      NEW.total_covered_turn_count <> 1
+      OR NEW.newly_hidden_turn_count <> NOT EXISTS (
+        SELECT 1 FROM memory_active_event_suppressions active
+        WHERE active.principal_id = NEW.principal_id
+          AND (
+            active.target_event_id = NEW.target_event_id
+            OR COALESCE(
+              (SELECT event.sequence FROM events event WHERE event.event_id = NEW.target_event_id),
+              (SELECT archived.event_sequence FROM archive_segment_events archived
+                WHERE archived.event_id = NEW.target_event_id)
+            ) BETWEEN active.start_event_sequence AND active.end_event_sequence
+          )
+      )
+    )
+  )
   OR (
     NEW.target_event_id IS NULL
-    AND NEW.total_covered_turn_count > NEW.end_event_sequence - NEW.start_event_sequence + 1
+    AND (
+      NEW.total_covered_turn_count <> (
+        SELECT count(*) FROM (
+          SELECT event.sequence, event.event_id
+          FROM events event
+          WHERE event.subject_id = NEW.principal_id
+            AND event.event_type IN (
+              'conversation.user_committed', 'conversation.assistant_delivered'
+            )
+            AND event.sequence BETWEEN NEW.start_event_sequence AND NEW.end_event_sequence
+          UNION
+          SELECT archived.event_sequence, archived.event_id
+          FROM archive_segment_events archived
+          WHERE archived.event_sequence BETWEEN NEW.start_event_sequence AND NEW.end_event_sequence
+        ) covered
+      )
+      OR NEW.newly_hidden_turn_count <> (
+        SELECT count(*) FROM (
+          SELECT event.sequence, event.event_id
+          FROM events event
+          WHERE event.subject_id = NEW.principal_id
+            AND event.event_type IN (
+              'conversation.user_committed', 'conversation.assistant_delivered'
+            )
+            AND event.sequence BETWEEN NEW.start_event_sequence AND NEW.end_event_sequence
+          UNION
+          SELECT archived.event_sequence, archived.event_id
+          FROM archive_segment_events archived
+          WHERE archived.event_sequence BETWEEN NEW.start_event_sequence AND NEW.end_event_sequence
+        ) covered
+        WHERE NOT EXISTS (
+          SELECT 1 FROM memory_active_event_suppressions active
+          WHERE active.principal_id = NEW.principal_id
+            AND (
+              active.target_event_id = covered.event_id
+              OR covered.sequence BETWEEN active.start_event_sequence AND active.end_event_sequence
+            )
+        )
+      )
+    )
   )
   OR (
     NEW.forgotten_transition_id IS NOT NULL
@@ -1601,13 +1737,15 @@ WHEN EXISTS (
       AND (
         (NEW.correction_transition_id IS NULL
           AND json_extract(command.envelope_json, '$.payload.operation') = 'history.lift'
-          AND json_extract(command.envelope_json, '$.payload.targetId') = NEW.lift_id)
+          AND json_extract(command.envelope_json, '$.payload.targetId') = NEW.lift_id
+          AND json_extract(command.envelope_json, '$.payload.suppressionId') = NEW.suppression_id)
         OR (NEW.correction_transition_id IS NOT NULL
           AND json_extract(command.envelope_json, '$.payload.operation') = 'item.correct'
           AND json_extract(command.envelope_json, '$.payload.targetId') = NEW.correction_transition_id
           AND EXISTS (
-            SELECT 1 FROM json_each(command.envelope_json, '$.payload.liftIds') entry
-            WHERE entry.value = NEW.lift_id
+            SELECT 1 FROM json_each(command.envelope_json, '$.payload.lifts') entry
+            WHERE json_extract(entry.value, '$.liftId') = NEW.lift_id
+              AND json_extract(entry.value, '$.suppressionId') = NEW.suppression_id
           ))
       )
   )
@@ -1669,6 +1807,19 @@ WHEN EXISTS (
     SELECT 1 FROM memory_topic_events event
     WHERE event.topic_event_id = NEW.topic_event_id
   )
+  OR NEW.occurred_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+5 minutes')
+  OR (
+    NEW.operation <> 'create'
+    AND EXISTS (
+      SELECT 1 FROM memory_topics topic
+      JOIN memory_topic_events previous
+        ON previous.principal_id = topic.principal_id
+        AND previous.topic_event_id = topic.last_topic_event_id
+      WHERE topic.principal_id = NEW.principal_id
+        AND topic.topic_id = NEW.topic_id
+        AND NEW.occurred_at < previous.occurred_at
+    )
+  )
   OR (
     NEW.actor = 'owner'
     AND NOT EXISTS (
@@ -1677,6 +1828,11 @@ WHEN EXISTS (
         AND command.subject_id = NEW.principal_id
         AND json_extract(command.envelope_json, '$.payload.operation') = 'topic.' || NEW.operation
         AND json_extract(command.envelope_json, '$.payload.targetId') = NEW.topic_event_id
+        AND json_extract(command.envelope_json, '$.payload.topicId') = NEW.topic_id
+        AND json_extract(command.envelope_json, '$.payload.newParentTopicId') IS NEW.new_parent_topic_id
+        AND json_extract(command.envelope_json, '$.payload.newDisplayName') IS NEW.new_display_name
+        AND json_extract(command.envelope_json, '$.payload.newNormalizedName') IS NEW.new_normalized_name
+        AND json_extract(command.envelope_json, '$.payload.mergeTargetTopicId') IS NEW.merge_target_topic_id
     )
   )
   OR (
@@ -1700,6 +1856,26 @@ WHEN EXISTS (
           WHERE parent.principal_id = NEW.principal_id
             AND parent.topic_id = NEW.new_parent_topic_id
             AND parent.status = 'active'
+        )
+      )
+      OR (
+        NEW.new_parent_topic_id IS NOT NULL
+        AND EXISTS (
+          WITH RECURSIVE ancestors(topic_id, parent_topic_id, depth) AS (
+            SELECT parent.topic_id, parent.parent_topic_id, 1
+            FROM memory_topics parent
+            WHERE parent.principal_id = NEW.principal_id
+              AND parent.topic_id = NEW.new_parent_topic_id
+              AND parent.status = 'active'
+            UNION
+            SELECT parent.topic_id, parent.parent_topic_id, child.depth + 1
+            FROM memory_topics parent
+            JOIN ancestors child ON child.parent_topic_id = parent.topic_id
+            WHERE parent.principal_id = NEW.principal_id
+              AND parent.status = 'active'
+              AND child.depth < 64
+          )
+          SELECT 1 FROM ancestors WHERE depth = 64
         )
       )
       OR json_array_length(NEW.reparented_child_ids_json) <> 0
@@ -1751,19 +1927,38 @@ WHEN EXISTS (
       )
       OR NEW.topic_id = NEW.new_parent_topic_id
       OR EXISTS (
-        WITH RECURSIVE descendants(topic_id, depth) AS (
-          SELECT child.topic_id, 1 FROM memory_topics child
-          WHERE child.principal_id = NEW.principal_id
-            AND child.parent_topic_id = NEW.topic_id
-            AND child.status = 'active'
+        WITH RECURSIVE
+        ancestors(topic_id, parent_topic_id, depth) AS (
+          SELECT parent.topic_id, parent.parent_topic_id, 1
+          FROM memory_topics parent
+          WHERE parent.principal_id = NEW.principal_id
+            AND parent.topic_id = NEW.new_parent_topic_id
+            AND parent.status = 'active'
           UNION
-          SELECT child.topic_id, parent.depth + 1 FROM memory_topics child
-          JOIN descendants parent ON parent.topic_id = child.parent_topic_id
+          SELECT parent.topic_id, parent.parent_topic_id, child.depth + 1
+          FROM memory_topics parent
+          JOIN ancestors child ON child.parent_topic_id = parent.topic_id
+          WHERE parent.principal_id = NEW.principal_id
+            AND parent.status = 'active'
+            AND child.depth < 64
+        ),
+        subtree(topic_id, depth) AS (
+          SELECT NEW.topic_id, 1
+          UNION
+          SELECT child.topic_id, parent.depth + 1
+          FROM memory_topics child
+          JOIN subtree parent ON child.parent_topic_id = parent.topic_id
           WHERE child.principal_id = NEW.principal_id
             AND child.status = 'active'
             AND parent.depth < 64
         )
-        SELECT 1 FROM descendants WHERE topic_id = NEW.new_parent_topic_id
+        SELECT 1
+        WHERE EXISTS (SELECT 1 FROM ancestors WHERE topic_id = NEW.topic_id)
+          OR EXISTS (
+            SELECT 1 FROM ancestors WHERE depth = 64 AND parent_topic_id IS NOT NULL
+          )
+          OR COALESCE((SELECT max(depth) FROM ancestors), 0)
+            + COALESCE((SELECT max(depth) FROM subtree), 1) > 64
       )
       OR json_array_length(NEW.reparented_child_ids_json) <> 0
       OR json_array_length(NEW.moved_placement_ids_json) <> 0
@@ -1793,19 +1988,42 @@ WHEN EXISTS (
           AND source.normalized_name = NEW.previous_normalized_name
       )
       OR EXISTS (
-        WITH RECURSIVE descendants(topic_id, depth) AS (
-          SELECT child.topic_id, 1 FROM memory_topics child
+        WITH RECURSIVE
+        ancestors(topic_id, parent_topic_id, depth) AS (
+          SELECT target.topic_id, target.parent_topic_id, 1
+          FROM memory_topics target
+          WHERE target.principal_id = NEW.principal_id
+            AND target.topic_id = NEW.merge_target_topic_id
+            AND target.status = 'active'
+          UNION
+          SELECT parent.topic_id, parent.parent_topic_id, child.depth + 1
+          FROM memory_topics parent
+          JOIN ancestors child ON child.parent_topic_id = parent.topic_id
+          WHERE parent.principal_id = NEW.principal_id
+            AND parent.status = 'active'
+            AND child.depth < 64
+        ),
+        descendants(topic_id, depth) AS (
+          SELECT child.topic_id, 1
+          FROM memory_topics child
           WHERE child.principal_id = NEW.principal_id
             AND child.parent_topic_id = NEW.topic_id
             AND child.status = 'active'
           UNION
-          SELECT child.topic_id, parent.depth + 1 FROM memory_topics child
-          JOIN descendants parent ON parent.topic_id = child.parent_topic_id
+          SELECT child.topic_id, parent.depth + 1
+          FROM memory_topics child
+          JOIN descendants parent ON child.parent_topic_id = parent.topic_id
           WHERE child.principal_id = NEW.principal_id
             AND child.status = 'active'
             AND parent.depth < 64
         )
-        SELECT 1 FROM descendants WHERE topic_id = NEW.merge_target_topic_id
+        SELECT 1
+        WHERE EXISTS (SELECT 1 FROM ancestors WHERE topic_id = NEW.topic_id)
+          OR EXISTS (
+            SELECT 1 FROM ancestors WHERE depth = 64 AND parent_topic_id IS NOT NULL
+          )
+          OR COALESCE((SELECT max(depth) FROM ancestors), 0)
+            + COALESCE((SELECT max(depth) FROM descendants), 0) > 64
       )
       OR json_array_length(NEW.reparented_child_ids_json) <> (
         SELECT count(*) FROM memory_topics child
@@ -1957,6 +2175,7 @@ END;
 CREATE TRIGGER memory_topics_update_guard
 BEFORE UPDATE ON memory_topics
 WHEN NEW.principal_id <> OLD.principal_id
+  OR NEW.topic_id <> OLD.topic_id
   OR NEW.created_at <> OLD.created_at
   OR NEW.last_topic_event_id = OLD.last_topic_event_id
   OR NOT EXISTS (
@@ -2107,6 +2326,11 @@ WHEN EXISTS (
         AND command.subject_id = NEW.principal_id
         AND json_extract(command.envelope_json, '$.payload.operation') = 'placement.' || NEW.operation
         AND json_extract(command.envelope_json, '$.payload.targetId') = NEW.placement_event_id
+        AND json_extract(command.envelope_json, '$.payload.placementId') = NEW.placement_id
+        AND json_extract(command.envelope_json, '$.payload.itemId') = NEW.item_id
+        AND json_extract(command.envelope_json, '$.payload.previousTopicId') IS NEW.previous_topic_id
+        AND json_extract(command.envelope_json, '$.payload.newTopicId') IS NEW.new_topic_id
+        AND json_extract(command.envelope_json, '$.payload.relation') = NEW.relation
     )
   )
 BEGIN
@@ -2172,7 +2396,11 @@ END;
 
 CREATE TRIGGER memory_item_placement_state_update_guard
 BEFORE UPDATE ON memory_item_placement_state
-WHEN NOT EXISTS (
+WHEN NEW.principal_id <> OLD.principal_id
+  OR NEW.placement_id <> OLD.placement_id
+  OR NEW.item_id <> OLD.item_id
+  OR NEW.relation <> OLD.relation
+  OR NOT EXISTS (
     SELECT 1 FROM memory_item_placement_events event
     WHERE NEW.last_event_kind = 'placement'
       AND event.principal_id = NEW.principal_id
@@ -2232,7 +2460,11 @@ END;
 
 CREATE TRIGGER memory_episodes_insert_guard
 BEFORE INSERT ON memory_episodes
-WHEN EXISTS (
+WHEN (NEW.episode_rowid IS NOT NULL AND EXISTS (
+    SELECT 1 FROM memory_episodes episode
+    WHERE episode.episode_rowid = NEW.episode_rowid
+  ))
+  OR EXISTS (
   SELECT 1 FROM memory_episodes episode
   WHERE episode.episode_id = NEW.episode_id
 )
@@ -2279,7 +2511,11 @@ END;
 
 CREATE TRIGGER memory_history_chunks_insert_guard
 BEFORE INSERT ON memory_history_chunks
-WHEN EXISTS (
+WHEN (NEW.chunk_rowid IS NOT NULL AND EXISTS (
+    SELECT 1 FROM memory_history_chunks chunk
+    WHERE chunk.chunk_rowid = NEW.chunk_rowid
+  ))
+  OR EXISTS (
     SELECT 1 FROM memory_history_chunks chunk
     WHERE chunk.chunk_id = NEW.chunk_id
   )
@@ -2410,6 +2646,8 @@ WHEN EXISTS (
   OR NEW.cache_read_tokens <> 0
   OR NEW.reserved_cost_micros <> 0
   OR NEW.settled_cost_micros <> 0
+  OR NEW.started_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-5 minutes')
+  OR NEW.started_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+5 minutes')
   OR (
     NEW.job = 'reprocessing'
     AND NOT EXISTS (
@@ -2424,7 +2662,29 @@ WHEN EXISTS (
             AND NEW.end_event_sequence = job.end_event_sequence)
           OR (job.start_day IS NOT NULL
             AND NEW.start_event_sequence IS NOT NULL
-            AND NEW.end_event_sequence IS NOT NULL)
+            AND NEW.end_event_sequence IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM events first_event
+              WHERE first_event.sequence = NEW.start_event_sequence
+                AND first_event.subject_id = NEW.principal_id
+                AND substr(first_event.occurred_at, 1, 10)
+                  BETWEEN job.start_day AND job.end_day
+            )
+            AND EXISTS (
+              SELECT 1 FROM events last_event
+              WHERE last_event.sequence = NEW.end_event_sequence
+                AND last_event.subject_id = NEW.principal_id
+                AND substr(last_event.occurred_at, 1, 10)
+                  BETWEEN job.start_day AND job.end_day
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM events ranged_event
+              WHERE ranged_event.subject_id = NEW.principal_id
+                AND ranged_event.sequence
+                  BETWEEN NEW.start_event_sequence AND NEW.end_event_sequence
+                AND substr(ranged_event.occurred_at, 1, 10)
+                  NOT BETWEEN job.start_day AND job.end_day
+            ))
         )
     )
   )
@@ -2561,10 +2821,15 @@ WHEN EXISTS (
             SELECT 1 FROM memory_reprocess_jobs job
             WHERE job.principal_id = NEW.principal_id
               AND job.job_id = NEW.reprocess_job_id
-              AND job.status IN ('pending', 'running')
-              AND job.dry_run = 0
-              AND run.start_event_sequence IS job.start_event_sequence
-              AND run.end_event_sequence IS job.end_event_sequence
+              AND (
+                NEW.entry_type <> 'reservation'
+                OR (job.status IN ('pending', 'running') AND job.dry_run = 0)
+              )
+              AND (
+                job.start_day IS NOT NULL
+                OR (run.start_event_sequence = job.start_event_sequence
+                  AND run.end_event_sequence = job.end_event_sequence)
+              )
               AND run.provider_model_id = job.provider_model_id
               AND (
                 NEW.entry_type <> 'reservation'
@@ -2574,7 +2839,7 @@ WHEN EXISTS (
                     FROM memory_cost_ledger settlement
                     WHERE settlement.principal_id = NEW.principal_id
                       AND settlement.reprocess_job_id = NEW.reprocess_job_id
-                      AND settlement.entry_type = 'settlement'
+                      AND settlement.entry_type IN ('settlement', 'overrun')
                   ), 0)
                   + COALESCE((
                     SELECT sum(reservation.amount_micros)
@@ -2617,6 +2882,35 @@ WHEN EXISTS (
         WHERE terminal.principal_id = NEW.principal_id
           AND terminal.reservation_entry_id = NEW.reservation_entry_id
           AND terminal.entry_type IN ('settlement', 'release')
+      )
+    )
+  )
+  OR (
+    NEW.entry_type = 'overrun'
+    AND (
+      NOT EXISTS (
+        SELECT 1 FROM memory_cost_ledger reservation
+        JOIN memory_cost_ledger settlement
+          ON settlement.principal_id = reservation.principal_id
+          AND settlement.reservation_entry_id = reservation.cost_entry_id
+          AND settlement.entry_type = 'settlement'
+          AND settlement.amount_micros = reservation.amount_micros
+          AND NEW.occurred_at >= settlement.occurred_at
+        WHERE reservation.principal_id = NEW.principal_id
+          AND reservation.cost_entry_id = NEW.reservation_entry_id
+          AND reservation.run_id = NEW.run_id
+          AND reservation.entry_type = 'reservation'
+          AND reservation.provider = NEW.provider
+          AND reservation.model_id = NEW.model_id
+          AND reservation.budget_class = NEW.budget_class
+          AND reservation.reprocess_job_id IS NEW.reprocess_job_id
+          AND reservation.price_id = NEW.price_id
+      )
+      OR EXISTS (
+        SELECT 1 FROM memory_cost_ledger previous_overrun
+        WHERE previous_overrun.principal_id = NEW.principal_id
+          AND previous_overrun.reservation_entry_id = NEW.reservation_entry_id
+          AND previous_overrun.entry_type = 'overrun'
       )
     )
   )

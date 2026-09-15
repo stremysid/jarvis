@@ -92,7 +92,7 @@ The additive schema candidate is named `0016_cloud_memory.sql`. Its tables are:
 | `memory_event_suppressions` | Append-only owner-authorized raw-history suppression ledger: stable suppression id and principal; exactly one target (`event_id` or inclusive event-sequence range); owner authorizing event; reason and UTC time; and, for an item forget, the `forgotten` transition plus each `memory_item_sources.source_id` whose excerpt must be hidden. |
 | `memory_event_suppression_lifts` | Append-only owner-authorized correction ledger: stable lift id and principal, exactly one suppression id, owner authorizing event, reason and UTC time. A suppression may be lifted once; hiding the same turn again requires a new suppression row. |
 | `memory_item_links` | Immutable `supersedes`, `duplicate_of`, `contradicts` and `related` edges, with the transition that authorized the edge. |
-| `memory_topics` | Stable topic id, principal, current parent, normalized display name and active/merged state. The single root is immovable. |
+| `memory_topics` | Stable topic id, principal, current parent, normalized display name and active/merged state. The single root is immovable. Active trees are capped at 64 levels, including the root. |
 | `memory_topic_events` | Append-only create, rename, move and merge history with old/new parents and names, reason, actor and authorizing receipt. Each merge also records the exact reparented child topic ids, moved placement/assignment ids and aliases added to the survivor so reversal uses ledger data rather than model reconstruction. |
 | `memory_topic_aliases` | Historical names and paths resolving to stable topic ids after rename, move or merge. |
 | `memory_item_placement_events` | Append-only primary/related filing, refiling and removal events with source (`owner`, `rule`, `model`), confidence and reason. |
@@ -105,7 +105,7 @@ The additive schema candidate is named `0016_cloud_memory.sql`. Its tables are:
 | `memory_runs` | Idempotent run key, job, range, provider-qualified model id, counts, token/cost figures, price-ledger version, outcome, timestamps and failure. Nothing-new, budget-blocked, provider-credit-blocked and failed are distinct. |
 | `memory_reprocess_jobs` | Owner-authorized bounded range, event cap, provider-qualified model, separate one-time spend limit, dry-run flag, checkpoint, status and final receipt. |
 | `memory_model_prices` | Versioned reviewed price records per provider and exact API model id, with effective time, input/output/cache unit prices, currency and source receipt. Old runs retain the price version used for settlement. |
-| `memory_cost_ledger` | Append-only worst-case reservations, settlements and releases in integer USD micros, keyed by provider, model run and budget class (`normal_monthly` or one owner-approved reprocessing job). |
+| `memory_cost_ledger` | Append-only worst-case reservations, settlements, releases and provider-overrun records in integer USD micros, keyed by provider, model run and budget class (`normal_monthly` or one owner-approved reprocessing job). |
 | `memory_cursors` | Named consumer high-water marks for distillation, summaries, FTS coverage, embeddings and export. |
 
 The external-content FTS5 projections are `memory_item_fts`,
@@ -138,6 +138,13 @@ the raw receipt; results are verified against the R2 segment before use.
   rebuild/upsert work, but canonical D1 state—not asynchronous indexes—controls
   immediate eligibility. Migration tests must reject duplicate, cross-principal
   and unauthorised lifts.
+- Owner commands bind the exact operation, mutation id and every material
+  operand. Counts in a suppression receipt are recomputed from eligible live
+  and archived conversation receipts; a caller cannot choose them. A dedicated
+  reviewed follow-up migration must also constrain the base `events` table to
+  an allowlist of trusted event-type/source pairs before the runtime command
+  producer is enabled. That ingress constraint is deliberately not smuggled
+  into `0016`, which only adds memory tables and their guards.
 - A model-proposed version is always `origin = model` and uncertain. It cannot
   set lifecycle state, claim owner origin, self-confirm or authorize a topic
   operation.
@@ -257,7 +264,7 @@ not choose the more convenient version as fact.
 
 ### 6.1 Shape and identity
 
-Memory is organized as a tree of stable topics with arbitrary useful depth:
+Memory is organized as a tree of stable topics with up to 64 active levels:
 
 ```text
 St. Remy
@@ -272,7 +279,9 @@ St. Remy
 Each topic has a stable opaque id. Its name and parent may change; its identity
 does not. A path is display state, not a foreign key or memory id. Sibling names
 are unique after Unicode normalization and case folding. The root cannot be
-moved or merged, and every move is checked for cycles.
+moved or merged, and every create, move and merge is checked for cycles and for
+the 64-level fail-closed depth cap. Topic events more than five minutes in the
+future are rejected so a bad timestamp cannot wedge later organization work.
 
 ### 6.2 Automatic filing
 
@@ -373,6 +382,14 @@ not authority.
 The extractor receives no previously distilled memory when judging new source
 events. This prevents a guess from citing and reinforcing itself.
 
+An archived receipt alone does not prove that the archived event was an
+authenticated first-person owner message: the existing archive catalog does
+not retain the principal and conversation-event type needed for that decision.
+Accordingly, an archived-only first-person extraction remains `proposed` and
+uncertain. It may become active only through a newer, exact owner-confirmation
+command over the verified archived source. The raw archived turn remains
+searchable as history regardless of whether the distilled proposal is active.
+
 ## 8. Owner controls and receipts
 
 - **`/remember`** stores Sid's supplied text immediately without a model call,
@@ -399,6 +416,13 @@ events. This prevents a guess from citing and reinforcing itself.
   the canonical lifted state immediately; FTS5/history-chunk and Vectorize
   rebuilds are queued. The owner-facing command name is left to the reviewed
   implementation PR rather than being invented by the schema.
+
+Every privileged memory mutation consumes a canonical `memory.owner_command`
+event from the dedicated `memory-control` source. Its payload names the exact
+operation, target and operands; a broad or stale owner message is not reusable
+authority. Before any runtime producer can emit these events, a separate
+reviewed migration must add the base-events event-type/source allowlist noted in
+section 3.3.
 
 A later tier-3 erasure design must handle live events, content-addressed R2
 segments, indexes and locked backups. R2 does not imply that hiding has erased
@@ -455,8 +479,13 @@ call by this builder.
 
 Every paid run reserves a worst-case amount before dispatch so concurrent jobs
 cannot cross the cap. Completion reconciles the reservation against observed
-tokens and the matching provider/model price record. Before a DeepSeek dispatch,
-Jarvis checks fresh prepaid credit against the next worst-case reservation and
+tokens and the matching provider/model price record. If the provider's actual
+charge exceeds the reservation, Jarvis settles the reserved amount and appends
+one explicit positive `overrun` entry for the excess. It never hides a real
+charge to preserve the appearance of compliance; settled cost plus overruns
+counts against future reservations and is owner-visible. Before a DeepSeek
+dispatch, Jarvis checks fresh prepaid credit against the next worst-case
+reservation and
 the configured warning headroom. It sends a durable owner warning before the
 credit is expected to run out; unavailable credit or provider refusal records a
 visible blocked outcome and backlog rather than failing quietly. Rejection,
@@ -478,8 +507,14 @@ and its own one-time USD spend limit that Sid approves for that job. Its
 reservations use that one-time budget class rather than consuming the normal
 USD 5 monthly pool, so re-distilling old history cannot starve hourly memory.
 Normal distillation has dispatch priority if both queues contend for provider
-credit. Reprocessing checkpoints progress, is idempotent, never rewrites raw
-history, and creates versioned proposals or supersession links rather than
+credit. For a date-range job, each run's concrete first and last event must
+belong to the owner and fall inside the authorized day range, and no owner event
+inside that sequence interval may fall outside it. Only a pending or running,
+non-dry-run job may reserve spend. A run may still settle or release its open
+reservation after the job reaches a terminal state, so cancellation and failure
+cannot strand money in the ledger. Reprocessing checkpoints progress, is
+idempotent, never rewrites raw history, and creates versioned proposals or
+supersession links rather than
 mutating old memories. A receipt reports the range read, model/version, tokens,
 cost, created/unchanged/rejected counts and remaining backlog. It cannot be
 triggered by retrieved text or another user. It does not advance the ordinary

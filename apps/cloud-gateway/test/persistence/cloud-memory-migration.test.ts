@@ -2,8 +2,9 @@ import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { applyCloudMemoryMigration } from "./migration.js";
 
-const timestamp = "2026-09-14T20:00:00.000Z";
-const laterTimestamp = "2026-09-14T20:01:00.000Z";
+const testClock = Date.now();
+const timestamp = new Date(testClock - 60_000).toISOString();
+const laterTimestamp = new Date(testClock).toISOString();
 const crockford = "0123456789abcdefghjkmnpqrstvwxyz";
 let serial = 1;
 
@@ -54,13 +55,14 @@ async function seedPrincipal(principalType: "human" | "service" = "human"): Prom
 async function seedEvent(
   principalId: string,
   eventType = "conversation.user_committed",
+  occurredAt = timestamp,
 ): Promise<TestEvent> {
   const eventId = nextUlid();
   await env.DB.prepare(`INSERT INTO events (
     event_id, event_type, source, subject_id, occurred_at, received_at,
     content_hash, envelope_json, created_at
   ) VALUES (?, ?, 'jarvis.conversation', ?, ?, ?, ?, '{}', ?)`)
-    .bind(eventId, eventType, principalId, timestamp, timestamp, nextHash(), timestamp).run();
+    .bind(eventId, eventType, principalId, occurredAt, timestamp, nextHash(), timestamp).run();
   const row = await env.DB.prepare("SELECT sequence FROM events WHERE event_id = ?")
     .bind(eventId).first<{ sequence: number }>();
   if (row === null) throw new Error("memory_test_event_missing");
@@ -142,7 +144,89 @@ async function seedActiveItem(
   return { itemId, versionId, sourceId, transitionId };
 }
 
+interface OwnerTransitionInput {
+  readonly principalId: string;
+  readonly itemId: string;
+  readonly versionId: string;
+  readonly transitionNumber: number;
+  readonly lifecycleState: "proposed" | "active" | "rejected" | "superseded" | "forgotten" | "expired";
+  readonly operation?: "item.transition" | "item.correct" | "item.forget";
+  readonly commandFields?: Readonly<Record<string, unknown>>;
+  readonly occurredAt?: string;
+}
+
+async function insertOwnerTransition(input: OwnerTransitionInput): Promise<string> {
+  const transitionId = nextUlid();
+  const command = await seedOwnerCommand(
+    input.principalId,
+    input.operation ?? "item.transition",
+    transitionId,
+    {
+      itemId: input.itemId,
+      versionId: input.versionId,
+      lifecycleState: input.lifecycleState,
+      ...input.commandFields,
+    },
+  );
+  await env.DB.prepare(`INSERT INTO memory_item_transitions (
+    transition_id, principal_id, item_id, transition_number, version_id,
+    lifecycle_state, reason, actor, policy_version, owner_authorizing_event_id, occurred_at
+  ) VALUES (?, ?, ?, ?, ?, ?, 'owner transition test', 'owner',
+    'policy-v1', ?, ?)`)
+    .bind(
+      transitionId,
+      input.principalId,
+      input.itemId,
+      input.transitionNumber,
+      input.versionId,
+      input.lifecycleState,
+      command.eventId,
+      input.occurredAt ?? laterTimestamp,
+    ).run();
+  return transitionId;
+}
+
+interface ArchivedReceipt {
+  readonly eventId: string;
+  readonly eventSequence: number;
+  readonly segmentId: string;
+}
+
+async function seedArchivedReceipt(): Promise<ArchivedReceipt> {
+  const state = await env.DB.prepare("SELECT sealed_through FROM archive_state WHERE singleton = 1")
+    .first<{ sealed_through: number }>();
+  if (state === null) throw new Error("memory_archive_state_missing");
+  const eventSequence = state.sealed_through + 1;
+  const manifestId = nextHash();
+  const segmentId = nextHash();
+  const eventId = nextUlid();
+  await env.DB.prepare(`INSERT INTO archive_manifests (
+    manifest_id, start_sequence, end_sequence, event_count, status, created_at, sealed_at
+  ) VALUES (?, ?, ?, 1, 'sealed', ?, ?)`)
+    .bind(manifestId, eventSequence, eventSequence, timestamp, timestamp).run();
+  await env.DB.prepare(`INSERT INTO archive_segments (
+    segment_id, manifest_id, object_key, compressed_sha256,
+    compressed_byte_length, uncompressed_byte_length, codec, created_at
+  ) VALUES (?, ?, ?, ?, 1, 1, 'jarvis-gzip-ndjson-v1', ?)`)
+    .bind(
+      segmentId,
+      manifestId,
+      `memory-test/${segmentId}`,
+      nextHash(),
+      timestamp,
+    ).run();
+  await env.DB.prepare(`INSERT INTO archive_segment_events (
+    event_sequence, event_id, segment_id, envelope_sha256, content_hash, created_at
+  ) VALUES (?, ?, ?, ?, ?, ?)`)
+    .bind(eventSequence, eventId, segmentId, nextHash(), nextHash(), timestamp).run();
+  await env.DB.prepare(`UPDATE archive_state
+    SET sealed_through = ?, updated_at = ? WHERE singleton = 1`)
+    .bind(eventSequence, timestamp).run();
+  return { eventId, eventSequence, segmentId };
+}
+
 interface TopicEventInput {
+  readonly topicEventId?: string;
   readonly principalId: string;
   readonly topicId: string;
   readonly operation: "create" | "rename" | "move" | "merge";
@@ -156,17 +240,19 @@ interface TopicEventInput {
   readonly reparentedChildIds?: readonly string[];
   readonly movedPlacementIds?: readonly string[];
   readonly addedAliases?: readonly Readonly<Record<string, string>>[];
+  readonly actor?: "owner" | "rules" | "model";
+  readonly ownerAuthorizingEventId?: string | null;
 }
 
 async function insertTopicEvent(input: TopicEventInput): Promise<string> {
-  const topicEventId = nextUlid();
+  const topicEventId = input.topicEventId ?? nextUlid();
   await env.DB.prepare(`INSERT INTO memory_topic_events (
     topic_event_id, principal_id, topic_id, operation, previous_parent_topic_id,
     new_parent_topic_id, previous_display_name, previous_normalized_name,
     new_display_name, new_normalized_name, merge_target_topic_id,
     reparented_child_ids_json, moved_placement_ids_json, added_aliases_json,
     reason, actor, owner_authorizing_event_id, occurred_at
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'topic test', 'rules', NULL, ?)`)
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'topic test', ?, ?, ?)`)
     .bind(
       topicEventId,
       input.principalId,
@@ -182,6 +268,8 @@ async function insertTopicEvent(input: TopicEventInput): Promise<string> {
       JSON.stringify(input.reparentedChildIds ?? []),
       JSON.stringify(input.movedPlacementIds ?? []),
       JSON.stringify(input.addedAliases ?? []),
+      input.actor ?? "rules",
+      input.ownerAuthorizingEventId ?? null,
       timestamp,
     ).run();
   return topicEventId;
@@ -210,6 +298,13 @@ async function seedTriggerFixture(): Promise<TriggerFixture> {
   const suppressionId = nextUlid();
   const suppressionCommand = await seedOwnerCommand(
     owner.principalId, "history.suppress", suppressionId,
+    {
+      targetEventId: secondSource.eventId,
+      startEventSequence: null,
+      endEventSequence: null,
+      newlyHiddenTurnCount: 1,
+      totalCoveredTurnCount: 1,
+    },
   );
   await env.DB.prepare(`INSERT INTO memory_event_suppressions (
     suppression_id, principal_id, target_event_id, start_event_sequence,
@@ -221,7 +316,12 @@ async function seedTriggerFixture(): Promise<TriggerFixture> {
       suppressionCommand.eventId, timestamp,
     ).run();
   const liftId = nextUlid();
-  const liftCommand = await seedOwnerCommand(owner.principalId, "history.lift", liftId);
+  const liftCommand = await seedOwnerCommand(
+    owner.principalId,
+    "history.lift",
+    liftId,
+    { suppressionId },
+  );
   await env.DB.prepare(`INSERT INTO memory_event_suppression_lifts (
     lift_id, principal_id, suppression_id, owner_authorizing_event_id,
     correction_transition_id, reason, created_at
@@ -619,6 +719,13 @@ describe.sequential("cloud memory migration", () => {
     const suppressionId = nextUlid();
     const forgetAuthorization = await seedOwnerCommand(
       owner.principalId, "history.suppress", suppressionId,
+      {
+        targetEventId: target.eventId,
+        startEventSequence: null,
+        endEventSequence: null,
+        newlyHiddenTurnCount: 1,
+        totalCoveredTurnCount: 1,
+      },
     );
     await env.DB.prepare(`INSERT INTO memory_event_suppressions (
       suppression_id, principal_id, target_event_id, start_event_sequence,
@@ -665,6 +772,7 @@ describe.sequential("cloud memory migration", () => {
     const liftId = nextUlid();
     const liftAuthorization = await seedOwnerCommand(
       owner.principalId, "history.lift", liftId,
+      { suppressionId },
     );
     await env.DB.prepare(`INSERT INTO memory_event_suppression_lifts (
       lift_id, principal_id, suppression_id, owner_authorizing_event_id,
@@ -700,7 +808,20 @@ describe.sequential("cloud memory migration", () => {
       owner.principalId,
       "item.forget",
       forgottenTransitionId,
-      { suppressionIds: [suppressionId] },
+      {
+        itemId: item.itemId,
+        versionId: item.versionId,
+        lifecycleState: "forgotten",
+        suppressions: [{
+          suppressionId,
+          targetEventId: target.eventId,
+          startEventSequence: null,
+          endEventSequence: null,
+          sourceId: item.sourceId,
+          newlyHiddenTurnCount: 1,
+          totalCoveredTurnCount: 1,
+        }],
+      },
     );
     await env.DB.prepare(`INSERT INTO memory_item_transitions (
       transition_id, principal_id, item_id, transition_number, version_id,
@@ -724,6 +845,7 @@ describe.sequential("cloud memory migration", () => {
     const missingCorrectionLiftId = nextUlid();
     const missingCorrectionAuthorization = await seedOwnerCommand(
       owner.principalId, "history.lift", missingCorrectionLiftId,
+      { suppressionId },
     );
     await expect(env.DB.prepare(`INSERT INTO memory_event_suppression_lifts (
       lift_id, principal_id, suppression_id, owner_authorizing_event_id,
@@ -758,7 +880,12 @@ describe.sequential("cloud memory migration", () => {
       owner.principalId,
       "item.correct",
       correctionTransitionId,
-      { liftIds: [liftId] },
+      {
+        itemId: item.itemId,
+        versionId: correctedVersionId,
+        lifecycleState: "active",
+        lifts: [{ liftId, suppressionId }],
+      },
     );
     await env.DB.prepare(`INSERT INTO memory_item_transitions (
       transition_id, principal_id, item_id, transition_number, version_id,
@@ -1089,7 +1216,12 @@ describe.sequential("cloud memory migration", () => {
       const operation = blockedState === "forgotten" ? "item.forget" : "item.transition";
       const blockingCommand = await seedOwnerCommand(
         owner.principalId, operation, blockedTransitionId,
-        blockedState === "forgotten" ? { suppressionIds: [] } : {},
+        {
+          itemId: item.itemId,
+          versionId: item.versionId,
+          lifecycleState: blockedState,
+          ...(blockedState === "forgotten" ? { suppressions: [] } : {}),
+        },
       );
       await env.DB.prepare(`INSERT INTO memory_item_transitions (
         transition_id, principal_id, item_id, transition_number, version_id,
@@ -1133,17 +1265,29 @@ describe.sequential("cloud memory migration", () => {
     const source = await seedEvent(owner.principalId);
     const item = await seedActiveItem(owner.principalId, source);
     const correctionTransitionId = nextUlid();
+    const correctedVersionId = nextUlid();
     const staleCorrectionCommand = await seedOwnerCommand(
       owner.principalId,
       "item.correct",
       correctionTransitionId,
+      {
+        itemId: item.itemId,
+        versionId: correctedVersionId,
+        lifecycleState: "active",
+        lifts: [],
+      },
     );
     const forgottenTransitionId = nextUlid();
     const forgetCommand = await seedOwnerCommand(
       owner.principalId,
       "item.forget",
       forgottenTransitionId,
-      { suppressionIds: [] },
+      {
+        itemId: item.itemId,
+        versionId: item.versionId,
+        lifecycleState: "forgotten",
+        suppressions: [],
+      },
     );
     await env.DB.prepare(`INSERT INTO memory_item_transitions (
       transition_id, principal_id, item_id, transition_number, version_id,
@@ -1158,7 +1302,6 @@ describe.sequential("cloud memory migration", () => {
         forgetCommand.eventId,
         laterTimestamp,
       ).run();
-    const correctedVersionId = nextUlid();
     await env.DB.prepare(`INSERT INTO memory_item_versions (
       version_id, principal_id, item_id, version_number, text, text_normalization,
       text_hash, basis, origin, uncertain, sensitivity, valid_from, valid_to,
@@ -1239,7 +1382,15 @@ describe.sequential("cloud memory migration", () => {
     const staleCorrectionId = nextUlid();
     const liftId = nextUlid();
     const staleCommand = await seedOwnerCommand(
-      owner.principalId, "item.transition", staleCorrectionId, { liftIds: [liftId] },
+      owner.principalId,
+      "item.transition",
+      staleCorrectionId,
+      {
+        itemId,
+        versionId,
+        lifecycleState: "active",
+        lifts: [{ liftId, suppressionId: "unused" }],
+      },
     );
     await env.DB.prepare(`INSERT INTO memory_item_transitions (
       transition_id, principal_id, item_id, transition_number, version_id,
@@ -1256,7 +1407,20 @@ describe.sequential("cloud memory migration", () => {
       owner.principalId,
       "item.forget",
       forgottenTransitionId,
-      { suppressionIds: [suppressionId] },
+      {
+        itemId,
+        versionId,
+        lifecycleState: "forgotten",
+        suppressions: [{
+          suppressionId,
+          targetEventId: source.eventId,
+          startEventSequence: null,
+          endEventSequence: null,
+          sourceId,
+          newlyHiddenTurnCount: 1,
+          totalCoveredTurnCount: 1,
+        }],
+      },
     );
     await env.DB.prepare(`INSERT INTO memory_item_transitions (
       transition_id, principal_id, item_id, transition_number, version_id,
@@ -1324,6 +1488,137 @@ describe.sequential("cloud memory migration", () => {
         nextUlid(), owner.principalId, episodeId,
         outside.eventId, outside.sequence, timestamp,
       ).run()).rejects.toThrow(/memory_episode_source_receipt_invalid/u);
+  });
+
+  it("hides an episode when an undeclared turn inside its range is suppressed", async () => {
+    const owner = await seedPrincipal();
+    const first = await seedEvent(owner.principalId);
+    const hidden = await seedEvent(owner.principalId);
+    const last = await seedEvent(owner.principalId);
+    const episodeId = nextUlid();
+    await env.DB.prepare(`INSERT INTO memory_episodes (
+      episode_id, principal_id, local_day, start_event_sequence, end_event_sequence,
+      source_count, text, content_hash, summarizer_version, summarizer_model_id,
+      supersedes_episode_id, created_at
+    ) VALUES (?, ?, '2026-09-14', ?, ?, 2, 'Partial declared source episode.', ?,
+      'summary-v1', 'deepseek:deepseek-v4-pro', NULL, ?)`)
+      .bind(
+        episodeId,
+        owner.principalId,
+        first.sequence,
+        last.sequence,
+        nextHash(),
+        timestamp,
+      ).run();
+    for (const [position, event] of [[0, first], [1, last]] as const) {
+      await env.DB.prepare(`INSERT INTO memory_episode_sources (
+        source_id, principal_id, episode_id, source_position, event_id, event_sequence,
+        source_location, r2_segment_id, channel, occurred_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'live', NULL, 'telegram', ?)`)
+        .bind(
+          nextUlid(),
+          owner.principalId,
+          episodeId,
+          position,
+          event.eventId,
+          event.sequence,
+          timestamp,
+        ).run();
+    }
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_retrievable_episodes
+      WHERE episode_id = ?`).bind(episodeId).first()).toEqual({ count: 1 });
+    const suppressionId = nextUlid();
+    const command = await seedOwnerCommand(
+      owner.principalId,
+      "history.suppress",
+      suppressionId,
+      {
+        targetEventId: hidden.eventId,
+        startEventSequence: null,
+        endEventSequence: null,
+        newlyHiddenTurnCount: 1,
+        totalCoveredTurnCount: 1,
+      },
+    );
+    await env.DB.prepare(`INSERT INTO memory_event_suppressions (
+      suppression_id, principal_id, target_event_id, start_event_sequence,
+      end_event_sequence, owner_authorizing_event_id, forgotten_transition_id,
+      source_id, reason, newly_hidden_turn_count, total_covered_turn_count, created_at
+    ) VALUES (?, ?, ?, NULL, NULL, ?, NULL, NULL, 'hide interior turn', 1, 1, ?)`)
+      .bind(
+        suppressionId,
+        owner.principalId,
+        hidden.eventId,
+        command.eventId,
+        laterTimestamp,
+      ).run();
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_retrievable_episodes
+      WHERE episode_id = ?`).bind(episodeId).first()).toEqual({ count: 0 });
+  });
+
+  it("requires exact total and newly-hidden counts for range suppressions", async () => {
+    const owner = await seedPrincipal();
+    const turns = [
+      await seedEvent(owner.principalId),
+      await seedEvent(owner.principalId),
+      await seedEvent(owner.principalId),
+    ] as const;
+    const badSuppressionId = nextUlid();
+    const badCommand = await seedOwnerCommand(
+      owner.principalId,
+      "history.suppress",
+      badSuppressionId,
+      {
+        targetEventId: null,
+        startEventSequence: turns[0].sequence,
+        endEventSequence: turns[2].sequence,
+        newlyHiddenTurnCount: 0,
+        totalCoveredTurnCount: 1,
+      },
+    );
+    const insertRange = (
+      suppressionId: string,
+      commandId: string,
+      newlyHidden: number,
+      totalCovered: number,
+    ) => env.DB.prepare(`INSERT INTO memory_event_suppressions (
+      suppression_id, principal_id, target_event_id, start_event_sequence,
+      end_event_sequence, owner_authorizing_event_id, forgotten_transition_id,
+      source_id, reason, newly_hidden_turn_count, total_covered_turn_count, created_at
+    ) VALUES (?, ?, NULL, ?, ?, ?, NULL, NULL, 'range count test', ?, ?, ?)`)
+      .bind(
+        suppressionId,
+        owner.principalId,
+        turns[0].sequence,
+        turns[2].sequence,
+        commandId,
+        newlyHidden,
+        totalCovered,
+        laterTimestamp,
+      ).run();
+    await expect(insertRange(badSuppressionId, badCommand.eventId, 0, 1))
+      .rejects.toThrow(/memory_event_suppression_invalid/u);
+
+    const goodSuppressionId = nextUlid();
+    const goodCommand = await seedOwnerCommand(
+      owner.principalId,
+      "history.suppress",
+      goodSuppressionId,
+      {
+        targetEventId: null,
+        startEventSequence: turns[0].sequence,
+        endEventSequence: turns[2].sequence,
+        newlyHiddenTurnCount: 3,
+        totalCoveredTurnCount: 3,
+      },
+    );
+    await insertRange(goodSuppressionId, goodCommand.eventId, 3, 3);
+    expect(await env.DB.prepare(`SELECT newly_hidden_turn_count, total_covered_turn_count
+      FROM memory_event_suppressions WHERE suppression_id = ?`)
+      .bind(goodSuppressionId).first()).toEqual({
+      newly_hidden_turn_count: 3,
+      total_covered_turn_count: 3,
+    });
   });
 
   it("binds owner authority to a dedicated command with the exact operation and limits", async () => {
@@ -1416,6 +1711,136 @@ describe.sequential("cloud memory migration", () => {
         nextUlid(), owner.principalId, topicId,
         historicalMessage.eventId, timestamp,
       ).run()).rejects.toThrow(/memory_topic_event_invalid/u);
+  });
+
+  it("binds owner commands to transition, suppression, topic, and placement operands", async () => {
+    const owner = await seedPrincipal();
+    const first = await seedEvent(owner.principalId);
+    const second = await seedEvent(owner.principalId);
+    const item = await seedActiveItem(owner.principalId, first, "proposed");
+    const transitionId = nextUlid();
+    const transitionCommand = await seedOwnerCommand(
+      owner.principalId,
+      "item.transition",
+      transitionId,
+      {
+        itemId: item.itemId,
+        versionId: item.versionId,
+        lifecycleState: "active",
+      },
+    );
+    await expect(env.DB.prepare(`INSERT INTO memory_item_transitions (
+      transition_id, principal_id, item_id, transition_number, version_id,
+      lifecycle_state, reason, actor, policy_version, owner_authorizing_event_id, occurred_at
+    ) VALUES (?, ?, ?, 2, ?, 'rejected', 'operand mismatch', 'owner',
+      'policy-v1', ?, ?)`)
+      .bind(
+        transitionId,
+        owner.principalId,
+        item.itemId,
+        item.versionId,
+        transitionCommand.eventId,
+        laterTimestamp,
+      ).run()).rejects.toThrow(/memory_item_transition_invalid/u);
+
+    const suppressionId = nextUlid();
+    const suppressionCommand = await seedOwnerCommand(
+      owner.principalId,
+      "history.suppress",
+      suppressionId,
+      {
+        targetEventId: second.eventId,
+        startEventSequence: null,
+        endEventSequence: null,
+        newlyHiddenTurnCount: 1,
+        totalCoveredTurnCount: 1,
+      },
+    );
+    await expect(env.DB.prepare(`INSERT INTO memory_event_suppressions (
+      suppression_id, principal_id, target_event_id, start_event_sequence,
+      end_event_sequence, owner_authorizing_event_id, forgotten_transition_id,
+      source_id, reason, newly_hidden_turn_count, total_covered_turn_count, created_at
+    ) VALUES (?, ?, ?, NULL, NULL, ?, NULL, NULL, 'operand mismatch', 1, 1, ?)`)
+      .bind(
+        suppressionId,
+        owner.principalId,
+        first.eventId,
+        suppressionCommand.eventId,
+        laterTimestamp,
+      ).run()).rejects.toThrow(/memory_event_suppression_invalid/u);
+
+    const rootId = nextUlid();
+    const otherParentId = nextUlid();
+    await insertTopicEvent({
+      principalId: owner.principalId,
+      topicId: rootId,
+      operation: "create",
+      newDisplayName: "Root",
+      newNormalizedName: "root",
+    });
+    await insertTopicEvent({
+      principalId: owner.principalId,
+      topicId: otherParentId,
+      operation: "create",
+      newParentTopicId: rootId,
+      newDisplayName: "Other parent",
+      newNormalizedName: "other parent",
+    });
+    const ownerTopicId = nextUlid();
+    const ownerTopicEventId = nextUlid();
+    const topicCommand = await seedOwnerCommand(
+      owner.principalId,
+      "topic.create",
+      ownerTopicEventId,
+      {
+        topicId: ownerTopicId,
+        newParentTopicId: rootId,
+        newDisplayName: "Owner topic",
+        newNormalizedName: "owner topic",
+        mergeTargetTopicId: null,
+      },
+    );
+    await expect(insertTopicEvent({
+      topicEventId: ownerTopicEventId,
+      principalId: owner.principalId,
+      topicId: ownerTopicId,
+      operation: "create",
+      newParentTopicId: otherParentId,
+      newDisplayName: "Owner topic",
+      newNormalizedName: "owner topic",
+      actor: "owner",
+      ownerAuthorizingEventId: topicCommand.eventId,
+    })).rejects.toThrow(/memory_topic_event_invalid/u);
+
+    const placementEventId = nextUlid();
+    const placementId = nextUlid();
+    const placementCommand = await seedOwnerCommand(
+      owner.principalId,
+      "placement.place",
+      placementEventId,
+      {
+        placementId,
+        itemId: item.itemId,
+        previousTopicId: null,
+        newTopicId: rootId,
+        relation: "related",
+      },
+    );
+    await expect(env.DB.prepare(`INSERT INTO memory_item_placement_events (
+      placement_event_id, principal_id, placement_id, placement_event_number,
+      item_id, operation, previous_topic_id, new_topic_id, relation,
+      filing_source, confidence, reason, owner_authorizing_event_id, occurred_at
+    ) VALUES (?, ?, ?, 1, ?, 'place', NULL, ?, 'related', 'owner', 1.0,
+      'operand mismatch', ?, ?)`)
+      .bind(
+        placementEventId,
+        owner.principalId,
+        placementId,
+        item.itemId,
+        otherParentId,
+        placementCommand.eventId,
+        laterTimestamp,
+      ).run()).rejects.toThrow(/memory_item_placement_event_invalid/u);
   });
 
   it("bounds settlements and releases by their reservation", async () => {
@@ -1554,6 +1979,594 @@ describe.sequential("cloud memory migration", () => {
       .rejects.toThrow(/memory_cost_entry_lineage_invalid/u);
   });
 
+  it("supports bounded day-range cost and records terminal-job settlement plus overrun", async () => {
+    const owner = await seedPrincipal();
+    const first = await seedEvent(owner.principalId);
+    const second = await seedEvent(owner.principalId);
+    const outsideDay = new Date(testClock - 2 * 24 * 60 * 60 * 1000).toISOString();
+    const outside = await seedEvent(owner.principalId, "conversation.user_committed", outsideDay);
+    const priceId = nextUlid();
+    await env.DB.prepare(`INSERT INTO memory_model_prices (
+      price_id, principal_id, provider, model_id, effective_at,
+      input_micros_per_million, output_micros_per_million,
+      cache_read_micros_per_million, currency, source_receipt, created_at
+    ) VALUES (?, ?, 'deepseek', 'deepseek:deepseek-v4-pro', ?, 1, 1, 0,
+      'USD', 'day-range test price', ?)`)
+      .bind(priceId, owner.principalId, timestamp, timestamp).run();
+    const jobId = nextUlid();
+    const localDay = timestamp.slice(0, 10);
+    const command = await seedOwnerCommand(
+      owner.principalId,
+      "reprocess.create",
+      jobId,
+      {
+        startEventSequence: null,
+        endEventSequence: null,
+        startDay: localDay,
+        endDay: localDay,
+        maximumEventCount: 10,
+        providerModelId: "deepseek:deepseek-v4-pro",
+        spendLimitMicros: 100,
+        dryRun: 0,
+      },
+    );
+    await env.DB.prepare(`INSERT INTO memory_reprocess_jobs (
+      job_id, principal_id, owner_authorizing_event_id, start_event_sequence,
+      end_event_sequence, start_day, end_day, maximum_event_count,
+      provider_model_id, spend_limit_micros, dry_run, checkpoint_event_sequence,
+      status, final_receipt_hash, failure_code, created_at, updated_at
+    ) VALUES (?, ?, ?, NULL, NULL, ?, ?, 10, 'deepseek:deepseek-v4-pro', 100, 0,
+      NULL, 'pending', NULL, NULL, ?, ?)`)
+      .bind(
+        jobId,
+        owner.principalId,
+        command.eventId,
+        localDay,
+        localDay,
+        timestamp,
+        timestamp,
+      ).run();
+    const runId = nextUlid();
+    const insertRun = (candidateRunId: string, start: number, end: number) =>
+      env.DB.prepare(`INSERT INTO memory_runs (
+        run_id, principal_id, run_key, job, reprocess_job_id,
+        start_event_sequence, end_event_sequence, provider_model_id, price_id,
+        outcome, started_at
+      ) VALUES (?, ?, ?, 'reprocessing', ?, ?, ?, 'deepseek:deepseek-v4-pro', ?,
+        'running', ?)`)
+        .bind(
+          candidateRunId,
+          owner.principalId,
+          `day-range:${candidateRunId}`,
+          jobId,
+          start,
+          end,
+          priceId,
+          timestamp,
+        ).run();
+    await expect(insertRun(nextUlid(), first.sequence, outside.sequence))
+      .rejects.toThrow(/memory_run_initial_state_invalid/u);
+    await insertRun(runId, first.sequence, second.sequence);
+    const reservationId = nextUlid();
+    const insertCost = (
+      entryType: "reservation" | "settlement" | "release" | "overrun",
+      amount: number,
+      reservationEntryId: string | null,
+      costEntryId = nextUlid(),
+    ) => env.DB.prepare(`INSERT INTO memory_cost_ledger (
+      cost_entry_id, principal_id, run_id, entry_type, reservation_entry_id,
+      provider, model_id, budget_class, reprocess_job_id, amount_micros,
+      price_id, occurred_at
+    ) VALUES (?, ?, ?, ?, ?, 'deepseek', 'deepseek:deepseek-v4-pro',
+      'reprocessing', ?, ?, ?, ?)`)
+      .bind(
+        costEntryId,
+        owner.principalId,
+        runId,
+        entryType,
+        reservationEntryId,
+        jobId,
+        amount,
+        priceId,
+        laterTimestamp,
+      ).run();
+    await insertCost("reservation", 100, null, reservationId);
+    await env.DB.prepare(`UPDATE memory_reprocess_jobs
+      SET status = 'cancelled', final_receipt_hash = ?, updated_at = ?
+      WHERE principal_id = ? AND job_id = ?`)
+      .bind(nextHash(), laterTimestamp, owner.principalId, jobId).run();
+    await insertCost("settlement", 100, reservationId);
+    await insertCost("overrun", 10, reservationId);
+    await expect(insertCost("overrun", 1, reservationId))
+      .rejects.toThrow(/memory_cost_entry_lineage_invalid/u);
+    await expect(insertCost("reservation", 1, null, nextUlid()))
+      .rejects.toThrow(/memory_cost_entry_lineage_invalid/u);
+    expect(await env.DB.prepare(`SELECT sum(amount_micros) AS total
+      FROM memory_cost_ledger WHERE principal_id = ? AND run_id = ?
+        AND entry_type IN ('settlement', 'overrun')`)
+      .bind(owner.principalId, runId).first()).toEqual({ total: 110 });
+  });
+
+  it("rejects backdated run starts before they can evade the current spend window", async () => {
+    const owner = await seedPrincipal();
+    const source = await seedEvent(owner.principalId);
+    const priceId = nextUlid();
+    await env.DB.prepare(`INSERT INTO memory_model_prices (
+      price_id, principal_id, provider, model_id, effective_at,
+      input_micros_per_million, output_micros_per_million,
+      cache_read_micros_per_million, currency, source_receipt, created_at
+    ) VALUES (?, ?, 'deepseek', 'deepseek:deepseek-v4-pro', ?, 1, 1, 0,
+      'USD', 'backdate test price', ?)`)
+      .bind(priceId, owner.principalId, timestamp, timestamp).run();
+    const backdated = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    await expect(env.DB.prepare(`INSERT INTO memory_runs (
+      run_id, principal_id, run_key, job, start_event_sequence, end_event_sequence,
+      provider_model_id, price_id, outcome, started_at
+    ) VALUES (?, ?, ?, 'distillation', ?, ?, 'deepseek:deepseek-v4-pro', ?,
+      'running', ?)`)
+      .bind(
+        nextUlid(),
+        owner.principalId,
+        `backdated:${nextUlid()}`,
+        source.sequence,
+        source.sequence,
+        priceId,
+        backdated,
+      ).run()).rejects.toThrow(/memory_run_initial_state_invalid/u);
+  });
+
+  it("pins item-state keys against UPDATE OR REPLACE", async () => {
+    const owner = await seedPrincipal();
+    const left = await seedActiveItem(owner.principalId, await seedEvent(owner.principalId));
+    const right = await seedActiveItem(
+      owner.principalId,
+      await seedEvent(owner.principalId),
+      "proposed",
+    );
+    const rightTransitionId = await insertOwnerTransition({
+      principalId: owner.principalId,
+      itemId: right.itemId,
+      versionId: right.versionId,
+      transitionNumber: 2,
+      lifecycleState: "active",
+    });
+    await expect(env.DB.prepare(`UPDATE OR REPLACE memory_item_state
+      SET item_id = ?, current_version_id = ?, lifecycle_state = 'active',
+        last_transition_id = ?, last_transition_number = 2, updated_at = ?
+      WHERE principal_id = ? AND item_id = ?`)
+      .bind(
+        right.itemId,
+        right.versionId,
+        rightTransitionId,
+        laterTimestamp,
+        owner.principalId,
+        left.itemId,
+      ).run()).rejects.toThrow(/memory_item_state_requires_transition/u);
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_item_state
+      WHERE principal_id = ? AND item_id IN (?, ?)`)
+      .bind(owner.principalId, left.itemId, right.itemId).first()).toEqual({ count: 2 });
+  });
+
+  it("pins topic keys against UPDATE OR REPLACE", async () => {
+    const owner = await seedPrincipal();
+    const rootId = nextUlid();
+    const destinationId = nextUlid();
+    const leftId = nextUlid();
+    const rightId = nextUlid();
+    await insertTopicEvent({
+      principalId: owner.principalId,
+      topicId: rootId,
+      operation: "create",
+      newDisplayName: "Root",
+      newNormalizedName: "root",
+    });
+    for (const [topicId, name] of [
+      [destinationId, "Destination"],
+      [leftId, "Left"],
+      [rightId, "Right"],
+    ] as const) {
+      await insertTopicEvent({
+        principalId: owner.principalId,
+        topicId,
+        operation: "create",
+        newParentTopicId: rootId,
+        newDisplayName: name,
+        newNormalizedName: name.toLowerCase(),
+      });
+    }
+    const rightMoveId = await insertTopicEvent({
+      principalId: owner.principalId,
+      topicId: rightId,
+      operation: "move",
+      previousParentTopicId: rootId,
+      newParentTopicId: destinationId,
+    });
+    await expect(env.DB.prepare(`UPDATE OR REPLACE memory_topics
+      SET topic_id = ?, parent_topic_id = ?, last_topic_event_id = ?, updated_at = ?
+      WHERE principal_id = ? AND topic_id = ?`)
+      .bind(
+        rightId,
+        destinationId,
+        rightMoveId,
+        timestamp,
+        owner.principalId,
+        leftId,
+      ).run()).rejects.toThrow(/memory_topic_update_requires_event/u);
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_topics
+      WHERE principal_id = ? AND topic_id IN (?, ?)`)
+      .bind(owner.principalId, leftId, rightId).first()).toEqual({ count: 2 });
+  });
+
+  it("pins placement-state keys and relation against UPDATE OR REPLACE", async () => {
+    const owner = await seedPrincipal();
+    const leftItem = await seedActiveItem(owner.principalId, await seedEvent(owner.principalId));
+    const rightItem = await seedActiveItem(owner.principalId, await seedEvent(owner.principalId));
+    const rootId = nextUlid();
+    const topicIds = [nextUlid(), nextUlid()] as const;
+    await insertTopicEvent({
+      principalId: owner.principalId,
+      topicId: rootId,
+      operation: "create",
+      newDisplayName: "Root",
+      newNormalizedName: "root",
+    });
+    for (const [index, topicId] of topicIds.entries()) {
+      await insertTopicEvent({
+        principalId: owner.principalId,
+        topicId,
+        operation: "create",
+        newParentTopicId: rootId,
+        newDisplayName: `Topic ${index}`,
+        newNormalizedName: `topic ${index}`,
+      });
+    }
+    const leftPlacementId = nextUlid();
+    const rightPlacementId = nextUlid();
+    const insertPlacement = (
+      eventId: string,
+      placementId: string,
+      eventNumber: number,
+      itemId: string,
+      operation: "place" | "refile",
+      previousTopicId: string | null,
+      newTopicId: string,
+    ) => env.DB.prepare(`INSERT INTO memory_item_placement_events (
+      placement_event_id, principal_id, placement_id, placement_event_number,
+      item_id, operation, previous_topic_id, new_topic_id, relation,
+      filing_source, confidence, reason, owner_authorizing_event_id, occurred_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'related', 'rule', 1.0,
+      'replace-key regression', NULL, ?)`)
+      .bind(
+        eventId,
+        owner.principalId,
+        placementId,
+        eventNumber,
+        itemId,
+        operation,
+        previousTopicId,
+        newTopicId,
+        timestamp,
+      ).run();
+    await insertPlacement(nextUlid(), leftPlacementId, 1, leftItem.itemId, "place", null, topicIds[0]);
+    await insertPlacement(nextUlid(), rightPlacementId, 1, rightItem.itemId, "place", null, topicIds[0]);
+    const rightRefileId = nextUlid();
+    await insertPlacement(
+      rightRefileId,
+      rightPlacementId,
+      2,
+      rightItem.itemId,
+      "refile",
+      topicIds[0],
+      topicIds[1],
+    );
+    await expect(env.DB.prepare(`UPDATE OR REPLACE memory_item_placement_state
+      SET placement_id = ?, item_id = ?, topic_id = ?, relation = 'related',
+        status = 'active', last_event_kind = 'placement', last_event_id = ?,
+        last_placement_event_number = 2, updated_at = ?
+      WHERE principal_id = ? AND placement_id = ?`)
+      .bind(
+        rightPlacementId,
+        rightItem.itemId,
+        topicIds[1],
+        rightRefileId,
+        timestamp,
+        owner.principalId,
+        leftPlacementId,
+      ).run()).rejects.toThrow(/memory_item_placement_state_requires_event/u);
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_item_placement_state
+      WHERE principal_id = ? AND placement_id IN (?, ?)`)
+      .bind(owner.principalId, leftPlacementId, rightPlacementId).first()).toEqual({ count: 2 });
+  });
+
+  it("rejects INSERT OR REPLACE through every FTS content rowid alias", async () => {
+    const owner = await seedPrincipal();
+    const first = await seedEvent(owner.principalId);
+    const itemId = nextUlid();
+    await env.DB.prepare(`INSERT INTO memory_items (
+      item_id, principal_id, kind, creation_event_id, creation_event_sequence, created_at
+    ) VALUES (?, ?, 'fact', ?, ?, ?)`)
+      .bind(itemId, owner.principalId, first.eventId, first.sequence, timestamp).run();
+    const versionId = nextUlid();
+    await env.DB.prepare(`INSERT INTO memory_item_versions (
+      version_id, principal_id, item_id, version_number, text, text_normalization,
+      text_hash, basis, origin, uncertain, sensitivity, valid_from, valid_to,
+      extractor_version, extractor_model_id, created_at
+    ) VALUES (?, ?, ?, 1, 'Version rowid sentinel.', 'NFC', ?, 'observed',
+      'deterministic_observation', 0, 'normal', NULL, NULL, 'policy-v1', NULL, ?)`)
+      .bind(versionId, owner.principalId, itemId, nextHash(), timestamp).run();
+    const version = await env.DB.prepare(`SELECT version_rowid FROM memory_item_versions
+      WHERE version_id = ?`).bind(versionId).first<{ version_rowid: number }>();
+    if (version === null) throw new Error("memory_version_rowid_missing");
+    await expect(env.DB.prepare(`INSERT OR REPLACE INTO memory_item_versions (
+      version_rowid, version_id, principal_id, item_id, version_number, text,
+      text_normalization, text_hash, basis, origin, uncertain, sensitivity,
+      valid_from, valid_to, extractor_version, extractor_model_id, created_at
+    ) VALUES (?, ?, ?, ?, 2, 'Replacement version.', 'NFC', ?, 'observed',
+      'deterministic_observation', 0, 'normal', NULL, NULL, 'policy-v1', NULL, ?)`)
+      .bind(
+        version.version_rowid,
+        nextUlid(),
+        owner.principalId,
+        itemId,
+        nextHash(),
+        timestamp,
+      ).run()).rejects.toThrow(/memory_item_version_lineage_invalid/u);
+
+    const episodeId = nextUlid();
+    await env.DB.prepare(`INSERT INTO memory_episodes (
+      episode_id, principal_id, local_day, start_event_sequence, end_event_sequence,
+      source_count, text, content_hash, summarizer_version, summarizer_model_id,
+      supersedes_episode_id, created_at
+    ) VALUES (?, ?, '2026-09-14', ?, ?, 1, 'Episode rowid sentinel.', ?, 'summary-v1',
+      'deepseek:deepseek-v4-pro', NULL, ?)`)
+      .bind(
+        episodeId,
+        owner.principalId,
+        first.sequence,
+        first.sequence,
+        nextHash(),
+        timestamp,
+      ).run();
+    const episode = await env.DB.prepare(`SELECT episode_rowid FROM memory_episodes
+      WHERE episode_id = ?`).bind(episodeId).first<{ episode_rowid: number }>();
+    if (episode === null) throw new Error("memory_episode_rowid_missing");
+    await expect(env.DB.prepare(`INSERT OR REPLACE INTO memory_episodes (
+      episode_rowid, episode_id, principal_id, local_day, start_event_sequence,
+      end_event_sequence, source_count, text, content_hash, summarizer_version,
+      summarizer_model_id, supersedes_episode_id, created_at
+    ) VALUES (?, ?, ?, '2026-09-14', ?, ?, 1, 'Replacement episode.', ?,
+      'summary-v1', 'deepseek:deepseek-v4-pro', NULL, ?)`)
+      .bind(
+        episode.episode_rowid,
+        nextUlid(),
+        owner.principalId,
+        first.sequence,
+        first.sequence,
+        nextHash(),
+        timestamp,
+      ).run()).rejects.toThrow(/memory_episode_duplicate/u);
+
+    const second = await seedEvent(owner.principalId);
+    const firstReceipt = nextHash();
+    const secondReceipt = nextHash();
+    for (const [event, receipt] of [[first, firstReceipt], [second, secondReceipt]] as const) {
+      await env.DB.prepare(`INSERT INTO memory_history_coverage (
+        coverage_id, principal_id, source_location, start_event_sequence,
+        end_event_sequence, r2_segment_id, indexing_outcome, content_hash,
+        failure_code, indexed_at
+      ) VALUES (?, ?, 'live', ?, ?, NULL, 'indexed', ?, NULL, ?)`)
+        .bind(
+          nextUlid(),
+          owner.principalId,
+          event.sequence,
+          event.sequence,
+          receipt,
+          timestamp,
+        ).run();
+    }
+    const chunkId = nextUlid();
+    await env.DB.prepare(`INSERT INTO memory_history_chunks (
+      chunk_id, principal_id, start_event_sequence, end_event_sequence, text,
+      content_hash, source_location, r2_segment_id, source_receipt_hash, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, 'rowidsentinel', ?, 'live', NULL, ?, ?, ?)`)
+      .bind(
+        chunkId,
+        owner.principalId,
+        first.sequence,
+        first.sequence,
+        nextHash(),
+        firstReceipt,
+        timestamp,
+        timestamp,
+      ).run();
+    const chunk = await env.DB.prepare(`SELECT chunk_rowid FROM memory_history_chunks
+      WHERE chunk_id = ?`).bind(chunkId).first<{ chunk_rowid: number }>();
+    if (chunk === null) throw new Error("memory_chunk_rowid_missing");
+    await expect(env.DB.prepare(`INSERT OR REPLACE INTO memory_history_chunks (
+      chunk_rowid, chunk_id, principal_id, start_event_sequence, end_event_sequence,
+      text, content_hash, source_location, r2_segment_id, source_receipt_hash,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, 'replacement chunk', ?, 'live', NULL, ?, ?, ?)`)
+      .bind(
+        chunk.chunk_rowid,
+        nextUlid(),
+        owner.principalId,
+        second.sequence,
+        second.sequence,
+        nextHash(),
+        secondReceipt,
+        laterTimestamp,
+        laterTimestamp,
+      ).run()).rejects.toThrow(/memory_history_chunk_receipt_invalid/u);
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_history_fts
+      WHERE memory_history_fts MATCH 'rowidsentinel'`)
+      .first()).toEqual({ count: 1 });
+  });
+
+  it("prevents rules from overwriting owner state except due time-bounded expiry", async () => {
+    const owner = await seedPrincipal();
+    const confirmed = await seedActiveItem(
+      owner.principalId,
+      await seedEvent(owner.principalId),
+      "proposed",
+    );
+    await insertOwnerTransition({
+      principalId: owner.principalId,
+      itemId: confirmed.itemId,
+      versionId: confirmed.versionId,
+      transitionNumber: 2,
+      lifecycleState: "active",
+    });
+    await expect(env.DB.prepare(`INSERT INTO memory_item_transitions (
+      transition_id, principal_id, item_id, transition_number, version_id,
+      lifecycle_state, reason, actor, policy_version, owner_authorizing_event_id, occurred_at
+    ) VALUES (?, ?, ?, 3, ?, 'expired', 'rules overwrite', 'rules',
+      'policy-v1', NULL, ?)`)
+      .bind(
+        nextUlid(),
+        owner.principalId,
+        confirmed.itemId,
+        confirmed.versionId,
+        laterTimestamp,
+      ).run()).rejects.toThrow(/memory_item_transition_invalid/u);
+
+    const superseded = await seedActiveItem(
+      owner.principalId,
+      await seedEvent(owner.principalId),
+    );
+    await insertOwnerTransition({
+      principalId: owner.principalId,
+      itemId: superseded.itemId,
+      versionId: superseded.versionId,
+      transitionNumber: 2,
+      lifecycleState: "superseded",
+    });
+    const replacementVersionId = nextUlid();
+    await env.DB.prepare(`INSERT INTO memory_item_versions (
+      version_id, principal_id, item_id, version_number, text, text_normalization,
+      text_hash, basis, origin, uncertain, sensitivity, valid_from, valid_to,
+      extractor_version, extractor_model_id, created_at
+    ) VALUES (?, ?, ?, 2, 'A deterministic replacement.', 'NFC', ?, 'observed',
+      'deterministic_observation', 0, 'normal', NULL, NULL, 'policy-v1', NULL, ?)`)
+      .bind(
+        replacementVersionId,
+        owner.principalId,
+        superseded.itemId,
+        nextHash(),
+        laterTimestamp,
+      ).run();
+    const replacementSource = await seedEvent(owner.principalId);
+    await env.DB.prepare(`INSERT INTO memory_item_sources (
+      source_id, principal_id, item_id, version_id, source_position, event_id,
+      event_sequence, source_location, r2_segment_id, excerpt, excerpt_hash,
+      channel, occurred_at, created_at
+    ) VALUES (?, ?, ?, ?, 0, ?, ?, 'live', NULL, 'A deterministic replacement.', ?,
+      'system', ?, ?)`)
+      .bind(
+        nextUlid(),
+        owner.principalId,
+        superseded.itemId,
+        replacementVersionId,
+        replacementSource.eventId,
+        replacementSource.sequence,
+        nextHash(),
+        laterTimestamp,
+        laterTimestamp,
+      ).run();
+    await expect(env.DB.prepare(`INSERT INTO memory_item_transitions (
+      transition_id, principal_id, item_id, transition_number, version_id,
+      lifecycle_state, reason, actor, policy_version, owner_authorizing_event_id, occurred_at
+    ) VALUES (?, ?, ?, 3, ?, 'active', 'rules overwrite', 'rules',
+      'policy-v1', NULL, ?)`)
+      .bind(
+        nextUlid(),
+        owner.principalId,
+        superseded.itemId,
+        replacementVersionId,
+        laterTimestamp,
+      ).run()).rejects.toThrow(/memory_item_transition_invalid/u);
+
+    const expiringItemId = nextUlid();
+    const expiringSource = await seedEvent(owner.principalId);
+    await env.DB.prepare(`INSERT INTO memory_items (
+      item_id, principal_id, kind, creation_event_id, creation_event_sequence, created_at
+    ) VALUES (?, ?, 'plan', ?, ?, ?)`)
+      .bind(
+        expiringItemId,
+        owner.principalId,
+        expiringSource.eventId,
+        expiringSource.sequence,
+        timestamp,
+      ).run();
+    const expiringVersionId = nextUlid();
+    await env.DB.prepare(`INSERT INTO memory_item_versions (
+      version_id, principal_id, item_id, version_number, text, text_normalization,
+      text_hash, basis, origin, uncertain, sensitivity, valid_from, valid_to,
+      extractor_version, extractor_model_id, created_at
+    ) VALUES (?, ?, ?, 1, 'This plan expires.', 'NFC', ?, 'observed',
+      'deterministic_observation', 0, 'normal', NULL, ?, 'policy-v1', NULL, ?)`)
+      .bind(
+        expiringVersionId,
+        owner.principalId,
+        expiringItemId,
+        nextHash(),
+        laterTimestamp,
+        timestamp,
+      ).run();
+    await env.DB.prepare(`INSERT INTO memory_item_sources (
+      source_id, principal_id, item_id, version_id, source_position, event_id,
+      event_sequence, source_location, r2_segment_id, excerpt, excerpt_hash,
+      channel, occurred_at, created_at
+    ) VALUES (?, ?, ?, ?, 0, ?, ?, 'live', NULL, 'This plan expires.', ?,
+      'system', ?, ?)`)
+      .bind(
+        nextUlid(),
+        owner.principalId,
+        expiringItemId,
+        expiringVersionId,
+        expiringSource.eventId,
+        expiringSource.sequence,
+        nextHash(),
+        timestamp,
+        timestamp,
+      ).run();
+    await env.DB.prepare(`INSERT INTO memory_item_transitions (
+      transition_id, principal_id, item_id, transition_number, version_id,
+      lifecycle_state, reason, actor, policy_version, owner_authorizing_event_id, occurred_at
+    ) VALUES (?, ?, ?, 1, ?, 'proposed', 'initial proposal', 'rules',
+      'policy-v1', NULL, ?)`)
+      .bind(
+        nextUlid(),
+        owner.principalId,
+        expiringItemId,
+        expiringVersionId,
+        timestamp,
+      ).run();
+    await insertOwnerTransition({
+      principalId: owner.principalId,
+      itemId: expiringItemId,
+      versionId: expiringVersionId,
+      transitionNumber: 2,
+      lifecycleState: "active",
+      occurredAt: timestamp,
+    });
+    await env.DB.prepare(`INSERT INTO memory_item_transitions (
+      transition_id, principal_id, item_id, transition_number, version_id,
+      lifecycle_state, reason, actor, policy_version, owner_authorizing_event_id, occurred_at
+    ) VALUES (?, ?, ?, 3, ?, 'expired', 'valid_to elapsed', 'rules',
+      'policy-v1', NULL, ?)`)
+      .bind(
+        nextUlid(),
+        owner.principalId,
+        expiringItemId,
+        expiringVersionId,
+        laterTimestamp,
+      ).run();
+    expect(await env.DB.prepare(`SELECT lifecycle_state FROM memory_item_state
+      WHERE principal_id = ? AND item_id = ?`)
+      .bind(owner.principalId, expiringItemId).first()).toEqual({ lifecycle_state: "expired" });
+  });
+
   it("keeps inferred and third-party claims uncertain and owner-gates confirmed activation", async () => {
     const owner = await seedPrincipal();
     const source = await seedEvent(owner.principalId);
@@ -1598,6 +2611,71 @@ describe.sequential("cloud memory migration", () => {
       .rejects.toThrow(/memory_item_transition_invalid/u);
   });
 
+  it("keeps archived-only first-person claims proposed until owner confirmation", async () => {
+    const owner = await seedPrincipal();
+    const archived = await seedArchivedReceipt();
+    const itemId = nextUlid();
+    const versionId = nextUlid();
+    await env.DB.prepare(`INSERT INTO memory_items (
+      item_id, principal_id, kind, creation_event_id, creation_event_sequence, created_at
+    ) VALUES (?, ?, 'fact', ?, ?, ?)`)
+      .bind(
+        itemId,
+        owner.principalId,
+        archived.eventId,
+        archived.eventSequence,
+        timestamp,
+      ).run();
+    await env.DB.prepare(`INSERT INTO memory_item_versions (
+      version_id, principal_id, item_id, version_number, text, text_normalization,
+      text_hash, basis, origin, uncertain, sensitivity, valid_from, valid_to,
+      extractor_version, extractor_model_id, created_at
+    ) VALUES (?, ?, ?, 1, 'I kept the small brass key.', 'NFC', ?, 'confirmed',
+      'authenticated_first_person', 0, 'normal', NULL, NULL, 'policy-v1', NULL, ?)`)
+      .bind(versionId, owner.principalId, itemId, nextHash(), timestamp).run();
+    await env.DB.prepare(`INSERT INTO memory_item_sources (
+      source_id, principal_id, item_id, version_id, source_position, event_id,
+      event_sequence, source_location, r2_segment_id, excerpt, excerpt_hash,
+      channel, occurred_at, created_at
+    ) VALUES (?, ?, ?, ?, 0, ?, ?, 'archived', ?, 'I kept the small brass key.', ?,
+      'telegram', ?, ?)`)
+      .bind(
+        nextUlid(),
+        owner.principalId,
+        itemId,
+        versionId,
+        archived.eventId,
+        archived.eventSequence,
+        archived.segmentId,
+        nextHash(),
+        timestamp,
+        timestamp,
+      ).run();
+    await env.DB.prepare(`INSERT INTO memory_item_transitions (
+      transition_id, principal_id, item_id, transition_number, version_id,
+      lifecycle_state, reason, actor, policy_version, owner_authorizing_event_id, occurred_at
+    ) VALUES (?, ?, ?, 1, ?, 'proposed', 'archive proposal', 'rules',
+      'policy-v1', NULL, ?)`)
+      .bind(nextUlid(), owner.principalId, itemId, versionId, timestamp).run();
+    await expect(env.DB.prepare(`INSERT INTO memory_item_transitions (
+      transition_id, principal_id, item_id, transition_number, version_id,
+      lifecycle_state, reason, actor, policy_version, owner_authorizing_event_id, occurred_at
+    ) VALUES (?, ?, ?, 2, ?, 'active', 'automatic archive promotion', 'rules',
+      'policy-v1', NULL, ?)`)
+      .bind(nextUlid(), owner.principalId, itemId, versionId, laterTimestamp).run())
+      .rejects.toThrow(/memory_item_transition_invalid/u);
+    await insertOwnerTransition({
+      principalId: owner.principalId,
+      itemId,
+      versionId,
+      transitionNumber: 2,
+      lifecycleState: "active",
+    });
+    expect(await env.DB.prepare(`SELECT count(*) AS count
+      FROM memory_retrievable_item_versions WHERE principal_id = ? AND version_id = ?`)
+      .bind(owner.principalId, versionId).first()).toEqual({ count: 1 });
+  });
+
   it("requires a matching coverage receipt and rejects false live high-water marks", async () => {
     const owner = await seedPrincipal();
     const source = await seedEvent(owner.principalId);
@@ -1621,30 +2699,23 @@ describe.sequential("cloud memory migration", () => {
   });
 
   it("rejects live coverage for a range that has an archived event receipt", async () => {
-    const firstEvent = await env.DB.prepare("SELECT subject_id FROM events WHERE sequence = 1")
-      .first<{ subject_id: string }>();
-    if (firstEvent === null) throw new Error("memory_first_event_missing");
-    const manifestId = nextHash();
-    const segmentId = nextHash();
-    await env.DB.prepare(`INSERT INTO archive_manifests (
-      manifest_id, start_sequence, end_sequence, event_count, status, created_at, sealed_at
-    ) VALUES (?, 1, 1, 1, 'sealed', ?, ?)`)
-      .bind(manifestId, timestamp, timestamp).run();
-    await env.DB.prepare(`INSERT INTO archive_segments (
-      segment_id, manifest_id, object_key, compressed_sha256,
-      compressed_byte_length, uncompressed_byte_length, codec, created_at
-    ) VALUES (?, ?, ?, ?, 1, 1, 'jarvis-gzip-ndjson-v1', ?)`)
-      .bind(segmentId, manifestId, `memory-test/${segmentId}`, nextHash(), timestamp).run();
-    await env.DB.prepare(`INSERT INTO archive_segment_events (
-      event_sequence, event_id, segment_id, envelope_sha256, content_hash, created_at
-    ) VALUES (1, ?, ?, ?, ?, ?)`)
-      .bind(nextUlid(), segmentId, nextHash(), nextHash(), timestamp).run();
+    const archived = await seedArchivedReceipt();
+    const liveEvent = await env.DB.prepare("SELECT subject_id FROM events WHERE sequence = ?")
+      .bind(archived.eventSequence).first<{ subject_id: string }>();
+    if (liveEvent === null) throw new Error("memory_matching_live_event_missing");
     await expect(env.DB.prepare(`INSERT INTO memory_history_coverage (
       coverage_id, principal_id, source_location, start_event_sequence,
       end_event_sequence, r2_segment_id, indexing_outcome, content_hash,
       failure_code, indexed_at
-    ) VALUES (?, ?, 'live', 1, 1, NULL, 'indexed', ?, NULL, ?)`)
-      .bind(nextUlid(), firstEvent.subject_id, nextHash(), timestamp).run())
+    ) VALUES (?, ?, 'live', ?, ?, NULL, 'indexed', ?, NULL, ?)`)
+      .bind(
+        nextUlid(),
+        liveEvent.subject_id,
+        archived.eventSequence,
+        archived.eventSequence,
+        nextHash(),
+        timestamp,
+      ).run())
       .rejects.toThrow(/memory_history_coverage_receipt_invalid/u);
   });
 
@@ -1687,6 +2758,106 @@ describe.sequential("cloud memory migration", () => {
       WHERE principal_id = ? AND topic_id = ?`)
       .bind(parentOneId, firstMoveId, timestamp, owner.principalId, topicId).run())
       .rejects.toThrow(/memory_topic_update_requires_event/u);
+  });
+
+  it("caps active topic depth at 64 so cycle checks fail closed", async () => {
+    const owner = await seedPrincipal();
+    const rootId = nextUlid();
+    const topicIds = [rootId];
+    await insertTopicEvent({
+      principalId: owner.principalId,
+      topicId: rootId,
+      operation: "create",
+      newDisplayName: "Depth 1",
+      newNormalizedName: "depth 1",
+    });
+    let parentId = rootId;
+    for (let depth = 2; depth <= 64; depth += 1) {
+      const topicId = nextUlid();
+      await insertTopicEvent({
+        principalId: owner.principalId,
+        topicId,
+        operation: "create",
+        newParentTopicId: parentId,
+        newDisplayName: `Depth ${depth}`,
+        newNormalizedName: `depth ${depth}`,
+      });
+      topicIds.push(topicId);
+      parentId = topicId;
+    }
+    await expect(insertTopicEvent({
+      principalId: owner.principalId,
+      topicId: nextUlid(),
+      operation: "create",
+      newParentTopicId: parentId,
+      newDisplayName: "Depth 65",
+      newNormalizedName: "depth 65",
+    })).rejects.toThrow(/memory_topic_event_invalid/u);
+
+    const depthTwo = topicIds[1];
+    const depthThree = topicIds[2];
+    if (depthTwo === undefined || depthThree === undefined) {
+      throw new Error("memory_topic_depth_fixture_missing");
+    }
+    await expect(insertTopicEvent({
+      principalId: owner.principalId,
+      topicId: depthTwo,
+      operation: "move",
+      previousParentTopicId: rootId,
+      newParentTopicId: parentId,
+    })).rejects.toThrow(/memory_topic_event_invalid/u);
+    await expect(insertTopicEvent({
+      principalId: owner.principalId,
+      topicId: depthTwo,
+      operation: "merge",
+      previousDisplayName: "Depth 2",
+      previousNormalizedName: "depth 2",
+      mergeTargetTopicId: parentId,
+      reparentedChildIds: [depthThree],
+      addedAliases: [{
+        aliasId: nextUlid(),
+        topicId: parentId,
+        displayName: "Depth 2",
+        normalizedName: "depth 2",
+        pathAlias: "Depth 1/Depth 2",
+      }],
+    })).rejects.toThrow(/memory_topic_event_invalid/u);
+  });
+
+  it("rejects far-future topic events before they can wedge topic history", async () => {
+    const owner = await seedPrincipal();
+    const topicId = nextUlid();
+    await insertTopicEvent({
+      principalId: owner.principalId,
+      topicId,
+      operation: "create",
+      newDisplayName: "Current topic",
+      newNormalizedName: "current topic",
+    });
+    const future = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    const aliasId = nextUlid();
+    await expect(env.DB.prepare(`INSERT INTO memory_topic_events (
+      topic_event_id, principal_id, topic_id, operation, previous_parent_topic_id,
+      new_parent_topic_id, previous_display_name, previous_normalized_name,
+      new_display_name, new_normalized_name, merge_target_topic_id,
+      reparented_child_ids_json, moved_placement_ids_json, added_aliases_json,
+      reason, actor, owner_authorizing_event_id, occurred_at
+    ) VALUES (?, ?, ?, 'rename', NULL, NULL, 'Current topic', 'current topic',
+      'Future topic', 'future topic', NULL, '[]', '[]', ?, 'future clock',
+      'rules', NULL, ?)`)
+      .bind(
+        nextUlid(),
+        owner.principalId,
+        topicId,
+        JSON.stringify([{
+          aliasId,
+          topicId,
+          displayName: "Current topic",
+          normalizedName: "current topic",
+          pathAlias: "Current topic",
+        }]),
+        future,
+      ).run()).rejects.toThrow(/memory_topic_event_invalid/u);
   });
 
   it("requires monotonic placement events and an active filing target", async () => {
@@ -1909,6 +3080,13 @@ describe.sequential("cloud memory migration", () => {
     const suppressionId = nextUlid();
     const command = await seedOwnerCommand(
       owner.principalId, "history.suppress", suppressionId,
+      {
+        targetEventId: creation.eventId,
+        startEventSequence: null,
+        endEventSequence: null,
+        newlyHiddenTurnCount: 1,
+        totalCoveredTurnCount: 1,
+      },
     );
     await env.DB.prepare(`INSERT INTO memory_event_suppressions (
       suppression_id, principal_id, target_event_id, start_event_sequence,
