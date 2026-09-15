@@ -1,0 +1,28 @@
+HEAD d24f997 docs(agent-log): request PR 39 round-three re-review
+== lint
+packages/contracts lint: Done
+apps/hermes-runtime lint: Done
+tests/acceptance lint: Done
+apps/cloud-gateway lint: Done
+== typecheck
+packages/contracts typecheck: Done
+apps/hermes-runtime typecheck: Done
+apps/cloud-gateway typecheck: Done
+tests/acceptance typecheck: Done
+== pnpm test
+     × retains an exact-cap delimiter-free frame in bounded segments under bytewise delivery 15679ms
+     × seeks a many-segment tail read and accesses only the terminal manifest object 6403ms
+     × keeps successful and rejected guest PIN candidates out of logs, replies and recalled memory 15034ms
+     × authenticates only the bound guest grant and rechecks it before conversation 5456ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |default| tests/acceptance/fake/voice-guest-access.test.ts > fake voice guest access > keeps successful and rejected guest PIN candidates out of logs, replies and recalled memory
+Error: Test timed out in 15000ms.
+ FAIL  |default| apps/cloud-gateway/test/archive/archival-service.test.ts > ArchivalService > seeks a many-segment tail read and accesses only the terminal manifest object
+Error: Test timed out in 5000ms.
+ FAIL  |default| apps/cloud-gateway/test/model/hermes-token-adapter.test.ts > HermesTokenAdapter strict incremental SSE > retains an exact-cap delimiter-free frame in bounded segments under bytewise delivery
+Error: Test timed out in 15000ms.
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > authenticates only the bound guest grant and rechecks it before conversation
+Error: Test timed out in 5000ms.
+ Test Files  4 failed | 132 passed (136)
+      Tests  4 failed | 2896 passed (2900)
+   Duration  143.15s (transform 57.41s, setup 0ms, import 576.60s, tests 710.18s, environment 47ms)

@@ -1,0 +1,26 @@
+HEAD d24f997
+== rerun alone: tests/acceptance/fake/voice-guest-access.test.ts
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+== rerun alone: apps/cloud-gateway/test/archive/archival-service.test.ts
+ Test Files  1 passed (1)
+      Tests  46 passed (46)
+== rerun alone: apps/cloud-gateway/test/model/hermes-token-adapter.test.ts
+ Test Files  1 passed (1)
+      Tests  71 passed (71)
+== rerun alone: apps/cloud-gateway/test/voice/call-session-do.test.ts
+ Test Files  1 passed (1)
+      Tests  112 passed (112)
+== old probes (must FAIL)
+     × H2: INSERT OR REPLACE rewinds the cursor to 0 despite both guards 3ms
+     × NF1: INSERT OR REPLACE with the existing rowid deletes the price row despite the guards 4ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |default| apps/cloud-gateway/test/persistence/pr39-h2-probe.test.ts > reviewer probe PR #39 H2 > H2: INSERT OR REPLACE rewinds the cursor to 0 despite both guards
+Error: D1_ERROR: memory_cursor_duplicate: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+Caused by: Error: memory_cursor_duplicate: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+ FAIL  |default| apps/cloud-gateway/test/persistence/pr39-nf1-probe.test.ts > reviewer probe PR #39 NF1 > NF1: INSERT OR REPLACE with the existing rowid deletes the price row despite the guards
+Error: D1_ERROR: no such column: rowid at offset 7: SQLITE_ERROR
+Caused by: Error: no such column: rowid at offset 7: SQLITE_ERROR
+ Test Files  2 failed (2)
+      Tests  2 failed | 3 passed (5)
+== status after probes: []

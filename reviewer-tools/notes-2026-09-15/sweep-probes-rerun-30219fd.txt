@@ -1,0 +1,24 @@
+S4_RESERVATION_THREW Error: D1_ERROR: memory_cost_entry_lineage_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+S4_FUTURE_RUN_THREW Error: D1_ERROR: memory_run_initial_state_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+     × accepts a next-month reservation that escapes this month's cap 15ms
+S2_RENAME_THREW Error: D1_ERROR: memory_topic_event_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+     × the INSERT OR REPLACE rename deletes the empty same-named sibling topic 20ms
+S3_EXPIRY_THREW Error: D1_ERROR: memory_item_transition_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+     × accepts a rules `expired` transition future-dated past valid_to while it is not yet due 17ms
+     × derives every 0016 table from sqlite_master and classifies its rowid exposure 44ms
+     × INSERT OR REPLACE with an explicit implicit-rowid deletes guarded price/coverage/ledger rows 71ms
+     × UPDATE OR REPLACE ... SET rowid deletes a sibling in runs, reprocess_jobs, and vectors 27ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected [] to deeply equal [ 'memory_cost_ledger', …(16) ]
+Error: D1_ERROR: no such column: rowid at offset 7: SQLITE_ERROR
+Caused by: Error: no such column: rowid at offset 7: SQLITE_ERROR
+Error: D1_ERROR: no such column: rowid at offset 7: SQLITE_ERROR
+Caused by: Error: no such column: rowid at offset 7: SQLITE_ERROR
+AssertionError: expected 'Error: D1_ERROR: memory_topic_event_i…' to be '' // Object.is equality
++ Error: D1_ERROR: memory_topic_event_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+AssertionError: expected 'Error: D1_ERROR: memory_item_transiti…' to be '' // Object.is equality
++ Error: D1_ERROR: memory_item_transition_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+AssertionError: expected 'Error: D1_ERROR: memory_cost_entry_li…' to be '' // Object.is equality
++ Error: D1_ERROR: memory_cost_entry_lineage_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)
+ Test Files  4 failed (4)
+      Tests  6 failed | 1 passed (7)

@@ -1,0 +1,233 @@
+S1_SWEEP_MATRIX [
+  {
+    "table": "memory_cost_ledger",
+    "rowidModel": "implicit_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "immutable:memory_cost_ledger_immutable_update",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "EXPOSED",
+    "s1UpdateOrReplaceRowid": "blocked (immutable update)"
+  },
+  {
+    "table": "memory_cursors",
+    "rowidModel": "without_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "conditional:memory_cursors_monotonic_update",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "n/a (WITHOUT ROWID)",
+    "s1UpdateOrReplaceRowid": "n/a (WITHOUT ROWID)"
+  },
+  {
+    "table": "memory_episode_sources",
+    "rowidModel": "implicit_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "immutable:memory_episode_sources_immutable_update",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "EXPOSED",
+    "s1UpdateOrReplaceRowid": "blocked (immutable update)"
+  },
+  {
+    "table": "memory_episodes",
+    "rowidModel": "integer_pk_alias:episode_rowid",
+    "insertGuardPinsRowid": true,
+    "updateTrigger": "immutable:memory_episodes_immutable_update",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "guarded",
+    "s1UpdateOrReplaceRowid": "blocked (immutable update)"
+  },
+  {
+    "table": "memory_event_suppression_lifts",
+    "rowidModel": "implicit_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "immutable:memory_event_suppression_lifts_immutable_update",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "EXPOSED",
+    "s1UpdateOrReplaceRowid": "blocked (immutable update)"
+  },
+  {
+    "table": "memory_event_suppressions",
+    "rowidModel": "implicit_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "immutable:memory_event_suppressions_immutable_update",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "EXPOSED",
+    "s1UpdateOrReplaceRowid": "blocked (immutable update)"
+  },
+  {
+    "table": "memory_history_chunks",
+    "rowidModel": "integer_pk_alias:chunk_rowid",
+    "insertGuardPinsRowid": true,
+    "updateTrigger": "immutable:memory_history_chunks_immutable_update",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "guarded",
+    "s1UpdateOrReplaceRowid": "blocked (immutable update)"
+  },
+  {
+    "table": "memory_history_coverage",
+    "rowidModel": "implicit_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "immutable:memory_history_coverage_immutable_update",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "EXPOSED",
+    "s1UpdateOrReplaceRowid": "blocked (immutable update)"
+  },
+  {
+    "table": "memory_item_links",
+    "rowidModel": "implicit_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "immutable:memory_item_links_immutable_update",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "EXPOSED",
+    "s1UpdateOrReplaceRowid": "blocked (immutable update)"
+  },
+  {
+    "table": "memory_item_placement_events",
+    "rowidModel": "implicit_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "immutable:memory_item_placement_events_immutable_update",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "EXPOSED",
+    "s1UpdateOrReplaceRowid": "blocked (immutable update)"
+  },
+  {
+    "table": "memory_item_placement_state",
+    "rowidModel": "without_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "conditional:memory_item_placement_state_update_guard",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "n/a (WITHOUT ROWID)",
+    "s1UpdateOrReplaceRowid": "n/a (WITHOUT ROWID)"
+  },
+  {
+    "table": "memory_item_sources",
+    "rowidModel": "implicit_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "immutable:memory_item_sources_immutable_update",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "EXPOSED",
+    "s1UpdateOrReplaceRowid": "blocked (immutable update)"
+  },
+  {
+    "table": "memory_item_state",
+    "rowidModel": "without_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "conditional:memory_item_state_update_guard",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "n/a (WITHOUT ROWID)",
+    "s1UpdateOrReplaceRowid": "n/a (WITHOUT ROWID)"
+  },
+  {
+    "table": "memory_item_transitions",
+    "rowidModel": "implicit_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "immutable:memory_item_transitions_immutable_update",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "EXPOSED",
+    "s1UpdateOrReplaceRowid": "blocked (immutable update)"
+  },
+  {
+    "table": "memory_item_versions",
+    "rowidModel": "integer_pk_alias:version_rowid",
+    "insertGuardPinsRowid": true,
+    "updateTrigger": "immutable:memory_item_versions_immutable_update",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "guarded",
+    "s1UpdateOrReplaceRowid": "blocked (immutable update)"
+  },
+  {
+    "table": "memory_items",
+    "rowidModel": "implicit_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "immutable:memory_items_immutable_update",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "EXPOSED",
+    "s1UpdateOrReplaceRowid": "blocked (immutable update)"
+  },
+  {
+    "table": "memory_model_prices",
+    "rowidModel": "implicit_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "immutable:memory_model_prices_immutable_update",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "EXPOSED",
+    "s1UpdateOrReplaceRowid": "blocked (immutable update)"
+  },
+  {
+    "table": "memory_reprocess_jobs",
+    "rowidModel": "implicit_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "conditional:memory_reprocess_jobs_update_guard",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "EXPOSED",
+    "s1UpdateOrReplaceRowid": "EXPOSED (conditional, rowid unpinned)"
+  },
+  {
+    "table": "memory_runs",
+    "rowidModel": "implicit_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "conditional:memory_runs_update_guard",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "EXPOSED",
+    "s1UpdateOrReplaceRowid": "EXPOSED (conditional, rowid unpinned)"
+  },
+  {
+    "table": "memory_topic_aliases",
+    "rowidModel": "implicit_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "immutable:memory_topic_aliases_immutable_update",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "EXPOSED",
+    "s1UpdateOrReplaceRowid": "blocked (immutable update)"
+  },
+  {
+    "table": "memory_topic_events",
+    "rowidModel": "implicit_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "immutable:memory_topic_events_immutable_update",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "EXPOSED",
+    "s1UpdateOrReplaceRowid": "blocked (immutable update)"
+  },
+  {
+    "table": "memory_topics",
+    "rowidModel": "implicit_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "conditional:memory_topics_update_guard",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "EXPOSED",
+    "s1UpdateOrReplaceRowid": "EXPOSED (conditional, rowid unpinned)"
+  },
+  {
+    "table": "memory_vectors",
+    "rowidModel": "implicit_rowid",
+    "insertGuardPinsRowid": false,
+    "updateTrigger": "conditional:memory_vectors_update_guard",
+    "updateGuardPinsRowid": false,
+    "s1InsertExplicitRowid": "EXPOSED",
+    "s1UpdateOrReplaceRowid": "EXPOSED (conditional, rowid unpinned)"
+  }
+]
+S1_INSERT_EXPLICIT_ROWID_EXPOSED ["memory_cost_ledger","memory_episode_sources","memory_event_suppression_lifts","memory_event_suppressions","memory_history_coverage","memory_item_links","memory_item_placement_events","memory_item_sources","memory_item_transitions","memory_items","memory_model_prices","memory_reprocess_jobs","memory_runs","memory_topic_aliases","memory_topic_events","memory_topics","memory_vectors"]
+
+stdout | apps/cloud-gateway/test/persistence/zz-reviewer-pr39-s1-sweep.test.ts > reviewer probe PR #39 S1 sweep > INSERT OR REPLACE with an explicit implicit-rowid deletes guarded price/coverage/ledger rows
+S1_EXECUTED_INSERT {
+  "memory_model_prices (INSERT OR REPLACE rowid)": "deleted=true",
+  "memory_history_coverage (INSERT OR REPLACE rowid)": "deleted=true",
+  "memory_cost_ledger (INSERT OR REPLACE rowid)": "deleted=true"
+}
+
+stdout | apps/cloud-gateway/test/persistence/zz-reviewer-pr39-s1-sweep.test.ts > reviewer probe PR #39 S1 sweep > UPDATE OR REPLACE ... SET rowid deletes a sibling in runs, reprocess_jobs, and vectors
+S1_EXECUTED_UPDATE_ROWID {
+  "memory_model_prices (INSERT OR REPLACE rowid)": "deleted=true",
+  "memory_history_coverage (INSERT OR REPLACE rowid)": "deleted=true",
+  "memory_cost_ledger (INSERT OR REPLACE rowid)": "deleted=true",
+  "memory_runs (UPDATE OR REPLACE SET rowid)": "victim_deleted=true",
+  "memory_vectors (UPDATE OR REPLACE SET rowid)": "victim_deleted=true",
+  "memory_reprocess_jobs (UPDATE OR REPLACE SET rowid)": "victim_deleted=true"
+}
+
+ ✓ |default| apps/cloud-gateway/test/persistence/zz-reviewer-pr39-s1-sweep.test.ts > reviewer probe PR #39 S1 sweep > derives every 0016 table from sqlite_master and classifies its rowid exposure 17ms
+ ✓ |default| apps/cloud-gateway/test/persistence/zz-reviewer-pr39-s1-sweep.test.ts > reviewer probe PR #39 S1 sweep > INSERT OR REPLACE with an explicit implicit-rowid deletes guarded price/coverage/ledger rows 45ms
+ ✓ |default| apps/cloud-gateway/test/persistence/zz-reviewer-pr39-s1-sweep.test.ts > reviewer probe PR #39 S1 sweep > UPDATE OR REPLACE ... SET rowid deletes a sibling in runs, reprocess_jobs, and vectors 49ms
+stdout | apps/cloud-gateway/test/persistence/zz-reviewer-pr39-s1-sweep.test.ts > reviewer probe PR #39 S1 sweep > INSERT OR REPLACE with the existing natural key is already refused for every 0016 table (control)
+S1_NATURAL_KEY_CONTROL {

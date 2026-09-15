@@ -1,0 +1,169 @@
+checked out 30219fd at 30219fd
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  124 passed (124)
+
+== T-memory_item_placement_events_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (124 tests | 2 failed) 3989ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 122 passed (124)
+   × memory_item_placement_events_immutable_update rejects a stored-row update 19ms
+   × sweeps every 0016 table across explicit-rowid, natural-key, and key-update REPLACE paths 687ms
+
+== T-memory_item_placement_events_immutable_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (124 tests | 3 failed) 3397ms
+   Test Files  1 failed (1)
+   Tests  3 failed | 121 passed (124)
+   × memory_item_placement_events_immutable_delete rejects a stored-row delete 31ms
+   × memory_item_placement_events_insert_guard rejects INSERT OR REPLACE of an existing key 5ms
+   × sweeps every 0016 table across explicit-rowid, natural-key, and key-update REPLACE paths 322ms
+
+== T-memory_episodes_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (124 tests | 2 failed) 3806ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 122 passed (124)
+   × memory_episodes_immutable_update rejects a stored-row update 14ms
+   × sweeps every 0016 table across explicit-rowid, natural-key, and key-update REPLACE paths 345ms
+
+== T-memory_episodes_immutable_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (124 tests | 1 failed) 4074ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 123 passed (124)
+   × memory_episodes_immutable_delete rejects a stored-row delete 22ms
+
+== T-memory_episode_sources_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (124 tests | 1 failed) 4503ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 123 passed (124)
+   × memory_episode_sources_immutable_update rejects a stored-row update 29ms
+
+== T-memory_episode_sources_immutable_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (124 tests | 3 failed) 4879ms
+   Test Files  1 failed (1)
+   Tests  3 failed | 121 passed (124)
+   × memory_episode_sources_immutable_delete rejects a stored-row delete 24ms
+   × memory_episode_sources_insert_guard rejects INSERT OR REPLACE of an existing key 5ms
+   × sweeps every 0016 table across explicit-rowid, natural-key, and key-update REPLACE paths 533ms
+
+== T-memory_history_coverage_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (124 tests | 1 failed) 5250ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 123 passed (124)
+   × memory_history_coverage_immutable_update rejects a stored-row update 31ms
+
+== T-memory_history_coverage_immutable_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (124 tests | 3 failed) 4974ms
+   Test Files  1 failed (1)
+   Tests  3 failed | 121 passed (124)
+   × memory_history_coverage_immutable_delete rejects a stored-row delete 28ms
+   × memory_history_coverage_insert_guard rejects INSERT OR REPLACE of an existing key 7ms
+   × sweeps every 0016 table across explicit-rowid, natural-key, and key-update REPLACE paths 725ms
+
+== T-memory_model_prices_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (124 tests | 2 failed) 4555ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 122 passed (124)
+   × memory_model_prices_immutable_update rejects a stored-row update 36ms
+   × sweeps every 0016 table across explicit-rowid, natural-key, and key-update REPLACE paths 689ms
+
+== T-memory_model_prices_immutable_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (124 tests | 1 failed) 4984ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 123 passed (124)
+   × memory_model_prices_immutable_delete rejects a stored-row delete 20ms
+
+== T-memory_cost_ledger_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (124 tests | 1 failed) 5181ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 123 passed (124)
+   × memory_cost_ledger_immutable_update rejects a stored-row update 25ms
+
+== T-memory_cost_ledger_immutable_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (124 tests | 3 failed) 4588ms
+   Test Files  1 failed (1)
+   Tests  3 failed | 121 passed (124)
+   × memory_cost_ledger_immutable_delete rejects a stored-row delete 26ms
+   × memory_cost_ledger_insert_guard rejects INSERT OR REPLACE of an existing key 6ms
+   × sweeps every 0016 table across explicit-rowid, natural-key, and key-update REPLACE paths 772ms
+
+== T-memory_item_versions_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (124 tests | 2 failed) 4828ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 122 passed (124)
+   × rejects INSERT OR REPLACE through every FTS content rowid alias 54ms
+   × memory_item_versions_insert_guard rejects INSERT OR REPLACE of an existing key 7ms
+
+== T-memory_item_sources_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (124 tests | 3 failed) 4180ms
+   Test Files  1 failed (1)
+   Tests  3 failed | 121 passed (124)
+   × projects only valid version and lifecycle transitions into retrievable item state 66ms
+   × memory_item_sources_insert_guard rejects INSERT OR REPLACE of an existing key 6ms
+   × sweeps every 0016 table across explicit-rowid, natural-key, and key-update REPLACE paths 114ms
+
+== T-memory_item_transitions_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (124 tests | 13 failed) 3494ms
+   Test Files  1 failed (1)
+   Tests  13 failed | 111 passed (124)
+   × projects only valid version and lifecycle transitions into retrievable item state 69ms
+   × requires owner authority to leave forgotten or rejected item state 30ms
+   × rejects a correction command issued before the current forget 34ms
+   × binds owner authority to a dedicated command with the exact operation and limits 37ms
+
+== T-memory_item_transitions_apply_state: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (124 tests | 18 failed) 2435ms
+   Test Files  1 failed (1)
+   Tests  18 failed | 106 passed (124)
+   × projects only valid version and lifecycle transitions into retrievable item state 24ms
+   × hides recent turns, items, episodes, and history chunks until one authorized lift 32ms
+   × binds item forget suppressions to the forgotten transition and exact source turn 42ms
+   × requires owner authority to leave forgotten or rejected item state 31ms
+
+== T-memory_item_state_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (124 tests | 3 failed) 3762ms
+   Test Files  1 failed (1)
+   Tests  3 failed | 121 passed (124)
+   × projects only valid version and lifecycle transitions into retrievable item state 34ms
+   × memory_item_state_insert_guard rejects INSERT OR REPLACE of an existing key 8ms
+   × sweeps every 0016 table across explicit-rowid, natural-key, and key-update REPLACE paths 140ms
+
+== T-memory_item_state_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (124 tests | 3 failed) 4693ms
+   Test Files  1 failed (1)
+   Tests  3 failed | 121 passed (124)
+   × projects only valid version and lifecycle transitions into retrievable item state 58ms
+   × pins item-state keys against UPDATE OR REPLACE 55ms
+   × memory_item_state_update_guard rejects an update without the required transition 4ms
+
+== T-memory_item_state_delete_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (124 tests | 2 failed) 4092ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 122 passed (124)
+   × memory_item_state_delete_guard rejects direct projection deletion 16ms
+   × memory_item_transitions_apply_state projects the appended transition 5ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-memory_item_placement_events_immutable_update
+KILLED    T-memory_item_placement_events_immutable_delete
+KILLED    T-memory_episodes_immutable_update
+KILLED    T-memory_episodes_immutable_delete
+KILLED    T-memory_episode_sources_immutable_update
+KILLED    T-memory_episode_sources_immutable_delete
+KILLED    T-memory_history_coverage_immutable_update
+KILLED    T-memory_history_coverage_immutable_delete
+KILLED    T-memory_model_prices_immutable_update
+KILLED    T-memory_model_prices_immutable_delete
+KILLED    T-memory_cost_ledger_immutable_update
+KILLED    T-memory_cost_ledger_immutable_delete
+KILLED    T-memory_item_versions_insert_guard
+KILLED    T-memory_item_sources_insert_guard
+KILLED    T-memory_item_transitions_insert_guard
+KILLED    T-memory_item_transitions_apply_state
+KILLED    T-memory_item_state_insert_guard
+KILLED    T-memory_item_state_update_guard
+KILLED    T-memory_item_state_delete_guard
+back on main, tree clean=true
+(node:29988) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
