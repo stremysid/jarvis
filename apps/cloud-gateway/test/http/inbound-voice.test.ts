@@ -101,6 +101,9 @@ function dependencies(overrides: Partial<InboundVoiceDependencies> = {}) {
     expectedInboundE164: EXPECTED_TO,
     ownerIdentityId: "identity:voice",
     currentChallengeHmacKeyVersion: "hmac-v1",
+    ownerCallerIdPolicy: undefined,
+    ownerStepUp: { bind: vi.fn(async (input) => input) },
+    ownerStepUpAlerts: { alert: vi.fn(async () => undefined) },
     sessions: { getOrCreateInboundSession },
     initializeSession,
     now: () => new Date("2026-08-30T12:00:00.000Z"),
@@ -212,6 +215,20 @@ describe("signed inbound voice webhook", () => {
     expect(response.status).toBe(200);
   });
 
+  it("reuses the durable session creation time when binding a later webhook replay", async () => {
+    const bind = vi.fn(async (input) => input);
+    const { deps } = dependencies({
+      ownerStepUp: { bind },
+      now: () => new Date("2026-08-30T12:01:00.000Z"),
+    });
+
+    expect((await handleInboundVoiceWebhook(await signedRequest(validPairs()), deps)).status).toBe(200);
+    expect(bind).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: SESSION_ID,
+      createdAt: "2026-08-30T12:00:00.000Z",
+    }));
+  });
+
   it("renders only exact trusted relay routes and the fixed voice configuration", async () => {
     const { deps } = dependencies();
     const response = await handleInboundVoiceWebhook(await signedRequest(validPairs()), deps);
@@ -240,6 +257,30 @@ describe("signed inbound voice webhook", () => {
     expect(await response.text()).toBe("forbidden");
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(initializeSession).not.toHaveBeenCalled();
+  });
+
+  it("emits one fixed owner alert for a capacity refusal without exposing caller data", async () => {
+    const alert = vi.fn(async () => undefined);
+    const sessions = { getOrCreateInboundSession: vi.fn(async () => {
+      throw callSessionAdmissionFailure("call_session_capacity", {
+        principalId: "principal:owner", accessKind: "owner",
+      });
+    }) };
+    const { deps } = dependencies({ sessions, ownerStepUpAlerts: { alert } });
+
+    const response = await handleInboundVoiceWebhook(await signedRequest([
+      ...validPairs(), ["StirVerstat", "TN-Validation-Failed-A"],
+    ]), deps);
+
+    expect(response.status).toBe(403);
+    expect(alert).toHaveBeenCalledExactlyOnceWith({
+      ownerPrincipalId: "principal:owner",
+      alertClass: "admission_refused",
+      direction: "inbound",
+      attestationClass: "other",
+      now: new Date("2026-08-30T12:00:00.000Z"),
+    });
+    expect(JSON.stringify(alert.mock.calls)).not.toContain(FROM);
   });
 
   it("returns a neutral unavailable response for internal failures without TwiML or sensitive reflection", async () => {

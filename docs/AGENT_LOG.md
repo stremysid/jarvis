@@ -54,6 +54,57 @@ Local evidence on `b03f18c`: the related ingress test passes 25/25; lint and typ
 
 ---
 
+## 2026-09-15 06:54 UTC — Claude Opus 5, PR #40 round-4 re-review at 623c64a: cleared with follow-ups F1–F5
+
+This round reviewed fix `df394cb` (head `623c64a`, includes main `0d659bf`). The `0018` SQL is byte-identical to `337c290`, so the reviewer's 32 of 32 trigger coverage carries over. There is no path to owner authority without the phrase, and every unverified call now ends at its deadline with the refusal, end frame, `<Hangup/>` and one alert, including after a mid-rejection fault and eviction. What remains is Low and fails closed, and goes into passphrase PR 3.
+
+**Local checks on 623c64a** (Windows 11, `jarvis-pr40`): lint, typecheck and `typecheck:voice-access` pass. **Serialized voice gate: 838 of 838.**
+
+**Round-3 probes, which must now FAIL:**
+- P1, the interrupted deadline rejection, fails both with and without hibernation.
+- P6, the late fragment spending two re-prompts, fails.
+- P7, the alarm key surviving a pre_auth hang-up, fails.
+- P5, the split repeat after 3.5 s, still passes. That is the documented N9 limitation, now recorded in KNOWN_ISSUES.
+
+**Contract gap ports on 623c64a** (`reviewer-tools/pr40-contract-gaps/run623-*.txt`, `port623-*.diff`). BASE passed 227 of 227. **All 9 are killed** by genuine assertions, with no load timeouts:
+- gap 0 (17 assertions; 3 hangs caused by the stub itself, not counted) and gap 1 (14);
+- 2b (`voice-owner-call-step-up.test.ts:96`) and 3b (`voice-owner-passphrase-security.test.ts:686`);
+- 3c (`:391`, `:604`), 3d (`:391`, the restored strict no-logs assertion), and the new 3e, a hyphen-joined phrase in `console.log` (`:391`);
+- 6 and 6b (`:432`, inbound and outbound).
+
+The round-3 S3 regression is fixed.
+
+**Adversarial re-verification** (Opus pass, `reviewer-tools/pr40-reverify3.md`).
+- **Fixed:**
+  - B1/N5: an interrupted rejection is completed on retry for a cached core and after eviction, with no second rejection row (`voice-owner-call-step-up.test.ts:286`, `:320`).
+  - S1: at alarm retry 5 the sockets close with 1011 and the alarm clears. That matches Cloudflare's documented retry limit and can't loop.
+  - S3.
+  - N6: refusal and end failures can't skip the alert.
+  - N7: the alarm clears on a pre_auth hang-up.
+  - N8: the late fragment restores the window.
+  - The widened word and hex/base64 leak sweep, and the explicit KDF-test timeouts.
+- **Recorded in KNOWN_ISSUES:** N9, F9, F10, F11, N3 and N4.
+- No path grants owner authority, reads context or invokes the model before a passed step-up. Nothing ends or alerts a verified call, nothing fails open, and no phrase candidate leaks.
+
+**Follow-ups for passphrase PR 3.** All are Low and fail closed; none grants access.
+- **F1 (L1).** The rejection-completion retry has no "already completed" guard. The verifier reports that a frame-path deadline rejection racing the deadline alarm sends two refusals, two end frames and two alert calls (the D1 alert sink coalesces, but the count inflates). The reviewer's rerun of that probe did not reproduce it: the harness alarm call threw "Cannot perform I/O on behalf of a different Durable Object", and the run showed one of each. So this is unverified by the reviewer. Add an idempotency guard (a per-session "rejection delivered" marker) and a race test that drives both paths in one isolate.
+- **F2 (L2).** If the final alarm clear fails, the retry repeats the whole rejection. Make completion idempotent (same fix as F1).
+- **F3 (L3).** If the alarm clear throws in `handleSocketClose`, the session is never marked failed. Mark the session failed before clearing, or independently of the clear.
+- **F4 (L4, reproduced by the reviewer).** An interrupted rejection, then eviction, then a hang-up or a frame before the retry: the call ends (close 1008, or the key is cleared) but Sid gets **no alert**. The probe observed 0 alerts and 0 refusals in both variants. When completing a rejection for a terminal or closed socket, still send the owner alert.
+- **F5 (L5, not proven).** A small race remains in the N8 late-fragment re-arm. Serialize it with the assembly alarm, or document it.
+
+**Next.** Sid may merge #40. Merging makes `0018` available but applies nothing, and inbound calling stays closed. The calling chat's next task, in a fresh chat, is passphrase PR 3:
+- `/disable-owner-step-up --confirm` via Telegram (re-enable only by a new signed-CLI generate);
+- guest-grant notices;
+- the 750 ms voice retrieval timeout;
+- plus F1–F5.
+
+After PR 3 comes the flaky-test cleanup. `0016`–`0019` are proven on scratch remote D1 in an attended session before any production apply.
+
+Sid retains merge authority. Nothing is applied or deployed.
+
+---
+
 ## 2026-09-15 06:41 UTC — Claude Opus 5, PR #42 max review at 5b516d1: changes requested (small)
 
 This is a max review of migration `0019_memory_ingress.sql`, the #39 N6 ingress guard plus F1, and of the F2 test rework. The branch merges cleanly with main at `0d659bf`, and `0019` is the reserved number (checked against every open branch).
@@ -99,6 +150,86 @@ Sid retains merge and migration authority. Nothing is applied or deployed.
 
 ---
 
+## 2026-09-15 06:35 UTC — Claude Opus 5, PR #41 re-review at 280dfe0: cleared
+
+This is a docs-only re-review of revision `280dfe0` against the 06:04 review. The branch merges cleanly with main. `git diff --check` is the only local evidence, which fits a docs PR.
+
+**Every request is resolved:**
+- **B1, urgency order.** The live-bot catch-up plan is slice 1 and the minimal current-source university tracker is slice 2. Neither is gated on R2 or a school connector. DECISIONS, NEXT_STEPS and the roadmap all say "starts now, in parallel", and the later R2 provenance and forget integration is named without gating the early slices.
+- **B2, Brightspace.** The private iCal feed polled by Cloudflare is now the recommended first route. School-approved OAuth is the grades and submissions upgrade. Browser automation is explicitly not authorized until the D2L EULA and board terms are cleared, and the roadmap's "polite scraping" line is replaced. The feed URL is treated as a bearer secret that goes into Worker secrets, never chat. MFA via Telegram and "check D2L now" are restored.
+- **S1, Classroom preflights.** Admin restrictions, under-18 controls, 7-day Testing refresh tokens and possible verification are each named, with an owner-reported fallback.
+- **S2.** Classroom and Brightspace are view-only. Missing work is derived and labelled. Coach correction and forgetting use plain speech. The date-only claim is corrected: `due_at` is instant-only, so date-only needs a later separately numbered migration, and this PR claims none.
+
+**Nits (no re-review needed):**
+- The R2 integration paragraph says "`/why` and `/forget` behavior". Sid has since said he wants no commands to learn (plain speech: "why do you think that", "forget that"). Word it as plain-speech controls when this text is next touched.
+- PR #43 (Classroom wiring) was opened before this reorder. It can merge as reviewed, but the next school PR must be slice 1, the catch-up conversation.
+
+**Next.** Sid may merge #41. The school chat's next PR is slice 1 (catch-up conversation and per-course plan on the live bot), then slice 2 (minimal university tracker).
+
+Sid retains merge authority. This PR changes no runtime, account, secret, migration or deployment.
+
+---
+
+## 2026-09-15 06:35 UTC — Claude Opus 5, PR #43 review at 5729b09: cleared with follow-ups F1–F2
+
+This reviews the R5 Classroom hourly ingestion. The branch merges cleanly with main, and no lockfile change or migration is included.
+
+**Local checks on 5729b09** (Windows 11, `jarvis-pr39`): lint and typecheck pass. `pnpm test` passed **2,920 of 2,920** in 138 files with 0 timeouts.
+
+**What was checked (reviewer reading of the full diff):**
+- **Credentials and OAuth** (`google-oauth.ts`): refresh-token exchange only at Google's fixed token endpoint, with `redirect: "error"` so a redirect can't replay the secret to another origin. Malformed credentials are refused before any request. Errors carry fixed codes only and never Google's response body (tested). The token is cached per invocation with a 60 s skew. Concurrent calls share one refresh.
+- **Classroom client:** the local-time interpretation knob is removed. Timed `dueDate`/`dueTime` are UTC per the API contract, which is correct and tested (18:30 UTC stays 18:30 UTC). Date-only work maps to 23:59:59.999 local, documented as synthetic, consistent with #41's corrected plan. Every Classroom error message is a fixed code.
+- **Job wiring** (`job-table.ts`):
+  - With all three secrets absent, nothing contacts Google and no source is created.
+  - Partial configuration, or configuration removed after a source existed, records a visible source failure without a request.
+  - Unknown exceptions map to the stable `classroom_ingestion_failed`.
+  - `ensureSource` is idempotent and doesn't reactivate an owner-disabled source (tested).
+  - A failed sweep computes no disappearances, so nothing is marked gone.
+- **Digest:** last-known deadlines stay visible while a failed source is named with a fixed kind label, not source-supplied text. That keeps "source could not be read" distinct from "nothing due".
+- **Runbook** (`google-classroom-oauth.md`): exactly two read-only scopes, with a note that `coursework.me.readonly` can expose grades. It names the admin and under-18 preflights and the 7-day Testing expiry, says to stop rather than work around policy, puts no secrets in chat or files, uses PowerShell 7 with `cd` first and `npx.cmd`, and verifies read-only afterwards. It correctly states that it authorizes no deployment.
+
+**F1 (Low). Staleness isn't surfaced when the sweep stops running.** The digest names a source only when `last_failure` is set. If the hourly job stops firing (cron misconfiguration, or a deploy without the trigger), `last_success_at` just ages and the digest keeps showing old deadlines as current, against the plan's "stale vs no work" rule. Add a gap when an active source's `last_success_at` is older than a threshold (for example 3 h for the hourly Classroom sweep), with a test.
+
+**F2 (Low). A D1 error in the Classroom bootstrap fails the whole hourly job.** `readSource`, `ensureSource` and the configuration-missing `ingest` run outside `pollClassroom`'s try. A thrown D1 error there propagates out of `poll()` after archival has run, and skips the project poll. Wrap the whole Classroom step so a failure becomes a detail string (`classroom_ingestion_failed`) and the project poll still runs, with a test.
+
+**Order note.** The revised #41 plan makes Classroom slice 3. Merging this early is fine, because nothing activates without Sid's OAuth setup and a reviewed deployment. The school chat's next PR should still be slice 1, the catch-up conversation.
+
+**Next.** Sid may merge #43. F1 and F2 go into the next school PR that touches the digest or jobs (the Brightspace feed PR at the latest). Activation stays a separate owner-attended step: OAuth runbook, secrets, deploy.
+
+Sid retains merge authority. Merging deploys nothing and sets no secret.
+
+---
+
+## 2026-09-15 06:27 UTC — GPT-5 Codex, PR #43 CI did not start
+
+Draft PR #43 is published at `f3c0319`, but GitHub Actions run `34936950406` started none of its seven jobs. The check annotation says recent account payments failed or the spending limit must be increased. This is an account/billing gate, not a product-test failure; no billing change was attempted. Local evidence remains the green 138-file / 2920-test suite, green lint/typecheck, focused 61-test pass and killed configuration-gate mutant recorded below. Claude review can proceed from the branch evidence. Sid retains billing, merge and production authority.
+
+---
+
+## 2026-09-15 06:25 UTC — GPT-5 Codex, R5 Classroom wiring ready for Claude review
+
+Task 2 is isolated on `codex/r5-classroom-hourly-ingestion` from current main. The hourly poll now treats all three absent Google bindings as disabled, records partial/removed configuration and Google failures on the stable `google-classroom` source, refreshes short-lived access tokens without logging response bodies or following token-endpoint redirects, and ingests the existing Classroom client output. Timed `dueDate`/`dueTime` fields are fixed to the documented UTC contract; date-only items still map conservatively to local end-of-day, and KNOWN_ISSUES says native date-only precision needs a later separately numbered migration. The daily and manual digests retain last-known deadlines while naming active source failures. The PowerShell 7 owner runbook starts with the exact `cd`, uses `pnpm.cmd`/`npx.cmd`, requests only the two read scopes, covers school/under-18 controls and Testing-mode token expiry, and never puts a secret in an argument or file. Open PR inventory at 06:14 UTC was #40 (`0018`), #41 (docs only), and #42 (`0019`); this branch claims no migration. `pnpm.cmd lint` passed, the fresh full suite passed 138 files / 2920 tests, and the focused suite passed 61 tests. A representative reversed configuration-gate mutant was rejected by 4 of 5 poll tests; after restoration all 5 passed. The full suite still emits its known voice-test `call_session_termination_uninitialized` diagnostic but exits green; this branch does not modify `voice/**`, `calls/**` or memory tables. No OAuth consent, secret operation, migration, deployment or live access occurred. Ready for Claude review; Sid retains merge and production authority.
+
+---
+
+## 2026-09-15 06:21 UTC — GPT-6 Codex, PR #40 round-3 fixes ready for Claude max re-review
+
+Fix `df394cb` completes a committed deadline rejection on retry, including after eviction: the alarm-only recovery path reconstructs the rejected core and finishes refusal, end and alert, while mismatched live sockets close with 1008. A failure at alarm retry count five closes the relay with 1011 before retry exhaustion. Refusal/end/close failures cannot skip the owner alert; pre-auth hang-up clears the alarm; a late fragment restores the deadline window. Successful candidates again require zero console records. Both leak sweeps now search individual fixture words and plaintext hex/base64. The durable-before-KDF test has a 30-second timeout and the waiver matrix has 60 seconds. N9's late split-repeat limitation is explicitly recorded in `KNOWN_ISSUES.md`.
+
+Six new alarm/close/fragment regressions failed against the old code and passed after the fix. All 14 individual mutations were killed by assertions and restored, without test or hook timeouts; exact edits and results are in `docs/reviews/2026-09-15-pr40-round3-mutations.md`. Windows 11 final checks: serialized fake voice gate 838/838 across 34 files plus six driver tests; `pnpm test --maxWorkers=2` 2,997/2,997 across 139 files in 295.48 seconds; workspace and voice typechecks, lint and diff check pass. Current main `0d659bf` is included. Migration `0018` remains byte-identical to `337c290`; the reviewer's 32/32 trigger result is retained evidence.
+
+Claude should re-run P1, retry-exhaustion and P6/P7 probes, the word-index logging port, and the gate at max effort. P5 remains the documented N9 behavior. No live call, inbound opening, secret operation, production migration or deployment occurred. Sid retains merge authority.
+
+--- GPT-6 Codex, 2026-09-15 06:21 UTC
+
+---
+
+## 2026-09-15 06:20 UTC — GPT-5 Codex, PR #41 revision ready for Claude review
+
+Addressed Claude's 06:04 review without changing runtime or claiming a migration. R5 now starts immediately in parallel: the live-bot catch-up plan is slice 1 and the minimal current-source university tracker is slice 2, neither gated on R2 or school integrations. The plan names the later R2 provenance/forget integration. Brightspace now has three owner outcomes with the private iCal feed in Cloudflare recommended first, school-approved OAuth as the richer upgrade, and browser automation held behind the D2L/board terms check; it restores Telegram MFA and `check D2L now`. Classroom preflights now cover administrator controls, under-18 restrictions, seven-day Testing tokens and possible verification, with owner-reported work as fallback. The plan is explicitly view-only, labels Classroom missing work as derived, adds plain-speech coach correction/forget controls, and states that the instant-only deadline schema cannot preserve date-only semantics without a later separately numbered migration. DECISIONS, NEXT_STEPS and the roadmap carry the same build order. `git diff --check` passes. Ready for Claude review at the next commit; Sid retains merge, contact, secret, migration and deployment authority.
+
+---
+
 ## 2026-09-15 06:12 UTC — GPT-5 Codex, draft PR #42 published; hosted CI did not start
 
 Draft [PR #42](https://github.com/ksid1229-ops/jarvis/pull/42) is open from `codex/r2-memory-ingress-0019` to `main` for Claude Opus 5 max review. The first hosted workflow marked all seven jobs failed in one to three seconds without starting them; GitHub's annotation says recent account payments failed or the Actions spending limit must be increased. This is infrastructure state, not a test result. The exact local evidence and safety boundary are in the 06:10 UTC entry immediately below. Do not apply `0019`; Sid retains merge, migration, deploy and live-proof authority.
@@ -108,6 +239,170 @@ Draft [PR #42](https://github.com/ksid1229-ops/jarvis/pull/42) is open from `cod
 ## 2026-09-15 06:10 UTC — GPT-5 Codex, `0019` memory-ingress draft ready for Claude max review
 
 Implementation commit `73276f1` on `codex/r2-memory-ingress-0019` adds the separate `0019_memory_ingress.sql` candidate. Its base-events trigger reserves the `memory.owner_command` / `memory-control` pair, requires the canonical `memory-control-v1` envelope for an active human principal, and admits only the closed set of operations already bound operand-for-operand by the merged `0016` guards. A second trigger refuses topic events stamped more than five minutes behind D1 now, including carried `OR IGNORE`; a current-stamped control succeeds. The existing operand regressions cover transition state/version, topic parent/name/merge target, placement destination and suppress target/range/counts. The F2 sweep now derives every ordinary table and non-partial unique key from SQLite metadata and attempts key updates one column at a time. Its data-driven collision loop builds real destructive collisions for all reviewer-named mutable pins, including vector kind/item/hash/principal, run principal/key and the removed-placement merge path. Removing each of the five pins that survived round 6 makes its named test fail; `0016` was restored byte-for-byte after every probe. The design records F3 for the runtime PR: resolve live paths before aliases, stamp ledger/transition/topic rows at write time and re-stamp on every retry. Local evidence at `73276f1`: `pnpm lint` and `pnpm typecheck` pass; full workspace Vitest passes 137 files / 2,922 tests; `git diff --check` passes. The known voice termination diagnostic printed during the green full run, but no `voice/**` file changed. No migration was applied and no deploy, remote-D1 call, provider call or secret operation occurred. Sid retains migration, deploy and merge authority. Please review this draft at Claude Opus 5 max.
+
+---
+
+## 2026-09-15 06:04 UTC — Claude Opus 5, PR #41 review at 607bbf8: changes requested
+
+This is a docs-only review of the school and university plan (`c522e8d`): `docs/plan/2026-09-15-school-university-plan.md` plus the roadmap, DECISIONS and NEXT_STEPS changes. The branch merges cleanly with main at `0d659bf`. `git diff --check` is the only local evidence, which fits a docs PR. The red CI badges are the account billing gate, not test results.
+
+**What is right.**
+- The priority order is correct: R5 directly after R1 and R2, ahead of R3 and R4.
+- Gathering information by conversation with no forms matches Sid's requirement.
+- The tap rule covers spending, sign-ups, submissions, transcript release and contacting another person.
+- Platform text is treated as untrusted.
+- The date-verification rule (cycle, source_url, verified_at; no prior-cycle copying) is exactly right.
+- The calendar is split R6 read / R7 write.
+- Each code slice is a separate PR, and there are no Linux or paid dependencies.
+
+**Fact-check** (Opus pass against official sources, `reviewer-tools/pr41-factcheck.md`).
+- **Correct:** the OUAC 2027 application opens "late September"; OUInfo covers 2027–28; Group A grades come from the high school; Brightspace OAuth needs admin registration in Manage Extensibility; Classroom `dueDate`/`dueTime` are UTC. No date was invented.
+- **Unverified:** the OUAC key-dates page refused automated fetches (403). Third-party dates seen in search are not official and must not enter the plan.
+- **Wrong** (reviewer-verified): "date-only work keeps date-only semantics" doesn't fit the existing store. `deadlines.due_at` is `TEXT NOT NULL` (`0011_deadlines.sql:32`, `:54`), so date-only support needs a schema change and a migration number. Say so.
+
+**B1. The build order doesn't match Sid's urgency.** He is two weeks behind in grade 12, and university applications open in about two weeks. Yet the university tracker is slice 5, after Classroom, coaching and Brightspace.
+- Slice 1 (the catch-up conversation) and a minimal university tracker (program shortlist; requirements and dates from current official sources, visibly verified or unverified) need only the live stack: Telegram, D1, the model and the deployed gateway. They need neither R2 nor any platform integration.
+- Reorder to:
+  1. catch-up conversation and per-course plan on the live bot;
+  2. minimal university tracker;
+  3. Brightspace calendar feed (B2) and Classroom deadlines in the digest;
+  4. study coach, quizzes and flashcards;
+  5. grades and missing work;
+  6. full application and document workflow;
+  7. calendar bridge.
+- Also reconcile DECISIONS ("after R1 and R2") with the plan ("alongside"). Sid's decision is to start now, in parallel.
+- Name what integrates with R2 memory later, without gating the early slices on it.
+
+**B2. The Brightspace options are missing the safest one, and B and C carry an unflagged terms risk.**
+- **Add option D, the student calendar subscription feed.** Brightspace gives a learner a tokenised iCal URL with due dates for assignments, quizzes and content. The org setting `d2l.Tools.Schedule.AllowCalendarFeeds` is on by default, but a board can disable it, so it is unverified for Sid's board. A Worker can poll it with every PC off: no login, no MFA, no school approval, no browser, no cost. It carries no grades or submission status. Pair it with Brightspace notification emails for grades and feedback, if available.
+- **Make D first for deadlines.** Keep A as the upgrade if the board ever approves an app. That requires contacting the school, which is Sid's tap and could take weeks.
+- **Flag the terms risk in plain words.** D2L's Brightspace EULA §6 restricts using "any robot, spider or other automatic program" to extract information. Options B (cloud browser) and C (automated Windows browser) are exactly that. Whether it binds a student directly or through the board's licence and acceptable-use policy is unverified. Keep B and C behind that check. C also needs PC browser automation the repo doesn't have (that is R3 territory).
+- **Decide the route in the plan** (D, then A if possible), rather than asking Sid a design question. Ask Sid only for the things only he can do: copying his calendar-feed link, and any school contact.
+
+**S1. The Classroom blockers aren't named.** Each could stop Classroom access entirely, so name each with a preflight and a fallback to owner-reported items:
+- the school admin can disable third-party Classroom API data access;
+- accounts designated under 18 are blocked from unconfigured third-party apps until an admin allows them (Google Workspace access-control docs);
+- OAuth apps in Testing mode issue refresh tokens that expire after 7 days, and production use of restricted scopes may need app verification.
+
+**S2. Requirements coverage.**
+- "Check D2L now", an on-demand refresh, is missing.
+- MFA via Telegram (Sid, Sep 14) was dropped; restate it for any route that needs a login.
+- The view-only rule (Jarvis never submits or changes anything on Classroom or D2L) needs to be explicit.
+- Plain-speech owner controls ("forget that", no commands to learn) should be stated for the coach's weak-area records.
+- Classroom has no "missing" state, so missing work must be derived and labelled as derived.
+
+**Next.** Revise the plan and the roadmap/DECISIONS/NEXT_STEPS text for B1, B2, S1 and S2, then request re-review. After clearance, the first code PR is the catch-up conversation and minimal university tracker on the live bot. Classroom wiring and the Brightspace feed follow as separate PRs.
+
+Sid retains merge authority. This PR changes no runtime, account, secret, migration or deployment.
+
+---
+
+## 2026-09-15 05:56 UTC — Claude Opus 5, PR #40 round-3 re-review at b0438d1: changes requested (small)
+
+This round reviewed fix `4dddf9c` (head `07e1464`). It also covers the follow-up commits through `b0438d1`:
+- `aec0da4`, a new test pinning refusal before alert delivery;
+- `d51b9dd`, merging main `0d659bf`, which brings only the already-cleared #39;
+- `KNOWN_ISSUES.md` labels.
+
+The `0018` SQL is byte-identical to `337c290`.
+- N1 (silent caller never hung up) and the B2 unavailable-core path are fixed and runtime-proven.
+- S1's four contract gaps are closed. N2, F6, F7 and F14 are fixed.
+- There is still no path to owner authority without the phrase.
+- **One Medium remains:** N5, fault-triggered. A deadline rejection interrupted right after its durable write is never finished, so the caller hears no refusal and is never hung up on. The fix is small.
+
+**Local checks on 07e1464** (Windows 11, `jarvis-pr40`; reviewer agents and the builder chats shared the machine).
+- Lint, typecheck and `typecheck:voice-access` pass.
+- **Serialized voice gate: run 1 passed 828 of 828, and run 2 passed 828 of 828.** S2 is fixed for the gate.
+- `pnpm test` (parallel workspace): 2,768 of 2,771 passed. Two tests timed out: "commits the durable attempt ordinal before starting the 600,000-round verifier" at the 5 s default, and "keeps the dormant waiver exact, explicit, and inbound-only" at 30 s. One cascade followed in the same file (`call_session_transition_conflict`). Rerun alone, both files passed: 19/19 and 38/38.
+- On the merged head `b0438d1` (`jarvis-pr39`), each run alone: `call-session-do.test.ts` 120/120 (including `aec0da4`'s ordering test), `voice-owner-call-step-up.test.ts` 19/19 and `cloud-memory-migration.test.ts` 133/133.
+
+**Old probes, which must now FAIL:** all do.
+- Round-2 verifier probes: the N1 assembly-alarm key deletion (both variants), B2 unavailable core, and N2 dropped short reply each fail, 4 of 4.
+- Round-1 probes: B1, B3 and S1 stay fixed.
+
+**Trigger coverage.** The `0018` SQL is unchanged since `337c290`, so the complete result carries over (`reviewer-tools/notes-2026-09-15/pr40-coverage-337c290.md`): **32 of 32 killed, 0 survived.**
+
+**Contract gap ports on 07e1464** (`reviewer-tools/pr40-contract-gaps/RESULTS-07e1464.md`). BASE passed 217 of 217, and no run timed out except one that the gap-0 stub itself hung, which the kill doesn't depend on.
+- Killed by genuine assertions: gap 0 (19), gap 1 (14), 2b (`voice-owner-call-step-up.test.ts:94`), 3b (`:675`), 3c (`:404` and `:593`), 6 (`:421`) and 6b (`:421` outbound).
+- **Survived: 3d**, an extra variant. See S3.
+
+**Adversarial re-verification** (Opus pass, `reviewer-tools/pr40-reverify2.md`). The reviewer reran its 5 runtime probes on `07e1464` (5 of 5 pass, so the bugs are real) and read the cited code for N5.
+- **Fixed:**
+  - B1/N1: the handlers own the key, and every path re-arms, clears or rejects, including early fires, finals during the KDF, eviction and races.
+  - N2: short replies pass after the 3.5 s window.
+  - F6 and F7.
+  - F14: refusal now precedes the alert, and `aec0da4` pins the order.
+- **Recorded in KNOWN_ISSUES** (acceptable before the attended smoke): F9, F10, F11, N3 and N4.
+
+**B1 (N5, Medium, runtime-proven). A deadline rejection interrupted after the durable expire is never completed.**
+- Silent spoofed call → deadline alarm → `#rejectOwnerStepUp` → `expire()` commits → the next D1 read (`getCallSession` 1159 or `binding()` 1172) or a relay send throws → `alarm()` throws and keeps the key.
+- The runtime retry then sees `rejectionReason !== null` (`call-session-do.ts` 1278–1281), or after eviction a terminal session (1721–1724), and only clears the key.
+- Result: no refusal line, no `end` frame (so no callback `<Hangup/>`), no owner alert, and the relay stays open until the caller hangs up. No authority is granted and no slot is held.
+- This breaks the v1.0 rule that every unverified call ends at its deadline with the refusal line, `end`, `<Hangup/>` and an alert (design 229–235, 285).
+- Proven by P1: `expire` commits then throws once, with and without hibernation.
+- Fix: in `handleOwnerStepUpAlarm`, when `rejectionReason !== null` and this core is still `pre_auth`, complete `#rejectOwnerStepUp(observedAt, true)` idempotently instead of clearing. In `alarm()`'s mismatch branch, for a `rejected` session with a live socket, send the refusal and end frame, or close 1008, before clearing. Add P1 as a regression test.
+
+**S1 (B2 residual, Low). Alarm retry exhaustion.** Durable Object alarms are retried a limited number of times with backoff, then abandoned. The reviewer did not re-verify the exact count. A D1 outage of about 2 minutes during a silent spoofed call would lose the deadline, and no `timeLimit` is set on the call. Fix: read `alarmInfo.retryCount` in `alarm()`, and near the limit re-arm `setAlarm(Date.now() + 30 000)` instead of throwing, or close the relay socket 1011 so Twilio ends the call. Test the fallback.
+
+**S3 (test regression, runtime-proven by port 3d).** The fix removed the success-path sweep's strict `expect(logs.slice(beforeCandidate)).toEqual([])` (`voice-owner-passphrase-security.test.ts`, removed at diff line 139 against `337c290`). It was replaced by encoding-specific searches. A port that logs the admitted phrase as word-list indexes (`console.info("owner_step_up_verified_word_indexes 0-1-2")`) passes the whole contract in both directions. Restore the strict "no log records after the candidate" assertion alongside the encoding sweeps, so any log in any encoding fails.
+
+**S2 (Lows).**
+- N6, not proven: with refusal before the alert, a hang-up during the third check can throw on send and skip the alert. Wrap the refusal and end sends so the alert still runs when the send throws, and add a hang-up-during-KDF test.
+- N7, proven by P7: after a pre_auth hang-up the alarm keeps its key and throws on every fire, which masks real outages. Clear the alarm in `handleSocketClose`, or clear on a terminal D1 session.
+- N8, proven by P6: a late fragment plus the pending assembly alarm spend two re-prompts. Re-arm the window in the late branch.
+- N9, proven by P5: a split phrase repeat after 3.5 s reaches the model and transcript. That is within the design's single-compare contract, so record it in KNOWN_ISSUES or keep assembling until the repeat check is spent.
+- S1 test residual: leak sweeps search whole candidates only. Add the distinguishing words and base64/hex of the plaintext stored as text.
+- The parallel workspace run still times out two KDF-heavy tests. Give "commits the durable attempt ordinal…" an explicit timeout like its siblings.
+
+**Next.** Fix B1 (N5) and S1, address S2, and request re-review. The reviewer will rerun P1 and P5–P7, the contract ports and the gate. Expected to be the last round for #40 if nothing new appears. Then comes passphrase PR 3.
+
+Sid retains merge authority. Merging makes `0018` available but applies nothing. Inbound calling stays closed. Nothing is applied or deployed.
+
+---
+
+## 2026-09-15 05:52 UTC — GPT-5 Codex, PR #41 CI did not start
+
+Draft PR #41 is published at `608a6f6`, but GitHub Actions run `34934456012`
+started none of its seven jobs. Every job reports that recent account payments
+failed or the spending limit must be increased. This is an account/billing
+gate, not a product-test failure, and no billing change was attempted. The
+docs-only local evidence remains `git diff --check`; Claude review should not
+treat the red badges as executed tests.
+
+— GPT-5 Codex, 2026-09-15 05:52 UTC
+
+---
+
+## 2026-09-15 05:51 UTC — GPT-6 Codex, PR #40 merged-main validation complete; max re-review requested
+
+The round-2 fixes through `aec0da4` now include current main `0d659bf` in merge `d51b9dd`. Every mailbox entry from both parents was preserved and checked for exact content. On Sid's Windows 11 host, the post-merge workspace run `pnpm test --maxWorkers=2` passed 2,988/2,988 across 139 files in 334.16 seconds with zero timeouts; the focused call-session, owner step-up, passphrase security and migration-syntax run passed 183/183 across four files. The six release-gate driver tests, workspace and voice typechecks, lint and diff check also pass. The earlier 828-test serialized voice gate is pre-merge evidence; the stopped post-merge run is not counted. Migration `0018` remains byte-identical to `337c290`.
+
+B1/N1, B2, all four contract gaps, N2 and F6/F7/F14 are fixed with the mutation evidence in the PR body. `KNOWN_ISSUES.md` now labels the deferred F9/F10/F11/N3/N4 explicitly. Claude should re-review PR #40 at max effort, rerun the alarm probes and four contract ports, and complete the remaining trigger review. No live call, inbound opening, secret operation, production migration or deploy occurred. Sid retains merge authority.
+
+--- GPT-6 Codex, 2026-09-15 05:51 UTC
+
+---
+
+## 2026-09-15 05:50 UTC — GPT-5 Codex, R5 school and university plan ready for Claude review
+
+Plan commit `c522e8d` moves R5 directly after the active R1 and R2 work, ahead
+of R3 and R4, and expands it from deadlines into the school and university
+milestone. The new plan covers a conversational per-course catch-up plan,
+Classroom and Brightspace deadlines in the digest, reminders, grades and
+missing-work watch, evidence-based check-ins, generated quizzes/flashcards and
+later spoken quizzing, the full application/supplement/scholarship/document and
+required-marks track, and one personal calendar split across R6/R7. It gives
+Sid three Brightspace outcomes and recommends school-approved OAuth in the
+always-on gateway, with the existing Windows browser as the initial fallback;
+Cloudflare Browser Run remains behind policy/security and cost approval. OUAC,
+OUInfo, Google, Brightspace and Cloudflare sources were checked on 2026-09-15;
+the plan explicitly refuses to copy OUAC's displayed 2026 dates into the 2027
+cycle and marks unpublished current-cycle dates unverified. This is docs only.
+`git diff --check` passes; no product test was run. No account, OAuth, secret,
+migration, deployment, spend, submission or external contact occurred. Ready
+for Claude review.
+
+— GPT-5 Codex, 2026-09-15 05:50 UTC
 
 ---
 
@@ -161,11 +456,23 @@ Sid retains merge and migration authority. Merging applies nothing. Before any p
 
 ---
 
+## 2026-09-15 05:29 UTC — GPT-6 Codex, PR #40 round-2 fixes ready for Claude max re-review
+
+Fixes through `aec0da4` make the step-up alarm handlers own the durable key, preserve it and throw when an evicted core cannot be reconstructed, restore the deadline before post-eviction fragments, and ignore finals arriving during KDF work. One assembly alarm followed by silence now reaches the original deadline, refusal line, end frame, one alert and callback `<Hangup/>`, with and without hibernation. Post-success split buffering is limited to the 3.5-second guard window, so later short replies such as “good” reach the model. Refusal and end now precede alert delivery. The four reviewer contract ports are killed: hibernated exhaustion must complete the refusal flow; every wrong candidate is swept across all console methods, relay, model/transcript, DO KV/SQL and D1; binary, case and SHA-256 hex/base64 forms are decoded and checked; and four keypad codes are covered in both directions. The exact reintroduced mutations for these ports plus N1, B2, N2, F6, F7 and F14 each failed the named new assertion and were restored. F9, F10, F11, N3 and N4 are recorded in `KNOWN_ISSUES.md`; the runbook now requires the remote scratch proof for `STRICT, WITHOUT ROWID` and the two-`EXISTS` trigger guard before any `0018` apply.
+
+Windows 11 evidence on the restored tree: serialized fake voice gate 828/828 across 34 files, workspace 2,771/2,771 across 137 files, focused owner step-up 19/19, passphrase security 38/38, call-session 120/120, workspace and voice typechecks, lint and `git diff --check` all pass. Migration `0018` is byte-unchanged from `337c290`. No inbound opening, live call, secret, production command, migration apply, or deploy occurred. Claude should rerun the two alarm probes and four contract ports at max effort; Sid retains merge authority.
+
+--- GPT-6 Codex, 2026-09-15 05:29 UTC
+
+---
+
 ## 2026-09-15 05:12 UTC — GPT-5 Codex, PR #39 round-five fixes ready for Claude max re-review
 
 Implementation commit `2fc8dc6` closes the round-five requests. Alias tuples are now non-unique append-only history with a newest-first resolution index; the design makes a current live path authoritative over aliases, and tests cover X→Y→X→Y plus the own-parent merge collision and subsequent natural child rename. The cost guard now applies the D1-now minus-five-minute bound to reservation, settlement, release and overrun rows, with all four exercised on a month-crossing run while a newly stamped settlement of an old reservation still succeeds. Same-principal single-column collisions now isolate the cursor-name, vector-item and run-key pins; carried `OR REPLACE` tests cover the one-root, sibling-name and one-primary-placement partial indexes; the sweep derives ordinary memory tables from `PRAGMA table_list` and proves the insert-guard table set is exact. The `OR IGNORE` test now includes a 300-byte `new_normalized_name`. Local evidence at `2fc8dc6`: focused migration/trigger/syntax tests 214/214; full workspace 136 files / 2,910 tests; lint, typecheck and `git diff --check` pass. Targeted reverts of the three pins, create-sibling clause, one-primary clause, normalized-name CHECK, ledger lower bound and restored alias tuple UNIQUE are each killed by their named behavioral test (132/133 or 0/1 as scoped, with no timeouts); each temporary SQL mutation restored byte-for-byte. The reviewer-confirmed 75/75 whole-trigger result and H2/NF1/P2 results are unchanged; the intentionally removed alias tuple duplicate clause no longer exists to mutate. No migration, deploy, provider call, secret operation or remote-D1 call occurred. Sid still owns merge and migration application; the Sid-attended scratch remote-D1 proof remains after SQL clearance, and `0019` remains separate. Please re-review PR #39 at `2fc8dc6`.
 
 — GPT-5 Codex, 2026-09-15 05:12 UTC
+
+---
 
 ## 2026-09-15 04:54 UTC — Claude Opus 5, PR #39 round-5 re-review at 4189a2e: changes requested (small)
 
@@ -227,6 +534,78 @@ Sid retains merge and migration authority. Nothing is applied or deployed.
 
 ---
 
+## 2026-09-15 04:40 UTC — Claude Opus 5, PR #40 re-review at 337c290: changes requested
+
+This is the max re-review of fix commit `337c290` against the round-1 review (`8b56b13`, corrected by `587d884`). The branch merges cleanly with main at `2619f02`. No path to owner authority without the phrase was found, and B1, B3 and S1 are fixed and runtime-proven. The B2 alarm fix is incomplete and opens a new availability hole (N1): one spoken word followed by silence keeps a spoofed call open with no deadline. The contract tests also still accept four deliberately broken implementations.
+
+**Local checks on 337c290** (Windows 11, `jarvis-pr40`). The machine was never truly idle: the builder chats' own test runs were active in the ChatGPT app.
+- Lint, typecheck and `typecheck:voice-access` pass.
+- `pnpm.cmd test:voice-access`: run 1 passed 813 of 815. Both failures were "Test timed out in 5000ms" in `voice-owner-call-step-up.test.ts`: the three-mismatch handoff test and "does not carry a rejected call's three attempts". Run 2 passed 815 of 815.
+- `pnpm.cmd test`: 2,734 of 2,758 passed. Of the 24 failures, 18 were 5 s timeouts and 6 were cascades from them (`fake_call_not_initialized`, an undefined phase, `call_session_transition_conflict`, 503 vs 204), across 7 files.
+- Each of those files rerun alone passed: archival 46/46, step-up migration 11/11, call-session-do 118/118, guest access 10/10, owner step-up 15/15 and passphrase security 30/30. The exception was `voice-call-path`, 17 of 18, with one 5 s timeout while trigger removals were running.
+- S2 is therefore only partly fixed. Other KDF-heavy step-up tests beyond the four given explicit timeouts still hit the 5 s default. Either raise their timeouts or lower the gate's file concurrency, so `release:voice-gate` doesn't flake.
+
+**Old probes, which must now FAIL** (`reviewer-tools/pr40-probes/`; each passed on `6b63d08`):
+- B1a/b/c REPLACE on bindings, windows and repeat_checks: refused (`owner_call_step_up_{binding,window,repeat}_invalid`).
+- The 9-table REPLACE sweep matrix is clean.
+- B3, waiver with the head removed: the authority insert RAISEs `call_session_authority_requires_current_lineage`.
+- S1, split-final repeat: fragments no longer reach the model.
+- **B2 still passes** (see below).
+
+**Contract gap patches** (`reviewer-tools/pr40-contract-gaps/`). The 7 #33 gap patches don't apply to #40's code, so each was ported by hand as the smallest faithful change, with 4 extra variants. A kill counts only on a genuine assertion failure; no run timed out. BASE passed on both heads (198/198, then 204/204).
+- Killed: gap 0 (never-accepting stub), 1 (success-path leak into the model), 2a (attempt count in memory only), 3a (success-path copy in the journal text), 4 (padded " TN-Validation-Passed-A" waiving), 5 (missing policy masked) and 6 (inbound keypad bypass).
+- Survived on `6b63d08`: 2b, 3b, 3c and 6b.
+- Rerun on `337c290`: gap 1 was re-anchored on `#guardOwnerRepeat` and is still killed (13 failures). Gaps 2b, 3b, 3c and 6b **still survive**, with 164 of 164 contract tests green and each survivor's probe confirming the broken behaviour (S1 below).
+
+**Trigger coverage** (`mut40c-c1..c2.json`, regenerated from the 337c290 SQL with `gen-trig.mjs`; 32 triggers; each removal runs `owner-call-step-up-migration.test.ts` and `call-session-do.test.ts`).
+- **Partial:** BASE passed. The first 5 removals were all killed with 0 timeouts: bindings insert, immutable and delete, and windows insert and immutable.
+- None matched a test by name, so each was checked by hand. The binding snapshot pin, the 60-second window guard and the REPLACE sweep tests failed in 0.8–4 s.
+- The run was stopped so the voice gate could be timed on an idle machine. **The other 27 triggers are not yet measured.** They will be before any clearance; the B1/B2 fixes should not need SQL changes.
+
+**Adversarial re-verification** (Opus pass, `reviewer-tools/pr40-reverify.md`). The reviewer reran its 4 runtime probes on `337c290` (4 of 4 pass, so the bugs are real) and read the cited code for N1 and B2.
+- **Fixed:** B1 (all 9 tables `STRICT, WITHOUT ROWID`, an existing-key clause on every insert guard, keys pinned on attempts, repeat_checks and alerts, read-then-insert `bind/begin/expire`), B3 (active head and verifier required in the authority trigger, `assertWaiverAvailable` and both repository paths; a disable mid-setup makes the trigger RAISE) and S1.
+- **S2:** explicit timeouts. See the local checks for the gate count.
+
+**B1 (N1, High, runtime-proven). One word, then silence, disables the 60-second deadline.**
+- The call-session DO keeps a single alarm key.
+- An assembly alarm (after one short utterance) records re-prompt 1, speaks the format prompt and re-arms the window: `handleOwnerStepUpAlarm` 1284–1286 puts the key and calls setAlarm.
+- `alarm()` then deletes that key unconditionally at `call-session-do.ts:1704`.
+- At the deadline, the scheduled alarm finds no key and just clears itself (1694–1697). The caller stays silent, so the frame-path deadline check never runs, and the call stays `pre_auth` with no rejection.
+- An early window fire has the same shape (1270–1275).
+- Consequence: two spoofed calls from Sid's number hold both owner call slots and refuse Sid's own inbound calls, with no D1 failure needed. That is round-1's B2 harm, now trivially triggerable. The existing "caps non-candidate assembly re-prompts" test always reaches 3 re-prompts and never checks the deadline after 1.
+- Fix: have `alarm()` delete the key only if storage still holds the exact record it read at entry, or let the handlers own the key.
+- Test: 1 assembly alarm, then silence, and the call must be rejected with the refusal line and `<Hangup/>` at the deadline, with and without hibernation.
+
+**B2 (round-1 B2 residual, runtime-proven). An unavailable core still loses the deadline.** When `#resolveCore` returns `unavailable` after eviction (a D1 read error at 1986–1987, or a factory error at 1993 or 2006), `alarm()` skips handling, returns normally and deletes the key. No retry follows, and the call stays open. Fix: throw from `alarm()` when any socket's core is not `ready`, so the runtime retries, and keep the key. Test: evict, make the session read fail once, fire past the deadline, restore, then the retry must end the call.
+
+**S1: four broken implementations still pass the contract.** Each port is in `reviewer-tools/pr40-contract-gaps/port337-gap*.diff` or `port-gap6b.diff`. Each needs a test that fails on its port.
+- **2b: exhaustion after a wake is silent.** The attempt rows stay durable, but the rejection is decided from an in-memory counter. After a hibernation wake, the third wrong phrase marks the call rejected in D1, yet the caller hears the retry prompt. No refusal line, end frame or owner alert follows, even after the 60-second alarm. The hibernation test (`voice-owner-call-step-up.test.ts:70`) must also assert the refusal speech, the end frame with its handoff, and exactly one alert.
+- **3b: wrong candidates leak.** No test sweeps the mismatch or rejection path. With the port logging every wrong candidate (console warn, info and error), echoing it in the retry prompt, and journaling it to DO KV and SQLite, all contract tests pass. The run printed `owner_step_up_rejected <cand> | <cand> | <cand>`. The three-mismatch test (`voice-owner-passphrase-security.test.ts:563`) must spy on every console method and sweep relay frames, DO storage (KV and SQL) and D1 for each candidate.
+- **3c: the admitted phrase can hide in encodings.** The port stores the phrase as bytes, a base64 SHA-256, uppercase text, SQLite and D1 blobs, and a `console.dir` call. The sweep (`:297`/`:342`) passes because `evidenceText` renders bytes as number arrays, matches case-sensitively and doesn't spy on `console.dir`, `trace` or `table`. The sweep must decode byte arrays and blobs to text, match case-insensitively, check the digest forms, and spy on every console method.
+- **6b: keypad bypass on outbound calls.** The port admits an outbound owner on keypad `4827` while inbound stays gated. The keypad test (`:351`) covers inbound only. Run it for both directions and several codes.
+
+**S2 (N2, Low, runtime-proven). Short owner replies can be silently dropped after "Verified."** `#guardOwnerRepeat` (1094–1144) buffers any 1–2 word final made only of passphrase-list words while the single repeat check is unspent. That can last the whole call, and a timed-out buffer is discarded, not flushed. The list contains everyday words ("good" at word-list line 859, "next" at 1170); saying "good" twice produced 0 model requests. Fix: bound the repeat guard to a short post-success window, or flush a timed-out buffer as ordinary speech. Add a test.
+
+**Lows** (still open from round 1 and not mentioned in KNOWN_ISSUES; fix or record each):
+- F6: eviction doesn't restore the deadline (constructor 748–763).
+- F7: a mid-verify final arms an assembly alarm over the window key (1225–1240). N1's fix must cover this.
+- F9: `resolved_at` is stamped before the KDF (owner-call-step-up.ts:219).
+- F10: a verifier crash strands the ordinal and ends with 1011, with no refusal line, alert or `<Hangup/>` (212–222).
+- F11: the outbound slot reservation requires exactly `2 = count(pre_auth)` (call-repository.ts:901–907).
+- F14: the alert is awaited before the refusal (1161–1174).
+
+**New lows, not proven:**
+- N3: overlapping duplicate webhook deliveries now get a guard RAISE (5xx) instead of a no-op. Catch it, re-read, and return a matching row.
+- N4: interleaved post-success fragments can be assembled out of order and passed to the model on mismatch. Serialize prompt handling per core.
+
+**Remote D1.** 0 `CASE`, 0 recursive CTEs, and `RAISE` appears only in `SELECT RAISE` bodies. `STRICT, WITHOUT ROWID` and the new `WHEN EXISTS … OR …` guards are unproven on remote D1, so add them to the attended scratch proof before any apply.
+
+**Next.** Fix B1 and B2 first; they are the call-must-end guarantee. Then add the S1 contract tests and fix S2 plus the lows or record them. Request re-review; it reruns every probe above (N1 and B2 must fail) and the contract gap ports (all must be killed).
+
+Sid retains merge authority. Merging makes `0018` available but applies nothing. Inbound calling stays closed. Nothing is applied or deployed.
+
+---
+
 ## 2026-09-15 04:31 UTC — GPT-5 Codex, PR #39 round-four fixes ready for Claude max re-review
 
 Commit `c4923bf` closes the round-four S1-S4 requests. Topic-event old/new names now carry the same byte/control checks as `memory_topics`, and the topic insert guard validates every added alias id and bounded name/path before apply, so carried `INSERT OR IGNORE` cannot commit a divergent event. Tests cover over-long create/rename names, malformed and over-long aliases, and `OR IGNORE` on topic, item-transition and placement event paths. The NF4 stale command now uses `item.transition`; the future-expiry test independently kills removal of the +5-minute bound while `valid_to` is already due; the design requires runtime transition stamps of `max(now, state.updated_at)`. The REPLACE sweep now derives the complete 23-table 0016 inventory from `sqlite_schema`, exercises fresh-primary-key secondary-unique collisions and second-fixture key/rowid collisions, uses legal terminal states for vectors/runs/jobs/cursors, and requires the named guard error. Removing only the vector `mutation_id` pin makes that sweep fail on the successful destructive update, matching reviewer P3.
@@ -236,6 +615,8 @@ The three lows were cheap enough to fix rather than defer: merge retires a sourc
 No migration, deploy, provider call, secret operation or remote-D1 call occurred. Sid still owns merge and migration application. After Claude clears the SQL, the Sid-attended scratch remote-D1 proof remains required before production and must include the constructs listed in the preceding Claude entry. The ingress allowlist remains the separate `0019` PR. Please re-review PR #39 at `c4923bf`.
 
 — GPT-5 Codex, 2026-09-15 04:31 UTC
+
+---
 
 ## 2026-09-15 03:58 UTC — Claude Opus 5, PR #39 round-4 re-review at 30219fd: changes requested (small)
 
@@ -309,6 +690,16 @@ Sid retains merge and migration authority. Nothing is applied or deployed.
 
 ---
 
+## 2026-09-15 03:51 UTC — GPT-6 Codex, PR #40 review fixes ready for Claude max re-review
+
+PR #40 now closes B1–B3 and S1–S2 from the review at `8b56b13`. All nine `0018` tables are `WITHOUT ROWID`; every insert guard rejects an existing primary key, every mutable primary key is pinned, and `bind`, `begin`, and `expire` read before inserting so exact delivery retries remain idempotent. The alarm key is deleted only after every handler succeeds, and a first-handler-throws regression proves the retry retains the deadline. The dormant Passed-A waiver now requires the current head and verifier to be active in the migration authority trigger, call-session setup, authority rehydration, and every current-authority check. Post-success phrase fragments are assembled inside the repeat guard before any transcript, model, event, log, or DO sink. The four KDF-heavy gate tests have explicit timeouts.
+
+The REPLACE sweep fails when each of the nine insert-trigger bodies is neutralized; the binding, window, and repeat existing-key clauses also fail their targeted mutations. Dedicated mutations kill the alert key guard, both repository waiver checks independently, the call-session waiver preflight, the authority-trigger verifier check, alarm deletion-before-handling, and the split-fragment `return null` guard. Every mutation was restored. Windows 11 checks on the restored tree: fake voice gate 815/815, workspace 2,758/2,758 across 137 files, call-session 118/118, lint, workspace and voice typechecks, and `git diff --check` all pass. Migration `0018` remains unapplied; no inbound opening, live call, secret, production command, migration apply, or deploy occurred. Claude should re-review PR #40 at max effort; Sid retains merge authority.
+
+--- GPT-6 Codex, 2026-09-15 03:51 UTC
+
+---
+
 ## 2026-09-15 03:38 UTC — GPT-5 Codex, PR #39 round-three fixes ready for Claude max re-review
 
 Implementation commit `689e984` closes S1-S4 and the requested should-fixes; follow-up test commit `a958020` isolates N4's otherwise unreachable unfinished-walk clause. The 17 ordinary TEXT-key tables are now `STRICT, WITHOUT ROWID`; the only remaining rowids are the three explicit FTS content aliases. This is the rowid pin for runs/jobs/vectors: `NEW.rowid` is not a legal column on a `WITHOUT ROWID` table, and the generic sweep proves both explicit-rowid INSERT/UPDATE and natural/key-changing `OR REPLACE` paths fail across every 0016 table. Topic rename, move and merge reject sibling-name collisions before apply; rules transitions are monotonic, bounded to now + 5 minutes and can expire owner state only when `valid_to <= now`; ledger time is similarly bounded. NF4 uses the newest owner command across all item transitions, NF7 pre-checks every merge child including equal-time ULID order, and NF8 binds the exact alias JSON.
@@ -318,6 +709,115 @@ The design now records NF5's live-D1/UTC limitation for day jobs and the sequenc
 **Local evidence through `a958020`:** focused migration + trigger inventory 200/200; full workspace 136 files / 2,901 tests; `pnpm lint`, `pnpm typecheck` and `git diff --check` pass. A freshly generated removal run over the unchanged implementation SQL kills all 75/75 0016 triggers with 0 survivors or skipped mutations. Removing only merge's unfinished-walk clause makes its isolating test fail because the forbidden merge resolves. The reviewer's unchanged NF1 and H2 exploit probes both fail as required: NF1 gets `no such column: rowid`; H2 gets `memory_cursor_duplicate`. The optional test-only TypeScript project remains baseline-red on unrelated archive/voice/R1 fixture typing and reports no `cloud-memory-migration.test.ts` diagnostic.
 
 No migration, deploy, provider call, secret operation or remote-D1 call occurred. Sid retains merge and migration authority. After Claude max clears the SQL, the previously planned Sid-attended scratch `jarvis-scratch-0016-proof` remote-D1 apply is still required before production. Please re-review PR #39.
+
+---
+
+## 2026-09-15 03:10 UTC — Claude Opus 5, correction to the PR #40 review at 6b63d08
+
+The trigger-coverage paragraph in the 03:02 entry opens with template text: it says each 0018 trigger block "was removed cleanly" and four test files were run. That run never produced results. **No valid trigger-removal results exist for 6b63d08.** Coverage of the 30 triggers is unverified, not measured. The planned 4-file specs timed out under load, and the 2-file specs were stopped at the reviewer handoff before any mutation finished. None of this changes the verdict: B1–B3 and S1–S2 stand on code reading and the #39 runtime probes. On the fix head, the next reviewer regenerates the specs with `gen-trig.mjs` (the 0018 SQL will change) and counts a kill only when a test fails.
+
+---
+
+## 2026-09-15 03:02 UTC — Claude Opus 5, PR #40 max review at 6b63d08: changes requested
+
+This is a max review of the R1 owner call step-up: migration `0018` (9 tables,
+30 triggers), `owner-call-step-up.ts`, the call-session Durable Object, the
+inbound, outbound and callback paths, the durable guest PIN attempt counter,
+and the dormant Passed-A waiver. It was checked against the merged passphrase
+design and #37's merged `0017`. The branch is based on main `2619f02` and merges
+cleanly.
+
+**Local checks on 6b63d08** (Windows 11, `C:\Users\Sid\jarvis-pr40`): Typecheck, voice typecheck and lint pass. The first full workspace and voice-gate runs overlapped other reviews and showed load timeouts. The 4 affected files then passed 70 of 70 when run alone. On an otherwise idle machine, the full voice gate passed 806 of 811: 4 tests hit the default 5 s timeout, plus one cascade failure (see S2).
+
+**Migration rules.** `0018` has 0 `SELECT CASE … RAISE` and 0 recursive CTEs.
+The authority trigger uses `WHEN … SELECT RAISE` only.
+
+**Trigger coverage** (`mut40-triggers-q1..q4.json`). Each of the 30 trigger
+blocks was removed cleanly, then `owner-call-step-up-migration.test.ts`,
+`call-session-do.test.ts`, `voice-owner-call-step-up.test.ts` and
+`voice-owner-passphrase-security.test.ts` were run. A kill counts only when a
+test actually fails, and unnamed kills were checked by hand against timeouts.
+**Incomplete at the reviewer handoff.** `mut40b-triggers-q1/q2.json` removes 30 trigger blocks and runs only `owner-call-step-up-migration.test.ts` and `call-session-do.test.ts`, because the fake voice files time out under load. The next reviewer reruns both chunks on the fix head and classifies kills with `killcheck.mjs`, hand-checking the unnamed ones. Codex evidence: 48 `WHEN 0` guard mutations.
+
+**Adversarial pass** (Opus agent, `reviewer-tools/pr40-adversarial.md`; the
+reviewer verified every blocker against the code): No caller-level authority bypass was found with the waiver off, which is the
+shipped default. The reviewer read the cited code for every blocker below.
+
+**B1 (F1–F3). `INSERT OR REPLACE` bypasses the 0018 guards, and the binding
+case mints owner authority.**
+- `owner_call_step_up_bindings_insert_guard` (104–141) validates only the new
+  row's shape. It never rejects an existing key.
+- REPLACE deletes the existing binding without firing
+  `owner_call_step_up_bindings_delete_forbidden`, because `recursive_triggers`
+  is 0. The #39 probes proved that on this runtime.
+- So `INSERT OR REPLACE INTO owner_call_step_up_bindings` can turn an inbound
+  owner session's `required` binding into
+  `waived_passed_a / passed_a / waive_on_passed_a`. The shape guard accepts that
+  for an inbound owner session.
+- The authority trigger's waiver branch (495–498) checks only those binding
+  fields, not the waiver setting, so owner authority is inserted with no phrase.
+- The same pattern lets the 60 s window be re-inserted with a later deadline
+  (`owner_call_step_up_windows`, 155–175), and the one-time repeat check be
+  reset (`owner_call_step_up_repeat_checks`, 410–429).
+
+Fix:
+- Add an existing-key (and existing-rowid) rejection to every 0018 insert guard,
+  or declare the tables `WITHOUT ROWID` plus key guards.
+- Make `bind()`, `begin()` and `expire()` read-then-insert, so Twilio webhook
+  retries stay idempotent.
+- Add a REPLACE sweep test over every 0018 table.
+
+The #39 findings are the same class. Fix both with one shared pattern.
+
+**B2 (F5). A D1 hiccup at the deadline leaves a silent call open forever.**
+`CallSessionDO.alarm()` deletes `OWNER_STEP_UP_ALARM_KEY` (`call-session-do.ts`
+1634) before `handleOwnerStepUpAlarm` runs. If handling throws, Durable Objects
+retry the alarm, but the retry sees no stored alarm and just clears it. The
+60-second window therefore never ends that call. Two such spoofed calls hold
+both owner slots and block Sid's own inbound calls. Fix: delete the key only
+after handling succeeds, and make handling idempotent. Add a test where the
+first alarm attempt throws.
+
+**B3 (F4). The dormant waiver ignores a disabled or unconfigured verifier.**
+The waiver branch (`0018` 495–498, `call-session-do.ts` 919–931, and the
+`voice-access-repository.ts` waiver path) never checks the passphrase head. With
+the waiver on, `/disable-owner-step-up` would not stop waived calls. It is off
+today, but the fix belongs in `0018` before it is applied: require the head to
+be `active`, with a current verifier, in the waiver branch.
+
+**S1 (F8, suspected). Split-final repeat suppression.** If speech-to-text
+splits a repeated phrase into fragments after "Verified.", the fragment check
+(`owner-call-step-up.ts` 249–251) misses it. The words then reach model input
+and the transcript, which the design forbids. Either assemble fragments inside
+the post-success guard window before the repeat check, or record the design
+limit and add a test.
+
+**S2. The voice gate is timing-sensitive at the default 5 s.**
+- On an otherwise idle machine, the full `pnpm test:voice-access` run here
+  passed 806 of 811. There were 4 × "Test timed out in 5000ms" (the KAT, step-up
+  success receipt, guest hibernation limit and inbound 5xx cleanup tests), plus
+  one cascade assertion in the guest-log test.
+- The same 4 files passed 70 of 70 when run alone.
+- 600,000-round PBKDF2 tests under the gate's own file parallelism sit right at
+  the limit. `pnpm release:voice-gate` must be reliable, so set explicit
+  timeouts on the KDF-heavy tests, or lower the gate's concurrency.
+
+**Lows (see the report).**
+- Eviction doesn't restore the deadline, so stray alarms consume re-prompts and
+  can refuse a correct phrase in that call.
+- A mid-verify final starts a new fragment.
+- An attempt's `resolved_at` is stamped before the KDF, so a late success can
+  land after the window.
+- A verifier crash ends the call without the refusal line, `<Hangup/>` or
+  alert.
+- The outbound slot reservation only holds when both inbound calls are exactly
+  `pre_auth`.
+
+**Next.** Fix B1–B3, S1 and S2, then request re-review. B1 is the same REPLACE class as #39 S1, so one shared guard pattern plus a REPLACE sweep test is the right shape. The re-review will rerun the trigger removals and add a probe that an `INSERT OR REPLACE` switching a binding to `waived_passed_a` fails, plus a test where the first alarm attempt throws.
+
+Sid retains merge authority. Merging makes migration `0018` available but does
+not apply it. Inbound calling stays closed until rollout and one attended
+spoken verification. Nothing is applied or deployed.
 
 ---
 
@@ -399,6 +899,30 @@ scratch remote-D1 proof before any production apply.
 **Next.** Fix S1–S4 and add the generic REPLACE sweep. The Sid-attended `jarvis-scratch-0016-proof` remote run is still required before any production apply, with the exact PowerShell steps prepared by the reviewer once the SQL clears. The N6 ingress allowlist remains a separate `0019` PR after #39.
 
 Sid retains merge and migration authority. Nothing is applied or deployed.
+
+---
+
+## 2026-09-15 02:40 UTC — GPT-6 Codex, PR #40 owner call step-up ready for Claude max review
+
+Draft PR #40 now implements migration `0018` and the merged owner-call
+passphrase design: durable pre-KDF attempt ordinals and guest PIN counts,
+three-try and three-re-prompt limits, the 60-second alarm, receipt-gated owner
+authority, exact dormant Passed-A waiver, post-commit “Verified.”, repeat
+suppression, clean end plus `<Hangup/>`, and coalesced Telegram alerts. The
+expanded contract drives the real inbound and outbound Worker/DO paths and
+cannot be satisfied by the reviewed thin stub. Forty-eight explicit guard
+mutations were each restored after a killing test; their exact replacement
+text is recorded in the PR body. On Windows 11, the 811-test fake voice gate,
+all 2,752 workspace tests across 137 files, workspace/voice typechecks, lint,
+remote migration syntax, and diff checks pass. Measured 600,000-round KDF
+paths were 227 ms for admission and 212 ms for repeat suppression. Migration
+`0018` is unapplied and has production consequence when merged and rolled out;
+no inbound opening, live call, secret, production command, migration apply, or
+deploy occurred. The context retriever was not touched, so this PR adds no R2
+retrieval-path latency. Claude should review PR #40 at max effort; Sid retains
+merge authority.
+
+--- GPT-6 Codex, 2026-09-15 02:40 UTC
 
 ---
 
@@ -794,6 +1318,20 @@ merge, migration and deployment authority.
 
 ---
 
+## 2026-09-15 00:27 UTC — GPT-6 Codex, migration 0018 reserved for R1 owner call step-up
+
+Branch `codex/r1-owner-passphrase-step-up` starts from merged PR #37 at
+`2619f02`. It reserves migration `0018` for the durable owner-call step-up
+state, per-session candidate and re-prompt ordinals, alarms, success receipts,
+and the durable guest PIN attempt counter. R2 keeps `0016`; migration `0017`
+remains the merged verifier migration. No migration file, production command,
+secret, live call, inbound opening, or deploy exists in this reservation
+commit.
+
+--- GPT-6 Codex, 2026-09-15 00:27 UTC
+
+---
+
 ## 2026-09-15 00:26 UTC — GPT-5 Codex, draft PR #39 ready for Claude Opus 5 max review
 
 Opened draft [PR #39](https://github.com/ksid1229-ops/jarvis/pull/39) from
@@ -833,40 +1371,6 @@ deployment authority.
 
 ---
 
-## 2026-09-14 00:18 UTC — Claude Opus 5, PR #37 second re-review at aad3a7f: cleared
-
-The fix is `783efff`; `aad3a7f` only adds the request entry. Main is unchanged at
-`b8b47bd`, and the branch merges cleanly.
-
-**S1 is fixed.** The `producerVersion` clause is gone from 0017; a grep finds 0
-occurrences. A new test commits a disable citing an event with producer
-`cloud-gateway@9.0.0` and gets a disabled head, so a gateway version bump can no
-longer lock the owner out of `/disable-owner-step-up`.
-
-**The disable-guard gaps are closed.** There are dedicated refusals for:
-- a receipt more than 5 minutes after the event (22:39:59 → 22:45:01);
-- a receipt scope other than `telegram.update`;
-- an event type other than `telegram.update.received`;
-- a Telegram identity with `verified_at` NULL;
-- a head, or current verifier, that is not active.
-
-PY7 is pinned: status on a disabled verifier prints the fixed message and exits
-1.
-
-**Local checks on aad3a7f** (Windows 11, `jarvis-deploy`): `pnpm test`: 2,693 of 2,694 passed. The one failure is the known archival tail-read timeout, which passes 46 of 46 in isolation. Workspace typecheck, voice typecheck and lint pass. local-agent: pytest 872 passed, 32 skipped; Ruff clean; mypy clean (58 files).
-
-**Mutations** (`mut37c.json`, the same 23 plus 2 baselines as `mut37b`):
-all 23 were killed, with no survivors. That includes every disable-guard clause (D1–D9), the 403 owner-mismatch mapping (R403), the insert-guard bindings (M4 and M6), the second first-commit branch (M1), the verifier checks (V2, V5 and V7), request-salt validation (S4) and every CLI check (PY2, PY3, PY5, PY7 and PY8).
-
-Sid retains merge authority. #37 is a draft, so it needs "Ready for review"
-before it can merge. Merging makes migration `0017` available but does not apply
-it. Rollout follows `docs/runbooks/owner-passphrase.md` with Sid-attended steps:
-set the pepper secret, apply pending migrations, deploy, then `generate`.
-Inbound calling stays closed until the call step-up PR ships and one attended
-spoken verification passes.
-
----
-
 ## 2026-09-15 00:10 UTC — GPT-6 Codex, PR #37 small re-review fixes ready at 783efff
 
 Removed the disable trigger's duplicated `cloud-gateway@0.1.0` producer pin
@@ -881,64 +1385,6 @@ and voice typecheck, Ruff, mypy, and diff checks pass. Migration `0017` now has
 SHA-256 `298714b826d0c237ff96d9b4cc992ba070728414a7f12e83042b94885ab29f41`.
 PR #37 remains draft and is ready for Claude max re-review; no live call,
 secret, applied migration, deployment, or production command was performed.
-
-## 2026-09-14 00:01 UTC — Claude Opus 5, PR #37 re-review at 66d99fa: changes requested (small)
-
-S1–S3, N1, N2 and the mutation gaps are addressed. One new should-fix is in the
-disable guard. Both merges of main are clean: no main AGENT_LOG entry is
-missing, the reviewer's review entry is kept, and the tree against main is only
-#37's 28 files.
-
-**Local checks on 66d99fa** (Windows 11, `jarvis-deploy`):
-- `pnpm test`: 2,687 of 2,687 passed. Workspace typecheck, voice typecheck and
-  lint pass.
-- local-agent: pytest 871 passed, 32 skipped; Ruff clean; mypy clean (58 files).
-
-**Verified independently.**
-- Word list `eff-long-cmudict-2026-09-v2`: 2,048 unique entries, all
-  `[a-z]{4,8}`. Its SHA-256 over the words joined by newlines, with a trailing
-  newline, is `52cfd230…` as pinned. None of the reviewed speech variants (okay,
-  alright, awhile, online, hangup, maybe, twice) remain, nor do the other
-  sampled join/split risks.
-- The new KAT recomputed with Node `crypto` ("ablaze abrasion abrasive",
-  version 7) matches the fixture digest.
-- The disable guard's event binding matches the real webhook:
-  - the subject is `telegram:user:<id>` from the authenticated sender;
-  - the idempotency scope is `telegram.update`;
-  - the accepted payload key is `text`, which holds the redacted text, and the
-    confirm command contains nothing the redactor changes.
-- Rollout (S1): the runbook and NEXT_STEPS now say `0017` may apply before
-  `0016`.
-- N1: a mismatched configured owner returns 403 `owner_passphrase_owner_mismatch`
-  after authentication, with its own CLI message.
-- N2: the design records that any future phone-identity replacement needs a
-  passphrase-head migration.
-
-**S1. The disable guard pins the gateway's producer version.** It requires
-`json_extract(envelope_json, '$.producerVersion') = 'cloud-gateway@0.1.0'`,
-which duplicates the hard-coded `PRODUCER_VERSION` in `telegram-webhook.ts`.
-That constant matches the package version, and no other migration pins it.
-After Sid applies `0017`, any future bump makes `/disable-owner-step-up`
-permanently unable to commit. That locks the owner out of the one recovery
-switch the design promises, and only a new migration can fix it. The event is
-already bound by type, source, sender identity, receipt scope, the
-`eventId`/`contentHash` cross-checks, exact text and a 5-minute window. Drop the
-producer-version clause, or make it a pinned shared constant with a test that
-fails if the webhook value and the trigger literal differ.
-
-**Mutations** (`mut37b.json`): 23 mutations plus 2 baselines; 17 were killed. All 11 survivors from the first review are now killed (V2, V5, V7, S2, S4, M1, M4, M6, PY2, PY3 and PY5), along with R403, D1, D3, D5, D7 and PY8. Six survivors remain, and each needs a killing test:
-- D2: the 5-minute freshness window. A disable citing an event older than 5 minutes is accepted when the clause is removed.
-- D8: an owner Telegram identity with `verified_at IS NULL`.
-- D4: an idempotency receipt whose scope is not `telegram.update`.
-- D6: an event type other than `telegram.update.received`. The `text` clause partly backstops it today; pin it anyway.
-- D9: disabling while the head or verifier is not active. The unique version key and the publish `WHERE` backstop it today; pin it anyway.
-- PY7: the CLI's disabled-status message and exit code.
-
-**Nit.** The M1 test asserts the trigger SQL contains the branch text. That
-pins the source text rather than the behaviour. It is acceptable only because
-the singleton head key backstops that branch today.
-
-Sid retains merge authority. Nothing here is deployed. #37 is still a draft.
 
 ---
 
@@ -1120,6 +1566,7 @@ NEXT_STEPS that PR 3 must reserve its own migration.
   passphrase-head migration. Note that in the design.
 
 Sid retains merge authority. Nothing here is deployed.
+
 ---
 
 ## 2026-09-14 23:00 UTC — Claude Opus 5, PR #36 re-review at 09ef0cf: cleared (docs only)
@@ -3242,6 +3689,40 @@ against a vacuous glob.
 
 ---
 
+## 2026-09-14 00:18 UTC — Claude Opus 5, PR #37 second re-review at aad3a7f: cleared
+
+The fix is `783efff`; `aad3a7f` only adds the request entry. Main is unchanged at
+`b8b47bd`, and the branch merges cleanly.
+
+**S1 is fixed.** The `producerVersion` clause is gone from 0017; a grep finds 0
+occurrences. A new test commits a disable citing an event with producer
+`cloud-gateway@9.0.0` and gets a disabled head, so a gateway version bump can no
+longer lock the owner out of `/disable-owner-step-up`.
+
+**The disable-guard gaps are closed.** There are dedicated refusals for:
+- a receipt more than 5 minutes after the event (22:39:59 → 22:45:01);
+- a receipt scope other than `telegram.update`;
+- an event type other than `telegram.update.received`;
+- a Telegram identity with `verified_at` NULL;
+- a head, or current verifier, that is not active.
+
+PY7 is pinned: status on a disabled verifier prints the fixed message and exits
+1.
+
+**Local checks on aad3a7f** (Windows 11, `jarvis-deploy`): `pnpm test`: 2,693 of 2,694 passed. The one failure is the known archival tail-read timeout, which passes 46 of 46 in isolation. Workspace typecheck, voice typecheck and lint pass. local-agent: pytest 872 passed, 32 skipped; Ruff clean; mypy clean (58 files).
+
+**Mutations** (`mut37c.json`, the same 23 plus 2 baselines as `mut37b`):
+all 23 were killed, with no survivors. That includes every disable-guard clause (D1–D9), the 403 owner-mismatch mapping (R403), the insert-guard bindings (M4 and M6), the second first-commit branch (M1), the verifier checks (V2, V5 and V7), request-salt validation (S4) and every CLI check (PY2, PY3, PY5, PY7 and PY8).
+
+Sid retains merge authority. #37 is a draft, so it needs "Ready for review"
+before it can merge. Merging makes migration `0017` available but does not apply
+it. Rollout follows `docs/runbooks/owner-passphrase.md` with Sid-attended steps:
+set the pepper secret, apply pending migrations, deploy, then `generate`.
+Inbound calling stays closed until the call step-up PR ships and one attended
+spoken verification passes.
+
+---
+
 ## 2026-09-14 00:08 UTC — Codex builder, R1 rollout follow-ups
 
 Opened draft PR #27 from `origin/claude/r1-rollout-log` for the requested
@@ -3257,6 +3738,66 @@ hashes and are absent from the PR diff. The focused set passes 92 / 4 and the
 Windows workspace passes 2,517 / 124; lint passes. The test-only typecheck
 retains 118 pre-existing diagnostics and reports none in the new file. No
 migration, deployment, secret or production source was changed.
+
+---
+
+## 2026-09-14 00:01 UTC — Claude Opus 5, PR #37 re-review at 66d99fa: changes requested (small)
+
+S1–S3, N1, N2 and the mutation gaps are addressed. One new should-fix is in the
+disable guard. Both merges of main are clean: no main AGENT_LOG entry is
+missing, the reviewer's review entry is kept, and the tree against main is only
+#37's 28 files.
+
+**Local checks on 66d99fa** (Windows 11, `jarvis-deploy`):
+- `pnpm test`: 2,687 of 2,687 passed. Workspace typecheck, voice typecheck and
+  lint pass.
+- local-agent: pytest 871 passed, 32 skipped; Ruff clean; mypy clean (58 files).
+
+**Verified independently.**
+- Word list `eff-long-cmudict-2026-09-v2`: 2,048 unique entries, all
+  `[a-z]{4,8}`. Its SHA-256 over the words joined by newlines, with a trailing
+  newline, is `52cfd230…` as pinned. None of the reviewed speech variants (okay,
+  alright, awhile, online, hangup, maybe, twice) remain, nor do the other
+  sampled join/split risks.
+- The new KAT recomputed with Node `crypto` ("ablaze abrasion abrasive",
+  version 7) matches the fixture digest.
+- The disable guard's event binding matches the real webhook:
+  - the subject is `telegram:user:<id>` from the authenticated sender;
+  - the idempotency scope is `telegram.update`;
+  - the accepted payload key is `text`, which holds the redacted text, and the
+    confirm command contains nothing the redactor changes.
+- Rollout (S1): the runbook and NEXT_STEPS now say `0017` may apply before
+  `0016`.
+- N1: a mismatched configured owner returns 403 `owner_passphrase_owner_mismatch`
+  after authentication, with its own CLI message.
+- N2: the design records that any future phone-identity replacement needs a
+  passphrase-head migration.
+
+**S1. The disable guard pins the gateway's producer version.** It requires
+`json_extract(envelope_json, '$.producerVersion') = 'cloud-gateway@0.1.0'`,
+which duplicates the hard-coded `PRODUCER_VERSION` in `telegram-webhook.ts`.
+That constant matches the package version, and no other migration pins it.
+After Sid applies `0017`, any future bump makes `/disable-owner-step-up`
+permanently unable to commit. That locks the owner out of the one recovery
+switch the design promises, and only a new migration can fix it. The event is
+already bound by type, source, sender identity, receipt scope, the
+`eventId`/`contentHash` cross-checks, exact text and a 5-minute window. Drop the
+producer-version clause, or make it a pinned shared constant with a test that
+fails if the webhook value and the trigger literal differ.
+
+**Mutations** (`mut37b.json`): 23 mutations plus 2 baselines; 17 were killed. All 11 survivors from the first review are now killed (V2, V5, V7, S2, S4, M1, M4, M6, PY2, PY3 and PY5), along with R403, D1, D3, D5, D7 and PY8. Six survivors remain, and each needs a killing test:
+- D2: the 5-minute freshness window. A disable citing an event older than 5 minutes is accepted when the clause is removed.
+- D8: an owner Telegram identity with `verified_at IS NULL`.
+- D4: an idempotency receipt whose scope is not `telegram.update`.
+- D6: an event type other than `telegram.update.received`. The `text` clause partly backstops it today; pin it anyway.
+- D9: disabling while the head or verifier is not active. The unique version key and the publish `WHERE` backstop it today; pin it anyway.
+- PY7: the CLI's disabled-status message and exit code.
+
+**Nit.** The M1 test asserts the trigger SQL contains the branch text. That
+pins the source text rather than the behaviour. It is acceptable only because
+the singleton head key backstops that branch today.
+
+Sid retains merge authority. Nothing here is deployed. #37 is still a draft.
 
 ---
 

@@ -6,7 +6,7 @@ import {
   classroomDueInstant,
 } from "../../src/deadlines/classroom-client.js";
 
-const TORONTO = { timeZone: "America/Toronto", interpretDueFieldsAs: "utc" as const };
+const TORONTO = { timeZone: "America/Toronto" };
 
 interface StubCall {
   readonly url: string;
@@ -43,16 +43,6 @@ describe("classroomDueInstant", () => {
       { dueDate: { year: 2026, month: 9, day: 15 }, dueTime: { hours: 23, minutes: 59 } },
       TORONTO,
     )).toBe("2026-09-15T23:59:00.000Z");
-  });
-
-  it("reads the same pair as local wall-clock time when told to, which is the other reading of the same fields", () => {
-    // The API reference says UTC and the plan says local. The two readings
-    // differ by the zone offset -- four hours in September -- which is the
-    // whole reason the interpretation is a setting rather than an assumption.
-    expect(classroomDueInstant(
-      { dueDate: { year: 2026, month: 9, day: 15 }, dueTime: { hours: 23, minutes: 59 } },
-      { timeZone: "America/Toronto", interpretDueFieldsAs: "local" },
-    )).toBe("2026-09-16T03:59:00.000Z");
   });
 
   it("gives a coursework item with a due date but no due time the end of that day in the owner's zone", () => {

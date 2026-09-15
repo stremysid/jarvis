@@ -4,6 +4,25 @@ The milestone order is in [the roadmap](docs/plan/2026-09-03-jarvis-roadmap.md).
 **R0 passed on 2026-09-11 and R1 is open.** Do not resume superseded
 implementation plans.
 
+## School and university priority: R5 starts alongside R1 and R2
+
+Sid moved school and university support ahead of R3 and R4 on 2026-09-15. The
+reviewable scope is in
+[`docs/plan/2026-09-15-school-university-plan.md`](docs/plan/2026-09-15-school-university-plan.md):
+conversational course/program intake, one catch-up plan per course, Classroom
+and Brightspace deadlines, grades and missing-work watch, a proactive
+quiz/flashcard coach, and the full university-application track. R5 deadline
+ingestion depends on the deployed R0 gateway, not on PC control; its
+evidence-based weak-spot memory integrates with R2 as that interface lands.
+
+First code slice after plan clearance: the live bot's conversational course
+intake and per-course recovery plan. Second: a minimal program tracker with
+current official requirements and dates labelled verified or unverified. Both
+use the existing live stack and proceed without waiting for R2 or a school
+connector. Classroom wiring and the Brightspace calendar feed follow as
+separate draft PRs; none authorizes OAuth consent, a secret operation,
+migration, deployment, school contact or live account access.
+
 ## R2 cloud-memory schema candidate
 
 PR #38 merged at `b8b47bd`. Draft
@@ -288,15 +307,16 @@ between items, but production, secrets, merging and consequential actions
 remain his. After R0 passes, R1 requires Claude Opus 5 **max** review under
 BUILDING.md; the cross-vendor gate and stop rules remain in force.
 
-## Built and unwired
+## Built and configuration-gated
 
-These have code and tests and nothing calls them yet.
+These have code and tests but still need owner configuration or a later slice.
 
-- **Google Classroom ingestion.** `classroom-client.ts` and
-  `deadline-ingestion.ts` exist; the hourly poll job does not call them,
-  because no deployment holds the Google OAuth credentials. Until it does,
-  `deadline_sources` has nothing writing to it and the deadline half of the
-  digest is empty rather than stale.
+- **Google Classroom ingestion.** The R5 code candidate wires
+  `classroom-client.ts` and `deadline-ingestion.ts` into the hourly poll behind
+  all three Google OAuth bindings. With no bindings it performs no Google call;
+  partial or failed configuration becomes visible source health in the digest.
+  It is a draft PR, not deployed, and Sid's OAuth consent remains an owner-run
+  step in [`docs/runbooks/google-classroom-oauth.md`](docs/runbooks/google-classroom-oauth.md).
 - **The Brightspace scrape.** Deliberately not built. It needs a real browser
   session and belongs in the local agent. `RawDeadlineItem` is the interface
   it feeds.

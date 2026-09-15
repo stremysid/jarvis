@@ -8,13 +8,18 @@ import {
   type PersistedCallAuthority,
   VoiceAccessRepository,
 } from "../../src/persistence/voice-access-repository.js";
+import { OwnerPassphraseRepository } from "../../src/persistence/owner-passphrase-repository.js";
 import {
   decodeGuestPinVerifierRecord,
   type GuestPinVerifierRecordV2,
 } from "../../src/security/guest-pin-verifier.js";
+import { OwnerPassphraseVerifier } from "../../src/security/owner-passphrase-verifier.js";
+import { OwnerCallStepUpService } from "../../src/voice/owner-call-step-up.js";
 import {
-  applyFoundationMigration,
+  applyOwnerCallStepUpMigration,
   clearCallSessionsForTest,
+  clearOwnerCallStepUpDataForTest,
+  clearOwnerPassphraseDataForTest,
   clearOutboundCallAttemptsForTest,
   clearVoiceAccessDataForTest,
 } from "./migration.js";
@@ -36,6 +41,28 @@ export const EMPTY_SCOPES: VoiceResourceScopesV1 = Object.freeze({
   fileRootIds: Object.freeze([]),
   pcActionIds: Object.freeze([]),
 });
+const TEST_OWNER_PASSPHRASE = "ablaze abrasion abrasive";
+const TEST_OWNER_PASSPHRASE_PEPPER = new Uint8Array(32).fill(19);
+
+export async function verifyOwnerStepUpForTest(
+  database: D1Database,
+  sessionId: Ulid,
+  binding: RelayBinding,
+): Promise<void> {
+  const stepUp = new OwnerCallStepUpService(
+    database,
+    new OwnerPassphraseVerifier(TEST_OWNER_PASSPHRASE_PEPPER, "v1", () => new Uint8Array(16).fill(7)),
+  );
+  await stepUp.bind({
+    sessionId, callSid: binding.callSid,
+    ownerPrincipalId: binding.principalId, ownerIdentityId: binding.identityId,
+    direction: binding.direction, lifecycleGeneration: 1, requirement: "required",
+    attestationClass: "absent", policy: "passphrase_always", createdAt: NOW.toISOString(),
+  });
+  await stepUp.begin(sessionId, NOW);
+  const result = await stepUp.verifyCandidate(sessionId, TEST_OWNER_PASSPHRASE, NOW);
+  if (result !== "matched") throw new Error("fixture_owner_step_up_failed");
+}
 
 export const SYNTHETIC_RECORD: GuestPinVerifierRecordV2 = decodeGuestPinVerifierRecord({
   schemaVersion: "2.0",
@@ -56,13 +83,16 @@ export const ROTATED_RECORD: GuestPinVerifierRecordV2 = decodeGuestPinVerifierRe
 });
 
 export async function clearVoiceAccessFixture(database: D1Database): Promise<void> {
-  await applyFoundationMigration();
+  await applyOwnerCallStepUpMigration();
+  await clearOwnerCallStepUpDataForTest();
   await clearCallSessionsForTest();
   await clearOutboundCallAttemptsForTest();
   await clearVoiceAccessDataForTest();
+  await clearOwnerPassphraseDataForTest();
   await database.batch([
     database.prepare("DELETE FROM policy_decisions"),
     database.prepare("DELETE FROM channel_identities"),
+    database.prepare("DELETE FROM device_keys"),
     database.prepare("DELETE FROM principals"),
   ]);
 }
@@ -70,16 +100,25 @@ export async function clearVoiceAccessFixture(database: D1Database): Promise<voi
 export async function seedOwnerAuthority(
   database: D1Database,
   repository: VoiceAccessRepository,
+  options: Readonly<{ stepUpVerified?: boolean }> = {},
 ): Promise<PersistedCallAuthority> {
   const now = NOW.toISOString();
-  await database.batch([
+  const stepUpVerified = options.stepUpVerified === true;
+  const principals = [
     database.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES (?, 'human', 'active', 'owner', ?, ?)")
       .bind(OWNER_PRINCIPAL_ID, now, now),
+    database.prepare(`INSERT INTO device_keys (
+      device_id, principal_id, key_id, public_key_base64, key_fingerprint,
+      key_generation, algorithm, status, device_label, bootstrap_metadata_hash, created_at
+    ) VALUES ('device:voice-access-test', ?, 'key:voice-access-test', ?, ?, 1,
+      'ed25519', 'active', 'test fixture', ?, ?)`)
+      .bind(OWNER_PRINCIPAL_ID, "A".repeat(43) + "=", "b".repeat(64), "c".repeat(64), now),
     database.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES (?, ?, 'voice', '+14165550101', 'active', ?, ?)")
       .bind(OWNER_IDENTITY_ID, OWNER_PRINCIPAL_ID, now, now),
     database.prepare("INSERT INTO voice_owner_identity (singleton_id, principal_id, identity_id, created_at) VALUES (1, ?, ?, ?)")
       .bind(OWNER_PRINCIPAL_ID, OWNER_IDENTITY_ID, now),
-  ]);
+  ];
+  await database.batch(principals);
   await database.prepare(`INSERT INTO call_sessions (
     session_id, call_sid, expected_attempt_id, principal_id, identity_id, destination_identity_id,
     direction, activation_only, activation_challenge_id, activation_hmac_key_version, relay_nonce,
@@ -120,6 +159,38 @@ export async function seedOwnerAuthority(
     guestGrantVersion: null,
     accessDocumentHash: null,
   });
+  const stepUp = new OwnerCallStepUpService(
+    database,
+    new OwnerPassphraseVerifier(TEST_OWNER_PASSPHRASE_PEPPER, "v1", () => new Uint8Array(16).fill(7)),
+  );
+  const verifier = new OwnerPassphraseVerifier(
+    TEST_OWNER_PASSPHRASE_PEPPER,
+    "v1",
+    () => new Uint8Array(16).fill(7),
+  );
+  await new OwnerPassphraseRepository(database).rotate({
+    verified: {
+      deviceId: "device:voice-access-test", principalId: OWNER_PRINCIPAL_ID,
+      audience: "jarvis-local-agent", issuedAt: now, nonce: "test", bodyHash: "d".repeat(64),
+      keyId: "key:voice-access-test", keyFingerprint: "b".repeat(64), keyGeneration: 1, body: {},
+    },
+    ownerPrincipalId: OWNER_PRINCIPAL_ID,
+    ownerIdentityId: OWNER_IDENTITY_ID,
+    expectedVerifierVersion: null,
+    record: await verifier.create(OWNER_IDENTITY_ID, 1, TEST_OWNER_PASSPHRASE),
+    commitId: "01m2ddddddddddddddddddd001",
+    committedAt: now,
+  });
+  if (stepUpVerified) {
+    await verifyOwnerStepUpForTest(database, OWNER_SESSION_ID, binding);
+  } else {
+    await stepUp.bind({
+      sessionId: OWNER_SESSION_ID, callSid: binding.callSid,
+      ownerPrincipalId: OWNER_PRINCIPAL_ID, ownerIdentityId: OWNER_IDENTITY_ID,
+      direction: "inbound", lifecycleGeneration: 1, requirement: "waived_passed_a",
+      attestationClass: "passed_a", policy: "waive_on_passed_a", createdAt: now,
+    });
+  }
   return repository.mintOwnerAuthority({ sessionId: OWNER_SESSION_ID, binding, now: NOW });
 }
 

@@ -192,9 +192,11 @@ from, its state, and the milestone in section 7 that delivers it.
 | Poll every tracked repo's four status documents; stalled-project detector | plan §2, §5 | built | R0 |
 | Real-time ping when KNOWN_ISSUES or DECISIONS changes | plan §2 | absent | R7 |
 | Google Classroom deadlines | plan §3 | unwired | R5 |
-| Brightspace deadlines through a browser host/path Sid chooses when R5 starts, MFA via Telegram | plan §3; corrected Sep 14 | absent; host/path undecided | R5 |
+| Brightspace deadlines through a private calendar feed in Cloudflare first; school-approved OAuth as the grades/submissions upgrade; browser automation held for terms review, with MFA via Telegram if ever approved | plan §3; corrected Sep 15 | absent; board feed availability unverified | R5 |
 | One deadline store, conflict flagging, effort-scaled reminders, exam quiet hours | plan §3, §5 | built, empty | R0, R5 |
-| Grade and missing-work watch | plan §5 | absent | R5 |
+| Per-course catch-up plan, proactive study coach, quizzes and flashcards | Sid, Sep 15; [school plan](2026-09-15-school-university-plan.md) | absent | **R5** |
+| Grade and missing-work watch | plan §5; Sid, Sep 15 | absent | R5 |
+| University applications: programs, requirements, deadlines, writing, documents, scholarships and required marks | Sid, Sep 15; [school plan](2026-09-15-school-university-plan.md) | absent | **R5** |
 | Morning digest and Sunday retro | plan §3, §5 | built | R0 |
 | Workload-trend line; API and cost tracker, Jarvis first | plan §6, §8 | absent | R7 |
 | Decision queue: one ranked list, always "other" and "explain more" | plan §6 | built | R0 |
@@ -251,8 +253,10 @@ from, its state, and the milestone in section 7 that delivers it.
   production systems always need a tap, in every mode, whatever the model's
   confidence. This now includes St. Remy production.
 - No tier-2 action before shadow mode has run on that device.
-- Brightspace scraping is polite: a few runs a day, alert rather than
-  silently fail, a human in the loop for MFA.
+- Brightspace browser extraction is not authorized until the published D2L
+  EULA and the board's licence/acceptable-use terms are cleared. If a login
+  route is later approved, it runs only at a low rate, alerts rather than
+  silently failing, and keeps a human in the loop for MFA through Telegram.
 - Voice audio is never stored. PIN digits never reach a transcript, a model,
   a log or an event.
 - Hermes holds its own model key and nothing else. Its built-in memory files
@@ -486,7 +490,54 @@ speaking the new phrase once. Only then may Jarvis interview Sid and write
 owner-confirmed answers to memory. This parked interview must not drive R1 or
 R2 implementation.
 
-### R3. Hands: task execution and device capabilities, v1.2
+### R5. School and university, v1.2
+
+This starts now alongside the active R1 and R2 work, ahead of R3 and R4. The
+first catch-up and university slices use the live Telegram/gateway stack and
+wait for neither R2 nor a platform connector. Deadline ingestion depends on
+the deployed R0 gateway; weak-area provenance and conversational forget
+controls integrate with R2 when it lands without gating the early work. The
+complete scope and official-source rules are in the
+[school and university plan](2026-09-15-school-university-plan.md).
+
+1. On the live bot, gather courses, platform coverage and missed work through
+   conversation, never a homework form. Keep one current catch-up plan and
+   next action per course without waiting for R2 or OAuth.
+2. On the live bot, gather a program shortlist and build the minimal university
+   tracker from current official sources: requirements, dates and required
+   marks, each verified or visibly unverified. This also does not wait for R2.
+3. Poll Sid's private Brightspace iCal feed from Cloudflare if his board exposes
+   it, with school-approved OAuth as the later grade/submission upgrade. Wire
+   Classroom behind explicit configuration. Put deadlines, source health and
+   "check D2L now" in the digest. Classroom timed fields are UTC; the current
+   instant-only schema maps date-only items to local end-of-day and cannot
+   preserve date-only semantics without a separately numbered migration.
+4. Add regular conversational check-ins and an evidence-based study coach.
+   Generate cited quizzes and flashcards automatically, support plain-speech
+   correction and forgetting, and add spoken quizzing after R1 calls are live.
+5. Add submission/grade observations and explicitly derived missing-work
+   alerts. Classroom has no authoritative `missing` state. Use Brightspace
+   grade/feedback notifications or API data only through an approved route.
+6. Expand the application track to OUAC, supplements, scholarships, essays and
+   personal statements, references, transcripts, offers and controlled
+   contact/submission steps. Never copy a prior-cycle date or call an unsourced
+   date verified. Payments, transcript releases and contact always need a tap.
+7. Feed verified commitments into the later personal calendar: R6 supplies
+   the combined read agenda and departure reminders; R7 supplies reversible
+   calendar writes and protected focus blocks. Do not create a second school
+   calendar.
+
+**Exit.** Conversation alone produces a current catch-up action for every
+course and a sourced target-program tracker. The morning digest shows one
+live-accepted deadline from Classroom and one from Brightspace at the correct
+Toronto time, with failed/stale sources named. A grade/submission change drives
+the missing-work and weak-area flow, and Jarvis creates a sourced quiz and
+flashcard set. Application, supplementary and scholarship dates remain visibly
+verified or unverified; required-mark calculations use verified prerequisites.
+Nothing is submitted, purchased, signed up for or sent to another person
+without Sid's tap.
+
+### R3. Hands: task execution and device capabilities, v1.3
 
 Three sessions. Depends on R2.
 
@@ -516,7 +567,7 @@ me what NEXT_STEPS says". It runs on the laptop and answers on the phone.
 "Delete the temp folder": a button first, nothing happens until tapped.
 Laptop off: the same command waits and Telegram says so.
 
-### R4. St. Remy, v1.3
+### R4. St. Remy, v1.4
 
 Two to three sessions. Depends on R3.
 
@@ -546,20 +597,6 @@ stopped by hand; Jarvis alerts within minutes and restarts it. "Tell Claude
 to change the invoice footer": Claude Code makes the change, Jarvis asks
 before deploying, and deploys after the tap.
 
-### R5. Deadlines, v1.4
-
-Two sessions. Depends on R0 and R2.
-
-1. Google Classroom OAuth; the hourly job calls ingestion. One real
-   assignment settles UTC versus local; delete the setting.
-2. Decide the Brightspace browser host/path with Sid when R5 starts, then run a
-   few times a day with MFA routed to Telegram as a decision.
-3. Deadline status setters and the decision-expiry sweep. Grade and
-   missing-work watch.
-
-**Exit.** The morning digest lists a real deadline from each source, at the
-right local time.
-
 ### R6. Reach: send on command, Siri, location, v1.5
 
 Two sessions. Depends on R3.
@@ -572,6 +609,8 @@ Two sessions. Depends on R3.
 3. "When should I leave": for calendar items with a place, departure time
    from a maps routing API, a reminder at the right moment, the car preheat
    aligned when Tesla arrives in R8.
+4. Add the read side of Sid's personal calendar: one combined agenda for
+   school, applications and personal commitments. Calendar writes remain R7.
 
 **Exit.** From the car, on a call: "email the supplier and tell them the
 order is confirmed". Jarvis reads the draft back, sends after "yes". A
@@ -590,8 +629,9 @@ Three to four sessions. Depends on R2, R5.
    outage fallback.
 4. Prep briefs. Gmail triage. Workload line. Cost tracker, Jarvis first.
    Real-time pings on KNOWN_ISSUES and DECISIONS changes.
-5. Document ingestion: Gmail, Drive, PDFs. Calendar writes at tier 2 with
-   focus blocks. The minimisation policy.
+5. Document ingestion: Gmail, Drive, PDFs. Run the personal calendar at tier 2
+   with reversible writes and protected focus blocks, extending R6's combined
+   read agenda. The minimisation policy.
 
 **Exit.** "Why do you think I hate mornings?" gets an answer with a dated
 source. A brief arrives before a class. The Sunday retro has a workload
@@ -660,12 +700,12 @@ here and move NEXT_STEPS.md to the next one.
 
 | Milestone | Delivers | Status | Date |
 |---|---|---|---|
-| R0 Green and deployed | | not started | |
-| R1 Calling | v1.0, first release | not started | |
-| R2 Cloud memory | v1.1 | D1 design draft ready for Claude review | |
-| R3 Hands | v1.2 | not started | |
-| R4 St. Remy | v1.3 | not started | |
-| R5 Deadlines | v1.4 | not started | |
+| R0 Green and deployed | | passed | 2026-09-11 |
+| R1 Calling | v1.0, first release | active; draft PR #40 open | |
+| R2 Cloud memory | v1.1 | active; 0016 schema merged, not applied | |
+| R5 School and university | v1.2 | plan revision ready for re-review | |
+| R3 Hands | v1.3 | not started | |
+| R4 St. Remy | v1.4 | not started | |
 | R6 Reach | v1.5 | not started | |
 | R7 Memory and manager | v1.6 | not started | |
 | R8 Hands extended | v1.7 | not started | |

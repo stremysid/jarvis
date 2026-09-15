@@ -28,7 +28,10 @@ export const VOICE_FAKE_TEST_FILTERS = Object.freeze([
 
 const steps = Object.freeze([
   Object.freeze({ name: "gate_tests", args: ["--test", "scripts/test/voice-release-gate.test.mjs"] }),
-  Object.freeze({ name: "fake_calls", args: ["node_modules/vitest/vitest.mjs", "--config", "vitest.workspace.ts", "run", ...VOICE_FAKE_TEST_FILTERS] }),
+  Object.freeze({ name: "fake_calls", args: [
+    "node_modules/vitest/vitest.mjs", "--config", "vitest.workspace.ts", "run", "--maxWorkers=1",
+    ...VOICE_FAKE_TEST_FILTERS,
+  ] }),
   Object.freeze({ name: "live_evidence", args: ["tests/acceptance/live/voice-smoke-cli.mjs", "--audit-evidence"] }),
 ]);
 

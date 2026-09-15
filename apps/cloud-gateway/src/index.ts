@@ -217,6 +217,7 @@ function commandContext(env: Env, principalId: string): CommandContext {
               from: clock.now(),
               to: new Date(clock.now().getTime() + withinDays * 86_400_000),
             }),
+          readDeadlineSources: async () => new DeadlineRepository(env.DB).listSources({ activeOnly: true }),
           readProjectStatuses: async () => new ProjectRepository(env.DB).readActiveProjectStatuses(),
           readOpenDecisions: async () =>
             new DecisionService({ repository: new DecisionRepository(env.DB) }).queue(principalId),

@@ -21,7 +21,7 @@ import type {
   DigestInput,
   DigestProject,
 } from "../digest/digest-types.js";
-import type { Deadline } from "../deadlines/deadline-types.js";
+import type { Deadline, DeadlineSource } from "../deadlines/deadline-types.js";
 import type { DecisionItem } from "../decisions/decision-types.js";
 import { assessStaleness, type ProjectStalenessReport } from "../projects/stalled-detector.js";
 import { documentAt, type ProjectStatus } from "../projects/project-types.js";
@@ -31,6 +31,7 @@ const DEADLINE_HORIZON_DAYS = 7;
 
 export interface DigestSources {
   readDeadlines(withinDays: number): Promise<readonly Deadline[]>;
+  readDeadlineSources(): Promise<readonly DeadlineSource[]>;
   readProjectStatuses(): Promise<readonly ProjectStatus[]>;
   readOpenDecisions(): Promise<readonly DecisionItem[]>;
 }
@@ -59,6 +60,12 @@ export interface DigestJobDependencies {
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function deadlineSourceName(source: DeadlineSource): string {
+  if (source.kind === "classroom") return "Google Classroom";
+  if (source.kind === "brightspace") return "Brightspace";
+  return "Manual deadlines";
 }
 
 /**
@@ -142,11 +149,21 @@ export async function assembleDigest(
   // Read every source before composing, and read them all even when the
   // first one fails. Short-circuiting would mean one broken source hides
   // whether the others are broken too.
-  const [deadlines, projects, decisions] = await Promise.all([
+  const [deadlines, deadlineSources, projects, decisions] = await Promise.all([
     readOr("Deadlines", () => dependencies.sources.readDeadlines(DEADLINE_HORIZON_DAYS), gaps),
+    readOr("Deadline source health", () => dependencies.sources.readDeadlineSources(), gaps),
     readOr("Projects", () => dependencies.sources.readProjectStatuses(), gaps),
     readOr("Decision queue", () => dependencies.sources.readOpenDecisions(), gaps),
   ]);
+
+  // Keep the last known deadlines visible while saying that their source is
+  // stale. Dropping the deadlines would turn a sync fault into "nothing due".
+  for (const source of deadlineSources) {
+    if (!source.active || source.lastFailure === null) continue;
+    // The stored label is source data. Gap source names are structural text in
+    // the composer, so select a fixed label from the validated kind instead.
+    gaps.push({ source: deadlineSourceName(source), detail: source.lastFailure });
+  }
 
   // Staleness is derived here rather than stored, because "stale" is a
   // statement about now and a stored flag would be a statement about whenever
