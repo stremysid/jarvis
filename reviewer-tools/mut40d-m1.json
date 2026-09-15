@@ -1,0 +1,141 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr40",
+ "branch": "337c290",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0018_owner_call_step_up.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_bindings_insert_guard\n",
+   "to": "CREATE TRIGGER owner_call_step_up_bindings_insert_guard\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_windows_delete_forbidden",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0018_owner_call_step_up.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_windows_delete_forbidden\nBEFORE DELETE ON owner_call_step_up_windows\nBEGIN\n  SELECT RAISE(ABORT, 'owner_call_step_up_window_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_attempts_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0018_owner_call_step_up.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_attempts_insert_guard\nBEFORE INSERT ON owner_call_step_up_attempts\nWHEN EXISTS (\n  SELECT 1 FROM owner_call_step_up_attempts existing\n  WHERE existing.session_id = NEW.session_id\n    AND existing.lifecycle_generation = NEW.lifecycle_generation\n    AND existing.attempt_ordinal = NEW.attempt_ordinal\n) OR NOT EXISTS (\n  SELECT 1 FROM owner_call_step_up_windows window\n  JOIN call_sessions session ON session.session_id = window.session_id\n  JOIN owner_passphrase_heads head ON head.singleton_id = 1\n  JOIN owner_passphrase_verifiers verifier\n    ON verifier.owner_identity_id = head.owner_identity_id AND verifier.verifier_version = head.verifier_version\n  WHERE window.session_id = NEW.session_id\n    AND window.lifecycle_generation = NEW.lifecycle_generation\n    AND window.verifier_version = NEW.verifier_version\n    AND session.phase = 'pre_auth'\n    AND NEW.attempted_at >= window.prompted_at AND NEW.attempted_at < window.deadline_at\n    AND head.verifier_version = NEW.verifier_version AND head.status = 'active' AND verifier.status = 'active'\n    AND NEW.attempt_ordinal = 1 + (\n      SELECT count(*) FROM owner_call_step_up_attempts prior\n      WHERE prior.session_id = NEW.session_id AND prior.lifecycle_generation = NEW.lifecycle_generation\n    )\n    AND NOT EXISTS (\n      SELECT 1 FROM owner_call_step_up_attempts unresolved\n      WHERE unresolved.session_id = NEW.session_id AND unresolved.lifecycle_generation = NEW.lifecycle_generation\n        AND unresolved.outcome IS NULL\n    )\n    AND NOT EXISTS (SELECT 1 FROM owner_call_step_up_successes success WHERE success.session_id = NEW.session_id)\n    AND NOT EXISTS (SELECT 1 FROM owner_call_step_up_rejections rejection WHERE rejection.session_id = NEW.session_id)\n) OR NEW.outcome IS NOT NULL OR NEW.resolved_at IS NOT NULL\nBEGIN\n  SELECT RAISE(ABORT, 'owner_call_step_up_attempt_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_attempts_transition_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0018_owner_call_step_up.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_attempts_transition_guard\nBEFORE UPDATE ON owner_call_step_up_attempts\nWHEN NEW.session_id IS NOT OLD.session_id\n  OR NEW.lifecycle_generation IS NOT OLD.lifecycle_generation\n  OR NEW.attempt_ordinal IS NOT OLD.attempt_ordinal\n  OR NEW.verifier_version IS NOT OLD.verifier_version\n  OR NEW.attempted_at IS NOT OLD.attempted_at\n  OR OLD.outcome IS NOT NULL OR OLD.resolved_at IS NOT NULL\n  OR NEW.outcome IS NULL OR NEW.resolved_at IS NULL OR NEW.resolved_at < OLD.attempted_at\n  OR NOT EXISTS (\n    SELECT 1 FROM owner_call_step_up_windows window\n    JOIN call_sessions session ON session.session_id = window.session_id\n    JOIN owner_passphrase_heads head ON head.singleton_id = 1\n    JOIN owner_passphrase_verifiers verifier\n      ON verifier.owner_identity_id = head.owner_identity_id AND verifier.verifier_version = head.verifier_version\n    WHERE window.session_id = OLD.session_id AND window.lifecycle_generation = OLD.lifecycle_generation\n      AND session.phase = 'pre_auth' AND NEW.resolved_at < window.deadline_at\n      AND head.verifier_version = OLD.verifier_version AND head.status = 'active' AND verifier.status = 'active'\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'owner_call_step_up_attempt_transition_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_attempts_delete_forbidden",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0018_owner_call_step_up.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_attempts_delete_forbidden\nBEFORE DELETE ON owner_call_step_up_attempts\nBEGIN\n  SELECT RAISE(ABORT, 'owner_call_step_up_attempt_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_attempts_publish_match",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0018_owner_call_step_up.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_attempts_publish_match\nAFTER UPDATE OF outcome ON owner_call_step_up_attempts\nWHEN NEW.outcome = 'matched'\nBEGIN\n  INSERT INTO owner_call_step_up_successes (\n    session_id, lifecycle_generation, call_sid, direction, owner_principal_id,\n    owner_identity_id, verifier_version, attempt_ordinal, verified_at\n  )\n  SELECT binding.session_id, binding.lifecycle_generation, binding.call_sid, binding.direction,\n    binding.owner_principal_id, binding.owner_identity_id, NEW.verifier_version,\n    NEW.attempt_ordinal, NEW.resolved_at\n  FROM owner_call_step_up_bindings binding WHERE binding.session_id = NEW.session_id;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_successes_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0018_owner_call_step_up.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_successes_insert_guard\nBEFORE INSERT ON owner_call_step_up_successes\nWHEN EXISTS (\n  SELECT 1 FROM owner_call_step_up_successes existing\n  WHERE existing.session_id = NEW.session_id\n) OR NOT EXISTS (\n  SELECT 1 FROM owner_call_step_up_bindings binding\n  JOIN call_sessions session ON session.session_id = binding.session_id\n  JOIN owner_call_step_up_attempts attempt\n    ON attempt.session_id = binding.session_id AND attempt.lifecycle_generation = binding.lifecycle_generation\n  JOIN owner_passphrase_heads head ON head.singleton_id = 1\n  JOIN owner_passphrase_verifiers verifier\n    ON verifier.owner_identity_id = head.owner_identity_id AND verifier.verifier_version = head.verifier_version\n  WHERE binding.session_id = NEW.session_id\n    AND binding.lifecycle_generation = NEW.lifecycle_generation\n    AND binding.call_sid = NEW.call_sid AND binding.direction = NEW.direction\n    AND binding.owner_principal_id = NEW.owner_principal_id\n    AND binding.owner_identity_id = NEW.owner_identity_id\n    AND binding.requirement = 'required' AND session.phase = 'pre_auth'\n    AND attempt.attempt_ordinal = NEW.attempt_ordinal\n    AND attempt.verifier_version = NEW.verifier_version\n    AND attempt.outcome = 'matched' AND attempt.resolved_at = NEW.verified_at\n    AND head.owner_principal_id = NEW.owner_principal_id\n    AND head.owner_identity_id = NEW.owner_identity_id\n    AND head.verifier_version = NEW.verifier_version\n    AND head.status = 'active' AND verifier.status = 'active'\n)\nBEGIN\n  SELECT RAISE(ABORT, 'owner_call_step_up_success_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_successes_publish_authority",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0018_owner_call_step_up.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_successes_publish_authority\nAFTER INSERT ON owner_call_step_up_successes\nBEGIN\n  INSERT INTO call_session_authorities (\n    session_id, authority_kind, principal_id, identity_id, grant_id, grant_version,\n    access_document_hash, authenticated_at, expires_at\n  )\n  SELECT session.session_id, 'owner', session.principal_id, session.identity_id,\n    NULL, NULL, NULL, NEW.verified_at,\n    strftime('%Y-%m-%dT%H:%M:%fZ', session.provider_connected_at, '+1800 seconds')\n  FROM call_sessions session\n  WHERE session.session_id = NEW.session_id AND session.phase = 'pre_auth';\n\n  UPDATE call_sessions SET phase = 'authenticated', updated_at = NEW.verified_at\n  WHERE session_id = NEW.session_id AND phase = 'pre_auth';\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_successes_immutable",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0018_owner_call_step_up.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_successes_immutable\nBEFORE UPDATE ON owner_call_step_up_successes\nBEGIN\n  SELECT RAISE(ABORT, 'owner_call_step_up_success_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_successes_delete_forbidden",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0018_owner_call_step_up.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_successes_delete_forbidden\nBEFORE DELETE ON owner_call_step_up_successes\nBEGIN\n  SELECT RAISE(ABORT, 'owner_call_step_up_success_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_attempts_publish_exhaustion",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0018_owner_call_step_up.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_attempts_publish_exhaustion\nAFTER UPDATE OF outcome ON owner_call_step_up_attempts\nWHEN NEW.outcome = 'mismatched' AND NEW.attempt_ordinal = 3\nBEGIN\n  INSERT INTO owner_call_step_up_rejections (session_id, lifecycle_generation, reason, rejected_at)\n  VALUES (NEW.session_id, NEW.lifecycle_generation, 'attempts_exhausted', NEW.resolved_at);\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_reprompts_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0018_owner_call_step_up.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_reprompts_insert_guard\nBEFORE INSERT ON owner_call_step_up_reprompts\nWHEN EXISTS (\n  SELECT 1 FROM owner_call_step_up_reprompts existing\n  WHERE existing.session_id = NEW.session_id\n    AND existing.lifecycle_generation = NEW.lifecycle_generation\n    AND existing.reprompt_ordinal = NEW.reprompt_ordinal\n) OR NOT EXISTS (\n  SELECT 1 FROM owner_call_step_up_windows window\n  JOIN call_sessions session ON session.session_id = window.session_id\n  WHERE window.session_id = NEW.session_id AND window.lifecycle_generation = NEW.lifecycle_generation\n    AND session.phase = 'pre_auth'\n    AND NEW.prompted_at >= window.prompted_at AND NEW.prompted_at < window.deadline_at\n    AND NEW.reprompt_ordinal = 1 + (\n      SELECT count(*) FROM owner_call_step_up_reprompts prior\n      WHERE prior.session_id = NEW.session_id AND prior.lifecycle_generation = NEW.lifecycle_generation\n    )\n    AND NOT EXISTS (SELECT 1 FROM owner_call_step_up_successes success WHERE success.session_id = NEW.session_id)\n    AND NOT EXISTS (SELECT 1 FROM owner_call_step_up_rejections rejection WHERE rejection.session_id = NEW.session_id)\n)\nBEGIN\n  SELECT RAISE(ABORT, 'owner_call_step_up_reprompt_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_reprompts_delete_forbidden",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0018_owner_call_step_up.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_reprompts_delete_forbidden\nBEFORE DELETE ON owner_call_step_up_reprompts\nBEGIN\n  SELECT RAISE(ABORT, 'owner_call_step_up_reprompt_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_reprompts_immutable",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0018_owner_call_step_up.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_reprompts_immutable\nBEFORE UPDATE ON owner_call_step_up_reprompts\nBEGIN\n  SELECT RAISE(ABORT, 'owner_call_step_up_reprompt_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_reprompts_publish_exhaustion",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0018_owner_call_step_up.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_reprompts_publish_exhaustion\nAFTER INSERT ON owner_call_step_up_reprompts\nWHEN NEW.reprompt_ordinal = 3\nBEGIN\n  INSERT INTO owner_call_step_up_rejections (session_id, lifecycle_generation, reason, rejected_at)\n  VALUES (NEW.session_id, NEW.lifecycle_generation, 'reprompts_exhausted', NEW.prompted_at);\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts"
+   ]
+  }
+ ]
+}

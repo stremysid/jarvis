@@ -1,0 +1,18 @@
+checked out 337c290 at 337c290
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  4 passed (4)
+   Tests  174 passed (174)
+
+== T-owner_call_step_up_reprompts_publish_exhaustion: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts (15 tests | 1 failed) 19256ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 173 passed (174)
+   × caps non-candidate assembly re-prompts durably without spending mismatch attempts 1336ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-owner_call_step_up_reprompts_publish_exhaustion
+back on main, tree clean=true
+(node:21220) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

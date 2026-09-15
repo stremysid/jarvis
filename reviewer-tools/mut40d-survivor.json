@@ -1,0 +1,30 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr40",
+ "branch": "337c290",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0018_owner_call_step_up.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_bindings_insert_guard\n",
+   "to": "CREATE TRIGGER owner_call_step_up_bindings_insert_guard\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts",
+    "apps/cloud-gateway/test/voice/call-session-do.test.ts",
+    "tests/acceptance/fake/voice-owner-call-step-up.test.ts",
+    "tests/acceptance/fake/voice-owner-passphrase-security.test.ts"
+   ]
+  },
+  {
+   "id": "T-owner_call_step_up_reprompts_publish_exhaustion",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0018_owner_call_step_up.sql",
+   "from": "CREATE TRIGGER owner_call_step_up_reprompts_publish_exhaustion\nAFTER INSERT ON owner_call_step_up_reprompts\nWHEN NEW.reprompt_ordinal = 3\nBEGIN\n  INSERT INTO owner_call_step_up_rejections (session_id, lifecycle_generation, reason, rejected_at)\n  VALUES (NEW.session_id, NEW.lifecycle_generation, 'reprompts_exhausted', NEW.prompted_at);\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts",
+    "apps/cloud-gateway/test/voice/call-session-do.test.ts",
+    "tests/acceptance/fake/voice-owner-call-step-up.test.ts",
+    "tests/acceptance/fake/voice-owner-passphrase-security.test.ts"
+   ]
+  }
+ ]
+}

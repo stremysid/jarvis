@@ -1,0 +1,114 @@
+checked out 337c290 at 337c290
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  11 passed (11)
+
+== T-owner_call_step_up_windows_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 1 failed) 18179ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × pins the 60-second window guard and window immutability 925ms
+
+== T-owner_call_step_up_attempts_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 2 failed) 18639ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 9 passed (11)
+   × pins attempt reservation, one-way resolution, and deletion guards 861ms
+   × rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys 3373ms
+
+== T-owner_call_step_up_attempts_transition_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 1 failed) 13172ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × pins attempt reservation, one-way resolution, and deletion guards 976ms
+
+== T-owner_call_step_up_attempts_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 1 failed) 12121ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × pins attempt reservation, one-way resolution, and deletion guards 971ms
+
+== T-owner_call_step_up_attempts_publish_match: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 3 failed) 13372ms
+   Test Files  1 failed (1)
+   Tests  3 failed | 8 passed (11)
+   × pins success provenance plus immutable success receipts 2021ms
+   × pins repeat-check timing, one-way resolution, and deletion 1528ms
+   × rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys 1417ms
+
+== T-owner_call_step_up_successes_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 2 failed) 17271ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 9 passed (11)
+   × pins success provenance plus immutable success receipts 1097ms
+   × rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys 4155ms
+
+== T-owner_call_step_up_successes_publish_authority: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 2 failed) 17436ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 9 passed (11)
+   × pins repeat-check timing, one-way resolution, and deletion 1383ms
+   × rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys 1326ms
+
+== T-owner_call_step_up_successes_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 1 failed) 19474ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × pins success provenance plus immutable success receipts 3146ms
+
+== T-owner_call_step_up_successes_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 1 failed) 19792ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × pins success provenance plus immutable success receipts 4297ms
+
+== T-owner_call_step_up_attempts_publish_exhaustion: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 2 failed) 16935ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 9 passed (11)
+   × pins rejection provenance, terminalization, immutability, and deletion 1903ms
+   × rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys 2458ms
+
+== T-owner_call_step_up_reprompts_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 2 failed) 24117ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 9 passed (11)
+   × pins reprompt order, exhaustion, immutability, and deletion 1428ms
+   × rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys 4504ms
+
+== T-owner_call_step_up_reprompts_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 1 failed) 16018ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × pins reprompt order, exhaustion, immutability, and deletion 958ms
+
+== T-owner_call_step_up_reprompts_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 1 failed) 17525ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × pins reprompt order, exhaustion, immutability, and deletion 954ms
+
+== T-owner_call_step_up_reprompts_publish_exhaustion: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  11 passed (11)
+
+=== summary
+SURVIVED  BASE
+KILLED    T-owner_call_step_up_windows_delete_forbidden
+KILLED    T-owner_call_step_up_attempts_insert_guard
+KILLED    T-owner_call_step_up_attempts_transition_guard
+KILLED    T-owner_call_step_up_attempts_delete_forbidden
+KILLED    T-owner_call_step_up_attempts_publish_match
+KILLED    T-owner_call_step_up_successes_insert_guard
+KILLED    T-owner_call_step_up_successes_publish_authority
+KILLED    T-owner_call_step_up_successes_immutable
+KILLED    T-owner_call_step_up_successes_delete_forbidden
+KILLED    T-owner_call_step_up_attempts_publish_exhaustion
+KILLED    T-owner_call_step_up_reprompts_insert_guard
+KILLED    T-owner_call_step_up_reprompts_delete_forbidden
+KILLED    T-owner_call_step_up_reprompts_immutable
+SURVIVED  T-owner_call_step_up_reprompts_publish_exhaustion
+back on main, tree clean=true
+(node:13268) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

@@ -1,0 +1,107 @@
+checked out 337c290 at 337c290
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  11 passed (11)
+
+== T-owner_call_step_up_rejections_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 3 failed) 19778ms
+   Test Files  1 failed (1)
+   Tests  3 failed | 8 passed (11)
+   × pins success provenance plus immutable success receipts 5243ms
+   × pins rejection provenance, terminalization, immutability, and deletion 963ms
+   × rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys 3597ms
+
+== T-owner_call_step_up_rejections_terminalize: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 2 failed) 18086ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 9 passed (11)
+   × pins rejection provenance, terminalization, immutability, and deletion 1983ms
+   × rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys 2851ms
+
+== T-owner_call_step_up_rejections_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 1 failed) 19312ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × pins rejection provenance, terminalization, immutability, and deletion 1886ms
+
+== T-owner_call_step_up_rejections_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 1 failed) 18139ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × pins rejection provenance, terminalization, immutability, and deletion 3140ms
+
+== T-owner_call_step_up_repeat_checks_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 2 failed) 18327ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 9 passed (11)
+   × pins repeat-check timing, one-way resolution, and deletion 1928ms
+   × rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys 3765ms
+
+== T-owner_call_step_up_repeat_checks_transition_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 1 failed) 17287ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × pins repeat-check timing, one-way resolution, and deletion 1358ms
+
+== T-owner_call_step_up_repeat_checks_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 1 failed) 18974ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × pins repeat-check timing, one-way resolution, and deletion 1115ms
+
+== T-guest_call_pin_attempts_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 2 failed) 18270ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 9 passed (11)
+   × pins durable guest PIN attempt order, immutability, and deletion 2036ms
+   × rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys 4430ms
+
+== T-guest_call_pin_attempts_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 1 failed) 21401ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × pins durable guest PIN attempt order, immutability, and deletion 1594ms
+
+== T-guest_call_pin_attempts_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 1 failed) 13861ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × pins durable guest PIN attempt order, immutability, and deletion 1227ms
+
+== T-owner_call_step_up_alerts_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 1 failed) 12278ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys 2215ms
+
+== T-owner_call_step_up_alerts_key_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 1 failed) 16473ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys 3281ms
+
+== T-call_session_authorities_require_current_lineage: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/owner-call-step-up-migration.test.ts (11 tests | 1 failed) 18293ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × installs durable step-up tables and only remote-safe authority trigger syntax 121ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-owner_call_step_up_rejections_insert_guard
+KILLED    T-owner_call_step_up_rejections_terminalize
+KILLED    T-owner_call_step_up_rejections_immutable
+KILLED    T-owner_call_step_up_rejections_delete_forbidden
+KILLED    T-owner_call_step_up_repeat_checks_insert_guard
+KILLED    T-owner_call_step_up_repeat_checks_transition_guard
+KILLED    T-owner_call_step_up_repeat_checks_delete_forbidden
+KILLED    T-guest_call_pin_attempts_insert_guard
+KILLED    T-guest_call_pin_attempts_immutable
+KILLED    T-guest_call_pin_attempts_delete_forbidden
+KILLED    T-owner_call_step_up_alerts_insert_guard
+KILLED    T-owner_call_step_up_alerts_key_guard
+KILLED    T-call_session_authorities_require_current_lineage
+back on main, tree clean=true
+(node:13040) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
