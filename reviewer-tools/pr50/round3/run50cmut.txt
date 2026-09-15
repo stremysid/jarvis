@@ -1,0 +1,82 @@
+checked out 8b8515d at 8b8515d
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  32 passed (32)
+
+== R3a-whole-remainder-only: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (32 tests | 9 failed) 3918ms
+   Test Files  1 failed (1)
+   Tests  9 failed | 23 passed (32)
+   × refuses a meaning-flipping negation fragment before recording a command 93ms
+   × refuses a reported-speech fragment before recording a command 85ms
+   × refuses a conditional fragment before recording a command 85ms
+   × refuses a mid-word fragment before recording a command 84ms
+
+== R3b-shared-visibility-redaction: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (32 tests | 2 failed) 3339ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 30 passed (32)
+   × forgets and restores one memory with exact suppression counts while retaining raw evidence 240ms
+   × reports sibling memories hidden by a forget and a restore that remains suppressed 255ms
+
+== R3c-suppressed-recovery-recheck: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (32 tests | 1 failed) 3699ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 31 passed (32)
+   × does not complete an accepted remember command after its source turn is suppressed 324ms
+
+== R3d-apostrophe-normalization: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (32 tests | 1 failed) 3628ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 31 passed (32)
+   × normalizes an apostrophe lookalike only for whole-remainder comparison 17ms
+
+== R3e-zero-width-normalization: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (32 tests | 1 failed) 3680ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 31 passed (32)
+   × normalizes a zero-width character only for whole-remainder comparison 17ms
+
+== R3f-comma-prefix: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (32 tests | 4 failed) 2954ms
+   Test Files  1 failed (1)
+   Tests  4 failed | 28 passed (32)
+   × normalizes an apostrophe lookalike only for whole-remainder comparison 17ms
+   × normalizes a zero-width character only for whole-remainder comparison 15ms
+   × does not complete an accepted remember command after its source turn is suppressed 64ms
+   × reports sibling memories hidden by a forget and a restore that remains suppressed 10ms
+
+== R3g-source-excerpt-is-remainder: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (32 tests | 2 failed) 3507ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 30 passed (32)
+   × normalizes an apostrophe lookalike only for whole-remainder comparison 41ms
+   × normalizes a zero-width character only for whole-remainder comparison 42ms
+
+== R3h-ulid-redaction-passthrough: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (32 tests | 2 failed) 3965ms
+   Test Files  2 failed (2)
+   Tests  3 failed | 61 passed (64)
+   × preserves a canonical ULID whose random component contains six digits 4ms
+   × preserves a valid command ULID containing a six-digit run 24ms
+   × does not complete an accepted remember command after its source turn is suppressed 171ms
+
+== R3i-accepted-command-required: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  46 passed (46)
+
+=== summary
+SURVIVED  BASE
+KILLED    R3a-whole-remainder-only
+KILLED    R3b-shared-visibility-redaction
+KILLED    R3c-suppressed-recovery-recheck
+KILLED    R3d-apostrophe-normalization
+KILLED    R3e-zero-width-normalization
+KILLED    R3f-comma-prefix
+KILLED    R3g-source-excerpt-is-remainder
+KILLED    R3h-ulid-redaction-passthrough
+SURVIVED  R3i-accepted-command-required
+back on main, tree clean=true
+(node:16812) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
