@@ -234,7 +234,7 @@ describe("owner call passphrase step-up", () => {
       await call.prompt("hello after rejection");
 
       expect(call.frames().filter((frame) => frame.token === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
-      expect(call.frames().filter((frame) => frame.type === "end")).toHaveLength(1);
+      expect(call.frames().filter((frame) => (frame as { readonly type: string }).type === "end")).toHaveLength(1);
       expect(call.stepUpAlerts()).toHaveLength(1);
       expect(await env.DB.prepare(
         "SELECT count(*) AS count FROM owner_call_step_up_rejection_deliveries WHERE session_id = ?",
