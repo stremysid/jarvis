@@ -46,6 +46,142 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 00:44 UTC — Claude Opus 5, PR #39 max review at 4f2c1c0: changes requested
+
+Max review of the 0016 cloud-memory schema: 26 tables, 68 triggers and 5
+retrieval views, checked against the merged R2 design. After `c2fcc96`, the
+branch gained docs-only `86dd1ec`, then merge `6bafb80` and an AGENT_LOG
+resubmit (`4f2c1c0`). The schema and its tests are unchanged by those commits.
+
+**Local checks on c2fcc96** (Windows 11, `jarvis-deploy`):
+- `pnpm test`: 2,720 of 2,721 passed. The one failure is the known archival
+  tail-read timeout; it passes 46 of 46 in isolation.
+- Workspace typecheck, voice typecheck and lint pass.
+- local-agent: pytest 866 passed, 32 skipped; Ruff clean; mypy clean (56 files).
+
+**B1. The trigger "removal contract" is not evidence.**
+`cloud-memory-trigger-contract.test.ts` deletes each trigger's text from the
+SQL string, then asserts that the text is gone. It passes for any schema and
+exercises no database behavior, so the claim that "every trigger has a
+dedicated removal mutation" proves nothing. The reviewer ran the real test:
+each of the 68 `CREATE TRIGGER … END;` blocks was removed from
+`0016_cloud_memory.sql` in turn, and only the behavioral suite
+`cloud-memory-migration.test.ts` was run (`mut39-triggers.json` on
+`claude/reviewer-tools`). Result: **26 killed, 42 survived**, with 0 invalid runs. A kill counts only when a behavioral test actually failed. The reviewer's first run was discarded: its placeholder broke the migration apply, so every test skipped. This rerun removes each block cleanly. Each survivor needs a behavioral test that fails when the trigger is removed:
+- **29 of the 30 immutability triggers.** Only `memory_item_versions_immutable_update` is pinned. The survivors are both the `_immutable_update` and `_immutable_delete` triggers on `memory_items`, `memory_item_sources`, `memory_item_transitions`, `memory_event_suppressions`, `memory_event_suppression_lifts`, `memory_item_links`, `memory_topic_events`, `memory_topic_aliases`, `memory_item_placement_events`, `memory_episodes`, `memory_episode_sources`, `memory_history_coverage`, `memory_model_prices` and `memory_cost_ledger`, plus `memory_item_versions_immutable_delete`.
+- **6 insert guards:** `memory_item_versions`, `memory_item_links`, `memory_topics`, `memory_topic_aliases`, `memory_item_placement_events` and `memory_episode_sources`.
+- **7 projection and delete guards:** `memory_item_state_delete`, `memory_topics_delete`, `memory_item_placement_state_update`, `memory_item_placement_state_delete`, `memory_vectors_delete`, `memory_runs_delete` and `memory_reprocess_jobs_delete`.
+
+Every surviving trigger needs a behavioral test that fails when the trigger is
+removed. Keep the text-contract file only as a lint for `CASE … RAISE`, and
+don't cite it as mutation evidence.
+
+**Main merge verified.** `6bafb80` merges main at `2619f02`. `migration.ts` keeps
+both `applyCloudMemoryMigration` and `applyOwnerPassphraseMigration`, and the
+remote-syntax test lists 0014, 0015, 0016 and 0017. The tree against main
+contains only #39's 12 files, and no main AGENT_LOG line is lost.
+`0016_cloud_memory.sql` and `cloud-memory-migration.test.ts` are byte-identical
+to `c2fcc96`. The merged-tree suite on `4f2c1c0`: `pnpm test` passed 2,774 of 2,777. The 3 failures (the archival tail read, the voice guest PIN logs test and voice guest activation) are known load timeouts and pass 55 of 55 in isolation (both files). Typecheck passes.
+
+**Adversarial pass.** One Opus agent traced the SQL statically. The reviewer
+checked each High against the trigger text. The full report, with SQL
+sequences and one-line fixes, is `reviewer-tools/pr39-adversarial.md` on
+`claude/reviewer-tools`.
+
+**B2 (H1). Rules can bring back a forgotten or rejected item.** The transition
+guard (about lines 1224–1233) lets any actor move an item from
+`forgotten|rejected|superseded|expired` back to `proposed|active` whenever the
+version number rises. `rules` is barred only from writing
+`rejected|superseded|forgotten`. So a rules-written `active` transition on a
+new source-less version brings a forgotten memory back into retrieval. That
+breaks §9: rules and reprocessing "cannot overwrite an owner correction,
+confirmation or forget transition". Fix: require `actor = 'owner'` to leave
+`forgotten` or `rejected`.
+
+**B3 (H2). `INSERT OR REPLACE` bypasses the immutability and delete guards.**
+**Runtime-confirmed on `4f2c1c0`** (`pr39-h2-probe.test.ts`): `PRAGMA recursive_triggers` is 0. UPDATE and DELETE rewinds of `memory_cursors` are refused, but `INSERT OR REPLACE` rewinds the distillation cursor from 10 to 0. REPLACE deletes the conflicting row without firing DELETE triggers
+while `recursive_triggers` is off. No insert guard checks that the key is
+unused. That allows:
+- pointing an active suppression at a different event, which un-hides the
+  original with no lift row;
+- rewinding `memory_item_state` to an older active transition;
+- shrinking an in-flight cost reservation;
+- resetting a cursor to 0.
+
+Fix:
+- add `OR EXISTS (row with NEW's key)` to every ledger and projection insert
+  guard;
+- give `memory_cursors` an insert guard;
+- write `memory_item_state` as insert-if-absent plus a guarded UPDATE.
+
+**B4 (H3). A lift can reuse stale owner authority.** The lift guard (about
+1386–1416) never requires the correction transition to come after the
+`forgotten` transition, or to be the item's current transition. A raw-history
+lift may even reuse the suppression's own authorizing event. Fix:
+- the correction's `transition_number` must be greater than the forgotten
+  transition's, and equal to the current state's;
+- the lift's authorizing event must be newer than the suppression's.
+
+**B5 (H4). A topic update can replay an old move or merge.** The update guard
+(about 1705–1749) accepts any historical event that matches `OLD.parent`, so
+replaying a move creates a parent cycle. Both descendant CTEs (1519 and 1560)
+use `UNION ALL`, so the next move or merge on those topics never terminates.
+Fix:
+- require the topic's newest event, with the apply trigger as the sole writer;
+- use `UNION` with a depth bound.
+
+**B6 (H5). Episodes with missing or partial source rows stay retrievable after
+a covered turn is hidden.** `memory_retrievable_episodes` decides visibility
+only from existing `memory_episode_sources` rows. Fix: store `source_count`,
+require complete source rows inside the episode's sequence range, and have the
+view check the count.
+
+**B7 (M9 and M2). Money and owner authority.** Any historical owner
+`conversation.user_committed` event, such as an old "hi", authorizes forget,
+lift, owner topic operations and a reprocessing job with `spend_limit_micros`
+up to USD 1,000. It can be reused without limit. Normal distillation runs can
+also bill the `reprocessing` budget class, which escapes the USD 5 monthly pool,
+and job spend limits are never enforced. The design says each reprocessing
+limit is a one-time amount Sid approves. Fix:
+- bind owner authority to a dedicated owner-command event that names the
+  operation (and, for a job, the approved limit), newer than the target;
+- tie `budget_class='reprocessing'` to `run.job='reprocessing'` and to a
+  pending or running, non-dry-run job;
+- enforce the sum of the job's reservations against its limit.
+
+**Should-fix (see the report for SQL and fixes).**
+- M1: a settlement can exceed its reservation and a release is unbounded, so
+  net spend can go negative.
+- M3: `basis` can say `third_party` or `inferred` while `origin` claims certain
+  first-person, and rules can activate it.
+- M4: `memory_history_chunks` has no UPDATE guard, so narrowing a chunk's range
+  re-exposes hidden text.
+- M5: one live coverage row can claim any range, giving a false "complete,
+  nothing found".
+- M6: placement state can be rewound by replaying an old refile.
+- M7: a merge can record no alias, and an alias can point at an unrelated topic.
+- M8: source-less versions and `/remember` creation events are immune to
+  suppression.
+
+Lows L1–L9 are in the report.
+
+**D1 note (I1).** The recursive CTEs inside trigger WHEN clauses pass local
+Miniflare, but remote D1 acceptance is unproven. Prove the migration on a
+pre-created scratch remote database, Sid-attended, before applying it to
+production.
+
+**Pre-existing, outside 0016 (I2).** `events` has no UPDATE or DELETE guard, and
+every 0016 suppression join trusts `events.subject_id` and `sequence`. Track it
+as a separate reviewed migration.
+
+**#38 nits: resolved.** `would` and `I'd` are uncertain except in explicit
+`like/love/prefer/rather` preferences, with the same rule in TS and Python.
+Shared vectors now cover a decimal (`72.5`), an interior `!` and `Dr.`.
+
+Sid retains merge and migration authority. Nothing is applied or deployed.
+
+---
+
 ## 2026-09-15 00:31 UTC — GPT-5 Codex, PR #39 synchronized with current main and ready for max review
 
 GitHub reported a conflict after R1 PR #37 merged. I merged current `main` at
