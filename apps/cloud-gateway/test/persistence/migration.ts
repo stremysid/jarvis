@@ -14,11 +14,13 @@ import livenessSql from "../../src/persistence/migrations/0012_liveness.sql?raw"
 import scheduledRunsSql from "../../src/persistence/migrations/0013_scheduled_runs.sql?raw";
 import memoryProjectionSql from "../../src/persistence/migrations/0014_memory_projection.sql?raw";
 import voiceRuntimeSql from "../../src/persistence/migrations/0015_voice_runtime.sql?raw";
+import cloudMemorySql from "../../src/persistence/migrations/0016_cloud_memory.sql?raw";
 import ownerPassphraseSql from "../../src/persistence/migrations/0017_owner_passphrase.sql?raw";
 import ownerCallStepUpSql from "../../src/persistence/migrations/0018_owner_call_step_up.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
+let cloudMemoryMigrated: Promise<void> | undefined;
 let ownerPassphraseMigrated: Promise<void> | undefined;
 let ownerCallStepUpMigrated: Promise<void> | undefined;
 
@@ -94,6 +96,15 @@ export async function applyVoiceRuntimeMigration(): Promise<void> {
     { name: "0015_voice_runtime.sql", queries: splitMigration(voiceRuntimeSql) },
   ]);
   await voiceRuntimeMigrated;
+}
+
+/** Applies the reviewed cloud-memory schema only to the isolated D1 test binding. */
+export async function applyCloudMemoryMigration(): Promise<void> {
+  await applyVoiceRuntimeMigration();
+  cloudMemoryMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0016_cloud_memory.sql", queries: splitMigration(cloudMemorySql) },
+  ]);
+  await cloudMemoryMigrated;
 }
 
 /** Applies the owner-passphrase verifier schema after the current R1 runtime. */

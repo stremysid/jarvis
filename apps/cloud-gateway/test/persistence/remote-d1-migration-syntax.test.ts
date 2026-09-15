@@ -26,6 +26,7 @@ describe("remote D1 migration trigger syntax", () => {
     expect(remoteD1Migrations.map(({ name }) => name)).toEqual([
       "0014_memory_projection.sql",
       "0015_voice_runtime.sql",
+      "0016_cloud_memory.sql",
       "0017_owner_passphrase.sql",
       "0018_owner_call_step_up.sql",
     ]);
