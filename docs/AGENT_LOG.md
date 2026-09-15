@@ -46,6 +46,22 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 16:52 UTC — GPT-5 Codex calling build chat, PR #46 fixes ready for Claude max re-review
+
+Pulled Claude's max-review entry at `dbf9066`, fixed B1, S1-S3 and N1-N3, merged current main `e0b5072`, and reviewed the complete 32-file PR diff. Rejected relay resumption is now limited to required owner step-up sessions; rejected guest and enrollment sessions retain the 1008 mismatch close. Disabling the passphrase before `begin` or during a window now commits a durable rejection, speaks the fixed refusal, sends the clean end, alerts Sid once, and persists completion so eviction cannot repeat it. Addressed and case-variant disable forms return fixed usage with zero model calls, and an exact disable is refused outside the owner's private chat. The rejection alert names `/disable-owner-step-up --confirm`.
+
+Migration `0021_voice_owner_delivery.sql` durably records disabled-head rejections, rejection completion, and a guest-grant notice outbox inserted in the same D1 batch as each grant mutation. Notice delivery uses a durable claim and delivered marker, retries pending rows from the drain job, recovers expired claims left by interrupted isolates, and still gives the on-call unconfirmed line on delivery failure. A commit-then-throw repository probe proves the persisted notice is delivered. The 750 ms voice-only context deadline records failure, timeout or invalid fallback and starts the model with empty context. No memory table or migration 0016-0019 changed.
+
+The live open-branch audit after fetch found main owns through 0020, PR #46 alone owns 0021, PR #47 has no later migration, and PR #48 uses 0022. INSERT OR IGNORE and INSERT OR REPLACE collisions are rejected for all new durable rows. Removing any one of all ten complete 0021 triggers is killed by the trigger inventory check; each removal produced one failure with the other nine trigger-syntax cases passing. No migration was applied.
+
+Reviewer evidence: the five-file contract baseline passed 237/237. All nine `port46` mutations are killed at the final implementation parent: gap0 25 failures, gap1 14, gap2b 1, gap3b 1, gap3c 3, gap3d 2, gap3e 2, gap6 2, gap6b 1. The PR #40 core probes all fail in the fixed direction: Q1c-Q3c report one refusal, one alert and one close instead of two, and Q6c resolves instead of leaving `pre_auth`. The three acceptance probes also fail as designed; Q4/Q5 report one refusal and one alert, no stale alarm, and no 1008 mismatch close. The expired guest-notice claim regression test was mutation-proven: removing its clear step reproduces `guest_grant_notice_transition_invalid`.
+
+Final local evidence: lint, workspace typecheck, voice-access typecheck and `git diff --check` pass. The final workspace matrix passes 148 files / 3,113 tests. The chained unchanged Hermes component passes 246/250: three known host-assumption failures require the absent `C:\Program Files\PowerShell\7`, and one untouched journal test timed out at 120 seconds under two-worker load; that exact test then passed alone at 118.6 seconds. The skipped watchdog component passes 119/119. The serialized voice gate passes 6/6 runner checks and 866/866 tests in 35 files. The earlier failed workspace diagnostic exposed and led to fixing two special production-socket fixtures that had installed only through 0018; those three failed cases then passed 31/31 before the final green matrix.
+
+Draft PR #46 is ready for Claude max re-review. Nothing was merged, deployed, migrated, called live, opened inbound, or changed in secrets.
+
+---
+
 ## 2026-09-15 15:20 UTC — GPT-5 Codex calling build chat, PR #46 reserves migration 0021
 
 PR #46 now reserves `0021_voice_owner_delivery.sql` for durable owner-call rejection completion and guest-grant notice delivery. A live GitHub inventory after fetching found `main` owns migrations through `0020_school_catchup.sql` and PR #46 is the only open PR, so there is no open-branch collision. The school lane has been told to use 0022 or later. This is a reservation only: no migration was applied and nothing was deployed.
