@@ -43,6 +43,7 @@ import {
   VoiceAccessAuthorityService,
 } from "../../src/voice/voice-access-authority.js";
 import {
+  OWNER_STEP_UP_REJECTED,
   OWNER_STEP_UP_REPEAT_MS,
   OwnerCallStepUpService,
 } from "../../src/voice/owner-call-step-up.js";
@@ -701,6 +702,7 @@ async function accessHarness(
   const sendNeutralText = vi.fn<(text: string) => Promise<void>>(async () => undefined);
   const armOwnerStepUpAlarm = vi.fn(async () => undefined);
   const clearOwnerStepUpAlarm = vi.fn(async () => undefined);
+  const ownerStepUpAlert = vi.fn(async () => undefined);
   let currentNow = new Date(NOW);
   const instance = new CallSessionCore({
     capacity,
@@ -712,6 +714,7 @@ async function accessHarness(
     activation: null,
     ownerAccess,
     ownerStepUp,
+    ownerStepUpAlerts: { alert: ownerStepUpAlert },
     ownerStepUpAlarm: { arm: armOwnerStepUpAlarm, clear: clearOwnerStepUpAlarm },
     conversation,
     relay: {
@@ -736,6 +739,7 @@ async function accessHarness(
     sendNeutralText,
     armOwnerStepUpAlarm,
     clearOwnerStepUpAlarm,
+    ownerStepUpAlert,
     advanceTime(milliseconds: number) {
       currentNow = new Date(currentNow.valueOf() + milliseconds);
     },
@@ -1114,6 +1118,38 @@ describe("CallSessionCore owner and guest access", () => {
     } finally {
       releaseVerifier();
       spy.mockRestore();
+    }
+  }, 15_000);
+
+  it("delivers the refusal before waiting for the rejection alert sink", async () => {
+    const harness = await accessHarness("owner", undefined, true);
+    let announceAlert!: () => void;
+    let releaseAlert!: () => void;
+    const alertStarted = new Promise<void>((resolve) => { announceAlert = resolve; });
+    const alertBlocked = new Promise<void>((resolve) => { releaseAlert = resolve; });
+    harness.ownerStepUpAlert.mockImplementation(async () => {
+      announceAlert();
+      await alertBlocked;
+    });
+    try {
+      await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+      await harness.instance.handleRelayEvent({
+        type: "prompt", final: true, language: "en-US", text: "ablaze abrasion active",
+      });
+      await harness.instance.handleRelayEvent({
+        type: "prompt", final: true, language: "en-US", text: "ablaze abrasion activist",
+      });
+      const terminal = harness.instance.handleRelayEvent({
+        type: "prompt", final: true, language: "en-US", text: "ablaze abrasion activity",
+      });
+      await alertStarted;
+
+      expect(harness.sendNeutralText).toHaveBeenCalledWith(OWNER_STEP_UP_REJECTED);
+      expect(harness.close).toHaveBeenCalledWith(1008);
+      releaseAlert();
+      await terminal;
+    } finally {
+      releaseAlert();
     }
   }, 15_000);
 
