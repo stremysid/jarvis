@@ -58,6 +58,15 @@ export class D1GuestGrantNoticeSink implements GuestGrantNoticeSink {
     if (existing === null) throw new Error("guest_grant_notice_missing");
     if (existing.status === "delivered") return;
 
+    // A crashed sender leaves its claim until this deadline. Clear only that
+    // expired claim first: the transition trigger intentionally forbids one
+    // claimant from overwriting another claimant in a single update.
+    await this.database.prepare(`UPDATE guest_grant_notices
+      SET claim_id = NULL, claim_expires_at = NULL
+      WHERE mutation_id = ? AND status = 'pending'
+        AND claim_id IS NOT NULL AND claim_expires_at <= ?`)
+      .bind(input.mutationId, at).run();
+
     const claimId = crypto.randomUUID();
     const claimExpiresAt = new Date(input.now.valueOf() + 30_000).toISOString();
     const claimed = await this.database.prepare(`UPDATE guest_grant_notices

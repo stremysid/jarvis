@@ -1,5 +1,5 @@
 -- Durable owner-call refusal delivery and guest-grant Telegram notices.
--- Migration 0020 is owned by the open school catch-up branch.
+-- Migration 0020 is already present on main.
 
 CREATE TABLE owner_call_step_up_disabled_rejections (
   session_id TEXT PRIMARY KEY REFERENCES owner_call_step_up_bindings(session_id) ON DELETE RESTRICT,

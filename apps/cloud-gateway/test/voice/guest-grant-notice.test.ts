@@ -75,4 +75,22 @@ describe("D1GuestGrantNoticeSink", () => {
     expect(sendMessage).toHaveBeenCalledTimes(2);
     expect(sendMessage.mock.calls[0]?.[0].idempotencyKey).toBe(sendMessage.mock.calls[1]?.[0].idempotencyKey);
   });
+
+  it("reclaims an expired delivery claim left by an interrupted isolate", async () => {
+    const expiresAt = new Date(NOW.valueOf() + 1_000);
+    await env.DB.prepare(`UPDATE guest_grant_notices
+      SET claim_id = 'interrupted-isolate', claim_expires_at = ?
+      WHERE mutation_id = ?`).bind(expiresAt.toISOString(), MUTATION_ID).run();
+    const sendMessage = vi.fn(async () => ({ providerMessageId: "903" }));
+    const sink = new D1GuestGrantNoticeSink(env.DB, { sendMessage });
+
+    await sink.notify({ mutationId: MUTATION_ID, now: new Date(expiresAt.valueOf() + 1) });
+
+    expect(sendMessage).toHaveBeenCalledOnce();
+    await expect(env.DB.prepare(
+      "SELECT status, claim_id, provider_message_id FROM guest_grant_notices WHERE mutation_id = ?",
+    ).bind(MUTATION_ID).first()).resolves.toMatchObject({
+      status: "delivered", claim_id: null, provider_message_id: "903",
+    });
+  });
 });
