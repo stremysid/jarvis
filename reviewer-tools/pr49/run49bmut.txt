@@ -1,0 +1,131 @@
+checked out f5292c7 at f5292c7
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  32 passed (32)
+
+== C1-bs-redirect-error: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/deadlines/brightspace-ical-client.test.ts (22 tests | 2 failed) 54ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  2 failed | 30 passed (32)
+   × makes one bounded non-cached GET to the configured URL and follows no calendar field 28ms
+   × refuses a 302 response without following its location 3ms
+
+== C2-bs-3xx-check: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/deadlines/brightspace-ical-client.test.ts (22 tests | 1 failed) 33ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 31 passed (32)
+   × refuses a 302 response without following its location 4ms
+
+== C3-invalid-component-ingested: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  32 passed (32)
+
+== C4-duplicate-uid: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/deadlines/brightspace-ical-client.test.ts (22 tests | 1 failed) 38ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 31 passed (32)
+   × rejects malformed components without dropping valid neighbours 6ms
+
+== C5-timeout-loser-catch: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  22 passed (22)
+
+== C6-dst-gap-shift: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/deadlines/brightspace-ical-client.test.ts (22 tests | 1 failed) 30ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 21 passed (22)
+   × accepts extension underscores, chooses the first CATEGORIES property, resolves DST gaps, and isolates an unknown TZID 5ms
+
+== C7-vtimezone-alias: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/deadlines/brightspace-ical-client.test.ts (22 tests | 1 failed) 30ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 21 passed (22)
+   × uses an IANA location declared by VTIMEZONE for a custom TZID 4ms
+
+== C8-timezone-code: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (10 tests | 1 failed) 2959ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 31 passed (32)
+   × records an owner configuration error without contacting the private feed 142ms
+
+== J1-window-past-bound: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (10 tests | 1 failed) 1737ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 9 passed (10)
+   × keeps a 600-component feed under the D1 budget by ingesting only the bounded date window 157ms
+
+== J2-window-cap: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  10 passed (10)
+
+== J3-archive-isolation: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (10 tests | 1 failed) 4182ms
+   Test Files  2 failed | 2 passed (4)
+   Tests  2 failed | 31 passed (33)
+   × isolates an upload failure without sealing, purging, or skipping later hourly work 677ms
+   × continues source polling when archival fails 182ms
+
+== G1-oauth-redirect-error: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/deadlines/google-oauth.test.ts (5 tests | 2 failed) 35ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  2 failed | 9 passed (11)
+   × exchanges the refresh token at Google's fixed endpoint and caches the short-lived token 28ms
+   × refuses a token-endpoint redirect without following its location 3ms
+
+== G2-oauth-3xx-refusal: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  11 passed (11)
+
+== P1-capacity-redirect-error: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/providers/capacity-readers.test.ts (46 tests | 2 failed) 56ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 44 passed (46)
+   × reads current credit from the fixed balance endpoint and timestamps the start of the read 30ms
+   × reads one account-wide totalprice record for the current UTC day and preserves its actual as_of 2ms
+
+== I1-cancel-vs-present-item: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  28 passed (28)
+
+== R1-cancel-only-open: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  48 passed (48)
+
+== R2-unchanged-touches-last-seen: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/deadlines/deadline-ingestion.test.ts (18 tests | 1 failed) 1333ms
+   Test Files  2 failed | 2 passed (4)
+   Tests  3 failed | 51 passed (54)
+   × appends no revision when a sweep sees the same deadline again, and advances only when it was last seen 59ms
+   × names the open deadlines a sweep did not mention without touching them 64ms
+   × leaves a deadline that stops appearing exactly as it was and names it in the report 87ms
+
+== D1-removed-config-detail: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/digest-job.test.ts (17 tests | 1 failed) 33ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 26 passed (27)
+   × calls removed Brightspace configuration last-known instead of not set up 6ms
+
+=== summary
+SURVIVED  BASE
+KILLED    C1-bs-redirect-error
+KILLED    C2-bs-3xx-check
+SURVIVED  C3-invalid-component-ingested
+KILLED    C4-duplicate-uid
+SURVIVED  C5-timeout-loser-catch
+KILLED    C6-dst-gap-shift
+KILLED    C7-vtimezone-alias
+KILLED    C8-timezone-code
+KILLED    J1-window-past-bound
+SURVIVED  J2-window-cap
+KILLED    J3-archive-isolation
+KILLED    G1-oauth-redirect-error
+SURVIVED  G2-oauth-3xx-refusal
+KILLED    P1-capacity-redirect-error
+SURVIVED  I1-cancel-vs-present-item
+SURVIVED  R1-cancel-only-open
+KILLED    R2-unchanged-touches-last-seen
+KILLED    D1-removed-config-detail
+back on main, tree clean=true
+(node:20976) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

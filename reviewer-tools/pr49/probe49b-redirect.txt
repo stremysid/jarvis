@@ -1,0 +1,13 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/deadlines/zz-reviewer-pr49-redirect.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr39
+
+Using secrets defined in process.env
+uncaught exception; source = Uncaught (in promise); stack = Error: internal error; reference = vjtmjsoa9rsn3brobqrikhjc
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  14:22:31
+   Duration  842ms (transform 26ms, setup 0ms, import 40ms, tests 173ms, environment 0ms)
+

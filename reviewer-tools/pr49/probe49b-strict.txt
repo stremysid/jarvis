@@ -1,0 +1,44 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/deadlines/zz-reviewer-pr49-strict.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr39
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/deadlines/zz-reviewer-pr49-strict.test.ts (6 tests | 5 failed) 22ms
+     × S1a_unknown_escape fails the whole feed 4ms
+     × S1b_windows_tzid fails the whole feed 11ms
+     × S1c_underscore_property fails the whole feed 1ms
+     × S1d_dst_gap fails the whole feed 1ms
+     × S1e_duplicate_uid fails the whole feed 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/deadlines/zz-reviewer-pr49-strict.test.ts > zz reviewer pr49 strict > S1a_unknown_escape fails the whole feed
+ FAIL  |default| apps/cloud-gateway/test/deadlines/zz-reviewer-pr49-strict.test.ts > zz reviewer pr49 strict > S1b_windows_tzid fails the whole feed
+ FAIL  |default| apps/cloud-gateway/test/deadlines/zz-reviewer-pr49-strict.test.ts > zz reviewer pr49 strict > S1c_underscore_property fails the whole feed
+ FAIL  |default| apps/cloud-gateway/test/deadlines/zz-reviewer-pr49-strict.test.ts > zz reviewer pr49 strict > S1d_dst_gap fails the whole feed
+ FAIL  |default| apps/cloud-gateway/test/deadlines/zz-reviewer-pr49-strict.test.ts > zz reviewer pr49 strict > S1e_duplicate_uid fails the whole feed
+AssertionError: expected [Function] to throw an error
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ apps/cloud-gateway/test/deadlines/zz-reviewer-pr49-strict.test.ts:21:76
+     19|   for (const [name, odd] of Object.entries(cases)) {
+     20|     it(`${name} fails the whole feed`, () => {
+     21|       expect(() => parseBrightspaceCalendar(feed(odd), "America/Toront…
+       |                                                                            ^
+     22|     });
+     23|   }
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 1 passed (6)
+   Start at  14:22:34
+   Duration  721ms (transform 26ms, setup 0ms, import 40ms, tests 22ms, environment 0ms)
+
