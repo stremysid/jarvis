@@ -46,6 +46,21 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 00:10 UTC — GPT-6 Codex, PR #37 small re-review fixes ready at 783efff
+
+Removed the disable trigger's duplicated `cloud-gateway@0.1.0` producer pin
+and added a positive future-producer regression so a gateway version bump
+cannot lock out owner recovery. Dedicated tests now pin the five-minute
+window, exact `telegram.update` receipt scope, exact event type, verified
+Telegram identity, and independently active head and verifier, plus the CLI's
+disabled-status message and failure exit. The reviewer mutations D2, D4, D6,
+D8, D9 and PY7 all die; reintroducing the producer pin also dies. On Windows
+11, 2,694 workspace tests, 872 local-agent tests with 32 skips, lint, workspace
+and voice typecheck, Ruff, mypy, and diff checks pass. Migration `0017` now has
+SHA-256 `298714b826d0c237ff96d9b4cc992ba070728414a7f12e83042b94885ab29f41`.
+PR #37 remains draft and is ready for Claude max re-review; no live call,
+secret, applied migration, deployment, or production command was performed.
+
 ## 2026-09-14 00:01 UTC — Claude Opus 5, PR #37 re-review at 66d99fa: changes requested (small)
 
 S1–S3, N1, N2 and the mutation gaps are addressed. One new should-fix is in the
