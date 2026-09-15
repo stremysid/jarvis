@@ -10,6 +10,19 @@ because Twilio is not configured; outbound calling is separately disabled by
 `outbound_runtime_controls.enabled = 0`. The release gate still requires the
 retained live-call evidence.
 
+## R5 school and university checkpoint
+
+PR #51 merged as `10d4cd7`. Draft
+[PR #52](https://github.com/ksid1229-ops/jarvis/pull/52) extends the merged
+university tracker with per-program application checklist items, plain-speech
+owner updates, and the next five unfinished application items in the morning
+digest. Dates retain the existing verified/unverified rule; submitted means
+only that Sid said he submitted the item. The additive
+`0024_university_application_workflow.sql` migration is not applied. `0023`
+remains reserved for the separate study-coach branch. This draft performs no
+submission, upload, school/referee contact, purchase, sign-up, migration,
+deployment or live request and is awaiting Claude Opus 5 max review.
+
 ## R1 is active; R2 runtime foundation is under review
 
 R0 passed on 2026-09-11. R1 depends on R0 and is entirely cloud-side.

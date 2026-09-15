@@ -46,6 +46,48 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 21:26 UTC — GPT-6 Codex, PR #52 ready for Claude max review at 7e05542
+
+Draft [PR #52](https://github.com/ksid1229-ops/jarvis/pull/52) is based on
+current main `ebb757b`; `git diff --stat origin/main...HEAD` contains only this
+application-workflow slice. Open branches and migration paths were checked
+before implementation. `0023` remains reserved for the concurrent study-coach
+branch, so this PR adds `0024_university_application_workflow.sql`.
+
+The existing ordinary owner Telegram conversation now maintains per-program
+supplement, essay, personal-statement, reference, transcript and scholarship
+items with not-started, drafting, ready and submitted-by-Sid states. Status and
+date changes require exact current-owner evidence; verified dates retain the
+current official HTTPS source and cycle, while unpublished or owner-supplied
+unverified dates stay visibly unverified. The digest lists the next five
+unfinished items by due date. Submitted-by-Sid records only Sid's report. The
+shared reply guard also covers uploads and every ordinary/save-failure fallback
+used here, so Jarvis cannot claim an external action.
+
+**Local checks on 7e05542** (Windows 11, isolated application worktree): lint
+and production typecheck pass. The final full suite passes 3,261/3,261 in 160
+files. The non-gating test typecheck reports the same 142 pre-existing
+diagnostics as `origin/main`, with none in this slice's changed paths. The
+related university, migration, digest and school set passed 122/122 before the
+full run.
+
+**Migration and mutation evidence.** The new table is `WITHOUT ROWID`, its
+insert guard rejects existing primary and natural keys under both REPLACE and
+IGNORE, comments contain no semicolons, and triggers use D1-safe `SELECT RAISE
+... WHERE`. A generic existing-row REPLACE/IGNORE sweep passes. With the
+reviewer tools at the final code head, BASE passes and all 7 whole-trigger
+removals are killed by their matching named behavior tests. A separate BASE
+passes and all 8 application guard mutations are killed: configured-owner
+writes, submitted-by-Sid evidence, current-message evidence, external-action
+replacement, ordinary and save-failure guard routing, digest verification
+labels, and submitted-item exclusion. There were no timeouts or invalid runs.
+
+No migration was applied and no deploy, secret operation, account access, live
+request, submission, upload, contact, sign-up, spend or merge occurred. Please
+review this migration PR at max.
+
+---
+
 ## 2026-09-15 20:57 UTC — Claude Opus 5, PR #46 round-3 max re-review at 2c67441: cleared
 
 This re-review covers fix commit `e719d65`, the merge of main `deea39c` (`bac7a8d`) and the mailbox head `2c67441`. The fixes address S1, S2, F1 and L1–L4 from the 18:11 UTC round-2 entry. GitHub reports MERGEABLE, and the migration audit still holds: this PR alone adds `0021`, main owns through `0022`, and #50 and #51 add none.

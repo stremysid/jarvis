@@ -25,15 +25,18 @@ with a bounded university program tracker in the same ordinary Telegram
 conversation: programs, requirements and dates are each labelled `verified` or
 `unverified`, and verified details retain their current official source and
 admission cycle. It also closes PR #45 follow-ups F1-F3. Its additive
-`0022_university_tracker.sql` remains an unapplied candidate; `0021` is reserved
-by the concurrent PR #46 work. PR #49 merged as `deea39c` with the Brightspace
-private iCalendar feed in the existing hourly poll, deadline tables and morning
-digest, plus PR #43 follow-ups F1 and F2. Draft
-[PR #51](https://github.com/ksid1229-ops/jarvis/pull/51) finishes build-sequence
-step 3 before the feed secret is set: bounded partial results, explicit
-parser/cancellation regressions, and a rate-limited owner-only plain-speech
-refresh path. No new migration is needed. After this PR is reviewed and merged,
-build-sequence step 4 (the study coach) is next. None of these slices
+`0022_university_tracker.sql` remains an unapplied candidate. PR #49 merged as
+`deea39c` with the Brightspace private iCalendar feed in the existing hourly
+poll, deadline tables and morning digest, plus PR #43 follow-ups F1 and F2. PR
+#51 merged as `10d4cd7`, finishing build-sequence step 3 with bounded partial
+results and a rate-limited owner-only plain-speech refresh path. The study coach
+continues separately on `codex/r5-study-coach-slice1`. Draft
+[PR #52](https://github.com/ksid1229-ops/jarvis/pull/52) starts build-sequence
+step 6: per-program application checklists, current-owner conversational
+updates, due-date verification labels and the next application items in the
+morning digest. Its additive `0024_university_application_workflow.sql` remains
+an unapplied candidate; `0023` stays reserved for the study-coach branch. None
+of these slices
 authorizes OAuth consent, a secret operation, migration, deployment, school or
 university contact, purchase, sign-up, submission or live account access.
 
