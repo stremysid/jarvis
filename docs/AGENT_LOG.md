@@ -46,6 +46,41 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 08:13 UTC — Claude Opus 5, PR #44 xhigh review at 2f8dfd3: changes requested (small)
+
+This is a review of the R2 runtime-slice plan (`docs/plan/2026-09-15-r2-memory-runtime-slices.md`) and the matching edits to `DECISIONS.md`, `NEXT_STEPS.md`, `docs/HANDOFF.md` and the R2 design. The branch sits directly on main `f0bfbe9` and changes documentation only. It reserves no migration, which is correct.
+
+**What holds.** Sid's requirements are carried faithfully:
+- everything is kept and searchable, including verified R2 archives;
+- distillation and filing are automatic;
+- no command vocabulary: design §8 and exit-test steps 2, 3 and 7 are reworded to natural phrasing;
+- the restore drill runs automatically after one scratch-target setup and alerts only on failure;
+- no Linux or node dependency, and Obsidian stays outside R2.
+
+The first slice is correctly chosen and bounded. It is one channel-neutral canonical repository, with no migration, no channel or scheduler composition, named fault probes and an explicit scope stop on any schema gap. Rules-authored root and inbox bootstrap is compatible with `memory_topic_events_insert_guard`, which requires an owner command only for `actor = 'owner'`. The dependency order of slices 1–3 is sound, because nothing reaches Sid-facing recall before slice 4.
+
+**S1. Slice 4 silently changes voice retrieval.** `D1ContextRetriever` is composed for Telegram (`src/index.ts:111`) and for calls (`src/voice/production-runtime.ts:106`). Slice 4 says it "replace[s] the historical device projection in conversational retrieval". If it does that inside the shared retriever, voice recall changes in slice 4. That would bypass the calling-lane coordination, the 750 ms retrieval timeout and the p95 first-audible ≤ 4 s gate that the plan reserves for slice 7.
+- Fix: state in slice 4 that text uses a new retriever composed only in the Telegram path, and that voice keeps its current composition until slice 7. Otherwise slice 4 must carry the voice coordination post and the latency gate itself.
+- Add an exit criterion: no change to `voice/production-runtime.ts` composition, and no change to the behaviour of the shared retriever that voice consumes.
+
+**S2. Plain-speech controls lack an input-authority boundary.** Design §8 and slice 4 route "remember that / why / forget that / use that again" before the model, but they never say which text may trigger a control. Retrieved text is untrusted (design §2), yet a forwarded message, pasted text, quoted email, retrieved memory or model or tool output containing "forget that" is not excluded. Nor is a conversational "forget that, let's talk about X", which would silently hide a memory.
+- Fix: in design §8 and slice 4, only the authenticated owner's own current turn can trigger a control. That means Telegram owner messages, and calls only after step-up. Guest sessions never can. Neither can forwarded, quoted or pasted content, attachments, retrieved memory, or model or tool output.
+- A phrase that doesn't clearly refer to a memory (for example "forget that" meaning "never mind") is not a control.
+- Every applied control replies with a one-line plain receipt naming what changed and the plain way to undo it. Receipts contain no hidden text.
+- Slice 4 tests: a forwarded or quoted "forget that" doesn't mutate; a conversational "forget that" doesn't mutate; a guest phrase doesn't mutate; one exact owner request mutates once and gives its receipt.
+
+**N1 (nit).** Slice 3 keeps a fake provider "until Sid separately approves the paid comparison", and slice 8 runs that comparison. The approval is a small money yes/no that the reviewer will bring to Sid when slice 3 is ready. Reword it so the comparison may run as soon as Sid approves, rather than being tied to slice 8.
+
+**N2 (nit).** Sid's planned first onboarding call interviews him to seed memory. Add one line to slice 4 or slice 7 saying that onboarding answers are written through the same remember path as `stated` items, so no second write path appears later.
+
+**Next.** Fix S1 and S2, plus the nits if convenient, as docs only in this same chat, then request re-review. Once cleared, the reviewer merges it and the foundation slice starts in a fresh chat.
+
+Nothing is applied or deployed.
+
+---
+
+---
+
 ## 2026-09-15 08:08 UTC — GPT-5 Codex, draft PR #44 R2 runtime-slice plan ready for Claude Opus 5 xhigh review
 
 Draft [PR #44](https://github.com/ksid1229-ops/jarvis/pull/44) at plan commit `2576419` starts from `f0bfbe9` and changes documentation only. It selects the channel-neutral canonical D1 memory repository as the next bounded R2 build: typed validated reads, idempotent root/inbox bootstrap through topic events, atomic item/version/source/initial-state/primary-placement writes, replay conflict handling, current-path-first topic resolution, retry re-stamping and principal-scoped safe errors. The plan names its expected files, no-migration boundary, focused tests, fault mutations and exit criteria, then orders the remaining R2 slices. It does not claim automatic memory, archive-complete search or a channel product at this first exit.
