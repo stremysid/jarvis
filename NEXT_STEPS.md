@@ -15,36 +15,37 @@ quiz/flashcard coach, and the full university-application track. R5 deadline
 ingestion depends on the deployed R0 gateway, not on PC control; its
 evidence-based weak-spot memory integrates with R2 as that interface lands.
 
-The plan cleared in merged PR #41 and Classroom hourly ingestion merged in PR
-#43. The current first code slice adds the live bot's conversational course
-intake, one evidence-labelled card per course, a replanned daily recovery
-sequence, and today's actions in the morning digest. It uses the existing
-Telegram conversation stack and does not wait for R2 or a school connector.
-Its additive `0020_school_catchup.sql` remains an unapplied candidate until
-review and owner-controlled merge and migration steps. Next: a minimal program
-tracker with current official requirements and dates labelled verified or
-unverified. The Brightspace calendar feed remains a separate PR; none of these
-slices authorizes OAuth consent, a secret operation, migration, deployment,
-school contact or live account access.
+The plan cleared in merged PR #41, Classroom hourly ingestion merged in PR #43,
+and the first conversational school slice merged in PR #45 as `e0b5072`. The
+live bot can now maintain one evidence-labelled card per course, replan the
+daily recovery sequence, and put today's actions in the morning digest. Its
+additive `0020_school_catchup.sql` remains an unapplied candidate pending the
+owner-controlled migration steps. Next: a minimal program tracker with current
+official requirements and dates labelled verified or unverified. The
+Brightspace calendar feed remains a separate PR; none of these slices
+authorizes OAuth consent, a secret operation, migration, deployment, school
+contact or live account access.
 
 ## R2 cloud-memory runtime next
 
 [PR #39](https://github.com/ksid1229-ops/jarvis/pull/39) merged as `0d659bf`
 with additive migration `0016_cloud_memory.sql`.
 [PR #42](https://github.com/ksid1229-ops/jarvis/pull/42) merged as `f0bfbe9`
-with migration `0019_memory_ingress.sql`. Main owns migration names through
-`0019`; none of `0016` through `0019` has been applied by this work. The
-Sid-attended scratch remote-D1 proof remains mandatory before any production
-apply.
+with migration `0019_memory_ingress.sql`. PR #44 merged the reviewed runtime
+slice plan as `3e28bda`, and school PR #45 brought main to `e0b5072` with
+`0020_school_catchup.sql`. Main owns migration names through `0020`; none of
+`0016` through `0020` has been applied by this R2 work. The Sid-attended scratch
+remote-D1 proof remains mandatory before any production apply.
 
-The next buildable R2 slice is the channel-neutral canonical memory repository
-in
-[`docs/plan/2026-09-15-r2-memory-runtime-slices.md`](docs/plan/2026-09-15-r2-memory-runtime-slices.md).
-It uses `0016` and `0019`, claims no migration, and does not touch Telegram,
-voice, calls, providers, scheduled jobs or live systems. Archive-complete
-search, automatic distillation, plain-speech channel controls, meaning search,
-automatic restore drills and voice integration follow in the dependency order
-recorded there.
+Draft [PR #47](https://github.com/ksid1229-ops/jarvis/pull/47) implements the
+first runtime slice in
+[`docs/plan/2026-09-15-r2-memory-runtime-slices.md`](docs/plan/2026-09-15-r2-memory-runtime-slices.md):
+the channel-neutral canonical D1 repository, exact source validation, atomic
+initial writes, canonical reads, root/inbox bootstrap and current-path-first
+topic resolution. It claims no migration and has no Telegram, voice, calls,
+provider, scheduler, Vectorize or archive-index composition. After review and
+merge, the next R2 PR is the channel-neutral owner-controls service. The later
+dependency order remains unchanged.
 
 ## R2 item 3: fact projection
 
@@ -255,17 +256,19 @@ R2 archive segments. Obsidian remains a later optional one-way export outside
 R2.
 
 PRs #35, #36 and #38 established the pure policy and approved design. PR #39
-merged the `0016` schema and PR #42 merged the `0019` ingress guard. No runtime
-writer, archive-complete indexer, automatic distillation Workflow or channel
-adapter exists yet. Sid uses ordinary speech and text for remember, why,
-forget and lift actions; slash commands are at most hidden fallbacks. After
-one reviewed scratch-target setup, restore drills run automatically and alert
-Sid only on failure.
+merged the `0016` schema, PR #42 merged the `0019` ingress guard, and PR #44
+merged the runtime-slice plan. Draft PR #47 contains the first uncomposed
+channel-neutral repository; no runtime writer is merged or exposed to a channel
+yet. No archive-complete indexer or automatic distillation Workflow exists.
+Sid uses ordinary speech and text for remember, why, forget and lift actions;
+slash commands are at most hidden fallbacks. After one reviewed scratch-target
+setup, restore drills run automatically and alert Sid only on failure.
 
-Build the channel-neutral runtime foundation next, following
-[`docs/plan/2026-09-15-r2-memory-runtime-slices.md`](docs/plan/2026-09-15-r2-memory-runtime-slices.md).
-No live model comparison runs without Sid's explicit approval. R1 and R5 remain
-independent cloud-side work.
+Review PR #47 against
+[`docs/plan/2026-09-15-r2-memory-runtime-slices.md`](docs/plan/2026-09-15-r2-memory-runtime-slices.md),
+then build its channel-neutral owner-controls successor in a fresh PR after
+merge. No live model comparison runs without Sid's explicit approval. R1 and
+R5 remain independent cloud-side work.
 
 ## Next gate
 
