@@ -1,0 +1,136 @@
+checked out a2c2c6c at a2c2c6c
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  11 passed (11)
+
+== V1-explicit-intent: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (11 tests | 2 failed) 1879ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 9 passed (11)
+   × refuses casual, forwarded, quoted, pasted, attached, model, tool and guest content before command ingress 74ms
+   × treats a casual forget-that turn as conversation rather than a memory control 146ms
+
+== V2-untrusted-flags: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (11 tests | 2 failed) 1247ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 9 passed (11)
+   × refuses casual, forwarded, quoted, pasted, attached, model, tool and guest content before command ingress 60ms
+   × refuses model-marked turns and non-owner principals before command ingress 65ms
+
+== V3-human-active-principal: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (11 tests | 1 failed) 1303ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × refuses model-marked turns and non-owner principals before command ingress 63ms
+
+== V4-newest-turn: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (11 tests | 1 failed) 1303ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × refuses a superseded owner turn before recording a command 74ms
+
+== V5-turn-channel: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  11 passed (11)
+
+== V6-history-eligible: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  11 passed (11)
+
+== S1-text-in-owner-turn: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (11 tests | 1 failed) 1321ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × refuses text absent from the owner's turn without recording a command or canonical item 54ms
+
+== S2-hidden-text: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (11 tests | 1 failed) 1156ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × forgets and restores one memory with exact suppression counts while retaining raw evidence 181ms
+
+== S3-hidden-excerpt: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (11 tests | 1 failed) 1247ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × forgets and restores one memory with exact suppression counts while retaining raw evidence 220ms
+
+== S4-ambiguous-target: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (11 tests | 1 failed) 1355ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 10 passed (11)
+   × refuses an ambiguous target before recording a command or changing memory 139ms
+
+== U1-ulid-token: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (11 tests | 1 failed) 1244ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 42 passed (43)
+   × preserves a valid command ULID containing a six-digit run 27ms
+
+== P1-forget-only-active-or-proposed: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  32 passed (32)
+
+== P2-lift-only-forgotten: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  32 passed (32)
+
+== P3-forget-count-match: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  32 passed (32)
+
+== P4-lift-covers-all-suppressions: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  32 passed (32)
+
+== A1-archived-subject-binding: MATCHED 2 TIMES, skipped
+
+== A2-archived-occurred-at: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-repository.test.ts (14 tests | 1 failed) 1555ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 20 passed (21)
+   × binds archived receipts to their exact archived occurrence time 76ms
+
+== B1-root-by-stable-identity: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-repository.test.ts (14 tests | 13 failed) 578ms
+   Test Files  2 failed (2)
+   Tests  20 failed | 1 passed (21)
+   × handles a raced root and inbox retry without creating a second root or duplicate sibling 69ms
+   × re-stamps root and inbox topic events after a retry 21ms
+   × re-stamps item, transition and placement writes after a retry 29ms
+   × validates every source event for the principal before reaching the write batch 34ms
+
+== B2-inbox-by-stable-identity: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-repository.test.ts (14 tests | 13 failed) 725ms
+   Test Files  2 failed (2)
+   Tests  20 failed | 1 passed (21)
+   × handles a raced root and inbox retry without creating a second root or duplicate sibling 93ms
+   × re-stamps root and inbox topic events after a retry 29ms
+   × re-stamps item, transition and placement writes after a retry 42ms
+   × validates every source event for the principal before reaching the write batch 47ms
+
+=== summary
+SURVIVED  BASE
+KILLED    V1-explicit-intent
+KILLED    V2-untrusted-flags
+KILLED    V3-human-active-principal
+KILLED    V4-newest-turn
+SURVIVED  V5-turn-channel
+SURVIVED  V6-history-eligible
+KILLED    S1-text-in-owner-turn
+KILLED    S2-hidden-text
+KILLED    S3-hidden-excerpt
+KILLED    S4-ambiguous-target
+KILLED    U1-ulid-token
+SURVIVED  P1-forget-only-active-or-proposed
+SURVIVED  P2-lift-only-forgotten
+SURVIVED  P3-forget-count-match
+SURVIVED  P4-lift-covers-all-suppressions
+SKIPPED   A1-archived-subject-binding
+KILLED    A2-archived-occurred-at
+KILLED    B1-root-by-stable-identity
+KILLED    B2-inbox-by-stable-identity
+back on main, tree clean=true
+(node:22428) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

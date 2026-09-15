@@ -1,0 +1,12 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/memory-owner-controls.test.ts -t zzreviewerpr50
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-deploy
+
+Using secrets defined in process.env
+
+ Test Files  1 passed (1)
+      Tests  4 passed | 11 skipped (15)
+   Start at  14:52:53
+   Duration  2.51s (transform 725ms, setup 0ms, import 1.34s, tests 485ms, environment 0ms)
+

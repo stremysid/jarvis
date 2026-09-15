@@ -1,0 +1,14 @@
+{
+ "root": "C:/Users/Sid/jarvis-deploy",
+ "branch": "a2c2c6c",
+ "mutations": [
+  {"id": "BASE", "file": "apps/cloud-gateway/src/memory/memory-repository.ts",
+   "from": "      || envelope.subjectId !== principalId\n      || envelope.contentHash !== rowHash(row.content_hash)",
+   "to": "      || envelope.subjectId !== principalId\n      || envelope.contentHash !== rowHash(row.content_hash)",
+   "tests": ["apps/cloud-gateway/test/memory/memory-repository.test.ts", "apps/cloud-gateway/test/memory/memory-repository-faults.test.ts"]},
+  {"id": "A1-archived-subject-binding", "file": "apps/cloud-gateway/src/memory/memory-repository.ts",
+   "from": "      || envelope.subjectId !== principalId\n      || envelope.contentHash !== rowHash(row.content_hash)",
+   "to": "      || envelope.contentHash !== rowHash(row.content_hash)",
+   "tests": ["apps/cloud-gateway/test/memory/memory-repository.test.ts", "apps/cloud-gateway/test/memory/memory-repository-faults.test.ts"]}
+ ]
+}

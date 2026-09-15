@@ -1,0 +1,18 @@
+checked out a2c2c6c at a2c2c6c
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  21 passed (21)
+
+== A1-archived-subject-binding: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-repository.test.ts (14 tests | 1 failed) 1417ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 20 passed (21)
+   × binds archived receipts to their subject principal 75ms
+
+=== summary
+SURVIVED  BASE
+KILLED    A1-archived-subject-binding
+back on main, tree clean=true
+(node:31760) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
