@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
+  canonicalJson,
   newUlid,
   sha256Hex,
   type Sha256Hex,
@@ -52,14 +53,37 @@ async function seedPrincipal(): Promise<string> {
   return principalId;
 }
 
-async function seedEvent(principalId: string): Promise<SeededEvent> {
+async function seedEvent(principalId: string, text: string): Promise<SeededEvent> {
   const eventId = newUlid();
   const occurredAt = new Date().toISOString();
+  const payload = {
+    schemaCode: 1,
+    channelCode: 2,
+    sensitivityCode: 1,
+    historyEligible: true,
+    text,
+  };
+  const contentHash = await sha256Hex(canonicalJson(payload));
+  const envelope = {
+    schemaVersion: "1.0",
+    eventId,
+    eventType: "conversation.user_committed",
+    source: "conversation",
+    subjectId: principalId,
+    occurredAt,
+    receivedAt: occurredAt,
+    correlationId: newUlid(),
+    contentType: "application/json",
+    contentHash,
+    payload,
+    redaction: { status: "none", markers: [] },
+    producerVersion: "conversation-v1",
+  };
   await env.DB.prepare(`INSERT INTO events (
     event_id, event_type, source, subject_id, occurred_at, received_at,
     content_hash, envelope_json, created_at
-  ) VALUES (?, 'conversation.user_committed', 'jarvis.conversation', ?, ?, ?, ?, '{}', ?)`)
-    .bind(eventId, principalId, occurredAt, occurredAt, await sha256Hex("{}"), occurredAt).run();
+  ) VALUES (?, 'conversation.user_committed', 'conversation', ?, ?, ?, ?, ?, ?)`)
+    .bind(eventId, principalId, occurredAt, occurredAt, contentHash, JSON.stringify(envelope), occurredAt).run();
   const row = await env.DB.prepare("SELECT sequence FROM events WHERE event_id = ?")
     .bind(eventId).first<{ sequence: number }>();
   if (row === null) throw new Error("memory_repository_test_event_missing");
@@ -99,9 +123,9 @@ async function seedArchivedReceipt(): Promise<ArchivedReceipt> {
 
 async function fixture(repository = new MemoryRepository(env.DB)): Promise<Fixture> {
   const principalId = await seedPrincipal();
-  const source = await seedEvent(principalId);
-  const topics = await repository.bootstrapTopics(principalId);
   const text = "I prefer short reports.";
+  const source = await seedEvent(principalId, text);
+  const topics = await repository.bootstrapTopics(principalId);
   const input: CommitInitialMemoryInput = Object.freeze({
     principalId,
     itemId: newUlid(),

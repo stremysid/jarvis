@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
-import { newUlid, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
+import { canonicalJson, newUlid, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { MemoryRepository } from "../../src/memory/memory-repository.js";
 import {
   MemoryRepositoryError,
@@ -28,14 +28,40 @@ async function seedPrincipal(): Promise<string> {
   return principalId;
 }
 
-async function seedEvent(principalId: string): Promise<SeededEvent> {
+async function seedEvent(
+  principalId: string,
+  text = "I prefer deterministic fault probes.",
+): Promise<SeededEvent> {
   const eventId = newUlid();
   const occurredAt = new Date().toISOString();
+  const payload = {
+    schemaCode: 1,
+    channelCode: 2,
+    sensitivityCode: 1,
+    historyEligible: true,
+    text,
+  };
+  const contentHash = await sha256Hex(canonicalJson(payload));
+  const envelope = {
+    schemaVersion: "1.0",
+    eventId,
+    eventType: "conversation.user_committed",
+    source: "conversation",
+    subjectId: principalId,
+    occurredAt,
+    receivedAt: occurredAt,
+    correlationId: newUlid(),
+    contentType: "application/json",
+    contentHash,
+    payload,
+    redaction: { status: "none", markers: [] },
+    producerVersion: "conversation-v1",
+  };
   await env.DB.prepare(`INSERT INTO events (
     event_id, event_type, source, subject_id, occurred_at, received_at,
     content_hash, envelope_json, created_at
-  ) VALUES (?, 'conversation.user_committed', 'jarvis.conversation', ?, ?, ?, ?, '{}', ?)`)
-    .bind(eventId, principalId, occurredAt, occurredAt, await sha256Hex("{}"), occurredAt).run();
+  ) VALUES (?, 'conversation.user_committed', 'conversation', ?, ?, ?, ?, ?, ?)`)
+    .bind(eventId, principalId, occurredAt, occurredAt, contentHash, JSON.stringify(envelope), occurredAt).run();
   const row = await env.DB.prepare("SELECT sequence FROM events WHERE event_id = ?")
     .bind(eventId).first<{ sequence: number }>();
   if (row === null) throw new Error("memory_repository_fault_event_missing");
@@ -244,6 +270,24 @@ describe("MemoryRepository fault boundaries", () => {
 
     expect(batchCalls).toBe(0);
     await expect(itemRowCounts(principalId, valid.itemId)).resolves.toEqual([0, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it("refuses an exact excerpt that is absent from its live source event before reaching the write batch", async () => {
+    const principalId = await seedPrincipal();
+    const source = await seedEvent(principalId, "What time is practice?");
+    const topics = await new MemoryRepository(env.DB).bootstrapTopics(principalId);
+    const input = await inputFor(principalId, source, topics.inbox.topicId);
+    let batchCalls = 0;
+    const repository = new MemoryRepository(env.DB, {
+      beforeBatch: (operation) => {
+        if (operation === "commit") batchCalls += 1;
+      },
+    });
+
+    await expectCode(repository.commitInitialItem(input), "memory_refused");
+
+    expect(batchCalls).toBe(0);
+    await expect(itemRowCounts(principalId, input.itemId)).resolves.toEqual([0, 0, 0, 0, 0, 0, 0]);
   });
 
   it("rolls back every initial memory row when a later statement in its D1 batch fails", async () => {

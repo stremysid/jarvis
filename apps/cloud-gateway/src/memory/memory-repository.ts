@@ -1,6 +1,8 @@
 import {
   newUlid,
   sha256Hex,
+  validateEnvelope,
+  type JsonValue,
   type Sha256Hex,
   type Ulid,
 } from "../../../../packages/contracts/src/index.js";
@@ -56,6 +58,9 @@ interface EventReceiptRow {
   readonly sequence: unknown;
   readonly subject_id: unknown;
   readonly occurred_at: unknown;
+  readonly event_type: unknown;
+  readonly content_hash: unknown;
+  readonly envelope_json: unknown;
 }
 
 interface ArchivedReceiptRow {
@@ -230,6 +235,14 @@ interface CapturedSource {
   readonly occurredAt: string;
 }
 
+interface SourceReceiptExpectation {
+  readonly sourceLocation: MemorySourceLocation;
+  readonly r2SegmentId: Sha256Hex | null;
+  readonly excerpt: string;
+  readonly channel: MemorySourceChannel;
+  readonly occurredAt: string;
+}
+
 interface CapturedInput {
   readonly principalId: string;
   readonly itemId: Ulid;
@@ -283,6 +296,9 @@ const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
 const PROVIDER_MODEL = /^(?:deepseek|anthropic|openai):[^\s]{1,182}$/u;
 const utf8 = new TextEncoder();
+const eventReceiptFields = new Set([
+  "event_id", "sequence", "subject_id", "occurred_at", "event_type", "content_hash", "envelope_json",
+]);
 const itemFields = new Set([
   "item_id", "principal_id", "kind", "creation_event_id",
   "creation_event_sequence", "created_at",
@@ -437,6 +453,37 @@ function optionalRowHash(value: unknown): Sha256Hex | null {
 
 function normalizedTopicName(displayName: string): string {
   return displayName.normalize("NFC").toLocaleLowerCase("en-US");
+}
+
+function payloadContainsExactExcerpt(payload: JsonValue, excerpt: string): boolean {
+  const pending: Array<{ readonly value: JsonValue; readonly depth: number }> = [{ value: payload, depth: 0 }];
+  let visited = 0;
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined) corrupt();
+    visited += 1;
+    if (visited > 16_384 || current.depth > 64) corrupt();
+    if (typeof current.value === "string") {
+      if (current.value.includes(excerpt)) return true;
+      continue;
+    }
+    if (current.value === null || typeof current.value !== "object") continue;
+    const children = Array.isArray(current.value)
+      ? current.value
+      : Object.values(current.value);
+    for (const child of children) pending.push({ value: child, depth: current.depth + 1 });
+  }
+  return false;
+}
+
+function liveEventChannel(eventType: string, payload: JsonValue): MemorySourceChannel {
+  if (eventType !== "conversation.user_committed"
+    && eventType !== "conversation.assistant_delivered") return "system";
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) corrupt();
+  const channelCode = payload.channelCode;
+  if (channelCode === 1) return "voice";
+  if (channelCode === 2) return "telegram";
+  corrupt();
 }
 
 function topicComponent(value: unknown): { readonly display: string; readonly normalized: string } {
@@ -857,16 +904,13 @@ export class MemoryRepository {
       input.creationEventId,
       input.creationEventSequence,
       null,
-      null,
     );
     for (const source of input.sources) {
       await this.validateReceipt(
         input.principalId,
         source.eventId,
         source.eventSequence,
-        source.sourceLocation,
-        source.r2SegmentId,
-        source.occurredAt,
+        source,
       );
     }
   }
@@ -875,20 +919,22 @@ export class MemoryRepository {
     principalId: string,
     eventId: Ulid,
     eventSequence: number,
-    sourceLocation: MemorySourceLocation | null,
-    r2SegmentId: Sha256Hex | null,
-    occurredAt?: string,
+    source: SourceReceiptExpectation | null,
   ): Promise<void> {
+    const sourceLocation = source?.sourceLocation ?? null;
+    const r2SegmentId = source?.r2SegmentId ?? null;
     if (sourceLocation !== "archived") {
-      const row = await this.database.prepare(`SELECT event_id, sequence, subject_id, occurred_at
+      const row = await this.database.prepare(`SELECT event_id, sequence, subject_id, occurred_at,
+        event_type, content_hash, envelope_json
         FROM events WHERE event_id = ? AND sequence = ? AND subject_id = ?`)
         .bind(eventId, eventSequence, principalId).first<EventReceiptRow>();
       if (row !== null) {
-        exactRow(row, new Set(["event_id", "sequence", "subject_id", "occurred_at"]));
+        exactRow(row, eventReceiptFields);
         if (rowUlid(row.event_id) !== eventId
           || rowInteger(row.sequence, 1, Number.MAX_SAFE_INTEGER) !== eventSequence
           || rowPrincipal(row.subject_id, principalId) !== principalId
-          || (occurredAt !== undefined && rowTimestamp(row.occurred_at) !== occurredAt)) refuse();
+          || (source !== null && rowTimestamp(row.occurred_at) !== source.occurredAt)) refuse();
+        await this.validateLiveEventEvidence(row, principalId, eventId, source);
         return;
       }
       if (sourceLocation === "live") refuse();
@@ -1325,11 +1371,43 @@ export class MemoryRepository {
     eventSequence: number,
   ): Promise<void> {
     try {
-      await this.validateReceipt(principalId, eventId, eventSequence, null, null);
+      await this.validateReceipt(principalId, eventId, eventSequence, null);
     } catch (error) {
       if (error instanceof MemoryRepositoryError && error.code === "memory_refused") corrupt();
       throw error;
     }
+  }
+
+  private async validateLiveEventEvidence(
+    row: EventReceiptRow,
+    principalId: string,
+    eventId: Ulid,
+    source: SourceReceiptExpectation | null,
+  ): Promise<void> {
+    const eventType = safeRowText(row.event_type, 262_144);
+    const contentHash = rowHash(row.content_hash);
+    if (typeof row.envelope_json !== "string" || row.envelope_json.length === 0
+      || !row.envelope_json.isWellFormed()
+      || utf8.encode(row.envelope_json).byteLength > 262_144) corrupt();
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(row.envelope_json) as unknown;
+    } catch {
+      corrupt();
+    }
+    let envelope: Awaited<ReturnType<typeof validateEnvelope>>;
+    try {
+      envelope = await validateEnvelope(decoded);
+    } catch {
+      corrupt();
+    }
+    if (envelope.eventId !== eventId || envelope.eventType !== eventType
+      || envelope.subjectId !== principalId || envelope.contentHash !== contentHash
+      || envelope.occurredAt !== rowTimestamp(row.occurred_at)) corrupt();
+    if (source !== null && (
+      liveEventChannel(eventType, envelope.payload) !== source.channel
+      || !payloadContainsExactExcerpt(envelope.payload, source.excerpt)
+    )) refuse();
   }
 
   private async readSources(
@@ -1364,14 +1442,13 @@ export class MemoryRepository {
       const excerptHash = rowHash(row.excerpt_hash);
       if (await sha256Hex(excerpt) !== excerptHash) corrupt();
       const occurredAt = rowTimestamp(row.occurred_at);
+      const channel = rowEnum(row.channel, new Set(["telegram", "voice", "system"] as const));
       try {
         await this.validateReceipt(
           principalId,
           eventId,
           eventSequence,
-          sourceLocation,
-          r2SegmentId,
-          occurredAt,
+          { sourceLocation, r2SegmentId, excerpt, channel, occurredAt },
         );
       } catch (error) {
         if (error instanceof MemoryRepositoryError && error.code === "memory_refused") corrupt();
@@ -1386,7 +1463,7 @@ export class MemoryRepository {
         r2SegmentId,
         excerpt,
         excerptHash,
-        channel: rowEnum(row.channel, new Set(["telegram", "voice", "system"] as const)),
+        channel,
         occurredAt,
         createdAt: rowTimestamp(row.created_at),
       }));
