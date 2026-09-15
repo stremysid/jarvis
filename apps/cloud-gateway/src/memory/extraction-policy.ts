@@ -62,6 +62,8 @@ const FIRST_PERSON_UNTRUSTED_FRAMING = [
   /(?<![A-Za-z0-9_])i\s+(?:do\s+not|don['’]t)\s+know(?![A-Za-z0-9_])/iu,
   /(?<![A-Za-z0-9_])not\s+sure(?![A-Za-z0-9_])/iu,
   /(?<![A-Za-z0-9_])(?:says|said|told)(?![A-Za-z0-9_])/iu,
+  /(?<![A-Za-z0-9_])(?:not|never)(?![A-Za-z0-9_])/iu,
+  /n['’]t(?![A-Za-z0-9_])/iu,
 ] as const;
 const SENTENCE_PUNCTUATION: ReadonlySet<string> = new Set([".", "!", "?"]);
 const ASCII_WHITESPACE = new Set([" ", "\t", "\r", "\n", "\f", "\v"]);
