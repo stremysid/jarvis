@@ -172,6 +172,7 @@ export class OwnerCallStepUpService {
     if (existing !== null) {
       return Object.freeze({ deadlineAt: existing.deadline_at, verifierVersion: existing.verifier_version });
     }
+    if (await this.#recordDisabledRejection(sessionId, now)) throw new Error("owner_step_up_disabled");
     const promptedAt = iso(now);
     const deadlineAt = new Date(now.valueOf() + OWNER_STEP_UP_WINDOW_MS).toISOString();
     const head = await this.#database.prepare(`SELECT head.verifier_version
@@ -181,10 +182,15 @@ export class OwnerCallStepUpService {
       WHERE head.singleton_id = 1 AND head.status = 'active' AND verifier.status = 'active'`)
       .first<{ verifier_version: number }>();
     if (head === null) throw new Error("owner_step_up_unavailable");
-    await this.#database.prepare(`INSERT INTO owner_call_step_up_windows (
-      session_id, lifecycle_generation, verifier_version, prompted_at, deadline_at
-    ) VALUES (?, 1, ?, ?, ?)`)
-      .bind(sessionId, head.verifier_version, promptedAt, deadlineAt).run();
+    try {
+      await this.#database.prepare(`INSERT INTO owner_call_step_up_windows (
+        session_id, lifecycle_generation, verifier_version, prompted_at, deadline_at
+      ) VALUES (?, 1, ?, ?, ?)`)
+        .bind(sessionId, head.verifier_version, promptedAt, deadlineAt).run();
+    } catch (error) {
+      if (await this.#recordDisabledRejection(sessionId, now)) throw new Error("owner_step_up_disabled");
+      throw error;
+    }
     const row = await this.#database.prepare(`SELECT verifier_version, deadline_at
       FROM owner_call_step_up_windows WHERE session_id = ? AND lifecycle_generation = 1`)
       .bind(sessionId).first<{ verifier_version: number; deadline_at: string }>();
@@ -203,31 +209,45 @@ export class OwnerCallStepUpService {
     canonical.fill(0);
     const at = iso(now);
     const row = await this.#activeVerifier(sessionId);
-    if (row === null) throw new Error("owner_step_up_unavailable");
+    if (row === null) {
+      if (await this.#recordDisabledRejection(sessionId, now) || await this.#hasRejection(sessionId)) return "rejected";
+      throw new Error("owner_step_up_unavailable");
+    }
     if (at >= row.deadline_at) return "expired";
     const count = await this.#database.prepare(`SELECT count(*) AS count FROM owner_call_step_up_attempts
       WHERE session_id = ? AND lifecycle_generation = 1`).bind(sessionId).first<{ count: number }>();
     const ordinal = (count?.count ?? 0) + 1;
     if (ordinal > 3) return "rejected";
     // This durable ordinal is committed before the expensive verifier starts.
-    await this.#database.prepare(`INSERT INTO owner_call_step_up_attempts (
-      session_id, lifecycle_generation, attempt_ordinal, verifier_version, attempted_at, outcome, resolved_at
-    ) VALUES (?, 1, ?, ?, ?, NULL, NULL)`)
-      .bind(sessionId, ordinal, row.verifier_version, at).run();
+    try {
+      await this.#database.prepare(`INSERT INTO owner_call_step_up_attempts (
+        session_id, lifecycle_generation, attempt_ordinal, verifier_version, attempted_at, outcome, resolved_at
+      ) VALUES (?, 1, ?, ?, ?, NULL, NULL)`)
+        .bind(sessionId, ordinal, row.verifier_version, at).run();
+    } catch (error) {
+      if (await this.#recordDisabledRejection(sessionId, now)) return "rejected";
+      throw error;
+    }
     let matched = false;
     try { matched = await this.#verifier.verify((await this.#requiredBinding(sessionId)).ownerIdentityId, candidate, this.#record(row)); }
     finally { candidate = ""; }
     const resolvedAt = iso(now);
-    await this.#database.prepare(`UPDATE owner_call_step_up_attempts SET outcome = ?, resolved_at = ?
-      WHERE session_id = ? AND lifecycle_generation = 1 AND attempt_ordinal = ? AND outcome IS NULL`)
-      .bind(matched ? "matched" : "mismatched", resolvedAt, sessionId, ordinal).run();
+    try {
+      await this.#database.prepare(`UPDATE owner_call_step_up_attempts SET outcome = ?, resolved_at = ?
+        WHERE session_id = ? AND lifecycle_generation = 1 AND attempt_ordinal = ? AND outcome IS NULL`)
+        .bind(matched ? "matched" : "mismatched", resolvedAt, sessionId, ordinal).run();
+    } catch (error) {
+      if (await this.#recordDisabledRejection(sessionId, now)) return "rejected";
+      throw error;
+    }
     if (matched) return "matched";
     return ordinal === 3 ? "rejected" : "mismatched";
   }
 
   async recordReprompt(sessionId: Ulid, now: Date): Promise<"reprompt" | "rejected" | "expired"> {
     const at = iso(now);
-    const state = await this.state(sessionId);
+    const state = await this.reconcileState(sessionId, now);
+    if (state.rejectionReason !== null) return "rejected";
     if (state.deadlineAt === null || at >= state.deadlineAt) return "expired";
     const ordinal = state.reprompts + 1;
     if (ordinal > 3) return "rejected";
@@ -324,11 +344,15 @@ export class OwnerCallStepUpService {
       window.prompted_at, window.deadline_at, window.verifier_version,
       (SELECT count(*) FROM owner_call_step_up_attempts attempt WHERE attempt.session_id = binding.session_id) AS attempts,
       (SELECT count(*) FROM owner_call_step_up_reprompts reprompt WHERE reprompt.session_id = binding.session_id) AS reprompts,
-      success.verified_at AS success_at, rejection.reason AS rejection_reason
+      success.verified_at AS success_at,
+      COALESCE(rejection.reason,
+        CASE WHEN disabled.session_id IS NOT NULL THEN 'passphrase_disabled' ELSE NULL END
+      ) AS rejection_reason
       FROM owner_call_step_up_bindings binding
       LEFT JOIN owner_call_step_up_windows window ON window.session_id = binding.session_id
       LEFT JOIN owner_call_step_up_successes success ON success.session_id = binding.session_id
       LEFT JOIN owner_call_step_up_rejections rejection ON rejection.session_id = binding.session_id
+      LEFT JOIN owner_call_step_up_disabled_rejections disabled ON disabled.session_id = binding.session_id
       WHERE binding.session_id = ?`).bind(sessionId).first<StepUpStateRow>();
     if (row === null) throw new Error("owner_step_up_binding_missing");
     return Object.freeze({
@@ -339,6 +363,29 @@ export class OwnerCallStepUpService {
       verifiedAt: row.success_at,
       rejectionReason: row.rejection_reason,
     });
+  }
+
+  async reconcileState(sessionId: Ulid, now: Date): ReturnType<OwnerCallStepUpService["state"]> {
+    await this.#recordDisabledRejection(sessionId, now);
+    return this.state(sessionId);
+  }
+
+  async rejectionDelivered(sessionId: Ulid): Promise<boolean> {
+    return await this.#database.prepare(
+      "SELECT session_id FROM owner_call_step_up_rejection_deliveries WHERE session_id = ?",
+    ).bind(sessionId).first<{ session_id: string }>() !== null;
+  }
+
+  async recordRejectionDelivered(sessionId: Ulid, now: Date): Promise<void> {
+    if (await this.rejectionDelivered(sessionId)) return;
+    try {
+      await this.#database.prepare(`INSERT INTO owner_call_step_up_rejection_deliveries (
+        session_id, lifecycle_generation, delivered_at
+      ) VALUES (?, 1, ?)`).bind(sessionId, iso(now)).run();
+    } catch (error) {
+      if (await this.rejectionDelivered(sessionId)) return;
+      throw error;
+    }
   }
 
   async reserveGuestPinAttempt(sessionId: Ulid, now: Date): Promise<number> {
@@ -356,6 +403,42 @@ export class OwnerCallStepUpService {
     const found = await this.binding(sessionId);
     if (found === null || found.requirement !== "required") throw new Error("owner_step_up_binding_missing");
     return found;
+  }
+
+  async #hasRejection(sessionId: Ulid): Promise<boolean> {
+    return await this.#database.prepare(`SELECT session_id FROM owner_call_step_up_rejections
+      WHERE session_id = ? UNION ALL
+      SELECT session_id FROM owner_call_step_up_disabled_rejections WHERE session_id = ? LIMIT 1`)
+      .bind(sessionId, sessionId).first<{ session_id: string }>() !== null;
+  }
+
+  async #recordDisabledRejection(sessionId: Ulid, now: Date): Promise<boolean> {
+    const existing = await this.#database.prepare(
+      "SELECT session_id FROM owner_call_step_up_disabled_rejections WHERE session_id = ?",
+    ).bind(sessionId).first<{ session_id: string }>();
+    if (existing !== null) return true;
+    const disabled = await this.#database.prepare(`SELECT binding.session_id
+      FROM owner_call_step_up_bindings binding
+      JOIN owner_passphrase_heads head ON head.singleton_id = 1
+        AND head.owner_principal_id = binding.owner_principal_id
+        AND head.owner_identity_id = binding.owner_identity_id
+        AND head.status = 'disabled'
+      WHERE binding.session_id = ? AND binding.requirement IN ('required', 'waived_passed_a')`)
+      .bind(sessionId).first<{ session_id: string }>();
+    if (disabled === null) return false;
+    try {
+      await this.#database.prepare(`INSERT INTO owner_call_step_up_disabled_rejections (
+        session_id, lifecycle_generation, rejected_at
+      ) VALUES (?, 1, ?)`).bind(sessionId, iso(now)).run();
+      return true;
+    } catch (error) {
+      const recorded = await this.#database.prepare(
+        "SELECT session_id FROM owner_call_step_up_disabled_rejections WHERE session_id = ?",
+      ).bind(sessionId).first<{ session_id: string }>();
+      if (recorded !== null) return true;
+      if (await this.#hasRejection(sessionId)) return false;
+      throw error;
+    }
   }
 
   async #activeVerifier(sessionId: Ulid): Promise<VerifierRow | null> {
@@ -437,25 +520,38 @@ export class D1OwnerStepUpAlertSink implements OwnerStepUpAlertSink {
       input.ownerPrincipalId, input.alertClass, input.direction,
     ).first<{ claim_id: string | null; observation_count: number }>();
     if (claimed === null || claimed.claim_id !== claimId) return;
-    const chatId = await new DeviceRepository(this.database).findOwnerTelegramChat(input.ownerPrincipalId);
-    if (chatId === null) throw new Error("owner_step_up_alert_unavailable");
-    const text = input.alertClass === "configuration"
-      ? "Jarvis owner call verification is unavailable because its passphrase configuration is invalid."
-      : input.alertClass === "admission_refused"
-        ? `Jarvis refused an ${input.direction} owner call because all call-session slots were occupied.`
-          + (input.direction === "inbound" ? ` Caller attestation category: ${input.attestationClass}.` : "")
-          + ` Total observations: ${claimed.observation_count}.`
-        : `Jarvis ended an ${input.direction} owner call after passphrase verification failed.`
-          + (input.direction === "inbound" ? ` Caller attestation category: ${input.attestationClass}.` : "")
-          + ` Total observations: ${claimed.observation_count}.`;
-    const result: TelegramSendMessageResult = await this.telegram.sendMessage({
-      chatId, text, idempotencyKey: `owner-step-up:${input.ownerPrincipalId}:${input.alertClass}:${input.direction}:${at.slice(0, 16)}`,
-    });
-    if (!/^[1-9][0-9]{0,19}$/u.test(result.providerMessageId)) throw new Error("owner_step_up_alert_unavailable");
-    const recorded = await this.database.prepare(`UPDATE owner_call_step_up_alerts
-      SET last_sent_at = ?, claim_id = NULL, claim_expires_at = NULL
-      WHERE owner_principal_id = ? AND alert_class = ? AND direction = ? AND claim_id = ?`)
-      .bind(at, input.ownerPrincipalId, input.alertClass, input.direction, claimId).run();
-    if (recorded.meta.changes !== 1) throw new Error("owner_step_up_alert_unavailable");
+    try {
+      const chatId = await new DeviceRepository(this.database).findOwnerTelegramChat(input.ownerPrincipalId);
+      if (chatId === null) throw new Error("owner_step_up_alert_unavailable");
+      const text = input.alertClass === "configuration"
+        ? "Jarvis owner call verification is unavailable because its passphrase configuration is invalid."
+        : input.alertClass === "admission_refused"
+          ? `Jarvis refused an ${input.direction} owner call because all call-session slots were occupied.`
+            + (input.direction === "inbound" ? ` Caller attestation category: ${input.attestationClass}.` : "")
+            + ` Total observations: ${claimed.observation_count}.`
+          : `Jarvis ended an ${input.direction} owner call after passphrase verification failed.`
+            + (input.direction === "inbound" ? ` Caller attestation category: ${input.attestationClass}.` : "")
+            + ` Total observations: ${claimed.observation_count}.`
+            + " To disable spoken owner-call step-up, use /disable-owner-step-up --confirm in your private chat.";
+      const result: TelegramSendMessageResult = await this.telegram.sendMessage({
+        chatId, text, idempotencyKey: `owner-step-up:${input.ownerPrincipalId}:${input.alertClass}:${input.direction}:${at.slice(0, 16)}`,
+      });
+      if (!/^[1-9][0-9]{0,19}$/u.test(result.providerMessageId)) throw new Error("owner_step_up_alert_unavailable");
+      const recorded = await this.database.prepare(`UPDATE owner_call_step_up_alerts
+        SET last_sent_at = ?, claim_id = NULL, claim_expires_at = NULL
+        WHERE owner_principal_id = ? AND alert_class = ? AND direction = ? AND claim_id = ?`)
+        .bind(at, input.ownerPrincipalId, input.alertClass, input.direction, claimId).run();
+      if (recorded.meta.changes !== 1) throw new Error("owner_step_up_alert_unavailable");
+    } catch (error) {
+      try {
+        await this.database.prepare(`UPDATE owner_call_step_up_alerts
+          SET claim_id = NULL, claim_expires_at = NULL
+          WHERE owner_principal_id = ? AND alert_class = ? AND direction = ? AND claim_id = ?`)
+          .bind(input.ownerPrincipalId, input.alertClass, input.direction, claimId).run();
+      } catch {
+        // An uncleared claim expires after 30 seconds and remains fail-closed.
+      }
+      throw error;
+    }
   }
 }

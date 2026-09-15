@@ -24,10 +24,12 @@ import { DecisionService } from "../decisions/decision-service.js";
 import { GitHubClient } from "../projects/github-client.js";
 import { ProjectPoller } from "../projects/project-poller.js";
 import { ProjectRepository } from "../projects/project-repository.js";
+import { TelegramRestProvider } from "../providers/telegram-provider.js";
 import { ScheduledRunRepository } from "../scheduler/scheduled-run-repository.js";
 import { SchoolCatchupRepository } from "../school/school-catchup-repository.js";
 import { StudyCoachRepository } from "../school/study-coach-repository.js";
 import type { JobOutcome, JobTable } from "../scheduler/scheduled-handler.js";
+import { D1GuestGrantNoticeSink } from "../voice/guest-grant-notice.js";
 import { runDigestJob, unconfiguredDeadlineSourceKinds, type DigestDelivery } from "./digest-job.js";
 
 export interface JobEnvironment {
@@ -480,11 +482,24 @@ async function drain(context: JobEnvironment): Promise<JobOutcome> {
   const principalId = context.env.OWNER_PRINCIPAL_ID;
   if (principalId === undefined) return { ok: false, failure: "OWNER_PRINCIPAL_ID is not set" };
   try {
+    const noticeDetail = context.env.TELEGRAM_BOT_TOKEN === undefined
+      ? "guest notices not configured"
+      : await new D1GuestGrantNoticeSink(
+        context.env.DB,
+        new TelegramRestProvider({
+          botToken: context.env.TELEGRAM_BOT_TOKEN,
+          fetchImplementation: context.fetcher,
+        }),
+        () => context.clock.now(),
+      ).drain(context.clock.now());
     const open = await new DecisionService({
       repository: new DecisionRepository(context.env.DB),
       now: () => context.clock.now(),
     }).queue(principalId);
-    return { ok: true, detail: `${open.length} open` };
+    const notices = typeof noticeDetail === "string"
+      ? noticeDetail
+      : `${noticeDetail.delivered} guest notices delivered, ${noticeDetail.failed} deferred`;
+    return { ok: true, detail: `${open.length} open; ${notices}` };
   } catch (error) {
     return { ok: false, failure: describe(error) };
   }

@@ -113,6 +113,7 @@ export class FakeRelaySessions {
     private readonly repository: CallRepository,
     private readonly modelOptions: FakeModelProviderOptions,
     private readonly now: () => Date,
+    private readonly beforeOwnerStepUpAlert?: () => Promise<void>,
   ) {}
 
   async initialize(initialization: Readonly<CallSessionInitialization>): Promise<void> {
@@ -159,7 +160,8 @@ export class FakeRelaySessions {
         guestAuthentication,
         ownerAccess,
         ownerStepUp,
-        ownerStepUpAlerts: { async alert(input): Promise<void> {
+        ownerStepUpAlerts: { alert: async (input): Promise<void> => {
+          await this.beforeOwnerStepUpAlert?.();
           stepUpAlerts.push(Object.freeze({
             ownerPrincipalId: input.ownerPrincipalId,
             alertClass: input.alertClass,

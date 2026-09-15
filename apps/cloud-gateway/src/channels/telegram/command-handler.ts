@@ -55,6 +55,10 @@ export interface CommandContext {
   readonly runDigestNow?: () => Promise<string>;
   /** Bound to the accepted event; neither the parser nor caller chooses a destination. */
   readonly calls?: { request(): Promise<string> };
+  /** Bound to the accepted Telegram receipt; this command cannot re-enable step-up. */
+  readonly ownerStepUp?: {
+    disable(): Promise<"disabled" | "already_disabled" | "unconfigured" | "private_chat_required">;
+  };
   readonly now: () => Date;
 }
 
@@ -200,6 +204,24 @@ export async function runCommand(
         if (context.calls === undefined) return [unavailable("Calling")];
         try { return one(await context.calls.request()); }
         catch { return one("Could not confirm whether the call was placed. Check your phone before trying again."); }
+      case "disable-owner-step-up":
+        if (argument !== "--confirm") {
+          return one("Use /disable-owner-step-up --confirm exactly to disable spoken owner-call step-up.");
+        }
+        if (context.ownerStepUp === undefined) return [unavailable("Owner call step-up controls")];
+        try {
+          const outcome = await context.ownerStepUp.disable();
+          if (outcome === "private_chat_required") {
+            return one("Use /disable-owner-step-up --confirm in your private chat with Jarvis.");
+          }
+          if (outcome === "unconfigured") return one("Owner call step-up is not configured.");
+          if (outcome === "already_disabled") {
+            return one("Owner call step-up is already disabled. A new device-signed CLI generate is required to re-enable it.");
+          }
+          return one("Owner call step-up disabled. A new device-signed CLI generate is required to re-enable it.");
+        } catch {
+          return one("Owner call step-up could not be disabled. Its current state is unchanged or could not be confirmed.");
+        }
       case "shadow":
         return await shadow(argument, context);
       case "exam":

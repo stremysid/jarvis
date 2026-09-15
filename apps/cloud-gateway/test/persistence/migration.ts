@@ -19,6 +19,7 @@ import ownerPassphraseSql from "../../src/persistence/migrations/0017_owner_pass
 import ownerCallStepUpSql from "../../src/persistence/migrations/0018_owner_call_step_up.sql?raw";
 import memoryIngressSql from "../../src/persistence/migrations/0019_memory_ingress.sql?raw";
 import schoolCatchupSql from "../../src/persistence/migrations/0020_school_catchup.sql?raw";
+import voiceOwnerDeliverySql from "../../src/persistence/migrations/0021_voice_owner_delivery.sql?raw";
 import universityTrackerSql from "../../src/persistence/migrations/0022_university_tracker.sql?raw";
 import studyCoachSql from "../../src/persistence/migrations/0023_study_coach.sql?raw";
 
@@ -29,6 +30,7 @@ let ownerPassphraseMigrated: Promise<void> | undefined;
 let ownerCallStepUpMigrated: Promise<void> | undefined;
 let memoryIngressMigrated: Promise<void> | undefined;
 let schoolCatchupMigrated: Promise<void> | undefined;
+let voiceOwnerDeliveryMigrated: Promise<void> | undefined;
 let universityTrackerMigrated: Promise<void> | undefined;
 let studyCoachMigrated: Promise<void> | undefined;
 
@@ -143,6 +145,18 @@ export async function applyOwnerCallStepUpMigration(): Promise<void> {
   await ownerCallStepUpMigrated;
 }
 
+/** Applies durable refusal completion and guest-notice delivery after current main. */
+export async function applyVoiceOwnerDeliveryMigration(): Promise<void> {
+  // This migration depends on 0018 but not the intervening memory schema.
+  // Keeping the isolated voice fixtures narrow avoids installing unrelated
+  // runtime controls that those fixtures deliberately replace with fakes.
+  await applyOwnerCallStepUpMigration();
+  voiceOwnerDeliveryMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0021_voice_owner_delivery.sql", queries: splitMigration(voiceOwnerDeliverySql) },
+  ]);
+  await voiceOwnerDeliveryMigrated;
+}
+
 /** Applies the private school catch-up store to the isolated D1 test binding. */
 export async function applySchoolCatchupMigration(): Promise<void> {
   await applyMemoryIngressMigration();
@@ -172,8 +186,10 @@ export async function applyStudyCoachMigration(): Promise<void> {
 
 /** Test-only reset for immutable per-call step-up and guest-attempt records. */
 export async function clearOwnerCallStepUpDataForTest(): Promise<void> {
-  await applyOwnerCallStepUpMigration();
+  await applyVoiceOwnerDeliveryMigration();
   const tables = [
+    "guest_grant_notices", "owner_call_step_up_rejection_deliveries",
+    "owner_call_step_up_disabled_rejections",
     "owner_call_step_up_repeat_checks", "owner_call_step_up_rejections",
     "owner_call_step_up_successes", "owner_call_step_up_reprompts",
     "owner_call_step_up_attempts", "owner_call_step_up_windows",

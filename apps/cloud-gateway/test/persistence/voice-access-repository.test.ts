@@ -26,18 +26,20 @@ import {
   validCreateInput,
 } from "./voice-access-fixture.js";
 
-async function counts(): Promise<{ principals: number; identities: number; grants: number; events: number }> {
-  const [principals, identities, grants, events] = await Promise.all([
+async function counts(): Promise<{ principals: number; identities: number; grants: number; events: number; notices: number }> {
+  const [principals, identities, grants, events, notices] = await Promise.all([
     env.DB.prepare("SELECT COUNT(*) AS count FROM principals").first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM channel_identities").first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM voice_access_grants").first<{ count: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM voice_access_grant_events").first<{ count: number }>(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM guest_grant_notices").first<{ count: number }>(),
   ]);
   return {
     principals: principals?.count ?? -1,
     identities: identities?.count ?? -1,
     grants: grants?.count ?? -1,
     events: events?.count ?? -1,
+    notices: notices?.count ?? -1,
   };
 }
 
@@ -64,7 +66,7 @@ describe("VoiceAccessRepository", () => {
       status: "pending",
       capabilityIds: ["conversation.basic"],
     });
-    expect(await counts()).toEqual({ principals: 2, identities: 2, grants: 1, events: 1 });
+    expect(await counts()).toEqual({ principals: 2, identities: 2, grants: 1, events: 1, notices: 1 });
 
     await expect(repository.createGuestGrant(validCreateInput(ownerAuthority)))
       .resolves.toMatchObject({ grantId: GRANT_ID, grantVersion: 1, status: "pending" });
@@ -91,7 +93,7 @@ describe("VoiceAccessRepository", () => {
       ownerIdentityId: OWNER_IDENTITY_ID,
       now: NOW,
     })).rejects.toThrow("owner_authority_required");
-    expect(await counts()).toEqual({ principals: 1, identities: 1, grants: 0, events: 0 });
+    expect(await counts()).toEqual({ principals: 1, identities: 1, grants: 0, events: 0, notices: 0 });
   });
 
   it("recomputes the canonical capability document before creating a grant", async () => {
@@ -99,7 +101,7 @@ describe("VoiceAccessRepository", () => {
       ...validCreateInput(ownerAuthority),
       accessDocumentHash: "f".repeat(64) as Sha256Hex,
     })).rejects.toThrow("voice_access_document_invalid");
-    expect(await counts()).toEqual({ principals: 1, identities: 1, grants: 0, events: 0 });
+    expect(await counts()).toEqual({ principals: 1, identities: 1, grants: 0, events: 0, notices: 0 });
   });
 
   it("rejects a capability document carrying another guest's resource scope", async () => {
@@ -134,7 +136,7 @@ describe("VoiceAccessRepository", () => {
       resourceScopes: foreign.resourceScopes,
       accessDocumentHash: foreign.accessDocumentHash,
     })).rejects.toThrow("voice_access_document_invalid");
-    expect(await counts()).toEqual({ principals: 1, identities: 1, grants: 0, events: 0 });
+    expect(await counts()).toEqual({ principals: 1, identities: 1, grants: 0, events: 0, notices: 0 });
   });
 
   it("rehydrates a scoped grant only under the same reconstructed target ownership configuration", async () => {
@@ -320,6 +322,8 @@ describe("VoiceAccessRepository", () => {
       now: NOW,
     })).resolves.toBeNull();
     expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM voice_access_grant_events")
+      .first<{ count: number }>())?.count).toBe(4);
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM guest_grant_notices")
       .first<{ count: number }>())?.count).toBe(4);
   });
 

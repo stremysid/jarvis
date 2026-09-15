@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { newUlid, type Sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import {
   createVoiceStreamDelivery,
@@ -538,7 +538,7 @@ describe("conversation capture-once security", () => {
     expect(provider.requests).toHaveLength(0);
   });
 
-  it("settles accessor-shaped retrieved context as unknown before beginning the model stream", async () => {
+  it("drops accessor-shaped voice context and records a fallback before beginning the model stream", async () => {
     const turnId = newUlid();
     const common = {
       turnId,
@@ -560,12 +560,11 @@ describe("conversation capture-once security", () => {
     };
     const admitted = Object.freeze({ ...common, state: "user_committed" as const }) satisfies StoredConversationTurn;
     const claimed = Object.freeze({ ...common, state: "model_claimed" as const }) satisfies StoredConversationTurn;
-    const unknown = Object.freeze({
+    const assistantEventId = newUlid();
+    const sent = Object.freeze({
       ...common,
-      state: "model_outcome_unknown" as const,
-      resolvedAt: "2026-08-30T12:00:00.000Z",
-      failureCode: "model_outcome_unknown" as const,
-      failureCategory: "ambiguous" as const,
+      state: "voice_sent" as const,
+      sentAssistantEventId: assistantEventId,
     }) satisfies StoredConversationTurn;
     const capability = Object.freeze({ turnId, requestHash: common.requestHash }) as ModelStreamClaimCapability;
     const contextItem = Object.defineProperties({}, {
@@ -576,22 +575,25 @@ describe("conversation capture-once security", () => {
     let beginCalls = 0;
     let modelCalls = 0;
     let settlementCalls = 0;
+    let modelContext: unknown;
+    const sequence: string[] = [];
     const repository = {
       async getOrCreateTurn() { return Object.freeze({ turn: admitted, replayed: false }); },
       async claimModelTurn() { return Object.freeze({ kind: "claimed" as const, capability, turn: claimed }); },
-      beginModelStream(): void { beginCalls += 1; },
-      async recordVoiceSent(): Promise<never> { throw new Error("unexpected_voice"); },
+      beginModelStream(): void { beginCalls += 1; sequence.push("begin"); },
+      async recordVoiceSent() { return sent; },
       async stageAssistantDelivery(): Promise<never> { throw new Error("unexpected_stage"); },
       async recordTurnCancelled(): Promise<never> { throw new Error("unexpected_cancel"); },
-      async recordTurnFailed() { settlementCalls += 1; return unknown; },
+      async recordTurnFailed(): Promise<never> { settlementCalls += 1; throw new Error("unexpected_failure"); },
       async recordIngestFailure(): Promise<never> { throw new Error("unexpected_ingest_failure"); },
       async stageSystemNotice(): Promise<never> { throw new Error("unexpected_system_notice"); },
     };
     const service = new DefaultConversationService({
       repository,
       model: {
-        async *stream() {
+        async *stream(input: { context: unknown }) {
           modelCalls += 1;
+          modelContext = input.context;
           yield Object.freeze({ index: 0, text: "safe" });
         },
       },
@@ -601,23 +603,39 @@ describe("conversation capture-once security", () => {
       now: () => new Date("2026-08-30T12:00:00.000Z"),
     } as never);
 
-    await expect(service.handleTurn({
-      sessionId: admitted.sessionId,
-      principalId: admitted.principalId,
-      turnId,
-      text: "hello",
-      signal: new AbortController().signal,
-      ...inertVoiceDelivery(admitted.sessionId, turnId),
-    })).resolves.toEqual({
-      outcome: "model_outcome_unknown",
-      committedUserEventId: admitted.userEventId,
-      sentAssistantEventId: null,
-      deliveryId: null,
-      deliveredAssistantEventId: null,
-    });
-    expect(beginCalls).toBe(0);
-    expect(modelCalls).toBe(0);
-    expect(settlementCalls).toBe(1);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => { sequence.push("fallback"); });
+    try {
+      await expect(service.handleTurn({
+        sessionId: admitted.sessionId,
+        principalId: admitted.principalId,
+        turnId,
+        text: "hello",
+        signal: new AbortController().signal,
+        ...createVoiceStreamDelivery({
+          sessionId: admitted.sessionId,
+          turnId,
+          sendToken: async () => undefined,
+          finish: async () => undefined,
+        }),
+      })).resolves.toEqual({
+        outcome: "voice_sent",
+        committedUserEventId: admitted.userEventId,
+        sentAssistantEventId: assistantEventId,
+        deliveryId: null,
+        deliveredAssistantEventId: null,
+      });
+      expect(beginCalls).toBe(1);
+      expect(modelCalls).toBe(1);
+      expect(modelContext).toEqual([]);
+      expect(settlementCalls).toBe(0);
+      expect(sequence).toEqual(["fallback", "begin"]);
+      expect(warn).toHaveBeenCalledExactlyOnceWith("voice_context_retrieval_fallback", {
+        turnId, reason: "invalid",
+      });
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("malicious accessor");
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("rejects an accessor-shaped Telegram stage result before dispatch", async () => {

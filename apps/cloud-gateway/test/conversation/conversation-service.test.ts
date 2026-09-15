@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { newUlid, type Sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import {
   createVoiceStreamDelivery,
@@ -644,8 +644,9 @@ describe("DefaultConversationService", () => {
     expect(finishCalls).toBe(1);
   });
 
-  it("does not expose a context dependency failure or begin model work", async () => {
+  it("records a voice context failure and continues the model with no retrieved context", async () => {
     const turnId = newUlid();
+    const assistantEventId = newUlid();
     const admitted = storedTurn({
       turnId,
       sessionId: "voice-session-context-unknown",
@@ -653,44 +654,35 @@ describe("DefaultConversationService", () => {
       channel: "voice",
     });
     const claimed = Object.freeze({ ...admitted, state: "model_claimed" as const });
-    const unknown = Object.freeze({
-      ...claimed,
-      state: "model_outcome_unknown" as const,
-      resolvedAt: nowIso,
-      failureCode: "model_outcome_unknown" as const,
-      failureCategory: "ambiguous" as const,
-    });
+    const sent = Object.freeze({ ...claimed, state: "voice_sent" as const, sentAssistantEventId: assistantEventId });
     const capability = Object.freeze({ turnId, requestHash }) as ModelStreamClaimCapability;
     let beginCalls = 0;
     let modelCalls = 0;
     let claimCalls = 0;
-    let unknownSettlements = 0;
     let durable = admitted;
+    let modelContext: unknown;
     const repository = {
-      async getOrCreateTurn() { return Object.freeze({ turn: durable, replayed: durable === unknown }); },
+      async getOrCreateTurn() { return Object.freeze({ turn: durable, replayed: durable === sent }); },
       async claimModelTurn() {
         claimCalls += 1;
         return Object.freeze({ kind: "claimed" as const, capability, turn: claimed });
       },
       beginModelStream(): void { beginCalls += 1; },
-      async recordVoiceSent(): Promise<never> { throw new Error("unexpected_voice"); },
+      async recordVoiceSent(): Promise<StoredConversationTurn> { durable = sent; return sent; },
       async stageAssistantDelivery(): Promise<never> { throw new Error("unexpected_stage"); },
       async recordTurnCancelled(): Promise<never> { throw new Error("unexpected_cancel"); },
-      async recordTurnFailed(input: { failureCode: string; failureCategory: string }) {
-        expect(input).toMatchObject({
-          failureCode: "model_outcome_unknown",
-          failureCategory: "ambiguous",
-        });
-        unknownSettlements += 1;
-        durable = unknown;
-        return unknown;
-      },
+      async recordTurnFailed(): Promise<never> { throw new Error("unexpected_failure"); },
       async recordIngestFailure(): Promise<never> { throw new Error("unexpected_ingest_failure"); },
       async stageSystemNotice(): Promise<never> { throw new Error("unexpected_system_notice"); },
     };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const service = new DefaultConversationService({
       repository,
-      model: { stream(): never { modelCalls += 1; throw new Error("unexpected_model"); } },
+      model: { async *stream(input: { context: unknown }) {
+        modelCalls += 1;
+        modelContext = input.context;
+        yield Object.freeze({ index: 0, text: "safe answer" });
+      } },
       context: { async retrieve(): Promise<never> { throw new Error("database secret"); } },
       dispatcher: { async dispatch(): Promise<never> { throw new Error("unexpected_dispatch"); } },
       redactor: new Redactor(),
@@ -700,8 +692,8 @@ describe("DefaultConversationService", () => {
     const delivery = createVoiceStreamDelivery({
       sessionId: admitted.sessionId,
       turnId,
-      sendToken: async () => { throw new Error("unexpected_token"); },
-      finish: async () => { throw new Error("unexpected_finish"); },
+      sendToken: async () => undefined,
+      finish: async () => undefined,
     });
     const input = {
       sessionId: admitted.sessionId,
@@ -712,24 +704,83 @@ describe("DefaultConversationService", () => {
       ...delivery,
     } as const;
 
-    await expect(service.handleTurn(input)).resolves.toEqual({
-      outcome: "model_outcome_unknown",
-      committedUserEventId: admitted.userEventId,
-      sentAssistantEventId: null,
-      deliveryId: null,
-      deliveredAssistantEventId: null,
-    });
-    await expect(service.handleTurn(input)).resolves.toEqual({
-      outcome: "model_outcome_unknown",
-      committedUserEventId: admitted.userEventId,
-      sentAssistantEventId: null,
-      deliveryId: null,
-      deliveredAssistantEventId: null,
-    });
-    expect(beginCalls).toBe(0);
-    expect(modelCalls).toBe(0);
-    expect(claimCalls).toBe(1);
-    expect(unknownSettlements).toBe(1);
+    try {
+      await expect(service.handleTurn(input)).resolves.toMatchObject({
+        outcome: "voice_sent", sentAssistantEventId: assistantEventId,
+      });
+      await expect(service.handleTurn(input)).resolves.toMatchObject({ outcome: "voice_sent" });
+      expect(beginCalls).toBe(1);
+      expect(modelCalls).toBe(1);
+      expect(claimCalls).toBe(1);
+      expect(modelContext).toEqual([]);
+      expect(warn).toHaveBeenCalledExactlyOnceWith("voice_context_retrieval_fallback", {
+        turnId, reason: "failure",
+      });
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("database secret");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("starts a voice model with recorded empty context at the hard 750 millisecond retrieval deadline", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const turnId = newUlid();
+      const assistantEventId = newUlid();
+      const admitted = storedTurn({
+        turnId, sessionId: "voice-session-context-timeout", principalId: "principal:voice-owner", channel: "voice",
+      });
+      const claimed = Object.freeze({ ...admitted, state: "model_claimed" as const });
+      const sent = Object.freeze({ ...claimed, state: "voice_sent" as const, sentAssistantEventId: assistantEventId });
+      const capability = Object.freeze({ turnId, requestHash }) as ModelStreamClaimCapability;
+      let modelCalls = 0;
+      let modelContext: unknown;
+      const service = new DefaultConversationService({
+        repository: {
+          async getOrCreateTurn() { return Object.freeze({ turn: admitted, replayed: false }); },
+          async claimModelTurn() { return Object.freeze({ kind: "claimed" as const, capability, turn: claimed }); },
+          beginModelStream(): void {},
+          async recordVoiceSent() { return sent; },
+          async stageAssistantDelivery(): Promise<never> { throw new Error("unexpected_stage"); },
+          async recordTurnCancelled(): Promise<never> { throw new Error("unexpected_cancel"); },
+          async recordTurnFailed(): Promise<never> { throw new Error("unexpected_failure"); },
+          async recordIngestFailure(): Promise<never> { throw new Error("unexpected_ingest"); },
+          async stageSystemNotice(): Promise<never> { throw new Error("unexpected_notice"); },
+        },
+        context: { retrieve: () => new Promise<never>(() => undefined) },
+        model: { async *stream(input: { context: unknown }) {
+          modelCalls += 1;
+          modelContext = input.context;
+          yield Object.freeze({ index: 0, text: "safe answer" });
+        } },
+        dispatcher: { async dispatch(): Promise<never> { throw new Error("unexpected_dispatch"); } },
+        redactor: new Redactor(),
+        now: () => new Date(nowIso),
+      } as never);
+      const delivery = createVoiceStreamDelivery({
+        sessionId: admitted.sessionId, turnId,
+        sendToken: async () => undefined,
+        finish: async () => undefined,
+      });
+      const pending = service.handleTurn({
+        sessionId: admitted.sessionId, principalId: admitted.principalId, turnId,
+        text: "hello", signal: new AbortController().signal, ...delivery,
+      });
+
+      await vi.advanceTimersByTimeAsync(749);
+      expect(modelCalls).toBe(0);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(pending).resolves.toMatchObject({ outcome: "voice_sent" });
+      expect(modelCalls).toBe(1);
+      expect(modelContext).toEqual([]);
+      expect(warn).toHaveBeenCalledExactlyOnceWith("voice_context_retrieval_fallback", {
+        turnId, reason: "timeout",
+      });
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("returns model_outcome_unknown when Telegram staging fails after model completion", async () => {

@@ -27,6 +27,7 @@ import {
   PhoneActivationChallengeConfirmer,
   type CallSessionInitialization,
   type CallSessionRuntimeFactory,
+  type OwnerStepUpAlarmPort,
 } from "../../src/voice/call-session-do.js";
 import { CapabilityRegistry } from "../../src/voice/capability-registry.js";
 import { readVoiceRuntimeConfiguration } from "../../src/voice/production-runtime.js";
@@ -621,6 +622,7 @@ async function accessHarness(
   callSidLimit?: number,
   withOwnerAdministration = false,
   capacity = healthyCapacity,
+  withCleanEnd = false,
 ) {
   await clearFixture();
   await seedActiveVoiceIdentity();
@@ -699,8 +701,9 @@ async function accessHarness(
     })),
   } as unknown as ConversationService;
   const close = vi.fn<(code: number) => void>();
+  const end = vi.fn<(handoffData: string) => Promise<void>>(async () => undefined);
   const sendNeutralText = vi.fn<(text: string) => Promise<void>>(async () => undefined);
-  const armOwnerStepUpAlarm = vi.fn(async () => undefined);
+  const armOwnerStepUpAlarm = vi.fn<OwnerStepUpAlarmPort["arm"]>(async () => undefined);
   const clearOwnerStepUpAlarm = vi.fn(async () => undefined);
   const ownerStepUpAlert = vi.fn(async () => undefined);
   let currentNow = new Date(NOW);
@@ -723,6 +726,7 @@ async function accessHarness(
       sendToken: async () => undefined,
       finish: async () => undefined,
       cancelOutput: async () => undefined,
+      ...(withCleanEnd ? { end } : {}),
     },
     now: () => new Date(currentNow),
   } as never);
@@ -733,9 +737,11 @@ async function accessHarness(
     authority,
     guestAuthentication,
     ownerAccess,
+    ownerStepUp,
     authenticate,
     conversation,
     close,
+    end,
     sendNeutralText,
     armOwnerStepUpAlarm,
     clearOwnerStepUpAlarm,
@@ -1188,6 +1194,101 @@ describe("CallSessionCore owner and guest access", () => {
       releaseAlert();
     }
   }, 15_000);
+
+  it("completes a frame and alarm rejection race only once in one isolate", async () => {
+    const harness = await accessHarness("owner", undefined, true, healthyCapacity, true);
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    harness.advanceTime(60_001);
+    const binding = harness.ownerStepUp.binding.bind(harness.ownerStepUp);
+    let announceBinding!: () => void;
+    let releaseBinding!: () => void;
+    const bindingStarted = new Promise<void>((resolve) => { announceBinding = resolve; });
+    const bindingBlocked = new Promise<void>((resolve) => { releaseBinding = resolve; });
+    const spy = vi.spyOn(harness.ownerStepUp, "binding").mockImplementation(async (sessionId) => {
+      announceBinding();
+      await bindingBlocked;
+      return binding(sessionId);
+    });
+    try {
+      const frame = harness.instance.handleRelayEvent({
+        type: "prompt", final: true, language: "en-US", text: "hello there",
+      });
+      await bindingStarted;
+      const alarm = harness.instance.handleOwnerStepUpAlarm("window", 1);
+      releaseBinding();
+      await Promise.all([frame, alarm]);
+
+      expect(harness.sendNeutralText.mock.calls.filter(([text]) => text === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
+      expect(harness.end).toHaveBeenCalledOnce();
+      expect(harness.ownerStepUpAlert).toHaveBeenCalledOnce();
+    } finally {
+      releaseBinding();
+      spy.mockRestore();
+    }
+  }, 30_000);
+
+  it("retries only the final alarm clear after rejection delivery completed", async () => {
+    const harness = await accessHarness("owner", undefined, true, healthyCapacity, true);
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    harness.advanceTime(60_001);
+    harness.clearOwnerStepUpAlarm.mockRejectedValueOnce(new Error("fixture_alarm_clear_failed"));
+
+    await expect(harness.instance.handleOwnerStepUpAlarm("window", 1)).rejects.toThrow("fixture_alarm_clear_failed");
+    await expect(harness.instance.handleOwnerStepUpAlarm("window", 1)).resolves.toBeUndefined();
+
+    expect(harness.sendNeutralText.mock.calls.filter(([text]) => text === OWNER_STEP_UP_REJECTED)).toHaveLength(1);
+    expect(harness.end).toHaveBeenCalledOnce();
+    expect(harness.ownerStepUpAlert).toHaveBeenCalledOnce();
+    expect(harness.clearOwnerStepUpAlarm).toHaveBeenCalledTimes(2);
+  }, 30_000);
+
+  it("marks a pre-authentication socket close failed even when its alarm clear fails", async () => {
+    const harness = await accessHarness("owner", undefined, true);
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    harness.clearOwnerStepUpAlarm.mockRejectedValueOnce(new Error("fixture_alarm_clear_failed"));
+
+    await expect(harness.instance.handleSocketClose("socket_closed")).resolves.toBeUndefined();
+
+    expect(harness.instance.phase).toBe("failed");
+    expect(await storedPhase(harness.stored.sessionId)).toBe("failed");
+  });
+
+  it("serializes a stale assembly alarm with a late-fragment reprompt", async () => {
+    const harness = await accessHarness("owner", undefined, true);
+    await harness.instance.handleRelayEvent(relaySetup(harness.stored));
+    await harness.instance.handleRelayEvent({
+      type: "prompt", final: true, language: "en-US", text: "ablaze",
+    });
+    harness.advanceTime(4_001);
+    const recordReprompt = harness.ownerStepUp.recordReprompt.bind(harness.ownerStepUp);
+    let announceReprompt!: () => void;
+    let releaseReprompt!: () => void;
+    let repromptCalls = 0;
+    const repromptStarted = new Promise<void>((resolve) => { announceReprompt = resolve; });
+    const repromptBlocked = new Promise<void>((resolve) => { releaseReprompt = resolve; });
+    const spy = vi.spyOn(harness.ownerStepUp, "recordReprompt").mockImplementation(async (sessionId, now) => {
+      repromptCalls += 1;
+      if (repromptCalls === 1) {
+        announceReprompt();
+        await repromptBlocked;
+      }
+      return recordReprompt(sessionId, now);
+    });
+    try {
+      const lateFragment = harness.instance.handleRelayEvent({
+        type: "prompt", final: true, language: "en-US", text: "abrasion",
+      });
+      await repromptStarted;
+      await harness.instance.handleOwnerStepUpAlarm("assembly", 1);
+      expect(spy).toHaveBeenCalledOnce();
+      expect(harness.armOwnerStepUpAlarm.mock.calls.at(-1)?.[0]).toMatchObject({ kind: "window" });
+      releaseReprompt();
+      await lateFragment;
+    } finally {
+      releaseReprompt();
+      spy.mockRestore();
+    }
+  });
 
   it("does not start a conversation turn when termination wins during authorization", async () => {
     const harness = await accessHarness("owner");
