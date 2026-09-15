@@ -366,6 +366,24 @@ describe("VoiceAccessRepository", () => {
     await expect(repository.requireCurrentAuthority({ ...minted }, NOW))
       .rejects.toThrow("call_authority_invalid");
 
+    const verifierGuard = await env.DB.prepare(`SELECT sql FROM sqlite_schema
+      WHERE type = 'trigger' AND name = 'owner_passphrase_verifiers_transition_guard'`)
+      .first<{ sql: string }>();
+    if (verifierGuard === null) throw new Error("owner_passphrase_verifier_guard_missing");
+    await env.DB.prepare("DROP TRIGGER owner_passphrase_verifiers_transition_guard").run();
+    await env.DB.prepare(`UPDATE owner_passphrase_verifiers
+      SET status = 'revoked', status_changed_at = ? WHERE status = 'active'`).bind(now).run();
+    try {
+      await expect(repository.rehydrateAuthority({ sessionId: secondSessionId, binding, now: NOW }))
+        .rejects.toThrow("call_authority_invalid");
+      await expect(repository.requireCurrentAuthority(minted, NOW))
+        .rejects.toThrow("call_authority_stale");
+    } finally {
+      await env.DB.prepare(`UPDATE owner_passphrase_verifiers
+        SET status = 'active', status_changed_at = created_at WHERE status = 'revoked'`).run();
+      await env.DB.prepare(verifierGuard.sql).run();
+    }
+
     await repository.createGuestGrant(validCreateInput(ownerAuthority));
     await env.DB.prepare(`UPDATE voice_access_grants SET status = 'active', activated_at = ?, updated_at = ?
       WHERE grant_id = ?`).bind(now, now, GRANT_ID).run();

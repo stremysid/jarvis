@@ -4,6 +4,7 @@ import { type RelayBinding, type Ulid } from "../../../../packages/contracts/src
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { CallRepository } from "../../src/persistence/call-repository.js";
 import { VoiceAccessRepository } from "../../src/persistence/voice-access-repository.js";
+import { OwnerPassphraseRepository } from "../../src/persistence/owner-passphrase-repository.js";
 import { OwnerPassphraseVerifier } from "../../src/security/owner-passphrase-verifier.js";
 import { CapabilityRegistry } from "../../src/voice/capability-registry.js";
 import { OwnerCallStepUpService } from "../../src/voice/owner-call-step-up.js";
@@ -82,6 +83,12 @@ describe("voice-access incremental migration", () => {
         identity_id, principal_id, channel, provider_subject, status, verified_at, created_at
       ) VALUES (?, ?, 'voice', '+14165550101', 'active', ?, ?)`)
         .bind(OWNER_IDENTITY_ID, OWNER_PRINCIPAL_ID, CREATED_AT, CREATED_AT),
+      env.DB.prepare(`INSERT INTO device_keys (
+        device_id, principal_id, key_id, public_key_base64, key_fingerprint,
+        key_generation, algorithm, status, device_label, bootstrap_metadata_hash, created_at
+      ) VALUES ('device:incremental-owner', ?, 'key:incremental-owner', ?, ?, 1,
+        'ed25519', 'active', 'incremental fixture', ?, ?)`)
+        .bind(OWNER_PRINCIPAL_ID, "A".repeat(43) + "=", "b".repeat(64), "c".repeat(64), CREATED_AT),
       env.DB.prepare(`INSERT INTO voice_owner_identity (
         singleton_id, principal_id, identity_id, created_at
       ) VALUES (1, ?, ?, ?)`)
@@ -131,6 +138,24 @@ describe("voice-access incremental migration", () => {
     // runtime is only admitted after its additive schemas have been applied.
     await applyVoiceRuntimeMigration();
     await applyOwnerCallStepUpMigration();
+
+    const passphraseVerifier = new OwnerPassphraseVerifier(
+      new Uint8Array(32).fill(17), "v1", () => new Uint8Array(16).fill(7),
+    );
+    await new OwnerPassphraseRepository(env.DB).rotate({
+      verified: {
+        deviceId: "device:incremental-owner", principalId: OWNER_PRINCIPAL_ID,
+        audience: "jarvis-local-agent", issuedAt: AUTHENTICATED_AT, nonce: "incremental-test",
+        bodyHash: "d".repeat(64), keyId: "key:incremental-owner",
+        keyFingerprint: "b".repeat(64), keyGeneration: 1, body: {},
+      },
+      ownerPrincipalId: OWNER_PRINCIPAL_ID,
+      ownerIdentityId: OWNER_IDENTITY_ID,
+      expectedVerifierVersion: null,
+      record: await passphraseVerifier.create(OWNER_IDENTITY_ID, 1, "ablaze abrasion abrasive"),
+      commitId: "01m2ddddddddddddddddddd002",
+      committedAt: AUTHENTICATED_AT,
+    });
 
     const registry = new CapabilityRegistry({ installed: ["conversation.basic"] });
     const restarted = new VoiceAccessAuthorityService(new VoiceAccessRepository(env.DB), registry);

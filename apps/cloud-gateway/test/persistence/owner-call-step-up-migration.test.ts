@@ -1,9 +1,14 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { createFakeCallingSystem } from "../../../../tests/acceptance/fake/voice-call-system.js";
-import { seedFakeGuest } from "../../../../tests/acceptance/fake/voice-access-system.js";
+import {
+  FAKE_OWNER_PASSPHRASE_PEPPER,
+  seedFakeGuest,
+} from "../../../../tests/acceptance/fake/voice-access-system.js";
 import { CallRepository } from "../../src/persistence/call-repository.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
+import { OwnerPassphraseVerifier } from "../../src/security/owner-passphrase-verifier.js";
+import { OwnerCallStepUpService } from "../../src/voice/owner-call-step-up.js";
 import { applyOwnerCallStepUpMigration } from "./migration.js";
 
 const NOW = "2026-08-30T12:00:00.000Z";
@@ -52,6 +57,11 @@ describe("owner call step-up migration", () => {
       "owner_call_step_up_successes",
       "owner_call_step_up_windows",
     ]);
+    for (const { name } of tables.results) {
+      const schema = await env.DB.prepare("SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = ?")
+        .bind(name).first<{ sql: string }>();
+      expect(schema?.sql, name).toContain("WITHOUT ROWID");
+    }
     const authority = await env.DB.prepare(`SELECT sql FROM sqlite_schema
       WHERE type = 'trigger' AND name = 'call_session_authorities_require_current_lineage'`)
       .first<{ sql: string }>();
@@ -93,6 +103,30 @@ describe("owner call step-up migration", () => {
       );
     } finally { await system.cleanup(); }
   });
+
+  it("keeps bind, begin, and expiry retries idempotent with guarded inserts", async () => {
+    const { system, call } = await openPreAuth();
+    try {
+      const service = new OwnerCallStepUpService(
+        env.DB, new OwnerPassphraseVerifier(FAKE_OWNER_PASSPHRASE_PEPPER(), "v1"),
+      );
+      const binding = await service.binding(call.sessionId);
+      if (binding === null) throw new Error("owner_step_up_binding_missing");
+      await expect(service.bind(binding)).resolves.toEqual(binding);
+      await expect(service.bind({ ...binding, policy: "invalid" }))
+        .rejects.toThrow("owner_step_up_binding_conflict");
+
+      const first = await service.begin(call.sessionId, new Date("2026-08-30T12:00:30.000Z"));
+      const second = await service.begin(call.sessionId, new Date("2026-08-30T12:00:45.000Z"));
+      expect(second).toEqual(first);
+
+      const expiredAt = new Date("2026-08-30T12:01:00.001Z");
+      await service.expire(call.sessionId, expiredAt);
+      await service.expire(call.sessionId, expiredAt);
+      await expect(env.DB.prepare(`SELECT count(*) AS count FROM owner_call_step_up_rejections
+        WHERE session_id = ?`).bind(call.sessionId).first()).resolves.toEqual({ count: 1 });
+    } finally { await system.cleanup(); }
+  }, 15_000);
 
   it("pins the 60-second window guard and window immutability", async () => {
     const system = await createFakeCallingSystem();
@@ -236,4 +270,71 @@ describe("owner call step-up migration", () => {
       );
     } finally { await system.cleanup(); }
   });
+
+  it("rejects INSERT OR REPLACE across every 0018 table and pins mutable alert keys", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      const successful = await system.openRelay();
+      await successful.setup();
+      await successful.prompt(CORRECT);
+      system.advanceTime(2_001);
+      const repeatReservedAt = "2026-08-30T12:00:02.001Z";
+      await env.DB.prepare(`INSERT INTO owner_call_step_up_repeat_checks (
+        session_id, lifecycle_generation, verifier_version, reserved_at, outcome, resolved_at
+      ) VALUES (?, 1, 1, ?, NULL, NULL)`).bind(successful.sessionId, repeatReservedAt).run();
+
+      expect((await system.inbound()).status).toBe(200);
+      const rejected = await system.openRelay();
+      await rejected.setup();
+      await rejected.prompt("ablaze abrasion abrasive active");
+      for (const candidate of [
+        "ablaze abrasion active", "ablaze abrasion activist", "ablaze abrasion activity",
+      ]) await rejected.prompt(candidate);
+
+      expect((await system.inbound()).status).toBe(200);
+      const preAuth = await system.openRelay();
+      await preAuth.setup();
+      expect(await preAuth.phase()).toBe("pre_auth");
+      for (const [statement, error] of [
+        [`INSERT OR REPLACE INTO owner_call_step_up_bindings
+          SELECT * FROM owner_call_step_up_bindings WHERE session_id = ?`, "owner_call_step_up_binding_invalid"],
+        [`INSERT OR REPLACE INTO owner_call_step_up_windows
+          SELECT * FROM owner_call_step_up_windows WHERE session_id = ?`, "owner_call_step_up_window_invalid"],
+      ] as const) {
+        await expect(env.DB.prepare(statement).bind(preAuth.sessionId).run()).rejects.toThrow(error);
+      }
+      await expect(env.DB.prepare(`INSERT OR REPLACE INTO owner_call_step_up_repeat_checks
+        SELECT * FROM owner_call_step_up_repeat_checks WHERE session_id = ?`).bind(successful.sessionId).run())
+        .rejects.toThrow("owner_call_step_up_repeat_invalid");
+      await preAuth.terminate("failed");
+
+      const guest = await seedFakeGuest("a");
+      expect((await system.inbound(guest.caller)).status).toBe(200);
+      const guestCall = await system.openRelay();
+      await guestCall.setup();
+      await guestCall.pin(new TextEncoder().encode("1357"));
+
+      await env.DB.prepare(`INSERT INTO owner_call_step_up_alerts (
+        owner_principal_id, alert_class, direction, attestation_class,
+        first_observed_at, last_observed_at, observation_count, last_sent_at, claim_id, claim_expires_at
+      ) VALUES ('principal:owner', 'rejected', 'inbound', 'absent', ?, ?, 1, NULL, NULL, NULL)`)
+        .bind(NOW, NOW).run();
+
+      for (const [table, error] of [
+        ["owner_call_step_up_attempts", "owner_call_step_up_attempt_invalid"],
+        ["owner_call_step_up_reprompts", "owner_call_step_up_reprompt_invalid"],
+        ["owner_call_step_up_successes", "owner_call_step_up_success_invalid"],
+        ["owner_call_step_up_rejections", "owner_call_step_up_rejection_invalid"],
+        ["guest_call_pin_attempts", "guest_call_pin_attempt_invalid"],
+        ["owner_call_step_up_alerts", "owner_step_up_alert_insert_invalid"],
+      ] as const) {
+        await expect(env.DB.prepare(`INSERT OR REPLACE INTO ${table} SELECT * FROM ${table}`).run())
+          .rejects.toThrow(error);
+      }
+      await expect(env.DB.prepare(`UPDATE owner_call_step_up_alerts SET alert_class = 'configuration'
+        WHERE owner_principal_id = 'principal:owner' AND alert_class = 'rejected' AND direction = 'inbound'`).run())
+        .rejects.toThrow("owner_step_up_alert_key_immutable");
+    } finally { await system.cleanup(); }
+  }, 30_000);
 });

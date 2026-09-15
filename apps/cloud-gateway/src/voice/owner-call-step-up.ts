@@ -141,11 +141,15 @@ export class OwnerCallStepUpService {
   }
 
   async bind(input: OwnerStepUpBindingSnapshot): Promise<OwnerStepUpBindingSnapshot> {
+    const existing = await this.binding(input.sessionId);
+    if (existing !== null) {
+      if (JSON.stringify(existing) !== JSON.stringify(input)) throw new Error("owner_step_up_binding_conflict");
+      return existing;
+    }
     await this.#database.prepare(`INSERT INTO owner_call_step_up_bindings (
       session_id, call_sid, owner_principal_id, owner_identity_id, direction,
       lifecycle_generation, requirement, attestation_class, policy, created_at
-    ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
-    ON CONFLICT(session_id) DO NOTHING`).bind(
+    ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`).bind(
       input.sessionId, input.callSid, input.ownerPrincipalId, input.ownerIdentityId,
       input.direction, input.requirement, input.attestationClass, input.policy, input.createdAt,
     ).run();
@@ -163,6 +167,10 @@ export class OwnerCallStepUpService {
   }
 
   async begin(sessionId: Ulid, now: Date): Promise<{ readonly deadlineAt: string; readonly verifierVersion: number }> {
+    const existing = await this.#activeVerifier(sessionId);
+    if (existing !== null) {
+      return Object.freeze({ deadlineAt: existing.deadline_at, verifierVersion: existing.verifier_version });
+    }
     const promptedAt = iso(now);
     const deadlineAt = new Date(now.valueOf() + OWNER_STEP_UP_WINDOW_MS).toISOString();
     const head = await this.#database.prepare(`SELECT head.verifier_version
@@ -174,7 +182,7 @@ export class OwnerCallStepUpService {
     if (head === null) throw new Error("owner_step_up_unavailable");
     await this.#database.prepare(`INSERT INTO owner_call_step_up_windows (
       session_id, lifecycle_generation, verifier_version, prompted_at, deadline_at
-    ) VALUES (?, 1, ?, ?, ?) ON CONFLICT(session_id, lifecycle_generation) DO NOTHING`)
+    ) VALUES (?, 1, ?, ?, ?)`)
       .bind(sessionId, head.verifier_version, promptedAt, deadlineAt).run();
     const row = await this.#database.prepare(`SELECT verifier_version, deadline_at
       FROM owner_call_step_up_windows WHERE session_id = ? AND lifecycle_generation = 1`)
@@ -229,10 +237,31 @@ export class OwnerCallStepUpService {
   }
 
   async expire(sessionId: Ulid, now: Date): Promise<void> {
+    const existing = await this.#database.prepare(
+      "SELECT session_id FROM owner_call_step_up_rejections WHERE session_id = ?",
+    ).bind(sessionId).first<{ session_id: string }>();
+    if (existing !== null) return;
     await this.#database.prepare(`INSERT INTO owner_call_step_up_rejections (
       session_id, lifecycle_generation, reason, rejected_at
-    ) VALUES (?, 1, 'deadline_expired', ?) ON CONFLICT(session_id) DO NOTHING`)
+    ) VALUES (?, 1, 'deadline_expired', ?)`)
       .bind(sessionId, iso(now)).run();
+  }
+
+  async assertWaiverAvailable(sessionId: Ulid): Promise<void> {
+    const current = await this.#database.prepare(`SELECT binding.session_id
+      FROM owner_call_step_up_bindings binding
+      JOIN owner_passphrase_heads head ON head.singleton_id = 1
+        AND head.owner_principal_id = binding.owner_principal_id
+        AND head.owner_identity_id = binding.owner_identity_id
+        AND head.status = 'active'
+      JOIN owner_passphrase_verifiers verifier
+        ON verifier.owner_identity_id = head.owner_identity_id
+        AND verifier.verifier_version = head.verifier_version
+        AND verifier.status = 'active'
+      WHERE binding.session_id = ? AND binding.requirement = 'waived_passed_a'
+        AND binding.direction = 'inbound' AND binding.attestation_class = 'passed_a'
+        AND binding.policy = 'waive_on_passed_a'`).bind(sessionId).first<{ session_id: string }>();
+    if (current === null) throw new Error("owner_step_up_unavailable");
   }
 
   async verifyRepeat(
@@ -241,11 +270,9 @@ export class OwnerCallStepUpService {
     now: Date,
   ): Promise<"suppress" | "continue"> {
     const at = iso(now);
-    const state = await this.state(sessionId);
-    if (state.verifiedAt === null) return "continue";
-    if (at <= new Date(new Date(state.verifiedAt).valueOf() + OWNER_STEP_UP_REPEAT_MS).toISOString()) {
-      return "suppress";
-    }
+    const status = await this.repeatStatus(sessionId, now);
+    if (status === "guard") return "suppress";
+    if (status !== "available") return "continue";
     let canonical: Uint8Array;
     try { canonical = canonicalizeOwnerPassphrase(candidate); }
     catch { return "continue"; }
@@ -254,7 +281,7 @@ export class OwnerCallStepUpService {
     if (row === null) return "continue";
     const claim = await this.#database.prepare(`INSERT INTO owner_call_step_up_repeat_checks (
       session_id, lifecycle_generation, verifier_version, reserved_at, outcome, resolved_at
-    ) VALUES (?, 1, ?, ?, NULL, NULL) ON CONFLICT(session_id) DO NOTHING RETURNING session_id`)
+    ) VALUES (?, 1, ?, ?, NULL, NULL) RETURNING session_id`)
       .bind(sessionId, row.verifier_version, at).first<{ session_id: string }>();
     if (claim === null) return "continue";
     const matched = await this.#verifier.verify((await this.#requiredBinding(sessionId)).ownerIdentityId, candidate, this.#record(row));
@@ -262,6 +289,18 @@ export class OwnerCallStepUpService {
     await this.#database.prepare(`UPDATE owner_call_step_up_repeat_checks SET outcome = ?, resolved_at = ?
       WHERE session_id = ? AND outcome IS NULL`).bind(matched ? "matched" : "mismatched", iso(now), sessionId).run();
     return matched ? "suppress" : "continue";
+  }
+
+  async repeatStatus(sessionId: Ulid, now: Date): Promise<"guard" | "available" | "spent" | "inactive"> {
+    const state = await this.state(sessionId);
+    if (state.verifiedAt === null) return "inactive";
+    if (iso(now) <= new Date(new Date(state.verifiedAt).valueOf() + OWNER_STEP_UP_REPEAT_MS).toISOString()) {
+      return "guard";
+    }
+    const existing = await this.#database.prepare(
+      "SELECT session_id FROM owner_call_step_up_repeat_checks WHERE session_id = ?",
+    ).bind(sessionId).first<{ session_id: string }>();
+    return existing === null ? "available" : "spent";
   }
 
   async state(sessionId: Ulid): Promise<Readonly<{
@@ -359,25 +398,34 @@ export class D1OwnerStepUpAlertSink implements OwnerStepUpAlertSink {
     const eligibleBefore = new Date(input.now.valueOf() - 15 * 60_000).toISOString();
     const claimId = crypto.randomUUID();
     const claimExpiresAt = new Date(input.now.valueOf() + 30_000).toISOString();
-    const claimed = await this.database.prepare(`INSERT INTO owner_call_step_up_alerts (
+    const inserted = await this.database.prepare(`INSERT INTO owner_call_step_up_alerts (
       owner_principal_id, alert_class, direction, attestation_class,
       first_observed_at, last_observed_at, observation_count, last_sent_at, claim_id, claim_expires_at
-    ) VALUES (?, ?, ?, ?, ?, ?, 1, NULL, ?, ?)
-    ON CONFLICT(owner_principal_id, alert_class, direction) DO UPDATE SET
-      last_observed_at = excluded.last_observed_at,
+    ) SELECT ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?
+    WHERE NOT EXISTS (
+      SELECT 1 FROM owner_call_step_up_alerts
+      WHERE owner_principal_id = ? AND alert_class = ? AND direction = ?
+    ) RETURNING claim_id, observation_count`).bind(
+      input.ownerPrincipalId, input.alertClass, input.direction, input.attestationClass,
+      at, at, claimId, claimExpiresAt,
+      input.ownerPrincipalId, input.alertClass, input.direction,
+    ).first<{ claim_id: string | null; observation_count: number }>();
+    const claimed = inserted ?? await this.database.prepare(`UPDATE owner_call_step_up_alerts SET
+      last_observed_at = ?,
       observation_count = owner_call_step_up_alerts.observation_count + 1,
-      attestation_class = excluded.attestation_class,
+      attestation_class = ?,
       claim_id = CASE
         WHEN (owner_call_step_up_alerts.last_sent_at IS NULL OR owner_call_step_up_alerts.last_sent_at <= ?)
           AND (owner_call_step_up_alerts.claim_expires_at IS NULL OR owner_call_step_up_alerts.claim_expires_at <= ?)
-        THEN excluded.claim_id ELSE owner_call_step_up_alerts.claim_id END,
+        THEN ? ELSE owner_call_step_up_alerts.claim_id END,
       claim_expires_at = CASE
         WHEN (owner_call_step_up_alerts.last_sent_at IS NULL OR owner_call_step_up_alerts.last_sent_at <= ?)
           AND (owner_call_step_up_alerts.claim_expires_at IS NULL OR owner_call_step_up_alerts.claim_expires_at <= ?)
-        THEN excluded.claim_expires_at ELSE owner_call_step_up_alerts.claim_expires_at END
-    RETURNING claim_id, observation_count`).bind(
-      input.ownerPrincipalId, input.alertClass, input.direction, input.attestationClass,
-      at, at, claimId, claimExpiresAt, eligibleBefore, at, eligibleBefore, at,
+        THEN ? ELSE owner_call_step_up_alerts.claim_expires_at END
+      WHERE owner_principal_id = ? AND alert_class = ? AND direction = ?
+      RETURNING claim_id, observation_count`).bind(
+      at, input.attestationClass, eligibleBefore, at, claimId, eligibleBefore, at, claimExpiresAt,
+      input.ownerPrincipalId, input.alertClass, input.direction,
     ).first<{ claim_id: string | null; observation_count: number }>();
     if (claimed === null || claimed.claim_id !== claimId) return;
     const chatId = await new DeviceRepository(this.database).findOwnerTelegramChat(input.ownerPrincipalId);

@@ -46,6 +46,16 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 03:51 UTC — GPT-6 Codex, PR #40 review fixes ready for Claude max re-review
+
+PR #40 now closes B1–B3 and S1–S2 from the review at `8b56b13`. All nine `0018` tables are `WITHOUT ROWID`; every insert guard rejects an existing primary key, every mutable primary key is pinned, and `bind`, `begin`, and `expire` read before inserting so exact delivery retries remain idempotent. The alarm key is deleted only after every handler succeeds, and a first-handler-throws regression proves the retry retains the deadline. The dormant Passed-A waiver now requires the current head and verifier to be active in the migration authority trigger, call-session setup, authority rehydration, and every current-authority check. Post-success phrase fragments are assembled inside the repeat guard before any transcript, model, event, log, or DO sink. The four KDF-heavy gate tests have explicit timeouts.
+
+The REPLACE sweep fails when each of the nine insert-trigger bodies is neutralized; the binding, window, and repeat existing-key clauses also fail their targeted mutations. Dedicated mutations kill the alert key guard, both repository waiver checks independently, the call-session waiver preflight, the authority-trigger verifier check, alarm deletion-before-handling, and the split-fragment `return null` guard. Every mutation was restored. Windows 11 checks on the restored tree: fake voice gate 815/815, workspace 2,758/2,758 across 137 files, call-session 118/118, lint, workspace and voice typechecks, and `git diff --check` all pass. Migration `0018` remains unapplied; no inbound opening, live call, secret, production command, migration apply, or deploy occurred. Claude should re-review PR #40 at max effort; Sid retains merge authority.
+
+--- GPT-6 Codex, 2026-09-15 03:51 UTC
+
+---
+
 ## 2026-09-15 03:10 UTC — Claude Opus 5, correction to the PR #40 review at 6b63d08
 
 The trigger-coverage paragraph in the 03:02 entry opens with template text: it says each 0018 trigger block "was removed cleanly" and four test files were run. That run never produced results. **No valid trigger-removal results exist for 6b63d08.** Coverage of the 30 triggers is unverified, not measured. The planned 4-file specs timed out under load, and the 2-file specs were stopped at the reviewer handoff before any mutation finished. None of this changes the verdict: B1–B3 and S1–S2 stand on code reading and the #39 runtime probes. On the fix head, the next reviewer regenerates the specs with `gen-trig.mjs` (the 0018 SQL will change) and counts a kill only when a test fails.

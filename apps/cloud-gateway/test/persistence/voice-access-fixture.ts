@@ -107,12 +107,12 @@ export async function seedOwnerAuthority(
   const principals = [
     database.prepare("INSERT INTO principals (principal_id, principal_type, status, display_name, created_at, updated_at) VALUES (?, 'human', 'active', 'owner', ?, ?)")
       .bind(OWNER_PRINCIPAL_ID, now, now),
-    ...(stepUpVerified ? [database.prepare(`INSERT INTO device_keys (
+    database.prepare(`INSERT INTO device_keys (
       device_id, principal_id, key_id, public_key_base64, key_fingerprint,
       key_generation, algorithm, status, device_label, bootstrap_metadata_hash, created_at
     ) VALUES ('device:voice-access-test', ?, 'key:voice-access-test', ?, ?, 1,
       'ed25519', 'active', 'test fixture', ?, ?)`)
-      .bind(OWNER_PRINCIPAL_ID, "A".repeat(43) + "=", "b".repeat(64), "c".repeat(64), now)] : []),
+      .bind(OWNER_PRINCIPAL_ID, "A".repeat(43) + "=", "b".repeat(64), "c".repeat(64), now),
     database.prepare("INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at) VALUES (?, ?, 'voice', '+14165550101', 'active', ?, ?)")
       .bind(OWNER_IDENTITY_ID, OWNER_PRINCIPAL_ID, now, now),
     database.prepare("INSERT INTO voice_owner_identity (singleton_id, principal_id, identity_id, created_at) VALUES (1, ?, ?, ?)")
@@ -163,25 +163,25 @@ export async function seedOwnerAuthority(
     database,
     new OwnerPassphraseVerifier(TEST_OWNER_PASSPHRASE_PEPPER, "v1", () => new Uint8Array(16).fill(7)),
   );
+  const verifier = new OwnerPassphraseVerifier(
+    TEST_OWNER_PASSPHRASE_PEPPER,
+    "v1",
+    () => new Uint8Array(16).fill(7),
+  );
+  await new OwnerPassphraseRepository(database).rotate({
+    verified: {
+      deviceId: "device:voice-access-test", principalId: OWNER_PRINCIPAL_ID,
+      audience: "jarvis-local-agent", issuedAt: now, nonce: "test", bodyHash: "d".repeat(64),
+      keyId: "key:voice-access-test", keyFingerprint: "b".repeat(64), keyGeneration: 1, body: {},
+    },
+    ownerPrincipalId: OWNER_PRINCIPAL_ID,
+    ownerIdentityId: OWNER_IDENTITY_ID,
+    expectedVerifierVersion: null,
+    record: await verifier.create(OWNER_IDENTITY_ID, 1, TEST_OWNER_PASSPHRASE),
+    commitId: "01m2ddddddddddddddddddd001",
+    committedAt: now,
+  });
   if (stepUpVerified) {
-    const verifier = new OwnerPassphraseVerifier(
-      TEST_OWNER_PASSPHRASE_PEPPER,
-      "v1",
-      () => new Uint8Array(16).fill(7),
-    );
-    await new OwnerPassphraseRepository(database).rotate({
-      verified: {
-        deviceId: "device:voice-access-test", principalId: OWNER_PRINCIPAL_ID,
-        audience: "jarvis-local-agent", issuedAt: now, nonce: "test", bodyHash: "d".repeat(64),
-        keyId: "key:voice-access-test", keyFingerprint: "b".repeat(64), keyGeneration: 1, body: {},
-      },
-      ownerPrincipalId: OWNER_PRINCIPAL_ID,
-      ownerIdentityId: OWNER_IDENTITY_ID,
-      expectedVerifierVersion: null,
-      record: await verifier.create(OWNER_IDENTITY_ID, 1, TEST_OWNER_PASSPHRASE),
-      commitId: "01m2ddddddddddddddddddd001",
-      committedAt: now,
-    });
     await verifyOwnerStepUpForTest(database, OWNER_SESSION_ID, binding);
   } else {
     await stepUp.bind({

@@ -149,7 +149,7 @@ describe("owner-passphrase verifier and Worker-side generation", () => {
       .rejects.toThrow("owner_passphrase_verifier_invalid");
     await expect(verifier.verify(vector.ownerIdentityId, vector.phrase, Object.freeze({ ...record })))
       .rejects.toThrow("owner_passphrase_verifier_invalid");
-  });
+  }, 15_000);
 
   it("binds the digest to both identity and monotonic version and clears supplied salt copies", async () => {
     const supplied: Uint8Array[] = [];
@@ -418,6 +418,50 @@ describe("owner-call passphrase security contract", () => {
     } finally { await outbound.cleanup(); }
   }, 30_000);
 
+  it("refuses the Passed-A waiver when the current verifier is no longer active", async () => {
+    const system = await createFakeCallingSystem({ ownerCallerIdPolicy: "waive_on_passed_a" });
+    let verifierGuardSql: string | null = null;
+    try {
+      expect((await system.inbound(undefined, "TN-Validation-Passed-A")).status).toBe(200);
+      const active = await system.openRelay();
+      await active.setup();
+      expect(await active.phase()).toBe("active");
+
+      expect((await system.inbound(undefined, "TN-Validation-Passed-A")).status).toBe(200);
+      const pending = await system.openRelay();
+      verifierGuardSql = (await env.DB.prepare(`SELECT sql FROM sqlite_schema
+        WHERE type = 'trigger' AND name = 'owner_passphrase_verifiers_transition_guard'`)
+        .first<{ sql: string }>())?.sql ?? null;
+      if (verifierGuardSql === null) throw new Error("owner_passphrase_verifier_guard_missing");
+      await env.DB.prepare("DROP TRIGGER owner_passphrase_verifiers_transition_guard").run();
+      await env.DB.prepare(`UPDATE owner_passphrase_verifiers
+        SET status = 'revoked', status_changed_at = ? WHERE status = 'active'`)
+        .bind("2026-08-30T12:00:01.000Z").run();
+
+      await active.prompt("What is on my calendar?");
+      await vi.waitFor(() => expect(active.closeCodes()).toContain(1011));
+      expect(await active.modelRequests()).toEqual([]);
+      await pending.setup();
+      await vi.waitFor(() => expect(pending.closeCodes()).toContain(1011));
+      expect(await ownerAuthorityCount(pending.sessionId)).toBe(0);
+      await expect(env.DB.prepare(`INSERT INTO call_session_authorities (
+        session_id, authority_kind, principal_id, identity_id, grant_id, grant_version,
+        access_document_hash, authenticated_at, expires_at
+      ) SELECT session_id, 'owner', principal_id, identity_id, NULL, NULL, NULL,
+        updated_at, strftime('%Y-%m-%dT%H:%M:%fZ', provider_connected_at, '+1800 seconds')
+      FROM call_sessions WHERE session_id = ?`).bind(pending.sessionId).run())
+        .rejects.toThrow("call_session_authority_requires_current_lineage");
+      await pending.terminate("failed");
+    } finally {
+      if (verifierGuardSql !== null) {
+        await env.DB.prepare(`UPDATE owner_passphrase_verifiers SET status = 'active', status_changed_at = created_at
+          WHERE status = 'revoked'`).run();
+        await env.DB.prepare(verifierGuardSql).run();
+      }
+      await system.cleanup();
+    }
+  }, 20_000);
+
   it("does not let the dormant caller-ID waiver authorize access management without a phrase", async () => {
     const system = await createFakeCallingSystem({ ownerCallerIdPolicy: "waive_on_passed_a" });
     try {
@@ -460,6 +504,29 @@ describe("owner-call passphrase security contract", () => {
       expect(await call.modelRequests()).toHaveLength(1);
     } finally { await system.cleanup(); }
   });
+
+  it("assembles and suppresses a split post-success phrase repeat before any sink", async () => {
+    const system = await createFakeCallingSystem();
+    try {
+      const call = await openOwnerCall(system, "inbound");
+      await call.prompt(FAKE_OWNER_PASSPHRASE);
+      system.advanceTime(2_001);
+      await call.prompt("ablaze");
+      expect(await call.modelRequests()).toEqual([]);
+      await call.prompt("abrasion abrasive");
+
+      expect(await call.modelRequests()).toEqual([]);
+      expect(await call.turns()).toEqual([]);
+      await expect(env.DB.prepare(
+        "SELECT outcome FROM owner_call_step_up_repeat_checks WHERE session_id = ?",
+      ).bind(call.sessionId).first()).resolves.toEqual({ outcome: "matched" });
+      const surfaces = evidenceText([
+        call.frames(), await call.modelRequests(), await call.turns(),
+        await call.durableStorage(), await call.durableSqlStorage(), await d1Evidence(),
+      ]);
+      for (const word of FAKE_OWNER_PASSPHRASE.split(" ")) expect(surfaces).not.toContain(word);
+    } finally { await system.cleanup(); }
+  }, 20_000);
 
   it("passes a nonmatching first candidate-shaped final through as ordinary owner speech", async () => {
     const system = await createFakeCallingSystem();

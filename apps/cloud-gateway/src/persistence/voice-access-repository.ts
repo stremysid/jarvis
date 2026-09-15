@@ -1381,6 +1381,9 @@ export class VoiceAccessRepository {
         && row.direction === "inbound"
         && row.step_up_attestation_class === "passed_a"
         && row.step_up_policy === "waive_on_passed_a"
+        && row.current_owner_verifier_version !== null
+        && row.current_owner_head_status === "active"
+        && row.current_owner_verifier_status === "active"
         || row.step_up_requirement === "required"
         && row.step_up_success_version !== null
         && row.step_up_success_version === row.current_owner_verifier_version
@@ -1574,6 +1577,9 @@ export class VoiceAccessRepository {
         && row.direction === "inbound"
         && row.step_up_attestation_class === "passed_a"
         && row.step_up_policy === "waive_on_passed_a"
+        && row.current_owner_verifier_version !== null
+        && row.current_owner_head_status === "active"
+        && row.current_owner_verifier_status === "active"
         || row.step_up_requirement === "required"
         && row.step_up_success_version !== null
         && row.step_up_success_version === row.current_owner_verifier_version

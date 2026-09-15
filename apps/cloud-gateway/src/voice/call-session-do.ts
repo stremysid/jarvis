@@ -16,6 +16,7 @@ import {
 import { EventRepository } from "../persistence/event-repository.js";
 import { VoiceAccessRepository } from "../persistence/voice-access-repository.js";
 import { GuestPinVerifier } from "../security/guest-pin-verifier.js";
+import { ownerPassphraseFragmentWordCount } from "../security/owner-passphrase-verifier.js";
 import {
   IdentityChallengeService,
   VerifiedChannelObservationAuthority,
@@ -690,6 +691,8 @@ export class CallSessionCore {
   #activationAttempted = false;
   #ownerStepUpFragments: string[] = [];
   #ownerStepUpFragmentStartedAt: number | null = null;
+  #ownerRepeatFragments: string[] = [];
+  #ownerRepeatFragmentStartedAt: number | null = null;
   #ownerStepUpDeadlineAt: string | null = null;
   #ownerStepUpVerificationInFlight = false;
   #activeTurnAbort: AbortController | null = null;
@@ -796,6 +799,7 @@ export class CallSessionCore {
         return;
       case "interrupt":
         this.#clearOwnerStepUpFragments();
+        this.#clearOwnerRepeatFragments();
         if (this.#interaction.kind === "owner_step_up" && this.#ownerStepUp !== null) {
           const state = await this.#ownerStepUp.state(this.#session.sessionId);
           this.#ownerStepUpDeadlineAt = state.deadlineAt;
@@ -896,6 +900,7 @@ export class CallSessionCore {
         const binding = await this.#ownerStepUp.binding(this.#session.sessionId);
         if (binding === null) throw new Error("owner_step_up_binding_missing");
         if (binding.requirement === "waived_passed_a") {
+          await this.#ownerStepUp.assertWaiverAvailable(this.#session.sessionId);
           await this.#mintWaivedOwner(observedAt);
         } else if (binding.requirement === "required") {
           const window = await this.#ownerStepUp.begin(this.#session.sessionId, observedAt);
@@ -1081,6 +1086,63 @@ export class CallSessionCore {
     this.#ownerStepUpFragmentStartedAt = null;
   }
 
+  #clearOwnerRepeatFragments(): void {
+    this.#ownerRepeatFragments = [];
+    this.#ownerRepeatFragmentStartedAt = null;
+  }
+
+  async #guardOwnerRepeat(text: string, observedAt: Date): Promise<string | null> {
+    if (this.#ownerStepUp === null) return text;
+    const status = await this.#ownerStepUp.repeatStatus(this.#session.sessionId, observedAt);
+    if (status === "guard") {
+      this.#clearOwnerRepeatFragments();
+      return null;
+    }
+    if (status !== "available") {
+      this.#clearOwnerRepeatFragments();
+      return text;
+    }
+    if (
+      this.#ownerRepeatFragmentStartedAt !== null
+      && observedAt.valueOf() - this.#ownerRepeatFragmentStartedAt > OWNER_STEP_UP_ASSEMBLY_MS
+    ) this.#clearOwnerRepeatFragments();
+
+    const wordCount = ownerPassphraseFragmentWordCount(text);
+    if (wordCount === null) {
+      this.#clearOwnerRepeatFragments();
+      return text;
+    }
+    if (this.#ownerRepeatFragmentStartedAt === null) {
+      if (wordCount === 3) {
+        return await this.#ownerStepUp.verifyRepeat(this.#session.sessionId, text, observedAt) === "suppress"
+          ? null : text;
+      }
+      this.#ownerRepeatFragmentStartedAt = observedAt.valueOf();
+      this.#ownerRepeatFragments = [text];
+      return null;
+    }
+
+    const candidate = [...this.#ownerRepeatFragments, text].join(" ");
+    const combinedWords = ownerPassphraseFragmentWordCount(candidate);
+    if (combinedWords === null) {
+      this.#clearOwnerRepeatFragments();
+      if (wordCount === 3) {
+        return await this.#ownerStepUp.verifyRepeat(this.#session.sessionId, text, observedAt) === "suppress"
+          ? null : text;
+      }
+      this.#ownerRepeatFragmentStartedAt = observedAt.valueOf();
+      this.#ownerRepeatFragments = [text];
+      return null;
+    }
+    if (combinedWords < 3) {
+      this.#ownerRepeatFragments.push(text);
+      return null;
+    }
+    this.#clearOwnerRepeatFragments();
+    return await this.#ownerStepUp.verifyRepeat(this.#session.sessionId, candidate, observedAt) === "suppress"
+      ? null : candidate;
+  }
+
   #isFixedStepUpEcho(text: string): boolean {
     return text === OWNER_STEP_UP_PROMPT || text === OWNER_STEP_UP_RETRY_PROMPT
       || text === OWNER_STEP_UP_FORMAT_PROMPT || text === OWNER_STEP_UP_VERIFIED
@@ -1245,26 +1307,27 @@ export class CallSessionCore {
     }
     if (!event.final || this.#session.phase !== "active" || event.text.length === 0) return;
     if (this.#isFixedStepUpEcho(event.text)) return;
-    if (this.#authority?.kind === "owner" && this.#ownerStepUp !== null) {
-      if (await this.#ownerStepUp.verifyRepeat(this.#session.sessionId, event.text, this.#now()) === "suppress") return;
-    }
+    const promptText = this.#authority?.kind === "owner"
+      ? await this.#guardOwnerRepeat(event.text, this.#now())
+      : event.text;
+    if (promptText === null) return;
     if (event.language !== "en-US") throw new Error("turn_language_unsupported");
-    if (Array.from(event.text).length > 8_000 || encoder.encode(event.text).byteLength > 65_536) {
+    if (Array.from(promptText).length > 8_000 || encoder.encode(promptText).byteLength > 65_536) {
       throw new Error("turn_too_large");
     }
     if (this.#activeTurnAbort !== null) throw new Error("turn_in_progress");
     if (this.#authority?.kind === "owner" && this.#ownerAccess !== null) {
-      const draft = parseOwnerAccessIntent(event.text);
+      const draft = parseOwnerAccessIntent(promptText);
       if (draft !== null) {
         await this.#beginOwnerAccess(draft, this.#now());
         return;
       }
       if (this.#interaction.kind === "owner_access_pin") {
-        await this.#captureOwnerAccessPin(event);
+        await this.#captureOwnerAccessPin({ ...event, text: promptText });
         return;
       }
       if (this.#interaction.kind === "owner_access_confirmation") {
-        await this.#confirmOwnerAccess(event.text, this.#now());
+        await this.#confirmOwnerAccess(promptText, this.#now());
         return;
       }
     }
@@ -1302,7 +1365,7 @@ export class CallSessionCore {
         sessionId: this.#session.sessionId,
         principalId: this.#session.binding.principalId,
         turnId,
-        text: event.text,
+        text: promptText,
         signal: controller.signal,
         ...delivery,
       });
@@ -1503,6 +1566,7 @@ export class CallSessionCore {
     this.#activeTurnAbort = null;
     this.#lastSentAssistantEventId = null;
     this.#clearOwnerStepUpFragments();
+    this.#clearOwnerRepeatFragments();
     this.#activationDigits = "";
     this.#activationAttempted = false;
     this.#clearOwnerAccessState();
@@ -1524,6 +1588,7 @@ export class CallSessionCore {
     if (TERMINAL_PHASES.has(nextPhase)) {
       this.#lifecycleGeneration += 1;
       this.#clearOwnerStepUpFragments();
+      this.#clearOwnerRepeatFragments();
       this.#authorityService?.invalidate(this.#authority);
       this.#authority = null;
       this.#clearOwnerAccessState();
@@ -1631,12 +1696,12 @@ export class CallSession extends DurableObject<Env> {
       await this.#clearOwnerStepUpAlarm();
       return;
     }
-    await this.ctx.storage.delete(OWNER_STEP_UP_ALARM_KEY);
     const sockets = this.ctx.getWebSockets();
     for (const socket of sockets) {
       const resolved = await this.#resolveCore(socket);
       if (resolved.kind === "ready") await resolved.core.handleOwnerStepUpAlarm(stored.kind, 1);
     }
+    await this.ctx.storage.delete(OWNER_STEP_UP_ALARM_KEY);
   }
 
   async terminate(value: CallSessionTermination): Promise<CallSessionTerminationResult> {

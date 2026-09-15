@@ -38,7 +38,7 @@ describe("owner call passphrase step-up", () => {
       expect(call.authorityCountsAtVerified()).toEqual([1]);
       expect(await call.modelRequests()).toEqual([]);
     } finally { await system.cleanup(); }
-  });
+  }, 20_000);
 
   it("writes every mismatch ordinal durably before rejecting the third candidate and ends with handoff data", async () => {
     const system = await createFakeCallingSystem();
@@ -144,6 +144,35 @@ describe("owner call passphrase step-up", () => {
       expect(call.frames()).toContainEqual({ type: "end", handoffData: OWNER_STEP_UP_HANDOFF_DATA });
     } finally { await system.cleanup(); }
   });
+
+  it("retains the durable deadline alarm when the first handler attempt throws", async () => {
+    const system = await createFakeCallingSystem({ now: new Date("2099-01-01T00:00:00.000Z") });
+    let renamed = false;
+    try {
+      expect((await system.inbound()).status).toBe(200);
+      const call = await system.openRelay();
+      await call.setup();
+      system.advanceTime(60_001);
+      await env.DB.prepare(`ALTER TABLE owner_call_step_up_rejections
+        RENAME TO owner_call_step_up_rejections_unavailable`).run();
+      renamed = true;
+
+      await expect(call.fireAlarm()).rejects.toThrow("owner_call_step_up_rejections");
+      expect(await call.durableStorage()).toHaveProperty("call-session.owner-step-up-alarm.v1");
+
+      await env.DB.prepare(`ALTER TABLE owner_call_step_up_rejections_unavailable
+        RENAME TO owner_call_step_up_rejections`).run();
+      renamed = false;
+      await call.fireAlarm();
+
+      expect(await call.phase()).toBe("rejected");
+      expect(await call.durableStorage()).not.toHaveProperty("call-session.owner-step-up-alarm.v1");
+    } finally {
+      if (renamed) await env.DB.prepare(`ALTER TABLE owner_call_step_up_rejections_unavailable
+        RENAME TO owner_call_step_up_rejections`).run();
+      await system.cleanup();
+    }
+  }, 15_000);
 
   it("caps non-candidate assembly re-prompts durably without spending mismatch attempts", async () => {
     const system = await createFakeCallingSystem({ now: new Date("2099-01-01T00:00:00.000Z") });

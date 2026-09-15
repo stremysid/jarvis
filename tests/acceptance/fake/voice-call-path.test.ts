@@ -33,7 +33,7 @@ describe("fake voice call path", () => {
       await expect(call.phase()).resolves.toBe("completed");
       expect(system.terminations()).toHaveLength(2);
     } finally { await system.cleanup(); }
-  });
+  }, 20_000);
 
   it("admits the owner without a PIN and preserves two turns across an interruption", async () => {
     const system = await createFakeCallingSystem({ manualModel: true });

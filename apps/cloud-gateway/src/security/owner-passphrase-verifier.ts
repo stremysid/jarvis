@@ -141,7 +141,7 @@ export function decodeOwnerPassphraseVerifierRecord(value: unknown): OwnerPassph
  * Canonical ASCII v1: fold A-Z, remove . , ! ? ; : and ASCII quotes,
  * collapse ASCII whitespace, and reject every other character or list word.
  */
-export function canonicalizeOwnerPassphrase(candidate: unknown): Uint8Array {
+function canonicalizeOwnerPassphraseText(candidate: unknown): Uint8Array {
   if (typeof candidate !== "string" || candidate.length === 0 || candidate.length > 128) {
     throw new TypeError("owner_passphrase_candidate_invalid");
   }
@@ -162,6 +162,25 @@ export function canonicalizeOwnerPassphrase(candidate: unknown): Uint8Array {
   }
   const canonical = new Uint8Array(output);
   output.fill(0);
+  return canonical;
+}
+
+export function ownerPassphraseFragmentWordCount(candidate: unknown): 1 | 2 | 3 | null {
+  let canonical: Uint8Array | undefined;
+  try {
+    canonical = canonicalizeOwnerPassphraseText(candidate);
+    const words = new TextDecoder().decode(canonical).split(" ");
+    if (words.length < 1 || words.length > 3 || words.some((word) => !WORDS.has(word))) return null;
+    return words.length as 1 | 2 | 3;
+  } catch {
+    return null;
+  } finally {
+    canonical?.fill(0);
+  }
+}
+
+export function canonicalizeOwnerPassphrase(candidate: unknown): Uint8Array {
+  const canonical = canonicalizeOwnerPassphraseText(candidate);
   const text = new TextDecoder().decode(canonical);
   const words = text.split(" ");
   if (words.length !== 3 || words.some((word) => !WORDS.has(word))) {

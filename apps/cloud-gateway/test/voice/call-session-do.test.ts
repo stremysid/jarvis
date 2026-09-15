@@ -213,6 +213,11 @@ async function createInboundSession(
     currentChallengeHmacKeyVersion,
     now: NOW,
   });
+  if (!stored.binding.activationOnly && !requirePassphrase) {
+    const head = await env.DB.prepare("SELECT singleton_id FROM owner_passphrase_heads WHERE singleton_id = 1")
+      .first<{ singleton_id: number }>();
+    if (head === null) await seedActiveOwnerPassphrase();
+  }
   await new OwnerCallStepUpService(
     env.DB,
     new OwnerPassphraseVerifier(OWNER_TEST_PEPPER, "v1"),
@@ -248,6 +253,22 @@ async function seedActiveOwnerPassphrase(): Promise<void> {
     expectedVerifierVersion: null, record,
     commitId: "01m2ccccccccccccccccccc099", committedAt: NOW.toISOString(),
   });
+}
+
+async function revokeOwnerVerifierForTest(): Promise<() => Promise<void>> {
+  const guard = await env.DB.prepare(`SELECT sql FROM sqlite_schema
+    WHERE type = 'trigger' AND name = 'owner_passphrase_verifiers_transition_guard'`)
+    .first<{ sql: string }>();
+  if (guard === null) throw new Error("owner_passphrase_verifier_guard_missing");
+  await env.DB.prepare("DROP TRIGGER owner_passphrase_verifiers_transition_guard").run();
+  await env.DB.prepare(`UPDATE owner_passphrase_verifiers
+    SET status = 'revoked', status_changed_at = ? WHERE status = 'active'`)
+    .bind("2026-08-30T12:00:01.000Z").run();
+  return async () => {
+    await env.DB.prepare(`UPDATE owner_passphrase_verifiers
+      SET status = 'active', status_changed_at = created_at WHERE status = 'revoked'`).run();
+    await env.DB.prepare(guard.sql).run();
+  };
 }
 
 function relaySetup(session: StoredCallSession): Extract<RelayEvent, { type: "setup" }> {
@@ -739,6 +760,25 @@ describe("CallSessionCore owner and guest access", () => {
     expect(harness.instance.phase).toBe("active");
     expect(harness.authenticate).not.toHaveBeenCalled();
     expect(harness.sendNeutralText.mock.calls.flat()).not.toContainEqual(expect.stringMatching(/pin|passcode/iu));
+  });
+
+  it("checks the active verifier before a Passed-A waiver reaches authority minting", async () => {
+    await clearFixture();
+    await seedActiveVoiceIdentity();
+    await seedActiveOwnerPassphrase();
+    const repo = repository();
+    const stored = await createInboundSession(repo);
+    const core = makeCore({ session: stored, repo });
+    if (core.authority === null) throw new Error("owner_authority_fixture_missing");
+    const mint = vi.spyOn(core.authority, "mintOwner");
+    const restore = await revokeOwnerVerifierForTest();
+    try {
+      await expect(core.instance.handleRelayEvent(relaySetup(stored))).rejects.toThrow("owner_step_up_unavailable");
+      expect(mint).not.toHaveBeenCalled();
+      expect(core.instance.phase).toBe("pre_auth");
+    } finally {
+      await restore();
+    }
   });
 
   it("authenticates only the bound guest grant and rechecks it before conversation", async () => {

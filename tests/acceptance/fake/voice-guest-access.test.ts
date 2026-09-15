@@ -23,7 +23,7 @@ describe("fake voice guest access", () => {
         "SELECT count(*) AS count FROM guest_call_pin_attempts WHERE session_id = ?",
       ).bind(call.sessionId).first()).resolves.toEqual({ count: 3 });
     } finally { await system.cleanup(); }
-  });
+  }, 15_000);
 
   it("refuses a verified active identity with no grant before creating a relay or consuming PIN work", async () => {
     const system = await createFakeCallingSystem();

@@ -12,7 +12,7 @@ CREATE TABLE owner_call_step_up_bindings (
   attestation_class TEXT NOT NULL CHECK (attestation_class IN ('passed_a', 'absent', 'other', 'not_applicable')),
   policy TEXT NOT NULL CHECK (policy IN ('passphrase_always', 'waive_on_passed_a', 'invalid', 'not_applicable')),
   created_at TEXT NOT NULL CHECK (strftime('%Y-%m-%dT%H:%M:%fZ', created_at) IS created_at)
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE owner_call_step_up_windows (
   session_id TEXT NOT NULL,
@@ -22,7 +22,7 @@ CREATE TABLE owner_call_step_up_windows (
   deadline_at TEXT NOT NULL CHECK (strftime('%Y-%m-%dT%H:%M:%fZ', deadline_at) IS deadline_at),
   PRIMARY KEY (session_id, lifecycle_generation),
   FOREIGN KEY (session_id) REFERENCES owner_call_step_up_bindings(session_id) ON DELETE RESTRICT
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE owner_call_step_up_attempts (
   session_id TEXT NOT NULL,
@@ -36,7 +36,7 @@ CREATE TABLE owner_call_step_up_attempts (
   FOREIGN KEY (session_id, lifecycle_generation)
     REFERENCES owner_call_step_up_windows(session_id, lifecycle_generation) ON DELETE RESTRICT,
   CHECK ((outcome IS NULL AND resolved_at IS NULL) OR (outcome IS NOT NULL AND resolved_at IS NOT NULL))
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE owner_call_step_up_reprompts (
   session_id TEXT NOT NULL,
@@ -46,7 +46,7 @@ CREATE TABLE owner_call_step_up_reprompts (
   PRIMARY KEY (session_id, lifecycle_generation, reprompt_ordinal),
   FOREIGN KEY (session_id, lifecycle_generation)
     REFERENCES owner_call_step_up_windows(session_id, lifecycle_generation) ON DELETE RESTRICT
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE owner_call_step_up_successes (
   session_id TEXT PRIMARY KEY REFERENCES owner_call_step_up_bindings(session_id) ON DELETE RESTRICT,
@@ -60,14 +60,14 @@ CREATE TABLE owner_call_step_up_successes (
   verified_at TEXT NOT NULL CHECK (strftime('%Y-%m-%dT%H:%M:%fZ', verified_at) IS verified_at),
   FOREIGN KEY (session_id, lifecycle_generation, attempt_ordinal)
     REFERENCES owner_call_step_up_attempts(session_id, lifecycle_generation, attempt_ordinal) ON DELETE RESTRICT
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE owner_call_step_up_rejections (
   session_id TEXT PRIMARY KEY REFERENCES owner_call_step_up_bindings(session_id) ON DELETE RESTRICT,
   lifecycle_generation INTEGER NOT NULL CHECK (lifecycle_generation = 1),
   reason TEXT NOT NULL CHECK (reason IN ('attempts_exhausted', 'reprompts_exhausted', 'deadline_expired')),
   rejected_at TEXT NOT NULL CHECK (strftime('%Y-%m-%dT%H:%M:%fZ', rejected_at) IS rejected_at)
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE owner_call_step_up_repeat_checks (
   session_id TEXT PRIMARY KEY REFERENCES owner_call_step_up_successes(session_id) ON DELETE RESTRICT,
@@ -77,14 +77,14 @@ CREATE TABLE owner_call_step_up_repeat_checks (
   outcome TEXT CHECK (outcome IN ('matched', 'mismatched')),
   resolved_at TEXT CHECK (resolved_at IS NULL OR strftime('%Y-%m-%dT%H:%M:%fZ', resolved_at) IS resolved_at),
   CHECK ((outcome IS NULL AND resolved_at IS NULL) OR (outcome IS NOT NULL AND resolved_at IS NOT NULL))
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE guest_call_pin_attempts (
   session_id TEXT NOT NULL REFERENCES call_sessions(session_id) ON DELETE RESTRICT,
   attempt_ordinal INTEGER NOT NULL CHECK (attempt_ordinal BETWEEN 1 AND 3),
   attempted_at TEXT NOT NULL CHECK (strftime('%Y-%m-%dT%H:%M:%fZ', attempted_at) IS attempted_at),
   PRIMARY KEY (session_id, attempt_ordinal)
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TABLE owner_call_step_up_alerts (
   owner_principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE RESTRICT,
@@ -99,11 +99,14 @@ CREATE TABLE owner_call_step_up_alerts (
   claim_expires_at TEXT CHECK (claim_expires_at IS NULL OR strftime('%Y-%m-%dT%H:%M:%fZ', claim_expires_at) IS claim_expires_at),
   PRIMARY KEY (owner_principal_id, alert_class, direction),
   CHECK ((claim_id IS NULL AND claim_expires_at IS NULL) OR (claim_id IS NOT NULL AND claim_expires_at IS NOT NULL))
-) STRICT;
+) STRICT, WITHOUT ROWID;
 
 CREATE TRIGGER owner_call_step_up_bindings_insert_guard
 BEFORE INSERT ON owner_call_step_up_bindings
-WHEN NOT EXISTS (
+WHEN EXISTS (
+  SELECT 1 FROM owner_call_step_up_bindings existing
+  WHERE existing.session_id = NEW.session_id
+) OR NOT EXISTS (
   SELECT 1 FROM call_sessions session
   WHERE session.session_id = NEW.session_id
     AND session.call_sid = NEW.call_sid
@@ -154,7 +157,11 @@ END;
 
 CREATE TRIGGER owner_call_step_up_windows_insert_guard
 BEFORE INSERT ON owner_call_step_up_windows
-WHEN NEW.deadline_at <> strftime('%Y-%m-%dT%H:%M:%fZ', NEW.prompted_at, '+60 seconds') OR NOT EXISTS (
+WHEN EXISTS (
+  SELECT 1 FROM owner_call_step_up_windows existing
+  WHERE existing.session_id = NEW.session_id
+    AND existing.lifecycle_generation = NEW.lifecycle_generation
+) OR NEW.deadline_at <> strftime('%Y-%m-%dT%H:%M:%fZ', NEW.prompted_at, '+60 seconds') OR NOT EXISTS (
   SELECT 1 FROM owner_call_step_up_bindings binding
   JOIN call_sessions session ON session.session_id = binding.session_id
   JOIN owner_passphrase_heads head ON head.singleton_id = 1
@@ -188,7 +195,12 @@ END;
 
 CREATE TRIGGER owner_call_step_up_attempts_insert_guard
 BEFORE INSERT ON owner_call_step_up_attempts
-WHEN NOT EXISTS (
+WHEN EXISTS (
+  SELECT 1 FROM owner_call_step_up_attempts existing
+  WHERE existing.session_id = NEW.session_id
+    AND existing.lifecycle_generation = NEW.lifecycle_generation
+    AND existing.attempt_ordinal = NEW.attempt_ordinal
+) OR NOT EXISTS (
   SELECT 1 FROM owner_call_step_up_windows window
   JOIN call_sessions session ON session.session_id = window.session_id
   JOIN owner_passphrase_heads head ON head.singleton_id = 1
@@ -261,7 +273,10 @@ END;
 
 CREATE TRIGGER owner_call_step_up_successes_insert_guard
 BEFORE INSERT ON owner_call_step_up_successes
-WHEN NOT EXISTS (
+WHEN EXISTS (
+  SELECT 1 FROM owner_call_step_up_successes existing
+  WHERE existing.session_id = NEW.session_id
+) OR NOT EXISTS (
   SELECT 1 FROM owner_call_step_up_bindings binding
   JOIN call_sessions session ON session.session_id = binding.session_id
   JOIN owner_call_step_up_attempts attempt
@@ -326,7 +341,12 @@ END;
 
 CREATE TRIGGER owner_call_step_up_reprompts_insert_guard
 BEFORE INSERT ON owner_call_step_up_reprompts
-WHEN NOT EXISTS (
+WHEN EXISTS (
+  SELECT 1 FROM owner_call_step_up_reprompts existing
+  WHERE existing.session_id = NEW.session_id
+    AND existing.lifecycle_generation = NEW.lifecycle_generation
+    AND existing.reprompt_ordinal = NEW.reprompt_ordinal
+) OR NOT EXISTS (
   SELECT 1 FROM owner_call_step_up_windows window
   JOIN call_sessions session ON session.session_id = window.session_id
   WHERE window.session_id = NEW.session_id AND window.lifecycle_generation = NEW.lifecycle_generation
@@ -365,7 +385,10 @@ END;
 
 CREATE TRIGGER owner_call_step_up_rejections_insert_guard
 BEFORE INSERT ON owner_call_step_up_rejections
-WHEN NOT EXISTS (
+WHEN EXISTS (
+  SELECT 1 FROM owner_call_step_up_rejections existing
+  WHERE existing.session_id = NEW.session_id
+) OR NOT EXISTS (
   SELECT 1 FROM owner_call_step_up_windows window
   JOIN call_sessions session ON session.session_id = window.session_id
   WHERE window.session_id = NEW.session_id AND window.lifecycle_generation = NEW.lifecycle_generation
@@ -409,7 +432,10 @@ END;
 
 CREATE TRIGGER owner_call_step_up_repeat_checks_insert_guard
 BEFORE INSERT ON owner_call_step_up_repeat_checks
-WHEN NEW.outcome IS NOT NULL OR NEW.resolved_at IS NOT NULL OR NOT EXISTS (
+WHEN EXISTS (
+  SELECT 1 FROM owner_call_step_up_repeat_checks existing
+  WHERE existing.session_id = NEW.session_id
+) OR NEW.outcome IS NOT NULL OR NEW.resolved_at IS NOT NULL OR NOT EXISTS (
   SELECT 1 FROM owner_call_step_up_successes success
   JOIN call_sessions session ON session.session_id = success.session_id
   JOIN owner_passphrase_heads head ON head.singleton_id = 1
@@ -446,7 +472,11 @@ END;
 
 CREATE TRIGGER guest_call_pin_attempts_insert_guard
 BEFORE INSERT ON guest_call_pin_attempts
-WHEN NOT EXISTS (
+WHEN EXISTS (
+  SELECT 1 FROM guest_call_pin_attempts existing
+  WHERE existing.session_id = NEW.session_id
+    AND existing.attempt_ordinal = NEW.attempt_ordinal
+) OR NOT EXISTS (
   SELECT 1 FROM call_sessions session
   WHERE session.session_id = NEW.session_id AND session.phase = 'pre_auth'
     AND session.access_kind = 'guest' AND session.provider_connected_at IS NOT NULL
@@ -469,6 +499,27 @@ CREATE TRIGGER guest_call_pin_attempts_delete_forbidden
 BEFORE DELETE ON guest_call_pin_attempts
 BEGIN
   SELECT RAISE(ABORT, 'guest_call_pin_attempt_delete_forbidden');
+END;
+
+CREATE TRIGGER owner_call_step_up_alerts_insert_guard
+BEFORE INSERT ON owner_call_step_up_alerts
+WHEN EXISTS (
+  SELECT 1 FROM owner_call_step_up_alerts existing
+  WHERE existing.owner_principal_id = NEW.owner_principal_id
+    AND existing.alert_class = NEW.alert_class
+    AND existing.direction = NEW.direction
+)
+BEGIN
+  SELECT RAISE(ABORT, 'owner_step_up_alert_insert_invalid');
+END;
+
+CREATE TRIGGER owner_call_step_up_alerts_key_guard
+BEFORE UPDATE ON owner_call_step_up_alerts
+WHEN NEW.owner_principal_id IS NOT OLD.owner_principal_id
+  OR NEW.alert_class IS NOT OLD.alert_class
+  OR NEW.direction IS NOT OLD.direction
+BEGIN
+  SELECT RAISE(ABORT, 'owner_step_up_alert_key_immutable');
 END;
 
 -- Replace the older owner authority guard. Owner authority now requires either
@@ -496,6 +547,16 @@ WHEN NOT EXISTS (
             binding.requirement = 'waived_passed_a'
               AND binding.direction = 'inbound' AND binding.attestation_class = 'passed_a'
               AND binding.policy = 'waive_on_passed_a'
+              AND EXISTS (
+                SELECT 1 FROM owner_passphrase_heads head
+                JOIN owner_passphrase_verifiers verifier
+                  ON verifier.owner_identity_id = head.owner_identity_id
+                  AND verifier.verifier_version = head.verifier_version
+                WHERE head.singleton_id = 1
+                  AND head.owner_principal_id = NEW.principal_id
+                  AND head.owner_identity_id = NEW.identity_id
+                  AND head.status = 'active' AND verifier.status = 'active'
+              )
             OR EXISTS (
               SELECT 1 FROM owner_call_step_up_successes success
               JOIN owner_passphrase_heads head ON head.singleton_id = 1
