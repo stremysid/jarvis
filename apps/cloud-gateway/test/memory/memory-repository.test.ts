@@ -8,6 +8,7 @@ import {
   type Ulid,
 } from "../../../../packages/contracts/src/index.js";
 import { MemoryRepository } from "../../src/memory/memory-repository.js";
+import type { ArchivedEventReader } from "../../src/archive/tiered-event-reader.js";
 import {
   MEMORY_INBOX_DISPLAY_NAME,
   MEMORY_ROOT_DISPLAY_NAME,
@@ -32,6 +33,7 @@ interface Fixture {
 
 interface ArchivedReceipt extends SeededEvent {
   readonly segmentId: Sha256Hex;
+  readonly reader: ArchivedEventReader;
 }
 
 let principalSerial = 0;
@@ -90,10 +92,41 @@ async function seedEvent(principalId: string, text: string): Promise<SeededEvent
   return { eventId, sequence: row.sequence, occurredAt };
 }
 
-async function seedArchivedReceipt(): Promise<ArchivedReceipt> {
+async function seedArchivedReceipt(
+  principalId: string,
+  text = "An archived-only detail remains uncertain.",
+): Promise<ArchivedReceipt> {
   const eventId = newUlid();
-  const eventSequence = 1;
+  const state = await env.DB.prepare(
+    "SELECT sealed_through FROM archive_state WHERE singleton = 1",
+  ).first<{ sealed_through: number }>();
+  if (state === null) throw new Error("memory_repository_archive_state_missing");
+  const eventSequence = state.sealed_through + 1;
   const occurredAt = new Date().toISOString();
+  const payload = {
+    schemaCode: 1,
+    channelCode: 2,
+    sensitivityCode: 1,
+    historyEligible: true,
+    text,
+  };
+  const contentHash = await sha256Hex(canonicalJson(payload));
+  const envelope = {
+    schemaVersion: "1.0" as const,
+    eventId,
+    eventSequence,
+    eventType: "conversation.user_committed",
+    source: "conversation",
+    subjectId: principalId,
+    occurredAt,
+    receivedAt: occurredAt,
+    correlationId: newUlid(),
+    contentType: "application/json" as const,
+    contentHash,
+    payload,
+    redaction: { status: "none" as const, markers: [] },
+    producerVersion: "conversation-v1",
+  };
   const manifestId = await sha256Hex(`manifest:${eventId}`);
   const segmentId = await sha256Hex(`segment:${eventId}`);
   await env.DB.batch([
@@ -113,12 +146,27 @@ async function seedArchivedReceipt(): Promise<ArchivedReceipt> {
         eventSequence,
         eventId,
         segmentId,
-        await sha256Hex(`envelope:${eventId}`),
-        await sha256Hex(`content:${eventId}`),
+        await sha256Hex(canonicalJson(envelope)),
+        contentHash,
         occurredAt,
       ),
+    env.DB.prepare(`UPDATE archive_state SET sealed_through = ?, updated_at = ?
+      WHERE singleton = 1 AND sealed_through = ?`)
+      .bind(eventSequence, occurredAt, state.sealed_through),
   ]);
-  return { eventId, sequence: eventSequence, occurredAt, segmentId };
+  return {
+    eventId,
+    sequence: eventSequence,
+    occurredAt,
+    segmentId,
+    reader: {
+      async readArchivedRange(afterSequence, limit) {
+        return afterSequence === eventSequence - 1 && limit === 1
+          ? [{ eventSequence, envelope, replayed: true }]
+          : [];
+      },
+    },
+  };
 }
 
 async function fixture(repository = new MemoryRepository(env.DB)): Promise<Fixture> {
@@ -513,6 +561,30 @@ describe("MemoryRepository", () => {
     ]);
   });
 
+  it("keeps the canonical root and inbox identities after both display names are renamed", async () => {
+    const principalId = await seedPrincipal();
+    const repository = new MemoryRepository(env.DB);
+    const first = await repository.bootstrapTopics(principalId);
+    await renameTopic(principalId, first.root.topicId, MEMORY_ROOT_DISPLAY_NAME, "Personal memory", "Memory");
+    await renameTopic(
+      principalId,
+      first.inbox.topicId,
+      MEMORY_INBOX_DISPLAY_NAME,
+      "To sort later",
+      "Personal memory/Inbox / Needs filing",
+    );
+
+    const replay = await repository.bootstrapTopics(principalId);
+
+    expect(replay).toEqual({
+      root: { topicId: first.root.topicId, displayName: "Personal memory" },
+      inbox: { topicId: first.inbox.topicId, displayName: "To sort later" },
+      replayed: true,
+    });
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_topics WHERE principal_id = ?")
+      .bind(principalId).first()).toEqual({ count: 2 });
+  });
+
   it("atomically commits and canonically reads an item, version, exact source, transition and primary placement", async () => {
     const prepared = await fixture();
 
@@ -567,8 +639,8 @@ describe("MemoryRepository", () => {
 
   it("accepts a verified archived receipt only as an uncertain proposed item", async () => {
     const principalId = await seedPrincipal();
-    const archived = await seedArchivedReceipt();
-    const repository = new MemoryRepository(env.DB);
+    const archived = await seedArchivedReceipt(principalId);
+    const repository = new MemoryRepository(env.DB, { archivedEventReader: archived.reader });
     const topics = await repository.bootstrapTopics(principalId);
     const base = await inputForArchived(principalId, archived, topics.inbox.topicId);
 
@@ -580,6 +652,45 @@ describe("MemoryRepository", () => {
       lifecycle: { state: "proposed" },
       sources: [{ sourceLocation: "archived", r2SegmentId: archived.segmentId }],
     });
+  });
+
+  it("binds archived receipts to their subject principal", async () => {
+    const principalId = await seedPrincipal();
+    const otherPrincipalId = await seedPrincipal();
+    const archived = await seedArchivedReceipt(otherPrincipalId);
+    const repository = new MemoryRepository(env.DB, { archivedEventReader: archived.reader });
+    const topics = await repository.bootstrapTopics(principalId);
+    const foreign = await inputForArchived(principalId, archived, topics.inbox.topicId);
+
+    await expectCode(repository.commitInitialItem(foreign), "memory_refused");
+  });
+
+  it("binds archived receipts to their exact archived occurrence time", async () => {
+    const principalId = await seedPrincipal();
+    const ownArchived = await seedArchivedReceipt(principalId);
+    const ownRepository = new MemoryRepository(env.DB, { archivedEventReader: ownArchived.reader });
+    const topics = await ownRepository.bootstrapTopics(principalId);
+    const valid = await inputForArchived(principalId, ownArchived, topics.inbox.topicId);
+    const stale: CommitInitialMemoryInput = {
+      ...valid,
+      sources: [{
+        ...valid.sources[0]!,
+        occurredAt: new Date(Date.parse(ownArchived.occurredAt) + 1_000).toISOString(),
+      }],
+    };
+    await expectCode(ownRepository.commitInitialItem(stale), "memory_refused");
+  });
+
+  it("refuses a live source whose claimed channel differs from the event-derived channel", async () => {
+    const prepared = await fixture();
+    const mismatched: CommitInitialMemoryInput = {
+      ...prepared.input,
+      sources: [{ ...prepared.input.sources[0]!, channel: "voice" }],
+    };
+
+    await expectCode(prepared.repository.commitInitialItem(mismatched), "memory_refused");
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_items WHERE item_id = ?")
+      .bind(prepared.input.itemId).first()).toEqual({ count: 0 });
   });
 
   it("resolves a current active path before aliases and repeated aliases newest first", async () => {

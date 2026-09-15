@@ -10,7 +10,7 @@ because Twilio is not configured; outbound calling is separately disabled by
 `outbound_runtime_controls.enabled = 0`. The release gate still requires the
 retained live-call evidence.
 
-## R1 is active; R2 runtime foundation is under review
+## R1 is active; R2 owner controls are in progress
 
 R0 passed on 2026-09-11. R1 depends on R0 and is entirely cloud-side.
 PR #23 supplied item 2's fake calling/access matrix and confirmed Telegram
@@ -155,24 +155,26 @@ PRs #35, #36 and #38 merged the extraction policy, topic reducer, evaluator and
 approved design. PR #39 merged additive `0016_cloud_memory.sql` as `0d659bf`;
 PR #42 merged the owner-command ingress boundary in
 `0019_memory_ingress.sql` as `f0bfbe9`; PR #44 merged the reviewed runtime-slice
-plan as `3e28bda`; and school PR #45 brought main to `e0b5072` with
-`0020_school_catchup.sql`. Main therefore owns migration names through `0020`,
-but this R2 work applied none of them. The R2 migrations still require the
-reviewed, Sid-attended scratch remote-D1 proof before Sid decides on a
-production apply.
+plan as `3e28bda`; main also owns `0020_school_catchup.sql` and
+`0022_university_tracker.sql`. Open PR #46 owns
+`0021_voice_owner_delivery.sql`, so the next free migration name is `0023`.
+This R2 work applied none of `0016` through `0020` or `0022`. The R2 migrations
+still require the reviewed, Sid-attended scratch remote-D1 proof before Sid
+decides on a production apply.
 
-Draft [PR #47](https://github.com/ksid1229-ops/jarvis/pull/47) is the first
-slice in
+[PR #47](https://github.com/ksid1229-ops/jarvis/pull/47) merged as `60ae90d`
+with the first slice in
 [`plan/2026-09-15-r2-memory-runtime-slices.md`](plan/2026-09-15-r2-memory-runtime-slices.md).
 It adds the channel-neutral D1 repository for root/inbox bootstrap, exact source
 validation, atomic initial item writes, canonical reads and current-path-first
 topic resolution. It is deliberately uncomposed: no channel adapter,
 archive-complete history index, automatic distillation Workflow, provider or
 scheduled job uses it. It changes no migration and performs no live call,
-provider call, migration application, secret operation or deployment. After
-independent review and merge, the next R2 PR is the channel-neutral
-owner-controls service. Sid will eventually use ordinary speech and text rather
-than learned commands; that channel behavior is not part of PR #47.
+provider call, migration application, secret operation or deployment. Draft
+[PR #50](https://github.com/ksid1229-ops/jarvis/pull/50) builds the uncomposed
+channel-neutral owner-controls service. Sid will eventually use ordinary speech
+and text rather than learned commands; Telegram and voice intent routing remain
+later slices.
 
 Reviewer pre-probes on the first ready head exposed that a live event receipt
 could accompany an exact excerpt absent from the event. Fix `052f1fc` now

@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { canonicalJson, createEnvelope, sha256Hex, validateEnvelope, type CreateEnvelopeInput } from "../src";
+import * as callContracts from "../src/calls.js";
+import * as publicContracts from "../src/index.js";
+import {
+  canonicalJson,
+  createEnvelope,
+  type Ulid,
+  sha256Hex,
+  validateEnvelope,
+  type CreateEnvelopeInput,
+} from "../src";
 import { Redactor } from "../../../apps/cloud-gateway/src/security/redaction";
 
 function redacted(text: string) {
@@ -45,6 +54,23 @@ describe("event envelopes", () => {
     } as never);
 
     expect(envelope.payload).toEqual({ text: "Your sign-in code is [REDACTED_AUTH_DIGITS].", safeField: "Your sign-in code is [REDACTED_AUTH_DIGITS]." });
+  });
+
+  it("preserves a canonical ULID whose random component contains six digits", async () => {
+    const identifier = "01abcde123456fghjkmnpqrstv" as Ulid;
+
+    const envelope = await createEnvelope({
+      ...input,
+      payload: { itemId: redacted(identifier) },
+    } as never);
+
+    expect(envelope.payload).toEqual({ itemId: identifier });
+    expect(envelope.redaction).toEqual({ status: "none", markers: [] });
+  });
+
+  it("does not export a structural ULID issuer from either contracts surface", () => {
+    expect("issueRedactedUlid" in callContracts).toBe(false);
+    expect("issueRedactedUlid" in publicContracts).toBe(false);
   });
 
   it("normalizes producer-controlled envelope headers", async () => {
