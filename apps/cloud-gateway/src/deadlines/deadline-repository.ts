@@ -292,16 +292,22 @@ export class DeadlineRepository {
   }
 
   /**
-   * A sweep worked. The failure pair is cleared in the same statement that
-   * records the success, because the CHECK ties `last_failure` and
-   * `last_failure_at` together and leaving a stale failure beside a fresh
-   * success is precisely the ambiguity the pair exists to remove.
+   * A sweep worked. An ordinary success clears the failure pair in the same
+   * statement. A bounded partial success may instead retain one fixed health
+   * gap so the digest cannot misreport an incomplete source as complete. The
+   * timestamp guards keep an overlapping older sweep from replacing newer
+   * source health after its slower writes finally arrive.
    */
-  async recordSourceSuccess(sourceId: string, now: Date): Promise<boolean> {
+  async recordSourceSuccess(sourceId: string, now: Date, healthGap: string | null = null): Promise<boolean> {
     const at = toInstant(new Date(now.getTime()));
+    const boundedGap = healthGap === null ? null : truncateFailure(healthGap);
     const result = await this.#database.prepare(
-      "UPDATE deadline_sources SET last_success_at = ?, last_failure = NULL, last_failure_at = NULL WHERE source_id = ?",
-    ).bind(at, sourceId).run();
+      `UPDATE deadline_sources
+       SET last_success_at = ?, last_failure = ?, last_failure_at = ?
+       WHERE source_id = ?
+         AND (last_success_at IS NULL OR last_success_at <= ?)
+         AND (last_failure_at IS NULL OR last_failure_at <= ?)`,
+    ).bind(at, boundedGap, boundedGap === null ? null : at, sourceId, at, at).run();
     return result.meta.changes > 0;
   }
 

@@ -141,10 +141,9 @@ export interface DeadlineSource {
   readonly active: boolean;
   readonly lastSuccessAt: string | null;
   /**
-   * The last failure, kept until the next success. A source that has been
-   * failing silently for a week reads downstream as "nothing due", which is
-   * the failure the plan names by name; this pair is how anything downstream
-   * can tell the two apart.
+   * The last health gap, kept until an ordinary success. A source that has
+   * been failing or returning a bounded partial result reads downstream as
+   * "nothing due" without this pair, which is the failure the plan names.
    */
   readonly lastFailure: string | null;
   readonly lastFailureAt: string | null;

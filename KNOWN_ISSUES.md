@@ -528,6 +528,18 @@ source deadline as `cancelled`. Nothing marks a deadline `submitted` or
 grade/missing-work watch described in the plan is what closes those states,
 and it needs separately approved Classroom and Brightspace grade connectors.
 
+A completed Brightspace `VTODO` is therefore stored with the same `cancelled`
+status as a teacher-cancelled item. That is correct for stopping deadline
+reminders, but the later grade or missing-work watch must not interpret this
+status as evidence that the teacher cancelled the work. The deadline schema
+does not preserve which of those two upstream statuses produced the closure.
+
+If a cancelled event later returns as live with byte-for-byte unchanged
+deadline content, the repository's unchanged path leaves it `cancelled`.
+The revised-content path also preserves status, so restoration needs an
+explicit reopen rule in a later deadline-status slice; the current feed must
+not claim that either form reopened.
+
 A deadline that stops appearing in a sweep is deliberately NOT cancelled: a
 calendar export that half-succeeds can return fewer items and is
 indistinguishable from a teacher deleting one. One bad export would cancel a
@@ -542,6 +554,17 @@ title convention that distinguishes those meanings. Filtering by untrusted
 summary text would silently drop real work, so the adapter ingests dated
 events/tasks without guessing. Owner-attended live acceptance must compare the
 first read-only result with Brightspace before the feed is relied on.
+
+## First on-demand Brightspace load has no Worker-lifetime acceptance evidence
+
+The owner-only `check D2L now` path fetches and ingests the bounded feed inside
+the Telegram reply's background task. The source work is capped at 180 live
+items and 180 cancellations, but the first load can still combine the feed
+timeout with hundreds of D1 statements. Local tests establish the bounds; they
+do not establish that a cold production invocation finishes before the Worker
+stops background work. Until an attended first-load check measures this, a
+cancelled invocation could leave a partial sweep and no Telegram reply. Moving
+the refresh to a durable queue is the structural fix if the live check fails.
 
 ## Must-report gap: deployed, gateway delivery still needs verification
 

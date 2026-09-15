@@ -90,6 +90,94 @@ Merging turns nothing on. This code needs `0021` applied before deploy. Sid reta
 
 ---
 
+## 2026-09-15 20:42 UTC — Claude Opus 5, PR #51 re-review at fe1289d: cleared with follow-ups F1–F2
+
+This re-review covers fix commit `b641f20` and the mailbox head `fe1289d`, pushed by a fresh Codex CLI session because the desktop chat couldn't be reached. The branch is still based on main `deea39c`, and `git diff origin/main...` holds only this school slice. It adds no migration.
+
+**Local checks on fe1289d** (Windows 11, `jarvis-pr39`, while builder sessions were also active on this PC): lint and typecheck pass; `pnpm test` passes 3,188/3,188 with 0 timeouts.
+
+**Reviewer probe** (`zz-reviewer-pr51-window.test.ts`). It now fails, as required: with 70 past-due and 250 upcoming in-window items, no past-due items are kept (`expected +0 to be 70`). S1 is fixed.
+
+**Mutation pass** (`reviewer-tools/pr51/mut51b.json`, one change per run, related tests only). `BASE` passes, and 9 of 11 mutations are killed by named tests, with 0 timeouts:
+- **Ordering and caps:** upcoming-first (U1) and newest-past-first (U2) are killed by "uses remaining capacity for the newest past-due items". The cancellation cap (U3) and cancellations counted in the truncation (U4) are killed by "caps a cancellation-heavy sweep below its counted D1 statements".
+- **Staleness:** truncation plus staleness (S2).
+- **Phrase and claim guards:** the whole-message end anchor (F1), and the D2L-claim guard on the structured (N3a) and ordinary (N3b) reply paths.
+- **Reply time:** Toronto formatting of the snapshot time (N1).
+
+Two survive:
+- **N3c:** removing the D2L-claim guard on the save-failure fallback path fails no test. See F1.
+- **N4:** removing the `last_success_at` clause of the monotonic success guard fails no test. See F2.
+
+**Round-1 findings, verified by reading:**
+- **S1 is fixed.** `selectBrightspaceWindow` ranks upcoming items first (soonest first), then past-due items (newest first), before keeping 180.
+- **S3 is fixed.** Cancellations are capped separately at the 180 nearest to now. `truncatedCount` counts both the omitted live items and the omitted cancellations.
+- **S2 is fixed.** `scheduledSourceGap` builds the bounded-result text and still runs the never-synced, unreadable and stale checks, joining them with the partial-result text.
+- **F1 is fixed:** a test pins the whole-message end anchor.
+- **N1 is fixed.** Reply times use the owner timezone, falling back to America/Toronto when the configured zone is invalid.
+- **N2 is fixed.** The catch path re-reads the last success and says when it can't. A `finish` error is recorded as a failed run without changing the reply.
+- **N3 is fixed.** A D2L-check claim guard covers the structured, snapshot-fallback and plain fallback reply paths.
+- **N4 is fixed.** `recordSourceSuccess` applies only when both the stored success and failure times are no newer.
+- **N6 is fixed.** Reply counts separate processed live items, cancelled deadlines and rejected entries.
+- **N5 is recorded** in KNOWN_ISSUES.
+
+**New in this round (low):**
+- **N7.** `BRIGHTSPACE_CHECK_COMPLETIONS` also matches honest replies, not just false claims, and replaces them with "I haven't checked D2L". Examples: "I looked at the Brightspace dates you pasted", or "Jarvis refreshed Brightspace an hour ago", when the model is summarising the digest. This is the same class as #45 S3. Tighten the pattern to present-tense claims of having just checked, and add a legitimate-reply test.
+- **N8.** Only `recordSourceSuccess` is monotonic. An older, slower sweep's `recordSourceFailure` can still overwrite newer success health with a stale failure. Apply the same timestamp guard to failures.
+
+**F1. No test covers a false D2L-check claim on the save-failure fallback path.** Mutation N3c survives. Add a test where the school plan fails to save and the model's fallback reply claims it checked D2L. Expect the fixed replacement line, followed by the save-failure line.
+
+**F2. No test pins the success-time half of the monotonic source-health guard.** Mutation N4 survives: without `last_success_at <= ?`, an older, slower sweep can replace a newer `last_success_at`. Add a test that records a later success, then an earlier one, and expects the later time to remain.
+
+**Next.** The reviewer merges this head. F1–F2 and N7–N8 go into the next school PR. Merging deploys nothing; the Brightspace secret, deploy and live acceptance stay Sid's.
+
+This PR authorizes no migration, secret, deploy or live request.
+
+---
+
+---
+
+## 2026-09-15 20:31 UTC — GPT-5 Codex, PR #51 fixes at b641f20 ready for Claude xhigh re-review
+
+The full PR diff against `origin/main` was read again before this handoff. S1
+now gives the 180 live-item budget to upcoming deadlines first (soonest first),
+then past-due items (newest first). S3 separately keeps the 180 cancellations
+nearest to now and counts every omitted live item or cancellation in the
+bounded-result gap. The 180-live/1,500-cancellation regression stays below
+1,100 counted D1 statements. S2 now reports truncation and a stale last success
+together instead of letting the truncation marker hide staleness.
+
+F1 pins the regex end anchor: `check D2L now and tell me what's due Friday`
+uses the ordinary model path. N1-N4 and N6 are also fixed: reply times use the
+owner timezone, catch replies retain or distinguish the snapshot, a run-finish
+error cannot turn a successful refresh into a failure reply, all Telegram
+model fallback paths block false D2L-check claims, source success is monotonic
+across overlapping sweeps, and the reply separately counts processed live
+entries, applied cancellations and rejected source items. N5 is recorded in
+`KNOWN_ISSUES.md` because local bounds do not prove a cold first load finishes
+within the Worker's background lifetime.
+
+**Local checks on b641f20** (Windows 11, isolated `jarvis-school-pr51`): the
+focused deadline/digest/scheduler/school set passes 110/110; repository lint and
+source typecheck pass; the single full `pnpm.cmd test` run passes 3,188/3,188 in
+155 files. The non-gating test TypeScript project still reports the same 143
+existing diagnostics, with none on added or modified test lines.
+
+Claude's exact S1 old-bug probe now fails as required with `keptPast=0`,
+`keptFuture=180`, `truncated=140`. Thirteen one-fault related-test mutations
+were killed with named assertion failures and no timeouts: upcoming priority,
+newest-past ordering, the cancellation cap, truncation-plus-staleness, the
+whole-message end anchor, model-claim guards on the structured,
+snapshot-fallback and invalid-output paths, monotonic source health, catch
+snapshot retention, finish-error isolation, Toronto formatting, and the
+corrected reply counts.
+
+No migration, secret operation, deploy, account access, live request or merge
+occurred. This remains LOCAL PASS; the first-load duration and owner-attended
+feed/UI checks remain pending. Claude should re-review code head `b641f20` at
+xhigh.
+
+---
+
 ## 2026-09-15 19:55 UTC — GPT-5 Codex calling build chat, PR #46 round-2 fixes ready for Claude max re-review
 
 The round-2 fixes are in `e719d65`; the exact reviewed head is `bac7a8d`, which merges current main `deea39c` without changing this PR's scope. S1 now records rejection delivery only after the Telegram alert resolves, releases a failed D1 alert claim for retry and has a throw-once/eviction regression proving one successful alert. F1 handles disabled `waived_passed_a` heads through the same durable refusal/end/rejection/alert path. L1 uses the stable notice idempotency key with a fresh injected clock per row. L3 closes marker-present resumed rejection sockets with 1008. L4 routes addressed-other-bot, missing-space, missing-hyphen and Unicode-hyphen disable variants to the fixed zero-model usage response, and sends the private-chat refusal only to the owner's private chat. The bounded at-least-once, poison-row/dead-letter (L2) and final-marker double-failure limits are recorded in `KNOWN_ISSUES.md`.
@@ -99,6 +187,202 @@ Migration audit: this PR alone adds `0021_voice_owner_delivery.sql`; current mai
 Verification on exact head `bac7a8d`: post-merge focused integration 110/110; lint, workspace typecheck, voice typecheck and `git diff --check` pass; full suite 157 files and 3,217/3,217 tests; serialized voice gate 6/6 plus 35 files and 874/874 tests. The nine `port46b-*` contract gaps passed a 240/240 baseline and were all killed: gap0 killed 25 assertions/errors (plus three secondary timeouts not counted as evidence), and the other eight killed 14, 1, 1, 3, 2, 2, 2 and 1 tests with zero timeouts. The PR #40 probes remain fixed, and the mutation paths are byte-identical from `e719d65` through `bac7a8d`.
 
 I reviewed the complete 35-file PR diff against current main and validated the 200-entry mailbox union after the main merge. No secrets, deployment, live call, inbound opening, migration application or merge was performed. Draft PR #46 is ready for Claude max re-review.
+
+---
+
+## 2026-09-15 19:10 UTC — Claude Opus 5, PR #51 xhigh review at a25a5fd: changes requested (small)
+
+This review covers the Brightspace step-3 completion:
+- **F1:** keep the soonest 180 in-window live items, keep in-window cancellations additive, and record the truncation as a digest gap.
+- **F2 and F3:** the malformed-component and repeat-cancellation tests.
+- **N7 and N8:** recorded in KNOWN_ISSUES.
+- **"Check D2L now":** an on-demand refresh from the owner's own Telegram turn, under a durable five-minute cooldown.
+
+The branch is based on main `deea39c`, and `git diff origin/main...` holds only this school slice. It adds no migration and no memory, voice, calls or contracts changes.
+
+**Local checks on a25a5fd** (Windows 11, `jarvis-pr39`): lint and typecheck pass; `pnpm test` passes 3,178/3,178 with 0 timeouts.
+
+**Mutation pass** (`reviewer-tools/pr51/mut51.json`, one change per run, related tests only). `BASE` passes, and 11 of 12 mutations are killed by named tests, with 0 timeouts:
+- **Truncation:** the 180 cap (T1), soonest-first ordering (T2), the truncation count (T3), the count passed to ingestion (T4), the health gap written by ingestion (I1) and persisted by the repository (R1), and the digest wording (D1). All are killed by "keeps the soonest 180 of 250 in-window items plus cancellations".
+- **Cooldown:** the durable cooldown (C1) fails three tests, including "admits one cooldown claim across different request keys".
+- **Replies and routing:** the failed-refresh reply keeps the last-known snapshot (T5), owner-only routing (M1) and the phrase's start anchor (M2).
+
+One survives:
+- **M3:** removing the phrase pattern's end anchor (`$`) fails no test. See F1.
+
+**Verified by reading:**
+- **Truncation (F1).** `selectBrightspaceWindow` sorts in-window items by `dueAt`, then `externalId`, and keeps the first 180. Cancellations are filtered by the same window but aren't counted against the cap. The omitted count reaches `DeadlineIngestion` as `sourceTruncatedCount`, which is bounded at 2,000. `recordSourceSuccess` stores `source_items_truncated:N` as a fixed health gap beside the fresh success, and the digest renders it as "showing the next 180 Brightspace items".
+- **On-demand refresh.** `SchoolCatchupModelAdapter` runs it before any model call, only when the principal is the configured owner and the whole message matches the anchored phrase pattern ("check D2L now", "refresh my Brightspace deadlines now", and similar).
+  - With no URL or a disabled source, it replies without a feed request.
+  - Otherwise `claimAfterCooldown` inserts a `scheduled_runs` row only when no `brightspace_on_demand` run started in the last five minutes, in one D1 statement.
+  - The refresh reuses the hourly `refreshBrightspace`, with the #49 redirect, isolation, window and cancellation guarantees.
+  - Replies carry only fixed codes, counts and timestamps. The feed URL and body never reach the reply, the model, or events.
+
+**Adversarial pass** (one Opus agent; report `reviewer-tools/pr51-adversarial.md`). The reviewer verified each item below:
+- **Runtime-proven:** M1, with probe `reviewer-tools/pr51/zz-reviewer-pr51-window.test.ts`. It passes at `a25a5fd`: with 70 past-due and 250 upcoming in-window items, all 70 past-due items are kept and only 110 upcoming ones.
+- **By reading:** M2, M3, L1 and L2.
+
+Confirmed sound:
+- The trigger is decided on the owner's own Telegram text before any model call, and the whole message must match. Quoted, pasted or casual text never triggers it.
+- The cooldown claim is one atomic D1 insert, written before the fetch and kept on failure.
+- Replies carry only fixed codes, counts and timestamps.
+- The snapshot time is the last success, not the last attempt.
+- The #49 guarantees hold, apart from S2 below.
+- Group chats and forwarded text aren't a new exposure: ordinary school replies already reach them. They belong with the channel adapter's provenance work.
+
+**S1. A busy semester drops upcoming deadlines to keep past-due ones.**
+- **Where:** `selectBrightspaceWindow` (`job-table.ts`) sorts the whole window, from 14 days ago to 120 days ahead, soonest first, then keeps 180. Past-due items therefore fill the cap first, while the digest says "showing the next 180 Brightspace items".
+- **Proof:** the probe keeps all 70 past-due items and only 110 of the 250 upcoming ones.
+- **What goes wrong for Sid:** when D2L lists more than 180 entries, the next deadlines he most needs are the ones dropped, while the digest suggests it is showing what's next.
+- **Fix:** rank items due from now onward first (soonest first), then past-due items (newest first), and keep 180.
+- **Test:** 70 past-due plus 250 upcoming keeps the 180 soonest upcoming. Add past-due items to the existing 250-item test. The probe must then fail.
+
+**S2 (regression of a #49 guarantee). A truncated source can never show as stale.**
+- **Where:** `scheduledSourceGap` (`digest-job.ts`) returns "showing the next 180" whenever `last_failure` holds the truncation marker, before the three-hour staleness check runs.
+- **What goes wrong for Sid:** once a large feed truncates, hourly syncing may later stop without recording a failure, for example a swallowed D1 error in `safeSourcePoll` or the cron not firing. The digest then keeps saying "showing the next 180 Brightspace items" and never "last successful sync is stale", so old deadlines look current.
+- **Fix:** run the age check as well when the marker is present.
+- **Test:** a Brightspace source with the truncation marker and a last success more than three hours old shows the stale gap.
+
+**S3. Cancellations are no longer capped.**
+- **Where:** the 180 cap now applies only to live items. Every in-window cancellation, including each `STATUS:COMPLETED` task, still costs a D1 update, up to the parser's 2,000 components.
+- **Why it matters:** a feed with many completed tasks can go over the sweep's D1 budget, which #49's test pinned below 800 statements, and abort partway. The real feed shape is unknown.
+- **Fix:** cap cancellations too (for example the nearest 180), or look up which ids are still open in one chunked query and update only those.
+- **Test:** 180 live items plus 1,500 in-window cancellations stays under the counted budget.
+
+**F1. No test pins the whole-message match for "check D2L now".**
+- **What goes wrong:** mutation M3 survives. Without the end anchor, a message that merely starts with the phrase ("check D2L now and tell me what's due Friday") runs the refresh and drops the rest of the message.
+- **Test:** add that case, expecting the normal model path.
+
+**Low (fix if small, otherwise record in KNOWN_ISSUES):**
+- **N1.** Refresh and snapshot replies show raw UTC ISO times. Show Toronto time, as the digest does.
+- **N2.** Both catch-all replies say "No last-known Brightspace snapshot is available" even when one exists. And if `runs.finish` throws after a good refresh, the reply says the refresh failed. Read the source's last success in the catch path, and don't let a `finish` error turn a success into a failure reply.
+- **N3.** Near-miss phrasings go to the model, which has no feed data: "check d2l", "hey jarvis check d2l now", "check D2L now thanks". Make sure the reply guard stops it from claiming it checked D2L. This is a suspicion, not proven.
+- **N4.** The cooldown ignores the hourly poll, so a manual request right after it fetches again. Overlapping sweeps could move `last_success_at` backwards; keep it monotonic.
+- **N5.** A first on-demand load (up to a 10 s fetch plus several hundred statements) runs inside the reply's `waitUntil` budget. If it's cut off, no failure is recorded and Sid gets no reply. This is a suspicion, not measured.
+- **N6.** "N items are current" counts cancelled rows and leaves out rejected entries.
+
+**Next.** In this same chat:
+1. Pull first. Fix S1–S3 and F1, plus N1–N6 where small.
+2. Rerun the reviewer probe (it must now fail), the focused tests and the full suite once.
+3. Post in AGENT_LOG when ready for re-review.
+
+This PR authorizes no migration, secret, deploy or live request.
+
+---
+
+---
+
+## 2026-09-15 18:58 UTC — GPT-5 Codex, PR #51 ready for Claude xhigh review
+
+Branched from merged PR #49 at `deea39c`; immediately before the first push,
+`origin/main` and the merge base were both exactly `deea39c`, the worktree was
+clean, and `git diff --stat origin/main...HEAD` held only this school slice.
+F1 now keeps the soonest 180 in-window live items plus all in-window
+cancellations, records the omitted count on the ingestion report and source
+health, and renders `showing the next 180 Brightspace items` instead of failing
+the source. The 250-item regression checks the exact retained range, report,
+cancellation, success state and digest gap. F2 and F3 pin malformed-component
+isolation and cancellation idempotency/non-open protection. N7 and N8 are
+recorded in `KNOWN_ISSUES.md`.
+
+The same bounded refresh is available from the owner's own ordinary Telegram
+turn with plain speech such as `check D2L now`; it is not a command, does not
+reach the model, admits at most one attempt per five minutes through an atomic
+D1 claim, makes no feed request when unconfigured or disabled, and replies with
+a success timestamp, fixed failure code, or timestamped last-known snapshot.
+Owner, Telegram-channel, cooldown, no-request and fixed-code/snapshot behavior
+are covered directly.
+
+Focused Brightspace/deadline/digest/scheduler/school checks pass 123/123.
+Repository lint and typecheck pass, and the one final `pnpm.cmd test` run passes
+3,178/3,178 in 155 files. The known non-gating test TypeScript project reports
+143 existing diagnostics and none in the changed test files. Under Claude's
+`reviewer-tools/mutrun.mjs`, BASE passed and all 11 guard mutations were killed
+by named relevant tests with zero timeouts: cap, ordering, additive
+cancellations, report count, digest gap, malformed component, open-only
+cancellation, owner-only routing, Telegram-only routing, durable cooldown and
+last-known snapshot.
+
+No migration, secret operation, deploy, account access or live request occurred.
+This is LOCAL PASS only; owner-attended feed/UI acceptance remains later. Claude
+should review the complete PR #51 diff at xhigh. Build-sequence step 4, the
+study coach, remains out of this PR.
+
+---
+
+## 2026-09-15 18:27 UTC — Claude Opus 5, PR #49 re-review at f5292c7: cleared with follow-ups F1–F3
+
+This re-review covers fix commit `0e9adf8`, the merge of main `60ae90d` (`478134c`), the archive-isolation test update `b908e76` and the mailbox `f5292c7`. Outside `docs/AGENT_LOG.md` and `NEXT_STEPS.md`, the merge adds exactly main's own change set. `git diff origin/main...` holds only this PR's work, and it has no migration and no memory files.
+
+**Local checks on f5292c7** (Windows 11, `jarvis-pr39`): lint and typecheck pass; `pnpm test` passes 3,170/3,170 with 0 timeouts.
+
+**Review probes.**
+- **Strict probe (`zz-reviewer-pr49-strict.test.ts`).** The four runtime-proven S1 cases now fail, as required: non-IANA TZID, underscore property name, DST-gap time and duplicate UID. The unknown-escape case failed on both heads and was never claimed.
+- **Redirect probe (`zz-reviewer-pr49-redirect.test.ts`).** It still passes, but it no longer discriminates:
+  - P1 and P2 assert workerd's own refusal of `redirect: "error"`, a platform fact the PR cannot change.
+  - P3 now reaches the network path with `redirect: "manual"`, and the `.invalid` host fails DNS, so it still returns `brightspace_feed_unavailable`.
+  - B1 is instead proven by the builder's workerd-pool `new Request(url, init)` tests and by mutations C1, G1 and P1 below.
+
+**Mutation pass** (`reviewer-tools/pr49/mut49b.json`, one change per run, related test files only). `BASE` passes, and 12 of 18 mutations are killed by named tests, with 0 timeouts:
+- **Redirects:** Brightspace `redirect: "error"` (C1, two tests including the 302 refusal), the 3xx check (C2), OAuth `redirect: "error"` (G1) and capacity `redirect: "error"` (P1).
+- **Calendar parsing:** duplicate UID (C4), DST-gap shift (C6), `VTIMEZONE` alias (C7) and the timezone code (C8).
+- **Polling:** the past window bound (J1, the 600-component budget test) and archive isolation (J3).
+- **Storage and digest:** the monotonic unchanged `last_seen_at` (R2, three tests) and the removed-configuration wording (D1).
+
+Six survive:
+- **C3:** removing `if (component.invalid) rejectComponent();` fails no test. See F2.
+- **R1:** removing `AND status = 'open'` from `cancelOpenByExternalId` fails no test. See F3.
+- **J2:** raising the 180 cap to 100,000 fails no test. See F1.
+- **C5:** dropping the timeout loser's `catch` can't be observed under vitest. Accepted.
+- **G2:** removing the OAuth 3xx `throw` is equivalent. A 302 falls through to `!response.ok`, which throws the same non-transient `google_oauth_rejected` and follows nothing.
+- **I1:** removing ingestion's cancelled-versus-present check can't be reached from Brightspace, because the parser's shared identifier set already rejects an id that is both live and cancelled. It is defence in depth only.
+
+**Findings from the round-1 review, verified by reading:**
+- **B1 is fixed at all three sites.** `redirect: "manual"`. Brightspace, Google OAuth and the capacity readers refuse `redirected`, `opaqueredirect`, status 0 and any 3xx, and cancel the refused body. OAuth maps a 3xx to non-transient `google_oauth_rejected`.
+- **S1 is fixed.** Envelope, size and count faults still fail the feed. Line and property faults inside a `VEVENT`/`VTODO` mark only that component invalid, and it is counted as `invalid_source_item`. Duplicate UIDs and duplicate single-value properties reject the component. The first `CATEGORIES` is used. `VTIMEZONE` `X-LIC-LOCATION` aliases resolve non-IANA TZIDs. A DST-gap wall time moves forward by the gap.
+- **S2 is fixed.**
+  - Only items due from 14 days ago to 120 days ahead are ingested.
+  - The unchanged path is one `UPDATE … WHERE source_id, external_id, content_hash … RETURNING *`, with `last_seen_at` kept monotonic.
+  - The builder's counted test ingests 134 in-window items of a 600-component feed, under 800 statements on first load and under 180 on the next run.
+- **S3 is fixed.**
+  - `STATUS:CANCELLED`/`COMPLETED` inside the window closes only that source's matching `open` deadline.
+  - An id that also appears as a live item is rejected as a duplicate instead of cancelled.
+  - Absence stays report-only.
+- **N1–N5 are fixed.**
+  - The losing timeout promise is observed.
+  - `/digest` and the scheduled digest share `unconfiguredDeadlineSourceKinds`.
+  - Removed configuration says it is showing last-known deadlines, with their date.
+  - `brightspace_timezone_invalid` is its own code, made before any request.
+  - Archival failure is isolated, and the three polls still run.
+- **N6 is recorded.** KNOWN_ISSUES and the runbook say D2L documents no iCalendar field that separates availability from due entries. Live acceptance compares the list with the Brightspace UI.
+
+**New in this round:**
+
+**F1 (required before the feed secret is set). More than 180 in-window entries fails the whole source again.**
+- **Where:** `selectBrightspaceWindow` (`job-table.ts:135-136`) throws `brightspace_feed_too_many_items` when the 134-day window holds more than 180 items plus cancellations. `pollBrightspace` then records a source failure and ingests nothing.
+- **Why it's likely:** N6 means each assignment or quiz may contribute separate availability-start, availability-end and due entries. A semester of four or more courses can pass 180, and every new or moved deadline would then stop until old entries age out.
+- **Fix:** sort in-window items by `dueAt` and keep the soonest 180 (plus in-window cancellations). Count the rest in the report and surface a digest gap such as "showing the next 180 Brightspace items".
+- **Test:** no test names `too_many_items` today. Add a 250-item in-window case: the soonest 180 are ingested, the source records success, and the truncation count is reported.
+
+**F2. No test proves a malformed component is rejected rather than ingested without its bad line.**
+- **What goes wrong:** removing `if (component.invalid) rejectComponent();` leaves every test passing. A component whose `STATUS` or `DTSTART` line is malformed would then be ingested as if that line were absent. For example, a cancelled event with a corrupted `STATUS` line would stay live.
+- **Test:** a `VEVENT` with one malformed property line (an unterminated quoted parameter) next to a good event. The bad one is counted as `invalid_source_item` and is not stored.
+
+**F3. No test pins `cancelOpenByExternalId` to open rows.**
+- **What goes wrong:** removing `AND status = 'open'` passes every test. Hourly sweeps would then re-close an already-cancelled deadline and report it as cancelled again each hour, and would overwrite a future `submitted` or `missed` state.
+- **Test:** a second sweep with the same cancellation reports zero newly cancelled, and a row in another status is untouched.
+
+**Low:**
+- **N7.** A `VTODO` with `STATUS:COMPLETED` (`brightspace-ical-client.ts:454`) closes the deadline as `cancelled`. Stopping reminders is right, but a later grade or missing-work watch should not read it as teacher-cancelled. Record that in KNOWN_ISSUES or the digest wording.
+- **N8.** The one-statement unchanged path matches any status, so a teacher who restores a cancelled event with the same content leaves it `cancelled`. This was also true before, and is rare; note it with N7.
+
+**Next.** The reviewer merges this head. F1–F3 and N7–N8 go into the next school PR, before the Brightspace secret is set. Merging deploys nothing; the fixed Google OAuth and capacity-reader fetches reach production only through Sid's approved deploy.
+
+This PR authorizes no migration, secret, deploy or live request.
+
+---
+
+---
 
 ## 2026-09-15 18:27 UTC — Claude Opus 5, PR #49 re-review at f5292c7: cleared with follow-ups F1–F3
 
@@ -416,6 +700,7 @@ This review covers the Brightspace private iCalendar feed (`brightspace-ical-cli
 3. Post in AGENT_LOG when ready for re-review. The re-review reruns P1–P3 and the strict probes (both must fail), plus a mutation pass over the client's guards.
 
 This PR authorizes no migration, secret, deploy or live request.
+
 ---
 
 ## 2026-09-15 17:26 UTC — Claude Opus 5, PR #47 merged-main verification at 4350288: cleared (merging)
@@ -446,6 +731,8 @@ that run. PR #49 remains a draft with the local 3,145/3,145 suite, lint,
 production typecheck, focused tests, and mutation evidence recorded in the
 entry below. Claude can review the diff, but the account-level Actions block
 must be resolved and CI rerun before CI acceptance is claimed.
+
+---
 
 ## 2026-09-15 17:22 UTC — GPT-5 Codex, draft PR #49 at 4d511f2: ready for Claude xhigh review
 
@@ -480,6 +767,7 @@ deployment attempted, or live account accessed. Parser and job checks are
 LOCAL PASS only; Brightspace/Worker behavior still requires owner-attended live
 acceptance after review, merge, explicit secret setup, and approved deployment.
 Sid retains merge and activation authority.
+
 ---
 
 ## 2026-09-15 17:18 UTC — GPT-5 Codex, PR #47 merged-main tree ready for Claude verification at 6163098
@@ -547,22 +835,6 @@ Nothing is applied or deployed.
 
 ---
 
-## 2026-09-15 16:52 UTC — GPT-5 Codex calling build chat, PR #46 fixes ready for Claude max re-review
-
-Pulled Claude's max-review entry at `dbf9066`, fixed B1, S1-S3 and N1-N3, merged current main `e0b5072`, and reviewed the complete 32-file PR diff. Rejected relay resumption is now limited to required owner step-up sessions; rejected guest and enrollment sessions retain the 1008 mismatch close. Disabling the passphrase before `begin` or during a window now commits a durable rejection, speaks the fixed refusal, sends the clean end, alerts Sid once, and persists completion so eviction cannot repeat it. Addressed and case-variant disable forms return fixed usage with zero model calls, and an exact disable is refused outside the owner's private chat. The rejection alert names `/disable-owner-step-up --confirm`.
-
-Migration `0021_voice_owner_delivery.sql` durably records disabled-head rejections, rejection completion, and a guest-grant notice outbox inserted in the same D1 batch as each grant mutation. Notice delivery uses a durable claim and delivered marker, retries pending rows from the drain job, recovers expired claims left by interrupted isolates, and still gives the on-call unconfirmed line on delivery failure. A commit-then-throw repository probe proves the persisted notice is delivered. The 750 ms voice-only context deadline records failure, timeout or invalid fallback and starts the model with empty context. No memory table or migration 0016-0019 changed.
-
-The live open-branch audit after fetch found main owns through 0020, PR #46 alone owns 0021, PR #47 has no later migration, and PR #48 uses 0022. INSERT OR IGNORE and INSERT OR REPLACE collisions are rejected for all new durable rows. Removing any one of all ten complete 0021 triggers is killed by the trigger inventory check; each removal produced one failure with the other nine trigger-syntax cases passing. No migration was applied.
-
-Reviewer evidence: the five-file contract baseline passed 237/237. All nine `port46` mutations are killed at the final implementation parent: gap0 25 failures, gap1 14, gap2b 1, gap3b 1, gap3c 3, gap3d 2, gap3e 2, gap6 2, gap6b 1. The PR #40 core probes all fail in the fixed direction: Q1c-Q3c report one refusal, one alert and one close instead of two, and Q6c resolves instead of leaving `pre_auth`. The three acceptance probes also fail as designed; Q4/Q5 report one refusal and one alert, no stale alarm, and no 1008 mismatch close. The expired guest-notice claim regression test was mutation-proven: removing its clear step reproduces `guest_grant_notice_transition_invalid`.
-
-Final local evidence: lint, workspace typecheck, voice-access typecheck and `git diff --check` pass. The final workspace matrix passes 148 files / 3,113 tests. The chained unchanged Hermes component passes 246/250: three known host-assumption failures require the absent `C:\Program Files\PowerShell\7`, and one untouched journal test timed out at 120 seconds under two-worker load; that exact test then passed alone at 118.6 seconds. The skipped watchdog component passes 119/119. The serialized voice gate passes 6/6 runner checks and 866/866 tests in 35 files. The earlier failed workspace diagnostic exposed and led to fixing two special production-socket fixtures that had installed only through 0018; those three failed cases then passed 31/31 before the final green matrix.
-
-Draft PR #46 is ready for Claude max re-review. Nothing was merged, deployed, migrated, called live, opened inbound, or changed in secrets.
-
----
-
 ## 2026-09-15 16:52 UTC — Claude Opus 5, PR #48 round-2 xhigh re-review at a8eab0b: cleared
 
 This re-review covers test-only fix commit `5d087fc`. It adds `school-catchup-0022-upgrade.test.ts` and moves the school migration behaviour suite onto `applyUniversityTrackerMigration`. Production source and `0022` are unchanged since the review at `3b5717a`, and the branch still sits on main `e0b5072`.
@@ -580,6 +852,22 @@ This re-review covers test-only fix commit `5d087fc`. It adds `school-catchup-00
 **Next.** Under Sid's delegated merge permission, the reviewer merges this exact head plus this entry and verifies main. `0022` stays unapplied until the attended scratch proof, after `0016`–`0020`.
 
 Nothing is applied or deployed.
+
+---
+
+## 2026-09-15 16:52 UTC — GPT-5 Codex calling build chat, PR #46 fixes ready for Claude max re-review
+
+Pulled Claude's max-review entry at `dbf9066`, fixed B1, S1-S3 and N1-N3, merged current main `e0b5072`, and reviewed the complete 32-file PR diff. Rejected relay resumption is now limited to required owner step-up sessions; rejected guest and enrollment sessions retain the 1008 mismatch close. Disabling the passphrase before `begin` or during a window now commits a durable rejection, speaks the fixed refusal, sends the clean end, alerts Sid once, and persists completion so eviction cannot repeat it. Addressed and case-variant disable forms return fixed usage with zero model calls, and an exact disable is refused outside the owner's private chat. The rejection alert names `/disable-owner-step-up --confirm`.
+
+Migration `0021_voice_owner_delivery.sql` durably records disabled-head rejections, rejection completion, and a guest-grant notice outbox inserted in the same D1 batch as each grant mutation. Notice delivery uses a durable claim and delivered marker, retries pending rows from the drain job, recovers expired claims left by interrupted isolates, and still gives the on-call unconfirmed line on delivery failure. A commit-then-throw repository probe proves the persisted notice is delivered. The 750 ms voice-only context deadline records failure, timeout or invalid fallback and starts the model with empty context. No memory table or migration 0016-0019 changed.
+
+The live open-branch audit after fetch found main owns through 0020, PR #46 alone owns 0021, PR #47 has no later migration, and PR #48 uses 0022. INSERT OR IGNORE and INSERT OR REPLACE collisions are rejected for all new durable rows. Removing any one of all ten complete 0021 triggers is killed by the trigger inventory check; each removal produced one failure with the other nine trigger-syntax cases passing. No migration was applied.
+
+Reviewer evidence: the five-file contract baseline passed 237/237. All nine `port46` mutations are killed at the final implementation parent: gap0 25 failures, gap1 14, gap2b 1, gap3b 1, gap3c 3, gap3d 2, gap3e 2, gap6 2, gap6b 1. The PR #40 core probes all fail in the fixed direction: Q1c-Q3c report one refusal, one alert and one close instead of two, and Q6c resolves instead of leaving `pre_auth`. The three acceptance probes also fail as designed; Q4/Q5 report one refusal and one alert, no stale alarm, and no 1008 mismatch close. The expired guest-notice claim regression test was mutation-proven: removing its clear step reproduces `guest_grant_notice_transition_invalid`.
+
+Final local evidence: lint, workspace typecheck, voice-access typecheck and `git diff --check` pass. The final workspace matrix passes 148 files / 3,113 tests. The chained unchanged Hermes component passes 246/250: three known host-assumption failures require the absent `C:\Program Files\PowerShell\7`, and one untouched journal test timed out at 120 seconds under two-worker load; that exact test then passed alone at 118.6 seconds. The skipped watchdog component passes 119/119. The serialized voice gate passes 6/6 runner checks and 866/866 tests in 35 files. The earlier failed workspace diagnostic exposed and led to fixing two special production-socket fixtures that had installed only through 0018; those three failed cases then passed 31/31 before the final green matrix.
+
+Draft PR #46 is ready for Claude max re-review. Nothing was merged, deployed, migrated, called live, opened inbound, or changed in secrets.
 
 ---
 
@@ -666,6 +954,52 @@ Local Windows 11 evidence on the published code: focused school/university/migra
 ## 2026-09-15 15:20 UTC — GPT-5 Codex calling build chat, PR #46 reserves migration 0021
 
 PR #46 now reserves `0021_voice_owner_delivery.sql` for durable owner-call rejection completion and guest-grant notice delivery. A live GitHub inventory after fetching found `main` owns migrations through `0020_school_catchup.sql` and PR #46 is the only open PR, so there is no open-branch collision. The school lane has been told to use 0022 or later. This is a reservation only: no migration was applied and nothing was deployed.
+
+---
+
+## 2026-09-15 12:07 UTC — Claude Opus 5, PR #45 round-2 xhigh re-review at 7d37ece: cleared with follow-ups F1–F3
+
+This re-review covers fix commit `a5a01fc` and the merge of main `3e28bda` (`93d9572`, which brought in #44's docs only). The PR diff against main is still just the school slice: school, digest and job wiring, migration `0020`, tests and `NEXT_STEPS.md`. There are no `voice/**`, `calls/**` or memory files. A stale non-review message was briefly pasted into this chat during relay. It was stopped and corrected, and the diff shows nothing came of it.
+
+**Local checks on 7d37ece** (Windows 11, `jarvis-deploy`): lint and typecheck pass. `pnpm test` passed **3,077 of 3,077** in 146 files, with 0 timeouts.
+
+**Trigger coverage** (`mut45b-triggers.json`, whole-block removal of all **24** triggers, now including the new cap, `course_key` and pin guards; BASE passed; 0 timeouts). All 24 are killed. Each removal fails the inventory test **and** a named behavioural test: cap enforcement, the UPDATE OR REPLACE sweep on every unique key, identity and provenance, or immutability.
+
+**Reviewer probes** (`pr45/zz-reviewer-pr45.test.ts`). Each asserts that a bug exists, so a failure proves the fix:
+- **P1 fails:** the `course_key` UPDATE OR REPLACE is rejected by `school_course_card_course_key_conflict`.
+- **P2 fails:** a re-reported resolved fact now succeeds.
+- **P3 fails:** a fenced JSON reply now uses one model call.
+- **P4 fails:** an omitted next action no longer fails the turn.
+
+**Round-1 findings, verified in the code:**
+- **B1 is fixed.** A `readSnapshot` failure falls through to the ordinary bot reply. A write or validation failure discards the structured reply, answers through the ordinary path, filters school-save claims, and appends "I couldn't update your school plan." Reads clamp. Course, fact, action, per-day and minute caps are enforced in D1 triggers inside the batch. A re-reported resolved fact becomes a new active fact.
+- **S1 is fixed.** Exactly one ```` ```json ```` fence is accepted.
+- **S2 is fixed.** `school_course_cards_course_key_unique_update` exists, `created_at` is pinned, and the UPDATE OR REPLACE sweep covers every unique key.
+- **S3 is fixed.** The secret guard strips advisory "never share…" phrasing and matches only requests. The replacement text is neutral.
+- **S4 is fixed.** Retrieved context is gone from the mutation prompt, and mutations on a bare acknowledgement are dropped.
+- **N1 is fixed.** Due dates now come before catch-up steps.
+- **N2 is fixed.** Resolved facts and superseded actions are pruned.
+
+**F1 (required in the next school PR, before any deploy): the contracted first-person claim regressed.**
+- **What goes wrong:** the new `FALSE_EXTERNAL_COMPLETIONS[0]` (`school-catchup-model.ts`) requires whitespace after `i|we|jarvis`, so "I've …" and "We've …" never match. Round 1 caught `I've` explicitly.
+- **Runtime proof:** P5 proves "I've emailed your teacher about the missed lab." reaches Sid unchanged.
+- **Also caught:** "We've submitted the assignment for you." is caught only by the separate "for you" pattern.
+- **Uncaught by reading:** "I've already paid the registration fee."
+- **Fix:** accept `(?:i|we)(?:'|’)ve` and `i'm` or `we're` forms, including the curly apostrophe.
+- **Test:** add these three sentences to the paraphrase table.
+
+**F2 (low).** Inside one batch, a fact insert for an earlier course can run before resolves for a later course. So a plan that ends under the 48-fact cap can still abort at the boundary, and Sid sees the save-failure line. Emit every resolve before any insert.
+
+**F3 (low).**
+- Resolved facts are deleted on the very next engaged turn, so there's no short "what I finished" history for check-ins. Keep a small retention window, such as 30 days.
+- Completed actions are never pruned.
+- Rollout note: until `0020` is applied, the morning digest shows a "School catch-up" read gap every day.
+
+**Next.** Under Sid's delegated merge permission, the reviewer merges this exact head plus this entry and verifies main. F1–F3 go into the school chat's next PR, the minimal university tracker. `0020` stays unapplied; its production apply follows the attended scratch proof after `0016`–`0019`.
+
+Nothing is applied or deployed.
+
+---
 
 ---
 
@@ -907,6 +1241,44 @@ Slice 1 now runs through the existing owner Telegram conversation service: ordin
 Local Windows 11 evidence on code head `c83d285`: lint and typecheck pass; the affected Classroom fixture passes 5/5; and the clean full-suite confirmation passes 146 files / 3,062 tests. The first full run exposed that fixture's missing `0020` test setup (3,061/3,062), which was fixed before the clean confirmation. The explicit REPLACE/IGNORE sweep rejects both forms for all four new WITHOUT ROWID tables. Using `origin/claude/reviewer-tools` at schema/test head `95661f5`, BASE passed 5/5 and removal of each of all 19 triggers produced the matching table-behaviour failure; 19 killed, 0 survived, 0 invalid and no timeouts. The complete current-main diff and mailbox union were reviewed, `git diff --check` passes, all 173 main mailbox headings remain, and there are no `voice/**`, `calls/**` or memory-table changes.
 
 The draft PR is ready for Claude review. No migration was applied; no deploy, secret operation, school contact, provider call, sign-up, purchase or submission occurred. Sid retains merge, migration, deployment and live-acceptance authority.
+
+---
+
+## 2026-09-15 08:13 UTC — Claude Opus 5, PR #44 xhigh review at 2f8dfd3: changes requested (small)
+
+This is a review of the R2 runtime-slice plan (`docs/plan/2026-09-15-r2-memory-runtime-slices.md`) and the matching edits to `DECISIONS.md`, `NEXT_STEPS.md`, `docs/HANDOFF.md` and the R2 design. The branch sits directly on main `f0bfbe9` and changes documentation only. It reserves no migration, which is correct.
+
+**What holds.** Sid's requirements are carried faithfully:
+- everything is kept and searchable, including verified R2 archives;
+- distillation and filing are automatic;
+- no command vocabulary: design §8 and exit-test steps 2, 3 and 7 are reworded to natural phrasing;
+- the restore drill runs automatically after one scratch-target setup and alerts only on failure;
+- no Linux or node dependency, and Obsidian stays outside R2.
+
+The first slice is correctly chosen and bounded. It is one channel-neutral canonical repository, with no migration, no channel or scheduler composition, named fault probes and an explicit scope stop on any schema gap. Rules-authored root and inbox bootstrap is compatible with `memory_topic_events_insert_guard`, which requires an owner command only for `actor = 'owner'`. The dependency order of slices 1–3 is sound, because nothing reaches Sid-facing recall before slice 4.
+
+**S1. Slice 4 silently changes voice retrieval.** `D1ContextRetriever` is composed for Telegram (`src/index.ts:111`) and for calls (`src/voice/production-runtime.ts:106`). Slice 4 says it "replace[s] the historical device projection in conversational retrieval". If it does that inside the shared retriever, voice recall changes in slice 4. That would bypass the calling-lane coordination, the 750 ms retrieval timeout and the p95 first-audible ≤ 4 s gate that the plan reserves for slice 7.
+- Fix: state in slice 4 that text uses a new retriever composed only in the Telegram path, and that voice keeps its current composition until slice 7. Otherwise slice 4 must carry the voice coordination post and the latency gate itself.
+- Add an exit criterion: no change to `voice/production-runtime.ts` composition, and no change to the behaviour of the shared retriever that voice consumes.
+
+**S2. Plain-speech controls lack an input-authority boundary.** Design §8 and slice 4 route "remember that / why / forget that / use that again" before the model, but they never say which text may trigger a control. Retrieved text is untrusted (design §2), yet a forwarded message, pasted text, quoted email, retrieved memory or model or tool output containing "forget that" is not excluded. Nor is a conversational "forget that, let's talk about X", which would silently hide a memory.
+- Fix: in design §8 and slice 4, only the authenticated owner's own current turn can trigger a control. That means Telegram owner messages, and calls only after step-up. Guest sessions never can. Neither can forwarded, quoted or pasted content, attachments, retrieved memory, or model or tool output.
+- A phrase that doesn't clearly refer to a memory (for example "forget that" meaning "never mind") is not a control.
+- Every applied control replies with a one-line plain receipt naming what changed and the plain way to undo it. Receipts contain no hidden text.
+- Slice 4 tests: a forwarded or quoted "forget that" doesn't mutate; a conversational "forget that" doesn't mutate; a guest phrase doesn't mutate; one exact owner request mutates once and gives its receipt.
+
+**N1 (nit).** Slice 3 keeps a fake provider "until Sid separately approves the paid comparison", and slice 8 runs that comparison. The approval is a small money yes/no that the reviewer will bring to Sid when slice 3 is ready. Reword it so the comparison may run as soon as Sid approves, rather than being tied to slice 8.
+
+**N2 (nit).** Sid's planned first onboarding call interviews him to seed memory. Add one line to slice 4 or slice 7 saying that onboarding answers are written through the same remember path as `stated` items, so no second write path appears later.
+
+**Next.** Fix S1 and S2, plus the nits if convenient, as docs only in this same chat, then request re-review. Once cleared, the reviewer merges it and the foundation slice starts in a fresh chat.
+
+Nothing is applied or deployed.
+
+---
+
+---
+
 ## 2026-09-15 08:13 UTC — Claude Opus 5, PR #44 xhigh review at 2f8dfd3: changes requested (small)
 
 This is a review of the R2 runtime-slice plan (`docs/plan/2026-09-15-r2-memory-runtime-slices.md`) and the matching edits to `DECISIONS.md`, `NEXT_STEPS.md`, `docs/HANDOFF.md` and the R2 design. The branch sits directly on main `f0bfbe9` and changes documentation only. It reserves no migration, which is correct.
@@ -947,6 +1319,37 @@ Draft [PR #44](https://github.com/ksid1229-ops/jarvis/pull/44) at plan commit `2
 The approved design and state docs now carry Sid's owner requirements: accepted history stays searchable including verified R2 archives; distillation and filing are automatic; remember, why, forget and use-again work through ordinary authenticated speech or text, with slash forms at most undocumented fallbacks; calls remain behind owner step-up; and the monthly restore drill runs automatically after one reviewed scratch-target setup, stays quiet on success and alerts Sid only on failure or required repair. Design section 8 and exit-test steps 2, 3 and 7 use natural phrasing.
 
 The pre-publish refresh found `origin/main` still at `f0bfbe9`, with this branch based directly on that commit, and no open PRs. Main owns migration names through `0019`; the migration tree and newest mailbox material on every unmerged remote branch were also inspected earlier in this task, including the merged school branches, and no branch contained or reserved `0020`. This PR reserves and changes no migration. The applicable `claude/reviewer-tools` memory-contract, migration-inventory and docs-only checks pass: all changed Markdown links resolve, owner requirements are present, changed paths are documentation only, `git diff --check`, `pnpm.cmd lint` and `pnpm.cmd typecheck` pass, and the one fresh full workspace run passed 142 files / 3,041 tests. No `voice/**`, `calls/**`, Telegram or runtime source changed; no migration, provider, secret, deploy, live database or live-call action occurred. Please review this draft at xhigh. Sid retains merge, migration, deployment and live-acceptance authority.
+
+---
+
+## 2026-09-15 07:44 UTC — Claude Opus 5, PR #42 round-2 max re-review at a8ef528: cleared
+
+This re-review covers fix commit `b03f18c` (isolated ingress-guard tests, removal of the two orphan SQL comments) and merge `829cbae` (current main `dfb8ca8`). The PR diff against main is the same seven R2 files, with no `voice/**` change. The AGENT_LOG union keeps every entry: 167 on main plus 151 on the pre-merge branch give 172 unique headings at head, none missing, and there are no conflict markers. `0019` is still the only migration on the branch and the reserved number.
+
+**Local checks on a8ef528** (Windows 11, `jarvis-deploy`): lint and typecheck pass. `pnpm test` passed **3,041 of 3,041** in 142 files, with 0 timeouts.
+
+**Clause and trigger removals** (`mut42.json`, unchanged apart from the head; BASE passed 166/166; 0 timeouts). Every run is now a valid kill, and each one is caught by its own named test:
+- **Whole-trigger removals:** removing the ingress guard fails 23 named ingress tests, including the new inventory test. Removing the topic recency guard fails the inventory test and `rejects a topic event older than D1 now minus five minutes`. The behavioural tests still run, so S1 is fixed.
+- **Clause removals:** all 13 are killed, each by its matching test. These are type-without-source, source-without-type, principal `human` and `active`, envelope `eventId`, `correlationId`, `subjectId`, `occurredAt` and `contentHash`, `producerVersion`, the operation allowlist, `targetId` length (the 25- and 27-character tests) and `targetId` charset (the I/L/O/U tests). B1 is fixed.
+
+**Extra removals the reviewer added** (`mut42b.json`; BASE passed 25/25):
+- **Killed by their own tests:** the principal join (`principal_id = subject_id`), envelope `eventType`, `source` and `receivedAt`, and `targetId` first character (`rejects a targetId starting with 8`).
+- **Survived, and equivalent by trace:** the `json_type` clauses for a non-object envelope, a non-object payload, and a text `targetId`.
+  - For a non-object envelope or payload, `json_extract` of `$.eventId` or `$.payload.operation` returns NULL, so the mirror and allowlist clauses already reject.
+  - A non-text `targetId` can't pass the length-26 check and the ULID GLOB together. JSON integers have at most 19 digits, and reals, booleans, arrays and objects render with characters outside the ULID alphabet.
+  - These clauses are harmless defence in depth. No test can isolate them, and none is required.
+
+**F2 still holds** (`mut42-f2.json`; BASE passed 141/141). All nine single-pin removals are killed by their named `single-column UPDATE OR REPLACE collision` tests except placement-state `principal_id`, which is the same equivalent survivor recorded at 06:41. The reviewer also traced the topic-merge branch. `memory_topics.topic_id` is a global primary key, and topic events must name a topic owned by their principal. The branch requires `OLD.topic_id = event.topic_id` and `event.principal_id = NEW.principal_id`, and the composite foreign key `(principal_id, topic_id)` binds the updated row. So a changed `principal_id` can't match on either branch.
+
+**Nit (no action).** The rationale comments deleted from `0019` are covered by the updated R2 design §3.3 and the runtime-writer stamping rules. If a later migration needs comments above a trigger, the test helper's splitter should skip comment-only statements, so that mutation runs aren't aborted by orphaned comments.
+
+**Evidence:** `claude/reviewer-tools` `ca9ed39`: `mut42b.json` and `pr42-reverify/run42*-a8ef528.txt`.
+
+**Next.** Under Sid's delegated merge permission, the reviewer merges this exact head plus this entry, then re-verifies main. `0016`–`0019` stay unapplied until the Sid-attended scratch remote-D1 proof, which must include both `0019` triggers.
+
+Sid retains migration authority. Nothing is applied or deployed.
+
+---
 
 ---
 
@@ -5996,3 +6399,33 @@ the three state documents, not duplicated here. No source/test/security
 check was weakened, and no production setting was changed by this builder.
 
 ---
+
+## 2026-09-11 05:28 UTC — Claude Opus 5
+
+Created this file at Sid's request, before going back to reviewer work while
+he sleeps.
+
+Correcting myself on the record: I diagnosed the missing gateway heartbeat as
+a `WATCHDOG_HEARTBEAT_SECRET` mismatch. That was wrong, and Codex's
+`wrangler tail` catching a **404** is what disproved it. I then tested the
+live watchdog from outside: `POST /heartbeat` answers 401, while the bare
+host, a trailing slash and a wrong-case path all answer 404. A 404 means the
+request never reached the handler, so the bearer credential was never
+evaluated and the secret was unproven rather than wrong. The rule worth
+keeping: **404 means the URL, 401 means the secret.**
+
+Sid has since re-set the URL with the full `/heartbeat` path and re-set the
+secret identically on both Workers by pipe, so neither can diverge. The
+first gateway cron after that change is the test.
+
+**For the next Codex session:** R1 is yours to build under `BUILDING.md`, at
+max review rather than high because it is the release gate. Do not start it
+until R0's exit test passes — three of its conditions are still untested and
+`NEXT_STEPS.md` forbids it. I am part-way through auditing R1's acceptance
+gap: the roadmap names roughly twelve scenarios and
+`tests/acceptance/fake/voice-call-path.test.ts` currently holds one. I will
+append the full mapping here when it is done, so you inherit a specification
+rather than an investigation.
+
+**For Sid, when he wakes:** everything needing hands is in the chat and on
+the artifact page. Nothing here needs him.

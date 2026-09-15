@@ -16,7 +16,7 @@ import { DecisionRepository } from "./decisions/decision-repository.js";
 import { DecisionService } from "./decisions/decision-service.js";
 import { parseDecisionCallbackData } from "./decisions/telegram-keyboard.js";
 import { assembleDigest, unconfiguredDeadlineSourceKinds } from "./jobs/digest-job.js";
-import { buildJobTable, buildScheduledRuns } from "./jobs/job-table.js";
+import { buildJobTable, buildScheduledRuns, runOnDemandBrightspaceRefresh } from "./jobs/job-table.js";
 import { handleScheduled } from "./scheduler/scheduled-handler.js";
 import { heartbeatConfiguration } from "./scheduler/heartbeat-reporter.js";
 import { D1ContextRetriever } from "./conversation/context-retriever.js";
@@ -110,13 +110,21 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
     const repository = new ConversationRepository(env.DB, events);
     const redactor = new Redactor();
     const baseModel = new DeepSeekModelAdapter({ apiKey, model: env.DEEPSEEK_MODEL });
-    const model = accepted.principalId === env.OWNER_PRINCIPAL_ID
+    const ownerPrincipalId = env.OWNER_PRINCIPAL_ID;
+    const model = ownerPrincipalId !== undefined && accepted.principalId === ownerPrincipalId
       ? new SchoolCatchupModelAdapter({
         model: baseModel,
         repository: new SchoolCatchupRepository(env.DB),
         universityRepository: new UniversityTrackerRepository(env.DB),
         redactor,
         timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
+        ownerPrincipalId,
+        refreshBrightspace: async (now) => runOnDemandBrightspaceRefresh({
+          env,
+          clock: { now: () => new Date(now.getTime()) },
+          delivery: { send: async () => undefined },
+          fetcher: globalThis.fetch.bind(globalThis),
+        }),
       })
       : baseModel;
 

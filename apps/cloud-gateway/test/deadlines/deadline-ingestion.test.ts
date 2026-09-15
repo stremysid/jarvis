@@ -154,6 +154,37 @@ describe("DeadlineIngestion", () => {
     expect(empty.disappeared).toEqual([]);
   });
 
+  it("reports zero newly cancelled on a repeat and leaves a non-open deadline untouched", async () => {
+    const first = await ingestion().ingest(sourceId, items(QUIZ, ESSAY));
+    const submitted = first.created.find((deadline) => deadline.externalId === ESSAY.externalId)!;
+    await env.DB.prepare("UPDATE deadlines SET status = 'submitted' WHERE deadline_id = ?")
+      .bind(submitted.deadlineId).run();
+
+    now = TUESDAY;
+    const initialCancellation = await ingestion().ingest(sourceId, {
+      kind: "items",
+      items: [],
+      cancelledExternalIds: [QUIZ.externalId],
+    });
+    expect(initialCancellation.cancelled.map((deadline) => deadline.externalId)).toEqual([QUIZ.externalId]);
+
+    now = WEDNESDAY;
+    const repeated = await ingestion().ingest(sourceId, {
+      kind: "items",
+      items: [],
+      cancelledExternalIds: [QUIZ.externalId, ESSAY.externalId],
+    });
+    expect(repeated.cancelled).toEqual([]);
+    await expect(repository.readByExternalId(sourceId, QUIZ.externalId)).resolves.toMatchObject({
+      status: "cancelled",
+      lastSeenAt: TUESDAY.toISOString(),
+    });
+    await expect(repository.readByExternalId(sourceId, ESSAY.externalId)).resolves.toMatchObject({
+      status: "submitted",
+      lastSeenAt: MONDAY.toISOString(),
+    });
+  });
+
   it("lets a per-course rule beat both the title's keyword and the source's own tag", async () => {
     const rules = new Map<string, DeadlineEffort>([["SPH4U Physics", "test"]]);
     const report = await ingestion(rules).ingest(
