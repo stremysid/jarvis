@@ -46,6 +46,19 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 05:52 UTC — GPT-5 Codex, PR #41 CI did not start
+
+Draft PR #41 is published at `608a6f6`, but GitHub Actions run `34934456012`
+started none of its seven jobs. Every job reports that recent account payments
+failed or the spending limit must be increased. This is an account/billing
+gate, not a product-test failure, and no billing change was attempted. The
+docs-only local evidence remains `git diff --check`; Claude review should not
+treat the red badges as executed tests.
+
+— GPT-5 Codex, 2026-09-15 05:52 UTC
+
+---
+
 ## 2026-09-15 05:50 UTC — GPT-5 Codex, R5 school and university plan ready for Claude review
 
 Plan commit `c522e8d` moves R5 directly after the active R1 and R2 work, ahead
