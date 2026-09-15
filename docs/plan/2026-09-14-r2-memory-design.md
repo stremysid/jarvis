@@ -94,7 +94,7 @@ The additive schema candidate is named `0016_cloud_memory.sql`. Its tables are:
 | `memory_item_links` | Immutable `supersedes`, `duplicate_of`, `contradicts` and `related` edges, with the transition that authorized the edge. |
 | `memory_topics` | Stable topic id, principal, current parent, normalized display name and active/merged state. The single root is immovable. Active trees are capped at 64 levels, including the root. |
 | `memory_topic_events` | Append-only create, rename, move and merge history with old/new parents and names, reason, actor and authorizing receipt. Each merge also records the exact reparented child topic ids, moved placement/assignment ids and aliases added to the survivor so reversal uses ledger data rather than model reconstruction. |
-| `memory_topic_aliases` | Historical names and paths resolving to stable topic ids after rename, move or merge. |
+| `memory_topic_aliases` | Historical names and paths resolving to stable topic ids after rename, move or merge. Repeated alias tuples remain append-only history; resolution uses the newest alias event. |
 | `memory_item_placement_events` | Append-only primary/related filing, refiling and removal events with source (`owner`, `rule`, `model`), confidence and reason. |
 | `memory_item_placement_state` | Trigger-maintained current primary and related placements, rebuildable from placement events. |
 | `memory_episodes` | Immutable bounded daily summaries with event-sequence range, content hash and summarizer version. Summaries have no authority; replacements link by supersession. |
@@ -167,6 +167,11 @@ the raw receipt; results are verified against the R2 segment before use.
   keys and trigger checks. Cross-principal sources, topics and links fail.
 - Topic moves reject cycles; sibling names are unique after normalization;
   merge redirects are bounded and cycle-free.
+- Topic path resolution checks the current active tree before historical aliases.
+  If no live path matches, repeated alias tuples resolve newest-first by
+  `created_at`, then topic-event id, then alias id. The selected stable topic id
+  then follows bounded merge redirects. This permits natural rename cycles
+  without letting an old alias override a live topic at the same path.
 - State and placement projections change only through their append-only event
   triggers. Migration tests must mutate every trigger and prove refusal. Each
   trigger has a dedicated removal mutation, while behavioral tests exercise
@@ -323,6 +328,11 @@ failure records a retryable observation and does not discard the memory.
   the owner initiated it.
 - Redirect resolution is cycle-free and bounded. Old links and saved queries
   continue to resolve after a move or merge.
+- Current active paths take precedence over historical aliases. If only aliases
+  match, Jarvis selects the newest alias by event time, topic-event id and alias
+  id, then follows any bounded merge redirect. Alias tuples are intentionally
+  non-unique so repeated natural renames such as X -> Y -> X -> Y remain
+  append-only and never wedge the tree.
 
 Jarvis may propose and automatically apply low-risk organization changes, but
 it reports them in the digest and retains a reversible transition history. A
@@ -497,14 +507,15 @@ name. The comparison is an owner/reviewer-run provider operation, not a live
 call by this builder.
 
 Every paid run reserves a worst-case amount before dispatch so concurrent jobs
-cannot cross the cap. A reservation is stamped at dispatch time and must be
-within five minutes of D1's wall clock; a long-running run cannot backdate new
-reservations into an earlier monthly bucket. Completion reconciles the
-reservation against observed tokens and the matching provider/model price
-record. If the provider's actual
-charge exceeds the reservation, Jarvis settles the reserved amount and appends
-one explicit positive `overrun` entry for the excess. It never hides a real
-charge to preserve the appearance of compliance; settled cost plus overruns
+cannot cross the cap. Every reservation, settlement, release and overrun is
+stamped when that ledger row is written, re-stamped on retry, and must be within
+five minutes of D1's wall clock. A long-running run therefore cannot backdate
+spend into an earlier monthly bucket. Completion reconciles the reservation
+against observed tokens and the matching provider/model price record. If the
+provider's actual charge exceeds the reservation, Jarvis settles the reserved
+amount and appends one explicit positive `overrun` entry for the excess. It
+never hides a real charge to preserve the appearance of compliance; settled
+cost plus overruns
 counts against future reservations and is owner-visible. Before a DeepSeek
 dispatch, Jarvis checks fresh prepaid credit against the next worst-case
 reservation and

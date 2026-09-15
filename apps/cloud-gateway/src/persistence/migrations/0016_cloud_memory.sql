@@ -418,12 +418,17 @@ CREATE TABLE memory_topic_aliases (
   created_by_topic_event_id TEXT NOT NULL,
   created_at TEXT NOT NULL CHECK (strftime('%Y-%m-%dT%H:%M:%fZ', created_at) IS created_at),
   UNIQUE (principal_id, alias_id),
-  UNIQUE (principal_id, normalized_alias, path_alias),
   FOREIGN KEY (principal_id, topic_id)
     REFERENCES memory_topics(principal_id, topic_id) ON DELETE RESTRICT,
   FOREIGN KEY (principal_id, created_by_topic_event_id)
     REFERENCES memory_topic_events(principal_id, topic_event_id) ON DELETE RESTRICT
 ) STRICT, WITHOUT ROWID;
+
+CREATE INDEX memory_topic_aliases_resolution
+ON memory_topic_aliases(
+  principal_id, normalized_alias, path_alias,
+  created_at DESC, created_by_topic_event_id DESC, alias_id DESC
+);
 
 CREATE TABLE memory_item_placement_events (
   placement_event_id TEXT PRIMARY KEY CHECK (
@@ -2338,9 +2343,6 @@ BEFORE INSERT ON memory_topic_aliases
 WHEN EXISTS (
     SELECT 1 FROM memory_topic_aliases alias
     WHERE alias.alias_id = NEW.alias_id
-      OR (alias.principal_id = NEW.principal_id
-        AND alias.normalized_alias = NEW.normalized_alias
-        AND alias.path_alias = NEW.path_alias)
   )
   OR NOT EXISTS (
   SELECT 1 FROM memory_topic_events event
@@ -2888,8 +2890,7 @@ WHEN EXISTS (
     WHERE entry.cost_entry_id = NEW.cost_entry_id
   )
   OR NEW.occurred_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+5 minutes')
-  OR (NEW.entry_type = 'reservation'
-    AND NEW.occurred_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-5 minutes'))
+  OR NEW.occurred_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-5 minutes')
   OR NOT EXISTS (
     SELECT 1 FROM memory_runs run
     WHERE run.principal_id = NEW.principal_id
