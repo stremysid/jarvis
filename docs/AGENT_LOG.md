@@ -46,6 +46,88 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 09:21 UTC — Claude Opus 5, PR #46 max review at 2fdce98: changes requested
+
+This is a max review of passphrase PR 3:
+- the owner-only Telegram `/disable-owner-step-up --confirm`;
+- guest-grant notices;
+- the 750 ms voice retrieval deadline;
+- #40 follow-ups F1–F5.
+
+The branch is based on main `f0bfbe9`, contains only this work and has no migration.
+
+**Local checks on 2fdce98** (Windows 11, `jarvis-pr40`, run one at a time):
+- lint, `typecheck` and `typecheck:voice-access` pass.
+- `pnpm test` passed **3,062 of 3,062** in 144 files, with 0 timeouts.
+- The serialized `pnpm test:voice-access` passed its 6/6 runner checks and **856 of 856** tests in 35 files, with 0 timeouts.
+
+**Contract gap ports.** The nine `port623-*` gaps were re-ported to this head as `port46-*.diff`; only two conflicts, both adjacent field declarations, were resolved by keeping both. They were run against the 5 step-up contract files. BASE passed 233/233, and **all 9 are killed** by genuine assertions:
+- gap0: 25 failed, 18 of them assertion failures. Its 2 timeouts are the stub's own hang, and the kill doesn't depend on them.
+- gap1: 14 failed.
+- gap2b: 1 failed, "preserves mismatch ordinals across a Durable Object hibernation boundary".
+- gap3b: 1 failed.
+- gap3c: 3 failed.
+- gap3d, gap3e and gap6: 2 failed each.
+- gap6b: 1 failed.
+
+Apart from gap0's stub, no run timed out.
+
+**#40 round-4 probes** (from `pr40-reverify3*`, rerun on 2fdce98). F1–F5 are proven fixed:
+- **Core probes (`-t reverify3`):** each asserted that a hole existed, and all 4 now **fail** on genuine assertions, with 0 timeouts.
+  - Q1c, Q2c and Q3c each measure refusals=1, alerts=1, closes=1, where the hole would give 2.
+  - Q6c: a throwing alarm clear no longer skips the terminal transition.
+- **Acceptance observations:**
+  - Q1: refusals=1, ends=1, alerts=1.
+  - Q4 (hang-up after eviction on an interrupted rejection): alerts=1, refusals=1, alarm key cleared. Before the fix there were 0 alerts.
+  - Q5 (a frame after eviction): refusals=1, alerts=1, with no 1008 close and no lost alert.
+
+**Adversarial pass** (one Opus agent). The reviewer verified B1, S1, S2, S3, N1 and N2 against the code; B1 and S1 were checked statically.
+
+Sound:
+- **Disable authority.** Only the exact bare text from the owner principal works, and the 0017 trigger binds the receipt to the owner's Telegram update inside 5 minutes with a UNIQUE event. Every variant fails closed. Nothing on Telegram or a call can re-enable step-up or set a phrase.
+- **Disable takes effect.** Owner authority is refused while disabled.
+- **Guest notices.** They go to the owner. The notice's principal is the owner-management authority from `authorizeOwnerManagement`. The text is fixed and masked.
+- **The 750 ms deadline.** It is voice-only, clears its timer, ignores late results, can't cause an unhandled rejection, and the retriever only reads.
+- **F1, F2, F3 and F5.**
+
+**B1 (regression). After eviction, a rejected guest or enrollment socket stays open.**
+- **Where:** `webSocketMessage`, `webSocketClose` and `webSocketError` now call `#resolveCore(socket, true)` (`call-session-do.ts:2037`, `:2110`), which returns a core for **any** `rejected` session. Every frame then goes to `handleOwnerStepUpAlarm("window", 1)` (`:2047`). For a `guest_pin` or `owner_enrollment` interaction, that method only clears the alarm and returns (`:1309-1312`).
+- **What goes wrong:** guest PIN exhaustion transitions to `rejected` without sending `end` or closing the socket (`:1524`, `:1529`). On `f0bfbe9`, a frame after eviction got `mismatch` and a 1008 close. Now the ConversationRelay socket for an unverified guest stays open.
+- **Fix:** resume a `rejected` session only when its interaction is owner step-up. Otherwise keep the 1008 mismatch close.
+- **Test:** three wrong guest PINs, evict, send a prompt, and expect a 1008 close.
+
+**S1. A disabled step-up ends owner calls with a 1011 error instead of the designed refusal and alert.**
+- **Where:** `OwnerCallStepUpService.begin` throws `owner_step_up_unavailable` when the head isn't active (`owner-call-step-up.ts:183`). The DO catches it and closes 1011, and the call becomes `failed`.
+- **What goes wrong:** the design (`owner-call-passphrase-design.md:119-122`) says that once disabled, "every owner call play[s] a fixed refusal", and rejection alerts point to recovery. Today nothing is spoken, nothing is recorded as a rejection, and Sid gets no alert that someone called after he disabled step-up. PR #46 makes this state reachable from Telegram.
+- **Fix:** when the head is disabled at `begin`, or during an open window, speak `OWNER_STEP_UP_REJECTED`, send `end`, record the rejection and send one alert.
+- **Tests:** disable then place an owner call, expecting the refusal, `end` and one alert. Add a variant where disable commits mid-window.
+
+**S2. Guest-grant notices aren't durable.**
+- **Where:** `owner-access-service.ts` sends each notice inside the request, after the commit. There is no pending row and no retry.
+- **What goes wrong:** the notice is lost in two cases. The repository commits and then throws (the error is mapped to `owner_access_operation_failed`). Or the isolate dies, or the turn aborts, between commit and `notify`. The design requires a notice for every create, permission change, PIN rotation and revoke. The step-up alert sink already uses D1 claim rows.
+- **Fix:** record a pending notice in the same D1 write as the grant mutation, and deliver it with idempotent retry. Keep the on-call "notice could not be confirmed" line.
+- **Test:** the repository commits then throws, and the notice is still delivered or left pending for retry.
+
+**S3. Near-miss disable commands reach the model.**
+- **Where:** `/disable-owner-step-up@Bot --confirm` and `/Disable-owner-step-up --confirm` parse as plain text (`telegram-commands.ts:23`, `:88-93`) and go to DeepSeek.
+- **What goes wrong:** during a compromise response, the model can reply as if step-up were disabled.
+- **Fix:** recognize addressed and case-variant forms of this command and send the fixed usage reply without a model call.
+- **Test:** both forms get the usage reply and make zero model calls.
+
+**N1.** Completed rejection delivery is remembered only in memory. After eviction, a `rejected` session repeats the refusal, and `alert()` increments `observation_count` again. Persist a delivered marker.
+
+**N2.** The rejection alert text (`owner-call-step-up.ts:448-450`) doesn't name the `/disable-owner-step-up --confirm` recovery action the design asks for.
+
+**N3.** Disable works from a group chat, and the confirmation posts there. Refuse non-private chats, or reply in the owner's private chat.
+
+**Next.** Fix B1 and S1–S3, plus N1–N3 if they're small, in this same chat. Then rerun the serialized voice gate and the `port46` gaps, and request re-review. The reviewer reruns the gaps, the #40 probes and these checks.
+
+Merging turns nothing on. Sid retains deploy, inbound-calling and live-call authority.
+
+---
+
+---
+
 ## 2026-09-15 08:51 UTC — GPT-5 Codex calling build chat, PR #46 ready for Claude max review
 
 Draft PR #46 implements passphrase PR 3 on current main `f0bfbe9`: the exact owner-only Telegram `/disable-owner-step-up --confirm` receipt backed by migration 0017, with re-enable left exclusively to a new device-signed CLI generate; fixed minimal Telegram notices after every guest-grant create, permission change, PIN rotation and revoke; and a hard 750 ms voice context-retrieval deadline that records failure, timeout or invalid-context fallback before continuing with no retrieved context. It also closes PR #40 follow-ups F1–F5: one shared same-isolate rejection delivery, alarm-clear-only retry after completed delivery, socket terminalization independent of alarm clear, rejection completion and alert after eviction on closed/live sockets, and serialized late-fragment/assembly-alarm reprompts. The full diff was reviewed, `git diff --check` passes, and no memory or migration file changed. The live open-branch check found PR #44 claims no migration and PR #45 claims `0020_school_catchup.sql`; this PR claims none.
