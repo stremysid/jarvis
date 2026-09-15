@@ -1,0 +1,12 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/http/owner-passphrase-routes.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr39
+
+Using secrets defined in process.env
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  19:16:58
+   Duration  2.98s (transform 596ms, setup 0ms, import 1.12s, tests 1.28s, environment 0ms)
+
