@@ -244,6 +244,16 @@ describe("study coach migration", () => {
       'uncertain', 'owner_topic', ?5, NULL, 'topic', ?6, 'shown', NULL, NULL, NULL, NULL, ?6, ?6)`)
       .bind(item.principalId, newUlid(LATER), newUlid(new Date(LATER.getTime() + 1)), item.courseId,
         item.otherTurnId, LATER.toISOString()).run()).rejects.toThrow(/school_practice_item_source_invalid/u);
+    await expect(env.DB.prepare(`INSERT INTO school_practice_items (
+      principal_id, item_id, item_key, practice_id, course_id, mode, position, question, answer,
+      answer_support, source_kind, source_turn_id, source_fact_id, source_excerpt,
+      source_observed_at, status, owner_answer, result, result_turn_id, answered_at, created_at, updated_at
+    ) VALUES (?1, ?2, 'pre-answered', ?3, ?4, 'quiz', 1, 'Question', 'Answer',
+      'uncertain', 'owner_topic', ?5, NULL, 'topic', ?6, 'answered', 'Answer', 'uncertain',
+      ?7, ?6, ?6, ?6)`).bind(
+      item.principalId, newUlid(new Date(LATER.getTime() + 2)), newUlid(new Date(LATER.getTime() + 3)),
+      item.courseId, item.turnId, LATER.toISOString(), item.laterTurnId,
+    ).run()).rejects.toThrow(/school_practice_item_source_invalid/u);
   });
 
   it("school_practice_items_core_immutable status_transition and reject_delete protect results", async () => {
@@ -263,7 +273,7 @@ describe("study coach migration", () => {
 
   it("school_study_evidence_active_cap bounds each course", async () => {
     const item = await graph("evidence-cap");
-    const statements = Array.from({ length: 23 }, (_, index) => env.DB.prepare(`INSERT INTO school_study_evidence (
+    const statements = Array.from({ length: 24 }, (_, index) => env.DB.prepare(`INSERT INTO school_study_evidence (
       principal_id, evidence_id, source_key, course_id, topic_key, topic, outcome, evidence_kind,
       evidence_text, confidence, source_turn_id, source_fact_id, source_practice_item_id,
       observed_at, practice_due_on, last_prompted_on, status, control_turn_id, controlled_at,
@@ -294,6 +304,16 @@ describe("study coach migration", () => {
     ) VALUES (?1, ?2, 'bad-source', ?3, 'topic', 'Topic', 'wrong', 'owner_statement',
       'Evidence', 'medium', ?4, NULL, NULL, ?5, ?6, NULL, 'active', NULL, NULL, ?5, ?5)`)
       .bind(item.principalId, newUlid(LATER), item.courseId, item.otherTurnId, LATER.toISOString(), TODAY).run())
+      .rejects.toThrow(/school_study_evidence_source_invalid/u);
+    await expect(env.DB.prepare(`INSERT INTO school_study_evidence (
+      principal_id, evidence_id, source_key, course_id, topic_key, topic, outcome, evidence_kind,
+      evidence_text, confidence, source_turn_id, source_fact_id, source_practice_item_id,
+      observed_at, practice_due_on, last_prompted_on, status, control_turn_id, controlled_at,
+      created_at, updated_at
+    ) VALUES (?1, ?2, 'pre-corrected', ?3, 'topic', 'Topic', 'wrong', 'owner_statement',
+      'Evidence', 'medium', ?4, NULL, NULL, ?5, ?6, NULL, 'corrected', ?7, ?5, ?5, ?5)`)
+      .bind(item.principalId, newUlid(new Date(LATER.getTime() + 4)), item.courseId,
+        item.turnId, LATER.toISOString(), TODAY, item.laterTurnId).run())
       .rejects.toThrow(/school_study_evidence_source_invalid/u);
   });
 

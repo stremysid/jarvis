@@ -377,6 +377,65 @@ describe("SchoolCatchupModelAdapter", () => {
     }
   });
 
+  it.each([
+    "I've checked your D2L and nothing new is due.",
+    "I’ve checked D2L and nothing new is due.",
+    "We've refreshed Brightspace for you.",
+    "I looked at D2L and there's nothing due.",
+    "D2L was just synced.",
+    "I've just refreshed your Brightspace calendar.",
+    "I just looked at Brightspace for you.",
+    "We synced with D2L a moment ago.",
+    "I checked and D2L shows nothing new.",
+    "I looked at the Brightspace dates you pasted. I've checked D2L and nothing new is due.",
+  ])("S3 blocks the false Brightspace completion: %s", (reply) => {
+    const parsed = parseOwnerCatchupPlan({
+      engaged: false, reply, courseUpdates: [], completeActionIds: [], plan: [],
+    }, new Redactor());
+    expect(parsed.reply).toBe("I haven't checked D2L. Say 'check D2L now' to run the bounded refresh.");
+  });
+
+  it.each([
+    "I looked at the Brightspace dates you pasted.",
+    "Jarvis refreshed Brightspace an hour ago.",
+  ])("S3 leaves narrow Brightspace discussion unchanged: %s", (reply) => {
+    const parsed = parseOwnerCatchupPlan({
+      engaged: false, reply, courseUpdates: [], completeActionIds: [], plan: [],
+    }, new Redactor());
+    expect(parsed.reply).toBe(reply);
+  });
+
+  it.each([
+    [
+      "I submitted your application.",
+      "I can't confirm that action. Spending, sign-ups, submissions, and contacting people require your tap.",
+    ],
+    [
+      "Send me your D2L password to continue.",
+      "I can't accept passwords, tokens, recovery codes, or MFA codes. Complete credential steps only on the provider's own page.",
+    ],
+    [
+      "I've checked D2L and nothing is due.",
+      "I haven't checked D2L. Say 'check D2L now' to run the bounded refresh.",
+    ],
+  ])("keeps the reply guard for %s on a forwarded owner turn while skipping mutations", async (reply, guarded) => {
+    const model = new SequenceModel([reply]);
+    const readSnapshot = vi.fn(async () => snapshot());
+    const applyOwnerPlan = vi.fn(async () => undefined);
+    const adapter = new SchoolCatchupModelAdapter({
+      model,
+      repository: { readSnapshot, applyOwnerPlan },
+      redactor: new Redactor(),
+      timeZone: "America/Toronto",
+      now: () => NOW,
+      ownerTurnAuthoritative: false,
+    });
+
+    await expect(collect(adapter.stream(input({ userText: "forwarded school notice" })))).resolves.toBe(guarded);
+    expect(readSnapshot).not.toHaveBeenCalled();
+    expect(applyOwnerPlan).not.toHaveBeenCalled();
+  });
+
   it("drops school mutations that a model emits for a bare acknowledgement", async () => {
     const model = new SequenceModel([JSON.stringify({
       engaged: true,

@@ -45,8 +45,12 @@ const PLAN_SAVE_COMPLETIONS = Object.freeze([
   /\b(?:saved|updated|recorded|stored|added)\b.{0,48}\b(?:to|in)\s+(?:your\s+)?(?:school|course|catch-?up|plan|university|program|tracker)\b/iu,
 ]);
 const BRIGHTSPACE_CHECK_COMPLETIONS = Object.freeze([
-  /\b(?:i|we|jarvis)\s+(?:(?:have|has)\s+)?(?:(?:already|just)\s+)?(?:checked|refreshed|synced)\s+(?:(?:my|your|the)\s+)?(?:d2l|brightspace)\b(?!\s+(?:yesterday|earlier|last\b|(?:an?|one|\d+)\s+(?:minute|hour|day|week)s?\s+ago\b))/iu,
-  /\b(?:d2l|brightspace)\s+(?:has|is)\s+(?:(?:already|just)\s+)?(?:been\s+)?(?:checked|refreshed|synced)\b(?!\s+(?:yesterday|earlier|last\b|(?:an?|one|\d+)\s+(?:minute|hour|day|week)s?\s+ago\b))/iu,
+  /\b(?:i|we|jarvis)(?:['’](?:ve|re))?\b.{0,40}\b(?:checked|refreshed|synced|looked\s+at)\b.{0,48}\b(?:d2l|brightspace)\b/iu,
+  /\b(?:d2l|brightspace)\b.{0,40}\b(?:has|is|was)\s+(?:(?:already|just)\s+)?(?:been\s+)?(?:checked|refreshed|synced)\b/iu,
+]);
+const BRIGHTSPACE_CHECK_DISCUSSION = Object.freeze([
+  /\b(?:looked\s+at|reviewed)\s+(?:the\s+)?(?:d2l|brightspace)\s+(?:dates?|text|details?)\s+you\s+(?:pasted|sent|shared)\b/iu,
+  /\bjarvis\b.{0,32}\b(?:checked|refreshed|synced|looked\s+at)\b.{0,40}\b(?:d2l|brightspace)\b\s+(?:an?|one|\d+)\s+(?:minute|hour|day|week)s?\s+ago\b/iu,
 ]);
 const OWNER_ACKNOWLEDGEMENT = /^\s*(?:ok(?:ay)?|thanks?(?:\s+you)?|got\s+it|sounds\s+good|cool|alright|sure|👍)\s*[.!]?\s*$/iu;
 const BRIGHTSPACE_REFRESH_REQUEST = /^\s*(?:jarvis[,\s]+)?(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:check|refresh|update)\s+(?:my\s+)?(?:d2l|brightspace)(?:\s+(?:calendar|deadlines?|feed))?\s+(?:right\s+)?now(?:\s*,?\s*please)?[.!?]*\s*$/iu;
@@ -206,7 +210,15 @@ function planAction(
   });
 }
 
-function safeReply(
+function isFalseBrightspaceCheckCompletion(reply: string): boolean {
+  const claimsOnly = BRIGHTSPACE_CHECK_DISCUSSION.reduce(
+    (remaining, discussion) => remaining.replace(discussion, ""),
+    reply,
+  );
+  return BRIGHTSPACE_CHECK_COMPLETIONS.some((pattern) => pattern.test(claimsOnly));
+}
+
+export function guardSchoolReply(
   value: unknown,
   redactor: SchoolCatchupModelDependencies["redactor"],
 ): string {
@@ -218,7 +230,7 @@ function safeReply(
   if (FALSE_EXTERNAL_COMPLETIONS.some((pattern) => pattern.test(reply))) {
     return EXTERNAL_ACTION_REPLACEMENT;
   }
-  if (BRIGHTSPACE_CHECK_COMPLETIONS.some((pattern) => pattern.test(reply))) {
+  if (isFalseBrightspaceCheckCompletion(reply)) {
     return BRIGHTSPACE_CHECK_REPLACEMENT;
   }
   return reply;
@@ -244,7 +256,7 @@ export function parseOwnerCatchupPlan(
   }
   return Object.freeze({
     engaged: item.engaged,
-    reply: safeReply(item.reply, redactor),
+    reply: guardSchoolReply(item.reply, redactor),
     courseUpdates: Object.freeze(courseUpdates),
     completeActionIds,
     plan: Object.freeze(plan),
@@ -403,10 +415,12 @@ async function* fallbackWithSaveFailure(
   model: ModelAdapter,
   input: ModelAdapterStreamInput,
   scope: "school" | "university",
+  redactor: SchoolCatchupModelDependencies["redactor"],
 ): AsyncIterable<ModelToken> {
   const ordinaryReply = (await collectJson(model.stream(input))).trim();
-  const safeReply = BRIGHTSPACE_CHECK_COMPLETIONS.some((pattern) => pattern.test(ordinaryReply))
-    ? BRIGHTSPACE_CHECK_REPLACEMENT
+  const guardedReply = guardSchoolReply(ordinaryReply, redactor);
+  const safeReply = guardedReply !== ordinaryReply
+    ? guardedReply
     : PLAN_SAVE_COMPLETIONS.some((pattern) => pattern.test(ordinaryReply))
       ? scope === "school" ? UNSAVED_FALLBACK_REPLY : UNSAVED_UNIVERSITY_FALLBACK_REPLY
       : ordinaryReply;
@@ -418,13 +432,12 @@ async function* fallbackWithSaveFailure(
 async function* guardedOrdinaryReply(
   model: ModelAdapter,
   input: ModelAdapterStreamInput,
+  redactor: SchoolCatchupModelDependencies["redactor"],
 ): AsyncIterable<ModelToken> {
   const reply = (await collectJson(model.stream(input))).trim();
   yield Object.freeze({
     index: 0,
-    text: BRIGHTSPACE_CHECK_COMPLETIONS.some((pattern) => pattern.test(reply))
-      ? BRIGHTSPACE_CHECK_REPLACEMENT
-      : reply,
+    text: guardSchoolReply(reply, redactor),
   });
 }
 
@@ -437,8 +450,12 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
   }
 
   async *stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
-    if (input.channel !== "telegram" || this.dependencies.ownerTurnAuthoritative === false) {
+    if (input.channel !== "telegram") {
       yield* this.dependencies.model.stream(input);
+      return;
+    }
+    if (this.dependencies.ownerTurnAuthoritative === false) {
+      yield* guardedOrdinaryReply(this.dependencies.model, input, this.dependencies.redactor);
       return;
     }
     const now = new Date(this.now().getTime());
@@ -472,14 +489,14 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
     } catch {
       // A missing migration or a malformed private row must not take down the
       // owner's ordinary Telegram conversation.
-      yield* guardedOrdinaryReply(this.dependencies.model, input);
+      yield* guardedOrdinaryReply(this.dependencies.model, input, this.dependencies.redactor);
       return;
     }
     const structuredPrompt = promptFor(input, snapshot, today, universitySnapshot);
     if (encoder.encode(structuredPrompt).byteLength > MAX_STRUCTURED_PROMPT_BYTES) {
       // Preserve the existing bot when bounded school state cannot fit safely
       // inside the provider request envelope.
-      yield* guardedOrdinaryReply(this.dependencies.model, input);
+      yield* guardedOrdinaryReply(this.dependencies.model, input, this.dependencies.redactor);
       return;
     }
     const structuredInput: ModelAdapterStreamInput = Object.freeze({
@@ -513,7 +530,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
     } catch {
       // Preserve the existing bot for ordinary conversation if a provider ever
       // ignores the JSON contract. No school mutation is claimed on this path.
-      yield* guardedOrdinaryReply(this.dependencies.model, input);
+      yield* guardedOrdinaryReply(this.dependencies.model, input, this.dependencies.redactor);
       return;
     }
     if (schoolPlan.engaged) {
@@ -529,7 +546,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       } catch {
         // Never release the structured reply: it may claim a plan was saved.
         // The ordinary bot still answers, with one fixed line naming the gap.
-        yield* fallbackWithSaveFailure(this.dependencies.model, input, "school");
+        yield* fallbackWithSaveFailure(this.dependencies.model, input, "school", this.dependencies.redactor);
         return;
       }
     } else if (universityPlan?.engaged) {
@@ -544,7 +561,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
           now,
         });
       } catch {
-        yield* fallbackWithSaveFailure(this.dependencies.model, input, "university");
+        yield* fallbackWithSaveFailure(this.dependencies.model, input, "university", this.dependencies.redactor);
         return;
       }
     }

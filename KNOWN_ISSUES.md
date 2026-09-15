@@ -611,11 +611,23 @@ the refresh to a durable queue is the structural fix if the live check fails.
 The first study-coach slice keeps its weak-area evidence, cited practice and
 plain-speech check-in settings in separate operational D1 tables. Direct owner
 Telegram turns can correct or forget those operational records, while
-forwarded, quoted, model and feed text cannot. The R2 channel-neutral
+forwarded, external-reply, model and feed text cannot. A quote of Jarvis's own
+message is still a direct owner turn because Telegram adds that quote when the
+owner highlights part of Jarvis's response before replying. The R2 channel-neutral
 owner-controls service is now merged but is not composed into Telegram, so this
 slice deliberately does not depend on it and does not claim that an R2 forget
 request reaches these tables. A later reviewed integration must route the same
 owner control to both stores without weakening either store's provenance checks.
+
+## Study-coach digest check-ins are claimed before delivery
+
+The first study-coach slice advances `last_prompted_on` while assembling a
+daily digest. A failed Telegram delivery can therefore spend that check-in
+without showing it, and the manual `/digest` path also spends it even though
+the scheduled digest has not run. Moving the claim after delivery requires a
+durable candidate/receipt boundary so a post-send write failure does not turn
+an at-least-once cron retry into a duplicate digest. Until that boundary is
+designed, check-ins are useful prompts but are not guaranteed delivery.
 
 ## Must-report gap: deployed, gateway delivery still needs verification
 

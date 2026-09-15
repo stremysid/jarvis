@@ -27,7 +27,11 @@ async function addTurn(principalId: string, text: string, offset = 0): Promise<U
   return turnId;
 }
 
-async function seedCourse(suffix: string, fact = "Titration calculations feel uncertain"): Promise<{
+async function seedCourse(
+  suffix: string,
+  fact = "Titration calculations feel uncertain",
+  factKind: "weak_area" | "due_work" | "missed_work" = "weak_area",
+): Promise<{
   principalId: string;
   courseId: Ulid;
   factId: Ulid;
@@ -52,7 +56,7 @@ async function seedCourse(suffix: string, fact = "Titration calculations feel un
         courseRef: "new-1",
         name: "Chemistry",
         platform: "D2L",
-        addFacts: [{ kind: "weak_area", statement: fact }],
+        addFacts: [{ kind: factKind, statement: fact }],
         resolveFactIds: [],
       }],
       completeActionIds: [],
@@ -165,16 +169,10 @@ describe("StudyCoachRepository", () => {
     })).resolves.toBeNull();
   });
 
-  it("correction and forget controls remove evidence from the operational view", async () => {
+  it("forget controls remove evidence from the operational view", async () => {
     const item = await seedCourse("controls", "Chemistry grade mark 62%");
     const repository = new StudyCoachRepository(env.DB);
     await repository.syncCourseContext(item.principalId, TODAY, NOW);
-    const correctionTurn = await addTurn(item.principalId, "that mark was entered wrong", 1_000);
-    await expect(repository.correctLatestMark(
-      item.principalId, correctionTurn, new Date(NOW.getTime() + 1_000),
-    )).resolves.toBe(1);
-    expect((await repository.readSnapshot(item.principalId, TODAY)).courses[0]?.topics).toEqual([]);
-
     const evidenceTurn = await addTurn(item.principalId, "I found balancing equations hard in Chemistry", 2_000);
     await repository.recordOwnerObservation({
       principalId: item.principalId, turnId: evidenceTurn, courseId: item.courseId,
@@ -185,21 +183,20 @@ describe("StudyCoachRepository", () => {
     const forgetTurn = await addTurn(item.principalId, "forget that chemistry is a weak spot", 3_000);
     await expect(repository.forget(
       item.principalId, forgetTurn, { courseId: item.courseId }, new Date(NOW.getTime() + 3_000),
-    )).resolves.toBe(1);
+    )).resolves.toBe(2);
     expect((await repository.readSnapshot(item.principalId, TODAY)).courses[0]?.topics).toEqual([]);
   });
 
-  it("stores exact citations and feeds quiz answers back as evidence", async () => {
-    const item = await seedCourse("practice", "Molar mass practice");
+  it("stores exact course-card citations and grades a non-exact answer uncertain", async () => {
+    const item = await seedCourse("practice", "water has a molar mass of 18 g/mol");
     const repository = new StudyCoachRepository(env.DB);
-    const practiceTurn = await addTurn(item.principalId, "quiz me on water has a molar mass of 18 g/mol", 1_000);
     const practice = await repository.createPractice({
       principalId: item.principalId,
       courseId: item.courseId,
       mode: "quiz",
       source: {
-        kind: "owner_topic",
-        turnId: practiceTurn,
+        kind: "course_fact",
+        factId: item.factId,
         excerpt: "water has a molar mass of 18 g/mol",
         observedAt: new Date(NOW.getTime() + 1_000).toISOString(),
       },
@@ -217,7 +214,7 @@ describe("StudyCoachRepository", () => {
       answer: "20 g/mol",
       today: TODAY,
       now: new Date(NOW.getTime() + 2_000),
-    })).resolves.toMatchObject({ result: "wrong", item: { sourceExcerpt: "water has a molar mass of 18 g/mol" } });
+    })).resolves.toMatchObject({ result: "uncertain", item: { sourceExcerpt: "water has a molar mass of 18 g/mol" } });
     const uncertainTurn = await addTurn(item.principalId, "25 C", 3_000);
     await expect(repository.answerActiveQuiz({
       principalId: item.principalId,
@@ -230,8 +227,130 @@ describe("StudyCoachRepository", () => {
     const results = snapshot.courses[0]?.topics
       .find((topic) => topic.topic === "water has a molar mass of 18 g/mol")?.evidence;
     expect(results?.map((point) => ({ outcome: point.outcome, confidence: point.confidence }))).toEqual([
-      { outcome: "wrong", confidence: "medium" },
-      { outcome: "uncertain", confidence: "low" },
+      { outcome: "uncertain", confidence: "medium" },
     ]);
+  });
+
+  it("does not label a negated question or one-letter answer as source-supported", async () => {
+    const item = await seedCourse("support-check", "Water has a molar mass of 18 g/mol and choice a is listed");
+    const practice = await new StudyCoachRepository(env.DB).createPractice({
+      principalId: item.principalId,
+      courseId: item.courseId,
+      mode: "flashcard",
+      source: {
+        kind: "course_fact",
+        factId: item.factId,
+        excerpt: "Water has a molar mass of 18 g/mol and choice a is listed",
+        observedAt: NOW.toISOString(),
+      },
+      items: [
+        { question: "Which value is NOT the molar mass?", answer: "18 g/mol", sourceQuote: "molar mass of 18 g/mol" },
+        { question: "Which choice is listed?", answer: "a", sourceQuote: "choice a" },
+      ],
+      now: NOW,
+    });
+    expect(practice.map((entry) => entry.answerSupport)).toEqual(["uncertain", "uncertain"]);
+  });
+
+  it("Q5 keeps owner-topic quiz results out of weak-area judgment and check-ins", async () => {
+    const item = await seedCourse("q5-unsupported");
+    const repository = new StudyCoachRepository(env.DB);
+    const practiceTurn = await addTurn(item.principalId, "quiz me on photosynthesis", 1_000);
+    const items = await repository.createPractice({
+      principalId: item.principalId,
+      courseId: item.courseId,
+      mode: "quiz",
+      source: {
+        kind: "owner_topic",
+        turnId: practiceTurn,
+        excerpt: "photosynthesis",
+        observedAt: new Date(NOW.getTime() + 1_000).toISOString(),
+      },
+      items: [
+        { question: "Where does photosynthesis happen?", answer: "chloroplasts", sourceQuote: "unsupported" },
+        { question: "Which gas is absorbed?", answer: "carbon dioxide", sourceQuote: "unsupported" },
+        { question: "Which gas is released?", answer: "oxygen", sourceQuote: "unsupported" },
+      ],
+      now: new Date(NOW.getTime() + 1_000),
+    });
+    expect(items.every((practice) => practice.answerSupport === "uncertain")).toBe(true);
+    for (const [index, practice] of items.entries()) {
+      const turnId = await addTurn(item.principalId, practice.answer, 2_000 + index);
+      await expect(repository.answerActiveQuiz({
+        principalId: item.principalId,
+        turnId,
+        answer: practice.answer,
+        today: TODAY,
+        now: new Date(NOW.getTime() + 2_000 + index),
+      })).resolves.toMatchObject({ result: "uncertain" });
+    }
+    const topic = (await repository.readSnapshot(item.principalId, TODAY)).courses[0]?.topics
+      .find((candidate) => candidate.topicKey === "photosynthesis");
+    expect(topic).toBeUndefined();
+  });
+
+  it("counts only weak signals when describing check-in confidence", async () => {
+    const item = await seedCourse("weak-count", "Unrelated weak fact");
+    const repository = new StudyCoachRepository(env.DB);
+    for (const [index, outcome] of (["wrong", "easy", "easy"] as const).entries()) {
+      const text = `mole ratios ${outcome} ${index}`;
+      const turnId = await addTurn(item.principalId, text, 1_000 + index);
+      await repository.recordOwnerObservation({
+        principalId: item.principalId,
+        turnId,
+        courseId: item.courseId,
+        topic: "mole ratios",
+        outcome,
+        evidenceText: text,
+        today: TODAY,
+        now: new Date(NOW.getTime() + 1_000 + index),
+      });
+    }
+    await expect(repository.claimDigestCheckIn({
+      principalId: item.principalId,
+      today: TODAY,
+      weekday: 1,
+      minuteOfDay: 450,
+      now: new Date(NOW.getTime() + 5_000),
+    })).resolves.toMatchObject({ topic: "mole ratios", evidenceCount: 1, confidence: "low" });
+  });
+
+  it("does not turn a due-work course fact into a weak-area check-in", async () => {
+    const item = await seedCourse("due-fact", "Essay due Friday", "due_work");
+    const repository = new StudyCoachRepository(env.DB);
+    await repository.syncCourseContext(item.principalId, TODAY, NOW);
+    expect((await repository.readSnapshot(item.principalId, TODAY)).courses[0]?.topics).toEqual([]);
+    await expect(repository.claimDigestCheckIn({
+      principalId: item.principalId,
+      today: TODAY,
+      weekday: 1,
+      minuteOfDay: 450,
+      now: NOW,
+    })).resolves.toBeNull();
+  });
+
+  it("retires owner and practice evidence after the active retention window", async () => {
+    const item = await seedCourse("retention");
+    const repository = new StudyCoachRepository(env.DB);
+    const old = new Date(NOW.getTime() - 40 * 86_400_000);
+    const turnId = await addTurn(item.principalId, "I found old topic hard in Chemistry", old.getTime() - NOW.getTime());
+    await repository.recordOwnerObservation({
+      principalId: item.principalId,
+      turnId,
+      courseId: item.courseId,
+      topic: "old topic",
+      outcome: "uncertain",
+      evidenceText: "I found old topic hard in Chemistry",
+      today: old.toISOString().slice(0, 10),
+      now: old,
+    });
+
+    await repository.syncCourseContext(item.principalId, TODAY, NOW);
+    const row = await env.DB.prepare(`SELECT status FROM school_study_evidence
+      WHERE principal_id = ?1 AND source_key = ?2`).bind(item.principalId, `turn:${turnId}`)
+      .first<{ status: string }>();
+    expect(row?.status).toBe("superseded");
+    expect((await repository.readSnapshot(item.principalId, TODAY)).courses[0]?.topics
+      .some((topic) => topic.topic === "old topic")).toBe(false);
   });
 });

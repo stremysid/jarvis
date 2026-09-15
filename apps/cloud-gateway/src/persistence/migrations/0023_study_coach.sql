@@ -144,7 +144,7 @@ CREATE TABLE school_study_evidence (
       AND strftime('%Y-%m-%d', last_prompted_on) IS last_prompted_on
     )
   ),
-  status TEXT NOT NULL CHECK (status IN ('active', 'corrected', 'forgotten')),
+  status TEXT NOT NULL CHECK (status IN ('active', 'corrected', 'forgotten', 'superseded')),
   control_turn_id TEXT REFERENCES conversation_turns(turn_id) ON DELETE RESTRICT,
   controlled_at TEXT CHECK (
     controlled_at IS NULL OR strftime('%Y-%m-%dT%H:%M:%fZ', controlled_at) IS controlled_at
@@ -168,7 +168,7 @@ CREATE TABLE school_study_evidence (
       AND source_fact_id IS NULL AND source_practice_item_id IS NOT NULL)
   ),
   CHECK (
-    (status = 'active' AND control_turn_id IS NULL AND controlled_at IS NULL)
+    (status IN ('active', 'superseded') AND control_turn_id IS NULL AND controlled_at IS NULL)
     OR (status IN ('corrected', 'forgotten') AND control_turn_id IS NOT NULL AND controlled_at IS NOT NULL)
   ),
   CHECK (updated_at >= created_at)
@@ -243,7 +243,9 @@ CREATE TRIGGER school_practice_items_source_guard
 BEFORE INSERT ON school_practice_items
 BEGIN
   SELECT RAISE(ABORT, 'school_practice_item_source_invalid') WHERE
-    (NEW.source_kind = 'owner_topic' AND NOT EXISTS (
+    NOT ((NEW.mode = 'quiz' AND NEW.status = 'open')
+      OR (NEW.mode = 'flashcard' AND NEW.status = 'shown'))
+    OR (NEW.source_kind = 'owner_topic' AND NOT EXISTS (
       SELECT 1 FROM conversation_turns
       WHERE turn_id = NEW.source_turn_id
         AND principal_id = NEW.principal_id
@@ -317,28 +319,18 @@ END;
 
 CREATE TRIGGER school_study_evidence_active_cap
 BEFORE INSERT ON school_study_evidence
-WHEN NEW.status = 'active'
+WHEN NEW.status = 'active' AND NEW.evidence_kind != 'course_context'
 BEGIN
   SELECT RAISE(ABORT, 'school_study_evidence_limit_exceeded') WHERE (
     SELECT COUNT(*) FROM school_study_evidence e
     WHERE e.principal_id = NEW.principal_id AND e.status = 'active'
-      AND (e.evidence_kind != 'course_context' OR EXISTS (
-        SELECT 1 FROM school_course_facts f
-        WHERE f.principal_id = e.principal_id
-          AND f.fact_id = e.source_fact_id
-          AND f.status = 'active'
-      ))
+      AND e.evidence_kind != 'course_context'
   ) >= 96 OR (
     SELECT COUNT(*) FROM school_study_evidence e
     WHERE e.principal_id = NEW.principal_id
       AND e.course_id = NEW.course_id
       AND e.status = 'active'
-      AND (e.evidence_kind != 'course_context' OR EXISTS (
-        SELECT 1 FROM school_course_facts f
-        WHERE f.principal_id = e.principal_id
-          AND f.fact_id = e.source_fact_id
-          AND f.status = 'active'
-      ))
+      AND e.evidence_kind != 'course_context'
   ) >= 24;
 END;
 
@@ -346,7 +338,8 @@ CREATE TRIGGER school_study_evidence_source_guard
 BEFORE INSERT ON school_study_evidence
 BEGIN
   SELECT RAISE(ABORT, 'school_study_evidence_source_invalid') WHERE
-    (NEW.evidence_kind = 'owner_statement' AND NOT EXISTS (
+    NEW.status != 'active'
+    OR (NEW.evidence_kind = 'owner_statement' AND NOT EXISTS (
       SELECT 1 FROM conversation_turns
       WHERE turn_id = NEW.source_turn_id
         AND principal_id = NEW.principal_id
@@ -413,7 +406,12 @@ BEGIN
           AND principal_id = NEW.principal_id
           AND channel = 'telegram'
       ))
-    OR (OLD.status IN ('corrected', 'forgotten')
+    OR (OLD.status = 'active' AND NEW.status = 'superseded'
+      AND NEW.last_prompted_on IS OLD.last_prompted_on
+      AND NEW.control_turn_id IS NULL
+      AND NEW.controlled_at IS NULL
+      AND NEW.evidence_kind != 'course_context')
+    OR (OLD.status IN ('corrected', 'forgotten', 'superseded')
       AND NEW.status = OLD.status
       AND NEW.last_prompted_on IS OLD.last_prompted_on
       AND NEW.control_turn_id IS OLD.control_turn_id

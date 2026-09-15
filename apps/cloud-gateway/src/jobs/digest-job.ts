@@ -133,15 +133,20 @@ async function readOr<T>(
   }
 }
 
-async function readOneOr<T>(
-  source: string,
-  read: () => Promise<T | null>,
+function missingStudyCoachTable(error: unknown): boolean {
+  return /no such table:\s*school_(?:study|practice)_/iu.test(describe(error));
+}
+
+async function readStudyCheckInOr(
+  read: () => Promise<StudyCheckIn | null>,
   gaps: DigestGap[],
-): Promise<T | null> {
+): Promise<StudyCheckIn | null> {
   try {
     return await read();
   } catch (error) {
-    gaps.push({ source, detail: describe(error) });
+    // The Worker may be deployed before candidate migration 0023 is applied.
+    // Absence is not a failed read until the feature's tables exist.
+    if (!missingStudyCoachTable(error)) gaps.push({ source: "Study coach", detail: describe(error) });
     return null;
   }
 }
@@ -239,7 +244,7 @@ export async function assembleDigest(
     readOr("Decision queue", () => dependencies.sources.readOpenDecisions(), gaps),
     dependencies.sources.claimStudyCheckIn === undefined || kind !== "daily"
       ? Promise.resolve(null)
-      : readOneOr("Study coach", () => dependencies.sources.claimStudyCheckIn!(
+      : readStudyCheckInOr(() => dependencies.sources.claimStudyCheckIn!(
         today, schedule.weekday, schedule.minuteOfDay,
       ), gaps),
   ]);

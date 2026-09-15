@@ -26,7 +26,7 @@ export interface AcceptedTelegramText {
   readonly chatId: string;
   readonly messageId: number;
   readonly text: string;
-  /** False when Telegram identifies the text as forwarded or quoted material. */
+  /** False when Telegram identifies the text as forwarded or externally borrowed. */
   readonly isDirectText: boolean;
 }
 
@@ -76,7 +76,7 @@ const ATTACHMENT_KEYS = [
 
 const BORROWED_TEXT_KEYS = [
   "forward_origin", "forward_from", "forward_from_chat", "forward_sender_name",
-  "forward_date", "is_automatic_forward", "quote", "external_reply",
+  "forward_date", "is_automatic_forward", "external_reply",
 ] as const;
 
 /** Update ids and message ids are positive integers; ids are decimal strings. */

@@ -21,6 +21,7 @@ const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/u;
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
 const encoder = new TextEncoder();
+const EVIDENCE_RETENTION_DAYS = 30;
 const DEFAULT_PREFERENCE: StudyPreference = Object.freeze({
   enabled: true,
   allowedDaysMask: 127,
@@ -80,6 +81,7 @@ interface PracticeRow {
   source_kind: "owner_topic" | "course_fact";
   source_excerpt: string;
   source_observed_at: string;
+  created_at: string;
 }
 
 function rows<T>(result: D1Result<T>): readonly T[] {
@@ -122,6 +124,16 @@ function localDate(value: unknown): string {
 function topicKey(value: string): string {
   const key = inline(value, "school_study_topic_invalid").toLocaleLowerCase("en-CA").replace(/\s+/gu, " ");
   return inline(key, "school_study_topic_invalid");
+}
+
+function normalizedAnswer(value: string): string {
+  return value.normalize("NFC").toLocaleLowerCase("en-CA")
+    .replace(/^it(?:['’]s|\s+is)\s+/u, "")
+    .replace(/\s*%\s*/gu, "%")
+    .replace(/[^\p{L}\p{N}%]+/gu, " ")
+    .replace(/\b(?:a|an|the)\b/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
 }
 
 function addDays(date: string, days: number): string {
@@ -170,6 +182,7 @@ function practiceItem(row: PracticeRow, expectedPrincipal: string): StudyPractic
     sourceKind: row.source_kind,
     sourceExcerpt: inline(row.source_excerpt, "school_practice_item_invalid"),
     sourceObservedAt: iso(row.source_observed_at, "school_practice_item_invalid"),
+    createdAt: iso(row.created_at, "school_practice_item_invalid"),
   });
 }
 
@@ -189,14 +202,26 @@ function preference(row: PreferenceRow | null): StudyPreference {
   });
 }
 
-function summariseTopic(topic: string, key: string, points: readonly StudyEvidencePoint[]): StudyTopicSummary {
-  const weakSignals = points.filter((point) => point.outcome !== "easy").length;
-  const easySignals = points.length - weakSignals;
-  const judgement = weakSignals >= 3 && weakSignals > easySignals
+function judgeSignals(weakSignals: number, easySignals: number): StudyTopicSummary["judgement"] {
+  return weakSignals >= 3 && weakSignals > easySignals
     ? "strong"
     : weakSignals >= 2 && weakSignals > easySignals ? "supported" : "tentative";
-  const confidence: StudyConfidence = judgement === "strong" ? "high" : judgement === "supported" ? "medium" : "low";
-  return Object.freeze({ topic, topicKey: key, evidence: Object.freeze([...points]), judgement, confidence });
+}
+
+function confidenceFor(judgement: StudyTopicSummary["judgement"]): StudyConfidence {
+  return judgement === "strong" ? "high" : judgement === "supported" ? "medium" : "low";
+}
+
+function summariseTopic(topic: string, key: string, points: readonly StudyEvidencePoint[]): StudyTopicSummary {
+  const weakSignals = points.filter((point) => point.outcome !== "easy").length;
+  const judgement = judgeSignals(weakSignals, points.length - weakSignals);
+  return Object.freeze({
+    topic,
+    topicKey: key,
+    evidence: Object.freeze([...points]),
+    judgement,
+    confidence: confidenceFor(judgement),
+  });
 }
 
 export interface OwnerStudyObservationInput {
@@ -234,6 +259,7 @@ export class StudyCoachRepository {
     const today = localDate(todayValue);
     const now = new Date(nowValue.getTime());
     if (!Number.isFinite(now.getTime())) throw new TypeError("school_study_time_invalid");
+    await this.retireStaleEvidence(principalId, now);
     const result = await this.database.prepare(`WITH missing AS (
         SELECT f.principal_id, f.course_id, f.fact_id, f.fact_kind, f.statement,
           f.evidence_source, f.observed_at,
@@ -250,7 +276,7 @@ export class StudyCoachRepository {
                   AND active_fact.status = 'active'
               ))) AS active_course_count
         FROM school_course_facts f
-        WHERE f.principal_id = ?1 AND f.status = 'active'
+        WHERE f.principal_id = ?1 AND f.status = 'active' AND f.fact_kind = 'weak_area'
           AND NOT EXISTS (
             SELECT 1 FROM school_study_evidence existing
             WHERE existing.principal_id = f.principal_id
@@ -314,7 +340,7 @@ export class StudyCoachRepository {
         FROM school_study_preferences WHERE principal_id = ?1`).bind(principalId).first<PreferenceRow>(),
       this.database.prepare(`SELECT p.principal_id, p.item_id, p.practice_id, p.course_id,
           c.course_name, p.mode, p.position, p.question, p.answer, p.answer_support,
-          p.source_kind, p.source_excerpt, p.source_observed_at
+          p.source_kind, p.source_excerpt, p.source_observed_at, p.created_at
         FROM school_practice_items p
         JOIN school_course_cards c
           ON c.principal_id = p.principal_id AND c.course_id = p.course_id
@@ -368,7 +394,7 @@ export class StudyCoachRepository {
       throw new TypeError("school_study_observation_invalid");
     }
     const key = topicKey(topic);
-    await this.database.prepare(`INSERT INTO school_study_evidence (
+    await this.database.batch([...this.retirementStatements(principalId, courseId, now), this.database.prepare(`INSERT INTO school_study_evidence (
         principal_id, evidence_id, source_key, course_id, topic_key, topic, outcome,
         evidence_kind, evidence_text, confidence, source_turn_id, source_fact_id,
         source_practice_item_id, observed_at, practice_due_on, last_prompted_on,
@@ -379,7 +405,7 @@ export class StudyCoachRepository {
         SELECT 1 FROM school_study_evidence WHERE principal_id = ?1 AND source_key = ?3
       )`).bind(principalId, newUlid(now), `turn:${turnId}`, courseId,
         key, topic, input.outcome, evidenceText, turnId, now.toISOString(),
-        input.outcome === "easy" ? addDays(today, 7) : today).run();
+        input.outcome === "easy" ? addDays(today, 7) : today)]);
   }
 
   async updatePreference(input: StudyPreferenceUpdateInput): Promise<void> {
@@ -432,26 +458,6 @@ export class StudyCoachRepository {
     return result.meta.changes;
   }
 
-  async correctLatestMark(principalIdValue: string, turnIdValue: Ulid, nowValue: Date): Promise<number> {
-    const principalId = principal(principalIdValue);
-    const turnId = ulid(turnIdValue, "school_study_turn_invalid");
-    const now = new Date(nowValue.getTime());
-    if (!Number.isFinite(now.getTime())) throw new TypeError("school_study_time_invalid");
-    const candidates = await this.database.prepare(`SELECT evidence_id
-      FROM school_study_evidence
-      WHERE principal_id = ?1 AND status = 'active' AND evidence_kind = 'course_context'
-        AND (lower(evidence_text) LIKE '%mark%' OR lower(evidence_text) LIKE '%grade%'
-          OR evidence_text GLOB '*[0-9]%*')
-      ORDER BY observed_at DESC, evidence_id DESC LIMIT 2`).bind(principalId).all<{ evidence_id: string }>();
-    const found = rows(candidates);
-    if (found.length !== 1) return found.length === 0 ? 0 : -1;
-    const result = await this.database.prepare(`UPDATE school_study_evidence
-      SET status = 'corrected', control_turn_id = ?1, controlled_at = ?2, updated_at = ?2
-      WHERE principal_id = ?3 AND evidence_id = ?4 AND status = 'active'`)
-      .bind(turnId, now.toISOString(), principalId, found[0]!.evidence_id).run();
-    return result.meta.changes;
-  }
-
   async createPractice(input: CreatePracticeInput): Promise<readonly StudyPracticeItem[]> {
     const principalId = principal(input.principalId);
     const courseId = ulid(input.courseId, "school_study_course_invalid");
@@ -470,7 +476,11 @@ export class StudyCoachRepository {
       const answer = inline(item.answer, "school_practice_item_invalid");
       const quote = inline(item.sourceQuote, "school_practice_item_invalid");
       const sourceLower = sourceExcerpt.toLocaleLowerCase("en-CA");
-      const supported = sourceLower.includes(quote.toLocaleLowerCase("en-CA"))
+      const normalizedExpected = normalizedAnswer(answer);
+      const supported = input.source.kind === "course_fact"
+        && normalizedExpected.replace(/\s+/gu, "").length >= 2
+        && !/\b(?:not|except|least|false)\b/iu.test(question)
+        && sourceLower.includes(quote.toLocaleLowerCase("en-CA"))
         && quote.toLocaleLowerCase("en-CA").includes(answer.toLocaleLowerCase("en-CA"));
       const itemId = newUlid(now);
       statements.push(this.database.prepare(`INSERT INTO school_practice_items (
@@ -489,7 +499,7 @@ export class StudyCoachRepository {
     await this.database.batch(statements);
     const result = await this.database.prepare(`SELECT p.principal_id, p.item_id, p.practice_id,
         p.course_id, c.course_name, p.mode, p.position, p.question, p.answer,
-        p.answer_support, p.source_kind, p.source_excerpt, p.source_observed_at
+        p.answer_support, p.source_kind, p.source_excerpt, p.source_observed_at, p.created_at
       FROM school_practice_items p
       JOIN school_course_cards c
         ON c.principal_id = p.principal_id AND c.course_id = p.course_id
@@ -512,23 +522,25 @@ export class StudyCoachRepository {
     const snapshot = await this.readSnapshot(principalId, today);
     const item = snapshot.activeQuiz;
     if (item === null) return null;
-    const normalized = answer.toLocaleLowerCase("en-CA").replace(/\s+/gu, " ");
-    const expected = item.answer.toLocaleLowerCase("en-CA").replace(/\s+/gu, " ");
-    const unsure = /^(?:i\s+(?:do not|don't)\s+know|not\s+sure|unsure|skip)$/iu.test(answer);
+    const normalized = normalizedAnswer(answer);
+    const expected = normalizedAnswer(item.answer);
+    const unsure = /^(?:i\s+(?:do\s+not|don\s+t)\s+know|not\s+sure|unsure|skip|idk)$/u.test(normalized);
     const result: StudyOutcome = item.answerSupport === "uncertain" || unsure
       ? "uncertain"
-      : normalized === expected ? "easy" : "wrong";
+      : normalized === expected ? "easy" : "uncertain";
     const now = new Date(input.now.getTime());
     if (!Number.isFinite(now.getTime())) throw new TypeError("school_study_time_invalid");
     const nowIso = now.toISOString();
     const evidenceText = answer;
-    await this.database.batch([
+    const statements: D1PreparedStatement[] = [
+      ...this.retirementStatements(principalId, item.courseId, now),
       this.database.prepare(`UPDATE school_practice_items
         SET status = 'answered', owner_answer = ?1, result = ?2, result_turn_id = ?3,
           answered_at = ?4, updated_at = ?4
         WHERE principal_id = ?5 AND item_id = ?6 AND status = 'open'`)
         .bind(answer, result, turnId, nowIso, principalId, item.itemId),
-      this.database.prepare(`INSERT INTO school_study_evidence (
+    ];
+    if (item.answerSupport === "supported") statements.push(this.database.prepare(`INSERT INTO school_study_evidence (
         principal_id, evidence_id, source_key, course_id, topic_key, topic, outcome,
         evidence_kind, evidence_text, confidence, source_turn_id, source_fact_id,
         source_practice_item_id, observed_at, practice_due_on, last_prompted_on,
@@ -538,8 +550,8 @@ export class StudyCoachRepository {
         .bind(principalId, newUlid(now), `practice:${item.itemId}`, item.courseId,
           topicKey(item.sourceExcerpt), item.sourceExcerpt, result, evidenceText,
           item.answerSupport === "supported" ? "medium" : "low", turnId, item.itemId,
-          nowIso, result === "easy" ? addDays(today, 7) : today),
-    ]);
+          nowIso, result === "easy" ? addDays(today, 7) : today));
+    await this.database.batch(statements);
     return Object.freeze({ item, result });
   }
 
@@ -590,6 +602,8 @@ export class StudyCoachRepository {
       SET last_prompted_on = ?1, updated_at = ?2
       WHERE principal_id = ?3 AND evidence_id = (
         SELECT e.evidence_id FROM school_study_evidence e
+        JOIN school_course_cards c
+          ON c.principal_id = e.principal_id AND c.course_id = e.course_id AND c.active = 1
         LEFT JOIN school_course_facts f
           ON f.principal_id = e.principal_id AND f.fact_id = e.source_fact_id
         WHERE e.principal_id = ?3 AND e.status = 'active'
@@ -612,22 +626,25 @@ export class StudyCoachRepository {
       .bind(principalId, row.course_id).first<CourseRow>();
     if (course === null) throw new TypeError("school_study_course_invalid");
     this.requireCourse(course, principalId);
-    const count = await this.database.prepare(`SELECT COUNT(*) AS count
+    const counts = await this.database.prepare(`SELECT
+        COUNT(*) FILTER (WHERE e.outcome IN ('uncertain', 'wrong')) AS weak_count,
+        COUNT(*) FILTER (WHERE e.outcome = 'easy') AS easy_count
       FROM school_study_evidence e
       LEFT JOIN school_course_facts f
         ON f.principal_id = e.principal_id AND f.fact_id = e.source_fact_id
       WHERE e.principal_id = ?1 AND e.course_id = ?2 AND e.topic_key = ?3
-        AND e.status = 'active'
+        AND e.status = 'active' AND e.outcome IN ('uncertain', 'wrong')
         AND (e.evidence_kind != 'course_context' OR f.status = 'active')`)
-      .bind(principalId, row.course_id, row.topic_key).first<{ count: number }>();
+      .bind(principalId, row.course_id, row.topic_key).first<{ weak_count: number; easy_count: number }>();
     const point = evidencePoint(row, principalId);
-    const evidenceCount = count?.count ?? 1;
+    const evidenceCount = counts?.weak_count ?? 1;
+    const judgement = judgeSignals(evidenceCount, counts?.easy_count ?? 0);
     return Object.freeze({
       courseName: course.course_name,
       topic: point.topic,
       outcome: row.outcome,
       evidenceCount,
-      confidence: evidenceCount >= 3 ? "high" : evidenceCount >= 2 ? "medium" : "low",
+      confidence: confidenceFor(judgement),
       observedAt: point.observedAt,
     });
   }
@@ -637,6 +654,49 @@ export class StudyCoachRepository {
     ulid(row.course_id, "school_study_course_invalid");
     inline(row.course_name, "school_study_course_invalid", 160);
     return row;
+  }
+
+  private async retireStaleEvidence(principalId: string, now: Date): Promise<void> {
+    const cutoff = new Date(now.getTime());
+    cutoff.setUTCDate(cutoff.getUTCDate() - EVIDENCE_RETENTION_DAYS);
+    await this.database.prepare(`UPDATE school_study_evidence
+      SET status = 'superseded', updated_at = ?1
+      WHERE principal_id = ?2 AND status = 'active' AND evidence_kind != 'course_context'
+        AND observed_at < ?3`).bind(now.toISOString(), principalId, cutoff.toISOString()).run();
+  }
+
+  private retirementStatements(principalId: string, courseId: Ulid, now: Date): readonly D1PreparedStatement[] {
+    const nowIso = now.toISOString();
+    const cutoff = new Date(now.getTime());
+    cutoff.setUTCDate(cutoff.getUTCDate() - EVIDENCE_RETENTION_DAYS);
+    return Object.freeze([
+      this.database.prepare(`UPDATE school_study_evidence
+        SET status = 'superseded', updated_at = ?1
+        WHERE principal_id = ?2 AND status = 'active' AND evidence_kind != 'course_context'
+          AND observed_at < ?3`).bind(nowIso, principalId, cutoff.toISOString()),
+      this.database.prepare(`UPDATE school_study_evidence
+        SET status = 'superseded', updated_at = ?1
+        WHERE principal_id = ?2 AND evidence_id IN (
+          SELECT candidate.evidence_id FROM school_study_evidence candidate
+          WHERE candidate.principal_id = ?2 AND candidate.course_id = ?3
+            AND candidate.status = 'active' AND candidate.evidence_kind != 'course_context'
+          ORDER BY candidate.observed_at, candidate.evidence_id
+          LIMIT max(0, (SELECT COUNT(*) FROM school_study_evidence active
+            WHERE active.principal_id = ?2 AND active.course_id = ?3 AND active.status = 'active'
+              AND active.evidence_kind != 'course_context') - 23)
+        )`).bind(nowIso, principalId, courseId),
+      this.database.prepare(`UPDATE school_study_evidence
+        SET status = 'superseded', updated_at = ?1
+        WHERE principal_id = ?2 AND evidence_id IN (
+          SELECT candidate.evidence_id FROM school_study_evidence candidate
+          WHERE candidate.principal_id = ?2 AND candidate.status = 'active'
+            AND candidate.evidence_kind != 'course_context'
+          ORDER BY candidate.observed_at, candidate.evidence_id
+          LIMIT max(0, (SELECT COUNT(*) FROM school_study_evidence active
+            WHERE active.principal_id = ?2 AND active.status = 'active'
+              AND active.evidence_kind != 'course_context') - 95)
+        )`).bind(nowIso, principalId),
+    ]);
   }
 
   private requireFact(row: FactRow, expectedPrincipal: string): StudyCourseFactSource {

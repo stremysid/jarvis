@@ -353,6 +353,17 @@ describe("a source that will not answer", () => {
     expect(digest.text).toContain("Study coach: study records unavailable");
   });
 
+  it("treats an unapplied study-coach table as no check-in instead of a digest gap", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        claimStudyCheckIn: async () => { throw new Error("D1_ERROR: no such table: school_study_evidence"); },
+      },
+    }));
+
+    expect(digest.text).not.toContain("Study coach:");
+    expect(digest.text).not.toContain("no such table");
+  });
+
   it("still reports the sources that did answer", async () => {
     const digest = await assembleDigest(
       "daily",

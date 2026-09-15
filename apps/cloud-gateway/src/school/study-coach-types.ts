@@ -64,6 +64,7 @@ export interface StudyPracticeItem {
   readonly sourceKind: "owner_topic" | "course_fact";
   readonly sourceExcerpt: string;
   readonly sourceObservedAt: string;
+  readonly createdAt: string;
 }
 
 export interface StudyCoachSnapshot {

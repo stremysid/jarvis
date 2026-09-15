@@ -1,6 +1,8 @@
 import type { Ulid } from "../../../../packages/contracts/src/index.js";
 import { localDate } from "../digest/digest-composer.js";
 import type { ModelAdapter, ModelAdapterStreamInput, ModelToken } from "../model/model-types.js";
+import { MAX_MESSAGE_CHARACTERS } from "../providers/telegram-provider.js";
+import { guardSchoolReply, isBrightspaceRefreshRequest } from "./school-catchup-model.js";
 import type { StudyCoachRepository } from "./study-coach-repository.js";
 import type {
   GeneratedPracticeItem,
@@ -17,6 +19,8 @@ const MAX_GENERATED_CHARACTERS = 12_000;
 const MAX_TEXT_BYTES = 512;
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
 const WEEKEND_MASK = (1 << 0) | (1 << 6);
+const QUIZ_ANSWER_WINDOW_MS = 30 * 60 * 1_000;
+const MAX_QUIZ_ANSWER_BYTES = 256;
 const encoder = new TextEncoder();
 
 interface StudyCoachModelDependencies {
@@ -48,6 +52,10 @@ interface PreferenceIntent {
 
 function normalized(value: string): string {
   return value.normalize("NFC").trim().toLocaleLowerCase("en-CA").replace(/\s+/gu, " ");
+}
+
+function normalizedPhrase(value: string): string {
+  return normalized(value).replace(/[^\p{L}\p{N}%]+/gu, " ").replace(/\s+/gu, " ").trim();
 }
 
 function safeText(
@@ -130,29 +138,30 @@ export function parseStudyPreferenceIntent(text: string): PreferenceIntent | nul
 }
 
 export function parseOwnerStudyObservation(text: string): ObservationIntent | null {
+  const observation = (topicValue: string, courseHint: string | null, outcome: StudyOutcome): ObservationIntent | null => {
+    const topic = topicValue.trim();
+    if (/\b(?:not|never|no|none|nothing)\b|n['’]t\b/iu.test(topic)
+      || /[,;:]/u.test(topic)
+      || /\b(?:finished|done\s+with)\b/iu.test(topic)
+      || /^(?:(?:the|that|this|your|my)\s+)?(?:due\s+date|plan|reply|answer|message|course\s+card|mark|grade)\b/iu.test(topic)) {
+      return null;
+    }
+    return Object.freeze({ topic, courseHint, outcome });
+  };
   const found = /^\s*i\s+(?:found|thought)\s+(.+?)\s+(easy|hard|weak|confusing|uncertain|wrong)(?:\s+(?:in|for)\s+(.+?))?[.!]*\s*$/iu.exec(text);
-  if (found !== null) return Object.freeze({
-    topic: found[1]!.trim(),
-    courseHint: found[3]?.trim() ?? null,
-    outcome: /easy/iu.test(found[2]!) ? "easy" : /wrong/iu.test(found[2]!) ? "wrong" : "uncertain",
-  });
+  if (found !== null) return observation(found[1]!, found[3]?.trim() ?? null,
+    /easy/iu.test(found[2]!) ? "easy" : /wrong/iu.test(found[2]!) ? "wrong" : "uncertain");
   const got = /^\s*i\s+got\s+(.+?)\s+(right|wrong)(?:\s+(?:in|for)\s+(.+?))?[.!]*\s*$/iu.exec(text);
-  if (got !== null) return Object.freeze({
-    topic: got[1]!.trim(), courseHint: got[3]?.trim() ?? null,
-    outcome: /right/iu.test(got[2]!) ? "easy" : "wrong",
-  });
+  if (got !== null) return observation(got[1]!, got[3]?.trim() ?? null,
+    /right/iu.test(got[2]!) ? "easy" : "wrong");
   const unsure = /^\s*i(?:['’]m|\s+am)\s+(?:not\s+sure|unsure|uncertain)\s+(?:about|on)\s+(.+?)(?:\s+(?:in|for)\s+(.+?))?[.!]*\s*$/iu.exec(text);
-  if (unsure !== null) return Object.freeze({
-    topic: unsure[1]!.trim(), courseHint: unsure[2]?.trim() ?? null, outcome: "uncertain",
-  });
+  if (unsure !== null) return observation(unsure[1]!, unsure[2]?.trim() ?? null, "uncertain");
   const direct = /^\s*(.+?)\s+(?:feels?|is|was)\s+(easy|hard|weak|confusing|uncertain|wrong)[.!]*\s*$/iu.exec(text);
   if (direct !== null
     && !/^the\s+(?:message|feed|course\s+card|model)\b/iu.test(direct[1]!)
     && !/\b(?:says?|said|reports?|reported|told|according\s+to)\b/iu.test(direct[1]!)) {
-    return Object.freeze({
-      topic: direct[1]!.trim(), courseHint: null,
-      outcome: /easy/iu.test(direct[2]!) ? "easy" : /wrong/iu.test(direct[2]!) ? "wrong" : "uncertain",
-    });
+    return observation(direct[1]!, null,
+      /easy/iu.test(direct[2]!) ? "easy" : /wrong/iu.test(direct[2]!) ? "wrong" : "uncertain");
   }
   return null;
 }
@@ -170,7 +179,31 @@ function resolveCourse(
     return needle.includes(name) || name.includes(needle);
   });
   if (contained.length === 1) return contained[0]!;
-  return snapshot.courses.length === 1 ? snapshot.courses[0]! : null;
+  return hint === null && snapshot.courses.length === 1 ? snapshot.courses[0]! : null;
+}
+
+function phraseMatches(left: string, right: string): boolean {
+  const leftPhrase = normalizedPhrase(left);
+  const rightPhrase = normalizedPhrase(right);
+  if (leftPhrase.length < 3 || rightPhrase.length < 3) return false;
+  return leftPhrase === rightPhrase
+    || ` ${leftPhrase} `.includes(` ${rightPhrase} `)
+    || ` ${rightPhrase} `.includes(` ${leftPhrase} `);
+}
+
+function resolveObservationCourse(
+  snapshot: StudyCoachSnapshot,
+  observation: ObservationIntent,
+): StudyCourseSnapshot | null {
+  if (observation.courseHint !== null) {
+    const matches = snapshot.courses.filter((course) => phraseMatches(course.name, observation.courseHint!));
+    return matches.length === 1 ? matches[0]! : null;
+  }
+  const matches = snapshot.courses.filter((course) => course.topics.some((topic) =>
+    phraseMatches(topic.topic, observation.topic))
+    || course.facts.some((fact) => phraseMatches(fact.statement, observation.topic))
+    || phraseMatches(course.name, observation.topic));
+  return matches.length === 1 ? matches[0]! : null;
 }
 
 function forgetSubject(text: string): string | null {
@@ -180,6 +213,28 @@ function forgetSubject(text: string): string | null {
 
 function correctionIntent(text: string): boolean {
   return /^\s*(?:please\s+)?(?:that|the)\s+(?:mark|grade)\s+(?:was|is)\s+(?:entered|recorded)\s+wrong[.!]*\s*$/iu.test(text);
+}
+
+function isUncertainAnswer(text: string): boolean {
+  const value = normalizedPhrase(text);
+  return /^(?:i\s+(?:do\s+not|don\s+t)\s+know|not\s+sure|unsure|skip|idk)$/u.test(value);
+}
+
+function plausiblyAnswersQuiz(item: StudyPracticeItem, text: string, now: Date): boolean {
+  const createdAt = Date.parse(item.createdAt);
+  const age = now.getTime() - createdAt;
+  const trimmed = text.trim();
+  if (!Number.isFinite(createdAt) || age < 0 || age > QUIZ_ANSWER_WINDOW_MS
+    || trimmed.length === 0 || !trimmed.isWellFormed() || trimmed !== trimmed.normalize("NFC")
+    || encoder.encode(trimmed).byteLength > MAX_QUIZ_ANSWER_BYTES || UNSAFE_INLINE.test(trimmed)
+    || /\?/u.test(trimmed)) return false;
+  if (isBrightspaceRefreshRequest(trimmed)) return false;
+  if (isUncertainAnswer(trimmed)) return true;
+  if (/^(?:ok(?:ay)?|thanks?(?:\s+you)?|hello|hi|hey|cool|alright|sure)[.!]*$/iu.test(trimmed)
+    || /^(?:what|when|where|why|who|how|can|could|would|will|please|check|refresh|update|help|plan|remind|tell)\b/iu.test(trimmed)
+    || /\b(?:d2l|brightspace|deadline|due\s+(?:today|tomorrow|this\s+week)|schedule|calendar|application|ouac)\b/iu.test(trimmed)
+    || /\b(?:is|was|feels?|found|finished|got)\b/iu.test(trimmed)) return false;
+  return trimmed.split(/\s+/u).length <= 12;
 }
 
 function applyPreferencePatch(current: StudyPreference, patch: Partial<StudyPreference>): StudyPreference {
@@ -225,8 +280,12 @@ function parseGeneratedItems(
   const items = record.items.map((value) => {
     const item = exactRecord(value, ["question", "answer", "sourceQuote"], "school_practice_response_invalid");
     return Object.freeze({
-      question: safeText(item.question, redactor, "school_practice_response_invalid"),
-      answer: safeText(item.answer, redactor, "school_practice_response_invalid"),
+      question: guardSchoolReply(
+        safeText(item.question, redactor, "school_practice_response_invalid"), redactor,
+      ),
+      answer: guardSchoolReply(
+        safeText(item.answer, redactor, "school_practice_response_invalid"), redactor,
+      ),
       sourceQuote: safeText(item.sourceQuote, redactor, "school_practice_response_invalid"),
     });
   });
@@ -259,7 +318,7 @@ function courseFactSource(course: StudyCourseSnapshot): PracticeSource | null {
 function citation(item: StudyPracticeItem): string {
   const date = item.sourceObservedAt.slice(0, 10);
   return item.sourceKind === "owner_topic"
-    ? `Source: your topic from this message (${date}): “${item.sourceExcerpt}”`
+    ? `General practice from your requested topic (${date}); not source-checked against course material.`
     : `Source: ${item.courseName} course-card evidence (${date}): “${item.sourceExcerpt}”`;
 }
 
@@ -273,9 +332,17 @@ function flashcards(items: readonly StudyPracticeItem[]): string {
     const answer = item.answerSupport === "supported"
       ? `Answer: ${item.answer}`
       : `Uncertain answer — the cited source does not support this: ${item.answer}`;
-    return `${item.position}. ${item.question}\n${answer}\n${citation(item)}`;
+    return `${item.position}. ${item.question}\n${answer}`;
   });
-  return [heading, ...cards].join("\n\n");
+  return boundedTelegramText([heading, ...cards, citation(items[0]!)].join("\n\n"));
+}
+
+function boundedTelegramText(value: string): string {
+  if (value.length <= MAX_MESSAGE_CHARACTERS) return value;
+  const suffix = "\n\n(trimmed to fit Telegram)";
+  let prefix = value.slice(0, MAX_MESSAGE_CHARACTERS - suffix.length);
+  if (/[\uD800-\uDBFF]$/u.test(prefix)) prefix = prefix.slice(0, -1);
+  return `${prefix}${suffix}`;
 }
 
 function answerReply(
@@ -284,11 +351,16 @@ function answerReply(
 ): string {
   const support = answered.item.answerSupport === "supported"
     ? `Answer: ${answered.item.answer}`
-    : `Uncertain answer — the cited source does not support a reliable answer: ${answered.item.answer}`;
-  const result = answered.result === "easy" ? "Recorded as easy."
+    : `Suggested answer: ${answered.item.answer}. This general-practice answer is not source-checked.`;
+  const result = answered.item.answerSupport === "uncertain"
+    ? "Not recorded as weak-area evidence because this practice item is not source-checked."
+    : answered.result === "easy" ? "Recorded as easy."
     : answered.result === "wrong" ? "Recorded as one wrong result, not a fixed weak-area judgment."
       : "Recorded as uncertain, not wrong.";
-  return [`${result}\n${support}\n${citation(answered.item)}`, next === null ? "Quiz complete." : quizQuestion(next)].join("\n\n");
+  return boundedTelegramText([
+    `${result}\n${support}\n${citation(answered.item)}`,
+    next === null ? "Quiz complete." : quizQuestion(next),
+  ].join("\n\n"));
 }
 
 /** Adds the text-only study coach ahead of the existing school conversation adapter. */
@@ -355,18 +427,9 @@ export class StudyCoachModelAdapter implements ModelAdapter {
     }
 
     if (correctionIntent(input.userText)) {
-      const operation = await attemptStudyOperation(() =>
-        this.dependencies.repository.correctLatestMark(input.principalId, input.correlationId, now));
-      yield Object.freeze({
-        index: 0,
-        text: !operation.ok
-          ? "I couldn't update the study-coach record."
-          : operation.value === 1
-            ? "Corrected the latest mark-based operational study-coach record."
-            : operation.value === -1
-              ? "I found more than one recent mark-based record. Name the course or mark so I don't change the wrong one."
-              : "I couldn't find an active mark-based study-coach record to correct.",
-      });
+      // The catch-up adapter owns course facts. Let it resolve the underlying
+      // fact instead of changing only the study-coach projection.
+      yield* this.dependencies.fallbackModel.stream(input);
       return;
     }
 
@@ -402,6 +465,7 @@ export class StudyCoachModelAdapter implements ModelAdapter {
         return;
       }
       try {
+        const replacedQuiz = snapshot.activeQuiz !== null;
         const raw = await collect(this.dependencies.practiceModel.stream(Object.freeze({
           ...input,
           userText: practicePrompt(request.mode, source.excerpt),
@@ -415,7 +479,12 @@ export class StudyCoachModelAdapter implements ModelAdapter {
           items: parseGeneratedItems(raw, this.dependencies.redactor),
           now,
         });
-        yield Object.freeze({ index: 0, text: request.mode === "quiz" ? quizQuestion(items[0]!) : flashcards(items) });
+        const practiceReply = request.mode === "quiz" ? quizQuestion(items[0]!) : flashcards(items);
+        const prefix = replacedQuiz ? "I closed the previous quiz before starting this practice set.\n\n" : "";
+        yield Object.freeze({
+          index: 0,
+          text: guardSchoolReply(boundedTelegramText(`${prefix}${practiceReply}`), this.dependencies.redactor),
+        });
       } catch {
         yield Object.freeze({ index: 0, text: "I couldn't make a cited practice set from that source." });
       }
@@ -424,9 +493,9 @@ export class StudyCoachModelAdapter implements ModelAdapter {
 
     const observation = parseOwnerStudyObservation(input.userText);
     if (observation !== null) {
-      const course = resolveCourse(snapshot, observation.courseHint, input.userText);
+      const course = resolveObservationCourse(snapshot, observation);
       if (course === null) {
-        yield Object.freeze({ index: 0, text: "Which course is that evidence for?" });
+        yield* this.dependencies.fallbackModel.stream(input);
         return;
       }
       const update = await attemptStudyOperation(() => this.dependencies.repository.recordOwnerObservation({
@@ -449,22 +518,38 @@ export class StudyCoachModelAdapter implements ModelAdapter {
     }
 
     if (snapshot.activeQuiz !== null) {
-      const operation = await attemptStudyOperation(async () => {
-        const answered = await this.dependencies.repository.answerActiveQuiz({
-        principalId: input.principalId,
-        turnId: input.correlationId,
-        answer: input.userText,
-        today,
-        now,
+      if (!plausiblyAnswersQuiz(snapshot.activeQuiz, input.userText, now)) {
+        await attemptStudyOperation(() => this.dependencies.repository.dismissActiveQuiz(input.principalId, now));
+        yield* this.dependencies.fallbackModel.stream(input);
+        return;
+      }
+      let answered: Awaited<ReturnType<StudyCoachRepository["answerActiveQuiz"]>>;
+      try {
+        answered = await this.dependencies.repository.answerActiveQuiz({
+          principalId: input.principalId,
+          turnId: input.correlationId,
+          answer: input.userText,
+          today,
+          now,
         });
-        const next = (await this.dependencies.repository.readSnapshot(input.principalId, today)).activeQuiz;
-        return { answered, next };
-      });
+      } catch {
+        await attemptStudyOperation(() => this.dependencies.repository.dismissActiveQuiz(input.principalId, now));
+        yield* this.dependencies.fallbackModel.stream(input);
+        return;
+      }
+      if (answered === null) {
+        yield* this.dependencies.fallbackModel.stream(input);
+        return;
+      }
+      let next: StudyPracticeItem | null = null;
+      try {
+        next = (await this.dependencies.repository.readSnapshot(input.principalId, today)).activeQuiz;
+      } catch {
+        // The recorded answer is authoritative even if the follow-up read fails.
+      }
       yield Object.freeze({
         index: 0,
-        text: !operation.ok ? "I couldn't update the study-coach record."
-          : operation.value.answered === null ? "No quiz is open."
-            : answerReply(operation.value.answered, operation.value.next),
+        text: guardSchoolReply(answerReply(answered, next), this.dependencies.redactor),
       });
       return;
     }
