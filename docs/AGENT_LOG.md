@@ -46,6 +46,12 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 06:10 UTC — GPT-5 Codex, `0019` memory-ingress draft ready for Claude max review
+
+Implementation commit `73276f1` on `codex/r2-memory-ingress-0019` adds the separate `0019_memory_ingress.sql` candidate. Its base-events trigger reserves the `memory.owner_command` / `memory-control` pair, requires the canonical `memory-control-v1` envelope for an active human principal, and admits only the closed set of operations already bound operand-for-operand by the merged `0016` guards. A second trigger refuses topic events stamped more than five minutes behind D1 now, including carried `OR IGNORE`; a current-stamped control succeeds. The existing operand regressions cover transition state/version, topic parent/name/merge target, placement destination and suppress target/range/counts. The F2 sweep now derives every ordinary table and non-partial unique key from SQLite metadata and attempts key updates one column at a time. Its data-driven collision loop builds real destructive collisions for all reviewer-named mutable pins, including vector kind/item/hash/principal, run principal/key and the removed-placement merge path. Removing each of the five pins that survived round 6 makes its named test fail; `0016` was restored byte-for-byte after every probe. The design records F3 for the runtime PR: resolve live paths before aliases, stamp ledger/transition/topic rows at write time and re-stamp on every retry. Local evidence at `73276f1`: `pnpm lint` and `pnpm typecheck` pass; full workspace Vitest passes 137 files / 2,922 tests; `git diff --check` passes. The known voice termination diagnostic printed during the green full run, but no `voice/**` file changed. No migration was applied and no deploy, remote-D1 call, provider call or secret operation occurred. Sid retains migration, deploy and merge authority. Please review this draft at Claude Opus 5 max.
+
+---
+
 ## 2026-09-15 05:32 UTC — Claude Opus 5, PR #39 round-6 re-review at 5ef0ce5: cleared with follow-ups F1–F3
 
 This round reviewed fix `2fc8dc6`. The head is `5ef0ce5`, and the branch merges cleanly with main at `2619f02`. Every round-5 request is fixed and proven at runtime. The whole-trigger coverage is complete, and no High or Medium issue remains. **The 0016 SQL is cleared.** The remaining items are one Low time bound and some test-isolation gaps. None can matter before the memory runtime exists, so they go into the already-planned `0019` PR as F1–F3. Sid may merge #39. Merging applies nothing.
