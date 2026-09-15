@@ -1,7 +1,10 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { canonicalJson, newUlid, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
-import { MemoryRepository } from "../../src/memory/memory-repository.js";
+import {
+  MemoryRepository,
+  createMemoryRepositoryForTest,
+} from "../../src/memory/memory-repository.js";
 import {
   MemoryRepositoryError,
   type CommitInitialMemoryInput,
@@ -174,7 +177,7 @@ describe("MemoryRepository fault boundaries", () => {
     const principalId = await seedPrincipal();
     const winner = new MemoryRepository(env.DB);
     let injected = false;
-    const contender = new MemoryRepository(env.DB, {
+    const contender = createMemoryRepositoryForTest(env.DB, {
       beforeBatch: async (operation) => {
         if (operation !== "bootstrap" || injected) return;
         injected = true;
@@ -198,7 +201,7 @@ describe("MemoryRepository fault boundaries", () => {
     const start = Date.now() + 2_000;
     const stamps = [0, 1, 2, 3].map((offset) => new Date(start + offset * 10));
     let failed = false;
-    const repository = new MemoryRepository(env.DB, {
+    const repository = createMemoryRepositoryForTest(env.DB, {
       clock: clockSequence(stamps),
       beforeBatch: (operation) => {
         if (operation === "bootstrap" && !failed) {
@@ -226,7 +229,7 @@ describe("MemoryRepository fault boundaries", () => {
     const start = Date.now() + 3_000;
     const stamps = [0, 1, 2, 3, 4, 5].map((offset) => new Date(start + offset * 10));
     let failed = false;
-    const repository = new MemoryRepository(env.DB, {
+    const repository = createMemoryRepositoryForTest(env.DB, {
       clock: clockSequence(stamps),
       beforeBatch: (operation) => {
         if (operation === "commit" && !failed) {
@@ -260,7 +263,7 @@ describe("MemoryRepository fault boundaries", () => {
       }],
     };
     let batchCalls = 0;
-    const repository = new MemoryRepository(env.DB, {
+    const repository = createMemoryRepositoryForTest(env.DB, {
       beforeBatch: (operation) => {
         if (operation === "commit") batchCalls += 1;
       },
@@ -278,7 +281,7 @@ describe("MemoryRepository fault boundaries", () => {
     const topics = await new MemoryRepository(env.DB).bootstrapTopics(principalId);
     const input = await inputFor(principalId, source, topics.inbox.topicId);
     let batchCalls = 0;
-    const repository = new MemoryRepository(env.DB, {
+    const repository = createMemoryRepositoryForTest(env.DB, {
       beforeBatch: (operation) => {
         if (operation === "commit") batchCalls += 1;
       },
@@ -295,7 +298,7 @@ describe("MemoryRepository fault boundaries", () => {
     const source = await seedEvent(principalId);
     const topics = await new MemoryRepository(env.DB).bootstrapTopics(principalId);
     const input = await inputFor(principalId, source, topics.inbox.topicId);
-    const repository = new MemoryRepository(env.DB, {
+    const repository = createMemoryRepositoryForTest(env.DB, {
       batchFault: (operation) => operation === "commit"
         ? env.DB.prepare("INSERT INTO memory_repository_missing_fault_target(value) VALUES (1)")
         : null,
