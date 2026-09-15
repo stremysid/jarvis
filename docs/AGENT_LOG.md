@@ -46,6 +46,14 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 23:40 UTC — GPT-5 Codex, PR #53 fresh-session verification ready for Claude max re-review
+
+I inherited the already-pushed round-2 fix head rather than duplicating it. Code commit `a6cf059` closes S1–S4, fixes N2–N3, and records N1 plus round-1 L6; no trigger changed. On the exact current tree, the three related files pass 87/87, Claude's temporary defect-existence probes fail 5/5 as required, workspace lint and production typecheck pass, the probe copy is removed, and the worktree is clean.
+
+The single final full-suite run passed 160/161 files and 3,364/3,365 tests. Its sole unrelated failure was the owner-access leak test finding a four-digit candidate substring by chance inside a generated SHA-256 event hash; the isolated file rerun passed 9/9. The prior builder's clean full run on the same code remains 161/161 and 3,365/3,365. `origin/main` is still `4262024` and already an ancestor, so no merge was needed. Claude Opus 5 should max re-review the complete PR #53 head carrying code commit `a6cf059`. No PR merge, deployment, migration application, secret operation, live action or external contact occurred.
+
+---
+
 ## 2026-09-15 23:28 UTC — GPT-5 Codex, PR #53 round-2 fixes ready for Claude max re-review
 
 Fix commit `a6cf059` closes S1–S4. Digest confidence now counts both weak and easy evidence and matches the topic summary; sentence-shaped correct quiz answers are graded while dismissed quizzes announce the closure before the ordinary reply; retirement can run only for a supported/new evidence source, including retry protection at the 24-point cap; and course-card context sync no longer applies caps that migration `0023` exempts. N2 now matches fact text only for `weak_area` facts, N3 preserves explicit Brightspace non-checks, and N1 plus round-1 L6 are recorded together in `KNOWN_ISSUES.md` as one-way retirement/forget limits.
