@@ -4,7 +4,7 @@ import worker from "../../../apps/cloud-gateway/src/index.js";
 import type { Env } from "../../../apps/cloud-gateway/src/env.js";
 import { FakeTwilioProvider } from "../../../apps/cloud-gateway/src/providers/fake-twilio-provider.js";
 import { applyVoiceRuntimeMigration, clearOutboundCallAttemptsForTest, clearConversationDataForTest,
-  applyOwnerCallStepUpMigration, clearOwnerCallStepUpDataForTest, clearOwnerPassphraseDataForTest,
+  applyVoiceOwnerDeliveryMigration, clearOwnerCallStepUpDataForTest, clearOwnerPassphraseDataForTest,
   clearVoiceAccessDataForTest } from "../../../apps/cloud-gateway/test/persistence/migration.js";
 import { FAKE_OWNER_PASSPHRASE, seedFakeOwnerPassphrase } from "./voice-access-system.js";
 
@@ -22,7 +22,7 @@ describe("production Worker voice and Telegram composition", () => {
   let creditFails: boolean;
   beforeEach(async () => {
     await applyVoiceRuntimeMigration();
-    await applyOwnerCallStepUpMigration();
+    await applyVoiceOwnerDeliveryMigration();
     const clock = await env.DB.prepare("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AS now").first<{ now: string }>();
     now = new Date(clock!.now); requests = []; sends = []; dials = []; clients = []; creditFails = false;
     vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(now);

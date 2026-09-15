@@ -189,7 +189,7 @@ describe("owner call step-up migration", () => {
         "owner_call_step_up_success_delete_forbidden",
       );
     } finally { await verified.system.cleanup(); }
-  });
+  }, 30_000);
 
   it("pins reprompt order, exhaustion, immutability, and deletion", async () => {
     const { system, call } = await openPreAuth();

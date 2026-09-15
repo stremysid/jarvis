@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CallRepository } from "../../../apps/cloud-gateway/src/persistence/call-repository.js";
 import { EventRepository } from "../../../apps/cloud-gateway/src/persistence/event-repository.js";
 import { applyVoiceRuntimeMigration, clearCallSessionsForTest, clearAuthenticationAttemptReservationsForTest,
-  applyOwnerCallStepUpMigration, clearConversationDataForTest, clearOwnerCallStepUpDataForTest, clearOwnerPassphraseDataForTest,
+  applyVoiceOwnerDeliveryMigration, clearConversationDataForTest, clearOwnerCallStepUpDataForTest, clearOwnerPassphraseDataForTest,
   clearVoiceAccessDataForTest } from "../../../apps/cloud-gateway/test/persistence/migration.js";
 import { OwnerPassphraseVerifier } from "../../../apps/cloud-gateway/src/security/owner-passphrase-verifier.js";
 import { OwnerCallStepUpService } from "../../../apps/cloud-gateway/src/voice/owner-call-step-up.js";
@@ -32,7 +32,7 @@ describe("production voice through the real DO stub and socket", () => {
 
   beforeEach(async () => {
     await applyVoiceRuntimeMigration();
-    await applyOwnerCallStepUpMigration();
+    await applyVoiceOwnerDeliveryMigration();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     requests = []; credit = "15"; creditFails = false; modelBodies = []; sessionId = newUlid();

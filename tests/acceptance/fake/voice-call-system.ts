@@ -171,6 +171,7 @@ export async function createFakeCallingSystem(input: {
   ownerCallerIdPolicy?: string;
   loseDispatchResponse?: boolean;
   manualModel?: boolean;
+  beforeOwnerStepUpAlert?: () => Promise<void>;
   beforeTermination?: (input: CallSessionTermination) => Promise<void>;
   beforeOutboundSessionCreate?: () => Promise<void>;
   beforeSessionInitialize?: () => Promise<void>;
@@ -188,7 +189,8 @@ export async function createFakeCallingSystem(input: {
   );
   let inboundSequence = 100;
   const relays = new FakeRelaySessions(repository,
-    { manual: input.manualModel ?? false, streamText: "A safe voice answer." }, () => new Date(now));
+    { manual: input.manualModel ?? false, streamText: "A safe voice answer." }, () => new Date(now),
+    input.beforeOwnerStepUpAlert);
   const dispatcher = new OutboundCallDispatcher({
       controls: permittedOutboundControls,
       capacity: { async assertAcceptingNewTurn() {} },

@@ -695,6 +695,8 @@ export class CallSessionCore {
   #ownerRepeatFragmentStartedAt: number | null = null;
   #ownerStepUpDeadlineAt: string | null = null;
   #ownerStepUpVerificationInFlight = false;
+  #ownerStepUpRepromptInFlight = false;
+  #ownerStepUpRejection: Promise<void> | null = null;
   #activeTurnAbort: AbortController | null = null;
   #lastSentAssistantEventId: Ulid | null = null;
   #socketClosed = false;
@@ -766,6 +768,10 @@ export class CallSessionCore {
     return this.#session.phase;
   }
 
+  get canResumeRejectedOwnerStepUp(): boolean {
+    return this.#session.phase === "rejected" && this.#interaction.kind === "owner_step_up";
+  }
+
   validateRelaySetup(actual: RelaySetupEvent): void {
     if (
       this.#session.phase !== "created"
@@ -801,7 +807,12 @@ export class CallSessionCore {
         this.#clearOwnerStepUpFragments();
         this.#clearOwnerRepeatFragments();
         if (this.#interaction.kind === "owner_step_up" && this.#ownerStepUp !== null) {
-          const state = await this.#ownerStepUp.state(this.#session.sessionId);
+          const observedAt = this.#now();
+          const state = await this.#ownerStepUp.reconcileState(this.#session.sessionId, observedAt);
+          if (state.rejectionReason !== null) {
+            await this.#rejectOwnerStepUp(observedAt, true);
+            return;
+          }
           this.#ownerStepUpDeadlineAt = state.deadlineAt;
           if (this.#ownerStepUpDeadlineAt !== null) {
             await this.#ownerStepUpAlarm?.arm({
@@ -900,10 +911,26 @@ export class CallSessionCore {
         const binding = await this.#ownerStepUp.binding(this.#session.sessionId);
         if (binding === null) throw new Error("owner_step_up_binding_missing");
         if (binding.requirement === "waived_passed_a") {
-          await this.#ownerStepUp.assertWaiverAvailable(this.#session.sessionId);
+          try {
+            await this.#ownerStepUp.assertWaiverAvailable(this.#session.sessionId);
+          } catch (error) {
+            if (!(error instanceof Error) || error.message !== "owner_step_up_unavailable") throw error;
+            this.#interaction = Object.freeze({ kind: "owner_step_up" });
+            const state = await this.#ownerStepUp.reconcileState(this.#session.sessionId, observedAt);
+            if (state.rejectionReason === null) throw error;
+            await this.#rejectOwnerStepUp(observedAt, true);
+            return;
+          }
           await this.#mintWaivedOwner(observedAt);
         } else if (binding.requirement === "required") {
-          const window = await this.#ownerStepUp.begin(this.#session.sessionId, observedAt);
+          let window;
+          try { window = await this.#ownerStepUp.begin(this.#session.sessionId, observedAt); }
+          catch (error) {
+            if (!(error instanceof Error) || error.message !== "owner_step_up_disabled") throw error;
+            this.#interaction = Object.freeze({ kind: "owner_step_up" });
+            await this.#rejectOwnerStepUp(observedAt, true);
+            return;
+          }
           this.#ownerStepUpDeadlineAt = window.deadlineAt;
           this.#interaction = Object.freeze({ kind: "owner_step_up" });
           await this.#ownerStepUpAlarm.arm({
@@ -1154,6 +1181,25 @@ export class CallSessionCore {
   }
 
   async #rejectOwnerStepUp(observedAt: Date, alreadyDurable = false): Promise<void> {
+    let delivery = this.#ownerStepUpRejection;
+    if (delivery === null) {
+      delivery = this.#deliverOwnerStepUpRejection(observedAt, alreadyDurable);
+      this.#ownerStepUpRejection = delivery;
+      try {
+        await delivery;
+      } catch (error) {
+        if (this.#ownerStepUpRejection === delivery) this.#ownerStepUpRejection = null;
+        throw error;
+      }
+    } else {
+      await delivery;
+    }
+    // Delivery and alarm acknowledgement are separate. A failed final clear
+    // may be retried without speaking, ending, or alerting a second time.
+    await this.#ownerStepUpAlarm?.clear();
+  }
+
+  async #deliverOwnerStepUpRejection(observedAt: Date, alreadyDurable: boolean): Promise<void> {
     if (this.#ownerStepUp === null) throw new Error("owner_step_up_unavailable");
     if (!alreadyDurable) await this.#ownerStepUp.expire(this.#session.sessionId, observedAt);
     const rejected = await this.#repository.getCallSession(this.#session.sessionId);
@@ -1163,6 +1209,11 @@ export class CallSessionCore {
     const binding = await this.#ownerStepUp.binding(this.#session.sessionId);
     this.#session = rejected;
     this.#clearOwnerStepUpFragments();
+    if (await this.#ownerStepUp.rejectionDelivered(this.#session.sessionId)) {
+      try { this.#relay.close(1008); }
+      catch { /* The provider may already have closed after the prior end frame. */ }
+      return;
+    }
     try { await this.#relay.sendNeutralText(OWNER_STEP_UP_REJECTED); }
     catch { /* A disconnected caller must not prevent the owner's alert. */ }
     try {
@@ -1174,19 +1225,15 @@ export class CallSessionCore {
       catch { /* The relay may already have closed during verification. */ }
     }
     if (binding !== null && this.#ownerStepUpAlerts !== null) {
-      try {
-        await this.#ownerStepUpAlerts.alert({
-          ownerPrincipalId: binding.ownerPrincipalId,
-          alertClass: "rejected",
-          direction: binding.direction,
-          attestationClass: binding.attestationClass,
-          now: observedAt,
-        });
-      } catch {
-        // Alert delivery is durable and retriable. It cannot reopen or weaken a rejected call.
-      }
+      await this.#ownerStepUpAlerts.alert({
+        ownerPrincipalId: binding.ownerPrincipalId,
+        alertClass: "rejected",
+        direction: binding.direction,
+        attestationClass: binding.attestationClass,
+        now: observedAt,
+      });
     }
-    await this.#ownerStepUpAlarm?.clear();
+    await this.#ownerStepUp.recordRejectionDelivered(this.#session.sessionId, observedAt);
   }
 
   async #completeOwnerStepUp(candidate: string, observedAt: Date): Promise<void> {
@@ -1235,10 +1282,12 @@ export class CallSessionCore {
   async #handleOwnerStepUpPrompt(event: Extract<RelayEvent, { type: "prompt" }>): Promise<void> {
     if (!event.final || this.#isFixedStepUpEcho(event.text) || this.#ownerStepUpVerificationInFlight) return;
     const observedAt = this.#now();
-    if (this.#ownerStepUpDeadlineAt === null) {
-      const state = await this.#ownerStepUp!.state(this.#session.sessionId);
-      this.#ownerStepUpDeadlineAt = state.deadlineAt;
+    const state = await this.#ownerStepUp!.reconcileState(this.#session.sessionId, observedAt);
+    if (state.rejectionReason !== null) {
+      await this.#rejectOwnerStepUp(observedAt, true);
+      return;
     }
+    this.#ownerStepUpDeadlineAt = state.deadlineAt;
     if (this.#ownerStepUpDeadlineAt !== null && observedAt.toISOString() >= this.#ownerStepUpDeadlineAt) {
       await this.#rejectOwnerStepUp(observedAt);
       return;
@@ -1246,13 +1295,22 @@ export class CallSessionCore {
     if (this.#ownerStepUpFragmentStartedAt === null) this.#ownerStepUpFragmentStartedAt = observedAt.valueOf();
     if (observedAt.valueOf() - this.#ownerStepUpFragmentStartedAt > OWNER_STEP_UP_ASSEMBLY_MS) {
       this.#clearOwnerStepUpFragments();
-      const reprompt = await this.#ownerStepUp!.recordReprompt(this.#session.sessionId, observedAt);
-      if (reprompt !== "reprompt") await this.#rejectOwnerStepUp(observedAt, reprompt === "rejected");
-      else {
+      if (this.#ownerStepUpRepromptInFlight) return;
+      this.#ownerStepUpRepromptInFlight = true;
+      try {
+        // Replace the stale assembly alarm before the durable reprompt write.
+        // A late alarm delivered during that write therefore observes only
+        // the window deadline and cannot consume a second reprompt.
         if (this.#ownerStepUpDeadlineAt !== null) await this.#ownerStepUpAlarm?.arm({
           sessionId: this.#session.sessionId, lifecycleGeneration: 1, kind: "window", deadlineAt: this.#ownerStepUpDeadlineAt,
         });
-        await this.#relay.sendNeutralText(OWNER_STEP_UP_FORMAT_PROMPT);
+        const reprompt = await this.#ownerStepUp!.recordReprompt(this.#session.sessionId, observedAt);
+        if (reprompt !== "reprompt") await this.#rejectOwnerStepUp(observedAt, reprompt === "rejected");
+        else {
+          await this.#relay.sendNeutralText(OWNER_STEP_UP_FORMAT_PROMPT);
+        }
+      } finally {
+        this.#ownerStepUpRepromptInFlight = false;
       }
       return;
     }
@@ -1283,7 +1341,7 @@ export class CallSessionCore {
       return;
     }
     const observedAt = this.#now();
-    const state = await this.#ownerStepUp!.state(this.#session.sessionId);
+    const state = await this.#ownerStepUp!.reconcileState(this.#session.sessionId, observedAt);
     if (state.rejectionReason !== null) {
       // expire() may have committed immediately before the previous invocation
       // failed. The durable verdict does not prove that refusal/end/alert ran.
@@ -1306,16 +1364,28 @@ export class CallSessionCore {
       });
       return;
     }
-    this.#clearOwnerStepUpFragments();
-    const outcome = await this.#ownerStepUp!.recordReprompt(this.#session.sessionId, observedAt);
-    if (outcome !== "reprompt") {
-      await this.#rejectOwnerStepUp(observedAt, outcome === "rejected");
+    if (this.#ownerStepUpRepromptInFlight) {
+      if (this.#ownerStepUpDeadlineAt !== null) await this.#ownerStepUpAlarm?.arm({
+        sessionId: this.#session.sessionId, lifecycleGeneration: 1,
+        kind: "window", deadlineAt: this.#ownerStepUpDeadlineAt,
+      });
       return;
     }
-    await this.#relay.sendNeutralText(OWNER_STEP_UP_FORMAT_PROMPT);
-    if (this.#ownerStepUpDeadlineAt !== null) await this.#ownerStepUpAlarm?.arm({
-      sessionId: this.#session.sessionId, lifecycleGeneration: 1, kind: "window", deadlineAt: this.#ownerStepUpDeadlineAt,
-    });
+    this.#clearOwnerStepUpFragments();
+    this.#ownerStepUpRepromptInFlight = true;
+    try {
+      const outcome = await this.#ownerStepUp!.recordReprompt(this.#session.sessionId, observedAt);
+      if (outcome !== "reprompt") {
+        await this.#rejectOwnerStepUp(observedAt, outcome === "rejected");
+        return;
+      }
+      await this.#relay.sendNeutralText(OWNER_STEP_UP_FORMAT_PROMPT);
+      if (this.#ownerStepUpDeadlineAt !== null) await this.#ownerStepUpAlarm?.arm({
+        sessionId: this.#session.sessionId, lifecycleGeneration: 1, kind: "window", deadlineAt: this.#ownerStepUpDeadlineAt,
+      });
+    } finally {
+      this.#ownerStepUpRepromptInFlight = false;
+    }
   }
 
   async #handlePrompt(event: Extract<RelayEvent, { type: "prompt" }>): Promise<void> {
@@ -1556,28 +1626,42 @@ export class CallSessionCore {
 
   async handleSocketClose(reason: "socket_closed" | "provider_error" = "socket_closed"): Promise<void> {
     if (this.#socketClosed) return;
-    await this.#ownerStepUpAlarm?.clear();
     this.#socketClosed = true;
-    await this.#cancelCurrentOutput();
-    this.#activationDigits = "";
-    const observedAt = this.#now();
-    if (this.#session.phase === "completed" || this.#session.phase === "rejected"
-      || this.#session.phase === "failed" || this.#session.phase === "expired") return;
-    if (reason === "provider_error") {
+    let terminalized = false;
+    try {
+      await this.#cancelCurrentOutput();
+      this.#activationDigits = "";
+      const observedAt = this.#now();
+      if (this.#session.phase === "completed" || this.#session.phase === "rejected"
+        || this.#session.phase === "failed" || this.#session.phase === "expired") {
+        terminalized = true;
+        return;
+      }
+      if (reason === "provider_error") {
+        await this.#transition("failed", observedAt);
+        terminalized = true;
+        return;
+      }
+      if (this.#session.phase === "active"
+        || this.#session.phase === "authenticated" && !this.#session.binding.activationOnly) {
+        await this.#transition("ending", observedAt);
+        await this.#transition("completed", observedAt);
+        terminalized = true;
+        return;
+      }
+      if (this.#session.phase === "ending") {
+        await this.#transition("completed", observedAt);
+        terminalized = true;
+        return;
+      }
       await this.#transition("failed", observedAt);
-      return;
+      terminalized = true;
+    } finally {
+      if (terminalized) {
+        try { await this.#ownerStepUpAlarm?.clear(); }
+        catch { /* The durable terminal phase is authoritative; a stale alarm may retry its own clear. */ }
+      }
     }
-    if (this.#session.phase === "active"
-      || this.#session.phase === "authenticated" && !this.#session.binding.activationOnly) {
-      await this.#transition("ending", observedAt);
-      await this.#transition("completed", observedAt);
-      return;
-    }
-    if (this.#session.phase === "ending") {
-      await this.#transition("completed", observedAt);
-      return;
-    }
-    await this.#transition("failed", observedAt);
   }
 
   async terminate(phase: DurableCallSessionTerminalPhase): Promise<void> {
@@ -1979,7 +2063,7 @@ export class CallSession extends DurableObject<Env> {
       return;
     }
 
-    const resolved = await this.#resolveCore(socket);
+    const resolved = await this.#resolveCore(socket, true);
     if (resolved.kind === "mismatch") {
       closeSocket(socket, 1008, "relay session mismatch");
       return;
@@ -1989,6 +2073,10 @@ export class CallSession extends DurableObject<Env> {
       return;
     }
     try {
+      if (resolved.core.phase === "rejected") {
+        await resolved.core.handleOwnerStepUpAlarm("window", 1);
+        return;
+      }
       await resolved.core.handleRelayEvent(event);
     } catch {
       if (!this.#policyClosedSockets.has(socket)) {
@@ -2003,14 +2091,20 @@ export class CallSession extends DurableObject<Env> {
     _reason: string,
     _wasClean: boolean,
   ): Promise<void> {
-    const resolved = await this.#resolveCore(socket);
-    if (resolved.kind === "ready") await resolved.core.handleSocketClose("socket_closed");
+    const resolved = await this.#resolveCore(socket, true);
+    if (resolved.kind === "ready") {
+      if (resolved.core.phase === "rejected") await resolved.core.handleOwnerStepUpAlarm("window", 1);
+      else await resolved.core.handleSocketClose("socket_closed");
+    }
     this.#cores.delete(socket);
   }
 
   override async webSocketError(socket: WebSocket, _error: unknown): Promise<void> {
-    const resolved = await this.#resolveCore(socket);
-    if (resolved.kind === "ready") await resolved.core.handleSocketClose("provider_error");
+    const resolved = await this.#resolveCore(socket, true);
+    if (resolved.kind === "ready") {
+      if (resolved.core.phase === "rejected") await resolved.core.handleOwnerStepUpAlarm("window", 1);
+      else await resolved.core.handleSocketClose("provider_error");
+    }
     this.#cores.delete(socket);
   }
 
@@ -2027,7 +2121,12 @@ export class CallSession extends DurableObject<Env> {
     | { readonly kind: "unavailable" }
   > {
     const cached = this.#cores.get(socket);
-    if (cached !== undefined) return { kind: "ready", core: cached };
+    if (cached !== undefined) {
+      if (cached.phase === "rejected" && (!resumeRejected || !cached.canResumeRejectedOwnerStepUp)) {
+        return { kind: "mismatch" };
+      }
+      return { kind: "ready", core: cached };
+    }
     const socketSessionId = snapshotSocketSessionId(socket);
     const initialization = await this.#readInitialization();
     if (await this.ctx.storage.get(TERMINATION_KEY) !== undefined) return { kind: "mismatch" };
@@ -2045,6 +2144,26 @@ export class CallSession extends DurableObject<Env> {
       || TERMINAL_PHASES.has(session.phase) && !(resumeRejected && session.phase === "rejected")) {
       return { kind: "mismatch" };
     }
+    if (session.phase === "rejected") {
+      let binding: { session_id: string } | null;
+      try {
+        binding = await this.env.DB.prepare(`SELECT binding.session_id
+          FROM owner_call_step_up_bindings binding
+          JOIN call_sessions session ON session.session_id = binding.session_id
+          WHERE binding.session_id = ? AND (
+              binding.requirement = 'required'
+              OR binding.requirement = 'waived_passed_a' AND EXISTS (
+                SELECT 1 FROM owner_call_step_up_disabled_rejections disabled
+                WHERE disabled.session_id = binding.session_id
+              )
+            )
+            AND session.access_kind = 'owner' AND session.activation_only = 0`)
+          .bind(session.sessionId).first<{ session_id: string }>();
+      } catch {
+        return { kind: "unavailable" };
+      }
+      if (binding === null) return { kind: "mismatch" };
+    }
     if (this.#runtimeFactory === null) return { kind: "unavailable" };
     let core: CallSessionCore;
     try {
@@ -2061,6 +2180,7 @@ export class CallSession extends DurableObject<Env> {
       return { kind: "unavailable" };
     }
     if (!(core instanceof CallSessionCore)) return { kind: "unavailable" };
+    if (session.phase === "rejected" && !core.canResumeRejectedOwnerStepUp) return { kind: "mismatch" };
     this.#cores.set(socket, core);
     return { kind: "ready", core };
   }
