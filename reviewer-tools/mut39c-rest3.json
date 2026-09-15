@@ -1,0 +1,204 @@
+{
+ "root": "C:/Users/Sid/jarvis-deploy",
+ "branch": "eb70b70",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_items_insert_guard\n",
+   "to": "CREATE TRIGGER memory_items_insert_guard\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_history_chunks_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_history_chunks_insert_guard\nBEFORE INSERT ON memory_history_chunks\nWHEN EXISTS (\n    SELECT 1 FROM memory_history_chunks chunk\n    WHERE chunk.chunk_id = NEW.chunk_id\n  )\n  OR NOT EXISTS (\n    SELECT 1 FROM memory_history_coverage coverage\n    WHERE coverage.principal_id = NEW.principal_id\n      AND coverage.start_event_sequence = NEW.start_event_sequence\n      AND coverage.end_event_sequence = NEW.end_event_sequence\n      AND coverage.indexing_outcome = 'indexed'\n      AND coverage.content_hash = NEW.source_receipt_hash\n      AND (\n        NEW.source_location = 'mixed'\n        OR (coverage.source_location = NEW.source_location\n          AND coverage.r2_segment_id IS NEW.r2_segment_id)\n      )\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_history_chunk_receipt_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_history_chunks_immutable_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_history_chunks_immutable_update\nBEFORE UPDATE ON memory_history_chunks\nBEGIN\n  SELECT RAISE(ABORT, 'memory_history_chunk_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_history_coverage_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_history_coverage_insert_guard\nBEFORE INSERT ON memory_history_coverage\nWHEN EXISTS (\n    SELECT 1 FROM memory_history_coverage coverage\n    WHERE coverage.coverage_id = NEW.coverage_id\n  )\n  OR (\n    NEW.source_location = 'live'\n    AND (\n      NOT EXISTS (\n        SELECT 1 FROM events event\n        WHERE event.subject_id = NEW.principal_id\n          AND event.sequence BETWEEN NEW.start_event_sequence AND NEW.end_event_sequence\n      )\n      OR NEW.end_event_sequence > COALESCE((SELECT max(event.sequence) FROM events event), 0)\n      OR EXISTS (\n        SELECT 1 FROM archive_segment_events archived\n        WHERE archived.event_sequence BETWEEN NEW.start_event_sequence AND NEW.end_event_sequence\n      )\n    )\n  )\n  OR (\n    NEW.source_location = 'archived'\n    AND NOT EXISTS (\n      SELECT 1 FROM archive_segments segment\n      JOIN archive_manifests manifest ON manifest.manifest_id = segment.manifest_id\n      WHERE segment.segment_id = NEW.r2_segment_id\n        AND manifest.start_sequence <= NEW.start_event_sequence\n        AND manifest.end_sequence >= NEW.end_event_sequence\n        AND manifest.status = 'sealed'\n    )\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_history_coverage_receipt_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_vectors_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_vectors_insert_guard\nBEFORE INSERT ON memory_vectors\nWHEN EXISTS (\n  SELECT 1 FROM memory_vectors vector\n  WHERE vector.vector_ledger_id = NEW.vector_ledger_id\n    OR vector.mutation_id = NEW.mutation_id\n    OR (vector.principal_id = NEW.principal_id\n      AND vector.item_kind = NEW.item_kind\n      AND vector.item_id = NEW.item_id\n      AND vector.embedding_model = NEW.embedding_model\n      AND vector.content_hash = NEW.content_hash)\n)\nBEGIN\n  SELECT RAISE(ABORT, 'memory_vector_duplicate');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_vectors_update_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_vectors_update_guard\nBEFORE UPDATE ON memory_vectors\nWHEN OLD.deleted_at IS NOT NULL\n  OR NEW.deleted_at IS NULL\n  OR NEW.deleted_at < OLD.upserted_at\n  OR NEW.vector_ledger_id <> OLD.vector_ledger_id\n  OR NEW.principal_id <> OLD.principal_id\n  OR NEW.item_kind <> OLD.item_kind\n  OR NEW.item_id <> OLD.item_id\n  OR NEW.embedding_model <> OLD.embedding_model\n  OR NEW.dimensions <> OLD.dimensions\n  OR NEW.content_hash <> OLD.content_hash\n  OR NEW.mutation_id <> OLD.mutation_id\n  OR NEW.upserted_at <> OLD.upserted_at\nBEGIN\n  SELECT RAISE(ABORT, 'memory_vector_delete_transition_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_vectors_delete_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_vectors_delete_guard\nBEFORE DELETE ON memory_vectors\nBEGIN\n  SELECT RAISE(ABORT, 'memory_vector_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_model_prices_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_model_prices_insert_guard\nBEFORE INSERT ON memory_model_prices\nWHEN EXISTS (\n  SELECT 1 FROM memory_model_prices price\n  WHERE price.price_id = NEW.price_id\n    OR (price.principal_id = NEW.principal_id\n      AND price.model_id = NEW.model_id\n      AND price.effective_at = NEW.effective_at)\n)\nBEGIN\n  SELECT RAISE(ABORT, 'memory_model_price_duplicate');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_runs_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_runs_insert_guard\nBEFORE INSERT ON memory_runs\nWHEN EXISTS (\n    SELECT 1 FROM memory_runs run\n    WHERE run.run_id = NEW.run_id\n      OR (run.principal_id = NEW.principal_id AND run.run_key = NEW.run_key)\n  )\n  OR NEW.outcome <> 'running'\n  OR NEW.input_event_count <> 0\n  OR NEW.created_item_count <> 0\n  OR NEW.input_tokens <> 0\n  OR NEW.output_tokens <> 0\n  OR NEW.cache_read_tokens <> 0\n  OR NEW.reserved_cost_micros <> 0\n  OR NEW.settled_cost_micros <> 0\n  OR (\n    NEW.job = 'reprocessing'\n    AND NOT EXISTS (\n      SELECT 1 FROM memory_reprocess_jobs job\n      WHERE job.principal_id = NEW.principal_id\n        AND job.job_id = NEW.reprocess_job_id\n        AND job.status IN ('pending', 'running')\n        AND job.provider_model_id = NEW.provider_model_id\n        AND (\n          (job.start_event_sequence IS NOT NULL\n            AND NEW.start_event_sequence = job.start_event_sequence\n            AND NEW.end_event_sequence = job.end_event_sequence)\n          OR (job.start_day IS NOT NULL\n            AND NEW.start_event_sequence IS NOT NULL\n            AND NEW.end_event_sequence IS NOT NULL)\n        )\n    )\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_run_initial_state_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_runs_update_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_runs_update_guard\nBEFORE UPDATE ON memory_runs\nWHEN OLD.outcome <> 'running'\n  OR NEW.outcome = 'running'\n  OR NEW.run_id <> OLD.run_id\n  OR NEW.principal_id <> OLD.principal_id\n  OR NEW.run_key <> OLD.run_key\n  OR NEW.job <> OLD.job\n  OR NEW.reprocess_job_id IS NOT OLD.reprocess_job_id\n  OR NEW.start_event_sequence IS NOT OLD.start_event_sequence\n  OR NEW.end_event_sequence IS NOT OLD.end_event_sequence\n  OR NEW.provider_model_id IS NOT OLD.provider_model_id\n  OR NEW.price_id IS NOT OLD.price_id\n  OR NEW.started_at <> OLD.started_at\n  OR (\n    NEW.job = 'reprocessing'\n    AND NOT EXISTS (\n      SELECT 1 FROM memory_reprocess_jobs job\n      WHERE job.principal_id = NEW.principal_id\n        AND job.job_id = NEW.reprocess_job_id\n        AND NEW.input_event_count <= job.maximum_event_count\n    )\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_run_transition_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_runs_delete_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_runs_delete_guard\nBEFORE DELETE ON memory_runs\nBEGIN\n  SELECT RAISE(ABORT, 'memory_run_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_reprocess_jobs_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_reprocess_jobs_insert_guard\nBEFORE INSERT ON memory_reprocess_jobs\nWHEN EXISTS (\n    SELECT 1 FROM memory_reprocess_jobs job\n    WHERE job.job_id = NEW.job_id\n  )\n  OR NEW.status <> 'pending'\n  OR NEW.checkpoint_event_sequence IS NOT NULL\n  OR (\n    NEW.start_event_sequence IS NOT NULL\n    AND NEW.end_event_sequence - NEW.start_event_sequence + 1 > NEW.maximum_event_count\n  )\n  OR (\n    NEW.start_day IS NOT NULL\n    AND (\n      SELECT count(*) FROM events event\n      WHERE event.subject_id = NEW.principal_id\n        AND substr(event.occurred_at, 1, 10) BETWEEN NEW.start_day AND NEW.end_day\n    ) > NEW.maximum_event_count\n  )\n  OR NOT EXISTS (\n    SELECT 1 FROM memory_valid_owner_commands command\n    WHERE command.event_id = NEW.owner_authorizing_event_id\n      AND command.subject_id = NEW.principal_id\n      AND json_extract(command.envelope_json, '$.payload.operation') = 'reprocess.create'\n      AND json_extract(command.envelope_json, '$.payload.targetId') = NEW.job_id\n      AND json_extract(command.envelope_json, '$.payload.startEventSequence') IS NEW.start_event_sequence\n      AND json_extract(command.envelope_json, '$.payload.endEventSequence') IS NEW.end_event_sequence\n      AND json_extract(command.envelope_json, '$.payload.startDay') IS NEW.start_day\n      AND json_extract(command.envelope_json, '$.payload.endDay') IS NEW.end_day\n      AND json_extract(command.envelope_json, '$.payload.maximumEventCount') = NEW.maximum_event_count\n      AND json_extract(command.envelope_json, '$.payload.providerModelId') = NEW.provider_model_id\n      AND json_extract(command.envelope_json, '$.payload.spendLimitMicros') = NEW.spend_limit_micros\n      AND json_extract(command.envelope_json, '$.payload.dryRun') = NEW.dry_run\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_reprocess_job_authorization_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_reprocess_jobs_update_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_reprocess_jobs_update_guard\nBEFORE UPDATE ON memory_reprocess_jobs\nWHEN NEW.job_id <> OLD.job_id\n  OR NEW.principal_id <> OLD.principal_id\n  OR NEW.owner_authorizing_event_id <> OLD.owner_authorizing_event_id\n  OR NEW.start_event_sequence IS NOT OLD.start_event_sequence\n  OR NEW.end_event_sequence IS NOT OLD.end_event_sequence\n  OR NEW.start_day IS NOT OLD.start_day\n  OR NEW.end_day IS NOT OLD.end_day\n  OR NEW.maximum_event_count <> OLD.maximum_event_count\n  OR NEW.provider_model_id <> OLD.provider_model_id\n  OR NEW.spend_limit_micros <> OLD.spend_limit_micros\n  OR NEW.dry_run <> OLD.dry_run\n  OR NEW.created_at <> OLD.created_at\n  OR (OLD.checkpoint_event_sequence IS NOT NULL\n    AND (NEW.checkpoint_event_sequence IS NULL\n      OR NEW.checkpoint_event_sequence < OLD.checkpoint_event_sequence))\n  OR NOT (\n    (OLD.status = 'pending' AND NEW.status IN ('running', 'cancelled'))\n    OR (OLD.status = 'running' AND NEW.status IN ('running', 'succeeded', 'failed', 'cancelled'))\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_reprocess_job_transition_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_reprocess_jobs_delete_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_reprocess_jobs_delete_guard\nBEFORE DELETE ON memory_reprocess_jobs\nBEGIN\n  SELECT RAISE(ABORT, 'memory_reprocess_job_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_cost_ledger_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_cost_ledger_insert_guard\nBEFORE INSERT ON memory_cost_ledger\nWHEN EXISTS (\n    SELECT 1 FROM memory_cost_ledger entry\n    WHERE entry.cost_entry_id = NEW.cost_entry_id\n  )\n  OR NOT EXISTS (\n    SELECT 1 FROM memory_runs run\n    WHERE run.principal_id = NEW.principal_id\n      AND run.run_id = NEW.run_id\n      AND run.provider_model_id = NEW.model_id\n      AND run.price_id = NEW.price_id\n      AND NEW.occurred_at >= run.started_at\n      AND (NEW.entry_type <> 'reservation' OR run.outcome = 'running')\n      AND (\n        (NEW.budget_class = 'normal_monthly'\n          AND run.job <> 'reprocessing'\n          AND run.reprocess_job_id IS NULL\n          AND NEW.reprocess_job_id IS NULL)\n        OR (NEW.budget_class = 'reprocessing'\n          AND run.job = 'reprocessing'\n          AND run.reprocess_job_id = NEW.reprocess_job_id\n          AND EXISTS (\n            SELECT 1 FROM memory_reprocess_jobs job\n            WHERE job.principal_id = NEW.principal_id\n              AND job.job_id = NEW.reprocess_job_id\n              AND job.status IN ('pending', 'running')\n              AND job.dry_run = 0\n              AND run.start_event_sequence IS job.start_event_sequence\n              AND run.end_event_sequence IS job.end_event_sequence\n              AND run.provider_model_id = job.provider_model_id\n              AND (\n                NEW.entry_type <> 'reservation'\n                OR NEW.amount_micros\n                  + COALESCE((\n                    SELECT sum(settlement.amount_micros)\n                    FROM memory_cost_ledger settlement\n                    WHERE settlement.principal_id = NEW.principal_id\n                      AND settlement.reprocess_job_id = NEW.reprocess_job_id\n                      AND settlement.entry_type = 'settlement'\n                  ), 0)\n                  + COALESCE((\n                    SELECT sum(reservation.amount_micros)\n                    FROM memory_cost_ledger reservation\n                    WHERE reservation.principal_id = NEW.principal_id\n                      AND reservation.reprocess_job_id = NEW.reprocess_job_id\n                      AND reservation.entry_type = 'reservation'\n                      AND NOT EXISTS (\n                        SELECT 1 FROM memory_cost_ledger terminal\n                        WHERE terminal.principal_id = reservation.principal_id\n                          AND terminal.reservation_entry_id = reservation.cost_entry_id\n                          AND terminal.entry_type IN ('settlement', 'release')\n                      )\n                  ), 0) <= job.spend_limit_micros\n              )\n          ))\n      )\n  )\n  OR (\n    NEW.entry_type IN ('settlement', 'release')\n    AND (\n      NOT EXISTS (\n        SELECT 1 FROM memory_cost_ledger reservation\n        WHERE reservation.principal_id = NEW.principal_id\n          AND reservation.cost_entry_id = NEW.reservation_entry_id\n          AND reservation.run_id = NEW.run_id\n          AND reservation.entry_type = 'reservation'\n          AND reservation.provider = NEW.provider\n          AND reservation.model_id = NEW.model_id\n          AND reservation.budget_class = NEW.budget_class\n          AND reservation.reprocess_job_id IS NEW.reprocess_job_id\n          AND reservation.price_id = NEW.price_id\n          AND (\n            (NEW.entry_type = 'settlement' AND NEW.amount_micros <= reservation.amount_micros)\n            OR (NEW.entry_type = 'release' AND NEW.amount_micros = reservation.amount_micros)\n          )\n      )\n      OR EXISTS (\n        SELECT 1 FROM memory_cost_ledger terminal\n        WHERE terminal.principal_id = NEW.principal_id\n          AND terminal.reservation_entry_id = NEW.reservation_entry_id\n          AND terminal.entry_type IN ('settlement', 'release')\n      )\n    )\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_cost_entry_lineage_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_cursors_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_cursors_insert_guard\nBEFORE INSERT ON memory_cursors\nWHEN EXISTS (\n  SELECT 1 FROM memory_cursors cursor_row\n  WHERE cursor_row.principal_id = NEW.principal_id\n    AND cursor_row.cursor_name = NEW.cursor_name\n)\nBEGIN\n  SELECT RAISE(ABORT, 'memory_cursor_duplicate');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_cursors_monotonic_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_cursors_monotonic_update\nBEFORE UPDATE ON memory_cursors\nWHEN NEW.principal_id <> OLD.principal_id\n  OR NEW.cursor_name <> OLD.cursor_name\n  OR NEW.current_event_sequence < OLD.current_event_sequence\n  OR NEW.updated_at < OLD.updated_at\nBEGIN\n  SELECT RAISE(ABORT, 'memory_cursor_transition_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_cursors_delete_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_cursors_delete_guard\nBEFORE DELETE ON memory_cursors\nBEGIN\n  SELECT RAISE(ABORT, 'memory_cursor_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_item_versions_fts_insert",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_item_versions_fts_insert\nAFTER INSERT ON memory_item_versions\nBEGIN\n  INSERT INTO memory_item_fts(rowid, text) VALUES (NEW.version_rowid, NEW.text);\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_episodes_fts_insert",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_episodes_fts_insert\nAFTER INSERT ON memory_episodes\nBEGIN\n  INSERT INTO memory_episode_fts(rowid, text) VALUES (NEW.episode_rowid, NEW.text);\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_history_chunks_fts_insert",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_history_chunks_fts_insert\nAFTER INSERT ON memory_history_chunks\nBEGIN\n  INSERT INTO memory_history_fts(rowid, text) VALUES (NEW.chunk_rowid, NEW.text);\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_history_chunks_fts_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0016_cloud_memory.sql",
+   "from": "CREATE TRIGGER memory_history_chunks_fts_delete\nAFTER DELETE ON memory_history_chunks\nBEGIN\n  INSERT INTO memory_history_fts(memory_history_fts, rowid, text)\n  VALUES ('delete', OLD.chunk_rowid, OLD.text);\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts"
+   ]
+  }
+ ]
+}
