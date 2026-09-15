@@ -16,15 +16,20 @@ ingestion depends on the deployed R0 gateway, not on PC control; its
 evidence-based weak-spot memory integrates with R2 as that interface lands.
 
 The plan cleared in merged PR #41, Classroom hourly ingestion merged in PR #43,
-and the first conversational school slice merged in PR #45 as `e0b5072`. The
-live bot can now maintain one evidence-labelled card per course, replan the
-daily recovery sequence, and put today's actions in the morning digest. Its
-additive `0020_school_catchup.sql` remains an unapplied candidate pending the
-owner-controlled migration steps. Next: a minimal program tracker with current
-official requirements and dates labelled verified or unverified. The
-Brightspace calendar feed remains a separate PR; none of these slices
-authorizes OAuth consent, a secret operation, migration, deployment, school
-contact or live account access.
+and the first conversational live-bot catch-up slice merged in PR #45 as
+`e0b5072`. The live bot can maintain one evidence-labelled card per course,
+replan the daily recovery sequence, and put today's actions in the morning
+digest. Its additive `0020_school_catchup.sql` remains an unapplied candidate
+pending the owner-controlled migration steps. PR #48 then merged as `1130694`
+with a bounded university program tracker in the same ordinary Telegram
+conversation: programs, requirements and dates are each labelled `verified` or
+`unverified`, and verified details retain their current official source and
+admission cycle. It also closes PR #45 follow-ups F1-F3. Its additive
+`0022_university_tracker.sql` remains an unapplied candidate; `0021` is reserved
+by the concurrent PR #46 work. Next: the Brightspace calendar feed in its own
+PR. None of these slices authorizes OAuth consent, a secret operation,
+migration, deployment, school or university contact, purchase, sign-up,
+submission or live account access.
 
 ## R2 cloud-memory runtime next
 
