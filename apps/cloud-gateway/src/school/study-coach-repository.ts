@@ -595,6 +595,10 @@ export class StudyCoachRepository {
         WHERE e.principal_id = ?3 AND e.status = 'active'
           AND e.outcome IN ('uncertain', 'wrong') AND e.practice_due_on <= ?1
           AND (e.last_prompted_on IS NULL OR e.last_prompted_on < e.practice_due_on)
+          AND NOT EXISTS (
+            SELECT 1 FROM school_study_evidence prompted
+            WHERE prompted.principal_id = ?3 AND prompted.last_prompted_on = ?1
+          )
           AND (e.evidence_kind != 'course_context' OR f.status = 'active')
         ORDER BY e.practice_due_on, CASE e.outcome WHEN 'wrong' THEN 0 ELSE 1 END,
           e.observed_at DESC, e.evidence_id LIMIT 1

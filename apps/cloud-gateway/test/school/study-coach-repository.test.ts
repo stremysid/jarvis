@@ -136,7 +136,8 @@ describe("StudyCoachRepository", () => {
       evidenceCount: 1, confidence: "low",
     });
     await expect(repository.claimDigestCheckIn({
-      principalId: item.principalId, today: TODAY, weekday: 1, minuteOfDay: 450, now: NOW,
+      principalId: item.principalId, today: TODAY, weekday: 1, minuteOfDay: 450,
+      now: new Date(NOW.getTime() + 3_000),
     })).resolves.toBeNull();
 
     const turnId = await addTurn(item.principalId, "stop checking in on weekends", 1_000);
@@ -152,6 +153,10 @@ describe("StudyCoachRepository", () => {
       topic: "equilibrium", outcome: "wrong", evidenceText: "I got equilibrium wrong in Chemistry",
       today: TODAY, now: new Date(NOW.getTime() + 2_000),
     });
+    await expect(repository.claimDigestCheckIn({
+      principalId: item.principalId, today: TODAY, weekday: 1, minuteOfDay: 450,
+      now: new Date(NOW.getTime() + 3_000),
+    })).resolves.toBeNull();
     await expect(repository.claimDigestCheckIn({
       principalId: item.principalId, today: TODAY, weekday: 6, minuteOfDay: 450, now: NOW,
     })).resolves.toBeNull();
