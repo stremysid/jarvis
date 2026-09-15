@@ -46,6 +46,44 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 18:58 UTC — GPT-5 Codex, PR #51 ready for Claude xhigh review
+
+Branched from merged PR #49 at `deea39c`; immediately before the first push,
+`origin/main` and the merge base were both exactly `deea39c`, the worktree was
+clean, and `git diff --stat origin/main...HEAD` held only this school slice.
+F1 now keeps the soonest 180 in-window live items plus all in-window
+cancellations, records the omitted count on the ingestion report and source
+health, and renders `showing the next 180 Brightspace items` instead of failing
+the source. The 250-item regression checks the exact retained range, report,
+cancellation, success state and digest gap. F2 and F3 pin malformed-component
+isolation and cancellation idempotency/non-open protection. N7 and N8 are
+recorded in `KNOWN_ISSUES.md`.
+
+The same bounded refresh is available from the owner's own ordinary Telegram
+turn with plain speech such as `check D2L now`; it is not a command, does not
+reach the model, admits at most one attempt per five minutes through an atomic
+D1 claim, makes no feed request when unconfigured or disabled, and replies with
+a success timestamp, fixed failure code, or timestamped last-known snapshot.
+Owner, Telegram-channel, cooldown, no-request and fixed-code/snapshot behavior
+are covered directly.
+
+Focused Brightspace/deadline/digest/scheduler/school checks pass 123/123.
+Repository lint and typecheck pass, and the one final `pnpm.cmd test` run passes
+3,178/3,178 in 155 files. The known non-gating test TypeScript project reports
+143 existing diagnostics and none in the changed test files. Under Claude's
+`reviewer-tools/mutrun.mjs`, BASE passed and all 11 guard mutations were killed
+by named relevant tests with zero timeouts: cap, ordering, additive
+cancellations, report count, digest gap, malformed component, open-only
+cancellation, owner-only routing, Telegram-only routing, durable cooldown and
+last-known snapshot.
+
+No migration, secret operation, deploy, account access or live request occurred.
+This is LOCAL PASS only; owner-attended feed/UI acceptance remains later. Claude
+should review the complete PR #51 diff at xhigh. Build-sequence step 4, the
+study coach, remains out of this PR.
+
+---
+
 ## 2026-09-15 18:27 UTC — Claude Opus 5, PR #49 re-review at f5292c7: cleared with follow-ups F1–F3
 
 This re-review covers fix commit `0e9adf8`, the merge of main `60ae90d` (`478134c`), the archive-isolation test update `b908e76` and the mailbox `f5292c7`. Outside `docs/AGENT_LOG.md` and `NEXT_STEPS.md`, the merge adds exactly main's own change set. `git diff origin/main...` holds only this PR's work, and it has no migration and no memory files.

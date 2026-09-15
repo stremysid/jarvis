@@ -28,11 +28,12 @@ admission cycle. It also closes PR #45 follow-ups F1-F3. Its additive
 `0022_university_tracker.sql` remains an unapplied candidate; `0021` is reserved
 by the concurrent PR #46 work. PR #49 merged as `deea39c` with the Brightspace
 private iCalendar feed in the existing hourly poll, deadline tables and morning
-digest, plus PR #43 follow-ups F1 and F2. The current small follow-up finishes
-build-sequence step 3 before the feed secret is set: bounded partial results,
-explicit parser/cancellation regressions, and a rate-limited owner-only plain-
-speech refresh path. No new migration is needed. After this PR is reviewed and
-merged, build-sequence step 4 (the study coach) is next. None of these slices
+digest, plus PR #43 follow-ups F1 and F2. Draft
+[PR #51](https://github.com/ksid1229-ops/jarvis/pull/51) finishes build-sequence
+step 3 before the feed secret is set: bounded partial results, explicit
+parser/cancellation regressions, and a rate-limited owner-only plain-speech
+refresh path. No new migration is needed. After this PR is reviewed and merged,
+build-sequence step 4 (the study coach) is next. None of these slices
 authorizes OAuth consent, a secret operation, migration, deployment, school or
 university contact, purchase, sign-up, submission or live account access.
 
