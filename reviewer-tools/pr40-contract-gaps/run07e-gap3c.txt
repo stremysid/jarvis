@@ -1,0 +1,2926 @@
+gap 3c at 07e1464, started 2026-09-15T01:43:57-04:00
+applied gap 3c: 2 edits in apps/cloud-gateway/src/voice/call-session-do.ts
+probe: C:/Users/Sid/jarvis-pr33-tests/tests/acceptance/fake/pr40-probe-gap3c.test.ts
+files: tests/acceptance/fake/voice-owner-passphrase-security.test.ts tests/acceptance/fake/voice-owner-call-step-up.test.ts apps/cloud-gateway/test/voice/call-session-do.test.ts tests/acceptance/fake/pr40-probe-gap3c.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr33-tests
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+ ✓ |default| tests/acceptance/fake/pr40-probe-gap3c.test.ts > PR40 probe gap 3c: success-path encodings > the admitted phrase persists as bytes, base64 SHA-256, uppercase and console.dir 1373ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > commits the exact success receipt before admitting an inbound owner 1433ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > pins the reviewed 2,048-word source and performs three independent unbiased draws with replacement 3ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > uses one fresh 16-bit CSPRNG sample per default draw and refuses out-of-range injected indexes 1ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > runs every shared ASCII canonicalization vector and rejects every noncanonical class 0ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > constructs and verifies the shared HMAC plus PBKDF2 known answer 820ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > binds the digest to both identity and monotonic version and clears supplied salt copies 615ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-passphrase verifier and Worker-side generation > fails closed on every versioned verifier field instead of accepting a nearby record 203ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps fixed speech outside the complete-candidate language: "Passphrase, please." 0ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps fixed speech outside the complete-candidate language: "Please try your passphrase again." 1ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps fixed speech outside the complete-candidate language: "Please say only your passphrase." 0ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps fixed speech outside the complete-candidate language: "Verified." 0ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps fixed speech outside the complete-candidate language: "Verification failed. Ending this call." 0ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps fixed speech outside the complete-candidate language: "Jarvis called for Sid. No private message was left." 0ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps an inbound owner in pre-auth with no authority, context, model, or owner command before a match 1078ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > commits the exact success receipt before admitting an outbound owner 1389ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps an outbound owner in pre-auth with no authority, context, model, or owner command before a match 961ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > writes every mismatch ordinal durably before rejecting the third candidate and ends with handoff data 1614ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > refuses a direct owner-authority write before the matching step-up success receipt 924ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > preserves mismatch ordinals across a Durable Object hibernation boundary 1764ms
+ × |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > requires a real successful verifier result and keeps every inbound candidate representation out of named sinks 1491ms
+   → expected 'dir\nheard\nablaze abrasion abrasive\…' not to contain 'ablaze abrasion abrasive'
+ × |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > requires a real successful verifier result and keeps every outbound candidate representation out of named sinks 1503ms
+   → expected 'dir\nheard\nablaze abrasion abrasive\…' not to contain 'ablaze abrasion abrasive'
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > does not carry a rejected call's three attempts into a later owner call 2015ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let inbound keypad code 4827 authenticate an owner 972ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > reserves one outbound-owner slot when two inbound owner relays are waiting in pre-auth 1061ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let inbound keypad code 0000 authenticate an owner 896ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > expires through the persisted 60-second alarm after hibernation 905ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let inbound keypad code 1357 authenticate an owner 902ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > restores the persisted deadline before accepting a post-hibernation fragment 978ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let inbound keypad code 9999 authenticate an owner 962ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > keeps the original deadline after an assembly alarm and rejects silence (hibernate=false) 999ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let outbound keypad code 4827 authenticate an owner 1001ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > keeps the original deadline after an assembly alarm and rejects silence (hibernate=true) 1099ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let outbound keypad code 0000 authenticate an owner 1128ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > retains the durable deadline alarm when the first handler attempt throws 985ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let outbound keypad code 1357 authenticate an owner 1024ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > retains the deadline when an evicted alarm cannot reconstruct its core 1021ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let outbound keypad code 9999 authenticate an owner 991ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > caps non-candidate assembly re-prompts durably without spending mismatch attempts 1074ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps exact Passed-A behind the phrase when policy is undefined 1010ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > treats "ablaze abrasion" as a non-candidate without spending a mismatch attempt 1011ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps exact Passed-A behind the phrase when policy is "" 1016ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > treats "please ablaze abrasion abrasive" as a non-candidate without spending a mismatch attempt 1051ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps exact Passed-A behind the phrase when policy is "passphrase_always" 1104ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > treats "ablaze abrasion 123" as a non-candidate without spending a mismatch attempt 1061ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps exact Passed-A behind the phrase when policy is "unknown_policy" 1026ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > treats "ablaze abrasion abrasive active" as a non-candidate without spending a mismatch attempt 1071ms
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > commits the durable attempt ordinal before starting the 600,000-round verifier 1262ms
+stdout | tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > measures both 600,000-round admission and repeat-suppression KDF paths
+owner_step_up_kdf_latency_evidence {"admissionMs":260,"repeatMs":254,"iterations":[600000,600000]}
+
+ ✓ |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > measures both 600,000-round admission and repeat-suppression KDF paths 1510ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > keeps the dormant waiver exact, explicit, and inbound-only 12557ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > refuses the Passed-A waiver when the current verifier is no longer active 1045ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > does not let the dormant caller-ID waiver authorize access management without a phrase 882ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > suppresses the first post-success phrase repeat before any transcript or model call 1550ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > rejects a structural authentication-budget lookalike at guest construction 462ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > moves an active owner from relay setup to active with zero PIN work 953ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > checks the active verifier before a Passed-A waiver reaches authority minting 1039ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > authenticates only the bound guest grant and rechecks it before conversation 1047ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > writes, admits, binds, PIN-activates, and rehydrates one target-owned scoped guest 1386ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > keeps pending guest activation atomic when the configured owner is invalidated after provider bind 1062ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > rehydrates an exact active owner authority after a core restart 916ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > rehydrates an exact active guest authority after a core restart 1048ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > fails an active restarted call closed at the exact provider-connected authority deadline 847ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > clears active authority and transient interaction state on terminal callback invalidation 1050ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > uses the policy-close fallback when a rejected step-up cannot send a clean end frame 1601ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > ignores a final arriving during KDF work instead of replacing the window alarm 1168ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > does not start a conversation turn when termination wins during authorization 996ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > reserves no budget for partial or cleared input and accepts strict final spoken digits 1146ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > discards a partial guest PIN across a core restart 1183ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > rejects the call after three complete bad guest candidates 1664ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > fails closed before a second guest PBKDF2 when the Task 4 budget is exhausted 1361ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > executes a recognized owner access draft only after explicit PIN selection and exact confirmation 1482ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > keeps ordinary confirm in conversation when no issued owner proposal is current 1232ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > invalidates an interrupted proposal and clears partial owner PIN input before a replacement 1501ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore owner and guest access > drops an issued owner proposal and partial PIN across a core restart 1197ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > rejects a structural access-authority lookalike before relay processing 938ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > rejects DTMF before setup without reserving authentication authority 825ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > activates a pending phone after only one separately budgeted signed challenge response 971ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > keeps an activation-only call isolated from conversation, memory, and the model 920ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > fails one wrong activation response once and never retries it inside the call 1027ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > fails before challenge confirmation when the real activation budget is exhausted 987ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > rejects a cross-session enrollment confirmation before activation authority is reserved 1022ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > ignores partial prompts without allocating a turn or reaching the model 823ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > streams only Task 5 sanitized tokens through its flat nominal voice delivery 919ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > blocks a late relay token when a turn ignores abort and emits after termination 824ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > blocks a late relay finish when a turn ignores abort and emits after termination 897ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > rejects an unsupported language or oversized final prompt before turn admission 911ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > aborts an in-progress Task 5 voice turn on provider interruption without assistant history 1007ms
+ × |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > assembles and suppresses a split post-success phrase repeat before any sink 1628ms
+   → expected 'type\ntext\ntoken\npassphrase, please…' not to contain 'ablaze'
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > rejects a concurrent final prompt while one model turn owns the session 950ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > passes a nonmatching first candidate-shaped final through as ordinary owner speech 1593ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > stops buffering short word-list replies after the bounded split-repeat window 1185ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > assembles split finals, discards fixed echoes, and clears partial fragments on interruption 1357ms
+ ✓ |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > uses clean ConversationRelay end plus callback Hangup after exactly three mismatches 1743ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > cancels an in-progress Task 5 turn and completes the call on normal socket close 1100ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > never promotes an already sent voice turn to delivered history on a later interrupt 917ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses capacity before allocating an id, writing a turn or requesting the model 903ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses a missing or malformed capacity port: undefined 780ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses a missing or malformed capacity port: null 812ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses a missing or malformed capacity port: {} 837ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses a missing or malformed capacity port: {"assertAcceptingNewTurn":true} 889ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > captures the capacity method and rechecks it for every final conversation turn 865ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > reserves the turn before collection so a second prompt cannot start another admission 1269ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > quietly cancels admission on interruption even if collection later fails: false 1005ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > quietly cancels admission on interruption even if collection later fails: true 959ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > admits the replacement prompt while the interrupted read remains pending, late failure: false 919ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > admits the replacement prompt while the interrupted read remains pending, late failure: true 1133ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > does not wait for a read when the socket closes synchronously as collection starts 1028ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses a collected turn after terminal termination 1025ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses a collected turn after socket termination 1022ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses a collected turn after provider termination 1031ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > reauthorizes the guest after collection so revocation during the read prevents a turn 1590ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > honors interruption during the fresh authorization after capacity succeeds 881ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > admits a replacement before the interrupted authorization returns 942ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > never starts an abort-ignoring model after interruption during durable context retrieval 706ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses a late token from a conversation that ignores interruption 872ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > refuses a late finish from a conversation that ignores interruption 787ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession capacity admission > keeps a completed response when interruption arrives while its durable receipt is settling 823ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > serves an owner through the default production runtime and reconstructs its authority after restart 945ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > shares the production guest proof issuer with the authority that admits a PIN-authenticated conversation 1204ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > blocks the next model request on credit exhausted through the actual production graph 1373ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > blocks the next model request on failed read through the actual production graph 824ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > blocks the next model request on stale report through the actual production graph 891ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > keeps the default relay closed without owner configuration CAPACITY_D1_BUDGET_BYTES 788ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > keeps the default relay closed without owner configuration CAPACITY_R2_BUDGET_BYTES 731ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > keeps the default relay closed without owner configuration CAPACITY_MODEL_ALLOCATION_USD 864ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > keeps the default relay closed without owner configuration CAPACITY_TWILIO_DAILY_BUDGET_USD 795ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > shares the production owner authority with confirmed access administration without calling the model 1392ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > shares the production activation observation issuer and configured key version with challenge confirmation 1189ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > keeps an explicit null runtime disabled even with complete production configuration 835ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > forwards the outbound pre-authentication contract into the production runtime 1896ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses missing account before runtime effects while keeping initialization available 891ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses wrong account type before runtime effects while keeping initialization available 810ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses missing model key before runtime effects while keeping initialization available 1249ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses whitespace model key before runtime effects while keeping initialization available 931ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses oversized model key before runtime effects while keeping initialization available 844ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses oversized model id before runtime effects while keeping initialization available 960ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses control in model id before runtime effects while keeping initialization available 784ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses missing bot token before runtime effects while keeping initialization available 753ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses oversized bot token before runtime effects while keeping initialization available 815ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses missing challenge version before runtime effects while keeping initialization available 816ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses oversized challenge version before runtime effects while keeping initialization available 805ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses control in challenge version before runtime effects while keeping initialization available 821ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses short GUEST_PIN_PEPPER_V1 before runtime effects while keeping initialization available 827ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses long GUEST_PIN_PEPPER_V1 before runtime effects while keeping initialization available 1008ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses noncanonical GUEST_PIN_PEPPER_V1 before runtime effects while keeping initialization available 831ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses whitespace GUEST_PIN_PEPPER_V1 before runtime effects while keeping initialization available 1017ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses short OWNER_PASSPHRASE_PEPPER_V1 before runtime effects while keeping initialization available 882ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses long OWNER_PASSPHRASE_PEPPER_V1 before runtime effects while keeping initialization available 888ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses noncanonical OWNER_PASSPHRASE_PEPPER_V1 before runtime effects while keeping initialization available 846ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses whitespace OWNER_PASSPHRASE_PEPPER_V1 before runtime effects while keeping initialization available 878ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses short AUTHENTICATION_BUDGET_PEPPER before runtime effects while keeping initialization available 783ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses long AUTHENTICATION_BUDGET_PEPPER before runtime effects while keeping initialization available 819ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses noncanonical AUTHENTICATION_BUDGET_PEPPER before runtime effects while keeping initialization available 1061ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses whitespace AUTHENTICATION_BUDGET_PEPPER before runtime effects while keeping initialization available 1295ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses short IDENTITY_CHALLENGE_HMAC_PEPPER before runtime effects while keeping initialization available 833ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses long IDENTITY_CHALLENGE_HMAC_PEPPER before runtime effects while keeping initialization available 809ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses noncanonical IDENTITY_CHALLENGE_HMAC_PEPPER before runtime effects while keeping initialization available 864ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses whitespace IDENTITY_CHALLENGE_HMAC_PEPPER before runtime effects while keeping initialization available 926ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > accepts the exact configured bounds and keeps the guest default optional 555ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > accepts the exact Task 7 initializer idempotently and rejects immutable drift 676ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > terminalizes through the exact idempotent callback RPC and rejects conflicting replay 1157ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > treats a provider-completed pre-authentication hangup as rejected and releases capacity 1103ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > fails closed before a tombstone when initialization does not exactly match the durable relay binding 1030ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > cleans up a live core already durably rejected and replays without double provider cleanup 1206ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > cleans up a live core already durably expired and replays without double provider cleanup 1103ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > keeps cleanup pending on provider failure, retries once, and never cleans twice after completion 1114ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > finishes a durable pending cleanup after object restart 1104ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > rejects a changed or structurally extended Task 7 pre-authentication contract 579ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > binds initialization to the named per-session object 587ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > retains immutable initialization across eviction and rejects drift after restart 565ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > upgrades only an initialized session and rejects a second live socket 695ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > survives object eviction before accepting the signed-upgrade handoff 573ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > closes a binary relay frame before runtime hydration 538ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > closes a UTF-8 oversized relay frame before runtime hydration 696ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > closes a invalid JSON relay frame before runtime hydration 587ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > parses a bounded valid frame then fails closed at the explicit Task 8 runtime seam 798ms
+ ✓ |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > preserves a core policy close without adding a second generic wrapper close 882ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > requires a real successful verifier result and keeps every inbound candidate representation out of named sinks
+AssertionError: expected 'dir\nheard\nablaze abrasion abrasive\…' not to contain 'ablaze abrasion abrasive'
+
+- Expected
++ Received
+
++ dir
++ heard
++ ablaze abrasion abrasive
++ type
++ text
++ token
++ passphrase, please.
++ last
++ true
++ type
++ text
++ token
++ verified.
++ last
++ true
++ call-session.initialization.v1
++ sessionid
++ 01m2hsg422qn722cw16mzhtez0
++ binding
++ callsid
++ ca00000000000000000000000000000065
++ principalid
++ principal:owner
++ identityid
++ identity:voice
++ destinationidentityid
++ identity:voice
++ relaynonce
++ ciqvrvmuy6ibfyjkcoujxr6rqjnq-_fskkivwgkgepw
++ direction
++ inbound
++ activationonly
++ false
++ activationchallengeid
++ accesskind
++ owner
++ guestgrantid
++ guestgrantversion
++ accessdocumenthash
++ relaysetupexpiresat
++ 2099-01-01t00:05:00.000z
++ call-session.pr40-success.v1
++ candidatebytes
++ ablaze abrasion abrasive
++ 61626c617a65206162726173696f6e206162726173697665
++ ywjsyxpligficmfzaw9uigficmfzaxzl
++ 97,98,108,97,122,101,32,97,98,114,97,115,105,111,110,32,97,98,114,97,115,105,118,101
++ digestbase64
++ 4aftd+/e3ix1ibybrspicy8oigphpyemrhhjurgwoxm=
++ uppercanonical
++ ablaze abrasion abrasive
++ b
++ ablaze abrasion abrasive
++ 61626c617a65206162726173696f6e206162726173697665
++ ywjsyxpligficmfzaw9uigficmfzaxzl
++ 97,98,108,97,122,101,32,97,98,114,97,115,105,111,110,32,97,98,114,97,115,105,118,101
++ table
++ archive_manifests
++ rows
++ table
++ archive_purge_receipts
++ rows
++ table
++ archive_segment_events
++ rows
++ table
++ archive_segments
++ rows
++ table
++ archive_state
++ rows
++ singleton
++ 1
++ sealed_through
++ 0
++ circuit_state
++ closed
++ circuit_reason
++ circuit_opened_at
++ updated_at
++ 1970-01-01t00:00:00.000z
++ table
++ authentication_attempt_reservations
++ rows
++ table
++ autonomy_evaluations
++ rows
++ table
++ autonomy_mode
++ rows
++ singleton
++ 1
++ mode
++ shadow
++ entered_at
++ 2026-09-02t00:00:00.000z
++ updated_at
++ 2026-09-02t00:00:00.000z
++ table
++ bootstrap_tokens
++ rows
++ table
++ call_session_authorities
++ rows
++ session_id
++ 01m2hsg422qn722cw16mzhtez0
++ authority_kind
++ owner
++ principal_id
++ principal:owner
++ identity_id
++ identity:voice
++ grant_id
++ grant_version
++ access_document_hash
++ authenticated_at
++ 2099-01-01t00:00:00.000z
++ expires_at
++ 2099-01-01t00:30:00.000z
++ table
++ call_sessions
++ rows
++ session_id
++ 01m2hsg422qn722cw16mzhtez0
++ call_sid
++ ca00000000000000000000000000000065
++ expected_attempt_id
++ principal_id
++ principal:owner
++ identity_id
++ identity:voice
++ destination_identity_id
++ identity:voice
++ direction
++ inbound
++ activation_only
++ 0
++ activation_challenge_id
++ activation_hmac_key_version
++ relay_nonce
++ ciqvrvmuy6ibfyjkcoujxr6rqjnq-_fskkivwgkgepw
++ nonce_expires_at
++ 2099-01-01t00:05:00.000z
++ relay_setup_expires_at
++ 2099-01-01t00:05:00.000z
++ provider_session_id
++ vx00000000000000000000000000000065
++ phase
++ active
++ created_at
++ 2099-01-01t00:00:00.000z
++ updated_at
++ 2099-01-01t00:00:00.000z
++ access_kind
++ owner
++ guest_grant_id
++ guest_grant_version
++ access_document_hash
++ provider_connected_at
++ 2099-01-01t00:00:00.000z
++ table
++ capability_tiers
++ rows
++ capability
++ notify.owner
++ tier
++ 1
++ description
++ send the owner a message on a channel they own
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ read.archive
++ tier
++ 1
++ description
++ search and read the raw archive
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ read.repository
++ tier
++ 1
++ description
++ poll a tracked repository's status documents
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ read.deadlines
++ tier
++ 1
++ description
++ read the deadline store
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ write.project_file
++ tier
++ 2
++ description
++ edit a file inside a designated project folder
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ write.calendar
++ tier
++ 2
++ description
++ create or move a calendar entry
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ open.application
++ tier
++ 2
++ description
++ launch a local application
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ vehicle.precondition
++ tier
++ 2
++ description
++ precondition or set vehicle climate
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ spend.money
++ tier
++ 3
++ description
++ any action that spends money
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ contact.third_party
++ tier
++ 3
++ description
++ communicate with anyone who is not the owner
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ delete.data
++ tier
++ 3
++ description
++ delete data anywhere
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ write.production
++ tier
++ 3
++ description
++ touch a live production system
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ vehicle.unlock
++ tier
++ 3
++ description
++ unlock or remote-start the vehicle
++ updated_at
++ 2026-09-02t00:00:00.000z
++ table
++ channel_identities
++ rows
++ identity_id
++ identity:voice
++ principal_id
++ principal:owner
++ channel
++ voice
++ provider_subject
++ +14165550123
++ status
++ active
++ verified_at
++ 2099-01-01t00:00:00.000z
++ created_at
++ 2099-01-01t00:00:00.000z
++ enrolled_by_device_id
++ table
++ component_liveness
++ rows
++ table
++ consumer_cursors
++ rows
++ table
++ conversation_deliveries
++ rows
++ table
++ conversation_turns
++ rows
++ table
++ d1_migrations
++ rows
++ id
++ 1
++ name
++ 0001_foundation.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 2
++ name
++ 0002_foundation_hardening.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 3
++ name
++ 0003_calling.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 4
++ name
++ 0004_call_sessions.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 5
++ name
++ 0005_conversation.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 6
++ name
++ 0006_voice_access.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 7
++ name
++ 0007_voice_access_boundaries.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 8
++ name
++ 0008_autonomy.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 9
++ name
++ 0009_decisions.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 10
++ name
++ 0010_projects.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 11
++ name
++ 0011_deadlines.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 12
++ name
++ 0012_liveness.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 13
++ name
++ 0013_scheduled_runs.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 14
++ name
++ 0014_memory_projection.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 15
++ name
++ 0017_owner_passphrase.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 16
++ name
++ 0018_owner_call_step_up.sql
++ applied_at
++ 2026-09-15 05:44:03
++ table
++ deadline_revisions
++ rows
++ table
++ deadline_sources
++ rows
++ table
++ deadlines
++ rows
++ table
++ decision_items
++ rows
++ table
++ decision_options
++ rows
++ table
++ decision_responses
++ rows
++ table
++ device_keys
++ rows
++ device_id
++ device:home
++ principal_id
++ principal:owner
++ key_id
++ key:home
++ public_key_base64
++ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=
++ key_fingerprint
++ 1111111111111111111111111111111111111111111111111111111111111111
++ key_generation
++ 1
++ algorithm
++ ed25519
++ status
++ active
++ device_label
++ home
++ bootstrap_metadata_hash
++ 2222222222222222222222222222222222222222222222222222222222222222
++ created_at
++ 2099-01-01t00:00:00.000z
++ revoked_at
++ table
++ events
++ rows
++ table
++ guest_call_pin_attempts
++ rows
++ table
++ idempotency_records
++ rows
++ table
++ identity_challenges
++ rows
++ table
++ liveness_alerts
++ rows
++ table
++ memory_fact_projection_abandoned
++ rows
++ table
++ memory_fact_projection_commits
++ rows
++ table
++ memory_fact_projection_facts
++ rows
++ table
++ memory_fact_projection_fts
++ rows
++ table
++ memory_fact_projection_fts_config
++ rows
++ k
++ version
++ v
++ 4
++ table
++ memory_fact_projection_fts_data
++ rows
++ id
++ 1
++ block
++ id
++ 10
++ block
++        
++ 00000000000000
++ aaaaaaaaaa==
++ 0,0,0,0,0,0,0
++ 0
++ 0
++ 0
++ 0
++ 0
++ 0
++ 0
++ table
++ memory_fact_projection_fts_docsize
++ rows
++ table
++ memory_fact_projection_fts_idx
++ rows
++ table
++ memory_fact_projection_heads
++ rows
++ table
++ memory_fact_projection_pages
++ rows
++ table
++ memory_fact_projection_versions
++ rows
++ table
++ outbound_call_attempts
++ rows
++ table
++ outbox
++ rows
++ table
++ owner_call_step_up_alerts
++ rows
++ table
++ owner_call_step_up_attempts
++ rows
++ session_id
++ 01m2hsg422qn722cw16mzhtez0
++ lifecycle_generation
++ 1
++ attempt_ordinal
++ 1
++ verifier_version
++ 1
++ attempted_at
++ 2099-01-01t00:00:00.000z
++ outcome
++ matched
++ resolved_at
++ 2099-01-01t00:00:00.000z
++ table
++ owner_call_step_up_bindings
++ rows
++ session_id
++ 01m2hsg422qn722cw16mzhtez0
++ call_sid
++ ca00000000000000000000000000000065
++ owner_principal_id
++ principal:owner
++ owner_identity_id
++ identity:voice
++ direction
++ inbound
++ lifecycle_generation
++ 1
++ requirement
++ required
++ attestation_class
++ absent
++ policy
++ passphrase_always
++ created_at
++ 2099-01-01t00:00:00.000z
++ table
++ owner_call_step_up_rejections
++ rows
++ table
++ owner_call_step_up_repeat_checks
++ rows
++ table
++ owner_call_step_up_reprompts
++ rows
++ table
++ owner_call_step_up_successes
++ rows
++ session_id
++ 01m2hsg422qn722cw16mzhtez0
++ lifecycle_generation
++ 1
++ call_sid
++ ca00000000000000000000000000000065
++ direction
++ inbound
++ owner_principal_id
++ principal:owner
++ owner_identity_id
++ identity:voice
++ verifier_version
++ 1
++ attempt_ordinal
++ 1
++ verified_at
++ 2099-01-01t00:00:00.000z
++ table
++ owner_call_step_up_windows
++ rows
++ session_id
++ 01m2hsg422qn722cw16mzhtez0
++ lifecycle_generation
++ 1
++ verifier_version
++ 1
++ prompted_at
++ 2099-01-01t00:00:00.000z
++ deadline_at
++ 2099-01-01t00:01:00.000z
++ table
++ owner_passphrase_disable_commits
++ rows
++ table
++ owner_passphrase_heads
++ rows
++ singleton_id
++ 1
++ owner_principal_id
++ principal:owner
++ owner_identity_id
++ identity:voice
++ verifier_version
++ 1
++ status
++ active
++ updated_at
++ 2099-01-01t00:00:00.000z
++ table
++ owner_passphrase_rotation_commits
++ rows
++ commit_id
++ 01m2ccccccccccccccccccc001
++ owner_principal_id
++ principal:owner
++ owner_identity_id
++ identity:voice
++ expected_verifier_version
++ new_verifier_version
++ 1
++ committed_at
++ 2099-01-01t00:00:00.000z
++ table
++ owner_passphrase_verifiers
++ rows
++ owner_principal_id
++ principal:owner
++ owner_identity_id
++ identity:voice
++ verifier_version
++ 1
++ algorithm
++ hmac-sha256-pepper+pbkdf2-hmac-sha256
++ domain_version
++ v1
++ word_list_version
++ eff-long-cmudict-2026-09-v2
++ pepper_version
++ v1
++ iterations
++ 600000
++ salt
++ 
++ 07070707070707070707070707070707
++ bwchbwchbwchbwchbwchbw==
++ 7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ digest
++ �,�jl�[vr��@v���ݼ��]�kf!\�4%
++ 9a2c12a54a6cb45b7672b89740768ba5deddbce4d15de90e6b66215ca6183425
++ miwspupstft2crixqhalpd7dvotrxekoa2yhxkyyncu=
++ 154,44,18,165,74,108,180,91,118,114,184,151,64,118,139,165,222,221,188,228,209,93,233,14,107,102,33,92,166,24,52,37
++ 154
++ 44
++ 18
++ 165
++ 74
++ 108
++ 180
++ 91
++ 118
++ 114
++ 184
++ 151
++ 64
++ 118
++ 139
++ 165
++ 222
++ 221
++ 188
++ 228
++ 209
++ 93
++ 233
++ 14
++ 107
++ 102
++ 33
++ 92
++ 166
++ 24
++ 52
++ 37
++ status
++ active
++ created_by_device_id
++ device:home
++ created_by_key_id
++ key:home
++ created_by_key_fingerprint
++ 1111111111111111111111111111111111111111111111111111111111111111
++ created_by_key_generation
++ 1
++ created_at
++ 2099-01-01t00:00:00.000z
++ status_changed_at
++ 2099-01-01t00:00:00.000z
++ table
++ policy_decisions
++ rows
++ decision_id
++ 01k3s6k8000000000000000000
++ principal_id
++ principal:owner
++ event_sequence
++ policy_version
++ v1
++ input_hash
++ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
++ outcome
++ allow
++ reason_code
++ allowed
++ decided_at
++ 2099-01-01t00:00:00.000z
++ table
++ pr40_success_blob
++ rows
++ b
+  ablaze abrasion abrasive
++ 61626c617a65206162726173696f6e206162726173697665
++ ywjsyxpligficmfzaw9uigficmfzaxzl
++ 97,98,108,97,122,101,32,97,98,114,97,115,105,111,110,32,97,98,114,97,115,105,118,101
++ 97
++ 98
++ 108
++ 97
++ 122
++ 101
++ 32
++ 97
++ 98
++ 114
++ 97
++ 115
++ 105
++ 111
++ 110
++ 32
++ 97
++ 98
++ 114
++ 97
++ 115
++ 105
++ 118
++ 101
++ table
++ principals
++ rows
++ principal_id
++ principal:owner
++ principal_type
++ human
++ status
++ active
++ display_name
++ owner
++ created_at
++ 2099-01-01t00:00:00.000z
++ updated_at
++ 2099-01-01t00:00:00.000z
++ table
++ project_documents
++ rows
++ table
++ project_observations
++ rows
++ table
++ provider_events
++ rows
++ table
++ quiet_windows
++ rows
++ table
++ request_nonces
++ rows
++ table
++ scheduled_runs
++ rows
++ table
++ sync_ack_receipts
++ rows
++ table
++ sync_snapshots
++ rows
++ table
++ tracked_projects
++ rows
++ table
++ voice_access_grant_events
++ rows
++ table
++ voice_access_grants
++ rows
++ table
++ voice_owner_identity
++ rows
++ singleton_id
++ 1
++ principal_id
++ principal:owner
++ identity_id
++ identity:voice
++ created_at
++ 2099-01-01t00:00:00.000z
+
+ ❯ tests/acceptance/fake/voice-owner-passphrase-security.test.ts:404:33
+    402|           ...digests,
+    403|           ...FAKE_OWNER_PASSPHRASE.split(" "),
+    404|         ]) expect(surfaces).not.toContain(secret.toLowerCase());
+       |                                 ^
+    405|       } finally {
+    406|         for (const spy of spies) spy.mockRestore();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > requires a real successful verifier result and keeps every outbound candidate representation out of named sinks
+AssertionError: expected 'dir\nheard\nablaze abrasion abrasive\…' not to contain 'ablaze abrasion abrasive'
+
+- Expected
++ Received
+
++ dir
++ heard
++ ablaze abrasion abrasive
++ type
++ text
++ token
++ jarvis called for sid. no private message was left.
++ last
++ true
++ type
++ text
++ token
++ passphrase, please.
++ last
++ true
++ type
++ text
++ token
++ verified.
++ last
++ true
++ call-session.initialization.v1
++ sessionid
++ 01k3s6k8000000000000000001
++ binding
++ callsid
++ ca00000000000000000000000000000001
++ principalid
++ principal:owner
++ identityid
++ identity:voice
++ destinationidentityid
++ identity:voice
++ relaynonce
++ tnvku2olg1dolf1qln-acdcd1ydqhso__btkwgcrl1w
++ direction
++ outbound
++ activationonly
++ false
++ activationchallengeid
++ accesskind
++ owner
++ guestgrantid
++ guestgrantversion
++ accessdocumenthash
++ relaysetupexpiresat
++ preauthentication
++ voicemailmessage
++ jarvis called for sid. no private message was left.
++ call-session.pr40-success.v1
++ candidatebytes
+  ablaze abrasion abrasive
++ 61626c617a65206162726173696f6e206162726173697665
++ ywjsyxpligficmfzaw9uigficmfzaxzl
++ 97,98,108,97,122,101,32,97,98,114,97,115,105,111,110,32,97,98,114,97,115,105,118,101
++ digestbase64
++ 4aftd+/e3ix1ibybrspicy8oigphpyemrhhjurgwoxm=
++ uppercanonical
++ ablaze abrasion abrasive
++ b
++ ablaze abrasion abrasive
++ 61626c617a65206162726173696f6e206162726173697665
++ ywjsyxpligficmfzaw9uigficmfzaxzl
++ 97,98,108,97,122,101,32,97,98,114,97,115,105,111,110,32,97,98,114,97,115,105,118,101
++ table
++ archive_manifests
++ rows
++ table
++ archive_purge_receipts
++ rows
++ table
++ archive_segment_events
++ rows
++ table
++ archive_segments
++ rows
++ table
++ archive_state
++ rows
++ singleton
++ 1
++ sealed_through
++ 0
++ circuit_state
++ closed
++ circuit_reason
++ circuit_opened_at
++ updated_at
++ 1970-01-01t00:00:00.000z
++ table
++ authentication_attempt_reservations
++ rows
++ table
++ autonomy_evaluations
++ rows
++ table
++ autonomy_mode
++ rows
++ singleton
++ 1
++ mode
++ shadow
++ entered_at
++ 2026-09-02t00:00:00.000z
++ updated_at
++ 2026-09-02t00:00:00.000z
++ table
++ bootstrap_tokens
++ rows
++ table
++ call_session_authorities
++ rows
++ session_id
++ 01k3s6k8000000000000000001
++ authority_kind
++ owner
++ principal_id
++ principal:owner
++ identity_id
++ identity:voice
++ grant_id
++ grant_version
++ access_document_hash
++ authenticated_at
++ 2099-01-01t00:00:00.000z
++ expires_at
++ 2099-01-01t00:30:00.000z
++ table
++ call_sessions
++ rows
++ session_id
++ 01k3s6k8000000000000000001
++ call_sid
++ ca00000000000000000000000000000001
++ expected_attempt_id
++ 01k3s6k8000000000000000001
++ principal_id
++ principal:owner
++ identity_id
++ identity:voice
++ destination_identity_id
++ identity:voice
++ direction
++ outbound
++ activation_only
++ 0
++ activation_challenge_id
++ activation_hmac_key_version
++ relay_nonce
++ tnvku2olg1dolf1qln-acdcd1ydqhso__btkwgcrl1w
++ nonce_expires_at
++ 2099-01-01t00:05:00.000z
++ relay_setup_expires_at
++ provider_session_id
++ vx00000000000000000000000000000065
++ phase
++ active
++ created_at
++ 2099-01-01t00:00:00.000z
++ updated_at
++ 2099-01-01t00:00:00.000z
++ access_kind
++ owner
++ guest_grant_id
++ guest_grant_version
++ access_document_hash
++ provider_connected_at
++ 2099-01-01t00:00:00.000z
++ table
++ capability_tiers
++ rows
++ capability
++ notify.owner
++ tier
++ 1
++ description
++ send the owner a message on a channel they own
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ read.archive
++ tier
++ 1
++ description
++ search and read the raw archive
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ read.repository
++ tier
++ 1
++ description
++ poll a tracked repository's status documents
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ read.deadlines
++ tier
++ 1
++ description
++ read the deadline store
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ write.project_file
++ tier
++ 2
++ description
++ edit a file inside a designated project folder
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ write.calendar
++ tier
++ 2
++ description
++ create or move a calendar entry
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ open.application
++ tier
++ 2
++ description
++ launch a local application
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ vehicle.precondition
++ tier
++ 2
++ description
++ precondition or set vehicle climate
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ spend.money
++ tier
++ 3
++ description
++ any action that spends money
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ contact.third_party
++ tier
++ 3
++ description
++ communicate with anyone who is not the owner
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ delete.data
++ tier
++ 3
++ description
++ delete data anywhere
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ write.production
++ tier
++ 3
++ description
++ touch a live production system
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ vehicle.unlock
++ tier
++ 3
++ description
++ unlock or remote-start the vehicle
++ updated_at
++ 2026-09-02t00:00:00.000z
++ table
++ channel_identities
++ rows
++ identity_id
++ identity:voice
++ principal_id
++ principal:owner
++ channel
++ voice
++ provider_subject
++ +14165550123
++ status
++ active
++ verified_at
++ 2099-01-01t00:00:00.000z
++ created_at
++ 2099-01-01t00:00:00.000z
++ enrolled_by_device_id
++ table
++ component_liveness
++ rows
++ table
++ consumer_cursors
++ rows
++ table
++ conversation_deliveries
++ rows
++ table
++ conversation_turns
++ rows
++ table
++ d1_migrations
++ rows
++ id
++ 1
++ name
++ 0001_foundation.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 2
++ name
++ 0002_foundation_hardening.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 3
++ name
++ 0003_calling.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 4
++ name
++ 0004_call_sessions.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 5
++ name
++ 0005_conversation.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 6
++ name
++ 0006_voice_access.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 7
++ name
++ 0007_voice_access_boundaries.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 8
++ name
++ 0008_autonomy.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 9
++ name
++ 0009_decisions.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 10
++ name
++ 0010_projects.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 11
++ name
++ 0011_deadlines.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 12
++ name
++ 0012_liveness.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 13
++ name
++ 0013_scheduled_runs.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 14
++ name
++ 0014_memory_projection.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 15
++ name
++ 0017_owner_passphrase.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 16
++ name
++ 0018_owner_call_step_up.sql
++ applied_at
++ 2026-09-15 05:44:03
++ table
++ deadline_revisions
++ rows
++ table
++ deadline_sources
++ rows
++ table
++ deadlines
++ rows
++ table
++ decision_items
++ rows
++ table
++ decision_options
++ rows
++ table
++ decision_responses
++ rows
++ table
++ device_keys
++ rows
++ device_id
++ device:home
++ principal_id
++ principal:owner
++ key_id
++ key:home
++ public_key_base64
++ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=
++ key_fingerprint
++ 1111111111111111111111111111111111111111111111111111111111111111
++ key_generation
++ 1
++ algorithm
++ ed25519
++ status
++ active
++ device_label
++ home
++ bootstrap_metadata_hash
++ 2222222222222222222222222222222222222222222222222222222222222222
++ created_at
++ 2099-01-01t00:00:00.000z
++ revoked_at
++ table
++ events
++ rows
++ table
++ guest_call_pin_attempts
++ rows
++ table
++ idempotency_records
++ rows
++ table
++ identity_challenges
++ rows
++ table
++ liveness_alerts
++ rows
++ table
++ memory_fact_projection_abandoned
++ rows
++ table
++ memory_fact_projection_commits
++ rows
++ table
++ memory_fact_projection_facts
++ rows
++ table
++ memory_fact_projection_fts
++ rows
++ table
++ memory_fact_projection_fts_config
++ rows
++ k
++ version
++ v
++ 4
++ table
++ memory_fact_projection_fts_data
++ rows
++ id
++ 1
++ block
++ id
++ 10
++ block
++        
++ 00000000000000
++ aaaaaaaaaa==
++ 0,0,0,0,0,0,0
++ 0
++ 0
++ 0
++ 0
++ 0
++ 0
++ 0
++ table
++ memory_fact_projection_fts_docsize
++ rows
++ table
++ memory_fact_projection_fts_idx
++ rows
++ table
++ memory_fact_projection_heads
++ rows
++ table
++ memory_fact_projection_pages
++ rows
++ table
++ memory_fact_projection_versions
++ rows
++ table
++ outbound_call_attempts
++ rows
++ attempt_id
++ 01k3s6k8000000000000000001
++ command_id
++ 01k3s6k8000000000000000000
++ attempt_ordinal
++ 0
++ principal_id
++ principal:owner
++ destination_identity_id
++ identity:voice
++ command_idempotency_key
++ call:fake-acceptance
++ relay_nonce
++ tnvku2olg1dolf1qln-acdcd1ydqhso__btkwgcrl1w
++ nonce_expires_at
++ 2099-01-01t00:05:00.000z
++ authorization_expires_at
++ 2099-01-01t00:10:00.000z
++ provider_dispatch_state
++ dispatched
++ provider_dispatch_claimed_at
++ 2099-01-01t00:00:00.000z
++ provider_dispatch_resolved_at
++ 2099-01-01t00:00:00.000z
++ provider_failure_code
++ provider_failure_category
++ provider_call_sid
++ ca00000000000000000000000000000001
++ relay_call_sid
++ ca00000000000000000000000000000001
++ relay_claimed_at
++ 2099-01-01t00:00:00.000z
++ retry_eligible
++ 0
++ created_at
++ 2099-01-01t00:00:00.000z
++ table
++ outbox
++ rows
++ table
++ owner_call_step_up_alerts
++ rows
++ table
++ owner_call_step_up_attempts
++ rows
++ session_id
++ 01k3s6k8000000000000000001
++ lifecycle_generation
++ 1
++ attempt_ordinal
++ 1
++ verifier_version
++ 1
++ attempted_at
++ 2099-01-01t00:00:00.000z
++ outcome
++ matched
++ resolved_at
++ 2099-01-01t00:00:00.000z
++ table
++ owner_call_step_up_bindings
++ rows
++ session_id
++ 01k3s6k8000000000000000001
++ call_sid
++ ca00000000000000000000000000000001
++ owner_principal_id
++ principal:owner
++ owner_identity_id
++ identity:voice
++ direction
++ outbound
++ lifecycle_generation
++ 1
++ requirement
++ required
++ attestation_class
++ not_applicable
++ policy
++ passphrase_always
++ created_at
++ 2099-01-01t00:00:00.000z
++ table
++ owner_call_step_up_rejections
++ rows
++ table
++ owner_call_step_up_repeat_checks
++ rows
++ table
++ owner_call_step_up_reprompts
++ rows
++ table
++ owner_call_step_up_successes
++ rows
++ session_id
++ 01k3s6k8000000000000000001
++ lifecycle_generation
++ 1
++ call_sid
++ ca00000000000000000000000000000001
++ direction
++ outbound
++ owner_principal_id
++ principal:owner
++ owner_identity_id
++ identity:voice
++ verifier_version
++ 1
++ attempt_ordinal
++ 1
++ verified_at
++ 2099-01-01t00:00:00.000z
++ table
++ owner_call_step_up_windows
++ rows
++ session_id
++ 01k3s6k8000000000000000001
++ lifecycle_generation
++ 1
++ verifier_version
++ 1
++ prompted_at
++ 2099-01-01t00:00:00.000z
++ deadline_at
++ 2099-01-01t00:01:00.000z
++ table
++ owner_passphrase_disable_commits
++ rows
++ table
++ owner_passphrase_heads
++ rows
++ singleton_id
++ 1
++ owner_principal_id
++ principal:owner
++ owner_identity_id
++ identity:voice
++ verifier_version
++ 1
++ status
++ active
++ updated_at
++ 2099-01-01t00:00:00.000z
++ table
++ owner_passphrase_rotation_commits
++ rows
++ commit_id
++ 01m2ccccccccccccccccccc001
++ owner_principal_id
++ principal:owner
++ owner_identity_id
++ identity:voice
++ expected_verifier_version
++ new_verifier_version
++ 1
++ committed_at
++ 2099-01-01t00:00:00.000z
++ table
++ owner_passphrase_verifiers
++ rows
++ owner_principal_id
++ principal:owner
++ owner_identity_id
++ identity:voice
++ verifier_version
++ 1
++ algorithm
++ hmac-sha256-pepper+pbkdf2-hmac-sha256
++ domain_version
++ v1
++ word_list_version
++ eff-long-cmudict-2026-09-v2
++ pepper_version
++ v1
++ iterations
++ 600000
++ salt
++ 
++ 07070707070707070707070707070707
++ bwchbwchbwchbwchbwchbw==
++ 7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ digest
++ �,�jl�[vr��@v���ݼ��]�kf!\�4%
++ 9a2c12a54a6cb45b7672b89740768ba5deddbce4d15de90e6b66215ca6183425
++ miwspupstft2crixqhalpd7dvotrxekoa2yhxkyyncu=
++ 154,44,18,165,74,108,180,91,118,114,184,151,64,118,139,165,222,221,188,228,209,93,233,14,107,102,33,92,166,24,52,37
++ 154
++ 44
++ 18
++ 165
++ 74
++ 108
++ 180
++ 91
++ 118
++ 114
++ 184
++ 151
++ 64
++ 118
++ 139
++ 165
++ 222
++ 221
++ 188
++ 228
++ 209
++ 93
++ 233
++ 14
++ 107
++ 102
++ 33
++ 92
++ 166
++ 24
++ 52
++ 37
++ status
++ active
++ created_by_device_id
++ device:home
++ created_by_key_id
++ key:home
++ created_by_key_fingerprint
++ 1111111111111111111111111111111111111111111111111111111111111111
++ created_by_key_generation
++ 1
++ created_at
++ 2099-01-01t00:00:00.000z
++ status_changed_at
++ 2099-01-01t00:00:00.000z
++ table
++ policy_decisions
++ rows
++ decision_id
++ 01k3s6k8000000000000000000
++ principal_id
++ principal:owner
++ event_sequence
++ policy_version
++ v1
++ input_hash
++ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
++ outcome
++ allow
++ reason_code
++ allowed
++ decided_at
++ 2099-01-01t00:00:00.000z
++ table
++ pr40_success_blob
++ rows
++ b
++ ablaze abrasion abrasive
++ 61626c617a65206162726173696f6e206162726173697665
++ ywjsyxpligficmfzaw9uigficmfzaxzl
++ 97,98,108,97,122,101,32,97,98,114,97,115,105,111,110,32,97,98,114,97,115,105,118,101
++ 97
++ 98
++ 108
++ 97
++ 122
++ 101
++ 32
++ 97
++ 98
++ 114
++ 97
++ 115
++ 105
++ 111
++ 110
++ 32
++ 97
++ 98
++ 114
++ 97
++ 115
++ 105
++ 118
++ 101
++ b
++ ablaze abrasion abrasive
++ 61626c617a65206162726173696f6e206162726173697665
++ ywjsyxpligficmfzaw9uigficmfzaxzl
++ 97,98,108,97,122,101,32,97,98,114,97,115,105,111,110,32,97,98,114,97,115,105,118,101
++ 97
++ 98
++ 108
++ 97
++ 122
++ 101
++ 32
++ 97
++ 98
++ 114
++ 97
++ 115
++ 105
++ 111
++ 110
++ 32
++ 97
++ 98
++ 114
++ 97
++ 115
++ 105
++ 118
++ 101
++ table
++ principals
++ rows
++ principal_id
++ principal:owner
++ principal_type
++ human
++ status
++ active
++ display_name
++ owner
++ created_at
++ 2099-01-01t00:00:00.000z
++ updated_at
++ 2099-01-01t00:00:00.000z
++ table
++ project_documents
++ rows
++ table
++ project_observations
++ rows
++ table
++ provider_events
++ rows
++ table
++ quiet_windows
++ rows
++ table
++ request_nonces
++ rows
++ table
++ scheduled_runs
++ rows
++ table
++ sync_ack_receipts
++ rows
++ table
++ sync_snapshots
++ rows
++ table
++ tracked_projects
++ rows
++ table
++ voice_access_grant_events
++ rows
++ table
++ voice_access_grants
++ rows
++ table
++ voice_owner_identity
++ rows
++ singleton_id
++ 1
++ principal_id
++ principal:owner
++ identity_id
++ identity:voice
++ created_at
++ 2099-01-01t00:00:00.000z
+
+ ❯ tests/acceptance/fake/voice-owner-passphrase-security.test.ts:404:33
+    402|           ...digests,
+    403|           ...FAKE_OWNER_PASSPHRASE.split(" "),
+    404|         ]) expect(surfaces).not.toContain(secret.toLowerCase());
+       |                                 ^
+    405|       } finally {
+    406|         for (const spy of spies) spy.mockRestore();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > assembles and suppresses a split post-success phrase repeat before any sink
+AssertionError: expected 'type\ntext\ntoken\npassphrase, please…' not to contain 'ablaze'
+
+- Expected
++ Received
+
+- ablaze
++ type
++ text
++ token
++ passphrase, please.
++ last
++ true
++ type
++ text
++ token
++ verified.
++ last
++ true
++ call-session.initialization.v1
++ sessionid
++ 01m2hsh2d5bhh5k9t29vfjspae
++ binding
++ callsid
++ ca00000000000000000000000000000065
++ principalid
++ principal:owner
++ identityid
++ identity:voice
++ destinationidentityid
++ identity:voice
++ relaynonce
++ owy6xyl3lpd3zmivgocw45qvyvfxqymyq6a1rs6bh1m
++ direction
++ inbound
++ activationonly
++ false
++ activationchallengeid
++ accesskind
++ owner
++ guestgrantid
++ guestgrantversion
++ accessdocumenthash
++ relaysetupexpiresat
++ 2099-01-01t00:05:00.000z
++ call-session.pr40-success.v1
++ candidatebytes
++ ablaze abrasion abrasive
++ 61626c617a65206162726173696f6e206162726173697665
++ ywjsyxpligficmfzaw9uigficmfzaxzl
++ 97,98,108,97,122,101,32,97,98,114,97,115,105,111,110,32,97,98,114,97,115,105,118,101
++ digestbase64
++ 4aftd+/e3ix1ibybrspicy8oigphpyemrhhjurgwoxm=
++ uppercanonical
++ ablaze abrasion abrasive
++ b
++ ablaze abrasion abrasive
++ 61626c617a65206162726173696f6e206162726173697665
++ ywjsyxpligficmfzaw9uigficmfzaxzl
++ 97,98,108,97,122,101,32,97,98,114,97,115,105,111,110,32,97,98,114,97,115,105,118,101
++ table
++ archive_manifests
++ rows
++ table
++ archive_purge_receipts
++ rows
++ table
++ archive_segment_events
++ rows
++ table
++ archive_segments
++ rows
++ table
++ archive_state
++ rows
++ singleton
++ 1
++ sealed_through
++ 0
++ circuit_state
++ closed
++ circuit_reason
++ circuit_opened_at
++ updated_at
++ 1970-01-01t00:00:00.000z
++ table
++ authentication_attempt_reservations
++ rows
++ table
++ autonomy_evaluations
++ rows
++ table
++ autonomy_mode
++ rows
++ singleton
++ 1
++ mode
++ shadow
++ entered_at
++ 2026-09-02t00:00:00.000z
++ updated_at
++ 2026-09-02t00:00:00.000z
++ table
++ bootstrap_tokens
++ rows
++ table
++ call_session_authorities
++ rows
++ session_id
++ 01m2hsh2d5bhh5k9t29vfjspae
++ authority_kind
++ owner
++ principal_id
++ principal:owner
++ identity_id
++ identity:voice
++ grant_id
++ grant_version
++ access_document_hash
++ authenticated_at
++ 2099-01-01t00:00:00.000z
++ expires_at
++ 2099-01-01t00:30:00.000z
++ table
++ call_sessions
++ rows
++ session_id
++ 01m2hsh2d5bhh5k9t29vfjspae
++ call_sid
++ ca00000000000000000000000000000065
++ expected_attempt_id
++ principal_id
++ principal:owner
++ identity_id
++ identity:voice
++ destination_identity_id
++ identity:voice
++ direction
++ inbound
++ activation_only
++ 0
++ activation_challenge_id
++ activation_hmac_key_version
++ relay_nonce
++ owy6xyl3lpd3zmivgocw45qvyvfxqymyq6a1rs6bh1m
++ nonce_expires_at
++ 2099-01-01t00:05:00.000z
++ relay_setup_expires_at
++ 2099-01-01t00:05:00.000z
++ provider_session_id
++ vx00000000000000000000000000000065
++ phase
++ active
++ created_at
++ 2099-01-01t00:00:00.000z
++ updated_at
++ 2099-01-01t00:00:00.000z
++ access_kind
++ owner
++ guest_grant_id
++ guest_grant_version
++ access_document_hash
++ provider_connected_at
++ 2099-01-01t00:00:00.000z
++ table
++ capability_tiers
++ rows
++ capability
++ notify.owner
++ tier
++ 1
++ description
++ send the owner a message on a channel they own
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ read.archive
++ tier
++ 1
++ description
++ search and read the raw archive
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ read.repository
++ tier
++ 1
++ description
++ poll a tracked repository's status documents
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ read.deadlines
++ tier
++ 1
++ description
++ read the deadline store
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ write.project_file
++ tier
++ 2
++ description
++ edit a file inside a designated project folder
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ write.calendar
++ tier
++ 2
++ description
++ create or move a calendar entry
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ open.application
++ tier
++ 2
++ description
++ launch a local application
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ vehicle.precondition
++ tier
++ 2
++ description
++ precondition or set vehicle climate
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ spend.money
++ tier
++ 3
++ description
++ any action that spends money
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ contact.third_party
++ tier
++ 3
++ description
++ communicate with anyone who is not the owner
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ delete.data
++ tier
++ 3
++ description
++ delete data anywhere
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ write.production
++ tier
++ 3
++ description
++ touch a live production system
++ updated_at
++ 2026-09-02t00:00:00.000z
++ capability
++ vehicle.unlock
++ tier
++ 3
++ description
++ unlock or remote-start the vehicle
++ updated_at
++ 2026-09-02t00:00:00.000z
++ table
++ channel_identities
++ rows
++ identity_id
++ identity:voice
++ principal_id
++ principal:owner
++ channel
++ voice
++ provider_subject
++ +14165550123
++ status
++ active
++ verified_at
++ 2099-01-01t00:00:00.000z
++ created_at
++ 2099-01-01t00:00:00.000z
++ enrolled_by_device_id
++ table
++ component_liveness
++ rows
++ table
++ consumer_cursors
++ rows
++ table
++ conversation_deliveries
++ rows
++ table
++ conversation_turns
++ rows
++ table
++ d1_migrations
++ rows
++ id
++ 1
++ name
++ 0001_foundation.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 2
++ name
++ 0002_foundation_hardening.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 3
++ name
++ 0003_calling.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 4
++ name
++ 0004_call_sessions.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 5
++ name
++ 0005_conversation.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 6
++ name
++ 0006_voice_access.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 7
++ name
++ 0007_voice_access_boundaries.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 8
++ name
++ 0008_autonomy.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 9
++ name
++ 0009_decisions.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 10
++ name
++ 0010_projects.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 11
++ name
++ 0011_deadlines.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 12
++ name
++ 0012_liveness.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 13
++ name
++ 0013_scheduled_runs.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 14
++ name
++ 0014_memory_projection.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 15
++ name
++ 0017_owner_passphrase.sql
++ applied_at
++ 2026-09-15 05:44:03
++ id
++ 16
++ name
++ 0018_owner_call_step_up.sql
++ applied_at
++ 2026-09-15 05:44:03
++ table
++ deadline_revisions
++ rows
++ table
++ deadline_sources
++ rows
++ table
++ deadlines
++ rows
++ table
++ decision_items
++ rows
++ table
++ decision_options
++ rows
++ table
++ decision_responses
++ rows
++ table
++ device_keys
++ rows
++ device_id
++ device:home
++ principal_id
++ principal:owner
++ key_id
++ key:home
++ public_key_base64
++ aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=
++ key_fingerprint
++ 1111111111111111111111111111111111111111111111111111111111111111
++ key_generation
++ 1
++ algorithm
++ ed25519
++ status
++ active
++ device_label
++ home
++ bootstrap_metadata_hash
++ 2222222222222222222222222222222222222222222222222222222222222222
++ created_at
++ 2099-01-01t00:00:00.000z
++ revoked_at
++ table
++ events
++ rows
++ table
++ guest_call_pin_attempts
++ rows
++ table
++ idempotency_records
++ rows
++ table
++ identity_challenges
++ rows
++ table
++ liveness_alerts
++ rows
++ table
++ memory_fact_projection_abandoned
++ rows
++ table
++ memory_fact_projection_commits
++ rows
++ table
++ memory_fact_projection_facts
++ rows
++ table
++ memory_fact_projection_fts
++ rows
++ table
++ memory_fact_projection_fts_config
++ rows
++ k
++ version
++ v
++ 4
++ table
++ memory_fact_projection_fts_data
++ rows
++ id
++ 1
++ block
++ id
++ 10
++ block
++        
++ 00000000000000
++ aaaaaaaaaa==
++ 0,0,0,0,0,0,0
++ 0
++ 0
++ 0
++ 0
++ 0
++ 0
++ 0
++ table
++ memory_fact_projection_fts_docsize
++ rows
++ table
++ memory_fact_projection_fts_idx
++ rows
++ table
++ memory_fact_projection_heads
++ rows
++ table
++ memory_fact_projection_pages
++ rows
++ table
++ memory_fact_projection_versions
++ rows
++ table
++ outbound_call_attempts
++ rows
++ table
++ outbox
++ rows
++ table
++ owner_call_step_up_alerts
++ rows
++ table
++ owner_call_step_up_attempts
++ rows
++ session_id
++ 01m2hsh2d5bhh5k9t29vfjspae
++ lifecycle_generation
++ 1
++ attempt_ordinal
++ 1
++ verifier_version
++ 1
++ attempted_at
++ 2099-01-01t00:00:00.000z
++ outcome
++ matched
++ resolved_at
++ 2099-01-01t00:00:00.000z
++ table
++ owner_call_step_up_bindings
++ rows
++ session_id
++ 01m2hsh2d5bhh5k9t29vfjspae
++ call_sid
++ ca00000000000000000000000000000065
++ owner_principal_id
++ principal:owner
++ owner_identity_id
++ identity:voice
++ direction
++ inbound
++ lifecycle_generation
++ 1
++ requirement
++ required
++ attestation_class
++ absent
++ policy
++ passphrase_always
++ created_at
++ 2099-01-01t00:00:00.000z
++ table
++ owner_call_step_up_rejections
++ rows
++ table
++ owner_call_step_up_repeat_checks
++ rows
++ session_id
++ 01m2hsh2d5bhh5k9t29vfjspae
++ lifecycle_generation
++ 1
++ verifier_version
++ 1
++ reserved_at
++ 2099-01-01t00:00:02.001z
++ outcome
++ matched
++ resolved_at
++ 2099-01-01t00:00:02.001z
++ table
++ owner_call_step_up_reprompts
++ rows
++ table
++ owner_call_step_up_successes
++ rows
++ session_id
++ 01m2hsh2d5bhh5k9t29vfjspae
++ lifecycle_generation
++ 1
++ call_sid
++ ca00000000000000000000000000000065
++ direction
++ inbound
++ owner_principal_id
++ principal:owner
++ owner_identity_id
++ identity:voice
++ verifier_version
++ 1
++ attempt_ordinal
++ 1
++ verified_at
++ 2099-01-01t00:00:00.000z
++ table
++ owner_call_step_up_windows
++ rows
++ session_id
++ 01m2hsh2d5bhh5k9t29vfjspae
++ lifecycle_generation
++ 1
++ verifier_version
++ 1
++ prompted_at
++ 2099-01-01t00:00:00.000z
++ deadline_at
++ 2099-01-01t00:01:00.000z
++ table
++ owner_passphrase_disable_commits
++ rows
++ table
++ owner_passphrase_heads
++ rows
++ singleton_id
++ 1
++ owner_principal_id
++ principal:owner
++ owner_identity_id
++ identity:voice
++ verifier_version
++ 1
++ status
++ active
++ updated_at
++ 2099-01-01t00:00:00.000z
++ table
++ owner_passphrase_rotation_commits
++ rows
++ commit_id
++ 01m2ccccccccccccccccccc001
++ owner_principal_id
++ principal:owner
++ owner_identity_id
++ identity:voice
++ expected_verifier_version
++ new_verifier_version
++ 1
++ committed_at
++ 2099-01-01t00:00:00.000z
++ table
++ owner_passphrase_verifiers
++ rows
++ owner_principal_id
++ principal:owner
++ owner_identity_id
++ identity:voice
++ verifier_version
++ 1
++ algorithm
++ hmac-sha256-pepper+pbkdf2-hmac-sha256
++ domain_version
++ v1
++ word_list_version
++ eff-long-cmudict-2026-09-v2
++ pepper_version
++ v1
++ iterations
++ 600000
++ salt
++ 
++ 07070707070707070707070707070707
++ bwchbwchbwchbwchbwchbw==
++ 7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ 7
++ digest
++ �,�jl�[vr��@v���ݼ��]�kf!\�4%
++ 9a2c12a54a6cb45b7672b89740768ba5deddbce4d15de90e6b66215ca6183425
++ miwspupstft2crixqhalpd7dvotrxekoa2yhxkyyncu=
++ 154,44,18,165,74,108,180,91,118,114,184,151,64,118,139,165,222,221,188,228,209,93,233,14,107,102,33,92,166,24,52,37
++ 154
++ 44
++ 18
++ 165
++ 74
++ 108
++ 180
++ 91
++ 118
++ 114
++ 184
++ 151
++ 64
++ 118
++ 139
++ 165
++ 222
++ 221
++ 188
++ 228
++ 209
++ 93
++ 233
++ 14
++ 107
++ 102
++ 33
++ 92
++ 166
++ 24
++ 52
++ 37
++ status
++ active
++ created_by_device_id
++ device:home
++ created_by_key_id
++ key:home
++ created_by_key_fingerprint
++ 1111111111111111111111111111111111111111111111111111111111111111
++ created_by_key_generation
++ 1
++ created_at
++ 2099-01-01t00:00:00.000z
++ status_changed_at
++ 2099-01-01t00:00:00.000z
++ table
++ policy_decisions
++ rows
++ decision_id
++ 01k3s6k8000000000000000000
++ principal_id
++ principal:owner
++ event_sequence
++ policy_version
++ v1
++ input_hash
++ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
++ outcome
++ allow
++ reason_code
++ allowed
++ decided_at
++ 2099-01-01t00:00:00.000z
++ table
++ pr40_success_blob
++ rows
++ b
++ ablaze abrasion abrasive
++ 61626c617a65206162726173696f6e206162726173697665
++ ywjsyxpligficmfzaw9uigficmfzaxzl
++ 97,98,108,97,122,101,32,97,98,114,97,115,105,111,110,32,97,98,114,97,115,105,118,101
++ 97
++ 98
++ 108
++ 97
++ 122
++ 101
++ 32
++ 97
++ 98
++ 114
++ 97
++ 115
++ 105
++ 111
++ 110
++ 32
++ 97
++ 98
++ 114
++ 97
++ 115
++ 105
++ 118
++ 101
++ b
++ ablaze abrasion abrasive
++ 61626c617a65206162726173696f6e206162726173697665
++ ywjsyxpligficmfzaw9uigficmfzaxzl
++ 97,98,108,97,122,101,32,97,98,114,97,115,105,111,110,32,97,98,114,97,115,105,118,101
++ 97
++ 98
++ 108
++ 97
++ 122
++ 101
++ 32
++ 97
++ 98
++ 114
++ 97
++ 115
++ 105
++ 111
++ 110
++ 32
++ 97
++ 98
++ 114
++ 97
++ 115
++ 105
++ 118
++ 101
++ b
++ ablaze abrasion abrasive
++ 61626c617a65206162726173696f6e206162726173697665
++ ywjsyxpligficmfzaw9uigficmfzaxzl
++ 97,98,108,97,122,101,32,97,98,114,97,115,105,111,110,32,97,98,114,97,115,105,118,101
++ 97
++ 98
++ 108
++ 97
++ 122
++ 101
++ 32
++ 97
++ 98
++ 114
++ 97
++ 115
++ 105
++ 111
++ 110
++ 32
++ 97
++ 98
++ 114
++ 97
++ 115
++ 105
++ 118
++ 101
++ b
++ ablaze abrasion abrasive
++ 61626c617a65206162726173696f6e206162726173697665
++ ywjsyxpligficmfzaw9uigficmfzaxzl
++ 97,98,108,97,122,101,32,97,98,114,97,115,105,111,110,32,97,98,114,97,115,105,118,101
++ 97
++ 98
++ 108
++ 97
++ 122
++ 101
++ 32
++ 97
++ 98
++ 114
++ 97
++ 115
++ 105
++ 111
++ 110
++ 32
++ 97
++ 98
++ 114
++ 97
++ 115
++ 105
++ 118
++ 101
++ table
++ principals
++ rows
++ principal_id
++ principal:owner
++ principal_type
++ human
++ status
++ active
++ display_name
++ owner
++ created_at
++ 2099-01-01t00:00:00.000z
++ updated_at
++ 2099-01-01t00:00:00.000z
++ table
++ project_documents
++ rows
++ table
++ project_observations
++ rows
++ table
++ provider_events
++ rows
++ table
++ quiet_windows
++ rows
++ table
++ request_nonces
++ rows
++ table
++ scheduled_runs
++ rows
++ table
++ sync_ack_receipts
++ rows
++ table
++ sync_snapshots
++ rows
++ table
++ tracked_projects
++ rows
++ table
++ voice_access_grant_events
++ rows
++ table
++ voice_access_grants
++ rows
++ table
++ voice_owner_identity
++ rows
++ singleton_id
++ 1
++ principal_id
++ principal:owner
++ identity_id
++ identity:voice
++ created_at
++ 2099-01-01t00:00:00.000z
+
+ ❯ tests/acceptance/fake/voice-owner-passphrase-security.test.ts:593:81
+    591|         await call.durableStorage(), await call.durableSqlStorage(), a…
+    592|       ]);
+    593|       for (const word of FAKE_OWNER_PASSPHRASE.split(" ")) expect(surf…
+       |                                                                                 ^
+    594|     } finally { await system.cleanup(); }
+    595|   }, 20_000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  3 failed | 174 passed (177)
+   Start at  01:43:58
+   Duration  117.79s (transform 2.58s, setup 0ms, import 6.68s, tests 182.65s, environment 1ms)
+
+VITEST EXIT 1
+restore status: []
+finished 2026-09-15T01:45:56-04:00

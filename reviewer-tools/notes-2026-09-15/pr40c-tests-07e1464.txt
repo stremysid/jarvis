@@ -1,0 +1,27 @@
+== lint
+packages/contracts lint: Done
+apps/hermes-runtime lint: Done
+apps/cloud-gateway lint: Done
+tests/acceptance lint: Done
+== typecheck
+packages/contracts typecheck: Done
+apps/hermes-runtime typecheck: Done
+apps/cloud-gateway typecheck: Done
+tests/acceptance typecheck: Done
+== typecheck:voice-access
+$ tsc -p tests/acceptance/tsconfig.voice.json
+== test:voice-access run 1
+ Test Files  34 passed (34)
+      Tests  828 passed (828)
+   Duration  378.99s (transform 1.43s, setup 0ms, import 10.00s, tests 348.90s, environment 2ms)
+== pnpm test
+ Test Files  2 failed | 135 passed (137)
+      Tests  3 failed | 2768 passed (2771)
+   Duration  158.09s (transform 31.85s, setup 0ms, import 243.56s, tests 697.47s, environment 34ms)
+timeouts: 2
+      1  FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts
+      2  FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts
+== test:voice-access run 2
+ Test Files  34 passed (34)
+      Tests  828 passed (828)
+   Duration  391.44s (transform 1.54s, setup 0ms, import 10.53s, tests 359.77s, environment 2ms)

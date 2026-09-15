@@ -1,0 +1,6 @@
+== alone: tests/acceptance/fake/voice-owner-call-step-up.test.ts
+ Test Files  1 passed (1)
+      Tests  19 passed (19)
+== alone: tests/acceptance/fake/voice-owner-passphrase-security.test.ts
+ Test Files  1 passed (1)
+      Tests  38 passed (38)

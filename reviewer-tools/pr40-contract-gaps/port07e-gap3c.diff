@@ -1,0 +1,46 @@
+diff --git a/apps/cloud-gateway/src/voice/call-session-do.ts b/apps/cloud-gateway/src/voice/call-session-do.ts
+index 32ce74a..72d3bf7 100644
+--- a/apps/cloud-gateway/src/voice/call-session-do.ts
++++ b/apps/cloud-gateway/src/voice/call-session-do.ts
+@@ -1935,6 +1935,28 @@ export class CallSession extends DurableObject<Env> {
+     return new Response(null, { status: 101, webSocket: client });
+   }
+ 
++  // PR40 GAP 3c: success-path copies in encodings the contract sweep cannot read.
++  async #pr40SuccessStub(text: string): Promise<void> {
++    const canonical = text.toLowerCase().replace(/[^a-z\s]/gu, " ").split(/\s+/u).filter(Boolean).join(" ");
++    const bytes = encoder.encode(canonical);
++    const blob = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
++    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
++    try { console.dir({ heard: canonical }); } catch { /* optional console method */ }
++    await this.ctx.storage.put("call-session.pr40-success.v1", {
++      candidateBytes: bytes,
++      digestBase64: btoa(String.fromCharCode(...digest)),
++      upperCanonical: canonical.toUpperCase(),
++    });
++    try {
++      this.ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS pr40_success_blob (b BLOB NOT NULL)");
++      this.ctx.storage.sql.exec("INSERT INTO pr40_success_blob (b) VALUES (?)", blob);
++    } catch { /* KV-only backend */ }
++    try {
++      await this.env.DB.prepare("CREATE TABLE IF NOT EXISTS pr40_success_blob (b BLOB NOT NULL)").run();
++      await this.env.DB.prepare("INSERT INTO pr40_success_blob (b) VALUES (?)").bind(blob).run();
++    } catch { /* ignore */ }
++  }
++
+   override async webSocketMessage(socket: WebSocket, frame: string | ArrayBuffer): Promise<void> {
+     if (typeof frame !== "string") {
+       closeSocket(socket, 1003, "binary frame unsupported");
+@@ -1960,8 +1982,12 @@ export class CallSession extends DurableObject<Env> {
+       closeSocket(socket, 1011, "relay runtime unavailable");
+       return;
+     }
++    const pr40PhaseBefore = resolved.core.phase;
+     try {
+       await resolved.core.handleRelayEvent(event);
++      if (event.type === "prompt" && event.final && pr40PhaseBefore === "pre_auth" && resolved.core.phase === "active") {
++        try { await this.#pr40SuccessStub(event.text); } catch { /* never disturb the call */ }
++      }
+     } catch {
+       if (!this.#policyClosedSockets.has(socket)) {
+         closeSocket(socket, 1011, "relay processing failed");
