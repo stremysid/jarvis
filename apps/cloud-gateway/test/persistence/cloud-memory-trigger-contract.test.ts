@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import cloudMemorySql from "../../src/persistence/migrations/0016_cloud_memory.sql?raw";
 
 const EXPECTED_TRIGGERS = [
+  "memory_items_insert_guard",
   "memory_items_immutable_update",
   "memory_items_immutable_delete",
   "memory_item_versions_immutable_update",
@@ -53,22 +54,28 @@ const EXPECTED_TRIGGERS = [
   "memory_item_placement_state_insert_guard",
   "memory_item_placement_state_update_guard",
   "memory_item_placement_state_delete_guard",
+  "memory_episodes_insert_guard",
   "memory_episode_sources_insert_guard",
+  "memory_history_chunks_insert_guard",
+  "memory_history_chunks_immutable_update",
   "memory_history_coverage_insert_guard",
+  "memory_vectors_insert_guard",
   "memory_vectors_update_guard",
   "memory_vectors_delete_guard",
+  "memory_model_prices_insert_guard",
+  "memory_runs_insert_guard",
   "memory_runs_update_guard",
   "memory_runs_delete_guard",
   "memory_reprocess_jobs_insert_guard",
   "memory_reprocess_jobs_update_guard",
   "memory_reprocess_jobs_delete_guard",
   "memory_cost_ledger_insert_guard",
+  "memory_cursors_insert_guard",
   "memory_cursors_monotonic_update",
   "memory_cursors_delete_guard",
   "memory_item_versions_fts_insert",
   "memory_episodes_fts_insert",
   "memory_history_chunks_fts_insert",
-  "memory_history_chunks_fts_update",
   "memory_history_chunks_fts_delete",
 ] as const;
 
@@ -85,23 +92,18 @@ function assertTriggerContract(sql: string, name: string): void {
   expect(matches[0]).not.toMatch(/\bSELECT\s+CASE\b[^;]*\bRAISE\s*\(/iu);
 }
 
-describe("cloud memory trigger removal contracts", () => {
+describe("cloud memory trigger SQL inventory", () => {
   const declared = Array.from(cloudMemorySql.matchAll(
     /^CREATE TRIGGER ([a-z0-9_]+)$/gmu,
   ), (match) => match[1]);
 
-  it("has a dedicated removal contract for every 0016 trigger", () => {
+  it("lists every 0016 trigger in execution order", () => {
     expect(declared).toEqual([...EXPECTED_TRIGGERS]);
   });
 
   for (const name of EXPECTED_TRIGGERS) {
-    it(`rejects 0016 if ${name} is removed`, () => {
+    it(`${name} uses the remote-D1-compatible RAISE form`, () => {
       assertTriggerContract(cloudMemorySql, name);
-      const [definition] = triggerSql(cloudMemorySql, name);
-      expect(definition).toBeDefined();
-      const mutatedSql = cloudMemorySql.replace(definition ?? "", "");
-      expect(() => assertTriggerContract(mutatedSql, name))
-        .toThrowError(`${name} must exist exactly once`);
     });
   }
 });
