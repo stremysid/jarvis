@@ -41,4 +41,18 @@ describe("D1GuestGrantNoticeSink", () => {
     });
     expect(JSON.stringify(sendMessage.mock.calls)).not.toMatch(/14165550111|1357|4827|capabilit/iu);
   });
+
+  it("does not confirm delivery without a valid Telegram message receipt", async () => {
+    const sink = new D1GuestGrantNoticeSink(env.DB, {
+      sendMessage: async () => ({ providerMessageId: "invalid" }),
+    });
+
+    await expect(sink.notify({
+      ownerPrincipalId: OWNER_PRINCIPAL_ID,
+      mutationId: "01k3w1t4000000000000000511" as Ulid,
+      operation: "created",
+      maskedTarget: "+1******0111",
+      occurredAt: NOW,
+    })).rejects.toThrow("guest_grant_notice_delivery_unconfirmed");
+  });
 });

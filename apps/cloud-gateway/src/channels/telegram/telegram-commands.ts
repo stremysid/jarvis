@@ -17,7 +17,8 @@
  * bare in a private chat. Both forms must resolve to the same command or the
  * bot silently ignores half of them.
  */
-const COMMAND_PATTERN = /^\/([a-z_-]{1,32})(?:@([A-Za-z0-9_]{1,32}))?(?:\s+([\s\S]*))?$/u;
+const COMMAND_PATTERN = /^\/([a-z_]{1,32})(?:@([A-Za-z0-9_]{1,32}))?(?:\s+([\s\S]*))?$/u;
+const OWNER_STEP_UP_COMMAND_PATTERN = /^\/(disable-owner-step-up)(?:@([A-Za-z0-9_]{1,32}))?(?:\s+([\s\S]*))?$/u;
 
 export type CommandName =
   | "help"
@@ -82,10 +83,10 @@ export function parseCommand(text: string, botUsername: string | null): CommandP
   // Only the first line. Telegram sends a command and its argument in one
   // message, and a pasted block below a command should not become part of it.
   const firstLine = line.split("\n", 1)[0] ?? "";
-  const match = COMMAND_PATTERN.exec(firstLine);
-  // A slash followed by something that is not a command shape -- "/" or
-  // "/123" -- is text. Reporting it as an unknown command would mean replying
-  // "unknown command" to a message that never was one.
+  const match = OWNER_STEP_UP_COMMAND_PATTERN.exec(firstLine) ?? COMMAND_PATTERN.exec(firstLine);
+  // A slash followed by something that is not a command shape -- "/", "/123",
+  // or any other hyphenated name -- is text. Reporting it as unknown would mean
+  // replying "unknown command" to a message that never was one.
   if (match === null) return { kind: "text" };
 
   const [, name = "", addressed, rest] = match;
@@ -98,9 +99,7 @@ export function parseCommand(text: string, botUsername: string | null): CommandP
     return { kind: "text" };
   }
 
-  if (!KNOWN_COMMANDS.has(name)) {
-    return name.includes("-") ? { kind: "text" } : { kind: "unknown_command", attempted: name };
-  }
+  if (!KNOWN_COMMANDS.has(name)) return { kind: "unknown_command", attempted: name };
 
   return {
     kind: "command",

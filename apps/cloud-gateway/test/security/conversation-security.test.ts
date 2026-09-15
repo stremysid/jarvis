@@ -576,10 +576,11 @@ describe("conversation capture-once security", () => {
     let modelCalls = 0;
     let settlementCalls = 0;
     let modelContext: unknown;
+    const sequence: string[] = [];
     const repository = {
       async getOrCreateTurn() { return Object.freeze({ turn: admitted, replayed: false }); },
       async claimModelTurn() { return Object.freeze({ kind: "claimed" as const, capability, turn: claimed }); },
-      beginModelStream(): void { beginCalls += 1; },
+      beginModelStream(): void { beginCalls += 1; sequence.push("begin"); },
       async recordVoiceSent() { return sent; },
       async stageAssistantDelivery(): Promise<never> { throw new Error("unexpected_stage"); },
       async recordTurnCancelled(): Promise<never> { throw new Error("unexpected_cancel"); },
@@ -602,7 +603,7 @@ describe("conversation capture-once security", () => {
       now: () => new Date("2026-08-30T12:00:00.000Z"),
     } as never);
 
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => { sequence.push("fallback"); });
     try {
       await expect(service.handleTurn({
         sessionId: admitted.sessionId,
@@ -627,6 +628,7 @@ describe("conversation capture-once security", () => {
       expect(modelCalls).toBe(1);
       expect(modelContext).toEqual([]);
       expect(settlementCalls).toBe(0);
+      expect(sequence).toEqual(["fallback", "begin"]);
       expect(warn).toHaveBeenCalledExactlyOnceWith("voice_context_retrieval_fallback", {
         turnId, reason: "invalid",
       });

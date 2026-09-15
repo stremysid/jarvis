@@ -56,6 +56,7 @@ describe("recognising a command", () => {
       kind: "command", name: "disable-owner-step-up", argument: "--confirm", addressedTo: null,
     });
     expect(parse("/not-a-command")).toEqual({ kind: "text" });
+    expect(parse("/enable-owner-step-up --confirm")).toEqual({ kind: "text" });
   });
 
   it("preserves all owner step-up confirmation text so trailing input cannot be hidden", () => {

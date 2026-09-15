@@ -624,7 +624,7 @@ function resultFromTurn(turn: StoredConversationTurn): ConversationTurnResult | 
   }
 }
 
-export const VOICE_CONTEXT_RETRIEVAL_TIMEOUT_MS = 750;
+const VOICE_CONTEXT_RETRIEVAL_TIMEOUT_MS = 750;
 
 /** Coordinates one durable model claim and one channel-specific, redacted delivery. */
 export class DefaultConversationService implements ConversationService {

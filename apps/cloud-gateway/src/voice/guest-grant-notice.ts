@@ -31,10 +31,13 @@ export class D1GuestGrantNoticeSink implements GuestGrantNoticeSink {
   async notify(input: Parameters<GuestGrantNoticeSink["notify"]>[0]): Promise<void> {
     const chatId = await new DeviceRepository(this.database).findOwnerTelegramChat(input.ownerPrincipalId);
     if (chatId === null) throw new Error("guest_grant_notice_owner_unavailable");
-    await this.telegram.sendMessage({
+    const result = await this.telegram.sendMessage({
       chatId,
       text: `${OPERATION_TEXT[input.operation]} for ${input.maskedTarget} at ${input.occurredAt.toISOString()}.`,
       idempotencyKey: `guest-grant:${input.mutationId}`,
     });
+    if (!/^[1-9][0-9]{0,19}$/u.test(result.providerMessageId)) {
+      throw new Error("guest_grant_notice_delivery_unconfirmed");
+    }
   }
 }
