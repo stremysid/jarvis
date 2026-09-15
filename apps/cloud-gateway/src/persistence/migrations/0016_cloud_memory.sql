@@ -1544,6 +1544,11 @@ WHEN EXISTS (
         ON source.principal_id = transition_row.principal_id
         AND source.item_id = transition_row.item_id
         AND source.source_id = NEW.source_id
+      JOIN memory_item_state current_state
+        ON current_state.principal_id = transition_row.principal_id
+        AND current_state.item_id = transition_row.item_id
+        AND current_state.last_transition_id = transition_row.transition_id
+        AND current_state.last_transition_number = transition_row.transition_number
       WHERE transition_row.principal_id = NEW.principal_id
         AND transition_row.transition_id = NEW.forgotten_transition_id
         AND transition_row.lifecycle_state = 'forgotten'
@@ -1945,6 +1950,16 @@ WHEN NEW.principal_id <> OLD.principal_id
     WHERE event.principal_id = NEW.principal_id
       AND event.topic_event_id = NEW.last_topic_event_id
       AND event.occurred_at = NEW.updated_at
+      AND EXISTS (
+        SELECT 1 FROM memory_topic_events previous
+        WHERE previous.principal_id = OLD.principal_id
+          AND previous.topic_event_id = OLD.last_topic_event_id
+          AND (
+            event.occurred_at > previous.occurred_at
+            OR (event.occurred_at = previous.occurred_at
+              AND event.topic_event_id > previous.topic_event_id)
+          )
+      )
       AND NOT EXISTS (
         SELECT 1 FROM memory_topic_events later
         WHERE later.principal_id = event.principal_id
