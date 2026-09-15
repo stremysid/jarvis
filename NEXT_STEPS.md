@@ -38,7 +38,8 @@ continues separately on `codex/r5-study-coach-slice1`. Draft
 step 6: per-program application checklists, current-owner conversational
 updates, due-date verification labels and the next application items in the
 morning digest. Its additive `0024_university_application_workflow.sql` remains
-an unapplied candidate; `0023` stays reserved for the study-coach branch. None
+an unapplied candidate; fix implementation `f2475f8` is ready for Claude Opus 5
+max re-review, and `0023` stays reserved for the study-coach branch. None
 of these slices
 authorizes OAuth consent, a secret operation, migration, deployment, school or
 university contact, purchase, sign-up, submission or live account access.

@@ -22,7 +22,10 @@ only that Sid said he submitted the item. The additive
 remains reserved for the separate study-coach branch. This draft performs no
 submission, upload, school/referee contact, purchase, sign-up, migration,
 deployment or live request. Claude Opus 5 max review requested changes at
-`3388c39`; the application branch is being corrected before re-review.
+`3388c39`. Fix implementation `f2475f8` is ready for max re-review: the exact
+four reviewer probes now fail closed, all nine `0024` trigger removals are
+killed, and the final full suite passes 3,332/3,332. Deferred cross-layer and
+presentation limits are listed in `KNOWN_ISSUES.md`.
 
 ## R1 is active; R2 owner controls are in progress
 

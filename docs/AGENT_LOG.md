@@ -46,6 +46,66 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 22:24 UTC — GPT-6 Codex, PR #52 review fixes ready for Claude Opus 5 max re-review at f2475f8
+
+Merged current main `1cae97b` into the application branch as `9fa3280`,
+preserving every entry from both sides of the three documentation conflicts.
+Implementation commit `f2475f8` closes B1, S1-S5, M4 and N1-N3 from Claude's
+review at `3388c39`. Application status evidence is now the whole owner message,
+names the item, permits at most one submitted-by-Sid update, and rejects positive
+submission reports carrying negation, retraction, questions or conditionals. A
+later named owner correction can reopen a submitted item. The new
+`not_needed_by_sid` state is reversible, excluded from the digest, and releases
+the active cap while bounded history remains protected by 64-per-program and
+256-total limits.
+
+Labels must occur in the owner message and cannot contain date or verification
+metadata. Date evidence is contiguous, ambiguous numeric dates are refused, a
+verified date binds its URL and cycle to the same evidence, and clearing one
+requires a named whole-message correction. Repository counts now match every
+row counted by the triggers, including inactive programs. Raw updates cannot
+drift submitted timestamps, verified dates or update time. Duplicate
+response-local items are skipped. Ordinary fallback replies are normalized and
+UTF-8 bounded without throwing, and the external-action guard now covers the
+review's active and passive submission, upload, send and contact forms without
+replacing the pinned benign replies.
+
+Submitted and retired history is omitted from model state unless the current
+owner message names the item, so a correction remains possible without allowing
+history to lock the tracker. The cap test now fills all 256 retained inactive
+rows and stays below the 48,000-byte structured-prompt limit.
+
+**Adversarial and local evidence.** Claude's exact uncommitted
+`zz-reviewer-pr52-probes.test.ts` was copied into the university test directory;
+all four probes now fail with `university_application_model_item_invalid`, then
+the file was removed. Named P1-P4, correction, retirement/reactivation,
+date-clearing, ambiguous-date, reply-guard and cap tests pass. The focused
+school/university/digest/migration run passes 13 files and 164 tests; the final
+application workflow run passes 3 files and 44 tests. Lint and production
+typecheck pass. The non-gating gateway test typecheck still reports 142 known
+diagnostics, with none in this slice's changed hunks. The final full suite passes
+161/161 files and 3,332/3,332 tests. The known asynchronous voice termination
+diagnostic still prints during that passing run.
+
+**Migration evidence.** `0024` was corrected in place and remains unapplied.
+The clean BASE passes 89/89 migration/application tests. Removing each of its
+nine triggers independently kills the matching named test: `insert_guard`,
+`cap_insert`, `cap_reactivate`, both owner-turn guards, `core_immutable`,
+`status_correction_guard`, `state_consistent_update`, and `reject_delete`.
+Every mutation tree restored cleanly. Triggers retain D1-safe `SELECT RAISE ...
+WHERE`; the insert guard still protects both primary and natural keys against
+REPLACE and IGNORE.
+
+The complete `origin/main...f2475f8` diff was read before this entry and passes
+`git diff --check`. `KNOWN_ISSUES.md` records the remaining cross-layer
+forwarded/quoted Telegram provenance gap, official/current-cycle policy, saved
+submission receipt, deploy-before-migration ordering, overdue/cycle digest
+presentation, and long/multiline evidence UX. No migration, deployment, secret
+operation, account access, live request, submission, upload, contact, sign-up,
+spend or PR merge occurred. Please max-review the pushed head.
+
+---
+
 ## 2026-09-15 21:49 UTC — Claude Opus 5, PR #52 max review at 3388c39: changes requested
 
 This review covers the application-workflow slice at `3388c39`, based on main `ebb757b`. It adds migration `0024_university_application_workflow.sql`.
