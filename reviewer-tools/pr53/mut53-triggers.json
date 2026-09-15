@@ -1,0 +1,240 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "30ec39e1a6973f64352dbf1ee12fdbcf33f989df",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0023_study_coach.sql",
+   "from": "CREATE TRIGGER school_study_preferences_insert_guard\n",
+   "to": "CREATE TRIGGER school_study_preferences_insert_guard\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-migration.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-repository.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_study_preferences_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0023_study_coach.sql",
+   "from": "CREATE TRIGGER school_study_preferences_insert_guard\nBEFORE INSERT ON school_study_preferences\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_preference_insert_conflict') WHERE EXISTS (\n    SELECT 1 FROM school_study_preferences WHERE principal_id = NEW.principal_id\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-migration.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-repository.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_study_preferences_require_owner_turn_insert",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0023_study_coach.sql",
+   "from": "CREATE TRIGGER school_study_preferences_require_owner_turn_insert\nBEFORE INSERT ON school_study_preferences\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_preference_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id AND principal_id = NEW.principal_id AND channel = 'telegram'\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-migration.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-repository.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_study_preferences_require_owner_turn_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0023_study_coach.sql",
+   "from": "CREATE TRIGGER school_study_preferences_require_owner_turn_update\nBEFORE UPDATE ON school_study_preferences\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_preference_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id AND principal_id = NEW.principal_id AND channel = 'telegram'\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-migration.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-repository.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_study_preferences_core_immutable",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0023_study_coach.sql",
+   "from": "CREATE TRIGGER school_study_preferences_core_immutable\nBEFORE UPDATE ON school_study_preferences\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_preference_core_immutable') WHERE\n    NEW.principal_id IS NOT OLD.principal_id\n    OR NEW.created_at IS NOT OLD.created_at\n    OR NEW.updated_at < OLD.updated_at;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-migration.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-repository.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_study_preferences_reject_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0023_study_coach.sql",
+   "from": "CREATE TRIGGER school_study_preferences_reject_delete\nBEFORE DELETE ON school_study_preferences\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_preference_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-migration.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-repository.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_practice_items_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0023_study_coach.sql",
+   "from": "CREATE TRIGGER school_practice_items_insert_guard\nBEFORE INSERT ON school_practice_items\nBEGIN\n  SELECT RAISE(ABORT, 'school_practice_item_insert_conflict') WHERE EXISTS (\n    SELECT 1 FROM school_practice_items\n    WHERE principal_id = NEW.principal_id\n      AND (item_id = NEW.item_id OR item_key = NEW.item_key\n        OR (practice_id = NEW.practice_id AND position = NEW.position))\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-migration.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-repository.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_practice_items_open_cap",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0023_study_coach.sql",
+   "from": "CREATE TRIGGER school_practice_items_open_cap\nBEFORE INSERT ON school_practice_items\nWHEN NEW.status = 'open'\nBEGIN\n  SELECT RAISE(ABORT, 'school_practice_item_limit_exceeded') WHERE (\n    SELECT COUNT(*) FROM school_practice_items\n    WHERE principal_id = NEW.principal_id AND status = 'open'\n  ) >= 15;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-migration.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-repository.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_practice_items_source_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0023_study_coach.sql",
+   "from": "CREATE TRIGGER school_practice_items_source_guard\nBEFORE INSERT ON school_practice_items\nBEGIN\n  SELECT RAISE(ABORT, 'school_practice_item_source_invalid') WHERE\n    (NEW.source_kind = 'owner_topic' AND NOT EXISTS (\n      SELECT 1 FROM conversation_turns\n      WHERE turn_id = NEW.source_turn_id\n        AND principal_id = NEW.principal_id\n        AND channel = 'telegram'\n    ))\n    OR (NEW.source_kind = 'course_fact' AND NOT EXISTS (\n      SELECT 1 FROM school_course_facts\n      WHERE principal_id = NEW.principal_id\n        AND fact_id = NEW.source_fact_id\n        AND course_id = NEW.course_id\n    ));\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-migration.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-repository.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_practice_items_core_immutable",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0023_study_coach.sql",
+   "from": "CREATE TRIGGER school_practice_items_core_immutable\nBEFORE UPDATE ON school_practice_items\nBEGIN\n  SELECT RAISE(ABORT, 'school_practice_item_core_immutable') WHERE\n    NEW.principal_id IS NOT OLD.principal_id\n    OR NEW.item_id IS NOT OLD.item_id\n    OR NEW.item_key IS NOT OLD.item_key\n    OR NEW.practice_id IS NOT OLD.practice_id\n    OR NEW.course_id IS NOT OLD.course_id\n    OR NEW.mode IS NOT OLD.mode\n    OR NEW.position IS NOT OLD.position\n    OR NEW.question IS NOT OLD.question\n    OR NEW.answer IS NOT OLD.answer\n    OR NEW.answer_support IS NOT OLD.answer_support\n    OR NEW.source_kind IS NOT OLD.source_kind\n    OR NEW.source_turn_id IS NOT OLD.source_turn_id\n    OR NEW.source_fact_id IS NOT OLD.source_fact_id\n    OR NEW.source_excerpt IS NOT OLD.source_excerpt\n    OR NEW.source_observed_at IS NOT OLD.source_observed_at\n    OR NEW.created_at IS NOT OLD.created_at\n    OR NEW.updated_at < OLD.updated_at;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-migration.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-repository.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_practice_items_status_transition",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0023_study_coach.sql",
+   "from": "CREATE TRIGGER school_practice_items_status_transition\nBEFORE UPDATE ON school_practice_items\nBEGIN\n  SELECT RAISE(ABORT, 'school_practice_item_status_invalid') WHERE NOT (\n    (NEW.status = OLD.status\n      AND NEW.owner_answer IS OLD.owner_answer\n      AND NEW.result IS OLD.result\n      AND NEW.result_turn_id IS OLD.result_turn_id\n      AND NEW.answered_at IS OLD.answered_at)\n    OR (OLD.status = 'open' AND NEW.status = 'dismissed')\n    OR (OLD.status = 'open' AND NEW.status = 'answered' AND EXISTS (\n      SELECT 1 FROM conversation_turns\n      WHERE turn_id = NEW.result_turn_id\n        AND principal_id = NEW.principal_id\n        AND channel = 'telegram'\n    ))\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-migration.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-repository.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_practice_items_reject_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0023_study_coach.sql",
+   "from": "CREATE TRIGGER school_practice_items_reject_delete\nBEFORE DELETE ON school_practice_items\nBEGIN\n  SELECT RAISE(ABORT, 'school_practice_item_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-migration.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-repository.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_study_evidence_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0023_study_coach.sql",
+   "from": "CREATE TRIGGER school_study_evidence_insert_guard\nBEFORE INSERT ON school_study_evidence\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_evidence_insert_conflict') WHERE EXISTS (\n    SELECT 1 FROM school_study_evidence\n    WHERE principal_id = NEW.principal_id\n      AND (evidence_id = NEW.evidence_id OR source_key = NEW.source_key)\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-migration.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-repository.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_study_evidence_active_cap",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0023_study_coach.sql",
+   "from": "CREATE TRIGGER school_study_evidence_active_cap\nBEFORE INSERT ON school_study_evidence\nWHEN NEW.status = 'active'\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_evidence_limit_exceeded') WHERE (\n    SELECT COUNT(*) FROM school_study_evidence e\n    WHERE e.principal_id = NEW.principal_id AND e.status = 'active'\n      AND (e.evidence_kind != 'course_context' OR EXISTS (\n        SELECT 1 FROM school_course_facts f\n        WHERE f.principal_id = e.principal_id\n          AND f.fact_id = e.source_fact_id\n          AND f.status = 'active'\n      ))\n  ) >= 96 OR (\n    SELECT COUNT(*) FROM school_study_evidence e\n    WHERE e.principal_id = NEW.principal_id\n      AND e.course_id = NEW.course_id\n      AND e.status = 'active'\n      AND (e.evidence_kind != 'course_context' OR EXISTS (\n        SELECT 1 FROM school_course_facts f\n        WHERE f.principal_id = e.principal_id\n          AND f.fact_id = e.source_fact_id\n          AND f.status = 'active'\n      ))\n  ) >= 24;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-migration.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-repository.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_study_evidence_source_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0023_study_coach.sql",
+   "from": "CREATE TRIGGER school_study_evidence_source_guard\nBEFORE INSERT ON school_study_evidence\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_evidence_source_invalid') WHERE\n    (NEW.evidence_kind = 'owner_statement' AND NOT EXISTS (\n      SELECT 1 FROM conversation_turns\n      WHERE turn_id = NEW.source_turn_id\n        AND principal_id = NEW.principal_id\n        AND channel = 'telegram'\n    ))\n    OR (NEW.evidence_kind = 'course_context' AND NOT EXISTS (\n      SELECT 1 FROM school_course_facts\n      WHERE principal_id = NEW.principal_id\n        AND fact_id = NEW.source_fact_id\n        AND course_id = NEW.course_id\n        AND status = 'active'\n    ))\n    OR (NEW.evidence_kind = 'practice_result' AND NOT EXISTS (\n      SELECT 1 FROM school_practice_items\n      WHERE principal_id = NEW.principal_id\n        AND item_id = NEW.source_practice_item_id\n        AND course_id = NEW.course_id\n        AND status = 'answered'\n        AND result_turn_id = NEW.source_turn_id\n    ));\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-migration.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-repository.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_study_evidence_core_immutable",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0023_study_coach.sql",
+   "from": "CREATE TRIGGER school_study_evidence_core_immutable\nBEFORE UPDATE ON school_study_evidence\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_evidence_core_immutable') WHERE\n    NEW.principal_id IS NOT OLD.principal_id\n    OR NEW.evidence_id IS NOT OLD.evidence_id\n    OR NEW.source_key IS NOT OLD.source_key\n    OR NEW.course_id IS NOT OLD.course_id\n    OR NEW.topic_key IS NOT OLD.topic_key\n    OR NEW.topic IS NOT OLD.topic\n    OR NEW.outcome IS NOT OLD.outcome\n    OR NEW.evidence_kind IS NOT OLD.evidence_kind\n    OR NEW.evidence_text IS NOT OLD.evidence_text\n    OR NEW.confidence IS NOT OLD.confidence\n    OR NEW.source_turn_id IS NOT OLD.source_turn_id\n    OR NEW.source_fact_id IS NOT OLD.source_fact_id\n    OR NEW.source_practice_item_id IS NOT OLD.source_practice_item_id\n    OR NEW.observed_at IS NOT OLD.observed_at\n    OR NEW.practice_due_on IS NOT OLD.practice_due_on\n    OR NEW.created_at IS NOT OLD.created_at\n    OR NEW.updated_at < OLD.updated_at;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-migration.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-repository.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_study_evidence_status_transition",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0023_study_coach.sql",
+   "from": "CREATE TRIGGER school_study_evidence_status_transition\nBEFORE UPDATE ON school_study_evidence\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_evidence_status_invalid') WHERE NOT (\n    (OLD.status = 'active' AND NEW.status = 'active'\n      AND NEW.control_turn_id IS OLD.control_turn_id\n      AND NEW.controlled_at IS OLD.controlled_at\n      AND (\n        NEW.last_prompted_on IS OLD.last_prompted_on\n        OR (NEW.last_prompted_on IS NOT NULL\n          AND NEW.last_prompted_on >= NEW.practice_due_on\n          AND (OLD.last_prompted_on IS NULL OR NEW.last_prompted_on > OLD.last_prompted_on))\n      ))\n    OR (OLD.status = 'active' AND NEW.status IN ('corrected', 'forgotten')\n      AND NEW.last_prompted_on IS OLD.last_prompted_on\n      AND EXISTS (\n        SELECT 1 FROM conversation_turns\n        WHERE turn_id = NEW.control_turn_id\n          AND principal_id = NEW.principal_id\n          AND channel = 'telegram'\n      ))\n    OR (OLD.status IN ('corrected', 'forgotten')\n      AND NEW.status = OLD.status\n      AND NEW.last_prompted_on IS OLD.last_prompted_on\n      AND NEW.control_turn_id IS OLD.control_turn_id\n      AND NEW.controlled_at IS OLD.controlled_at\n      AND NEW.updated_at IS OLD.updated_at)\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-migration.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-repository.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_study_evidence_reject_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0023_study_coach.sql",
+   "from": "CREATE TRIGGER school_study_evidence_reject_delete\nBEFORE DELETE ON school_study_evidence\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_evidence_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-migration.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-repository.test.ts",
+    "apps/cloud-gateway/test/school/study-coach-model.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts",
+    "apps/cloud-gateway/test/persistence/school-catchup-migration.test.ts"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,22 @@
+== false D2L check claims: old guard / new guard (true = replaced)
+old:caught  new:MISSED  I've checked your D2L and nothing new is due.
+old:caught  new:MISSED  We've refreshed Brightspace for you.
+old:caught  new:caught  I checked D2L just now and you're clear.
+old:caught  new:MISSED  I looked at D2L and there's nothing due.
+old:caught  new:MISSED  D2L was just synced.
+old:caught  new:MISSED  I've just refreshed your Brightspace calendar.
+old:missed  new:caught  Your D2L has been checked.
+old:caught  new:caught  I checked D2L: nothing due this week.
+
+== ordinary messages parsed as study evidence (non-null = turn consumed, evidence recorded)
+{"topic":"Getting up early","courseHint":null,"outcome":"uncertain"}  <- Getting up early is hard.
+{"topic":"Today","courseHint":null,"outcome":"uncertain"}  <- Today was hard
+null  <- Physio was hard today
+{"topic":"My recovery","courseHint":null,"outcome":"uncertain"}  <- My recovery is hard
+{"topic":"That answer","courseHint":null,"outcome":"wrong"}  <- That answer was wrong
+null  <- I thought the movie was hard to follow
+{"topic":"the order","courseHint":null,"outcome":"wrong"}  <- I got the order wrong
+{"topic":"going to the party","courseHint":null,"outcome":"uncertain"}  <- I'm not sure about going to the party
+{"topic":"parking","courseHint":null,"outcome":"easy"}  <- I found parking easy
+{"topic":"Your last reply","courseHint":null,"outcome":"wrong"}  <- Your last reply was wrong
+{"topic":"Walking after surgery","courseHint":null,"outcome":"uncertain"}  <- Walking after surgery feels hard

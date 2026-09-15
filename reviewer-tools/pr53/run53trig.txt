@@ -1,0 +1,150 @@
+checked out 30ec39e1a6973f64352dbf1ee12fdbcf33f989df at 30ec39e
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  5 passed (5)
+   Tests  47 passed (47)
+
+== T-school_study_preferences_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-migration.test.ts (10 tests | 2 failed) 1128ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  2 failed | 45 passed (47)
+   × installs three private WITHOUT ROWID tables and every named guard 11ms
+   × generic REPLACE and IGNORE sweep protects every new table and natural key 106ms
+
+== T-school_study_preferences_require_owner_turn_insert: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-migration.test.ts (10 tests | 2 failed) 1256ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  2 failed | 45 passed (47)
+   × installs three private WITHOUT ROWID tables and every named guard 10ms
+   × school_study_preferences_require_owner_turn_insert rejects another principal and voice 117ms
+
+== T-school_study_preferences_require_owner_turn_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-migration.test.ts (10 tests | 2 failed) 1240ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  2 failed | 45 passed (47)
+   × installs three private WITHOUT ROWID tables and every named guard 11ms
+   × school_study_preferences_require_owner_turn_insert rejects another principal and voice 119ms
+
+== T-school_study_preferences_core_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-migration.test.ts (10 tests | 3 failed) 1242ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  3 failed | 44 passed (47)
+   × installs three private WITHOUT ROWID tables and every named guard 11ms
+   × generic REPLACE and IGNORE sweep protects every new table and natural key 234ms
+   × school_study_preferences_core_immutable and reject_delete preserve lineage 102ms
+
+== T-school_study_preferences_reject_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-migration.test.ts (10 tests | 2 failed) 1284ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  2 failed | 45 passed (47)
+   × installs three private WITHOUT ROWID tables and every named guard 13ms
+   × school_study_preferences_core_immutable and reject_delete preserve lineage 105ms
+
+== T-school_practice_items_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-migration.test.ts (10 tests | 2 failed) 1215ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  2 failed | 45 passed (47)
+   × installs three private WITHOUT ROWID tables and every named guard 11ms
+   × generic REPLACE and IGNORE sweep protects every new table and natural key 138ms
+
+== T-school_practice_items_open_cap: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-migration.test.ts (10 tests | 2 failed) 1248ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  2 failed | 45 passed (47)
+   × installs three private WITHOUT ROWID tables and every named guard 10ms
+   × school_practice_items_open_cap bounds unfinished quiz state 107ms
+
+== T-school_practice_items_source_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-migration.test.ts (10 tests | 2 failed) 1239ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  2 failed | 45 passed (47)
+   × installs three private WITHOUT ROWID tables and every named guard 11ms
+   × school_practice_items_source_guard binds course facts and owner turns 99ms
+
+== T-school_practice_items_core_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-migration.test.ts (10 tests | 3 failed) 1237ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  3 failed | 44 passed (47)
+   × installs three private WITHOUT ROWID tables and every named guard 11ms
+   × generic REPLACE and IGNORE sweep protects every new table and natural key 244ms
+   × school_practice_items_core_immutable status_transition and reject_delete protect results 94ms
+
+== T-school_practice_items_status_transition: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-migration.test.ts (10 tests | 2 failed) 1782ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  2 failed | 45 passed (47)
+   × installs three private WITHOUT ROWID tables and every named guard 10ms
+   × school_practice_items_core_immutable status_transition and reject_delete protect results 104ms
+
+== T-school_practice_items_reject_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-migration.test.ts (10 tests | 2 failed) 1254ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  2 failed | 45 passed (47)
+   × installs three private WITHOUT ROWID tables and every named guard 10ms
+   × school_practice_items_core_immutable status_transition and reject_delete protect results 103ms
+
+== T-school_study_evidence_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-migration.test.ts (10 tests | 2 failed) 1151ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  2 failed | 45 passed (47)
+   × installs three private WITHOUT ROWID tables and every named guard 14ms
+   × generic REPLACE and IGNORE sweep protects every new table and natural key 138ms
+
+== T-school_study_evidence_active_cap: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-migration.test.ts (10 tests | 2 failed) 1609ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  2 failed | 45 passed (47)
+   × installs three private WITHOUT ROWID tables and every named guard 11ms
+   × school_study_evidence_active_cap bounds each course 99ms
+
+== T-school_study_evidence_source_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-migration.test.ts (10 tests | 2 failed) 1213ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  2 failed | 45 passed (47)
+   × installs three private WITHOUT ROWID tables and every named guard 10ms
+   × school_study_evidence_source_guard binds every source to the same owner and course 104ms
+
+== T-school_study_evidence_core_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-migration.test.ts (10 tests | 3 failed) 1274ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  3 failed | 44 passed (47)
+   × installs three private WITHOUT ROWID tables and every named guard 11ms
+   × generic REPLACE and IGNORE sweep protects every new table and natural key 260ms
+   × school_study_evidence_core_immutable status_transition and reject_delete protect evidence 83ms
+
+== T-school_study_evidence_status_transition: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-migration.test.ts (10 tests | 2 failed) 1233ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  2 failed | 45 passed (47)
+   × installs three private WITHOUT ROWID tables and every named guard 10ms
+   × school_study_evidence_core_immutable status_transition and reject_delete protect evidence 95ms
+
+== T-school_study_evidence_reject_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-migration.test.ts (10 tests | 2 failed) 1213ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  2 failed | 45 passed (47)
+   × installs three private WITHOUT ROWID tables and every named guard 9ms
+   × school_study_evidence_core_immutable status_transition and reject_delete protect evidence 94ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-school_study_preferences_insert_guard
+KILLED    T-school_study_preferences_require_owner_turn_insert
+KILLED    T-school_study_preferences_require_owner_turn_update
+KILLED    T-school_study_preferences_core_immutable
+KILLED    T-school_study_preferences_reject_delete
+KILLED    T-school_practice_items_insert_guard
+KILLED    T-school_practice_items_open_cap
+KILLED    T-school_practice_items_source_guard
+KILLED    T-school_practice_items_core_immutable
+KILLED    T-school_practice_items_status_transition
+KILLED    T-school_practice_items_reject_delete
+KILLED    T-school_study_evidence_insert_guard
+KILLED    T-school_study_evidence_active_cap
+KILLED    T-school_study_evidence_source_guard
+KILLED    T-school_study_evidence_core_immutable
+KILLED    T-school_study_evidence_status_transition
+KILLED    T-school_study_evidence_reject_delete
+back on main, tree clean=true
+(node:20560) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
