@@ -17,7 +17,9 @@ const UNSAFE_INLINE = /[\p{C}\r\n]/u;
 const MAX_COURSES = 12;
 const MAX_ACTIVE_FACTS_PER_COURSE = 16;
 const MAX_ACTIVE_FACTS = 48;
+const MAX_RECENT_RESOLVED_FACTS = 48;
 const MAX_PLANNED_ACTIONS = 21;
+const HISTORY_RETENTION_MILLISECONDS = 30 * 24 * 60 * 60 * 1_000;
 const encoder = new TextEncoder();
 
 interface CourseRow {
@@ -166,7 +168,8 @@ export class SchoolCatchupRepository {
   async readSnapshot(principalIdValue: string, todayValue: string): Promise<SchoolCatchupSnapshot> {
     const principalId = principal(principalIdValue);
     const today = date(todayValue);
-    const [courseResult, factResult, actionResult] = await Promise.all([
+    const resolvedSince = `${addDays(today, -30)}T00:00:00.000Z`;
+    const [courseResult, factResult, resolvedFactResult, actionResult] = await Promise.all([
       this.database.prepare(`SELECT principal_id, course_id, course_name, course_name_source,
           platform_name, platform_source
         FROM school_course_cards
@@ -179,6 +182,12 @@ export class SchoolCatchupRepository {
         WHERE principal_id = ?1 AND status = 'active'
         ORDER BY observed_at, fact_id
         LIMIT 48`).bind(principalId).all<FactRow>(),
+      this.database.prepare(`SELECT principal_id, course_id, fact_id, fact_kind, statement,
+          evidence_source, observed_at, status, resolved_at
+        FROM school_course_facts
+        WHERE principal_id = ?1 AND status = 'resolved' AND resolved_at >= ?2
+        ORDER BY resolved_at DESC, fact_id
+        LIMIT 48`).bind(principalId, resolvedSince).all<FactRow>(),
       this.database.prepare(`SELECT a.principal_id, a.action_id, a.course_id, c.course_name,
           a.local_date, a.sequence_rank, a.action_text, a.estimated_minutes, a.status
         FROM school_catchup_actions a
@@ -208,6 +217,13 @@ export class SchoolCatchupRepository {
       if (!courseIds.has(action.courseId)) continue;
       if (!nextByCourse.has(action.courseId)) nextByCourse.set(action.courseId, action);
     }
+    const resolvedByCourse = new Map<string, SchoolCourseFact[]>();
+    for (const row of resultRows(resolvedFactResult).slice(0, MAX_RECENT_RESOLVED_FACTS)) {
+      if (!courseIds.has(row.course_id)) continue;
+      const facts = resolvedByCourse.get(row.course_id) ?? [];
+      facts.push(factRow(row, principalId));
+      resolvedByCourse.set(row.course_id, facts);
+    }
     const cards: SchoolCourseCard[] = courses.map((row) => {
       const facts = factsByCourse.get(row.course_id) ?? [];
       return Object.freeze({
@@ -218,6 +234,7 @@ export class SchoolCatchupRepository {
         platformSource: row.platform_source,
         ownerReportedFacts: Object.freeze(facts.filter((fact) => fact.evidenceSource === "owner_reported")),
         platformConfirmedFacts: Object.freeze(facts.filter((fact) => fact.evidenceSource === "platform_confirmed")),
+        recentResolvedFacts: Object.freeze(resolvedByCourse.get(row.course_id) ?? []),
         currentNextAction: nextByCourse.get(row.course_id) ?? null,
       });
     });
@@ -269,6 +286,8 @@ export class SchoolCatchupRepository {
       WHERE principal_id = ?1 AND status = 'planned'`).bind(principalId).all<{ action_id: string; course_id: string }>();
     const actionsById = new Map(resultRows(currentActions).map((action) => [action.action_id, action.course_id]));
     const statements: D1PreparedStatement[] = [];
+    const factResolves: D1PreparedStatement[] = [];
+    const factInserts: D1PreparedStatement[] = [];
     const courseIdsByRef = new Map<string, Ulid>();
     const finalCourseIds = new Set<Ulid>(coursesById.keys());
     const activeFactCounts = new Map<Ulid, number>(current.courses.map((course) => [
@@ -331,8 +350,9 @@ export class SchoolCatchupRepository {
         if (known.fact.evidenceSource === "owner_reported") {
           knownFactKeys.delete(`${known.fact.kind}:${key(known.fact.statement, 512, "school_catchup_fact_invalid")}`);
         }
-        statements.push(this.database.prepare(`UPDATE school_course_facts
-          SET status = 'resolved', resolved_at = ?1, updated_at = ?1
+        factResolves.push(this.database.prepare(`UPDATE school_course_facts
+          SET fact_key = substr(fact_key, 1, 476) || ':resolved:' || fact_id,
+              status = 'resolved', resolved_at = ?1, updated_at = ?1
           WHERE principal_id = ?2 AND fact_id = ?3 AND status = 'active'`).bind(nowIso, principalId, factId));
       }
 
@@ -343,14 +363,7 @@ export class SchoolCatchupRepository {
         if (knownFactKeys.has(dedupe)) continue;
         knownFactKeys.add(dedupe);
         activeFactCounts.set(courseId, (activeFactCounts.get(courseId) ?? 0) + 1);
-        // A resolved owner report with the same key is historical state, not
-        // an active duplicate. Remove it in this batch, then create a new fact
-        // tied to the turn that reported it again.
-        statements.push(this.database.prepare(`DELETE FROM school_course_facts
-          WHERE principal_id = ?1 AND course_id = ?2 AND fact_kind = ?3
-            AND evidence_source = 'owner_reported' AND fact_key = ?4 AND status = 'resolved'`)
-          .bind(principalId, courseId, fact.kind, factKey));
-        statements.push(this.database.prepare(`INSERT INTO school_course_facts (
+        factInserts.push(this.database.prepare(`INSERT INTO school_course_facts (
           principal_id, course_id, fact_id, fact_key, fact_kind, statement, evidence_source,
           source_turn_id, source_ref, observed_at, status, resolved_at, updated_at
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'owner_reported', ?7, NULL, ?8, 'active', NULL, ?8)`)
@@ -365,6 +378,9 @@ export class SchoolCatchupRepository {
     if ([...activeFactCounts.values()].reduce((sum, count) => sum + count, 0) > MAX_ACTIVE_FACTS) {
       throw new RangeError("school_catchup_fact_limit_exceeded");
     }
+    // D1 cap triggers see the batch in order. Every resolve must free capacity
+    // before any insert tries to consume it, regardless of course order.
+    statements.push(...factResolves, ...factInserts);
 
     for (const actionId of input.plan.completeActionIds) {
       if (!actionsById.has(actionId)) throw new TypeError("school_catchup_action_unknown");
@@ -418,10 +434,13 @@ export class SchoolCatchupRepository {
         .bind(principalId, newUlid(now), courseId, action.localDate, action.sequenceRank,
           inline(action.text, "school_catchup_action_invalid", 512), action.estimatedMinutes, turnId, nowIso));
     }
+    const historyCutoff = new Date(now.getTime() - HISTORY_RETENTION_MILLISECONDS).toISOString();
     statements.push(this.database.prepare(`DELETE FROM school_course_facts
-      WHERE principal_id = ?1 AND status = 'resolved'`).bind(principalId));
+      WHERE principal_id = ?1 AND status = 'resolved' AND resolved_at < ?2`).bind(principalId, historyCutoff));
     statements.push(this.database.prepare(`DELETE FROM school_catchup_actions
       WHERE principal_id = ?1 AND status = 'superseded'`).bind(principalId));
+    statements.push(this.database.prepare(`DELETE FROM school_catchup_actions
+      WHERE principal_id = ?1 AND status = 'completed' AND completed_at < ?2`).bind(principalId, historyCutoff));
     statements.push(this.database.prepare(`INSERT INTO school_catchup_turn_receipts (
       principal_id, turn_id, response_hash, applied_at
     ) VALUES (?1, ?2, ?3, ?4)`).bind(principalId, turnId, input.responseHash, nowIso));

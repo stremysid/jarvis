@@ -19,6 +19,7 @@ import ownerPassphraseSql from "../../src/persistence/migrations/0017_owner_pass
 import ownerCallStepUpSql from "../../src/persistence/migrations/0018_owner_call_step_up.sql?raw";
 import memoryIngressSql from "../../src/persistence/migrations/0019_memory_ingress.sql?raw";
 import schoolCatchupSql from "../../src/persistence/migrations/0020_school_catchup.sql?raw";
+import universityTrackerSql from "../../src/persistence/migrations/0022_university_tracker.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
@@ -27,6 +28,7 @@ let ownerPassphraseMigrated: Promise<void> | undefined;
 let ownerCallStepUpMigrated: Promise<void> | undefined;
 let memoryIngressMigrated: Promise<void> | undefined;
 let schoolCatchupMigrated: Promise<void> | undefined;
+let universityTrackerMigrated: Promise<void> | undefined;
 
 /**
  * Split a migration into the statements D1 applies one at a time.
@@ -146,6 +148,15 @@ export async function applySchoolCatchupMigration(): Promise<void> {
     { name: "0020_school_catchup.sql", queries: splitMigration(schoolCatchupSql) },
   ]);
   await schoolCatchupMigrated;
+}
+
+/** Applies the conversational university tracker after the school catch-up store. */
+export async function applyUniversityTrackerMigration(): Promise<void> {
+  await applySchoolCatchupMigration();
+  universityTrackerMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0022_university_tracker.sql", queries: splitMigration(universityTrackerSql) },
+  ]);
+  await universityTrackerMigrated;
 }
 
 /** Test-only reset for immutable per-call step-up and guest-attempt records. */
