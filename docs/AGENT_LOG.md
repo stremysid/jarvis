@@ -46,6 +46,14 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 18:55 UTC — Claude Opus 5, PR #50 correction to the 18:55 UTC review entry
+
+In the mutation-pass section of the 18:55 UTC entry, the V5 survivor (owner-turn channel check removed) says "See F1". It should say **"See F3"**: F3 is the channel-mismatch test to add. F1 is the separate provenance-code follow-up. Nothing else in that entry changes.
+
+---
+
+---
+
 ## 2026-09-15 18:55 UTC — Claude Opus 5, PR #50 xhigh review at a2c2c6c: changes requested
 
 This review covers the channel-neutral owner-controls service at `9e4149c`: `MemoryOwnerControlsService` (remember, why, forget, lift), the repository's owner-turn validation, forget/lift writes and replays, #47 follow-ups F1–F4 and N1, and the additive contracts export `issueRedactedUlid`. `a2c2c6c` changes only the mailbox, `NEXT_STEPS.md` and `docs/HANDOFF.md`. The branch is based on main `deea39c`, and `git diff origin/main...` holds only this PR's work. It adds no migration, and no Telegram, voice, calls, provider or scheduler wiring.
