@@ -1,0 +1,40 @@
+91c91
+<   SELECT CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'identity_challenge_state_changed') END;
+---
+>   SELECT RAISE(ABORT, 'identity_challenge_state_changed') WHERE changes() <> 1;
+190c190
+<   SELECT CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'sync_cursor_compare_failed') END;
+---
+>   SELECT RAISE(ABORT, 'sync_cursor_compare_failed') WHERE changes() <> 1;
+201c201
+<   SELECT CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'sync_snapshot_state_changed') END;
+---
+>   SELECT RAISE(ABORT, 'sync_snapshot_state_changed') WHERE changes() <> 1;
+9c9
+<   SELECT CASE WHEN (
+---
+>   SELECT RAISE(ABORT, 'identity_challenge_capacity_exceeded') WHERE (
+12c12
+<   ) >= 8 THEN RAISE(ABORT, 'identity_challenge_capacity_exceeded') END;
+---
+>   ) >= 8;
+23c23
+<   SELECT CASE WHEN (
+---
+>   SELECT RAISE(ABORT, 'sync_snapshot_capacity_exceeded') WHERE (
+26c26
+<   ) >= 64 THEN RAISE(ABORT, 'sync_snapshot_capacity_exceeded') END;
+---
+>   ) >= 64;
+36c36
+<   SELECT CASE WHEN (
+---
+>   SELECT RAISE(ABORT, 'request_nonce_capacity_exceeded') WHERE (
+39c39
+<   ) >= 1024 THEN RAISE(ABORT, 'request_nonce_capacity_exceeded') END;
+---
+>   ) >= 1024;
+52c52
+<   SELECT CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'identity_challenge_state_changed') END;
+---
+>   SELECT RAISE(ABORT, 'identity_challenge_state_changed') WHERE changes() <> 1;

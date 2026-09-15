@@ -1,0 +1,2 @@
+INSERT INTO memory_topic_events (topic_event_id, principal_id, topic_id, operation, new_parent_topic_id, new_display_name, new_normalized_name, reparented_child_ids_json, moved_placement_ids_json, added_aliases_json, reason, actor, occurred_at)
+VALUES ('01k3wpv0000000000000000506', 'principal:proof:0016', '01k3wpa0000000000000000065', 'create', '01k3wpa0000000000000000064', 'Depth 65', 'depth 65', '[]', '[]', '[]', 'proof topic event', 'rules', '2026-09-14T00:20:00.000Z');

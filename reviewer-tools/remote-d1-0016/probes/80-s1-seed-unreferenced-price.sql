@@ -1,0 +1,2 @@
+INSERT INTO memory_model_prices (price_id, principal_id, provider, model_id, effective_at, input_micros_per_million, output_micros_per_million, cache_read_micros_per_million, currency, source_receipt, created_at)
+VALUES ('01k3wpy0000000000000000004', 'principal:proof:0016', 'deepseek', 'deepseek:deepseek-v4-pro', '2026-09-14T02:00:00.000Z', 1, 1, 0, 'USD', 'proof price', '2026-09-14T02:00:00.000Z');

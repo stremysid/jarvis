@@ -1,0 +1,357 @@
+[
+  {
+    "name": "01-pragma-recursive-triggers",
+    "phase": "main",
+    "expect": "regex:\"recursive_triggers\":\\s*0\\b",
+    "purpose": "REPLACE deletes must not fire delete triggers; the guards assume recursive_triggers = 0"
+  },
+  {
+    "name": "10-seed-owner-events-commands",
+    "phase": "main",
+    "expect": "success",
+    "purpose": "seed the owner, two turns and four owner commands (C0 is deliberately older than C1)"
+  },
+  {
+    "name": "11-seed-item",
+    "phase": "main",
+    "expect": "success",
+    "purpose": "seed item M1 with a rules 'proposed' transition"
+  },
+  {
+    "name": "12-seed-topics-depth-01-32",
+    "phase": "main",
+    "expect": "success",
+    "purpose": "chain A01..A32; every create runs the create-branch recursive CTE",
+    "triggers": "memory_topic_events_insert_guard (create CTE), memory_topic_events_apply, memory_topics_insert_guard"
+  },
+  {
+    "name": "13-seed-topics-depth-33-64",
+    "phase": "main",
+    "expect": "success",
+    "purpose": "chain A33..A64 (depth 64 is the maximum valid depth)",
+    "triggers": "memory_topic_events_insert_guard (create CTE at depth 63)"
+  },
+  {
+    "name": "14-seed-topics-branch",
+    "phase": "main",
+    "expect": "success",
+    "purpose": "branch B02..B20 under A01 (a subtree 19 deep)"
+  },
+  {
+    "name": "15-seed-topics-merge-replay-placement-cursor-price",
+    "phase": "main",
+    "expect": "success",
+    "purpose": "merge source D02 with children, replay tree F01/F02/F03 with three moves, a placement on D02, a cursor and a price",
+    "triggers": "memory_topic_events_insert_guard (move CTE), memory_topics_update_guard, memory_item_placement_events_insert_guard/apply_state"
+  },
+  {
+    "name": "19-check-seed",
+    "phase": "main",
+    "expect": "ok",
+    "purpose": "seed projected exactly once: 90 topics, 93 topic events, depth 64"
+  },
+  {
+    "name": "20-owner-transition-activate",
+    "phase": "main",
+    "expect": "success",
+    "purpose": "valid owner activation through memory_valid_owner_commands (CASE in the WHEN clause evaluates remotely)",
+    "triggers": "memory_item_transitions_insert_guard, memory_item_transitions_apply_state, memory_item_state_insert_guard/update_guard"
+  },
+  {
+    "name": "21-check-owner-activate",
+    "phase": "main",
+    "expect": "ok",
+    "purpose": "owner activation projected once and is retrievable"
+  },
+  {
+    "name": "22-owner-transition-not-a-command",
+    "phase": "main",
+    "expect": "raise:memory_item_transition_invalid",
+    "purpose": "a conversation turn cannot authorize an owner transition"
+  },
+  {
+    "name": "23-owner-transition-stale-command",
+    "phase": "main",
+    "expect": "raise:memory_item_transition_invalid",
+    "purpose": "command C0 matches every operand but is older than the current transition's command"
+  },
+  {
+    "name": "24-owner-transition-fresh-command",
+    "phase": "main",
+    "expect": "success",
+    "purpose": "control for 23: the identical row with the newer command C2 is accepted"
+  },
+  {
+    "name": "25-check-owner-superseded",
+    "phase": "main",
+    "expect": "ok",
+    "purpose": "exactly one accepted transition per command"
+  },
+  {
+    "name": "30-replace-cursor-rewind",
+    "phase": "main",
+    "expect": "raise:memory_cursor_duplicate",
+    "purpose": "H2: REPLACE on the natural key cannot rewind a cursor"
+  },
+  {
+    "name": "31-replace-price-natural-key",
+    "phase": "main",
+    "expect": "raise:memory_model_price_duplicate",
+    "purpose": "REPLACE with a new price_id on the (principal, model, effective_at) key"
+  },
+  {
+    "name": "32-replace-version-rowid-alias",
+    "phase": "main",
+    "expect": "raise:memory_item_version_lineage_invalid",
+    "purpose": "REPLACE through the FTS content rowid alias (explicit rowid)"
+  },
+  {
+    "name": "33-replace-item-state-copy",
+    "phase": "main",
+    "expect": "raise:memory_item_state_requires_transition",
+    "purpose": "REPLACE of a projection row by its own key"
+  },
+  {
+    "name": "34-replace-update-topic-key",
+    "phase": "main",
+    "expect": "raise:memory_topic_update_requires_event",
+    "purpose": "UPDATE OR REPLACE cannot rewrite a topic key onto another topic"
+  },
+  {
+    "name": "35-replace-topic-event-copy",
+    "phase": "main",
+    "expect": "raise:memory_topic_event_invalid",
+    "purpose": "REPLACE of an appended topic event by its own id"
+  },
+  {
+    "name": "39-check-replace-unchanged",
+    "phase": "main",
+    "expect": "ok",
+    "purpose": "every rejected REPLACE left the rows untouched"
+  },
+  {
+    "name": "40-owner-topic-move-wrong-operand",
+    "phase": "main",
+    "expect": "raise:memory_topic_event_invalid",
+    "purpose": "command C3 authorizes parent A45, not A44 (operand binding)"
+  },
+  {
+    "name": "41-owner-topic-move-deep",
+    "phase": "main",
+    "expect": "success",
+    "purpose": "valid owner move of the 19-deep branch under A45: ancestors 45 + subtree 19 = 64",
+    "triggers": "memory_topic_events_insert_guard (move: ancestors + subtree CTEs, owner command), memory_topics_update_guard"
+  },
+  {
+    "name": "42-merge-deep",
+    "phase": "main",
+    "expect": "success",
+    "purpose": "valid merge of D02 into A60: ancestors 60 + descendants 2 = 62; reparents two children and moves one placement",
+    "triggers": "memory_topic_events_insert_guard (merge: ancestors + descendants CTEs), memory_topic_events_apply, memory_topic_aliases_insert_guard, memory_topics_update_guard, memory_item_placement_state_update_guard"
+  },
+  {
+    "name": "49-check-deep",
+    "phase": "main",
+    "expect": "ok",
+    "purpose": "deep move and merge each projected exactly once"
+  },
+  {
+    "name": "50-replay-stale-direct-update",
+    "phase": "main",
+    "expect": "raise:memory_topic_update_requires_event",
+    "purpose": "re-projecting the older first move of F03 is refused"
+  },
+  {
+    "name": "51-replay-older-event",
+    "phase": "main",
+    "expect": "raise:memory_topic_event_invalid",
+    "purpose": "an otherwise valid move dated before F03's current event is refused by the insert guard (memory_topics_update_guard would also refuse it)"
+  },
+  {
+    "name": "60-cycle-move",
+    "phase": "main",
+    "expect": "raise:memory_topic_event_invalid",
+    "purpose": "F02 is now a child of F03, so moving F03 under F02 is a cycle (only the move CTE rejects it)"
+  },
+  {
+    "name": "61-cycle-merge",
+    "phase": "main",
+    "expect": "raise:memory_topic_event_invalid",
+    "purpose": "merging F01 into its own descendant F02 (only the merge CTE rejects it)"
+  },
+  {
+    "name": "62-depth-create-65",
+    "phase": "main",
+    "expect": "raise:memory_topic_event_invalid",
+    "purpose": "the create CTE caps depth at 64"
+  },
+  {
+    "name": "63-depth-move-over-64",
+    "phase": "main",
+    "expect": "raise:memory_topic_event_invalid",
+    "purpose": "ancestors 50 + subtree 19 = 69 (depth-sum clause only)"
+  },
+  {
+    "name": "64-depth-merge-over-64",
+    "phase": "main",
+    "expect": "raise:memory_topic_event_invalid",
+    "purpose": "ancestors 63 + descendants 2 = 65 (merge depth-sum clause only)"
+  },
+  {
+    "name": "69-check-topics-unchanged",
+    "phase": "main",
+    "expect": "ok",
+    "purpose": "no hostile topic probe changed anything"
+  },
+  {
+    "name": "70-clock-topic-future",
+    "phase": "main",
+    "expect": "raise:memory_topic_event_invalid",
+    "purpose": "topic event dated now + 10 minutes (strftime('now', '+5 minutes') bound)"
+  },
+  {
+    "name": "71-clock-topic-now",
+    "phase": "main",
+    "expect": "success",
+    "purpose": "control for 70: the same rename dated now is accepted"
+  },
+  {
+    "name": "72-clock-run-now",
+    "phase": "main",
+    "expect": "success",
+    "purpose": "run started now passes both strftime('now') bounds",
+    "triggers": "memory_runs_insert_guard"
+  },
+  {
+    "name": "73-clock-run-past",
+    "phase": "main",
+    "expect": "raise:memory_run_initial_state_invalid",
+    "purpose": "run backdated 10 minutes"
+  },
+  {
+    "name": "74-clock-run-future",
+    "phase": "main",
+    "expect": "raise:memory_run_initial_state_invalid",
+    "purpose": "run started 10 minutes in the future"
+  },
+  {
+    "name": "79-check-clock",
+    "phase": "main",
+    "expect": "ok",
+    "purpose": "exactly one clock-bounded row of each kind was accepted"
+  },
+  {
+    "name": "80-s1-seed-unreferenced-price",
+    "phase": "fix-dependent",
+    "expect": "success",
+    "purpose": "S1 seed: a price no run references"
+  },
+  {
+    "name": "81-s1-replace-price-explicit-rowid",
+    "phase": "fix-dependent",
+    "purpose": "S1: REPLACE by explicit rowid deletes the guarded price row at 8b62e80; WITHOUT ROWID removes the column",
+    "expect": "success",
+    "expectAtReviewedHead": "success",
+    "expectAfterFix": "errregex:rowid"
+  },
+  {
+    "name": "82-s1-check-price-survives",
+    "phase": "fix-dependent",
+    "purpose": "S1: Y4 must survive (at 8b62e80 it is gone, ok = 0)",
+    "expect": "regex:\"ok\":\\s*0\\b",
+    "expectAtReviewedHead": "regex:\"ok\":\\s*0\\b",
+    "expectAfterFix": "ok"
+  },
+  {
+    "name": "83-s2-seed-siblings",
+    "phase": "fix-dependent",
+    "expect": "success",
+    "purpose": "S2 seed: same-named topics under different parents"
+  },
+  {
+    "name": "84-s2-rename-onto-sibling-plain",
+    "phase": "fix-dependent",
+    "purpose": "S2: plain rename onto a sibling name fails on the unique index today, on the named guard after the fix",
+    "expect": "errregex:UNIQUE constraint failed",
+    "expectAtReviewedHead": "errregex:UNIQUE constraint failed",
+    "expectAfterFix": "raise:memory_topic_event_invalid"
+  },
+  {
+    "name": "85-s2-move-onto-sibling-replace",
+    "phase": "fix-dependent",
+    "purpose": "S2: REPLACE carried into the move apply deletes sibling G04 at 8b62e80",
+    "expect": "success",
+    "expectAtReviewedHead": "success",
+    "expectAfterFix": "raise:memory_topic_event_invalid"
+  },
+  {
+    "name": "86-s2-rename-onto-sibling-replace",
+    "phase": "fix-dependent",
+    "purpose": "S2: REPLACE carried into the rename apply deletes sibling G02 at 8b62e80",
+    "expect": "success",
+    "expectAtReviewedHead": "success",
+    "expectAfterFix": "raise:memory_topic_event_invalid"
+  },
+  {
+    "name": "87-s2-check-siblings-survive",
+    "phase": "fix-dependent",
+    "purpose": "S2: all four sibling topics must survive (at 8b62e80 two are deleted)",
+    "expect": "regex:\"ok\":\\s*0\\b",
+    "expectAtReviewedHead": "regex:\"ok\":\\s*0\\b",
+    "expectAfterFix": "ok"
+  },
+  {
+    "name": "88-s3-seed-owner-locked-items",
+    "phase": "fix-dependent",
+    "expect": "success",
+    "purpose": "S3 seed: three owner-activated items (M2 valid_to 2026-10-01, M4 valid_to already past)"
+  },
+  {
+    "name": "89-s3-rules-expire-future-dated",
+    "phase": "fix-dependent",
+    "purpose": "S3: rules expire an owner-confirmed fact early by future-dating occurred_at past valid_to",
+    "expect": "success",
+    "expectAtReviewedHead": "success",
+    "expectAfterFix": "raise:memory_item_transition_invalid"
+  },
+  {
+    "name": "90-s3-owner-transition-backdated",
+    "phase": "fix-dependent",
+    "purpose": "S3: transition dated before the current state's updated_at",
+    "expect": "success",
+    "expectAtReviewedHead": "success",
+    "expectAfterFix": "raise:memory_item_transition_invalid"
+  },
+  {
+    "name": "91-s3-rules-expire-now-plus-10",
+    "phase": "fix-dependent",
+    "purpose": "S3: rules expiry dated now + 10 minutes (new strftime('now') bound in the transition guard)",
+    "expect": "success",
+    "expectAtReviewedHead": "success",
+    "expectAfterFix": "raise:memory_item_transition_invalid"
+  },
+  {
+    "name": "92-s3-rules-expire-now",
+    "phase": "fix-dependent",
+    "purpose": "S3 control: rules expiry of M4 (valid_to past) dated now; at 8b62e80 it fails only because 91 already expired M4",
+    "expect": "raise:memory_item_transition_invalid",
+    "expectAtReviewedHead": "raise:memory_item_transition_invalid",
+    "expectAfterFix": "success"
+  },
+  {
+    "name": "93-s4-ledger-reservation-now",
+    "phase": "fix-dependent",
+    "purpose": "S4 control: reservation dated now on run X1",
+    "expect": "success",
+    "expectAtReviewedHead": "success",
+    "expectAfterFix": "success"
+  },
+  {
+    "name": "94-s4-ledger-reservation-future",
+    "phase": "fix-dependent",
+    "purpose": "S4: reservation dated now + 10 minutes lands in a later month bucket",
+    "expect": "success",
+    "expectAtReviewedHead": "success",
+    "expectAfterFix": "raise:memory_cost_entry_lineage_invalid"
+  }
+]

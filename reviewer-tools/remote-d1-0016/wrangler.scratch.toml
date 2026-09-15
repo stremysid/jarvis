@@ -1,0 +1,13 @@
+# SCRATCH ONLY, for the PR 39 migration 0016 remote proof in RUNBOOK.md.
+# One throwaway D1 database and nothing else: no Worker code, no production
+# binding, no secrets. RUNBOOK step 4 swaps the placeholder below for the id of
+# jarvis-scratch-0016-proof, and every later step refuses to run if that id is
+# a production id or does not belong to the scratch database.
+name = "jarvis-scratch-0016-proof"
+compatibility_date = "2026-08-22"
+
+[[d1_databases]]
+binding = "SCRATCH_DB"
+database_name = "jarvis-scratch-0016-proof"
+database_id = "SCRATCH_DATABASE_ID_NOT_SET"
+migrations_dir = "migrations"

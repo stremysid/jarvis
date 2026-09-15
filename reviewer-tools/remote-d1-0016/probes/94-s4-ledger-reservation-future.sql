@@ -1,0 +1,2 @@
+INSERT INTO memory_cost_ledger (cost_entry_id, principal_id, run_id, entry_type, provider, model_id, budget_class, amount_micros, price_id, occurred_at)
+VALUES ('01k3wpz0000000000000000001', 'principal:proof:0016', '01k3wpx0000000000000000001', 'reservation', 'deepseek', 'deepseek:deepseek-v4-pro', 'normal_monthly', 1, '01k3wpy0000000000000000001', strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+10 minutes'));

@@ -1,0 +1,1856 @@
+[
+ {
+  "type": "index",
+  "name": "archive_manifests_overlap_seek_idx",
+  "tbl_name": "archive_manifests",
+  "sql_len": 98
+ },
+ {
+  "type": "index",
+  "name": "archive_segment_events_segment_idx",
+  "tbl_name": "archive_segment_events",
+  "sql_len": 101
+ },
+ {
+  "type": "index",
+  "name": "authentication_attempt_reservations_call_idx",
+  "tbl_name": "authentication_attempt_reservations",
+  "sql_len": 132
+ },
+ {
+  "type": "index",
+  "name": "authentication_attempt_reservations_challenge_idx",
+  "tbl_name": "authentication_attempt_reservations",
+  "sql_len": 180
+ },
+ {
+  "type": "index",
+  "name": "authentication_attempt_reservations_composite_idx",
+  "tbl_name": "authentication_attempt_reservations",
+  "sql_len": 138
+ },
+ {
+  "type": "index",
+  "name": "authentication_attempt_reservations_global_idx",
+  "tbl_name": "authentication_attempt_reservations",
+  "sql_len": 132
+ },
+ {
+  "type": "index",
+  "name": "autonomy_evaluations_capability_idx",
+  "tbl_name": "autonomy_evaluations",
+  "sql_len": 98
+ },
+ {
+  "type": "index",
+  "name": "autonomy_evaluations_outcome_idx",
+  "tbl_name": "autonomy_evaluations",
+  "sql_len": 92
+ },
+ {
+  "type": "index",
+  "name": "bootstrap_tokens_expiry_idx",
+  "tbl_name": "bootstrap_tokens",
+  "sql_len": 72
+ },
+ {
+  "type": "index",
+  "name": "call_sessions_active_principal_idx",
+  "tbl_name": "call_sessions",
+  "sql_len": 110
+ },
+ {
+  "type": "index",
+  "name": "channel_identities_principal_idx",
+  "tbl_name": "channel_identities",
+  "sql_len": 81
+ },
+ {
+  "type": "index",
+  "name": "conversation_deliveries_available_idx",
+  "tbl_name": "conversation_deliveries",
+  "sql_len": 113
+ },
+ {
+  "type": "index",
+  "name": "conversation_deliveries_target_idx",
+  "tbl_name": "conversation_deliveries",
+  "sql_len": 117
+ },
+ {
+  "type": "index",
+  "name": "conversation_turns_principal_session_idx",
+  "tbl_name": "conversation_turns",
+  "sql_len": 120
+ },
+ {
+  "type": "index",
+  "name": "conversation_turns_state_expiry_idx",
+  "tbl_name": "conversation_turns",
+  "sql_len": 103
+ },
+ {
+  "type": "index",
+  "name": "deadline_revisions_deadline_idx",
+  "tbl_name": "deadline_revisions",
+  "sql_len": 92
+ },
+ {
+  "type": "index",
+  "name": "deadlines_due_idx",
+  "tbl_name": "deadlines",
+  "sql_len": 59
+ },
+ {
+  "type": "index",
+  "name": "decision_items_origin_idx",
+  "tbl_name": "decision_items",
+  "sql_len": 72
+ },
+ {
+  "type": "index",
+  "name": "decision_items_queue_idx",
+  "tbl_name": "decision_items",
+  "sql_len": 90
+ },
+ {
+  "type": "index",
+  "name": "decision_options_ordinal_idx",
+  "tbl_name": "decision_options",
+  "sql_len": 90
+ },
+ {
+  "type": "index",
+  "name": "decision_responses_one_per_item_idx",
+  "tbl_name": "decision_responses",
+  "sql_len": 90
+ },
+ {
+  "type": "index",
+  "name": "device_keys_principal_idx",
+  "tbl_name": "device_keys",
+  "sql_len": 75
+ },
+ {
+  "type": "index",
+  "name": "events_subject_sequence_idx",
+  "tbl_name": "events",
+  "sql_len": 72
+ },
+ {
+  "type": "index",
+  "name": "events_type_sequence_idx",
+  "tbl_name": "events",
+  "sql_len": 69
+ },
+ {
+  "type": "index",
+  "name": "identity_challenges_activation_idx",
+  "tbl_name": "identity_challenges",
+  "sql_len": 104
+ },
+ {
+  "type": "index",
+  "name": "identity_challenges_device_expiry_idx",
+  "tbl_name": "identity_challenges",
+  "sql_len": 107
+ },
+ {
+  "type": "index",
+  "name": "identity_challenges_expiry_idx",
+  "tbl_name": "identity_challenges",
+  "sql_len": 78
+ },
+ {
+  "type": "index",
+  "name": "liveness_alerts_component_idx",
+  "tbl_name": "liveness_alerts",
+  "sql_len": 84
+ },
+ {
+  "type": "index",
+  "name": "outbound_attempts_policy_day",
+  "tbl_name": "outbound_call_attempts",
+  "sql_len": 111
+ },
+ {
+  "type": "index",
+  "name": "outbound_call_attempts_command_idx",
+  "tbl_name": "outbound_call_attempts",
+  "sql_len": 104
+ },
+ {
+  "type": "index",
+  "name": "outbox_archive_reconcile_idx",
+  "tbl_name": "outbox",
+  "sql_len": 75
+ },
+ {
+  "type": "index",
+  "name": "outbox_dispatch_idx",
+  "tbl_name": "outbox",
+  "sql_len": 80
+ },
+ {
+  "type": "index",
+  "name": "policy_decisions_principal_idx",
+  "tbl_name": "policy_decisions",
+  "sql_len": 89
+ },
+ {
+  "type": "index",
+  "name": "project_documents_latest_idx",
+  "tbl_name": "project_documents",
+  "sql_len": 93
+ },
+ {
+  "type": "index",
+  "name": "project_observations_project_idx",
+  "tbl_name": "project_observations",
+  "sql_len": 94
+ },
+ {
+  "type": "index",
+  "name": "provider_events_relay_dedupe_idx",
+  "tbl_name": "provider_events",
+  "sql_len": 148
+ },
+ {
+  "type": "index",
+  "name": "provider_events_status_dedupe_idx",
+  "tbl_name": "provider_events",
+  "sql_len": 178
+ },
+ {
+  "type": "index",
+  "name": "quiet_windows_span_idx",
+  "tbl_name": "quiet_windows",
+  "sql_len": 72
+ },
+ {
+  "type": "index",
+  "name": "request_nonces_device_expiry_idx",
+  "tbl_name": "request_nonces",
+  "sql_len": 86
+ },
+ {
+  "type": "index",
+  "name": "request_nonces_expiry_idx",
+  "tbl_name": "request_nonces",
+  "sql_len": 68
+ },
+ {
+  "type": "index",
+  "name": "scheduled_runs_recent_idx",
+  "tbl_name": "scheduled_runs",
+  "sql_len": 73
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_archive_manifests_1",
+  "tbl_name": "archive_manifests",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_archive_manifests_2",
+  "tbl_name": "archive_manifests",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_archive_manifests_3",
+  "tbl_name": "archive_manifests",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_archive_manifests_4",
+  "tbl_name": "archive_manifests",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_archive_purge_receipts_1",
+  "tbl_name": "archive_purge_receipts",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_archive_segment_events_1",
+  "tbl_name": "archive_segment_events",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_archive_segment_events_2",
+  "tbl_name": "archive_segment_events",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_archive_segments_1",
+  "tbl_name": "archive_segments",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_archive_segments_2",
+  "tbl_name": "archive_segments",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_archive_segments_3",
+  "tbl_name": "archive_segments",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_archive_segments_4",
+  "tbl_name": "archive_segments",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_authentication_attempt_reservations_1",
+  "tbl_name": "authentication_attempt_reservations",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_autonomy_evaluations_1",
+  "tbl_name": "autonomy_evaluations",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_bootstrap_tokens_1",
+  "tbl_name": "bootstrap_tokens",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_bootstrap_tokens_2",
+  "tbl_name": "bootstrap_tokens",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_call_session_authorities_1",
+  "tbl_name": "call_session_authorities",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_call_sessions_1",
+  "tbl_name": "call_sessions",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_call_sessions_2",
+  "tbl_name": "call_sessions",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_call_sessions_3",
+  "tbl_name": "call_sessions",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_call_sessions_4",
+  "tbl_name": "call_sessions",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_call_sessions_5",
+  "tbl_name": "call_sessions",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_capability_tiers_1",
+  "tbl_name": "capability_tiers",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_capacity_alert_crossings_1",
+  "tbl_name": "capacity_alert_crossings",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_channel_identities_1",
+  "tbl_name": "channel_identities",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_channel_identities_2",
+  "tbl_name": "channel_identities",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_component_liveness_1",
+  "tbl_name": "component_liveness",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_consumer_cursors_1",
+  "tbl_name": "consumer_cursors",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_conversation_deliveries_1",
+  "tbl_name": "conversation_deliveries",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_conversation_deliveries_2",
+  "tbl_name": "conversation_deliveries",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_conversation_deliveries_3",
+  "tbl_name": "conversation_deliveries",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_conversation_deliveries_4",
+  "tbl_name": "conversation_deliveries",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_conversation_deliveries_5",
+  "tbl_name": "conversation_deliveries",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_conversation_turns_1",
+  "tbl_name": "conversation_turns",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_conversation_turns_2",
+  "tbl_name": "conversation_turns",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_conversation_turns_3",
+  "tbl_name": "conversation_turns",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_conversation_turns_4",
+  "tbl_name": "conversation_turns",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_conversation_turns_5",
+  "tbl_name": "conversation_turns",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_d1_migrations_1",
+  "tbl_name": "d1_migrations",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_deadline_revisions_1",
+  "tbl_name": "deadline_revisions",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_deadline_sources_1",
+  "tbl_name": "deadline_sources",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_deadlines_1",
+  "tbl_name": "deadlines",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_deadlines_2",
+  "tbl_name": "deadlines",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_decision_items_1",
+  "tbl_name": "decision_items",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_decision_options_1",
+  "tbl_name": "decision_options",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_decision_responses_1",
+  "tbl_name": "decision_responses",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_device_keys_1",
+  "tbl_name": "device_keys",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_device_keys_2",
+  "tbl_name": "device_keys",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_device_keys_3",
+  "tbl_name": "device_keys",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_device_keys_4",
+  "tbl_name": "device_keys",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_device_keys_5",
+  "tbl_name": "device_keys",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_device_keys_6",
+  "tbl_name": "device_keys",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_events_1",
+  "tbl_name": "events",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_idempotency_records_1",
+  "tbl_name": "idempotency_records",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_idempotency_records_2",
+  "tbl_name": "idempotency_records",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_identity_challenges_1",
+  "tbl_name": "identity_challenges",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_liveness_alerts_1",
+  "tbl_name": "liveness_alerts",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_memory_fact_projection_facts_1",
+  "tbl_name": "memory_fact_projection_facts",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_memory_fact_projection_facts_2",
+  "tbl_name": "memory_fact_projection_facts",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_outbound_call_attempts_1",
+  "tbl_name": "outbound_call_attempts",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_outbound_call_attempts_2",
+  "tbl_name": "outbound_call_attempts",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_outbound_call_attempts_3",
+  "tbl_name": "outbound_call_attempts",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_outbound_call_attempts_4",
+  "tbl_name": "outbound_call_attempts",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_outbound_call_attempts_5",
+  "tbl_name": "outbound_call_attempts",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_outbox_1",
+  "tbl_name": "outbox",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_outbox_2",
+  "tbl_name": "outbox",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_policy_decisions_1",
+  "tbl_name": "policy_decisions",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_principals_1",
+  "tbl_name": "principals",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_project_documents_1",
+  "tbl_name": "project_documents",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_project_observations_1",
+  "tbl_name": "project_observations",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_provider_events_1",
+  "tbl_name": "provider_events",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_provider_events_2",
+  "tbl_name": "provider_events",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_quiet_windows_1",
+  "tbl_name": "quiet_windows",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_request_nonces_1",
+  "tbl_name": "request_nonces",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_request_nonces_2",
+  "tbl_name": "request_nonces",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_scheduled_runs_1",
+  "tbl_name": "scheduled_runs",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_sync_ack_receipts_1",
+  "tbl_name": "sync_ack_receipts",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_sync_ack_receipts_2",
+  "tbl_name": "sync_ack_receipts",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_sync_snapshots_1",
+  "tbl_name": "sync_snapshots",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_sync_snapshots_2",
+  "tbl_name": "sync_snapshots",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_tracked_projects_1",
+  "tbl_name": "tracked_projects",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_tracked_projects_2",
+  "tbl_name": "tracked_projects",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_voice_access_grant_events_1",
+  "tbl_name": "voice_access_grant_events",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_voice_access_grants_1",
+  "tbl_name": "voice_access_grants",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_voice_owner_identity_1",
+  "tbl_name": "voice_owner_identity",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sqlite_autoindex_voice_owner_identity_2",
+  "tbl_name": "voice_owner_identity",
+  "sql_len": 0
+ },
+ {
+  "type": "index",
+  "name": "sync_ack_receipts_consumer_idx",
+  "tbl_name": "sync_ack_receipts",
+  "sql_len": 97
+ },
+ {
+  "type": "index",
+  "name": "sync_snapshots_consumer_idx",
+  "tbl_name": "sync_snapshots",
+  "sql_len": 91
+ },
+ {
+  "type": "index",
+  "name": "sync_snapshots_device_expiry_idx",
+  "tbl_name": "sync_snapshots",
+  "sql_len": 86
+ },
+ {
+  "type": "index",
+  "name": "sync_snapshots_expiry_idx",
+  "tbl_name": "sync_snapshots",
+  "sql_len": 68
+ },
+ {
+  "type": "index",
+  "name": "sync_snapshots_input_token_idx",
+  "tbl_name": "sync_snapshots",
+  "sql_len": 121
+ },
+ {
+  "type": "index",
+  "name": "voice_access_grant_events_grant_version_idx",
+  "tbl_name": "voice_access_grant_events",
+  "sql_len": 124
+ },
+ {
+  "type": "index",
+  "name": "voice_access_grants_one_live_identity",
+  "tbl_name": "voice_access_grants",
+  "sql_len": 133
+ },
+ {
+  "type": "table",
+  "name": "archive_manifests",
+  "tbl_name": "archive_manifests",
+  "sql_len": 561
+ },
+ {
+  "type": "table",
+  "name": "archive_purge_receipts",
+  "tbl_name": "archive_purge_receipts",
+  "sql_len": 236
+ },
+ {
+  "type": "table",
+  "name": "archive_segment_events",
+  "tbl_name": "archive_segment_events",
+  "sql_len": 507
+ },
+ {
+  "type": "table",
+  "name": "archive_segments",
+  "tbl_name": "archive_segments",
+  "sql_len": 642
+ },
+ {
+  "type": "table",
+  "name": "archive_state",
+  "tbl_name": "archive_state",
+  "sql_len": 499
+ },
+ {
+  "type": "table",
+  "name": "authentication_attempt_reservations",
+  "tbl_name": "authentication_attempt_reservations",
+  "sql_len": 1376
+ },
+ {
+  "type": "table",
+  "name": "autonomy_evaluations",
+  "tbl_name": "autonomy_evaluations",
+  "sql_len": 485
+ },
+ {
+  "type": "table",
+  "name": "autonomy_mode",
+  "tbl_name": "autonomy_mode",
+  "sql_len": 209
+ },
+ {
+  "type": "table",
+  "name": "bootstrap_tokens",
+  "tbl_name": "bootstrap_tokens",
+  "sql_len": 837
+ },
+ {
+  "type": "table",
+  "name": "call_session_authorities",
+  "tbl_name": "call_session_authorities",
+  "sql_len": 1259
+ },
+ {
+  "type": "table",
+  "name": "call_sessions",
+  "tbl_name": "call_sessions",
+  "sql_len": 3625
+ },
+ {
+  "type": "table",
+  "name": "capability_tiers",
+  "tbl_name": "capability_tiers",
+  "sql_len": 171
+ },
+ {
+  "type": "table",
+  "name": "capacity_alert_crossings",
+  "tbl_name": "capacity_alert_crossings",
+  "sql_len": 945
+ },
+ {
+  "type": "table",
+  "name": "channel_identities",
+  "tbl_name": "channel_identities",
+  "sql_len": 655
+ },
+ {
+  "type": "table",
+  "name": "component_liveness",
+  "tbl_name": "component_liveness",
+  "sql_len": 370
+ },
+ {
+  "type": "table",
+  "name": "consumer_cursors",
+  "tbl_name": "consumer_cursors",
+  "sql_len": 171
+ },
+ {
+  "type": "table",
+  "name": "conversation_deliveries",
+  "tbl_name": "conversation_deliveries",
+  "sql_len": 5580
+ },
+ {
+  "type": "table",
+  "name": "conversation_turns",
+  "tbl_name": "conversation_turns",
+  "sql_len": 6677
+ },
+ {
+  "type": "table",
+  "name": "d1_migrations",
+  "tbl_name": "d1_migrations",
+  "sql_len": 163
+ },
+ {
+  "type": "table",
+  "name": "deadline_revisions",
+  "tbl_name": "deadline_revisions",
+  "sql_len": 328
+ },
+ {
+  "type": "table",
+  "name": "deadline_sources",
+  "tbl_name": "deadline_sources",
+  "sql_len": 449
+ },
+ {
+  "type": "table",
+  "name": "deadlines",
+  "tbl_name": "deadlines",
+  "sql_len": 770
+ },
+ {
+  "type": "table",
+  "name": "decision_items",
+  "tbl_name": "decision_items",
+  "sql_len": 853
+ },
+ {
+  "type": "table",
+  "name": "decision_options",
+  "tbl_name": "decision_options",
+  "sql_len": 449
+ },
+ {
+  "type": "table",
+  "name": "decision_responses",
+  "tbl_name": "decision_responses",
+  "sql_len": 497
+ },
+ {
+  "type": "table",
+  "name": "device_keys",
+  "tbl_name": "device_keys",
+  "sql_len": 989
+ },
+ {
+  "type": "table",
+  "name": "events",
+  "tbl_name": "events",
+  "sql_len": 507
+ },
+ {
+  "type": "table",
+  "name": "idempotency_records",
+  "tbl_name": "idempotency_records",
+  "sql_len": 308
+ },
+ {
+  "type": "table",
+  "name": "identity_challenges",
+  "tbl_name": "identity_challenges",
+  "sql_len": 1002
+ },
+ {
+  "type": "table",
+  "name": "liveness_alerts",
+  "tbl_name": "liveness_alerts",
+  "sql_len": 166
+ },
+ {
+  "type": "table",
+  "name": "memory_fact_projection_abandoned",
+  "tbl_name": "memory_fact_projection_abandoned",
+  "sql_len": 959
+ },
+ {
+  "type": "table",
+  "name": "memory_fact_projection_commits",
+  "tbl_name": "memory_fact_projection_commits",
+  "sql_len": 634
+ },
+ {
+  "type": "table",
+  "name": "memory_fact_projection_facts",
+  "tbl_name": "memory_fact_projection_facts",
+  "sql_len": 2355
+ },
+ {
+  "type": "table",
+  "name": "memory_fact_projection_fts",
+  "tbl_name": "memory_fact_projection_fts",
+  "sql_len": 195
+ },
+ {
+  "type": "table",
+  "name": "memory_fact_projection_fts_config",
+  "tbl_name": "memory_fact_projection_fts_config",
+  "sql_len": 80
+ },
+ {
+  "type": "table",
+  "name": "memory_fact_projection_fts_data",
+  "tbl_name": "memory_fact_projection_fts_data",
+  "sql_len": 82
+ },
+ {
+  "type": "table",
+  "name": "memory_fact_projection_fts_docsize",
+  "tbl_name": "memory_fact_projection_fts_docsize",
+  "sql_len": 82
+ },
+ {
+  "type": "table",
+  "name": "memory_fact_projection_fts_idx",
+  "tbl_name": "memory_fact_projection_fts_idx",
+  "sql_len": 104
+ },
+ {
+  "type": "table",
+  "name": "memory_fact_projection_heads",
+  "tbl_name": "memory_fact_projection_heads",
+  "sql_len": 824
+ },
+ {
+  "type": "table",
+  "name": "memory_fact_projection_pages",
+  "tbl_name": "memory_fact_projection_pages",
+  "sql_len": 916
+ },
+ {
+  "type": "table",
+  "name": "memory_fact_projection_versions",
+  "tbl_name": "memory_fact_projection_versions",
+  "sql_len": 1504
+ },
+ {
+  "type": "table",
+  "name": "outbound_call_attempts",
+  "tbl_name": "outbound_call_attempts",
+  "sql_len": 3653
+ },
+ {
+  "type": "table",
+  "name": "outbound_runtime_controls",
+  "tbl_name": "outbound_runtime_controls",
+  "sql_len": 539
+ },
+ {
+  "type": "table",
+  "name": "outbox",
+  "tbl_name": "outbox",
+  "sql_len": 496
+ },
+ {
+  "type": "table",
+  "name": "policy_decisions",
+  "tbl_name": "policy_decisions",
+  "sql_len": 490
+ },
+ {
+  "type": "table",
+  "name": "principals",
+  "tbl_name": "principals",
+  "sql_len": 335
+ },
+ {
+  "type": "table",
+  "name": "project_documents",
+  "tbl_name": "project_documents",
+  "sql_len": 557
+ },
+ {
+  "type": "table",
+  "name": "project_observations",
+  "tbl_name": "project_observations",
+  "sql_len": 444
+ },
+ {
+  "type": "table",
+  "name": "provider_events",
+  "tbl_name": "provider_events",
+  "sql_len": 1326
+ },
+ {
+  "type": "table",
+  "name": "quiet_windows",
+  "tbl_name": "quiet_windows",
+  "sql_len": 385
+ },
+ {
+  "type": "table",
+  "name": "request_nonces",
+  "tbl_name": "request_nonces",
+  "sql_len": 797
+ },
+ {
+  "type": "table",
+  "name": "scheduled_runs",
+  "tbl_name": "scheduled_runs",
+  "sql_len": 332
+ },
+ {
+  "type": "table",
+  "name": "sqlite_sequence",
+  "tbl_name": "sqlite_sequence",
+  "sql_len": 38
+ },
+ {
+  "type": "table",
+  "name": "sync_ack_receipts",
+  "tbl_name": "sync_ack_receipts",
+  "sql_len": 867
+ },
+ {
+  "type": "table",
+  "name": "sync_snapshots",
+  "tbl_name": "sync_snapshots",
+  "sql_len": 1586
+ },
+ {
+  "type": "table",
+  "name": "tracked_projects",
+  "tbl_name": "tracked_projects",
+  "sql_len": 406
+ },
+ {
+  "type": "table",
+  "name": "voice_access_grant_events",
+  "tbl_name": "voice_access_grant_events",
+  "sql_len": 885
+ },
+ {
+  "type": "table",
+  "name": "voice_access_grants",
+  "tbl_name": "voice_access_grants",
+  "sql_len": 1956
+ },
+ {
+  "type": "table",
+  "name": "voice_owner_identity",
+  "tbl_name": "voice_owner_identity",
+  "sql_len": 380
+ },
+ {
+  "type": "trigger",
+  "name": "archive_manifests_no_delete",
+  "tbl_name": "archive_manifests",
+  "sql_len": 140
+ },
+ {
+  "type": "trigger",
+  "name": "archive_manifests_no_update",
+  "tbl_name": "archive_manifests",
+  "sql_len": 140
+ },
+ {
+  "type": "trigger",
+  "name": "archive_manifests_require_next_range",
+  "tbl_name": "archive_manifests",
+  "sql_len": 303
+ },
+ {
+  "type": "trigger",
+  "name": "archive_purge_receipts_no_delete",
+  "tbl_name": "archive_purge_receipts",
+  "sql_len": 155
+ },
+ {
+  "type": "trigger",
+  "name": "archive_purge_receipts_no_update",
+  "tbl_name": "archive_purge_receipts",
+  "sql_len": 155
+ },
+ {
+  "type": "trigger",
+  "name": "archive_purge_receipts_require_delivered",
+  "tbl_name": "archive_purge_receipts",
+  "sql_len": 512
+ },
+ {
+  "type": "trigger",
+  "name": "archive_segment_events_no_delete",
+  "tbl_name": "archive_segment_events",
+  "sql_len": 150
+ },
+ {
+  "type": "trigger",
+  "name": "archive_segment_events_no_update",
+  "tbl_name": "archive_segment_events",
+  "sql_len": 150
+ },
+ {
+  "type": "trigger",
+  "name": "archive_segment_events_require_manifest_range",
+  "tbl_name": "archive_segment_events",
+  "sql_len": 392
+ },
+ {
+  "type": "trigger",
+  "name": "archive_segments_no_delete",
+  "tbl_name": "archive_segments",
+  "sql_len": 137
+ },
+ {
+  "type": "trigger",
+  "name": "archive_segments_no_update",
+  "tbl_name": "archive_segments",
+  "sql_len": 137
+ },
+ {
+  "type": "trigger",
+  "name": "archive_state_advance_guard",
+  "tbl_name": "archive_state",
+  "sql_len": 885
+ },
+ {
+  "type": "trigger",
+  "name": "archive_state_circuit_latched",
+  "tbl_name": "archive_state",
+  "sql_len": 216
+ },
+ {
+  "type": "trigger",
+  "name": "archive_state_no_delete",
+  "tbl_name": "archive_state",
+  "sql_len": 129
+ },
+ {
+  "type": "trigger",
+  "name": "archive_state_no_second_row",
+  "tbl_name": "archive_state",
+  "sql_len": 175
+ },
+ {
+  "type": "trigger",
+  "name": "authentication_attempt_reservations_append_only",
+  "tbl_name": "authentication_attempt_reservations",
+  "sql_len": 188
+ },
+ {
+  "type": "trigger",
+  "name": "authentication_attempt_reservations_reject_delete",
+  "tbl_name": "authentication_attempt_reservations",
+  "sql_len": 197
+ },
+ {
+  "type": "trigger",
+  "name": "autonomy_evaluations_reject_delete",
+  "tbl_name": "autonomy_evaluations",
+  "sql_len": 160
+ },
+ {
+  "type": "trigger",
+  "name": "autonomy_evaluations_reject_update",
+  "tbl_name": "autonomy_evaluations",
+  "sql_len": 160
+ },
+ {
+  "type": "trigger",
+  "name": "autonomy_mode_reject_delete",
+  "tbl_name": "autonomy_mode",
+  "sql_len": 140
+ },
+ {
+  "type": "trigger",
+  "name": "call_session_authorities_delete_forbidden",
+  "tbl_name": "call_session_authorities",
+  "sql_len": 174
+ },
+ {
+  "type": "trigger",
+  "name": "call_session_authorities_guest_owner_required",
+  "tbl_name": "call_session_authorities",
+  "sql_len": 883
+ },
+ {
+  "type": "trigger",
+  "name": "call_session_authorities_immutable",
+  "tbl_name": "call_session_authorities",
+  "sql_len": 160
+ },
+ {
+  "type": "trigger",
+  "name": "call_session_authorities_provider_lifetime",
+  "tbl_name": "call_session_authorities",
+  "sql_len": 662
+ },
+ {
+  "type": "trigger",
+  "name": "call_session_authorities_require_current_lineage",
+  "tbl_name": "call_session_authorities",
+  "sql_len": 2076
+ },
+ {
+  "type": "trigger",
+  "name": "call_sessions_immutable_lineage",
+  "tbl_name": "call_sessions",
+  "sql_len": 876
+ },
+ {
+  "type": "trigger",
+  "name": "call_sessions_phase_transition",
+  "tbl_name": "call_sessions",
+  "sql_len": 724
+ },
+ {
+  "type": "trigger",
+  "name": "call_sessions_provider_binding_eligible",
+  "tbl_name": "call_sessions",
+  "sql_len": 3580
+ },
+ {
+  "type": "trigger",
+  "name": "call_sessions_provider_binding_once",
+  "tbl_name": "call_sessions",
+  "sql_len": 323
+ },
+ {
+  "type": "trigger",
+  "name": "call_sessions_provider_connected_at_immutable",
+  "tbl_name": "call_sessions",
+  "sql_len": 638
+ },
+ {
+  "type": "trigger",
+  "name": "call_sessions_provider_connected_at_required",
+  "tbl_name": "call_sessions",
+  "sql_len": 342
+ },
+ {
+  "type": "trigger",
+  "name": "call_sessions_reject_delete",
+  "tbl_name": "call_sessions",
+  "sql_len": 139
+ },
+ {
+  "type": "trigger",
+  "name": "call_sessions_require_inbound_lineage",
+  "tbl_name": "call_sessions",
+  "sql_len": 4633
+ },
+ {
+  "type": "trigger",
+  "name": "call_sessions_require_initial_state",
+  "tbl_name": "call_sessions",
+  "sql_len": 259
+ },
+ {
+  "type": "trigger",
+  "name": "call_sessions_require_matching_outbound_attempt",
+  "tbl_name": "call_sessions",
+  "sql_len": 1787
+ },
+ {
+  "type": "trigger",
+  "name": "call_sessions_updated_at_monotone",
+  "tbl_name": "call_sessions",
+  "sql_len": 251
+ },
+ {
+  "type": "trigger",
+  "name": "call_sessions_voice_access_guest_owner_bind_required",
+  "tbl_name": "call_sessions",
+  "sql_len": 852
+ },
+ {
+  "type": "trigger",
+  "name": "call_sessions_voice_access_guest_owner_required",
+  "tbl_name": "call_sessions",
+  "sql_len": 716
+ },
+ {
+  "type": "trigger",
+  "name": "call_sessions_voice_access_immutable",
+  "tbl_name": "call_sessions",
+  "sql_len": 370
+ },
+ {
+  "type": "trigger",
+  "name": "call_sessions_voice_access_required",
+  "tbl_name": "call_sessions",
+  "sql_len": 1624
+ },
+ {
+  "type": "trigger",
+  "name": "channel_identities_call_session_subject_immutable",
+  "tbl_name": "channel_identities",
+  "sql_len": 398
+ },
+ {
+  "type": "trigger",
+  "name": "channel_identities_conversation_lineage_immutable",
+  "tbl_name": "channel_identities",
+  "sql_len": 384
+ },
+ {
+  "type": "trigger",
+  "name": "conversation_deliveries_claim_target_guard",
+  "tbl_name": "conversation_deliveries",
+  "sql_len": 571
+ },
+ {
+  "type": "trigger",
+  "name": "conversation_deliveries_immutable_guard",
+  "tbl_name": "conversation_deliveries",
+  "sql_len": 1317
+ },
+ {
+  "type": "trigger",
+  "name": "conversation_deliveries_reject_delete",
+  "tbl_name": "conversation_deliveries",
+  "sql_len": 168
+ },
+ {
+  "type": "trigger",
+  "name": "conversation_deliveries_stage_guard",
+  "tbl_name": "conversation_deliveries",
+  "sql_len": 960
+ },
+ {
+  "type": "trigger",
+  "name": "conversation_deliveries_target_guard",
+  "tbl_name": "conversation_deliveries",
+  "sql_len": 487
+ },
+ {
+  "type": "trigger",
+  "name": "conversation_deliveries_terminal_guard",
+  "tbl_name": "conversation_deliveries",
+  "sql_len": 837
+ },
+ {
+  "type": "trigger",
+  "name": "conversation_deliveries_transition_guard",
+  "tbl_name": "conversation_deliveries",
+  "sql_len": 390
+ },
+ {
+  "type": "trigger",
+  "name": "conversation_turns_immutable_guard",
+  "tbl_name": "conversation_turns",
+  "sql_len": 1324
+ },
+ {
+  "type": "trigger",
+  "name": "conversation_turns_insert_guard",
+  "tbl_name": "conversation_turns",
+  "sql_len": 632
+ },
+ {
+  "type": "trigger",
+  "name": "conversation_turns_reject_delete",
+  "tbl_name": "conversation_turns",
+  "sql_len": 154
+ },
+ {
+  "type": "trigger",
+  "name": "conversation_turns_terminal_guard",
+  "tbl_name": "conversation_turns",
+  "sql_len": 706
+ },
+ {
+  "type": "trigger",
+  "name": "conversation_turns_transition_guard",
+  "tbl_name": "conversation_turns",
+  "sql_len": 511
+ },
+ {
+  "type": "trigger",
+  "name": "deadline_revisions_reject_delete",
+  "tbl_name": "deadline_revisions",
+  "sql_len": 154
+ },
+ {
+  "type": "trigger",
+  "name": "deadline_revisions_reject_update",
+  "tbl_name": "deadline_revisions",
+  "sql_len": 154
+ },
+ {
+  "type": "trigger",
+  "name": "decision_items_forward_only",
+  "tbl_name": "decision_items",
+  "sql_len": 380
+ },
+ {
+  "type": "trigger",
+  "name": "decision_items_freeze_question",
+  "tbl_name": "decision_items",
+  "sql_len": 210
+ },
+ {
+  "type": "trigger",
+  "name": "decision_items_reject_delete",
+  "tbl_name": "decision_items",
+  "sql_len": 142
+ },
+ {
+  "type": "trigger",
+  "name": "decision_responses_reject_delete",
+  "tbl_name": "decision_responses",
+  "sql_len": 154
+ },
+ {
+  "type": "trigger",
+  "name": "decision_responses_reject_update",
+  "tbl_name": "decision_responses",
+  "sql_len": 154
+ },
+ {
+  "type": "trigger",
+  "name": "events_conversation_transition_guard",
+  "tbl_name": "events",
+  "sql_len": 2012
+ },
+ {
+  "type": "trigger",
+  "name": "events_reject_archived_event_id",
+  "tbl_name": "events",
+  "sql_len": 211
+ },
+ {
+  "type": "trigger",
+  "name": "identity_challenges_activate_pending_identity",
+  "tbl_name": "identity_challenges",
+  "sql_len": 962
+ },
+ {
+  "type": "trigger",
+  "name": "identity_challenges_call_session_id_no_reuse",
+  "tbl_name": "identity_challenges",
+  "sql_len": 261
+ },
+ {
+  "type": "trigger",
+  "name": "identity_challenges_call_session_lineage_immutable",
+  "tbl_name": "identity_challenges",
+  "sql_len": 1069
+ },
+ {
+  "type": "trigger",
+  "name": "identity_challenges_reclaim_and_cap",
+  "tbl_name": "identity_challenges",
+  "sql_len": 436
+ },
+ {
+  "type": "trigger",
+  "name": "identity_challenges_task4_canonical_timestamps_insert",
+  "tbl_name": "identity_challenges",
+  "sql_len": 585
+ },
+ {
+  "type": "trigger",
+  "name": "identity_challenges_task4_canonical_timestamps_update",
+  "tbl_name": "identity_challenges",
+  "sql_len": 624
+ },
+ {
+  "type": "trigger",
+  "name": "identity_challenges_task4_id_immutable",
+  "tbl_name": "identity_challenges",
+  "sql_len": 220
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_abandoned_cleanup",
+  "tbl_name": "memory_fact_projection_abandoned",
+  "sql_len": 423
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_abandoned_insert_guard",
+  "tbl_name": "memory_fact_projection_abandoned",
+  "sql_len": 1339
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_abandoned_no_delete",
+  "tbl_name": "memory_fact_projection_abandoned",
+  "sql_len": 179
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_abandoned_no_update",
+  "tbl_name": "memory_fact_projection_abandoned",
+  "sql_len": 179
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_commit_publish",
+  "tbl_name": "memory_fact_projection_commits",
+  "sql_len": 2272
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_commits_immutable_delete",
+  "tbl_name": "memory_fact_projection_commits",
+  "sql_len": 181
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_commits_immutable_update",
+  "tbl_name": "memory_fact_projection_commits",
+  "sql_len": 181
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_facts_delete_guard",
+  "tbl_name": "memory_fact_projection_facts",
+  "sql_len": 407
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_facts_fts_delete",
+  "tbl_name": "memory_fact_projection_facts",
+  "sql_len": 249
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_facts_fts_insert",
+  "tbl_name": "memory_fact_projection_facts",
+  "sql_len": 209
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_facts_immutable",
+  "tbl_name": "memory_fact_projection_facts",
+  "sql_len": 168
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_facts_insert_guard",
+  "tbl_name": "memory_fact_projection_facts",
+  "sql_len": 920
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_heads_delete_guard",
+  "tbl_name": "memory_fact_projection_heads",
+  "sql_len": 176
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_heads_insert_guard",
+  "tbl_name": "memory_fact_projection_heads",
+  "sql_len": 657
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_heads_update_guard",
+  "tbl_name": "memory_fact_projection_heads",
+  "sql_len": 995
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_pages_delete_guard",
+  "tbl_name": "memory_fact_projection_pages",
+  "sql_len": 407
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_pages_immutable",
+  "tbl_name": "memory_fact_projection_pages",
+  "sql_len": 168
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_pages_insert_guard",
+  "tbl_name": "memory_fact_projection_pages",
+  "sql_len": 639
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_versions_delete_guard",
+  "tbl_name": "memory_fact_projection_versions",
+  "sql_len": 676
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_versions_insert_guard",
+  "tbl_name": "memory_fact_projection_versions",
+  "sql_len": 894
+ },
+ {
+  "type": "trigger",
+  "name": "memory_fact_projection_versions_transition",
+  "tbl_name": "memory_fact_projection_versions",
+  "sql_len": 1222
+ },
+ {
+  "type": "trigger",
+  "name": "outbound_attempts_admission",
+  "tbl_name": "outbound_call_attempts",
+  "sql_len": 3219
+ },
+ {
+  "type": "trigger",
+  "name": "outbound_attempts_start_ready",
+  "tbl_name": "outbound_call_attempts",
+  "sql_len": 243
+ },
+ {
+  "type": "trigger",
+  "name": "outbound_attempts_terminal_evidence",
+  "tbl_name": "outbound_call_attempts",
+  "sql_len": 808
+ },
+ {
+  "type": "trigger",
+  "name": "outbound_call_attempts_immutable_lineage",
+  "tbl_name": "outbound_call_attempts",
+  "sql_len": 686
+ },
+ {
+  "type": "trigger",
+  "name": "outbound_call_attempts_reject_delete",
+  "tbl_name": "outbound_call_attempts",
+  "sql_len": 161
+ },
+ {
+  "type": "trigger",
+  "name": "outbound_call_attempts_state_machine",
+  "tbl_name": "outbound_call_attempts",
+  "sql_len": 1860
+ },
+ {
+  "type": "trigger",
+  "name": "outbound_event_retains_terminal_evidence",
+  "tbl_name": "events",
+  "sql_len": 726
+ },
+ {
+  "type": "trigger",
+  "name": "outbound_status_retains_terminal_evidence",
+  "tbl_name": "provider_events",
+  "sql_len": 485
+ },
+ {
+  "type": "trigger",
+  "name": "project_documents_reject_delete",
+  "tbl_name": "project_documents",
+  "sql_len": 151
+ },
+ {
+  "type": "trigger",
+  "name": "project_observations_reject_delete",
+  "tbl_name": "project_observations",
+  "sql_len": 160
+ },
+ {
+  "type": "trigger",
+  "name": "provider_events_relay_require_bound_session",
+  "tbl_name": "provider_events",
+  "sql_len": 332
+ },
+ {
+  "type": "trigger",
+  "name": "provider_events_status_reconcile_attempt",
+  "tbl_name": "provider_events",
+  "sql_len": 445
+ },
+ {
+  "type": "trigger",
+  "name": "provider_events_status_require_compatible_attempt",
+  "tbl_name": "provider_events",
+  "sql_len": 538
+ },
+ {
+  "type": "trigger",
+  "name": "request_nonces_reclaim_and_cap",
+  "tbl_name": "request_nonces",
+  "sql_len": 370
+ },
+ {
+  "type": "trigger",
+  "name": "sync_ack_receipts_apply_snapshot",
+  "tbl_name": "sync_ack_receipts",
+  "sql_len": 967
+ },
+ {
+  "type": "trigger",
+  "name": "sync_snapshots_reclaim_and_cap",
+  "tbl_name": "sync_snapshots",
+  "sql_len": 368
+ },
+ {
+  "type": "trigger",
+  "name": "voice_access_grant_events_delete_forbidden",
+  "tbl_name": "voice_access_grant_events",
+  "sql_len": 178
+ },
+ {
+  "type": "trigger",
+  "name": "voice_access_grant_events_immutable",
+  "tbl_name": "voice_access_grant_events",
+  "sql_len": 164
+ },
+ {
+  "type": "trigger",
+  "name": "voice_access_grants_delete_forbidden",
+  "tbl_name": "voice_access_grants",
+  "sql_len": 160
+ },
+ {
+  "type": "trigger",
+  "name": "voice_access_grants_immutable_lineage",
+  "tbl_name": "voice_access_grants",
+  "sql_len": 612
+ },
+ {
+  "type": "trigger",
+  "name": "voice_access_grants_require_guest_identity",
+  "tbl_name": "voice_access_grants",
+  "sql_len": 674
+ },
+ {
+  "type": "trigger",
+  "name": "voice_access_grants_status_invalid",
+  "tbl_name": "voice_access_grants",
+  "sql_len": 2402
+ },
+ {
+  "type": "trigger",
+  "name": "voice_access_grants_version_invalid",
+  "tbl_name": "voice_access_grants",
+  "sql_len": 736
+ },
+ {
+  "type": "trigger",
+  "name": "voice_owner_identity_delete_forbidden",
+  "tbl_name": "voice_owner_identity",
+  "sql_len": 164
+ },
+ {
+  "type": "trigger",
+  "name": "voice_owner_identity_immutable",
+  "tbl_name": "voice_owner_identity",
+  "sql_len": 150
+ },
+ {
+  "type": "trigger",
+  "name": "voice_owner_identity_requires_voice_human",
+  "tbl_name": "voice_owner_identity",
+  "sql_len": 501
+ }
+]

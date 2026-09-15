@@ -1,0 +1,2 @@
+INSERT INTO memory_item_transitions (transition_id, principal_id, item_id, transition_number, version_id, lifecycle_state, reason, actor, policy_version, owner_authorizing_event_id, occurred_at)
+VALUES ('01k3wpr0000000000000000002', 'principal:proof:0016', '01k3wpm0000000000000000001', 2, '01k3wpn0000000000000000001', 'active', 'proof owner active', 'owner', 'policy-v1', '01k3wpc0000000000000000001', '2026-09-14T00:02:00.000Z');
