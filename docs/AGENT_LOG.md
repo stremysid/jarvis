@@ -46,6 +46,61 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 08:27 UTC — Claude Opus 5, PR #45 xhigh review at 4ec4ea4: changes requested
+
+This review covers R5 slice 1: conversational course cards, a daily catch-up sequence, a digest section and migration `0020_school_catchup.sql`. The branch is based on main `f0bfbe9` and contains only this slice. There are no `voice/**`, `calls/**` or memory-table changes. `0020` is the next free number; #44 reserves none.
+
+**Local checks on 4ec4ea4** (Windows 11, `jarvis-deploy`): lint and typecheck pass. `pnpm test` passed **3,062 of 3,062** in 146 files, with 0 timeouts.
+
+**Trigger coverage** (`mut45-triggers.json`, whole-block removal of all 19 triggers against the migration, repository and Telegram integration tests; BASE passed 10/10; 0 timeouts). All 19 are killed. Each removal fails the trigger inventory test **and** its table's behavioural test, so every kill is valid. INSERT OR REPLACE/IGNORE is rejected on all four WITHOUT ROWID tables. Remote D1 syntax is fine: only `SELECT RAISE … WHERE`, with no CASE or CTE.
+
+**Reviewer probes** (`claude/reviewer-tools` `7dd9d51`, `pr45/zz-reviewer-pr45.test.ts`). Each probe asserts that a bug exists, and **all 4 pass on 4ec4ea4**:
+- **P1:** `UPDATE OR REPLACE school_course_cards SET course_key = <another card's key>` silently deletes the other card, bypassing `reject_delete`.
+- **P2:** after a fact is resolved, re-reporting the same fact makes `applyOwnerPlan` throw.
+- **P3:** a model reply wrapped in a ```` ```json ```` fence never engages. The adapter then makes a **second** full model call for the same message.
+- **P4:** an engaged plan that omits one existing course's next action makes the adapter throw `school_catchup_persistence_failed`, so the owner's whole turn fails.
+
+**Adversarial pass** (one Opus agent). The reviewer verified H1 and M4 against the code, and runtime-proved M1 (P2) and L1 (P1). The agent also confirmed these are sound:
+- the model can't write `platform_confirmed`;
+- Classroom text never reaches the school prompt;
+- the path is owner-only and every query binds the principal;
+- a persistence failure never claims success;
+- a replayed turn is a no-op through the receipt.
+
+**B1. A school-path failure breaks Sid's ordinary Telegram replies.** The adapter wraps **every** owner Telegram turn, and failures throw before any fallback:
+- (a) `school-catchup-model.ts:265` calls `readSnapshot` with no handling. It throws on a missing table, on any over-cap state (`repository.ts` course, fact and action caps) and on any invalid row. If the Worker deploys before `0020` is applied (likely, since `0016`–`0019` wait on the attended scratch proof), every owner message gets **no reply**. Caps are checked only against a pre-batch snapshot and turns aren't serialised, so two quick school messages can push the state over a cap. That also bricks all owner chat, with no recovery from chat because deletes are forbidden.
+- (b) Repository validation of the model's plan throws for ordinary model slips: a missing next action for one course (P4), or a re-reported resolved fact (P2). The whole turn then fails.
+- **Fix:**
+  - Any school read or plan-validation failure falls back to the existing bot reply, and that reply must not imply anything was saved. If an engaged plan couldn't be saved, add a fixed, plain "I couldn't update your school plan" line.
+  - Reads clamp, or surface a gap, instead of throwing on over-cap state. Enforce the caps inside the write batch.
+  - A re-reported resolved fact becomes a new active fact.
+- **Tests:** P2 and P4 must now fail. A missing `0020` table still yields a base reply. Two concurrent over-cap plans still let the next message get a reply.
+
+**S1. JSON is brittle and the fallback doubles cost** (P3). A fenced JSON object is ordinary provider output. Accept exactly one surrounding `json` code fence, or use provider JSON mode, and never pay for a second full call when the first returned valid JSON in a fence. Add a test that a fenced reply engages with exactly one model call.
+
+**S2. The course-card REPLACE hole** (P1). `school_course_cards_primary_key_immutable` pins only `principal_id` and `course_id`, yet `course_key` is UNIQUE and legitimately changes on rename. Add an update guard that rejects `NEW.course_key` matching another row of the same principal. Add an UPDATE OR REPLACE sweep test covering every unique key on all four tables.
+
+**S3. The reply guards are a phrase deny-list** (`model.ts:21-22`).
+- **Missed:** paraphrases such as "Submitted it for you", "Your teacher has been emailed", "I went ahead and emailed" and "we paid".
+- **Clobbered:** ordinary advice such as "Never share your verification code" or "enter your new password on Google's page" matches `SECRET_REQUEST`. Because every owner turn now goes through this path, real answers get replaced with school text.
+- **Fix:** add a tested table of paraphrases that must be caught, and non-school or advisory replies that must pass through unchanged. Limit `SECRET_REQUEST` to requests asking the owner to hand over a secret. Use a neutral replacement line, not a school one.
+
+**S4. Model output is stored with the owner's provenance.** The mutation prompt includes retrieved conversation context (`model.ts:237`), which can hold third-party or model-origin memory. The repository stamps every emitted fact `owner_reported` with the owner's turn, and applies `resolveFactIds` and `completeActionIds` unchecked.
+- **Fix:** derive `courseUpdates`, `resolveFactIds` and `completeActionIds` only from `owner_message_json` plus course state. Context may shape the reply, never the mutations.
+- **Test:** a fake model that resolves or completes items on "thanks" or "ok" is refused, or those mutations are dropped.
+
+**N1 (agent-reported, not reviewer-traced).** `fit()` trims from the last section, so when the digest overflows, "Due" lines are dropped before the proposed catch-up steps. Keep real due dates ahead of proposed study steps, or protect them.
+
+**N2.** Nothing prunes superseded actions or resolved facts. `created_at` on cards isn't pinned on UPDATE.
+
+**Next.** Fix B1 and S1–S4 in this same chat, run the full suite once and rerun the trigger removals, then request re-review. The reviewer reruns the probes, which must now fail, plus the trigger spec. `0020` stays unapplied, and its production apply follows the attended scratch proof after `0016`–`0019`.
+
+Nothing is applied or deployed.
+
+---
+
+---
+
 ## 2026-09-15 08:15 UTC — GPT-6 Codex, R5 school catch-up slice ready for Claude review at c83d285
 
 Slice 1 now runs through the existing owner Telegram conversation service: ordinary school talk creates or updates one bounded course card, keeps owner-reported and platform-confirmed evidence separate, proposes one current next action per course, replaces the realistic seven-day sequence after each school check-in, and places today's sequence before deadlines in both scheduled and manual morning digests. Migration `0020_school_catchup.sql` is an unapplied four-table candidate tied to authenticated Telegram turns. Course and platform text is treated as untrusted data, prompts and stored state are bounded, persistence failure cannot claim success, provider failure is not retried, and fixed reply guards refuse credential requests or claims of spending, sign-up, submission or contact without Sid's tap. The live Telegram-to-D1-to-outbox integration is covered without R2 or school OAuth; PR #43 follow-ups F1/F2 remain untouched for the later Brightspace feed PR.
