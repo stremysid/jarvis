@@ -8,7 +8,10 @@ const PRINCIPAL_ID = "principal:literal-history-migration";
 const JOB_ID = "01k5fsvag00000000000000001";
 const OTHER_JOB_ID = "01k5fsvag00000000000000002";
 const FORGED_JOB_ID = "01k5fsvag00000000000000005";
+const DELETE_JOB_ID = "01k5fsvag00000000000000006";
 const EVENT_ID = "01k5fsvag00000000000000003";
+const COVERAGE_ID = "01k5fsvag00000000000000007";
+const CHUNK_ID = "01k5fsvag00000000000000008";
 const QUERY_HASH = "1".repeat(64);
 const CONTENT_HASH = "2".repeat(64);
 
@@ -120,15 +123,16 @@ describe("0025 archive literal-history migration", () => {
   });
 
   it("memory_literal_search_jobs_delete_forbidden rejects durable job deletion", async () => {
+    await insertJob(DELETE_JOB_ID, "delete-guard").run();
     await expect(env.DB.prepare(`DELETE FROM memory_literal_search_jobs
-      WHERE principal_id = ?1 AND job_id = ?2`).bind(PRINCIPAL_ID, JOB_ID).run())
+      WHERE principal_id = ?1 AND job_id = ?2`).bind(PRINCIPAL_ID, DELETE_JOB_ID).run())
       .rejects.toThrow(/memory_literal_search_job_delete_forbidden/u);
   });
 
   it("memory_literal_search_hits_insert_guard rejects an unverified receipt", async () => {
     await expect(env.DB.prepare(`INSERT INTO memory_literal_search_hits (
       principal_id, job_id, event_sequence, event_id, content_hash, found_at
-    ) VALUES (?1, ?2, 1, ?3, ?4, ?5)`)
+    ) VALUES (?1, ?2, 2, ?3, ?4, ?5)`)
       .bind(PRINCIPAL_ID, JOB_ID, "01k5fsvag00000000000000004", CONTENT_HASH, LATER).run())
       .rejects.toThrow(/memory_literal_search_hit_receipt_invalid/u);
   });
@@ -144,6 +148,29 @@ describe("0025 archive literal-history migration", () => {
     await expect(env.DB.prepare(`DELETE FROM memory_literal_search_hits
       WHERE principal_id = ?1 AND job_id = ?2`).bind(PRINCIPAL_ID, JOB_ID).run())
       .rejects.toThrow(/memory_literal_search_hit_delete_forbidden/u);
+  });
+
+  it("retains REPLACE and IGNORE protection for every history-chunk rowid alias", async () => {
+    await env.DB.prepare(`INSERT INTO memory_history_coverage (
+      coverage_id, principal_id, source_location, start_event_sequence,
+      end_event_sequence, r2_segment_id, indexing_outcome, content_hash,
+      failure_code, indexed_at
+    ) VALUES (?, ?, 'live', 1, 1, NULL, 'indexed', ?, NULL, ?)`)
+      .bind(COVERAGE_ID, PRINCIPAL_ID, CONTENT_HASH, NOW).run();
+    await env.DB.prepare(`INSERT INTO memory_history_chunks (
+      chunk_id, principal_id, start_event_sequence, end_event_sequence, text,
+      content_hash, source_location, r2_segment_id, source_receipt_hash,
+      created_at, updated_at
+    ) VALUES (?, ?, 1, 1, 'needle', ?, 'live', NULL, ?, ?, ?)`)
+      .bind(CHUNK_ID, PRINCIPAL_ID, CONTENT_HASH, CONTENT_HASH, NOW, NOW).run();
+
+    for (const strategy of ["REPLACE", "IGNORE"] as const) {
+      await expect(env.DB.prepare(`INSERT OR ${strategy} INTO memory_history_chunks
+        SELECT * FROM memory_history_chunks WHERE chunk_id = ?`).bind(CHUNK_ID).run())
+        .rejects.toThrow(/memory_history_chunk_receipt_invalid/u);
+    }
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_history_chunks
+      WHERE chunk_id = ?`).bind(CHUNK_ID).first("count")).toBe(1);
   });
 
   it("rejects REPLACE and IGNORE across every job and hit unique key", async () => {
@@ -170,6 +197,6 @@ describe("0025 archive literal-history migration", () => {
       (SELECT count(*) FROM memory_literal_search_jobs WHERE principal_id = ?1) AS jobs,
       (SELECT count(*) FROM memory_literal_search_hits WHERE principal_id = ?1) AS hits`)
       .bind(PRINCIPAL_ID).first<{ jobs: number; hits: number }>();
-    expect(counts).toEqual({ jobs: 3, hits: 1 });
+    expect(counts).toEqual({ jobs: 4, hits: 1 });
   });
 });
