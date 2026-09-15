@@ -4,9 +4,13 @@ import { type RelayBinding, type Ulid } from "../../../../packages/contracts/src
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { CallRepository } from "../../src/persistence/call-repository.js";
 import { VoiceAccessRepository } from "../../src/persistence/voice-access-repository.js";
+import { OwnerPassphraseVerifier } from "../../src/security/owner-passphrase-verifier.js";
 import { CapabilityRegistry } from "../../src/voice/capability-registry.js";
+import { OwnerCallStepUpService } from "../../src/voice/owner-call-step-up.js";
 import { VoiceAccessAuthorityService } from "../../src/voice/voice-access-authority.js";
 import {
+  applyOwnerCallStepUpMigration,
+  applyVoiceRuntimeMigration,
   voiceAccessBaseMigrations,
   voiceAccessBoundariesMigration,
 } from "./migration.js";
@@ -123,6 +127,11 @@ describe("voice-access incremental migration", () => {
       .bind(BOUND_AT, AUTHENTICATED_AT, LEGACY_SESSION_ID).run())
       .rejects.toThrow("call_session_provider_connected_at_immutable");
 
+    // The deploy sequence can cross this old state, but the current authority
+    // runtime is only admitted after its additive schemas have been applied.
+    await applyVoiceRuntimeMigration();
+    await applyOwnerCallStepUpMigration();
+
     const registry = new CapabilityRegistry({ installed: ["conversation.basic"] });
     const restarted = new VoiceAccessAuthorityService(new VoiceAccessRepository(env.DB), registry);
     await expect(restarted.rehydrate({
@@ -130,6 +139,15 @@ describe("voice-access incremental migration", () => {
       binding: legacyBinding,
       now: new Date("2026-08-30T00:07:00.000Z"),
     })).rejects.toThrow("call_authority_invalid");
+
+    await new OwnerCallStepUpService(
+      env.DB, new OwnerPassphraseVerifier(new Uint8Array(32).fill(17), "v1"),
+    ).bind({
+      sessionId: FRESH_SESSION_ID, callSid: freshBinding.callSid,
+      ownerPrincipalId: OWNER_PRINCIPAL_ID, ownerIdentityId: OWNER_IDENTITY_ID,
+      direction: "inbound", lifecycleGeneration: 1, requirement: "waived_passed_a",
+      attestationClass: "passed_a", policy: "waive_on_passed_a", createdAt: CREATED_AT,
+    });
 
     const fresh = await restarted.mintOwner({
       sessionId: FRESH_SESSION_ID,

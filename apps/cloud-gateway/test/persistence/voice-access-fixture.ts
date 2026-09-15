@@ -44,6 +44,26 @@ export const EMPTY_SCOPES: VoiceResourceScopesV1 = Object.freeze({
 const TEST_OWNER_PASSPHRASE = "ablaze abrasion abrasive";
 const TEST_OWNER_PASSPHRASE_PEPPER = new Uint8Array(32).fill(19);
 
+export async function verifyOwnerStepUpForTest(
+  database: D1Database,
+  sessionId: Ulid,
+  binding: RelayBinding,
+): Promise<void> {
+  const stepUp = new OwnerCallStepUpService(
+    database,
+    new OwnerPassphraseVerifier(TEST_OWNER_PASSPHRASE_PEPPER, "v1", () => new Uint8Array(16).fill(7)),
+  );
+  await stepUp.bind({
+    sessionId, callSid: binding.callSid,
+    ownerPrincipalId: binding.principalId, ownerIdentityId: binding.identityId,
+    direction: binding.direction, lifecycleGeneration: 1, requirement: "required",
+    attestationClass: "absent", policy: "passphrase_always", createdAt: NOW.toISOString(),
+  });
+  await stepUp.begin(sessionId, NOW);
+  const result = await stepUp.verifyCandidate(sessionId, TEST_OWNER_PASSPHRASE, NOW);
+  if (result !== "matched") throw new Error("fixture_owner_step_up_failed");
+}
+
 export const SYNTHETIC_RECORD: GuestPinVerifierRecordV2 = decodeGuestPinVerifierRecord({
   schemaVersion: "2.0",
   algorithm: "hmac-sha256-pepper+pbkdf2-hmac-sha256",
@@ -162,15 +182,7 @@ export async function seedOwnerAuthority(
       commitId: "01m2ddddddddddddddddddd001",
       committedAt: now,
     });
-    await stepUp.bind({
-      sessionId: OWNER_SESSION_ID, callSid: binding.callSid,
-      ownerPrincipalId: OWNER_PRINCIPAL_ID, ownerIdentityId: OWNER_IDENTITY_ID,
-      direction: "inbound", lifecycleGeneration: 1, requirement: "required",
-      attestationClass: "absent", policy: "passphrase_always", createdAt: now,
-    });
-    await stepUp.begin(OWNER_SESSION_ID, NOW);
-    const result = await stepUp.verifyCandidate(OWNER_SESSION_ID, TEST_OWNER_PASSPHRASE, NOW);
-    if (result !== "matched") throw new Error("fixture_owner_step_up_failed");
+    await verifyOwnerStepUpForTest(database, OWNER_SESSION_ID, binding);
   } else {
     await stepUp.bind({
       sessionId: OWNER_SESSION_ID, callSid: binding.callSid,

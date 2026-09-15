@@ -1,6 +1,8 @@
 import { env } from "cloudflare:test";
-import { newUlid, type GuestCapabilityId } from "../../../packages/contracts/src/index.js";
+import { newUlid, type GuestCapabilityId, type Sha256Hex } from "../../../packages/contracts/src/index.js";
+import { OwnerPassphraseRepository } from "../../../apps/cloud-gateway/src/persistence/owner-passphrase-repository.js";
 import { GuestPinVerifier } from "../../../apps/cloud-gateway/src/security/guest-pin-verifier.js";
+import { OwnerPassphraseVerifier } from "../../../apps/cloud-gateway/src/security/owner-passphrase-verifier.js";
 import { CapabilityRegistry } from "../../../apps/cloud-gateway/src/voice/capability-registry.js";
 
 // Public synthetic material shared by fixture enrollment and the fake runtime.
@@ -12,6 +14,35 @@ export const FAKE_PIN_A = () => Uint8Array.from([52, 56, 50, 55]);
 export const FAKE_PIN_B = () => Uint8Array.from([49, 51, 53, 55]);
 export const FAKE_VOICE_REGISTRY = () => new CapabilityRegistry({ installed: ["conversation.basic", "access.manage"] });
 const NOW = "2026-08-30T12:00:00.000Z";
+
+/** Enroll the public fake phrase through the same guarded rotation used by the Worker. */
+export async function seedFakeOwnerPassphrase(
+  principalId = "principal:owner",
+  identityId = "identity:voice",
+  committedAt = NOW,
+): Promise<void> {
+  const deviceId = "device:fake-owner-passphrase";
+  const keyId = "key:fake-owner-passphrase";
+  const fingerprint = "7".repeat(64) as Sha256Hex;
+  await env.DB.prepare(`INSERT INTO device_keys (
+    device_id, principal_id, key_id, public_key_base64, key_fingerprint, key_generation,
+    algorithm, status, device_label, bootstrap_metadata_hash, created_at
+  ) VALUES (?, ?, ?, ?, ?, 1, 'ed25519', 'active', 'fake owner passphrase', ?, ?)`)
+    .bind(deviceId, principalId, keyId, `${"A".repeat(43)}=`, fingerprint, "8".repeat(64), committedAt).run();
+  const record = await new OwnerPassphraseVerifier(
+    FAKE_OWNER_PASSPHRASE_PEPPER(), "v1", () => new Uint8Array(16).fill(7),
+  ).create(identityId, 1, FAKE_OWNER_PASSPHRASE);
+  await new OwnerPassphraseRepository(env.DB).rotate({
+    verified: {
+      deviceId, principalId, keyId, keyFingerprint: fingerprint, keyGeneration: 1,
+      audience: "jarvis-local-agent", issuedAt: committedAt, nonce: "fake",
+      bodyHash: "9".repeat(64) as Sha256Hex, body: {},
+    },
+    ownerPrincipalId: principalId, ownerIdentityId: identityId,
+    expectedVerifierVersion: null, record,
+    commitId: "01m2eeeeeeeeeeeeeeeeeee001", committedAt,
+  });
+}
 
 export interface FakeGuest {
   readonly grantId: string;

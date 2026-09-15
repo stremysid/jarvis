@@ -18,11 +18,14 @@ import { VoiceAccessRepository } from "../../../apps/cloud-gateway/src/persisten
 import { CapabilityRegistry } from "../../../apps/cloud-gateway/src/voice/capability-registry.js";
 import { VoiceAccessAuthorityService } from "../../../apps/cloud-gateway/src/voice/voice-access-authority.js";
 import {
+  OWNER_STEP_UP_FORMAT_PROMPT,
   OWNER_STEP_UP_HANDOFF_DATA,
   OWNER_STEP_UP_PROMPT,
   OWNER_STEP_UP_REJECTED,
+  OWNER_STEP_UP_RETRY_PROMPT,
   OWNER_STEP_UP_VERIFIED,
 } from "../../../apps/cloud-gateway/src/voice/owner-call-step-up.js";
+import { OUTBOUND_VOICEMAIL_MESSAGE } from "../../../apps/cloud-gateway/src/voice/outbound.js";
 import { createFakeCallingSystem, type FakeCallingSystem } from "./voice-call-system.js";
 import { FAKE_OWNER_PASSPHRASE } from "./voice-access-system.js";
 import type { FakeRelayCall } from "./voice-relay-system.js";
@@ -242,6 +245,17 @@ async function d1Evidence(): Promise<readonly unknown[]> {
 }
 
 describe("owner-call passphrase security contract", () => {
+  it.each([
+    OWNER_STEP_UP_PROMPT,
+    OWNER_STEP_UP_RETRY_PROMPT,
+    OWNER_STEP_UP_FORMAT_PROMPT,
+    OWNER_STEP_UP_VERIFIED,
+    OWNER_STEP_UP_REJECTED,
+    OUTBOUND_VOICEMAIL_MESSAGE,
+  ])("keeps fixed speech outside the complete-candidate language: %j", (speech) => {
+    expect(() => canonicalizeOwnerPassphrase(speech)).toThrow("owner_passphrase_candidate_invalid");
+  });
+
   it.each(["inbound", "outbound"] as const)(
     "keeps an %s owner in pre-auth with no authority, context, model, or owner command before a match",
     async (direction) => {

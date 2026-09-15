@@ -49,6 +49,7 @@ describe("fake voice call path", () => {
       expect(call.upgradeStatus).toBe(101);
       await call.setup();
       await call.prompt(FAKE_OWNER_PASSPHRASE);
+      system.advanceTime(2_001);
       await expect(call.phase()).resolves.toBe("active");
       await expect(system.pinAttempts()).resolves.toBe(0);
       expect(call.frames().map((frame) => frame.token)).toEqual(["Passphrase, please.", "Verified."]);
@@ -99,6 +100,7 @@ describe("fake voice call path", () => {
       const call = await system.openRelay();
       await call.setup();
       await call.prompt(FAKE_OWNER_PASSPHRASE);
+      system.advanceTime(2_001);
       await expect(call.phase()).resolves.toBe("active");
       await expect(system.pinAttempts()).resolves.toBe(0);
       expect(call.frames().map((frame) => frame.token).join("|")).toBe(
@@ -295,6 +297,7 @@ describe("fake voice call path", () => {
       const call = await system.openRelay();
       await call.setup();
       await call.prompt(FAKE_OWNER_PASSPHRASE);
+      system.advanceTime(2_001);
       const turn = call.prompt("Please answer briefly.");
       await vi.waitFor(async () => expect(await call.modelRequests()).toHaveLength(1));
       expect((await system.sendStatus(callSid, "completed", 1)).status).toBe(503);
@@ -373,6 +376,7 @@ describe("fake voice call path", () => {
       const call = await system.openRelay();
       await call.setup();
       await call.prompt(FAKE_OWNER_PASSPHRASE);
+      system.advanceTime(2_001);
       const started = performance.now();
       const stalled = call.prompt("Please answer within the call's model budget.");
       await vi.waitFor(async () => expect(await call.modelRequests()).toHaveLength(1));
@@ -409,6 +413,7 @@ describe("fake voice call path", () => {
       const call = await system.openRelay();
       await call.setup();
       await call.prompt(FAKE_OWNER_PASSPHRASE);
+      system.advanceTime(2_001);
       const json = JSON.stringify({ type: "prompt", voicePrompt: "A partial café prompt", lang: "en-US", last: false });
       const boundary = json + " ".repeat(65_536 - new TextEncoder().encode(json).byteLength);
       expect(new TextEncoder().encode(boundary).byteLength).toBe(65_536);
