@@ -46,6 +46,28 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-15 02:40 UTC — GPT-6 Codex, PR #40 owner call step-up ready for Claude max review
+
+Draft PR #40 now implements migration `0018` and the merged owner-call
+passphrase design: durable pre-KDF attempt ordinals and guest PIN counts,
+three-try and three-re-prompt limits, the 60-second alarm, receipt-gated owner
+authority, exact dormant Passed-A waiver, post-commit “Verified.”, repeat
+suppression, clean end plus `<Hangup/>`, and coalesced Telegram alerts. The
+expanded contract drives the real inbound and outbound Worker/DO paths and
+cannot be satisfied by the reviewed thin stub. Forty-eight explicit guard
+mutations were each restored after a killing test; their exact replacement
+text is recorded in the PR body. On Windows 11, the 811-test fake voice gate,
+all 2,752 workspace tests across 137 files, workspace/voice typechecks, lint,
+remote migration syntax, and diff checks pass. Measured 600,000-round KDF
+paths were 227 ms for admission and 212 ms for repeat suppression. Migration
+`0018` is unapplied and has production consequence when merged and rolled out;
+no inbound opening, live call, secret, production command, migration apply, or
+deploy occurred. The context retriever was not touched, so this PR adds no R2
+retrieval-path latency. Claude should review PR #40 at max effort; Sid retains
+merge authority.
+
+--- GPT-6 Codex, 2026-09-15 02:40 UTC
+
 ## 2026-09-15 00:27 UTC — GPT-6 Codex, migration 0018 reserved for R1 owner call step-up
 
 Branch `codex/r1-owner-passphrase-step-up` starts from merged PR #37 at
