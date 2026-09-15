@@ -1,0 +1,69 @@
+{
+ "root": "C:/Users/Sid/jarvis-deploy",
+ "branch": "a8ef528",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "CREATE TRIGGER events_memory_owner_command_ingress_guard\n",
+   "to": "CREATE TRIGGER events_memory_owner_command_ingress_guard\n",
+   "tests": ["apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts"]
+  },
+  {
+   "id": "X-principal-join",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "      WHERE principal.principal_id = NEW.subject_id\n        AND ",
+   "to": "      WHERE ",
+   "tests": ["apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts"]
+  },
+  {
+   "id": "X-envelope-object",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "        AND json_type(NEW.envelope_json, '$') = 'object'\n",
+   "to": "",
+   "tests": ["apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts"]
+  },
+  {
+   "id": "X-envelope-eventType",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "        AND json_extract(NEW.envelope_json, '$.eventType') = NEW.event_type\n",
+   "to": "",
+   "tests": ["apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts"]
+  },
+  {
+   "id": "X-envelope-source",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "        AND json_extract(NEW.envelope_json, '$.source') = NEW.source\n",
+   "to": "",
+   "tests": ["apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts"]
+  },
+  {
+   "id": "X-envelope-receivedAt",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "        AND json_extract(NEW.envelope_json, '$.receivedAt') = NEW.received_at\n",
+   "to": "",
+   "tests": ["apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts"]
+  },
+  {
+   "id": "X-payload-object",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "        AND json_type(NEW.envelope_json, '$.payload') = 'object'\n",
+   "to": "",
+   "tests": ["apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts"]
+  },
+  {
+   "id": "X-targetId-text",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "        AND json_type(NEW.envelope_json, '$.payload.targetId') = 'text'\n",
+   "to": "",
+   "tests": ["apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts"]
+  },
+  {
+   "id": "X-targetId-first-char",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0019_memory_ingress.sql",
+   "from": "        AND substr(json_extract(NEW.envelope_json, '$.payload.targetId'), 1, 1)\n          BETWEEN '0' AND '7'\n",
+   "to": "",
+   "tests": ["apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts"]
+  }
+ ]
+}

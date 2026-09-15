@@ -1,0 +1,124 @@
+checked out a8ef528 at a8ef528
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  166 passed (166)
+
+== T-ingress-guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 23 failed) 303ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  23 failed | 143 passed (166)
+   × 0019 trigger inventory contains both named trigger definitions 7ms
+   × events_memory_owner_command_ingress_guard rejects type without source 5ms
+   × events_memory_owner_command_ingress_guard rejects source without type 4ms
+   × events_memory_owner_command_ingress_guard rejects a non-human principal 4ms
+
+== T-topic-recent-guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 2 failed) 315ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  2 failed | 164 passed (166)
+   × 0019 trigger inventory contains both named trigger definitions 7ms
+   × memory_topic_events_recent_insert_guard rejects a topic event older than D1 now minus five minutes 12ms
+
+== C-type-without-source: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 1 failed) 327ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 165 passed (166)
+   × events_memory_owner_command_ingress_guard rejects type without source 9ms
+
+== C-source-without-type: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 1 failed) 310ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 165 passed (166)
+   × events_memory_owner_command_ingress_guard rejects source without type 8ms
+
+== C-principal-human: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 1 failed) 316ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 165 passed (166)
+   × events_memory_owner_command_ingress_guard rejects a non-human principal 8ms
+
+== C-principal-active: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 1 failed) 294ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 165 passed (166)
+   × events_memory_owner_command_ingress_guard rejects an inactive principal 8ms
+
+== C-envelope-eventId: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 1 failed) 298ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 165 passed (166)
+   × events_memory_owner_command_ingress_guard rejects an envelope eventId mismatch 9ms
+
+== C-envelope-correlationId: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 1 failed) 303ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 165 passed (166)
+   × events_memory_owner_command_ingress_guard rejects an envelope correlationId mismatch 8ms
+
+== C-envelope-subjectId: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 1 failed) 312ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 165 passed (166)
+   × events_memory_owner_command_ingress_guard rejects an envelope subjectId mismatch 8ms
+
+== C-envelope-occurredAt: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 1 failed) 308ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 165 passed (166)
+   × events_memory_owner_command_ingress_guard rejects an envelope occurredAt mismatch 8ms
+
+== C-envelope-contentHash: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 1 failed) 306ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 165 passed (166)
+   × events_memory_owner_command_ingress_guard rejects an envelope contentHash mismatch 8ms
+
+== C-producer-version: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 1 failed) 306ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 165 passed (166)
+   × events_memory_owner_command_ingress_guard enforces the producer and operation allowlists 39ms
+
+== C-operation-allowlist: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 1 failed) 313ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 165 passed (166)
+   × events_memory_owner_command_ingress_guard enforces the producer and operation allowlists 36ms
+
+== C-targetId-length: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 2 failed) 304ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  2 failed | 164 passed (166)
+   × events_memory_owner_command_ingress_guard rejects a 25-character targetId 8ms
+   × events_memory_owner_command_ingress_guard rejects a 27-character targetId 5ms
+
+== C-targetId-glob: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 4 failed) 606ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  4 failed | 162 passed (166)
+   × events_memory_owner_command_ingress_guard rejects a targetId containing I 8ms
+   × events_memory_owner_command_ingress_guard rejects a targetId containing L 5ms
+   × events_memory_owner_command_ingress_guard rejects a targetId containing O 5ms
+   × events_memory_owner_command_ingress_guard rejects a targetId containing U 4ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-ingress-guard
+KILLED    T-topic-recent-guard
+KILLED    C-type-without-source
+KILLED    C-source-without-type
+KILLED    C-principal-human
+KILLED    C-principal-active
+KILLED    C-envelope-eventId
+KILLED    C-envelope-correlationId
+KILLED    C-envelope-subjectId
+KILLED    C-envelope-occurredAt
+KILLED    C-envelope-contentHash
+KILLED    C-producer-version
+KILLED    C-operation-allowlist
+KILLED    C-targetId-length
+KILLED    C-targetId-glob
+back on main, tree clean=true
+(node:27804) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

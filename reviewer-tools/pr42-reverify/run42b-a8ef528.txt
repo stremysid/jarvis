@@ -1,0 +1,62 @@
+checked out a8ef528 at a8ef528
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  25 passed (25)
+
+== X-principal-join: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 2 failed) 288ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 23 passed (25)
+   × events_memory_owner_command_ingress_guard rejects a non-human principal 8ms
+   × events_memory_owner_command_ingress_guard rejects an inactive principal 4ms
+
+== X-envelope-object: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  25 passed (25)
+
+== X-envelope-eventType: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 1 failed) 312ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 24 passed (25)
+   × events_memory_owner_command_ingress_guard rejects an envelope eventType mismatch 10ms
+
+== X-envelope-source: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 1 failed) 301ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 24 passed (25)
+   × events_memory_owner_command_ingress_guard rejects an envelope source mismatch 8ms
+
+== X-envelope-receivedAt: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 1 failed) 303ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 24 passed (25)
+   × events_memory_owner_command_ingress_guard rejects an envelope receivedAt mismatch 8ms
+
+== X-payload-object: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  25 passed (25)
+
+== X-targetId-text: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  25 passed (25)
+
+== X-targetId-first-char: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-ingress-migration.test.ts (25 tests | 1 failed) 290ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 24 passed (25)
+   × events_memory_owner_command_ingress_guard rejects a targetId starting with 8 8ms
+
+=== summary
+SURVIVED  BASE
+KILLED    X-principal-join
+SURVIVED  X-envelope-object
+KILLED    X-envelope-eventType
+KILLED    X-envelope-source
+KILLED    X-envelope-receivedAt
+SURVIVED  X-payload-object
+SURVIVED  X-targetId-text
+KILLED    X-targetId-first-char
+back on main, tree clean=true
+(node:38732) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

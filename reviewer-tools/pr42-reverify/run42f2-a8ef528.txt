@@ -1,0 +1,78 @@
+checked out a8ef528 at a8ef528
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  141 passed (141)
+
+== F2-vector-item_kind: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (141 tests | 1 failed) 3511ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 140 passed (141)
+   × pins memory_vectors.item_kind against its single-column UPDATE OR REPLACE collision 16ms
+
+== F2-vector-content_hash: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (141 tests | 2 failed) 3531ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 139 passed (141)
+   × pins memory_vectors.content_hash against its single-column UPDATE OR REPLACE collision 17ms
+   × sweeps every declared 0016 unique key one column at a time across every REPLACE path 699ms
+
+== F2-vector-principal_id: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (141 tests | 2 failed) 3517ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 139 passed (141)
+   × pins memory_vectors.principal_id against its single-column UPDATE OR REPLACE collision 19ms
+   × sweeps every declared 0016 unique key one column at a time across every REPLACE path 644ms
+
+== F2-vector-item_id: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (141 tests | 2 failed) 3811ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 139 passed (141)
+   × pins memory_vectors.item_id against its single-column UPDATE OR REPLACE collision 17ms
+   × sweeps every declared 0016 unique key one column at a time across every REPLACE path 652ms
+
+== F2-vector-mutation_id: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (141 tests | 2 failed) 3548ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 139 passed (141)
+   × pins memory_vectors.mutation_id against its single-column UPDATE OR REPLACE collision 14ms
+   × sweeps every declared 0016 unique key one column at a time across every REPLACE path 696ms
+
+== F2-run-principal_id: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (141 tests | 2 failed) 3597ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 139 passed (141)
+   × pins memory_runs.principal_id against its single-column UPDATE OR REPLACE collision 16ms
+   × sweeps every declared 0016 unique key one column at a time across every REPLACE path 729ms
+
+== F2-run-run_key: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (141 tests | 2 failed) 3623ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 139 passed (141)
+   × pins memory_runs.run_key against its single-column UPDATE OR REPLACE collision 15ms
+   × sweeps every declared 0016 unique key one column at a time across every REPLACE path 747ms
+
+== F2-placement-placement_id: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/cloud-memory-migration.test.ts (141 tests | 1 failed) 3800ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 140 passed (141)
+   × pins memory_item_placement_state.placement_id against its single-column UPDATE OR REPLACE collision 40ms
+
+== F2-placement-principal_id: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  141 passed (141)
+
+=== summary
+SURVIVED  BASE
+KILLED    F2-vector-item_kind
+KILLED    F2-vector-content_hash
+KILLED    F2-vector-principal_id
+KILLED    F2-vector-item_id
+KILLED    F2-vector-mutation_id
+KILLED    F2-run-principal_id
+KILLED    F2-run-run_key
+KILLED    F2-placement-placement_id
+SURVIVED  F2-placement-principal_id
+back on main, tree clean=true
+(node:36368) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
