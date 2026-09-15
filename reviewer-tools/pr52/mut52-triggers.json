@@ -1,0 +1,110 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "3388c3911be74e2a0c62df57633020cc9114b354",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0024_university_application_workflow.sql",
+   "from": "CREATE TRIGGER university_application_items_insert_guard\n",
+   "to": "CREATE TRIGGER university_application_items_insert_guard\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_application_items_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0024_university_application_workflow.sql",
+   "from": "CREATE TRIGGER university_application_items_insert_guard\nBEFORE INSERT ON university_application_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_application_item_insert_conflict') WHERE EXISTS (\n    SELECT 1 FROM university_application_items\n    WHERE principal_id = NEW.principal_id\n      AND (item_id = NEW.item_id OR (program_id = NEW.program_id AND item_key = NEW.item_key))\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_application_items_cap_insert",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0024_university_application_workflow.sql",
+   "from": "CREATE TRIGGER university_application_items_cap_insert\nBEFORE INSERT ON university_application_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_application_item_limit_exceeded') WHERE (\n    SELECT COUNT(*) FROM university_application_items\n    WHERE principal_id = NEW.principal_id\n  ) >= 128 OR (\n    SELECT COUNT(*) FROM university_application_items\n    WHERE principal_id = NEW.principal_id AND program_id = NEW.program_id\n  ) >= 32;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_application_items_require_owner_turn_insert",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0024_university_application_workflow.sql",
+   "from": "CREATE TRIGGER university_application_items_require_owner_turn_insert\nBEFORE INSERT ON university_application_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_application_item_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel = 'telegram'\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_application_items_require_owner_turn_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0024_university_application_workflow.sql",
+   "from": "CREATE TRIGGER university_application_items_require_owner_turn_update\nBEFORE UPDATE ON university_application_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_application_item_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel = 'telegram'\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_application_items_core_immutable",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0024_university_application_workflow.sql",
+   "from": "CREATE TRIGGER university_application_items_core_immutable\nBEFORE UPDATE ON university_application_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_application_item_core_immutable') WHERE\n    NEW.principal_id IS NOT OLD.principal_id\n    OR NEW.program_id IS NOT OLD.program_id\n    OR NEW.item_id IS NOT OLD.item_id\n    OR NEW.item_key IS NOT OLD.item_key\n    OR NEW.item_kind IS NOT OLD.item_kind\n    OR NEW.item_label IS NOT OLD.item_label\n    OR NEW.created_at IS NOT OLD.created_at;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_application_items_submitted_terminal",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0024_university_application_workflow.sql",
+   "from": "CREATE TRIGGER university_application_items_submitted_terminal\nBEFORE UPDATE ON university_application_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_application_item_status_invalid')\n  WHERE OLD.item_status = 'submitted_by_sid' AND NEW.item_status != 'submitted_by_sid';\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  },
+  {
+   "id": "T-university_application_items_reject_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0024_university_application_workflow.sql",
+   "from": "CREATE TRIGGER university_application_items_reject_delete\nBEFORE DELETE ON university_application_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_application_item_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/persistence/university-tracker-migration.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  }
+ ]
+}

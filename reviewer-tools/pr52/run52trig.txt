@@ -1,0 +1,74 @@
+checked out 3388c3911be74e2a0c62df57633020cc9114b354 at 3388c39
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  5 passed (5)
+   Tests  63 passed (63)
+
+== T-university_application_items_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts (7 tests | 1 failed) 688ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  3 failed | 60 passed (63)
+   × installs the bounded program and item schema with every named guard 12ms
+   × installs the university_application_items_insert_guard trigger 3ms
+   × rejects REPLACE and IGNORE in a generic existing-row sweep 56ms
+
+== T-university_application_items_cap_insert: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts (7 tests | 1 failed) 660ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  3 failed | 60 passed (63)
+   × installs the bounded program and item schema with every named guard 15ms
+   × installs the university_application_items_cap_insert trigger 5ms
+   × refuses a thirty-third application item for one program 120ms
+
+== T-university_application_items_require_owner_turn_insert: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts (7 tests | 1 failed) 619ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  3 failed | 60 passed (63)
+   × installs the bounded program and item schema with every named guard 11ms
+   × installs the university_application_items_require_owner_turn_insert trigger 2ms
+   × refuses an insert sourced from another principal's Telegram turn 59ms
+
+== T-university_application_items_require_owner_turn_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts (7 tests | 1 failed) 592ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  3 failed | 60 passed (63)
+   × installs the bounded program and item schema with every named guard 11ms
+   × installs the university_application_items_require_owner_turn_update trigger 3ms
+   × refuses an update sourced from another principal's Telegram turn 63ms
+
+== T-university_application_items_core_immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts (7 tests | 1 failed) 575ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  3 failed | 60 passed (63)
+   × installs the bounded program and item schema with every named guard 11ms
+   × installs the university_application_items_core_immutable trigger 4ms
+   × keeps the application item identity and label immutable 41ms
+
+== T-university_application_items_submitted_terminal: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts (7 tests | 1 failed) 561ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  3 failed | 60 passed (63)
+   × installs the bounded program and item schema with every named guard 10ms
+   × installs the university_application_items_submitted_terminal trigger 3ms
+   × does not let a submitted-by-Sid item move backwards 35ms
+
+== T-university_application_items_reject_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-workflow-migration.test.ts (7 tests | 1 failed) 583ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  3 failed | 60 passed (63)
+   × installs the bounded program and item schema with every named guard 11ms
+   × installs the university_application_items_reject_delete trigger 2ms
+   × refuses deletion of an application item 40ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-university_application_items_insert_guard
+KILLED    T-university_application_items_cap_insert
+KILLED    T-university_application_items_require_owner_turn_insert
+KILLED    T-university_application_items_require_owner_turn_update
+KILLED    T-university_application_items_core_immutable
+KILLED    T-university_application_items_submitted_terminal
+KILLED    T-university_application_items_reject_delete
+back on main, tree clean=true
+(node:31044) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
