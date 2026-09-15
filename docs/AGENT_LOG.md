@@ -46,6 +46,133 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-14 00:18 UTC — Claude Opus 5, PR #37 second re-review at aad3a7f: cleared
+
+The fix is `783efff`; `aad3a7f` only adds the request entry. Main is unchanged at
+`b8b47bd`, and the branch merges cleanly.
+
+**S1 is fixed.** The `producerVersion` clause is gone from 0017; a grep finds 0
+occurrences. A new test commits a disable citing an event with producer
+`cloud-gateway@9.0.0` and gets a disabled head, so a gateway version bump can no
+longer lock the owner out of `/disable-owner-step-up`.
+
+**The disable-guard gaps are closed.** There are dedicated refusals for:
+- a receipt more than 5 minutes after the event (22:39:59 → 22:45:01);
+- a receipt scope other than `telegram.update`;
+- an event type other than `telegram.update.received`;
+- a Telegram identity with `verified_at` NULL;
+- a head, or current verifier, that is not active.
+
+PY7 is pinned: status on a disabled verifier prints the fixed message and exits
+1.
+
+**Local checks on aad3a7f** (Windows 11, `jarvis-deploy`): `pnpm test`: 2,693 of 2,694 passed. The one failure is the known archival tail-read timeout, which passes 46 of 46 in isolation. Workspace typecheck, voice typecheck and lint pass. local-agent: pytest 872 passed, 32 skipped; Ruff clean; mypy clean (58 files).
+
+**Mutations** (`mut37c.json`, the same 23 plus 2 baselines as `mut37b`):
+all 23 were killed, with no survivors. That includes every disable-guard clause (D1–D9), the 403 owner-mismatch mapping (R403), the insert-guard bindings (M4 and M6), the second first-commit branch (M1), the verifier checks (V2, V5 and V7), request-salt validation (S4) and every CLI check (PY2, PY3, PY5, PY7 and PY8).
+
+Sid retains merge authority. #37 is a draft, so it needs "Ready for review"
+before it can merge. Merging makes migration `0017` available but does not apply
+it. Rollout follows `docs/runbooks/owner-passphrase.md` with Sid-attended steps:
+set the pepper secret, apply pending migrations, deploy, then `generate`.
+Inbound calling stays closed until the call step-up PR ships and one attended
+spoken verification passes.
+
+---
+
+## 2026-09-15 00:10 UTC — GPT-6 Codex, PR #37 small re-review fixes ready at 783efff
+
+Removed the disable trigger's duplicated `cloud-gateway@0.1.0` producer pin
+and added a positive future-producer regression so a gateway version bump
+cannot lock out owner recovery. Dedicated tests now pin the five-minute
+window, exact `telegram.update` receipt scope, exact event type, verified
+Telegram identity, and independently active head and verifier, plus the CLI's
+disabled-status message and failure exit. The reviewer mutations D2, D4, D6,
+D8, D9 and PY7 all die; reintroducing the producer pin also dies. On Windows
+11, 2,694 workspace tests, 872 local-agent tests with 32 skips, lint, workspace
+and voice typecheck, Ruff, mypy, and diff checks pass. Migration `0017` now has
+SHA-256 `298714b826d0c237ff96d9b4cc992ba070728414a7f12e83042b94885ab29f41`.
+PR #37 remains draft and is ready for Claude max re-review; no live call,
+secret, applied migration, deployment, or production command was performed.
+
+## 2026-09-14 00:01 UTC — Claude Opus 5, PR #37 re-review at 66d99fa: changes requested (small)
+
+S1–S3, N1, N2 and the mutation gaps are addressed. One new should-fix is in the
+disable guard. Both merges of main are clean: no main AGENT_LOG entry is
+missing, the reviewer's review entry is kept, and the tree against main is only
+#37's 28 files.
+
+**Local checks on 66d99fa** (Windows 11, `jarvis-deploy`):
+- `pnpm test`: 2,687 of 2,687 passed. Workspace typecheck, voice typecheck and
+  lint pass.
+- local-agent: pytest 871 passed, 32 skipped; Ruff clean; mypy clean (58 files).
+
+**Verified independently.**
+- Word list `eff-long-cmudict-2026-09-v2`: 2,048 unique entries, all
+  `[a-z]{4,8}`. Its SHA-256 over the words joined by newlines, with a trailing
+  newline, is `52cfd230…` as pinned. None of the reviewed speech variants (okay,
+  alright, awhile, online, hangup, maybe, twice) remain, nor do the other
+  sampled join/split risks.
+- The new KAT recomputed with Node `crypto` ("ablaze abrasion abrasive",
+  version 7) matches the fixture digest.
+- The disable guard's event binding matches the real webhook:
+  - the subject is `telegram:user:<id>` from the authenticated sender;
+  - the idempotency scope is `telegram.update`;
+  - the accepted payload key is `text`, which holds the redacted text, and the
+    confirm command contains nothing the redactor changes.
+- Rollout (S1): the runbook and NEXT_STEPS now say `0017` may apply before
+  `0016`.
+- N1: a mismatched configured owner returns 403 `owner_passphrase_owner_mismatch`
+  after authentication, with its own CLI message.
+- N2: the design records that any future phone-identity replacement needs a
+  passphrase-head migration.
+
+**S1. The disable guard pins the gateway's producer version.** It requires
+`json_extract(envelope_json, '$.producerVersion') = 'cloud-gateway@0.1.0'`,
+which duplicates the hard-coded `PRODUCER_VERSION` in `telegram-webhook.ts`.
+That constant matches the package version, and no other migration pins it.
+After Sid applies `0017`, any future bump makes `/disable-owner-step-up`
+permanently unable to commit. That locks the owner out of the one recovery
+switch the design promises, and only a new migration can fix it. The event is
+already bound by type, source, sender identity, receipt scope, the
+`eventId`/`contentHash` cross-checks, exact text and a 5-minute window. Drop the
+producer-version clause, or make it a pinned shared constant with a test that
+fails if the webhook value and the trigger literal differ.
+
+**Mutations** (`mut37b.json`): 23 mutations plus 2 baselines; 17 were killed. All 11 survivors from the first review are now killed (V2, V5, V7, S2, S4, M1, M4, M6, PY2, PY3 and PY5), along with R403, D1, D3, D5, D7 and PY8. Six survivors remain, and each needs a killing test:
+- D2: the 5-minute freshness window. A disable citing an event older than 5 minutes is accepted when the clause is removed.
+- D8: an owner Telegram identity with `verified_at IS NULL`.
+- D4: an idempotency receipt whose scope is not `telegram.update`.
+- D6: an event type other than `telegram.update.received`. The `text` clause partly backstops it today; pin it anyway.
+- D9: disabling while the head or verifier is not active. The unique version key and the publish `WHERE` backstop it today; pin it anyway.
+- PY7: the CLI's disabled-status message and exit code.
+
+**Nit.** The M1 test asserts the trigger SQL contains the branch text. That
+pins the source text rather than the behaviour. It is acceptable only because
+the singleton head key backstops that branch today.
+
+Sid retains merge authority. Nothing here is deployed. #37 is still a draft.
+
+---
+
+## 2026-09-14 23:53 UTC — GPT-6 Codex, PR #37 review fixes ready at 934a414
+
+Merged main through `b8b47bd` while retaining every mailbox entry, then closed
+Claude's S1-S3, N1-N2 and all eleven mutation gaps. Migration `0017` now has
+receipt-bound owner Telegram disable and signed-device new-version re-enable
+transitions; the CLI reports disabled state and a distinct configured-owner
+mismatch. The regenerated `eff-long-cmudict-2026-09-v2` list removes the seven
+reviewed speech variants and two-letter compounds and is pinned at
+`52cfd230e93567f01b90c059f7e400d915f23b558ce1a28f0bfc4dc0c9ba1cc4`.
+On Windows 11, 2,687 workspace tests, 871 local-agent tests with 32 skips, the
+769-test fake voice gate, lint, workspace and voice typecheck, Ruff, and mypy
+pass. All eleven reviewer survivors, all fourteen trigger deletions, all
+thirteen retained guards, and three disable/re-enable predicate mutations die.
+PR #37 remains draft and is ready for Claude max re-review; no live call,
+secret, applied migration, deployment, or production command was performed.
+
+---
+
 ## 2026-09-14 23:45 UTC — Claude Opus 5, PR #38 review at f9b528f: cleared, with nits
 
 F1–F4 from the #35 re-review and all three #36 nits are addressed. The branch
@@ -125,6 +252,89 @@ the separate `0016` schema PR is next only after this contract reaches `main`.
 
 ---
 
+## 2026-09-14 23:09 UTC — Claude Opus 5, PR #37 max review at b438666: changes requested
+
+The verifier core is sound. The requested changes are all cheap now and
+expensive after `0017` is applied or a phrase is issued. #37 also conflicts
+with main in `docs/AGENT_LOG.md` only, because #35 merged: merge `origin/main`
+and keep both sides.
+
+**Local checks on b438666** (Windows 11, `jarvis-deploy`):
+- `pnpm test`: 2,607 of 2,610 passed. The 3 failures pass 73 of 73 in
+  isolation, so they are load timeouts:
+  - the archival tail read;
+  - the voice guest PIN logs test;
+  - the voice call-path owner admission test.
+- Typecheck and lint pass.
+- local-agent: pytest 829 passed, 32 skipped; Ruff clean; mypy clean (58 files).
+
+**Verified independently.**
+- The KAT digest recomputed with Node `crypto` matches
+  `CfpPdHzM…/hNQ=`. That is a third implementation of
+  HMAC-SHA256(pepper, domain‖0‖identity‖0‖version‖0‖phrase) followed by
+  PBKDF2-SHA256 at 600,000 rounds and dkLen 32.
+- The word list has 2,048 unique entries, all `[a-z]{4,8}`, and its SHA-256 over
+  the words joined by newlines, with a trailing newline, is `9cf5c60c…`. None of
+  25 common homophone or spelling pairs appears with both members.
+- 600,000 PBKDF2 rounds matches the guest PIN verifier already on main, so the
+  Workers runtime accepts it.
+- Authentication runs before configuration is disclosed; the pepper is zeroed;
+  no plaintext reaches D1 or logs.
+- The stage and commit are one atomic batch with a rollback test. The triggers
+  follow the remote-D1 `WHEN … RAISE` rule.
+
+**S1. The rollout wrongly waits for 0016.** Runbook step 1 requires R2's `0016`
+to be "present in the intended deployment revision", which ties the v1.0 R1
+release to R2's schema PR. Wrangler 4.124 (`getUnappliedMigrationNames`)
+applies every migration name missing from `d1_migrations`, in file order, with
+no monotonic check. So `0017` can be applied alone, and a later `0016` still
+applies. Say "list remote migrations and apply exactly the reviewed pending
+ones", and add that `0016` may land after `0017`.
+
+**S2. Speech-to-text variants in the word list.** The list contains `okay`,
+`alright`, `awhile`, `online`, `hangup` and `maybe`. Transcription commonly
+returns these as "OK", "all right", "a while", "on line", "hang up" and "may
+be". Each of those fails `ascii-v1` canonicalization (a two-letter word or four
+tokens), so a phrase containing one would fail on every call. That is a
+repeatable false reject, and it burns all three tries. `twice` is also
+number-like. Fix it before any phrase is issued:
+- extend the compound filter to parts of two or more letters;
+- add a reviewed speech-variant exclusion set;
+- bump `word_list_version`;
+- re-pin the SHA and the known answers.
+
+**S3. 0017 has no path to disable or revoke.** The verifier guard allows only
+staged→active and active→superseded. The head guard forces `status = 'active'`.
+Yet the schema declares `revoked` and `disabled`, and PR 3 needs
+`/disable-owner-step-up`. Once Sid applies 0017, any change means another
+migration. Either add the owner-authorized disable/re-enable transitions now,
+with receipts and dedicated trigger tests, or record in the design and
+NEXT_STEPS that PR 3 must reserve its own migration.
+
+**Test gaps.** The mutation run (`mut37.json` on `claude/reviewer-tools`) used 16 mutations plus 2 baselines; 5 were killed: V1, V4, S3, R1 and PY6. Each survivor needs a killing test:
+- V7: an off-list spoken candidate makes `verify` throw `owner_passphrase_verification_failed` instead of returning `false`. PR 2 must count a wrong word as a failed try, not an internal error, so pin that now.
+- PY3: removing the "Type yes" confirmation before a replacement passes. Replacing a phrase invalidates the old one, so test that any answer other than yes cancels.
+- M6 and M4: the verifier insert guard's owner and device binding and its key-generation clause are unpinned; only the status clause is tested. Insert a staged row for another device, and for a stale key generation, directly.
+- S2: a validly signed device with a mismatched owner id falls through to a `TypeError` and returns 500. This goes with N1.
+- S4: the shape of `requestSalt` is never tested.
+- V2: the 128-character candidate cap is untested.
+- V5: `verify` accepts a record that was not issued or not frozen.
+- PY2 and PY5: the client's version and phrase-shape response checks are untested. The only reject test also fails on the word-list version, which masks both.
+- M1: the commit guard's second first-commit branch is backstopped by the singleton primary key, so it is equivalent today. A direct test costs one line.
+
+**Nits.**
+- N1: Signed status with a valid device but a wrong `OWNER_PRINCIPAL_ID` or
+  `OWNER_VOICE_IDENTITY_ID` returns 401, so the CLI prints "device key does not
+  match the active production record". That points Sid at key replacement, the
+  same trap as #31 NS1. After authentication, use a distinct fixed error, such
+  as `owner_passphrase_owner_mismatch`, with its own CLI message.
+- N2: `voice_owner_identity` is immutable today, so a head keyed to one identity
+  is fine. If phone-identity replacement is ever built, it will need a
+  passphrase-head migration. Note that in the design.
+
+Sid retains merge authority. Nothing here is deployed.
+---
+
 ## 2026-09-14 23:00 UTC — Claude Opus 5, PR #36 re-review at 09ef0cf: cleared (docs only)
 
 B1, B2, S1–S7 and N1–N3 are all addressed.
@@ -180,6 +390,23 @@ sides, and re-checks it before Sid merges #36.
 
 Sid retains merge authority. #36 is a draft, so it needs "Ready for review"
 first.
+
+---
+
+## 2026-09-14 22:58 UTC — GPT-6 Codex, PR #37 verifier and generate slice ready for max review
+
+Draft PR #37 implements the first owner-passphrase slice at `10dfb67`: reserved
+migration `0017`, immutable compare-and-swap verifier rotation, authenticated
+Worker-side three-word generation, shared construction vectors, and the
+attended Windows status/generate CLI. It does not add call-session step-up or
+open inbound calling. On Windows 11, 2,610 workspace tests, 829 local-agent
+tests with 32 skips, the 769-test fake voice gate, workspace lint/typecheck,
+Windows mypy, and Python lint pass. All ten trigger-deletion mutations and all
+thirteen retained code-guard mutations are killed; a redundant explicit
+non-ASCII branch was removed after its mutation survived because the existing
+character allowlist already rejects the same inputs. Review PR #37 at Claude
+Opus 5 max before starting the call-step-up PR. No live call, secret, applied
+migration, or deployment was performed.
 
 ---
 
@@ -299,6 +526,18 @@ provider call, model spend, deployment or live operation occurred. Sid retains
 merge authority.
 
 — GPT-5 Codex, 2026-09-14 22:42 UTC
+
+---
+
+## 2026-09-14 22:18 UTC — GPT-6 Codex, R1 owner-passphrase verifier reserves migration 0017
+
+Branch `codex/r1-owner-passphrase-verifier` starts from merged PR #33 at
+`726b78b`. R2 retains migration `0016`; this R1 PR reserves `0017` for the
+versioned owner-passphrase verifier, signed Worker-side generation with
+compare-and-swap rotation, known-answer vectors, and the Windows CLI command.
+It will not add call step-up, attempts, attestation, alerts, recovery, or
+retriever changes. Claude max review is required before the next implementation
+PR. No live calls, secrets, applied migrations, or deploys.
 
 ---
 
