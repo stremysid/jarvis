@@ -47,6 +47,7 @@ import { TelegramRestProvider } from "./providers/telegram-provider.js";
 import { Redactor } from "./security/redaction.js";
 import { SchoolCatchupModelAdapter } from "./school/school-catchup-model.js";
 import { SchoolCatchupRepository } from "./school/school-catchup-repository.js";
+import { UniversityTrackerRepository } from "./university/university-tracker-repository.js";
 export { CallSession } from "./voice/call-session-do.js";
 
 const TELEGRAM_WEBHOOK_PATH = "/telegram/webhook";
@@ -113,6 +114,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
       ? new SchoolCatchupModelAdapter({
         model: baseModel,
         repository: new SchoolCatchupRepository(env.DB),
+        universityRepository: new UniversityTrackerRepository(env.DB),
         redactor,
         timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
       })

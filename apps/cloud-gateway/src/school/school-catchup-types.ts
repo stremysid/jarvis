@@ -34,6 +34,7 @@ export interface SchoolCourseCard {
   readonly platformSource: SchoolEvidenceSource | null;
   readonly ownerReportedFacts: readonly SchoolCourseFact[];
   readonly platformConfirmedFacts: readonly SchoolCourseFact[];
+  readonly recentResolvedFacts: readonly SchoolCourseFact[];
   readonly currentNextAction: SchoolCatchupAction | null;
 }
 
