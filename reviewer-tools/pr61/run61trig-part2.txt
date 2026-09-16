@@ -1,0 +1,14 @@
+checked out c696e45 at c696e45
+
+== T-school_missing_work_transitions_delete_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-observation-migration.test.ts (13 tests | 2 failed) 648ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 24 passed (26)
+   × installs every named trigger in remote-D1 WHEN and SELECT RAISE form 10ms
+   × school_missing_work_transitions_delete_guard keeps every derivation transition 26ms
+
+=== summary
+KILLED    T-school_missing_work_transitions_delete_guard
+back on main, tree clean=true
+(node:12580) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

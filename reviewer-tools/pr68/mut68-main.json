@@ -1,0 +1,24 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "origin/main",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0025_archive_literal_history.sql",
+   "from": "CREATE TRIGGER memory_literal_search_hits_insert_guard\n",
+   "to": "CREATE TRIGGER memory_literal_search_hits_insert_guard\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts"
+   ]
+  },
+  {
+   "id": "M-hit-principal-active",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0025_archive_literal_history.sql",
+   "from": "  OR NOT EXISTS (\n    SELECT 1 FROM principals principal\n    WHERE principal.principal_id = NEW.principal_id\n      AND principal.principal_type = 'human'\n      AND principal.status = 'active'\n  )\n  OR EXISTS (\n    SELECT 1 FROM memory_active_event_suppressions suppression\n    WHERE suppression.principal_id = NEW.principal_id\n      AND (\n        suppression.target_event_id = NEW.event_id",
+   "to": "  OR EXISTS (\n    SELECT 1 FROM memory_active_event_suppressions suppression\n    WHERE suppression.principal_id = NEW.principal_id\n      AND (\n        suppression.target_event_id = NEW.event_id",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts"
+   ]
+  }
+ ]
+}

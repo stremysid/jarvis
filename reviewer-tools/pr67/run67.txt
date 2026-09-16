@@ -1,0 +1,91 @@
+checked out 6b4e2b7 at 6b4e2b7
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  13 passed (13)
+
+== T-guest_grant_notice_drain_state_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts (3 tests | 1 failed) 294ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 12 passed (13)
+   × rejects INSERT OR IGNORE and INSERT OR REPLACE collisions on the singleton checkpoint 190ms
+
+== T-guest_grant_notice_drain_state_transition_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts (3 tests | 1 failed) 320ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 12 passed (13)
+   × rejects a cursor rewrite outside a claimed drain run 48ms
+
+== T-guest_grant_notice_drain_state_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts (3 tests | 1 failed) 268ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 12 passed (13)
+   × rejects deletion of the resumable checkpoint 41ms
+
+== R-recover-return: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts (3 tests | 1 failed) 3148ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 12 passed (13)
+   × moves an abandoned running checkpoint to a durable failed state before retrying 693ms
+
+== R-already-running: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  13 passed (13)
+
+== R-claim-filter: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  13 passed (13)
+
+== R-deferred-status: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts (3 tests | 1 failed) 3476ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 12 passed (13)
+   × lets the eleventh notice run first on the next tick after the oldest ten all fail 1570ms
+
+== R-monotonic: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  13 passed (13)
+
+== R-advance-lost-check: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  13 passed (13)
+
+== R-undeliverable-skip: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  13 passed (13)
+
+== G-lease-expired-bound: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  13 passed (13)
+
+== G-cursor-notice-exists: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  13 passed (13)
+
+== G-claim-cursor-frozen: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  13 passed (13)
+
+== G-updated-monotonic-step: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  13 passed (13)
+
+=== summary
+SURVIVED  BASE
+KILLED    T-guest_grant_notice_drain_state_insert_guard
+KILLED    T-guest_grant_notice_drain_state_transition_guard
+KILLED    T-guest_grant_notice_drain_state_delete_forbidden
+KILLED    R-recover-return
+SURVIVED  R-already-running
+SURVIVED  R-claim-filter
+KILLED    R-deferred-status
+SURVIVED  R-monotonic
+SURVIVED  R-advance-lost-check
+SURVIVED  R-undeliverable-skip
+SURVIVED  G-lease-expired-bound
+SURVIVED  G-cursor-notice-exists
+SURVIVED  G-claim-cursor-frozen
+SURVIVED  G-updated-monotonic-step
+back on main, tree clean=true
+(node:31316) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

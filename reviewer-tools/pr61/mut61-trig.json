@@ -1,0 +1,149 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "c696e45",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0027_school_observations.sql",
+   "from": "CREATE TRIGGER school_observation_sync_insert_guard\n",
+   "to": "CREATE TRIGGER school_observation_sync_insert_guard\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-observation-repository.test.ts",
+    "apps/cloud-gateway/test/school/classroom-observation-sync.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_observation_sync_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0027_school_observations.sql",
+   "from": "CREATE TRIGGER school_observation_sync_insert_guard\nBEFORE INSERT ON school_observation_sync\nWHEN EXISTS (\n  SELECT 1 FROM school_observation_sync\n  WHERE principal_id = NEW.principal_id AND source_id = NEW.source_id\n) OR NOT EXISTS (\n  SELECT 1 FROM deadline_sources\n  WHERE source_id = NEW.source_id AND kind = 'classroom'\n)\nBEGIN\n  SELECT RAISE(ABORT, 'school_observation_sync_insert_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-observation-repository.test.ts",
+    "apps/cloud-gateway/test/school/classroom-observation-sync.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_observation_sync_update_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0027_school_observations.sql",
+   "from": "CREATE TRIGGER school_observation_sync_update_guard\nBEFORE UPDATE ON school_observation_sync\nWHEN NEW.principal_id IS NOT OLD.principal_id\n  OR NEW.source_id IS NOT OLD.source_id\n  OR NEW.provider IS NOT OLD.provider\n  OR NEW.created_at IS NOT OLD.created_at\n  OR NEW.updated_at < OLD.updated_at\n  OR (OLD.last_batch_at IS NOT NULL AND (NEW.last_batch_at IS NULL OR NEW.last_batch_at < OLD.last_batch_at))\n  OR (OLD.last_success_at IS NOT NULL AND (NEW.last_success_at IS NULL OR NEW.last_success_at < OLD.last_success_at))\n  OR (\n    OLD.last_success_started_at IS NOT NULL\n    AND (NEW.last_success_started_at IS NULL OR NEW.last_success_started_at < OLD.last_success_started_at)\n  )\n  OR NOT EXISTS (\n    SELECT 1 FROM deadline_sources\n    WHERE source_id = NEW.source_id AND kind = 'classroom'\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'school_observation_sync_update_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-observation-repository.test.ts",
+    "apps/cloud-gateway/test/school/classroom-observation-sync.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_observation_sync_delete_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0027_school_observations.sql",
+   "from": "CREATE TRIGGER school_observation_sync_delete_guard\nBEFORE DELETE ON school_observation_sync\nWHEN 1 = 1\nBEGIN\n  SELECT RAISE(ABORT, 'school_observation_sync_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-observation-repository.test.ts",
+    "apps/cloud-gateway/test/school/classroom-observation-sync.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_assignment_observations_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0027_school_observations.sql",
+   "from": "CREATE TRIGGER school_assignment_observations_insert_guard\nBEFORE INSERT ON school_assignment_observations\nWHEN EXISTS (\n  SELECT 1 FROM school_assignment_observations\n  WHERE principal_id = NEW.principal_id\n    AND (\n      observation_id = NEW.observation_id\n      OR deadline_id = NEW.deadline_id\n      OR (source_id = NEW.source_id AND external_submission_id = NEW.external_submission_id)\n    )\n) OR NOT EXISTS (\n  SELECT 1 FROM school_observation_sync\n  WHERE principal_id = NEW.principal_id AND source_id = NEW.source_id\n) OR NOT EXISTS (\n  SELECT 1 FROM deadlines AS d\n  JOIN deadline_sources AS s ON s.source_id = d.source_id\n  WHERE d.deadline_id = NEW.deadline_id\n    AND d.source_id = NEW.source_id\n    AND s.kind = 'classroom'\n)\nBEGIN\n  SELECT RAISE(ABORT, 'school_assignment_observation_insert_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-observation-repository.test.ts",
+    "apps/cloud-gateway/test/school/classroom-observation-sync.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_assignment_observations_update_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0027_school_observations.sql",
+   "from": "CREATE TRIGGER school_assignment_observations_update_guard\nBEFORE UPDATE ON school_assignment_observations\nWHEN NEW.principal_id IS NOT OLD.principal_id\n  OR NEW.observation_id IS NOT OLD.observation_id\n  OR NEW.source_id IS NOT OLD.source_id\n  OR NEW.deadline_id IS NOT OLD.deadline_id\n  OR NEW.external_submission_id IS NOT OLD.external_submission_id\n  OR NEW.first_seen_at IS NOT OLD.first_seen_at\n  OR NEW.last_seen_at < OLD.last_seen_at\n  OR NEW.content_changed_at < OLD.content_changed_at\n  OR NOT EXISTS (\n    SELECT 1 FROM deadlines AS d\n    JOIN deadline_sources AS s ON s.source_id = d.source_id\n    WHERE d.deadline_id = NEW.deadline_id\n      AND d.source_id = NEW.source_id\n      AND s.kind = 'classroom'\n  )\n  OR (\n    NEW.content_hash IS OLD.content_hash\n    AND (\n      NEW.submission_state IS NOT OLD.submission_state\n      OR NEW.late IS NOT OLD.late\n      OR NEW.assigned_grade IS NOT OLD.assigned_grade\n      OR NEW.source_updated_at IS NOT OLD.source_updated_at\n      OR NEW.content_changed_at IS NOT OLD.content_changed_at\n    )\n  )\n  OR (\n    NEW.content_hash IS NOT OLD.content_hash\n    AND NOT EXISTS (\n      SELECT 1 FROM school_assignment_observation_revisions\n      WHERE principal_id = OLD.principal_id\n        AND observation_id = OLD.observation_id\n        AND submission_state = OLD.submission_state\n        AND late IS OLD.late\n        AND assigned_grade IS OLD.assigned_grade\n        AND source_updated_at IS OLD.source_updated_at\n        AND content_hash = OLD.content_hash\n        AND content_changed_at = OLD.content_changed_at\n        AND replaced_at = NEW.content_changed_at\n    )\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'school_assignment_observation_update_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-observation-repository.test.ts",
+    "apps/cloud-gateway/test/school/classroom-observation-sync.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_assignment_observations_delete_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0027_school_observations.sql",
+   "from": "CREATE TRIGGER school_assignment_observations_delete_guard\nBEFORE DELETE ON school_assignment_observations\nWHEN 1 = 1\nBEGIN\n  SELECT RAISE(ABORT, 'school_assignment_observation_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-observation-repository.test.ts",
+    "apps/cloud-gateway/test/school/classroom-observation-sync.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_assignment_observation_revisions_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0027_school_observations.sql",
+   "from": "CREATE TRIGGER school_assignment_observation_revisions_insert_guard\nBEFORE INSERT ON school_assignment_observation_revisions\nWHEN EXISTS (\n  SELECT 1 FROM school_assignment_observation_revisions\n  WHERE principal_id = NEW.principal_id\n    AND (\n      revision_id = NEW.revision_id\n      OR (observation_id = NEW.observation_id AND replaced_at = NEW.replaced_at)\n    )\n) OR NOT EXISTS (\n  SELECT 1 FROM school_assignment_observations\n  WHERE principal_id = NEW.principal_id\n    AND observation_id = NEW.observation_id\n    AND submission_state = NEW.submission_state\n    AND late IS NEW.late\n    AND assigned_grade IS NEW.assigned_grade\n    AND source_updated_at IS NEW.source_updated_at\n    AND content_hash = NEW.content_hash\n    AND content_changed_at = NEW.content_changed_at\n    AND last_seen_at <= NEW.replaced_at\n)\nBEGIN\n  SELECT RAISE(ABORT, 'school_assignment_observation_revision_insert_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-observation-repository.test.ts",
+    "apps/cloud-gateway/test/school/classroom-observation-sync.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_assignment_observation_revisions_update_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0027_school_observations.sql",
+   "from": "CREATE TRIGGER school_assignment_observation_revisions_update_guard\nBEFORE UPDATE ON school_assignment_observation_revisions\nWHEN 1 = 1\nBEGIN\n  SELECT RAISE(ABORT, 'school_assignment_observation_revision_update_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-observation-repository.test.ts",
+    "apps/cloud-gateway/test/school/classroom-observation-sync.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_assignment_observation_revisions_delete_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0027_school_observations.sql",
+   "from": "CREATE TRIGGER school_assignment_observation_revisions_delete_guard\nBEFORE DELETE ON school_assignment_observation_revisions\nWHEN 1 = 1\nBEGIN\n  SELECT RAISE(ABORT, 'school_assignment_observation_revision_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-observation-repository.test.ts",
+    "apps/cloud-gateway/test/school/classroom-observation-sync.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_missing_work_transitions_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0027_school_observations.sql",
+   "from": "CREATE TRIGGER school_missing_work_transitions_insert_guard\nBEFORE INSERT ON school_missing_work_transitions\nWHEN EXISTS (\n  SELECT 1 FROM school_missing_work_transitions\n  WHERE principal_id = NEW.principal_id\n    AND (\n      transition_id = NEW.transition_id\n      OR (deadline_id = NEW.deadline_id AND derived_at = NEW.derived_at)\n    )\n) OR NOT EXISTS (\n  SELECT 1 FROM school_observation_sync AS sync\n  JOIN deadlines AS d ON d.source_id = sync.source_id\n  JOIN deadline_sources AS s ON s.source_id = d.source_id\n  WHERE sync.principal_id = NEW.principal_id\n    AND d.deadline_id = NEW.deadline_id\n    AND s.kind = 'classroom'\n    AND sync.last_success_at IS NOT NULL\n    AND sync.last_success_at = NEW.derived_at\n    AND sync.derivation_scan_at = NEW.derived_at\n    AND sync.derivation_started_at IS NOT NULL\n    AND d.due_at = NEW.basis_due_at\n) OR NEW.from_state IS NOT COALESCE((\n  SELECT to_state FROM school_missing_work_transitions\n  WHERE principal_id = NEW.principal_id AND deadline_id = NEW.deadline_id\n  ORDER BY derived_at DESC, transition_id DESC\n  LIMIT 1\n), 'untracked') OR NOT (\n  (\n    NEW.to_state = 'closed'\n    AND NEW.basis_observation_id IS NULL\n    AND EXISTS (\n      SELECT 1 FROM deadlines\n      WHERE deadline_id = NEW.deadline_id AND status != 'open'\n    )\n  ) OR (\n    NEW.to_state = 'submission_seen'\n    AND EXISTS (\n      SELECT 1 FROM school_assignment_observations\n      WHERE principal_id = NEW.principal_id\n        AND observation_id = NEW.basis_observation_id\n        AND deadline_id = NEW.deadline_id\n        AND last_seen_at >= (\n          SELECT sync.derivation_started_at\n          FROM school_observation_sync AS sync\n          JOIN deadlines AS covered ON covered.source_id = sync.source_id\n          WHERE sync.principal_id = NEW.principal_id AND covered.deadline_id = NEW.deadline_id\n        )\n        AND submission_state IN ('turned_in', 'returned', 'student_edited_after_turn_in')\n    )\n  ) OR (\n    NEW.to_state IN ('not_due', 'no_submission_seen')\n    AND EXISTS (\n      SELECT 1 FROM deadlines\n      WHERE deadline_id = NEW.deadline_id\n        AND status = 'open'\n        AND (\n          (NEW.to_state = 'not_due' AND due_at > NEW.derived_at)\n          OR (NEW.to_state = 'no_submission_seen' AND due_at <= NEW.derived_at)\n        )\n    )\n    AND (\n      EXISTS (\n        SELECT 1 FROM school_assignment_observations\n        WHERE principal_id = NEW.principal_id\n          AND observation_id = NEW.basis_observation_id\n          AND deadline_id = NEW.deadline_id\n          AND last_seen_at >= (\n            SELECT sync.derivation_started_at\n            FROM school_observation_sync AS sync\n            JOIN deadlines AS covered ON covered.source_id = sync.source_id\n            WHERE sync.principal_id = NEW.principal_id AND covered.deadline_id = NEW.deadline_id\n          )\n          AND submission_state IN ('new', 'created', 'reclaimed_by_student')\n      )\n    )\n  )\n)\nBEGIN\n  SELECT RAISE(ABORT, 'school_missing_work_transition_insert_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-observation-repository.test.ts",
+    "apps/cloud-gateway/test/school/classroom-observation-sync.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_missing_work_transitions_update_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0027_school_observations.sql",
+   "from": "CREATE TRIGGER school_missing_work_transitions_update_guard\nBEFORE UPDATE ON school_missing_work_transitions\nWHEN 1 = 1\nBEGIN\n  SELECT RAISE(ABORT, 'school_missing_work_transition_update_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-observation-repository.test.ts",
+    "apps/cloud-gateway/test/school/classroom-observation-sync.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_missing_work_transitions_delete_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0027_school_observations.sql",
+   "from": "CREATE TRIGGER school_missing_work_transitions_delete_guard\nBEFORE DELETE ON school_missing_work_transitions\nWHEN 1 = 1\nBEGIN\n  SELECT RAISE(ABORT, 'school_missing_work_transition_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/school/school-observation-repository.test.ts",
+    "apps/cloud-gateway/test/school/classroom-observation-sync.test.ts"
+   ]
+  }
+ ]
+}

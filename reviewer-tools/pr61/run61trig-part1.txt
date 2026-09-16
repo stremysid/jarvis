@@ -1,0 +1,82 @@
+checked out c696e45 at c696e45
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  26 passed (26)
+
+== T-school_observation_sync_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-observation-migration.test.ts (13 tests | 2 failed) 845ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 24 passed (26)
+   × installs every named trigger in remote-D1 WHEN and SELECT RAISE form 11ms
+   × school_observation_sync_insert_guard defeats replacement and ignore on its unique key 47ms
+
+== T-school_observation_sync_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-observation-migration.test.ts (13 tests | 2 failed) 879ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 24 passed (26)
+   × installs every named trigger in remote-D1 WHEN and SELECT RAISE form 17ms
+   × school_observation_sync_update_guard keeps provider authority and monotonic freshness immutable 38ms
+
+== T-school_observation_sync_delete_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-observation-migration.test.ts (13 tests | 2 failed) 835ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 24 passed (26)
+   × installs every named trigger in remote-D1 WHEN and SELECT RAISE form 12ms
+   × school_observation_sync_delete_guard keeps source health durable 46ms
+
+== T-school_assignment_observations_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-observation-migration.test.ts (13 tests | 2 failed) 695ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 24 passed (26)
+   × installs every named trigger in remote-D1 WHEN and SELECT RAISE form 9ms
+   × school_assignment_observations_insert_guard covers every unique key against replacement and ignore 36ms
+
+== T-school_assignment_observations_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-observation-migration.test.ts (13 tests | 2 failed) 800ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 24 passed (26)
+   × installs every named trigger in remote-D1 WHEN and SELECT RAISE form 11ms
+   × school_assignment_observations_update_guard requires a matching history row before content changes 37ms
+
+== T-school_assignment_observations_delete_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-observation-migration.test.ts (13 tests | 2 failed) 704ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 24 passed (26)
+   × installs every named trigger in remote-D1 WHEN and SELECT RAISE form 8ms
+   × school_assignment_observations_delete_guard preserves the current verified observation 38ms
+
+== T-school_assignment_observation_revisions_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-observation-migration.test.ts (13 tests | 2 failed) 641ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 24 passed (26)
+   × installs every named trigger in remote-D1 WHEN and SELECT RAISE form 8ms
+   × school_assignment_observation_revisions_insert_guard accepts only the current version and blocks replacement 38ms
+
+== T-school_assignment_observation_revisions_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-observation-migration.test.ts (13 tests | 2 failed) 637ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 24 passed (26)
+   × installs every named trigger in remote-D1 WHEN and SELECT RAISE form 8ms
+   × school_assignment_observation_revisions_update_guard keeps history immutable 36ms
+
+== T-school_assignment_observation_revisions_delete_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-observation-migration.test.ts (13 tests | 2 failed) 655ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 24 passed (26)
+   × installs every named trigger in remote-D1 WHEN and SELECT RAISE form 8ms
+   × school_assignment_observation_revisions_delete_guard keeps changed-grade evidence 46ms
+
+== T-school_missing_work_transitions_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-observation-migration.test.ts (13 tests | 2 failed) 621ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 24 passed (26)
+   × installs every named trigger in remote-D1 WHEN and SELECT RAISE form 8ms
+   × school_missing_work_transitions_insert_guard permits only reconciled derived no-submission evidence 34ms
+
+== T-school_missing_work_transitions_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-observation-migration.test.ts (13 tests | 2 failed) 628ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  2 failed | 24 passed (26)
+   × installs every named trigger in remote-D1 WHEN and SELECT RAISE form 8ms
+   × school_missing_work_transitions_update_guard keeps derived history immutable 36ms

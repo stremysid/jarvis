@@ -1,0 +1,18 @@
+checked out 8034d55 at 8034d55
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  16 passed (16)
+
+== M-hit-principal-active: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts (16 tests | 1 failed) 321ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 15 passed (16)
+   × memory_literal_search_hits_insert_guard rejects a receipt for a disabled principal 19ms
+
+=== summary
+SURVIVED  BASE
+KILLED    M-hit-principal-active
+back on main, tree clean=true
+(node:23752) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

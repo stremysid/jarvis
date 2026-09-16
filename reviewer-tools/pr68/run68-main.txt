@@ -1,0 +1,16 @@
+checked out origin/main at e808093
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  15 passed (15)
+
+== M-hit-principal-active: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  15 passed (15)
+
+=== summary
+SURVIVED  BASE
+SURVIVED  M-hit-principal-active
+back on main, tree clean=true
+(node:20120) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
