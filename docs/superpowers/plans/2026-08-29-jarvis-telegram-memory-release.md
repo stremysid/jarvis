@@ -1062,17 +1062,17 @@ python -m jarvis_local.cli doctor
 ```
 
 ```python
-REQUIRED_EVIDENCE = {"commit", "config_schema", "migrations", "embedding_artifacts", "sbom", "dependency_audit", "secret_scan", "automated_tests", "telegram_live", "backup_restore", "inbound_call", "outbound_answer", "outbound_no_answer", "unauthorized_caller", "voice_failure_callbacks"}
+REQUIRED_EVIDENCE = {"commit", "config_schema", "migrations", "embedding_artifacts", "sbom", "dependency_audit", "secret_scan", "automated_tests", "telegram_live", "backup_restore", "inbound_call", "outbound_answer", "outbound_no_answer", "owner_step_up_refused", "unauthorized_caller", "voice_failure_callbacks"}
 def audit_release_manifest(path: Path) -> None:
     evidence = json.loads(path.read_text(encoding="utf-8"))["evidence"]
     missing = sorted(REQUIRED_EVIDENCE - set(evidence))
     if missing: raise ReleaseAuditError(",".join(missing))
-    live = {"telegram_live", "inbound_call", "outbound_answer", "outbound_no_answer", "unauthorized_caller", "voice_failure_callbacks"}
+    live = {"telegram_live", "inbound_call", "outbound_answer", "outbound_no_answer", "owner_step_up_refused", "unauthorized_caller", "voice_failure_callbacks"}
     if any(evidence[name].get("status") != "passed" for name in live): raise ReleaseAuditError("credentialed_live_gate_not_passed")
     if evidence["dependency_audit"]["critical_or_high"] and not evidence["dependency_audit"].get("approved_time_bounded_exception"): raise ReleaseAuditError("critical_or_high_vulnerability")
 ```
 
-The sample `REQUIRED_EVIDENCE` set and validator above specify only the pre-Obsidian baseline. They must not be implemented or accepted as the current release certificate until the approved superseding Obsidian implementation plan extends them with its required evidence and audit failures. A passing result from this legacy validator, including against `complete-passed-manifest.json`, cannot clear the hard execution and release block.
+The sample `REQUIRED_EVIDENCE` set and validator above specify only the pre-Obsidian baseline. Voice-manifest aggregation must derive its current voice keys from the `VOICE_SMOKE_SCENARIOS` mapping rather than copying this sample list. They must not be implemented or accepted as the current release certificate until the approved superseding Obsidian implementation plan extends them with its required evidence and audit failures. A passing result from this legacy validator, including against `complete-passed-manifest.json`, cannot clear the hard execution and release block.
 
 Every production script supports `-DryRun`, validates that it is executing from the repository root, uses argument arrays instead of shell-built command strings, exits nonzero on the first failed provider command, and emits only command names, resource aliases, HTTP status classes, deployment/version IDs, and redacted result codes. `-DryRun` performs no network or filesystem mutation. Actual external mutation requires the explicit `-Execute` switch; the release runbook treats that switch as the operator's cost/external-state checkpoint.
 

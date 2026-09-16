@@ -3,6 +3,7 @@ import type { Ulid } from "../../../../packages/contracts/src/index.js";
 import type { ModelAdapter, ModelAdapterStreamInput, ModelToken } from "../../src/model/model-types.js";
 import { Redactor } from "../../src/security/redaction.js";
 import {
+  guardSchoolReply,
   isBrightspaceRefreshRequest,
   parseOwnerCatchupPlan,
   SchoolCatchupModelAdapter,
@@ -377,6 +378,70 @@ describe("SchoolCatchupModelAdapter", () => {
     }
   });
 
+  it.each([
+    "I've checked your D2L and nothing new is due.",
+    "I’ve checked D2L and nothing new is due.",
+    "We've refreshed Brightspace for you.",
+    "I looked at D2L and there's nothing due.",
+    "D2L was just synced.",
+    "I've just refreshed your Brightspace calendar.",
+    "I just looked at Brightspace for you.",
+    "We synced with D2L a moment ago.",
+    "I checked and D2L shows nothing new.",
+    "I looked at the Brightspace dates you pasted. I've checked D2L and nothing new is due.",
+  ])("S3 blocks the false Brightspace completion: %s", (reply) => {
+    const parsed = parseOwnerCatchupPlan({
+      engaged: false, reply, courseUpdates: [], completeActionIds: [], plan: [],
+    }, new Redactor());
+    expect(parsed.reply).toBe("I haven't checked D2L. Say 'check D2L now' to run the bounded refresh.");
+  });
+
+  it.each([
+    "I looked at the Brightspace dates you pasted.",
+    "Jarvis refreshed Brightspace an hour ago.",
+  ])("S3 leaves narrow Brightspace discussion unchanged: %s", (reply) => {
+    const parsed = parseOwnerCatchupPlan({
+      engaged: false, reply, courseUpdates: [], completeActionIds: [], plan: [],
+    }, new Redactor());
+    expect(parsed.reply).toBe(reply);
+  });
+
+  it("leaves an explicit Brightspace non-check unchanged", () => {
+    const reply = "I haven't checked D2L; I only used the dates you pasted.";
+    expect(guardSchoolReply(reply, new Redactor())).toBe(reply);
+  });
+
+  it.each([
+    [
+      "I submitted your application.",
+      "I can't confirm that action. Spending, sign-ups, submissions, and contacting people require your tap.",
+    ],
+    [
+      "Send me your D2L password to continue.",
+      "I can't accept passwords, tokens, recovery codes, or MFA codes. Complete credential steps only on the provider's own page.",
+    ],
+    [
+      "I've checked D2L and nothing is due.",
+      "I haven't checked D2L. Say 'check D2L now' to run the bounded refresh.",
+    ],
+  ])("keeps the reply guard for %s on a forwarded owner turn while skipping mutations", async (reply, guarded) => {
+    const model = new SequenceModel([reply]);
+    const readSnapshot = vi.fn(async () => snapshot());
+    const applyOwnerPlan = vi.fn(async () => undefined);
+    const adapter = new SchoolCatchupModelAdapter({
+      model,
+      repository: { readSnapshot, applyOwnerPlan },
+      redactor: new Redactor(),
+      timeZone: "America/Toronto",
+      now: () => NOW,
+      ownerTurnAuthoritative: false,
+    });
+
+    await expect(collect(adapter.stream(input({ userText: "forwarded school notice" })))).resolves.toBe(guarded);
+    expect(readSnapshot).not.toHaveBeenCalled();
+    expect(applyOwnerPlan).not.toHaveBeenCalled();
+  });
+
   it("drops school mutations that a model emits for a bare acknowledgement", async () => {
     const model = new SequenceModel([JSON.stringify({
       engaged: true,
@@ -478,6 +543,37 @@ describe("SchoolCatchupModelAdapter", () => {
     expect(reply).not.toContain("updated your school plan");
   });
 
+  it("does not release a false D2L check claim after the school update was rejected", async () => {
+    const model = new SequenceModel([JSON.stringify({
+      engaged: true,
+      reply: "I updated the plan.",
+      courseUpdates: [],
+      completeActionIds: [],
+      plan: [{
+        courseRef: COURSE,
+        localDate: "2026-09-15",
+        sequenceRank: 1,
+        text: "Review the lesson",
+        estimatedMinutes: 20,
+      }],
+    }), "I checked D2L just now and nothing changed."]);
+    const adapter = new SchoolCatchupModelAdapter({
+      model,
+      repository: {
+        readSnapshot: async () => snapshot(),
+        applyOwnerPlan: async () => { throw new Error("write rejected"); },
+      },
+      redactor: new Redactor(),
+      timeZone: "America/Toronto",
+      now: () => NOW,
+    });
+
+    const reply = await collect(adapter.stream(input()));
+    expect(reply).toBe(
+      "I haven't checked D2L. Say 'check D2L now' to run the bounded refresh.\n\nI couldn't update your school plan.",
+    );
+  });
+
   it("handles a plain-speech D2L refresh only on the owner's own Telegram turn", async () => {
     const ordinary = JSON.stringify({
       engaged: false,
@@ -572,6 +668,30 @@ describe("SchoolCatchupModelAdapter", () => {
       "I haven't checked D2L. Say 'check D2L now' to run the bounded refresh.",
     );
     expect(refreshBrightspace).not.toHaveBeenCalled();
+  });
+
+  it("does not rewrite discussion of pasted dates or an explicitly historical refresh", async () => {
+    const ordinary = (reply: string): string => JSON.stringify({
+      engaged: false,
+      reply,
+      courseUpdates: [],
+      completeActionIds: [],
+      plan: [],
+    });
+    const model = new SequenceModel([
+      ordinary("I looked at the Brightspace dates you pasted."),
+      ordinary("Jarvis refreshed Brightspace an hour ago."),
+    ]);
+    const adapter = new SchoolCatchupModelAdapter({
+      model,
+      repository: { readSnapshot: async () => snapshot(), applyOwnerPlan: async () => undefined },
+      redactor: new Redactor(),
+      timeZone: "America/Toronto",
+      now: () => NOW,
+    });
+
+    await expect(collect(adapter.stream(input()))).resolves.toBe("I looked at the Brightspace dates you pasted.");
+    await expect(collect(adapter.stream(input()))).resolves.toBe("Jarvis refreshed Brightspace an hour ago.");
   });
 
   it("replaces a false D2L check claim on the ordinary fallback path too", async () => {

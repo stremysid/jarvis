@@ -51,6 +51,15 @@ export interface DigestCatchupAction {
   readonly estimatedMinutes: number;
 }
 
+export interface DigestStudyCheckIn {
+  readonly course: string;
+  readonly topic: string;
+  readonly outcome: "uncertain" | "wrong";
+  readonly evidenceCount: number;
+  readonly confidence: "low" | "medium" | "high";
+  readonly observedAt: string;
+}
+
 /**
  * A source that could not be read.
  *
@@ -70,6 +79,7 @@ export interface DigestInput {
   readonly projects: readonly DigestProject[];
   readonly decisions: readonly DigestDecision[];
   readonly gaps: readonly DigestGap[];
+  readonly studyCheckIn?: DigestStudyCheckIn | null;
 }
 
 export interface DigestSection {

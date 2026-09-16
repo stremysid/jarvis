@@ -40,7 +40,13 @@ and finishes build-sequence
 step 3 before the feed secret is set: bounded partial results, explicit
 parser/cancellation regressions, and a rate-limited owner-only plain-speech
 refresh path. No new migration is needed. Build-sequence step 4 (the study coach)
-is next. None of these slices
+is now draft [PR #53](https://github.com/ksid1229-ops/jarvis/pull/53): separate
+evidence-backed weak-area records, at most one quiet coursework check-in per
+day, cited quizzes and flashcards, and direct-owner-only correction and forget.
+Its additive `0023_study_coach.sql` remains unapplied and deliberately does not
+depend on the channel-neutral R2 owner-controls service. Draft
+[PR #52](https://github.com/ksid1229-ops/jarvis/pull/52) independently owns
+`0024_university_application_workflow.sql`. None of these slices
 authorizes OAuth consent, a secret operation, migration, deployment, school or
 university contact, purchase, sign-up, submission or live account access.
 
@@ -52,7 +58,7 @@ with additive migration `0016_cloud_memory.sql`.
 with migration `0019_memory_ingress.sql`. PR #44 merged the reviewed runtime
 slice plan as `3e28bda`; main also owns `0020_school_catchup.sql` and
 `0022_university_tracker.sql`, while PR #46 is merged as `ebb757b` and owns
-`0021_voice_owner_delivery.sql`. Open PR #53 reserves `0023_study_coach.sql`,
+`0021_voice_owner_delivery.sql`. PR #53 merged `0023_study_coach.sql`,
 open PR #52 reserves `0024_university_application_workflow.sql`, and draft
 [PR #56](https://github.com/ksid1229-ops/jarvis/pull/56) uses the next free
 name, `0025_archive_literal_history.sql`.
@@ -205,9 +211,14 @@ not drive R1 or R2 implementation. Measure the shared R2 retriever against the
 back to no extra context.
 
 Run `pnpm test:voice-access` and `pnpm typecheck:voice-access` locally.
-The passphrase implementation must expand `pnpm release:voice-gate` from five
-retained live records to six by adding `owner-step-up-refused`; until then its
-PIN-free owner schema is superseded and cannot support an R1 release claim.
+The live-evidence contract now requires six retained records, including
+`owner-step-up-refused`, and rejects the former PIN-free five-record schema.
+The initial release audit requires `passphrase_always` on every owner path and
+a verified inbound phrase; the dormant exact Passed-A waiver remains valid only
+as a per-record shape for a future optional record and cannot replace inbound.
+No owner authority is accepted without a successful step-up outcome. No
+retained live evidence exists yet, so this contract change does not itself
+support an R1 release claim.
 Fake success is not live acceptance. PR #23's review fixes at `695e762` are
 included in merged `main` through PR #25. Item 1's code merged through PR #25
 as `fd39301`. It composes the real Durable Object runtime and

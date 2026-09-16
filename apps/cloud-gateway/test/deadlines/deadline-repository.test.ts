@@ -188,6 +188,25 @@ describe("DeadlineRepository", () => {
     });
   });
 
+  it("does not let an overlapping older failure replace newer source health", async () => {
+    await repository.recordSourceSuccess(sourceId, WEDNESDAY);
+
+    await expect(repository.recordSourceFailure(sourceId, "older sweep failed", TUESDAY)).resolves.toBe(false);
+    await expect(repository.readSource(sourceId)).resolves.toMatchObject({
+      lastSuccessAt: WEDNESDAY.toISOString(),
+      lastFailure: null,
+      lastFailureAt: null,
+    });
+
+    await repository.recordSourceFailure(sourceId, "new failure", WEDNESDAY);
+    await expect(repository.recordSourceFailure(sourceId, "older retry", TUESDAY)).resolves.toBe(false);
+    await expect(repository.readSource(sourceId)).resolves.toMatchObject({
+      lastSuccessAt: WEDNESDAY.toISOString(),
+      lastFailure: "new failure",
+      lastFailureAt: WEDNESDAY.toISOString(),
+    });
+  });
+
   it("bounds a failure reason so the write reporting a fault cannot be aborted by it", async () => {
     const scraped = `<html>${"x".repeat(4000)}</html>`;
     expect(truncateFailure(scraped).length).toBe(512);

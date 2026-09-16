@@ -26,6 +26,8 @@ export interface AcceptedTelegramText {
   readonly chatId: string;
   readonly messageId: number;
   readonly text: string;
+  /** False when Telegram identifies the text as forwarded or externally borrowed. */
+  readonly isDirectText: boolean;
 }
 
 /**
@@ -70,6 +72,11 @@ const ATTACHMENT_KEYS = [
   "photo", "document", "audio", "video", "voice", "video_note", "animation",
   "sticker", "contact", "location", "venue", "poll", "dice", "game", "invoice",
   "successful_payment", "story", "paid_media", "caption",
+] as const;
+
+const BORROWED_TEXT_KEYS = [
+  "forward_origin", "forward_from", "forward_from_chat", "forward_sender_name",
+  "forward_date", "is_automatic_forward", "external_reply",
 ] as const;
 
 /** Update ids and message ids are positive integers; ids are decimal strings. */
@@ -222,6 +229,13 @@ export function classifyTelegramUpdate(raw: unknown): TelegramClassification {
 
   return {
     kind: "text",
-    value: Object.freeze({ updateId, telegramUserId, chatId: resolvedChatId, messageId, text }),
+    value: Object.freeze({
+      updateId,
+      telegramUserId,
+      chatId: resolvedChatId,
+      messageId,
+      text,
+      isDirectText: !BORROWED_TEXT_KEYS.some((key) => key in message),
+    }),
   };
 }

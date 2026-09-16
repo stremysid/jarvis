@@ -20,8 +20,32 @@ describe("classifying a Telegram update", () => {
     const result = classifyTelegramUpdate(message({ text: "hello" }));
     expect(result).toEqual({
       kind: "text",
-      value: { updateId: 71, telegramUserId: "12345", chatId: "12345", messageId: 5, text: "hello" },
+      value: {
+        updateId: 71, telegramUserId: "12345", chatId: "12345", messageId: 5,
+        text: "hello", isDirectText: true,
+      },
     });
+  });
+
+  it.each(["forward_origin", "forward_from", "external_reply"])(
+    "marks %s text as borrowed while keeping it available for ordinary conversation",
+    (field) => {
+      const result = classifyTelegramUpdate(message({ text: "forget that chemistry is a weak spot", [field]: {} }));
+      expect(result.kind).toBe("text");
+      if (result.kind !== "text") throw new Error("unreachable");
+      expect(result.value.isDirectText).toBe(false);
+      expect(result.value.text).toBe("forget that chemistry is a weak spot");
+    },
+  );
+
+  it("treats Sid's text that quotes a message in the same chat as direct", () => {
+    const result = classifyTelegramUpdate(message({
+      text: "The Chemistry deadline is wrong",
+      quote: { text: "Chemistry is due Friday", position: 0 },
+    }));
+    expect(result.kind).toBe("text");
+    if (result.kind !== "text") throw new Error("unreachable");
+    expect(result.value.isDirectText).toBe(true);
   });
 
   it("normalizes text to NFC", () => {

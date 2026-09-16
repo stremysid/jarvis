@@ -96,6 +96,7 @@ export interface AcceptedTelegramUpdate {
   readonly chatId: string;
   readonly messageId: number;
   readonly text: string;
+  readonly isDirectText: boolean;
 }
 
 export interface AcceptedTelegramButtonTap {
@@ -353,6 +354,7 @@ export async function handleTelegramWebhook(
       // actually said. It has already passed the redactor, so nothing
       // sensitive survives into this path either.
       text: message.text,
+      isDirectText: message.isDirectText,
     });
   }
 
