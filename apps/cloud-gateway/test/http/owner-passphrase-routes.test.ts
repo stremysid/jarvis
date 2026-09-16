@@ -28,6 +28,14 @@ function dispatch(request: Request, environment: Partial<Env>): Promise<Response
   return fetch(request, environment, { waitUntil: () => undefined });
 }
 
+function expectNoPassphraseWordsStored(
+  storage: { results: Array<{ salt: string; digest: string }> },
+  phrase: string,
+): void {
+  const storedValues = storage.results.flatMap(({ salt, digest }) => [salt, digest]).join(" ");
+  for (const word of phrase.split(" ")) expect(storedValues).not.toContain(word);
+}
+
 describe("owner passphrase route", () => {
   let privateKey: CryptoKey;
   let environment: Partial<Env>;
@@ -134,10 +142,10 @@ describe("owner passphrase route", () => {
       expect(result.phrase).toMatch(/^[a-z]{4,8} [a-z]{4,8} [a-z]{4,8}$/u);
       expect(result.verifierVersion).toBe(1);
       expect(result.verifierStatus).toBe("active");
-      const storage = JSON.stringify(await env.DB.prepare(
+      const storage = await env.DB.prepare(
         "SELECT hex(salt) AS salt, hex(digest) AS digest FROM owner_passphrase_verifiers",
-      ).all());
-      for (const word of result.phrase.split(" ")) expect(storage).not.toContain(word);
+      ).all<{ salt: string; digest: string }>();
+      expectNoPassphraseWordsStored(storage, result.phrase);
       expect(JSON.stringify(consoleSpy.mock.calls)).not.toContain(result.phrase);
 
       const status = await dispatch(await signedRequest({ schemaVersion: "1.0", operation: "status" }), environment);
@@ -147,6 +155,16 @@ describe("owner passphrase route", () => {
     } finally {
       consoleSpy.mockRestore();
     }
+  });
+
+  it("ignores D1 envelope metadata when checking stored passphrase words", () => {
+    const storage = {
+      results: [{ salt: "AA", digest: "BB" }],
+      meta: { served_by: "miniflare.db" },
+    };
+    expect(JSON.stringify(storage)).toContain("serve");
+    expect(JSON.stringify(storage.results)).toContain("salt");
+    expectNoPassphraseWordsStored(storage, "serve salt bloom");
   });
 
   it("does not reveal missing configuration before authenticating the device", async () => {
