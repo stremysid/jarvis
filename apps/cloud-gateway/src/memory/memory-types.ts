@@ -169,6 +169,18 @@ export interface ResolvedMemoryTopic {
   readonly matchedBy: "current" | "alias";
 }
 
+export interface AutomaticTopicPathResult {
+  readonly topic: ResolvedMemoryTopic | null;
+  readonly createdTopicCount: number;
+  readonly cappedBy: "children" | "depth" | "hourly_creation" | null;
+}
+
+export interface AutomaticInboxRefilingResult {
+  readonly examinedItemCount: number;
+  readonly refiledItemCount: number;
+  readonly failedItemCount: number;
+}
+
 export type MemoryControlIntent = "remember" | "forget" | "lift" | "explain";
 
 export interface MemoryOwnerTurnInput {

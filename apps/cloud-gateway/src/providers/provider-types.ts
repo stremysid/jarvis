@@ -93,7 +93,10 @@ export const MEMORY_EXTRACTION_JSON_SCHEMA = JSON.stringify({
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["text", "sourceEventIds", "sourceExcerpts", "confidence", "sensitivity"],
+        required: [
+          "text", "sourceEventIds", "sourceExcerpts", "confidence", "sensitivity",
+          "topicPath", "filingConfidence",
+        ],
         properties: {
           text: { type: "string" },
           sourceEventIds: { type: "array", items: { type: "string" } },
@@ -111,6 +114,13 @@ export const MEMORY_EXTRACTION_JSON_SCHEMA = JSON.stringify({
           },
           confidence: { type: "number", minimum: 0, maximum: 1 },
           sensitivity: { enum: ["normal", "sensitive"] },
+          topicPath: {
+            type: "array",
+            minItems: 1,
+            maxItems: 4,
+            items: { type: "string", minLength: 1, maxLength: 64 },
+          },
+          filingConfidence: { type: "number", minimum: 0, maximum: 1 },
         },
       },
     },
@@ -127,6 +137,8 @@ export const MEMORY_EXTRACTION_JSON_EXAMPLE = JSON.stringify({
     }],
     confidence: 0.95,
     sensitivity: "normal",
+    topicPath: ["Personal", "Music"],
+    filingConfidence: 0.92,
   }],
 });
 
