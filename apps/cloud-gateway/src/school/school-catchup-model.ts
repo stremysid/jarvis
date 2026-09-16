@@ -150,7 +150,8 @@ function requestedActionTargetsExternal(phrase: string, message: string): boolea
   }
   if (verb.startsWith("pay") && /\ba\s+visit\b/iu.test(rest)) return false;
   if (/^(?:send|forward|mail)/u.test(verb)) {
-    if (startsWith(String.raw`(?:me\b|(?:(?:it|this|that|them)\s+)?(?:back|to\s+me|over\s+here)\b)`) || /\bback\b/iu.test(rest)) {
+    if (startsWith(String.raw`(?:me\b|(?:(?:it|this|that|them)\s+)?(?:back|to\s+me|over\s+here)\b)`)
+      || /\b(?:back|to\s+me)\b/iu.test(rest)) {
       return false;
     }
     return startsWith(String.raw`(?:it|this|them)\b`) || new RegExp(String.raw`^${REQUEST_PARTY}\b`, "iu").test(rest)

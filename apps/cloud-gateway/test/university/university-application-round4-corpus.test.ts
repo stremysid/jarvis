@@ -506,6 +506,11 @@ const ORDINARY_MESSAGES = [
   "When does Waterloo interview?",
   "Mark every University 3 step not needed.",
   "I finished the chem worksheet, can you accept it?",
+  "Send the essay to me so I can reread it.",
+  "Can you order my assignments by due date?",
+  "Can you book two hours for chem tomorrow?",
+  "Let's plan my week.",
+  "Draft a reply to Ms Lee about the reference.",
 ] as const;
 
 describe("PR #64 round-4 regression corpus", () => {
