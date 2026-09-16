@@ -470,7 +470,6 @@ export class StudyCoachModelAdapter implements ModelAdapter {
         const raw = await collect(this.dependencies.practiceModel.stream(Object.freeze({
           ...input,
           userText: practicePrompt(request.mode, source.excerpt),
-          context: Object.freeze([]),
         })));
         const items = await this.dependencies.repository.createPractice({
           principalId: input.principalId,

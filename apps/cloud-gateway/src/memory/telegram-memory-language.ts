@@ -3,10 +3,10 @@ export type TelegramMemoryControl =
   | Readonly<{ intent: "forget" | "lift" | "explain"; targetQuery: string | null }>;
 
 const REMEMBER_PREFIXES = [
-  /^(?:please[ \t]+)?remember(?:[ \t]*,[ \t]*|[ \t]+)that:[ \t]*/iu,
-  /^(?:please[ \t]+)?remember(?:[ \t]*,[ \t]*|[ \t]+)that[ \t]+/iu,
-  /^(?:please[ \t]+)?remember:[ \t]*/iu,
-  /^(?:please[ \t]+)?remember(?:[ \t]*,[ \t]*|[ \t]+)/iu,
+  /^(?:please[ \t]+)?([a-z]{6,10})(?:[ \t]*,[ \t]*|[ \t]+)that:[ \t]*/iu,
+  /^(?:please[ \t]+)?([a-z]{6,10})(?:[ \t]*,[ \t]*|[ \t]+)that[ \t]+/iu,
+  /^(?:please[ \t]+)?([a-z]{6,10}):[ \t]*/iu,
+  /^(?:please[ \t]+)?([a-z]{6,10})(?:[ \t]*,[ \t]*|[ \t]+)/iu,
 ] as const;
 const CONTROL_OR_QUOTE_MARKERS = /[\r\n\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/u;
 const OUTER_QUOTE = /^(?:[>"'`]|\u201c|\u2018|\u00ab)/u;
@@ -24,6 +24,28 @@ function target(match: RegExpExecArray): string | null {
   return value === undefined || value.length === 0 ? null : value;
 }
 
+function rememberWord(value: string): boolean {
+  const word = value.toLocaleLowerCase("en-CA");
+  // These are ordinary words, not plausible imperative typos. Keeping them
+  // out prevents prose such as "remembered that" from becoming a control.
+  if (word === "remembered" || word === "member") return false;
+  const expected = "remember";
+  let previous = Array.from({ length: expected.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= word.length; row += 1) {
+    const current = [row];
+    for (let column = 1; column <= expected.length; column += 1) {
+      current[column] = Math.min(
+        (current[column - 1] ?? Number.POSITIVE_INFINITY) + 1,
+        (previous[column] ?? Number.POSITIVE_INFINITY) + 1,
+        (previous[column - 1] ?? Number.POSITIVE_INFINITY)
+          + (word[row - 1] === expected[column - 1] ? 0 : 1),
+      );
+    }
+    previous = current;
+  }
+  return (previous[expected.length] ?? Number.POSITIVE_INFINITY) <= 2;
+}
+
 /**
  * Recognises only a whole, single-line owner utterance. Embedded examples,
  * quoted blocks and pasted multi-line material remain conversation data.
@@ -34,7 +56,7 @@ export function parseTelegramMemoryControl(value: unknown): TelegramMemoryContro
 
   for (const prefix of REMEMBER_PREFIXES) {
     const match = prefix.exec(text);
-    if (match === null) continue;
+    if (match === null || match[1] === undefined || !rememberWord(match[1])) continue;
     const memoryText = text.slice(match[0].length).trim();
     return memoryText.length === 0 ? null : Object.freeze({ intent: "remember", memoryText });
   }

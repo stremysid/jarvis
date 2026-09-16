@@ -23,6 +23,7 @@ import {
 } from "../../src/memory/telegram-memory-retriever.js";
 import { LiteralHistoryService } from "../../src/memory/literal-history.js";
 import { MemoryRepository } from "../../src/memory/memory-repository.js";
+import { parseTelegramMemoryControl } from "../../src/memory/telegram-memory-language.js";
 import type {
   ModelAdapter,
   ModelAdapterStreamInput,
@@ -551,6 +552,28 @@ beforeAll(async () => {
   await seedPrincipal(OWNER_ID);
   await seedPrincipal(GUEST_ID);
   await seedPrincipal(RETRIEVAL_ID);
+});
+
+describe("Telegram remember language", () => {
+  it.each([
+    "Remeber that my fav subject is math",
+    "Please rember, that my fav subject is math",
+    "remmeber: my fav subject is math",
+    "rememebr my fav subject is math",
+  ])("accepts the bounded remember typo: %s", (text) => {
+    expect(parseTelegramMemoryControl(text)).toEqual({
+      intent: "remember",
+      memoryText: "my fav subject is math",
+    });
+  });
+
+  it.each([
+    "remembered that my fav subject is math",
+    "rememberance that my fav subject is math",
+    "member that my fav subject is math",
+  ])("rejects the remember near-miss: %s", (text) => {
+    expect(parseTelegramMemoryControl(text)).toBeNull();
+  });
 });
 
 describe("Telegram memory controls", () => {
