@@ -1,3 +1,6 @@
+-- Production was migrated with the earlier CASE-wrapped trigger guards.
+-- This semantically identical rewrite exists so a fresh database can be rebuilt. Production was not re-migrated.
+
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE principals (
@@ -88,7 +91,7 @@ BEGIN
         AND d.status = 'active'
         AND p.status = 'active'
     );
-  SELECT CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'identity_challenge_state_changed') END;
+  SELECT RAISE(ABORT, 'identity_challenge_state_changed') WHERE changes() <> 1;
 END;
 
 CREATE TABLE events (
@@ -187,7 +190,7 @@ BEGIN
     AND current_sequence = NEW.expected_current
     AND NEW.current_sequence = NEW.through_sequence
     AND NEW.through_sequence >= NEW.expected_current;
-  SELECT CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'sync_cursor_compare_failed') END;
+  SELECT RAISE(ABORT, 'sync_cursor_compare_failed') WHERE changes() <> 1;
   UPDATE sync_snapshots
   SET acknowledged_at = NEW.acknowledged_at
   WHERE snapshot_id = NEW.snapshot_id
@@ -198,7 +201,7 @@ BEGIN
     AND through_sequence = NEW.through_sequence
     AND acknowledged_at IS NULL
     AND expires_at > NEW.acknowledged_at;
-  SELECT CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'sync_snapshot_state_changed') END;
+  SELECT RAISE(ABORT, 'sync_snapshot_state_changed') WHERE changes() <> 1;
 END;
 
 CREATE TABLE bootstrap_tokens (
