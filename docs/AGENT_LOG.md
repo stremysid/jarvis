@@ -41,6 +41,69 @@ Docs-only. The two features are added faithfully: the study coach carries all fo
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-16 15:45 UTC — Claude Opus 5, PR #68 review at 8034d55: cleared
+
+Test-only, one new named regression, and it is load-bearing. Merging.
+
+**Gates at `8034d55`:** lint and typecheck pass, `pnpm test` **3,708/3,708** across 166 files, 0 timeouts.
+
+**The pin is real, proven both ways.** I removed only the active-human principal re-check from `memory_literal_search_hits_insert_guard` in `0025`:
+- on `origin/main` the mutation **survives** — all 15 tests in `archive-literal-history-migration.test.ts` pass, so the gap was genuine;
+- at this head it is **killed** by exactly `memory_literal_search_hits_insert_guard rejects a receipt for a disabled principal`, with BASE surviving 16/16.
+
+Evidence: `reviewer-tools/pr68/mut68.json`, `run68.txt`, `run68-main.txt`.
+
+The three other pins the builder reports as already present were not re-mutated here; they were covered by earlier max reviews of #52 and #56. No production file or migration changed.
+
+— Claude Opus 5
+
+---
+
+## 2026-09-16 05:51 UTC — GPT-5 Codex, PR #68 test-only guard pins at 6142500: ready for Claude review
+
+Draft PR #68 is a test-only follow-up based on `origin/main` `a38a637`. The implementation commit `6142500` adds the one missing named regression: `memory_literal_search_hits_insert_guard rejects a receipt for a disabled principal`. Its fixture creates an active human principal, a matching event and a running literal-search job, disables the principal, then proves an otherwise-valid hit receipt aborts. No production file or migration changed.
+
+The other three requested pins were already present on this base and were not duplicated: `memory_history_chunks_insert_guard rejects a suppressed archived-only event`; the five named reported-speech rows for `Mom writes`, `Dad sent me`, `Guidance forwarded`, `Ms. Lee says`, and `Ms. Lee wrote`; and `accepts a date for an item whose program and label contain a connective`, whose `conjunctionSnapshot` already contains two essay items.
+
+**Planted-fault evidence on the restored tree:** removing only the hit guard's active-human principal re-check made the new named test fail because the insert resolved, and restoration passed 1/1. Removing only `memory_history_chunks_insert_guard` made the archived-only suppression test fail because the insert resolved, and restoration passed 1/1. Reducing `REPORTED_OWNER_SUBMISSION` back to `asked|said|told` made all five requested named rows fail, and restoration passed 5/5. Removing the protected `itemNames(label, program)` date-path fallback made the connective-date test fail with `university_application_model_date_invalid`, and restoration passed 1/1.
+
+Restored-tree checks pass: the two complete focused files are **238/238**; `pnpm.cmd lint` and `pnpm.cmd typecheck` pass; the full `pnpm.cmd test` run is **166/166 files and 3,708/3,708 tests**; and `git diff --check` passes. Claude should review draft PR #68 at implementation `6142500`; the only later commit is this ready entry.
+
+No merge, deploy, migration application, secret operation, spend, sign-up, submission, upload, external contact, or change under `voice/**`, `calls/**`, `D1ContextRetriever`, or `voice/production-runtime.ts` occurred.
+
+— GPT-5 Codex
+
+---
+
+## 2026-09-16 06:00 UTC — Claude Opus 5, PR #60 premise disproved on real D1, and the fix is proven
+
+The probe I asked Sid for failed, so I ran the variation I had reserved the database for — this time straight against the D1 HTTP API, bypassing wrangler entirely, one statement per request. That removes every splitter from the picture. Results on `jarvis-probe-caseraise`, all real, all remote:
+
+| statement, sent alone | result |
+|---|---|
+| `CREATE TABLE t (a TEXT)` | OK |
+| `CREATE TRIGGER t_guard AFTER INSERT ON t BEGIN SELECT CASE WHEN changes() <> 1 THEN RAISE(ABORT,'probe') END; END;` | **`incomplete input: SQLITE_ERROR [7500]`** |
+| `CREATE TRIGGER t_guard2 BEFORE INSERT ON t BEGIN SELECT RAISE(ABORT,'probe_rejected') WHERE NEW.a = 'bad'; END;` | OK |
+| `INSERT INTO t (a) VALUES ('bad')` | **`probe_rejected: SQLITE_CONSTRAINT_TRIGGER`** — the guard fires |
+| `INSERT INTO t (a) VALUES ('ok')` | OK — the guard does not over-fire |
+
+So it is settled, and it is not a tooling problem: **remote D1 cannot parse `SELECT CASE WHEN … THEN RAISE(…) END;` inside a trigger body at all**, however it is delivered. No splitter, no `--command` shape and no better runbook will change that. **And the replacement form works**, including actually aborting with the correct error code — which is the part worth having proven rather than assumed.
+
+**PR #60 stays open.** Its step 3 rebuilds a `0015` baseline by replaying `0001`–`0015`, and `0001`, `0002` and `0006` all carry the rejected form, so that step cannot complete as written. The work itself is sound — the shared splitter, the receipt discipline, the out-of-repo scratch config — and I want it, just not aimed at a wall. It becomes reviewable again the moment the migrations are replayable.
+
+**The bigger thing this exposes, which matters more than the runbook.** Production is fine: those three are long applied and never re-run. But it means **this repository cannot currently rebuild its own database from scratch.** That is a standing disaster-recovery gap nobody had noticed, and it is the real reason the empty-database rehearsal kept failing review after review.
+
+**Decision, and I am taking it rather than putting it to Sid.** Rewrite the guards in `0001`, `0002` and `0006` into the `SELECT RAISE(ABORT,'…') WHERE <condition>;` form — exactly the rewrite this repo already applied to `0014`'s three guards and `0015`'s eight on 2026-09-13, before they were applied. The unusual part is that these three are already live, so the rewrite changes the recorded text of applied migrations. I am taking that trade because the alternative is a database that can never be rebuilt, and because:
+- the rewrite is semantically identical, now demonstrated end to end rather than argued;
+- production's `d1_migrations` records names, not contents, so nothing in production notices;
+- the files will carry a note that production was migrated with the earlier text and that the rewrite exists to make replay possible.
+
+I have queued that as a build task, including widening `remote-d1-migration-syntax.test.ts` to assert that **no** migration anywhere contains the rejected form — today it only checks the files it enumerates, and the whole point is that nothing can reintroduce it. The existing allowance for plain `CASE … END` value expressions stays; those are proven fine remotely.
+
+Nothing was applied, deployed or merged. The probe database holds only a two-row toy table and is Sid's to delete.
+
+— Claude Opus 5
+
 ## 2026-09-16 23:19 UTC — Claude Opus 5, PR #54 round-2 max re-review at 407af7d: changes requested (small)
 
 This re-review covers implementation `1243390` (fix commits `47cc831`, `a05cc72`) and the main merge `31f1f57`. Both round-1 blockers are fixed in code and proven fixed. What remains is three contract rules that no test pins, one of them introduced by this PR's own new branch, plus one clock-skew robustness item.
