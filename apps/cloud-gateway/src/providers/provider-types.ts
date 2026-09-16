@@ -83,6 +83,128 @@ export interface ModelCompleteJsonInput {
   reasoningEffort: "high";
 }
 
+export const MEMORY_EXTRACTION_JSON_SCHEMA = JSON.stringify({
+  type: "object",
+  additionalProperties: false,
+  required: ["proposals"],
+  properties: {
+    proposals: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["text", "sourceEventIds", "sourceExcerpts", "confidence", "sensitivity"],
+        properties: {
+          text: { type: "string" },
+          sourceEventIds: { type: "array", items: { type: "string" } },
+          sourceExcerpts: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["sourceEventId", "excerpt"],
+              properties: {
+                sourceEventId: { type: "string" },
+                excerpt: { type: "string" },
+              },
+            },
+          },
+          confidence: { type: "number", minimum: 0, maximum: 1 },
+          sensitivity: { enum: ["normal", "sensitive"] },
+        },
+      },
+    },
+  },
+});
+
+export const MEMORY_EXTRACTION_JSON_EXAMPLE = JSON.stringify({
+  proposals: [{
+    text: "I play piano.",
+    sourceEventIds: ["01m1hh9h1yxaeyjgbhfzm4nnth"],
+    sourceExcerpts: [{
+      sourceEventId: "01m1hh9h1yxaeyjgbhfzm4nnth",
+      excerpt: "I play piano.",
+    }],
+    confidence: 0.95,
+    sensitivity: "normal",
+  }],
+});
+
+export const MEMORY_EXTRACTION_JSON_CONTRACT =
+  `Return one JSON value matching this exact schema: ${MEMORY_EXTRACTION_JSON_SCHEMA} `
+  + `Example: ${MEMORY_EXTRACTION_JSON_EXAMPLE}`;
+
+export interface ModelCompleteJsonUsage {
+  readonly priceId: string;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly reservedCostMicros: number;
+  readonly settledCostMicros: number;
+  readonly d1Statements: number;
+}
+
+export interface ModelCompleteJsonCompletion {
+  readonly value: unknown;
+  readonly usage: ModelCompleteJsonUsage;
+}
+
+const issuedCompleteJsonCompletions = new WeakSet<object>();
+
+/** Mints the only provider completion shape the workflow treats as billable. */
+export function issueModelCompleteJsonCompletion(
+  value: unknown,
+  usage: ModelCompleteJsonUsage,
+): ModelCompleteJsonCompletion {
+  const completion = Object.freeze({ value, usage: Object.freeze({ ...usage }) });
+  issuedCompleteJsonCompletions.add(completion);
+  return completion;
+}
+
+/** Fake providers may still return raw JSON; only minted production results carry usage. */
+export function snapshotModelCompleteJsonCompletion(value: unknown): ModelCompleteJsonCompletion | null {
+  if (value === null || typeof value !== "object" || !issuedCompleteJsonCompletions.has(value)
+    || !Object.isFrozen(value)) return null;
+  const completion = value as ModelCompleteJsonCompletion;
+  return Object.isFrozen(completion.usage) ? completion : null;
+}
+
+class ModelCompleteJsonSettledFailure extends Error {
+  constructor(
+    readonly failure: ProviderFailure,
+    readonly usage: ModelCompleteJsonUsage,
+  ) {
+    super(failure.message);
+    this.name = "ModelCompleteJsonSettledFailure";
+    Object.freeze(usage);
+    Object.freeze(this);
+  }
+}
+
+const issuedCompleteJsonSettledFailures = new WeakSet<object>();
+
+/** Carries the durable charge receipt when output validation fails after settlement. */
+export function issueModelCompleteJsonSettledFailure(
+  failure: ProviderFailure,
+  usage: ModelCompleteJsonUsage,
+): Error {
+  const issued = new ModelCompleteJsonSettledFailure(failure, { ...usage });
+  issuedCompleteJsonSettledFailures.add(issued);
+  return issued;
+}
+
+export function snapshotModelCompleteJsonSettledFailure(value: unknown): Readonly<{
+  failure: ProviderFailure;
+  usage: ModelCompleteJsonUsage;
+}> | null {
+  if (!(value instanceof ModelCompleteJsonSettledFailure)
+    || !issuedCompleteJsonSettledFailures.has(value)
+    || !Object.isFrozen(value)
+    || !Object.isFrozen(value.usage)
+    || snapshotProviderFailure(value.failure) === null) return null;
+  return Object.freeze({ failure: value.failure, usage: value.usage });
+}
+
 export interface ModelProvider {
   streamText(input: ModelStreamTextInput): AsyncIterable<ModelChunk>;
   completeJson(input: ModelCompleteJsonInput): Promise<unknown>;
