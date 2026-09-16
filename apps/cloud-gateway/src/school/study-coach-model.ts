@@ -401,7 +401,6 @@ async function makePractice(
   const raw = await collect(dependencies.practiceModel.stream(Object.freeze({
     ...input,
     userText: practicePrompt(mode, source.excerpt),
-    context: Object.freeze([]),
   })));
   const items = await dependencies.repository.createPractice({
     principalId: input.principalId,

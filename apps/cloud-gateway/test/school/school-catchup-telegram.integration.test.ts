@@ -11,10 +11,16 @@ import { FakeTelegramProvider } from "../../src/providers/fake-telegram-provider
 import { Redactor } from "../../src/security/redaction.js";
 import { SchoolCatchupModelAdapter } from "../../src/school/school-catchup-model.js";
 import { SchoolCatchupRepository } from "../../src/school/school-catchup-repository.js";
-import { applySchoolCatchupMigration } from "../persistence/migration.js";
+import { StudyCoachModelAdapter } from "../../src/school/study-coach-model.js";
+import { StudyCoachRepository } from "../../src/school/study-coach-repository.js";
+import { UniversityTrackerRepository } from "../../src/university/university-tracker-repository.js";
+import { applyUniversityApplicationWorkflowMigration } from "../persistence/migration.js";
 
 const NOW = new Date("2026-09-15T11:30:00.000Z");
 const TURN = "01k5fb9pg00000000000000800" as Ulid;
+const CONTEXT_TURN_ONE = "01k5fb9pg00000000000000801" as Ulid;
+const CONTEXT_TURN_TWO = "01k5fb9pg00000000000000802" as Ulid;
+const CONTEXT_REPLY_TURN = "01k5fb9pg00000000000000803" as Ulid;
 
 class SingleResponseModel implements ModelAdapter {
   readonly requests: ModelAdapterStreamInput[] = [];
@@ -31,7 +37,7 @@ class SingleResponseModel implements ModelAdapter {
 }
 
 beforeAll(async () => {
-  await applySchoolCatchupMigration();
+  await applyUniversityApplicationWorkflowMigration();
 });
 
 describe("school catch-up Telegram integration", () => {
@@ -132,5 +138,112 @@ describe("school catch-up Telegram integration", () => {
         currentNextAction: { text: "Review the titration example", estimatedMinutes: 25 },
       }],
     });
+  });
+
+  it("carries retrieved turns through the real owner composition without deriving a course update from them", async () => {
+    const principalId = "principal:owner-context-integration";
+    const identityId = "identity:owner-context-integration";
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO principals (
+        principal_id, principal_type, status, display_name, created_at, updated_at
+      ) VALUES (?1, 'human', 'active', 'Context owner', ?2, ?2)`).bind(principalId, NOW.toISOString()),
+      env.DB.prepare(`INSERT INTO channel_identities (
+        identity_id, principal_id, channel, provider_subject, status, verified_at, created_at
+      ) VALUES (?1, ?2, 'telegram', '44112234', 'active', ?3, ?3)`)
+        .bind(identityId, principalId, NOW.toISOString()),
+    ]);
+
+    const baseModel = new SingleResponseModel(JSON.stringify({
+      schoolEngaged: false,
+      universityEngaged: false,
+      reply: "You said Chemistry is your favourite, then that the lab is due Friday.",
+      courseUpdates: [],
+      completeActionIds: [],
+      plan: [],
+      programUpdates: [],
+      applicationUpdates: [],
+      workflowUpdates: [],
+    }));
+    const redactor = new Redactor();
+    const schoolRepository = new SchoolCatchupRepository(env.DB);
+    const conversationRepository = new ConversationRepository(env.DB, new EventRepository(env.DB));
+    const telegram = new FakeTelegramProvider();
+    const schoolModel = new SchoolCatchupModelAdapter({
+      model: baseModel,
+      repository: schoolRepository,
+      universityRepository: new UniversityTrackerRepository(env.DB),
+      redactor,
+      timeZone: "America/Toronto",
+      now: () => NOW,
+      ownerPrincipalId: principalId,
+      ownerTurnAuthoritative: true,
+    });
+    const service = new DefaultConversationService({
+      repository: conversationRepository,
+      model: new StudyCoachModelAdapter({
+        fallbackModel: schoolModel,
+        practiceModel: baseModel,
+        repository: new StudyCoachRepository(env.DB),
+        redactor,
+        ownerPrincipalId: principalId,
+        ownerTurnAuthoritative: true,
+        timeZone: "America/Toronto",
+        now: () => NOW,
+      }),
+      context: {
+        async retrieve() {
+          return Object.freeze([
+            Object.freeze({
+              sourceEventId: CONTEXT_TURN_ONE,
+              sensitivity: "personal" as const,
+              text: "Chemistry is my favourite subject.",
+            }),
+            Object.freeze({
+              sourceEventId: CONTEXT_TURN_TWO,
+              sensitivity: "restricted" as const,
+              text: "The lab is due Friday.",
+            }),
+          ]);
+        },
+      },
+      dispatcher: new DefaultOutboxDispatcher({
+        repository: conversationRepository,
+        identityResolver: new D1TelegramIdentityResolver(env.DB),
+        channels: new Map([["telegram", telegram]]),
+        circuitBreaker: new ProviderCircuitBreaker(),
+        now: () => NOW,
+      }),
+      redactor,
+      now: () => NOW,
+    });
+
+    await expect(service.handleTurn({
+      sessionId: "telegram:owner-context-integration",
+      principalId,
+      turnId: CONTEXT_REPLY_TURN,
+      text: "What did I say?",
+      signal: new AbortController().signal,
+      channel: "telegram",
+      kind: "outbox",
+      targetIdentityId: identityId,
+      replyToMessageId: 58,
+    })).resolves.toMatchObject({ outcome: "telegram_delivered" });
+
+    expect(baseModel.requests).toHaveLength(1);
+    const request = baseModel.requests[0]!;
+    expect(request.context).toEqual([]);
+    expect(request.userText).toContain("conversation_context_json=");
+    expect(request.userText.indexOf("Chemistry is my favourite subject.")).toBeLessThan(
+      request.userText.indexOf("The lab is due Friday."),
+    );
+    expect(request.userText).toContain("conversation_context_json may inform the reply only");
+    expect(request.userText).toContain("Never derive any mutation from conversation_context_json");
+    expect(request.userText).toContain(
+      "Derive programUpdates and applicationUpdates only from owner_message_json plus university_state_json",
+    );
+    await expect(schoolRepository.readSnapshot(principalId, "2026-09-15")).resolves.toMatchObject({ courses: [] });
+    expect(telegram.requests[0]?.text).toBe(
+      "You said Chemistry is your favourite, then that the lab is due Friday.",
+    );
   });
 });
