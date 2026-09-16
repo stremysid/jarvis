@@ -95,6 +95,12 @@ export interface ClassroomSubmissionPage {
   readonly nextPageToken: string | null;
 }
 
+export interface ClassroomDeadlineCollection {
+  readonly items: readonly RawDeadlineItem[];
+  /** Stable course/work ids whose source coursework has no usable due date. */
+  readonly undatedExternalIds: readonly string[];
+}
+
 /** A failed Classroom call. `transient` is what decides whether the sweep is worth retrying. */
 export class ClassroomRequestError extends Error {
   readonly status: number | null;
@@ -457,12 +463,16 @@ export class ClassroomClient {
    * unique only within its course, and the store's uniqueness key is (source,
    * external id). Two courses' first assignment would otherwise be one row.
    */
-  async collectDeadlines(courses?: readonly ClassroomCourse[]): Promise<readonly RawDeadlineItem[]> {
+  async collectDeadlineSweep(courses?: readonly ClassroomCourse[]): Promise<ClassroomDeadlineCollection> {
     const items: RawDeadlineItem[] = [];
+    const undatedExternalIds: string[] = [];
     for (const course of courses ?? await this.listCourses()) {
       for (const work of await this.listCourseWork(course.id)) {
         const dueAt = classroomDueInstant(work, this.#dueOptions);
-        if (dueAt === null) continue;
+        if (dueAt === null) {
+          undatedExternalIds.push(`${course.id}:${work.id}`);
+          continue;
+        }
         items.push(Object.freeze({
           externalId: `${course.id}:${work.id}`,
           course: course.name,
@@ -471,7 +481,14 @@ export class ClassroomClient {
         }));
       }
     }
-    return Object.freeze(items);
+    return Object.freeze({
+      items: Object.freeze(items),
+      undatedExternalIds: Object.freeze(undatedExternalIds),
+    });
+  }
+
+  async collectDeadlines(courses?: readonly ClassroomCourse[]): Promise<readonly RawDeadlineItem[]> {
+    return (await this.collectDeadlineSweep(courses)).items;
   }
 
   async *#pages(path: string, query: Record<string, string>, field: string): AsyncGenerator<readonly unknown[]> {

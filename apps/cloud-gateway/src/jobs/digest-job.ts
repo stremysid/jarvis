@@ -379,6 +379,7 @@ export async function assembleDigest(
       source: "Google Classroom" as const,
       lastSeenAt: item.lastSeenAt,
     })),
+    missingWorkOmitted: schoolSnapshot?.missingWorkOmitted ?? 0,
     projects: projects.map((status) => toDigestProject(status, reports.get(status.project.projectId))),
     decisions: decisions.map((item) => ({
       decisionId: item.decisionId,

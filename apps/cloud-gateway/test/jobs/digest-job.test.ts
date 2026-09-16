@@ -156,7 +156,7 @@ function deps(overrides: DigestDependencyOverrides = {}): DigestJobDependencies 
       readApplicationItems: async () => [],
       readDeadlines: async () => [],
       readDeadlineSources: async () => [],
-      readSchoolObservations: async () => ({ source: null, grades: [], missingWork: [] }),
+      readSchoolObservations: async () => ({ source: null, grades: [], missingWork: [], missingWorkOmitted: 0 }),
       readProjectStatuses: async () => [],
       readOpenDecisions: async () => [],
     },
@@ -238,6 +238,7 @@ describe("assembling from every source", () => {
             state: "no_submission_seen",
             lastSeenAt: NOW,
           }],
+          missingWorkOmitted: 0,
         }),
       },
     }));
@@ -458,6 +459,7 @@ describe("a source that will not answer", () => {
             source: "google_classroom_api", contentChangedAt: NOW, lastSeenAt: NOW,
           }],
           missingWork: [],
+          missingWorkOmitted: 0,
         }),
       },
     }));
@@ -469,7 +471,7 @@ describe("a source that will not answer", () => {
     const digest = await assembleDigest("daily", deps({
       sources: {
         readDeadlineSources: async () => [deadlineSource()],
-        readSchoolObservations: async () => ({ source: null, grades: [], missingWork: [] }),
+        readSchoolObservations: async () => ({ source: null, grades: [], missingWork: [], missingWorkOmitted: 0 }),
       },
     }));
 
@@ -493,6 +495,7 @@ describe("a source that will not answer", () => {
           },
           grades: [],
           missingWork: [],
+          missingWorkOmitted: 0,
         }),
       },
     }));

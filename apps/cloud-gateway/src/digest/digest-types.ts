@@ -109,6 +109,7 @@ export interface DigestInput {
   readonly deadlines: readonly DigestDeadline[];
   readonly grades: readonly DigestGradeObservation[];
   readonly missingWork: readonly DigestDerivedMissingWork[];
+  readonly missingWorkOmitted: number;
   readonly projects: readonly DigestProject[];
   readonly decisions: readonly DigestDecision[];
   readonly gaps: readonly DigestGap[];

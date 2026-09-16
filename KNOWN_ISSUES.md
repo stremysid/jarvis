@@ -671,6 +671,12 @@ it is deliberately omitted rather than inventing an assignment identity,
 course, date or title. Supporting it needs a separately reviewed verified
 assignment catalogue.
 
+The observation store also binds one Classroom submission id to each deadline.
+If Classroom recreates that submission under a new id, the replacement is
+rejected and remains ignored. Accepting it safely needs an explicit identity
+reconciliation rule; silently replacing the id would let unrelated evidence
+overwrite the verified observation history.
+
 This slice adds recent verified grades and derived submission checks to the
 existing morning digest. It does not send the plan's same-day lower-grade or
 new-no-submission alert. That alert needs a durable owner-delivery receipt plus

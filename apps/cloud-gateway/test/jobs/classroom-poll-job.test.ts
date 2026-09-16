@@ -120,11 +120,12 @@ describe("hourly Classroom ingestion", () => {
       outcome: "complete",
       pages: 1,
       seen: 0,
+      undatedCoursework: 2,
       rejected: 1,
       transitions: 0,
       failure: null,
       statementsUsed: 4,
-    })).toContain("1 source items rejected");
+    })).toContain("2 undated coursework submissions skipped; 1 submission observations rejected");
   });
 
   it("does not contact Google or create a source when all configuration is absent", async () => {

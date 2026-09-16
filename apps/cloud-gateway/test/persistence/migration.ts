@@ -218,6 +218,8 @@ export async function applySchoolObservationsMigration(): Promise<void> {
     { name: "0027_school_observations.sql", queries: splitMigration(schoolObservationsSql) },
   ]);
   await schoolObservationsMigrated;
+}
+
 /** Applies fair, resumable guest-notice drain state after the delivery outbox. */
 export async function applyGuestGrantNoticeDrainMigration(): Promise<void> {
   await applyVoiceOwnerDeliveryMigration();

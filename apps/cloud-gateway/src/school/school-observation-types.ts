@@ -74,4 +74,6 @@ export interface SchoolObservationDigestSnapshot {
   readonly source: SchoolObservationSyncState | null;
   readonly grades: readonly SchoolGradeObservation[];
   readonly missingWork: readonly SchoolDerivedMissingWork[];
+  /** Matching missing-work rows beyond the bounded digest page. */
+  readonly missingWorkOmitted: number;
 }

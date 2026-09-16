@@ -130,7 +130,8 @@ describe("ClassroomClient", () => {
     const { fetchImplementation, calls } = stubFetch(corpus);
     const client = new ClassroomClient({ accessToken: async () => "token-abc", fetchImplementation, timeZone: "America/Toronto" });
 
-    const items = await client.collectDeadlines();
+    const collection = await client.collectDeadlineSweep();
+    const items = collection.items;
 
     expect(items).toEqual([
       { externalId: "c-physics:1", course: "SPH4U Physics", title: "Unit 3 Quiz", dueAt: "2026-09-15T18:30:00.000Z" },
@@ -139,6 +140,7 @@ describe("ClassroomClient", () => {
     // The two items share a Classroom id; only the course prefix keeps them
     // from collapsing onto one row under the (source, external_id) key.
     expect(new Set(items.map((item) => item.externalId)).size).toBe(items.length);
+    expect(collection.undatedExternalIds).toEqual(["c-physics:2"]);
     expect(calls.every((call) => call.authorization === "Bearer token-abc")).toBe(true);
     expect(calls.map((call) => new URL(call.url).pathname)).toEqual([
       "/v1/courses", "/v1/courses/c-physics/courseWork", "/v1/courses/c-english/courseWork",

@@ -20,6 +20,7 @@ export interface ClassroomObservationSyncResult {
   readonly outcome: "complete" | "partial" | "failed";
   readonly pages: number;
   readonly seen: number;
+  readonly undatedCoursework: number;
   readonly rejected: number;
   readonly transitions: number;
   readonly failure: string | null;
@@ -34,6 +35,7 @@ export interface ClassroomObservationSyncOptions {
   readonly sourceId: string;
   readonly budget: D1StatementBudget;
   readonly now: () => Date;
+  readonly undatedDeadlineExternalIds?: ReadonlySet<string>;
 }
 
 function safeFailure(error: unknown): string {
@@ -67,6 +69,7 @@ export async function runClassroomObservationSync(
   const observedAt = new Date(options.now().getTime());
   let pages = 0;
   let seen = 0;
+  let undatedCoursework = 0;
   let rejected = 0;
   let transitions = 0;
   try {
@@ -89,7 +92,7 @@ export async function runClassroomObservationSync(
         });
         return Object.freeze({
           outcome: "failed" as const,
-          pages, seen, rejected, transitions,
+          pages, seen, undatedCoursework, rejected, transitions,
           failure: "classroom_observation_derivation_checkpoint_stale",
           statementsUsed: options.budget.used,
         });
@@ -107,7 +110,7 @@ export async function runClassroomObservationSync(
         await options.repository.completeDerivation(options.principalId, options.sourceId, observedAt);
         return Object.freeze({
           outcome: "complete" as const,
-          pages, seen, rejected, transitions, failure: null,
+          pages, seen, undatedCoursework, rejected, transitions, failure: null,
           statementsUsed: options.budget.used,
         });
       }
@@ -119,7 +122,7 @@ export async function runClassroomObservationSync(
       );
       return Object.freeze({
         outcome: "partial" as const,
-        pages, seen, rejected, transitions, failure: null,
+        pages, seen, undatedCoursework, rejected, transitions, failure: null,
         statementsUsed: options.budget.used,
       });
     }
@@ -135,7 +138,7 @@ export async function runClassroomObservationSync(
       });
       return Object.freeze({
         outcome: "failed" as const,
-        pages, seen, rejected, transitions,
+        pages, seen, undatedCoursework, rejected, transitions,
         failure: "classroom_observation_empty_course_sweep",
         statementsUsed: options.budget.used,
       });
@@ -154,7 +157,7 @@ export async function runClassroomObservationSync(
       });
       return Object.freeze({
         outcome: "failed" as const,
-        pages, seen, rejected, transitions,
+        pages, seen, undatedCoursework, rejected, transitions,
         failure: "classroom_observation_checkpoint_course_missing",
         statementsUsed: options.budget.used,
       });
@@ -172,7 +175,7 @@ export async function runClassroomObservationSync(
       });
       return Object.freeze({
         outcome: "failed" as const,
-        pages, seen, rejected, transitions,
+        pages, seen, undatedCoursework, rejected, transitions,
         failure: "classroom_observation_checkpoint_stale",
         statementsUsed: options.budget.used,
       });
@@ -196,10 +199,17 @@ export async function runClassroomObservationSync(
       if (course === undefined) throw new Error("classroom_observation_checkpoint_invalid");
       const page = await options.client.listSubmissionPage(course.id, pageToken);
       pages += 1;
+      const items = options.undatedDeadlineExternalIds === undefined
+        ? page.items
+        : page.items.filter((item) => {
+          if (!options.undatedDeadlineExternalIds!.has(item.deadlineExternalId)) return true;
+          undatedCoursework += 1;
+          return false;
+        });
       const report = await options.repository.ingest({
         principalId: options.principalId,
         sourceId: options.sourceId,
-        items: page.items,
+        items,
         sourceRejectedCount: page.rejected,
         now: observedAt,
       });
@@ -250,7 +260,7 @@ export async function runClassroomObservationSync(
         await options.repository.completeDerivation(options.principalId, options.sourceId, observedAt);
         return Object.freeze({
           outcome: "complete" as const,
-          pages, seen, rejected, transitions, failure: null,
+          pages, seen, undatedCoursework, rejected, transitions, failure: null,
           statementsUsed: options.budget.used,
         });
       }
@@ -262,14 +272,14 @@ export async function runClassroomObservationSync(
       );
       return Object.freeze({
         outcome: "partial" as const,
-        pages, seen, rejected, transitions, failure: null,
+        pages, seen, undatedCoursework, rejected, transitions, failure: null,
         statementsUsed: options.budget.used,
       });
     }
 
     return Object.freeze({
       outcome: "partial" as const,
-      pages, seen, rejected, transitions, failure: null,
+      pages, seen, undatedCoursework, rejected, transitions, failure: null,
       statementsUsed: options.budget.used,
     });
   } catch (error) {
@@ -287,7 +297,7 @@ export async function runClassroomObservationSync(
     }
     return Object.freeze({
       outcome: "failed" as const,
-      pages, seen, rejected, transitions, failure,
+      pages, seen, undatedCoursework, rejected, transitions, failure,
       statementsUsed: options.budget.used,
     });
   }

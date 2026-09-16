@@ -121,6 +121,7 @@ interface MissingRow {
   classification: string;
   to_state: string;
   last_seen_at: string;
+  total_count: number;
 }
 
 export interface ObservationIngestionReport {
@@ -744,7 +745,7 @@ export class SchoolObservationRepository {
       ).bind(principalId, sourceId, changedSince).all<GradeRow>(),
       this.database.prepare(
         `SELECT t.transition_id, t.deadline_id, d.course, d.title, d.due_at,
-                t.classification, t.to_state, basis.last_seen_at
+                t.classification, t.to_state, basis.last_seen_at, COUNT(*) OVER () AS total_count
          FROM school_missing_work_transitions AS t
          JOIN deadlines AS d ON d.deadline_id = t.deadline_id
          JOIN deadline_sources AS s ON s.source_id = d.source_id AND s.kind = 'classroom'
@@ -761,6 +762,7 @@ export class SchoolObservationRepository {
            AND sync.last_success_at IS NOT NULL
            AND sync.last_success_started_at IS NOT NULL
            AND basis.last_seen_at >= sync.last_success_started_at
+           AND basis.last_seen_at >= d.due_at
            AND basis.submission_state IN ('new', 'created', 'reclaimed_by_student')
            AND NOT EXISTS (
              SELECT 1 FROM school_missing_work_transitions AS later
@@ -788,7 +790,8 @@ export class SchoolObservationRepository {
         lastSeenAt: instant(row.last_seen_at, "school_grade_row_invalid"),
       });
     });
-    const missingWork = rows(missingResult).map((row): SchoolDerivedMissingWork => {
+    const missingRows = rows(missingResult);
+    const missingWork = missingRows.map((row): SchoolDerivedMissingWork => {
       if (row.classification !== "derived" || row.to_state !== "no_submission_seen") {
         throw new TypeError("school_missing_work_row_invalid");
       }
@@ -803,7 +806,16 @@ export class SchoolObservationRepository {
         lastSeenAt: instant(row.last_seen_at, "school_missing_work_row_invalid"),
       });
     });
-    return Object.freeze({ source, grades: Object.freeze(grades), missingWork: Object.freeze(missingWork) });
+    const totalMissingWork = missingRows[0]?.total_count ?? 0;
+    if (!Number.isSafeInteger(totalMissingWork) || totalMissingWork < missingWork.length) {
+      throw new TypeError("school_missing_work_row_invalid");
+    }
+    return Object.freeze({
+      source,
+      grades: Object.freeze(grades),
+      missingWork: Object.freeze(missingWork),
+      missingWorkOmitted: totalMissingWork - missingWork.length,
+    });
   }
 
   private async requireSync(principalId: string, sourceId: string): Promise<SchoolObservationSyncState> {

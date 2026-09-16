@@ -78,6 +78,7 @@ describe("runClassroomObservationSync", () => {
       outcome: "complete",
       pages: 1,
       seen: 1,
+      undatedCoursework: 0,
       rejected: 0,
       failure: null,
     });
@@ -97,6 +98,56 @@ describe("runClassroomObservationSync", () => {
       derivationStartedAt: null,
       lastSuccessAt: NOW.toISOString(),
       lastSuccessStartedAt: NOW.toISOString(),
+    });
+  });
+
+  it("counts undated coursework submissions separately from rejected submission evidence", async () => {
+    const item = await fixture("undated-separate");
+    const undatedExternalId = `${item.courseId}:work-undated`;
+    const budget = new D1StatementBudget();
+    const result = await runClassroomObservationSync({
+      repository: new SchoolObservationRepository(env.DB, budget),
+      client: {
+        listSubmissionPage: async () => ({
+          items: [{
+            deadlineExternalId: item.deadlineExternalId,
+            externalSubmissionId: `${item.deadlineExternalId}:submission-1`,
+            state: "returned" as const,
+            late: false,
+            assignedGrade: 91,
+            sourceUpdatedAt: NOW.toISOString(),
+          }, {
+            deadlineExternalId: undatedExternalId,
+            externalSubmissionId: `${undatedExternalId}:submission-1`,
+            state: "new" as const,
+            late: null,
+            assignedGrade: null,
+            sourceUpdatedAt: NOW.toISOString(),
+          }, {
+            deadlineExternalId: `${item.courseId}:work-unknown`,
+            externalSubmissionId: `${item.courseId}:work-unknown:submission-1`,
+            state: "new" as const,
+            late: null,
+            assignedGrade: null,
+            sourceUpdatedAt: NOW.toISOString(),
+          }],
+          rejected: 1,
+          nextPageToken: null,
+        }),
+      },
+      courses: [{ id: item.courseId, name: "Calculus" }],
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      budget,
+      now: () => NOW,
+      undatedDeadlineExternalIds: new Set([undatedExternalId]),
+    });
+
+    expect(result).toMatchObject({
+      outcome: "complete",
+      seen: 1,
+      undatedCoursework: 1,
+      rejected: 2,
     });
   });
 
@@ -272,6 +323,7 @@ describe("runClassroomObservationSync", () => {
       now: NOW,
     });
     expect(between.missingWork).toHaveLength(20);
+    expect(between.missingWorkOmitted).toBe(44);
     expect(between.missingWork.every((entry) => entry.lastSeenAt === NOW.toISOString())).toBe(true);
 
     budget = new D1StatementBudget();
@@ -289,6 +341,14 @@ describe("runClassroomObservationSync", () => {
     expect(await env.DB.prepare(`SELECT COUNT(*) AS count FROM school_missing_work_transitions
       WHERE principal_id = ? AND to_state = 'no_submission_seen'`)
       .bind(item.principalId).first("count")).toBe(65);
+    const completed = await new SchoolObservationRepository(env.DB).readDigestSnapshot({
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      changedSince: NOW,
+      now: new Date("2026-09-15T13:00:00.000Z"),
+    });
+    expect(completed.missingWork).toHaveLength(20);
+    expect(completed.missingWorkOmitted).toBe(45);
   });
 
   it("records a reachable failed checkpoint state and restarts safely on the next run", async () => {

@@ -200,6 +200,7 @@ function schoolObservationSection(input: DigestInput, timeZone: string): DigestS
     ...input.missingWork.map((item) =>
       `[derived: ${item.source} showed no submission as of ${localTimestamp(item.lastSeenAt, timeZone)}] ${neutraliseInline(item.course)}: ${neutraliseInline(item.title)} (deadline passed ${localTimestamp(item.dueAt, timeZone)})`,
     ),
+    ...(input.missingWorkOmitted > 0 ? [`+${input.missingWorkOmitted} more`] : []),
   ];
   return lines.length === 0 ? null : { heading: "Grades and submission checks", lines };
 }

@@ -30,7 +30,8 @@ function daily(zone = TORONTO): ComposeOptions {
 
 function empty(): DigestInput {
   return {
-    catchupActions: [], applicationItems: [], deadlines: [], grades: [], missingWork: [], projects: [], decisions: [], gaps: [],
+    catchupActions: [], applicationItems: [], deadlines: [], grades: [], missingWork: [], missingWorkOmitted: 0,
+    projects: [], decisions: [], gaps: [],
   };
 }
 
@@ -329,6 +330,15 @@ describe("verified grades and derived submission checks", () => {
     expect(digest.text).toContain("deadline passed 2026-09-01 23:59 local");
     expect(digest.text).not.toContain("2026-09-02T03:59:59.999Z");
     expect(digest.text).not.toMatch(/you missed|missed assignment|confirmed missing/iu);
+  });
+
+  it("makes the bounded missing-work remainder visible", () => {
+    const digest = compose({
+      ...empty(),
+      missingWorkOmitted: 45,
+    }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
+
+    expect(digest.text).toContain("Grades and submission checks\n+45 more");
   });
 
   it("keeps due work ahead of grade and submission observations", () => {

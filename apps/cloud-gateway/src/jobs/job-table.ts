@@ -84,8 +84,8 @@ export type BrightspaceRefreshResult =
 
 export function classroomObservationDetail(observations: ClassroomObservationSyncResult): string {
   return observations.outcome === "failed"
-    ? `grade/submission sync failed (${observations.failure ?? "school_observation_sync_failed"}); ${observations.rejected} source items rejected`
-    : `grade/submission ${observations.outcome} within its declared D1 statement budget; ${observations.rejected} source items rejected`;
+    ? `grade/submission sync failed (${observations.failure ?? "school_observation_sync_failed"}); ${observations.undatedCoursework} undated coursework submissions skipped; ${observations.rejected} submission observations rejected`
+    : `grade/submission ${observations.outcome} within its declared D1 statement budget; ${observations.undatedCoursework} undated coursework submissions skipped; ${observations.rejected} submission observations rejected`;
 }
 
 function classroomFailure(error: unknown): string {
@@ -145,9 +145,10 @@ async function pollClassroom(context: JobEnvironment): Promise<string> {
       timeZone: context.env.DIGEST_TIMEZONE ?? "America/Toronto",
     });
     const courses = await client.listCourses();
+    const collected = await client.collectDeadlineSweep(courses);
     const report = await ingestion.ingest(source.sourceId, {
       kind: "items",
-      items: await client.collectDeadlines(courses),
+      items: collected.items,
     });
     const seen = report.created.length + report.moved.length + report.unchanged;
     const principalId = context.env.OWNER_PRINCIPAL_ID;
@@ -163,6 +164,7 @@ async function pollClassroom(context: JobEnvironment): Promise<string> {
       sourceId: source.sourceId,
       budget,
       now: () => context.clock.now(),
+      undatedDeadlineExternalIds: new Set(collected.undatedExternalIds),
     });
     const observationDetail = classroomObservationDetail(observations);
     return `Classroom ${seen} seen, ${report.rejected.length} rejected, ${report.disappeared.length} absent; ${observationDetail}`;
