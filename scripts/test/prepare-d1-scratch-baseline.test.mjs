@@ -1,15 +1,62 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import {
   applyBaseline,
+  buildWranglerExecuteInvocation,
   discoverCandidateNames,
   loadMigrations,
 } from '../prepare-d1-scratch-baseline.mjs';
 import { splitMigration } from '../split-migration.mjs';
+
+test('the runbook database id pattern accepts Wrangler JSON output and TOML', () => {
+  const runbook = readFileSync(
+    new URL('../../docs/runbooks/migration-scratch-proof.md', import.meta.url),
+    'utf8',
+  );
+  const patternSource = runbook.match(
+    /\$IdMatch = \[regex\]::Match\(\$CreateText, '([^']+)'\)/u,
+  )?.[1];
+  assert.ok(patternSource, 'expected the step 2 database id pattern in the runbook');
+
+  const databaseId = '00000000-0000-4000-8000-000000000000';
+  const createOutput = readFileSync(
+    new URL('./fixtures/wrangler-4.127-create-output.txt', import.meta.url),
+    'utf8',
+  );
+  const pattern = new RegExp(patternSource, 'u');
+
+  assert.equal(createOutput.match(pattern)?.[1], databaseId);
+  assert.equal(`database_id = "${databaseId}"`.match(pattern)?.[1], databaseId);
+});
+
+test('the scratch baseline invokes Wrangler through Node and keeps each SQL statement in one command argument', () => {
+  const statements = [
+    '-- Production was migrated before this replay.\nCREATE TABLE sample (id TEXT);',
+    `INSERT INTO sample (id) VALUES ('{"source":"scratch"}');`,
+  ];
+
+  for (const sql of statements) {
+    const invocation = buildWranglerExecuteInvocation({
+      database: 'jarvis-scratch-test',
+      config: 'C:\\outside repo\\scratch.toml',
+      sql,
+    });
+
+    assert.equal(invocation.executable, process.execPath);
+    assert.equal(
+      invocation.args[0].replaceAll('\\', '/').endsWith('node_modules/wrangler/bin/wrangler.js'),
+      true,
+    );
+    assert.deepEqual(invocation.args.filter((argument) => argument.startsWith('--command=')), [
+      `--command=${sql}`,
+    ]);
+    assert.equal(invocation.args.includes(sql), false);
+  }
+});
 
 test('the scratch baseline loader uses the shared splitter for a trigger-bearing migration', () => {
   const root = mkdtempSync(join(tmpdir(), 'jarvis scratch baseline '));
