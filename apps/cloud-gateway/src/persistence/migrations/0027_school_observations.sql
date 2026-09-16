@@ -394,6 +394,12 @@ WHEN EXISTS (
             WHERE sync.principal_id = NEW.principal_id AND covered.deadline_id = NEW.deadline_id
           )
           AND submission_state IN ('new', 'created', 'reclaimed_by_student')
+          AND (
+            NEW.to_state = 'not_due'
+            OR last_seen_at >= (
+              SELECT due_at FROM deadlines WHERE deadline_id = NEW.deadline_id
+            )
+          )
       )
     )
   )

@@ -93,8 +93,10 @@ interface DerivationRow {
   deadline_id: string;
   due_at: string;
   status: string;
-  observation_id: string | null;
-  submission_state: string | null;
+  observation_id: string;
+  submission_state: string;
+  last_seen_at: string;
+  already_derived: number;
   last_state: string | null;
   last_basis_due_at: string | null;
   last_basis_observation_id: string | null;
@@ -118,7 +120,7 @@ interface MissingRow {
   due_at: string;
   classification: string;
   to_state: string;
-  derived_at: string;
+  last_seen_at: string;
 }
 
 export interface ObservationIngestionReport {
@@ -426,6 +428,7 @@ export class SchoolObservationRepository {
     readonly failure: string;
     readonly now: Date;
     readonly resetScan?: boolean;
+    readonly resetDerivation?: boolean;
   }): Promise<void> {
     const principalId = principal(input.principalId);
     const sourceId = identifier(input.sourceId, "school_observation_source_invalid");
@@ -437,13 +440,19 @@ export class SchoolObservationRepository {
        SET last_failure = ?, last_failure_at = ?, updated_at = ?,
            checkpoint_course_id = CASE WHEN ? = 1 THEN NULL ELSE checkpoint_course_id END,
            checkpoint_page_token = CASE WHEN ? = 1 THEN NULL ELSE checkpoint_page_token END,
-           scan_started_at = CASE WHEN ? = 1 THEN NULL ELSE scan_started_at END
+           scan_started_at = CASE WHEN ? = 1 THEN NULL ELSE scan_started_at END,
+           derivation_scan_at = CASE WHEN ? = 1 THEN NULL ELSE derivation_scan_at END,
+           derivation_started_at = CASE WHEN ? = 1 THEN NULL ELSE derivation_started_at END,
+           derivation_after_deadline_id = CASE WHEN ? = 1 THEN NULL ELSE derivation_after_deadline_id END
        WHERE principal_id = ? AND source_id = ?`,
     ).bind(
       failure, observedAt, observedAt,
       input.resetScan === true ? 1 : 0,
       input.resetScan === true ? 1 : 0,
       input.resetScan === true ? 1 : 0,
+      input.resetDerivation === true ? 1 : 0,
+      input.resetDerivation === true ? 1 : 0,
+      input.resetDerivation === true ? 1 : 0,
       principalId, sourceId,
     ).run();
     if (result.meta.changes !== 1) throw new Error("school_observation_failure_write_failed");
@@ -618,7 +627,7 @@ export class SchoolObservationRepository {
     this.#claim();
     const result = await this.database.prepare(
       `SELECT d.deadline_id, d.due_at, d.status,
-              o.observation_id, o.submission_state,
+              o.observation_id, o.submission_state, o.last_seen_at,
               (
                 SELECT t.to_state FROM school_missing_work_transitions AS t
                 WHERE t.principal_id = ? AND t.deadline_id = d.deadline_id
@@ -633,16 +642,22 @@ export class SchoolObservationRepository {
                 SELECT t.basis_observation_id FROM school_missing_work_transitions AS t
                 WHERE t.principal_id = ? AND t.deadline_id = d.deadline_id
                 ORDER BY t.derived_at DESC, t.transition_id DESC LIMIT 1
-              ) AS last_basis_observation_id
+              ) AS last_basis_observation_id,
+              EXISTS (
+                SELECT 1 FROM school_missing_work_transitions AS t
+                WHERE t.principal_id = ? AND t.deadline_id = d.deadline_id
+                  AND t.derived_at = ?
+              ) AS already_derived
        FROM deadlines AS d
        JOIN deadline_sources AS s ON s.source_id = d.source_id AND s.kind = 'classroom'
-       LEFT JOIN school_assignment_observations AS o
+       JOIN school_assignment_observations AS o
          ON o.principal_id = ? AND o.deadline_id = d.deadline_id AND o.last_seen_at >= ?
        WHERE d.source_id = ? AND d.deadline_id > ?
        ORDER BY d.deadline_id
        LIMIT ?`,
     ).bind(
-      principalId, principalId, principalId, principalId, observationsSeenSince,
+      principalId, principalId, principalId, principalId, derivedAt,
+      principalId, observationsSeenSince,
       sourceId, after, limit + 1,
     ).all<DerivationRow>();
     const found = rows(result);
@@ -651,26 +666,30 @@ export class SchoolObservationRepository {
     for (const row of page) {
       const deadlineId = identifier(row.deadline_id, "school_observation_derivation_row_invalid");
       const dueAt = instant(row.due_at, "school_observation_derivation_row_invalid");
-      const observationId = row.observation_id === null
-        ? null
-        : ulid(row.observation_id, "school_observation_derivation_row_invalid");
-      const submissionState = row.submission_state === null ? null : state(row.submission_state);
-      // Classroom creates a StudentSubmission even for untouched work and
-      // reports it as NEW. A deadline with no observation row can instead be
-      // an archived course or a rejected payload, so absence alone stays
-      // silent rather than becoming a claim about the student's work.
-      if (observationId === null || submissionState === null) continue;
+      const observationId = ulid(row.observation_id, "school_observation_derivation_row_invalid");
+      const submissionState = state(row.submission_state);
+      const lastSeenAt = instant(row.last_seen_at, "school_observation_derivation_row_invalid");
+      // The inner join deliberately excludes deadlines without a fresh
+      // observation. Absence can mean an archived course or rejected payload,
+      // so it must not become a claim about the student's work.
+      if (row.already_derived === 1) continue;
+      if (row.already_derived !== 0) throw new TypeError("school_observation_derivation_row_invalid");
       const lastState = row.last_state === null ? null : row.last_state as DerivedMissingWorkState;
       if (lastState !== null && !DERIVED_STATES.includes(lastState)) {
         throw new TypeError("school_observation_derivation_row_invalid");
       }
-      const desired: DerivedMissingWorkState = row.status !== "open"
+      const desired: DerivedMissingWorkState | null = row.status !== "open"
         ? "closed"
         : SUBMITTED_STATES.has(submissionState)
           ? "submission_seen"
           : dueAt > derivedAt
             ? "not_due"
-            : "no_submission_seen";
+            : lastSeenAt >= dueAt
+              ? "no_submission_seen"
+              : null;
+      // A pre-deadline read cannot establish what Classroom showed when the
+      // deadline passed. Silence preserves that distinction until a later read.
+      if (desired === null) continue;
       const basisObservationId = desired === "closed" ? null : observationId;
       if (
         lastState === desired
@@ -725,20 +744,24 @@ export class SchoolObservationRepository {
       ).bind(principalId, sourceId, changedSince).all<GradeRow>(),
       this.database.prepare(
         `SELECT t.transition_id, t.deadline_id, d.course, d.title, d.due_at,
-                t.classification, t.to_state, sync.last_success_at AS derived_at
+                t.classification, t.to_state, basis.last_seen_at
          FROM school_missing_work_transitions AS t
          JOIN deadlines AS d ON d.deadline_id = t.deadline_id
          JOIN deadline_sources AS s ON s.source_id = d.source_id AND s.kind = 'classroom'
          JOIN school_observation_sync AS sync
            ON sync.principal_id = t.principal_id AND sync.source_id = d.source_id
          JOIN school_assignment_observations AS basis
-           ON basis.principal_id = t.principal_id AND basis.observation_id = t.basis_observation_id
+           ON basis.principal_id = t.principal_id
+          AND basis.observation_id = t.basis_observation_id
+          AND basis.deadline_id = t.deadline_id
+          AND basis.source_id = d.source_id
          WHERE t.principal_id = ? AND d.source_id = ?
            AND t.to_state = 'no_submission_seen'
            AND d.status = 'open' AND d.due_at <= ?
            AND sync.last_success_at IS NOT NULL
            AND sync.last_success_started_at IS NOT NULL
            AND basis.last_seen_at >= sync.last_success_started_at
+           AND basis.submission_state IN ('new', 'created', 'reclaimed_by_student')
            AND NOT EXISTS (
              SELECT 1 FROM school_missing_work_transitions AS later
              WHERE later.principal_id = t.principal_id AND later.deadline_id = t.deadline_id
@@ -747,7 +770,7 @@ export class SchoolObservationRepository {
                  OR (later.derived_at = t.derived_at AND later.transition_id > t.transition_id)
                )
            )
-         ORDER BY d.due_at, d.deadline_id
+         ORDER BY d.due_at DESC, d.deadline_id
          LIMIT 20`,
       ).bind(principalId, sourceId, now).all<MissingRow>(),
       this.readSync(principalId, sourceId),
@@ -777,7 +800,7 @@ export class SchoolObservationRepository {
         dueAt: instant(row.due_at, "school_missing_work_row_invalid"),
         classification: "derived" as const,
         state: "no_submission_seen" as const,
-        derivedAt: instant(row.derived_at, "school_missing_work_row_invalid"),
+        lastSeenAt: instant(row.last_seen_at, "school_missing_work_row_invalid"),
       });
     });
     return Object.freeze({ source, grades: Object.freeze(grades), missingWork: Object.freeze(missingWork) });

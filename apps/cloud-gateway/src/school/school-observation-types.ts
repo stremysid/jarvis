@@ -66,7 +66,8 @@ export interface SchoolDerivedMissingWork {
   readonly dueAt: string;
   readonly classification: "derived";
   readonly state: "no_submission_seen";
-  readonly derivedAt: string;
+  /** When Classroom was actually read as showing no submitted work. */
+  readonly lastSeenAt: string;
 }
 
 export interface SchoolObservationDigestSnapshot {

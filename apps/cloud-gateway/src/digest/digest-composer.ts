@@ -113,6 +113,23 @@ export function localDate(instant: Date, timeZone: string): string {
   return `${find("year")}-${find("month")}-${find("day")}`;
 }
 
+function localTimestamp(value: string, timeZone: string): string {
+  const instant = new Date(value);
+  if (!Number.isFinite(instant.getTime())) return neutraliseInline(value);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(instant);
+  const find = (type: string): string =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  return `${find("year")}-${find("month")}-${find("day")} ${find("hour")}:${find("minute")} local`;
+}
+
 /** Local weekday index, 0 = Sunday, or -1 when it could not be determined. */
 export function localWeekday(instant: Date, timeZone: string): number {
   const name = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" })
@@ -175,13 +192,13 @@ function catchupSection(actions: readonly DigestCatchupAction[]): DigestSection 
   };
 }
 
-function schoolObservationSection(input: DigestInput): DigestSection | null {
+function schoolObservationSection(input: DigestInput, timeZone: string): DigestSection | null {
   const lines = [
     ...input.grades.map((grade) =>
-      `[verified: ${grade.source}; checked ${neutraliseInline(grade.lastSeenAt)}] ${neutraliseInline(grade.course)}: ${neutraliseInline(grade.title)} — assigned grade ${String(grade.assignedGrade)} (scale and weight not supplied)`,
+      `[verified: ${grade.source}; checked ${localTimestamp(grade.lastSeenAt, timeZone)}] ${neutraliseInline(grade.course)}: ${neutraliseInline(grade.title)} — assigned grade ${String(grade.assignedGrade)} (scale and weight not supplied)`,
     ),
     ...input.missingWork.map((item) =>
-      `[derived: no submission seen; ${item.source} scan ${neutraliseInline(item.derivedAt)}] ${neutraliseInline(item.course)}: ${neutraliseInline(item.title)} (deadline passed ${neutraliseInline(item.dueAt)})`,
+      `[derived: ${item.source} showed no submission as of ${localTimestamp(item.lastSeenAt, timeZone)}] ${neutraliseInline(item.course)}: ${neutraliseInline(item.title)} (deadline passed ${localTimestamp(item.dueAt, timeZone)})`,
     ),
   ];
   return lines.length === 0 ? null : { heading: "Grades and submission checks", lines };
@@ -334,7 +351,7 @@ export function compose(
   const gaps = gapSection(input.gaps);
   const candidates = [
     deadlineSection(input, now, horizon),
-    schoolObservationSection(input),
+    schoolObservationSection(input, options.timeZone),
     catchupSection(input.catchupActions),
     applicationSection(input.applicationItems),
     studyCheckInSection(input),

@@ -187,7 +187,7 @@ describe("SchoolObservationRepository", () => {
       deadlineId: item.deadlineId,
       classification: "derived",
       state: "no_submission_seen",
-      derivedAt: NOW.toISOString(),
+      lastSeenAt: NOW.toISOString(),
     })]);
 
     const submittedAt = new Date("2026-09-15T13:00:00.000Z");
@@ -222,6 +222,135 @@ describe("SchoolObservationRepository", () => {
       { classification: "derived", from_state: "untracked", to_state: "no_submission_seen" },
       { classification: "derived", from_state: "no_submission_seen", to_state: "submission_seen" },
     ]);
+  });
+
+  it("stops reporting missing work as soon as the current observation says it was turned in", async () => {
+    const item = await fixture("current-submission-state");
+    const repository = new SchoolObservationRepository(env.DB);
+    await repository.ensureSync(item.principalId, item.sourceId, NOW);
+    await repository.ingest({
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      items: [observation(item, { state: "new", assignedGrade: null, sourceUpdatedAt: null })],
+      now: NOW,
+    });
+    await completeScan(repository, item, NOW);
+    await repository.deriveMissingWorkPage({
+      principalId: item.principalId, sourceId: item.sourceId,
+      derivedAt: NOW.toISOString(), observationsSeenSince: NOW.toISOString(), afterDeadlineId: null,
+    });
+    await repository.completeDerivation(item.principalId, item.sourceId, NOW);
+
+    const submittedAt = new Date("2026-09-15T13:00:00.000Z");
+    await repository.ingest({
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      items: [observation(item, { state: "turned_in", assignedGrade: null, sourceUpdatedAt: submittedAt.toISOString() })],
+      now: submittedAt,
+    });
+
+    const snapshot = await repository.readDigestSnapshot({
+      principalId: item.principalId, sourceId: item.sourceId,
+      changedSince: NOW, now: submittedAt,
+    });
+    expect(snapshot.missingWork).toEqual([]);
+  });
+
+  it("does not derive no submission seen from an observation read before the deadline", async () => {
+    const item = await fixture("pre-deadline-evidence", "2026-09-15T12:30:00.000Z");
+    const repository = new SchoolObservationRepository(env.DB);
+    await repository.ensureSync(item.principalId, item.sourceId, NOW);
+    await repository.ingest({
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      items: [observation(item, { state: "new", assignedGrade: null, sourceUpdatedAt: null })],
+      now: NOW,
+    });
+    const completedAt = new Date("2026-09-15T13:00:00.000Z");
+    await repository.saveCheckpoint({
+      principalId: item.principalId, sourceId: item.sourceId,
+      courseId: `course-${item.sourceId}`, pageToken: null,
+      scanStartedAt: NOW.toISOString(), now: NOW,
+    });
+    await repository.completeSubmissionScan(item.principalId, item.sourceId, completedAt);
+    const report = await repository.deriveMissingWorkPage({
+      principalId: item.principalId, sourceId: item.sourceId,
+      derivedAt: completedAt.toISOString(), observationsSeenSince: NOW.toISOString(), afterDeadlineId: null,
+    });
+    expect(report.transitions).toBe(0);
+    await repository.completeDerivation(item.principalId, item.sourceId, completedAt);
+    expect((await repository.readDigestSnapshot({
+      principalId: item.principalId, sourceId: item.sourceId,
+      changedSince: NOW, now: completedAt,
+    })).missingWork).toEqual([]);
+  });
+
+  it("replays a committed derivation page idempotently after the deadline changes", async () => {
+    const item = await fixture("derivation-replay");
+    const repository = new SchoolObservationRepository(env.DB);
+    await repository.ensureSync(item.principalId, item.sourceId, NOW);
+    await repository.ingest({
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      items: [observation(item, { state: "new", assignedGrade: null, sourceUpdatedAt: null })],
+      now: NOW,
+    });
+    await completeScan(repository, item, NOW);
+    expect((await repository.deriveMissingWorkPage({
+      principalId: item.principalId, sourceId: item.sourceId,
+      derivedAt: NOW.toISOString(), observationsSeenSince: NOW.toISOString(), afterDeadlineId: null,
+    })).transitions).toBe(1);
+
+    const changedAt = new Date("2026-09-15T13:00:00.000Z");
+    await new DeadlineRepository(env.DB).upsert({
+      sourceId: item.sourceId,
+      externalId: item.deadlineExternalId,
+      course: "Calculus",
+      title: "Limits quiz",
+      dueAt: "2026-09-20T11:00:00.000Z",
+      effort: "quiz",
+      leadMinutes: 60,
+      now: changedAt,
+    });
+    await expect(repository.deriveMissingWorkPage({
+      principalId: item.principalId, sourceId: item.sourceId,
+      derivedAt: NOW.toISOString(), observationsSeenSince: NOW.toISOString(), afterDeadlineId: null,
+    })).resolves.toMatchObject({ transitions: 0, nextAfterDeadlineId: null });
+    await repository.completeDerivation(item.principalId, item.sourceId, changedAt);
+  });
+
+  it("stops showing a derived item immediately when its deadline is extended", async () => {
+    const item = await fixture("deadline-extension");
+    const repository = new SchoolObservationRepository(env.DB);
+    await repository.ensureSync(item.principalId, item.sourceId, NOW);
+    await repository.ingest({
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      items: [observation(item, { state: "new", assignedGrade: null, sourceUpdatedAt: null })],
+      now: NOW,
+    });
+    await completeScan(repository, item, NOW);
+    await repository.deriveMissingWorkPage({
+      principalId: item.principalId, sourceId: item.sourceId,
+      derivedAt: NOW.toISOString(), observationsSeenSince: NOW.toISOString(), afterDeadlineId: null,
+    });
+    await repository.completeDerivation(item.principalId, item.sourceId, NOW);
+
+    const changedAt = new Date("2026-09-15T13:00:00.000Z");
+    await new DeadlineRepository(env.DB).upsert({
+      sourceId: item.sourceId,
+      externalId: item.deadlineExternalId,
+      course: "Calculus",
+      title: "Limits quiz",
+      dueAt: "2026-09-20T11:00:00.000Z",
+      effort: "quiz",
+      leadMinutes: 60,
+      now: changedAt,
+    });
+    expect((await repository.readDigestSnapshot({
+      principalId: item.principalId, sourceId: item.sourceId,
+      changedSince: NOW, now: changedAt,
+    })).missingWork).toEqual([]);
   });
 
   it("stays silent when an overdue deadline has no submission observation row at all", async () => {
@@ -328,7 +457,7 @@ describe("SchoolObservationRepository", () => {
     expect(snapshot.missingWork[0]).toMatchObject({
       classification: "derived",
       state: "no_submission_seen",
-      derivedAt: reclaimedAt.toISOString(),
+      lastSeenAt: reclaimedAt.toISOString(),
     });
   });
 

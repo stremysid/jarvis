@@ -29,7 +29,10 @@ import { ScheduledRunRepository } from "../scheduler/scheduled-run-repository.js
 import { SchoolCatchupRepository } from "../school/school-catchup-repository.js";
 import { UniversityTrackerRepository } from "../university/university-tracker-repository.js";
 import { StudyCoachRepository } from "../school/study-coach-repository.js";
-import { runClassroomObservationSync } from "../school/classroom-observation-sync.js";
+import {
+  runClassroomObservationSync,
+  type ClassroomObservationSyncResult,
+} from "../school/classroom-observation-sync.js";
 import {
   D1StatementBudget,
   SchoolObservationRepository,
@@ -77,6 +80,12 @@ export type BrightspaceRefreshResult =
     readonly detail: string;
     readonly lastSuccessAt: string | null;
   };
+
+export function classroomObservationDetail(observations: ClassroomObservationSyncResult): string {
+  return observations.outcome === "failed"
+    ? `grade/submission sync failed (${observations.failure ?? "school_observation_sync_failed"}); ${observations.rejected} source items rejected`
+    : `grade/submission ${observations.outcome} within its declared D1 statement budget; ${observations.rejected} source items rejected`;
+}
 
 function classroomFailure(error: unknown): string {
   if (error instanceof ClassroomRequestError || error instanceof GoogleOAuthRequestError) return error.message;
@@ -154,9 +163,7 @@ async function pollClassroom(context: JobEnvironment): Promise<string> {
       budget,
       now: () => context.clock.now(),
     });
-    const observationDetail = observations.outcome === "failed"
-      ? `grade/submission sync failed (${observations.failure ?? "school_observation_sync_failed"})`
-      : `grade/submission ${observations.outcome} within its declared D1 statement budget`;
+    const observationDetail = classroomObservationDetail(observations);
     return `Classroom ${seen} seen, ${report.rejected.length} rejected, ${report.disappeared.length} absent; ${observationDetail}`;
   } catch (error) {
     const failure = classroomFailure(error);

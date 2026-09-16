@@ -377,7 +377,7 @@ export async function assembleDigest(
       classification: "derived" as const,
       state: "no_submission_seen" as const,
       source: "Google Classroom" as const,
-      derivedAt: item.derivedAt,
+      lastSeenAt: item.lastSeenAt,
     })),
     projects: projects.map((status) => toDigestProject(status, reports.get(status.project.projectId))),
     decisions: decisions.map((item) => ({

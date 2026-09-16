@@ -236,7 +236,7 @@ describe("assembling from every source", () => {
             dueAt: "2026-09-01T18:00:00.000Z",
             classification: "derived",
             state: "no_submission_seen",
-            derivedAt: NOW,
+            lastSeenAt: NOW,
           }],
         }),
       },
@@ -244,7 +244,7 @@ describe("assembling from every source", () => {
 
     expect(digest.text).toContain("verified: Google Classroom");
     expect(digest.text).toContain("assigned grade 84");
-    expect(digest.text).toContain("derived: no submission seen");
+    expect(digest.text).toContain("derived: Google Classroom showed no submission as of");
     expect(digest.text).not.toContain("you missed");
   });
 
@@ -463,6 +463,43 @@ describe("a source that will not answer", () => {
     }));
     expect(digest.text).toContain("assigned grade 84");
     expect(digest.text).toContain("Google Classroom grades/submissions: classroom_rejected");
+  });
+
+  it("names an active Classroom observation source that has never completed a scan", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readDeadlineSources: async () => [deadlineSource()],
+        readSchoolObservations: async () => ({ source: null, grades: [], missingWork: [] }),
+      },
+    }));
+
+    expect(digest.text).toContain(
+      "Google Classroom grades/submissions: has never completed a submission scan",
+    );
+  });
+
+  it("names a completed Classroom observation scan once its evidence is stale", async () => {
+    const staleAt = "2026-09-01T23:29:59.999Z";
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readDeadlineSources: async () => [deadlineSource()],
+        readSchoolObservations: async () => ({
+          source: {
+            principalId: "principal-a", sourceId: "source-a",
+            checkpointCourseId: null, checkpointPageToken: null, scanStartedAt: null,
+            derivationScanAt: null, derivationStartedAt: null, derivationAfterDeadlineId: null,
+            lastBatchAt: staleAt, lastSuccessAt: staleAt,
+            lastSuccessStartedAt: staleAt, lastFailure: null, lastFailureAt: null,
+          },
+          grades: [],
+          missingWork: [],
+        }),
+      },
+    }));
+
+    expect(digest.text).toContain(
+      "Google Classroom grades/submissions: last completed scan is stale",
+    );
   });
 
   it("treats unapplied school-observation tables as the older digest rather than a false outage", async () => {

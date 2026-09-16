@@ -22,7 +22,7 @@ interface Graph {
   readonly secondDeadlineId: string;
 }
 
-async function graph(suffix: string): Promise<Graph> {
+async function graph(suffix: string, scanStartedAt = NOW.toISOString()): Promise<Graph> {
   const principalId = `principal:school-observation-${suffix}`;
   const sourceId = `classroom-${suffix}`;
   await addPrincipal(principalId);
@@ -56,8 +56,8 @@ async function graph(suffix: string): Promise<Graph> {
   ) VALUES (?, ?, 'google_classroom_api', NULL, NULL, NULL, ?, ?, NULL, ?, ?, ?, NULL, NULL, ?, ?)`)
     .bind(
       principalId, sourceId,
-      NOW.toISOString(), NOW.toISOString(),
-      NOW.toISOString(), NOW.toISOString(), NOW.toISOString(), NOW.toISOString(), NOW.toISOString(),
+      NOW.toISOString(), scanStartedAt,
+      NOW.toISOString(), NOW.toISOString(), scanStartedAt, NOW.toISOString(), NOW.toISOString(),
     )
     .run();
   return {
@@ -72,6 +72,7 @@ async function addObservation(
   item: Graph,
   deadlineId = item.deadlineId,
   externalId = `submission-${item.sourceId}`,
+  lastSeenAt = NOW.toISOString(),
 ): Promise<string> {
   const observationId = newUlid();
   await env.DB.prepare(`INSERT INTO school_assignment_observations (
@@ -81,7 +82,7 @@ async function addObservation(
   ) VALUES (?, ?, ?, ?, ?, 'new', NULL, NULL, NULL, ?, ?, ?, ?)`)
     .bind(
       item.principalId, observationId, item.sourceId, deadlineId, externalId,
-      "a".repeat(64), NOW.toISOString(), NOW.toISOString(), NOW.toISOString(),
+      "a".repeat(64), lastSeenAt, lastSeenAt, lastSeenAt,
     ).run();
   return observationId;
 }
@@ -254,6 +255,18 @@ describe("school observations migration 0027", () => {
       basis_due_at, basis_observation_id, derived_at
     ) VALUES (?, ?, ?, 'derived', 'untracked', 'submission_seen', ?, NULL, ?)`)
       .bind(item.principalId, newUlid(), item.secondDeadlineId, PAST, NOW.toISOString()).run())
+      .rejects.toThrow(/school_missing_work_transition_insert_invalid/u);
+  });
+
+  it("school_missing_work_transitions_insert_guard rejects no-submission evidence read before the deadline", async () => {
+    const readAt = "2026-09-15T10:00:00.000Z";
+    const item = await graph("transition-before-due", readAt);
+    const observationId = await addObservation(item, item.deadlineId, `submission-${item.sourceId}`, readAt);
+    await expect(env.DB.prepare(`INSERT INTO school_missing_work_transitions (
+      principal_id, transition_id, deadline_id, classification, from_state, to_state,
+      basis_due_at, basis_observation_id, derived_at
+    ) VALUES (?, ?, ?, 'derived', 'untracked', 'no_submission_seen', ?, ?, ?)`)
+      .bind(item.principalId, newUlid(), item.deadlineId, PAST, observationId, NOW.toISOString()).run())
       .rejects.toThrow(/school_missing_work_transition_insert_invalid/u);
   });
 

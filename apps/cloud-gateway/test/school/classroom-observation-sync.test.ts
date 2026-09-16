@@ -164,6 +164,133 @@ describe("runClassroomObservationSync", () => {
     });
   });
 
+  it("advances from a completed course to the next course before completing the scan", async () => {
+    const item = await fixture("two-courses");
+    const secondCourseId = `${item.courseId}-second`;
+    const secondExternalId = `${secondCourseId}:work-2`;
+    await new DeadlineRepository(env.DB).upsert({
+      sourceId: item.sourceId,
+      externalId: secondExternalId,
+      course: "Physics",
+      title: "Motion quiz",
+      dueAt: "2026-09-15T11:00:00.000Z",
+      effort: "quiz",
+      leadMinutes: 60,
+      now: NOW,
+    });
+    const calls: string[] = [];
+    const budget = new D1StatementBudget();
+    const result = await runClassroomObservationSync({
+      repository: new SchoolObservationRepository(env.DB, budget),
+      client: {
+        listSubmissionPage: async (courseId) => {
+          calls.push(courseId);
+          const deadlineExternalId = courseId === item.courseId
+            ? item.deadlineExternalId
+            : secondExternalId;
+          return {
+            items: [{
+              deadlineExternalId,
+              externalSubmissionId: `${deadlineExternalId}:submission-1`,
+              state: "new" as const,
+              late: null,
+              assignedGrade: null,
+              sourceUpdatedAt: null,
+            }],
+            rejected: 0,
+            nextPageToken: null,
+          };
+        },
+      },
+      courses: [
+        { id: secondCourseId, name: "Physics" },
+        { id: item.courseId, name: "Calculus" },
+      ],
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      budget,
+      now: () => NOW,
+    });
+
+    expect(result).toMatchObject({ outcome: "complete", pages: 2, seen: 2, transitions: 2 });
+    expect(calls).toEqual([item.courseId, secondCourseId]);
+  });
+
+  it("resumes derivation after 64 deadlines and keeps the partial digest evidence-bounded", async () => {
+    const item = await fixture("derivation-pages");
+    const deadlines = new DeadlineRepository(env.DB);
+    const courseIds = [item.courseId, `${item.courseId}-b`, `${item.courseId}-c`];
+    const externalIdsByCourse = new Map<string, string[]>([[item.courseId, [item.deadlineExternalId]]]);
+    for (let courseIndex = 0; courseIndex < courseIds.length; courseIndex += 1) {
+      const courseId = courseIds[courseIndex]!;
+      const target = courseIndex < 2 ? 25 : 15;
+      const externalIds = externalIdsByCourse.get(courseId) ?? [];
+      for (let index = externalIds.length + 1; index <= target; index += 1) {
+        const externalId = `${courseId}:work-${index}`;
+        externalIds.push(externalId);
+        await deadlines.upsert({
+          sourceId: item.sourceId,
+          externalId,
+          course: `Course ${courseIndex + 1}`,
+          title: `Practice ${index}`,
+          dueAt: "2026-09-15T11:00:00.000Z",
+          effort: "quiz",
+          leadMinutes: 60,
+          now: NOW,
+        });
+      }
+      externalIdsByCourse.set(courseId, externalIds);
+    }
+    const listSubmissionPage = vi.fn(async (courseId: string) => ({
+      items: (externalIdsByCourse.get(courseId) ?? []).map((deadlineExternalId) => ({
+        deadlineExternalId,
+        externalSubmissionId: `${deadlineExternalId}:submission-1`,
+        state: "new" as const,
+        late: null,
+        assignedGrade: null,
+        sourceUpdatedAt: null,
+      })),
+      rejected: 0,
+      nextPageToken: null,
+    }));
+
+    let budget = new D1StatementBudget();
+    const first = await runClassroomObservationSync({
+      repository: new SchoolObservationRepository(env.DB, budget),
+      client: { listSubmissionPage },
+      courses: courseIds.map((id, index) => ({ id, name: `Course ${index + 1}` })),
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      budget,
+      now: () => NOW,
+    });
+    expect(first).toMatchObject({ outcome: "partial", pages: 3, seen: 65, transitions: 64 });
+    const between = await new SchoolObservationRepository(env.DB).readDigestSnapshot({
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      changedSince: NOW,
+      now: NOW,
+    });
+    expect(between.missingWork).toHaveLength(20);
+    expect(between.missingWork.every((entry) => entry.lastSeenAt === NOW.toISOString())).toBe(true);
+
+    budget = new D1StatementBudget();
+    const second = await runClassroomObservationSync({
+      repository: new SchoolObservationRepository(env.DB, budget),
+      client: { listSubmissionPage },
+      courses: courseIds.map((id, index) => ({ id, name: `Course ${index + 1}` })),
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      budget,
+      now: () => new Date("2026-09-15T13:00:00.000Z"),
+    });
+    expect(second).toMatchObject({ outcome: "complete", pages: 0, transitions: 1 });
+    expect(listSubmissionPage).toHaveBeenCalledTimes(3);
+    expect(await env.DB.prepare(`SELECT COUNT(*) AS count FROM school_missing_work_transitions
+      WHERE principal_id = ? AND to_state = 'no_submission_seen'`)
+      .bind(item.principalId).first("count")).toBe(65);
+  });
+
   it("records a reachable failed checkpoint state and restarts safely on the next run", async () => {
     const item = await fixture("missing-course");
     const setup = new SchoolObservationRepository(env.DB);
@@ -246,6 +373,46 @@ describe("runClassroomObservationSync", () => {
     expect(listSubmissionPage).not.toHaveBeenCalled();
     expect(await new SchoolObservationRepository(env.DB).readSync(item.principalId, item.sourceId))
       .toMatchObject({ checkpointCourseId: null, checkpointPageToken: null, scanStartedAt: null });
+  });
+
+  it("records and resets a derivation checkpoint that exceeds the declared age bound", async () => {
+    const item = await fixture("stale-derivation");
+    const setup = new SchoolObservationRepository(env.DB);
+    await setup.ensureSync(item.principalId, item.sourceId, NOW);
+    await setup.saveCheckpoint({
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      courseId: item.courseId,
+      pageToken: null,
+      scanStartedAt: NOW.toISOString(),
+      now: NOW,
+    });
+    await setup.completeSubmissionScan(item.principalId, item.sourceId, NOW);
+    const listSubmissionPage = vi.fn();
+    const budget = new D1StatementBudget();
+    const failed = await runClassroomObservationSync({
+      repository: new SchoolObservationRepository(env.DB, budget),
+      client: { listSubmissionPage },
+      courses: [{ id: item.courseId, name: "Calculus" }],
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      budget,
+      now: () => new Date("2026-09-16T12:00:00.001Z"),
+    });
+
+    expect(failed).toMatchObject({
+      outcome: "failed",
+      pages: 0,
+      failure: "classroom_observation_derivation_checkpoint_stale",
+    });
+    expect(listSubmissionPage).not.toHaveBeenCalled();
+    expect(await new SchoolObservationRepository(env.DB).readSync(item.principalId, item.sourceId))
+      .toMatchObject({
+        derivationScanAt: null,
+        derivationStartedAt: null,
+        derivationAfterDeadlineId: null,
+        lastFailure: "classroom_observation_derivation_checkpoint_stale",
+      });
   });
 
   it("records a provider page-token cycle instead of walking it indefinitely", async () => {

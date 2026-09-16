@@ -78,6 +78,22 @@ export async function runClassroomObservationSync(
 
     if (sync.derivationScanAt !== null) {
       if (sync.derivationStartedAt === null) throw new Error("school_observation_checkpoint_invalid");
+      const derivationAge = observedAt.getTime() - Date.parse(sync.derivationScanAt);
+      if (!Number.isFinite(derivationAge) || derivationAge < 0 || derivationAge > MAXIMUM_SCAN_AGE_MS) {
+        await options.repository.recordFailure({
+          principalId: options.principalId,
+          sourceId: options.sourceId,
+          failure: "classroom_observation_derivation_checkpoint_stale",
+          now: observedAt,
+          resetDerivation: true,
+        });
+        return Object.freeze({
+          outcome: "failed" as const,
+          pages, seen, rejected, transitions,
+          failure: "classroom_observation_derivation_checkpoint_stale",
+          statementsUsed: options.budget.used,
+        });
+      }
       const report = await options.repository.deriveMissingWorkPage({
         principalId: options.principalId,
         sourceId: options.sourceId,

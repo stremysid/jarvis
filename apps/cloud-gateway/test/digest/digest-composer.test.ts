@@ -304,7 +304,7 @@ describe("verified grades and derived submission checks", () => {
       }],
     }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
 
-    expect(digest.text).toContain("[verified: Google Classroom; checked 2026-09-02T10:00:00.000Z]");
+    expect(digest.text).toContain("[verified: Google Classroom; checked 2026-09-02 06:00 local]");
     expect(digest.text).toContain("assigned grade 83.5");
     expect(digest.text).toContain("scale and weight not supplied");
     expect(digest.text).not.toContain("83.5%");
@@ -317,15 +317,17 @@ describe("verified grades and derived submission checks", () => {
         transitionId: "transition-a",
         course: "Chemistry",
         title: "Lab reflection",
-        dueAt: "2026-09-01T20:00:00.000Z",
+        dueAt: "2026-09-02T03:59:59.999Z",
         classification: "derived",
         state: "no_submission_seen",
         source: "Google Classroom",
-        derivedAt: "2026-09-02T10:00:00.000Z",
+        lastSeenAt: "2026-09-02T04:30:00.000Z",
       }],
     }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
 
-    expect(digest.text).toContain("[derived: no submission seen; Google Classroom scan 2026-09-02T10:00:00.000Z]");
+    expect(digest.text).toContain("[derived: Google Classroom showed no submission as of 2026-09-02 00:30 local]");
+    expect(digest.text).toContain("deadline passed 2026-09-01 23:59 local");
+    expect(digest.text).not.toContain("2026-09-02T03:59:59.999Z");
     expect(digest.text).not.toMatch(/you missed|missed assignment|confirmed missing/iu);
   });
 

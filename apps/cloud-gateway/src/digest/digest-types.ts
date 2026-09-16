@@ -87,7 +87,7 @@ export interface DigestDerivedMissingWork {
   readonly classification: "derived";
   readonly state: "no_submission_seen";
   readonly source: "Google Classroom";
-  readonly derivedAt: string;
+  readonly lastSeenAt: string;
 }
 
 /**
