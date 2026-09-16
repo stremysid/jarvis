@@ -26,6 +26,7 @@ import type { Deadline, DeadlineSource, DeadlineSourceKind } from "../deadlines/
 import { BRIGHTSPACE_WINDOW_ITEM_LIMIT } from "../deadlines/brightspace-ical-client.js";
 import type { DecisionItem } from "../decisions/decision-types.js";
 import type { SchoolCatchupAction } from "../school/school-catchup-types.js";
+import type { UniversityApplicationDigestItem } from "../university/university-tracker-types.js";
 import type { StudyCheckIn } from "../school/study-coach-types.js";
 import type { SchoolObservationDigestSnapshot } from "../school/school-observation-types.js";
 import { assessStaleness, type ProjectStalenessReport } from "../projects/stalled-detector.js";
@@ -40,6 +41,7 @@ const SCHOOL_OBSERVATION_STALE_AFTER_MS = 12 * 60 * 60 * 1_000;
 
 export interface DigestSources {
   readCatchupActions(localDate: string): Promise<readonly SchoolCatchupAction[]>;
+  readApplicationItems(): Promise<readonly UniversityApplicationDigestItem[]>;
   readDeadlines(withinDays: number): Promise<readonly Deadline[]>;
   readDeadlineSources(): Promise<readonly DeadlineSource[]>;
   readSchoolObservations?(): Promise<SchoolObservationDigestSnapshot>;
@@ -266,8 +268,9 @@ export async function assembleDigest(
   // whether the others are broken too.
   const today = localDate(observedAt, dependencies.timeZone);
   const schedule = localSchedule(observedAt, dependencies.timeZone);
-  const [catchupActions, deadlines, deadlineSources, schoolRead, projects, decisions, studyCheckIn] = await Promise.all([
+  const [catchupActions, applicationItems, deadlines, deadlineSources, schoolRead, projects, decisions, studyCheckIn] = await Promise.all([
     readOr("School catch-up", () => dependencies.sources.readCatchupActions(today), gaps),
+    readOr("University applications", () => dependencies.sources.readApplicationItems(), gaps),
     readOr("Deadlines", () => dependencies.sources.readDeadlines(DEADLINE_HORIZON_DAYS), gaps),
     readOr("Deadline source health", () => dependencies.sources.readDeadlineSources(), gaps),
     readSchoolObservationsOr(dependencies.sources.readSchoolObservations, gaps),
@@ -347,6 +350,15 @@ export async function assembleDigest(
       text: action.text,
       sequenceRank: action.sequenceRank,
       estimatedMinutes: action.estimatedMinutes,
+    })),
+    applicationItems: applicationItems.map((item) => ({
+      itemId: item.itemId,
+      university: item.university,
+      programName: item.programName,
+      label: item.label,
+      status: item.status,
+      dueDate: item.dueDate,
+      verificationState: item.verification.state,
     })),
     deadlines: deadlines.map(toDigestDeadline),
     grades: (schoolSnapshot?.grades ?? []).map((grade) => ({

@@ -6,7 +6,7 @@ import {
   type ComposeOptions,
   type DigestClock,
 } from "../../src/digest/digest-composer.js";
-import type { DigestInput, DigestProject } from "../../src/digest/digest-types.js";
+import type { DigestApplicationItem, DigestInput, DigestProject } from "../../src/digest/digest-types.js";
 
 /**
  * A digest that omits a failure is indistinguishable from a digest reporting
@@ -30,7 +30,7 @@ function daily(zone = TORONTO): ComposeOptions {
 
 function empty(): DigestInput {
   return {
-    catchupActions: [], deadlines: [], grades: [], missingWork: [], projects: [], decisions: [], gaps: [],
+    catchupActions: [], applicationItems: [], deadlines: [], grades: [], missingWork: [], projects: [], decisions: [], gaps: [],
   };
 }
 
@@ -43,6 +43,19 @@ function project(overrides: Partial<DigestProject> = {}): DigestProject {
     stalledReason: null,
     pollFailure: null,
     changedDocuments: [],
+    ...overrides,
+  };
+}
+
+function applicationItem(overrides: Partial<DigestApplicationItem> = {}): DigestApplicationItem {
+  return {
+    itemId: "application-a",
+    university: "University of Waterloo",
+    programName: "Computer Science",
+    label: "AIF",
+    status: "drafting",
+    dueDate: "2027-01-15",
+    verificationState: "verified",
     ...overrides,
   };
 }
@@ -76,6 +89,49 @@ describe("a digest with nothing in it", () => {
     const digest = compose(empty(), daily(), clockAt("2026-09-02T11:30:00.000Z"));
     expect(digest.text).toContain("Nothing due, nothing changed, nothing waiting on you.");
     expect(digest.truncated).toBe(false);
+  });
+});
+
+describe("university application priorities", () => {
+  it("lists the next five unfinished items by due date and labels unverified dates", () => {
+    const digest = compose({
+      ...empty(),
+      applicationItems: [
+        applicationItem({ itemId: "f", label: "Submitted item", status: "submitted_by_sid", dueDate: "2026-09-20" }),
+        applicationItem({ itemId: "g", label: "Retired item", status: "not_needed_by_sid", dueDate: "2026-09-19" }),
+        applicationItem({ itemId: "c", label: "Third", dueDate: "2026-11-03", verificationState: "unverified" }),
+        applicationItem({ itemId: "none", label: "No published date", dueDate: null, verificationState: "unverified" }),
+        applicationItem({ itemId: "a", label: "First", dueDate: "2026-11-01", verificationState: "unverified" }),
+        applicationItem({ itemId: "e", label: "Fifth", dueDate: "2026-11-05" }),
+        applicationItem({ itemId: "d", label: "Fourth", dueDate: "2026-11-04" }),
+        applicationItem({ itemId: "b", label: "Second", dueDate: "2026-11-02" }),
+      ],
+    }, daily(), clockAt("2026-09-15T11:30:00.000Z"));
+
+    const section = digest.sections.find((candidate) => candidate.heading === "University applications");
+    expect(section?.lines).toHaveLength(5);
+    expect(section?.lines.map((line) => /: ([^[]+)/u.exec(line)?.[1]?.trim())).toEqual([
+      "First", "Second", "Third", "Fourth", "Fifth",
+    ]);
+    expect(digest.text).toContain("First [drafting; due 2026-11-01 (unverified)]");
+    expect(digest.text).not.toContain("Submitted item");
+    expect(digest.text).not.toContain("Retired item");
+    expect(digest.text).not.toContain("No published date");
+  });
+
+  it("names an unpublished application date as unverified", () => {
+    const digest = compose({
+      ...empty(),
+      applicationItems: [applicationItem({
+        itemId: "unpublished",
+        label: "Entrance scholarship",
+        status: "not_started",
+        dueDate: null,
+        verificationState: "unverified",
+      })],
+    }, daily(), clockAt("2026-09-15T11:30:00.000Z"));
+
+    expect(digest.text).toContain("Entrance scholarship [not started; due date unverified -- awaiting current-cycle source]");
   });
 });
 

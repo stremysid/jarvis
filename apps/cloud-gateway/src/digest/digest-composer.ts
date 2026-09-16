@@ -17,6 +17,7 @@
  */
 
 import type {
+  DigestApplicationItem,
   DigestCatchupAction,
   Digest,
   DigestGap,
@@ -37,6 +38,7 @@ const MAX_EXCERPT_LINES = 3;
 
 const DEADLINE_HORIZON_DAYS = 7;
 const RETRO_HORIZON_DAYS = 7;
+const APPLICATION_ITEM_LIMIT = 5;
 
 /**
  * Quoted rather than plain. The prefix is what stops a line inside a
@@ -185,6 +187,34 @@ function schoolObservationSection(input: DigestInput): DigestSection | null {
   return lines.length === 0 ? null : { heading: "Grades and submission checks", lines };
 }
 
+function applicationStatus(status: DigestApplicationItem["status"]): string {
+  if (status === "not_started") return "not started";
+  if (status === "submitted_by_sid") return "submitted by Sid";
+  if (status === "not_needed_by_sid") return "not needed by Sid";
+  return status;
+}
+
+function applicationSection(items: readonly DigestApplicationItem[]): DigestSection | null {
+  const ordered = [...items]
+    .filter((item) => item.status !== "submitted_by_sid" && item.status !== "not_needed_by_sid")
+    .sort((left, right) => {
+      if (left.dueDate === null && right.dueDate !== null) return 1;
+      if (left.dueDate !== null && right.dueDate === null) return -1;
+      return (left.dueDate ?? "").localeCompare(right.dueDate ?? "") || left.itemId.localeCompare(right.itemId);
+    })
+    .slice(0, APPLICATION_ITEM_LIMIT);
+  if (ordered.length === 0) return null;
+  return {
+    heading: "University applications",
+    lines: ordered.map((item) => {
+      const due = item.dueDate === null
+        ? "due date unverified -- awaiting current-cycle source"
+        : `due ${neutraliseInline(item.dueDate)} (${item.verificationState})`;
+      return `${neutraliseInline(item.university)} — ${neutraliseInline(item.programName)}: ${neutraliseInline(item.label)} [${applicationStatus(item.status)}; ${due}]`;
+    }),
+  };
+}
+
 function studyCheckInSection(input: DigestInput): DigestSection | null {
   const checkIn = input.studyCheckIn;
   if (checkIn === undefined || checkIn === null) return null;
@@ -306,6 +336,7 @@ export function compose(
     deadlineSection(input, now, horizon),
     schoolObservationSection(input),
     catchupSection(input.catchupActions),
+    applicationSection(input.applicationItems),
     studyCheckInSection(input),
     projectSection(input),
     decisionSection(input),
