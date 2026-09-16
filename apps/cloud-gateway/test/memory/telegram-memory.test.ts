@@ -1,10 +1,13 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
-import { newUlid, sha256Hex } from "../../../../packages/contracts/src/index.js";
+import { newUlid, sha256Hex, validateEnvelope } from "../../../../packages/contracts/src/index.js";
 import { ArchiveRepository } from "../../src/archive/archive-repository.js";
 import { ArchivalService } from "../../src/archive/archival-service.js";
 import { TieredEventReader } from "../../src/archive/tiered-event-reader.js";
+import { classifyTelegramUpdate } from "../../src/channels/telegram/telegram-types.js";
 import { ConversationRepository } from "../../src/conversation/conversation-repository.js";
+import { buildTelegramConversationRepository } from "../../src/index.js";
+import { AutomaticMemoryDistillationWorkflow } from "../../src/memory/automatic-distillation.js";
 import {
   TelegramMemoryControlModelAdapter,
 } from "../../src/memory/telegram-memory-controls.js";
@@ -20,12 +23,14 @@ import type {
   ModelToken,
 } from "../../src/model/model-adapter.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
+import { FakeModelProvider } from "../../src/providers/fake-model-provider.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { applyMemoryDistillationMigration } from "../persistence/migration.js";
 
 const OWNER_ID = "principal:telegram-memory-owner";
 const GUEST_ID = "principal:telegram-memory-guest";
 const RETRIEVAL_ID = "principal:telegram-memory-retrieval";
+let markerPrincipalSerial = 0;
 
 class RecordingModel implements ModelAdapter {
   calls = 0;
@@ -100,6 +105,116 @@ async function countRows(table: "events" | "memory_items", where = "", value?: s
     ? await statement.first<{ count: number }>()
     : await statement.bind(value).first<{ count: number }>();
   return row?.count ?? -1;
+}
+
+async function markerPrincipal(label: string): Promise<string> {
+  markerPrincipalSerial += 1;
+  const principalId = `principal:telegram-marker-${label}-${markerPrincipalSerial}`;
+  await seedPrincipal(principalId);
+  return principalId;
+}
+
+async function storedDistilledItem(principalId: string): Promise<Readonly<{
+  origin: string;
+  uncertain: number;
+  lifecycle_state: string;
+  display_name: string;
+}>> {
+  const row = await env.DB.prepare(`SELECT version.origin, version.uncertain,
+      state.lifecycle_state, topic.display_name
+    FROM memory_items item
+    JOIN memory_item_state state
+      ON state.principal_id = item.principal_id AND state.item_id = item.item_id
+    JOIN memory_item_versions version
+      ON version.principal_id = state.principal_id AND version.version_id = state.current_version_id
+    JOIN memory_item_placement_state placement
+      ON placement.principal_id = item.principal_id AND placement.item_id = item.item_id
+      AND placement.relation = 'primary'
+    JOIN memory_topics topic
+      ON topic.principal_id = placement.principal_id AND topic.topic_id = placement.topic_id
+    WHERE item.principal_id = ? ORDER BY item.created_at DESC LIMIT 1`)
+    .bind(principalId).first<{
+      origin: string;
+      uncertain: number;
+      lifecycle_state: string;
+      display_name: string;
+    }>();
+  if (row === null) throw new Error("telegram_marker_item_missing");
+  return Object.freeze(row);
+}
+
+function classifyMarkerText(text: string, metadata: Record<string, unknown> = {}) {
+  const classification = classifyTelegramUpdate({
+    update_id: markerPrincipalSerial + 1,
+    message: {
+      message_id: markerPrincipalSerial + 1,
+      from: { id: 12345 },
+      chat: { id: 12345 },
+      text,
+      ...metadata,
+    },
+  });
+  if (classification.kind !== "text") throw new Error("telegram_marker_classification_failed");
+  return classification.value;
+}
+
+async function commitAndDistill(
+  principalId: string,
+  channel: "voice" | "telegram",
+  text: string,
+  events: EventRepository,
+  conversations: ConversationRepository,
+): Promise<Readonly<{
+  payload: Record<string, unknown>;
+  item: Awaited<ReturnType<typeof storedDistilledItem>>;
+}>> {
+  const redacted = new Redactor().redactText(text);
+  if (!redacted.ok) throw new Error("telegram_marker_redaction_failed");
+  const turnId = newUlid();
+  const admission = await conversations.getOrCreateTurn({
+    turnId,
+    sessionId: `telegram-marker:${turnId}`,
+    principalId,
+    channel,
+    userText: redacted,
+    now: new Date(),
+  });
+  const stored = await env.DB.prepare(`SELECT sequence, envelope_json FROM events
+    WHERE event_id = ?`).bind(admission.turn.userEventId)
+    .first<{ sequence: number; envelope_json: string }>();
+  if (stored === null) throw new Error("telegram_marker_event_missing");
+  const envelope = await validateEnvelope(JSON.parse(stored.envelope_json) as unknown);
+  const provider = new FakeModelProvider({
+    completeJson: [{
+      text,
+      sourceEventIds: [admission.turn.userEventId],
+      sourceExcerpts: [{ sourceEventId: admission.turn.userEventId, excerpt: text }],
+      confidence: 0.95,
+      sensitivity: "normal",
+    }],
+  });
+  const archive = new ArchivalService({ database: env.DB, bucket: env.ARCHIVE });
+  const workflow = new AutomaticMemoryDistillationWorkflow({
+    database: env.DB,
+    events: new TieredEventReader({
+      live: events,
+      archive,
+      state: new ArchiveRepository(env.DB),
+    }),
+    repository: new MemoryRepository(env.DB, { archivedEventReader: archive }),
+    provider,
+    providerModelId: "openai:fake-telegram-direct-owner-v1",
+    principalId,
+    now: () => new Date(),
+  });
+  const distillation = await workflow.runNext({ runKey: `telegram-marker:${newUlid()}` });
+  if (distillation.createdItemCount !== 1) {
+    throw new Error(`telegram_marker_distillation_failed:${distillation.outcome}:${distillation.failureCode ?? "none"}`);
+  }
+  return Object.freeze({
+    payload: envelope.payload as Record<string, unknown>,
+    item: await storedDistilledItem(principalId),
+  });
 }
 
 function adapter(
@@ -189,6 +304,103 @@ describe("Telegram memory controls", () => {
     expect(await countRows("events", "WHERE event_type = 'memory.owner_command'"))
       .toBe(beforeCommands + 1);
     expect(await countRows("memory_items")).toBe(beforeItems + 1);
+  });
+});
+
+describe("Telegram automatic-memory authority", () => {
+  it("marks a configured owner's direct Telegram text and authenticates its whole first-person fact", async () => {
+    const principalId = await markerPrincipal("direct");
+    const text = "I keep my project notes concise.";
+    const classified = classifyMarkerText(text);
+    const events = new EventRepository(env.DB);
+    const conversations = buildTelegramConversationRepository(
+      env.DB,
+      events,
+      {
+        principalId,
+        isDirectText: classified.isDirectText,
+        isMemoryControlAuthoritative: classified.isMemoryControlAuthoritative,
+      },
+      principalId,
+    );
+
+    const result = await commitAndDistill(principalId, "telegram", text, events, conversations);
+
+    expect(classified.isDirectText).toBe(true);
+    expect(result.payload.directOwnerText).toBe(true);
+    expect(result.item).toEqual({
+      origin: "authenticated_first_person",
+      uncertain: 0,
+      lifecycle_state: "active",
+      display_name: "Memory",
+    });
+  });
+
+  it.each([
+    ["forwarded", { forward_origin: { type: "user" } }, false],
+    ["external reply", { external_reply: { origin: { type: "user" } } }, false],
+    ["quoted", { quote: { text: "I keep my project notes concise.", position: 0 } }, true],
+  ])("marks %s owner Telegram text false and keeps its fact uncertain", async (label, metadata, isDirectText) => {
+    const principalId = await markerPrincipal(label.replaceAll(" ", "-"));
+    const text = "I keep my project notes concise.";
+    const classified = classifyMarkerText(text, metadata);
+    const events = new EventRepository(env.DB);
+    const conversations = buildTelegramConversationRepository(
+      env.DB,
+      events,
+      {
+        principalId,
+        isDirectText: classified.isDirectText,
+        isMemoryControlAuthoritative: classified.isMemoryControlAuthoritative,
+      },
+      principalId,
+    );
+
+    const result = await commitAndDistill(principalId, "telegram", text, events, conversations);
+
+    expect(classified.isDirectText).toBe(isDirectText);
+    expect(classified.isMemoryControlAuthoritative).toBe(false);
+    expect(result.payload.directOwnerText).toBe(false);
+    expect(result.item).toEqual({
+      origin: "model",
+      uncertain: 1,
+      lifecycle_state: "proposed",
+      display_name: "Inbox / Needs filing",
+    });
+  });
+
+  it("marks a guest's direct Telegram text false and keeps its fact uncertain", async () => {
+    const principalId = await markerPrincipal("guest");
+    const text = "I keep my project notes concise.";
+    const classified = classifyMarkerText(text);
+    const events = new EventRepository(env.DB);
+    const conversations = buildTelegramConversationRepository(
+      env.DB,
+      events,
+      {
+        principalId,
+        isDirectText: classified.isDirectText,
+        isMemoryControlAuthoritative: classified.isMemoryControlAuthoritative,
+      },
+      "principal:configured-owner",
+    );
+
+    const result = await commitAndDistill(principalId, "telegram", text, events, conversations);
+
+    expect(result.payload.directOwnerText).toBe(false);
+    expect(result.item).toMatchObject({ origin: "model", uncertain: 1 });
+  });
+
+  it("omits the marker outside Telegram and keeps a missing-field fact uncertain", async () => {
+    const principalId = await markerPrincipal("voice");
+    const text = "I keep my project notes concise.";
+    const events = new EventRepository(env.DB);
+    const conversations = new ConversationRepository(env.DB, events);
+
+    const result = await commitAndDistill(principalId, "voice", text, events, conversations);
+
+    expect(Object.hasOwn(result.payload, "directOwnerText")).toBe(false);
+    expect(result.item).toMatchObject({ origin: "model", uncertain: 1 });
   });
 });
 

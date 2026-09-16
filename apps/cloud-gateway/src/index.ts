@@ -82,6 +82,23 @@ const telegramLimiter = new TelegramRateLimiter();
 const livenessLimiter = new TelegramRateLimiter(30, 43_200);
 const providerCircuitBreaker = new ProviderCircuitBreaker();
 
+export function buildTelegramConversationRepository(
+  database: D1Database,
+  events: EventRepository,
+  accepted: Pick<
+    AcceptedTelegramUpdate,
+    "principalId" | "isDirectText" | "isMemoryControlAuthoritative"
+  >,
+  ownerPrincipalId: string | undefined,
+): ConversationRepository {
+  return new ConversationRepository(database, events, {
+    telegramDirectOwnerText: ownerPrincipalId !== undefined
+      && accepted.principalId === ownerPrincipalId
+      && accepted.isDirectText
+      && accepted.isMemoryControlAuthoritative,
+  });
+}
+
 function isVoicePath(request: Request): boolean {
   const pathname = new URL(request.url).pathname;
   return pathname === "/voice" || pathname.startsWith("/voice/");
@@ -116,10 +133,15 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
     if (identity === null) return;
 
     const events = new EventRepository(env.DB);
-    const repository = new ConversationRepository(env.DB, events);
+    const ownerPrincipalId = env.OWNER_PRINCIPAL_ID;
+    const repository = buildTelegramConversationRepository(
+      env.DB,
+      events,
+      accepted,
+      ownerPrincipalId,
+    );
     const redactor = new Redactor();
     const baseModel = new DeepSeekModelAdapter({ apiKey, model: env.DEEPSEEK_MODEL });
-    const ownerPrincipalId = env.OWNER_PRINCIPAL_ID;
     const ownerAwareModel = ownerPrincipalId !== undefined && accepted.principalId === ownerPrincipalId
       ? new StudyCoachModelAdapter({
         fallbackModel: new SchoolCatchupModelAdapter({

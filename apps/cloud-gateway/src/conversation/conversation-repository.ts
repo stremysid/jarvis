@@ -162,6 +162,7 @@ export interface ConversationRepositoryOptions {
   readonly claimTtlMs?: number;
   readonly leaseTtlMs?: number;
   readonly retryDelayMs?: number;
+  readonly telegramDirectOwnerText?: boolean;
 }
 
 function randomToken(): Uint8Array {
@@ -306,14 +307,22 @@ function safeFailurePayload(channel: ConversationChannel, code: ConversationFail
   });
 }
 
-function historyPayload(channel: ConversationChannel, text: SuccessfulRedaction, historyEligible: boolean) {
-  return Object.freeze({
+function historyPayload(
+  channel: ConversationChannel,
+  text: SuccessfulRedaction,
+  historyEligible: boolean,
+  telegramDirectOwnerText?: boolean,
+) {
+  const payload = {
     schemaCode: 1,
     channelCode: CHANNEL_CODE[channel],
     sensitivityCode: 1,
     historyEligible,
     text,
-  });
+  };
+  return telegramDirectOwnerText === undefined
+    ? Object.freeze(payload)
+    : Object.freeze({ ...payload, directOwnerText: telegramDirectOwnerText });
 }
 
 function systemPayload(text: SuccessfulRedaction) {
@@ -328,6 +337,7 @@ export class ConversationRepository {
   private readonly claimTtlMs: number;
   private readonly leaseTtlMs: number;
   private readonly retryDelayMs: number;
+  private readonly telegramDirectOwnerText: boolean | undefined;
 
   private readonly modelClaimBindings = new WeakMap<object, ModelClaimBinding>();
   private readonly begunModelClaims = new WeakSet<object>();
@@ -356,6 +366,11 @@ export class ConversationRepository {
     this.deliveryIdFactory = deliveryIdFactory;
     this.claimTokenFactory = claimTokenFactory;
     this.leaseTokenFactory = leaseTokenFactory;
+    if (options.telegramDirectOwnerText !== undefined
+      && typeof options.telegramDirectOwnerText !== "boolean") {
+      throw new TypeError("conversation_telegram_direct_owner_text_invalid");
+    }
+    this.telegramDirectOwnerText = options.telegramDirectOwnerText;
     this.claimTtlMs = options.claimTtlMs ?? 45_000;
     this.leaseTtlMs = options.leaseTtlMs ?? 30_000;
     this.retryDelayMs = options.retryDelayMs ?? 1_000;
@@ -383,11 +398,18 @@ export class ConversationRepository {
     const sessionId = requireSafeText(captured.sessionId, "conversation_session_id", 256);
     const principalId = requireSafeText(captured.principalId, "conversation_principal_id");
     const channel = requireChannel(captured.channel);
+    if (this.telegramDirectOwnerText !== undefined && channel !== "telegram") {
+      throw new TypeError("conversation_telegram_direct_owner_text_channel_invalid");
+    }
     const userText = requireIssuedText(captured.userText);
     const observedAt = snapshotDate(captured.now, "conversation_turn_now");
-    const requestHash = await sha256Hex(canonicalJson([
-      "conversation-turn-v1", turnId, sessionId, principalId, channel, userText.text,
-    ]));
+    const requestIdentity = this.telegramDirectOwnerText === undefined
+      ? ["conversation-turn-v1", turnId, sessionId, principalId, channel, userText.text]
+      : [
+        "conversation-turn-v2", turnId, sessionId, principalId, channel, userText.text,
+        this.telegramDirectOwnerText,
+      ];
+    const requestHash = await sha256Hex(canonicalJson(requestIdentity));
     const existing = await this.readTurn(turnId);
     if (existing !== null) return Object.freeze({ turn: this.requireTurnLineage(existing, { sessionId, principalId, channel, requestHash }), replayed: true });
 
@@ -397,7 +419,7 @@ export class ConversationRepository {
       eventType: "conversation.user_committed",
       principalId,
       correlationId: turnId,
-      payload: historyPayload(channel, userText, true),
+      payload: historyPayload(channel, userText, true, this.telegramDirectOwnerText),
       nowIso: observedAt.iso,
     });
     const appended = await this.events.appendAtomicAfter({
