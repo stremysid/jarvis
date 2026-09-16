@@ -58,14 +58,35 @@ describe("event envelopes", () => {
 
   it("preserves a canonical ULID whose random component contains six digits", async () => {
     const identifier = "01abcde123456fghjkmnpqrstv" as Ulid;
+    const structural = new Redactor().redact({
+      text: identifier,
+      channel: "telegram",
+      field: "itemId",
+    });
 
     const envelope = await createEnvelope({
       ...input,
-      payload: { itemId: redacted(identifier) },
+      payload: { itemId: structural },
     } as never);
 
     expect(envelope.payload).toEqual({ itemId: identifier });
     expect(envelope.redaction).toEqual({ status: "none", markers: [] });
+  });
+
+  it("redacts six authentication digits when a canonical ULID is only part of the text", () => {
+    const result = redacted("Reference 01abcde123456fghjkmnpqrstv is not a structural field.");
+
+    expect(result.text).toBe(
+      "Reference 01abcde[REDACTED_AUTH_DIGITS]fghjkmnpqrstv is not a structural field.",
+    );
+    expect(result.markers).toContain("authentication_digits");
+  });
+
+  it("redacts six authentication digits when the whole text looks like a canonical ULID", () => {
+    const result = redacted("01abcde123456fghjkmnpqrstv");
+
+    expect(result.text).toBe("01abcde[REDACTED_AUTH_DIGITS]fghjkmnpqrstv");
+    expect(result.markers).toContain("authentication_digits");
   });
 
   it("does not export a structural ULID issuer from either contracts surface", () => {

@@ -1,6 +1,6 @@
 # Known issues
 
-## Owner memory controls have seven deferred integration limits
+## Owner memory controls have six deferred integration limits
 
 PR #50 keeps the channel-neutral owner-control boundary closed, but later
 integration work must resolve these limits before enabling the affected callers:
@@ -34,11 +34,20 @@ integration work must resolve these limits before enabling the affected callers:
   transition because the current schema binds corrections to owner commands.
   Rules therefore cannot promote or reject it. Add a confirmation control or a
   rules-compatible restoration path before proposed-memory restore is exposed.
-- **Archive-history handoff:** archive purge deletes delivered `events`, while
-  immutable memory sources remain marked `live`. Their creation and source
-  receipt checks then map the missing event to `memory_corrupt`, so explain,
-  forget and lift cannot operate on an old memory. The archive-history slice
-  must preserve a verifiable live-to-archive source reference before purging.
+
+## R2 literal history retains two append-only and reindexing tradeoffs
+
+- Forgetting a turn cannot delete a durable exhaustive-search hit receipt.
+  Result reads re-check active suppressions and return no forgotten text, but
+  the append-only receipt continues to record the event id and content hash that
+  matched the query. Removing that metadata would weaken the immutable job
+  audit and needs an explicit retention decision rather than a hidden delete.
+- `memory_history_chunks` remains deletable because suppression lifts and
+  live-to-archive handoff reindex an event by replacing its derived chunk. A
+  failed or unauthorized delete could therefore leave immutable coverage marked
+  `indexed` while the FTS row is absent. No caller other than the uncomposed
+  literal-history indexer writes this table today; closing the gap requires an
+  atomic replacement protocol or a separate durable current-chunk receipt.
 
 ## PR #46 notification delivery retains three bounded at-least-once limits
 

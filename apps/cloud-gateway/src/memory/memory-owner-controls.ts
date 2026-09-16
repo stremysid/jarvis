@@ -14,6 +14,7 @@ import {
   IdempotencyConflict,
   type AppendedEvent,
 } from "../persistence/event-repository.js";
+import { ArchivalService, type ArchiveBucket } from "../archive/archival-service.js";
 import { MemoryRepository } from "./memory-repository.js";
 import {
   MemoryRepositoryError,
@@ -195,16 +196,18 @@ function exactKeys(value: JsonRecord, fields: readonly string[]): void {
     || keys.some((key) => typeof key !== "string" || !fields.includes(key))) refuse();
 }
 
-function redactPayload(value: JsonValue): RedactedJsonValue {
+function redactPayload(value: JsonValue, field?: string): RedactedJsonValue {
   if (typeof value === "string") {
-    const result = redactor.redactText(value);
+    const result = field === undefined
+      ? redactor.redactText(value)
+      : redactor.redact({ text: value, channel: "telegram", field });
     if (!result.ok || result.text !== value) refuse();
     return result;
   }
   if (value === null || typeof value === "boolean" || typeof value === "number") return value;
-  if (Array.isArray(value)) return value.map(redactPayload);
+  if (Array.isArray(value)) return value.map((child) => redactPayload(child, field));
   return Object.fromEntries(
-    Object.entries(value).map(([key, child]) => [key, redactPayload(child)]),
+    Object.entries(value).map(([key, child]) => [key, redactPayload(child, key)]),
   );
 }
 
@@ -367,16 +370,21 @@ function liftPayload(value: JsonValue): DecodedLiftCommand {
 
 export class MemoryOwnerControlsService {
   private readonly events: EventRepository;
+  private readonly memory: MemoryRepository;
   private readonly clock: () => Date;
   private readonly idFactory: (now: Date) => Ulid;
 
   constructor(
     private readonly database: D1Database,
-    private readonly memory: MemoryRepository = new MemoryRepository(database),
+    archive: ArchiveBucket,
+    memory?: MemoryRepository,
     events?: EventRepository,
     options: MemoryOwnerControlsOptions = {},
   ) {
     this.events = events ?? new EventRepository(database);
+    this.memory = memory ?? new MemoryRepository(database, {
+      archivedEventReader: new ArchivalService({ database, bucket: archive }),
+    });
     this.clock = options.clock ?? (() => new Date());
     this.idFactory = options.idFactory ?? newUlid;
   }

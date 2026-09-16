@@ -26,7 +26,7 @@ wait for R1 calling. Draft PR #52 independently owns migration `0024` for the
 university application workflow. No school account, secret, deploy, migration,
 contact, purchase, submission or live request is authorized by either draft.
 
-## R1 is active; R2 owner controls are merged but uncomposed
+## R1 is active; R2 literal-history slice is in draft review
 
 R0 passed on 2026-09-11. R1 depends on R0 and is entirely cloud-side.
 PR #23 supplied item 2's fake calling/access matrix and confirmed Telegram
@@ -172,9 +172,11 @@ approved design. PR #39 merged additive `0016_cloud_memory.sql` as `0d659bf`;
 PR #42 merged the owner-command ingress boundary in
 `0019_memory_ingress.sql` as `f0bfbe9`; PR #44 merged the reviewed runtime-slice
 plan as `3e28bda`; main also owns `0020_school_catchup.sql` and
-`0022_university_tracker.sql`. PR #46 merged as `ebb757b` and owns
-`0021_voice_owner_delivery.sql`. Draft PR #53 reserves `0023`; draft PR #52
-reserves `0024`; the next unreserved migration name is `0025`.
+`0022_university_tracker.sql`, while PR #46 merged as `ebb757b` with
+`0021_voice_owner_delivery.sql`. Open PR #53 reserves
+`0023_study_coach.sql`, open PR #52 reserves
+`0024_university_application_workflow.sql`, and draft PR #56 uses
+`0025_archive_literal_history.sql`.
 This R2 work applied none of `0016` through `0020` or `0022`. The R2 migrations
 still require the reviewed, Sid-attended scratch remote-D1 proof before Sid
 decides on a production apply.
@@ -188,10 +190,15 @@ topic resolution. It is deliberately uncomposed: no channel adapter,
 archive-complete history index, automatic distillation Workflow, provider or
 scheduled job uses it. It changes no migration and performs no live call,
 provider call, migration application, secret operation or deployment.
-[PR #50](https://github.com/ksid1229-ops/jarvis/pull/50) merged the uncomposed
-channel-neutral owner-controls service as `1cae97b`. Sid will eventually use
-ordinary speech and text rather than learned commands; Telegram and voice intent
-routing remain later slices.
+[PR #50](https://github.com/ksid1229-ops/jarvis/pull/50) merged as `1cae97b`
+with the uncomposed channel-neutral owner-controls service. Draft
+[PR #56](https://github.com/ksid1229-ops/jarvis/pull/56) builds slice 2: bounded
+literal-history chunks and complete live/verified-R2 coverage, suppression-safe
+exact provenance results, and a checkpointed exhaustive-search job with counted
+D1 and text budgets. It also preserves immutable source receipts while deriving
+their current archived location after live-event purge. Migration `0025` is not
+applied. Sid will eventually use ordinary speech and text rather than learned
+commands; Telegram and voice intent routing remain later slices.
 
 Reviewer pre-probes on the first ready head exposed that a live event receipt
 could accompany an exact excerpt absent from the event. Fix `052f1fc` now
