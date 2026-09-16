@@ -1,0 +1,26 @@
+checked out 762e54b at 762e54b
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  189 passed (189)
+
+== H1a-carries-target-required: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts (10 tests | 1 failed) 877ms
+   Test Files  2 failed (2)
+   Tests  5 failed | 184 passed (189)
+   × does not carry an item pronoun across a sentence boundary: I'm drafting the Western essay. The Common App is done and I submitted it. 6ms
+   × does not carry an item pronoun across a sentence boundary: The Western essay is the last one. I am skipping band this term, remove it. 1ms
+   × does not carry an item pronoun across a sentence boundary: The Queen's scholarship is retired. I changed my mind about the gym, keep it. 1ms
+   × does not carry an item pronoun across a sentence boundary: UofT essay check. The band form didn't go through, I never submitted it. 1ms
+
+== H1a-reset-on-other-item: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  189 passed (189)
+
+=== summary
+SURVIVED  BASE
+KILLED    H1a-carries-target-required
+SURVIVED  H1a-reset-on-other-item
+back on main, tree clean=true
+(node:27100) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

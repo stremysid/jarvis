@@ -1,0 +1,66 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "762e54b",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+   "from": "      if (carriesTarget && /\b(?:it|that)\b/iu.test(clause)) relevant.push(clause);\n",
+   "to": "      if (carriesTarget && /\b(?:it|that)\b/iu.test(clause)) relevant.push(clause);\n",
+   "tests": [
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts"
+   ]
+  },
+  {
+   "id": "H1a-carries-target-reset",
+   "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+   "from": "        carriesTarget = false;\n        continue;\n",
+   "to": "        continue;\n",
+   "tests": [
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts"
+   ]
+  },
+  {
+   "id": "H1a-carries-target-required",
+   "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+   "from": "      if (carriesTarget && /\b(?:it|that)\b/iu.test(clause)) relevant.push(clause);\n",
+   "to": "      if (/\b(?:it|that)\b/iu.test(clause)) relevant.push(clause);\n",
+   "tests": [
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts"
+   ]
+  },
+  {
+   "id": "H1b-label-alias-masking",
+   "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+   "from": "    itemNames(label, program),\n  ).filter((clause) =>",
+   "to": "    Object.freeze([]),\n  ).filter((clause) =>",
+   "tests": [
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts"
+   ]
+  },
+  {
+   "id": "H1c-per-sentence-grouping",
+   "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+   "from": "  return Object.freeze(clauseGroups(evidence, true, itemNames(label, program)).flatMap((sentence) => {\n",
+   "to": "  return Object.freeze([clauseGroups(evidence, true, itemNames(label, program)).flat()].flatMap((sentence) => {\n",
+   "tests": [
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts"
+   ]
+  },
+  {
+   "id": "M4-joint-owner-submission",
+   "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+   "from": "|(?:my\\s+)?(?:mom|mother|dad|father|parent|guardian)|(?:my\\s+)?(?:teacher|counsellor|referee)",
+   "to": "|(?:my\\s+)?(?:zzmom|zzmother|zzdad|zzfather|zzparent|zzguardian)|(?:my\\s+)?(?:zzteacher|zzcounsellor|zzreferee)",
+   "tests": [
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,36 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "762e54b",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+   "from": "      if (carriesTarget && /\\b(?:it|that)\\b/iu.test(clause)) relevant.push(clause);\n",
+   "to": "      if (carriesTarget && /\\b(?:it|that)\\b/iu.test(clause)) relevant.push(clause);\n",
+   "tests": [
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts"
+   ]
+  },
+  {
+   "id": "H1a-carries-target-required",
+   "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+   "from": "      if (carriesTarget && /\\b(?:it|that)\\b/iu.test(clause)) relevant.push(clause);\n",
+   "to": "      if (/\\b(?:it|that)\\b/iu.test(clause)) relevant.push(clause);\n",
+   "tests": [
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts"
+   ]
+  },
+  {
+   "id": "H1a-reset-on-other-item",
+   "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+   "from": "      if (namesTrackedItem || namesApplicationItem(clause, label, kind, program)) {\n        carriesTarget = false;\n        continue;\n      }\n",
+   "to": "      if (namesTrackedItem || namesApplicationItem(clause, label, kind, program)) {\n        continue;\n      }\n",
+   "tests": [
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts"
+   ]
+  }
+ ]
+}

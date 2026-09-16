@@ -1,0 +1,31 @@
+reviewing 762e54b; main 93e3d0d; merge-base 282f066
+migrations added:
+apps/cloud-gateway/src/persistence/migrations/0024_university_application_workflow.sql
+pr39 head 762e54b
+lockfile same as main
+lint exit 0
+typecheck exit 0
+test exit 0
+ Test Files  166 passed (166)
+      Tests  3639 passed (3639)
+timeouts: 0
+=== remote-D1 syntax: CASE count in 0024: 0
+triggers 9 mutations 9
+trigger mutations: 9
+clean before triggers=yes
+=== summary
+SURVIVED  BASE
+KILLED    T-university_application_items_insert_guard
+KILLED    T-university_application_items_cap_insert
+KILLED    T-university_application_items_cap_reactivate
+KILLED    T-university_application_items_require_owner_turn_insert
+KILLED    T-university_application_items_require_owner_turn_update
+SURVIVED  T-university_application_items_core_immutable
+KILLED    T-university_application_items_status_correction_guard
+KILLED    T-university_application_items_state_consistent_update
+SURVIVED  T-university_application_items_reject_delete
+back on main, tree clean=true
+trigger timeouts: 0
+T-university_application_items_reject_delete: | 0 failed | 
+=== probes (all four must FAIL) ===
+done 01:43

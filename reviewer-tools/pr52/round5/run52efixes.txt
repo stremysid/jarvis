@@ -1,0 +1,41 @@
+checked out 762e54b at 762e54b
+
+== BASE: MATCHED 0 TIMES, skipped
+
+== H1a-carries-target-reset: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  189 passed (189)
+
+== H1a-carries-target-required: MATCHED 0 TIMES, skipped
+
+== H1b-label-alias-masking: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/university/university-application-workflow-model.test.ts (179 tests | 1 failed) 135ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 188 passed (189)
+   × accepts a date for an item whose program and label contain a connective 6ms
+
+== H1c-per-sentence-grouping: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts (10 tests | 1 failed) 891ms
+   Test Files  2 failed (2)
+   Tests  5 failed | 184 passed (189)
+   × does not carry an item pronoun across a sentence boundary: I'm drafting the Western essay. The Common App is done and I submitted it. 5ms
+   × does not carry an item pronoun across a sentence boundary: The Western essay is the last one. I am skipping band this term, remove it. 1ms
+   × does not carry an item pronoun across a sentence boundary: The Queen's scholarship is retired. I changed my mind about the gym, keep it. 1ms
+   × does not carry an item pronoun across a sentence boundary: UofT essay check. The band form didn't go through, I never submitted it. 1ms
+
+== M4-joint-owner-submission: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/university/university-application-workflow-model.test.ts (179 tests | 1 failed) 133ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 188 passed (189)
+   × does not bind another claim to an item in a connective-named program: My mom and I submitted the Arts and Science essay. 5ms
+
+=== summary
+SKIPPED   BASE
+SURVIVED  H1a-carries-target-reset
+SKIPPED   H1a-carries-target-required
+KILLED    H1b-label-alias-masking
+KILLED    H1c-per-sentence-grouping
+KILLED    M4-joint-owner-submission
+back on main, tree clean=true
+(node:36440) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
