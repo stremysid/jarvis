@@ -605,7 +605,11 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
           sensitivity: "personal" as const,
         });
       }));
-      historyContexts = Object.freeze(evidence.filter((context): context is RetrievedContext => context !== null));
+      const retained: RetrievedContext[] = [];
+      for (const context of evidence) {
+        if (context !== null) retained.push(context);
+      }
+      historyContexts = Object.freeze(retained);
     }
     const candidateContexts = await candidateContextsPromise;
     const contexts: RetrievedContext[] = [];
