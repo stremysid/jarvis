@@ -25,16 +25,30 @@ function isWithin(parent, candidate) {
     || (!pathFromParent.startsWith(`..${sep}`) && pathFromParent !== '..' && !isAbsolute(pathFromParent));
 }
 
-export function discoverBaselineNames(migrationRoot = defaultMigrationRoot) {
-  const migrations = readdirSync(migrationRoot)
+function discoverMigrations(migrationRoot) {
+  return readdirSync(migrationRoot)
     .filter((name) => /^\d{4}_.+\.sql$/u.test(name))
     .map((name) => ({ name, sequence: Number.parseInt(name.slice(0, 4), 10) }))
-    .filter(({ sequence }) => sequence >= 1 && sequence <= 15)
     .sort((left, right) => left.sequence - right.sequence);
+}
+
+export function discoverBaselineNames(migrationRoot = defaultMigrationRoot) {
+  const migrations = discoverMigrations(migrationRoot)
+    .filter(({ sequence }) => sequence >= 1 && sequence <= 15);
   const expectedSequences = Array.from({ length: 15 }, (_, index) => index + 1);
   if (migrations.length !== expectedSequences.length
       || migrations.some(({ sequence }, index) => sequence !== expectedSequences[index])) {
     throw new Error('Expected exactly one repository migration for every sequence from 0001 through 0015.');
+  }
+  return migrations.map(({ name }) => name);
+}
+
+export function discoverCandidateNames(migrationRoot = defaultMigrationRoot) {
+  const migrations = discoverMigrations(migrationRoot)
+    .filter(({ sequence }) => sequence >= 16);
+  if (migrations.length === 0
+      || migrations.some(({ sequence }, index) => sequence !== index + 16)) {
+    throw new Error('Expected one contiguous repository migration for every candidate sequence from 0016 onward.');
   }
   return migrations.map(({ name }) => name);
 }
