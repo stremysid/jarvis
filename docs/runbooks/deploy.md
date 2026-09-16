@@ -109,7 +109,21 @@ Verify the effective dashboard value too: deployment preserves existing vars.
 
 The gateway owns D1 migrations. The watchdog binds the same `jarvis`
 database and never applies migrations. The gateway also binds the
-`jarvis-archive` R2 bucket and `CALL_SESSION` Durable Object.
+`jarvis-archive` R2 bucket, the `jarvis-memory-backup` R2 bucket and
+`CALL_SESSION` Durable Object.
+
+Before the first deploy whose gateway config contains the `BACKUP` binding,
+the owner must create its separate production bucket once. Do this before
+the migration/deploy sequence below so Wrangler cannot publish a binding to
+a bucket that does not exist:
+
+```powershell
+& node $wrangler r2 bucket create jarvis-memory-backup --config $gateway --env ''
+```
+
+This is setup, not a recurring backup chore. Do not substitute `wrangler d1
+export`: production contains FTS5 virtual tables and the memory backup is the
+Worker's bounded logical export.
 
 The owner confirmed R0 item 2 complete: Wrangler login, rotation of the
 three peppers and DeepSeek key on `jarvis-cloud-gateway`, and revocation

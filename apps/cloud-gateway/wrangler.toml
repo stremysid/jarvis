@@ -52,6 +52,8 @@ storage = "sqlite"
 # twice lets exactly one of the two match the target local hour; the router
 # discards the other. Which one matches changes at the daylight-saving
 # boundary, and neither the cron nor the router needs to know when that is.
+# The night pair also starts the memory backup at 19:30 local. Its bounded
+# continuation advances on the existing five-minute drain cadence.
 #
 # The list must match ROUTED_CRONS in src/scheduler/cron-router.ts. A cron
 # here that the router does not recognise runs nothing, deliberately: a
@@ -69,6 +71,10 @@ migrations_dir = "src/persistence/migrations"
 [[r2_buckets]]
 binding = "ARCHIVE"
 bucket_name = "jarvis-archive"
+
+[[r2_buckets]]
+binding = "BACKUP"
+bucket_name = "jarvis-memory-backup"
 
 [[durable_objects.bindings]]
 name = "CALL_SESSION"
@@ -94,6 +100,10 @@ migrations_dir = "src/persistence/migrations"
 [[env.test.r2_buckets]]
 binding = "ARCHIVE"
 bucket_name = "jarvis-archive-test"
+
+[[env.test.r2_buckets]]
+binding = "BACKUP"
+bucket_name = "jarvis-memory-backup-test"
 
 [[env.test.durable_objects.bindings]]
 name = "CALL_SESSION"

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DAILY_CRON,
   DRAIN_CRON,
+  NIGHT_CRON,
   POLL_CRON,
   ROUTED_CRONS,
   routeCron,
@@ -18,8 +19,6 @@ import {
  */
 
 const TORONTO = "America/Toronto";
-const RETRO_CRON = "30 23,0 * * *";
-
 function jobs(cron: string, iso: string, zone = TORONTO): string[] {
   return routeCron(cron, new Date(iso), zone).map((work) => work.job);
 }
@@ -109,18 +108,18 @@ describe("the Sunday retro", () => {
   it("goes out on Sunday evening in the owner's week, not UTC's", () => {
     // 23:30 UTC on Sunday the 6th is 19:30 Sunday in Toronto -- but the UTC
     // date has not rolled over yet, so this is the firing that should count.
-    expect(jobs(RETRO_CRON, "2026-09-06T23:30:00.000Z")).toEqual(["retro"]);
+    expect(jobs(NIGHT_CRON, "2026-09-06T23:30:00.000Z")).toEqual(["retro", "backup"]);
   });
 
-  it("does not go out on a Saturday", () => {
-    expect(jobs(RETRO_CRON, "2026-09-05T23:30:00.000Z")).toEqual([]);
+  it("does not send the retro on Saturday while still starting that night's backup", () => {
+    expect(jobs(NIGHT_CRON, "2026-09-05T23:30:00.000Z")).toEqual(["backup"]);
   });
 
   it("does not go out twice when the second firing is already Monday in UTC", () => {
     // 00:30 UTC Monday is 20:30 Sunday in Toronto. That is the wrong local
     // hour, so it must be discarded -- otherwise the retro sends twice in
     // daylight time.
-    expect(jobs(RETRO_CRON, "2026-09-07T00:30:00.000Z")).toEqual([]);
+    expect(jobs(NIGHT_CRON, "2026-09-07T00:30:00.000Z")).toEqual([]);
   });
 
   it("goes out from the firing an hour later in winter than in summer", () => {
@@ -133,7 +132,8 @@ describe("the Sunday retro", () => {
         `${sunday}T00:30:00.000Z`,
         `${sunday}T23:30:00.000Z`,
         `${monday}T00:30:00.000Z`,
-      ].filter((instant) => routeCron(RETRO_CRON, new Date(instant), TORONTO).length > 0);
+      ].filter((instant) => routeCron(NIGHT_CRON, new Date(instant), TORONTO)
+        .some((work) => work.job === "retro"));
 
     // In daylight time 23:30 UTC Sunday is 19:30 Sunday local.
     expect(firedAt("2026-07-11", "2026-07-12", "2026-07-13")).toEqual([
@@ -144,6 +144,23 @@ describe("the Sunday retro", () => {
     expect(firedAt("2026-12-12", "2026-12-13", "2026-12-14")).toEqual([
       "2026-12-14T00:30:00.000Z",
     ]);
+  });
+});
+
+describe("the nightly memory backup", () => {
+  it("starts from the 23:30 UTC firing in daylight time", () => {
+    expect(jobs(NIGHT_CRON, "2026-07-15T23:30:00.000Z")).toEqual(["backup"]);
+    expect(jobs(NIGHT_CRON, "2026-07-16T00:30:00.000Z")).toEqual([]);
+  });
+
+  it("starts from the 00:30 UTC firing in standard time", () => {
+    expect(jobs(NIGHT_CRON, "2026-12-13T23:30:00.000Z")).toEqual([]);
+    expect(jobs(NIGHT_CRON, "2026-12-14T00:30:00.000Z")).toEqual(["retro", "backup"]);
+  });
+
+  it("keys the winter firing to the Toronto date for an idempotent rerun", () => {
+    const work = routeCron(NIGHT_CRON, new Date("2026-12-14T00:30:41.000Z"), TORONTO);
+    expect(work.find((item) => item.job === "backup")?.runKey).toBe("2026-12-13");
   });
 });
 

@@ -30,6 +30,7 @@ import schoolObservationsSql from "../../src/persistence/migrations/0027_school_
 import guestGrantNoticeDrainSql from "../../src/persistence/migrations/0028_guest_grant_notice_drain.sql?raw";
 import universityApplicationDetailsSql from "../../src/persistence/migrations/0029_university_application_details.sql?raw";
 import studyCoachWeakSpotsSql from "../../src/persistence/migrations/0030_study_coach_weak_spots.sql?raw";
+import memoryBackupSql from "../../src/persistence/migrations/0031_memory_backup.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
@@ -48,6 +49,7 @@ let schoolObservationsMigrated: Promise<void> | undefined;
 let guestGrantNoticeDrainMigrated: Promise<void> | undefined;
 let universityApplicationDetailsMigrated: Promise<void> | undefined;
 let studyCoachWeakSpotsMigrated: Promise<void> | undefined;
+let memoryBackupMigrated: Promise<void> | undefined;
 
 export { splitMigration };
 
@@ -239,6 +241,33 @@ export async function applyStudyCoachWeakSpotsMigration(): Promise<void> {
     { name: "0030_study_coach_weak_spots.sql", queries: splitMigration(studyCoachWeakSpotsSql) },
   ]);
   await studyCoachWeakSpotsMigrated;
+}
+
+/** Applies durable custom-backup cuts, progress, verification and alert claims. */
+export async function applyMemoryBackupMigration(): Promise<void> {
+  await applyStudyCoachWeakSpotsMigration();
+  memoryBackupMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0031_memory_backup.sql", queries: splitMigration(memoryBackupSql) },
+  ]);
+  await memoryBackupMigrated;
+}
+
+/** Test-only reset that preserves and restores every production backup guard. */
+export async function clearMemoryBackupDataForTest(): Promise<void> {
+  await applyMemoryBackupMigration();
+  const guards = await env.DB.prepare(`SELECT name, sql FROM sqlite_schema
+    WHERE type = 'trigger' AND name LIKE 'memory_backup_%'`)
+    .all<{ name: string; sql: string }>();
+  for (const guard of guards.results) await env.DB.prepare(`DROP TRIGGER IF EXISTS ${guard.name}`).run();
+  try {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM memory_backup_alerts"),
+      env.DB.prepare("DELETE FROM memory_backup_objects"),
+      env.DB.prepare("DELETE FROM memory_backup_runs"),
+    ]);
+  } finally {
+    for (const guard of guards.results) await env.DB.prepare(guard.sql).run();
+  }
 }
 
 /** Test-only reset for the singleton drain checkpoint. */
