@@ -74,7 +74,8 @@ describe("remote D1 migration trigger syntax", () => {
   });
 
   it.each(remoteD1Migrations)("rejects CASE-wrapped RAISE statements in $name", ({ sql }) => {
-    // Remote D1 accepts plain CASE ... END value expressions inside triggers; only CASE-wrapped RAISE is rejected.
+    // Remote D1 accepts plain CASE ... END value expressions inside triggers.
+    // Only the statement form SELECT CASE ... RAISE( is rejected.
     expect(sql).not.toMatch(/\bSELECT\s+CASE\b[^;]*\bRAISE\s*\(/iu);
   });
 

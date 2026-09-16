@@ -1,4 +1,5 @@
 import { applyD1Migrations, env } from "cloudflare:test";
+import { splitMigration } from "../../../../scripts/split-migration.mjs";
 import foundationSql from "../../src/persistence/migrations/0001_foundation.sql?raw";
 import foundationHardeningSql from "../../src/persistence/migrations/0002_foundation_hardening.sql?raw";
 import callingSql from "../../src/persistence/migrations/0003_calling.sql?raw";
@@ -42,30 +43,7 @@ let archiveLiteralHistoryMigrated: Promise<void> | undefined;
 let schoolObservationsMigrated: Promise<void> | undefined;
 let guestGrantNoticeDrainMigrated: Promise<void> | undefined;
 
-/**
- * Split a migration into the statements D1 applies one at a time.
- *
- * Triggers are lifted out first because their bodies contain the semicolons
- * this otherwise splits on. Any comment lines directly above a trigger are
- * lifted with it: left behind, they would be a fragment that no longer
- * resolves to the trigger marker, and the trigger would be applied as its own
- * literal text.
- *
- * Semicolons inside comments elsewhere still cut a statement in half, which
- * surfaces as `incomplete input` from D1. Migrations avoid them.
- */
-export function splitMigration(sql: string): string[] {
-  const triggers: string[] = [];
-  const statements = sql.replace(/(?:^[^\S\n]*--[^\n]*\n)*CREATE TRIGGER\b[\s\S]*?\nEND;/gimu, (trigger) => {
-    const marker = `__JARVIS_TRIGGER_${triggers.length}__`;
-    triggers.push(trigger.slice(0, -1));
-    return `${marker};`;
-  });
-  return statements.split(";").map((query) => query.trim()).filter(Boolean).map((query) => {
-    const marker = /^__JARVIS_TRIGGER_(\d+)__$/u.exec(query);
-    return marker === null ? query : (triggers[Number(marker[1])] ?? query);
-  });
-}
+export { splitMigration };
 
 export const voiceAccessBaseMigrations = Object.freeze([
   { name: "0001_foundation.sql", queries: splitMigration(foundationSql) },
