@@ -9,7 +9,7 @@ import {
   CONVERSATION_EVENT_SOURCE,
 } from "../conversation/conversation-repository.js";
 import {
-  snapshotModelAdapterStreamInput,
+  snapshotTelegramModelAdapterStreamInput,
   type ModelAdapter,
   type ModelAdapterStreamInput,
   type ModelToken,
@@ -40,6 +40,10 @@ const OWNER_TURN_FIELDS = new Set([
 ]);
 const HISTORY_PAYLOAD_FIELDS = new Set([
   "schemaCode", "channelCode", "sensitivityCode", "historyEligible", "text",
+]);
+const HISTORY_PAYLOAD_WITH_OWNER_MARKER_FIELDS = new Set([
+  ...HISTORY_PAYLOAD_FIELDS,
+  "directOwnerText",
 ]);
 const HIDDEN_TEXT = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/u;
 const encoder = new TextEncoder();
@@ -91,6 +95,18 @@ function exactRecord(value: unknown, fields: ReadonlySet<string>, error: string)
     captured[field] = descriptor.value;
   }
   return captured;
+}
+
+function historyPayload(value: unknown, error: string): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new TypeError(error);
+  const fields = Object.hasOwn(value, "directOwnerText")
+    ? HISTORY_PAYLOAD_WITH_OWNER_MARKER_FIELDS
+    : HISTORY_PAYLOAD_FIELDS;
+  const payload = exactRecord(value, fields, error);
+  if (Object.hasOwn(payload, "directOwnerText") && typeof payload.directOwnerText !== "boolean") {
+    throw new TypeError(error);
+  }
+  return payload;
 }
 
 function safeText(value: unknown, maximumBytes: number, error: string): string {
@@ -196,7 +212,7 @@ export class TelegramMemoryControlModelAdapter implements ModelAdapter {
   }
 
   stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
-    return this.streamCaptured(snapshotModelAdapterStreamInput(input));
+    return this.streamCaptured(snapshotTelegramModelAdapterStreamInput(input));
   }
 
   private async *streamCaptured(input: Readonly<ModelAdapterStreamInput>): AsyncIterable<ModelToken> {
@@ -295,7 +311,7 @@ export class TelegramMemoryControlModelAdapter implements ModelAdapter {
     let envelope: EventEnvelope;
     try { envelope = await validateEnvelope(decoded); }
     catch { throw new MemoryRepositoryError("memory_corrupt"); }
-    const payload = exactRecord(envelope.payload, HISTORY_PAYLOAD_FIELDS, "telegram_memory_owner_turn_invalid");
+    const payload = historyPayload(envelope.payload, "telegram_memory_owner_turn_invalid");
     const checked = redactor.redactText(input.userText);
     if (envelope.eventId !== eventId || envelope.eventType !== row.event_type
       || envelope.source !== row.source || envelope.subjectId !== principalId

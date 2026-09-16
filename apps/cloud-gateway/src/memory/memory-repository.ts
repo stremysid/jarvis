@@ -1721,12 +1721,16 @@ export class MemoryRepository {
       || envelope.payload === null || typeof envelope.payload !== "object"
       || Array.isArray(envelope.payload)) refuse();
     const payload = envelope.payload;
-    const payloadKeys = new Set(Object.keys(payload));
-    if (payloadKeys.size !== 5
-      || ["schemaCode", "channelCode", "sensitivityCode", "historyEligible", "text"]
-        .some((field) => !payloadKeys.has(field))
+    const payloadKeys = Reflect.ownKeys(payload);
+    const allowedPayloadFields = new Set([
+      "schemaCode", "channelCode", "sensitivityCode", "historyEligible", "text",
+      ...(Object.hasOwn(payload, "directOwnerText") ? ["directOwnerText"] : []),
+    ]);
+    if (payloadKeys.length !== allowedPayloadFields.size
+      || payloadKeys.some((field) => typeof field !== "string" || !allowedPayloadFields.has(field))
       || payload.schemaCode !== 1 || payload.sensitivityCode !== 1
-      || payload.historyEligible !== true) refuse();
+      || payload.historyEligible !== true
+      || Object.hasOwn(payload, "directOwnerText") && typeof payload.directOwnerText !== "boolean") refuse();
     return safeRowText(payload.text, 32_768);
   }
 

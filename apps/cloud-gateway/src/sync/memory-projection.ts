@@ -55,6 +55,10 @@ const SOURCE_FIELDS = new Set(["eventId", "eventSequence", "excerpt"]);
 const HISTORY_PAYLOAD_FIELDS = new Set([
   "schemaCode", "channelCode", "sensitivityCode", "historyEligible", "text",
 ]);
+const HISTORY_PAYLOAD_WITH_OWNER_MARKER_FIELDS = new Set([
+  ...HISTORY_PAYLOAD_FIELDS,
+  "directOwnerText",
+]);
 const ORIGINS = new Set([
   "authenticated_first_person", "deterministic_observation", "model", "third_party",
 ]);
@@ -112,6 +116,18 @@ function exactRecord(value: unknown, fields: ReadonlySet<string>, code: string):
     record[field] = descriptor.value;
   }
   return record;
+}
+
+function historyPayload(value: unknown): Record<string, unknown> {
+  const fields = value !== null && typeof value === "object" && !Array.isArray(value)
+    && Object.hasOwn(value, "directOwnerText")
+    ? HISTORY_PAYLOAD_WITH_OWNER_MARKER_FIELDS
+    : HISTORY_PAYLOAD_FIELDS;
+  const payload = exactRecord(value, fields, "memory_projection_source_invalid");
+  if (Object.hasOwn(payload, "directOwnerText") && typeof payload.directOwnerText !== "boolean") {
+    throw new TypeError("memory_projection_source_invalid");
+  }
+  return payload;
 }
 
 function text(value: unknown, maximumBytes: number, code: string, singleLine = false): string {
@@ -272,7 +288,7 @@ async function requireFactIdentity(principalId: string, fact: MemoryFactProjecti
   if (!checked.ok || checked.text !== fact.text) throw new ProjectionContentRejectedError("memory_projection_redaction_invalid");
 }
 
-function sourceText(envelope: EventEnvelope): string {
+export function projectionSourceText(envelope: EventEnvelope): string {
   if (envelope.eventType !== "conversation.user_committed"
     && envelope.eventType !== "conversation.assistant_delivered"
     || envelope.source !== CONVERSATION_EVENT_SOURCE
@@ -280,7 +296,7 @@ function sourceText(envelope: EventEnvelope): string {
     throw new ProjectionContentRejectedError("memory_projection_source_invalid");
   }
   let payload: Record<string, unknown>;
-  try { payload = exactRecord(envelope.payload, HISTORY_PAYLOAD_FIELDS, "memory_projection_source_invalid"); }
+  try { payload = historyPayload(envelope.payload); }
   catch { throw new ProjectionContentRejectedError("memory_projection_source_invalid"); }
   if (payload.schemaCode !== 1 || payload.sensitivityCode !== 1 || payload.historyEligible !== true
     || envelope.eventType === "conversation.assistant_delivered" && payload.channelCode !== 2
@@ -314,7 +330,7 @@ async function verifyPageSources(
       }
       const envelope = await validateEnvelope(event.envelope);
       if (event.eventSequence !== source.eventSequence || envelope.eventId !== source.eventId
-        || envelope.subjectId !== principalId || !sourceText(envelope).startsWith(source.excerpt)) {
+        || envelope.subjectId !== principalId || !projectionSourceText(envelope).startsWith(source.excerpt)) {
         throw new ProjectionContentRejectedError("memory_projection_source_invalid");
       }
     }

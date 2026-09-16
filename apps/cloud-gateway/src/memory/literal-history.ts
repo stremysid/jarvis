@@ -17,6 +17,10 @@ const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const HISTORY_PAYLOAD_FIELDS = new Set([
   "schemaCode", "channelCode", "sensitivityCode", "historyEligible", "text",
 ]);
+const HISTORY_PAYLOAD_WITH_OWNER_MARKER_FIELDS = new Set([
+  ...HISTORY_PAYLOAD_FIELDS,
+  "directOwnerText",
+]);
 const MAX_QUERY_BYTES = 1_024;
 const MAX_EVENT_TEXT_BYTES = 32_768;
 const MAX_FTS_TERMS = 16;
@@ -197,6 +201,7 @@ interface HistoryEvent {
   readonly envelopeHash: Sha256Hex;
   readonly occurredAt: string;
   readonly channel: MemorySourceChannel;
+  readonly speaker: "user" | "assistant";
   readonly text: string;
   readonly textBytes: number;
 }
@@ -324,6 +329,16 @@ function exactDataRecord(value: unknown, fields: ReadonlySet<string>): Record<st
   return captured;
 }
 
+function historyPayload(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) corrupt();
+  const fields = Object.hasOwn(value, "directOwnerText")
+    ? HISTORY_PAYLOAD_WITH_OWNER_MARKER_FIELDS
+    : HISTORY_PAYLOAD_FIELDS;
+  const payload = exactDataRecord(value, fields);
+  if (Object.hasOwn(payload, "directOwnerText") && typeof payload.directOwnerText !== "boolean") corrupt();
+  return payload;
+}
+
 function foldTerm(value: string): string {
   return value.normalize("NFD").replace(/\p{M}+/gu, "").toLowerCase();
 }
@@ -397,7 +412,7 @@ async function historyEvent(event: AppendedEvent, principalId: string): Promise<
     || envelope.eventType !== "conversation.user_committed"
       && envelope.eventType !== "conversation.assistant_delivered") return null;
   if (envelope.source !== "conversation" || envelope.producerVersion !== "conversation-v1") corrupt();
-  const payload = exactDataRecord(envelope.payload, HISTORY_PAYLOAD_FIELDS);
+  const payload = historyPayload(envelope.payload);
   if (payload.schemaCode !== 1 || payload.sensitivityCode !== 1 || payload.historyEligible !== true) corrupt();
   const channel = sourceChannel(envelope.eventType, payload.channelCode);
   const text = rowText(payload.text, MAX_EVENT_TEXT_BYTES);
@@ -410,6 +425,7 @@ async function historyEvent(event: AppendedEvent, principalId: string): Promise<
     envelopeHash: await sha256Hex(canonicalJson(envelope)),
     occurredAt: envelope.occurredAt,
     channel,
+    speaker: envelope.eventType === "conversation.assistant_delivered" ? "assistant" : "user",
     text,
     textBytes: encoder.encode(text).byteLength,
   });
@@ -520,6 +536,7 @@ export class LiteralHistoryService {
         const expectedTextHash = rowHash(row.content_hash);
         const event = await this.readHistoryEvent(principalId, sequence);
         if (event === null || await sha256Hex(event.text) !== expectedTextHash) corrupt();
+        if (event.speaker === "assistant") continue;
         const span = matchSpan(event.text, terms.folded);
         if (span === null) corrupt();
         const provenance = await this.readProvenance(principalId, event);
@@ -666,7 +683,8 @@ export class LiteralHistoryService {
           if (event === null) continue;
           budget.textBytesExamined += event.textBytes;
           if (budget.textBytesExamined > maxTextBytes) corrupt();
-          if (!this.isSuppressed(event, suppressions) && matchSpan(event.text, terms.folded) !== null) {
+          if (event.speaker === "user" && !this.isSuppressed(event, suppressions)
+            && matchSpan(event.text, terms.folded) !== null) {
             candidates.push(event);
           }
         }
