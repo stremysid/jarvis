@@ -1,0 +1,106 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr40",
+ "branch": "cb8941d",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0031_memory_backup.sql",
+   "from": "CREATE TRIGGER memory_backup_runs_insert_guard\n",
+   "to": "CREATE TRIGGER memory_backup_runs_insert_guard\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts",
+    "apps/cloud-gateway/test/backup/memory-backup.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_backup_runs_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0031_memory_backup.sql",
+   "from": "CREATE TRIGGER memory_backup_runs_insert_guard\nBEFORE INSERT ON memory_backup_runs\nBEGIN\n  SELECT RAISE(ABORT, 'memory_backup_run_initial_state_invalid') WHERE\n    NEW.status != 'running'\n    OR NEW.current_table_index != 0\n    OR NEW.cursor_key IS NOT NULL\n    OR NEW.next_object_number != 0\n    OR NEW.verified_object_count != 0\n    OR NEW.lease_id IS NOT NULL\n    OR NEW.lease_expires_at IS NOT NULL\n    OR NEW.manifest_object_key IS NOT NULL\n    OR NEW.manifest_sha256 IS NOT NULL\n    OR NEW.failure_code IS NOT NULL\n    OR NEW.verified_at IS NOT NULL\n    OR NEW.abandoned_at IS NOT NULL\n    OR NEW.pruned_at IS NOT NULL\n    OR NEW.updated_at != NEW.started_at\n    OR EXISTS (SELECT 1 FROM memory_backup_runs WHERE run_id = NEW.run_id OR run_date = NEW.run_date);\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts",
+    "apps/cloud-gateway/test/backup/memory-backup.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_backup_runs_update_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0031_memory_backup.sql",
+   "from": "CREATE TRIGGER memory_backup_runs_update_guard\nBEFORE UPDATE ON memory_backup_runs\nBEGIN\n  SELECT RAISE(ABORT, 'memory_backup_run_transition_invalid') WHERE\n    NEW.run_date != OLD.run_date\n    OR NEW.run_id != OLD.run_id\n    OR NEW.schema_version != OLD.schema_version\n    OR NEW.marks_json != OLD.marks_json\n    OR NEW.started_at != OLD.started_at\n    OR NEW.updated_at < OLD.updated_at\n    OR NOT (\n      OLD.status = 'running' AND NEW.status = 'running' AND (\n        OLD.lease_id IS NULL\n          AND NEW.lease_id IS NOT NULL\n          AND NEW.lease_expires_at > NEW.updated_at\n          AND NEW.current_table_index = OLD.current_table_index\n          AND NEW.cursor_key IS OLD.cursor_key\n          AND NEW.next_object_number = OLD.next_object_number\n          AND NEW.verified_object_count = OLD.verified_object_count\n        OR OLD.lease_id IS NOT NULL\n          AND OLD.lease_expires_at <= NEW.updated_at\n          AND NEW.lease_id IS NOT NULL\n          AND NEW.lease_id != OLD.lease_id\n          AND NEW.lease_expires_at > NEW.updated_at\n          AND NEW.current_table_index = OLD.current_table_index\n          AND NEW.cursor_key IS OLD.cursor_key\n          AND NEW.next_object_number = OLD.next_object_number\n          AND NEW.verified_object_count = OLD.verified_object_count\n        OR OLD.lease_id IS NOT NULL\n          AND NEW.lease_id IS NULL\n          AND (\n            OLD.current_table_index < 7\n              AND NEW.current_table_index = OLD.current_table_index\n              AND NEW.cursor_key IS NOT NULL\n              AND (OLD.cursor_key IS NULL OR NEW.cursor_key > OLD.cursor_key)\n              AND NEW.next_object_number = OLD.next_object_number + 1\n              AND NEW.verified_object_count = OLD.verified_object_count\n              AND EXISTS (\n                SELECT 1 FROM memory_backup_objects object\n                WHERE object.run_id = OLD.run_id\n                  AND object.object_number = OLD.next_object_number\n                  AND object.last_key = NEW.cursor_key\n              )\n            OR OLD.current_table_index < 7\n              AND NEW.current_table_index = OLD.current_table_index + 1\n              AND NEW.cursor_key IS NULL\n              AND NEW.next_object_number = OLD.next_object_number\n              AND NEW.verified_object_count = OLD.verified_object_count\n            OR OLD.current_table_index = 7\n              AND NEW.current_table_index = 7\n              AND NEW.cursor_key IS NULL\n              AND NEW.next_object_number = OLD.next_object_number\n              AND NEW.verified_object_count = OLD.verified_object_count + 1\n              AND EXISTS (\n                SELECT 1 FROM memory_backup_objects object\n                WHERE object.run_id = OLD.run_id\n                  AND object.object_number = OLD.verified_object_count\n              )\n          )\n      )\n      OR OLD.status = 'running' AND OLD.lease_id IS NOT NULL AND NEW.status = 'failed'\n        AND NEW.lease_id IS NULL\n        AND NEW.current_table_index = OLD.current_table_index\n        AND NEW.cursor_key IS OLD.cursor_key\n        AND NEW.next_object_number = OLD.next_object_number\n        AND NEW.verified_object_count = OLD.verified_object_count\n      OR OLD.status = 'running' AND OLD.lease_id IS NOT NULL AND NEW.status = 'verified'\n        AND NEW.lease_id IS NULL\n        AND OLD.current_table_index = 7\n        AND NEW.current_table_index = 7\n        AND NEW.cursor_key IS NULL\n        AND NEW.next_object_number = OLD.next_object_number\n        AND NEW.verified_object_count = NEW.next_object_number\n      OR OLD.status = 'failed' AND NEW.status = 'abandoned'\n        AND NEW.current_table_index = OLD.current_table_index\n        AND NEW.cursor_key IS OLD.cursor_key\n        AND NEW.next_object_number = OLD.next_object_number\n        AND NEW.verified_object_count = OLD.verified_object_count\n        AND NEW.failure_code = OLD.failure_code\n      OR OLD.status = 'verified' AND NEW.status = 'pruned'\n        AND NEW.current_table_index = OLD.current_table_index\n        AND NEW.cursor_key IS OLD.cursor_key\n        AND NEW.next_object_number = OLD.next_object_number\n        AND NEW.verified_object_count = OLD.verified_object_count\n        AND NEW.manifest_object_key = OLD.manifest_object_key\n        AND NEW.manifest_sha256 = OLD.manifest_sha256\n        AND NEW.verified_at = OLD.verified_at\n    );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts",
+    "apps/cloud-gateway/test/backup/memory-backup.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_backup_runs_delete_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0031_memory_backup.sql",
+   "from": "CREATE TRIGGER memory_backup_runs_delete_guard\nBEFORE DELETE ON memory_backup_runs\nBEGIN\n  SELECT RAISE(ABORT, 'memory_backup_run_delete_forbidden') WHERE 1 = 1;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts",
+    "apps/cloud-gateway/test/backup/memory-backup.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_backup_objects_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0031_memory_backup.sql",
+   "from": "CREATE TRIGGER memory_backup_objects_insert_guard\nBEFORE INSERT ON memory_backup_objects\nBEGIN\n  SELECT RAISE(ABORT, 'memory_backup_object_insert_invalid') WHERE\n    EXISTS (\n      SELECT 1 FROM memory_backup_objects object\n      WHERE object.run_id = NEW.run_id\n        AND (object.object_number = NEW.object_number OR object.object_key = NEW.object_key)\n    )\n    OR NOT EXISTS (\n      SELECT 1 FROM memory_backup_runs run\n      WHERE run.run_id = NEW.run_id\n        AND run.status = 'running'\n        AND run.lease_id IS NOT NULL\n        AND run.current_table_index < 7\n        AND run.next_object_number = NEW.object_number\n        AND run.schema_version = NEW.schema_version\n        AND NEW.table_name = CASE run.current_table_index\n          WHEN 0 THEN 'events'\n          WHEN 1 THEN 'memory_item_transitions'\n          WHEN 2 THEN 'memory_event_suppressions'\n          WHEN 3 THEN 'memory_event_suppression_lifts'\n          WHEN 4 THEN 'memory_topic_events'\n          WHEN 5 THEN 'memory_item_placement_events'\n          WHEN 6 THEN 'memory_cost_ledger'\n        END\n    );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts",
+    "apps/cloud-gateway/test/backup/memory-backup.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_backup_objects_update_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0031_memory_backup.sql",
+   "from": "CREATE TRIGGER memory_backup_objects_update_guard\nBEFORE UPDATE ON memory_backup_objects\nBEGIN\n  SELECT RAISE(ABORT, 'memory_backup_object_update_forbidden') WHERE 1 = 1;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts",
+    "apps/cloud-gateway/test/backup/memory-backup.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_backup_objects_delete_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0031_memory_backup.sql",
+   "from": "CREATE TRIGGER memory_backup_objects_delete_guard\nBEFORE DELETE ON memory_backup_objects\nBEGIN\n  SELECT RAISE(ABORT, 'memory_backup_object_delete_forbidden') WHERE 1 = 1;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts",
+    "apps/cloud-gateway/test/backup/memory-backup.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_backup_alerts_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0031_memory_backup.sql",
+   "from": "CREATE TRIGGER memory_backup_alerts_insert_guard\nBEFORE INSERT ON memory_backup_alerts\nBEGIN\n  SELECT RAISE(ABORT, 'memory_backup_alert_insert_conflict') WHERE EXISTS (\n    SELECT 1 FROM memory_backup_alerts alert WHERE alert.local_date = NEW.local_date\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts",
+    "apps/cloud-gateway/test/backup/memory-backup.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_backup_alerts_update_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0031_memory_backup.sql",
+   "from": "CREATE TRIGGER memory_backup_alerts_update_guard\nBEFORE UPDATE ON memory_backup_alerts\nBEGIN\n  SELECT RAISE(ABORT, 'memory_backup_alert_update_forbidden') WHERE 1 = 1;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts",
+    "apps/cloud-gateway/test/backup/memory-backup.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_backup_alerts_delete_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0031_memory_backup.sql",
+   "from": "CREATE TRIGGER memory_backup_alerts_delete_guard\nBEFORE DELETE ON memory_backup_alerts\nBEGIN\n  SELECT RAISE(ABORT, 'memory_backup_alert_delete_forbidden') WHERE 1 = 1;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/memory-backup-migration.test.ts",
+    "apps/cloud-gateway/test/backup/memory-backup.test.ts"
+   ]
+  }
+ ]
+}

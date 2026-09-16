@@ -1,0 +1,124 @@
+
+ RUN  v4.1.11 C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-jarvis-code-review-0b1695/f3f2b419-52e6-4c42-b275-f2c7a15d27ac/scratchpad/pr80/agent/tree
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV1 default 16-row pages: a production-sized events range verifies
+ADV1 {"outcome":{"outcome":"failed","code":"memory_backup_operation_failed"},"steps":7,"run":{"status":"failed","failure_code":"memory_backup_operation_failed","cursor_key":"96","next_object_number":6}}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV1b the exact object receipt for rows 97..112 is accepted by 0031
+ADV1b Error: D1_ERROR: CHECK constraint failed: first_key <= last_key: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_CHECK)
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV2 one-row pages crossing sequence 9 -> 10 verify
+ADV2 {"outcome":{"outcome":"failed","code":"memory_backup_operation_failed"},"steps":10,"run":{"status":"failed","failure_code":"memory_backup_operation_failed","cursor_key":"9","next_object_number":9}}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV4 a D1 error after latest.json is written leaves latest pointing at a set cleanup later deletes
+ADV4 {"first":{"outcome":{"outcome":"failed","code":"memory_backup_operation_failed"},"steps":10},"notices":["Last night's memory backup didn't complete; Jarvis will retry tonight."],"statusAfterFirst":{"status":"failed"},"latestKey":"memory-backup/sets/2026-09-16/01m2p8wh606vmd4qazt9gg6y1x/manifest.json","manifestExistedBefore":true,"second":{"outcome":"pending","detail":"memory backup export pending"},"latestUnchanged":true,"manifestExistsAfter":false}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV5 INSERT OR REPLACE with another run's object key cannot erase that run's receipt
+ADV5 {"error":"null","original":"01m2p8wh606vmd4qazt9gg6y2c","remaining":[{"run_id":"01k5nm00000000000000000009"}]}
+
+ ❯ |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts (6 tests | 5 failed) 3544ms
+     × ADV1 default 16-row pages: a production-sized events range verifies 1240ms
+     × ADV1b the exact object receipt for rows 97..112 is accepted by 0031 172ms
+     × ADV2 one-row pages crossing sequence 9 -> 10 verify 390ms
+     × ADV4 a D1 error after latest.json is written leaves latest pointing at a set cleanup later deletes 770ms
+     × ADV5 INSERT OR REPLACE with another run's object key cannot erase that run's receipt 280ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV1 default 16-row pages: a production-sized events range verifies
+AssertionError: expected 'failed' to be 'verified' // Object.is equality
+
+Expected: "verified"
+Received: "failed"
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80.test.ts:60:29
+     58|     ).bind(runDate).first();
+     59|     console.log("ADV1", JSON.stringify({ outcome, steps, run }));
+     60|     expect(outcome.outcome).toBe("verified");
+       |                             ^
+     61|   }, 120_000);
+     62|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV1b the exact object receipt for rows 97..112 is accepted by 0031
+AssertionError: expected Error: D1_ERROR: CHECK constraint failed:… to be null
+
+- Expected:
+null
+
++ Received:
+Error {
+  "message": "D1_ERROR: CHECK constraint failed: first_key <= last_key: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_CHECK)",
+  "cause": Error {
+    "message": "CHECK constraint failed: first_key <= last_key: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_CHECK)",
+  },
+}
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80.test.ts:86:19
+     84|     }
+     85|     console.log("ADV1b", String(error));
+     86|     expect(error).toBeNull();
+       |                   ^
+     87|   });
+     88|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV2 one-row pages crossing sequence 9 -> 10 verify
+AssertionError: expected 'failed' to be 'verified' // Object.is equality
+
+Expected: "verified"
+Received: "failed"
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80.test.ts:96:29
+     94|     ).bind(runDate).first();
+     95|     console.log("ADV2", JSON.stringify({ outcome, steps, run }));
+     96|     expect(outcome.outcome).toBe("verified");
+       |                             ^
+     97|   }, 120_000);
+     98|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV4 a D1 error after latest.json is written leaves latest pointing at a set cleanup later deletes
+AssertionError: expected null not to be null
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80.test.ts:140:31
+    138|       manifestExistsAfter: manifestAfter !== null,
+    139|     }));
+    140|     expect(manifestAfter).not.toBeNull();
+       |                               ^
+    141|   }, 120_000);
+    142|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV5 INSERT OR REPLACE with another run's object key cannot erase that run's receipt
+AssertionError: expected [ Array(1) ] to deeply equal [ Array(1) ]
+
+- Expected
++ Received
+
+  [
+    {
+-     "run_id": "01m2p8wh606vmd4qazt9gg6y2c",
++     "run_id": "01k5nm00000000000000000009",
+    },
+  ]
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80.test.ts:179:31
+    177|     console.log("ADV5", JSON.stringify({ error: String(error), origina…
+    178|     void next;
+    179|     expect(remaining.results).toEqual([{ run_id: verifiedObject.run_id…
+       |                               ^
+    180|   }, 120_000);
+    181| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 1 passed (6)
+   Start at  19:24:32
+   Duration  5.85s (transform 879ms, setup 0ms, import 1.62s, tests 3.54s, environment 0ms)
+

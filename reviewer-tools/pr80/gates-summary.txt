@@ -1,0 +1,20 @@
+head cb8941d
+lint rc=0
+typecheck rc=0
+test rc=0
+ Test Files  186 passed (186)
+      Tests  4883 passed (4883)
+=== summary
+SURVIVED  BASE
+KILLED    T-memory_backup_runs_insert_guard
+KILLED    T-memory_backup_runs_update_guard
+KILLED    T-memory_backup_runs_delete_guard
+KILLED    T-memory_backup_objects_insert_guard
+KILLED    T-memory_backup_objects_update_guard
+KILLED    T-memory_backup_objects_delete_guard
+KILLED    T-memory_backup_alerts_insert_guard
+KILLED    T-memory_backup_alerts_update_guard
+KILLED    T-memory_backup_alerts_delete_guard
+back on main, tree clean=true
+(node:32164) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

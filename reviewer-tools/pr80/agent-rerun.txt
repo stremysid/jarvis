@@ -1,0 +1,186 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/backup/adversarial-pr80.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr40
+
+Using secrets defined in process.env
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV1 default 16-row pages: a production-sized events range verifies
+ADV1 {"outcome":{"outcome":"failed","code":"memory_backup_operation_failed"},"steps":7,"run":{"status":"failed","failure_code":"memory_backup_operation_failed","cursor_key":"96","next_object_number":6}}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV1b the exact object receipt for rows 97..112 is accepted by 0031
+ADV1b Error: D1_ERROR: CHECK constraint failed: first_key <= last_key: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_CHECK)
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV2 one-row pages crossing sequence 9 -> 10 verify
+ADV2 {"outcome":{"outcome":"failed","code":"memory_backup_operation_failed"},"steps":10,"run":{"status":"failed","failure_code":"memory_backup_operation_failed","cursor_key":"9","next_object_number":9}}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV4 a D1 error after latest.json is written leaves latest pointing at a set cleanup later deletes
+ADV4 {"first":{"outcome":{"outcome":"failed","code":"memory_backup_operation_failed"},"steps":10},"notices":["Last night's memory backup didn't complete; Jarvis will retry tonight."],"statusAfterFirst":{"status":"failed"},"latestKey":"memory-backup/sets/2026-09-16/01m2p8wh607mcbfdv579d8z1r8/manifest.json","manifestExistedBefore":true,"second":{"outcome":"pending","detail":"memory backup export pending"},"latestUnchanged":true,"manifestExistsAfter":false}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV5 INSERT OR REPLACE with another run's object key cannot erase that run's receipt
+ADV5 {"error":"null","original":"01m2p8wh607mcbfdv579d8z1rq","remaining":[{"run_id":"01k5nm00000000000000000009"}]}
+
+ ❯ |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts (8 tests | 7 failed) 5364ms
+     × ADV1 default 16-row pages: a production-sized events range verifies 1203ms
+     × ADV1b the exact object receipt for rows 97..112 is accepted by 0031 149ms
+     × ADV2 one-row pages crossing sequence 9 -> 10 verify 362ms
+     × ADV4 a D1 error after latest.json is written leaves latest pointing at a set cleanup later deletes 283ms
+     × ADV5 INSERT OR REPLACE with another run's object key cannot erase that run's receipt 268ms
+     × ADV3b throughput steps for 64 events 674ms
+     × ADV6 a retention list error after a verified publish reports failure and alerts 1753ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV1 default 16-row pages: a production-sized events range verifies
+AssertionError: expected 'failed' to be 'verified' // Object.is equality
+
+Expected: "verified"
+Received: "failed"
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80.test.ts:60:29
+     58|     ).bind(runDate).first();
+     59|     console.log("ADV1", JSON.stringify({ outcome, steps, run }));
+     60|     expect(outcome.outcome).toBe("verified");
+       |                             ^
+     61|   }, 120_000);
+     62|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV1b the exact object receipt for rows 97..112 is accepted by 0031
+AssertionError: expected Error: D1_ERROR: CHECK constraint failed:… to be null
+
+- Expected:
+null
+
++ Received:
+Error {
+  "message": "D1_ERROR: CHECK constraint failed: first_key <= last_key: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_CHECK)",
+  "cause": Error {
+    "message": "CHECK constraint failed: first_key <= last_key: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_CHECK)",
+  },
+}
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80.test.ts:86:19
+     84|     }
+     85|     console.log("ADV1b", String(error));
+     86|     expect(error).toBeNull();
+       |                   ^
+     87|   });
+     88|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV2 one-row pages crossing sequence 9 -> 10 verify
+AssertionError: expected 'failed' to be 'verified' // Object.is equality
+
+Expected: "verified"
+Received: "failed"
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80.test.ts:96:29
+     94|     ).bind(runDate).first();
+     95|     console.log("ADV2", JSON.stringify({ outcome, steps, run }));
+     96|     expect(outcome.outcome).toBe("verified");
+       |                             ^
+     97|   }, 120_000);
+     98|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV4 a D1 error after latest.json is written leaves latest pointing at a set cleanup later deletes
+AssertionError: expected null not to be null
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80.test.ts:140:31
+    138|       manifestExistsAfter: manifestAfter !== null,
+    139|     }));
+    140|     expect(manifestAfter).not.toBeNull();
+       |                               ^
+    141|   }, 120_000);
+    142|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV5 INSERT OR REPLACE with another run's object key cannot erase that run's receipt
+AssertionError: expected [ Array(1) ] to deeply equal [ Array(1) ]
+
+- Expected
++ Received
+
+  [
+    {
+-     "run_id": "01m2p8wh607mcbfdv579d8z1rq",
++     "run_id": "01k5nm00000000000000000009",
+    },
+  ]
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80.test.ts:179:31
+    177|     console.log("ADV5", JSON.stringify({ error: String(error), origina…
+    178|     void next;
+    179|     expect(remaining.results).toEqual([{ run_id: verifiedObject.run_id…
+       |                               ^
+    180|   }, 120_000);
+    181| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial extra > ADV3b throughput steps for 64 events
+AssertionError: expected { outcome: 'verified', steps: 16 } to deeply equal { outcome: 'verified', steps: -1 }
+
+- Expected
++ Received
+
+  {
+    "outcome": "verified",
+-   "steps": -1,
++   "steps": 16,
+  }
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80.test.ts:193:49
+    191|     await appendEvents(64);
+    192|     const { outcome, steps } = await drive(service(), runDate, 200);
+    193|     expect({ outcome: outcome.outcome, steps }).toEqual({ outcome: "ve…
+       |                                                 ^
+    194|   }, 120_000);
+    195|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial extra > ADV6 a retention list error after a verified publish reports failure and alerts
+AssertionError: expected { result: { …(2) }, …(2) } to deeply equal { result: 'show', status: null, …(1) }
+
+- Expected
++ Received
+
+  {
+-   "notices": [],
+-   "result": "show",
+-   "status": null,
++   "notices": [
++     "Last night's memory backup didn't complete; Jarvis will retry tonight.",
++   ],
++   "result": {
++     "outcome": {
++       "code": "memory_backup_cleanup_failed",
++       "outcome": "failed",
++     },
++     "steps": 10,
++   },
++   "status": {
++     "status": "verified",
++   },
+  }
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80.test.ts:215:41
+    213|     const result = await drive(flaky, "2026-09-16", 40);
+    214|     const status = await env.DB.prepare("SELECT status FROM memory_bac…
+    215|     expect({ result, status, notices }).toEqual({ result: "show", stat…
+       |                                         ^
+    216|   }, 300_000);
+    217| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  7 failed | 1 passed (8)
+   Start at  19:29:04
+   Duration  7.50s (transform 783ms, setup 0ms, import 1.52s, tests 5.36s, environment 0ms)
+

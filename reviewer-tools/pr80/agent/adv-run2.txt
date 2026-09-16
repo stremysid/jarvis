@@ -1,0 +1,72 @@
+
+ RUN  v4.1.11 C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-jarvis-code-review-0b1695/f3f2b419-52e6-4c42-b275-f2c7a15d27ac/scratchpad/pr80/agent/tree
+
+ ❯ |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts (8 tests | 2 failed | 6 skipped) 2792ms
+     × ADV3b throughput steps for 64 events 939ms
+     × ADV6 a retention list error after a verified publish reports failure and alerts 1852ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial extra > ADV3b throughput steps for 64 events
+AssertionError: expected { outcome: 'verified', steps: 16 } to deeply equal { outcome: 'verified', steps: -1 }
+
+- Expected
++ Received
+
+  {
+    "outcome": "verified",
+-   "steps": -1,
++   "steps": 16,
+  }
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80.test.ts:193:49
+    191|     await appendEvents(64);
+    192|     const { outcome, steps } = await drive(service(), runDate, 200);
+    193|     expect({ outcome: outcome.outcome, steps }).toEqual({ outcome: "ve…
+       |                                                 ^
+    194|   }, 120_000);
+    195|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial extra > ADV6 a retention list error after a verified publish reports failure and alerts
+AssertionError: expected { result: { …(2) }, …(2) } to deeply equal { result: 'show', status: null, …(1) }
+
+- Expected
++ Received
+
+  {
+-   "notices": [],
+-   "result": "show",
+-   "status": null,
++   "notices": [
++     "Last night's memory backup didn't complete; Jarvis will retry tonight.",
++   ],
++   "result": {
++     "outcome": {
++       "code": "memory_backup_cleanup_failed",
++       "outcome": "failed",
++     },
++     "steps": 10,
++   },
++   "status": {
++     "status": "verified",
++   },
+  }
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80.test.ts:215:41
+    213|     const result = await drive(flaky, "2026-09-16", 40);
+    214|     const status = await env.DB.prepare("SELECT status FROM memory_bac…
+    215|     expect({ result, status, notices }).toEqual({ result: "show", stat…
+       |                                         ^
+    216|   }, 300_000);
+    217| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 6 skipped (8)
+   Start at  19:25:12
+   Duration  5.30s (transform 944ms, setup 0ms, import 1.73s, tests 2.79s, environment 0ms)
+
