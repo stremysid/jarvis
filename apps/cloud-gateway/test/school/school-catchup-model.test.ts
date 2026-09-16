@@ -569,7 +569,8 @@ describe("SchoolCatchupModelAdapter", () => {
     expect(model.requests[0]?.userText).toContain("never from conversation_context_json");
   });
 
-  it("falls back to the ordinary reply with a fixed gap line when D1 rejects an engaged plan", async () => {
+  it("falls back with a coded warning when persistence rejects an engaged plan", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const model = new SequenceModel([JSON.stringify({
       engaged: true,
       reply: "I updated the plan.",
@@ -587,7 +588,7 @@ describe("SchoolCatchupModelAdapter", () => {
       model,
       repository: {
         readSnapshot: async () => snapshot(),
-        applyOwnerPlan: async () => { throw new Error("private D1 detail"); },
+        applyOwnerPlan: async () => { throw new TypeError("school_catchup_course_missing_next_action"); },
       },
       redactor: new Redactor(),
       timeZone: "America/Toronto",
@@ -597,11 +598,18 @@ describe("SchoolCatchupModelAdapter", () => {
     const original = input({
       context: [{ sourceEventId: FACT, text: "Earlier conversation", sensitivity: "personal" }],
     });
-    await expect(collect(adapter.stream(original))).resolves.toBe(
-      "I can still help you work through the lesson.\n\nI couldn't update your school plan.",
-    );
-    expect(model.requests).toHaveLength(2);
-    expect(model.requests[1]).toBe(original);
+    try {
+      await expect(collect(adapter.stream(original))).resolves.toBe(
+        "I can still help you work through the lesson.\n\nI couldn't update your school plan.",
+      );
+      expect(model.requests).toHaveLength(2);
+      expect(model.requests[1]).toBe(original);
+      expect(warning).toHaveBeenCalledWith("school_plan_save_failed", {
+        code: "validation:school_catchup_course_missing_next_action",
+      });
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   it("does not release a fallback reply that claims the rejected school update was saved", async () => {
