@@ -12,7 +12,7 @@ import { SchoolCatchupModelAdapter } from "../../src/school/school-catchup-model
 import { SchoolCatchupRepository } from "../../src/school/school-catchup-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { UniversityTrackerRepository } from "../../src/university/university-tracker-repository.js";
-import { applyUniversityTrackerMigration } from "../persistence/migration.js";
+import { applyUniversityApplicationWorkflowMigration } from "../persistence/migration.js";
 
 const NOW = new Date("2026-09-15T16:00:00.000Z");
 const TURN = "01k5fb9pg00000000000000b00" as Ulid;
@@ -32,7 +32,7 @@ class SingleResponseModel implements ModelAdapter {
 }
 
 beforeAll(async () => {
-  await applyUniversityTrackerMigration();
+  await applyUniversityApplicationWorkflowMigration();
 });
 
 describe("university tracker Telegram integration", () => {
@@ -48,6 +48,7 @@ describe("university tracker Telegram integration", () => {
       ) VALUES (?1, ?2, 'telegram', '44119900', 'active', ?3, ?3)`)
         .bind(identityId, principalId, NOW.toISOString()),
     ]);
+    const ownerMessage = "I'm considering Waterloo Computer Science. I heard it needs calculus and English. The date might be January, but I haven't checked the official 2027 page. Also add the entrance scholarship to the checklist.";
     const structuredReply = JSON.stringify({
       schoolEngaged: false,
       universityEngaged: true,
@@ -74,6 +75,19 @@ describe("university tracker Telegram integration", () => {
         }],
         resolveItemIds: [],
       }],
+      applicationUpdates: [{
+        itemRef: "new-item-1",
+        programRef: "new-1",
+        kind: "scholarship",
+        label: "Entrance scholarship",
+        status: "not_started",
+        statusEvidence: ownerMessage,
+        dueDate: {
+          date: null,
+          verification: { state: "unverified", sourceUrl: null, cycle: "2027" },
+          evidence: ownerMessage,
+        },
+      }],
     });
     const baseModel = new SingleResponseModel(structuredReply);
     const redactor = new Redactor();
@@ -90,6 +104,7 @@ describe("university tracker Telegram integration", () => {
         redactor,
         timeZone: "America/Toronto",
         now: () => NOW,
+        ownerPrincipalId: principalId,
       }),
       context: { async retrieve() { return Object.freeze([]); } },
       dispatcher: new DefaultOutboxDispatcher({
@@ -107,7 +122,7 @@ describe("university tracker Telegram integration", () => {
       sessionId: "telegram:university-integration",
       principalId,
       turnId: TURN,
-      text: "I'm considering Waterloo Computer Science. I heard it needs calculus and English. The date might be January, but I haven't checked the official 2027 page.",
+      text: ownerMessage,
       signal: new AbortController().signal,
       channel: "telegram",
       kind: "outbox",
@@ -123,6 +138,13 @@ describe("university tracker Telegram integration", () => {
         verification: { state: "unverified", verifiedAt: null },
         requirements: [{ verification: { state: "unverified", verifiedAt: null } }],
         dates: [{ date: null, verification: { state: "unverified", verifiedAt: null } }],
+        applicationItems: [{
+          kind: "scholarship",
+          label: "Entrance scholarship",
+          status: "not_started",
+          dueDate: null,
+          verification: { state: "unverified", verifiedAt: null },
+        }],
       }],
     });
   });

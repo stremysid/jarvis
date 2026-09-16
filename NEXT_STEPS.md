@@ -46,7 +46,12 @@ day, cited quizzes and flashcards, and direct-owner-only correction and forget.
 Its additive `0023_study_coach.sql` remains unapplied and deliberately does not
 depend on the channel-neutral R2 owner-controls service. Draft
 [PR #52](https://github.com/ksid1229-ops/jarvis/pull/52) independently owns
-`0024_university_application_workflow.sql`. None of these slices
+`0024_university_application_workflow.sql` for per-program application
+checklists, current-owner conversational updates, due-date verification labels,
+and the next unfinished application items in the morning digest. Claude's
+round-3 max review requested changes at `12a7bbf`; implementation `d5f5ede`
+plus current-main merge `f2d5c9f` is ready for max re-review. Both `0023` and
+`0024` remain unapplied candidates. None of these slices
 authorizes OAuth consent, a secret operation, migration, deployment, school or
 university contact, purchase, sign-up, submission or live account access.
 

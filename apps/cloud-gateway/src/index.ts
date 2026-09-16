@@ -248,6 +248,8 @@ function commandContext(env: Env, principalId: string): CommandContext {
         sources: {
           readCatchupActions: async (date) =>
             new SchoolCatchupRepository(env.DB).listActionsForDate(principalId, date),
+          readApplicationItems: async () =>
+            new UniversityTrackerRepository(env.DB).listApplicationItemsByDueDate(principalId),
           claimStudyCheckIn: async (date, weekday, minuteOfDay) => {
             const study = new StudyCoachRepository(env.DB);
             const now = clock.now();
