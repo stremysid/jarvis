@@ -33,6 +33,7 @@ import type { ModelProvider } from "../providers/provider-types.js";
 import { TelegramRestProvider } from "../providers/telegram-provider.js";
 import { ScheduledRunRepository } from "../scheduler/scheduled-run-repository.js";
 import { SchoolCatchupRepository } from "../school/school-catchup-repository.js";
+import { UniversityTrackerRepository } from "../university/university-tracker-repository.js";
 import { StudyCoachRepository } from "../school/study-coach-repository.js";
 import type { JobOutcome, JobTable } from "../scheduler/scheduled-handler.js";
 import { D1GuestGrantNoticeSink } from "../voice/guest-grant-notice.js";
@@ -483,12 +484,14 @@ async function digest(
     now: () => context.clock.now(),
   });
   const school = new SchoolCatchupRepository(context.env.DB);
+  const university = new UniversityTrackerRepository(context.env.DB);
   const study = new StudyCoachRepository(context.env.DB);
   const timeZone = context.env.DIGEST_TIMEZONE ?? "America/Toronto";
 
   const result = await runDigestJob(kind, {
     sources: {
       readCatchupActions: async (date) => school.listActionsForDate(principalId, date),
+      readApplicationItems: async () => university.listApplicationItemsByDueDate(principalId),
       claimStudyCheckIn: async (date, weekday, minuteOfDay) => {
         const now = context.clock.now();
         return study.syncAndClaimDigestCheckIn({ principalId, today: date, weekday, minuteOfDay, now });
