@@ -92,7 +92,7 @@ describe("hourly archival through the Worker entrypoint", () => {
     })]);
   });
 
-  it("composes production distillation and history indexing only when configured", async () => {
+  it("uses a live memory clock even when the scheduled hour is already six minutes old", async () => {
     const principalId = `principal:production-memory:${newUlid()}`;
     const text = "My favourite subject is math.";
     const now = new Date();
@@ -154,7 +154,7 @@ describe("hourly archival through the Worker entrypoint", () => {
     const ctx = createExecutionContext();
     await worker.scheduled(createScheduledController({
       cron: "0 * * * *",
-      scheduledTime: now.getTime(),
+      scheduledTime: now.getTime() - 6 * 60_000,
     }), {
       ...env,
       OWNER_PRINCIPAL_ID: principalId,
@@ -184,6 +184,9 @@ describe("hourly archival through the Worker entrypoint", () => {
     expect(await env.DB.prepare(`SELECT settled_cost_micros FROM memory_runs
       WHERE principal_id = ? AND job = 'distillation'`).bind(principalId)
       .first<number>("settled_cost_micros")).toBeGreaterThan(0);
+    expect(Date.parse(await env.DB.prepare(`SELECT started_at FROM memory_runs
+      WHERE principal_id = ? AND job = 'distillation'`).bind(principalId)
+      .first<string>("started_at") ?? "")).toBeGreaterThan(now.getTime() - 60_000);
     expect(reports).toContainEqual(["scheduled", expect.objectContaining({
       jobs: [expect.objectContaining({
         job: "poll",
@@ -191,5 +194,104 @@ describe("hourly archival through the Worker entrypoint", () => {
         detail: expect.stringMatching(/Memory succeeded.*Memory history complete/u),
       })],
     })]);
+  });
+
+  it("treats empty extraction model settings as unset without throwing out of scheduled", async () => {
+    const ctx = createExecutionContext();
+    await expect(worker.scheduled(createScheduledController({
+      cron: "*/5 * * * *",
+      scheduledTime: Date.now(),
+    }), {
+      ...env,
+      OWNER_PRINCIPAL_ID: `principal:empty-model:${newUlid()}`,
+      DEEPSEEK_API_KEY: "test-deepseek-key",
+      DEEPSEEK_MODEL: "",
+      MEMORY_EXTRACTION_MODEL: "",
+      TELEGRAM_BOT_TOKEN: undefined,
+      GITHUB_TOKEN: undefined,
+    }, ctx)).resolves.toBeUndefined();
+    await waitOnExecutionContext(ctx);
+
+    expect(reports.some((entry) => entry[0] === "scheduled")).toBe(true);
+  });
+
+  it("wires the production owner notice sink used by cap and provider-credit warnings", async () => {
+    const principalId = `principal:production-memory-credit:${newUlid()}`;
+    const now = new Date();
+    const timestamp = now.toISOString();
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO principals (
+        principal_id, principal_type, status, display_name, created_at, updated_at
+      ) VALUES (?, 'human', 'active', 'production memory credit', ?, ?)`)
+        .bind(principalId, timestamp, timestamp),
+      env.DB.prepare(`INSERT INTO channel_identities (
+        identity_id, principal_id, channel, provider_subject, status, verified_at,
+        created_at, enrolled_by_device_id
+      ) VALUES (?, ?, 'telegram', '123456789', 'active', ?, ?, NULL)`)
+        .bind(`identity:production-memory-credit:${newUlid()}`, principalId, timestamp, timestamp),
+    ]);
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.includes("api.deepseek.com")) return new Response(null, { status: 402 });
+      if (url.includes("api.telegram.org")) {
+        return new Response(JSON.stringify({ ok: true, result: { message_id: 901 } }), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error("production_memory_notice_unexpected_request");
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const events = new EventRepository(env.DB);
+    const text = "I prefer tea.";
+    const redacted = new Redactor().redactText(text);
+    if (!redacted.ok) throw new Error("production_memory_notice_redaction_failed");
+    const eventId = newUlid(now);
+    const envelope = await createEnvelope({
+      schemaVersion: "1.0",
+      eventId,
+      eventType: "conversation.user_committed",
+      source: "conversation",
+      subjectId: principalId,
+      occurredAt: timestamp,
+      receivedAt: timestamp,
+      correlationId: newUlid(now),
+      contentType: "application/json",
+      payload: {
+        schemaCode: 1, channelCode: 2, sensitivityCode: 1,
+        historyEligible: true, text: redacted, directOwnerText: true,
+      },
+      producerVersion: "conversation-v1",
+    });
+    await events.append({
+      envelope,
+      scope: "production-memory-credit",
+      key: eventId,
+      requestHash: await sha256Hex(canonicalJson([eventId, text])),
+    });
+    const ctx = createExecutionContext();
+    await worker.scheduled(createScheduledController({
+      cron: "0 * * * *",
+      scheduledTime: now.getTime(),
+    }), {
+      ...env,
+      OWNER_PRINCIPAL_ID: principalId,
+      DEEPSEEK_API_KEY: "test-deepseek-key",
+      MEMORY_EXTRACTION_MODEL: "deepseek-flash",
+      MEMORY_EXTRACTION_MONTHLY_CAP_USD: "5",
+      TELEGRAM_BOT_TOKEN: `123456:${"x".repeat(32)}`,
+      GITHUB_TOKEN: undefined,
+      GOOGLE_CLIENT_ID: undefined,
+      GOOGLE_CLIENT_SECRET: undefined,
+      GOOGLE_REFRESH_TOKEN: undefined,
+      BRIGHTSPACE_ICAL_URL: undefined,
+    }, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    const telegramCall = fetcher.mock.calls.find(([input]) => String(input).includes("api.telegram.org"));
+    expect(telegramCall?.[1]?.body).toContain("provider credit");
+    expect(await env.DB.prepare(`SELECT state FROM capacity_alert_crossings
+      WHERE owner_principal_id = ? AND alert_key LIKE 'memory-extraction:provider-credit:%'`)
+      .bind(principalId).first("state")).toBe("sent");
   });
 });

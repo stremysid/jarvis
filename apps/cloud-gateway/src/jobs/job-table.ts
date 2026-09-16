@@ -64,6 +64,7 @@ import { D1GuestGrantNoticeDrainer, type GuestGrantNoticeDrainOutcome } from "./
 export interface JobEnvironment {
   readonly env: Env;
   readonly clock: { now(): Date };
+  readonly liveClock?: { now(): Date };
   readonly delivery: DigestDelivery;
   readonly fetcher: typeof fetch;
   readonly memoryDistillation?: Readonly<{
@@ -71,6 +72,7 @@ export interface JobEnvironment {
     providerModelId: string;
     prepare?: (principalId: string) => Promise<PreparedMemoryExtractionPrice>;
   }>;
+  readonly memoryDistillationFactory?: () => NonNullable<JobEnvironment["memoryDistillation"]>;
 }
 
 function describe(error: unknown): string {
@@ -85,7 +87,7 @@ const BRIGHTSPACE_ON_DEMAND_JOB = "brightspace_on_demand";
 const BRIGHTSPACE_ON_DEMAND_COOLDOWN_MS = 5 * 60_000;
 const MEMORY_DISTILLATION_STEPS_PER_POLL = 8;
 const MEMORY_DISTILLATION_WALL_CLOCK_BUDGET_MS = 4 * 60_000;
-const MEMORY_DISTILLATION_D1_STATEMENT_ALLOWANCE = 1_000;
+const MEMORY_DISTILLATION_D1_STATEMENT_ALLOWANCE = 3_000;
 const MEMORY_HISTORY_STEPS_PER_POLL = 8;
 const MEMORY_HISTORY_WALL_CLOCK_BUDGET_MS = 4 * 60_000;
 const MEMORY_HISTORY_D1_STATEMENT_ALLOWANCE = 512;
@@ -442,10 +444,18 @@ async function distilMemory(
   context: JobEnvironment,
   archive: ArchivalService,
 ): Promise<string> {
-  const configured = context.memoryDistillation;
+  let configured = context.memoryDistillation;
+  if (configured === undefined && context.memoryDistillationFactory !== undefined) {
+    try {
+      configured = context.memoryDistillationFactory();
+    } catch {
+      return "Memory distillation failed (memory_distillation_configuration_invalid)";
+    }
+  }
   if (configured === undefined) return "Memory distillation not configured";
   const principalId = context.env.OWNER_PRINCIPAL_ID;
   if (principalId === undefined) return "Memory distillation failed (owner_not_configured)";
+  const liveClock = context.liveClock ?? context.clock;
   let priceId: Ulid | undefined;
   let pricePreparationStatements = 0;
   if (configured.prepare !== undefined) {
@@ -471,17 +481,17 @@ async function distilMemory(
     database: context.env.DB,
     events: tiered,
     repository: new MemoryRepository(context.env.DB, {
-      clock: () => context.clock.now(),
+      clock: () => liveClock.now(),
       archivedEventReader: archive,
     }),
     provider: configured.provider,
     providerModelId: configured.providerModelId,
     priceId,
     principalId,
-    now: () => context.clock.now(),
+    now: () => liveClock.now(),
   });
   const runKey = `memory-distill:${context.clock.now().toISOString().slice(0, 13)}`;
-  const startedAt = context.clock.now().getTime();
+  const startedAt = liveClock.now().getTime();
   let createdItemCount = 0;
   let chargedD1Statements = pricePreparationStatements;
   let skippedEventCount = 0;
@@ -493,7 +503,7 @@ async function distilMemory(
   const providerD1Ceiling = priceId === undefined ? 0 : MEMORY_EXTRACTION_PROVIDER_D1_STATEMENT_CEILING;
   let lastResult: Awaited<ReturnType<AutomaticMemoryDistillationWorkflow["runNext"]>> | null = null;
   for (let step = 0; step < MEMORY_DISTILLATION_STEPS_PER_POLL; step += 1) {
-    if (step > 0 && context.clock.now().getTime() - startedAt >= MEMORY_DISTILLATION_WALL_CLOCK_BUDGET_MS) {
+    if (step > 0 && liveClock.now().getTime() - startedAt >= MEMORY_DISTILLATION_WALL_CLOCK_BUDGET_MS) {
       stoppedByWallClock = true;
       break;
     }
@@ -542,39 +552,90 @@ async function distilMemory(
   return `Memory ${lastResult.outcome}, ${createdItemCount} created, ${lastResult.backlogEventCount} ${backlogUnit} pending, ${eligibleQualifier}${lastResult.eligibleBacklogEventCount} ${eligibleUnit} pending, ${skippedEventCount} ${skipUnit}${skipDetail} after ${stepCount} ${stepUnit}${stopReason}${failureDetail}`;
 }
 
-async function indexLiteralHistory(context: JobEnvironment, archive: ArchivalService): Promise<string> {
+function statementCountingDatabase(database: D1Database): Readonly<{
+  database: D1Database;
+  statements(): number;
+}> {
+  let statements = 0;
+  const originals = new WeakMap<object, D1PreparedStatement>();
+  const wrap = (statement: D1PreparedStatement): D1PreparedStatement => {
+    const wrapped = {
+      bind: (...values: unknown[]) => wrap(statement.bind(...values)),
+      first: async <T>(columnName?: string) => {
+        statements += 1;
+        return columnName === undefined ? statement.first<T>() : statement.first<T>(columnName);
+      },
+      run: async <T>() => {
+        statements += 1;
+        return statement.run<T>();
+      },
+      all: async <T>() => {
+        statements += 1;
+        return statement.all<T>();
+      },
+      raw: async (options?: { columnNames?: boolean }) => {
+        statements += 1;
+        return options?.columnNames === true ? statement.raw({ columnNames: true }) : statement.raw();
+      },
+    } as D1PreparedStatement;
+    originals.set(wrapped as object, statement);
+    return wrapped;
+  };
+  return Object.freeze({
+    database: {
+      prepare: (query: string) => wrap(database.prepare(query)),
+      batch: async <T>(prepared: D1PreparedStatement[]) => {
+        statements += prepared.length;
+        return database.batch<T>(prepared.map((statement) => originals.get(statement as object) ?? statement));
+      },
+    } as D1Database,
+    statements: () => statements,
+  });
+}
+
+async function indexLiteralHistory(context: JobEnvironment): Promise<string> {
   const principalId = context.env.OWNER_PRINCIPAL_ID;
   if (principalId === undefined) return "Memory history indexing not configured";
-  const live = new EventRepository(context.env.DB);
-  const state = new ArchiveRepository(context.env.DB);
+  const liveClock = context.liveClock ?? context.clock;
+  const counted = statementCountingDatabase(context.env.DB);
+  const countedArchive = new ArchivalService({ database: counted.database, bucket: context.env.ARCHIVE });
+  const live = new EventRepository(counted.database);
+  const state = new ArchiveRepository(counted.database);
   const history = new LiteralHistoryService({
-    database: context.env.DB,
-    events: new TieredEventReader({ live, archive, state }),
+    database: counted.database,
+    events: new TieredEventReader({ live, archive: countedArchive, state }),
     archive: state,
-    now: () => context.clock.now(),
-    nextId: () => newUlid(context.clock.now()),
+    now: () => liveClock.now(),
+    nextId: () => newUlid(liveClock.now()),
   });
-  const startedAt = context.clock.now().getTime();
+  const startedAt = liveClock.now().getTime();
   let steps = 0;
+  let chargedD1Statements = 0;
   let eventsExamined = 0;
   let chunksWritten = 0;
   let complete = false;
   let stopReason = "";
   for (let step = 0; step < MEMORY_HISTORY_STEPS_PER_POLL; step += 1) {
-    if (step > 0 && context.clock.now().getTime() - startedAt >= MEMORY_HISTORY_WALL_CLOCK_BUDGET_MS) {
+    if (step > 0 && liveClock.now().getTime() - startedAt >= MEMORY_HISTORY_WALL_CLOCK_BUDGET_MS) {
       stopReason = ", wall-clock budget reached";
       break;
     }
-    if ((step + 1) * LITERAL_HISTORY_INDEX_STEP_LIMITS.d1Statements
+    if (chargedD1Statements + LITERAL_HISTORY_INDEX_STEP_LIMITS.d1Statements
       > MEMORY_HISTORY_D1_STATEMENT_ALLOWANCE) {
       stopReason = ", D1 statement allowance reached";
       break;
     }
+    const before = counted.statements();
     const result = await history.indexNext({
       principalId,
       maxEvents: LITERAL_HISTORY_INDEX_STEP_LIMITS.eventsExamined,
       maxTextBytes: LITERAL_HISTORY_INDEX_STEP_LIMITS.textBytesExamined,
     });
+    const used = counted.statements() - before;
+    if (used > LITERAL_HISTORY_INDEX_STEP_LIMITS.d1Statements) {
+      throw new Error("memory_history_statement_budget_exceeded");
+    }
+    chargedD1Statements += used;
     steps += 1;
     eventsExamined += result.eventsExamined;
     chunksWritten += result.chunksWritten;
@@ -582,7 +643,8 @@ async function indexLiteralHistory(context: JobEnvironment, archive: ArchivalSer
     if (complete) break;
   }
   const status = complete ? "complete" : "pending";
-  return `Memory history ${status}, ${eventsExamined} events examined, ${chunksWritten} chunks written after ${steps} steps${stopReason}`;
+  return `Memory history ${status}, ${eventsExamined} events examined, ${chunksWritten} chunks written after ${steps} steps, `
+    + `${chargedD1Statements} D1 statements charged${stopReason}`;
 }
 
 /**
@@ -618,7 +680,7 @@ async function poll(context: JobEnvironment): Promise<JobOutcome> {
   const history = await safeSourcePoll(
     "Memory history indexing",
     "memory_history_index_failed",
-    () => indexLiteralHistory(context, archive),
+    () => indexLiteralHistory(context),
   );
   const sourceDetail = `${classroom}; ${brightspace}; ${memory}; ${history}`;
   const token = context.env.GITHUB_TOKEN;

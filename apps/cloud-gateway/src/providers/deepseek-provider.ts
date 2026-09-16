@@ -7,7 +7,10 @@ import type { Ulid } from "../../../../packages/contracts/src/index.js";
 import type { MemoryExtractionBudgetPort } from "../memory/memory-extraction-budget.js";
 import {
   issueModelCompleteJsonCompletion,
+  issueModelCompleteJsonSettledFailure,
+  MEMORY_EXTRACTION_JSON_CONTRACT,
   ProviderFailure,
+  snapshotProviderFailure,
   type ModelCompleteJsonInput,
   type ModelProvider,
 } from "./provider-types.js";
@@ -363,12 +366,13 @@ export class DeepSeekJsonProvider implements Pick<ModelProvider, "completeJson">
       messages: [
         {
           role: "system",
-          content: "Return one JSON object with exactly one proposals array. Do not include markdown or commentary.",
+          content: `${MEMORY_EXTRACTION_JSON_CONTRACT} Do not include markdown or commentary.`,
         },
         { role: "user", content: input.prompt },
       ],
       response_format: { type: "json_object" },
       thinking: { type: "disabled" },
+      temperature: 0,
       max_tokens: input.maxOutputTokens,
       stream: false,
     });
@@ -410,6 +414,9 @@ export class DeepSeekJsonProvider implements Pick<ModelProvider, "completeJson">
       }
       if (!response.ok) {
         await response.body?.cancel().catch(() => undefined);
+        if (response.status === 402) {
+          await this.#budget.notifyCreditBlocked?.(input.principalId).catch(() => undefined);
+        }
         throw jsonHttpFailure(response.status);
       }
       const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
@@ -425,30 +432,7 @@ export class DeepSeekJsonProvider implements Pick<ModelProvider, "completeJson">
       const usage = parsedUsage(responseObject.usage);
       if (usage === null) throw ProviderFailure.permanent("permanent_failure");
       const settled = await this.#budget.settle(reservation, usage);
-      const choices = responseObject.choices;
-      if (!Array.isArray(choices) || choices.length !== 1
-        || choices[0] === null || typeof choices[0] !== "object" || Array.isArray(choices[0])) {
-        throw ProviderFailure.permanent("permanent_failure");
-      }
-      const choice = choices[0] as Record<string, unknown>;
-      if (choice.finish_reason === "length") throw ProviderFailure.permanent("output_limit");
-      if (choice.finish_reason !== "stop") throw ProviderFailure.permanent("permanent_failure");
-      const message = choice.message;
-      if (message === null || typeof message !== "object" || Array.isArray(message)) {
-        throw ProviderFailure.permanent("permanent_failure");
-      }
-      const content = (message as Record<string, unknown>).content;
-      if (typeof content !== "string" || content.length === 0 || !content.isWellFormed()) {
-        throw ProviderFailure.permanent("permanent_failure");
-      }
-      let value: unknown;
-      try { value = JSON.parse(content) as unknown; }
-      catch { throw ProviderFailure.permanent("permanent_failure"); }
-      if (value === null || typeof value !== "object" || Array.isArray(value)
-        || Reflect.ownKeys(value).length !== 1 || !Array.isArray((value as { proposals?: unknown }).proposals)) {
-        throw ProviderFailure.permanent("permanent_failure");
-      }
-      return issueModelCompleteJsonCompletion((value as { proposals: unknown[] }).proposals, {
+      const settledUsage = {
         priceId: settled.priceId,
         inputTokens: settled.inputTokens,
         outputTokens: settled.outputTokens,
@@ -456,7 +440,39 @@ export class DeepSeekJsonProvider implements Pick<ModelProvider, "completeJson">
         reservedCostMicros: settled.reservedCostMicros,
         settledCostMicros: settled.settledCostMicros,
         d1Statements: settled.d1Statements,
-      });
+      };
+      try {
+        const choices = responseObject.choices;
+        if (!Array.isArray(choices) || choices.length !== 1
+          || choices[0] === null || typeof choices[0] !== "object" || Array.isArray(choices[0])) {
+          throw ProviderFailure.permanent("permanent_failure");
+        }
+        const choice = choices[0] as Record<string, unknown>;
+        if (choice.finish_reason === "length") throw ProviderFailure.permanent("output_limit");
+        if (choice.finish_reason !== "stop") throw ProviderFailure.permanent("permanent_failure");
+        const message = choice.message;
+        if (message === null || typeof message !== "object" || Array.isArray(message)) {
+          throw ProviderFailure.permanent("permanent_failure");
+        }
+        const content = (message as Record<string, unknown>).content;
+        if (typeof content !== "string" || content.length === 0 || !content.isWellFormed()) {
+          throw ProviderFailure.permanent("permanent_failure");
+        }
+        let value: unknown;
+        try { value = JSON.parse(content) as unknown; }
+        catch { throw ProviderFailure.permanent("permanent_failure"); }
+        if (value === null || typeof value !== "object" || Array.isArray(value)
+          || Reflect.ownKeys(value).length !== 1 || !Array.isArray((value as { proposals?: unknown }).proposals)) {
+          throw ProviderFailure.permanent("permanent_failure");
+        }
+        return issueModelCompleteJsonCompletion((value as { proposals: unknown[] }).proposals, settledUsage);
+      } catch (error) {
+        const failure = snapshotProviderFailure(error);
+        throw issueModelCompleteJsonSettledFailure(
+          failure === null ? ProviderFailure.permanent("permanent_failure") : error as ProviderFailure,
+          settledUsage,
+        );
+      }
     } finally {
       clearTimeout(timeout);
     }

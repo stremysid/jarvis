@@ -89,6 +89,7 @@ export interface MemoryExtractionReservation {
   readonly reservedCostMicros: number;
   readonly inputTokenCeiling: number;
   readonly maxOutputTokens: number;
+  readonly reservedAt: string;
   readonly monthKey: string;
   readonly monthStartAt: string;
   readonly monthEndAt: string;
@@ -126,6 +127,7 @@ export interface MemoryExtractionBudgetPort {
     reservation: MemoryExtractionReservation,
     usage: MemoryExtractionReportedUsage,
   ): Promise<SettledMemoryExtractionUsage>;
+  notifyCreditBlocked?(principalId: string): Promise<void>;
 }
 
 export interface TorontoBillingMonth {
@@ -280,6 +282,51 @@ function quotedCostMicros(
   return Math.ceil(numerator / TOKEN_PRICE_DENOMINATOR);
 }
 
+function deepSeekPeakAt(value: Date): boolean {
+  const day = value.getUTCDay();
+  if (day === 0 || day === 6) return false;
+  const hour = value.getUTCHours();
+  return hour >= 1 && hour < 4 || hour >= 6 && hour < 10;
+}
+
+function settlementPrice(
+  price: MemoryExtractionPrice,
+  startedAt: Date,
+  completedAt: Date,
+): MemoryExtractionPrice {
+  if (deepSeekPeakAt(startedAt) || deepSeekPeakAt(completedAt)) return price;
+  return Object.freeze({
+    ...price,
+    inputMicrosPerMillion: Math.ceil(price.inputMicrosPerMillion / 2),
+    outputMicrosPerMillion: Math.ceil(price.outputMicrosPerMillion / 2),
+    cacheReadMicrosPerMillion: Math.ceil(price.cacheReadMicrosPerMillion / 2),
+  });
+}
+
+export const MEMORY_EXTRACTION_MONTH_ENTRIES_SQL = `SELECT cost_entry_id, entry_type,
+    reservation_entry_id, amount_micros
+  FROM memory_cost_ledger INDEXED BY memory_cost_ledger_month_lookup
+  WHERE principal_id = ?1 AND budget_class = 'normal_monthly'
+    AND occurred_at >= ?2 AND occurred_at < ?3`;
+
+const MEMORY_EXTRACTION_MONTH_SPEND_SQL = `SELECT COALESCE(sum(CASE
+    WHEN release.cost_entry_id IS NOT NULL THEN 0
+    WHEN settlement.cost_entry_id IS NOT NULL
+      THEN settlement.amount_micros + COALESCE(overrun.amount_micros, 0)
+    ELSE reservation.amount_micros
+  END), 0) AS amount
+  FROM month_entries reservation
+  LEFT JOIN month_entries release
+    ON release.reservation_entry_id = reservation.cost_entry_id
+      AND release.entry_type = 'release'
+  LEFT JOIN month_entries settlement
+    ON settlement.reservation_entry_id = reservation.cost_entry_id
+      AND settlement.entry_type = 'settlement'
+  LEFT JOIN month_entries overrun
+    ON overrun.reservation_entry_id = reservation.cost_entry_id
+      AND overrun.entry_type = 'overrun'
+  WHERE reservation.entry_type = 'reservation'`;
+
 function formatUsd(micros: number): string {
   const whole = Math.floor(micros / USD_MICROS);
   const fraction = (micros % USD_MICROS).toString().padStart(6, "0").replace(/0+$/u, "");
@@ -366,55 +413,29 @@ export class MemoryExtractionBudget implements MemoryExtractionBudgetPort {
     const month = torontoBillingMonth(now);
     const reservationEntryId = this.nextId(now);
     if (!ULID.test(reservationEntryId)) failure("memory_extraction_price_unavailable");
-    const inserted = await this.options.database.prepare(`INSERT INTO memory_cost_ledger (
+    const inserted = await this.options.database.prepare(`WITH month_entries AS (
+        ${MEMORY_EXTRACTION_MONTH_ENTRIES_SQL}
+      ), month_spend AS (
+        ${MEMORY_EXTRACTION_MONTH_SPEND_SQL}
+      )
+      INSERT INTO memory_cost_ledger (
         cost_entry_id, principal_id, run_id, entry_type, reservation_entry_id,
         provider, model_id, budget_class, reprocess_job_id, amount_micros,
         price_id, occurred_at
-      ) SELECT ?1, ?2, ?3, 'reservation', NULL, 'deepseek', ?4,
-        'normal_monthly', NULL, ?5, ?6, ?7
-      WHERE ?5 + COALESCE((
-        SELECT sum(CASE
-          WHEN EXISTS (
-            SELECT 1 FROM memory_cost_ledger release
-            WHERE release.principal_id = reservation.principal_id
-              AND release.reservation_entry_id = reservation.cost_entry_id
-              AND release.entry_type = 'release'
-          ) THEN 0
-          WHEN EXISTS (
-            SELECT 1 FROM memory_cost_ledger settlement
-            WHERE settlement.principal_id = reservation.principal_id
-              AND settlement.reservation_entry_id = reservation.cost_entry_id
-              AND settlement.entry_type = 'settlement'
-          ) THEN (
-            SELECT settlement.amount_micros FROM memory_cost_ledger settlement
-            WHERE settlement.principal_id = reservation.principal_id
-              AND settlement.reservation_entry_id = reservation.cost_entry_id
-              AND settlement.entry_type = 'settlement'
-          ) + COALESCE((
-            SELECT overrun.amount_micros FROM memory_cost_ledger overrun
-            WHERE overrun.principal_id = reservation.principal_id
-              AND overrun.reservation_entry_id = reservation.cost_entry_id
-              AND overrun.entry_type = 'overrun'
-          ), 0)
-          ELSE reservation.amount_micros
-        END)
-        FROM memory_cost_ledger reservation
-        WHERE reservation.principal_id = ?2
-          AND reservation.budget_class = 'normal_monthly'
-          AND reservation.entry_type = 'reservation'
-          AND reservation.occurred_at >= ?8 AND reservation.occurred_at < ?9
-      ), 0) <= ?10
+      ) SELECT ?4, ?1, ?5, 'reservation', NULL, 'deepseek', ?6,
+        'normal_monthly', NULL, ?7, ?8, ?9
+      WHERE ?7 + (SELECT amount FROM month_spend) <= ?10
       RETURNING cost_entry_id`)
       .bind(
-        reservationEntryId,
         principalId,
+        month.startAt,
+        month.endAt,
+        reservationEntryId,
         input.runId,
         price.providerModelId,
         reservedCostMicros,
         input.priceId,
         now.toISOString(),
-        month.startAt,
-        month.endAt,
         capMicros,
       ).first<{ cost_entry_id: unknown }>();
     if (inserted === null) failure("memory_extraction_monthly_cap_exceeded");
@@ -428,6 +449,7 @@ export class MemoryExtractionBudget implements MemoryExtractionBudgetPort {
       reservedCostMicros,
       inputTokenCeiling,
       maxOutputTokens: input.maxOutputTokens,
+      reservedAt: now.toISOString(),
       monthKey: month.key,
       monthStartAt: month.startAt,
       monthEndAt: month.endAt,
@@ -451,14 +473,18 @@ export class MemoryExtractionBudget implements MemoryExtractionBudgetPort {
       || usage.outputTokens > reservation.maxOutputTokens) {
       failure("memory_extraction_usage_invalid");
     }
+    const completedAt = this.now();
+    const reservedAt = new Date(reservation.reservedAt);
+    if (!Number.isFinite(reservedAt.getTime()) || reservedAt.toISOString() !== reservation.reservedAt
+      || completedAt < reservedAt) failure("memory_extraction_usage_invalid");
     const settledCostMicros = quotedCostMicros(
       usage.inputTokens,
       usage.outputTokens,
       usage.cacheReadTokens,
-      price,
+      settlementPrice(price, reservedAt, completedAt),
     );
     if (settledCostMicros > reservation.reservedCostMicros) failure("memory_extraction_usage_invalid");
-    const now = this.now();
+    const now = completedAt;
     const settlementId = this.nextId(now);
     if (!ULID.test(settlementId)) failure("memory_extraction_settlement_failed");
     try {
@@ -526,36 +552,10 @@ export class MemoryExtractionBudget implements MemoryExtractionBudgetPort {
   }
 
   private async monthSpend(reservation: MemoryExtractionReservation): Promise<number> {
-    const row = await this.options.database.prepare(`SELECT COALESCE(sum(CASE
-        WHEN EXISTS (
-          SELECT 1 FROM memory_cost_ledger release
-          WHERE release.principal_id = reservation.principal_id
-            AND release.reservation_entry_id = reservation.cost_entry_id
-            AND release.entry_type = 'release'
-        ) THEN 0
-        WHEN EXISTS (
-          SELECT 1 FROM memory_cost_ledger settlement
-          WHERE settlement.principal_id = reservation.principal_id
-            AND settlement.reservation_entry_id = reservation.cost_entry_id
-            AND settlement.entry_type = 'settlement'
-        ) THEN (
-          SELECT settlement.amount_micros FROM memory_cost_ledger settlement
-          WHERE settlement.principal_id = reservation.principal_id
-            AND settlement.reservation_entry_id = reservation.cost_entry_id
-            AND settlement.entry_type = 'settlement'
-        ) + COALESCE((
-          SELECT overrun.amount_micros FROM memory_cost_ledger overrun
-          WHERE overrun.principal_id = reservation.principal_id
-            AND overrun.reservation_entry_id = reservation.cost_entry_id
-            AND overrun.entry_type = 'overrun'
-        ), 0)
-        ELSE reservation.amount_micros
-      END), 0) AS amount
-      FROM memory_cost_ledger reservation
-      WHERE reservation.principal_id = ?
-        AND reservation.budget_class = 'normal_monthly'
-        AND reservation.entry_type = 'reservation'
-        AND reservation.occurred_at >= ? AND reservation.occurred_at < ?`)
+    const row = await this.options.database.prepare(`WITH month_entries AS (
+        ${MEMORY_EXTRACTION_MONTH_ENTRIES_SQL}
+      )
+      ${MEMORY_EXTRACTION_MONTH_SPEND_SQL}`)
       .bind(reservation.principalId, reservation.monthStartAt, reservation.monthEndAt)
       .first<{ amount: unknown }>();
     if (row === null) failure("memory_extraction_settlement_failed");
@@ -570,8 +570,35 @@ export class MemoryExtractionBudget implements MemoryExtractionBudgetPort {
     if (notice === undefined) return;
     const spent = await this.monthSpend(reservation);
     if (spent * 100 < capMicros * 80) return;
-    const now = this.now();
     const alertKey = `memory-extraction:${reservation.monthKey}:80`;
+    const month = torontoBillingMonth(new Date(reservation.monthStartAt));
+    await this.sendClaimedNotice(
+      reservation.principalId,
+      alertKey,
+      `Memory extraction has used at least 80% of its ${formatUsd(capMicros)} limit for ${month.label}. `
+        + "I will stop extracting new memories before that limit is exceeded.",
+    );
+  }
+
+  async notifyCreditBlocked(principalIdValue: string): Promise<void> {
+    if (this.options.notice === undefined) return;
+    const principalId = safeText(principalIdValue, 256);
+    const now = this.now();
+    const parts = dateParts(now);
+    const dayKey = `${parts.year.toString().padStart(4, "0")}-${parts.month.toString().padStart(2, "0")}`
+      + `-${parts.day.toString().padStart(2, "0")}`;
+    await this.sendClaimedNotice(
+      principalId,
+      `memory-extraction:provider-credit:${dayKey}`,
+      "DeepSeek refused memory extraction because its provider credit is unavailable. "
+        + "Jarvis will retry automatically, but new automatic memories may be delayed.",
+    );
+  }
+
+  private async sendClaimedNotice(principalId: string, alertKey: string, text: string): Promise<void> {
+    const notice = this.options.notice;
+    if (notice === undefined) return;
+    const now = this.now();
     const claimId = this.nextId(now);
     const expiresAt = new Date(now.getTime() + 30_000).toISOString();
     const claim = await this.options.database.prepare(`INSERT INTO capacity_alert_crossings
@@ -583,21 +610,17 @@ export class MemoryExtractionBudget implements MemoryExtractionBudgetPort {
       WHERE capacity_alert_crossings.state = 'sending'
         AND capacity_alert_crossings.lease_expires_at <= ?4
       RETURNING claim_id`)
-      .bind(reservation.principalId, alertKey, claimId, now.toISOString(), expiresAt)
+      .bind(principalId, alertKey, claimId, now.toISOString(), expiresAt)
       .first<{ claim_id: unknown }>();
     if (claim === null) return;
     if (claim.claim_id !== claimId) failure("memory_extraction_settlement_failed");
-    const month = torontoBillingMonth(new Date(reservation.monthStartAt));
-    await notice.send(
-      `Memory extraction has used at least 80% of its ${formatUsd(capMicros)} limit for ${month.label}. `
-      + "I will stop extracting new memories before that limit is exceeded.",
-    );
+    await notice.send(text);
     const sentAt = this.now().toISOString();
     const recorded = await this.options.database.prepare(`UPDATE capacity_alert_crossings
       SET state = 'sent', sent_at = ?
       WHERE owner_principal_id = ? AND alert_key = ? AND claim_id = ?
         AND state = 'sending' AND lease_expires_at > ?`)
-      .bind(sentAt, reservation.principalId, alertKey, claimId, sentAt).run();
+      .bind(sentAt, principalId, alertKey, claimId, sentAt).run();
     if (recorded.meta.changes !== 1) failure("memory_extraction_settlement_failed");
   }
 }

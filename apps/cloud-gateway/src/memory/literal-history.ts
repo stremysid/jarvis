@@ -49,8 +49,8 @@ export const LITERAL_HISTORY_SEARCH_LIMITS = Object.freeze({
 /** Ceiling for the production indexNext shape used by the hourly job. */
 export const LITERAL_HISTORY_INDEX_STEP_LIMITS = Object.freeze({
   d1Statements: 64,
-  eventsExamined: 2,
-  textBytesExamined: 65_536,
+  eventsExamined: 8,
+  textBytesExamined: 262_144,
 });
 
 export type LiteralHistoryErrorCode =
