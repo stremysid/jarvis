@@ -38,6 +38,8 @@ const ITERATOR_RESULT_FIELDS = new Set(["done", "value"]);
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const MAXIMUM_FIRST_TOKEN_TIMEOUT_MS = 8_000;
 const MAXIMUM_TOTAL_TIMEOUT_MS = 30_000;
+const MAXIMUM_TELEGRAM_FIRST_TOKEN_TIMEOUT_MS = 40_000;
+const MAXIMUM_TELEGRAM_TOTAL_TIMEOUT_MS = 90_000;
 const MAXIMUM_CONTEXT_TOKEN_BUDGET = 32_000;
 const MAXIMUM_OUTPUT_CHARACTERS = 65_536;
 const MAXIMUM_OUTPUT_BYTES = 65_536;
@@ -238,7 +240,11 @@ function snapshotContext(value: unknown, budget: number): readonly Readonly<Retr
   return Object.freeze(copied);
 }
 
-export function snapshotModelAdapterStreamInput(value: unknown): Readonly<ModelAdapterStreamInput> {
+function snapshotModelAdapterStreamInputWithLimits(
+  value: unknown,
+  maximumFirstTokenTimeoutMs: number,
+  maximumTotalTimeoutMs: number,
+): Readonly<ModelAdapterStreamInput> {
   const record = exactDataRecord(value, INPUT_FIELDS);
   if (record === null) throw failure("model_input_invalid");
   if (typeof record.correlationId !== "string" || !ULID.test(record.correlationId)
@@ -247,8 +253,8 @@ export function snapshotModelAdapterStreamInput(value: unknown): Readonly<ModelA
     || !safeText(record.userText, MAXIMUM_INPUT_CHARACTERS, MAXIMUM_INPUT_BYTES)
     || record.reasoningEffort !== "none" && record.reasoningEffort !== "low"
       && record.reasoningEffort !== "high" && record.reasoningEffort !== "max"
-    || !boundedPositiveInteger(record.firstTokenTimeoutMs, MAXIMUM_FIRST_TOKEN_TIMEOUT_MS)
-    || !boundedPositiveInteger(record.timeoutMs, MAXIMUM_TOTAL_TIMEOUT_MS)
+    || !boundedPositiveInteger(record.firstTokenTimeoutMs, maximumFirstTokenTimeoutMs)
+    || !boundedPositiveInteger(record.timeoutMs, maximumTotalTimeoutMs)
     || (record.firstTokenTimeoutMs as number) > (record.timeoutMs as number)
     || !boundedPositiveInteger(record.contextTokenBudget, MAXIMUM_CONTEXT_TOKEN_BUDGET)
     || !boundedPositiveInteger(record.maxOutputCharacters, MAXIMUM_OUTPUT_CHARACTERS)
@@ -269,6 +275,25 @@ export function snapshotModelAdapterStreamInput(value: unknown): Readonly<ModelA
     maxOutputCharacters: record.maxOutputCharacters,
     signal: record.signal,
   } as CapturedInput);
+}
+
+export function snapshotModelAdapterStreamInput(value: unknown): Readonly<ModelAdapterStreamInput> {
+  return snapshotModelAdapterStreamInputWithLimits(
+    value,
+    MAXIMUM_FIRST_TOKEN_TIMEOUT_MS,
+    MAXIMUM_TOTAL_TIMEOUT_MS,
+  );
+}
+
+/** Telegram waits longer than voice, while retaining the same exact input validation. */
+export function snapshotTelegramModelAdapterStreamInput(value: unknown): Readonly<ModelAdapterStreamInput> {
+  const captured = snapshotModelAdapterStreamInputWithLimits(
+    value,
+    MAXIMUM_TELEGRAM_FIRST_TOKEN_TIMEOUT_MS,
+    MAXIMUM_TELEGRAM_TOTAL_TIMEOUT_MS,
+  );
+  if (captured.channel !== "telegram") throw failure("model_input_invalid");
+  return captured;
 }
 
 function snapshotIteratorResult(value: unknown): CapturedIteratorResult {

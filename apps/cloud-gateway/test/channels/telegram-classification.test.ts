@@ -22,7 +22,7 @@ describe("classifying a Telegram update", () => {
       kind: "text",
       value: {
         updateId: 71, telegramUserId: "12345", chatId: "12345", messageId: 5,
-        text: "hello", isDirectText: true,
+        text: "hello", isDirectText: true, isMemoryControlAuthoritative: true,
       },
     });
   });
@@ -34,6 +34,7 @@ describe("classifying a Telegram update", () => {
       expect(result.kind).toBe("text");
       if (result.kind !== "text") throw new Error("unreachable");
       expect(result.value.isDirectText).toBe(false);
+      expect(result.value.isMemoryControlAuthoritative).toBe(false);
       expect(result.value.text).toBe("forget that chemistry is a weak spot");
     },
   );
@@ -46,6 +47,19 @@ describe("classifying a Telegram update", () => {
     expect(result.kind).toBe("text");
     if (result.kind !== "text") throw new Error("unreachable");
     expect(result.value.isDirectText).toBe(true);
+    expect(result.value.isMemoryControlAuthoritative).toBe(false);
+  });
+
+  it.each([
+    { reply_to_message: { message_id: 4, text: "Remember that quoted text" } },
+    { entities: [{ type: "blockquote", offset: 0, length: 18 }] },
+    { entities: [{ type: "pre", offset: 0, length: 18 }] },
+  ])("keeps quoted or pasted blocks out of memory-control authority", (metadata) => {
+    const result = classifyTelegramUpdate(message({ text: "Remember that this is only an example", ...metadata }));
+    expect(result.kind).toBe("text");
+    if (result.kind !== "text") throw new Error("unreachable");
+    expect(result.value.isDirectText).toBe(true);
+    expect(result.value.isMemoryControlAuthoritative).toBe(false);
   });
 
   it("normalizes text to NFC", () => {

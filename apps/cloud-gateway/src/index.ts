@@ -28,7 +28,6 @@ import {
 } from "./jobs/job-table.js";
 import { handleScheduled } from "./scheduler/scheduled-handler.js";
 import { heartbeatConfiguration } from "./scheduler/heartbeat-reporter.js";
-import { D1ContextRetriever } from "./conversation/context-retriever.js";
 import { ConversationRepository } from "./conversation/conversation-repository.js";
 import { DefaultConversationService } from "./conversation/conversation-service.js";
 import {
@@ -54,6 +53,8 @@ import { DeepSeekModelAdapter } from "./providers/deepseek-provider.js";
 import { ProviderCircuitBreaker } from "./providers/provider-circuit-breaker.js";
 import { TelegramRestProvider, withTelegramTyping } from "./providers/telegram-provider.js";
 import { Redactor } from "./security/redaction.js";
+import { TelegramMemoryControlModelAdapter } from "./memory/telegram-memory-controls.js";
+import { TelegramMemoryRetriever } from "./memory/telegram-memory-retriever.js";
 import { SchoolCatchupModelAdapter } from "./school/school-catchup-model.js";
 import { SchoolCatchupRepository } from "./school/school-catchup-repository.js";
 import { StudyCoachModelAdapter } from "./school/study-coach-model.js";
@@ -84,6 +85,23 @@ const telegramLimiter = new TelegramRateLimiter();
 // Separate allowance: monitoring traffic must never consume Telegram admission.
 const livenessLimiter = new TelegramRateLimiter(30, 43_200);
 const providerCircuitBreaker = new ProviderCircuitBreaker();
+
+export function buildTelegramConversationRepository(
+  database: D1Database,
+  events: EventRepository,
+  accepted: Pick<
+    AcceptedTelegramUpdate,
+    "principalId" | "isDirectText" | "isMemoryControlAuthoritative"
+  >,
+  ownerPrincipalId: string | undefined,
+): ConversationRepository {
+  return new ConversationRepository(database, events, {
+    telegramDirectOwnerText: ownerPrincipalId !== undefined
+      && accepted.principalId === ownerPrincipalId
+      && accepted.isDirectText
+      && accepted.isMemoryControlAuthoritative,
+  });
+}
 
 function isVoicePath(request: Request): boolean {
   const pathname = new URL(request.url).pathname;
@@ -122,7 +140,13 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
       if (identity === null) return;
 
       const events = new EventRepository(env.DB);
-      const repository = new ConversationRepository(env.DB, events);
+      const ownerPrincipalId = env.OWNER_PRINCIPAL_ID;
+      const repository = buildTelegramConversationRepository(
+        env.DB,
+        events,
+        accepted,
+        ownerPrincipalId,
+      );
       const redactor = new Redactor();
       const baseModel = observer.observeProvider(new DeepSeekModelAdapter({
         apiKey,
@@ -130,8 +154,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         telegramTurn: true,
         telegramThinking: env.DEEPSEEK_TELEGRAM_THINKING,
       }));
-      const ownerPrincipalId = env.OWNER_PRINCIPAL_ID;
-      const model = ownerPrincipalId !== undefined && accepted.principalId === ownerPrincipalId
+      const ownerAwareModel = ownerPrincipalId !== undefined && accepted.principalId === ownerPrincipalId
         ? new StudyCoachModelAdapter({
           fallbackModel: new SchoolCatchupModelAdapter({
             model: baseModel,
@@ -156,11 +179,34 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
         })
         : baseModel;
+      const memory = new TelegramMemoryRetriever({
+        database: env.DB,
+        archive: env.ARCHIVE,
+        controlAuthority: ownerPrincipalId !== undefined
+          && accepted.principalId === ownerPrincipalId
+          && accepted.isMemoryControlAuthoritative
+          ? { principalId: accepted.principalId, text: accepted.text }
+          : null,
+      });
+      const model = ownerPrincipalId === undefined
+        ? ownerAwareModel
+        : new TelegramMemoryControlModelAdapter({
+          database: env.DB,
+          archive: env.ARCHIVE,
+          fallbackModel: ownerAwareModel,
+          ownerPrincipalId,
+          authority: {
+            principalId: accepted.principalId,
+            text: accepted.text,
+            isDirectText: accepted.isMemoryControlAuthoritative,
+          },
+          targets: memory,
+        });
 
       const service = new DefaultConversationService({
         repository,
         model: observer.observeModel(model),
-        context: observer.observeContext(new D1ContextRetriever(env.DB)),
+        context: observer.observeContext(memory),
         dispatcher: observer.observeDelivery(new DefaultOutboxDispatcher({
           repository,
           identityResolver: new D1TelegramIdentityResolver(env.DB),
