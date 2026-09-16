@@ -184,6 +184,8 @@ export async function applyStudyCoachMigration(): Promise<void> {
     { name: "0023_study_coach.sql", queries: splitMigration(studyCoachSql) },
   ]);
   await studyCoachMigrated;
+}
+
 /** Applies durable archive-complete literal-search jobs after memory ingress. */
 export async function applyArchiveLiteralHistoryMigration(): Promise<void> {
   await applyMemoryIngressMigration();
