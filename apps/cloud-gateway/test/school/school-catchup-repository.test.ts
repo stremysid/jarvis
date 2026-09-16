@@ -5,7 +5,10 @@ import { ConversationRepository } from "../../src/conversation/conversation-repo
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { SchoolCatchupRepository } from "../../src/school/school-catchup-repository.js";
-import type { OwnerCatchupPlan } from "../../src/school/school-catchup-types.js";
+import type {
+  ApplyOwnerCatchupPlanResult,
+  OwnerCatchupPlan,
+} from "../../src/school/school-catchup-types.js";
 import { applyUniversityTrackerMigration } from "../persistence/migration.js";
 
 const NOW = new Date("2026-09-15T11:30:00.000Z");
@@ -270,6 +273,7 @@ describe("SchoolCatchupRepository", () => {
     const secondNow = new Date("2026-09-15T12:15:00.000Z");
     await addTelegramTurn(principalId, secondTurn, "My chemistry test is Friday.", secondNow);
 
+    let partialSaveResult: ApplyOwnerCatchupPlanResult | undefined;
     await expect(repository.applyOwnerPlan({
       principalId,
       turnId: secondTurn,
@@ -289,7 +293,8 @@ describe("SchoolCatchupRepository", () => {
         completeActionIds: [],
         plan: [],
       },
-    })).resolves.toEqual({
+    }, (result) => { partialSaveResult = result; })).resolves.toBeUndefined();
+    expect(partialSaveResult).toEqual({
       scheduleSaved: false,
       partialCodes: ["partial:school_catchup_course_missing_next_action"],
     });
@@ -415,9 +420,11 @@ describe("SchoolCatchupRepository", () => {
         { courseRef: "new-1", localDate: TODAY, sequenceRank: 2, text: "Set two", estimatedMinutes: 100 },
       ],
     };
+    let repairResult: ApplyOwnerCatchupPlanResult | undefined;
     await expect(repository.applyOwnerPlan({
       principalId, turnId, today: TODAY, responseHash: "d".repeat(64), plan: overloaded, now: NOW,
-    })).resolves.toEqual({
+    }, (result) => { repairResult = result; })).resolves.toBeUndefined();
+    expect(repairResult).toEqual({
       scheduleSaved: true,
       partialCodes: ["partial:repaired:school_catchup_day_unrealistic"],
     });
@@ -500,7 +507,7 @@ describe("SchoolCatchupRepository", () => {
           estimatedMinutes: 20,
         })),
       },
-    })).resolves.toEqual({ scheduleSaved: true, partialCodes: [] });
+    })).resolves.toBeUndefined();
     const active = await env.DB.prepare(`SELECT COUNT(*) AS count FROM school_course_facts
       WHERE principal_id = ?1 AND status = 'active'`).bind(principalId).first<{ count: number }>();
     expect(active?.count).toBe(48);

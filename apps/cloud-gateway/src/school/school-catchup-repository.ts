@@ -236,7 +236,7 @@ function partialResult(
   repairs: readonly SchoolPlanRepairRule[],
   failure: SchoolPlanValidationRule | null = null,
 ): ApplyOwnerCatchupPlanResult {
-  const codes: SchoolPlanPartialCode[] = repairs.map((rule) => `partial:repaired:${rule}`);
+  const codes = repairs.map((rule): SchoolPlanPartialCode => `partial:repaired:${rule}`);
   if (failure !== null) codes.push(`partial:${failure}`);
   return Object.freeze({ scheduleSaved, partialCodes: Object.freeze(codes) });
 }
@@ -335,7 +335,10 @@ export class SchoolCatchupRepository {
     return Object.freeze(rows.map((row) => actionRow(row, principalId)));
   }
 
-  async applyOwnerPlan(input: ApplyOwnerCatchupPlanInput): Promise<ApplyOwnerCatchupPlanResult> {
+  async applyOwnerPlan(
+    input: ApplyOwnerCatchupPlanInput,
+    onResult?: (result: ApplyOwnerCatchupPlanResult) => void,
+  ): Promise<void> {
     const principalId = principal(input.principalId);
     const turnId = ulid(input.turnId, "school_catchup_turn_invalid");
     const today = date(input.today);
@@ -349,7 +352,8 @@ export class SchoolCatchupRepository {
       WHERE principal_id = ?1 AND turn_id = ?2`).bind(principalId, turnId).first<ReceiptRow>();
     if (receipt !== null) {
       if (receipt.response_hash !== input.responseHash) throw new Error("school_catchup_turn_conflict");
-      return partialResult(true, []);
+      onResult?.(partialResult(true, []));
+      return;
     }
 
     const current = await this.readSnapshot(principalId, today);
@@ -538,6 +542,6 @@ export class SchoolCatchupRepository {
       principal_id, turn_id, response_hash, applied_at
     ) VALUES (?1, ?2, ?3, ?4)`).bind(principalId, turnId, input.responseHash, nowIso));
     await this.database.batch(statements);
-    return partialResult(scheduleFailure === null, repaired.repairRules, scheduleFailure);
+    onResult?.(partialResult(scheduleFailure === null, repaired.repairRules, scheduleFailure));
   }
 }

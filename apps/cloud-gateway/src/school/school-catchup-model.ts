@@ -117,7 +117,10 @@ const MODEL_RESPONSE_TOO_LARGE_REPLY = "I couldn't safely process that planning 
 interface SchoolCatchupModelDependencies {
   readonly model: ModelAdapter;
   readonly repository: Pick<SchoolCatchupRepository, "readSnapshot"> & {
-    applyOwnerPlan(input: ApplyOwnerCatchupPlanInput): Promise<ApplyOwnerCatchupPlanResult | void>;
+    applyOwnerPlan(
+      input: ApplyOwnerCatchupPlanInput,
+      onResult?: (result: ApplyOwnerCatchupPlanResult) => void,
+    ): Promise<void>;
   };
   readonly universityRepository?: Pick<UniversityTrackerRepository, "readSnapshot" | "applyOwnerPlan">;
   readonly redactor: { redactText(text: string): { readonly ok: boolean; readonly text?: string } };
@@ -1001,16 +1004,16 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       return;
     }
     if (schoolPlan.engaged) {
-      let saveResult: ApplyOwnerCatchupPlanResult | void;
+      let saveResult: ApplyOwnerCatchupPlanResult | undefined;
       try {
-        saveResult = await this.dependencies.repository.applyOwnerPlan({
+        await this.dependencies.repository.applyOwnerPlan({
           principalId: input.principalId,
           turnId: input.correlationId,
           today,
           responseHash: await sha256Hex(raw),
           plan: schoolPlan,
           now,
-        });
+        }, (result) => { saveResult = result; });
       } catch (error) {
         console.warn("school_plan_save_failed", { code: planSaveFailureCode(error) });
         if (offerReport) {
