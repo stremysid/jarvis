@@ -25,6 +25,8 @@ import {
   type MemoryKind,
   type MemoryOwnerTurnInput,
 } from "./memory-types.js";
+import { MemoryRepository } from "./memory-repository.js";
+import { recordPendingTelegramMemoryReferences } from "./telegram-memory-reference.js";
 import {
   parseTelegramMemoryControl,
   type TelegramMemoryControl,
@@ -46,6 +48,9 @@ const HISTORY_PAYLOAD_WITH_OWNER_MARKER_FIELDS = new Set([
   "directOwnerText",
 ]);
 const HIDDEN_TEXT = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/u;
+const MEMORY_CONTEXT_ITEM = /^(?:Uncertain )?Memory evidence \[[^\]]*\bitem ([0-7][0-9a-hjkmnp-tv-z]{25});/u;
+const MEMORY_CITATION_ITEM = /\bitem[ \t]+([0-7][0-9a-hjkmnp-tv-z]{25})\b/gu;
+const MAX_RECORDED_REFERENCES = 8;
 const encoder = new TextEncoder();
 const redactor = new Redactor();
 
@@ -154,12 +159,21 @@ function memoryKind(text: string): MemoryKind {
   return "fact";
 }
 
-function evidenceReceipt(explanation: MemoryExplanation): string {
+function memoryName(text: string): string {
+  const scalars = Array.from(text);
+  return scalars.length <= 160 ? text : `${scalars.slice(0, 159).join("")}…`;
+}
+
+function namedReceipt(receipt: string, text: string): string {
+  return plainLine(`${receipt} Memory: ${JSON.stringify(memoryName(text))}`);
+}
+
+function evidenceReceipt(explanation: MemoryExplanation, text: string): string {
   const sources = explanation.sources.map((source) => (
     `${source.channel} event ${source.eventId} at ${source.occurredAt}`
   )).join(", ");
   const area = explanation.topicPath.at(-1) ?? "hidden area";
-  return plainLine(`Evidence for 1 memory in ${area}: ${sources}; nothing changed.`);
+  return namedReceipt(`Evidence for 1 memory in ${area}: ${sources}; nothing changed.`, text);
 }
 
 function mutationReceipt(intent: "remember" | "forget" | "lift", receipt: string): string {
@@ -189,6 +203,27 @@ function failureReceipt(error: unknown): string {
     }
   }
   return "I could not safely access memory just now, so I changed nothing.";
+}
+
+function referencedItemIds(
+  input: Readonly<ModelAdapterStreamInput>,
+  outputText: string,
+): readonly Ulid[] {
+  const itemIds: Ulid[] = [];
+  const seen = new Set<string>();
+  const add = (value: string | undefined): void => {
+    if (value === undefined || seen.has(value) || itemIds.length === MAX_RECORDED_REFERENCES) return;
+    seen.add(value);
+    itemIds.push(value as Ulid);
+  };
+  for (const context of input.context) add(MEMORY_CONTEXT_ITEM.exec(context.text)?.[1]);
+  for (const match of outputText.matchAll(MEMORY_CITATION_ITEM)) add(match[1]);
+  return Object.freeze(itemIds);
+}
+
+interface AppliedControl {
+  readonly receipt: string;
+  readonly itemIds: readonly Ulid[];
 }
 
 /**
@@ -223,23 +258,32 @@ export class TelegramMemoryControlModelAdapter implements ModelAdapter {
       && this.authority.text === input.userText
       && this.authority.isDirectText;
     if (control === null || !authoritative) {
-      yield* this.options.fallbackModel.stream(input);
+      let outputText = "";
+      for await (const token of this.options.fallbackModel.stream(input)) {
+        if (typeof token.text === "string") outputText += token.text;
+        yield token;
+      }
+      recordPendingTelegramMemoryReferences(
+        input.correlationId,
+        referencedItemIds(input, outputText),
+      );
       return;
     }
 
-    let receipt: string;
+    let applied: AppliedControl;
     try {
-      receipt = await this.applyControl(input, control);
+      applied = await this.applyControl(input, control);
     } catch (error) {
-      receipt = failureReceipt(error);
+      applied = Object.freeze({ receipt: failureReceipt(error), itemIds: Object.freeze([]) });
     }
-    yield Object.freeze({ index: 0, text: plainLine(receipt) });
+    recordPendingTelegramMemoryReferences(input.correlationId, applied.itemIds);
+    yield Object.freeze({ index: 0, text: plainLine(applied.receipt) });
   }
 
   private async applyControl(
     input: Readonly<ModelAdapterStreamInput>,
     control: TelegramMemoryControl,
-  ): Promise<string> {
+  ): Promise<AppliedControl> {
     const ownerTurn = await this.readOwnerTurn(input, control.intent);
     const controls = new MemoryOwnerControlsService(this.options.database, this.options.archive);
     if (control.intent === "remember") {
@@ -249,30 +293,52 @@ export class TelegramMemoryControlModelAdapter implements ModelAdapter {
         kind: memoryKind(control.memoryText),
         sensitivity: "normal",
       });
-      return mutationReceipt("remember", result.receipt);
+      return Object.freeze({
+        receipt: namedReceipt(mutationReceipt("remember", result.receipt), control.memoryText),
+        itemIds: Object.freeze([result.item.itemId]),
+      });
     }
 
     const candidates = await this.options.targets.findControlTargets({
       principalId: input.principalId,
       operation: control.intent,
       query: control.targetQuery,
+      turnId: input.correlationId,
     });
     if (candidates.length !== 1) {
-      return "Which memory do you mean? Tell me a few words from it; I changed nothing.";
+      return Object.freeze({
+        receipt: "Which memory do you mean? Tell me a few words from it; I changed nothing.",
+        itemIds: Object.freeze([]),
+      });
     }
+    const item = await new MemoryRepository(this.options.database)
+      .readCurrentItem(input.principalId, candidates[0]!);
+    const itemIds = Object.freeze([item.itemId]);
     if (control.intent === "forget") {
-      return mutationReceipt(
-        "forget",
-        (await controls.forget({ ownerTurn, candidateItemIds: candidates })).receipt,
-      );
+      return Object.freeze({
+        receipt: namedReceipt(mutationReceipt(
+          "forget",
+          (await controls.forget({ ownerTurn, candidateItemIds: candidates })).receipt,
+        ), item.version.text),
+        itemIds,
+      });
     }
     if (control.intent === "lift") {
-      return mutationReceipt(
-        "lift",
-        (await controls.lift({ ownerTurn, candidateItemIds: candidates })).receipt,
-      );
+      return Object.freeze({
+        receipt: namedReceipt(mutationReceipt(
+          "lift",
+          (await controls.lift({ ownerTurn, candidateItemIds: candidates })).receipt,
+        ), item.version.text),
+        itemIds,
+      });
     }
-    return evidenceReceipt(await controls.explain({ ownerTurn, candidateItemIds: candidates }));
+    return Object.freeze({
+      receipt: evidenceReceipt(
+        await controls.explain({ ownerTurn, candidateItemIds: candidates }),
+        item.version.text,
+      ),
+      itemIds,
+    });
   }
 
   private async readOwnerTurn(

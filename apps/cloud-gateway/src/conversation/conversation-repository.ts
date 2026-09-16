@@ -19,6 +19,7 @@ import {
   EventRepository,
   type AppendedEvent,
 } from "../persistence/event-repository.js";
+import { takePendingTelegramMemoryReferences } from "../memory/telegram-memory-reference.js";
 import {
   snapshotVoiceSentReceipt,
   type AssistantStageResult,
@@ -49,6 +50,7 @@ const SHA256 = /^[a-f0-9]{64}$/u;
 const UTC_MILLISECONDS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const DELIVERY_IDEMPOTENCY_KEY = /^conversation:[0-7][0-9a-hjkmnp-tv-z]{25}:[a-f0-9]{16}$/u;
 const encoder = new TextEncoder();
+const MAX_ASSISTANT_MEMORY_REFERENCES = 8;
 const TERMINAL_TURN_STATES = new Set<ConversationTurnState>([
   "assistant_staged", "voice_sent", "delivered", "cancelled", "failed", "model_outcome_unknown", "delivery_unknown",
 ]);
@@ -325,6 +327,20 @@ function historyPayload(
     : Object.freeze({ ...payload, directOwnerText: telegramDirectOwnerText });
 }
 
+function assistantStagePayload(
+  text: SuccessfulRedaction,
+  memoryItemIds: readonly Ulid[],
+) {
+  const payload = historyPayload("telegram", text, false);
+  if (memoryItemIds.length === 0) return payload;
+  const issuedItemIds = memoryItemIds.map((itemId) => {
+    const issued = sanitizeRedaction(itemId);
+    if (!issued.ok) throw new Error("assistant_memory_reference_redaction_failed");
+    return issued;
+  });
+  return Object.freeze({ ...payload, memoryItemIds: Object.freeze(issuedItemIds) });
+}
+
 function systemPayload(text: SuccessfulRedaction) {
   return Object.freeze({ schemaCode: 1, channelCode: 2, noticeCode: 1, historyEligible: false, text });
 }
@@ -553,11 +569,12 @@ export class ConversationRepository {
     if (turnRow === null || turnRow.state !== "model_claimed" || turnRow.model_claim_token_hash !== binding.claimTokenHash) {
       throw new Error("model_stream_claim_invalid");
     }
+    const memoryItemIds = takePendingTelegramMemoryReferences(binding.turnId);
     const deliveryId = requireDeliveryId(this.deliveryIdFactory());
     const eventId = requireUlid(this.eventIdFactory(), "conversation_event_id");
     const materialHash = await sha256Hex(canonicalJson([
-      "conversation-delivery-v1", deliveryId, binding.turnId, binding.principalId,
-      targetIdentityId, replyToMessageId, "assistant", text.text,
+      "conversation-delivery-v2", deliveryId, binding.turnId, binding.principalId,
+      targetIdentityId, replyToMessageId, "assistant", text.text, memoryItemIds,
     ]));
     const providerIdempotencyKey = `conversation:${deliveryId}:${materialHash.slice(0, 16)}`;
     const envelope = await this.createConversationEnvelope({
@@ -566,10 +583,10 @@ export class ConversationRepository {
       principalId: binding.principalId,
       correlationId: binding.turnId,
       causationId: binding.userEventId,
-      payload: historyPayload("telegram", text, false),
+      payload: assistantStagePayload(text, memoryItemIds),
       nowIso: observedAt.iso,
     });
-    const requestHash = await sha256Hex(canonicalJson(["assistant-stage-v1", binding.turnId, deliveryId, materialHash]));
+    const requestHash = await sha256Hex(canonicalJson(["assistant-stage-v2", binding.turnId, deliveryId, materialHash]));
     await this.events.appendAtomicAfter({
       envelope,
       scope: "conversation:assistant_stage",
@@ -1239,7 +1256,12 @@ export class ConversationRepository {
       || envelope.producerVersion !== CONVERSATION_EVENT_PRODUCER_VERSION
     ) throw new Error("conversation_staged_event_invalid");
     if (row.history_mode === "assistant") {
-      const payload = exactPayload(envelope.payload, ["schemaCode", "channelCode", "sensitivityCode", "historyEligible", "text"]);
+      const payloadFields = envelope.payload !== null && typeof envelope.payload === "object"
+        && !Array.isArray(envelope.payload) && Object.hasOwn(envelope.payload, "memoryItemIds")
+        ? ["schemaCode", "channelCode", "sensitivityCode", "historyEligible", "text", "memoryItemIds"]
+        : ["schemaCode", "channelCode", "sensitivityCode", "historyEligible", "text"];
+      const payload = exactPayload(envelope.payload, payloadFields);
+      const memoryItemIds = payload.memoryItemIds;
       if (
         event.event_type !== "conversation.assistant_staged"
         || envelope.causationId === undefined
@@ -1247,6 +1269,13 @@ export class ConversationRepository {
         || payload.channelCode !== 2
         || payload.sensitivityCode !== 1
         || payload.historyEligible !== false
+        || memoryItemIds !== undefined && (
+          !Array.isArray(memoryItemIds)
+          || memoryItemIds.length === 0
+          || memoryItemIds.length > MAX_ASSISTANT_MEMORY_REFERENCES
+          || memoryItemIds.some((itemId) => typeof itemId !== "string" || !ULID.test(itemId))
+          || new Set(memoryItemIds).size !== memoryItemIds.length
+        )
       ) throw new Error("conversation_staged_event_invalid");
       return requireSafeText(payload.text, "conversation_staged_text", 65536);
     }

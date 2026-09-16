@@ -122,7 +122,7 @@ function wellFormedText(value: unknown): string | null {
 }
 
 function containsQuotedOrPastedControlContent(message: Record<string, unknown>, text: string): boolean {
-  if (QUOTED_TEXT_KEYS.some((key) => key in message) || /[\r\n\u2028\u2029]/u.test(text)) return true;
+  if (QUOTED_TEXT_KEYS.some((key) => key in message) || /[\r\n\v\f\u0085\u2028\u2029]/u.test(text)) return true;
   if (!("entities" in message)) return false;
   const entities = message.entities;
   if (!Array.isArray(entities)) return true;

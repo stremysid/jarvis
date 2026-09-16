@@ -44,10 +44,15 @@ const MAX_FTS_TERM_BYTES = 128;
 const MAX_MEMORY_CANDIDATES = 3;
 const MAX_HISTORY_RESULTS = 4;
 const MAX_CONTROL_TARGETS = 2;
-const MAX_RECENT_REFERENCE_TURNS = 12;
-const DEFAULT_RETRIEVAL_TIMEOUT_MS = 1_500;
+const MAX_REFERENCED_ITEMS = 8;
+const DEFAULT_RETRIEVAL_TIMEOUT_MS = 400;
 const MAX_RETRIEVAL_TIMEOUT_MS = 5_000;
 const RETRIEVAL_FALLBACK_CODE = "telegram_memory_retrieval_fallback";
+const ASSISTANT_STAGE_EVENT_TYPE = "conversation.assistant_staged";
+const ASSISTANT_DELIVERED_EVENT_TYPE = "conversation.assistant_delivered";
+const ALL_MEMORY_STATES: readonly MemoryLifecycleState[] = Object.freeze([
+  "proposed", "active", "rejected", "superseded", "forgotten", "expired",
+]);
 const HISTORY_PAYLOAD_FIELDS = new Set([
   "schemaCode", "channelCode", "sensitivityCode", "historyEligible", "text",
 ]);
@@ -55,10 +60,23 @@ const HISTORY_PAYLOAD_WITH_OWNER_MARKER_FIELDS = new Set([
   ...HISTORY_PAYLOAD_FIELDS,
   "directOwnerText",
 ]);
+const ASSISTANT_STAGE_PAYLOAD_WITH_REFERENCES_FIELDS = new Set([
+  ...HISTORY_PAYLOAD_FIELDS,
+  "memoryItemIds",
+]);
 const CONTROL_STOPWORDS = new Set([
   "a", "about", "again", "an", "and", "could", "do", "forget", "i", "it", "me",
   "memory", "my", "please", "remember", "that", "the", "think", "this", "use", "why",
   "would", "you",
+]);
+const RECALL_STOPWORDS = new Set([
+  ...CONTROL_STOPWORDS,
+  "am", "are", "as", "at", "be", "been", "being", "by", "can", "did", "does",
+  "for", "from", "had", "has", "have", "he", "hello", "her", "hers", "hey", "hi",
+  "him", "his", "how", "if", "in", "into", "is", "its", "jarvis", "of", "on", "or",
+  "our", "ours", "s", "say", "she", "so", "tell", "than", "their", "theirs", "them", "they", "to",
+  "us", "was", "we", "were", "what", "when", "where", "which", "who", "whom", "will",
+  "with", "your", "yours",
 ]);
 const encoder = new TextEncoder();
 
@@ -86,6 +104,7 @@ export interface TelegramMemoryTargetFinder {
     principalId: string;
     operation: TelegramMemoryTargetOperation;
     query: string | null;
+    turnId?: Ulid;
   }>): Promise<readonly Ulid[]>;
 }
 
@@ -114,12 +133,18 @@ interface RetrievalDependencies {
 
 class StatementBudget {
   used = 0;
+  private aborted = false;
 
   constructor(readonly maximum: number) {}
 
   take(): void {
+    if (this.aborted) throw new RangeError("telegram_memory_retrieval_aborted");
     this.used += 1;
     if (this.used > this.maximum) throw new RangeError("telegram_memory_d1_budget_exceeded");
+  }
+
+  abort(): void {
+    this.aborted = true;
   }
 }
 
@@ -215,24 +240,54 @@ function captureInput(value: unknown): Readonly<ContextRetrieverInput> {
   });
 }
 
-function ftsQuery(value: string): string | null {
-  const terms: string[] = [];
+function recallTerms(value: string): readonly Readonly<{ term: string; folded: string }>[] {
+  const terms: Array<Readonly<{ term: string; folded: string }>> = [];
   const seen = new Set<string>();
   for (const match of value.matchAll(/[\p{L}\p{N}]+/gu)) {
     const term = match[0].normalize("NFC");
     const folded = term.normalize("NFD").replace(/\p{M}+/gu, "").toLowerCase();
-    if (encoder.encode(term).byteLength > MAX_FTS_TERM_BYTES || seen.has(folded)) continue;
+    if (RECALL_STOPWORDS.has(folded) || encoder.encode(term).byteLength > MAX_FTS_TERM_BYTES
+      || seen.has(folded)) continue;
     seen.add(folded);
-    terms.push(`"${term}"`);
+    terms.push(Object.freeze({ term, folded }));
     if (terms.length === MAX_FTS_TERMS) break;
   }
-  return terms.length === 0 ? null : terms.join(" OR ");
+  return Object.freeze(terms);
 }
 
-interface RecentTurnRow {
+function ftsQuery(value: string): string | null {
+  const terms = recallTerms(value);
+  return terms.length === 0 ? null : terms.map(({ term }) => `"${term}"`).join(" OR ");
+}
+
+interface ContextEventRow {
   readonly event_id: unknown;
-  readonly subject_id: unknown;
-  readonly envelope_json: unknown;
+  readonly event_type: unknown;
+  readonly event_envelope_json: unknown;
+  readonly turn_id: unknown;
+  readonly user_event_id: unknown;
+  readonly staged_event_id: unknown;
+  readonly staged_envelope_json: unknown;
+  readonly suppressed: unknown;
+}
+
+interface ForgottenItemRow {
+  readonly item_id: unknown;
+  readonly text: unknown;
+}
+
+interface PreviousAssistantRow {
+  readonly turn_id: unknown;
+  readonly user_event_id: unknown;
+  readonly staged_event_id: unknown;
+  readonly staged_envelope_json: unknown;
+  readonly delivered_event_id: unknown;
+  readonly delivered_envelope_json: unknown;
+}
+
+interface ItemStateRow {
+  readonly item_id: unknown;
+  readonly lifecycle_state: unknown;
 }
 
 function controlFtsQuery(value: string): string | null {
@@ -252,18 +307,24 @@ function controlFtsQuery(value: string): string | null {
 
 function literalHistoryQuery(value: string): string | null {
   const terms: string[] = [];
-  const seen = new Set<string>();
-  for (const match of value.matchAll(/[\p{L}\p{N}]+/gu)) {
-    const term = match[0].normalize("NFC");
-    const folded = term.normalize("NFD").replace(/\p{M}+/gu, "").toLowerCase();
-    if (encoder.encode(term).byteLength > MAX_FTS_TERM_BYTES || seen.has(folded)) continue;
+  for (const { term } of recallTerms(value)) {
     const candidate = [...terms, term].join(" ");
     if (encoder.encode(candidate).byteLength > 1_024) break;
-    seen.add(folded);
     terms.push(term);
-    if (terms.length === MAX_FTS_TERMS) break;
   }
-  return terms.length === 0 ? null : terms.join(" ");
+  return terms.length <= 2 ? null : terms.join(" ");
+}
+
+function recentContextCoversQuery(
+  query: string,
+  contexts: readonly RetrievedContext[],
+): boolean {
+  const required = recallTerms(query).map(({ folded }) => folded);
+  if (required.length === 0) return true;
+  return contexts.some((context) => {
+    const available = new Set(recallTerms(context.text).map(({ folded }) => folded));
+    return required.every((term) => available.has(term));
+  });
 }
 
 function candidateRows(value: unknown): readonly Readonly<{ itemId: Ulid; versionId: Ulid }>[] {
@@ -324,10 +385,95 @@ function recallableAt(item: CanonicalMemoryItem, now: string): boolean {
     && (item.version.validTo === null || item.version.validTo > now);
 }
 
-async function withinTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+async function stagedMemoryItemIds(input: Readonly<{
+  envelopeJson: string;
+  eventId: Ulid;
+  turnId: Ulid;
+  userEventId: Ulid;
+  principalId: string;
+}>): Promise<readonly Ulid[]> {
+  let decoded: unknown;
+  try { decoded = JSON.parse(input.envelopeJson); }
+  catch { throw new TypeError("telegram_memory_reference_invalid"); }
+  const envelope = await validateEnvelope(decoded);
+  if (envelope.eventId !== input.eventId || envelope.correlationId !== input.turnId
+    || envelope.causationId !== input.userEventId || envelope.subjectId !== input.principalId
+    || envelope.eventType !== ASSISTANT_STAGE_EVENT_TYPE
+    || envelope.source !== CONVERSATION_EVENT_SOURCE
+    || envelope.producerVersion !== CONVERSATION_EVENT_PRODUCER_VERSION) {
+    throw new TypeError("telegram_memory_reference_invalid");
+  }
+  if (envelope.payload === null || typeof envelope.payload !== "object" || Array.isArray(envelope.payload)) {
+    throw new TypeError("telegram_memory_reference_invalid");
+  }
+  const fields = Object.hasOwn(envelope.payload, "memoryItemIds")
+    ? ASSISTANT_STAGE_PAYLOAD_WITH_REFERENCES_FIELDS
+    : HISTORY_PAYLOAD_FIELDS;
+  const payload = exactRecord(envelope.payload, fields, "telegram_memory_reference_invalid");
+  if (payload.schemaCode !== 1 || payload.channelCode !== 2 || payload.sensitivityCode !== 1
+    || payload.historyEligible !== false) {
+    throw new TypeError("telegram_memory_reference_invalid");
+  }
+  safeText(payload.text, MAX_QUERY_BYTES, "telegram_memory_reference_invalid");
+  if (!Object.hasOwn(payload, "memoryItemIds")) return Object.freeze([]);
+  if (!Array.isArray(payload.memoryItemIds) || payload.memoryItemIds.length === 0
+    || payload.memoryItemIds.length > MAX_REFERENCED_ITEMS) {
+    throw new TypeError("telegram_memory_reference_invalid");
+  }
+  const itemIds = payload.memoryItemIds.map((itemId) => safeUlid(itemId));
+  if (new Set(itemIds).size !== itemIds.length) throw new TypeError("telegram_memory_reference_invalid");
+  return Object.freeze(itemIds);
+}
+
+async function deliveredAssistantText(input: Readonly<{
+  envelopeJson: string;
+  eventId: Ulid;
+  stagedEventId: Ulid;
+  turnId: Ulid;
+  principalId: string;
+}>): Promise<string> {
+  let decoded: unknown;
+  try { decoded = JSON.parse(input.envelopeJson); }
+  catch { throw new TypeError("telegram_memory_reference_invalid"); }
+  const envelope = await validateEnvelope(decoded);
+  if (envelope.eventId !== input.eventId || envelope.correlationId !== input.turnId
+    || envelope.causationId !== input.stagedEventId || envelope.subjectId !== input.principalId
+    || envelope.eventType !== ASSISTANT_DELIVERED_EVENT_TYPE
+    || envelope.source !== CONVERSATION_EVENT_SOURCE
+    || envelope.producerVersion !== CONVERSATION_EVENT_PRODUCER_VERSION) {
+    throw new TypeError("telegram_memory_reference_invalid");
+  }
+  return conversationText(envelope.payload);
+}
+
+function citedMemoryItemIds(text: string): readonly Ulid[] {
+  const itemIds: Ulid[] = [];
+  for (const match of text.matchAll(/\bitem[ \t]+([0-7][0-9a-hjkmnp-tv-z]{25})\b/gu)) {
+    const itemId = safeUlid(match[1]);
+    if (!itemIds.includes(itemId)) itemIds.push(itemId);
+    if (itemIds.length === MAX_REFERENCED_ITEMS) break;
+  }
+  return Object.freeze(itemIds);
+}
+
+function restatesMemory(reply: string, memoryText: string): boolean {
+  const required = recallTerms(memoryText).map(({ folded }) => folded);
+  if (required.length === 0 || required.length === 1 && required[0]!.length < 5) return false;
+  const available = new Set(recallTerms(reply).map(({ folded }) => folded));
+  return required.every((term) => available.has(term));
+}
+
+async function withinTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  onTimeout: () => void = () => undefined,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error("telegram_memory_retrieval_timeout")), timeoutMs);
+    timer = setTimeout(() => {
+      onTimeout();
+      reject(new Error("telegram_memory_retrieval_timeout"));
+    }, timeoutMs);
   });
   try {
     return await Promise.race([operation, timeout]);
@@ -336,14 +482,10 @@ async function withinTimeout<T>(operation: Promise<T>, timeoutMs: number): Promi
   }
 }
 
-function contextBytes(contexts: readonly RetrievedContext[]): number {
-  return contexts.reduce((total, context) => total + encoder.encode(context.text).byteLength, 0);
-}
-
 function targetStates(operation: TelegramMemoryTargetOperation): readonly MemoryLifecycleState[] {
   if (operation === "forget") return Object.freeze(["active", "proposed"]);
   if (operation === "lift") return Object.freeze(["forgotten"]);
-  return Object.freeze(["proposed", "active", "rejected", "superseded", "forgotten", "expired"]);
+  return ALL_MEMORY_STATES;
 }
 
 export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemoryTargetFinder {
@@ -379,62 +521,72 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       && this.controlAuthority?.principalId === captured.principalId
       && this.controlAuthority.text === captured.query) return Object.freeze([]);
 
+    const memoryLimit = Math.max(1, Math.floor(captured.maxTokens / 4));
+    const baseLimit = Math.max(1, captured.maxTokens - memoryLimit);
     const memoryInput = Object.freeze({
       ...captured,
-      maxTokens: Math.max(1, Math.floor(captured.maxTokens / 4)),
+      maxTokens: memoryLimit,
     });
-    let memoryContexts: readonly RetrievedContext[];
+    const baseInput = Object.freeze({ ...captured, maxTokens: baseLimit });
+    const budget = new StatementBudget(TELEGRAM_MEMORY_RETRIEVAL_LIMITS.d1Statements);
+    const dependencies = this.dependencies(budget);
+    let completedBase: readonly RetrievedContext[] | undefined;
+    const basePromise = this.retrieveBase(baseInput, true).then((contexts) => {
+      completedBase = contexts;
+      return contexts;
+    });
+    const memoryPromise = this.retrieveMemory(
+      dependencies,
+      memoryInput,
+      this.timestamp(),
+      basePromise,
+    );
+    const deadline = Date.now() + this.retrievalTimeoutMs;
     try {
-      memoryContexts = await withinTimeout(this.retrieveMemory(memoryInput), this.retrievalTimeoutMs);
+      const [memoryContexts, baseContexts] = await withinTimeout(
+        Promise.all([memoryPromise, basePromise]),
+        this.retrievalTimeoutMs,
+        () => budget.abort(),
+      );
+      const seen = new Set(memoryContexts.map((context) => `${context.sourceEventId}\u0000${context.text}`));
+      return Object.freeze([
+        ...memoryContexts,
+        ...baseContexts.filter((context) => {
+          const key = `${context.sourceEventId}\u0000${context.text}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        }),
+      ]);
     } catch {
+      budget.abort();
       this.log(RETRIEVAL_FALLBACK_CODE);
-      return this.retrieveBase(captured, true);
+      if (completedBase !== undefined) return completedBase;
+      const remaining = deadline - Date.now();
+      if (remaining < 1) return Object.freeze([]);
+      try { return await withinTimeout(basePromise, remaining); }
+      catch { return Object.freeze([]); }
     }
-    const remaining = Math.max(1, captured.maxTokens - contextBytes(memoryContexts));
-    const baseContexts = await this.retrieveBase(Object.freeze({ ...captured, maxTokens: remaining }), true);
-    const seen = new Set(memoryContexts.map((context) => `${context.sourceEventId}\u0000${context.text}`));
-    return Object.freeze([
-      ...memoryContexts,
-      ...baseContexts.filter((context) => {
-        const key = `${context.sourceEventId}\u0000${context.text}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      }),
-    ]);
   }
 
   private async retrieveMemory(
+    dependencies: RetrievalDependencies,
     captured: Readonly<ContextRetrieverInput>,
+    timestamp: string,
+    basePromise: Promise<readonly RetrievedContext[]>,
   ): Promise<readonly RetrievedContext[]> {
-
-    const budget = new StatementBudget(TELEGRAM_MEMORY_RETRIEVAL_LIMITS.d1Statements);
-    const dependencies = this.dependencies(budget);
-    const timestamp = this.timestamp();
-    const candidates = await this.readCandidates(dependencies, captured, timestamp);
-    const contexts: RetrievedContext[] = [];
-    let bytes = 0;
-
-    for (const candidate of candidates) {
-      const item = await dependencies.memory.readCurrentItem(captured.principalId, candidate.itemId);
-      if (item.version.versionId !== candidate.versionId || !recallableAt(item, timestamp)) continue;
-      const visibility = await dependencies.memory.readItemVisibility(captured.principalId, item.itemId);
-      if (item.lifecycle.state === "active" ? !visibility.retrievable : visibility.suppressedSourceIds.length > 0) {
-        continue;
-      }
-      const text = itemEvidence(item);
-      const textBytes = encoder.encode(text).byteLength;
-      if (bytes + textBytes > captured.maxTokens) continue;
-      bytes += textBytes;
-      contexts.push(Object.freeze({
-        sourceEventId: item.sources[0]!.eventId,
-        text,
-        sensitivity: item.version.sensitivity === "sensitive" ? "restricted" : "personal",
-      }));
-    }
-
+    const candidateContextsPromise = this.readCandidateContexts(
+      dependencies,
+      captured,
+      timestamp,
+    );
+    // Base retrieval is intentionally concurrent. Attach a handler now so a
+    // fast D1 failure cannot become unhandled while the base promise settles.
+    void candidateContextsPromise.catch(() => undefined);
+    const baseContexts = await basePromise;
+    let historyContexts: readonly RetrievedContext[] = Object.freeze([]);
     const literalQuery = literalHistoryQuery(captured.query);
-    if (literalQuery !== null && bytes < captured.maxTokens) {
+    if (literalQuery !== null && !recentContextCoversQuery(captured.query, baseContexts)) {
       const history = await dependencies.history.searchLiteral({
         principalId: captured.principalId,
         query: literalQuery,
@@ -443,15 +595,57 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       if (history.hits.length > LITERAL_HISTORY_SEARCH_LIMITS.resultsExamined) {
         throw new TypeError("telegram_memory_history_invalid");
       }
-      for (const hit of history.hits) {
-        const text = await historyEvidence(hit);
-        const textBytes = encoder.encode(text).byteLength;
-        if (bytes + textBytes > captured.maxTokens) continue;
-        bytes += textBytes;
-        contexts.push(Object.freeze({ sourceEventId: hit.eventId, text, sensitivity: "personal" }));
-      }
+      const recentEventIds = new Set(baseContexts.map((context) => context.sourceEventId));
+      const evidence = await Promise.all(history.hits.map(async (hit) => {
+        if (recentEventIds.has(hit.eventId)
+          || baseContexts.some((context) => context.text.includes(hit.excerpt))) return null;
+        return Object.freeze({
+          sourceEventId: hit.eventId,
+          text: await historyEvidence(hit),
+          sensitivity: "personal" as const,
+        });
+      }));
+      historyContexts = Object.freeze(evidence.filter((context): context is RetrievedContext => context !== null));
+    }
+    const candidateContexts = await candidateContextsPromise;
+    const contexts: RetrievedContext[] = [];
+    let bytes = 0;
+    for (const context of [...candidateContexts, ...historyContexts]) {
+      const textBytes = encoder.encode(context.text).byteLength;
+      if (bytes + textBytes > captured.maxTokens) continue;
+      bytes += textBytes;
+      contexts.push(context);
     }
     return Object.freeze(contexts);
+  }
+
+  private async readCandidateContexts(
+    dependencies: RetrievalDependencies,
+    captured: Readonly<ContextRetrieverInput>,
+    timestamp: string,
+  ): Promise<readonly RetrievedContext[]> {
+    const candidates = await this.readCandidates(dependencies, captured, timestamp);
+    const contexts = await Promise.all(candidates.map(async (candidate) => {
+      try {
+        const [item, visibility] = await Promise.all([
+          dependencies.memory.readCurrentItem(captured.principalId, candidate.itemId),
+          dependencies.memory.readItemVisibility(captured.principalId, candidate.itemId),
+        ]);
+        if (item.version.versionId !== candidate.versionId || !recallableAt(item, timestamp)) return null;
+        if (item.lifecycle.state === "active"
+          ? !visibility.retrievable
+          : visibility.creationEventSuppressed || visibility.suppressedSourceIds.length > 0) return null;
+        return Object.freeze({
+          sourceEventId: item.sources[0]!.eventId,
+          text: itemEvidence(item),
+          sensitivity: item.version.sensitivity === "sensitive" ? "restricted" as const : "personal" as const,
+        });
+      } catch (error) {
+        if (error instanceof MemoryRepositoryError && error.code === "memory_not_found") return null;
+        throw error;
+      }
+    }));
+    return Object.freeze(contexts.filter((context): context is RetrievedContext => context !== null));
   }
 
   private async retrieveBase(
@@ -483,35 +677,122 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
     const eventIds = [...new Set(contexts.map((context) => safeUlid(context.sourceEventId)))];
     if (eventIds.length === 0) return Object.freeze([]);
     const values = eventIds.map((_eventId, index) => `(?${index + 2})`).join(", ");
-    const result = await this.options.database.prepare(`WITH context_events(event_id) AS (VALUES ${values})
-      SELECT context.event_id
-      FROM context_events context
-      JOIN events event ON event.event_id = context.event_id AND event.subject_id = ?1
-      LEFT JOIN conversation_turns turn ON turn.delivered_assistant_event_id = event.event_id
-      LEFT JOIN events owner_event ON owner_event.event_id = turn.user_event_id
-      WHERE EXISTS (
-        SELECT 1 FROM memory_active_event_suppressions suppression
-        WHERE suppression.principal_id = ?1 AND (
-          suppression.target_event_id = event.event_id
-          OR event.sequence BETWEEN suppression.start_event_sequence AND suppression.end_event_sequence
-          OR owner_event.event_id IS NOT NULL AND (
-            suppression.target_event_id = owner_event.event_id
-            OR owner_event.sequence BETWEEN suppression.start_event_sequence AND suppression.end_event_sequence
-          )
-        )
-      )`)
-      .bind(principalId, ...eventIds).all<{ event_id: unknown }>();
-    const suppressed = new Set(result.results.map((row) => {
-      exactRow(row, new Set(["event_id"]), "telegram_memory_suppression_invalid");
-      return safeUlid(row.event_id);
+    const [eventResult, forgottenResult] = await Promise.all([
+      this.options.database.prepare(`WITH context_events(event_id) AS (VALUES ${values})
+        SELECT context.event_id, event.event_type, event.envelope_json AS event_envelope_json,
+          turn.turn_id, turn.user_event_id, delivery.staged_event_id,
+          staged.envelope_json AS staged_envelope_json,
+          EXISTS (
+            SELECT 1 FROM memory_active_event_suppressions suppression
+            WHERE suppression.principal_id = ?1 AND (
+              suppression.target_event_id = event.event_id
+              OR event.sequence BETWEEN suppression.start_event_sequence AND suppression.end_event_sequence
+              OR owner_event.event_id IS NOT NULL AND (
+                suppression.target_event_id = owner_event.event_id
+                OR owner_event.sequence BETWEEN suppression.start_event_sequence AND suppression.end_event_sequence
+              )
+            )
+          ) AS suppressed
+        FROM context_events context
+        JOIN events event ON event.event_id = context.event_id AND event.subject_id = ?1
+        LEFT JOIN conversation_turns turn ON turn.delivered_assistant_event_id = event.event_id
+        LEFT JOIN events owner_event ON owner_event.event_id = turn.user_event_id
+        LEFT JOIN conversation_deliveries delivery ON delivery.delivery_id = turn.staged_delivery_id
+        LEFT JOIN events staged ON staged.event_id = delivery.staged_event_id`)
+        .bind(principalId, ...eventIds).all<ContextEventRow>(),
+      this.options.database.prepare(`SELECT state.item_id, version.text
+        FROM memory_item_state state
+        JOIN memory_item_versions version
+          ON version.principal_id = state.principal_id
+          AND version.item_id = state.item_id
+        WHERE state.principal_id = ? AND state.lifecycle_state = 'forgotten'`)
+        .bind(principalId).all<ForgottenItemRow>(),
+    ]);
+    if (eventResult.results.length !== eventIds.length) {
+      throw new TypeError("telegram_memory_suppression_invalid");
+    }
+    const forgotten = forgottenResult.results.map((row) => {
+      exactRow(row, new Set(["item_id", "text"]), "telegram_memory_suppression_invalid");
+      return Object.freeze({
+        itemId: safeUlid(row.item_id),
+        text: safeText(row.text, 4_096, "telegram_memory_suppression_invalid"),
+      });
+    });
+    const forgottenIds = new Set(forgotten.map((item) => item.itemId));
+    const metadata = new Map<Ulid, Readonly<{
+      assistant: boolean;
+      suppressed: boolean;
+      referencedItemIds: readonly Ulid[];
+    }>>();
+    await Promise.all(eventResult.results.map(async (row) => {
+      exactRow(row, new Set([
+        "event_id", "event_type", "event_envelope_json", "turn_id", "user_event_id",
+        "staged_event_id", "staged_envelope_json", "suppressed",
+      ]), "telegram_memory_suppression_invalid");
+      const eventId = safeUlid(row.event_id);
+      const suppressed = row.suppressed === 1 ? true : row.suppressed === 0 ? false : null;
+      if (suppressed === null || typeof row.event_envelope_json !== "string") {
+        throw new TypeError("telegram_memory_suppression_invalid");
+      }
+      if (row.event_type === "conversation.user_committed") {
+        if (row.turn_id !== null || row.user_event_id !== null || row.staged_event_id !== null
+          || row.staged_envelope_json !== null) {
+          throw new TypeError("telegram_memory_suppression_invalid");
+        }
+        metadata.set(eventId, Object.freeze({
+          assistant: false,
+          suppressed,
+          referencedItemIds: Object.freeze([]),
+        }));
+        return;
+      }
+      if (row.event_type !== ASSISTANT_DELIVERED_EVENT_TYPE || typeof row.staged_envelope_json !== "string") {
+        throw new TypeError("telegram_memory_suppression_invalid");
+      }
+      const turnId = safeUlid(row.turn_id);
+      const userEventId = safeUlid(row.user_event_id);
+      const stagedEventId = safeUlid(row.staged_event_id);
+      const deliveredText = await deliveredAssistantText({
+        envelopeJson: row.event_envelope_json,
+        eventId,
+        stagedEventId,
+        turnId,
+        principalId,
+      });
+      const context = contexts.find((entry) => entry.sourceEventId === eventId);
+      if (context === undefined || context.text !== deliveredText) {
+        throw new TypeError("telegram_memory_suppression_invalid");
+      }
+      const stagedIds = await stagedMemoryItemIds({
+        envelopeJson: row.staged_envelope_json,
+        eventId: stagedEventId,
+        turnId,
+        userEventId,
+        principalId,
+      });
+      metadata.set(eventId, Object.freeze({
+        assistant: true,
+        suppressed,
+        referencedItemIds: Object.freeze([...new Set([
+          ...stagedIds,
+          ...citedMemoryItemIds(deliveredText),
+        ])]),
+      }));
     }));
-    return Object.freeze(contexts.filter((context) => !suppressed.has(context.sourceEventId)));
+    return Object.freeze(contexts.filter((context) => {
+      const event = metadata.get(context.sourceEventId);
+      if (event === undefined || event.suppressed) return false;
+      if (!event.assistant) return true;
+      if (event.referencedItemIds.some((itemId) => forgottenIds.has(itemId))) return false;
+      return !forgotten.some((item) => restatesMemory(context.text, item.text));
+    }));
   }
 
   async findControlTargets(input: Readonly<{
     principalId: string;
     operation: TelegramMemoryTargetOperation;
     query: string | null;
+    turnId?: Ulid;
   }>): Promise<readonly Ulid[]> {
     const principalId = safePrincipal(input.principalId);
     if (input.operation !== "forget" && input.operation !== "lift" && input.operation !== "explain") {
@@ -523,7 +804,11 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
     if (query !== null && terms === null) return Object.freeze([]);
     const budget = new StatementBudget(TELEGRAM_MEMORY_CONTROL_TARGET_LIMITS.d1Statements);
     const dependencies = this.dependencies(budget);
-    if (terms === null) return this.findLastReferencedTarget(dependencies, principalId);
+    if (terms === null) {
+      return input.turnId === undefined
+        ? Object.freeze([])
+        : this.findLastReferencedTarget(dependencies, principalId, safeUlid(input.turnId), states);
+    }
     return this.selectControlTargets(dependencies, principalId, states, terms);
   }
 
@@ -563,52 +848,74 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
   private async findLastReferencedTarget(
     dependencies: RetrievalDependencies,
     principalId: string,
+    turnId: Ulid,
+    states: readonly MemoryLifecycleState[],
   ): Promise<readonly Ulid[]> {
-    const recent = await dependencies.database.prepare(`SELECT event_id, subject_id, envelope_json
-      FROM events INDEXED BY events_subject_sequence_idx
-      WHERE subject_id = ? AND event_type = 'conversation.user_committed'
-      ORDER BY sequence DESC LIMIT ?`)
-      .bind(principalId, MAX_RECENT_REFERENCE_TURNS).all<RecentTurnRow>();
-    let skippedCurrent = false;
-    const allStates: readonly MemoryLifecycleState[] = Object.freeze([
-      "proposed", "active", "rejected", "superseded", "forgotten", "expired",
-    ]);
-    for (const row of recent.results) {
-      exactRow(row, new Set(["event_id", "subject_id", "envelope_json"]), "telegram_memory_reference_invalid");
-      const eventId = safeUlid(row.event_id);
-      if (row.subject_id !== principalId || typeof row.envelope_json !== "string") {
-        throw new TypeError("telegram_memory_reference_invalid");
-      }
-      let decoded: unknown;
-      try { decoded = JSON.parse(row.envelope_json); }
-      catch { throw new TypeError("telegram_memory_reference_invalid"); }
-      const envelope = await validateEnvelope(decoded);
-      if (envelope.eventId !== eventId || envelope.subjectId !== principalId
-        || envelope.eventType !== "conversation.user_committed"
-        || envelope.source !== CONVERSATION_EVENT_SOURCE
-        || envelope.producerVersion !== CONVERSATION_EVENT_PRODUCER_VERSION) {
-        throw new TypeError("telegram_memory_reference_invalid");
-      }
-      const text = conversationText(envelope.payload);
-      if (!skippedCurrent && this.controlAuthority?.principalId === principalId
-        && this.controlAuthority.text === text) {
-        skippedCurrent = true;
-        continue;
-      }
-      const control = parseTelegramMemoryControl(text);
-      const reference = control?.intent === "remember"
-        ? control.memoryText
-        : control === null
-          ? text
-          : control.targetQuery;
-      if (reference === null) continue;
-      const terms = controlFtsQuery(reference);
-      if (terms === null) continue;
-      const candidates = await this.selectControlTargets(dependencies, principalId, allStates, terms);
-      if (candidates.length === 1) return candidates;
-      if (candidates.length > 1) return Object.freeze([]);
+    const row = await dependencies.database.prepare(`SELECT previous.turn_id,
+        previous.user_event_id, delivery.staged_event_id,
+        staged.envelope_json AS staged_envelope_json,
+        previous.delivered_assistant_event_id AS delivered_event_id,
+        delivered.envelope_json AS delivered_envelope_json
+      FROM conversation_turns current
+      JOIN events current_user ON current_user.event_id = current.user_event_id
+      JOIN conversation_turns previous
+        ON previous.session_id = current.session_id
+        AND previous.principal_id = current.principal_id
+        AND previous.channel = 'telegram'
+      JOIN events previous_user ON previous_user.event_id = previous.user_event_id
+      JOIN conversation_deliveries delivery ON delivery.delivery_id = previous.staged_delivery_id
+      JOIN events staged ON staged.event_id = delivery.staged_event_id
+      JOIN events delivered ON delivered.event_id = previous.delivered_assistant_event_id
+      WHERE current.turn_id = ? AND current.principal_id = ? AND current.channel = 'telegram'
+        AND previous.state = 'delivered'
+        AND previous.delivered_assistant_event_id IS NOT NULL
+        AND previous_user.sequence < current_user.sequence
+      ORDER BY previous_user.sequence DESC LIMIT 1`)
+      .bind(turnId, principalId).first<PreviousAssistantRow>();
+    if (row === null) return Object.freeze([]);
+    exactRow(row, new Set([
+      "turn_id", "user_event_id", "staged_event_id", "staged_envelope_json",
+      "delivered_event_id", "delivered_envelope_json",
+    ]), "telegram_memory_reference_invalid");
+    if (typeof row.staged_envelope_json !== "string" || typeof row.delivered_envelope_json !== "string") {
+      throw new TypeError("telegram_memory_reference_invalid");
     }
-    return Object.freeze([]);
+    const previousTurnId = safeUlid(row.turn_id);
+    const userEventId = safeUlid(row.user_event_id);
+    const stagedEventId = safeUlid(row.staged_event_id);
+    const deliveredEventId = safeUlid(row.delivered_event_id);
+    const [stagedIds, deliveredText] = await Promise.all([
+      stagedMemoryItemIds({
+        envelopeJson: row.staged_envelope_json,
+        eventId: stagedEventId,
+        turnId: previousTurnId,
+        userEventId,
+        principalId,
+      }),
+      deliveredAssistantText({
+        envelopeJson: row.delivered_envelope_json,
+        eventId: deliveredEventId,
+        stagedEventId,
+        turnId: previousTurnId,
+        principalId,
+      }),
+    ]);
+    const referenced = [...new Set([...stagedIds, ...citedMemoryItemIds(deliveredText)])];
+    if (referenced.length !== 1) return Object.freeze([]);
+    const itemId = referenced[0]!;
+    const state = await dependencies.database.prepare(`SELECT item_id, lifecycle_state
+      FROM memory_item_state WHERE principal_id = ? AND item_id = ?`)
+      .bind(principalId, itemId).first<ItemStateRow>();
+    if (state === null) return Object.freeze([]);
+    exactRow(state, new Set(["item_id", "lifecycle_state"]), "telegram_memory_reference_invalid");
+    if (safeUlid(state.item_id) !== itemId || typeof state.lifecycle_state !== "string"
+      || !ALL_MEMORY_STATES.includes(state.lifecycle_state as MemoryLifecycleState)) {
+      throw new TypeError("telegram_memory_reference_invalid");
+    }
+    if (!states.includes(state.lifecycle_state as MemoryLifecycleState)) {
+      return Object.freeze([]);
+    }
+    return Object.freeze([itemId]);
   }
 
   private dependencies(budget: StatementBudget): RetrievalDependencies {
@@ -653,12 +960,21 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
             AND placement.relation = 'primary' AND placement.status = 'active'
           JOIN memory_item_state state
             ON state.principal_id = placement.principal_id AND state.item_id = placement.item_id
+          JOIN memory_items item
+            ON item.principal_id = state.principal_id AND item.item_id = state.item_id
           JOIN memory_item_versions version
             ON version.principal_id = state.principal_id AND version.version_id = state.current_version_id
           WHERE state.lifecycle_state IN ('active', 'proposed')
             AND (state.lifecycle_state = 'active' OR version.uncertain = 1)
             AND (version.valid_from IS NULL OR version.valid_from <= ?3)
             AND (version.valid_to IS NULL OR version.valid_to > ?3)
+            AND NOT EXISTS (
+              SELECT 1 FROM memory_active_event_suppressions suppression
+              WHERE suppression.principal_id = item.principal_id
+                AND (suppression.target_event_id = item.creation_event_id
+                  OR item.creation_event_sequence BETWEEN suppression.start_event_sequence
+                    AND suppression.end_event_sequence)
+            )
             AND NOT EXISTS (
               SELECT 1 FROM memory_item_sources source
               JOIN memory_active_event_suppressions suppression
@@ -686,11 +1002,20 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       JOIN memory_item_versions version ON version.version_rowid = memory_item_fts.rowid
       JOIN memory_item_state state
         ON state.principal_id = version.principal_id AND state.current_version_id = version.version_id
+      JOIN memory_items item
+        ON item.principal_id = state.principal_id AND item.item_id = state.item_id
       WHERE memory_item_fts MATCH ? AND version.principal_id = ?
         AND state.lifecycle_state IN ('active', 'proposed')
         AND (state.lifecycle_state = 'active' OR version.uncertain = 1)
         AND (version.valid_from IS NULL OR version.valid_from <= ?)
         AND (version.valid_to IS NULL OR version.valid_to > ?)
+        AND NOT EXISTS (
+          SELECT 1 FROM memory_active_event_suppressions suppression
+          WHERE suppression.principal_id = item.principal_id
+            AND (suppression.target_event_id = item.creation_event_id
+              OR item.creation_event_sequence BETWEEN suppression.start_event_sequence
+                AND suppression.end_event_sequence)
+        )
         AND NOT EXISTS (
           SELECT 1 FROM memory_item_sources source
           JOIN memory_active_event_suppressions suppression

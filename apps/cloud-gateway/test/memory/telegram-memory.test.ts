@@ -61,6 +61,66 @@ class EchoModel extends RecordingModel {
   }
 }
 
+class FixedReplyModel extends RecordingModel {
+  constructor(private readonly reply: string) {
+    super();
+  }
+
+  override async *stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
+    this.calls += 1;
+    this.inputs.push(input);
+    yield Object.freeze({ index: 0, text: this.reply });
+  }
+}
+
+interface D1Stats {
+  statements: number;
+  inflight: number;
+  maxInflight: number;
+}
+
+function newD1Stats(): D1Stats {
+  return { statements: 0, inflight: 0, maxInflight: 0 };
+}
+
+function countingDatabase(
+  database: D1Database,
+  stats: D1Stats,
+  delayFor: (sql: string) => number = () => 0,
+): D1Database {
+  const wrap = (statement: D1PreparedStatement, sql: string): D1PreparedStatement => new Proxy(statement as object, {
+    get(target, property) {
+      if (property === "bind") {
+        return (...values: unknown[]) => wrap((target as D1PreparedStatement).bind(...values), sql);
+      }
+      if (property === "first" || property === "all" || property === "run" || property === "raw") {
+        return async (...args: unknown[]) => {
+          stats.statements += 1;
+          stats.inflight += 1;
+          stats.maxInflight = Math.max(stats.maxInflight, stats.inflight);
+          try {
+            const delayMs = delayFor(sql);
+            if (delayMs > 0) await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+            const method = Reflect.get(target, property, target) as (...values: unknown[]) => Promise<unknown>;
+            return await method.apply(target, args);
+          } finally {
+            stats.inflight -= 1;
+          }
+        };
+      }
+      const value = Reflect.get(target, property, target) as unknown;
+      return typeof value === "function" ? (value as (...args: never[]) => unknown).bind(target) : value;
+    },
+  }) as D1PreparedStatement;
+  return new Proxy(database as object, {
+    get(target, property) {
+      if (property === "prepare") return (sql: string) => wrap((target as D1Database).prepare(sql), sql);
+      const value = Reflect.get(target, property, target) as unknown;
+      return typeof value === "function" ? (value as (...args: never[]) => unknown).bind(target) : value;
+    },
+  }) as D1Database;
+}
+
 async function seedPrincipal(principalId: string): Promise<void> {
   const now = new Date().toISOString();
   await env.DB.prepare(`INSERT INTO principals (
@@ -182,6 +242,83 @@ async function sendProduction(options: Parameters<typeof productionService>[0]) 
     targetIdentityId: options.who.identityId,
     replyToMessageId: servicePrincipalSerial,
   });
+}
+
+async function latestUserEvent(principalId: string): Promise<Readonly<{
+  eventId: ReturnType<typeof newUlid>;
+  sequence: number;
+  occurredAt: string;
+}>> {
+  const row = await env.DB.prepare(`SELECT event_id, sequence, occurred_at FROM events
+    WHERE subject_id = ? AND event_type = 'conversation.user_committed'
+    ORDER BY sequence DESC LIMIT 1`).bind(principalId)
+    .first<{ event_id: string; sequence: number; occurred_at: string }>();
+  if (row === null) throw new Error("telegram_memory_user_event_missing");
+  return Object.freeze({
+    eventId: row.event_id as ReturnType<typeof newUlid>,
+    sequence: row.sequence,
+    occurredAt: row.occurred_at,
+  });
+}
+
+async function commitTestItem(options: Readonly<{
+  principalId: string;
+  text: string;
+  creation: Awaited<ReturnType<typeof latestUserEvent>>;
+  source?: Awaited<ReturnType<typeof latestUserEvent>>;
+  state?: "active" | "proposed";
+  uncertain?: boolean;
+}>): Promise<ReturnType<typeof newUlid>> {
+  const memory = new MemoryRepository(env.DB);
+  const topics = await memory.bootstrapTopics(options.principalId);
+  const itemId = newUlid();
+  const source = options.source ?? options.creation;
+  await memory.commitInitialItem({
+    principalId: options.principalId,
+    itemId,
+    kind: "fact",
+    creationEventId: options.creation.eventId,
+    creationEventSequence: options.creation.sequence,
+    version: {
+      versionId: newUlid(),
+      text: options.text,
+      textHash: await sha256Hex(options.text),
+      basis: options.uncertain ? "inferred" : "stated",
+      origin: options.uncertain ? "model" : "authenticated_first_person",
+      uncertain: options.uncertain ?? false,
+      sensitivity: "normal",
+      validFrom: null,
+      validTo: null,
+      extractorVersion: "telegram-memory-runtime-test-v1",
+      extractorModelId: options.uncertain ? "openai:telegram-memory-runtime-test" : null,
+    },
+    sources: [{
+      sourceId: newUlid(),
+      eventId: source.eventId,
+      eventSequence: source.sequence,
+      sourceLocation: "live",
+      r2SegmentId: null,
+      excerpt: options.text,
+      excerptHash: await sha256Hex(options.text),
+      channel: "telegram",
+      occurredAt: source.occurredAt,
+    }],
+    transition: {
+      transitionId: newUlid(),
+      lifecycleState: options.state ?? "active",
+      reason: "telegram memory runtime test",
+      policyVersion: "telegram-memory-runtime-test-v1",
+    },
+    placement: {
+      placementId: newUlid(),
+      placementEventId: newUlid(),
+      topicId: topics.inbox.topicId,
+      filingSource: "rule",
+      confidence: 0.4,
+      reason: "telegram memory runtime test",
+    },
+  });
+  return itemId;
 }
 
 async function claimedTurn(principalId: string, text: string): Promise<Readonly<{
@@ -674,6 +811,41 @@ describe("Telegram memory production conversation integration", () => {
     expect(model.calls).toBe(1);
     expect(logs).toEqual(["telegram_memory_retrieval_fallback"]);
   });
+
+  it("aborts a timed-out lookup before it can issue another D1 statement", async () => {
+    const owner = await seedServicePrincipal("timeout-abort");
+    const model = new RecordingModel();
+    const telegram = new FakeTelegramProvider();
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "Remember that my reports should be short.",
+      model,
+      telegram,
+    });
+    const stats = newD1Stats();
+    const database = countingDatabase(
+      env.DB,
+      stats,
+      (sql) => /memory_item_fts/u.test(sql) ? 100 : 0,
+    );
+    const logs: string[] = [];
+    const result = await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "Are my reports short?",
+      model,
+      telegram,
+      retrieverDatabase: database,
+      retrievalTimeoutMs: 20,
+      log: (code) => logs.push(code),
+    });
+    const statementsAtReturn = stats.statements;
+    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+    expect(result.outcome).toBe("telegram_delivered");
+    expect(logs).toEqual(["telegram_memory_retrieval_fallback"]);
+    expect(stats.statements).toBe(statementsAtReturn);
+  });
 });
 
 describe("Telegram memory target selection and replay guards", () => {
@@ -702,7 +874,7 @@ describe("Telegram memory target selection and replay guards", () => {
     expect(active?.count).toBe(2);
   });
 
-  it("resolves that to the most recent clearly referenced memory", async () => {
+  it("resolves that only to the memory injected into the previous reply and names every receipt", async () => {
     const owner = await seedServicePrincipal("that-reference");
     const model = new RecordingModel();
     const telegram = new FakeTelegramProvider();
@@ -711,14 +883,95 @@ describe("Telegram memory target selection and replay guards", () => {
       "Remember that my essays need a clear thesis.",
       "Do you remember my reports preference?",
       "Forget that memory.",
-      "Why do you think that?",
     ]) {
       await sendProduction({ who: owner, ownerPrincipalId: owner.principalId, text, model, telegram });
     }
+    const states = await env.DB.prepare(`SELECT version.text, state.lifecycle_state
+      FROM memory_item_state state
+      JOIN memory_item_versions version
+        ON version.principal_id = state.principal_id AND version.version_id = state.current_version_id
+      WHERE state.principal_id = ? ORDER BY version.text`).bind(owner.principalId)
+      .all<{ text: string; lifecycle_state: string }>();
+    expect(states.results).toEqual([
+      { text: "my essays need a clear thesis.", lifecycle_state: "active" },
+      { text: "my reports should be short.", lifecycle_state: "forgotten" },
+    ]);
+    expect(telegram.requests.at(-1)?.text).toMatch(/Forgot 1 memory/u);
+    expect(telegram.requests.at(-1)?.text).toContain("my reports should be short.");
 
-    expect(telegram.requests.at(-2)?.text).toMatch(/Forgot 1 memory/u);
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "Why do you think that?",
+      model,
+      telegram,
+    });
     expect(telegram.requests.at(-1)?.text).toMatch(/Evidence for 1 memory/u);
-    expect(telegram.requests.at(-1)?.text).not.toMatch(/Which memory do you mean/u);
+    expect(telegram.requests.at(-1)?.text).toContain("my reports should be short.");
+
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "Use that memory again.",
+      model,
+      telegram,
+    });
+    expect(telegram.requests.at(-1)?.text).toMatch(/Restored 1 memory/u);
+    expect(telegram.requests.at(-1)?.text).toContain("my reports should be short.");
+  });
+
+  it("asks which memory when the previous reply was injected with more than one item", async () => {
+    const owner = await seedServicePrincipal("that-ambiguous");
+    const model = new RecordingModel();
+    const telegram = new FakeTelegramProvider();
+    for (const text of [
+      "Remember that my weekly reports should be short.",
+      "Remember that my monthly reports should include charts.",
+      "Tell me about reports.",
+      "Forget that memory.",
+    ]) {
+      await sendProduction({ who: owner, ownerPrincipalId: owner.principalId, text, model, telegram });
+    }
+    const active = await env.DB.prepare(`SELECT count(*) AS count FROM memory_item_state
+      WHERE principal_id = ? AND lifecycle_state = 'active'`)
+      .bind(owner.principalId).first<{ count: number }>();
+    expect(telegram.requests.at(-1)?.text).toMatch(/Which memory do you mean/u);
+    expect(active?.count).toBe(2);
+  });
+
+  it("skips a non-Telegram turn while resolving the previous Telegram reply", async () => {
+    const owner = await seedServicePrincipal("that-after-voice");
+    const model = new RecordingModel();
+    const telegram = new FakeTelegramProvider();
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "Remember that my reports should be short.",
+      model,
+      telegram,
+    });
+    const redacted = new Redactor().redactText("What is on my calendar tomorrow?");
+    if (!redacted.ok) throw new Error("telegram_memory_voice_redaction_failed");
+    const voiceTurnId = newUlid();
+    await new ConversationRepository(env.DB, new EventRepository(env.DB)).getOrCreateTurn({
+      turnId: voiceTurnId,
+      sessionId: `voice:${voiceTurnId}`,
+      principalId: owner.principalId,
+      channel: "voice",
+      userText: redacted,
+      now: new Date(),
+    });
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "Forget that memory.",
+      model,
+      telegram,
+    });
+    const state = await env.DB.prepare(`SELECT lifecycle_state FROM memory_item_state
+      WHERE principal_id = ?`).bind(owner.principalId).first<{ lifecycle_state: string }>();
+    expect(state?.lifecycle_state).toBe("forgotten");
+    expect(telegram.requests.at(-1)?.text).toContain("my reports should be short.");
   });
 
   it("rejects replaying one turn id with a changed direct-owner marker", async () => {
@@ -751,6 +1004,46 @@ describe("Telegram memory target selection and replay guards", () => {
 });
 
 describe("Telegram forget recall safety", () => {
+  it("removes later assistant replies that retrieved, cited, or restated a forgotten item", async () => {
+    const owner = await seedServicePrincipal("forget-later-reply");
+    const telegram = new FakeTelegramProvider();
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "Remember that my favourite teacher is Ms Lee.",
+      model: new RecordingModel(),
+      telegram,
+    });
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "Who is my favourite teacher?",
+      model: new FixedReplyModel("Your favourite teacher is Ms Lee."),
+      telegram,
+    });
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "Forget the memory about favourite teacher.",
+      model: new RecordingModel(),
+      telegram,
+    });
+    const probe = new RecordingModel();
+    const logs: string[] = [];
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "Which teacher do I like most?",
+      model: probe,
+      telegram,
+      log: (code) => logs.push(code),
+    });
+    const leaked = probe.inputs[0]?.context.filter((context) => context.text.includes("Ms Lee")) ?? [];
+    expect(telegram.requests[2]?.text).toContain("my favourite teacher is Ms Lee.");
+    expect(logs).toEqual([]);
+    expect(leaked).toEqual([]);
+  });
+
   it("does not recall a forgotten fact through Jarvis's earlier echo", async () => {
     const owner = await seedServicePrincipal("forget-echo");
     const model = new EchoModel();
@@ -986,8 +1279,13 @@ describe("Telegram direct-owner text boundary", () => {
     expect(envelope.payload).toMatchObject({ directOwnerText: false });
   });
 
-  it("treats U+2028-separated text as pasted rather than authoritative", async () => {
-    const classified = classifyMarkerText("Mum: I hate broccoli\u2028Me: okay");
+  it.each([
+    ["vertical-tab", "\v"],
+    ["form-feed", "\f"],
+    ["U+0085", "\u0085"],
+    ["U+2028", "\u2028"],
+  ])("treats %s-separated text as pasted rather than authoritative", (_label, separator) => {
+    const classified = classifyMarkerText(`Mum: I hate broccoli${separator}Me: okay`);
     expect(classified.isMemoryControlAuthoritative).toBe(false);
   });
 });
@@ -1022,7 +1320,58 @@ describe("Telegram memory retrieval", () => {
     expect(uncertain?.text).toContain(text);
   });
 
-  it("returns eligible canonical memory and verified live history with deterministic evidence", async () => {
+  it("does not recall an uncertain item whose creation event was forgotten", async () => {
+    const owner = await seedServicePrincipal("uncertain-forgotten-creation");
+    const telegram = new FakeTelegramProvider();
+    const model = new RecordingModel();
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "My locker is number twelve.",
+      model,
+      telegram,
+    });
+    const creation = await latestUserEvent(owner.principalId);
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "Something about gymnasium schedules came up.",
+      model,
+      telegram,
+    });
+    const source = await latestUserEvent(owner.principalId);
+    await commitTestItem({
+      principalId: owner.principalId,
+      text: "My locker is number twelve.",
+      creation,
+    });
+    await commitTestItem({
+      principalId: owner.principalId,
+      text: "Something about gymnasium schedules came up.",
+      creation,
+      source,
+      state: "proposed",
+      uncertain: true,
+    });
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "Forget the memory about locker.",
+      model,
+      telegram,
+    });
+    const contexts = await new TelegramMemoryRetriever({ database: env.DB, archive: env.ARCHIVE }).retrieve({
+      principalId: owner.principalId,
+      channel: "telegram",
+      purpose: "conversation",
+      query: "gymnasium schedules",
+      maxTokens: 32_000,
+    });
+    expect(contexts.some((context) => context.text.startsWith("Uncertain memory evidence [")
+      && context.text.includes("gymnasium schedules"))).toBe(false);
+  });
+
+  it("returns eligible canonical memory without duplicating a recent literal-history hit", async () => {
     const events = new EventRepository(env.DB);
     const conversations = new ConversationRepository(env.DB, events);
     const text = "I prefer concise reports.";
@@ -1139,9 +1488,50 @@ describe("Telegram memory retrieval", () => {
     });
 
     expect(contexts.some((entry) => entry.text.startsWith("Memory evidence ["))).toBe(true);
-    expect(contexts.some((entry) => entry.text.startsWith("History evidence [live D1;"))).toBe(true);
+    expect(contexts.some((entry) => entry.text === text)).toBe(true);
+    expect(contexts.some((entry) => entry.text.startsWith("History evidence [live D1;"))).toBe(false);
     expect(area.some((entry) => entry.text.includes("area Memory > Inbox / Needs filing"))).toBe(true);
     expect(controlContext).toEqual([]);
     expect(TELEGRAM_MEMORY_RETRIEVAL_LIMITS.d1Statements).toBeLessThan(1_000);
+  });
+});
+
+describe("Telegram memory retrieval statement bounds", () => {
+  it("uses at most 10 D1 statements for hi and at most 40 for an ordinary due-date question", async () => {
+    const owner = await seedServicePrincipal("statement-bounds");
+    const telegram = new FakeTelegramProvider();
+    const model = new RecordingModel();
+    for (const text of [
+      "Remember that my chemistry assignment is due this week.",
+      "Remember that my physics lab is due this week.",
+      "Remember that my history outline is due this week.",
+    ]) {
+      await sendProduction({ who: owner, ownerPrincipalId: owner.principalId, text, model, telegram });
+    }
+
+    const counts: Record<string, D1Stats> = {};
+    for (const query of ["hi", "what's due this week?"]) {
+      const stats = newD1Stats();
+      counts[query] = stats;
+      await new TelegramMemoryRetriever({
+        database: countingDatabase(env.DB, stats),
+        archive: env.ARCHIVE,
+        log: () => undefined,
+      }).retrieve({
+        principalId: owner.principalId,
+        channel: "telegram",
+        purpose: "conversation",
+        query,
+        maxTokens: 32_000,
+      });
+    }
+
+    console.log("telegram_memory_statement_counts", JSON.stringify({
+      hi: counts.hi?.statements,
+      dueThisWeek: counts["what's due this week?"]?.statements,
+    }));
+    expect(counts.hi?.statements).toBeLessThanOrEqual(10);
+    expect(counts["what's due this week?"]?.statements).toBeLessThanOrEqual(40);
+    expect(counts["what's due this week?"]?.maxInflight).toBeGreaterThan(1);
   });
 });
