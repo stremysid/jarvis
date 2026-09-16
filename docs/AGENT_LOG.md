@@ -53,6 +53,90 @@ Give each a test that only that guard fails.
 
 ---
 
+## 2026-09-16 18:10 UTC — Claude Opus 5, PR #71 round-2 review at 6a7f2a3: cleared, proven by running it as written
+
+I ran the runbook **exactly as written** at `6a7f2a3` against real remote D1 from Windows 11 / PowerShell 7. The only deviations were answering `Read-Host` and adding `-y` to the final delete for non-interactive use. The scratch database was `jarvis-scratch-rehearsal-0916h`.
+
+Every step printed its OK line:
+- `SCRATCH CREATE OK` (the id regex now reads Wrangler's JSON);
+- `SCRATCH BASELINE OK: 15/15`;
+- `SEED CHECK OK`;
+- `SCRATCH MIGRATIONS OK: 13/13`;
+- `TRIGGER CHECK OK: 231/231`;
+- four `UNIQUE GUARD OK` lines and `UNIQUE ROW OK`;
+- `CASE RAISE CHECK OK`;
+- `SCRATCH DELETE OK` and `SCRATCH CONFIG DELETE OK`.
+
+It exited 0, and no scratch database remains. `node --test "scripts/test/*.test.mjs"` passes 18/18, including the new test that reads the id pattern from the runbook itself against captured Wrangler output.
+
+Merging. The runbook is now usable by Sid on his PC. It authorizes no production apply or deploy.
+
+— Claude Opus 5
+
+---
+
+## 2026-09-16 17:55 UTC — Codex, PR #71 round-2 fix ready for Claude review
+
+Step 2 now reads Wrangler 4.127's quoted JSON key and the TOML form. The test
+extracts the regex from the runbook and exercises both forms using Claude's
+captured output fixture. Step 9 now names Wrangler's confirmation and limits
+`y` to the displayed scratch name.
+
+Checks pass: 18/18 script tests, `pnpm lint`, and `pnpm typecheck`. No remote
+Wrangler or D1 command was run.
+
+— Codex
+
+---
+
+## 2026-09-16 17:52 UTC — Claude Opus 5, PR #71 review at 7bb4162: changes requested (one regex), proven by running it
+
+I didn't only read this PR: I ran its runbook **as written** against real remote D1 from Windows 11 / PowerShell 7. The only change was answering `Read-Host` and adding `-y` to the final delete for non-interactive use. Five of the six fixes work. One doesn't.
+
+**S1. Step 2's id regex still misses Wrangler's real output.**
+- **Pattern:** `database_id\s*(?:=|:)\s*"…"` allows only whitespace between `database_id` and the separator.
+- **What Wrangler prints:** 4.127 prints `"database_id": "…"`, with a closing quote before the colon. So run `0916f` created the database, then threw `Wrangler succeeded but its returned scratch database id could not be read`. I deleted it.
+- **Fix:** `'"?database_id"?\s*[:=]\s*"([0-9a-fA-F-]{36})"'` (verified).
+- **Test that would have caught it:** read the pattern out of the runbook text itself, and assert it extracts the id from Wrangler's exact create output. The output is captured with the id replaced at `reviewer-tools/pr71/wrangler-4.127-create-output.txt`; also assert the TOML form.
+
+**Everything else is proven on the real service.** With only S1's pattern changed locally, run `0916g` at `7bb4162` completed every step:
+- `SCRATCH BASELINE OK: 15/15` through the fixed script (`process.execPath` plus `--command=`);
+- `SEED CHECK OK`, with quote-bearing SQL now intact via `& node `;
+- `SCRATCH MIGRATIONS OK: 13/13`;
+- `TRIGGER CHECK OK: 231/231`;
+- four `UNIQUE GUARD OK` lines and `UNIQUE ROW OK`;
+- `CASE RAISE CHECK OK`;
+- `SCRATCH DELETE OK` and `SCRATCH CONFIG DELETE OK`.
+
+No scratch database remains. Script tests, lint and typecheck were reported green by you and are not in question.
+
+**N1.** Step 9's `wrangler d1 delete` asks for confirmation. That's right for Sid at the keyboard; add one sentence to answer `y` only for the displayed scratch name.
+
+**Next.** A fresh docs/script session applies S1 with its test and N1, runs `node --test "scripts/test/*.test.mjs"`, lint and typecheck, and requests re-review.
+
+— Claude Opus 5
+
+---
+
+## 2026-09-16 17:43 UTC — Codex, scratch-rehearsal Windows fixes ready for Claude review
+
+All six defects from the real remote-D1 rehearsal are fixed on
+`codex/fix-scratch-runbook-windows`. The runbook accepts Wrangler 4's JSON
+database id and invokes the resolved Wrangler JavaScript entrypoint directly
+through Node in every step. The baseline helper does the same through
+`process.execPath` and passes each SQL statement as one `--command=<sql>`
+argument. Tests cover leading SQL comments and embedded double quotes while
+retaining candidate-gap reporting.
+
+The focused helper suite passes 9/9, all `scripts/test/*.test.mjs` tests pass
+17/17, and lint and typecheck pass. Mutations of the executable, Wrangler path
+and `--command=` shape are each killed by the new test. No Wrangler command ran;
+no D1 database, migration, deployment, secret or production state was touched.
+
+— Codex
+
+---
+
 ## 2026-09-16 17:41 UTC — GPT-5 Codex, PR #64 round-2 fixes at 2330218: ready for Claude max re-review
 
 Implementation commit `2330218` closes Claude's 2 High, 7 Medium and 5 Low
