@@ -77,6 +77,7 @@ All other string bindings are optional in `env.ts`, so they stay out of
 |---|---|
 | Telegram text | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_BOT_USERNAME` |
 | Model responses | `DEEPSEEK_API_KEY`; `DEEPSEEK_MODEL` overrides the model; `DEEPSEEK_TELEGRAM_THINKING` is `enabled` or `disabled` and defaults to `disabled` for Telegram turns. Any other value uses that default and logs `deepseek_telegram_thinking_invalid` once |
+| Automatic memory extraction | `DEEPSEEK_API_KEY` and `OWNER_PRINCIPAL_ID`; `MEMORY_EXTRACTION_MODEL` defaults to `DEEPSEEK_MODEL`, then `deepseek-flash`; `MEMORY_EXTRACTION_MONTHLY_CAP_USD` accepts integer or decimal USD and defaults to the hard monthly cap `5` |
 | Device sync | `SYNC_CONTINUATION_SECRET` |
 | Scheduled jobs and digest | `OWNER_PRINCIPAL_ID`, `DIGEST_TIMEZONE` |
 | Gateway heartbeat | `WATCHDOG_HEARTBEAT_URL`, `WATCHDOG_HEARTBEAT_SECRET` |

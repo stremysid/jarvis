@@ -3,6 +3,17 @@ import type {
   ModelAdapterStreamInput,
   ModelToken,
 } from "../model/model-types.js";
+import type { Ulid } from "../../../../packages/contracts/src/index.js";
+import type { MemoryExtractionBudgetPort } from "../memory/memory-extraction-budget.js";
+import {
+  issueModelCompleteJsonCompletion,
+  issueModelCompleteJsonSettledFailure,
+  MEMORY_EXTRACTION_JSON_CONTRACT,
+  ProviderFailure,
+  snapshotProviderFailure,
+  type ModelCompleteJsonInput,
+  type ModelProvider,
+} from "./provider-types.js";
 
 /**
  * DeepSeek model adapter over the OpenAI-compatible chat completions API.
@@ -44,6 +55,14 @@ export interface DeepSeekAdapterOptions {
   /** Limits the Telegram-only wire policy to adapters composed for live chat turns. */
   readonly telegramTurn?: boolean;
   readonly telegramThinking?: string;
+}
+
+export interface DeepSeekJsonProviderOptions {
+  readonly apiKey: string;
+  readonly model: string;
+  readonly budget: MemoryExtractionBudgetPort;
+  readonly fetchImplementation?: typeof fetch;
+  readonly baseUrl?: string;
 }
 
 export type DeepSeekFailureReason =
@@ -238,6 +257,224 @@ export class DeepSeekModelAdapter implements ModelAdapter {
       input.signal.removeEventListener("abort", abort);
       // Releases the connection when a consumer stops iterating early.
       await response.body.cancel().catch(() => undefined);
+    }
+  }
+}
+
+const JSON_REQUEST_BYTES = 131_072;
+const JSON_RESPONSE_BYTES = 262_144;
+const JSON_MAX_OUTPUT_TOKENS = 2_048;
+const JSON_CORRELATION_ID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
+
+interface DeepSeekUsage {
+  readonly prompt_tokens: unknown;
+  readonly completion_tokens: unknown;
+  readonly prompt_cache_hit_tokens: unknown;
+  readonly prompt_cache_miss_tokens: unknown;
+}
+
+function providerInteger(value: unknown): number | null {
+  return Number.isSafeInteger(value) && (value as number) >= 0 ? value as number : null;
+}
+
+function parsedUsage(value: unknown): Readonly<{
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+}> | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const usage = value as DeepSeekUsage;
+  const inputTokens = providerInteger(usage.prompt_tokens);
+  const outputTokens = providerInteger(usage.completion_tokens);
+  const cacheReadTokens = providerInteger(usage.prompt_cache_hit_tokens);
+  const cacheMissTokens = providerInteger(usage.prompt_cache_miss_tokens);
+  if (inputTokens === null || outputTokens === null || cacheReadTokens === null || cacheMissTokens === null
+    || cacheReadTokens + cacheMissTokens !== inputTokens) return null;
+  return Object.freeze({ inputTokens, outputTokens, cacheReadTokens });
+}
+
+async function boundedJson(response: Response, signal: AbortSignal): Promise<unknown> {
+  if (response.body === null) throw ProviderFailure.permanent("permanent_failure");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
+  let bytes = 0;
+  let text = "";
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      bytes += chunk.value.byteLength;
+      if (bytes > JSON_RESPONSE_BYTES) throw ProviderFailure.permanent("output_limit");
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+    text += decoder.decode();
+  } catch (error) {
+    if (error instanceof ProviderFailure) throw error;
+    if (signal.aborted) throw ProviderFailure.transient("timeout");
+    throw ProviderFailure.transient("temporarily_unavailable");
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw ProviderFailure.permanent("permanent_failure");
+  }
+}
+
+function jsonHttpFailure(status: number): ProviderFailure {
+  if (status === 401 || status === 402) return ProviderFailure.authentication();
+  if (status === 403) return ProviderFailure.policyDenied();
+  if (status === 408) return ProviderFailure.transient("timeout");
+  if (status === 429) return ProviderFailure.transient("rate_limited");
+  if (status >= 500 && status <= 599) return ProviderFailure.transient("temporarily_unavailable");
+  return ProviderFailure.permanent("invalid_request");
+}
+
+/** Bounded JSON-mode extraction with one durable reservation per provider attempt. */
+export class DeepSeekJsonProvider implements Pick<ModelProvider, "completeJson"> {
+  readonly #apiKey: string;
+  readonly #model: string;
+  readonly #budget: MemoryExtractionBudgetPort;
+  readonly #fetch: typeof fetch;
+  readonly #baseUrl: string;
+
+  constructor(options: DeepSeekJsonProviderOptions) {
+    if (options.apiKey.length === 0 || options.model.length === 0) {
+      throw new TypeError("deepseek_json_configuration_invalid");
+    }
+    this.#apiKey = options.apiKey;
+    this.#model = options.model;
+    this.#budget = options.budget;
+    this.#fetch = options.fetchImplementation ?? globalThis.fetch.bind(globalThis);
+    this.#baseUrl = options.baseUrl ?? API_ORIGIN;
+  }
+
+  async completeJson(input: ModelCompleteJsonInput): Promise<unknown> {
+    if (input.purpose !== "memory_distillation" || input.reasoningEffort !== "high"
+      || !JSON_CORRELATION_ID.test(input.correlationId)
+      || typeof input.principalId !== "string" || input.principalId.length === 0
+      || input.principalId.length > 256 || !input.principalId.isWellFormed()
+      || typeof input.prompt !== "string" || input.prompt.length === 0 || !input.prompt.isWellFormed()
+      || !Number.isSafeInteger(input.timeoutMs) || input.timeoutMs <= 0 || input.timeoutMs > 120_000
+      || !Number.isSafeInteger(input.maxOutputTokens) || input.maxOutputTokens <= 0
+      || input.maxOutputTokens > JSON_MAX_OUTPUT_TOKENS) {
+      throw ProviderFailure.permanent("invalid_request");
+    }
+    const body = JSON.stringify({
+      model: this.#model,
+      messages: [
+        {
+          role: "system",
+          content: `${MEMORY_EXTRACTION_JSON_CONTRACT} Do not include markdown or commentary.`,
+        },
+        { role: "user", content: input.prompt },
+      ],
+      response_format: { type: "json_object" },
+      thinking: { type: "disabled" },
+      temperature: 0,
+      max_tokens: input.maxOutputTokens,
+      stream: false,
+    });
+    const requestBytes = new TextEncoder().encode(body).byteLength;
+    if (requestBytes > JSON_REQUEST_BYTES) throw ProviderFailure.permanent("invalid_request");
+    const prepared = await this.#budget.prepare(input.principalId);
+    const reservation = await this.#budget.reserve({
+      principalId: input.principalId,
+      runId: input.correlationId as Ulid,
+      priceId: prepared.priceId,
+      requestBytes,
+      maxOutputTokens: input.maxOutputTokens,
+    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), input.timeoutMs);
+    let response: Response;
+    try {
+      response = await this.#fetch(`${this.#baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${this.#apiKey}`,
+        },
+        body,
+        redirect: "manual",
+        signal: controller.signal,
+      });
+    } catch {
+      clearTimeout(timeout);
+      throw controller.signal.aborted
+        ? ProviderFailure.transient("timeout")
+        : ProviderFailure.transient("temporarily_unavailable");
+    }
+    try {
+      if ((response as { readonly type: string }).type === "opaque" || response.status === 0
+        || response.status >= 300 && response.status <= 399) {
+        await response.body?.cancel().catch(() => undefined);
+        throw ProviderFailure.permanent("permanent_failure");
+      }
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined);
+        if (response.status === 402) {
+          await this.#budget.notifyCreditBlocked?.(input.principalId).catch(() => undefined);
+        }
+        throw jsonHttpFailure(response.status);
+      }
+      const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+      if (!contentType.startsWith("application/json")) {
+        await response.body?.cancel().catch(() => undefined);
+        throw ProviderFailure.permanent("permanent_failure");
+      }
+      const decoded = await boundedJson(response, controller.signal);
+      if (decoded === null || typeof decoded !== "object" || Array.isArray(decoded)) {
+        throw ProviderFailure.permanent("permanent_failure");
+      }
+      const responseObject = decoded as Record<string, unknown>;
+      const usage = parsedUsage(responseObject.usage);
+      if (usage === null) throw ProviderFailure.permanent("permanent_failure");
+      const settled = await this.#budget.settle(reservation, usage);
+      const settledUsage = {
+        priceId: settled.priceId,
+        inputTokens: settled.inputTokens,
+        outputTokens: settled.outputTokens,
+        cacheReadTokens: settled.cacheReadTokens,
+        reservedCostMicros: settled.reservedCostMicros,
+        settledCostMicros: settled.settledCostMicros,
+        d1Statements: settled.d1Statements,
+      };
+      try {
+        const choices = responseObject.choices;
+        if (!Array.isArray(choices) || choices.length !== 1
+          || choices[0] === null || typeof choices[0] !== "object" || Array.isArray(choices[0])) {
+          throw ProviderFailure.permanent("permanent_failure");
+        }
+        const choice = choices[0] as Record<string, unknown>;
+        if (choice.finish_reason === "length") throw ProviderFailure.permanent("output_limit");
+        if (choice.finish_reason !== "stop") throw ProviderFailure.permanent("permanent_failure");
+        const message = choice.message;
+        if (message === null || typeof message !== "object" || Array.isArray(message)) {
+          throw ProviderFailure.permanent("permanent_failure");
+        }
+        const content = (message as Record<string, unknown>).content;
+        if (typeof content !== "string" || content.length === 0 || !content.isWellFormed()) {
+          throw ProviderFailure.permanent("permanent_failure");
+        }
+        let value: unknown;
+        try { value = JSON.parse(content) as unknown; }
+        catch { throw ProviderFailure.permanent("permanent_failure"); }
+        if (value === null || typeof value !== "object" || Array.isArray(value)
+          || Reflect.ownKeys(value).length !== 1 || !Array.isArray((value as { proposals?: unknown }).proposals)) {
+          throw ProviderFailure.permanent("permanent_failure");
+        }
+        return issueModelCompleteJsonCompletion((value as { proposals: unknown[] }).proposals, settledUsage);
+      } catch (error) {
+        const failure = snapshotProviderFailure(error);
+        throw issueModelCompleteJsonSettledFailure(
+          failure === null ? ProviderFailure.permanent("permanent_failure") : error as ProviderFailure,
+          settledUsage,
+        );
+      }
+    } finally {
+      clearTimeout(timeout);
     }
   }
 }
