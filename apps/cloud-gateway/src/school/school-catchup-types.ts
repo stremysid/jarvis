@@ -82,3 +82,26 @@ export interface ApplyOwnerCatchupPlanInput {
   readonly plan: OwnerCatchupPlan;
   readonly now: Date;
 }
+
+export type SchoolPlanRepairRule =
+  | "school_catchup_action_sequence_invalid"
+  | "school_catchup_action_date_invalid"
+  | "school_catchup_action_invalid"
+  | "school_catchup_day_unrealistic";
+
+export type SchoolPlanValidationRule =
+  | SchoolPlanRepairRule
+  | "school_catchup_action_limit_exceeded"
+  | "school_catchup_action_course_invalid"
+  | "school_catchup_course_missing_next_action";
+
+export type SchoolPlanPartialCode =
+  | `partial:${SchoolPlanValidationRule}`
+  | `partial:repaired:${SchoolPlanRepairRule}`;
+
+export interface ApplyOwnerCatchupPlanResult {
+  /** False only when valid non-schedule changes committed while the proposed schedule did not. */
+  readonly scheduleSaved: boolean;
+  /** Fixed codes safe for logs. No model text or database error is carried here. */
+  readonly partialCodes: readonly SchoolPlanPartialCode[];
+}

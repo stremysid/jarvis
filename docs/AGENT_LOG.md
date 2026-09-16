@@ -40,6 +40,22 @@ The exported rows have foreign keys into those tables, so no restore is possible
 - **N5:** an old set with more than 1,000 objects loses its manifest before D1 stops saying `verified`. Delete objects first, the manifest last, then update D1. Record in KNOWN_ISSUES that R2 bucket locks are an owner setting not yet enabled; don't build it here.
 
 **Next.** A fresh memory-builder session fixes B1–B2, S1–S2 and N1–N5 with tests. Any change to 0031 still needs whole-trigger removal for its changed triggers; 0031 is unapplied, so edit it in place. It merges main, runs lint, typecheck and the full suite, and requests max re-review.
+## 2026-09-16 23:21 UTC — Claude Opus 5, PR #81 review at 82adca3: cleared with follow-ups
+
+**Cleared.** A valid course or fact update now survives a malformed proposed schedule, and small schedule mistakes are repaired deterministically.
+- **Gates at `82adca3`**, in a Windows Workers-pool checkout: lint 0, typecheck 0, **184 files / 4,866 tests**.
+- **Read:**
+  - `repairedPlan` only drops out-of-horizon actions, clamps minutes to 5..180, enforces 3 per day and 180 minutes per day in model order, and renumbers ranks. It never invents actions.
+  - An unparseable date or non-integer minutes still fails the schedule.
+  - If the schedule is still invalid, the course, fact and completion statements plus the turn receipt commit without the schedule. Existing planned actions stay untouched, and a `partial:<rule>` code is logged.
+  - With no non-schedule changes, it still throws exactly as before.
+  - All authority, receipt, idempotency and trigger rules are unchanged, with no migration.
+
+**F1 (Low).** `presentsUnsavedSchedule` treats any sentence naming a day or duration plus a work verb as a schedule claim. "Good luck on Friday — want me to help you study?" is replaced by the partial-save line, which drops the offer to help. Narrow it to sentences that restate a planned action or a save claim.
+
+**F2 (Low).** An idempotent replay of a partial save reports `scheduleSaved: true`, so a replayed turn wouldn't mention the unsaved schedule. It's rare; store the partial flag with the receipt when this file is next touched.
+
+**Production check after deploy:** Sid's "I have a chem test Friday" should save a Chemistry course note. The logs will show the real cause of the 22:03 failure as `school_plan_save_failed` `partial:*` or `validation:*`.
 
 — Claude Opus 5
 
@@ -99,6 +115,52 @@ file changed. No deploy, migration application, secret operation, production
 export, spend, signup, external contact or merge was performed. Claude max
 should review the complete current PR head; Sid retains merge and every live
 operation.
+## 2026-09-16 23:17 UTC — Codex, draft PR #81 school schedule degradation ready for Claude review
+
+Draft PR: https://github.com/ksid1229-ops/jarvis/pull/81
+
+Implementation head `79d765b` fixes the empty-school-state failure behind
+"I have a chem test Friday." Course/fact/resolution/completion validation is
+now separate from schedule validation. If those non-schedule mutations are
+valid but the proposed schedule is not, they commit with the immutable turn
+receipt in one D1 batch, the existing planned actions are left unchanged, and
+the adapter logs only fixed `partial:<rule>` codes. A turn with no valid
+mutation still follows the prior failure path and fixed "I couldn't update
+your school plan." line.
+
+Before schedule validation, the repository deterministically renumbers each
+day in model order, drops dates outside today..+6, clamps minutes to 5..180,
+and drops work beyond three actions or 180 minutes per day. Each changed rule
+logs `partial:repaired:<rule>`. No content is invented. When only the schedule
+is rejected, schedule wording in the structured reply is replaced with "I
+saved your course note, but not a study schedule this time." without discarding
+the truthful fact sentence.
+
+Evidence on the merged `origin/main` tree:
+
+- Production-shaped real-repository/all-migrations cases for empty plan,
+  ranks 2/3, +9-day action, 300 minutes, invalid course update and exact-turn
+  replay pass. A repository case also proves an existing planned action keeps
+  its ID/text/status during a partial fact save.
+- Focused school plus 0022 upgrade: **4 files / 66 tests passed**.
+- Mutation: restoring the old unconditional schedule throw made the named
+  empty-plan regression fail with the old visible failure reply; restoration
+  passed.
+- `pnpm lint` and `pnpm typecheck`: pass. The known test-typecheck backlog has
+  no diagnostic in either changed school test file.
+- The root Workers run reached **183 passed files / 4,865 passed tests** and
+  found one return-contract failure in the 0022 upgrade test. The void API was
+  restored; that exact file and the focused suite then passed. The already
+  passing 183 files were not rerun.
+- Watchdog: **8 files / 119 tests passed**.
+- Hermes: **246/250 passed**. Three existing failures require the absent
+  trusted PowerShell 7 host. One unrelated 5-second source-lock test timed out;
+  its permitted isolated file rerun passed 76/77 and repeated that timeout.
+
+Scope is only school catch-up source/tests plus this handoff. No migration,
+voice, calls, memory, university, secret, deployment, production query, spend,
+sign-up, external contact or merge action was performed. Ready for independent
+Claude review; do not merge from this handoff.
 
 — Codex GPT-5
 

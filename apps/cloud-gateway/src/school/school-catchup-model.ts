@@ -3,6 +3,8 @@ import type { ModelAdapter, ModelAdapterStreamInput, ModelToken, RetrievedContex
 import { localDate } from "../digest/digest-composer.js";
 import type { SchoolCatchupRepository } from "./school-catchup-repository.js";
 import type {
+  ApplyOwnerCatchupPlanInput,
+  ApplyOwnerCatchupPlanResult,
   CatchupPlanAction,
   OwnerCatchupPlan,
   OwnerCourseUpdate,
@@ -100,6 +102,7 @@ const PREPARATION_START = /^(?:draft|prepare|review|revise|outline|fill\s+out|wr
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
 const encoder = new TextEncoder();
 const SAVE_FAILURE_LINE = "I couldn't update your school plan.";
+const PARTIAL_SCHEDULE_LINE = "I saved your course note, but not a study schedule this time.";
 const UNIVERSITY_SAVE_FAILURE_LINE = "I couldn't update your university tracker.";
 const UNSAVED_FALLBACK_REPLY = "I can still help with the school work in your message.";
 const UNSAVED_UNIVERSITY_FALLBACK_REPLY = "I can still help with the university planning in your message.";
@@ -113,7 +116,12 @@ const MODEL_RESPONSE_TOO_LARGE_REPLY = "I couldn't safely process that planning 
 
 interface SchoolCatchupModelDependencies {
   readonly model: ModelAdapter;
-  readonly repository: Pick<SchoolCatchupRepository, "readSnapshot" | "applyOwnerPlan">;
+  readonly repository: Pick<SchoolCatchupRepository, "readSnapshot"> & {
+    applyOwnerPlan(
+      input: ApplyOwnerCatchupPlanInput,
+      onResult?: (result: ApplyOwnerCatchupPlanResult) => void,
+    ): Promise<void>;
+  };
   readonly universityRepository?: Pick<UniversityTrackerRepository, "readSnapshot" | "applyOwnerPlan">;
   readonly redactor: { redactText(text: string): { readonly ok: boolean; readonly text?: string } };
   readonly timeZone: string;
@@ -470,6 +478,35 @@ function safeOrdinaryReply(
 function normalizedEvidence(value: string): string {
   return value.normalize("NFC").toLocaleLowerCase("en-CA")
     .replace(/['’ʼ`]/gu, "'").replace(/[^\p{L}\p{N}']+/gu, " ").replace(/\s+/gu, " ").trim();
+}
+
+function presentsUnsavedSchedule(sentence: string, plan: OwnerCatchupPlan): boolean {
+  if (PLAN_SAVE_COMPLETIONS.some((pattern) => pattern.test(sentence))) return true;
+  const normalizedSentence = normalizedEvidence(sentence);
+  if (plan.plan.some((action) => {
+    const actionText = normalizedEvidence(action.text);
+    return actionText.length > 0 && normalizedSentence.includes(actionText);
+  })) return true;
+  const namesWhen = /\b(?:today|tonight|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|\d+\s*(?:minutes?|mins?|hours?|hrs?))\b/iu
+    .test(sentence);
+  const namesWork = /\b(?:study|review|practice|work\s+on|start|finish|complete|read|draft|prepare|spend|do)\b/iu
+    .test(sentence);
+  return namesWhen && namesWork;
+}
+
+function replyWithoutUnsavedSchedule(plan: OwnerCatchupPlan): string {
+  const sentences = plan.reply.split(/(?<=[.!?])(?:[ \t]+|\r?\n+)|\r?\n+/u).filter((part) => part.length > 0);
+  const reply: string[] = [];
+  let replaced = false;
+  for (const sentence of sentences) {
+    if (presentsUnsavedSchedule(sentence, plan)) {
+      if (!replaced) reply.push(PARTIAL_SCHEDULE_LINE);
+      replaced = true;
+      continue;
+    }
+    reply.push(sentence);
+  }
+  return replaced ? reply.join(" ").trim() : plan.reply;
 }
 
 function mentionsName(value: string, name: string): boolean {
@@ -967,6 +1004,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       return;
     }
     if (schoolPlan.engaged) {
+      let saveResult: ApplyOwnerCatchupPlanResult | undefined;
       try {
         await this.dependencies.repository.applyOwnerPlan({
           principalId: input.principalId,
@@ -975,7 +1013,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
           responseHash: await sha256Hex(raw),
           plan: schoolPlan,
           now,
-        });
+        }, (result) => { saveResult = result; });
       } catch (error) {
         console.warn("school_plan_save_failed", { code: planSaveFailureCode(error) });
         if (offerReport) {
@@ -985,6 +1023,19 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
         // Never release the structured reply: it may claim a plan was saved.
         // The ordinary bot still answers, with one fixed line naming the gap.
         yield* fallbackWithSaveFailure(this.dependencies.model, input, "school", this.dependencies.redactor);
+        return;
+      }
+      for (const code of saveResult?.partialCodes ?? []) {
+        console.warn("school_plan_save_failed", { code });
+      }
+      if (saveResult?.scheduleSaved === false) {
+        const partialReply = replyWithoutUnsavedSchedule(schoolPlan);
+        yield Object.freeze({
+          index: 0,
+          text: offerReport
+            ? `${partialReply}\n\n${offerNotSavedLine(input.userText, universitySnapshot, true)}`
+            : partialReply,
+        });
         return;
       }
       if (offerReport) {

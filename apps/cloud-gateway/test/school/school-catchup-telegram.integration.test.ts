@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
-import { beforeAll, describe, expect, it } from "vitest";
-import type { Ulid } from "../../../../packages/contracts/src/index.js";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { D1TelegramIdentityResolver, DefaultOutboxDispatcher } from "../../src/conversation/outbox-dispatcher.js";
 import { ConversationRepository } from "../../src/conversation/conversation-repository.js";
 import { DefaultConversationService } from "../../src/conversation/conversation-service.js";
@@ -12,6 +12,7 @@ import { Redactor } from "../../src/security/redaction.js";
 import { buildTelegramConversationRepository } from "../../src/index.js";
 import { SchoolCatchupModelAdapter } from "../../src/school/school-catchup-model.js";
 import { SchoolCatchupRepository } from "../../src/school/school-catchup-repository.js";
+import type { OwnerCatchupPlan } from "../../src/school/school-catchup-types.js";
 import { StudyCoachModelAdapter } from "../../src/school/study-coach-model.js";
 import { StudyCoachRepository } from "../../src/school/study-coach-repository.js";
 import { UniversityTrackerRepository } from "../../src/university/university-tracker-repository.js";
@@ -32,6 +33,11 @@ const CONTEXT_TURN_TWO = "01k5fb9pg00000000000000802" as Ulid;
 const CONTEXT_REPLY_TURN = "01k5fb9pg00000000000000803" as Ulid;
 const PRODUCTION_SHAPE_TURN = "01k5fb9pg00000000000000804" as Ulid;
 const EXISTING_CHEMISTRY_TURN = "01k5fb9pg00000000000000805" as Ulid;
+const EMPTY_PLAN_TURN = "01k5fb9pg00000000000000806" as Ulid;
+const RANK_REPAIR_TURN = "01k5fb9pg00000000000000807" as Ulid;
+const DATE_REPAIR_TURN = "01k5fb9pg00000000000000808" as Ulid;
+const MINUTES_REPAIR_TURN = "01k5fb9pg00000000000000809" as Ulid;
+const INVALID_COURSE_TURN = "01k5fb9pg00000000000000810" as Ulid;
 
 class SingleResponseModel implements ModelAdapter {
   readonly requests: ModelAdapterStreamInput[] = [];
@@ -45,6 +51,92 @@ class SingleResponseModel implements ModelAdapter {
       yield Object.freeze({ index: 0, text: response });
     })();
   }
+}
+
+class ResponseSequenceModel implements ModelAdapter {
+  readonly requests: ModelAdapterStreamInput[] = [];
+
+  constructor(private readonly responses: readonly string[]) {}
+
+  stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
+    this.requests.push(input);
+    const response = this.responses[this.requests.length - 1] ?? "";
+    return (async function* () {
+      yield Object.freeze({ index: 0, text: response });
+    })();
+  }
+}
+
+async function collect(stream: AsyncIterable<ModelToken>): Promise<string> {
+  let text = "";
+  for await (const token of stream) text += token.text;
+  return text;
+}
+
+async function runProductionShapedSchoolTurn(input: {
+  readonly principalId: string;
+  readonly turnId: Ulid;
+  readonly plan: OwnerCatchupPlan;
+  readonly fallback?: string;
+}): Promise<{
+  readonly raw: string;
+  readonly reply: string;
+  readonly repository: SchoolCatchupRepository;
+  readonly model: ResponseSequenceModel;
+}> {
+  const now = new Date("2026-09-16T22:03:00.000Z");
+  const redactor = new Redactor();
+  await env.DB.prepare(`INSERT INTO principals (
+    principal_id, principal_type, status, display_name, created_at, updated_at
+  ) VALUES (?1, 'human', 'active', 'School owner', ?2, ?2)`).bind(input.principalId, now.toISOString()).run();
+  const conversationRepository = new ConversationRepository(env.DB, new EventRepository(env.DB));
+  const ownerText = redactor.redactText("I have a chem test Friday");
+  if (!ownerText.ok) throw new Error("school_fixture_redaction_failed");
+  await conversationRepository.getOrCreateTurn({
+    turnId: input.turnId,
+    sessionId: `telegram:${input.principalId}`,
+    principalId: input.principalId,
+    channel: "telegram",
+    userText: ownerText,
+    now,
+  });
+  const raw = JSON.stringify({
+    schoolEngaged: input.plan.engaged,
+    universityEngaged: false,
+    reply: input.plan.reply,
+    courseUpdates: input.plan.courseUpdates,
+    completeActionIds: input.plan.completeActionIds,
+    plan: input.plan.plan,
+    programUpdates: [],
+    applicationUpdates: [],
+    workflowUpdates: [],
+  });
+  const model = new ResponseSequenceModel([raw, input.fallback ?? "I can still help with your Chemistry test."]);
+  const repository = new SchoolCatchupRepository(env.DB);
+  const adapter = new SchoolCatchupModelAdapter({
+    model,
+    repository,
+    universityRepository: new UniversityTrackerRepository(env.DB),
+    redactor,
+    timeZone: "America/Toronto",
+    now: () => now,
+    ownerPrincipalId: input.principalId,
+    ownerTurnAuthoritative: true,
+  });
+  const reply = await collect(adapter.stream({
+    correlationId: input.turnId,
+    principalId: input.principalId,
+    channel: "telegram",
+    userText: "I have a chem test Friday",
+    context: [],
+    reasoningEffort: "low",
+    firstTokenTimeoutMs: 40_000,
+    timeoutMs: 90_000,
+    contextTokenBudget: 32_000,
+    maxOutputCharacters: 8_000,
+    signal: new AbortController().signal,
+  }));
+  return Object.freeze({ raw, reply, repository, model });
 }
 
 beforeAll(async () => {
@@ -428,5 +520,188 @@ describe("school catch-up Telegram integration", () => {
       "channelCode", "directOwnerText", "historyEligible", "schemaCode", "sensitivityCode", "text",
     ]);
     expect(envelope.payload?.directOwnerText).toBe(true);
+  });
+
+  it("saves a new course and due-work fact when an empty schedule cannot cover the course", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const principalId = "principal:school-empty-plan-degrades";
+    const plan: OwnerCatchupPlan = {
+      engaged: true,
+      reply: "Your Chemistry test is owner-reported for Friday. Study Chemistry for 30 minutes tonight.",
+      courseUpdates: [{
+        courseRef: "new-1",
+        name: "Chemistry",
+        platform: null,
+        addFacts: [{ kind: "due_work", statement: "Chemistry test is Friday" }],
+        resolveFactIds: [],
+      }],
+      completeActionIds: [],
+      plan: [],
+    };
+    try {
+      const result = await runProductionShapedSchoolTurn({ principalId, turnId: EMPTY_PLAN_TURN, plan });
+      expect(result.reply).toBe(
+        "Your Chemistry test is owner-reported for Friday. I saved your course note, but not a study schedule this time.",
+      );
+      expect(result.reply).not.toContain("I couldn't update your school plan.");
+      await expect(result.repository.readSnapshot(principalId, "2026-09-16")).resolves.toMatchObject({
+        courses: [{
+          name: "Chemistry",
+          ownerReportedFacts: [{ kind: "due_work", statement: "Chemistry test is Friday" }],
+          currentNextAction: null,
+        }],
+      });
+      expect(warning).toHaveBeenCalledWith("school_plan_save_failed", {
+        code: "partial:school_catchup_course_missing_next_action",
+      });
+
+      await result.repository.applyOwnerPlan({
+        principalId,
+        turnId: EMPTY_PLAN_TURN,
+        today: "2026-09-16",
+        responseHash: await sha256Hex(result.raw),
+        plan,
+        now: new Date("2026-09-16T22:03:00.000Z"),
+      });
+      await expect(env.DB.prepare(`SELECT
+          (SELECT COUNT(*) FROM school_course_cards WHERE principal_id = ?1) AS courses,
+          (SELECT COUNT(*) FROM school_course_facts WHERE principal_id = ?1) AS facts,
+          (SELECT COUNT(*) FROM school_catchup_turn_receipts WHERE principal_id = ?1) AS receipts`)
+        .bind(principalId).first<{ courses: number; facts: number; receipts: number }>())
+        .resolves.toEqual({ courses: 1, facts: 1, receipts: 1 });
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("renumbers one day's model-ordered ranks before saving the schedule", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const principalId = "principal:school-rank-repair";
+    try {
+      await runProductionShapedSchoolTurn({
+        principalId,
+        turnId: RANK_REPAIR_TURN,
+        plan: {
+          engaged: true,
+          reply: "Your Chemistry test is owner-reported for Friday. Review tonight, then practice questions.",
+          courseUpdates: [{
+            courseRef: "new-1", name: "Chemistry", platform: null,
+            addFacts: [{ kind: "due_work", statement: "Chemistry test is Friday" }], resolveFactIds: [],
+          }],
+          completeActionIds: [],
+          plan: [
+            { courseRef: "new-1", localDate: "2026-09-16", sequenceRank: 2, text: "Review Chemistry notes", estimatedMinutes: 20 },
+            { courseRef: "new-1", localDate: "2026-09-16", sequenceRank: 3, text: "Practice Chemistry questions", estimatedMinutes: 25 },
+          ],
+        },
+      });
+      await expect(env.DB.prepare(`SELECT sequence_rank, action_text FROM school_catchup_actions
+        WHERE principal_id = ?1 AND status = 'planned' ORDER BY sequence_rank`).bind(principalId)
+        .all<{ sequence_rank: number; action_text: string }>()).resolves.toMatchObject({ results: [
+        { sequence_rank: 1, action_text: "Review Chemistry notes" },
+        { sequence_rank: 2, action_text: "Practice Chemistry questions" },
+      ] });
+      expect(warning).toHaveBeenCalledWith("school_plan_save_failed", {
+        code: "partial:repaired:school_catchup_action_sequence_invalid",
+      });
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("drops a date nine days ahead and saves the rest of the schedule", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const principalId = "principal:school-date-repair";
+    try {
+      await runProductionShapedSchoolTurn({
+        principalId,
+        turnId: DATE_REPAIR_TURN,
+        plan: {
+          engaged: true,
+          reply: "Your Chemistry test is owner-reported for Friday. Review tonight.",
+          courseUpdates: [{
+            courseRef: "new-1", name: "Chemistry", platform: null,
+            addFacts: [{ kind: "due_work", statement: "Chemistry test is Friday" }], resolveFactIds: [],
+          }],
+          completeActionIds: [],
+          plan: [
+            { courseRef: "new-1", localDate: "2026-09-16", sequenceRank: 1, text: "Review Chemistry notes", estimatedMinutes: 20 },
+            { courseRef: "new-1", localDate: "2026-09-25", sequenceRank: 1, text: "Review Chemistry again", estimatedMinutes: 20 },
+          ],
+        },
+      });
+      await expect(env.DB.prepare(`SELECT local_date, action_text FROM school_catchup_actions
+        WHERE principal_id = ?1 AND status = 'planned' ORDER BY local_date`).bind(principalId)
+        .all<{ local_date: string; action_text: string }>()).resolves.toMatchObject({ results: [
+        { local_date: "2026-09-16", action_text: "Review Chemistry notes" },
+      ] });
+      expect(warning).toHaveBeenCalledWith("school_plan_save_failed", {
+        code: "partial:repaired:school_catchup_action_date_invalid",
+      });
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("clamps a 300-minute action before saving the schedule", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const principalId = "principal:school-minutes-repair";
+    try {
+      await runProductionShapedSchoolTurn({
+        principalId,
+        turnId: MINUTES_REPAIR_TURN,
+        plan: {
+          engaged: true,
+          reply: "Your Chemistry test is owner-reported for Friday. Review Chemistry tonight.",
+          courseUpdates: [{
+            courseRef: "new-1", name: "Chemistry", platform: null,
+            addFacts: [{ kind: "due_work", statement: "Chemistry test is Friday" }], resolveFactIds: [],
+          }],
+          completeActionIds: [],
+          plan: [{
+            courseRef: "new-1", localDate: "2026-09-16", sequenceRank: 1,
+            text: "Review Chemistry notes", estimatedMinutes: 300,
+          }],
+        },
+      });
+      await expect(env.DB.prepare(`SELECT estimated_minutes FROM school_catchup_actions
+        WHERE principal_id = ?1 AND status = 'planned'`).bind(principalId)
+        .first<{ estimated_minutes: number }>()).resolves.toEqual({ estimated_minutes: 180 });
+      expect(warning).toHaveBeenCalledWith("school_plan_save_failed", {
+        code: "partial:repaired:school_catchup_action_invalid",
+      });
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("saves nothing and keeps the existing failure line when the course update is invalid", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const principalId = "principal:school-invalid-course";
+    try {
+      const result = await runProductionShapedSchoolTurn({
+        principalId,
+        turnId: INVALID_COURSE_TURN,
+        plan: {
+          engaged: true,
+          reply: "I updated your Chemistry plan.",
+          courseUpdates: [{
+            courseRef: "new-1", name: null, platform: null,
+            addFacts: [{ kind: "due_work", statement: "Chemistry test is Friday" }], resolveFactIds: [],
+          }],
+          completeActionIds: [],
+          plan: [],
+        },
+      });
+      expect(result.reply).toBe("I can still help with your Chemistry test.\n\nI couldn't update your school plan.");
+      await expect(result.repository.readSnapshot(principalId, "2026-09-16")).resolves.toMatchObject({ courses: [] });
+      await expect(env.DB.prepare(`SELECT COUNT(*) AS count FROM school_catchup_turn_receipts
+        WHERE principal_id = ?1`).bind(principalId).first<{ count: number }>()).resolves.toEqual({ count: 0 });
+      expect(warning).toHaveBeenCalledWith("school_plan_save_failed", {
+        code: "validation:school_catchup_course_ref_invalid",
+      });
+    } finally {
+      warning.mockRestore();
+    }
   });
 });
