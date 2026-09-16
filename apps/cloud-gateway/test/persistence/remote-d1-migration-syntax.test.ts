@@ -54,6 +54,8 @@ const GUEST_GRANT_NOTICE_DRAIN_TRIGGERS = Object.freeze([
 ]);
 
 const STUDY_COACH_WEAK_SPOT_TRIGGERS = Object.freeze([
+  "school_assignment_observations_scale_update_guard",
+  "school_assignment_observation_revisions_scale_insert_guard",
   "school_study_check_in_claims_insert_guard",
   "school_study_check_in_claims_update_guard",
   "school_study_check_in_claims_delete_guard",

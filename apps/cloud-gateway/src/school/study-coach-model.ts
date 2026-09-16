@@ -220,10 +220,10 @@ function correctionIntent(text: string): boolean {
 }
 
 export function parseStudySignalControlIntent(text: string): "wrong" | "handled" | null {
-  if (/^\s*(?:please\s+)?(?:(?:that|this)(?:\s+(?:study\s+)?(?:signal|check[ -]?in))?|the\s+(?:last\s+)?(?:study\s+)?(?:signal|check[ -]?in))\s+(?:is|was)\s+wrong[.!]*\s*$/iu.test(text)) {
+  if (/^\s*(?:please\s+)?(?:(?:that|this)\s+(?:(?:study\s+)?(?:signal|check[ -]?in)|weak\s+spot)|the\s+(?:last\s+)?(?:(?:study\s+)?(?:signal|check[ -]?in)|weak\s+spot))\s+(?:is|was)\s+wrong[.!]*\s*$/iu.test(text)) {
     return "wrong";
   }
-  if (/^\s*(?:please\s+)?(?:i\s+(?:already\s+)?(?:handled|finished|did)\s+(?:that|it)|(?:(?:that|this|it)(?:\s+(?:study\s+)?(?:signal|check[ -]?in))?|the\s+(?:last\s+)?(?:study\s+)?(?:signal|check[ -]?in))\s+(?:is|was|has\s+been)\s+(?:already\s+)?(?:handled|finished|done))[.!]*\s*$/iu.test(text)) {
+  if (/^\s*(?:please\s+)?(?:i\s+(?:already\s+)?(?:handled|finished|did)\s+(?:(?:that|this|the)\s+(?:(?:study\s+)?(?:signal|check[ -]?in)|weak\s+spot))|(?:(?:that|this|the)\s+(?:(?:study\s+)?(?:signal|check[ -]?in)|weak\s+spot))\s+(?:is|was|has\s+been)\s+(?:already\s+)?(?:handled|finished|done))[.!]*\s*$/iu.test(text)) {
     return "handled";
   }
   return null;
@@ -481,10 +481,18 @@ export class StudyCoachModelAdapter implements ModelAdapter {
 
     const signalControl = parseStudySignalControlIntent(input.userText);
     if (signalControl !== null) {
+      const claimed = await attemptStudyOperation(
+        () => this.dependencies.repository.readClaimedCheckIn(input.principalId, today),
+      );
+      if (!claimed.ok || claimed.value === null) {
+        yield* this.dependencies.fallbackModel.stream(input);
+        return;
+      }
       const operation = await attemptStudyOperation(() => this.dependencies.repository.retireLatestCheckInSignals({
         principalId: input.principalId,
         turnId: input.correlationId,
         reason: signalControl,
+        today,
         now,
       }));
       yield Object.freeze({

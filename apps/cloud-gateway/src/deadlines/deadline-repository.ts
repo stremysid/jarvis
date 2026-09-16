@@ -50,7 +50,6 @@ const MAXIMUM_TITLE_CHARACTERS = 512;
 export const MAXIMUM_FAILURE_CHARACTERS = 512;
 export const STUDY_DEADLINE_ROW_LIMIT = 24;
 export const STUDY_DEADLINE_NEAR_DUE_HOURS = 72;
-const STUDY_DEADLINE_OVERDUE_LOOKBACK_DAYS = 14;
 
 /** One re-read is enough to resolve a concurrent writer; a second means something else is wrong. */
 const UPSERT_ATTEMPTS = 2;
@@ -521,17 +520,10 @@ export class DeadlineRepository {
     return Object.freeze(result.results.map(toDeadline));
   }
 
-  /**
-   * A small study-only window including recent overdue work.
-   *
-   * Digest deadlines stay future-facing. This separate read prevents an old,
-   * still-open row from changing ordinary digest output while giving the coach
-   * enough source health to call stale data stale.
-   */
+  /** A small study-only window of unfinished work due soonest from now. */
   async listStudyCandidates(nowValue: Date): Promise<readonly StudyDeadlineCandidate[]> {
     const now = new Date(nowValue.getTime());
     toInstant(now);
-    const from = new Date(now.getTime() - STUDY_DEADLINE_OVERDUE_LOOKBACK_DAYS * 86_400_000);
     const to = new Date(now.getTime() + STUDY_DEADLINE_NEAR_DUE_HOURS * 3_600_000);
     const result = await this.#database.prepare(`SELECT d.*,
         s.kind AS source_kind, s.last_success_at AS source_last_success_at,
@@ -541,7 +533,7 @@ export class DeadlineRepository {
       WHERE d.status = 'open' AND d.due_at >= ?1 AND d.due_at < ?2
       ORDER BY d.due_at, d.deadline_id
       LIMIT ${STUDY_DEADLINE_ROW_LIMIT}`)
-      .bind(toInstant(from), toInstant(to)).all<StudyDeadlineRow>();
+      .bind(toInstant(now), toInstant(to)).all<StudyDeadlineRow>();
     return Object.freeze(result.results.map((row) => {
       if (!DEADLINE_SOURCE_KINDS.includes(row.source_kind as DeadlineSourceKind)) {
         throw new TypeError("study_deadline_source_invalid");

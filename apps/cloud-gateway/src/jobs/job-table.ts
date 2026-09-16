@@ -182,6 +182,7 @@ async function pollClassroom(context: JobEnvironment): Promise<string> {
       budget,
       now: () => context.clock.now(),
       undatedDeadlineExternalIds: new Set(collected.undatedExternalIds),
+      courseWorkMaxPoints: collected.courseWorkMaxPoints,
     });
     const observationDetail = classroomObservationDetail(observations);
     return `Classroom ${seen} seen, ${report.rejected.length} rejected, ${report.disappeared.length} absent; ${observationDetail}`;

@@ -27,6 +27,8 @@ export interface RawSchoolSubmissionObservation {
   readonly state: SchoolSubmissionState;
   readonly late: boolean | null;
   readonly assignedGrade: number | null;
+  /** Coursework scale joined from the published Classroom courseWork row. */
+  readonly maxPoints?: number | null;
   readonly sourceUpdatedAt: string | null;
 }
 
@@ -51,9 +53,12 @@ export interface SchoolGradeObservation {
   readonly deadlineId: string;
   readonly course: string;
   readonly title: string;
-  /** Classroom's assigned grade exactly as supplied. No denominator or weight is inferred. */
+  /** Classroom's assigned grade exactly as supplied. */
   readonly assignedGrade: number;
+  readonly maxPoints: number | null;
   readonly source: "google_classroom_api";
+  /** Classroom's own submission update time, not the time Jarvis polled it. */
+  readonly gradeUpdatedAt: string | null;
   readonly contentChangedAt: string;
   readonly lastSeenAt: string;
 }

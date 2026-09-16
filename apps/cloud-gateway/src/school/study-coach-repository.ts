@@ -212,7 +212,7 @@ function citationsJson(value: string): readonly StudySignalCitation[] {
     }
     const record = candidate as Record<string, unknown>;
     const expected = [
-      "sourceKey", "sourceKind", "sourceRecordId", "observedAt",
+      "sourceKey", "sourceKind", "sourceRecordId", "course", "itemLabel", "observedAt",
       "verification", "freshness", "detail",
     ];
     if (Reflect.ownKeys(record).some((key) => typeof key !== "string" || !expected.includes(key))
@@ -227,6 +227,8 @@ function citationsJson(value: string): readonly StudySignalCitation[] {
       sourceKey: inline(record.sourceKey, "school_study_check_in_citations_invalid", 160),
       sourceKind: record.sourceKind as StudySignalCitation["sourceKind"],
       sourceRecordId: inline(record.sourceRecordId, "school_study_check_in_citations_invalid", 256),
+      course: inline(record.course, "school_study_check_in_citations_invalid", 160),
+      itemLabel: inline(record.itemLabel, "school_study_check_in_citations_invalid"),
       observedAt: iso(record.observedAt, "school_study_check_in_citations_invalid"),
       verification: record.verification as StudySignalCitation["verification"],
       freshness: record.freshness as StudySignalCitation["freshness"],
@@ -686,7 +688,7 @@ export class StudyCoachRepository {
     if (legacy !== null) return null;
 
     const snapshot = await this.readSnapshot(principalId, today);
-    const signals = deriveStudySignals(snapshot, input.signalInputs ?? {}, now);
+    const signals = deriveStudySignals(snapshot, { ...input.signalInputs, today }, now);
     const externalKeys = [...new Set(signals.flatMap((candidate) => candidate.citations)
       .filter((point) => ["verified_grade", "derived_missing_work", "deadline"].includes(point.sourceKind))
       .map((point) => point.sourceKey))];
@@ -751,10 +753,12 @@ export class StudyCoachRepository {
     readonly principalId: string;
     readonly turnId: Ulid;
     readonly reason: StudySignalControlReason;
+    readonly today: string;
     readonly now: Date;
   }): Promise<number> {
     const principalId = principal(input.principalId);
     const turnId = ulid(input.turnId, "school_study_turn_invalid");
+    const today = localDate(input.today);
     const now = new Date(input.now.getTime());
     if (!Number.isFinite(now.getTime()) || !["wrong", "handled"].includes(input.reason)) {
       throw new TypeError("school_study_signal_control_invalid");
@@ -766,9 +770,9 @@ export class StudyCoachRepository {
       FROM school_study_check_in_claims claim
       JOIN school_course_cards course
         ON course.principal_id = claim.principal_id AND course.course_id = claim.course_id
-      WHERE claim.principal_id = ?1
-      ORDER BY claim.local_date DESC, claim.claimed_at DESC LIMIT 1`)
-      .bind(principalId).first<CheckInRow>();
+      WHERE claim.principal_id = ?1 AND claim.local_date = ?2
+      ORDER BY claim.claimed_at DESC LIMIT 1`)
+      .bind(principalId, today).first<CheckInRow>();
     if (claim === null) return 0;
     const value = checkIn(claim, principalId);
     const nowIso = now.toISOString();

@@ -195,9 +195,13 @@ function catchupSection(actions: readonly DigestCatchupAction[]): DigestSection 
 
 function schoolObservationSection(input: DigestInput, timeZone: string): DigestSection | null {
   const lines = [
-    ...input.grades.map((grade) =>
-      `[verified: ${grade.source}; checked ${localTimestamp(grade.lastSeenAt, timeZone)}] ${neutraliseInline(grade.course)}: ${neutraliseInline(grade.title)} — assigned grade ${String(grade.assignedGrade)} (scale and weight not supplied)`,
-    ),
+    ...input.grades.map((grade) => {
+      const scale = grade.maxPoints === null
+        ? `${String(grade.assignedGrade)} (scale and weight not supplied)`
+        : `${String(grade.assignedGrade)}/${String(grade.maxPoints)} (${(grade.assignedGrade / grade.maxPoints * 100).toFixed(1)}%)`;
+      const observedAt = grade.gradeUpdatedAt ?? grade.lastSeenAt;
+      return `[verified: ${grade.source}; graded ${localTimestamp(observedAt, timeZone)}] ${neutraliseInline(grade.course)}: ${neutraliseInline(grade.title)} — assigned grade ${scale}`;
+    }),
     ...input.missingWork.map((item) =>
       `[derived: ${item.source} showed no submission as of ${localTimestamp(item.lastSeenAt, timeZone)}] ${neutraliseInline(item.course)}: ${neutraliseInline(item.title)} (deadline passed ${localTimestamp(item.dueAt, timeZone)})`,
     ),
@@ -253,7 +257,7 @@ function studyCheckInSection(input: DigestInput): DigestSection | null {
       `${neutraliseInline(checkIn.course)}: study target “${neutraliseInline(checkIn.topic)}” (${count}, ${checkIn.confidence} confidence${caution}; last observed ${neutraliseInline(checkIn.observedAt.slice(0, 10))}).`,
       ...checkIn.citations.map((point, index) => {
         const stale = point.freshness === "stale" ? "; stale" : "";
-        return `Source ${index + 1} — ${sourceLabel(point.sourceKind)} ${neutraliseInline(point.sourceRecordId)} (${neutraliseInline(point.observedAt.slice(0, 10))}; ${point.verification}${stale}): ${neutraliseInline(point.detail)}`;
+        return `Source ${index + 1} — ${sourceLabel(point.sourceKind)} — ${neutraliseInline(point.course)}: “${neutraliseInline(point.itemLabel)}” (${neutraliseInline(point.observedAt.slice(0, 10))}; ${point.verification}${stale}): ${neutraliseInline(point.detail)}`;
       }),
       "Want a 10-minute quiz or flashcards? Reply “quiz me on that weak spot” or “make flashcards for that weak spot”.",
     ],

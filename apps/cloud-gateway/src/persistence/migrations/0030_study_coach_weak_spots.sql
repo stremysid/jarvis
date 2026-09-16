@@ -3,6 +3,54 @@
 -- their existing authority tables. These rows remember only what was chosen
 -- for a daily check-in and which cited signals Sid later retired.
 
+ALTER TABLE school_assignment_observations ADD COLUMN max_points REAL CHECK (
+  max_points IS NULL OR (
+    typeof(max_points) IN ('integer', 'real')
+    AND max_points > 0
+    AND max_points <= 1000000000
+  )
+);
+
+ALTER TABLE school_assignment_observation_revisions ADD COLUMN max_points REAL CHECK (
+  max_points IS NULL OR (
+    typeof(max_points) IN ('integer', 'real')
+    AND max_points > 0
+    AND max_points <= 1000000000
+  )
+);
+
+CREATE TRIGGER school_assignment_observations_scale_update_guard
+BEFORE UPDATE ON school_assignment_observations
+BEGIN
+  SELECT RAISE(ABORT, 'school_assignment_observation_scale_update_invalid') WHERE (
+    NEW.content_hash IS OLD.content_hash AND NEW.max_points IS NOT OLD.max_points
+  ) OR (
+    NEW.content_hash IS NOT OLD.content_hash AND NOT EXISTS (
+      SELECT 1 FROM school_assignment_observation_revisions
+      WHERE principal_id = OLD.principal_id
+        AND observation_id = OLD.observation_id
+        AND max_points IS OLD.max_points
+        AND content_hash = OLD.content_hash
+        AND content_changed_at = OLD.content_changed_at
+        AND replaced_at = NEW.content_changed_at
+    )
+  );
+END;
+
+CREATE TRIGGER school_assignment_observation_revisions_scale_insert_guard
+BEFORE INSERT ON school_assignment_observation_revisions
+BEGIN
+  SELECT RAISE(ABORT, 'school_assignment_observation_revision_scale_insert_invalid') WHERE NOT EXISTS (
+    SELECT 1 FROM school_assignment_observations
+    WHERE principal_id = NEW.principal_id
+      AND observation_id = NEW.observation_id
+      AND max_points IS NEW.max_points
+      AND content_hash = NEW.content_hash
+      AND content_changed_at = NEW.content_changed_at
+      AND last_seen_at <= NEW.replaced_at
+  );
+END;
+
 CREATE TABLE school_study_check_in_claims (
   principal_id TEXT NOT NULL REFERENCES principals(principal_id) ON DELETE RESTRICT,
   claim_id TEXT NOT NULL CHECK (
@@ -111,6 +159,13 @@ BEGIN
       AND claim.claim_id = NEW.check_in_id
       AND source.type = 'text'
       AND source.value = NEW.source_key
+  ) OR NOT EXISTS (
+    SELECT 1 FROM conversation_turns turn
+    JOIN school_study_check_in_claims claim
+      ON claim.principal_id = NEW.principal_id AND claim.claim_id = NEW.check_in_id
+    WHERE turn.turn_id = NEW.control_turn_id
+      AND turn.principal_id = NEW.principal_id
+      AND turn.created_at >= claim.claimed_at
   ) OR NEW.source_key != (NEW.source_kind || ':' || NEW.source_record_id)
     OR (NEW.source_kind = 'grade' AND NOT EXISTS (
       SELECT 1 FROM school_assignment_observations

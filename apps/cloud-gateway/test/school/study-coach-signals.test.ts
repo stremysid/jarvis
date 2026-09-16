@@ -57,7 +57,7 @@ function deadline(overrides: Partial<StudyDeadlineCandidate> = {}): StudyDeadlin
       externalId: "chemistry:work",
       course: "SCH4U Chemistry",
       title: "Untrusted worksheet title",
-      dueAt: "2026-09-16T10:00:00.000Z",
+      dueAt: "2026-09-16T14:00:00.000Z",
       effort: "other",
       leadMinutes: 60,
       status: "open",
@@ -74,34 +74,54 @@ function deadline(overrides: Partial<StudyDeadlineCandidate> = {}): StudyDeadlin
 }
 
 describe("study weak-spot signal derivation", () => {
-  it("derives low and falling grade signals while labelling the missing scale", () => {
+  it("derives no grade signal until Classroom supplies both max points and its own grade timestamp", () => {
     const signals = deriveStudySignals(snapshot(), { observations: observations({
-      grades: [
-        {
-          observationId: "01k5fb9pg00000000000007101", deadlineId: "grade-latest",
-          course: "Chemistry", title: "Do not infer stoichiometry from me", assignedGrade: 62,
-          source: "google_classroom_api", contentChangedAt: "2026-09-16T10:00:00.000Z",
-          lastSeenAt: "2026-09-16T11:00:00.000Z", sourceLastSuccessAt: "2026-09-16T11:00:00.000Z",
-          sourceLastFailure: null,
-        },
-        {
-          observationId: "01k5fb9pg00000000000007102", deadlineId: "grade-prior",
-          course: "Chemistry", title: "Another untrusted title", assignedGrade: 78,
-          source: "google_classroom_api", contentChangedAt: "2026-09-10T10:00:00.000Z",
-          lastSeenAt: "2026-09-16T11:00:00.000Z", sourceLastSuccessAt: "2026-09-16T11:00:00.000Z",
-          sourceLastFailure: null,
-        },
-      ],
+      grades: [{
+        observationId: "01k5fb9pg00000000000007101", deadlineId: "grade-latest",
+        course: "Chemistry", title: "Do not infer stoichiometry from me", assignedGrade: 6,
+        maxPoints: null, gradeUpdatedAt: null,
+        source: "google_classroom_api", contentChangedAt: "2026-09-16T10:00:00.000Z",
+        lastSeenAt: "2026-09-16T11:00:00.000Z", sourceLastSuccessAt: "2026-09-16T11:00:00.000Z",
+        sourceLastFailure: null,
+      }],
     }) }, NOW);
 
-    const gradeSignals = signals.filter((signal) => signal.citations[0]?.sourceKind === "verified_grade");
-    expect(gradeSignals).toHaveLength(2);
-    expect(gradeSignals.some((signal) => signal.citations.length === 2)).toBe(true);
-    expect(gradeSignals.flatMap((signal) => signal.citations).map((point) => point.sourceRecordId))
-      .toContain("01k5fb9pg00000000000007101");
-    expect(gradeSignals[0]?.citations[0]?.detail).toMatch(/scale|weight/iu);
-    expect(gradeSignals.every((signal) => signal.topic === null)).toBe(true);
-    expect(JSON.stringify(gradeSignals)).not.toContain("Do not infer stoichiometry");
+    expect(signals).toEqual([]);
+  });
+
+  it("compares Classroom percentages and dates grade evidence with the provider timestamp", () => {
+    const common = {
+      course: "Chemistry", source: "google_classroom_api" as const,
+      lastSeenAt: "2026-09-16T11:00:00.000Z",
+      sourceLastSuccessAt: "2026-09-16T11:00:00.000Z", sourceLastFailure: null,
+    };
+    const strong = deriveStudySignals(snapshot(), { observations: observations({ grades: [
+      {
+        ...common, observationId: "01k5fb9pg00000000000007101", deadlineId: "grade-latest",
+        title: "Ten-point quiz", assignedGrade: 9, maxPoints: 10,
+        gradeUpdatedAt: "2026-09-16T09:00:00.000Z", contentChangedAt: "2026-09-16T10:00:00.000Z",
+      },
+      {
+        ...common, observationId: "01k5fb9pg00000000000007102", deadlineId: "grade-prior",
+        title: "Fifty-point essay", assignedGrade: 45, maxPoints: 50,
+        gradeUpdatedAt: "2026-09-10T09:00:00.000Z", contentChangedAt: "2026-09-16T10:00:00.000Z",
+      },
+    ] }) }, NOW);
+    expect(strong).toEqual([]);
+
+    const low = deriveStudySignals(snapshot(), { observations: observations({ grades: [{
+      ...common, observationId: "01k5fb9pg00000000000007103", deadlineId: "grade-low",
+      title: "Ten-point retest", assignedGrade: 6, maxPoints: 10,
+      gradeUpdatedAt: "2026-09-15T09:00:00.000Z", contentChangedAt: "2026-09-16T10:00:00.000Z",
+    }] }) }, NOW);
+
+    expect(low).toHaveLength(1);
+    expect(low[0]?.citations[0]).toMatchObject({
+      observedAt: "2026-09-15T09:00:00.000Z",
+      course: "Chemistry",
+      itemLabel: "Ten-point retest",
+    });
+    expect(low[0]?.citations[0]?.detail).toContain("60.0% (6/10)");
   });
 
   it("derives a cited missing-work signal and keeps it explicitly derived", () => {
@@ -123,20 +143,41 @@ describe("study weak-spot signal derivation", () => {
         verification: "derived", observedAt: "2026-09-16T11:00:00.000Z",
       })],
     })]);
-    expect(JSON.stringify(signals)).not.toContain("Untrusted lab title");
+    expect(signals[0]?.topic).toBeNull();
+    expect(signals[0]?.citations[0]?.itemLabel).toBe("Untrusted lab title");
   });
 
-  it("derives overdue and near-due deadline signals without using titles as topics", () => {
+  it("ignores past deadlines and derives only near-due unfinished deadlines", () => {
+    const past = deadline({ deadline: { ...deadline().deadline,
+      deadlineId: "deadline-past", dueAt: "2026-09-16T10:00:00.000Z",
+    } });
     const nearDue = deadline({ deadline: { ...deadline().deadline,
       deadlineId: "deadline-near", dueAt: "2026-09-17T12:00:00.000Z",
     } });
-    const signals = deriveStudySignals(snapshot(), { deadlines: [deadline(), nearDue] }, NOW);
+    const signals = deriveStudySignals(snapshot(), { deadlines: [past, nearDue] }, NOW);
 
     expect(signals.map((signal) => signal.citations[0]?.sourceRecordId))
-      .toEqual(["deadline-chemistry", "deadline-near"]);
-    expect(signals[0]?.score).toBeGreaterThan(signals[1]?.score ?? 0);
+      .toEqual(["deadline-near"]);
+    expect(signals[0]?.outcome).toBe("uncertain");
     expect(signals.every((signal) => signal.topic === null)).toBe(true);
-    expect(JSON.stringify(signals)).not.toContain("Untrusted worksheet title");
+  });
+
+  it("does not cite an open past deadline for a returned on-time Classroom grade", () => {
+    const past = deadline({ deadline: { ...deadline().deadline,
+      deadlineId: "deadline-returned", dueAt: "2026-09-15T12:00:00.000Z",
+    } });
+    const signals = deriveStudySignals(snapshot(), {
+      deadlines: [past],
+      observations: observations({ grades: [{
+        observationId: "01k5fb9pg00000000000007111", deadlineId: "deadline-returned",
+        course: "Chemistry", title: "Returned quiz", assignedGrade: 9, maxPoints: 10,
+        gradeUpdatedAt: "2026-09-15T13:00:00.000Z", source: "google_classroom_api",
+        contentChangedAt: "2026-09-16T10:00:00.000Z", lastSeenAt: "2026-09-16T11:00:00.000Z",
+        sourceLastSuccessAt: "2026-09-16T11:00:00.000Z", sourceLastFailure: null,
+      }] }),
+    }, NOW);
+
+    expect(signals).toEqual([]);
   });
 
   it("derives a topic-specific quiz signal from the existing cited outcome", () => {
@@ -161,6 +202,7 @@ describe("study weak-spot signal derivation", () => {
     const staleGrade = observations({ grades: [{
       observationId: "01k5fb9pg00000000000007301", deadlineId: "grade-stale",
       course: "Chemistry", title: "Ignored", assignedGrade: 60,
+      maxPoints: 100, gradeUpdatedAt: "2026-09-14T10:00:00.000Z",
       source: "google_classroom_api", contentChangedAt: "2026-09-14T10:00:00.000Z",
       lastSeenAt: "2026-09-14T10:00:00.000Z", sourceLastSuccessAt: "2026-09-14T10:00:00.000Z",
       sourceLastFailure: null,
@@ -177,7 +219,7 @@ describe("study weak-spot signal derivation", () => {
       .toMatchObject({ verification: "owner_reported", freshness: "current" });
   });
 
-  it("ranks the strongest course signal while preserving the strongest topic-specific evidence", () => {
+  it("counts only same-topic evidence toward a topic target and keeps it tentative", () => {
     const inputs: SchoolObservationStudySnapshot = observations({ missingWork: [{
       transitionId: "01k5fb9pg00000000000007401", deadlineId: "missing-ranked",
       course: "Chemistry", title: "Ignored", dueAt: "2026-09-15T12:00:00.000Z",
@@ -190,8 +232,32 @@ describe("study weak-spot signal derivation", () => {
     }, NOW);
     const chosen = chooseStudyCheckIn(signals);
 
-    expect(chosen).toMatchObject({ courseName: "Chemistry", topic: "stoichiometry", confidence: "high" });
+    expect(chosen).toMatchObject({
+      courseName: "Chemistry", topic: "stoichiometry", confidence: "low", evidenceCount: 1,
+    });
     expect(chosen?.citations.map((point) => point.sourceKind))
-      .toEqual(["derived_missing_work", "quiz_outcome", "deadline"]);
+      .toEqual(["quiz_outcome"]);
+  });
+
+  it("raises a stored evidence point only when it is due and has not already been prompted", () => {
+    expect(deriveStudySignals(snapshot([quizEvidence({ practiceDueOn: "2026-09-17" })]), {
+      today: "2026-09-16",
+    }, NOW)).toEqual([]);
+    expect(deriveStudySignals(snapshot([quizEvidence({ lastPromptedOn: "2026-09-16" })]), {
+      today: "2026-09-16",
+    }, NOW)).toEqual([]);
+    expect(deriveStudySignals(snapshot([quizEvidence()]), { today: "2026-09-16" }, NOW)).toHaveLength(1);
+  });
+
+  it("does not attribute a deadline when contained course matching is ambiguous", () => {
+    const ambiguous: StudyCoachSnapshot = {
+      ...snapshot(),
+      courses: [
+        { ...snapshot().courses[0]!, name: "Chemistry Period 1" },
+        { ...snapshot().courses[0]!, courseId: "01k5fb9pg00000000000007999" as Ulid, name: "Chemistry Period 2" },
+      ],
+    };
+    const candidate = deadline({ deadline: { ...deadline().deadline, course: "Chemistry" } });
+    expect(deriveStudySignals(ambiguous, { deadlines: [candidate] }, NOW)).toEqual([]);
   });
 });

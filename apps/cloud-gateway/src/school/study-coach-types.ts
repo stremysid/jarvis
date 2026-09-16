@@ -102,6 +102,9 @@ export interface StudySignalCitation {
   readonly sourceKey: string;
   readonly sourceKind: StudySignalSourceKind;
   readonly sourceRecordId: string;
+  readonly course: string;
+  /** Untrusted source text kept as a display-only label. */
+  readonly itemLabel: string;
   readonly observedAt: string;
   readonly verification: StudySignalVerification;
   readonly freshness: StudySignalFreshness;

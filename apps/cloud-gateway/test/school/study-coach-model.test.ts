@@ -235,12 +235,62 @@ describe("StudyCoachModelAdapter", () => {
       minuteOfDay: 450,
       now: NOW,
     });
-    const turnId = await addTurn(item.principalId, "I already handled that", 1_000);
+    const turnId = await addTurn(item.principalId, "I already handled that study check-in", 1_000);
 
     await expect(collect(adapter(item.principalId, new FakeModel([]), new FakeModel([])).stream(
-      input(item.principalId, turnId, "I already handled that"),
+      input(item.principalId, turnId, "I already handled that study check-in"),
     ))).resolves.toBe("Retired 1 cited study-coach signal as handled.");
     expect((await repository.readSnapshot(item.principalId, TODAY)).courses[0]?.topics).toEqual([]);
+  });
+
+  it.each(["I finished it", "that is wrong", "I did that"])(
+    "keeps the generic phrase on the ordinary model path unchanged: %s",
+    async (text) => {
+      const item = await seed(`generic-control-${text.length}-${text.codePointAt(0) ?? 0}`);
+      await new StudyCoachRepository(env.DB).syncAndClaimDigestCheckIn({
+        principalId: item.principalId,
+        today: TODAY,
+        weekday: 2,
+        minuteOfDay: 450,
+        now: NOW,
+      });
+      const turnId = await addTurn(item.principalId, text, 1_000);
+      const fallback = new FakeModel([`ordinary:${text}`]);
+
+      await expect(collect(adapter(item.principalId, fallback, new FakeModel([])).stream(
+        input(item.principalId, turnId, text),
+      ))).resolves.toBe(`ordinary:${text}`);
+      expect(fallback.inputs).toHaveLength(1);
+    },
+  );
+
+  it("sends an explicit correction to the ordinary model when there is no check-in today", async () => {
+    const item = await seed("no-current-control");
+    const text = "that study check-in is wrong";
+    const turnId = await addTurn(item.principalId, text, 1_000);
+    const fallback = new FakeModel(["ordinary correction reply"]);
+
+    await expect(collect(adapter(item.principalId, fallback, new FakeModel([])).stream(
+      input(item.principalId, turnId, text),
+    ))).resolves.toBe("ordinary correction reply");
+    expect(fallback.inputs).toHaveLength(1);
+  });
+
+  it("sends an explicit correction to the ordinary model when the check-in is from an older day", async () => {
+    const item = await seed("old-control");
+    await new StudyCoachRepository(env.DB).syncAndClaimDigestCheckIn({
+      principalId: item.principalId, today: TODAY, weekday: 2, minuteOfDay: 450, now: NOW,
+    });
+    const later = new Date(NOW.getTime() + 15 * 86_400_000);
+    const text = "that study check-in is wrong";
+    const turnId = await addTurn(item.principalId, text, later.getTime() - NOW.getTime());
+    const fallback = new FakeModel(["ordinary old-correction reply"]);
+
+    await expect(collect(adapter(
+      item.principalId, fallback, new FakeModel([]), true, () => later,
+    ).stream(input(item.principalId, turnId, text))))
+      .resolves.toBe("ordinary old-correction reply");
+    expect(fallback.inputs).toHaveLength(1);
   });
 
   it("updates weekend cadence in plain speech without invoking a model", async () => {

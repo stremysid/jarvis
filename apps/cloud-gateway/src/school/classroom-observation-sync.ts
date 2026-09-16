@@ -36,6 +36,7 @@ export interface ClassroomObservationSyncOptions {
   readonly budget: D1StatementBudget;
   readonly now: () => Date;
   readonly undatedDeadlineExternalIds?: ReadonlySet<string>;
+  readonly courseWorkMaxPoints?: ReadonlyMap<string, number | null>;
 }
 
 function safeFailure(error: unknown): string {
@@ -199,13 +200,17 @@ export async function runClassroomObservationSync(
       if (course === undefined) throw new Error("classroom_observation_checkpoint_invalid");
       const page = await options.client.listSubmissionPage(course.id, pageToken);
       pages += 1;
-      const items = options.undatedDeadlineExternalIds === undefined
+      const datedItems = options.undatedDeadlineExternalIds === undefined
         ? page.items
         : page.items.filter((item) => {
           if (!options.undatedDeadlineExternalIds!.has(item.deadlineExternalId)) return true;
           undatedCoursework += 1;
           return false;
         });
+      const items = datedItems.map((item) => Object.freeze({
+        ...item,
+        maxPoints: options.courseWorkMaxPoints?.get(item.deadlineExternalId) ?? null,
+      }));
       const report = await options.repository.ingest({
         principalId: options.principalId,
         sourceId: options.sourceId,

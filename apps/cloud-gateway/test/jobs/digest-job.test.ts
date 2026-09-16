@@ -224,7 +224,9 @@ describe("assembling from every source", () => {
             course: "Calculus",
             title: "Quiz 2",
             assignedGrade: 84,
+            maxPoints: 100,
             source: "google_classroom_api",
+            gradeUpdatedAt: NOW,
             contentChangedAt: NOW,
             lastSeenAt: NOW,
           }],
@@ -286,6 +288,8 @@ describe("assembling from every source", () => {
         sourceKey: "evidence:01k3w1t4000000000000000701",
         sourceKind: "quiz_outcome" as const,
         sourceRecordId: "01k3w1t4000000000000000701",
+        course: "Chemistry",
+        itemLabel: "balancing equations",
         observedAt: "2026-09-01T12:00:00.000Z",
         verification: "verified" as const,
         freshness: "current" as const,
@@ -299,7 +303,8 @@ describe("assembling from every source", () => {
     expect(digest.text.match(/Coursework check-in/gu)).toHaveLength(1);
     expect(digest.text).toContain("Chemistry: study target “balancing equations”");
     expect(digest.text).toContain("1 evidence point, low confidence; not a fixed judgment");
-    expect(digest.text).toContain("quiz evidence 01k3w1t4000000000000000701 (2026-09-01; verified)");
+    expect(digest.text).toContain("quiz evidence — Chemistry: “balancing equations” (2026-09-01; verified)");
+    expect(digest.text).not.toContain("01k3w1t4000000000000000701");
     expect(digest.text).toContain("Want a 10-minute quiz or flashcards?");
   });
 
@@ -472,6 +477,7 @@ describe("a source that will not answer", () => {
           grades: [{
             observationId: "observation-a", deadlineId: "deadline-a",
             course: "Calculus", title: "Quiz 2", assignedGrade: 84,
+            maxPoints: null, gradeUpdatedAt: NOW,
             source: "google_classroom_api", contentChangedAt: NOW, lastSeenAt: NOW,
           }],
           missingWork: [],

@@ -13,14 +13,15 @@ import type {
 
 const SCHOOL_SOURCE_STALE_AFTER_MS = 12 * 60 * 60 * 1_000;
 const DEADLINE_SOURCE_STALE_AFTER_MS = 3 * 60 * 60 * 1_000;
-const LOW_GRADE_SIGNAL_MAXIMUM = 70;
-const FALLING_GRADE_MINIMUM_DROP = 5;
+const LOW_GRADE_PERCENTAGE_MAXIMUM = 70;
+const FALLING_GRADE_PERCENTAGE_POINT_DROP = 5;
 const MAX_SIGNALS = 64;
 export const MAX_CHECK_IN_CITATIONS = 4;
 
 export interface StudySignalInputs {
   readonly observations?: SchoolObservationStudySnapshot | null;
   readonly deadlines?: readonly StudyDeadlineCandidate[];
+  readonly today?: string;
 }
 
 export type StudyCheckInSelection = Omit<StudyCheckIn, "claimedAt">;
@@ -67,12 +68,13 @@ function scoreConfidence(score: number): StudyConfidence {
   return score >= 90 ? "high" : score >= 70 ? "medium" : "low";
 }
 
-function evidenceSignals(snapshot: StudyCoachSnapshot): StudyWeakSpotSignal[] {
+function evidenceSignals(snapshot: StudyCoachSnapshot, today: string): StudyWeakSpotSignal[] {
   const signals: StudyWeakSpotSignal[] = [];
   for (const course of snapshot.courses) {
     for (const topic of course.topics) {
       for (const point of topic.evidence) {
-        if (point.outcome === "easy") continue;
+        if (point.outcome === "easy" || point.practiceDueOn > today
+          || (point.lastPromptedOn !== null && point.lastPromptedOn >= point.practiceDueOn)) continue;
         const base = point.evidenceKind === "practice_result"
           ? point.outcome === "wrong" ? 82 : 68
           : point.evidenceKind === "owner_statement"
@@ -105,6 +107,8 @@ function evidenceSignals(snapshot: StudyCoachSnapshot): StudyWeakSpotSignal[] {
             sourceKey: `evidence:${point.evidenceId}`,
             sourceKind,
             sourceRecordId: point.sourceRecordId,
+            course: course.name,
+            itemLabel: point.topic,
             observedAt: point.observedAt,
             verification,
             freshness: "current",
@@ -123,10 +127,17 @@ function gradeSignals(
   now: Date,
 ): StudyWeakSpotSignal[] {
   const signals: StudyWeakSpotSignal[] = [];
-  const byCourse = new Map<string, Array<{ readonly course: StudyCourseSnapshot; readonly index: number }>>();
-  for (const [index, grade] of observations.grades.entries()) {
+  const byCourse = new Map<string, Array<{
+    readonly course: StudyCourseSnapshot;
+    readonly grade: SchoolObservationStudySnapshot["grades"][number];
+    readonly percentage: number;
+  }>>();
+  for (const grade of observations.grades) {
     const course = matchCourse(courses, grade.course);
-    if (course === null) continue;
+    if (course === null || grade.maxPoints === null || grade.gradeUpdatedAt === null
+      || !Number.isFinite(grade.maxPoints) || grade.maxPoints <= 0) continue;
+    const percentage = grade.assignedGrade / grade.maxPoints * 100;
+    if (!Number.isFinite(percentage)) continue;
     const currentFreshness = freshness(
       grade.sourceLastSuccessAt, grade.sourceLastFailure, now, SCHOOL_SOURCE_STALE_AFTER_MS,
     );
@@ -134,47 +145,52 @@ function gradeSignals(
       sourceKey: `grade:${grade.observationId}`,
       sourceKind: "verified_grade",
       sourceRecordId: grade.observationId,
-      observedAt: grade.lastSeenAt,
+      course: course.name,
+      itemLabel: grade.title,
+      observedAt: grade.gradeUpdatedAt,
       verification: "verified",
       freshness: currentFreshness,
-      detail: `Google Classroom assigned grade ${String(grade.assignedGrade)}. Scale and weight are not supplied, so a low interpretation is tentative.`,
+      detail: `Google Classroom grade was ${percentage.toFixed(1)}% (${String(grade.assignedGrade)}/${String(grade.maxPoints)}).`,
     });
-    if (grade.assignedGrade <= LOW_GRADE_SIGNAL_MAXIMUM && grade.assignedGrade <= 100) {
+    if (percentage <= LOW_GRADE_PERCENTAGE_MAXIMUM) {
       const score = currentFreshness === "current" ? 72 : 38;
       signals.push(signal({
         courseId: course.courseId, courseName: course.name, topic: null,
         outcome: "uncertain", confidence: scoreConfidence(score), score,
-        observedAt: grade.lastSeenAt, citations: [point],
+        observedAt: grade.gradeUpdatedAt, citations: [point],
       }));
     }
     const entries = byCourse.get(course.courseId) ?? [];
-    entries.push({ course, index });
+    entries.push({ course, grade, percentage });
     byCourse.set(course.courseId, entries);
   }
   for (const entries of byCourse.values()) {
-    const ordered = entries.map(({ course, index }) => ({ course, grade: observations.grades[index]! }))
-      .sort((left, right) => right.grade.contentChangedAt.localeCompare(left.grade.contentChangedAt));
+    const ordered = [...entries].sort((left, right) =>
+      right.grade.gradeUpdatedAt!.localeCompare(left.grade.gradeUpdatedAt!)
+      || right.grade.observationId.localeCompare(left.grade.observationId));
     const latest = ordered[0];
     const previous = ordered[1];
     if (latest === undefined || previous === undefined
-      || previous.grade.assignedGrade - latest.grade.assignedGrade < FALLING_GRADE_MINIMUM_DROP) continue;
+      || previous.percentage - latest.percentage < FALLING_GRADE_PERCENTAGE_POINT_DROP) continue;
     const currentFreshness = freshness(
       latest.grade.sourceLastSuccessAt, latest.grade.sourceLastFailure, now, SCHOOL_SOURCE_STALE_AFTER_MS,
     );
-    const citations = [latest.grade, previous.grade].map((grade) => citation({
-      sourceKey: `grade:${grade.observationId}`,
+    const citations = [latest, previous].map((entry) => citation({
+      sourceKey: `grade:${entry.grade.observationId}`,
       sourceKind: "verified_grade",
-      sourceRecordId: grade.observationId,
-      observedAt: grade.lastSeenAt,
+      sourceRecordId: entry.grade.observationId,
+      course: entry.course.name,
+      itemLabel: entry.grade.title,
+      observedAt: entry.grade.gradeUpdatedAt!,
       verification: "verified",
       freshness: currentFreshness,
-      detail: `Google Classroom assigned grade ${String(grade.assignedGrade)}. Cross-assignment scales and weights are not supplied.`,
+      detail: `Google Classroom grade was ${entry.percentage.toFixed(1)}% (${String(entry.grade.assignedGrade)}/${String(entry.grade.maxPoints)}).`,
     }));
     const score = currentFreshness === "current" ? 84 : 46;
     signals.push(signal({
       courseId: latest.course.courseId, courseName: latest.course.name, topic: null,
       outcome: "uncertain", confidence: scoreConfidence(score), score,
-      observedAt: latest.grade.lastSeenAt, citations,
+      observedAt: latest.grade.gradeUpdatedAt!, citations,
     }));
   }
   return signals;
@@ -200,6 +216,8 @@ function missingWorkSignals(
         sourceKey: `missing_work:${item.transitionId}`,
         sourceKind: "derived_missing_work",
         sourceRecordId: item.transitionId,
+        course: course.name,
+        itemLabel: item.title,
         observedAt: item.lastSeenAt,
         verification: "derived",
         freshness: currentFreshness,
@@ -220,24 +238,25 @@ function deadlineSignals(
     const due = Date.parse(item.deadline.dueAt);
     if (!Number.isFinite(due)) return [];
     const hours = (due - now.getTime()) / 3_600_000;
+    if (hours < 0 || hours > 72 || item.deadline.status !== "open") return [];
     const currentFreshness = item.sourceKind === "manual"
       ? "current"
       : freshness(item.sourceLastSuccessAt, item.sourceLastFailure, now, DEADLINE_SOURCE_STALE_AFTER_MS);
-    const base = hours < 0 ? 92 : 52;
-    const score = Math.max(20, base - (currentFreshness === "stale" ? 35 : 0));
-    const verification: StudySignalVerification = item.sourceKind === "manual" ? "owner_reported" : "verified";
-    const timing = hours < 0
-      ? `The open deadline was overdue as of ${now.toISOString().slice(0, 10)}.`
-      : `The open deadline is due within ${Math.max(1, Math.ceil(hours))} hours.`;
+    const score = Math.max(20, 52 - (currentFreshness === "stale" ? 35 : 0));
+    const verification: StudySignalVerification = item.sourceKind === "manual"
+      ? "owner_reported" : item.sourceKind === "classroom" ? "verified" : "unverified";
+    const timing = `The unfinished deadline is due within ${Math.max(1, Math.ceil(hours))} hours.`;
     return [signal({
       courseId: course.courseId, courseName: course.name, topic: null,
-      outcome: hours < 0 ? "wrong" : "uncertain", confidence: scoreConfidence(score), score,
-      observedAt: item.deadline.lastSeenAt,
+      outcome: "uncertain", confidence: scoreConfidence(score), score,
+      observedAt: item.deadline.dueAt,
       citations: [citation({
         sourceKey: `deadline:${item.deadline.deadlineId}`,
         sourceKind: "deadline",
         sourceRecordId: item.deadline.deadlineId,
-        observedAt: item.deadline.lastSeenAt,
+        course: course.name,
+        itemLabel: item.deadline.title,
+        observedAt: item.deadline.dueAt,
         verification,
         freshness: currentFreshness,
         detail: timing,
@@ -260,9 +279,11 @@ export function deriveStudySignals(
 ): readonly StudyWeakSpotSignal[] {
   const now = new Date(nowValue.getTime());
   if (!Number.isFinite(now.getTime())) throw new TypeError("study_signal_time_invalid");
+  const today = inputs.today ?? now.toISOString().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(today)) throw new TypeError("study_signal_date_invalid");
   const observations = inputs.observations ?? { grades: [], missingWork: [] };
   return Object.freeze(ordered([
-    ...evidenceSignals(snapshot),
+    ...evidenceSignals(snapshot, today),
     ...gradeSignals(snapshot.courses, observations, now),
     ...missingWorkSignals(snapshot.courses, observations, now),
     ...deadlineSignals(snapshot.courses, inputs.deadlines ?? [], now),
@@ -281,11 +302,11 @@ export function chooseStudyCheckIn(
     ? candidates.find((candidate) => candidate.courseId === primary.courseId && candidate.topic !== null)
     : primary;
   const selectedTopic = topicSignal?.topic ?? null;
-  const sameCourse = candidates.filter((candidate) => candidate.courseId === primary.courseId
-    && (candidate.topic === null || candidate.topic === selectedTopic));
+  const sameTarget = candidates.filter((candidate) => candidate.courseId === primary.courseId
+    && (selectedTopic === null ? candidate.topic === null : candidate.topic === selectedTopic));
   const citations: StudySignalCitation[] = [];
   const seen = new Set<string>();
-  for (const candidate of [primary, ...(topicSignal === undefined ? [] : [topicSignal]), ...sameCourse]) {
+  for (const candidate of sameTarget) {
     for (const point of candidate.citations) {
       if (seen.has(point.sourceKey)) continue;
       seen.add(point.sourceKey);
@@ -294,15 +315,17 @@ export function chooseStudyCheckIn(
     }
     if (citations.length === MAX_CHECK_IN_CITATIONS) break;
   }
-  const confidence: StudyConfidence = primary.topic !== null
-    ? primary.confidence
-    : primary.score >= 90 && citations.length >= 2
-      ? "high" : primary.score >= 70 || citations.length >= 2 ? "medium" : "low";
+  if (citations.length === 0) return null;
+  const target = topicSignal ?? primary;
+  const confidence: StudyConfidence = topicSignal !== undefined
+    ? topicSignal.confidence
+    : target.score >= 90 && citations.length >= 2
+      ? "high" : target.score >= 70 || citations.length >= 2 ? "medium" : "low";
   return Object.freeze({
     courseId: primary.courseId,
     courseName: primary.courseName,
     topic: topicSignal?.topic ?? `${primary.courseName} review`,
-    outcome: primary.outcome,
+    outcome: target.outcome,
     evidenceCount: citations.length,
     confidence,
     observedAt: citations.reduce((latest, point) => point.observedAt > latest ? point.observedAt : latest, citations[0]!.observedAt),

@@ -462,7 +462,7 @@ describe("StudyCoachRepository", () => {
     })).resolves.toBeNull();
   });
 
-  it("retires an external cited deadline so it cannot reappear on a later day", async () => {
+  it("retires an external cited near-due deadline so it cannot reappear on a later day", async () => {
     const item = await seedCourse("deadline-control", "Worksheet due", "due_work");
     const deadlines = new DeadlineRepository(env.DB);
     const source = await deadlines.createSource({
@@ -474,10 +474,10 @@ describe("StudyCoachRepository", () => {
     await deadlines.recordSourceSuccess(source.sourceId, NOW);
     const deadline = await deadlines.upsert({
       sourceId: source.sourceId,
-      externalId: "chemistry-overdue",
+      externalId: "chemistry-near-due",
       course: "Chemistry",
       title: "Untrusted assignment title",
-      dueAt: "2026-09-14T11:30:00.000Z",
+      dueAt: "2026-09-16T13:30:00.000Z",
       effort: "other",
       leadMinutes: 60,
       now: NOW,
@@ -508,6 +508,7 @@ describe("StudyCoachRepository", () => {
       principalId: item.principalId,
       turnId: controlTurn,
       reason: "handled",
+      today: TODAY,
       now: new Date(NOW.getTime() + 1_000),
     })).resolves.toBe(1);
     const tomorrow = new Date(NOW.getTime() + 86_400_000);
