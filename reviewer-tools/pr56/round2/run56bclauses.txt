@@ -1,0 +1,61 @@
+checked out 0279396 at 0279396
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  4 passed (4)
+   Tests  80 passed (80)
+
+== M1-step-ceiling: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts (15 tests | 1 failed) 374ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 79 passed (80)
+   × memory_literal_search_jobs_update_guard rejects a forged jump beyond one exhaustive step 12ms
+
+== M2-matched-count-reconciled: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts (15 tests | 1 failed) 355ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 79 passed (80)
+   × memory_literal_search_jobs_update_guard reconciles matched counts with durable hit receipts 12ms
+
+== M5-archived-principal-binding: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts (15 tests | 1 failed) 685ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 79 passed (80)
+   × memory_literal_search_hits_insert_guard rejects an archived cross-principal receipt 28ms
+
+== M4-attempt-unique-key: MATCHED 0 TIMES, skipped
+
+== L9-principal-on-job-update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts (15 tests | 1 failed) 352ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 79 passed (80)
+   × memory_literal_search_jobs_update_guard rechecks an active human principal 15ms
+
+== L9-principal-on-hit-insert: SURVIVED (exit 0), tree clean=true
+   Test Files  4 passed (4)
+   Tests  80 passed (80)
+
+== H1-default-archive-reader: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts (35 tests | 1 failed) 4301ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 79 passed (80)
+   × forgets and lifts a memory after its source turn is archived and purged through the default repository 125ms
+
+== M3-ulid-passthrough-optin: KILLED (exit 1), tree clean=true
+   ❯ |default| packages/contracts/test/envelope.test.ts (34 tests | 1 failed) 17ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 33 passed (34)
+   × redacts six authentication digits when the whole text looks like a canonical ULID 4ms
+
+=== summary
+SURVIVED  BASE
+KILLED    M1-step-ceiling
+KILLED    M2-matched-count-reconciled
+KILLED    M5-archived-principal-binding
+SKIPPED   M4-attempt-unique-key
+KILLED    L9-principal-on-job-update
+SURVIVED  L9-principal-on-hit-insert
+KILLED    H1-default-archive-reader
+KILLED    M3-ulid-passthrough-optin
+back on main, tree clean=true
+(node:19988) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

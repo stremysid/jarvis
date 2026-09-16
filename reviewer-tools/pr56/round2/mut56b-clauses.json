@@ -1,0 +1,111 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "0279396",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0025_archive_literal_history.sql",
+   "from": "  OR NEW.checkpoint_event_sequence - OLD.checkpoint_event_sequence > 8\n",
+   "to": "  OR NEW.checkpoint_event_sequence - OLD.checkpoint_event_sequence > 8\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts",
+    "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts"
+   ]
+  },
+  {
+   "id": "M1-step-ceiling",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0025_archive_literal_history.sql",
+   "from": "  -- The service can examine at most eight maximum-sized events in one step.\n  OR NEW.checkpoint_event_sequence - OLD.checkpoint_event_sequence > 8\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts",
+    "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts"
+   ]
+  },
+  {
+   "id": "M2-matched-count-reconciled",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0025_archive_literal_history.sql",
+   "from": "  OR NEW.matched_event_count <> (\n    SELECT count(*) FROM memory_literal_search_hits hit\n    WHERE hit.principal_id = NEW.principal_id AND hit.job_id = NEW.job_id\n  )\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts",
+    "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts"
+   ]
+  },
+  {
+   "id": "M5-archived-principal-binding",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0025_archive_literal_history.sql",
+   "from": "    JOIN memory_history_coverage coverage\n      ON coverage.principal_id = NEW.principal_id\n      AND coverage.start_event_sequence = archived.event_sequence\n      AND coverage.end_event_sequence = archived.event_sequence\n      AND coverage.source_location = 'archived'\n      AND coverage.r2_segment_id = archived.segment_id\n      AND coverage.indexing_outcome = 'indexed'\n      AND coverage.content_hash = archived.envelope_sha256\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts",
+    "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts"
+   ]
+  },
+  {
+   "id": "M4-attempt-unique-key",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0025_archive_literal_history.sql",
+   "from": "        AND job.job_key = NEW.job_key AND job.attempt = NEW.attempt\n",
+   "to": "        AND job.job_key = NEW.job_key\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts",
+    "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts"
+   ]
+  },
+  {
+   "id": "L9-principal-on-job-update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0025_archive_literal_history.sql",
+   "from": "  OR NOT EXISTS (\n    SELECT 1 FROM principals principal\n    WHERE principal.principal_id = NEW.principal_id\n      AND principal.principal_type = 'human'\n      AND principal.status = 'active'\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_literal_search_job_transition_invalid');\n",
+   "to": "BEGIN\n  SELECT RAISE(ABORT, 'memory_literal_search_job_transition_invalid');\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts",
+    "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts"
+   ]
+  },
+  {
+   "id": "L9-principal-on-hit-insert",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0025_archive_literal_history.sql",
+   "from": "  OR NOT EXISTS (\n    SELECT 1 FROM principals principal\n    WHERE principal.principal_id = NEW.principal_id\n      AND principal.principal_type = 'human'\n      AND principal.status = 'active'\n  )\n  OR EXISTS (\n    SELECT 1 FROM memory_active_event_suppressions suppression\n",
+   "to": "  OR EXISTS (\n    SELECT 1 FROM memory_active_event_suppressions suppression\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts",
+    "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts"
+   ]
+  },
+  {
+   "id": "H1-default-archive-reader",
+   "file": "apps/cloud-gateway/src/memory/memory-owner-controls.ts",
+   "from": "    this.memory = memory ?? new MemoryRepository(database, {\n      archivedEventReader: new ArchivalService({ database, bucket: archive }),\n    });\n",
+   "to": "    this.memory = memory ?? new MemoryRepository(database);\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts",
+    "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts"
+   ]
+  },
+  {
+   "id": "M3-ulid-passthrough-optin",
+   "file": "packages/contracts/src/calls.ts",
+   "from": "    if (structuralUlid && LOWERCASE_ULID.test(text)) return issueSanitizedRedaction(text, []);\n",
+   "to": "    if (LOWERCASE_ULID.test(text)) return issueSanitizedRedaction(text, []);\n",
+   "tests": [
+    "packages/contracts/test/envelope.test.ts"
+   ]
+  }
+ ]
+}

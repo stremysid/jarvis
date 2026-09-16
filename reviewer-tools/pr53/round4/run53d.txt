@@ -1,0 +1,31 @@
+checked out b58dbdd at b58dbdd
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  39 passed (39)
+
+== H1-prefix-then-delegate: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/school/study-coach-model.test.ts (39 tests | 5 failed) 3044ms
+   Test Files  1 failed (1)
+   Tests  5 failed | 34 passed (39)
+   × Q1 dismisses an open quiz and answers an unrelated question normally 65ms
+   × does not grade the non-answer-shaped quiz reply: ok 65ms
+   × does not grade the non-answer-shaped quiz reply: check D2L now 68ms
+   × does not grade the non-answer-shaped quiz reply: line one
+
+== H1b-notice-dropped: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/school/study-coach-model.test.ts (39 tests | 5 failed) 2854ms
+   Test Files  1 failed (1)
+   Tests  5 failed | 34 passed (39)
+   × Q1 dismisses an open quiz and answers an unrelated question normally 60ms
+   × does not grade the non-answer-shaped quiz reply: ok 56ms
+   × does not grade the non-answer-shaped quiz reply: check D2L now 57ms
+   × does not grade the non-answer-shaped quiz reply: line one
+
+=== summary
+SURVIVED  BASE
+KILLED    H1-prefix-then-delegate
+KILLED    H1b-notice-dropped
+back on main, tree clean=true
+(node:37612) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

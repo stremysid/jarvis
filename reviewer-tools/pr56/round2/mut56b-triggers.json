@@ -1,0 +1,110 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "0279396a5ea78a3e7ad0e7071225e5852fcb1d22",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0025_archive_literal_history.sql",
+   "from": "CREATE TRIGGER memory_history_chunks_insert_guard\n",
+   "to": "CREATE TRIGGER memory_history_chunks_insert_guard\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts",
+    "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_history_chunks_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0025_archive_literal_history.sql",
+   "from": "CREATE TRIGGER memory_history_chunks_insert_guard\nBEFORE INSERT ON memory_history_chunks\nWHEN (NEW.chunk_rowid IS NOT NULL AND EXISTS (\n    SELECT 1 FROM memory_history_chunks chunk\n    WHERE chunk.chunk_rowid = NEW.chunk_rowid\n  ))\n  OR EXISTS (\n    SELECT 1 FROM memory_history_chunks chunk\n    WHERE chunk.chunk_id = NEW.chunk_id\n  )\n  OR NOT EXISTS (\n    SELECT 1 FROM memory_history_coverage coverage\n    WHERE coverage.principal_id = NEW.principal_id\n      AND coverage.start_event_sequence = NEW.start_event_sequence\n      AND coverage.end_event_sequence = NEW.end_event_sequence\n      AND coverage.indexing_outcome = 'indexed'\n      AND coverage.content_hash = NEW.source_receipt_hash\n      AND (\n        NEW.source_location = 'mixed'\n        OR (coverage.source_location = NEW.source_location\n          AND coverage.r2_segment_id IS NEW.r2_segment_id)\n      )\n  )\n  OR EXISTS (\n    SELECT 1 FROM memory_active_event_suppressions suppression\n    WHERE suppression.principal_id = NEW.principal_id\n      AND (\n        suppression.start_event_sequence <= NEW.end_event_sequence\n          AND suppression.end_event_sequence >= NEW.start_event_sequence\n        OR suppression.target_event_id IN (\n          SELECT event_id FROM events\n          WHERE sequence BETWEEN NEW.start_event_sequence AND NEW.end_event_sequence\n          UNION ALL\n          SELECT event_id FROM archive_segment_events\n          WHERE event_sequence BETWEEN NEW.start_event_sequence AND NEW.end_event_sequence\n        )\n      )\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_history_chunk_receipt_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts",
+    "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_literal_search_jobs_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0025_archive_literal_history.sql",
+   "from": "CREATE TRIGGER memory_literal_search_jobs_insert_guard\nBEFORE INSERT ON memory_literal_search_jobs\nWHEN EXISTS (\n    SELECT 1 FROM memory_literal_search_jobs job\n    WHERE job.job_id = NEW.job_id\n      OR (job.principal_id = NEW.principal_id\n        AND job.job_key = NEW.job_key AND job.attempt = NEW.attempt)\n  )\n  OR NEW.status <> 'pending'\n  OR NEW.checkpoint_event_sequence <> 0\n  OR NEW.scanned_event_count <> 0\n  OR NEW.matched_event_count <> 0\n  OR NEW.failure_code IS NOT NULL\n  OR NEW.completed_at IS NOT NULL\n  OR NEW.snapshot_event_sequence > MAX(\n    COALESCE((SELECT sealed_through FROM archive_state WHERE singleton = 1), 0),\n    COALESCE((SELECT max(sequence) FROM events), 0)\n  )\n  OR NOT EXISTS (\n    SELECT 1 FROM principals principal\n    WHERE principal.principal_id = NEW.principal_id\n      AND principal.principal_type = 'human'\n      AND principal.status = 'active'\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_literal_search_job_initial_state_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts",
+    "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_literal_search_jobs_update_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0025_archive_literal_history.sql",
+   "from": "CREATE TRIGGER memory_literal_search_jobs_update_guard\nBEFORE UPDATE ON memory_literal_search_jobs\nWHEN NEW.job_id <> OLD.job_id\n  OR NEW.principal_id <> OLD.principal_id\n  OR NEW.job_key <> OLD.job_key\n  OR NEW.attempt <> OLD.attempt\n  OR NEW.query_text <> OLD.query_text\n  OR NEW.query_hash <> OLD.query_hash\n  OR NEW.snapshot_event_sequence <> OLD.snapshot_event_sequence\n  OR NEW.created_at <> OLD.created_at\n  OR NEW.updated_at < OLD.updated_at\n  OR NEW.checkpoint_event_sequence < OLD.checkpoint_event_sequence\n  OR NEW.scanned_event_count < OLD.scanned_event_count\n  OR NEW.matched_event_count < OLD.matched_event_count\n  OR NEW.matched_event_count > NEW.scanned_event_count\n  OR NEW.scanned_event_count <> NEW.checkpoint_event_sequence\n  -- The service can examine at most eight maximum-sized events in one step.\n  OR NEW.checkpoint_event_sequence - OLD.checkpoint_event_sequence > 8\n  OR NEW.matched_event_count - OLD.matched_event_count\n    > NEW.scanned_event_count - OLD.scanned_event_count\n  OR NEW.matched_event_count <> (\n    SELECT count(*) FROM memory_literal_search_hits hit\n    WHERE hit.principal_id = NEW.principal_id AND hit.job_id = NEW.job_id\n  )\n  OR (NEW.completed_at IS NOT NULL AND NEW.completed_at < NEW.updated_at)\n  OR NOT (\n    (OLD.status = 'pending' AND NEW.status = 'running')\n    OR (OLD.status = 'running' AND NEW.status IN ('running', 'succeeded', 'failed'))\n  )\n  OR (NEW.status = 'succeeded'\n    AND NEW.checkpoint_event_sequence <> NEW.snapshot_event_sequence)\n  OR NOT EXISTS (\n    SELECT 1 FROM principals principal\n    WHERE principal.principal_id = NEW.principal_id\n      AND principal.principal_type = 'human'\n      AND principal.status = 'active'\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_literal_search_job_transition_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts",
+    "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_literal_search_jobs_delete_forbidden",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0025_archive_literal_history.sql",
+   "from": "CREATE TRIGGER memory_literal_search_jobs_delete_forbidden\nBEFORE DELETE ON memory_literal_search_jobs\nBEGIN\n  SELECT RAISE(ABORT, 'memory_literal_search_job_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts",
+    "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_literal_search_hits_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0025_archive_literal_history.sql",
+   "from": "CREATE TRIGGER memory_literal_search_hits_insert_guard\nBEFORE INSERT ON memory_literal_search_hits\nWHEN EXISTS (\n    SELECT 1 FROM memory_literal_search_hits hit\n    WHERE hit.principal_id = NEW.principal_id\n      AND hit.job_id = NEW.job_id\n      AND (hit.event_sequence = NEW.event_sequence OR hit.event_id = NEW.event_id)\n  )\n  OR NOT EXISTS (\n    SELECT 1 FROM memory_literal_search_jobs job\n    WHERE job.principal_id = NEW.principal_id\n      AND job.job_id = NEW.job_id\n      AND job.status = 'running'\n      AND NEW.event_sequence > job.checkpoint_event_sequence\n      AND NEW.event_sequence <= job.snapshot_event_sequence\n  )\n  OR NOT EXISTS (\n    SELECT 1 FROM events event\n    WHERE event.sequence = NEW.event_sequence\n      AND event.event_id = NEW.event_id\n      AND event.subject_id = NEW.principal_id\n      AND event.content_hash = NEW.content_hash\n    UNION\n    SELECT 1 FROM archive_segment_events archived\n    JOIN memory_history_coverage coverage\n      ON coverage.principal_id = NEW.principal_id\n      AND coverage.start_event_sequence = archived.event_sequence\n      AND coverage.end_event_sequence = archived.event_sequence\n      AND coverage.source_location = 'archived'\n      AND coverage.r2_segment_id = archived.segment_id\n      AND coverage.indexing_outcome = 'indexed'\n      AND coverage.content_hash = archived.envelope_sha256\n    WHERE archived.event_sequence = NEW.event_sequence\n      AND archived.event_id = NEW.event_id\n      AND archived.content_hash = NEW.content_hash\n  )\n  OR NOT EXISTS (\n    SELECT 1 FROM principals principal\n    WHERE principal.principal_id = NEW.principal_id\n      AND principal.principal_type = 'human'\n      AND principal.status = 'active'\n  )\n  OR EXISTS (\n    SELECT 1 FROM memory_active_event_suppressions suppression\n    WHERE suppression.principal_id = NEW.principal_id\n      AND (\n        suppression.target_event_id = NEW.event_id\n        OR NEW.event_sequence BETWEEN suppression.start_event_sequence\n          AND suppression.end_event_sequence\n      )\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_literal_search_hit_receipt_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts",
+    "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_literal_search_hits_immutable_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0025_archive_literal_history.sql",
+   "from": "CREATE TRIGGER memory_literal_search_hits_immutable_update\nBEFORE UPDATE ON memory_literal_search_hits\nBEGIN\n  SELECT RAISE(ABORT, 'memory_literal_search_hit_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts",
+    "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  },
+  {
+   "id": "T-memory_literal_search_hits_delete_forbidden",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0025_archive_literal_history.sql",
+   "from": "CREATE TRIGGER memory_literal_search_hits_delete_forbidden\nBEFORE DELETE ON memory_literal_search_hits\nBEGIN\n  SELECT RAISE(ABORT, 'memory_literal_search_hit_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts",
+    "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-owner-controls.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  }
+ ]
+}

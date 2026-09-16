@@ -1,0 +1,118 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/school/zz-reviewer-pr53-probes.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr39
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/school/zz-reviewer-pr53-probes.test.ts (5 tests | 5 failed) 1164ms
+     × Q1 hijack: an open quiz takes an unrelated message as a wrong answer and the bot never answers 85ms
+     × Q2 grading: a correct answer with a trailing period is graded wrong 166ms
+     × Q3 ordinary: a non-school statement becomes study evidence and the bot never answers 89ms
+     × Q4 lockout: at the per-course evidence cap an open quiz answers every message with a save failure 564ms
+     × Q5 unsupported: correct answers on an owner-topic quiz still build a strong weak-area judgment 96ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/school/zz-reviewer-pr53-probes.test.ts > zzreviewerpr53 > Q1 hijack: an open quiz takes an unrelated message as a wrong answer and the bot never answers
+AssertionError: expected 'I closed the previous quiz before ans…' to contain 'Recorded as one wrong result'
+
+- Expected
++ Received
+
+- Recorded as one wrong result
++ I closed the previous quiz before answering normally.
++
++ Ordinary answer
+
+ ❯ apps/cloud-gateway/test/school/zz-reviewer-pr53-probes.test.ts:131:19
+    129|     const turn = await addTurn(seeded.principalId, "What's due tomorro…
+    130|     const reply = await collect(adapter(seeded.principalId, fallback).…
+    131|     expect(reply).toContain("Recorded as one wrong result");
+       |                   ^
+    132|     expect(fallback.calls).toBe(0);
+    133|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/school/zz-reviewer-pr53-probes.test.ts > zzreviewerpr53 > Q2 grading: a correct answer with a trailing period is graded wrong
+AssertionError: expected 'uncertain' to be 'supported' // Object.is equality
+
+Expected: "supported"
+Received: "uncertain"
+
+ ❯ apps/cloud-gateway/test/school/zz-reviewer-pr53-probes.test.ts:142:42
+    140|       principalId: seeded.principalId, turnId: turn, answer: "Mitochon…
+    141|     });
+    142|     expect(answered?.item.answerSupport).toBe("supported");
+       |                                          ^
+    143|     expect(answered?.result).toBe("wrong");
+    144|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/school/zz-reviewer-pr53-probes.test.ts > zzreviewerpr53 > Q3 ordinary: a non-school statement becomes study evidence and the bot never answers
+AssertionError: expected 'Ordinary answer' to contain 'Recorded one uncertain evidence point…'
+
+Expected: "Recorded one uncertain evidence point for Chemistry"
+Received: "Ordinary answer"
+
+ ❯ apps/cloud-gateway/test/school/zz-reviewer-pr53-probes.test.ts:151:19
+    149|     const turn = await addTurn(seeded.principalId, "Getting up early i…
+    150|     const reply = await collect(adapter(seeded.principalId, fallback).…
+    151|     expect(reply).toContain("Recorded one uncertain evidence point for…
+       |                   ^
+    152|     expect(fallback.calls).toBe(0);
+    153|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/school/zz-reviewer-pr53-probes.test.ts > zzreviewerpr53 > Q4 lockout: at the per-course evidence cap an open quiz answers every message with a save failure
+AssertionError: expected [ …(2) ] to deeply equal [ …(2) ]
+
+- Expected
++ Received
+
+  [
+-   "I couldn't update the study-coach record.",
+-   "I couldn't update the study-coach record.",
++   "I closed the previous quiz before answering normally.
++
++ Ordinary answer",
++   "Ordinary answer",
+  ]
+
+ ❯ apps/cloud-gateway/test/school/zz-reviewer-pr53-probes.test.ts:174:21
+    172|       replies.push(await collect(adapter(seeded.principalId, fallback)…
+    173|     }
+    174|     expect(replies).toEqual(["I couldn't update the study-coach record…
+       |                     ^
+    175|     expect(fallback.calls).toBe(0);
+    176|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/school/zz-reviewer-pr53-probes.test.ts > zzreviewerpr53 > Q5 unsupported: correct answers on an owner-topic quiz still build a strong weak-area judgment
+AssertionError: expected undefined to be 'strong' // Object.is equality
+
+- Expected:
+"strong"
+
++ Received:
+undefined
+
+ ❯ apps/cloud-gateway/test/school/zz-reviewer-pr53-probes.test.ts:202:30
+    200|     const snapshot = await repository.readSnapshot(seeded.principalId,…
+    201|     const topic = snapshot.courses[0]?.topics.find((entry) => entry.to…
+    202|     expect(topic?.judgement).toBe("strong");
+       |                              ^
+    203|     expect(topic?.confidence).toBe("high");
+    204|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed (5)
+   Start at  19:58:59
+   Duration  3.16s (transform 854ms, setup 0ms, import 1.40s, tests 1.16s, environment 0ms)
+

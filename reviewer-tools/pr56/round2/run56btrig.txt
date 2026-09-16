@@ -1,0 +1,74 @@
+checked out 0279396a5ea78a3e7ad0e7071225e5852fcb1d22 at 0279396
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  5 passed (5)
+   Tests  92 passed (92)
+
+== T-memory_history_chunks_insert_guard: KILLED (exit 1), tree clean=true
+   Test Files  2 failed | 3 passed (5)
+   Tests  63 passed | 29 skipped (92)
+
+== T-memory_literal_search_jobs_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts (15 tests | 3 failed) 357ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  3 failed | 89 passed (92)
+   × installs only the durable job, provenance receipt, index, and named guards 11ms
+   × memory_literal_search_jobs_insert_guard rejects invalid initial state 6ms
+   × rejects REPLACE and IGNORE across every job and hit unique key 2ms
+
+== T-memory_literal_search_jobs_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts (15 tests | 7 failed) 378ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  7 failed | 85 passed (92)
+   × installs only the durable job, provenance receipt, index, and named guards 11ms
+   × memory_literal_search_jobs_update_guard rejects a backwards checkpoint 7ms
+   × memory_literal_search_jobs_update_guard rejects completion without scanning the snapshot 9ms
+   × memory_literal_search_jobs_update_guard rejects a forged jump beyond one exhaustive step 8ms
+
+== T-memory_literal_search_jobs_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts (15 tests | 2 failed) 366ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  16 failed | 76 passed (92)
+   × reports an exact missing range until live coverage is complete, then returns exact provenance 6ms
+   × keeps the maximum interactive literal search inside its declared D1 statement budget 2ms
+   × advances indexing when the wall clock moves behind the stored cursor timestamp 3ms
+   × refuses a no-hit answer when the coverage cursor is ahead of tiered history 2ms
+
+== T-memory_literal_search_hits_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/literal-history.test.ts (14 tests | 1 failed) 4095ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  5 failed | 87 passed (92)
+   × installs only the durable job, provenance receipt, index, and named guards 11ms
+   × memory_literal_search_hits_insert_guard rejects an unverified receipt 4ms
+   × memory_literal_search_hits_insert_guard rejects an archived cross-principal receipt 34ms
+   × rejects REPLACE and IGNORE across every job and hit unique key 14ms
+
+== T-memory_literal_search_hits_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts (15 tests | 3 failed) 338ms
+   Test Files  1 failed | 4 passed (5)
+   Tests  3 failed | 89 passed (92)
+   × installs only the durable job, provenance receipt, index, and named guards 9ms
+   × memory_literal_search_hits_immutable_update rejects receipt mutation 4ms
+   × rejects REPLACE and IGNORE across every job and hit unique key 17ms
+
+== T-memory_literal_search_hits_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts (15 tests | 3 failed) 362ms
+   Test Files  2 failed | 3 passed (5)
+   Tests  17 failed | 75 passed (92)
+   × reports an exact missing range until live coverage is complete, then returns exact provenance 6ms
+   × keeps the maximum interactive literal search inside its declared D1 statement budget 3ms
+   × advances indexing when the wall clock moves behind the stored cursor timestamp 3ms
+   × refuses a no-hit answer when the coverage cursor is ahead of tiered history 6ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-memory_history_chunks_insert_guard
+KILLED    T-memory_literal_search_jobs_insert_guard
+KILLED    T-memory_literal_search_jobs_update_guard
+KILLED    T-memory_literal_search_jobs_delete_forbidden
+KILLED    T-memory_literal_search_hits_insert_guard
+KILLED    T-memory_literal_search_hits_immutable_update
+KILLED    T-memory_literal_search_hits_delete_forbidden
+back on main, tree clean=true
+(node:17316) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

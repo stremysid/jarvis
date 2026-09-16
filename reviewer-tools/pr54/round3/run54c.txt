@@ -1,0 +1,140 @@
+checked out 67b99dd at 67b99dd
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  68 passed (68)
+
+== W1-audit-policy-passphrase-always: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (52 tests | 1 failed) 38ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 67 passed (68)
+   × rejects owner-path records that disagree on the caller-ID policy 4ms
+
+== W2-audit-inbound-verified: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  68 passed (68)
+
+== W3-audit-distinct-correlations: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (52 tests | 1 failed) 33ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 67 passed (68)
+   × requires distinct correlation IDs across all six records 5ms
+
+== W4-audit-disjoint-event-ids: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (52 tests | 1 failed) 31ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 67 passed (68)
+   × requires event IDs to be disjoint across all six records 4ms
+
+== W5-audit-future-started-at: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (52 tests | 1 failed) 31ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 67 passed (68)
+   × allows bounded clock skew but rejects implausibly future evidence 4ms
+
+== W6-refusal-duration-bound: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (52 tests | 1 failed) 31ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 67 passed (68)
+   × rejects a refused owner step-up duration longer than five minutes 4ms
+
+== W7-refusal-reason: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (52 tests | 1 failed) 34ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 67 passed (68)
+   × requires observable rejection delivery and a sent owner alert for refused owner step-up 5ms
+
+== W8-refusal-prompt-reprompt-sum: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (52 tests | 1 failed) 33ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 67 passed (68)
+   × requires observable rejection delivery and a sent owner alert for refused owner step-up 4ms
+
+== W9-refusal-alert-disposition: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (52 tests | 1 failed) 34ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 67 passed (68)
+   × requires observable rejection delivery and a sent owner alert for refused owner step-up 4ms
+
+== W10-refusal-delivery-row: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (52 tests | 1 failed) 32ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 67 passed (68)
+   × requires observable rejection delivery and a sent owner alert for refused owner step-up 4ms
+
+== W11-verified-attempts-le-prompts: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (52 tests | 1 failed) 41ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 67 passed (68)
+   × rejects verified owner step-up counts that cannot come from the runtime 6ms
+
+== W12-verified-prompts-le-attempts-plus-2: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (52 tests | 1 failed) 33ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 67 passed (68)
+   × rejects verified owner step-up counts that cannot come from the runtime 4ms
+
+== W13-outbound-attestation-not-applicable: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (52 tests | 1 failed) 32ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 67 passed (68)
+   × binds the not_applicable attestation to outbound owner evidence only 4ms
+
+== W14-no-answer-not-started: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (52 tests | 1 failed) 35ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 67 passed (68)
+   × accepts a private outbound no-answer result and rejects purpose disclosure 5ms
+
+== W15-not-started-outbound-only: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  68 passed (68)
+
+== S1-not-started-claims-owner-authority: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (52 tests | 1 failed) 32ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 67 passed (68)
+   × rejects an answered outbound call granted owner authority with no step-up 4ms
+
+== N1-inbound-not-applicable: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (52 tests | 1 failed) 37ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 67 passed (68)
+   × binds the not_applicable attestation to outbound owner evidence only 5ms
+
+== N2-audit-time-finite: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (52 tests | 1 failed) 38ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 67 passed (68)
+   × rejects an invalid audit time 4ms
+
+== N3-clock-skew-allowance: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (52 tests | 1 failed) 35ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 67 passed (68)
+   × allows bounded clock skew but rejects implausibly future evidence 5ms
+
+=== summary
+SURVIVED  BASE
+KILLED    W1-audit-policy-passphrase-always
+SURVIVED  W2-audit-inbound-verified
+KILLED    W3-audit-distinct-correlations
+KILLED    W4-audit-disjoint-event-ids
+KILLED    W5-audit-future-started-at
+KILLED    W6-refusal-duration-bound
+KILLED    W7-refusal-reason
+KILLED    W8-refusal-prompt-reprompt-sum
+KILLED    W9-refusal-alert-disposition
+KILLED    W10-refusal-delivery-row
+KILLED    W11-verified-attempts-le-prompts
+KILLED    W12-verified-prompts-le-attempts-plus-2
+KILLED    W13-outbound-attestation-not-applicable
+KILLED    W14-no-answer-not-started
+SURVIVED  W15-not-started-outbound-only
+KILLED    S1-not-started-claims-owner-authority
+KILLED    N1-inbound-not-applicable
+KILLED    N2-audit-time-finite
+KILLED    N3-clock-skew-allowance
+back on main, tree clean=true
+(node:36356) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

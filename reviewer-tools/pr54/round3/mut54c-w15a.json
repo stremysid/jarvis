@@ -1,0 +1,10 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "67b99dd",
+ "mutations": [
+  {"id": "W15a-not-started-direction-only", "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "      direction !== \"outbound\"\n      || claimsOwnerAuthority\n",
+   "to": "      claimsOwnerAuthority\n",
+   "tests": ["tests/acceptance/live/voice-smoke.test.ts", "tests/acceptance/live/voice-smoke-runtime.test.ts"]}
+ ]
+}

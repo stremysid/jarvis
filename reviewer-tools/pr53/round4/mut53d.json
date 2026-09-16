@@ -1,0 +1,18 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "b58dbdd",
+ "mutations": [
+  {"id": "BASE", "file": "apps/cloud-gateway/src/school/study-coach-model.ts",
+   "from": "          const ordinaryReply = await collect(this.dependencies.fallbackModel.stream(input));\n",
+   "to": "          const ordinaryReply = await collect(this.dependencies.fallbackModel.stream(input));\n",
+   "tests": ["apps/cloud-gateway/test/school/study-coach-model.test.ts"]},
+  {"id": "H1-prefix-then-delegate", "file": "apps/cloud-gateway/src/school/study-coach-model.ts",
+   "from": "          const ordinaryReply = await collect(this.dependencies.fallbackModel.stream(input));\n          yield Object.freeze({ index: 0, text: `${CLOSED_QUIZ_FALLBACK_PREFIX}${ordinaryReply}` });\n          return;\n",
+   "to": "          yield Object.freeze({ index: 0, text: CLOSED_QUIZ_FALLBACK_PREFIX });\n",
+   "tests": ["apps/cloud-gateway/test/school/study-coach-model.test.ts"]},
+  {"id": "H1b-notice-dropped", "file": "apps/cloud-gateway/src/school/study-coach-model.ts",
+   "from": "yield Object.freeze({ index: 0, text: `${CLOSED_QUIZ_FALLBACK_PREFIX}${ordinaryReply}` });",
+   "to": "yield Object.freeze({ index: 0, text: ordinaryReply });",
+   "tests": ["apps/cloud-gateway/test/school/study-coach-model.test.ts"]}
+ ]
+}

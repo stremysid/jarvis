@@ -1,0 +1,66 @@
+$ node scripts/voice-release-gate.mjs --fake-only
+✔ runs the real fake-suite entry before the retained-evidence audit (0.9334ms)
+✔ stops at gate_tests and preserves its failure instead of reporting a release pass (0.1914ms)
+✔ stops at fake_calls and preserves its failure instead of reporting a release pass (0.7019ms)
+✔ stops at live_evidence and preserves its failure instead of reporting a release pass (0.0908ms)
+✔ permits a fake-only developer run without mistaking it for evidence acceptance (0.1906ms)
+✔ refuses a process that could not start or did not return an exit status (0.1388ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 63.4982
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr39
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+uncaught exception; source = Uncaught (in promise); stack = CallSessionTerminationError: call_session_termination_uninitialized
+    at terminationFailure (C:/Users/Sid/jarvis-pr39/apps/cloud-gateway/src/voice/call-session-do.ts:486:10)
+    at CallSession.#terminateOnce (C:/Users/Sid/jarvis-pr39/apps/cloud-gateway/src/voice/call-session-do.ts:1869:40)
+    at CallSession.terminate (C:/Users/Sid/jarvis-pr39/apps/cloud-gateway/src/voice/call-session-do.ts:1859:18)
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+
+ Test Files  38 passed (38)
+      Tests  899 passed (899)
+   Start at  19:46:12
+   Duration  425.52s (transform 1.96s, setup 0ms, import 13.51s, tests 392.41s, environment 4ms)
+

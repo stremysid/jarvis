@@ -1,0 +1,10 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "0279396",
+ "mutations": [
+  {"id": "M4-attempt-unique-key", "file": "apps/cloud-gateway/src/persistence/migrations/0025_archive_literal_history.sql",
+   "from": "      OR (job.principal_id = NEW.principal_id\n        AND job.job_key = NEW.job_key AND job.attempt = NEW.attempt)\n",
+   "to": "      OR (job.principal_id = NEW.principal_id AND job.job_key = NEW.job_key)\n",
+   "tests": ["apps/cloud-gateway/test/persistence/archive-literal-history-migration.test.ts","apps/cloud-gateway/test/memory/literal-history.test.ts"]}
+ ]
+}

@@ -1,0 +1,20 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "67b99dd",
+ "mutations": [
+  {
+   "id": "W2+W15a-inbound-not-started-accepted",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "      direction !== \"outbound\"\n      || claimsOwnerAuthority\n",
+   "to": "      claimsOwnerAuthority\n",
+   "also": {
+    "from": "        if (scenario === \"inbound\" && dataField(record as object, \"ownerStepUpOutcome\") !== \"verified\") throw new Error();\n",
+    "to": ""
+   },
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  }
+ ]
+}

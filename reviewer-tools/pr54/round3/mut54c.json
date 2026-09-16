@@ -1,0 +1,206 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "67b99dd",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "    if (scenarios.size !== VOICE_SMOKE_SCENARIOS.length || commitShas.size !== 1) throw new Error();",
+   "to": "    if (scenarios.size !== VOICE_SMOKE_SCENARIOS.length || commitShas.size !== 1) throw new Error();",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "W1-audit-policy-passphrase-always",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "        if (dataField(record as object, \"ownerCallerIdPolicy\") !== \"passphrase_always\") throw new Error();\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "W2-audit-inbound-verified",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "        if (scenario === \"inbound\" && dataField(record as object, \"ownerStepUpOutcome\") !== \"verified\") throw new Error();\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "W3-audit-distinct-correlations",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "      if (correlationIds.has(correlationId)) throw new Error();\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "W4-audit-disjoint-event-ids",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "        if (eventIds.has(eventId)) throw new Error();\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "W5-audit-future-started-at",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "      if (\n        Date.parse(dataField(record as object, \"startedAt\") as string) > auditTimeMs + AUDIT_CLOCK_SKEW_MS\n      ) throw new Error();\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "W6-refusal-duration-bound",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "    || Date.parse(evidence.endedAt as string) - Date.parse(evidence.startedAt as string) > 5 * 60_000\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "W7-refusal-reason",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "    || evidence.ownerStepUpRejectionReason !== \"attempts_exhausted\"\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "W8-refusal-prompt-reprompt-sum",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "    || evidence.ownerStepUpPromptCount !== 3 + evidence.ownerStepUpRepromptCount\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "W9-refusal-alert-disposition",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "    || evidence.ownerAlertDisposition !== \"sent\"\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "W10-refusal-delivery-row",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "    || evidence.rejectionDeliveryRowCount !== 1\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "W11-verified-attempts-le-prompts",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "        || evidence.ownerStepUpAttemptCount > evidence.ownerStepUpPromptCount\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "W12-verified-prompts-le-attempts-plus-2",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "        || evidence.ownerStepUpPromptCount > evidence.ownerStepUpAttemptCount + 2\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "W13-outbound-attestation-not-applicable",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "    || direction === \"outbound\" && attestation !== \"not_applicable\"\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "W14-no-answer-not-started",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "    || evidence.ownerStepUpOutcome !== \"not_started\"\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "W15-not-started-outbound-only",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "      direction !== \"outbound\"\n      || claimsOwnerAuthority\n",
+   "to": "      claimsOwnerAuthority\n",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "S1-not-started-claims-owner-authority",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "      || claimsOwnerAuthority\n      || evidence.authenticationMode !== OWNER_PASSPHRASE_AUTHENTICATION_MODE\n",
+   "to": "      || evidence.authenticationMode !== OWNER_PASSPHRASE_AUTHENTICATION_MODE\n",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "N1-inbound-not-applicable",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "    || direction === \"inbound\" && attestation === \"not_applicable\"\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "N2-audit-time-finite",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "    if (!Number.isFinite(auditTimeMs)) throw new Error();\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "N3-clock-skew-allowance",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "> auditTimeMs + AUDIT_CLOCK_SKEW_MS",
+   "to": "> auditTimeMs",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  }
+ ]
+}
