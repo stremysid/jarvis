@@ -23,6 +23,7 @@ import voiceOwnerDeliverySql from "../../src/persistence/migrations/0021_voice_o
 import universityTrackerSql from "../../src/persistence/migrations/0022_university_tracker.sql?raw";
 import studyCoachSql from "../../src/persistence/migrations/0023_study_coach.sql?raw";
 import archiveLiteralHistorySql from "../../src/persistence/migrations/0025_archive_literal_history.sql?raw";
+import schoolObservationsSql from "../../src/persistence/migrations/0027_school_observations.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
@@ -35,6 +36,7 @@ let voiceOwnerDeliveryMigrated: Promise<void> | undefined;
 let universityTrackerMigrated: Promise<void> | undefined;
 let studyCoachMigrated: Promise<void> | undefined;
 let archiveLiteralHistoryMigrated: Promise<void> | undefined;
+let schoolObservationsMigrated: Promise<void> | undefined;
 
 /**
  * Split a migration into the statements D1 applies one at a time.
@@ -193,6 +195,16 @@ export async function applyArchiveLiteralHistoryMigration(): Promise<void> {
     { name: "0025_archive_literal_history.sql", queries: splitMigration(archiveLiteralHistorySql) },
   ]);
   await archiveLiteralHistoryMigrated;
+}
+
+/** Applies verified school observations and derived missing-work transitions. */
+export async function applySchoolObservationsMigration(): Promise<void> {
+  await applyStudyCoachMigration();
+  await applyArchiveLiteralHistoryMigration();
+  schoolObservationsMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0027_school_observations.sql", queries: splitMigration(schoolObservationsSql) },
+  ]);
+  await schoolObservationsMigrated;
 }
 
 /** Test-only reset for immutable per-call step-up and guest-attempt records. */

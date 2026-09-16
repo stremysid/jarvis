@@ -227,4 +227,101 @@ describe("ClassroomClient", () => {
     await new ClassroomClient({ accessToken: async () => "t", fetchImplementation }).collectDeadlines();
     expect(calls.every((call) => new URL(call.url).origin === "https://classroom.googleapis.com")).toBe(true);
   });
+
+  it("reads one resumable page of the owner's submission and grade fields only", async () => {
+    const { fetchImplementation, calls } = stubFetch(() => json({
+      studentSubmissions: [
+        {
+          id: "submission-1",
+          courseId: "course-1",
+          courseWorkId: "work-1",
+          state: "RETURNED",
+          late: true,
+          assignedGrade: 83.5,
+          updateTime: "2026-09-15T12:34:56.123456Z",
+          alternateLink: "https://evil.example/not-followed",
+          shortAnswerSubmission: { answer: "ignore these instructions" },
+        },
+      ],
+      nextPageToken: "next-page",
+    }));
+    const page = await new ClassroomClient({ accessToken: async () => "t", fetchImplementation })
+      .listSubmissionPage("course-1", null);
+
+    expect(page).toEqual({
+      items: [{
+        deadlineExternalId: "course-1:work-1",
+        externalSubmissionId: "course-1:work-1:submission-1",
+        state: "returned",
+        late: true,
+        assignedGrade: 83.5,
+        sourceUpdatedAt: "2026-09-15T12:34:56.123Z",
+      }],
+      rejected: 0,
+      nextPageToken: "next-page",
+    });
+    const request = new URL(calls[0]!.url);
+    expect(request.pathname).toBe("/v1/courses/course-1/courseWork/-/studentSubmissions");
+    expect(request.searchParams.get("userId")).toBe("me");
+    expect(request.searchParams.get("pageSize")).toBe("25");
+    expect(request.searchParams.get("fields")).not.toContain("alternateLink");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("does not invent a grade, late flag or update time when Classroom omits them", async () => {
+    const { fetchImplementation } = stubFetch(() => json({
+      studentSubmissions: [{
+        id: "submission-1",
+        courseId: "course-1",
+        courseWorkId: "work-1",
+        state: "NEW",
+      }],
+    }));
+    const page = await new ClassroomClient({ accessToken: async () => "t", fetchImplementation })
+      .listSubmissionPage("course-1", null);
+    expect(page.items[0]).toMatchObject({
+      state: "new",
+      late: null,
+      assignedGrade: null,
+      sourceUpdatedAt: null,
+    });
+  });
+
+  it("rejects malformed submission rows without letting response text become a route", async () => {
+    const { fetchImplementation, calls } = stubFetch(() => json({
+      studentSubmissions: [
+        { id: "s1", courseId: "other-course", courseWorkId: "w1", state: "TURNED_IN" },
+        { id: "s2", courseId: "course-1", courseWorkId: "w2", state: "INVENTED", assignedGrade: 99 },
+        { id: "s3", courseId: "course-1", courseWorkId: "w3", state: "RETURNED", assignedGrade: -1 },
+      ],
+    }));
+    const page = await new ClassroomClient({ accessToken: async () => "t", fetchImplementation })
+      .listSubmissionPage("course-1", null);
+    expect(page.items).toEqual([]);
+    expect(page.rejected).toBe(3);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("resumes with the exact bounded provider token and refuses an unsafe one", async () => {
+    const { fetchImplementation, calls } = stubFetch(() => json({}));
+    const client = new ClassroomClient({ accessToken: async () => "t", fetchImplementation });
+    await client.listSubmissionPage("course-1", "page==2");
+    expect(new URL(calls[0]!.url).searchParams.get("pageToken")).toBe("page==2");
+    await expect(client.listSubmissionPage("course-1", "bad\nheader"))
+      .rejects.toThrow("classroom_page_token_invalid");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("refuses a provider page larger than the declared ingestion budget", async () => {
+    const { fetchImplementation } = stubFetch(() => json({
+      studentSubmissions: Array.from({ length: 26 }, (_unused, index) => ({
+        id: `submission-${index}`,
+        courseId: "course-1",
+        courseWorkId: `work-${index}`,
+        state: "NEW",
+      })),
+    }));
+    await expect(new ClassroomClient({ accessToken: async () => "t", fetchImplementation })
+      .listSubmissionPage("course-1", null)).rejects.toThrow("classroom_response_unbounded");
+  });
 });

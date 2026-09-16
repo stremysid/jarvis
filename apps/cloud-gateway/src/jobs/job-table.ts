@@ -28,6 +28,11 @@ import { TelegramRestProvider } from "../providers/telegram-provider.js";
 import { ScheduledRunRepository } from "../scheduler/scheduled-run-repository.js";
 import { SchoolCatchupRepository } from "../school/school-catchup-repository.js";
 import { StudyCoachRepository } from "../school/study-coach-repository.js";
+import { runClassroomObservationSync } from "../school/classroom-observation-sync.js";
+import {
+  D1StatementBudget,
+  SchoolObservationRepository,
+} from "../school/school-observation-repository.js";
 import type { JobOutcome, JobTable } from "../scheduler/scheduled-handler.js";
 import { D1GuestGrantNoticeSink } from "../voice/guest-grant-notice.js";
 import { runDigestJob, unconfiguredDeadlineSourceKinds, type DigestDelivery } from "./digest-job.js";
@@ -43,7 +48,7 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-const CLASSROOM_SOURCE_ID = "google-classroom";
+export const CLASSROOM_SOURCE_ID = "google-classroom";
 const BRIGHTSPACE_SOURCE_ID = "brightspace-ical";
 const BRIGHTSPACE_PAST_WINDOW_MS = 14 * 86_400_000;
 const BRIGHTSPACE_FUTURE_WINDOW_MS = 120 * 86_400_000;
@@ -128,12 +133,30 @@ async function pollClassroom(context: JobEnvironment): Promise<string> {
       // date-only assignment into the end of the owner's local school day.
       timeZone: context.env.DIGEST_TIMEZONE ?? "America/Toronto",
     });
+    const courses = await client.listCourses();
     const report = await ingestion.ingest(source.sourceId, {
       kind: "items",
-      items: await client.collectDeadlines(),
+      items: await client.collectDeadlines(courses),
     });
     const seen = report.created.length + report.moved.length + report.unchanged;
-    return `Classroom ${seen} seen, ${report.rejected.length} rejected, ${report.disappeared.length} absent`;
+    const principalId = context.env.OWNER_PRINCIPAL_ID;
+    if (principalId === undefined) {
+      return `Classroom ${seen} seen, ${report.rejected.length} rejected, ${report.disappeared.length} absent; grade/submission sync needs OWNER_PRINCIPAL_ID`;
+    }
+    const budget = new D1StatementBudget();
+    const observations = await runClassroomObservationSync({
+      repository: new SchoolObservationRepository(context.env.DB, budget),
+      client,
+      courses,
+      principalId,
+      sourceId: source.sourceId,
+      budget,
+      now: () => context.clock.now(),
+    });
+    const observationDetail = observations.outcome === "failed"
+      ? `grade/submission sync failed (${observations.failure ?? "school_observation_sync_failed"})`
+      : `grade/submission ${observations.outcome} within its declared D1 statement budget`;
+    return `Classroom ${seen} seen, ${report.rejected.length} rejected, ${report.disappeared.length} absent; ${observationDetail}`;
   } catch (error) {
     const failure = classroomFailure(error);
     await ingestion.ingest(source.sourceId, { kind: "failed", reason: failure });
@@ -436,6 +459,7 @@ async function digest(
   });
   const school = new SchoolCatchupRepository(context.env.DB);
   const study = new StudyCoachRepository(context.env.DB);
+  const observations = new SchoolObservationRepository(context.env.DB);
   const timeZone = context.env.DIGEST_TIMEZONE ?? "America/Toronto";
 
   const result = await runDigestJob(kind, {
@@ -451,6 +475,15 @@ async function digest(
           to: new Date(context.clock.now().getTime() + withinDays * 86_400_000),
         }),
       readDeadlineSources: async () => deadlines.listSources(),
+      readSchoolObservations: async () => {
+        const now = new Date(context.clock.now().getTime());
+        return observations.readDigestSnapshot({
+          principalId,
+          sourceId: CLASSROOM_SOURCE_ID,
+          changedSince: new Date(now.getTime() - 7 * 86_400_000),
+          now,
+        });
+      },
       readProjectStatuses: async () => projects.readActiveProjectStatuses(),
       readOpenDecisions: async () => decisions.queue(principalId),
     },

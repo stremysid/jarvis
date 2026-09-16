@@ -173,6 +173,18 @@ function catchupSection(actions: readonly DigestCatchupAction[]): DigestSection 
   };
 }
 
+function schoolObservationSection(input: DigestInput): DigestSection | null {
+  const lines = [
+    ...input.grades.map((grade) =>
+      `[verified: ${grade.source}; checked ${neutraliseInline(grade.lastSeenAt)}] ${neutraliseInline(grade.course)}: ${neutraliseInline(grade.title)} — assigned grade ${String(grade.assignedGrade)} (scale and weight not supplied)`,
+    ),
+    ...input.missingWork.map((item) =>
+      `[derived: no submission seen; ${item.source} scan ${neutraliseInline(item.derivedAt)}] ${neutraliseInline(item.course)}: ${neutraliseInline(item.title)} (deadline passed ${neutraliseInline(item.dueAt)})`,
+    ),
+  ];
+  return lines.length === 0 ? null : { heading: "Grades and submission checks", lines };
+}
+
 function studyCheckInSection(input: DigestInput): DigestSection | null {
   const checkIn = input.studyCheckIn;
   if (checkIn === undefined || checkIn === null) return null;
@@ -292,6 +304,7 @@ export function compose(
   const gaps = gapSection(input.gaps);
   const candidates = [
     deadlineSection(input, now, horizon),
+    schoolObservationSection(input),
     catchupSection(input.catchupActions),
     studyCheckInSection(input),
     projectSection(input),

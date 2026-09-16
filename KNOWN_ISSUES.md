@@ -590,15 +590,46 @@ The current schema has only `deadlines.due_at TEXT NOT NULL`. A Classroom item
 with a date and no time is conservatively mapped to the end of the local day,
 but the store cannot preserve that the source supplied date-only precision.
 Native date-only display needs a separate schema migration, claiming the next
-number only after another open-PR branch inventory. This PR claims no migration.
+number only after another open-PR branch inventory. Candidate `0027` does not
+change deadline precision.
+
+## Grade and submission ingestion still has four approval and coverage gaps
+
+Candidate migration `0027_school_observations.sql` and its repository use only
+the already configured read-only Google Classroom route. They do not request a
+new scope or run consent. The current refresh token's granted scopes are not
+known in code, however. Google's submission endpoint requires a coursework or
+student-submission read scope. If the existing grant lacks it, the poll records
+`classroom_rejected` and the digest names the grades/submissions gap. Obtaining
+another grant remains an owner-approved setup action and is not part of this PR.
+
+The approved Brightspace iCalendar feed carries deadlines, not grades or
+submission state. No Brightspace notification-email parser or API client is
+added here because neither route has been approved. Brightspace grades and
+submissions therefore remain unavailable until Sid approves an existing board
+route or the school approves a least-privilege API application.
+
+Classroom observations are attached only to coursework already present in the
+verified deadline store. Undated coursework has no deadline row, so a grade on
+it is deliberately omitted rather than inventing an assignment identity,
+course, date or title. Supporting it needs a separately reviewed verified
+assignment catalogue.
+
+This slice adds recent verified grades and derived submission checks to the
+existing morning digest. It does not send the plan's same-day lower-grade or
+new-no-submission alert. That alert needs a durable owner-delivery receipt plus
+the conversational threshold and snooze policy, so it is not approximated with
+a second untracked report.
 
 ## Only an explicit calendar cancellation moves a deadline out of `open`
 
 Brightspace `STATUS:CANCELLED` and `STATUS:COMPLETED` now close the matching
 source deadline as `cancelled`. Nothing marks a deadline `submitted` or
-`missed`, and a deadline that merely passes stays `open` forever. The
-grade/missing-work watch described in the plan is what closes those states,
-and it needs separately approved Classroom and Brightspace grade connectors.
+`missed`, and a deadline that merely passes stays `open` forever. Candidate
+`0027` keeps verified submission observations and explicitly derived
+`no_submission_seen` transitions in separate tables rather than rewriting this
+legacy status. Brightspace still needs a separately approved grade/submission
+route.
 
 A completed Brightspace `VTODO` is therefore stored with the same `cancelled`
 status as a teacher-cancelled item. That is correct for stopping deadline

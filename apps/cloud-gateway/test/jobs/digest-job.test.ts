@@ -134,6 +134,7 @@ function deps(overrides: DigestDependencyOverrides = {}): DigestJobDependencies 
       readCatchupActions: async () => [],
       readDeadlines: async () => [],
       readDeadlineSources: async () => [],
+      readSchoolObservations: async () => ({ source: null, grades: [], missingWork: [] }),
       readProjectStatuses: async () => [],
       readOpenDecisions: async () => [],
     },
@@ -171,6 +172,56 @@ describe("assembling from every source", () => {
     expect(digest.text).toContain("Finish the missed lab notes");
     expect(digest.text).toContain("Approve the vendor quote?");
     expect(digest.text).not.toContain("Could not be read");
+  });
+
+  it("adds verified grades and derived no-submission observations to the existing digest", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readDeadlineSources: async () => [deadlineSource()],
+        readSchoolObservations: async () => ({
+          source: {
+            principalId: "principal-a",
+            sourceId: "source-a",
+            checkpointCourseId: null,
+            checkpointPageToken: null,
+            scanStartedAt: null,
+            derivationScanAt: null,
+            derivationStartedAt: null,
+            derivationAfterDeadlineId: null,
+            lastBatchAt: NOW,
+            lastSuccessAt: NOW,
+            lastSuccessStartedAt: NOW,
+            lastFailure: null,
+            lastFailureAt: null,
+          },
+          grades: [{
+            observationId: "observation-a",
+            deadlineId: "deadline-a",
+            course: "Calculus",
+            title: "Quiz 2",
+            assignedGrade: 84,
+            source: "google_classroom_api",
+            contentChangedAt: NOW,
+            lastSeenAt: NOW,
+          }],
+          missingWork: [{
+            transitionId: "transition-a",
+            deadlineId: "deadline-b",
+            course: "Chemistry",
+            title: "Lab reflection",
+            dueAt: "2026-09-01T18:00:00.000Z",
+            classification: "derived",
+            state: "no_submission_seen",
+            derivedAt: NOW,
+          }],
+        }),
+      },
+    }));
+
+    expect(digest.text).toContain("verified: Google Classroom");
+    expect(digest.text).toContain("assigned grade 84");
+    expect(digest.text).toContain("derived: no submission seen");
+    expect(digest.text).not.toContain("you missed");
   });
 
   it("uses one clock snapshot for today's catch-up query and the digest date", async () => {
@@ -361,6 +412,44 @@ describe("a source that will not answer", () => {
     }));
 
     expect(digest.text).not.toContain("Study coach:");
+    expect(digest.text).not.toContain("no such table");
+  });
+
+  it("keeps last-known grades visible while naming a failed submission scan", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readDeadlineSources: async () => [deadlineSource()],
+        readSchoolObservations: async () => ({
+          source: {
+            principalId: "principal-a", sourceId: "source-a",
+            checkpointCourseId: "course-a", checkpointPageToken: null, scanStartedAt: NOW,
+            derivationScanAt: null, derivationStartedAt: null, derivationAfterDeadlineId: null,
+            lastBatchAt: NOW, lastSuccessAt: NOW,
+            lastSuccessStartedAt: NOW,
+            lastFailure: "classroom_rejected", lastFailureAt: NOW,
+          },
+          grades: [{
+            observationId: "observation-a", deadlineId: "deadline-a",
+            course: "Calculus", title: "Quiz 2", assignedGrade: 84,
+            source: "google_classroom_api", contentChangedAt: NOW, lastSeenAt: NOW,
+          }],
+          missingWork: [],
+        }),
+      },
+    }));
+    expect(digest.text).toContain("assigned grade 84");
+    expect(digest.text).toContain("Google Classroom grades/submissions: classroom_rejected");
+  });
+
+  it("treats unapplied school-observation tables as the older digest rather than a false outage", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readSchoolObservations: async () => {
+          throw new Error("D1_ERROR: no such table: school_assignment_observations");
+        },
+      },
+    }));
+    expect(digest.text).not.toContain("Google Classroom grades/submissions");
     expect(digest.text).not.toContain("no such table");
   });
 

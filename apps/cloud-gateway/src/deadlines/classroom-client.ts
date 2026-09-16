@@ -16,11 +16,17 @@
  */
 
 import type { RawDeadlineItem } from "./deadline-types.js";
+import type {
+  RawSchoolSubmissionObservation,
+  SchoolSubmissionState,
+} from "../school/school-observation-types.js";
 
 const API_ORIGIN = "https://classroom.googleapis.com";
 
 /** Classroom's maximum; fewer round trips for the same result. */
 const PAGE_SIZE = 100;
+/** Small enough that one persisted page stays inside the declared D1 write budget. */
+export const CLASSROOM_SUBMISSION_PAGE_SIZE = 25;
 
 /**
  * A cap on pagination. A `nextPageToken` that never stops -- a bug at either
@@ -83,6 +89,12 @@ export interface ClassroomClientOptions {
   readonly timeoutMs?: number;
 }
 
+export interface ClassroomSubmissionPage {
+  readonly items: readonly RawSchoolSubmissionObservation[];
+  readonly rejected: number;
+  readonly nextPageToken: string | null;
+}
+
 /** A failed Classroom call. `transient` is what decides whether the sweep is worth retrying. */
 export class ClassroomRequestError extends Error {
   readonly status: number | null;
@@ -98,6 +110,34 @@ export class ClassroomRequestError extends Error {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+const SAFE_IDENTIFIER = /^[^\p{Cc}\p{Cf}\s]+$/u;
+const SUBMISSION_STATES = new Map<string, SchoolSubmissionState>([
+  ["NEW", "new"],
+  ["CREATED", "created"],
+  ["TURNED_IN", "turned_in"],
+  ["RETURNED", "returned"],
+  ["RECLAIMED_BY_STUDENT", "reclaimed_by_student"],
+  ["STUDENT_EDITED_AFTER_TURN_IN", "student_edited_after_turn_in"],
+]);
+
+function sourceIdentifier(value: unknown, maximumCharacters = 256): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.normalize("NFC");
+  return normalized.length > 0
+    && normalized.length <= maximumCharacters
+    && normalized.isWellFormed()
+    && SAFE_IDENTIFIER.test(normalized)
+    ? normalized
+    : null;
+}
+
+function sourceInstant(value: unknown): string | null {
+  if (value === undefined) return null;
+  if (typeof value !== "string") return null;
+  const milliseconds = Date.parse(value);
+  return Number.isFinite(milliseconds) ? new Date(milliseconds).toISOString() : null;
 }
 
 function optionalInteger(value: unknown, low: number, high: number): number | null {
@@ -324,6 +364,92 @@ export class ClassroomClient {
   }
 
   /**
+   * One resumable page of the owner's submissions for a course.
+   *
+   * The page token is returned to the caller for durable checkpointing rather
+   * than consumed here. That keeps a large term from becoming one unbounded
+   * Worker walk. The `fields` projection is also a trust boundary: attachment
+   * text, response links and user-authored answers never enter this process.
+   */
+  async listSubmissionPage(courseIdValue: string, pageTokenValue: string | null): Promise<ClassroomSubmissionPage> {
+    const courseId = sourceIdentifier(courseIdValue);
+    if (courseId === null) throw new TypeError("classroom_course_id_invalid");
+    const pageToken = pageTokenValue === null ? null : sourceIdentifier(pageTokenValue, 2_048);
+    if (pageTokenValue !== null && pageToken === null) throw new TypeError("classroom_page_token_invalid");
+
+    const path = `/v1/courses/${encodeURIComponent(courseId)}/courseWork/-/studentSubmissions`;
+    const url = new URL(`${API_ORIGIN}${path}`);
+    url.searchParams.set("userId", "me");
+    url.searchParams.set("pageSize", String(CLASSROOM_SUBMISSION_PAGE_SIZE));
+    url.searchParams.set(
+      "fields",
+      "nextPageToken,studentSubmissions(id,courseId,courseWorkId,state,late,assignedGrade,updateTime)",
+    );
+    if (pageToken !== null) url.searchParams.set("pageToken", pageToken);
+
+    const body = await this.#get(url);
+    const rawItems = body.studentSubmissions;
+    if (Array.isArray(rawItems) && rawItems.length > CLASSROOM_SUBMISSION_PAGE_SIZE) {
+      throw new ClassroomRequestError("classroom_response_unbounded", 200, false);
+    }
+    const items: RawSchoolSubmissionObservation[] = [];
+    let rejected = 0;
+    for (const raw of Array.isArray(rawItems) ? rawItems : []) {
+      if (!isPlainObject(raw)) {
+        rejected += 1;
+        continue;
+      }
+      const responseCourseId = sourceIdentifier(raw.courseId);
+      const courseWorkId = sourceIdentifier(raw.courseWorkId);
+      const submissionId = sourceIdentifier(raw.id);
+      const state = typeof raw.state === "string" ? SUBMISSION_STATES.get(raw.state) : undefined;
+      const deadlineExternalId = responseCourseId === null || courseWorkId === null
+        ? null
+        : sourceIdentifier(`${responseCourseId}:${courseWorkId}`);
+      const externalSubmissionId = responseCourseId === null || courseWorkId === null || submissionId === null
+        ? null
+        : sourceIdentifier(`${responseCourseId}:${courseWorkId}:${submissionId}`);
+      const late = raw.late === undefined ? null : typeof raw.late === "boolean" ? raw.late : undefined;
+      const assignedGrade = raw.assignedGrade === undefined
+        ? null
+        : typeof raw.assignedGrade === "number"
+          && Number.isFinite(raw.assignedGrade)
+          && raw.assignedGrade >= 0
+          && raw.assignedGrade <= 1_000_000_000
+          ? raw.assignedGrade
+          : undefined;
+      const sourceUpdatedAt = sourceInstant(raw.updateTime);
+      if (
+        responseCourseId !== courseId
+        || deadlineExternalId === null
+        || externalSubmissionId === null
+        || state === undefined
+        || late === undefined
+        || assignedGrade === undefined
+        || (raw.updateTime !== undefined && sourceUpdatedAt === null)
+      ) {
+        rejected += 1;
+        continue;
+      }
+      items.push(Object.freeze({
+        deadlineExternalId,
+        externalSubmissionId,
+        state,
+        late,
+        assignedGrade,
+        sourceUpdatedAt,
+      }));
+    }
+
+    const rawNext = body.nextPageToken;
+    const nextPageToken = rawNext === undefined ? null : sourceIdentifier(rawNext, 2_048);
+    if (rawNext !== undefined && nextPageToken === null) {
+      throw new ClassroomRequestError("classroom_response_invalid", 200, false);
+    }
+    return Object.freeze({ items: Object.freeze(items), rejected, nextPageToken });
+  }
+
+  /**
    * Every dated, published assignment across every active course, in the shape
    * ingestion takes.
    *
@@ -331,9 +457,9 @@ export class ClassroomClient {
    * unique only within its course, and the store's uniqueness key is (source,
    * external id). Two courses' first assignment would otherwise be one row.
    */
-  async collectDeadlines(): Promise<readonly RawDeadlineItem[]> {
+  async collectDeadlines(courses?: readonly ClassroomCourse[]): Promise<readonly RawDeadlineItem[]> {
     const items: RawDeadlineItem[] = [];
-    for (const course of await this.listCourses()) {
+    for (const course of courses ?? await this.listCourses()) {
       for (const work of await this.listCourseWork(course.id)) {
         const dueAt = classroomDueInstant(work, this.#dueOptions);
         if (dueAt === null) continue;
