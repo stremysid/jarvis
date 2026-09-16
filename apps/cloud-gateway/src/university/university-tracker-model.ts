@@ -29,10 +29,11 @@ const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/u;
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
 const OWNER_SUBMISSION = /(?:\bi(?:['’]ve| have)?\s+(?:(?:already|just|now|successfully)\s+)?|^(?:(?:already|just|now|successfully)\s+)?)(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
 const CONDITIONAL_OR_QUESTION = /\?|\b(?:if|unless|maybe|perhaps|might|could|would)\b/iu;
-const HEARSAY = /\b(?:thinks?|heard|said|says|told|reports?|claims?|might|maybe|apparently)\b/iu;
-const NEGATION = /\b(?:no|not|never|none|nothing|haven't|hasn't|hadn't|didn't|don't|doesn't|won't|can't|cannot|couldn't|wouldn't|shouldn't|isn't|aren't|wasn't|weren't)\b|n['’]t\b|\byet\s+to\b/iu;
-const RETRACTION = /\b(?:actually|correction|wait|jk|just\s+kidding|didn't\s+go\s+through|did\s+not\s+go\s+through)\b/iu;
-const OWNER_HEDGE = /\b(?:afraid|apparently|concerned|feel\s+like|guess|hope|maybe|might|pretty\s+sure|probably|scared|seems?|sounds?\s+like|think|worried)\b/iu;
+const HEARSAY = /\b(?:thinks?|heard|said|says|reports?|claims?|might|maybe|apparently)\b/iu;
+const NEGATION = /\b(?:not|never|none|nothing|haven't|hasn't|hadn't|didn't|don't|doesn't|won't|can't|cannot|couldn't|wouldn't|shouldn't|isn't|aren't|wasn't|weren't)\b|n['’]t\b/iu;
+const OFFER_NEGATION = /\b(?:no\s+(?:conditional\s+|unconditional\s+)?offer|(?:got|received|have|has|had)\s+no\b.{0,48}\boffer|not\s+(?:got|received|offered|accepted|waitlisted|rejected)|yet\s+to\s+(?:get|receive)|haven['’]t\s+(?:got|received))\b/iu;
+const RETRACTION = /\b(?:actually\s+(?:no|not)\b|correction|jk|just\s+kidding|didn't\s+go\s+through|did\s+not\s+go\s+through)\b/iu;
+const OWNER_HEDGE = /\b(?:afraid|apparently|concerned|feel\s+like|guess|hope|i(?:'|’)?m\s+sure|i\s+am\s+sure|maybe|might|pretty\s+sure|probably|scared|seems?|sounds?\s+like|think|worried)\b/iu;
 const FORWARDED_OR_QUOTED_OWNER_CLAIM = /\b(?:begin\s+forwarded|dear\s+sid|email\s+from|forwarded\s+message|from:|message\s+from)\b|["“][^"”]{0,384}\bi\b[^"”]{0,384}["”]/iu;
 const SUBMISSION_CORRECTION = /\b(?:didn't|did\s+not|wasn't|was\s+not|never)\s+(?:(?:actually|really|successfully|just|ever)\s+){0,2}(?:submit|send|upload|turn\s+in)|\b(?:submission|upload)\b.{0,48}\b(?:failed|crashed|rejected)|\bdid(?:n't|\s+not)\s+go\s+through\b|\b(?:undo|reopen|mark)\b.{0,48}\bnot\s+submitted\b/iu;
 const RETIREMENT = /\b(?:not\s+(?:applying|needed)|skip(?:ping)?|remove|duplicate|wrong\s+item|no\s+longer\s+need)\b/iu;
@@ -48,10 +49,11 @@ const JOINT_OWNER_ACTION = new RegExp(
   String.raw`\b(?:(?:m(?:s|r)\.?|dr\.?)\s+\p{L}+[\p{L}'’.-]*|(?:my\s+)?(?:mom|mother|dad|father|parents?|guardians?|sister|brother|sibling)|(?:my\s+)?(?:teacher|counsell?or|referee))\s+and\s+i\s+(?:(?:have|had)\s+)?(?:(?:already|just|now|successfully)\s+)?${OWNER_STATUS_ACTION}\b`,
   "iu",
 );
-const REPORTED_OWNER_ACTION = new RegExp(
-  String.raw`\b(?:asked|emailed|forwarded|messaged|said|says|sent|texted|told|wrote|writes)\b(?:\s+me)?[^.!?\r\n]{0,80}\bi\s+(?:(?:have|had)\s+)?(?:(?:already|just|now|successfully)\s+)?${OWNER_STATUS_ACTION}\b`,
+const THIRD_PARTY_REPORTED_OWNER_ACTION = new RegExp(
+  String.raw`\b(?:(?:my\s+)?(?:mom|mother|dad|father|parent|guardian|teacher|counsell?or|referee|guidance)|the\s+(?:school|university)|(?:m(?:s|r|rs)|dr)\.?\s+\p{L}+)\b(?:(?!\bi\b)[^.!?\r\n]){0,40}\b(?:asked|emailed|forwarded|messaged|said|says|sent|texted|told|wrote|writes)\b[^.!?\r\n]{0,80}\bi\s+(?:(?:have|had)\s+)?(?:(?:already|just|now|successfully)\s+)?${OWNER_STATUS_ACTION}\b`,
   "iu",
 );
+const DELEGATED_OWNER_ACTION = /\bi\s+asked\s+(?:(?:my\s+)?(?:mom|mother|dad|father|parent|guardian|teacher|counsell?or|referee)|(?:m(?:s|r|rs)|dr)\.?\s+\p{L}+)\s+to\b/iu;
 const PREPARATION_REQUEST = /\b(?:draft|prepare|outline|revise|critique|review|checklist|steps?|tell\s+me\s+(?:how|what)|help\s+me)\b/iu;
 const OWNER_ACTION_DONE: Readonly<Record<UniversityWorkflowKind, RegExp | null>> = Object.freeze({
   submission_step: /\bi\s+(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in)\b/iu,
@@ -65,7 +67,7 @@ const OWNER_ACTION_DONE: Readonly<Record<UniversityWorkflowKind, RegExp | null>>
   offer_response: null,
 });
 const OWNER_ACTION_NOT_DONE = /\bi\s+(?:haven['’]t|have\s+not|didn['’]t|did\s+not|couldn['’]t|could\s+not)\b/iu;
-const OWNER_OFFERED = /\bi\s+(?:(?:have|just)\s+)?(?:got|received)\s+(?:an?\s+)?(?:[\p{L}'’.-]+\s+){0,6}offer(?:\s+of\s+admission)?\b|\bi\s+have\s+an?\s+(?:[\p{L}'’.-]+\s+){0,6}offer(?:\s+of\s+admission)?\b/iu;
+const OWNER_OFFERED = /\bi\s+(?:(?:have|just)\s+)?(?:got|received)\s+(?:an?\s+)?(?:[\p{L}'’.-]+\s+){0,6}offer(?:\s+of\s+admission)?\b|\bi\s+have\s+an?\s+(?:[\p{L}'’.-]+\s+){0,6}offer(?:\s+of\s+admission)?\b|\bi\s+(?:(?:have|just)\s+)?got\s+into\b|^(?:[\p{L}'’.-]+\s+){1,6}accepted\s+me\b/iu;
 const OWNER_WAITLISTED = /\bi\s+(?:(?:have|just)\s+)?(?:got\s+|was\s+|have\s+been\s+)?waitlisted\b/iu;
 const OWNER_REJECTED = /\bi\s+(?:(?:have|just)\s+)?(?:got\s+|was\s+|have\s+been\s+)?rejected\b|\bi\s+(?:didn['’]t|did\s+not)\s+get\s+in\b/iu;
 const OWNER_WITHDREW = /\bi\s+(?:(?:have|just)\s+)?withdrew\b/iu;
@@ -77,13 +79,13 @@ const OWNER_DECLINED = /\bi\s+(?:(?:have|just)\s+)?(?:declined|turned\s+down)\s+
 const NUMERIC_MONEY = /(?:[$€£]\s*\d|\b(?:cad|usd|eur|gbp)\s*\d|\b\d+(?:[.,]\d{1,2})?\s*(?:bucks?|cad|usd|eur|gbp|dollars?)\b|\b(?:fee|cost|pay(?:ment)?)\b.{0,24}\b\d+(?:[.,]\d{1,2})?\b|\b\d+(?:[.,]\d{1,2})?\b.{0,24}\b(?:fee|cost|pay(?:ment)?)\b)/iu;
 const SPELLED_MONEY = /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million)(?:[-\s]+(?:and\s+)?(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million)){0,8}\s+(?:bucks?|cad|usd|eur|gbp|dollars?)\b/iu;
 const PREPARED_DATE_OR_VERIFICATION = /\b(?:verified|unverified|confirmed|official(?:ly)?|published|according\s+to|current\s+cycle|source\s+says|website\s+says)\b|\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b|\b\d{1,2}[-/.]\d{1,2}(?:[-/.]\d{2,4})?\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+20\d{2})?\b|\b(?:deadline|due\s+date)\s+(?:is|was|will\s+be|falls?)\b|\bdue\s+(?:at|before|by|on)\b|\b(?:today|tomorrow|tonight|spring|summer|fall|autumn|winter|next\s+(?:week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/iu;
-const PREPARED_REQUIREMENT_ASSERTION = /\b(?:(?:requires?|needs?|must\s+have|has\s+to\s+include)\s+(?:an?|one|two|three|four|five|six|seven|eight|nine|ten|\d+|references?|courses?|credits?|average|grade|prerequisites?|supplements?)|requirements?\s+(?:are|include)|mandatory|eligibility|eligible|minimum|prerequisites?|\d+(?:\.\d+)?\s*%|average\s+(?:of\s+)?\d|grade\s+(?:of\s+)?\d)\b/iu;
-const PREPARED_MONEY_ASSERTION = /\b(?:fee|cost|payment|price)\b.{0,24}\b(?:amounts?\s+to|costs?|is|are|totals?|was|were|will\s+be|waived?|refundable|non-?refundable)\b|\b(?:costs?|totals?)\b.{0,24}\b(?:fee|payment|price)\b|\b(?:free|no\s+fee|waived?\s+fee|deposit|tuition)\b/iu;
 const EMAIL_ADDRESS = /\b[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}\b/iu;
 const PHONE_NUMBER = /(?:^|\D)(?:\+?\d[\d ().-]{7,}\d)(?:\D|$)/u;
 export const MAX_WORKFLOW_PREPARED_DETAILS_PER_PLAN_BYTES = 12_000;
 const ADMISSION_CYCLE = /^20\d{2}(?:[-–]20\d{2})?$/u;
 const encoder = new TextEncoder();
+const UNVERIFIED_DRAFT_PREFIX = "Unverified draft text; never treat this as a tracker date, requirement, amount, or completed action:\n";
+const MAX_WORKFLOW_PREPARED_DETAILS_BYTES = 2_048;
 const MONTH_WORDS = Object.freeze([
   "jan(?:uary)?", "feb(?:ruary)?", "mar(?:ch)?", "apr(?:il)?", "may", "jun(?:e)?",
   "jul(?:y)?", "aug(?:ust)?", "sep(?:t(?:ember)?)?", "oct(?:ober)?", "nov(?:ember)?", "dec(?:ember)?",
@@ -202,20 +204,40 @@ function mentions(value: string, candidate: string): boolean {
 
 function containsLabel(value: string, label: string): boolean {
   const normalize = (text: string): string => text.normalize("NFC").toLocaleLowerCase("en-CA")
+    .replace(/\b(mr|ms|mrs|dr|st)\.(?=\s)/giu, "$1")
     .replace(/['’ʼ`]/gu, "'").replace(/[\p{Pd}]+/gu, " ").replace(/\s+/gu, " ").trim();
   const candidate = normalize(label);
   return candidate.length > 0 && normalize(value).includes(candidate);
 }
 
 export function isWorkflowLabelSafe(value: string): boolean {
-  return !LABEL_METADATA.test(value) && !PREPARED_DATE_OR_VERIFICATION.test(value)
+  return !LABEL_METADATA.test(value)
+    && !/\b(?:deadline|due)\b.{0,24}\b(?:today|tomorrow|tonight|next\s+(?:week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/iu.test(value)
     && !NUMERIC_MONEY.test(value) && !SPELLED_MONEY.test(value)
     && !EMAIL_ADDRESS.test(value) && !PHONE_NUMBER.test(value);
 }
 
 export function isWorkflowPreparedDetailsSafe(value: string): boolean {
-  return !PREPARED_DATE_OR_VERIFICATION.test(value) && !PREPARED_REQUIREMENT_ASSERTION.test(value)
-    && !NUMERIC_MONEY.test(value) && !SPELLED_MONEY.test(value) && !PREPARED_MONEY_ASSERTION.test(value);
+  const draft = value.startsWith(UNVERIFIED_DRAFT_PREFIX) ? value.slice(UNVERIFIED_DRAFT_PREFIX.length) : value;
+  return draft.trim().length > 0 && draft.isWellFormed() && draft === draft.normalize("NFC")
+    && !draft.split(/\r?\n/u).some((line) => UNSAFE_INLINE.test(line));
+}
+
+export function asUnverifiedWorkflowDraft(
+  value: string,
+  error = "university_workflow_model_item_invalid",
+): string {
+  const draft = value.startsWith(UNVERIFIED_DRAFT_PREFIX) ? value.slice(UNVERIFIED_DRAFT_PREFIX.length) : value;
+  if (!isWorkflowPreparedDetailsSafe(draft)) throw new TypeError(error);
+  const wrapped = `${UNVERIFIED_DRAFT_PREFIX}${draft}`;
+  if (encoder.encode(wrapped).byteLength > MAX_WORKFLOW_PREPARED_DETAILS_BYTES) {
+    throw new TypeError(error);
+  }
+  return wrapped;
+}
+
+function maskTitleAbbreviations(value: string): string {
+  return value.replace(/\b(Mr|Ms|Mrs|Dr|St)\.(?=\s+\p{L})/giu, "$1");
 }
 
 function clauseGroups(
@@ -233,7 +255,7 @@ function clauseGroups(
     urls.push(url);
     return `${token}${trailing}`;
   });
-  const withoutMonthDots = withoutUrls.replace(
+  const withoutMonthDots = maskTitleAbbreviations(withoutUrls).replace(
     /\b(jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\./giu,
     "$1",
   );
@@ -607,23 +629,32 @@ function supportsDirectOwnerClaim(
     readonly allowNegation?: boolean;
     readonly rejectForwardedOrQuoted?: boolean;
     readonly rejectHedges?: boolean;
+    readonly negationPattern?: RegExp;
+    readonly claimMustStartClause?: boolean;
     readonly namesThirdPartyPossession?: (clause: string) => boolean;
     readonly clauseAllowed?: (clause: string) => boolean;
   } = {},
 ): boolean {
-  if (JOINT_OWNER_ACTION.test(evidence) || REPORTED_OWNER_ACTION.test(evidence)
+  const maskedEvidence = maskTitleAbbreviations(evidence);
+  if (JOINT_OWNER_ACTION.test(maskedEvidence) || THIRD_PARTY_REPORTED_OWNER_ACTION.test(maskedEvidence)
+    || DELEGATED_OWNER_ACTION.test(maskedEvidence)
     || RETRACTION.test(evidence)
-    || options.rejectHedges === true && OWNER_HEDGE.test(evidence)
     || options.rejectForwardedOrQuoted === true && FORWARDED_OR_QUOTED_OWNER_CLAIM.test(evidence)) return false;
   return clausesForTarget.some((clause) => {
     const conditionalText = options.allowNegation === true
       ? clause.replace(/\b(?:couldn['’]t|could\s+not|wouldn['’]t|would\s+not)\b/giu, "")
       : clause;
+    const actionMatch = action.exec(clause);
+    const actionPrefix = actionMatch === null ? clause : clause.slice(0, actionMatch.index).trimStart();
+    const directClaimStart = /^(?:(?:omg|yay|wow|wait|ugh)[,!]?\s+)*$/iu.test(actionPrefix)
+      || /\bwhen\s+i\s+told\s+(?:her|him|them)\s*:\s*$/iu.test(actionPrefix);
     if (CONDITIONAL_OR_QUESTION.test(conditionalText) || HEARSAY.test(clause) || RETRACTION.test(clause)
-      || options.allowNegation !== true && NEGATION.test(clause)
+      || options.rejectHedges === true && OWNER_HEDGE.test(clause.slice(0, actionMatch?.index ?? clause.length))
+      || options.allowNegation !== true && (options.negationPattern ?? NEGATION).test(clause)
+      || options.claimMustStartClause === true && (actionMatch === null || !directClaimStart)
       || options.namesThirdPartyPossession?.(clause) === true
       || options.clauseAllowed?.(clause) === false) return false;
-    return action.test(clause);
+    return actionMatch !== null;
   });
 }
 
@@ -640,6 +671,7 @@ function bareDontNeedTargetsItem(clause: string, label: string | null): boolean 
 function retirementNegated(clause: string): boolean {
   const withoutRetirementNegation = clause
     .replace(/\bnot\s+(?:applying|needed)\b/giu, "")
+    .replace(/\bno\s+longer\s+applying\b/giu, "")
     .replace(/\bno\s+longer\s+need\b/giu, "");
   return NEGATION.test(withoutRetirementNegation);
 }
@@ -824,14 +856,17 @@ function clauseNamesExactlyOneTrackedProgram(
   snapshot: UniversityTrackerSnapshot | null,
 ): boolean {
   if (!universityAliases(program).some((alias) => mentions(clause, alias))
-    || !mentions(clause, program.programName)) return false;
+    || /\b(?:instead\s+of|rather\s+than|over|not)\b/iu.test(clause)) return false;
   if (snapshot === null) return true;
   const namedUniversities = new Set(snapshot.programs.filter((candidate) =>
     universityAliases(candidate).some((alias) => mentions(clause, alias)))
     .map((candidate) => evidenceText(candidate.university)));
   if (namedUniversities.size === 0) return true;
   if (namedUniversities.size !== 1 || !namedUniversities.has(evidenceText(program.university))) return false;
-  const namedProgramsAtSchool = snapshot.programs.filter((candidate) =>
+  const programsAtSchool = snapshot.programs.filter((candidate) =>
+    evidenceText(candidate.university) === evidenceText(program.university));
+  if (programsAtSchool.length === 1) return true;
+  const namedProgramsAtSchool = programsAtSchool.filter((candidate) =>
     evidenceText(candidate.university) === evidenceText(program.university)
     && mentions(clause, candidate.programName));
   return namedProgramsAtSchool.length === 1
@@ -854,7 +889,8 @@ function workflowTargetClauses(
     evidence,
     protectedPhrases,
     (clause) => {
-      if (!containsLabel(clause, workflowLabel)) return false;
+      if (!containsLabel(clause, workflowLabel)
+        && !(applicationItemRef === null && /\b(?:got\s+into|accepted\s+me)\b/iu.test(clause))) return false;
       const namedWorkflows = namedWorkflowItems(clause, snapshot);
       const namesOnlyWorkflow = namedWorkflows.length === 0
         || namedWorkflows.length === 1 && namedWorkflows[0]?.workflowId === workflowRef;
@@ -882,7 +918,7 @@ function workflowTargetClauses(
 function contactRecipientMatchesLabel(clause: string, workflowLabel: string): boolean {
   const match = /\bi\s+(?:(?:already|just|now|successfully)\s+)?(?:contacted|emailed|messaged|called|asked)\s+(?<recipient>[^,.;!?]{1,80}?)(?=\s+(?:about|for|regarding|covering)\b)/iu.exec(clause);
   const recipient = evidenceText(match?.groups?.recipient ?? "");
-  if (recipient.length === 0) return false;
+  if (recipient.length === 0 || /\b(?:assistant|mom|mother|dad|father|parent|guardian)\b/iu.test(recipient)) return false;
   const ignored = new Set(["contact", "email", "follow", "message", "reference", "request", "step", "up"]);
   const targetWords = evidenceText(workflowLabel).split(" ")
     .filter((word) => word.length > 1 && !ignored.has(word));
@@ -899,10 +935,13 @@ function supportsWorkflowStatus(
   clausesForTarget: readonly string[],
 ): boolean {
   if (!workflowStatusAllowed(kind, status)) return false;
-  if (status === "prepared") return clausesForTarget.some((clause) => {
-    if (CONDITIONAL_OR_QUESTION.test(clause) || HEARSAY.test(clause) || RETRACTION.test(clause)) return false;
-    return PREPARATION_REQUEST.test(clause) && !OWNER_ACTION_NOT_DONE.test(clause);
-  });
+  if (status === "prepared") {
+    if (CONDITIONAL_OR_QUESTION.test(evidence) || RETRACTION.test(evidence)) return false;
+    return clausesForTarget.some((clause) => {
+      if (CONDITIONAL_OR_QUESTION.test(clause) || HEARSAY.test(clause) || RETRACTION.test(clause)) return false;
+      return PREPARATION_REQUEST.test(clause) && !OWNER_ACTION_NOT_DONE.test(clause);
+    });
+  }
   if (status === "not_needed_by_sid") return clausesForTarget.some((clause) =>
     !CONDITIONAL_OR_QUESTION.test(clause) && !HEARSAY.test(clause) && !RETRACTION.test(evidence)
     && (RETIREMENT.test(clause) || BARE_DONT_NEED.test(clause)) && !retirementNegated(clause));
@@ -938,6 +977,8 @@ function supportsWorkflowStatus(
                   : OWNER_DECLINED;
   return supportsDirectOwnerClaim(evidence, clausesForTarget, action, {
     allowNegation: status === "owner_reported_unsatisfied",
+    negationPattern: kind.startsWith("offer") ? OFFER_NEGATION : undefined,
+    claimMustStartClause: kind.startsWith("offer"),
     rejectForwardedOrQuoted: true,
     rejectHedges: true,
     namesThirdPartyPossession: thirdPartyPossession,
@@ -1066,7 +1107,12 @@ function workflowUpdate(
   }
   const label = optionalInline(item.label, 160, "university_workflow_model_item_invalid", redactor);
   const preparedDetails = item.preparedDetails === null ? null
-    : evidenceValue(item.preparedDetails, 2_048, "university_workflow_model_item_invalid", redactor);
+    : asUnverifiedWorkflowDraft(evidenceValue(
+      item.preparedDetails,
+      2_048,
+      "university_workflow_model_item_invalid",
+      redactor,
+    ));
   if (label !== null && !isWorkflowLabelSafe(label)
     || preparedDetails !== null && !isWorkflowPreparedDetailsSafe(preparedDetails)) {
     throw new TypeError("university_workflow_model_item_invalid");
@@ -1104,7 +1150,8 @@ function workflowUpdate(
       || applicationLabel === null || applicationKind === null
       || existingApplication !== undefined && existingApplication.programId !== item.programRef
       || responseApplication !== undefined && responseApplication.programRef !== item.programRef)
-    || isNew && !containsLabel(ownerMessage, effectiveLabel)) {
+    || isNew && !containsLabel(ownerMessage, effectiveLabel)
+      && !(effectiveKind === "offer" && /\b(?:got\s+into|accepted\s+me)\b/iu.test(ownerMessage))) {
     throw new TypeError("university_workflow_model_item_invalid");
   }
   const targetClauses = workflowTargetClauses(
@@ -1248,9 +1295,10 @@ export function universityStateJson(
       const applicationItem = item.applicationItemId === null
         ? null
         : program.applicationItems.find((candidate) => candidate.itemId === item.applicationItemId) ?? null;
-      const parentClosed = applicationItem?.status === "submitted_by_sid"
-        || applicationItem?.status === "not_needed_by_sid";
-      if (parentClosed) return namedWorkflow;
+      const hiddenByParent = applicationItem?.status === "not_needed_by_sid"
+        || applicationItem?.status === "submitted_by_sid"
+          && (item.kind === "submission_step" || item.kind === "upload_step");
+      if (hiddenByParent) return namedWorkflow;
       if (!TERMINAL_WORKFLOW_STATUSES.has(item.status) || namedWorkflow) return true;
       if (nowMilliseconds === null || !Number.isFinite(nowMilliseconds)) return false;
       const updatedAt = Date.parse(item.updatedAt);
@@ -1263,7 +1311,6 @@ export function universityStateJson(
       label: item.label,
       owner: item.owner,
       status: item.status,
-      preparedDetails: item.preparedDetails,
       executionBoundary: item.executionBoundary,
       deadline: item.deadline,
     } : {

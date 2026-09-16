@@ -19,6 +19,7 @@ import type {
   UniversityWorkflowStatus,
 } from "./university-tracker-types.js";
 import {
+  asUnverifiedWorkflowDraft,
   isWorkflowLabelSafe,
   isWorkflowPreparedDetailsSafe,
   MAX_WORKFLOW_PREPARED_DETAILS_PER_PLAN_BYTES,
@@ -553,11 +554,15 @@ export class UniversityTrackerRepository {
         ON p.principal_id = w.principal_id AND p.program_id = w.program_id
       WHERE w.principal_id = ?1
         AND p.active = 1
-        AND (w.application_item_id IS NULL OR EXISTS (
+        AND (w.application_item_id IS NULL OR NOT EXISTS (
           SELECT 1 FROM university_application_items i
           WHERE i.principal_id = w.principal_id
             AND i.item_id = w.application_item_id
-            AND i.item_status NOT IN ('submitted_by_sid', 'not_needed_by_sid')
+            AND (
+              i.item_status = 'not_needed_by_sid'
+              OR i.item_status = 'submitted_by_sid'
+                AND w.workflow_kind IN ('submission_step', 'upload_step')
+            )
         ))
         AND r.workflow_status NOT IN (
           'owner_reported_done', 'owner_reported_rejected', 'owner_reported_withdrawn',
@@ -997,7 +1002,10 @@ export class UniversityTrackerRepository {
       }
       let preparedDetails = existingRecord?.item.preparedDetails ?? null;
       if (update.preparedDetails !== null) {
-        preparedDetails = evidence(update.preparedDetails, "university_workflow_item_invalid", 2_048);
+        preparedDetails = asUnverifiedWorkflowDraft(
+          evidence(update.preparedDetails, "university_workflow_item_invalid", 2_048),
+          "university_workflow_item_invalid",
+        );
         if (!isWorkflowPreparedDetailsSafe(preparedDetails)) throw new TypeError("university_workflow_item_invalid");
         preparedDetailsBytes += encoder.encode(preparedDetails).byteLength;
         if (preparedDetailsBytes > MAX_WORKFLOW_PREPARED_DETAILS_PER_PLAN_BYTES) {

@@ -6,8 +6,16 @@ import {
   SchoolCatchupModelAdapter,
 } from "../../src/school/school-catchup-model.js";
 import { Redactor } from "../../src/security/redaction.js";
-import { parseOwnerUniversityPlan, universityStateJson } from "../../src/university/university-tracker-model.js";
-import type { UniversityTrackerSnapshot } from "../../src/university/university-tracker-types.js";
+import {
+  isWorkflowLabelSafe,
+  parseOwnerUniversityPlan,
+  supportsWorkflowStatusEvidence,
+  universityStateJson,
+} from "../../src/university/university-tracker-model.js";
+import type {
+  ApplyOwnerUniversityPlanInput,
+  UniversityTrackerSnapshot,
+} from "../../src/university/university-tracker-types.js";
 
 const TURN = "01k5j000000000000000000001" as Ulid;
 const PROGRAM = "01k5j000000000000000000002" as Ulid;
@@ -112,6 +120,48 @@ function snapshotWithTwoWorkflows(): UniversityTrackerSnapshot {
   };
 }
 
+function reviewerStepSnapshot(): UniversityTrackerSnapshot {
+  const current = decisionSnapshot();
+  return {
+    ...current,
+    programs: current.programs.map((program) => {
+      if (program.programId === PROGRAM) {
+        return {
+          ...program,
+          applicationItems: snapshot().programs[0]!.applicationItems,
+          workflowItems: [{
+            ...snapshot(true).programs[0]!.workflowItems![0]!,
+            label: "Ms Lee reference request",
+          }],
+        };
+      }
+      return {
+        ...program,
+        workflowItems: [{
+          workflowId: SECOND_WORKFLOW,
+          eventId: SECOND_EVENT,
+          revision: 1,
+          applicationItemId: WATERLOO_APPLICATION,
+          kind: "payment_step",
+          label: "Waterloo AIF",
+          owner: "sid",
+          status: "prepared",
+          preparedDetails: null,
+          executionBoundary: "owner_only",
+          deadline: {
+            date: null,
+            instant: null,
+            timeZone: null,
+            verification: { state: "unverified", sourceUrl: null, cycle: null, verifiedAt: null },
+          },
+          sourceTurnId: TURN,
+          updatedAt: NOW.toISOString(),
+        }],
+      };
+    }),
+  };
+}
+
 function workflowUpdate(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     workflowRef: "new-workflow-1",
@@ -149,6 +199,33 @@ class CountingModel implements ModelAdapter {
     (async function* () { yield Object.freeze({ index: 0, text: "model should not run" }); })());
 }
 
+class SequenceModel implements ModelAdapter {
+  readonly requests: ModelAdapterStreamInput[] = [];
+
+  constructor(private readonly responses: readonly string[]) {}
+
+  stream(request: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
+    this.requests.push(request);
+    const response = this.responses[this.requests.length - 1] ?? "";
+    return (async function* () { yield Object.freeze({ index: 0, text: response }); })();
+  }
+}
+
+function combinedResponse(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    schoolEngaged: false,
+    universityEngaged: false,
+    reply: "Model reached.",
+    courseUpdates: [],
+    completeActionIds: [],
+    plan: [],
+    programUpdates: [],
+    applicationUpdates: [],
+    workflowUpdates: [],
+    ...overrides,
+  });
+}
+
 function input(text: string): ModelAdapterStreamInput {
   return {
     correlationId: TURN,
@@ -169,6 +246,25 @@ async function collect(stream: AsyncIterable<ModelToken>): Promise<string> {
   let text = "";
   for await (const token of stream) text += token.text;
   return text;
+}
+
+function adapterWith(
+  model: ModelAdapter,
+  current: UniversityTrackerSnapshot = snapshot(),
+  applyOwnerPlan: (input: ApplyOwnerUniversityPlanInput) => Promise<void> = async () => undefined,
+): SchoolCatchupModelAdapter {
+  return new SchoolCatchupModelAdapter({
+    model,
+    repository: {
+      readSnapshot: async () => ({ principalId: current.principalId, courses: [] }),
+      applyOwnerPlan: async () => undefined,
+    },
+    universityRepository: { readSnapshot: async () => current, applyOwnerPlan },
+    redactor: new Redactor(),
+    timeZone: "America/Toronto",
+    ownerPrincipalId: current.principalId,
+    now: () => NOW,
+  });
 }
 
 describe("university application detail model", () => {
@@ -227,6 +323,47 @@ describe("university application detail model", () => {
     }), snapshot(true))).toThrow("university_workflow_model_item_invalid");
   });
 
+  it.each([
+    ["I paid the Waterloo AIF fee for the Waterloo AIF.", SECOND_WORKFLOW, WATERLOO],
+    ["I paid the Waterloo AIF fee for the Waterloo AIF with my mom's card.", SECOND_WORKFLOW, WATERLOO],
+    ["I emailed Ms Lee about the Ms Lee reference request for the Western reference.", WORKFLOW, PROGRAM],
+    ["I asked Ms. Lee about the Ms Lee reference request for the Western reference.", WORKFLOW, PROGRAM],
+    ["I emailed Ms. Lee about the Ms Lee reference request for the Western reference.", WORKFLOW, PROGRAM],
+  ] as const)("accepts the reviewer M2 direct completion probe: %s", (text, workflowRef, programRef) => {
+    expect(parseWorkflow(text, workflowUpdate({
+      workflowRef,
+      programRef,
+      applicationItemRef: null,
+      kind: null,
+      label: null,
+      owner: null,
+      status: "owner_reported_done",
+      statusEvidence: text,
+      preparedDetails: null,
+      deadline: null,
+    }), reviewerStepSnapshot())).toMatchObject({ workflowUpdates: [{ workflowRef, status: "owner_reported_done" }] });
+  });
+
+  it.each([
+    "I'm sure I paid the Waterloo AIF fee for the Waterloo AIF.",
+    "I asked my mom to email Ms Lee about the Ms Lee reference request for the Western reference.",
+    "I asked Ms Lee's assistant about the Ms Lee reference request for the Western reference.",
+  ])("refuses the reviewer M2 indirect or uncertain completion probe: %s", (text) => {
+    const payment = text.includes("paid");
+    expect(() => parseWorkflow(text, workflowUpdate({
+      workflowRef: payment ? SECOND_WORKFLOW : WORKFLOW,
+      programRef: payment ? WATERLOO : PROGRAM,
+      applicationItemRef: null,
+      kind: null,
+      label: null,
+      owner: null,
+      status: "owner_reported_done",
+      statusEvidence: text,
+      preparedDetails: null,
+      deadline: null,
+    }), reviewerStepSnapshot())).toThrow("university_workflow_model_item_invalid");
+  });
+
   it("records an offer only from Sid's direct statement", () => {
     const text = "I received a Western Medical Sciences offer.";
     expect(parseWorkflow(text, workflowUpdate({
@@ -244,6 +381,103 @@ describe("university application detail model", () => {
     }))).toMatchObject({ workflowUpdates: [{ status: "owner_reported_offered" }] });
   });
 
+  it("binds a natural school-only offer report when that school has exactly one tracked program", () => {
+    const text = "I got my Waterloo offer!!";
+    expect(parseWorkflow(text, workflowUpdate({
+      programRef: WATERLOO, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
+      status: "owner_reported_offered", statusEvidence: text, preparedDetails: null,
+      deadline: { date: null, instant: null, timeZone: null,
+        verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+    }), decisionSnapshot())).toMatchObject({ workflowUpdates: [{ programRef: WATERLOO }] });
+  });
+
+  it.each([
+    ["I got into Waterloo!!", WATERLOO],
+    ["Western accepted me", PROGRAM],
+    ["I got my Waterloo offer", WATERLOO],
+    ["I got an offer from Waterloo!", WATERLOO],
+    ["I got a Waterloo CS offer", WATERLOO],
+    ["I got my Waterloo Computer Science offer", WATERLOO],
+    ["I received a Western Medical Sciences offer", PROGRAM],
+  ] as const)("binds the reviewer probe's direct offer wording to its sole school program: %s", (text, programRef) => {
+    expect(parseWorkflow(text, workflowUpdate({
+      programRef, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
+      status: "owner_reported_offered", statusEvidence: text, preparedDetails: null,
+      deadline: { date: null, instant: null, timeZone: null,
+        verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+    }), decisionSnapshot())).toMatchObject({ workflowUpdates: [{ programRef }] });
+  });
+
+  it("requires the program name only when one school has several tracked programs", () => {
+    const current = decisionSnapshot();
+    const waterloo = current.programs.find((program) => program.programId === WATERLOO)!;
+    const ambiguous: UniversityTrackerSnapshot = {
+      ...current,
+      programs: [...current.programs, {
+        ...waterloo, programId: SECOND_WORKFLOW, programName: "Software Engineering", applicationItems: [],
+      }],
+    };
+    const update = (text: string) => workflowUpdate({
+      programRef: WATERLOO, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
+      status: "owner_reported_offered", statusEvidence: text, preparedDetails: null,
+      deadline: { date: null, instant: null, timeZone: null,
+        verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+    });
+    const missing = "I got my Waterloo offer.";
+    const named = "I got my Waterloo Computer Science offer.";
+    expect(() => parseWorkflow(missing, update(missing), ambiguous)).toThrow("university_workflow_model_item_invalid");
+    expect(parseWorkflow(named, update(named), ambiguous)).toMatchObject({ workflowUpdates: [{ programRef: WATERLOO }] });
+  });
+
+  it.each([
+    ["I wish I got an offer from Waterloo for Computer Science.", "owner_reported_offered"],
+    ["I dreamt I got an offer from Waterloo for Computer Science.", "owner_reported_offered"],
+    ["Imagine I got an offer from Waterloo for Computer Science.", "owner_reported_offered"],
+    ["I bet I got rejected by Waterloo for Computer Science.", "owner_reported_rejected"],
+    ["I'm sure I got rejected by Waterloo for Computer Science.", "owner_reported_rejected"],
+    ["I'm convinced I got rejected by Waterloo Computer Science.", "owner_reported_rejected"],
+    ["Pretend I got rejected by Waterloo for Computer Science.", "owner_reported_rejected"],
+    ["Ugh, I just know I got rejected by Waterloo Computer Science.", "owner_reported_rejected"],
+  ] as const)("refuses an imagined or speculative decision rather than recording it: %s", (text, status) => {
+    expect(() => parseWorkflow(text, workflowUpdate({
+      programRef: WATERLOO, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
+      status, statusEvidence: text, preparedDetails: null,
+      deadline: { date: null, instant: null, timeZone: null,
+        verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+    }), decisionSnapshot())).toThrow("university_workflow_model_item_invalid");
+  });
+
+  it.each([
+    "I got an offer from Waterloo for Computer Science! I hope Western is next.",
+    "I got an offer from Waterloo for Computer Science, I think I'm going to cry.",
+    "I got an offer from Waterloo for Computer Science with no conditions!",
+    "Omg I got an offer from Waterloo for Computer Science, no way",
+    "Mom cried when I told her: I got an offer from Waterloo for Computer Science.",
+    "I got an offer from Waterloo for Computer Science. Actually so happy.",
+    "Wait, I got an offer from Waterloo for Computer Science!",
+    "I got an offer from Waterloo for Computer Science.",
+  ])("accepts the reviewer probe's direct offer even with trailing emotion: %s", (text) => {
+    expect(parseWorkflow(text, workflowUpdate({
+      programRef: WATERLOO, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
+      status: "owner_reported_offered", statusEvidence: text, preparedDetails: null,
+      deadline: { date: null, instant: null, timeZone: null,
+        verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+    }), decisionSnapshot())).toMatchObject({ workflowUpdates: [{ status: "owner_reported_offered" }] });
+  });
+
+  it.each([
+    "I got a Computer Science offer from Toronto instead of Waterloo.",
+    "I got a Computer Science offer from UW instead of Western.",
+  ])("refuses a contrasted school or alias instead of binding the model target: %s", (text) => {
+    const programRef = text.includes("Western") ? PROGRAM : WATERLOO;
+    expect(() => parseWorkflow(text, workflowUpdate({
+      programRef, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
+      status: "owner_reported_offered", statusEvidence: text, preparedDetails: null,
+      deadline: { date: null, instant: null, timeZone: null,
+        verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+    }), decisionSnapshot(true))).toThrow("university_workflow_model_item_invalid");
+  });
+
   it("refuses an offer relayed by another person", () => {
     const text = "My counsellor said I received a Western Medical Sciences offer.";
     expect(() => parseWorkflow(text, workflowUpdate({
@@ -259,6 +493,45 @@ describe("university application detail model", () => {
         verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text,
       },
     }))).toThrow("university_workflow_model_item_invalid");
+  });
+
+  it("pins per-clause hearsay after an otherwise direct offer claim", () => {
+    const text = "I got a Waterloo Computer Science offer or so my counsellor said.";
+    expect(() => parseWorkflow(text, workflowUpdate({
+      programRef: WATERLOO, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
+      status: "owner_reported_offered", statusEvidence: text, preparedDetails: null,
+      deadline: { date: null, instant: null, timeZone: null,
+        verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+    }), decisionSnapshot())).toThrow("university_workflow_model_item_invalid");
+  });
+
+  it("pins offer-only yet-to negation after an otherwise direct offer claim", () => {
+    const text = "I got a Waterloo Computer Science offer yet to receive it.";
+    expect(() => parseWorkflow(text, workflowUpdate({
+      programRef: WATERLOO, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
+      status: "owner_reported_offered", statusEvidence: text, preparedDetails: null,
+      deadline: { date: null, instant: null, timeZone: null,
+        verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+    }), decisionSnapshot())).toThrow("university_workflow_model_item_invalid");
+  });
+
+  it("pins accepted-status adjacency to an offer or admission noun", () => {
+    const direct = "I accepted the Waterloo response offer.";
+    const withoutNoun = "I accepted the Waterloo response.";
+    const supports = (text: string): boolean => supportsWorkflowStatusEvidence(
+      "owner_reported_accepted",
+      "offer_response",
+      text,
+      "new-workflow-1",
+      "Waterloo response",
+      null,
+      null,
+      null,
+      { university: "University of Waterloo", programName: "Computer Science" },
+      null,
+    );
+    expect(supports(direct)).toBe(true);
+    expect(supports(withoutNoun)).toBe(false);
   });
 
   it("requires an offer clause to name exactly one tracked school and its program", () => {
@@ -360,6 +633,17 @@ describe("university application detail model", () => {
     }), snapshot(true))).toThrow("university_workflow_model_item_invalid");
   });
 
+  it.each([
+    "My counsellor told Ms. Lee I emailed Ms Chen for the Ms Chen reference request covering the Western reference.",
+    "The school told Mr. Chen I emailed Ms Chen for the Ms Chen reference request covering the Western reference.",
+    "Mom emailed Dr. Shah that I emailed Ms Chen for the Ms Chen reference request covering the Western reference.",
+  ])("refuses a reported owner action across a titled-name period: %s", (text) => {
+    expect(() => parseWorkflow(text, workflowUpdate({
+      workflowRef: WORKFLOW, applicationItemRef: null, kind: null, label: null, owner: null,
+      status: "owner_reported_done", statusEvidence: text, preparedDetails: null, deadline: null,
+    }), snapshot(true))).toThrow("university_workflow_model_item_invalid");
+  });
+
   it("refuses a clause that names a second workflow item", () => {
     const text = "I emailed Ms Chen for the Ms Chen reference request beside the Western upload step for the Western reference.";
     expect(() => parseWorkflow(text, workflowUpdate({
@@ -400,6 +684,17 @@ describe("university application detail model", () => {
     }), snapshot(true))).toThrow("university_workflow_model_item_invalid");
   });
 
+  it.each([
+    "If you have time, draft the Ms Chen reference request for the Western reference.",
+    "Actually no, draft the Ms Chen reference request for the Western reference.",
+  ])("pins the conditional and retraction guards independently on prepared status: %s", (text) => {
+    expect(() => parseWorkflow(text, workflowUpdate({
+      statusEvidence: text,
+      deadline: { date: null, instant: null, timeZone: null,
+        verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+    }))).toThrow("university_workflow_model_item_invalid");
+  });
+
   it("refuses a retracted workflow completion", () => {
     const text = "I emailed Ms Chen for the Ms Chen reference request covering the Western reference. Actually no.";
     expect(() => parseWorkflow(text, workflowUpdate({
@@ -410,6 +705,14 @@ describe("university application detail model", () => {
 
   it("refuses a negated workflow completion", () => {
     const text = "I didn't email Ms Chen for the Ms Chen reference request covering the Western reference.";
+    expect(() => parseWorkflow(text, workflowUpdate({
+      workflowRef: WORKFLOW, applicationItemRef: null, kind: null, label: null, owner: null,
+      status: "owner_reported_done", statusEvidence: text, preparedDetails: null, deadline: null,
+    }), snapshot(true))).toThrow("university_workflow_model_item_invalid");
+  });
+
+  it("pins done negation with a clause that otherwise matches the completion action", () => {
+    const text = "I emailed Ms Chen not successfully for the Ms Chen reference request covering the Western reference.";
     expect(() => parseWorkflow(text, workflowUpdate({
       workflowRef: WORKFLOW, applicationItemRef: null, kind: null, label: null, owner: null,
       status: "owner_reported_done", statusEvidence: text, preparedDetails: null, deadline: null,
@@ -466,7 +769,17 @@ describe("university application detail model", () => {
   });
 
   it("requires a verified deadline source and cycle in the target clause", () => {
-    const text = "Draft the Ms Chen reference request for the Western reference due January 15, 2027. Source https://example.edu/deadline for the 2026-2027 admission cycle.";
+    const direct = "Draft the Ms Chen reference request for the Western reference due 2027-01-15 from https://example.edu/deadline for the 2026-2027 admission cycle.";
+    expect(parseWorkflow(direct, workflowUpdate({
+      statusEvidence: direct,
+      deadline: {
+        date: "2027-01-15", instant: null, timeZone: null,
+        verification: { state: "verified", sourceUrl: "https://example.edu/deadline", cycle: "2026-2027" },
+        evidence: direct,
+      },
+    }))).toMatchObject({ workflowUpdates: [{ deadline: { verification: { state: "verified" } } }] });
+
+    const text = "Draft the Ms Chen reference request for the Western reference due 2027-01-15. Source https://example.edu/deadline for the 2026-2027 admission cycle.";
     expect(() => parseWorkflow(text, workflowUpdate({
       statusEvidence: text,
       deadline: {
@@ -499,11 +812,36 @@ describe("university application detail model", () => {
     "A portfolio is mandatory for eligibility.",
     "The deadline falls in spring.",
     "The application is free and its deposit is waived.",
-  ])("refuses factual dates, requirements, verification, and money in preparation details: %s", (details) => {
-    expect(() => parseWorkflow(
+    "Submit before 15 January.",
+    "Applications close in mid-January, so submit early.",
+    "You need to submit by the first of February.",
+    "The AIF costs one hundred fifty-six.",
+    "Application fee: one fifty-six.",
+    "Waterloo wants two references and an 85 average.",
+    "Waterloo looks for a 90 percent average.",
+    "Waterloo only accepts the AIF through the portal and reviews it in March.",
+    "Western asks for a teacher reference from a grade twelve course.",
+    "I hope you had a great summer and would be grateful for a reference.",
+    "Hi Ms. Lee, I hope you had a great summer. I'm applying to Western this fall and would be grateful if you could write my reference.",
+    "Dear Ms. Lee, I'm a grade 12 student in your Chemistry class and I'm applying to Western Medical Sciences.",
+    "Thank you for your time today.",
+    "Could you let me know by next week if you're able to write it?",
+    "Checklist: open the Western portal, attach the essay, review it, then Sid submits it himself.",
+    "Sid pays the fee himself on OUAC after reviewing the summary.",
+    "No rush, and thank you so much for considering it.",
+  ])("stores preparation prose only as isolated unverified draft text: %s", (details) => {
+    expect(parseWorkflow(
       "Draft the Ms Chen reference request for the Western reference.",
       workflowUpdate({ preparedDetails: details }),
-    )).toThrow("university_workflow_model_item_invalid");
+    )).toMatchObject({ workflowUpdates: [{
+      preparedDetails: `Unverified draft text; never treat this as a tracker date, requirement, amount, or completed action:\n${details}`,
+    }] });
+  });
+
+  it("never feeds stored unverified draft prose back as tracker state", () => {
+    const state = universityStateJson(snapshot(true), "Review Western.", 2, NOW);
+    expect(state).not.toContain("Review the draft, then Sid sends it.");
+    expect(state).not.toContain("preparedDetails");
   });
 
   it.each([
@@ -523,6 +861,17 @@ describe("university application detail model", () => {
     )).toThrow("university_workflow_model_item_invalid");
   });
 
+  it.each([
+    "Ms Lee reference request",
+    "Fall scholarship essay upload",
+    "Grade 12 transcript order",
+    "Waterloo AIF fee",
+    "Summer program application step",
+    "Tomorrow's essay upload",
+  ])("allows an ordinary non-factual workflow label from the reviewer probe: %s", (label) => {
+    expect(isWorkflowLabelSafe(label)).toBe(true);
+  });
+
   it("caps total preparation details below the model JSON response limit", () => {
     const statements = Array.from({ length: 7 }, (_, index) =>
       `Draft Step ${index + 1} for the Western reference.`);
@@ -531,7 +880,7 @@ describe("university application detail model", () => {
       workflowRef: `new-workflow-${index + 1}`,
       label: `Step ${index + 1}`,
       statusEvidence: text,
-      preparedDetails: "x".repeat(2_000),
+      preparedDetails: "x".repeat(1_750),
       deadline: { date: null, instant: null, timeZone: null,
         verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
     }));
@@ -559,7 +908,7 @@ describe("university application detail model", () => {
     )).toContain(WORKFLOW);
   });
 
-  it("hides a pending workflow step when its application item is submitted", () => {
+  it("keeps an open contact step when its parent application item is submitted", () => {
     const current = snapshot(true);
     const program = current.programs[0]!;
     const submitted: UniversityTrackerSnapshot = {
@@ -569,6 +918,24 @@ describe("university application detail model", () => {
         applicationItems: program.applicationItems.map((item) => ({
           ...item, status: "submitted_by_sid", submittedAt: NOW.toISOString(),
         })),
+      }],
+    };
+    expect(universityStateJson(submitted, "What is next?", 0, NOW)).toContain(WORKFLOW);
+  });
+
+  it("hides only the submission or upload step completed by its parent submission", () => {
+    const current = snapshot(true);
+    const program = current.programs[0]!;
+    const workflow = program.workflowItems?.[0];
+    if (workflow === undefined) throw new Error("workflow fixture missing");
+    const submitted: UniversityTrackerSnapshot = {
+      ...current,
+      programs: [{
+        ...program,
+        applicationItems: program.applicationItems.map((item) => ({
+          ...item, status: "submitted_by_sid", submittedAt: NOW.toISOString(),
+        })),
+        workflowItems: [{ ...workflow, kind: "submission_step" }],
       }],
     };
     expect(universityStateJson(submitted, "What is next?", 0, NOW)).not.toContain(WORKFLOW);
@@ -616,6 +983,218 @@ describe("university application detail model", () => {
   });
 
   it.each([
+    "I've gone ahead and accepted your Waterloo offer.",
+    "All done: Waterloo offer accepted.",
+    "Transcript ordered and on its way to Western.",
+    "Your Waterloo acceptance is in.",
+    "Western has your transcript now.",
+    "Message sent to your counsellor.",
+    "Consider it done.",
+    "Booked your campus tour.",
+    "Your OUAC account is set up.",
+    "I let Ms. Lee know.",
+    "Accepted your Waterloo offer!",
+    "OUAC fee paid.",
+    "Emailed Ms. Lee for you.",
+    "I've taken care of the OUAC fee.",
+    "I handled your Waterloo acceptance.",
+    "I've locked in your spot at Waterloo.",
+    "Your spot at Waterloo is secured.",
+    "Ms. Lee now has your reference request.",
+    "I got in touch with your counsellor.",
+    "I responded to Waterloo's offer and said yes.",
+    "I replied to Ms. Lee.",
+    "I completed your OUAC payment.",
+    "I finalized your Waterloo AIF submission.",
+    "Your AIF is in.",
+    "Waterloo received your AIF.",
+    "I mailed your transcript request.",
+    "I filed the OUAC form.",
+    "Done and done. Western's offer is yours, I said yes.",
+    "Jarvis accepted the Waterloo offer on your behalf.",
+    "I've RSVP'd yes to Western.",
+  ])("B1 replaces a structural external-state claim through the real adapter: %s", async (reply) => {
+    const model = new SequenceModel([combinedResponse({ reply })]);
+    await expect(collect(adapterWith(model).stream(input("What should I do next?")))).resolves.toBe(
+      "I can't do or confirm that action. I can prepare a draft or exact checklist, but you must send, upload, submit, pay, sign up, or contact them yourself.",
+    );
+  });
+
+  it("S1 binds a natural offer report to the only tracked program through the real adapter", async () => {
+    const text = "I got my Waterloo offer!!";
+    const model = new SequenceModel([combinedResponse({
+      universityEngaged: true,
+      reply: "Congrats — that is huge.",
+      workflowUpdates: [workflowUpdate({
+        programRef: WATERLOO, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
+        status: "owner_reported_offered", statusEvidence: text, preparedDetails: null,
+        deadline: { date: null, instant: null, timeZone: null,
+          verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+      })],
+    })]);
+    const applyOwnerPlan = vi.fn(async (_request: ApplyOwnerUniversityPlanInput) => undefined);
+    await expect(collect(adapterWith(model, decisionSnapshot(), applyOwnerPlan).stream(input(text))))
+      .resolves.toBe("Congrats — that is huge.");
+    expect(applyOwnerPlan).toHaveBeenCalledWith(expect.objectContaining({
+      plan: expect.objectContaining({ workflowUpdates: [expect.objectContaining({ programRef: WATERLOO })] }),
+    }));
+  });
+
+  it("S1 asks only for the missing program when one school has several tracked programs", async () => {
+    const current = decisionSnapshot();
+    const waterloo = current.programs.find((program) => program.programId === WATERLOO)!;
+    const ambiguous: UniversityTrackerSnapshot = {
+      ...current,
+      programs: [...current.programs, {
+        ...waterloo, programId: SECOND_WORKFLOW, programName: "Software Engineering", applicationItems: [],
+      }],
+    };
+    const model = new SequenceModel([]);
+    await expect(collect(adapterWith(model, ambiguous).stream(input("I got my Waterloo offer!!"))))
+      .resolves.toBe("Which Waterloo program — Computer Science or Software Engineering?");
+    expect(model.requests).toEqual([]);
+  });
+
+  it.each([
+    "I wish I got an offer from Waterloo for Computer Science.",
+    "I dreamt I got an offer from Waterloo for Computer Science.",
+    "Imagine I got an offer from Waterloo for Computer Science.",
+  ])("S1 and S4 make a refused imagined offer visibly unsaved through the real adapter: %s", async (text) => {
+    const model = new SequenceModel([combinedResponse({
+      universityEngaged: true,
+      reply: "Congrats!",
+      workflowUpdates: [workflowUpdate({
+        programRef: WATERLOO, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
+        status: "owner_reported_offered", statusEvidence: text, preparedDetails: null,
+        deadline: { date: null, instant: null, timeZone: null,
+          verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+      })],
+    }), "Congrats! I've recorded your Waterloo offer in your university tracker."]);
+    const applyOwnerPlan = vi.fn(async (_request: ApplyOwnerUniversityPlanInput) => undefined);
+    await expect(collect(adapterWith(model, decisionSnapshot(), applyOwnerPlan).stream(input(text)))).resolves.toBe(
+      "I can still help with the university planning in your message.\n\nI couldn't update your university tracker.",
+    );
+    expect(applyOwnerPlan).not.toHaveBeenCalled();
+  });
+
+  it("S1 makes a structured refusal visible even when the model falsely clears engagement", async () => {
+    const text = "I got an offer from Toronto instead of Waterloo.";
+    const model = new SequenceModel([combinedResponse({
+      universityEngaged: false,
+      reply: "Recorded.",
+      workflowUpdates: [workflowUpdate({
+        programRef: WATERLOO, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
+        status: "owner_reported_offered", statusEvidence: text, preparedDetails: null,
+        deadline: { date: null, instant: null, timeZone: null,
+          verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+      })],
+    }), "I've recorded your Waterloo offer in the university tracker."]);
+    const applyOwnerPlan = vi.fn(async (_request: ApplyOwnerUniversityPlanInput) => undefined);
+    await expect(collect(adapterWith(model, decisionSnapshot(), applyOwnerPlan).stream(input(text)))).resolves.toBe(
+      "I can still help with the university planning in your message.\n\nI couldn't update your university tracker.",
+    );
+    expect(applyOwnerPlan).not.toHaveBeenCalled();
+  });
+
+  it("S2 refuses titled-name reported speech on the submitted-by-Sid adapter path", async () => {
+    const base = snapshot();
+    const program = base.programs[0]!;
+    const current: UniversityTrackerSnapshot = {
+      ...base,
+      programs: [{ ...program, applicationItems: [{
+        ...program.applicationItems[0]!, kind: "essay", label: "Western essay",
+      }] }],
+    };
+    const text = "My counsellor told Ms. Lee I submitted the Western essay.";
+    const model = new SequenceModel([combinedResponse({
+      universityEngaged: true,
+      reply: "Recorded.",
+      applicationUpdates: [{
+        itemRef: APPLICATION, programRef: PROGRAM, kind: null, label: null,
+        status: "submitted_by_sid", statusEvidence: text, dueDate: null,
+      }],
+    }), "I saved your university tracker."]);
+    const applyOwnerPlan = vi.fn(async (_request: ApplyOwnerUniversityPlanInput) => undefined);
+    await expect(collect(adapterWith(model, current, applyOwnerPlan).stream(input(text)))).resolves.toContain(
+      "I couldn't update your university tracker.",
+    );
+    expect(applyOwnerPlan).not.toHaveBeenCalled();
+  });
+
+  it("S2 refuses titled-name reported speech on a workflow adapter path", async () => {
+    const text = "My counsellor told Ms. Lee I emailed Ms Chen for the Ms Chen reference request covering the Western reference.";
+    const model = new SequenceModel([combinedResponse({
+      universityEngaged: true,
+      reply: "Recorded.",
+      workflowUpdates: [workflowUpdate({
+        workflowRef: WORKFLOW, applicationItemRef: null, kind: null, label: null, owner: null,
+        status: "owner_reported_done", statusEvidence: text, preparedDetails: null, deadline: null,
+      })],
+    }), "I saved your university tracker."]);
+    const applyOwnerPlan = vi.fn(async (_request: ApplyOwnerUniversityPlanInput) => undefined);
+    await expect(collect(adapterWith(model, snapshot(true), applyOwnerPlan).stream(input(text)))).resolves.toContain(
+      "I couldn't update your university tracker.",
+    );
+    expect(applyOwnerPlan).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "My counsellor told Ms. Lee I got an offer from Waterloo for Computer Science.",
+      "offer",
+    ],
+    [
+      "Mom told Mr. Chen I paid the Waterloo AIF fee for the Waterloo AIF.",
+      "payment",
+    ],
+  ] as const)("S2 refuses the reviewer titled-name workflow probe through the real adapter: %s", async (text, kind) => {
+    const current = reviewerStepSnapshot();
+    const update = kind === "offer"
+      ? workflowUpdate({
+          programRef: WATERLOO, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
+          status: "owner_reported_offered", statusEvidence: text, preparedDetails: null,
+          deadline: { date: null, instant: null, timeZone: null,
+            verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+        })
+      : workflowUpdate({
+          workflowRef: SECOND_WORKFLOW, programRef: WATERLOO, applicationItemRef: null,
+          kind: null, label: null, owner: null, status: "owner_reported_done", statusEvidence: text,
+          preparedDetails: null, deadline: null,
+        });
+    const model = new SequenceModel([combinedResponse({
+      universityEngaged: true,
+      reply: "Recorded.",
+      workflowUpdates: [update],
+    }), "I saved your university tracker."]);
+    const applyOwnerPlan = vi.fn(async (_request: ApplyOwnerUniversityPlanInput) => undefined);
+    await expect(collect(adapterWith(model, current, applyOwnerPlan).stream(input(text)))).resolves.toContain(
+      "I couldn't update your university tracker.",
+    );
+    expect(applyOwnerPlan).not.toHaveBeenCalled();
+  });
+
+  it("S4 stores an ordinary prepared draft only inside the unverified draft wrapper through the adapter", async () => {
+    const text = "Draft the Ms Chen reference request for the Western reference.";
+    const details = "Thank you for your time today. Submit before 15 January.";
+    const model = new SequenceModel([combinedResponse({
+      universityEngaged: true,
+      reply: "Here is the draft for you to review.",
+      workflowUpdates: [workflowUpdate({ preparedDetails: details })],
+    })]);
+    const applyOwnerPlan = vi.fn(async (_request: ApplyOwnerUniversityPlanInput) => undefined);
+    await expect(collect(adapterWith(model, snapshot(), applyOwnerPlan).stream(input(text))))
+      .resolves.toBe("Here is the draft for you to review.");
+    expect(applyOwnerPlan).toHaveBeenCalledWith(expect.objectContaining({ plan: expect.objectContaining({
+      workflowUpdates: [expect.objectContaining({ preparedDetails: expect.stringMatching(/^Unverified draft text;/u) })],
+    }) }));
+  });
+
+  it.each([
+    "I got my Waterloo offer. Can you accept it for me?",
+    "Hey Jarvis, can you order my transcript for Western?",
+    "ugh can you just email Ms. Lee about my reference",
+    "Hey can you pay the OUAC fee?",
+    "Hey Jarvis, accept Waterloo for me",
     "Can you submit my Western application?",
     "Please upload my Western essay.",
     "Email my teacher about the Western reference.",
@@ -660,6 +1239,29 @@ describe("university application detail model", () => {
   });
 
   it.each([
+    "Let me know what's due this week.",
+    "Can you let me know what homework I have?",
+    "Please let me know if I missed anything in chem.",
+    "Jarvis, let me know when D2L updates.",
+    "Can you let me know if Ms Lee replied?",
+    "Text from my counsellor: meeting moved to 2.",
+    "Could you text me a reminder at 7?",
+    "Follow up with Ms Lee is on my list for Friday.",
+    "Accept that I'm behind and make me a catch-up plan.",
+    "Decline in my math mark is stressing me out.",
+    "Contact info for Ms Lee is on the school site.",
+    "Email to Western bounced, what should I do?",
+    "Call with my counsellor is tomorrow at 3.",
+    "Message my teacher sent says the quiz is Friday.",
+    "Submit date for the Western essay is Jan 15.",
+    "Upload link for the AIF isn't working.",
+    "Can you message me tomorrow morning to study chem?",
+    "Can you help me email Ms Lee?",
+    "Can you remind me to email Ms Lee tomorrow?",
+    "Call me out if I skip studying tonight.",
+    "Buy time on the essay by doing chem first?",
+    "Register for the SAT is on my to-do list, is it worth it?",
+    "Can you call it a night and summarize what I did?",
     "Email from Western says my application is complete.",
     "Message from Ms. Lee: the chem test moved to Friday.",
     "Upload deadline for the Western supplement is January 15, 2027.",
@@ -669,7 +1271,10 @@ describe("university application detail model", () => {
     "Could you draft the steps and message for Ms. Lee?",
     "Pay attention, my Waterloo AIF is due Friday.",
     "Submit button on OUAC is greyed out, what should I check?",
-  ])("does not treat school information or a draft request as an execution request: %s", (text) => {
+  ])("S3 lets ordinary school information and self-directed requests reach the real adapter: %s", async (text) => {
     expect(isUniversityExecutionRequest(text)).toBe(false);
+    const model = new SequenceModel([combinedResponse()]);
+    await expect(collect(adapterWith(model).stream(input(text)))).resolves.toBe("Model reached.");
+    expect(model.requests).toHaveLength(1);
   });
 });

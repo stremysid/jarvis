@@ -296,9 +296,9 @@ describe("SchoolCatchupModelAdapter", () => {
     const original = input({ userText: "Continue our conversation" });
 
     await expect(collect(adapter.stream(original))).resolves.toBe(
-      "Your school and university tracker is too large for one safe update. I didn't save anything from this message; name one course, school, program, or application item and try again.",
+      "Existing model answer\n\nYour school and university tracker is too large for one safe update. I didn't save anything from this message; name one course, school, program, or application item and try again.",
     );
-    expect(model.requests).toEqual([]);
+    expect(model.requests).toEqual([original]);
   });
 
   it("replaces secret requests and false external-action claims with fixed truthful boundaries", async () => {
@@ -384,6 +384,33 @@ describe("SchoolCatchupModelAdapter", () => {
     await expect(collect(adapter.stream(input({ userText: "What should I do next?" })))).resolves.toBe(
       "I can't do or confirm that action. I can prepare a draft or exact checklist, but you must send, upload, submit, pay, sign up, or contact them yourself.",
     );
+  });
+
+  it.each([
+    "I've created your study plan for tonight: chem stoichiometry first, then math review.",
+    "I set up three study blocks for tonight: chem, math, English.",
+    "I ordered your tasks by due date: chemistry, math, then English.",
+    "I created a draft email for Ms. Lee below. Review it and send it yourself.",
+    "I created a checklist for the Waterloo AIF.",
+    "I accepted your correction: the Western essay is back to drafting.",
+    "Once you've accepted the Waterloo offer on OUAC, tell me and I'll mark it.",
+    "Log in to OUAC and accept your Waterloo offer yourself before June 1.",
+    "You said you accepted your Waterloo offer, so I recorded it as owner-reported.",
+    "Here's a draft email for Ms. Lee; you send it yourself.",
+  ])("B2 keeps Jarvis's own plan, draft, checklist, task, and correction reply through the adapter: %s", async (reply) => {
+    const model = new SequenceModel([JSON.stringify({
+      engaged: false, reply, courseUpdates: [], completeActionIds: [], plan: [],
+    })]);
+    const adapter = new SchoolCatchupModelAdapter({
+      model,
+      repository: { readSnapshot: async () => snapshot(), applyOwnerPlan: async () => undefined },
+      redactor: new Redactor(),
+      timeZone: "America/Toronto",
+      now: () => NOW,
+    });
+
+    await expect(collect(adapter.stream(input({ userText: "I'm behind in chem, can you make me a plan for tonight?" }))))
+      .resolves.toBe(reply);
   });
 
   it("catches external-action and secret-handoff paraphrases without clobbering advice", () => {

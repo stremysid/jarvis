@@ -34,24 +34,18 @@ const SECRET_ADVISORY = new RegExp(
   String.raw`\b(?:never|do\s+not|don't|should\s+not|shouldn't)\s+(?:send|paste|share|tell|give|provide|hand)\b.{0,64}\b(?:your\s+)?${SECRET_NAMES}\b`,
   "giu",
 );
-const THIRD_PARTY = String.raw`\b(?:m(?:s|r)\.?\s+\p{L}[\p{L}'’.-]*|dr\.?\s+\p{L}[\p{L}'’.-]*|(?:your\s+)?(?:teacher|referee|counsellor|guidance(?:\s+office)?|school|university)|ouac(?![-\s]+style))\b`;
-const FIRST_PERSON_AGENT = String.raw`(?:(?:i(?:['’](?:ve|m))?|we(?:['’](?:ve|re))?)|jarvis)`;
-const FIRST_PERSON_ACTION_CLAIM = new RegExp(
-  String.raw`\b${FIRST_PERSON_AGENT}\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?(?<verb>sent\s+in|sending\s+in|turned\s+in|turning\s+in|signed\s+(?:you|me)\s+up|signed\s+up|signing\s+up|handed\s+in|put\s+in|reached\s+out|reaching\s+out|followed\s+up|following\s+up|wrote\s+to|writing\s+to|set\s+up|setting\s+up|accepted|accepting|declined|declining|withdrew|withdrawn|withdrawing|ordered|ordering|confirmed|confirming|created|creating|pinged|pinging|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked)\b`,
-  "giu",
+const THIRD_PARTY = String.raw`(?:m(?:s|r|rs)\.?\s+\p{L}[\p{L}'’.-]*|dr\.?\s+\p{L}[\p{L}'’.-]*|(?:your\s+|my\s+)?(?:teacher|referee|counsell?or|guidance(?:\s+office)?|school|university|admissions)|ouac(?![-\s]+style))`;
+const EXTERNAL_REPLY_TARGET = new RegExp(
+  String.raw`\b(?:offer|acceptance|admission|spot|fee|payment|account|portal|transcript|application|aif|supplement|essay|scholarship|personal\s+statement|reference|form|booking|campus\s+tour|registration|submission|request|${THIRD_PARTY}|waterloo|western|queen['’]s|toronto|mcmaster|uwo|uoft|uw)\b`,
+  "iu",
 );
-const FALSE_EXTERNAL_COMPLETIONS = Object.freeze([
-  /\b(?:(?:i(?:['’](?:ve|m))?|we(?:['’](?:ve|re))?)|jarvis)\b.{0,24}\bcompleted\b.{0,32}\bsubmission\b/iu,
-  /\b(?:submitted|uploaded|sent|sent\s+in|turned\s+in|forwarded|filed|registered|purchased|paid\s+for|applied|booked)\b.{0,40}\bfor\s+you\b/iu,
-  new RegExp(String.raw`\b${FIRST_PERSON_AGENT}\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?let\s+(?:the\s+)?${THIRD_PARTY}\s+know\b`, "iu"),
-  new RegExp(String.raw`\b${THIRD_PARTY}\b.{0,32}\b(?:has|have|was|were)\s+(?:already\s+|just\s+|now\s+)?been\s+(?:contacted|emailed|messaged|called|notified)\b`, "iu"),
-  /\b(?:reference|transcript|application|request|message|email)\b.{0,32}\bwent\s+out\b/iu,
-  /\b(?:(?:i(?:['’]ve)?|we(?:['’](?:ve|re))?))\s+(?:have\s+)?(?:spent|spending)\b.{0,48}\b(?:fee|money|funds|dollars?|cad|usd)\b/iu,
-  /^\s*submitted\s*[!.]\s+(?!(?:is|was|did|do|does|are|were|can|could|would|should|will|what|which|who|when|where|why|how)\b[^?]*\?\s*$)\S/iu,
-]);
-const PASSIVE_EXTERNAL_COMPLETION = /\b(?:your\s+)?(?:application|aif|supplement|essay|personal\s+statement|transcript|reference|scholarship|form|request|offer|admission|acceptance|fee|account|spot|registration|portal)\b.{0,64}\b(?:(?:is|was|were|have|has)\s+(?:already\s+|just\s+|now\s+)?(?:been\s+)?(?:submitted|uploaded|sent|forwarded|turned\s+in|filed|accepted|declined|ordered|paid|confirmed|withdrawn|created|registered)|got\s+(?:submitted|uploaded|sent|forwarded|turned\s+in|filed|accepted|declined|ordered|paid|confirmed|withdrawn|created|registered))/giu;
-const PASSIVE_EXTERNAL_DELIVERY = /\b(?:[Yy]our\s+)?(?:application|AIF|supplement|essay|personal\s+statement|transcript|reference|scholarship|form|request)\b.{0,64}\bis\s+(?:now\s+)?in\s+with\s+(?:[A-Z][\p{L}\p{N}'’.-]*|OUAC)\b/gu;
-const PASSIVE_ADVICE_CONTEXT = /\b(?:once|after|when|until|before|whether|make\s+sure|check|if)\b/iu;
+const COMPLETED_OR_CHANGED = /\b(?:[\p{L}]{3,}(?:ed|en)|sent|paid|done|gone|got|made|took|taken|wrote|told|let|set|put|went|said|rsvp(?:['’]d)?)\b/iu;
+const EXTERNAL_STATE = /\b(?:has|have|had|is|are|was|were|got)\b.{0,24}\b(?:now|already|just|been|in\s*[.!]?|out\b|yours\b|secured\b|complete\b|completed\b|ready\b|set\s+up\b)/iu;
+const BENIGN_REPLY_OBJECT = /\b(?:created?|made|set\s+up|ordered|accepted|updated|saved|revised|prepared|marked)\b.{0,32}\b(?:study\s+plans?|plans?|drafts?|checklists?|study\s+blocks?|tasks?|corrections?)\b/iu;
+const BENIGN_REPLY_CONTEXT = /^(?:verified|unverified)\b|\b(?:i(?:['’]m|\s+am)\s+(?:asking\b|filing\s+this\s+under\b)|i(?:['’]ve|\s+have)?\s*(?:asked\s+(?:earlier|before|about|you\b)|requested\s+(?:that\s+you\b|nothing)|called\s+it|told\s+you\b|sent\s+you\b)|(?:marked|noted|recorded|stored|put)\b.{0,40}\b(?:draft|tracker|note|reminders?)\b|\bin\s+(?:your\s+|the\s+)?tracker\b|\bin\s+your\s+school['’]s\s+queue\b|\bis\s+in\s+(?:good\s+shape|your\s+drafts?\s+folder)\b)/iu;
+const ADVICE_OR_OWNER_REPORT = /\b(?:once|after|when|until|before|whether|make\s+sure|check\s+whether|ask\b|log\s+in|you\s+(?:said|told\s+me)|by\s+you|you\s+must|you\s+should|you\s+can)\b/iu;
+const EXPLICIT_NON_COMPLETION = /\b(?:not|never|didn['’]t|did\s+not|haven['’]t|have\s+not|wasn['’]t|was\s+not)\b.{0,20}\b(?:[\p{L}]{3,}(?:ed|en)|sent|paid|done)\b/iu;
+const DEICTIC_COMPLETION = /\b(?:consider\s+it\s+done|done\s+and\s+done|(?:i(?:['’](?:ve|m))?|we(?:['’](?:ve|re))?)\s+(?:taken\s+care\s+of\s+it|reached\s+out|requested\s+it|applied\s+on\s+your\s+behalf|registered\s+for\s+the\s+paid\s+service|signed\s+up)|(?:submitted|uploaded|sent|filed|booked|paid)\b.{0,40}\bfor\s+you)\b/iu;
 const PLAN_SAVE_COMPLETIONS = Object.freeze([
   /\b(?:i|we|jarvis)\b.{0,32}\b(?:saved|updated|recorded|stored|added|changed|replanned)\b.{0,64}\b(?:school|course|catch-?up|plan|action|fact|university|program|requirement|date|tracker)\b/iu,
   /\b(?:school|course|catch-?up|plan|university|program|tracker)\b.{0,32}\b(?:has|is|was)\s+(?:been\s+)?(?:saved|updated|recorded|stored|changed|replanned)\b/iu,
@@ -70,18 +64,13 @@ const BRIGHTSPACE_CHECK_DENIALS = Object.freeze([
 ]);
 const OWNER_ACKNOWLEDGEMENT = /^\s*(?:ok(?:ay)?|thanks?(?:\s+you)?|got\s+it|sounds\s+good|cool|alright|sure|👍)\s*[.!]?\s*$/iu;
 const BRIGHTSPACE_REFRESH_REQUEST = /^\s*(?:jarvis[,\s]+)?(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:check|refresh|update)\s+(?:my\s+)?(?:d2l|brightspace)(?:\s+(?:calendar|deadlines?|feed))?\s+(?:right\s+)?now(?:\s*,?\s*please)?[.!?]*\s*$/iu;
-const UNIVERSITY_EXECUTION_ACTION = String.raw`(?:submit(?!\s+(?:button|page|status)\b)|upload(?!\s+(?:deadline|button|page|status)\b)|pay(?!\s+attention\b)(?:\s+(?:the|a|my)\s+fee)?|purchase|buy|register|sign\s+(?:me\s+)?up|create\s+(?:an?|my|the)\s+account|order(?:\s+(?:it|this|that)|\s+(?:an?|my|the)?\s*transcript)|accept(?:\s+(?:it|this|that)|\s+(?!that\b)(?:my\s+)?\p{L}[\p{L}'’.-]*(?:\s+\p{L}[\p{L}'’.-]*){0,3}(?:\s+offer)?|\b.{0,48}\b(?:offer|admission|spot))|decline(?:\s+(?:it|this|that)|\s+(?!that\b)(?:my\s+)?\p{L}[\p{L}'’.-]*(?:\s+\p{L}[\p{L}'’.-]*){0,3}(?:\s+offer)?|\b.{0,48}\b(?:offer|admission|spot))|withdraw\b.{0,48}\bapplication|confirm\b.{0,48}\b(?:offer|admission|spot)|contact\s+(?!template\b)\S+|email\s+(?!from\b|template\b)\S+|message\s+(?!for\b|from\b|template\b)\S+|call\s+(?!it\s+done\b)\S+|text\s+\S+|reach\s+out\s+to|follow\s+up\s+with|let\b.{0,48}\bknow|ask\s+(?:(?:my\s+)?(?:teacher|counsell?or|referee|guidance|school|university|admissions)|(?:m(?:s|r)\.?|dr\.?)\s+\p{L}+)|send\s+(?:(?:in\s+)?(?:my|the|an?)\s+(?:application|form|essay|statement|reference|transcript|request)|(?:(?:my\s+)?(?:teacher|counsell?or|referee|guidance|school|university|admissions)|(?:m(?:s|r)\.?|dr\.?)\s+\p{L}+)\b))`;
-const UNIVERSITY_EXECUTION_REQUESTS = Object.freeze([
-  new RegExp(String.raw`^\s*(?:can|could|would|will)\s+(?:you|jarvis)\s+(?:please\s+)?${UNIVERSITY_EXECUTION_ACTION}\b`, "iu"),
-  new RegExp(String.raw`^\s*can\s+u\s+(?:please\s+)?${UNIVERSITY_EXECUTION_ACTION}\b`, "iu"),
-  new RegExp(String.raw`^\s*i\s+(?:want|need)\s+(?:you|jarvis)\s+to\s+${UNIVERSITY_EXECUTION_ACTION}\b`, "iu"),
-  new RegExp(String.raw`^\s*(?:jarvis\s*[,!:]\s*|(?:please|pls)\s+|go\s+ahead\s+(?:and\s+)?)(?:please\s+)?${UNIVERSITY_EXECUTION_ACTION}\b`, "iu"),
-  new RegExp(String.raw`^\s*${UNIVERSITY_EXECUTION_ACTION}\b`, "iu"),
-  new RegExp(String.raw`^\s*(?:can|could|would|will)\s+(?:you|jarvis)\b[^.!?\r\n]{0,96}\b(?:and|then)\s+(?:please\s+)?${UNIVERSITY_EXECUTION_ACTION}\b`, "iu"),
-  new RegExp(String.raw`^\s*(?:draft|prepare|review|revise|outline)\b[^.!?\r\n]{0,96}\b(?:and|then)\s+(?:please\s+)?${UNIVERSITY_EXECUTION_ACTION}\b`, "iu"),
-  new RegExp(String.raw`^\s*${UNIVERSITY_EXECUTION_ACTION}\b[^?\r\n]{0,96}\bfor\s+me\b`, "iu"),
-  /^\s*(?:yes[,\s]+)?do\s+it\s*[.!?]*\s*$/iu,
-]);
+const EXTERNAL_REQUEST_PARTY = String.raw`(?:${THIRD_PARTY}|waterloo|western|queen['’]s|toronto|mcmaster|uwo|uoft|uw)`;
+const EXTERNAL_EXECUTION_ACTION = new RegExp(
+  String.raw`^(?:submit(?!\s+(?:button|date|deadline|link|page|status)\b)|upload(?!\s+(?:button|date|deadline|link|page|status)\b)|pay(?!\s+attention\b)(?:\s+(?:the|a|my)\s+(?:application\s+)?fee)?|purchase\b|buy(?!\s+time\b)\b|register\b|sign\s+(?:me\s+)?up\b|create\s+(?:an?|my|the)\s+account\b|order\s+(?:(?:it|this|that)\b|(?:(?:an?|my|the)\s+)?(?:official\s+)?transcript\b)|(?:accept|decline)\s+(?:it|this)\b|(?:accept|decline)\s+(?!(?:me|that|from|in)\b).{0,48}\b(?:offer|admission|spot|${EXTERNAL_REQUEST_PARTY})\b|withdraw\b.{0,48}\bapplication\b|confirm\b.{0,48}\b(?:offer|admission|spot)\b|(?:contact|email|message|call|text)\s+(?!(?:me|that|from|in|with|to)\b)(?:${EXTERNAL_REQUEST_PARTY})\b|reach\s+out\s+to\s+(?:${EXTERNAL_REQUEST_PARTY})\b|follow\s+up\s+with\s+(?:${EXTERNAL_REQUEST_PARTY})\b|let\s+(?!(?:me|that|from|in)\b)(?:${EXTERNAL_REQUEST_PARTY})\s+know\b|ask\s+(?:${EXTERNAL_REQUEST_PARTY})\b|send\s+(?:(?:in\s+)?(?:my|the|an?)\s+(?:application|form|essay|statement|reference|transcript|request)|(?:${EXTERNAL_REQUEST_PARTY})\b))`,
+  "iu",
+);
+const COURTESY_REQUEST = /\b(?:(?:can|could|would|will)\s+(?:you|jarvis)|can\s+u|i\s+(?:want|need)\s+(?:you|jarvis)\s+to)\s+(?:please\s+)?(?:just\s+)?/giu;
+const DIRECTIVE_PREFIX = /^(?:(?:hey|ugh)\s+)*(?:jarvis\s*[,!:]?\s*|(?:please|pls)\s+|go\s+ahead\s+(?:and\s+)?)*(?:please\s+)?(?:just\s+)?/iu;
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
 const encoder = new TextEncoder();
 const SAVE_FAILURE_LINE = "I couldn't update your school plan.";
@@ -114,7 +103,25 @@ export function isBrightspaceRefreshRequest(text: string): boolean {
 
 /** Refuses execution while leaving requests for a draft, checklist, or instructions available. */
 export function isUniversityExecutionRequest(text: string): boolean {
-  return text.isWellFormed() && UNIVERSITY_EXECUTION_REQUESTS.some((pattern) => pattern.test(text.normalize("NFC")));
+  if (!text.isWellFormed()) return false;
+  const normalized = text.normalize("NFC");
+  if (/^\s*(?:yes[,\s]+)?do\s+it\s*[.!?]*\s*$/iu.test(normalized)) return true;
+  COURTESY_REQUEST.lastIndex = 0;
+  for (const match of normalized.matchAll(COURTESY_REQUEST)) {
+    const requested = normalized.slice(match.index + match[0].length).trimStart();
+    if (EXTERNAL_EXECUTION_ACTION.test(requested)
+      || requested.split(/\b(?:and|then)\b/iu).slice(1)
+        .some((part) => EXTERNAL_EXECUTION_ACTION.test(part.trimStart()))) return true;
+  }
+  return (normalized.match(/[^.!?\r\n]+[.!?]?/gu) ?? []).some((sentence) => {
+    const action = sentence.trim().replace(DIRECTIVE_PREFIX, "");
+    const chainedPreparation = /^\s*(?:draft|prepare|review|revise|outline)\b/iu.test(action)
+      && action.split(/\b(?:and|then)\b/iu).slice(1)
+        .some((part) => EXTERNAL_EXECUTION_ACTION.test(part.trimStart()));
+    if (!EXTERNAL_EXECUTION_ACTION.test(action) && !chainedPreparation) return false;
+    return !/\b(?:is|was|will\s+be)\s+on\s+my\s+(?:(?:to-?do)\s+)?(?:list|calendar)\b/iu.test(action)
+      && !/\b(?:sent|says?|shows?|moved|bounced)\b.{0,48}$/iu.test(action);
+  });
 }
 
 function exactRecord(value: unknown, fields: readonly string[], error: string): Record<string, unknown> {
@@ -261,67 +268,21 @@ export function guardSchoolReply(
   return guardReplyClaims(reply);
 }
 
-function sentenceAround(value: string, start: number, end: number): { readonly text: string; readonly start: number } {
-  const before = Math.max(value.lastIndexOf(".", start - 1), value.lastIndexOf("!", start - 1),
-    value.lastIndexOf("?", start - 1), value.lastIndexOf("\n", start - 1));
-  const endings = [value.indexOf(".", end), value.indexOf("!", end), value.indexOf("?", end), value.indexOf("\n", end)]
-    .filter((index) => index >= 0);
-  const after = endings.length === 0 ? value.length : Math.min(...endings);
-  return Object.freeze({ text: value.slice(before + 1, after + 1), start: before + 1 });
-}
-
-function hasPassiveExternalCompletion(reply: string): boolean {
-  for (const pattern of [PASSIVE_EXTERNAL_COMPLETION, PASSIVE_EXTERNAL_DELIVERY]) {
-    pattern.lastIndex = 0;
-    for (const match of reply.matchAll(pattern)) {
-      const start = match.index;
-      const end = start + match[0].length;
-      const sentence = sentenceAround(reply, start, end);
-      const before = sentence.text.slice(0, start - sentence.start);
-      const after = reply.slice(end, end + 24);
-      if (PASSIVE_ADVICE_CONTEXT.test(before) || /\bby\s+you\b/iu.test(after)
-        || /\byou\s+(?:said|told\s+me)\b/iu.test(sentence.text)
-        || /\b(?:last|previous)\s+(?:year|term|cycle)\b.{0,64}\bby\s+(?:the\s+)?(?:school|university|government|family)\b/iu.test(sentence.text)) continue;
-      return true;
+function hasUnsafeExternalStateClaim(reply: string): boolean {
+  if (DEICTIC_COMPLETION.test(reply)) return true;
+  const withoutTitleDots = reply.replace(/\b(Mr|Ms|Mrs|Dr|St)\.(?=\s+\p{L})/giu, "$1");
+  const clauses = withoutTitleDots.split(/(?:[.!?\r\n]+|;|\b(?:and|then|but)\b)/iu)
+    .map((clause) => clause.trim()).filter(Boolean);
+  return clauses.some((clause) => {
+    if (!EXTERNAL_REPLY_TARGET.test(clause) || BENIGN_REPLY_OBJECT.test(clause) || BENIGN_REPLY_CONTEXT.test(clause)
+      || ADVICE_OR_OWNER_REPORT.test(clause) || EXPLICIT_NON_COMPLETION.test(clause)
+      || /\b(?:last|previous)\s+(?:year|term|cycle)\b.{0,64}\bby\s+(?:the\s+)?(?:school|university|government|family)\b/iu.test(clause)) {
+      return false;
     }
-  }
-  return false;
-}
-
-function allowedFirstPersonActionClaim(verb: string, tail: string): boolean {
-  const action = verb.toLocaleLowerCase("en-CA").replace(/\s+/gu, " ");
-  if (action === "asked") {
-    return /^\s+(?:(?:earlier|before)\b|(?:whether|if|which|what|about)\b|you\s+to\b)/iu.test(tail);
-  }
-  if (action === "requested") {
-    return /^\s+(?:nothing\b|no\b|that\s+you\b|you\s+to\b)/iu.test(tail);
-  }
-  if (action === "told") return /^\s+you\b/iu.test(tail);
-  if (action === "sent" || action === "sending" || action === "shared") {
-    return /^\s+you\b/iu.test(tail) || /^\s+[^;]{0,64}\b(?:to|with)\s+you\b/iu.test(tail);
-  }
-  if (action === "called") return /^\s+it\b/iu.test(tail);
-  if (action === "applied") {
-    return /^\s+(?:your\s+(?:feedback|edits|changes|notes)\b|(?:the\s+same|a\s+stricter)\s+(?:structure|word\s+limit)\b)/iu
-      .test(tail);
-  }
-  if (action === "booked") return /^\s+(?:out\s+)?(?:no\b|nothing\b)/iu.test(tail);
-  if (action === "put in") {
-    return /^\s+(?:(?:a|the|one|two|\d+)\s+)?(?:note|placeholder\s+due\s+date|reminders?|tracker)\b/iu.test(tail);
-  }
-  return false;
-}
-
-function hasUnsafeFirstPersonActionClaim(reply: string): boolean {
-  FIRST_PERSON_ACTION_CLAIM.lastIndex = 0;
-  for (const match of reply.matchAll(FIRST_PERSON_ACTION_CLAIM)) {
-    const start = match.index;
-    const end = start + match[0].length;
-    const sentence = sentenceAround(reply, start, end);
-    const tail = sentence.text.slice(end - sentence.start);
-    if (!allowedFirstPersonActionClaim(match.groups?.verb ?? "", tail)) return true;
-  }
-  return false;
+    return COMPLETED_OR_CHANGED.test(clause) || EXTERNAL_STATE.test(clause)
+      || /\b(?:i(?:['’]m|\s+am)|we(?:['’]re|\s+are)|jarvis\s+is)\b.{0,24}\b\p{L}{3,}ing\b/iu.test(clause)
+      || /\b(?:all\s+(?:done|set)|on\s+its\s+way|now\s+has|has\s+your|is\s+yours|said\s+yes|went\s+out)\b/iu.test(clause);
+  });
 }
 
 function guardReplyClaims(reply: string): string {
@@ -329,8 +290,7 @@ function guardReplyClaims(reply: string): string {
   if (SECRET_REQUESTS.some((pattern) => pattern.test(withoutAdvisories))) {
     return SECRET_REPLACEMENT;
   }
-  if (FALSE_EXTERNAL_COMPLETIONS.some((pattern) => pattern.test(reply))
-    || hasUnsafeFirstPersonActionClaim(reply) || hasPassiveExternalCompletion(reply)) {
+  if (hasUnsafeExternalStateClaim(reply)) {
     return EXTERNAL_ACTION_REPLACEMENT;
   }
   if (isFalseBrightspaceCheckCompletion(reply)) {
@@ -362,6 +322,54 @@ function safeOrdinaryReply(
   if (!redacted.ok || typeof redacted.text !== "string") return "I couldn't safely return that reply.";
   const bounded = boundedUtf8(redacted.text.toWellFormed().normalize("NFC"), MAX_REPLY_BYTES);
   return bounded.length === 0 ? "" : guardReplyClaims(bounded);
+}
+
+function normalizedEvidence(value: string): string {
+  return value.normalize("NFC").toLocaleLowerCase("en-CA")
+    .replace(/['’ʼ`]/gu, "'").replace(/[^\p{L}\p{N}']+/gu, " ").replace(/\s+/gu, " ").trim();
+}
+
+function mentionsName(value: string, name: string): boolean {
+  const haystack = ` ${normalizedEvidence(value)} `;
+  const needle = normalizedEvidence(name);
+  return needle.length > 0 && haystack.includes(` ${needle} `);
+}
+
+function universityAliases(university: string): readonly string[] {
+  return Object.freeze([...new Set([
+    university,
+    university.replace(/^university\s+of\s+/iu, "").replace(/\s+university$/iu, ""),
+  ].filter(Boolean))]);
+}
+
+function missingOfferProgramQuestion(
+  ownerMessage: string,
+  snapshot: UniversityTrackerSnapshot,
+): string | null {
+  if (!/\bi\s+(?:(?:have|just)\s+)?(?:got|received)\b.{0,64}\boffer\b/iu.test(ownerMessage)) return null;
+  const namedSchools = [...new Set(snapshot.programs.filter((program) =>
+    universityAliases(program.university).some((alias) => mentionsName(ownerMessage, alias)))
+    .map((program) => normalizedEvidence(program.university)))];
+  if (namedSchools.length !== 1) return null;
+  const programs = snapshot.programs.filter((program) => normalizedEvidence(program.university) === namedSchools[0]);
+  if (programs.length < 2 || programs.some((program) => mentionsName(ownerMessage, program.programName))) return null;
+  const school = universityAliases(programs[0]?.university ?? "").at(-1) ?? "that university";
+  const examples = programs.slice(0, 2).map((program) => program.programName).join(" or ");
+  return `Which ${school} program — ${examples}?`;
+}
+
+function messageTouchesTracker(
+  ownerMessage: string,
+  schoolSnapshot: SchoolCatchupSnapshot,
+  universitySnapshot: UniversityTrackerSnapshot | null,
+): boolean {
+  if (/\b(?:school|course|class|homework|assignment|quiz|test|exam|study|plan|deadline|due|university|college|program|application|essay|aif|ouac|offer|admission|transcript|reference|portal|fee)\b/iu.test(ownerMessage)) {
+    return true;
+  }
+  if (schoolSnapshot.courses.some((course) => mentionsName(ownerMessage, course.name))) return true;
+  return universitySnapshot?.programs.some((program) =>
+    mentionsName(ownerMessage, program.programName)
+    || universityAliases(program.university).some((alias) => mentionsName(ownerMessage, alias))) ?? false;
 }
 
 export function parseOwnerCatchupPlan(
@@ -563,12 +571,9 @@ async function* fallbackWithSaveFailure(
   redactor: SchoolCatchupModelDependencies["redactor"],
 ): AsyncIterable<ModelToken> {
   const ordinaryReply = (await collectJson(model.stream(input))).trim();
-  const guardedReply = safeOrdinaryReply(ordinaryReply, redactor);
-  const reply = guardedReply !== ordinaryReply
-    ? guardedReply
-    : PLAN_SAVE_COMPLETIONS.some((pattern) => pattern.test(ordinaryReply))
-      ? scope === "school" ? UNSAVED_FALLBACK_REPLY : UNSAVED_UNIVERSITY_FALLBACK_REPLY
-      : ordinaryReply;
+  const reply = PLAN_SAVE_COMPLETIONS.some((pattern) => pattern.test(ordinaryReply))
+    ? scope === "school" ? UNSAVED_FALLBACK_REPLY : UNSAVED_UNIVERSITY_FALLBACK_REPLY
+    : safeOrdinaryReply(ordinaryReply, redactor);
   const failureLine = scope === "school" ? SAVE_FAILURE_LINE : UNIVERSITY_SAVE_FAILURE_LINE;
   const text = reply.length === 0 ? failureLine : `${reply}\n\n${failureLine}`;
   yield Object.freeze({ index: 0, text });
@@ -584,6 +589,16 @@ async function* guardedOrdinaryReply(
     index: 0,
     text: safeOrdinaryReply(reply, redactor),
   });
+}
+
+async function* guardedOrdinaryReplyWithNotice(
+  model: ModelAdapter,
+  input: ModelAdapterStreamInput,
+  redactor: SchoolCatchupModelDependencies["redactor"],
+  notice: string,
+): AsyncIterable<ModelToken> {
+  const ordinaryReply = safeOrdinaryReply((await collectJson(model.stream(input))).trim(), redactor);
+  yield Object.freeze({ index: 0, text: ordinaryReply.length === 0 ? notice : `${ordinaryReply}\n\n${notice}` });
 }
 
 /** Converts one owner Telegram model response into both a durable plan revision and a natural reply. */
@@ -642,10 +657,26 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       return;
     }
     let structuredPrompt = promptFor(input, snapshot, today, universitySnapshot, false, now);
+    if (universitySnapshot !== null) {
+      const missingProgram = missingOfferProgramQuestion(input.userText, universitySnapshot);
+      if (missingProgram !== null) {
+        yield Object.freeze({ index: 0, text: missingProgram });
+        return;
+      }
+    }
     if (universitySnapshot !== null && encoder.encode(structuredPrompt).byteLength > MAX_STRUCTURED_PROMPT_BYTES) {
       structuredPrompt = promptFor(input, snapshot, today, universitySnapshot, true, now);
     }
     if (encoder.encode(structuredPrompt).byteLength > MAX_STRUCTURED_PROMPT_BYTES) {
+      if (!messageTouchesTracker(input.userText, snapshot, universitySnapshot)) {
+        yield* guardedOrdinaryReplyWithNotice(
+          this.dependencies.model,
+          input,
+          this.dependencies.redactor,
+          TRACKER_TOO_LARGE_REPLY,
+        );
+        return;
+      }
       yield Object.freeze({ index: 0, text: TRACKER_TOO_LARGE_REPLY });
       return;
     }
@@ -667,8 +698,14 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
     let schoolPlan: OwnerCatchupPlan;
     let universityPlan: OwnerUniversityPlan | null = null;
     let reply: string;
+    let payload: unknown;
     try {
-      const payload = JSON.parse(jsonPayload(raw)) as unknown;
+      payload = JSON.parse(jsonPayload(raw)) as unknown;
+    } catch {
+      yield* guardedOrdinaryReply(this.dependencies.model, input, this.dependencies.redactor);
+      return;
+    }
+    try {
       if (universitySnapshot === null) {
         schoolPlan = withoutUnsupportedAcknowledgementMutations(
           parseOwnerCatchupPlan(payload, this.dependencies.redactor),
@@ -685,9 +722,19 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
         reply = combined.reply;
       }
     } catch {
-      // Preserve the existing bot for ordinary conversation if a provider ever
-      // ignores the JSON contract. No school mutation is claimed on this path.
-      yield* guardedOrdinaryReply(this.dependencies.model, input, this.dependencies.redactor);
+      const response = payload !== null && typeof payload === "object" ? payload as Record<string, unknown> : null;
+      const hasUpdates = (field: string): boolean => Array.isArray(response?.[field])
+        && (response?.[field] as readonly unknown[]).length > 0;
+      const scope = response?.universityEngaged === true
+        || hasUpdates("programUpdates") || hasUpdates("applicationUpdates") || hasUpdates("workflowUpdates")
+        ? "university"
+        : response?.schoolEngaged === true || response?.engaged === true
+          || hasUpdates("courseUpdates") || hasUpdates("completeActionIds") || hasUpdates("plan") ? "school" : null;
+      if (scope === null) {
+        yield* guardedOrdinaryReply(this.dependencies.model, input, this.dependencies.redactor);
+      } else {
+        yield* fallbackWithSaveFailure(this.dependencies.model, input, scope, this.dependencies.redactor);
+      }
       return;
     }
     if (schoolPlan.engaged) {

@@ -140,6 +140,77 @@ describe("UniversityTrackerRepository application details", () => {
     expect(await repository.listWorkflowItemsByDueDate(principalId)).toEqual([]);
   });
 
+  it("keeps contact and payment work open after a parent submission while hiding only its submission step", async () => {
+    const principalId = "principal:workflow-repository-parent-scope";
+    const createTurnId = newUlid(NOW);
+    const createText = "Prepare the Western essay submission for the Western essay. Draft the Ms Lee contact for the Western essay. Prepare the Western fee payment for the Western essay.";
+    await seedTurn(principalId, createTurnId, createText);
+    const repository = new UniversityTrackerRepository(env.DB);
+    const deadline = {
+      date: null, instant: null, timeZone: null,
+      verification: { state: "unverified" as const, sourceUrl: null, cycle: null }, evidence: createText,
+    };
+    await repository.applyOwnerPlan({
+      principalId,
+      turnId: createTurnId,
+      responseHash: "b".repeat(64),
+      now: NOW,
+      plan: {
+        engaged: true,
+        programUpdates: [{
+          programRef: "new-1", university: "Western University", campus: null,
+          programName: "Medical Sciences", ouacCode: null,
+          verification: { state: "unverified", sourceUrl: null, cycle: null },
+          addRequirements: [], addDates: [], resolveItemIds: [],
+        }],
+        applicationUpdates: [{
+          itemRef: "new-item-1", programRef: "new-1", kind: "essay", label: "Western essay",
+          status: "not_started", statusEvidence: createText,
+          dueDate: { date: null, verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: createText },
+        }],
+        workflowUpdates: [
+          ["new-workflow-1", "submission_step", "Western essay submission", "Review and submit it yourself."],
+          ["new-workflow-2", "contact_step", "Ms Lee contact", "Thank you for your time today."],
+          ["new-workflow-3", "payment_step", "Western fee payment", "Review the portal and pay it yourself."],
+        ].map(([workflowRef, kind, label, preparedDetails]) => ({
+          workflowRef, programRef: "new-1", applicationItemRef: "new-item-1",
+          kind: kind as "submission_step" | "contact_step" | "payment_step", label, owner: "sid" as const,
+          status: "prepared" as const, statusEvidence: createText, preparedDetails, deadline,
+          executionBoundary: "owner_only" as const,
+        })),
+      },
+    });
+    const created = (await repository.readSnapshot(principalId)).programs[0]!;
+    expect(created.workflowItems?.map((item) => item.preparedDetails)).toEqual([
+      expect.stringMatching(/^Unverified draft text;/u),
+      expect.stringMatching(/^Unverified draft text;/u),
+      expect.stringMatching(/^Unverified draft text;/u),
+    ]);
+    const application = created.applicationItems[0]!;
+    const submittedAt = new Date("2026-09-16T16:06:00.000Z");
+    const submittedTurnId = newUlid(submittedAt);
+    const submittedText = "I submitted the Western essay.";
+    await seedTurn(principalId, submittedTurnId, submittedText, submittedAt);
+    await repository.applyOwnerPlan({
+      principalId,
+      turnId: submittedTurnId,
+      responseHash: "c".repeat(64),
+      now: submittedAt,
+      plan: {
+        engaged: true,
+        programUpdates: [],
+        applicationUpdates: [{
+          itemRef: application.itemId, programRef: created.programId, kind: null, label: null,
+          status: "submitted_by_sid", statusEvidence: submittedText, dueDate: null,
+        }],
+        workflowUpdates: [],
+      },
+    });
+
+    expect((await repository.listWorkflowItemsByDueDate(principalId)).map((item) => item.kind).sort())
+      .toEqual(["contact_step", "payment_step"]);
+  });
+
   it("appends an owner-reported completion and retains the earlier prepared revision", async () => {
     const principalId = "principal:workflow-repository-revisions";
     const createTurnId = newUlid(NOW);
@@ -310,7 +381,8 @@ describe("UniversityTrackerRepository application details", () => {
     });
     const programs = (await repository.readSnapshot(principalId)).programs;
     const waterloo = programs.find((program) => program.university === "University of Waterloo");
-    if (waterloo === undefined) throw new Error("university_workflow_fixture_missing");
+    const western = programs.find((program) => program.university === "Western University");
+    if (waterloo === undefined || western === undefined) throw new Error("university_workflow_fixture_missing");
     const offerAt = new Date("2026-09-16T16:10:00.000Z");
     const offerTurnId = newUlid(offerAt);
     const offerText = "I received a University of Waterloo Computer Science offer.";
@@ -375,6 +447,158 @@ describe("UniversityTrackerRepository application details", () => {
         }],
       },
     })).rejects.toThrow("university_workflow_item_invalid");
+
+    for (const [offset, text, programId, existingWorkflow] of [
+      [16, "I got a Computer Science offer from Toronto instead of Waterloo.", waterloo.programId, offer.workflowId],
+      [17, "I got a Computer Science offer from UW instead of Western.", western.programId, null],
+    ] as const) {
+      const now = new Date(`2026-09-16T16:${offset}:00.000Z`);
+      const turnId = newUlid(now);
+      await seedTurn(principalId, turnId, text, now);
+      await expect(repository.applyOwnerPlan({
+        principalId,
+        turnId,
+        responseHash: String(offset).padStart(64, "0"),
+        now,
+        plan: {
+          engaged: true,
+          programUpdates: [],
+          applicationUpdates: [],
+          workflowUpdates: [{
+            workflowRef: existingWorkflow ?? "new-workflow-1",
+            programRef: programId,
+            applicationItemRef: null,
+            kind: existingWorkflow === null ? "offer" : null,
+            label: existingWorkflow === null ? "offer" : null,
+            owner: existingWorkflow === null ? "university" : null,
+            status: "owner_reported_offered",
+            statusEvidence: text,
+            preparedDetails: null,
+            deadline: existingWorkflow === null ? {
+              date: null, instant: null, timeZone: null,
+              verification: { state: "unverified", sourceUrl: null, cycle: null },
+              evidence: text,
+            } : null,
+            executionBoundary: "owner_only",
+          }],
+        },
+      })).rejects.toThrow("university_workflow_item_invalid");
+    }
+  });
+
+  it("rechecks a digest-visible workflow label at the repository boundary", async () => {
+    const principalId = "principal:workflow-repository-label-guard";
+    const turnId = newUlid(NOW);
+    const text = "Draft the Ms Lee reference Jan 15 verified for the Western reference.";
+    await seedTurn(principalId, turnId, text);
+    const repository = new UniversityTrackerRepository(env.DB);
+
+    await expect(repository.applyOwnerPlan({
+      principalId,
+      turnId,
+      responseHash: "d".repeat(64),
+      now: NOW,
+      plan: {
+        engaged: true,
+        programUpdates: [{
+          programRef: "new-1", university: "Western University", campus: null,
+          programName: "Medical Sciences", ouacCode: null,
+          verification: { state: "unverified", sourceUrl: null, cycle: null },
+          addRequirements: [], addDates: [], resolveItemIds: [],
+        }],
+        applicationUpdates: [{
+          itemRef: "new-item-1", programRef: "new-1", kind: "reference", label: "Western reference",
+          status: "not_started", statusEvidence: text,
+          dueDate: { date: null, verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+        }],
+        workflowUpdates: [{
+          workflowRef: "new-workflow-1", programRef: "new-1", applicationItemRef: "new-item-1",
+          kind: "contact_step", label: "Ms Lee reference Jan 15 verified", owner: "sid",
+          status: "prepared", statusEvidence: text, preparedDetails: "Thank you for your time.",
+          deadline: { date: null, instant: null, timeZone: null,
+            verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+          executionBoundary: "owner_only",
+        }],
+      },
+    })).rejects.toThrow("university_workflow_item_invalid");
+    expect((await repository.readSnapshot(principalId)).programs).toEqual([]);
+  });
+
+  it("rechecks the aggregate unverified-draft budget at the repository boundary", async () => {
+    const principalId = "principal:workflow-repository-draft-budget";
+    const turnId = newUlid(NOW);
+    const clauses = Array.from({ length: 7 }, (_, index) => `Draft Step ${index + 1} for the Western essay.`);
+    const text = clauses.join(" ");
+    await seedTurn(principalId, turnId, text);
+    const repository = new UniversityTrackerRepository(env.DB);
+
+    await expect(repository.applyOwnerPlan({
+      principalId,
+      turnId,
+      responseHash: "e".repeat(64),
+      now: NOW,
+      plan: {
+        engaged: true,
+        programUpdates: [{
+          programRef: "new-1", university: "Western University", campus: null,
+          programName: "Medical Sciences", ouacCode: null,
+          verification: { state: "unverified", sourceUrl: null, cycle: null },
+          addRequirements: [], addDates: [], resolveItemIds: [],
+        }],
+        applicationUpdates: [{
+          itemRef: "new-item-1", programRef: "new-1", kind: "essay", label: "Western essay",
+          status: "not_started", statusEvidence: text,
+          dueDate: { date: null, verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+        }],
+        workflowUpdates: clauses.map((_clause, index) => ({
+          workflowRef: `new-workflow-${index + 1}`, programRef: "new-1", applicationItemRef: "new-item-1",
+          kind: "contact_step" as const, label: `Step ${index + 1}`, owner: "sid" as const,
+          status: "prepared" as const, statusEvidence: text, preparedDetails: "x".repeat(1_750),
+          deadline: { date: null, instant: null, timeZone: null,
+            verification: { state: "unverified" as const, sourceUrl: null, cycle: null }, evidence: text },
+          executionBoundary: "owner_only" as const,
+        })),
+      },
+    })).rejects.toThrow("university_workflow_prepared_details_budget_exceeded");
+    expect((await repository.readSnapshot(principalId)).programs).toEqual([]);
+  });
+
+  it("rechecks the wrapped unverified-draft item limit at the repository boundary", async () => {
+    const principalId = "principal:workflow-repository-draft-item-limit";
+    const turnId = newUlid(NOW);
+    const text = "Draft Step 1 for the Western essay.";
+    await seedTurn(principalId, turnId, text);
+    const repository = new UniversityTrackerRepository(env.DB);
+
+    await expect(repository.applyOwnerPlan({
+      principalId,
+      turnId,
+      responseHash: "f".repeat(64),
+      now: NOW,
+      plan: {
+        engaged: true,
+        programUpdates: [{
+          programRef: "new-1", university: "Western University", campus: null,
+          programName: "Medical Sciences", ouacCode: null,
+          verification: { state: "unverified", sourceUrl: null, cycle: null },
+          addRequirements: [], addDates: [], resolveItemIds: [],
+        }],
+        applicationUpdates: [{
+          itemRef: "new-item-1", programRef: "new-1", kind: "essay", label: "Western essay",
+          status: "not_started", statusEvidence: text,
+          dueDate: { date: null, verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+        }],
+        workflowUpdates: [{
+          workflowRef: "new-workflow-1", programRef: "new-1", applicationItemRef: "new-item-1",
+          kind: "contact_step", label: "Step 1", owner: "sid", status: "prepared", statusEvidence: text,
+          preparedDetails: "x".repeat(2_048),
+          deadline: { date: null, instant: null, timeZone: null,
+            verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+          executionBoundary: "owner_only",
+        }],
+      },
+    })).rejects.toThrow("university_workflow_item_invalid");
+    expect((await repository.readSnapshot(principalId)).programs).toEqual([]);
   });
 
   it("fails before D1 when one owner plan exceeds the declared statement budget", async () => {

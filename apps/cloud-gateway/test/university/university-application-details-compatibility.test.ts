@@ -14,6 +14,24 @@ beforeAll(async () => {
 });
 
 describe("university application details migration compatibility", () => {
+  it("propagates a workflow read error that is not a missing migration 0029 table", async () => {
+    const database = new Proxy(env.DB, {
+      get(target, property) {
+        if (property !== "prepare") return Reflect.get(target, property, target) as unknown;
+        return (query: string): D1PreparedStatement => {
+          if (query.includes("FROM university_workflow_items w")) {
+            throw new Error("D1_ERROR: database unavailable");
+          }
+          return target.prepare(query);
+        };
+      },
+    });
+    const repository = new UniversityTrackerRepository(database);
+
+    await expect(repository.readSnapshot("principal:workflow-noncompatibility-error"))
+      .rejects.toThrow("D1_ERROR: database unavailable");
+  });
+
   it("keeps the existing university tracker writable before migration 0029 is applied", async () => {
     const principalId = "principal:workflow-compatibility";
     const turnId = newUlid(NOW);
