@@ -44,7 +44,8 @@ CREATE TABLE university_application_items (
   CHECK (
     (verification_state = 'verified' AND due_date IS NOT NULL AND source_url IS NOT NULL
       AND admission_cycle IS NOT NULL AND verified_at IS NOT NULL)
-    OR (verification_state = 'unverified' AND verified_at IS NULL)
+    OR (verification_state = 'unverified' AND source_url IS NULL
+      AND admission_cycle IS NULL AND verified_at IS NULL)
   ),
   CHECK (
     (item_status = 'submitted_by_sid' AND submitted_at IS NOT NULL)

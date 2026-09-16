@@ -18,6 +18,8 @@ const WESTERN_ESSAY = "01k5fb9pg00000000000000d07" as Ulid;
 const WESTERN_REFERENCE = "01k5fb9pg00000000000000d08" as Ulid;
 const QUEENS_SCHOLARSHIP = "01k5fb9pg00000000000000d09" as Ulid;
 const UOFT_ESSAY = "01k5fb9pg00000000000000d0a" as Ulid;
+const UOFT_TRANSCRIPT = "01k5fb9pg00000000000000d0b" as Ulid;
+const UOFT_ALT_ESSAY = "01k5fb9pg00000000000000d0c" as Ulid;
 const NOW = new Date("2026-09-15T19:00:00.000Z");
 
 class SequenceModel implements ModelAdapter {
@@ -137,6 +139,18 @@ function conjunctionSnapshot(principalId: string): UniversityTrackerSnapshot {
         itemId: UOFT_ESSAY,
         kind: "essay",
         label: "Arts and Science essay",
+        status: "not_started",
+      }, {
+        ...item,
+        itemId: UOFT_TRANSCRIPT,
+        kind: "transcript",
+        label: "UofT transcript",
+        status: "not_started",
+      }, {
+        ...item,
+        itemId: UOFT_ALT_ESSAY,
+        kind: "essay",
+        label: "UofT alternate essay",
         status: "not_started",
       }],
     }],
@@ -420,6 +434,11 @@ describe("university application conversation model", () => {
     "Mom says: I submitted the Western essay for you",
     "From guidance: I uploaded your Western essay today",
     "Hi Sid. I have uploaded your Western essay to OUAC. Ms. Lee",
+    "Mom writes: I submitted the Western essay",
+    "Dad sent me this: I submitted the Western essay",
+    "Guidance forwarded this: I submitted the Western essay",
+    "Ms. Lee says I submitted the Western essay",
+    "Ms. Lee wrote that I submitted the Western essay",
   ])("refuses common forwarded or third-party submission wording: %s", (text) => {
     expect(() => parseStatus(
       roundTwoSnapshot("principal:reported-submission"),
@@ -568,6 +587,97 @@ describe("university application conversation model", () => {
       WESTERN_PROGRAM,
       "submitted_by_sid",
     )).toMatchObject({ applicationUpdates: [{ itemRef: WESTERN_ESSAY, status: "submitted_by_sid" }] });
+  });
+
+  it.each([
+    ["I'm drafting the Western essay. The Common App is done and I submitted it.", WESTERN_ESSAY, WESTERN_PROGRAM, "submitted_by_sid"],
+    ["The Western essay is next. My mom and I submitted it.", WESTERN_ESSAY, WESTERN_PROGRAM, "submitted_by_sid"],
+    ["The Western essay is the last one. I am skipping band this term, remove it.", WESTERN_ESSAY, WESTERN_PROGRAM, "not_needed_by_sid"],
+    ["The Queen's scholarship is retired. I changed my mind about the gym, keep it.", QUEENS_SCHOLARSHIP, QUEENS_PROGRAM, "not_started"],
+    ["UofT essay check. The band form didn't go through, I never submitted it.", UOFT_ESSAY, UOFT_PROGRAM, "drafting"],
+  ] as const)("does not carry an item pronoun across a sentence boundary: %s", (text, itemRef, programRef, status) => {
+    expect(() => parseStatus(roundTwoSnapshot("principal:sentence-anaphora"), text, itemRef, programRef, status))
+      .toThrow("university_application_model_item_invalid");
+  });
+
+  it.each([
+    ["The Western essay is next, and I submitted it.", WESTERN_ESSAY, WESTERN_PROGRAM, "submitted_by_sid"],
+    ["The Western essay is the last one, so remove it.", WESTERN_ESSAY, WESTERN_PROGRAM, "not_needed_by_sid"],
+    ["The Queen's scholarship is retired, but I changed my mind, keep it.", QUEENS_SCHOLARSHIP, QUEENS_PROGRAM, "not_started"],
+    ["UofT essay check: it didn't go through, I never submitted it.", UOFT_ESSAY, UOFT_PROGRAM, "drafting"],
+  ] as const)("keeps an item pronoun bound inside its naming sentence: %s", (text, itemRef, programRef, status) => {
+    expect(parseStatus(roundTwoSnapshot("principal:same-sentence-anaphora"), text, itemRef, programRef, status))
+      .toMatchObject({ applicationUpdates: [{ itemRef, status }] });
+  });
+
+  it.each([
+    ["I submitted my scholarship form today. The UofT transcript is next.", UOFT_TRANSCRIPT, "submitted_by_sid"],
+    ["I finished my chemistry lab. The UofT transcript is the last thing.", UOFT_TRANSCRIPT, "ready"],
+    ["Remove my shift on Friday. The UofT transcript is fine.", UOFT_TRANSCRIPT, "not_needed_by_sid"],
+    ["I still have to write the Arts and Science essay. I submitted my OUAC application today.", UOFT_ESSAY, "submitted_by_sid"],
+    ["I am going to skip grade 12 calculus. The Arts and Science essay is my focus.", UOFT_ESSAY, "not_needed_by_sid"],
+    ["I'm working on the Arts and Science essay. I finished my Mac supplement.", UOFT_ESSAY, "ready"],
+    ["My mom and I submitted the Arts and Science essay.", UOFT_ESSAY, "submitted_by_sid"],
+  ] as const)("does not bind another claim to an item in a connective-named program: %s", (text, itemRef, status) => {
+    expect(() => parseStatus(
+      conjunctionSnapshot("principal:connective-wrong-claim"),
+      text,
+      itemRef,
+      UOFT_PROGRAM,
+      status,
+    )).toThrow("university_application_model_item_invalid");
+  });
+
+  it.each([
+    ["I submitted the UofT transcript today.", UOFT_TRANSCRIPT, "submitted_by_sid"],
+    ["I finished the UofT transcript.", UOFT_TRANSCRIPT, "ready"],
+    ["Remove the UofT transcript.", UOFT_TRANSCRIPT, "not_needed_by_sid"],
+    ["I submitted the Arts and Science essay today.", UOFT_ESSAY, "submitted_by_sid"],
+    ["Skip the Arts and Science essay.", UOFT_ESSAY, "not_needed_by_sid"],
+    ["I finished the Arts and Science essay.", UOFT_ESSAY, "ready"],
+  ] as const)("accepts a same-clause claim for an item in a connective-named program: %s", (text, itemRef, status) => {
+    expect(parseStatus(
+      conjunctionSnapshot("principal:connective-direct-claim"),
+      text,
+      itemRef,
+      UOFT_PROGRAM,
+      status,
+    )).toMatchObject({ applicationUpdates: [{ itemRef, status }] });
+  });
+
+  it.each([
+    "I have a dentist appointment on Feb 1, 2027. The Arts and Science essay is next.",
+    "My band concert is Feb 1, 2027. The Arts and Science essay is the last thing left.",
+  ])("does not bind another sentence's date to a connective-named item: %s", (text) => {
+    expect(() => parseOwnerUniversityPlan({
+      engaged: true,
+      programUpdates: [],
+      applicationUpdates: [{
+        itemRef: UOFT_ESSAY, programRef: UOFT_PROGRAM, kind: null, label: null,
+        status: null, statusEvidence: null,
+        dueDate: {
+          date: "2027-02-01",
+          verification: { state: "unverified", sourceUrl: null, cycle: null },
+          evidence: text,
+        },
+      }],
+    }, text, new Redactor(), conjunctionSnapshot("principal:connective-wrong-date")))
+      .toThrow("university_application_model_date_invalid");
+  });
+
+  it.each([
+    ["I submitted my Arts and Science essay. What's next?", "submitted_by_sid"],
+    ["I submitted my Arts and Science essay, so I don't have to think about it anymore", "submitted_by_sid"],
+    ["I finished the Arts and Science essay but I haven't proofread it", "ready"],
+    ["I submitted my Arts and Science essay today, maybe check it later", "submitted_by_sid"],
+  ] as const)("keeps unrelated trailing language out of a connective-named item's status clause: %s", (text, status) => {
+    expect(parseStatus(
+      conjunctionSnapshot("principal:connective-trailing"), text, UOFT_ESSAY, UOFT_PROGRAM, status,
+    )).toMatchObject({ applicationUpdates: [{ itemRef: UOFT_ESSAY, status }] });
+    const ordinary = text.replace("Arts and Science essay", "Western essay");
+    expect(parseStatus(
+      roundTwoSnapshot("principal:ordinary-trailing"), ordinary, WESTERN_ESSAY, WESTERN_PROGRAM, status,
+    )).toMatchObject({ applicationUpdates: [{ itemRef: WESTERN_ESSAY, status }] });
   });
 
   it("accepts a whole-message owner correction for a named submitted item", () => {
@@ -1004,6 +1114,17 @@ describe("university application conversation model", () => {
     [true, "I just texted Ms. Chen."],
     [true, "I booked your Waterloo interview."],
     [true, "Ms. Chen has been contacted."],
+    [true, "I've emailed your essay to Ms. Chen."],
+    [true, "I've requested your reference from Ms. Chen."],
+    [true, "I've requested your transcript from the school."],
+    [true, "I've messaged your reference request to Ms. Chen."],
+    [true, "I've requested the reference from your teacher."],
+    [true, "I put in your scholarship application."],
+    [true, "I've put in your essay."],
+    [true, "I put in the scholarship for you."],
+    [true, "I've applied on your behalf."],
+    [true, "I've applied you to Western."],
+    [true, "I've booked your guidance meeting."],
   ] as const)("classifies an ordinary reply without hiding benign guidance: %s %s", async (blocked, reply) => {
     const principalId = "principal:application-model-reply-guard";
     const adapter = new SchoolCatchupModelAdapter({

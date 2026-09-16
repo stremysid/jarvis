@@ -71,7 +71,7 @@ function insertItem(input: {
     due_date, verification_state, source_url, admission_cycle, verified_at,
     source_turn_id, submitted_at, created_at, updated_at
   ) VALUES (?1, ?2, ?3, ?4, 'supplementary_application', ?5, ?6,
-    NULL, 'unverified', NULL, '2027', NULL, ?7, ?8, ?9, ?9)`)
+    NULL, 'unverified', NULL, NULL, NULL, ?7, ?8, ?9, ?9)`)
     .bind(input.principalId, input.programId, itemId,
       input.itemKey ?? `supplementary_application | ${label.toLowerCase()}`, label, status,
       input.turnId, status === "submitted_by_sid" ? NOW.toISOString() : null, NOW.toISOString());
@@ -124,6 +124,24 @@ describe("0024 university application workflow migration", () => {
     await seedTurn(otherPrincipalId, otherTurn);
     await expect(insertItem({ principalId, programId, turnId: otherTurn }).run())
       .rejects.toThrow(/university_application_item_owner_turn_invalid/u);
+  });
+
+  it("refuses source metadata on an unverified application-item insert", async () => {
+    const principalId = "principal:application-migration-unverified-insert";
+    const { programId, turnId } = await seedProgram(principalId);
+    const insert = (index: number, sourceUrl: string | null, cycle: string | null) => env.DB.prepare(`
+      INSERT INTO university_application_items (
+        principal_id, program_id, item_id, item_key, item_kind, item_label, item_status,
+        due_date, verification_state, source_url, admission_cycle, verified_at,
+        source_turn_id, submitted_at, created_at, updated_at
+      ) VALUES (?1, ?2, ?3, ?4, 'essay', ?5, 'not_started', NULL, 'unverified',
+        ?6, ?7, NULL, ?8, NULL, ?9, ?9)`)
+      .bind(principalId, programId, newUlid(new Date(NOW.getTime() + index + 1)),
+        `essay | invalid unverified ${index}`, `Invalid unverified ${index}`,
+        sourceUrl, cycle, turnId, NOW.toISOString());
+    await expect(insert(0, "https://example.edu/deadline", null).run()).rejects.toThrow();
+    await expect(insert(1, null, "2027").run()).rejects.toThrow();
+    await expect(insert(2, "https://example.edu/deadline", "2027").run()).rejects.toThrow();
   });
 
   it("refuses an update sourced from another principal's Telegram turn", async () => {

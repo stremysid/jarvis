@@ -34,7 +34,7 @@ const DRAFTING_REPORT = /\b(?:i(?:['’]m|\s+am)\s+(?:drafting|working\s+on)|i(?
 const READY_REPORT = /\b(?:i(?:['’]ve|\s+have|\s)\s*(?:finished|completed)|i(?:['’]m|\s+am)\s+done\s+with|ready\s+to\s+submit|(?:draft|essay|application|aif|statement|reference|transcript)\s+is\s+ready)\b/iu;
 const DATE_CORRECTION = /\b(?:wrong|incorrect|remove|clear|unknown|unpublished|not\s+published|no\s+longer)\b.{0,48}\b(?:date|deadline)\b|\b(?:date|deadline)\b.{0,48}\b(?:wrong|incorrect|remove|clear|unknown|unpublished|not\s+published|no\s+longer)\b/iu;
 const LABEL_METADATA = /\b(?:verified|unverified)\b|\b\d{4}[-/.]\d{2}[-/.]\d{2}\b|\b\d{1,2}[/.]\d{1,2}[/.]\d{2,4}\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2},?\s+20\d{2}\b|\b\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+20\d{2})?\s*$/iu;
-const JOINT_OWNER_SUBMISSION = /\b(?:m(?:s|r)\.?|dr\.?)\s+\p{L}+[\p{L}'’.-]*\s+and\s+i\s+(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
+const JOINT_OWNER_SUBMISSION = /\b(?:(?:m(?:s|r)\.?|dr\.?)\s+\p{L}+[\p{L}'’.-]*|(?:my\s+)?(?:mom|mother|dad|father|parent|guardian)|(?:my\s+)?(?:teacher|counsellor|referee))\s+and\s+i\s+(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
 const REPORTED_OWNER_SUBMISSION = /\b(?:asked|said|says|told|wrote|writes|sent\s+me|forwarded)\b.{0,64}\bi\s+(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
 const ADMISSION_CYCLE = /^20\d{2}(?:[-–]20\d{2})?$/u;
 const encoder = new TextEncoder();
@@ -142,7 +142,11 @@ function containsLabel(value: string, label: string): boolean {
   return candidate.length > 0 && normalize(value).includes(candidate);
 }
 
-function clauses(value: string, splitCommas: boolean): readonly string[] {
+function clauseGroups(
+  value: string,
+  splitCommas: boolean,
+  protectedPhrases: readonly string[] = Object.freeze([]),
+): readonly (readonly string[])[] {
   const urls: string[] = [];
   let urlMarker = "URLMASKTOKEN";
   while (value.includes(urlMarker)) urlMarker = `_${urlMarker}`;
@@ -162,9 +166,38 @@ function clauses(value: string, splitCommas: boolean): readonly string[] {
     ? /,\s*(?:and\s+)?|\b(?:and|but|then)\b/iu
     : /\b(?:and|but|then)\b/iu;
   const maskedUrl = new RegExp(`${urlMarker}(\\d+)${urlMarker}`, "gu");
-  return Object.freeze(sentences.flatMap((sentence) => sentence.split(connector))
-    .map((clause) => clause.replace(maskedUrl, (_token, index: string) => urls[Number(index)] ?? ""))
-    .map((clause) => clause.trim()).filter((clause) => clause.length > 0));
+  const phrases: string[] = [];
+  let phraseMarker = "PHRASEMASKTOKEN";
+  while (value.includes(phraseMarker)) phraseMarker = `_${phraseMarker}`;
+  const phrasePatterns = [...new Set(protectedPhrases.map((phrase) => phrase.trim()).filter(Boolean))]
+    .sort((left, right) => right.length - left.length)
+    .map((phrase) => new RegExp(
+      phrase.split(/\s+/u).map((part) => part.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("\\s+"),
+      "giu",
+    ));
+  const maskedPhrase = new RegExp(`${phraseMarker}(\\d+)${phraseMarker}`, "gu");
+  return Object.freeze(sentences.map((sentence) => {
+    let withMaskedPhrases = sentence;
+    for (const pattern of phrasePatterns) {
+      withMaskedPhrases = withMaskedPhrases.replace(pattern, (matched) => {
+        const token = `${phraseMarker}${phrases.length}${phraseMarker}`;
+        phrases.push(matched);
+        return token;
+      });
+    }
+    return Object.freeze(withMaskedPhrases.split(connector)
+      .map((clause) => clause.replace(maskedPhrase, (_token, index: string) => phrases[Number(index)] ?? ""))
+      .map((clause) => clause.replace(maskedUrl, (_token, index: string) => urls[Number(index)] ?? ""))
+      .map((clause) => clause.trim()).filter((clause) => clause.length > 0));
+  }).filter((sentence) => sentence.length > 0));
+}
+
+function clauses(
+  value: string,
+  splitCommas: boolean,
+  protectedPhrases: readonly string[] = Object.freeze([]),
+): readonly string[] {
+  return Object.freeze(clauseGroups(value, splitCommas, protectedPhrases).flat());
 }
 
 function evidenceSupportsDate(evidence: string, date: string): boolean {
@@ -323,15 +356,14 @@ function applicationDueDate(
   if (date !== null && !evidenceSupportsDate(evidence, date)) {
     throw new TypeError("university_application_model_date_invalid");
   }
-  const splitDateClauses = date === null ? Object.freeze([]) : clauses(ownerMessage, false).filter((clause) =>
+  const splitDateClauses = date === null ? Object.freeze([]) : clauses(
+    ownerMessage,
+    false,
+    itemNames(label, program),
+  ).filter((clause) =>
     evidenceSupportsDate(clause, date)
     && clauseNamesOnlyItem(clause, itemRef, label, kind, program, snapshot));
-  const dateClauses = date !== null && splitDateClauses.length === 0
-    && evidenceSupportsDate(ownerMessage, date)
-    && evidenceNamesOnlyItem(ownerMessage, itemRef, label, kind, program, snapshot)
-    && itemNameContainsConnector(label, program)
-    ? Object.freeze([ownerMessage])
-    : splitDateClauses;
+  const dateClauses = splitDateClauses;
   if (date !== null && dateClauses.length === 0) throw new TypeError("university_application_model_date_invalid");
   if (date !== null && existingItem?.dueDate !== null && existingItem?.dueDate !== undefined
     && date !== existingItem.dueDate
@@ -376,12 +408,12 @@ function programAliases(program: ApplicationProgramContext): readonly string[] {
   ].filter((value, index, values) => value.length > 0 && values.indexOf(value) === index));
 }
 
-function itemNameContainsConnector(
+function itemNames(
   label: string | null,
   program: ApplicationProgramContext | null,
-): boolean {
-  return [label, ...(program === null ? [] : programAliases(program))]
-    .some((value) => value !== null && /\b(?:and|but|then)\b/iu.test(value));
+): readonly string[] {
+  return Object.freeze([label, ...(program === null ? [] : programAliases(program))]
+    .filter((value): value is string => value !== null));
 }
 
 function namesApplicationItem(
@@ -432,17 +464,32 @@ function clauseNamesOnlyItem(
   return namesApplicationItem(clause, label, kind, program);
 }
 
-function evidenceNamesOnlyItem(
+function itemEvidenceClauses(
   evidence: string,
   itemRef: string,
   label: string | null,
   kind: UniversityApplicationItemKind | null,
   program: ApplicationProgramContext | null,
   snapshot: UniversityTrackerSnapshot | null,
-): boolean {
-  const named = namedApplicationItems(evidence, snapshot);
-  if (ULID.test(itemRef)) return named.length === 1 && named[0]?.itemId === itemRef;
-  return named.length === 0 && namesApplicationItem(evidence, label, kind, program);
+): readonly string[] {
+  return Object.freeze(clauseGroups(evidence, true, itemNames(label, program)).flatMap((sentence) => {
+    let carriesTarget = false;
+    const relevant: string[] = [];
+    for (const clause of sentence) {
+      if (clauseNamesOnlyItem(clause, itemRef, label, kind, program, snapshot)) {
+        carriesTarget = true;
+        relevant.push(clause);
+        continue;
+      }
+      const namesTrackedItem = namedApplicationItems(clause, snapshot).length > 0;
+      if (namesTrackedItem || namesApplicationItem(clause, label, kind, program)) {
+        carriesTarget = false;
+        continue;
+      }
+      if (carriesTarget && /\b(?:it|that)\b/iu.test(clause)) relevant.push(clause);
+    }
+    return relevant;
+  }));
 }
 
 function namesItemAsThirdPartyPossession(
@@ -484,17 +531,7 @@ function supportsStatus(
   program: ApplicationProgramContext | null,
   snapshot: UniversityTrackerSnapshot | null,
 ): boolean {
-  const namedClauses = clauses(evidence, true).filter((clause) =>
-    clauseNamesOnlyItem(clause, itemRef, label, kind, program, snapshot));
-  const namesOnlyItem = evidenceNamesOnlyItem(evidence, itemRef, label, kind, program, snapshot);
-  const anaphoricClauses = namesOnlyItem
-    ? clauses(evidence, true).filter((clause) => /\b(?:it|that)\b/iu.test(clause))
-    : Object.freeze([]);
-  const evidenceClauses = Object.freeze([
-    ...namedClauses,
-    ...anaphoricClauses,
-    ...(namesOnlyItem && itemNameContainsConnector(label, program) ? [evidence] : []),
-  ]);
+  const evidenceClauses = itemEvidenceClauses(evidence, itemRef, label, kind, program, snapshot);
   if (status === "submitted_by_sid") {
     return !JOINT_OWNER_SUBMISSION.test(evidence) && !REPORTED_OWNER_SUBMISSION.test(evidence)
       && !RETRACTION.test(evidence) && evidenceClauses.some((clause) =>

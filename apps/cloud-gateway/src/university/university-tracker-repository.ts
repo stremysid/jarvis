@@ -165,7 +165,8 @@ function sourceUrl(value: unknown, error: string): string | null {
 }
 
 function normalizedKey(parts: readonly string[], error: string, maximumBytes: number): string {
-  const normalized = parts.join(" | ").toLocaleLowerCase("en-CA").replace(/\s+/gu, " ");
+  const normalized = parts.join(" | ").toLocaleLowerCase("en-CA")
+    .replace(/['’ʼ`]/gu, "'").replace(/[\p{Pd}]+/gu, " ").replace(/\s+/gu, " ");
   return inline(normalized, error, maximumBytes);
 }
 
@@ -564,8 +565,10 @@ export class UniversityTrackerRepository {
           && applicationItemKey(candidate.item.kind, candidate.item.label) === dedupe);
         if (duplicate === undefined) throw new TypeError("university_application_item_exists");
         if (duplicate.item.status !== "not_needed_by_sid") continue;
-        existingId = duplicate.item.itemId;
-        existingRecord = duplicate;
+        // A response-local item was validated as new, so it never passed the
+        // explicit reactivation gate. The model can retry with the inactive
+        // itemId already present in its bounded state.
+        throw new TypeError("university_application_item_exists");
       }
       if (update.status === null && update.statusEvidence !== null
         || update.status !== null && update.statusEvidence === null) {
