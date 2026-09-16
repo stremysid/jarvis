@@ -63,8 +63,8 @@ test('the baseline script builds the 0015-equivalent schema from an empty databa
   }
 });
 
-test('the candidate range is contiguous from 0016 and includes the reviewed 0016 through 0025 prefix', () => {
-  const candidates = discoverCandidateNames();
+test('the candidate range begins at 0016 with unique ordered sequences and includes the reviewed 0016 through 0025 prefix', () => {
+  const candidates = discoverCandidateNames(undefined, () => {});
   const reviewedPrefix = [
     '0016_cloud_memory.sql',
     '0017_owner_passphrase.sql',
@@ -79,10 +79,70 @@ test('the candidate range is contiguous from 0016 and includes the reviewed 0016
   ];
 
   assert.deepEqual(candidates.slice(0, reviewedPrefix.length), reviewedPrefix);
-  assert.deepEqual(
-    candidates.map((name) => Number.parseInt(name.slice(0, 4), 10)),
-    Array.from({ length: candidates.length }, (_, index) => 16 + index),
-  );
+  const sequences = candidates.map((name) => Number.parseInt(name.slice(0, 4), 10));
+  assert.equal(sequences[0], 16);
+  assert.equal(new Set(sequences).size, sequences.length);
+  assert.deepEqual(sequences, [...sequences].sort((left, right) => left - right));
+});
+
+test('candidate discovery accepts and reports a reserved sequence gap', () => {
+  const root = mkdtempSync(join(tmpdir(), 'jarvis candidate gap '));
+  try {
+    writeFileSync(join(root, '0016_first.sql'), 'SELECT 16;\n');
+    writeFileSync(join(root, '0018_later.sql'), 'SELECT 18;\n');
+    const reports = [];
+
+    assert.deepEqual(
+      discoverCandidateNames(root, (message) => reports.push(message)),
+      ['0016_first.sql', '0018_later.sql'],
+    );
+    assert.deepEqual(reports, [
+      'CANDIDATE GAP: 0017 (reserved by open PRs, not rehearsed)',
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('candidate discovery refuses duplicate sequence numbers', () => {
+  const root = mkdtempSync(join(tmpdir(), 'jarvis duplicate candidate '));
+  try {
+    writeFileSync(join(root, '0016_first.sql'), 'SELECT 16;\n');
+    writeFileSync(join(root, '0016_duplicate.sql'), 'SELECT 16;\n');
+    assert.throws(
+      () => discoverCandidateNames(root, () => {}),
+      /Duplicate repository candidate sequence: 0016\./u,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('candidate discovery refuses a range that does not begin at 0016', () => {
+  const root = mkdtempSync(join(tmpdir(), 'jarvis invalid candidate start '));
+  try {
+    writeFileSync(join(root, '0017_after_gap.sql'), 'SELECT 17;\n');
+    assert.throws(
+      () => discoverCandidateNames(root, () => {}),
+      /candidate range to begin at 0016/u,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('candidate discovery refuses a sub-0016 file that is not the complete baseline', () => {
+  const root = mkdtempSync(join(tmpdir(), 'jarvis candidate below floor '));
+  try {
+    writeFileSync(join(root, '0015_not_a_complete_baseline.sql'), 'SELECT 15;\n');
+    writeFileSync(join(root, '0016_first.sql'), 'SELECT 16;\n');
+    assert.throws(
+      () => discoverCandidateNames(root, () => {}),
+      /Migration files below 0016 must be exactly one baseline file/u,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('the scratch baseline stops without recording a receipt when a statement fails', () => {

@@ -29,7 +29,7 @@ function discoverMigrations(migrationRoot) {
   return readdirSync(migrationRoot)
     .filter((name) => /^\d{4}_.+\.sql$/u.test(name))
     .map((name) => ({ name, sequence: Number.parseInt(name.slice(0, 4), 10) }))
-    .sort((left, right) => left.sequence - right.sequence);
+    .sort((left, right) => left.sequence - right.sequence || left.name.localeCompare(right.name));
 }
 
 export function discoverBaselineNames(migrationRoot = defaultMigrationRoot) {
@@ -43,12 +43,31 @@ export function discoverBaselineNames(migrationRoot = defaultMigrationRoot) {
   return migrations.map(({ name }) => name);
 }
 
-export function discoverCandidateNames(migrationRoot = defaultMigrationRoot) {
-  const migrations = discoverMigrations(migrationRoot)
-    .filter(({ sequence }) => sequence >= 16);
-  if (migrations.length === 0
-      || migrations.some(({ sequence }, index) => sequence !== index + 16)) {
-    throw new Error('Expected one contiguous repository migration for every candidate sequence from 0016 onward.');
+export function discoverCandidateNames(migrationRoot = defaultMigrationRoot, report = console.log) {
+  const discovered = discoverMigrations(migrationRoot);
+  const belowCandidateFloor = discovered.filter(({ sequence }) => sequence < 16);
+  if (belowCandidateFloor.length > 0
+      && (belowCandidateFloor.length !== 15
+        || belowCandidateFloor.some(({ sequence }, index) => sequence !== index + 1))) {
+    throw new Error('Migration files below 0016 must be exactly one baseline file for every sequence from 0001 through 0015.');
+  }
+  const migrations = discovered.filter(({ sequence }) => sequence >= 16);
+  if (migrations.length === 0 || migrations[0].sequence !== 16) {
+    throw new Error('Expected the repository candidate range to begin at 0016.');
+  }
+  const duplicateSequences = migrations
+    .filter(({ sequence }, index) => index > 0 && sequence === migrations[index - 1].sequence)
+    .map(({ sequence }) => sequence.toString().padStart(4, '0'));
+  if (duplicateSequences.length > 0) {
+    throw new Error(`Duplicate repository candidate sequence: ${duplicateSequences.join(', ')}.`);
+  }
+  const presentSequences = new Set(migrations.map(({ sequence }) => sequence));
+  const gaps = [];
+  for (let sequence = 16; sequence < migrations.at(-1).sequence; sequence += 1) {
+    if (!presentSequences.has(sequence)) gaps.push(sequence.toString().padStart(4, '0'));
+  }
+  if (gaps.length > 0) {
+    report(`CANDIDATE GAP: ${gaps.join(', ')} (reserved by open PRs, not rehearsed)`);
   }
   return migrations.map(({ name }) => name);
 }
@@ -141,6 +160,7 @@ export function runCli(argv) {
     'exec', 'wrangler', 'd1', 'execute', database, '--remote',
     '--config', config, '--env', '', '--command', sql,
   ], { cwd: repoRoot, stdio: 'inherit' });
+  discoverCandidateNames();
   const migrations = loadMigrations();
   applyBaseline({ migrations, execute });
   console.log(`SCRATCH BASELINE OK: ${migrations.length}/${migrations.length} receipts through 0015.`);

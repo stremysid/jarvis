@@ -167,9 +167,10 @@ database. It does not authorize a production migration or deployment.
    is required: Wrangler ignores the repository config's `migrations_dir` for
    a database that config does not declare. The baseline receipts make every
    repository file after `0015` the pending candidate range, matching the
-   actual production starting point without hard-coding a count. At `010f93b`
-   the discovered range is `0016` through `0025`; `0026` through `0028` are not
-   in main. Wrangler's apply command asks for `y/n` confirmation. Answer `y`
+   actual production starting point without hard-coding a count. At `fd65944`
+   the discovered files are `0016` through `0025` plus `0028`; `0026` and
+   `0027` remain reserved by open PRs. Wrangler's apply command asks for `y/n`
+   confirmation. Answer `y`
    only if its prompt names the confirmed scratch database and lists exactly
    the files printed in `CANDIDATE RANGE`; for anything else, answer `n` and
    stop. In **PowerShell 7**:
@@ -180,12 +181,26 @@ database. It does not authorize a production migration or deployment.
    if ([string]::IsNullOrWhiteSpace($ScratchDatabase) -or $ScratchDatabase -notmatch '^[A-Za-z0-9_-]*scratch[A-Za-z0-9_-]*$') { throw "The name must visibly say scratch." }
    $ScratchConfig = [IO.Path]::GetFullPath((Read-Host "Absolute SCRATCH CONFIG OUTSIDE REPO path from step 2"))
    $MigrationRoot = 'apps/cloud-gateway/src/persistence/migrations'
-   $CandidateFiles = @(Get-ChildItem -LiteralPath $MigrationRoot -Filter '*.sql' | ForEach-Object {
+   $AllMigrationFiles = @(Get-ChildItem -LiteralPath $MigrationRoot -Filter '*.sql' | ForEach-Object {
      [pscustomobject]@{ Name = $_.Name; Sequence = [int]$_.Name.Substring(0, 4) }
-   } | Where-Object Sequence -ge 16 | Sort-Object Sequence)
+   } | Sort-Object Sequence, Name)
+   $BelowCandidateFloor = @($AllMigrationFiles | Where-Object Sequence -lt 16)
+   if ($BelowCandidateFloor.Count -ne 15) { throw "Files below 0016 must remain exactly the 0001 through 0015 baseline." }
+   for ($Index = 0; $Index -lt $BelowCandidateFloor.Count; $Index++) {
+     if ($BelowCandidateFloor[$Index].Sequence -ne 1 + $Index) { throw "Files below 0016 must remain exactly one migration for every sequence from 0001 through 0015." }
+   }
+   $CandidateFiles = @($AllMigrationFiles | Where-Object Sequence -ge 16)
    if ($CandidateFiles.Count -eq 0) { throw "No repository candidates exist after 0015." }
-   for ($Index = 0; $Index -lt $CandidateFiles.Count; $Index++) {
-     if ($CandidateFiles[$Index].Sequence -ne 16 + $Index) { throw "Repository candidate sequence is not contiguous from 0016." }
+   if ($CandidateFiles[0].Sequence -ne 16) { throw "Repository candidate range must begin at 0016." }
+   $DuplicateSequences = @($CandidateFiles | Group-Object Sequence | Where-Object Count -gt 1 | ForEach-Object { [int]$_.Name })
+   if ($DuplicateSequences.Count -ne 0) { throw "Duplicate repository candidate sequence: $(($DuplicateSequences | ForEach-Object { $_.ToString('0000') }) -join ', ')." }
+   $PresentSequences = [Collections.Generic.HashSet[int]]::new()
+   foreach ($CandidateFile in $CandidateFiles) { [void]$PresentSequences.Add($CandidateFile.Sequence) }
+   $MissingSequences = @(for ($Sequence = 16; $Sequence -lt $CandidateFiles[-1].Sequence; $Sequence++) {
+     if (-not $PresentSequences.Contains($Sequence)) { $Sequence.ToString('0000') }
+   })
+   if ($MissingSequences.Count -ne 0) {
+     Write-Host "CANDIDATE GAP: $($MissingSequences -join ', ') (reserved by open PRs, not rehearsed)"
    }
    $CandidateMigrations = @($CandidateFiles | Select-Object -ExpandProperty Name)
    $CandidateCount = $CandidateMigrations.Count
@@ -217,12 +232,17 @@ database. It does not authorize a production migration or deployment.
    Expect the `CANDIDATE RANGE` line to name the first and last files actually
    present, then Wrangler to list and apply exactly that discovered range. The
    final `SCRATCH MIGRATIONS OK` numerator and denominator must both equal the
-   discovered file count. A missing, non-contiguous, reordered or failed
-   candidate is a stop.
+   discovered file count. A gap is reported and is not a stop; a duplicate
+   sequence, a range that does not begin at `0016`, or a failed candidate is a
+   stop. A later rehearsal must cover each gap migration once it merges.
+   Wrangler applies a later-merged lower number after already-applied higher
+   numbers, so every such migration must stand alone.
 
 6. **Prove every named trigger exists.** Extract the expected final trigger
    names from every repository candidate after `0015`, rather than maintaining
-   either a hand-written migration list or trigger count. In **PowerShell 7**:
+   either a hand-written migration list or trigger count. This inventory uses
+   only the candidate files currently present and does not assume their
+   sequence numbers are contiguous. In **PowerShell 7**:
 
    ```powershell
    cd C:\path\to\jarvis
