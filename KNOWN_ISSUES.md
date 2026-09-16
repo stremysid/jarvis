@@ -1,6 +1,6 @@
 # Known issues
 
-## University application workflow has six deferred integration and presentation limits
+## University application workflow has seven deferred integration and presentation limits
 
 PR #52 binds every application status report to the one item named across the
 owner's clauses, keeps correction and retirement reversible on a later owner
@@ -34,6 +34,11 @@ date, source and cycle phrase to that item. These limits remain:
   owner text but remains capped at 512 UTF-8 bytes. Longer reports fail closed
   and cannot record `submitted_by_sid`; the reply does not yet explain that
   evidence limit.
+- **Silent active-duplicate skip:** when one model response rediscovers an
+  already-active application item as response-local, the repository safely
+  skips that duplicate update but the reply cannot name the skip. Closing this
+  needs a repository result or receipt contract through the model adapter so
+  the released reply describes what was actually saved.
 
 ## Owner memory controls have six deferred integration limits
 

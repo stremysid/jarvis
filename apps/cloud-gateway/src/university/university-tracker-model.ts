@@ -28,13 +28,13 @@ const RETRACTION = /\b(?:actually|correction|wait|jk|just\s+kidding|didn't\s+go\
 const SUBMISSION_CORRECTION = /\b(?:didn't|did\s+not|wasn't|was\s+not|never)\s+(?:(?:actually|really|successfully|just|ever)\s+){0,2}(?:submit|send|upload|turn\s+in)|\b(?:submission|upload)\b.{0,48}\b(?:failed|crashed|rejected)|\bdid(?:n't|\s+not)\s+go\s+through\b|\b(?:undo|reopen|mark)\b.{0,48}\bnot\s+submitted\b/iu;
 const RETIREMENT = /\b(?:not\s+(?:applying|needed)|skip(?:ping)?|remove|duplicate|wrong\s+item|no\s+longer\s+need)\b/iu;
 const BARE_DONT_NEED = /\b(?:don't|do\s+not)\s+need\b/iu;
-const REACTIVATION = /\b(?:changed\s+my\s+mind|restore|resume|keep|need\s+(?:this|the)|doing\s+(?:this|the)|applying\s+(?:after\s+all|to)|going\s+ahead)\b/iu;
+const REACTIVATION = /\b(?:changed\s+my\s+mind|restore|resume|keep|need\s+(?:this|the|it)|doing\s+(?:this|the)|applying\s+(?:after\s+all|to)|going\s+ahead)\b/iu;
 const NOT_STARTED_REPORT = /\b(?:haven't|have\s+not|hadn't|had\s+not|didn't|did\s+not)\s+(?:started|begun|worked\s+on)|\bnot\s+started\b/iu;
 const DRAFTING_REPORT = /\b(?:i(?:['’]m|\s+am)\s+(?:drafting|working\s+on)|i(?:['’]ve|\s+have)\s+(?:started|begun)|(?:started|began)\s+(?:my|the)|draft(?:ing)?\s+(?:my|the))\b/iu;
 const READY_REPORT = /\b(?:i(?:['’]ve|\s+have|\s)\s*(?:finished|completed)|i(?:['’]m|\s+am)\s+done\s+with|ready\s+to\s+submit|(?:draft|essay|application|aif|statement|reference|transcript)\s+is\s+ready)\b/iu;
 const DATE_CORRECTION = /\b(?:wrong|incorrect|remove|clear|unknown|unpublished|not\s+published|no\s+longer)\b.{0,48}\b(?:date|deadline)\b|\b(?:date|deadline)\b.{0,48}\b(?:wrong|incorrect|remove|clear|unknown|unpublished|not\s+published|no\s+longer)\b/iu;
 const LABEL_METADATA = /\b(?:verified|unverified)\b|\b\d{4}[-/.]\d{2}[-/.]\d{2}\b|\b\d{1,2}[/.]\d{1,2}[/.]\d{2,4}\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2},?\s+20\d{2}\b|\b\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+20\d{2})?\s*$/iu;
-const JOINT_OWNER_SUBMISSION = /\b(?:(?:m(?:s|r)\.?|dr\.?)\s+\p{L}+[\p{L}'’.-]*|(?:my\s+)?(?:mom|mother|dad|father|parent|guardian)|(?:my\s+)?(?:teacher|counsellor|referee))\s+and\s+i\s+(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
+const JOINT_OWNER_SUBMISSION = /\b(?:(?:m(?:s|r)\.?|dr\.?)\s+\p{L}+[\p{L}'’.-]*|(?:my\s+)?(?:mom|mother|dad|father|parents?|guardians?|sister|brother|sibling)|(?:my\s+)?(?:teacher|counsell?or|referee))\s+and\s+i\s+(?:(?:have|had)\s+)?(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
 const REPORTED_OWNER_SUBMISSION = /\b(?:asked|said|says|told|wrote|writes|sent\s+me|forwarded)\b.{0,64}\bi\s+(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
 const ADMISSION_CYCLE = /^20\d{2}(?:[-–]20\d{2})?$/u;
 const encoder = new TextEncoder();
@@ -161,11 +161,6 @@ function clauseGroups(
     /\b(jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\./giu,
     "$1",
   );
-  const sentences = withoutMonthDots.match(/[^.;!?\r\n]+[.;!?]?/gu) ?? [];
-  const connector = splitCommas
-    ? /,\s*(?:and\s+)?|\b(?:and|but|then)\b/iu
-    : /\b(?:and|but|then)\b/iu;
-  const maskedUrl = new RegExp(`${urlMarker}(\\d+)${urlMarker}`, "gu");
   const phrases: string[] = [];
   let phraseMarker = "PHRASEMASKTOKEN";
   while (value.includes(phraseMarker)) phraseMarker = `_${phraseMarker}`;
@@ -176,16 +171,21 @@ function clauseGroups(
       "giu",
     ));
   const maskedPhrase = new RegExp(`${phraseMarker}(\\d+)${phraseMarker}`, "gu");
+  let withMaskedPhrases = withoutMonthDots;
+  for (const pattern of phrasePatterns) {
+    withMaskedPhrases = withMaskedPhrases.replace(pattern, (matched) => {
+      const token = `${phraseMarker}${phrases.length}${phraseMarker}`;
+      phrases.push(matched);
+      return token;
+    });
+  }
+  const sentences = withMaskedPhrases.match(/[^.;!?\r\n]+[.;!?]?/gu) ?? [];
+  const connector = splitCommas
+    ? /,\s*(?:and\s+)?|\b(?:and|but|then)\b/iu
+    : /\b(?:and|but|then)\b/iu;
+  const maskedUrl = new RegExp(`${urlMarker}(\\d+)${urlMarker}`, "gu");
   return Object.freeze(sentences.map((sentence) => {
-    let withMaskedPhrases = sentence;
-    for (const pattern of phrasePatterns) {
-      withMaskedPhrases = withMaskedPhrases.replace(pattern, (matched) => {
-        const token = `${phraseMarker}${phrases.length}${phraseMarker}`;
-        phrases.push(matched);
-        return token;
-      });
-    }
-    return Object.freeze(withMaskedPhrases.split(connector)
+    return Object.freeze(sentence.split(connector)
       .map((clause) => clause.replace(maskedPhrase, (_token, index: string) => phrases[Number(index)] ?? ""))
       .map((clause) => clause.replace(maskedUrl, (_token, index: string) => urls[Number(index)] ?? ""))
       .map((clause) => clause.trim()).filter((clause) => clause.length > 0));
@@ -473,20 +473,22 @@ function itemEvidenceClauses(
   snapshot: UniversityTrackerSnapshot | null,
 ): readonly string[] {
   return Object.freeze(clauseGroups(evidence, true, itemNames(label, program)).flatMap((sentence) => {
-    let carriesTarget = false;
+    let immediatelyFollowsTarget = false;
     const relevant: string[] = [];
     for (const clause of sentence) {
       if (clauseNamesOnlyItem(clause, itemRef, label, kind, program, snapshot)) {
-        carriesTarget = true;
+        immediatelyFollowsTarget = true;
         relevant.push(clause);
         continue;
       }
       const namesTrackedItem = namedApplicationItems(clause, snapshot).length > 0;
       if (namesTrackedItem || namesApplicationItem(clause, label, kind, program)) {
-        carriesTarget = false;
+        immediatelyFollowsTarget = false;
         continue;
       }
-      if (carriesTarget && /\b(?:it|that)\b/iu.test(clause)) relevant.push(clause);
+      if (immediatelyFollowsTarget && (/\b(?:it|that)\b/iu.test(clause)
+        || /\bi\b/iu.test(clause) && REACTIVATION.test(clause))) relevant.push(clause);
+      immediatelyFollowsTarget = false;
     }
     return relevant;
   }));
@@ -520,7 +522,7 @@ function retirementNegated(clause: string): boolean {
   return NEGATION.test(withoutRetirementNegation);
 }
 
-function supportsStatus(
+export function supportsStatus(
   status: UniversityApplicationItemStatus,
   evidence: string,
   isNew: boolean,

@@ -36,20 +36,14 @@ const SECRET_ADVISORY = new RegExp(
 );
 const THIRD_PARTY = String.raw`\b(?:m(?:s|r)\.?\s+\p{L}[\p{L}'’.-]*|dr\.?\s+\p{L}[\p{L}'’.-]*|(?:your\s+)?(?:teacher|referee|counsellor|guidance(?:\s+office)?|school|university)|ouac(?![-\s]+style))\b`;
 const FIRST_PERSON_AGENT = String.raw`(?:(?:i(?:['’](?:ve|m))?|we(?:['’](?:ve|re))?)|jarvis)`;
-const FIRST_PERSON_EXTERNAL_CONTACT = new RegExp(
-  String.raw`\b${FIRST_PERSON_AGENT}\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?(?:sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|reached\s+out|reaching\s+out)\b`,
-  "iu",
-);
-const THIRD_PARTY_CONTACT_TARGET = new RegExp(
-  String.raw`^\s*(?:(?:to\s+)?(?:the\s+)?${THIRD_PARTY}|[^,;.]{0,96}\b(?:to|with|from)\s+(?:the\s+)?${THIRD_PARTY})`,
-  "iu",
+const FIRST_PERSON_ACTION_CLAIM = new RegExp(
+  String.raw`\b${FIRST_PERSON_AGENT}\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?(?<verb>sent\s+in|sending\s+in|turned\s+in|turning\s+in|signed\s+up|signing\s+up|handed\s+in|put\s+in|reached\s+out|reaching\s+out|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked)\b`,
+  "giu",
 );
 const FALSE_EXTERNAL_COMPLETIONS = Object.freeze([
-  /\b(?:(?:i(?:['’](?:ve|m))?|we(?:['’](?:ve|re))?)|jarvis)\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?(?:paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|sent\s+in|sending\s+in|turned\s+in|turning\s+in|signed\s+up|signing\s+up|registered|registering|handed\s+in)\b/iu,
   /\b(?:(?:i(?:['’](?:ve|m))?|we(?:['’](?:ve|re))?)|jarvis)\b.{0,24}\bcompleted\b.{0,32}\bsubmission\b/iu,
   /\b(?:submitted|uploaded|sent|sent\s+in|turned\s+in|forwarded|filed|registered|purchased|paid\s+for|applied|booked)\b.{0,40}\bfor\s+you\b/iu,
   new RegExp(String.raw`\b${FIRST_PERSON_AGENT}\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?let\s+(?:the\s+)?${THIRD_PARTY}\s+know\b`, "iu"),
-  new RegExp(String.raw`\b${FIRST_PERSON_AGENT}\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?(?:applied\b(?!\s+your\s+feedback\b)|booked\b(?!\s+nothing\b)|put\s+in\b(?!\s+a\s+note\b))`, "iu"),
   new RegExp(String.raw`\b${THIRD_PARTY}\b.{0,32}\b(?:has|have|was|were)\s+(?:already\s+|just\s+|now\s+)?been\s+(?:contacted|emailed|messaged|called|notified)\b`, "iu"),
   /\b(?:(?:i(?:['’]ve)?|we(?:['’](?:ve|re))?))\s+(?:have\s+)?(?:spent|spending)\b.{0,48}\b(?:fee|money|funds|dollars?|cad|usd)\b/iu,
   /^\s*submitted\s*[!.]\s+(?!(?:is|was|did|do|does|are|were|can|could|would|should|will|what|which|who|when|where|why|how)\b[^?]*\?\s*$)\S/iu,
@@ -273,16 +267,40 @@ function hasPassiveExternalCompletion(reply: string): boolean {
   return false;
 }
 
-function hasFirstPersonExternalContact(reply: string): boolean {
-  let honorificDot = "HONORIFICDOTMASK";
-  while (reply.includes(honorificDot)) honorificDot = `_${honorificDot}`;
-  const clauses = reply.replace(/\b(m(?:s|r)|dr)\./giu, `$1${honorificDot}`).split(/[,;.]/u)
-    .map((clause) => clause.replaceAll(honorificDot, "."));
-  return clauses.some((clause) => {
-    const contact = FIRST_PERSON_EXTERNAL_CONTACT.exec(clause);
-    if (contact === null) return false;
-    return THIRD_PARTY_CONTACT_TARGET.test(clause.slice(contact.index + contact[0].length));
-  });
+function allowedFirstPersonActionClaim(verb: string, tail: string): boolean {
+  const action = verb.toLocaleLowerCase("en-CA").replace(/\s+/gu, " ");
+  if (action === "asked") {
+    return /^\s+(?:(?:earlier|before)\b|(?:whether|if|which|what|about)\b|you\s+to\b)/iu.test(tail);
+  }
+  if (action === "requested") {
+    return /^\s+(?:nothing\b|no\b|that\s+you\b|you\s+to\b)/iu.test(tail);
+  }
+  if (action === "told") return /^\s+you\b/iu.test(tail);
+  if (action === "sent" || action === "sending" || action === "shared") {
+    return /^\s+you\b/iu.test(tail) || /^\s+[^;]{0,64}\b(?:to|with)\s+you\b/iu.test(tail);
+  }
+  if (action === "called") return /^\s+it\b/iu.test(tail);
+  if (action === "applied") {
+    return /^\s+(?:your\s+(?:feedback|edits|changes|notes)\b|(?:the\s+same|a\s+stricter)\s+(?:structure|word\s+limit)\b)/iu
+      .test(tail);
+  }
+  if (action === "booked") return /^\s+(?:out\s+)?(?:no\b|nothing\b)/iu.test(tail);
+  if (action === "put in") {
+    return /^\s+(?:(?:a|the|one|two|\d+)\s+)?(?:note|placeholder\s+due\s+date|reminders?|tracker)\b/iu.test(tail);
+  }
+  return false;
+}
+
+function hasUnsafeFirstPersonActionClaim(reply: string): boolean {
+  FIRST_PERSON_ACTION_CLAIM.lastIndex = 0;
+  for (const match of reply.matchAll(FIRST_PERSON_ACTION_CLAIM)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    const sentence = sentenceAround(reply, start, end);
+    const tail = sentence.text.slice(end - sentence.start);
+    if (!allowedFirstPersonActionClaim(match.groups?.verb ?? "", tail)) return true;
+  }
+  return false;
 }
 
 function guardReplyClaims(reply: string): string {
@@ -291,7 +309,7 @@ function guardReplyClaims(reply: string): string {
     return SECRET_REPLACEMENT;
   }
   if (FALSE_EXTERNAL_COMPLETIONS.some((pattern) => pattern.test(reply))
-    || hasFirstPersonExternalContact(reply) || hasPassiveExternalCompletion(reply)) {
+    || hasUnsafeFirstPersonActionClaim(reply) || hasPassiveExternalCompletion(reply)) {
     return EXTERNAL_ACTION_REPLACEMENT;
   }
   if (isFalseBrightspaceCheckCompletion(reply)) {

@@ -13,6 +13,7 @@ import type {
   UniversityVerification,
   UniversityVerificationState,
 } from "./university-tracker-types.js";
+import { supportsStatus } from "./university-tracker-model.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
@@ -565,10 +566,23 @@ export class UniversityTrackerRepository {
           && applicationItemKey(candidate.item.kind, candidate.item.label) === dedupe);
         if (duplicate === undefined) throw new TypeError("university_application_item_exists");
         if (duplicate.item.status !== "not_needed_by_sid") continue;
-        // A response-local item was validated as new, so it never passed the
-        // explicit reactivation gate. The model can retry with the inactive
-        // itemId already present in its bounded state.
-        throw new TypeError("university_application_item_exists");
+        const program = current.programs.find((candidate) => candidate.programId === programId);
+        if (program === undefined || update.status === null || update.statusEvidence === null
+          || !supportsStatus(
+            update.status,
+            update.statusEvidence,
+            false,
+            duplicate.item.status,
+            duplicate.item.itemId,
+            duplicate.item.label,
+            duplicate.item.kind,
+            program,
+            current,
+          )) throw new TypeError("university_application_item_exists");
+        // The model can rediscover a retired row as response-local. Treat it as
+        // the existing row only after the owner evidence passes reactivation.
+        existingId = duplicate.item.itemId;
+        existingRecord = duplicate;
       }
       if (update.status === null && update.statusEvidence !== null
         || update.status !== null && update.statusEvidence === null) {

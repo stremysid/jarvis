@@ -450,6 +450,21 @@ describe("university application conversation model", () => {
   });
 
   it.each([
+    "My parents and I submitted the Western essay.",
+    "My sister and I submitted the Western essay.",
+    "My guidance counselor and I submitted the Western essay.",
+    "My mom and I have submitted the Western essay.",
+  ])("refuses ordinary joint-submission wording: %s", (text) => {
+    expect(() => parseStatus(
+      roundTwoSnapshot("principal:joint-submission"),
+      text,
+      WESTERN_ESSAY,
+      WESTERN_PROGRAM,
+      "submitted_by_sid",
+    )).toThrow("university_application_model_item_invalid");
+  });
+
+  it.each([
     ["Keep the Queen's scholarship", QUEENS_SCHOLARSHIP, QUEENS_PROGRAM, "submitted_by_sid"],
     ["I need the Queen's scholarship after all", QUEENS_SCHOLARSHIP, QUEENS_PROGRAM, "submitted_by_sid"],
     ["Don't restore the Queen's scholarship, I never submitted it", QUEENS_SCHOLARSHIP, QUEENS_PROGRAM, "submitted_by_sid"],
@@ -601,6 +616,21 @@ describe("university application conversation model", () => {
   });
 
   it.each([
+    ["The Western essay is next, the Common App is done and I submitted it.", WESTERN_ESSAY, WESTERN_PROGRAM, "submitted_by_sid"],
+    ["I'm drafting the Western essay, the Common App is done and I submitted it.", WESTERN_ESSAY, WESTERN_PROGRAM, "submitted_by_sid"],
+    ["The Western essay is next, my Common App personal statement is finished and I submitted it.", WESTERN_ESSAY, WESTERN_PROGRAM, "submitted_by_sid"],
+    ["The Western essay is next, band camp is over and I submitted it yesterday.", WESTERN_ESSAY, WESTERN_PROGRAM, "submitted_by_sid"],
+    ["The Western essay is next, the Common App is open and I finished it.", WESTERN_ESSAY, WESTERN_PROGRAM, "ready"],
+    ["The Western essay is next, the Common App is open and I'm working on it.", WESTERN_ESSAY, WESTERN_PROGRAM, "drafting"],
+    ["The Western essay is next, I quit the swim team, I'm not applying for it.", WESTERN_ESSAY, WESTERN_PROGRAM, "not_needed_by_sid"],
+    ["The Queen's scholarship is retired, the gym membership lapsed, I changed my mind, keep it.", QUEENS_SCHOLARSHIP, QUEENS_PROGRAM, "not_started"],
+    ["UofT essay check, the band form bounced, I never submitted it.", UOFT_ESSAY, UOFT_PROGRAM, "drafting"],
+  ] as const)("binds an item pronoun only in the immediately following clause: %s", (text, itemRef, programRef, status) => {
+    expect(() => parseStatus(roundTwoSnapshot("principal:adjacent-anaphora"), text, itemRef, programRef, status))
+      .toThrow("university_application_model_item_invalid");
+  });
+
+  it.each([
     ["The Western essay is next, and I submitted it.", WESTERN_ESSAY, WESTERN_PROGRAM, "submitted_by_sid"],
     ["The Western essay is the last one, so remove it.", WESTERN_ESSAY, WESTERN_PROGRAM, "not_needed_by_sid"],
     ["The Queen's scholarship is retired, but I changed my mind, keep it.", QUEENS_SCHOLARSHIP, QUEENS_PROGRAM, "not_started"],
@@ -644,6 +674,26 @@ describe("university application conversation model", () => {
       status,
     )).toMatchObject({ applicationUpdates: [{ itemRef, status }] });
   });
+
+  it.each(["Medical Sciences", "Arts and Science"])(
+    "keeps a dotted item label intact before splitting a %s program sentence",
+    (programName) => {
+      const base = roundTwoSnapshot(`principal:dotted-label:${programName}`);
+      const snapshot: UniversityTrackerSnapshot = {
+        ...base,
+        programs: base.programs.map((program) => program.programId === WESTERN_PROGRAM ? {
+          ...program,
+          programName,
+          applicationItems: program.applicationItems.map((item) => item.itemId === WESTERN_REFERENCE
+            ? { ...item, label: "St. Michael's reference" }
+            : item),
+        } : program),
+      };
+      const text = "I submitted the St. Michael's reference.";
+      expect(parseStatus(snapshot, text, WESTERN_REFERENCE, WESTERN_PROGRAM, "submitted_by_sid"))
+        .toMatchObject({ applicationUpdates: [{ itemRef: WESTERN_REFERENCE, status: "submitted_by_sid" }] });
+    },
+  );
 
   it.each([
     "I have a dentist appointment on Feb 1, 2027. The Arts and Science essay is next.",
@@ -1099,6 +1149,22 @@ describe("university application conversation model", () => {
     [false, "I've applied your feedback to the outline."],
     [false, "I booked nothing; only you can book the interview."],
     [false, "I've put in a note about the Waterloo deadline."],
+    [false, "I've applied your edits to the outline."],
+    [false, "I've applied your changes to the tracker."],
+    [false, "I've applied your notes from last night."],
+    [false, "I applied the same structure to the second paragraph."],
+    [false, "I've applied a stricter word limit to the draft."],
+    [false, "I've put in a placeholder due date until you confirm it."],
+    [false, "I've put in two reminders for the Waterloo deadline."],
+    [false, "I've put in the tracker that your teacher owes you a reference."],
+    [false, "I booked no time for this; you decide when to write."],
+    [false, "I've booked out nothing on your calendar."],
+    [false, "I asked whether you want me to draft a note to your teacher."],
+    [false, "I asked earlier if the reference came back from Ms. Chen."],
+    [false, "I asked you to confirm the deadline with the university."],
+    [false, "I told you the transcript is with the school, so chase it tomorrow."],
+    [false, "I told you what to say to your counsellor."],
+    [false, "I've requested nothing from the school on your behalf."],
     [false, "Submitted. Is that what you meant?"],
     [true, "Your Waterloo AIF has now been submitted."],
     [true, "Your Waterloo AIF got submitted."],
@@ -1125,6 +1191,18 @@ describe("university application conversation model", () => {
     [true, "I've applied on your behalf."],
     [true, "I've applied you to Western."],
     [true, "I've booked your guidance meeting."],
+    [true, "I've sent your essay, as promised, to Ms. Chen."],
+    [true, "I've forwarded your reference form, finally, to Ms. Chen."],
+    [true, "I've shared your draft, this morning, with your teacher."],
+    [true, "I've sent your transcript request; it went to the guidance office."],
+    [true, "I've emailed your essay, at last, to Ms. Chen."],
+    [true, "I've reached out; your counsellor will send the transcript."],
+    [true, "I've emailed her already, so Ms. Chen has your essay."],
+    [true, "I've notified them; the school has your form now."],
+    [true, "I've asked for it, and your teacher said yes."],
+    [true, "I've sent it off, so the guidance office has your transcript request."],
+    [true, "I've requested it, and Ms. Chen will upload the reference."],
+    [true, "I've sent your reference form over, and Ms. Chen has it now."],
   ] as const)("classifies an ordinary reply without hiding benign guidance: %s %s", async (blocked, reply) => {
     const principalId = "principal:application-model-reply-guard";
     const adapter = new SchoolCatchupModelAdapter({

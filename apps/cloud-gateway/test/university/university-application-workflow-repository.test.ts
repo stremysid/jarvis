@@ -481,7 +481,30 @@ describe("UniversityTrackerRepository application workflow", () => {
     expect(saved.applicationItems).toHaveLength(1);
   });
 
-  it("rejects a response-local duplicate instead of bypassing the retired-item reactivation gate", async () => {
+  it("keeps the D1 item drafting when submission evidence skips an intervening clause", async () => {
+    const principalId = "principal:application-repository-adjacent-evidence";
+    const seeded = await seedApplicationItem({
+      principalId, label: "Western essay", kind: "essay", status: "drafting",
+    });
+    const evidence = "The Western essay is next, the Common App is done and I submitted it.";
+    const snapshot = await seeded.repository.readSnapshot(principalId);
+    expect(() => parseOwnerUniversityPlan({
+      engaged: true,
+      programUpdates: [],
+      applicationUpdates: [{
+        itemRef: seeded.itemId, programRef: seeded.programId, kind: null, label: null,
+        status: "submitted_by_sid", statusEvidence: evidence, dueDate: null,
+      }],
+    }, evidence, new Redactor(), snapshot)).toThrow("university_application_model_item_invalid");
+    await expect(seeded.repository.readSnapshot(principalId)).resolves.toMatchObject({
+      programs: [{ applicationItems: [{ itemId: seeded.itemId, status: "drafting", submittedAt: null }] }],
+    });
+    await expect(seeded.repository.listApplicationItemsByDueDate(principalId)).resolves.toMatchObject([
+      { itemId: seeded.itemId, status: "drafting" },
+    ]);
+  });
+
+  it("remaps a retired response-local duplicate only when its evidence proves reactivation", async () => {
     const principalId = "principal:application-repository-retired-duplicate";
     const seeded = await seedApplicationItem({
       principalId, label: "Western reference", kind: "reference", status: "not_started",
@@ -523,6 +546,51 @@ describe("UniversityTrackerRepository application workflow", () => {
     await expect(seeded.repository.readSnapshot(principalId)).resolves.toMatchObject({
       programs: [{ applicationItems: [{
         itemId: seeded.itemId, status: "not_needed_by_sid", submittedAt: null,
+      }] }],
+    });
+
+    const bareNow = new Date("2026-09-15T19:26:00.000Z");
+    const bareTurn = newUlid(bareNow);
+    const bare = "Add the Western reference.";
+    await seedTurn(principalId, bareTurn, bare, bareNow);
+    await expect(seeded.repository.applyOwnerPlan({
+      principalId, turnId: bareTurn, responseHash: "4".repeat(64), now: bareNow,
+      plan: {
+        engaged: true, programUpdates: [],
+        applicationUpdates: [{
+          itemRef: "new-item-1", programRef: seeded.programId, kind: "reference",
+          label: "Western reference", status: "not_started", statusEvidence: bare,
+          dueDate: {
+            date: null,
+            verification: { state: "unverified", sourceUrl: null, cycle: null },
+            evidence: bare,
+          },
+        }],
+      },
+    })).rejects.toThrow("university_application_item_exists");
+
+    const restoreNow = new Date("2026-09-15T19:27:00.000Z");
+    const restoreTurn = newUlid(restoreNow);
+    const restore = "Add the Western reference back, I need it after all.";
+    await seedTurn(principalId, restoreTurn, restore, restoreNow);
+    await expect(seeded.repository.applyOwnerPlan({
+      principalId, turnId: restoreTurn, responseHash: "5".repeat(64), now: restoreNow,
+      plan: {
+        engaged: true, programUpdates: [],
+        applicationUpdates: [{
+          itemRef: "new-item-1", programRef: seeded.programId, kind: "reference",
+          label: "Western reference", status: "not_started", statusEvidence: restore,
+          dueDate: {
+            date: null,
+            verification: { state: "unverified", sourceUrl: null, cycle: null },
+            evidence: restore,
+          },
+        }],
+      },
+    })).resolves.toBeUndefined();
+    await expect(seeded.repository.readSnapshot(principalId)).resolves.toMatchObject({
+      programs: [{ applicationItems: [{
+        itemId: seeded.itemId, status: "not_started", submittedAt: null,
       }] }],
     });
   });
