@@ -1,0 +1,36 @@
+PR #54 round-3 focused mutation run
+Base: e7077c8
+Node: v24.19.0
+pnpm: 11.19.0
+Command: node tests/acceptance/live/evidence-mutations/run-mutations.mjs
+
+target: tests/acceptance/live/voice-smoke.test.ts
+BASE: PASS
+S1-not-started-no-owner-authority: KILLED by "rejects an answered outbound call granted owner authority with no step-up"
+N1-inbound-attestation-not-applicable: KILLED by "binds the not_applicable attestation to outbound owner evidence only"
+N2-finite-audit-time: KILLED by "rejects an invalid audit time"
+N3-bounded-audit-clock-skew: KILLED by "allows bounded clock skew but rejects implausibly future evidence"
+summary: 4/4 KILLED
+
+2026-09-16 outbound-step-up-refused follow-up mutation run
+Base: origin/main 282f066 plus the candidate working tree
+Node: v24.19.0
+pnpm: 11.19.0
+Command: node tests/acceptance/live/evidence-mutations/run-mutations.mjs
+
+target: tests/acceptance/live/voice-smoke.test.ts
+BASE: PASS
+S1-not-started-no-owner-authority: KILLED by "rejects an answered outbound call granted owner authority with no step-up"
+N1-inbound-attestation-not-applicable: KILLED by "binds the not_applicable attestation to outbound owner evidence only"
+N2-finite-audit-time: KILLED by "rejects an invalid audit time"
+N3-bounded-audit-clock-skew: KILLED by "allows bounded clock skew but rejects implausibly future evidence"
+F1-not-started-outbound-only: KILLED by "refuses an inbound record whose owner step-up outcome is not_started"
+F2-audit-inbound-verified: KILLED by "requires the release audit's inbound record to have a verified owner step-up outcome"
+F3-verified-inbound-passphrase-policy: KILLED by "requires a verified inbound record itself to use the passphrase-always policy"
+O1-one-outbound-attempt: KILLED by "requires outbound step-up-refused evidence to show one outbound attempt"
+O2-recipient-answered: KILLED by "requires outbound step-up-refused evidence to show an answered recipient"
+O3-recipient-not-authenticated: KILLED by "requires outbound step-up-refused evidence to show no authenticated recipient"
+O4-neutral-greeting: KILLED by "requires outbound step-up-refused evidence to show only a neutral pre-authentication greeting"
+O5-no-purpose-disclosure: KILLED by "requires outbound step-up-refused evidence to show no purpose disclosure"
+O6-no-private-message: KILLED by "requires outbound step-up-refused evidence to show no private message"
+summary: 13/13 KILLED

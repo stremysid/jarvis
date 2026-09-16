@@ -150,13 +150,43 @@ const outboundNoAnswerEvidence = {
   eventIds: ["01j00000000000000000000009"],
 } as const;
 
+const outboundStepUpRefusedEvidence = {
+  ...commonEvidence,
+  scenario: "outbound-step-up-refused",
+  manifestKey: "outbound_step_up_refused",
+  correlationId: "01j0000000000000000000000a",
+  terminalState: "rejected",
+  eventIds: ["01j0000000000000000000000b"],
+  authenticatedTurns: 0,
+  authenticationMode: "owner_passphrase",
+  ownerStepUpOutcome: "refused",
+  ownerStepUpPromptCount: 3,
+  ownerStepUpAttemptCount: 3,
+  ownerStepUpRepromptCount: 0,
+  ownerStepUpRejectionReason: "attempts_exhausted",
+  callerIdAttestation: "not_applicable",
+  ownerCallerIdPolicy: "passphrase_always",
+  ownerAuthorityGranted: false,
+  callAttempts: 1,
+  recipientAnswered: true,
+  recipientAuthenticated: false,
+  neutralGreetingBeforeAuthentication: true,
+  purposeDisclosed: false,
+  privateMessageLeft: false,
+  modelRequests: 0,
+  personalContextReads: 0,
+  rejectionRowCount: 1,
+  rejectionDeliveryRowCount: 1,
+  ownerAlertDisposition: "sent",
+} as const;
+
 const ownerStepUpRefusedEvidence = {
   ...commonEvidence,
   scenario: "owner-step-up-refused",
   manifestKey: "owner_step_up_refused",
-  correlationId: "01j0000000000000000000000a",
+  correlationId: "01j0000000000000000000000c",
   terminalState: "rejected",
-  eventIds: ["01j0000000000000000000000b"],
+  eventIds: ["01j0000000000000000000000d"],
   authenticatedTurns: 0,
   authenticationMode: "owner_passphrase",
   ownerStepUpOutcome: "refused",
@@ -178,7 +208,7 @@ const failureEvidence = {
   ...commonEvidence,
   scenario: "failure-callbacks",
   manifestKey: "voice_failure_callbacks",
-  correlationId: "01j0000000000000000000000c",
+  correlationId: "01j0000000000000000000000e",
   terminalState: "failed",
   modelFailureHandled: true,
   websocketFailureHandled: true,
@@ -187,10 +217,10 @@ const failureEvidence = {
   statusCallbackSchema: "verified",
   relayEndedCallbackSchema: "verified",
   safeErrorCategories: ["model_unavailable", "relay_closed", "callback_rejected"],
-  eventIds: ["01j0000000000000000000000d"],
+  eventIds: ["01j0000000000000000000000f"],
   conversationTurnResult: {
     outcome: "failed",
-    committedUserEventId: "01j0000000000000000000000d",
+    committedUserEventId: "01j0000000000000000000000f",
     sentAssistantEventId: null,
     deliveryId: null,
     deliveredAssistantEventId: null,
@@ -392,6 +422,26 @@ describe("validateEvidence", () => {
     })).toThrow(/^unsafe_or_incomplete_evidence$/u);
   });
 
+  it("refuses an inbound record whose owner step-up outcome is not_started", () => {
+    expect(() => validateEvidence({
+      ...inboundEvidence,
+      ownerStepUpOutcome: "not_started",
+      ownerStepUpPromptCount: 0,
+      ownerStepUpAttemptCount: 0,
+      ownerAuthorityGranted: false,
+      ownerStepUpBeforeFirstModelTurn: false,
+    })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+  });
+
+  it("requires a verified inbound record itself to use the passphrase-always policy", () => {
+    expect(validateEvidence({ ...inboundEvidence, callerIdAttestation: "other" })).toBe(true);
+    expect(() => validateEvidence({
+      ...inboundEvidence,
+      callerIdAttestation: "other",
+      ownerCallerIdPolicy: "waive_on_passed_a",
+    })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+  });
+
   it("binds the not_applicable attestation to outbound owner evidence only", () => {
     expect(() => validateEvidence({ ...outboundAnswerEvidence, callerIdAttestation: "absent" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
     expect(() => validateEvidence({ ...outboundNoAnswerEvidence, callerIdAttestation: "absent" })).toThrow(/^unsafe_or_incomplete_evidence$/u);
@@ -428,6 +478,55 @@ describe("validateEvidence", () => {
         ownerCallerIdPolicy: "waive_on_passed_a",
       },
     ]) expect(() => validateEvidence(unsafe)).toThrow(/^unsafe_or_incomplete_evidence$/u);
+  });
+
+  it("accepts an answered outbound refusal only after the passphrase step-up was attempted and refused", () => {
+    expect(validateEvidence(outboundStepUpRefusedEvidence)).toBe(true);
+    expect(() => validateEvidence({
+      ...outboundStepUpRefusedEvidence,
+      ownerStepUpOutcome: "not_started",
+      ownerStepUpPromptCount: 0,
+      ownerStepUpAttemptCount: 0,
+    })).toThrow(/^unsafe_or_incomplete_evidence$/u);
+  });
+
+  it.each([
+    ["one outbound attempt", { callAttempts: 2 }],
+    ["an answered recipient", { recipientAnswered: false }],
+    ["no authenticated recipient", { recipientAuthenticated: true }],
+    ["only a neutral pre-authentication greeting", { neutralGreetingBeforeAuthentication: false }],
+    ["no purpose disclosure", { purposeDisclosed: true }],
+    ["no private message", { privateMessageLeft: true }],
+  ])("requires outbound step-up-refused evidence to show %s", (_rule, mutation) => {
+    expect(() => validateEvidence({ ...outboundStepUpRefusedEvidence, ...mutation })).toThrow(
+      /^unsafe_or_incomplete_evidence$/u,
+    );
+  });
+
+  it.each([
+    ["a rejected terminal state", { terminalState: "completed" }],
+    ["zero authenticated turns", { authenticatedTurns: 1 }],
+    ["three completed attempts", { ownerStepUpAttemptCount: 2 }],
+    ["a runtime-valid prompt count", { ownerStepUpPromptCount: 2 }],
+    ["a bounded re-prompt count", { ownerStepUpRepromptCount: 3 }],
+    ["the attempts_exhausted reason", { ownerStepUpRejectionReason: "deadline_expired" }],
+    ["no owner authority", { ownerAuthorityGranted: true }],
+    ["zero model requests", { modelRequests: 1 }],
+    ["zero personal-context reads", { personalContextReads: 1 }],
+    ["one rejection row", { rejectionRowCount: 0 }],
+    ["one rejection-delivery row", { rejectionDeliveryRowCount: 0 }],
+    ["a sent owner alert", { ownerAlertDisposition: "coalesced" }],
+  ])("requires outbound step-up-refused evidence to retain %s", (_rule, mutation) => {
+    expect(() => validateEvidence({ ...outboundStepUpRefusedEvidence, ...mutation })).toThrow(
+      /^unsafe_or_incomplete_evidence$/u,
+    );
+  });
+
+  it("rejects outbound step-up-refused evidence lasting longer than five minutes", () => {
+    expect(() => validateEvidence({
+      ...outboundStepUpRefusedEvidence,
+      endedAt: "2026-08-29T13:06:00.000Z",
+    })).toThrow(/^unsafe_or_incomplete_evidence$/u);
   });
 
   it("requires refused owner step-up to end in the rejected terminal state", () => {
@@ -654,6 +753,7 @@ describe("offline evidence lifecycle", () => {
     unauthorizedEvidence,
     outboundAnswerEvidence,
     outboundNoAnswerEvidence,
+    outboundStepUpRefusedEvidence,
     ownerStepUpRefusedEvidence,
     failureEvidence,
   ] as const;
@@ -672,12 +772,24 @@ describe("offline evidence lifecycle", () => {
     ], auditTime)).toThrow(/^release_voice_evidence_incomplete$/u);
   });
 
+  it("rejects the former six-record release set without outbound step-up refusal evidence", () => {
+    expect(() => auditVoiceEvidence([
+      inboundEvidence,
+      unauthorizedEvidence,
+      outboundAnswerEvidence,
+      outboundNoAnswerEvidence,
+      ownerStepUpRefusedEvidence,
+      failureEvidence,
+    ], auditTime)).toThrow(/^release_voice_evidence_incomplete$/u);
+  });
+
   it("rejects a release audit with missing or duplicate scenario evidence", () => {
     expect(() => auditVoiceEvidence([
       inboundEvidence,
       unauthorizedEvidence,
       outboundAnswerEvidence,
       outboundNoAnswerEvidence,
+      outboundStepUpRefusedEvidence,
       failureEvidence,
     ], auditTime)).toThrow(/^release_voice_evidence_incomplete$/u);
     expect(() => auditVoiceEvidence([
@@ -695,16 +807,8 @@ describe("offline evidence lifecycle", () => {
       unauthorizedEvidence,
       outboundAnswerEvidence,
       outboundNoAnswerEvidence,
+      outboundStepUpRefusedEvidence,
       ownerStepUpRefusedEvidence,
-      failureEvidence,
-    ], auditTime)).toThrow(/^release_voice_evidence_incomplete$/u);
-    expect(() => auditVoiceEvidence([
-      inboundEvidence,
-      inboundEvidence,
-      unauthorizedEvidence,
-      outboundAnswerEvidence,
-      outboundNoAnswerEvidence,
-      failureEvidence,
     ], auditTime)).toThrow(/^release_voice_evidence_incomplete$/u);
   });
 
@@ -714,6 +818,7 @@ describe("offline evidence lifecycle", () => {
       unauthorizedEvidence,
       outboundAnswerEvidence,
       outboundNoAnswerEvidence,
+      outboundStepUpRefusedEvidence,
       ownerStepUpRefusedEvidence,
       { ...failureEvidence, commitSha: "b".repeat(40) },
     ], auditTime)).toThrow(/^release_voice_evidence_incomplete$/u);
@@ -740,12 +845,13 @@ describe("offline evidence lifecycle", () => {
       unauthorizedEvidence,
       outboundAnswerEvidence,
       outboundNoAnswerEvidence,
+      outboundStepUpRefusedEvidence,
       refusedUnderPassphrasePolicy,
       failureEvidence,
     ], auditTime)).toThrow(/^release_voice_evidence_incomplete$/u);
   });
 
-  it("rejects a waived inbound record as the required inbound release record", () => {
+  it("requires the release audit's inbound record to have a verified owner step-up outcome", () => {
     const waivedInbound = {
       ...inboundEvidence,
       authenticationMode: "owner_attested_waiver",
@@ -769,28 +875,31 @@ describe("offline evidence lifecycle", () => {
       unauthorizedEvidence,
       outboundAnswerEvidence,
       outboundNoAnswerEvidence,
+      outboundStepUpRefusedEvidence,
       { ...ownerStepUpRefusedEvidence, ownerCallerIdPolicy: "waive_on_passed_a" },
       failureEvidence,
     ], auditTime)).toThrow(/^release_voice_evidence_incomplete$/u);
   });
 
-  it("requires distinct correlation IDs across all six records", () => {
+  it("requires distinct correlation IDs across all seven records", () => {
     expect(() => auditVoiceEvidence([
       inboundEvidence,
       unauthorizedEvidence,
       outboundAnswerEvidence,
       outboundNoAnswerEvidence,
+      outboundStepUpRefusedEvidence,
       { ...ownerStepUpRefusedEvidence, correlationId: inboundEvidence.correlationId },
       failureEvidence,
     ], auditTime)).toThrow(/^release_voice_evidence_incomplete$/u);
   });
 
-  it("requires event IDs to be disjoint across all six records", () => {
+  it("requires event IDs to be disjoint across all seven records", () => {
     expect(() => auditVoiceEvidence([
       inboundEvidence,
       unauthorizedEvidence,
       outboundAnswerEvidence,
       outboundNoAnswerEvidence,
+      outboundStepUpRefusedEvidence,
       { ...ownerStepUpRefusedEvidence, eventIds: [inboundEvidence.eventIds[0]] },
       failureEvidence,
     ], auditTime)).toThrow(/^release_voice_evidence_incomplete$/u);
@@ -808,6 +917,7 @@ describe("offline evidence lifecycle", () => {
       unauthorizedEvidence,
       outboundAnswerEvidence,
       outboundNoAnswerEvidence,
+      outboundStepUpRefusedEvidence,
       ownerStepUpRefusedEvidence,
       {
         ...failureEvidence,
@@ -820,6 +930,7 @@ describe("offline evidence lifecycle", () => {
       unauthorizedEvidence,
       outboundAnswerEvidence,
       outboundNoAnswerEvidence,
+      outboundStepUpRefusedEvidence,
       ownerStepUpRefusedEvidence,
       {
         ...failureEvidence,
@@ -829,13 +940,14 @@ describe("offline evidence lifecycle", () => {
     ], auditTime)).toThrow(/^release_voice_evidence_incomplete$/u);
   });
 
-  it("cleanup removes only the six generated final evidence names", async () => {
+  it("cleanup removes only the seven generated final evidence names", async () => {
     const store = new MemoryEvidenceStore();
     for (const name of [
       "inbound.json",
       "unauthorized-caller.json",
       "outbound-answer.json",
       "outbound-no-answer.json",
+      "outbound-step-up-refused.json",
       "owner-step-up-refused.json",
       "failure-callbacks.json",
       "operator-notes.txt",
@@ -989,6 +1101,10 @@ describe("safe command contract", () => {
     });
     expect(parseSmokeArguments(["--scenario", "owner-step-up-refused"])).toEqual({
       scenario: "owner-step-up-refused",
+      executeLive: false,
+    });
+    expect(parseSmokeArguments(["--scenario", "outbound-step-up-refused"])).toEqual({
+      scenario: "outbound-step-up-refused",
       executeLive: false,
     });
   });

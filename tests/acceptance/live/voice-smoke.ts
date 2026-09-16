@@ -9,6 +9,7 @@ export const VOICE_SMOKE_SCENARIOS = [
   "unauthorized-caller",
   "outbound-answer",
   "outbound-no-answer",
+  "outbound-step-up-refused",
   "owner-step-up-refused",
   "failure-callbacks",
 ] as const;
@@ -180,6 +181,31 @@ const OUTBOUND_NO_ANSWER_FIELDS = [
   "modelRequests",
   "personalContextReads",
   "statusCallbackSchema",
+] as const;
+
+const OUTBOUND_STEP_UP_REFUSED_FIELDS = [
+  ...COMMON_FIELDS,
+  "authenticatedTurns",
+  "authenticationMode",
+  "ownerStepUpOutcome",
+  "ownerStepUpPromptCount",
+  "ownerStepUpAttemptCount",
+  "ownerStepUpRepromptCount",
+  "ownerStepUpRejectionReason",
+  "callerIdAttestation",
+  "ownerCallerIdPolicy",
+  "ownerAuthorityGranted",
+  "callAttempts",
+  "recipientAnswered",
+  "recipientAuthenticated",
+  "neutralGreetingBeforeAuthentication",
+  "purposeDisclosed",
+  "privateMessageLeft",
+  "modelRequests",
+  "personalContextReads",
+  "rejectionRowCount",
+  "rejectionDeliveryRowCount",
+  "ownerAlertDisposition",
 ] as const;
 
 const OWNER_STEP_UP_REFUSED_FIELDS = [
@@ -367,6 +393,7 @@ function validateOwnerStepUp(
     if (outcome === "verified") {
       if (
         !claimsOwnerAuthority
+        || direction === "inbound" && policy !== "passphrase_always"
         || !validInteger(evidence.ownerStepUpPromptCount, 1, 5)
         || !validInteger(evidence.ownerStepUpAttemptCount, 1, 3)
         || evidence.ownerStepUpAttemptCount > evidence.ownerStepUpPromptCount
@@ -419,7 +446,7 @@ function validateInbound(value: unknown): void {
     || evidence.recallVerified !== true
     || evidence.cleanHangup !== true
   ) unsafe();
-  validateOwnerStepUp(evidence, "inbound", true);
+  validateOwnerStepUp(evidence, "inbound", evidence.ownerStepUpOutcome !== "not_started");
   validateRelayContract(evidence);
   validateTask5VoiceTurn(evidence.conversationTurnResult, evidence.eventIds, TASK_5_VOICE_SENT);
 }
@@ -488,9 +515,7 @@ function validateOutboundNoAnswer(value: unknown): void {
   validateOwnerStepUp(evidence, "outbound", false);
 }
 
-function validateOwnerStepUpRefused(value: unknown): void {
-  const evidence = exactRecord(value, OWNER_STEP_UP_REFUSED_FIELDS);
-  validateCommon(evidence, "owner-step-up-refused", "owner_step_up_refused");
+function validateRefusedOwnerStepUp(evidence: Record<string, unknown>, direction: "inbound" | "outbound"): void {
   if (
     evidence.terminalState !== "rejected"
     || evidence.authenticatedTurns !== 0
@@ -506,7 +531,27 @@ function validateOwnerStepUpRefused(value: unknown): void {
     || evidence.ownerAlertDisposition !== "sent"
     || Date.parse(evidence.endedAt as string) - Date.parse(evidence.startedAt as string) > 5 * 60_000
   ) unsafe();
-  validateOwnerStepUp(evidence, "inbound", false);
+  validateOwnerStepUp(evidence, direction, false);
+}
+
+function validateOutboundStepUpRefused(value: unknown): void {
+  const evidence = exactRecord(value, OUTBOUND_STEP_UP_REFUSED_FIELDS);
+  validateCommon(evidence, "outbound-step-up-refused", "outbound_step_up_refused");
+  if (
+    evidence.callAttempts !== 1
+    || evidence.recipientAnswered !== true
+    || evidence.recipientAuthenticated !== false
+    || evidence.neutralGreetingBeforeAuthentication !== true
+    || evidence.purposeDisclosed !== false
+    || evidence.privateMessageLeft !== false
+  ) unsafe();
+  validateRefusedOwnerStepUp(evidence, "outbound");
+}
+
+function validateOwnerStepUpRefused(value: unknown): void {
+  const evidence = exactRecord(value, OWNER_STEP_UP_REFUSED_FIELDS);
+  validateCommon(evidence, "owner-step-up-refused", "owner_step_up_refused");
+  validateRefusedOwnerStepUp(evidence, "inbound");
 }
 
 function validSafeErrorCategories(value: unknown): boolean {
@@ -548,6 +593,9 @@ export function validateEvidence(value: unknown): true {
         break;
       case "outbound-no-answer":
         validateOutboundNoAnswer(value);
+        break;
+      case "outbound-step-up-refused":
+        validateOutboundStepUpRefused(value);
         break;
       case "owner-step-up-refused":
         validateOwnerStepUpRefused(value);
@@ -696,9 +744,10 @@ export function auditVoiceEvidence(records: readonly unknown[], auditTime = new 
         scenario === "inbound"
         || scenario === "outbound-answer"
         || scenario === "outbound-no-answer"
+        || scenario === "outbound-step-up-refused"
         || scenario === "owner-step-up-refused"
       ) {
-        if (dataField(record as object, "ownerCallerIdPolicy") !== "passphrase_always") throw new Error();
+        if (scenario !== "inbound" && dataField(record as object, "ownerCallerIdPolicy") !== "passphrase_always") throw new Error();
         if (scenario === "inbound" && dataField(record as object, "ownerStepUpOutcome") !== "verified") throw new Error();
       }
     }
