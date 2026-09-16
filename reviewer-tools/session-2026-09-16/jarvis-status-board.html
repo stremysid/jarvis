@@ -204,7 +204,7 @@
 <main>
   <header class="mast">
     <h1>Jarvis status</h1>
-    <p>Updated Sep 15, 11:25 PM your time. Five merged tonight. You and I then ran the database procedure for real and found it cannot finish — see "Needs you" below; the short version is your changes are fine and the procedure is not, and a rebuild is under way. Also still going: the application checklist on round six, and the next memory piece is in review. I review, relay and merge, two builders at a time. R1 is still the v1.0 release gate: phone Jarvis from the car.</p>
+    <p>Updated Sep 16, 1:00 PM your time. Your PC went off overnight, which stopped the builders mid-task; they are restarted and nothing was lost. Since then: two merged, two sent back with proof of what is wrong, and five builders working through the queue. The biggest catch today: the new grades check could tell you homework is missing after you handed it in — found and proved before it went anywhere. I review, relay and merge. R1 is still the v1.0 release gate: phone Jarvis from the car.</p>
     <div class="live">
       <span>Gateway live: version <span class="mono">28109492</span></span>
       <span>Health check OK</span>
@@ -216,7 +216,7 @@
 
     <div class="task">
       <strong>1. Switch the database changes on — blocked on me, not you</strong>
-      <p>We tried this together tonight and it stopped at the first step, for a reason worth knowing: the rehearsal procedure starts from an empty database, and three of your oldest changes cannot be re-applied to an empty one. They have been live on your real database for ages, so this has never mattered — until a procedure tried to replay them. <strong>Your nine waiting changes are fine</strong>; I checked every one, and the real database starts from where it already is, so those three are never touched. Nothing is wrong with your account and both throwaway databases were deleted. A rebuilt procedure is being written now — one that brings the throwaway up to where your real database actually stands, then tries the nine on top, which is the thing worth testing. I will bring it back to you when it is a checklist that finishes.</p>
+      <p>Three of your oldest database changes are written in a form Cloudflare can no longer read, so a fresh copy of your database could never be rebuilt. Your real database is fine and never re-runs them. A builder is rewriting those three into the form that works (proven on a real throwaway database). Once that is reviewed, the rehearsal for your waiting changes can actually finish, and I will bring it to you as a checklist.</p>
     </div>
 
     <div class="task">
@@ -231,19 +231,74 @@
     </div>
 
     <div class="task">
+      <strong>Tiny cleanup, 10 seconds</strong>
+      <p>Delete the throwaway test database from this morning (it holds a two-row toy table, nothing of yours). In <strong>PowerShell 7</strong>:</p>
+      <pre class="mono">cd C:javis
+npx.cmd wrangler d1 delete jarvis-probe-caseraise</pre>
+    </div>
+
+    <div class="task">
       <strong>Small one, only if you want</strong>
       <p>Set up the 5-minute outside "is Jarvis down" check now that v1.0 is close. That is the whole list — the key rotation came off it, and nothing I do touches your clipboard.</p>
     </div>
 
     <div class="task">
       <strong>Done so far today</strong>
-      <p>With your permission I merged <a href="https://github.com/ksid1229-ops/jarvis/pull/40">#40</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/41">#41</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/43">#43</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/42">#42</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/44">#44</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/45">#45</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/48">#48</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/47">#47</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/49">#49</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/51">#51</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/46">#46</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/50">#50</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/54">#54</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/53">#53</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/56">#56</a> and <a href="https://github.com/ksid1229-ops/jarvis/pull/57">#57</a> and <a href="https://github.com/ksid1229-ops/jarvis/pull/58">#58</a>, and checked each one on the combined code afterwards. Nothing is deployed or switched on.</p>
+      <p>With your permission I merged <a href="https://github.com/ksid1229-ops/jarvis/pull/40">#40</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/41">#41</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/43">#43</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/42">#42</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/44">#44</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/45">#45</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/48">#48</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/47">#47</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/49">#49</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/51">#51</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/46">#46</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/50">#50</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/54">#54</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/53">#53</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/56">#56</a> and <a href="https://github.com/ksid1229-ops/jarvis/pull/57">#57</a> <a href="https://github.com/ksid1229-ops/jarvis/pull/58">#58</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/52">#52</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/68">#68</a> and <a href="https://github.com/ksid1229-ops/jarvis/pull/63">#63</a>, and checked each one on the combined code afterwards. Nothing is deployed or switched on.</p>
     </div>
   </div>
 
   <section>
     <h2>Pull requests</h2>
     <div class="ledger">
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/61">#61</a>
+        <span class="what">Grades and missing-work check</span>
+        <span class="pill Fixes needed">warn</span>
+        <span class="detail">Jarvis reads your submissions and marks from Google Classroom and adds a "grades and submission checks" part to your morning update. Its database side is solid (all 12 guards proven). But I proved, by running it, two ways it could tell you something false: work you handed in still listed as "no submission seen", and work checked before its deadline reported missing once the check finished after it. One lost save plus a teacher moving a due date could also stop the check for good. Times also show in UTC instead of Toronto time. The school builder has the fixes. Nothing is turned on.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/67">#67</a>
+        <span class="what">Guest-PIN notices never get stuck</span>
+        <span class="pill Small fixes">warn</span>
+        <span class="detail">When a guest PIN is created or changed, Jarvis messages you. Before, one message that kept failing could block every newer one forever; now it takes turns, so newer messages still get through. That fix is real and all 3,715 tests pass. What is missing is tests: I removed 14 of its safety checks one by one and 9 went unnoticed. Also decided for you (no action needed): a message that keeps failing is never thrown away, it just keeps retrying. Nothing is turned on.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/68">#68</a>
+        <span class="what">Memory safety check pinned</span>
+        <span class="pill Merged">good</span>
+        <span class="detail">Merged (<span class="mono">57a9ad0</span>). One small test: if your account were disabled, old-conversation search can no longer record results for it. I proved the gap was real on the old code and closed by this test. 3,708 tests pass.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/63">#63</a>
+        <span class="what">Roadmap: study coach and your calendar</span>
+        <span class="pill Merged">good</span>
+        <span class="detail">Merged (<span class="mono">5358b14</span>). The roadmap now has the proactive study coach you asked for (regular check-ins, learns your weak spots, makes quizzes and flashcards, quizzes you in the car, finds free tools, never spends or signs up without your tap) and one Jarvis-run calendar for school, St. Remy and personal plans. Whether your calendar is iCloud or Google is written down as "ask Sid when we get there".</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/59">#59</a>
+        <span class="what">Memory learns on its own</span>
+        <span class="pill Being fixed">warn</span>
+        <span class="detail">Jarvis pulls what matters out of your chats automatically. My review found two ways it would quietly stop learning (a few long messages in a row, or ordinary chat volume outpacing it) and one way it could file something your mum said as something you said. The builder had most of the fix done when the PC went off; it is finishing it now.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/62">#62</a>
+        <span class="what">Memory in Telegram chats</span>
+        <span class="pill Waiting">warn</span>
+        <span class="detail">The next memory piece, built on top of <a href="https://github.com/ksid1229-ops/jarvis/pull/59">#59</a>. I review it once <a href="https://github.com/ksid1229-ops/jarvis/pull/59">#59</a> is fixed, since it would otherwise be checked against code that is about to change.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/64">#64</a>
+        <span class="what">Full university application workflow</span>
+        <span class="pill Being built">warn</span>
+        <span class="detail">Supplements, scholarships, essays, references, transcripts and offers, where Jarvis prepares everything and tells you exactly what to do, and never submits, uploads or contacts anyone itself. The builder was partway in when the PC went off; it is resuming.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/60">#60</a>
+        <span class="what">Database rehearsal, real path</span>
+        <span class="pill On hold">warn</span>
+        <span class="detail">Good work, aimed at a wall: it rebuilds a copy of your database from scratch, which is impossible until the three old changes are rewritten (item 1 above). It resumes after that.</span>
+      </div>
       <div class="row">
         <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/58">#58</a>
         <span class="what">Your database runbook</span>
@@ -283,8 +338,8 @@
       <div class="row">
         <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/52">#52</a>
         <span class="what">University application checklist</span>
-        <span class="pill warn">Fixes needed</span>
-        <span class="detail">For each program on your shortlist, Jarvis tracks supplementary applications, essays, personal statements, references, transcripts and scholarships, each with a status and a due date marked verified or unverified. You update it in plain words and your morning update lists the next few items. It never submits, uploads or contacts anyone. Round five: the official-deadline and "Arts and Science" problems are properly fixed and all 3,639 tests pass. Two things still wrong, both proved by running them. The "wrong item" bug now survives a comma instead of a full stop — "The Western essay is next, the Common App is done and I submitted it" still marks your Western essay submitted and drops it from your digest. And the reply guard broke both ways at once: four claims it should block get through, and sixteen ordinary sentences are wrongly blocked, including "I have requested nothing from the school on your behalf". This is the third round where fixing one thing broke another in the same two places, so I asked for a different approach rather than another patch. Nothing merged is affected. Nothing is turned on.</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">a38a637</span>). For each program on your shortlist, Jarvis tracks supplementary applications, essays, personal statements, references, transcripts and scholarships, each with a status and a due date marked verified or unverified. You update it in plain words and your morning update lists the next few items. It never submits, uploads or contacts anyone. It took six rounds; what finally fixed it was changing the approach, not adding more patches. If Jarvis ever refuses an ordinary reply, tell me — that list is meant to grow from real use.</span>
       </div>
       <div class="row">
         <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/51">#51</a>
