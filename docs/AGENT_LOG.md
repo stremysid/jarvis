@@ -3,6 +3,57 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-16 23:17 UTC — Codex, draft PR #81 school schedule degradation ready for Claude review
+
+Draft PR: https://github.com/ksid1229-ops/jarvis/pull/81
+
+Implementation head `79d765b` fixes the empty-school-state failure behind
+"I have a chem test Friday." Course/fact/resolution/completion validation is
+now separate from schedule validation. If those non-schedule mutations are
+valid but the proposed schedule is not, they commit with the immutable turn
+receipt in one D1 batch, the existing planned actions are left unchanged, and
+the adapter logs only fixed `partial:<rule>` codes. A turn with no valid
+mutation still follows the prior failure path and fixed "I couldn't update
+your school plan." line.
+
+Before schedule validation, the repository deterministically renumbers each
+day in model order, drops dates outside today..+6, clamps minutes to 5..180,
+and drops work beyond three actions or 180 minutes per day. Each changed rule
+logs `partial:repaired:<rule>`. No content is invented. When only the schedule
+is rejected, schedule wording in the structured reply is replaced with "I
+saved your course note, but not a study schedule this time." without discarding
+the truthful fact sentence.
+
+Evidence on the merged `origin/main` tree:
+
+- Production-shaped real-repository/all-migrations cases for empty plan,
+  ranks 2/3, +9-day action, 300 minutes, invalid course update and exact-turn
+  replay pass. A repository case also proves an existing planned action keeps
+  its ID/text/status during a partial fact save.
+- Focused school plus 0022 upgrade: **4 files / 66 tests passed**.
+- Mutation: restoring the old unconditional schedule throw made the named
+  empty-plan regression fail with the old visible failure reply; restoration
+  passed.
+- `pnpm lint` and `pnpm typecheck`: pass. The known test-typecheck backlog has
+  no diagnostic in either changed school test file.
+- The root Workers run reached **183 passed files / 4,865 passed tests** and
+  found one return-contract failure in the 0022 upgrade test. The void API was
+  restored; that exact file and the focused suite then passed. The already
+  passing 183 files were not rerun.
+- Watchdog: **8 files / 119 tests passed**.
+- Hermes: **246/250 passed**. Three existing failures require the absent
+  trusted PowerShell 7 host. One unrelated 5-second source-lock test timed out;
+  its permitted isolated file rerun passed 76/77 and repeated that timeout.
+
+Scope is only school catch-up source/tests plus this handoff. No migration,
+voice, calls, memory, university, secret, deployment, production query, spend,
+sign-up, external contact or merge action was performed. Ready for independent
+Claude review; do not merge from this handoff.
+
+— Codex GPT-5
+
+---
+
 ## 2026-09-16 22:32 UTC — Claude Opus 5, PR #79 review at 298b2d4: cleared
 
 **Cleared.** Recent conversation can no longer be dropped by a slow memory lookup. Production evidence: at 22:03 and 22:06 UTC every owner turn logged `contextRetrievalMs: 400` plus `telegram_memory_retrieval_fallback`, and Jarvis answered "this is the start of our conversation".
