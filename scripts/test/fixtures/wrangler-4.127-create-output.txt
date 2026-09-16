@@ -1,0 +1,13 @@
+✅ Successfully created DB 'jarvis-scratch-rehearsal-0916f' in region ENAM
+Created your new D1 database.
+
+To access your new D1 Database in your Worker, add the following snippet to your configuration file:
+{
+  "d1_databases": [
+    {
+      "binding": "jarvis_scratch_rehearsal_0916f",
+      "database_name": "jarvis-scratch-rehearsal-0916f",
+      "database_id": "00000000-0000-4000-8000-000000000000"
+    }
+  ]
+}

@@ -38,7 +38,7 @@ database. It does not authorize a production migration or deployment.
    $CreateOutput | Write-Host
    if ($CreateExit -ne 0) { throw "Scratch D1 creation failed." }
    $CreateText = $CreateOutput -join "`n"
-   $IdMatch = [regex]::Match($CreateText, 'database_id\s*(?:=|:)\s*"([0-9a-fA-F-]{36})"')
+   $IdMatch = [regex]::Match($CreateText, '"?database_id"?\s*[:=]\s*"([0-9a-fA-F-]{36})"')
    if (-not $IdMatch.Success) { throw "Wrangler succeeded but its returned scratch database id could not be read. Delete the confirmed scratch database before restarting." }
    $ScratchDatabaseId = $IdMatch.Groups[1].Value
    $MigrationRoot = (Resolve-Path -LiteralPath 'apps/cloud-gateway/src/persistence/migrations').Path
@@ -363,8 +363,9 @@ database. It does not authorize a production migration or deployment.
    Write-Host "SCRATCH CONFIG DELETE OK: $ScratchConfig"
    ```
 
-   Confirm deletion only for the displayed scratch name. Keep the commit SHA,
-   UTC time, scratch name, `15/15` baseline line, dynamic candidate-range and
+   Wrangler asks for confirmation during deletion; answer `y` only for the
+   displayed scratch name. Keep the commit SHA, UTC time, scratch name,
+   `15/15` baseline line, dynamic candidate-range and
    receipt-count lines, dynamic trigger-count line, seed marker, four
    unique-guard lines, preserved-row line, CASE rejection and both deletion
    lines in the protected rollout record. Do not record account identifiers or
