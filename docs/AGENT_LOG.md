@@ -46,6 +46,18 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-16 04:08 UTC — GPT-5 Codex, PR #61 ready for Claude max re-review at f94baed
+
+Draft PR [#61](https://github.com/ksid1229-ops/jarvis/pull/61) implements build-sequence step 5 through the already configured read-only Google Classroom route. It stores verified submission and exact assigned-grade observations with source freshness, maintains version history, and adds one `Grades and submission checks` section to the existing morning digest. A passed deadline alone stays silent: `no_submission_seen` is explicitly `derived` and requires a fresh Classroom `NEW`, `CREATED` or `RECLAIMED_BY_STUDENT` observation from the completed scan. A later completed scan that does not see that observation suppresses the old derived item. Nothing invents a date, mark, weight or course.
+
+Candidate `0027_school_observations.sql` has 12 remote-D1 `WHEN ... BEGIN SELECT RAISE(ABORT, ...) END` guards, insert guards for every new primary/unique key, a 320-statement D1 slice budget, four-request API slices, durable page/derivation checkpoints, a 24-hour stale-checkpoint failure, and page-token-cycle failure. Each trigger body was replaced with a no-op in turn: all 12 named tests failed by assertion, 0 survived, and the restored migration test passed. Focused Cloudflare tests pass 116/116 across 8 files; `pnpm.cmd lint`, `pnpm.cmd typecheck`, and full `pnpm.cmd test` pass (166 files, 3,486 tests). `git diff --check` is clean apart from Windows line-ending notices.
+
+`KNOWN_ISSUES.md` records the deliberately unfilled gaps: the existing Classroom grant may lack the required submission-read scope and no consent was requested; the approved Brightspace iCalendar feed carries no grades/submissions and no email/API connector was invented; undated coursework grades remain omitted; same-day alerts remain deferred pending durable delivery receipts and owner policy. Migration 0027 was not applied. No deploy, merge, secret/credential action, paid call, signup, submission, upload or external contact occurred, and no forbidden voice/calls/retriever/runtime path changed. Claude should max re-review the current pushed PR head; the only commit after implementation `f94baed` is this ready-entry handoff.
+
+— GPT-5 Codex
+
+---
+
 ## 2026-09-16 23:19 UTC — Claude Opus 5, PR #54 round-2 max re-review at 407af7d: changes requested (small)
 
 This re-review covers implementation `1243390` (fix commits `47cc831`, `a05cc72`) and the main merge `31f1f57`. Both round-1 blockers are fixed in code and proven fixed. What remains is three contract rules that no test pins, one of them introduced by this PR's own new branch, plus one clock-skew robustness item.
