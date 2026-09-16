@@ -1,0 +1,186 @@
+checked out 7fd25ff at 7fd25ff
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  6 passed (6)
+   Tests  146 passed (146)
+
+== T-archive_segment_events_no_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts (16 tests | 1 failed) 4289ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  1 failed | 145 passed (146)
+   × memory_distillation_event_receipts_insert_guard requires owner coverage for an eligible archived receipt 175ms
+
+== T-memory_distillation_event_receipts_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts (16 tests | 2 failed) 3528ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  2 failed | 144 passed (146)
+   × memory_distillation_event_receipts_insert_guard rejects OR IGNORE and OR REPLACE replays 181ms
+   × memory_distillation_event_receipts_insert_guard requires owner coverage for an eligible archived receipt 181ms
+
+== T-memory_distillation_event_receipts_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts (16 tests | 1 failed) 3866ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  1 failed | 145 passed (146)
+   × memory_distillation_event_receipts_immutable_update rejects a changed receipt 247ms
+
+== T-memory_distillation_event_receipts_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts (16 tests | 1 failed) 4346ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  1 failed | 145 passed (146)
+   × memory_distillation_event_receipts_delete_forbidden rejects receipt deletion 234ms
+
+== T-memory_distillation_item_receipts_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts (16 tests | 2 failed) 3827ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  2 failed | 144 passed (146)
+   × memory_distillation_item_receipts_insert_guard rejects OR IGNORE and OR REPLACE replays 290ms
+   × memory_distillation_item_receipts_insert_guard rejects an undercounted item created after its run began 252ms
+
+== T-memory_distillation_item_receipts_immutable_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts (16 tests | 1 failed) 4688ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  1 failed | 145 passed (146)
+   × memory_distillation_item_receipts_immutable_update rejects a changed receipt 230ms
+
+== T-memory_distillation_item_receipts_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts (16 tests | 1 failed) 3647ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  1 failed | 145 passed (146)
+   × memory_distillation_item_receipts_delete_forbidden rejects receipt deletion 228ms
+
+== T-memory_distillation_runs_reconcile_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts (16 tests | 4 failed) 6013ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  4 failed | 142 passed (146)
+   × memory_distillation_runs_reconcile_guard rejects a terminal count without receipt rows 161ms
+   × memory_distillation_runs_reconcile_guard rejects an input count not justified by event receipts 146ms
+   × memory_distillation_runs_reconcile_guard rejects a created count not justified by item receipts 150ms
+   × memory_distillation_runs_reconcile_guard keeps a terminal failed run from becoming nothing_new 145ms
+
+== T-memory_distillation_cursor_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts (16 tests | 1 failed) 3931ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  1 failed | 145 passed (146)
+   × memory_distillation_cursor_insert_guard rejects progress without a reconciled item batch 144ms
+
+== T-memory_distillation_cursor_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts (16 tests | 2 failed) 3964ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  2 failed | 144 passed (146)
+   × memory_distillation_cursor_update_guard rejects progress without a reconciled item batch 144ms
+   × memory_distillation_cursor_update_guard rejects moving a distillation cursor backwards 227ms
+
+== H1-text-no-narrow: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/automatic-distillation.test.ts (32 tests | 1 failed) 10722ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  1 failed | 145 passed (146)
+   × narrows a seventy-kilobyte production-default window and advances in the same call 176ms
+
+== M2-proposal-no-narrow: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/automatic-distillation.test.ts (32 tests | 1 failed) 10404ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  1 failed | 145 passed (146)
+   × narrows a proposal-heavy window and skips only the irreducible event before advancing 172ms
+
+== H1-irreducible-text-skip: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/automatic-distillation.test.ts (32 tests | 1 failed) 10099ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  1 failed | 145 passed (146)
+   × records one oversized event with a visible skip reason and advances without a provider call 188ms
+
+== M2-irreducible-proposal-skip: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (18 tests | 1 failed) 21146ms
+   Test Files  2 failed | 4 passed (6)
+   Tests  2 failed | 144 passed (146)
+   × narrows a proposal-heavy window and skips only the irreducible event before advancing 189ms
+   × keeps the soonest 180 upcoming items ahead of past-due items and reports the digest gap 10397ms
+
+== H2-count-all-events: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/automatic-distillation.test.ts (32 tests | 1 failed) 11613ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  1 failed | 145 passed (146)
+   × drains multiple production-default steps per hour while only eligible owner events consume the event budget 808ms
+
+== H2-one-step-per-poll: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/automatic-distillation.test.ts (32 tests | 2 failed) 10128ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  2 failed | 144 passed (146)
+   × drains multiple production-default steps per hour while only eligible owner events consume the event budget 1204ms
+   × reports a positive backlog when the bounded hourly step loop cannot catch up 1119ms
+
+== M3-no-key-retry: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (18 tests | 2 failed) 47169ms
+   Test Files  2 failed | 4 passed (6)
+   Tests  4 failed | 142 passed (146)
+   × terminalizes a finalization receipt conflict so a fresh run can replay and advance 1939ms
+   × reports a positive backlog when the bounded hourly step loop cannot catch up 8567ms
+   × caps a cancellation-heavy sweep below its counted D1 statement budget 18378ms
+   × keeps a 600-component feed under the D1 budget by ingesting only the bounded date window 16402ms
+
+== M1-preceding-attribution: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (18 tests | 3 failed) 55360ms
+   Test Files  3 failed | 3 passed (6)
+   Tests  8 failed | 138 passed (146)
+   × keeps first-person speech framed by a text attribution out of automatic trust 4ms
+   × keeps first-person speech framed by a written attribution out of automatic trust 1ms
+   × keeps first-person speech framed by a message attribution out of automatic trust 0ms
+   × keeps first-person speech framed by a reported attribution out of automatic trust 0ms
+
+== M5-code-subject-mismatch: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (18 tests | 1 failed) 41675ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  1 failed | 145 passed (146)
+   × caps a cancellation-heavy sweep below its counted D1 statement budget 15524ms
+
+== M5-trigger-subject-bound: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts (16 tests | 1 failed) 4248ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  1 failed | 145 passed (146)
+   × memory_distillation_event_receipts_insert_guard requires owner coverage for an eligible archived receipt 226ms
+
+== M4-trigger-terminal-immutable: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts (16 tests | 1 failed) 3683ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  1 failed | 145 passed (146)
+   × memory_distillation_runs_reconcile_guard keeps a terminal failed run from becoming nothing_new 195ms
+
+== L3-trigger-cursor-backwards: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts (16 tests | 1 failed) 3880ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  1 failed | 145 passed (146)
+   × memory_distillation_cursor_update_guard rejects moving a distillation cursor backwards 241ms
+
+== M5-archive-subject-set-once: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts (16 tests | 1 failed) 4021ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  1 failed | 145 passed (146)
+   × memory_distillation_event_receipts_insert_guard requires owner coverage for an eligible archived receipt 179ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-archive_segment_events_no_update
+KILLED    T-memory_distillation_event_receipts_insert_guard
+KILLED    T-memory_distillation_event_receipts_immutable_update
+KILLED    T-memory_distillation_event_receipts_delete_forbidden
+KILLED    T-memory_distillation_item_receipts_insert_guard
+KILLED    T-memory_distillation_item_receipts_immutable_update
+KILLED    T-memory_distillation_item_receipts_delete_forbidden
+KILLED    T-memory_distillation_runs_reconcile_guard
+KILLED    T-memory_distillation_cursor_insert_guard
+KILLED    T-memory_distillation_cursor_update_guard
+KILLED    H1-text-no-narrow
+KILLED    M2-proposal-no-narrow
+KILLED    H1-irreducible-text-skip
+KILLED    M2-irreducible-proposal-skip
+KILLED    H2-count-all-events
+KILLED    H2-one-step-per-poll
+KILLED    M3-no-key-retry
+KILLED    M1-preceding-attribution
+KILLED    M5-code-subject-mismatch
+KILLED    M5-trigger-subject-bound
+KILLED    M4-trigger-terminal-immutable
+KILLED    L3-trigger-cursor-backwards
+KILLED    M5-archive-subject-set-once
+back on main, tree clean=true
+(node:30964) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

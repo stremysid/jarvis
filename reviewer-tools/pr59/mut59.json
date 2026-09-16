@@ -1,0 +1,294 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "7fd25ff",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0026_memory_distillation.sql",
+   "from": "CREATE TRIGGER archive_segment_events_no_update\n",
+   "to": "CREATE TRIGGER archive_segment_events_no_update\n",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "T-archive_segment_events_no_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0026_memory_distillation.sql",
+   "from": "CREATE TRIGGER archive_segment_events_no_update\nBEFORE UPDATE ON archive_segment_events\nWHEN OLD.subject_id IS NOT NULL\n  OR NEW.subject_id IS NULL\n  OR typeof(NEW.subject_id) <> 'text'\n  OR length(CAST(NEW.subject_id AS BLOB)) NOT BETWEEN 1 AND 256\n  OR instr(NEW.subject_id, char(0)) <> 0\n  OR NEW.event_sequence <> OLD.event_sequence\n  OR NEW.event_id <> OLD.event_id\n  OR NEW.segment_id <> OLD.segment_id\n  OR NEW.envelope_sha256 <> OLD.envelope_sha256\n  OR NEW.content_hash <> OLD.content_hash\n  OR NEW.created_at <> OLD.created_at\nBEGIN\n  SELECT RAISE(ABORT, 'archive_coverage_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "T-memory_distillation_event_receipts_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0026_memory_distillation.sql",
+   "from": "CREATE TRIGGER memory_distillation_event_receipts_insert_guard\nBEFORE INSERT ON memory_distillation_event_receipts\nWHEN EXISTS (\n    SELECT 1 FROM memory_distillation_event_receipts receipt\n    WHERE receipt.receipt_id = NEW.receipt_id\n      OR (receipt.principal_id = NEW.principal_id\n        AND receipt.run_id = NEW.run_id\n        AND (receipt.event_sequence = NEW.event_sequence OR receipt.event_id = NEW.event_id))\n  )\n  OR NOT EXISTS (\n    SELECT 1 FROM memory_runs run\n    WHERE run.principal_id = NEW.principal_id\n      AND run.run_id = NEW.run_id\n      AND run.job = 'distillation'\n      AND run.outcome = 'running'\n      AND NEW.event_sequence BETWEEN run.start_event_sequence AND run.end_event_sequence\n      AND NEW.recorded_at >= run.started_at\n  )\n  OR (\n    NEW.source_location = 'live'\n    AND NOT EXISTS (\n      SELECT 1 FROM events event\n      WHERE event.sequence = NEW.event_sequence\n        AND event.event_id = NEW.event_id\n        AND event.content_hash = NEW.content_hash\n        AND (NEW.disposition = 'skipped' OR event.subject_id = NEW.principal_id)\n    )\n  )\n  OR (\n    NEW.source_location = 'archived'\n    AND NOT EXISTS (\n      SELECT 1 FROM archive_segment_events archived\n      WHERE archived.event_sequence = NEW.event_sequence\n        AND archived.event_id = NEW.event_id\n        AND archived.content_hash = NEW.content_hash\n        AND archived.segment_id = NEW.r2_segment_id\n        AND (NEW.disposition = 'skipped' OR archived.subject_id = NEW.principal_id)\n    )\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_distillation_event_receipt_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "T-memory_distillation_event_receipts_immutable_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0026_memory_distillation.sql",
+   "from": "CREATE TRIGGER memory_distillation_event_receipts_immutable_update\nBEFORE UPDATE ON memory_distillation_event_receipts\nWHEN 1 = 1\nBEGIN\n  SELECT RAISE(ABORT, 'memory_distillation_event_receipt_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "T-memory_distillation_event_receipts_delete_forbidden",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0026_memory_distillation.sql",
+   "from": "CREATE TRIGGER memory_distillation_event_receipts_delete_forbidden\nBEFORE DELETE ON memory_distillation_event_receipts\nWHEN 1 = 1\nBEGIN\n  SELECT RAISE(ABORT, 'memory_distillation_event_receipt_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "T-memory_distillation_item_receipts_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0026_memory_distillation.sql",
+   "from": "CREATE TRIGGER memory_distillation_item_receipts_insert_guard\nBEFORE INSERT ON memory_distillation_item_receipts\nWHEN EXISTS (\n    SELECT 1 FROM memory_distillation_item_receipts receipt\n    WHERE receipt.receipt_id = NEW.receipt_id\n      OR (receipt.principal_id = NEW.principal_id\n        AND receipt.run_id = NEW.run_id\n        AND (receipt.item_id = NEW.item_id OR receipt.proposal_hash = NEW.proposal_hash))\n  )\n  OR NOT EXISTS (\n    SELECT 1 FROM memory_runs run\n    WHERE run.principal_id = NEW.principal_id\n      AND run.run_id = NEW.run_id\n      AND run.job = 'distillation'\n      AND run.outcome = 'running'\n      AND NEW.recorded_at >= run.started_at\n  )\n  OR NOT EXISTS (\n    SELECT 1 FROM memory_items item\n    WHERE item.principal_id = NEW.principal_id\n      AND item.item_id = NEW.item_id\n  )\n  OR NOT EXISTS (\n    SELECT 1 FROM memory_item_sources source\n    WHERE source.principal_id = NEW.principal_id\n      AND source.item_id = NEW.item_id\n  )\n  OR EXISTS (\n    SELECT 1 FROM memory_item_sources source\n    WHERE source.principal_id = NEW.principal_id\n      AND source.item_id = NEW.item_id\n      AND NOT EXISTS (\n        SELECT 1 FROM memory_distillation_event_receipts event_receipt\n        WHERE event_receipt.principal_id = NEW.principal_id\n          AND event_receipt.run_id = NEW.run_id\n          AND event_receipt.event_sequence = source.event_sequence\n          AND event_receipt.event_id = source.event_id\n          AND event_receipt.disposition = 'eligible'\n      )\n  )\n  OR (\n    NEW.created_in_run = 1\n    AND NOT EXISTS (\n      SELECT 1 FROM memory_items item\n      JOIN memory_runs run\n        ON run.principal_id = NEW.principal_id AND run.run_id = NEW.run_id\n      WHERE item.principal_id = NEW.principal_id\n        AND item.item_id = NEW.item_id\n        AND item.created_at >= run.started_at\n        AND item.created_at <= NEW.recorded_at\n    )\n  )\n  OR (\n    NEW.created_in_run = 0\n    AND NOT EXISTS (\n      SELECT 1 FROM memory_items item\n      JOIN memory_runs run\n        ON run.principal_id = NEW.principal_id AND run.run_id = NEW.run_id\n      WHERE item.principal_id = NEW.principal_id\n        AND item.item_id = NEW.item_id\n        AND item.created_at < run.started_at\n    )\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_distillation_item_receipt_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "T-memory_distillation_item_receipts_immutable_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0026_memory_distillation.sql",
+   "from": "CREATE TRIGGER memory_distillation_item_receipts_immutable_update\nBEFORE UPDATE ON memory_distillation_item_receipts\nWHEN 1 = 1\nBEGIN\n  SELECT RAISE(ABORT, 'memory_distillation_item_receipt_immutable');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "T-memory_distillation_item_receipts_delete_forbidden",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0026_memory_distillation.sql",
+   "from": "CREATE TRIGGER memory_distillation_item_receipts_delete_forbidden\nBEFORE DELETE ON memory_distillation_item_receipts\nWHEN 1 = 1\nBEGIN\n  SELECT RAISE(ABORT, 'memory_distillation_item_receipt_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "T-memory_distillation_runs_reconcile_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0026_memory_distillation.sql",
+   "from": "CREATE TRIGGER memory_distillation_runs_reconcile_guard\nBEFORE UPDATE ON memory_runs\nWHEN OLD.job = 'distillation'\n  AND (\n    OLD.outcome <> 'running'\n    OR (\n      NEW.outcome <> 'running'\n      AND (\n    NEW.input_event_count <> (\n      SELECT count(*) FROM memory_distillation_event_receipts receipt\n      WHERE receipt.principal_id = NEW.principal_id AND receipt.run_id = NEW.run_id\n    )\n    OR NEW.created_item_count <> (\n      SELECT COALESCE(sum(receipt.created_in_run), 0)\n      FROM memory_distillation_item_receipts receipt\n      WHERE receipt.principal_id = NEW.principal_id AND receipt.run_id = NEW.run_id\n    )\n    OR (\n      NEW.start_event_sequence IS NULL\n      AND EXISTS (\n        SELECT 1 FROM memory_distillation_event_receipts receipt\n        WHERE receipt.principal_id = NEW.principal_id AND receipt.run_id = NEW.run_id\n      )\n    )\n    OR (\n      NEW.outcome IN ('succeeded', 'nothing_new')\n      AND NEW.start_event_sequence IS NOT NULL\n      AND (\n        NEW.input_event_count <> NEW.end_event_sequence - NEW.start_event_sequence + 1\n        OR NEW.start_event_sequence <> (\n          SELECT min(receipt.event_sequence) FROM memory_distillation_event_receipts receipt\n          WHERE receipt.principal_id = NEW.principal_id AND receipt.run_id = NEW.run_id\n        )\n        OR NEW.end_event_sequence <> (\n          SELECT max(receipt.event_sequence) FROM memory_distillation_event_receipts receipt\n          WHERE receipt.principal_id = NEW.principal_id AND receipt.run_id = NEW.run_id\n        )\n      )\n    )\n    OR (\n      NEW.outcome = 'succeeded'\n      AND NOT EXISTS (\n        SELECT 1 FROM memory_distillation_item_receipts receipt\n        WHERE receipt.principal_id = NEW.principal_id AND receipt.run_id = NEW.run_id\n      )\n    )\n    OR (\n      NEW.outcome = 'nothing_new'\n      AND EXISTS (\n        SELECT 1 FROM memory_distillation_item_receipts receipt\n        WHERE receipt.principal_id = NEW.principal_id AND receipt.run_id = NEW.run_id\n      )\n    )\n      )\n    )\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_distillation_run_counts_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "T-memory_distillation_cursor_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0026_memory_distillation.sql",
+   "from": "CREATE TRIGGER memory_distillation_cursor_insert_guard\nBEFORE INSERT ON memory_cursors\nWHEN NEW.cursor_name = 'distillation'\n  AND NEW.current_event_sequence <> 0\n  AND NOT EXISTS (\n    SELECT 1 FROM memory_runs run\n    WHERE run.principal_id = NEW.principal_id\n      AND run.job = 'distillation'\n      AND run.outcome IN ('succeeded', 'nothing_new')\n      AND run.start_event_sequence = 1\n      AND run.end_event_sequence = NEW.current_event_sequence\n      AND run.input_event_count = NEW.current_event_sequence\n      AND run.input_event_count = (\n        SELECT count(*) FROM memory_distillation_event_receipts receipt\n        WHERE receipt.principal_id = run.principal_id AND receipt.run_id = run.run_id\n      )\n      AND run.created_item_count = (\n        SELECT COALESCE(sum(receipt.created_in_run), 0)\n        FROM memory_distillation_item_receipts receipt\n        WHERE receipt.principal_id = run.principal_id AND receipt.run_id = run.run_id\n      )\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_distillation_cursor_advance_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "T-memory_distillation_cursor_update_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0026_memory_distillation.sql",
+   "from": "CREATE TRIGGER memory_distillation_cursor_update_guard\nBEFORE UPDATE ON memory_cursors\nWHEN NEW.cursor_name = 'distillation'\n  AND (\n    NEW.current_event_sequence < OLD.current_event_sequence\n    OR (\n      NEW.current_event_sequence > OLD.current_event_sequence\n      AND NOT EXISTS (\n    SELECT 1 FROM memory_runs run\n    WHERE run.principal_id = NEW.principal_id\n      AND run.job = 'distillation'\n      AND run.outcome IN ('succeeded', 'nothing_new')\n      AND run.start_event_sequence = OLD.current_event_sequence + 1\n      AND run.end_event_sequence = NEW.current_event_sequence\n      AND run.input_event_count = NEW.current_event_sequence - OLD.current_event_sequence\n      AND run.input_event_count = (\n        SELECT count(*) FROM memory_distillation_event_receipts receipt\n        WHERE receipt.principal_id = run.principal_id AND receipt.run_id = run.run_id\n      )\n      AND run.created_item_count = (\n        SELECT COALESCE(sum(receipt.created_in_run), 0)\n        FROM memory_distillation_item_receipts receipt\n        WHERE receipt.principal_id = run.principal_id AND receipt.run_id = run.run_id\n      )\n      )\n    )\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'memory_distillation_cursor_advance_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "H1-text-no-narrow",
+   "file": "apps/cloud-gateway/src/memory/automatic-distillation.ts",
+   "from": "          scanned = narrowWindow(scanned, Math.max(1, Math.floor(eligible.length / 2)));\n          continue;\n        }\n        if (eligible.length === 0) {",
+   "to": "          return this.result(run, finalized, cursor.sequence, latest, budget);\n        }\n        if (eligible.length === 0) {",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "M2-proposal-no-narrow",
+   "file": "apps/cloud-gateway/src/memory/automatic-distillation.ts",
+   "from": "          scanned = narrowWindow(scanned, Math.max(1, Math.floor(eligible.length / 2)));\n          continue;\n        }\n        budget.proposalsAccepted",
+   "to": "          return this.result(run, finalized, cursor.sequence, latest, budget);\n        }\n        budget.proposalsAccepted",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "H1-irreducible-text-skip",
+   "file": "apps/cloud-gateway/src/memory/automatic-distillation.ts",
+   "from": "        if (textBytes > maxTextBytes) {\n          if (eligible.length === 1) {",
+   "to": "        if (textBytes > maxTextBytes) {\n          if (false) {",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "M2-irreducible-proposal-skip",
+   "file": "apps/cloud-gateway/src/memory/automatic-distillation.ts",
+   "from": "        if (proposals.length > maxProposals) {\n          if (eligible.length === 1) {",
+   "to": "        if (proposals.length > maxProposals) {\n          if (false) {",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "H2-count-all-events",
+   "file": "apps/cloud-gateway/src/memory/automatic-distillation.ts",
+   "from": "    if (events[index]?.disposition === \"eligible\") eligible += 1;",
+   "to": "    eligible += 1;",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "H2-one-step-per-poll",
+   "file": "apps/cloud-gateway/src/jobs/job-table.ts",
+   "from": "const MEMORY_DISTILLATION_STEPS_PER_POLL = 8;",
+   "to": "const MEMORY_DISTILLATION_STEPS_PER_POLL = 1;",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "M3-no-key-retry",
+   "file": "apps/cloud-gateway/src/memory/automatic-distillation.ts",
+   "from": "const MAX_RUN_KEY_RETRIES = 3;",
+   "to": "const MAX_RUN_KEY_RETRIES = 0;",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "M1-preceding-attribution",
+   "file": "apps/cloud-gateway/src/memory/extraction-policy.ts",
+   "from": "    if (!attributed && wholeSentenceMatch(sourceText, quote, offset)) return true;",
+   "to": "    if (wholeSentenceMatch(sourceText, quote, offset)) return true;",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "M5-code-subject-mismatch",
+   "file": "apps/cloud-gateway/src/memory/automatic-distillation.ts",
+   "from": "\n          || receipt.subjectId !== null && receipt.subjectId !== event.subjectId)) corrupt();",
+   "to": ")) corrupt();",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "M5-trigger-subject-bound",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0026_memory_distillation.sql",
+   "from": "        AND (NEW.disposition = 'skipped' OR archived.subject_id = NEW.principal_id)\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "M4-trigger-terminal-immutable",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0026_memory_distillation.sql",
+   "from": "    OLD.outcome <> 'running'\n    OR (",
+   "to": "    0\n    OR (",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "L3-trigger-cursor-backwards",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0026_memory_distillation.sql",
+   "from": "    NEW.current_event_sequence < OLD.current_event_sequence\n    OR (",
+   "to": "    0\n    OR (",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  },
+  {
+   "id": "M5-archive-subject-set-once",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0026_memory_distillation.sql",
+   "from": "WHEN OLD.subject_id IS NOT NULL\n  OR NEW.subject_id IS NULL",
+   "to": "WHEN NEW.subject_id IS NULL",
+   "tests": [
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/persistence/memory-distillation-migration.test.ts",
+    "apps/cloud-gateway/test/memory/extraction-policy.test.ts",
+    "apps/cloud-gateway/test/jobs"
+   ]
+  }
+ ]
+}

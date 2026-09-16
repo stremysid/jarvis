@@ -1,0 +1,25 @@
+checked out 0a49fda at 0a49fda
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  12 passed (12)
+
+== drop-digest-hex: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/http/owner-passphrase-routes.test.ts (12 tests | 1 failed) 1759ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 11 passed (12)
+   × rejects a digest containing a passphrase word encoded as hex 95ms
+
+== digest-plain-word: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/http/owner-passphrase-routes.test.ts (12 tests | 1 failed) 1822ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 11 passed (12)
+   × rejects a digest containing a passphrase word encoded as hex 99ms
+
+=== summary
+SURVIVED  BASE
+KILLED    drop-digest-hex
+KILLED    digest-plain-word
+back on main, tree clean=true
+(node:3204) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

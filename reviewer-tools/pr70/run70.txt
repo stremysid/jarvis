@@ -1,0 +1,54 @@
+checked out 2db29a9 at 2db29a9
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  4 passed (4)
+   Tests  83 passed (83)
+
+== G1-0001-identity-state: SURVIVED (exit 0), tree clean=true
+   Test Files  4 passed (4)
+   Tests  83 passed (83)
+
+== G2-0001-cursor-compare: SURVIVED (exit 0), tree clean=true
+   Test Files  4 passed (4)
+   Tests  83 passed (83)
+
+== G3-0001-snapshot-state: SURVIVED (exit 0), tree clean=true
+   Test Files  4 passed (4)
+   Tests  83 passed (83)
+
+== G4-0002-challenge-capacity: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/migration-schema.test.ts (24 tests | 1 failed) 3517ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 82 passed (83)
+   × caps live transient security state per enrolled device 137ms
+
+== G5-0002-snapshot-capacity: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/migration-schema.test.ts (24 tests | 1 failed) 3198ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 82 passed (83)
+   × caps live transient security state per enrolled device 130ms
+
+== G6-0002-nonce-capacity: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/migration-schema.test.ts (24 tests | 1 failed) 3144ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 82 passed (83)
+   × caps live transient security state per enrolled device 118ms
+
+== G7-0006-identity-state: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/sync/identity-challenge.test.ts (13 tests | 1 failed) 895ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 82 passed (83)
+   × keeps activation and challenge consumption atomic when the identity changes during confirmation 74ms
+
+=== summary
+SURVIVED  BASE
+SURVIVED  G1-0001-identity-state
+SURVIVED  G2-0001-cursor-compare
+SURVIVED  G3-0001-snapshot-state
+KILLED    G4-0002-challenge-capacity
+KILLED    G5-0002-snapshot-capacity
+KILLED    G6-0002-nonce-capacity
+KILLED    G7-0006-identity-state
+back on main, tree clean=true
+(node:27028) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

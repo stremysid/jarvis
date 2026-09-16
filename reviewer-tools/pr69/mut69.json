@@ -1,0 +1,33 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr40",
+ "branch": "0a49fda",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/test/http/owner-passphrase-routes.test.ts",
+   "from": "      expect(digest).not.toContain(wordHex);\n",
+   "to": "      expect(digest).not.toContain(wordHex);\n",
+   "tests": [
+    "apps/cloud-gateway/test/http/owner-passphrase-routes.test.ts"
+   ]
+  },
+  {
+   "id": "drop-digest-hex",
+   "file": "apps/cloud-gateway/test/http/owner-passphrase-routes.test.ts",
+   "from": "      expect(digest).not.toContain(wordHex);\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/http/owner-passphrase-routes.test.ts"
+   ]
+  },
+  {
+   "id": "digest-plain-word",
+   "file": "apps/cloud-gateway/test/http/owner-passphrase-routes.test.ts",
+   "from": "      expect(digest).not.toContain(wordHex);\n",
+   "to": "      expect(digest).not.toContain(word);\n",
+   "tests": [
+    "apps/cloud-gateway/test/http/owner-passphrase-routes.test.ts"
+   ]
+  }
+ ]
+}

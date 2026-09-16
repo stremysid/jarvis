@@ -1,0 +1,58 @@
+startRun m4:both [1..2]: OK (changes=1)
+M4[both] running->failed (0 receipts): OK (changes=1)
+M4[both] failed->nothing_new (raw update, no outcome filter): ABORT memory_distillation_run_counts_invalid
+M4[both] failed->failed touch completed_at: ABORT memory_distillation_run_counts_invalid
+startRun m4:only0026 [1..2]: OK (changes=1)
+M4[only0026] running->failed (0 receipts): OK (changes=1)
+M4[only0026] failed->nothing_new (raw update, no outcome filter): ABORT memory_distillation_run_counts_invalid
+M4[only0026] failed->failed touch completed_at: ABORT memory_distillation_run_counts_invalid
+startRun m4:only0016 [1..2]: OK (changes=1)
+M4[only0016] running->failed (0 receipts): OK (changes=1)
+M4[only0016] failed->nothing_new (raw update, no outcome filter): ABORT memory_run_transition_invalid
+M4[only0016] failed->failed touch completed_at: ABORT memory_run_transition_invalid
+L3[both] seed cursor at 5 (insert guard dropped): OK (changes=1)
+L3[both] cursor 5 -> 3: ABORT memory_distillation_cursor_advance_invalid
+L3[both] cursor 5 -> 6 with no run: ABORT memory_distillation_cursor_advance_invalid
+L3[both] delete cursor: ABORT memory_cursor_delete_forbidden
+L3[both] INSERT OR REPLACE cursor to 0: ABORT memory_cursor_duplicate
+L3[both] rename cursor away then insert fresh 0: ABORT memory_cursor_transition_invalid
+L3[only0026] seed cursor at 5 (insert guard dropped): OK (changes=1)
+L3[only0026] cursor 5 -> 3: ABORT memory_distillation_cursor_advance_invalid
+L3[only0026] cursor 5 -> 6 with no run: ABORT memory_distillation_cursor_advance_invalid
+L3[only0026] delete cursor: ABORT memory_cursor_delete_forbidden
+L3[only0026] INSERT OR REPLACE cursor to 0: ABORT memory_cursor_duplicate
+L3[only0026] rename cursor away then insert fresh 0: OK (changes=1)
+L3[only0016] seed cursor at 5 (insert guard dropped): OK (changes=1)
+L3[only0016] cursor 5 -> 3: ABORT memory_cursor_transition_invalid
+L3[only0016] cursor 5 -> 6 with no run: OK (changes=1)
+L3[only0016] delete cursor: ABORT memory_cursor_delete_forbidden
+L3[only0016] INSERT OR REPLACE cursor to 0: ABORT memory_cursor_duplicate
+L3[only0016] rename cursor away then insert fresh 0: ABORT memory_cursor_transition_invalid
+startRun memory-distill:2026-09-16T15:0 [1..2]: OK (changes=1)
+M3 batch receipt 1: OK (changes=1)
+M3 batch receipt 2: OK (changes=1)
+M3 failRunningRun after rolled-back batch: OK (changes=1)
+M3 stored: {"outcome":"failed","failure_code":"distillation_finalization_failed","input_event_count":0}
+startRun memory-distill:2026-09-16T15:0 [1..2]: ABORT memory_run_initial_state_invalid
+startRun memory-distill:2026-09-16T15:0:r1 [1..2]: OK (changes=1)
+startRun m3-partial [1..2]: OK (changes=1)
+M3 partial receipt 1 (non-batched): OK (changes=1)
+M3 failRunningRun with 1 receipt present: OK (changes=1)
+M5 seed archive row 50: OK (changes=1)
+M5 seed archive row 51: OK (changes=1)
+M5 seed archive row 52: OK (changes=1)
+M5 set subject_id NULL->owner (row 50): OK (changes=1)
+M5 rewrite subject_id owner->other (row 50): ABORT archive_coverage_immutable
+M5 set subject_id NULL->other (row 51): OK (changes=1)
+M5 change segment_id while subject NULL (row 52): ABORT archive_coverage_immutable
+M5 change created_at while setting subject (row 52): ABORT archive_coverage_immutable
+startRun m5 [50..52]: OK (changes=1)
+M5 eligible archived receipt, subject=owner (50): OK (changes=1)
+M5 eligible archived receipt, subject=other (51): ABORT memory_distillation_event_receipt_invalid
+M5 eligible archived receipt, subject=NULL (52): ABORT memory_distillation_event_receipt_invalid
+M5 skipped archived receipt, subject=other (51): OK (changes=1)
+M5 skipped receipt with NULL reason: ABORT CHECK constraint failed: (disposition = 'eligible' AND skip_reason IS NULL)
+    OR (disposition = 'skipped' AND skip_reason IS NOT NULL)
+M5 eligible receipt with a reason: ABORT memory_distillation_event_receipt_invalid
+M5 live eligible receipt for other-subject event (seq 6): ABORT memory_distillation_event_receipt_invalid
+migration backfill check: see memory-distillation-migration.test.ts (not re-run here)
