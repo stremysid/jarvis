@@ -1,0 +1,33 @@
+checked out 9a6fb5d at 9a6fb5d
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  4 passed (4)
+   Tests  104 passed (104)
+
+== R1-temperature-0: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/providers/deepseek-provider.test.ts (50 tests | 1 failed) 31ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 103 passed (104)
+   × uses bounded JSON mode with thinking disabled and returns settled usage 7ms
+
+== R2-402-notice: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/archive/hourly-archive.test.ts (6 tests | 1 failed) 1860ms
+   Test Files  2 failed | 2 passed (4)
+   Tests  2 failed | 102 passed (104)
+   × maps HTTP 402 without logging its body 3ms
+   × wires the production owner notice sink used by cap and provider-credit warnings 229ms
+
+== R3-month-bound: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/memory-extraction-budget.test.ts (8 tests | 1 failed) 564ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 103 passed (104)
+   × bounds the cap lookup at both ends of the current Toronto month and uses its ledger index 10ms
+
+=== summary
+SURVIVED  BASE
+KILLED    R1-temperature-0
+KILLED    R2-402-notice
+KILLED    R3-month-bound
+back on main, tree clean=true
+(node:28052) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

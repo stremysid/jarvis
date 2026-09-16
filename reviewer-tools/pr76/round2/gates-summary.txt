@@ -1,0 +1,14 @@
+head 9a6fb5d
+lint rc=0
+typecheck rc=0
+test rc=0
+ Test Files  184 passed (184)
+      Tests  4838 passed (4838)
+round1-defect-tests rc=1
+     × F1a: frozen scheduled clock -- distillation reached 6 minutes after the cron fired is refused by D1 183ms
+     × F1b: a DeepSeek call that straddles the 5-minute mark is paid for, then its settlement and memory are thrown away 15180ms
+     × F2: continuation with run-to-run wording drift pays twice, duplicates memories and never advances the cursor 849ms
+     × F3: one proposal whose excerpt normalises a curly apostrophe fails the whole batch, is paid for, and repeats every hour 153ms
+     × F4: a provider failure after settlement records zero cost on the run receipt 104ms
+     × F7: an empty MEMORY_EXTRACTION_MODEL makes every cron invocation throw, including the 5-minute drain 9ms
+      Tests  6 failed | 2 passed (8)

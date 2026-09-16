@@ -1,0 +1,54 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "9a6fb5d",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+   "from": "      temperature: 0,",
+   "to": "      temperature: 0, ",
+   "tests": [
+    "apps/cloud-gateway/test/providers/deepseek-provider.test.ts",
+    "apps/cloud-gateway/test/memory/memory-extraction-budget.test.ts",
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/archive/hourly-archive.test.ts"
+   ]
+  },
+  {
+   "id": "R1-temperature-0",
+   "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+   "from": "      temperature: 0,\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/providers/deepseek-provider.test.ts",
+    "apps/cloud-gateway/test/memory/memory-extraction-budget.test.ts",
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/archive/hourly-archive.test.ts"
+   ]
+  },
+  {
+   "id": "R2-402-notice",
+   "file": "apps/cloud-gateway/src/providers/deepseek-provider.ts",
+   "from": "          await this.#budget.notifyCreditBlocked?.(input.principalId).catch(() => undefined);\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/providers/deepseek-provider.test.ts",
+    "apps/cloud-gateway/test/memory/memory-extraction-budget.test.ts",
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/archive/hourly-archive.test.ts"
+   ]
+  },
+  {
+   "id": "R3-month-bound",
+   "file": "apps/cloud-gateway/src/memory/memory-extraction-budget.ts",
+   "from": "    AND occurred_at >= ?2 AND occurred_at < ?3`;",
+   "to": "    AND occurred_at < ?3`;",
+   "tests": [
+    "apps/cloud-gateway/test/providers/deepseek-provider.test.ts",
+    "apps/cloud-gateway/test/memory/memory-extraction-budget.test.ts",
+    "apps/cloud-gateway/test/memory/automatic-distillation.test.ts",
+    "apps/cloud-gateway/test/archive/hourly-archive.test.ts"
+   ]
+  }
+ ]
+}
