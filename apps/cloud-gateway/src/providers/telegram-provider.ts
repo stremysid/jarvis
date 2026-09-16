@@ -27,6 +27,12 @@ export interface TelegramRestProviderOptions {
   readonly timeoutMs?: number;
 }
 
+export interface TelegramChatActionSender {
+  sendChatAction(input: Readonly<{ chatId: string; action: "typing" }>): Promise<void>;
+}
+
+export const TELEGRAM_TYPING_REPEAT_MS = 4_000;
+
 interface TelegramApiResponse {
   readonly ok?: unknown;
   readonly result?: unknown;
@@ -128,5 +134,77 @@ export class TelegramRestProvider implements TelegramProvider {
     if (providerMessageId === null) throw ProviderFailure.transient("temporarily_unavailable");
 
     return { providerMessageId };
+  }
+
+  async sendChatAction(input: Readonly<{ chatId: string; action: "typing" }>): Promise<void> {
+    if (input.chatId.length === 0 || input.action !== "typing") {
+      throw ProviderFailure.permanent("invalid_request");
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.#timeoutMs);
+    let response: Response;
+    try {
+      response = await this.#fetch(`${API_ORIGIN}/bot${this.#botToken}/sendChatAction`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: input.chatId, action: input.action }),
+        signal: controller.signal,
+      });
+    } catch {
+      throw ProviderFailure.transient("timeout");
+    } finally {
+      clearTimeout(timer);
+    }
+
+    let parsed: TelegramApiResponse;
+    try {
+      parsed = (await response.json()) as TelegramApiResponse;
+    } catch {
+      throw response.ok ? ProviderFailure.transient("temporarily_unavailable") : failureFor(response.status);
+    }
+    if (!response.ok || parsed.ok !== true) throw failureFor(response.status);
+  }
+}
+
+/** Keeps Telegram's short-lived action alive without making it part of turn success. */
+export class TelegramTypingIndicator {
+  readonly #sender: TelegramChatActionSender;
+  readonly #chatId: string;
+  #timer: ReturnType<typeof setInterval> | null = null;
+
+  constructor(sender: TelegramChatActionSender, chatId: string) {
+    this.#sender = sender;
+    this.#chatId = chatId;
+  }
+
+  #send(): void {
+    void this.#sender.sendChatAction({ chatId: this.#chatId, action: "typing" }).catch(() => undefined);
+  }
+
+  start(): void {
+    if (this.#timer !== null) return;
+    this.#send();
+    this.#timer = setInterval(() => this.#send(), TELEGRAM_TYPING_REPEAT_MS);
+  }
+
+  stop(): void {
+    if (this.#timer === null) return;
+    clearInterval(this.#timer);
+    this.#timer = null;
+  }
+}
+
+export async function withTelegramTyping<T>(
+  sender: TelegramChatActionSender,
+  chatId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const indicator = new TelegramTypingIndicator(sender, chatId);
+  indicator.start();
+  try {
+    return await operation();
+  } finally {
+    indicator.stop();
   }
 }

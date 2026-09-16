@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Ulid } from "../../../../packages/contracts/src/index.js";
 import {
+  DeepSeekAdapterError,
   DeepSeekModelAdapter,
   collectStream,
+  deepSeekFailureReason,
   MAX_MODEL_OUTPUT_TOKENS,
   MAX_MODEL_REQUEST_BYTES,
 } from "../../src/providers/deepseek-provider.js";
@@ -18,6 +20,8 @@ import {
  */
 
 const API_KEY = "sk-test-key";
+const SYSTEM_PROMPT = "You are Jarvis, a private personal assistant. Answer briefly and directly. "
+  + "Use only the provided context and the user's message. If you do not know something, say so.";
 
 function sseResponse(chunks: readonly string[], { status = 200, errorBody = "" } = {}): Response {
   const encoder = new TextEncoder();
@@ -58,6 +62,82 @@ function adapterWith(fetchImplementation: typeof fetch): DeepSeekModelAdapter {
 }
 
 describe("DeepSeekModelAdapter", () => {
+  it.each([
+    ["an absent setting", undefined, "disabled"],
+    ["disabled", "disabled", "disabled"],
+    ["enabled", "enabled", "enabled"],
+  ] as const)("pins the exact Telegram body with %s", async (_label, setting, expected) => {
+    const fetcher = vi.fn<typeof fetch>(async () => sseResponse([frame("x"), "data: [DONE]\n\n"]));
+    const adapter = new DeepSeekModelAdapter({
+      apiKey: API_KEY,
+      fetchImplementation: fetcher,
+      telegramTurn: true,
+      ...(setting === undefined ? {} : { telegramThinking: setting }),
+    });
+    await collectStream(adapter.stream(input({ reasoningEffort: "high" })));
+
+    expect(fetcher.mock.calls[0]![1]!.body).toBe(JSON.stringify({
+      model: "deepseek-v4-pro",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: "hello" },
+      ],
+      stream: true,
+      thinking: { type: expected },
+      max_tokens: 65_536,
+    }));
+  });
+
+  it("defaults an invalid Telegram thinking setting to disabled and logs one fixed code", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const fetcher = vi.fn<typeof fetch>(async () => sseResponse(["data: [DONE]\n\n"]));
+      const first = new DeepSeekModelAdapter({
+        apiKey: API_KEY, fetchImplementation: fetcher, telegramTurn: true, telegramThinking: "invalid-one",
+      });
+      new DeepSeekModelAdapter({
+        apiKey: API_KEY, fetchImplementation: fetcher, telegramTurn: true, telegramThinking: "invalid-two",
+      });
+      await collectStream(first.stream(input()));
+
+      expect(warn).toHaveBeenCalledExactlyOnceWith("deepseek_telegram_thinking_invalid");
+      expect(fetcher.mock.calls[0]![1]!.body).toBe(JSON.stringify({
+        model: "deepseek-v4-pro",
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: "hello" },
+        ],
+        stream: true,
+        thinking: { type: "disabled" },
+        max_tokens: 65_536,
+      }));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("keeps the exact voice request body byte-identical", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => sseResponse([frame("x"), "data: [DONE]\n\n"]));
+    const adapter = new DeepSeekModelAdapter({
+      apiKey: API_KEY,
+      fetchImplementation: fetcher,
+      telegramTurn: true,
+      telegramThinking: "disabled",
+    });
+    await collectStream(adapter.stream(input({ channel: "voice", reasoningEffort: "high" })));
+
+    expect(fetcher.mock.calls[0]![1]!.body).toBe(JSON.stringify({
+      model: "deepseek-v4-pro",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: "hello" },
+      ],
+      stream: true,
+      reasoning_effort: "high",
+      max_tokens: 65_536,
+    }));
+  });
+
   it("puts an explicit total generation bound on the wire so hidden reasoning cannot exceed the reserve assumption", async () => {
     const fetcher = vi.fn<typeof fetch>(async () => sseResponse(["data: [DONE]\n\n"]));
     await collectStream(adapterWith(fetcher).stream(input()));
@@ -176,7 +256,50 @@ describe("DeepSeekModelAdapter", () => {
     ).rejects.toThrow("model_unavailable");
   });
 
-  it("sends the pinned model and the requested reasoning effort", async () => {
+  it.each([
+    [400, "http_400"],
+    [401, "http_401"],
+    [402, "http_402"],
+    [403, "http_403"],
+    [429, "http_429"],
+    [500, "http_5xx"],
+    [599, "http_5xx"],
+    [404, "other"],
+  ] as const)("maps HTTP %i to the fixed %s log reason", async (status, expected) => {
+    const fetcher = vi.fn<typeof fetch>(async () => sseResponse([], {
+      status,
+      errorBody: "private provider body",
+    }));
+    let observed: unknown;
+    try {
+      await collectStream(adapterWith(fetcher).stream(input()));
+    } catch (error) {
+      observed = error;
+    }
+    expect(observed).toBeInstanceOf(DeepSeekAdapterError);
+    expect(deepSeekFailureReason(observed)).toBe(expected);
+  });
+
+  it.each([
+    [new TypeError("connection refused"), "network"],
+    [new DOMException("request aborted", "AbortError"), "timeout"],
+  ] as const)("maps fetch failure to the fixed %s log reason", async (failure, expected) => {
+    const fetcher = vi.fn<typeof fetch>(async () => { throw failure; });
+    let observed: unknown;
+    try {
+      await collectStream(adapterWith(fetcher).stream(input()));
+    } catch (error) {
+      observed = error;
+    }
+    expect(deepSeekFailureReason(observed)).toBe(expected);
+  });
+
+  it("maps local request validation and unknown adapter failures to fixed reasons", () => {
+    expect(deepSeekFailureReason(new RangeError("bad input"))).toBe("input_invalid");
+    expect(deepSeekFailureReason(new Error("unclassified"))).toBe("other");
+  });
+
+  it("keeps non-turn adapters on the existing reasoning effort body for sync routes", async () => {
     const fetchMock = vi.fn(async () => sseResponse([frame("x"), "data: [DONE]\n\n"]));
     await collectStream(
       adapterWith(fetchMock as unknown as typeof fetch).stream(input({ reasoningEffort: "high" })),
@@ -185,6 +308,7 @@ describe("DeepSeekModelAdapter", () => {
     const body = JSON.parse(init.body as string);
     expect(body.model).toBe("deepseek-v4-pro");
     expect(body.reasoning_effort).toBe("high");
+    expect(body).not.toHaveProperty("thinking");
     expect(body.stream).toBe(true);
   });
 
