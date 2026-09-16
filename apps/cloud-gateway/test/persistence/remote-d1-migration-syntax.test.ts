@@ -52,6 +52,8 @@ describe("remote D1 migration trigger syntax", () => {
   });
 
   it.each(remoteD1Migrations)("rejects CASE-wrapped RAISE statements in $name", ({ sql }) => {
+    // Plain CASE value expressions work on remote D1. Only the statement form
+    // SELECT CASE ... RAISE( is the known Wrangler/D1 migration hazard.
     expect(sql).not.toMatch(/\bSELECT\s+CASE\b[^;]*\bRAISE\s*\(/iu);
   });
 
