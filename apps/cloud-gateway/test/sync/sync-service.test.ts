@@ -361,6 +361,50 @@ describe("SyncService", () => {
     expect((await env.DB.prepare("SELECT acknowledged_at FROM sync_snapshots WHERE snapshot_id = ?").bind(page.snapshotId).first<{ acknowledged_at: string | null }>())?.acknowledged_at).toBe(initialNow.toISOString());
   });
 
+  it("aborts a direct acknowledgement with a stale expected current without changing the cursor", async () => {
+    await append(1);
+    const page = await pull(pullBody(0, 1));
+    await env.DB.prepare("UPDATE consumer_cursors SET current_sequence = 1 WHERE consumer_name = ?")
+      .bind(`device:${primary.deviceId}`).run();
+
+    await expect(env.DB.prepare(
+      `INSERT INTO sync_ack_receipts (
+         receipt_id, snapshot_id, principal_id, device_id, consumer_name,
+         expected_current, through_sequence, current_sequence, acknowledged_at, receipt_kind
+       ) VALUES ('receipt:stale-cursor', ?, ?, ?, ?, 0, 1, 1, ?, 'snapshot')`,
+    ).bind(
+      page.snapshotId,
+      primary.principalId,
+      primary.deviceId,
+      `device:${primary.deviceId}`,
+      initialNow.toISOString(),
+    ).run()).rejects.toThrow("sync_cursor_compare_failed");
+
+    expect(await cursor()).toBe(1);
+  });
+
+  it("aborts a direct acknowledgement of an already acknowledged snapshot and rolls back the cursor", async () => {
+    await append(1);
+    const page = await pull(pullBody(0, 1));
+    await env.DB.prepare("UPDATE sync_snapshots SET acknowledged_at = ? WHERE snapshot_id = ?")
+      .bind(initialNow.toISOString(), page.snapshotId).run();
+
+    await expect(env.DB.prepare(
+      `INSERT INTO sync_ack_receipts (
+         receipt_id, snapshot_id, principal_id, device_id, consumer_name,
+         expected_current, through_sequence, current_sequence, acknowledged_at, receipt_kind
+       ) VALUES ('receipt:already-acknowledged', ?, ?, ?, ?, 0, 1, 1, ?, 'snapshot')`,
+    ).bind(
+      page.snapshotId,
+      primary.principalId,
+      primary.deviceId,
+      `device:${primary.deviceId}`,
+      initialNow.toISOString(),
+    ).run()).rejects.toThrow("sync_snapshot_state_changed");
+
+    expect(await cursor()).toBe(0);
+  });
+
   it("strictly rejects malformed ACK bodies and supplied/raw splits before creating a receipt", async () => {
     await append(1);
     const page = await pull(pullBody(0, 1));

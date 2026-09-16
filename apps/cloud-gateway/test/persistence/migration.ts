@@ -23,6 +23,7 @@ import schoolCatchupSql from "../../src/persistence/migrations/0020_school_catch
 import voiceOwnerDeliverySql from "../../src/persistence/migrations/0021_voice_owner_delivery.sql?raw";
 import universityTrackerSql from "../../src/persistence/migrations/0022_university_tracker.sql?raw";
 import studyCoachSql from "../../src/persistence/migrations/0023_study_coach.sql?raw";
+import universityApplicationWorkflowSql from "../../src/persistence/migrations/0024_university_application_workflow.sql?raw";
 import archiveLiteralHistorySql from "../../src/persistence/migrations/0025_archive_literal_history.sql?raw";
 
 let migrated: Promise<void> | undefined;
@@ -35,6 +36,7 @@ let schoolCatchupMigrated: Promise<void> | undefined;
 let voiceOwnerDeliveryMigrated: Promise<void> | undefined;
 let universityTrackerMigrated: Promise<void> | undefined;
 let studyCoachMigrated: Promise<void> | undefined;
+let universityApplicationWorkflowMigrated: Promise<void> | undefined;
 let archiveLiteralHistoryMigrated: Promise<void> | undefined;
 
 export { splitMigration };
@@ -162,6 +164,15 @@ export async function applyStudyCoachMigration(): Promise<void> {
     { name: "0023_study_coach.sql", queries: splitMigration(studyCoachSql) },
   ]);
   await studyCoachMigrated;
+}
+
+/** Applies the owner-reported application checklist after the study-coach store. */
+export async function applyUniversityApplicationWorkflowMigration(): Promise<void> {
+  await applyStudyCoachMigration();
+  universityApplicationWorkflowMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0024_university_application_workflow.sql", queries: splitMigration(universityApplicationWorkflowSql) },
+  ]);
+  await universityApplicationWorkflowMigrated;
 }
 
 /** Applies durable archive-complete literal-search jobs after memory ingress. */

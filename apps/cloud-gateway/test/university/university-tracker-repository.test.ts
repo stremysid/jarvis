@@ -6,7 +6,7 @@ import { EventRepository } from "../../src/persistence/event-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { UniversityTrackerRepository } from "../../src/university/university-tracker-repository.js";
 import type { OwnerUniversityPlan } from "../../src/university/university-tracker-types.js";
-import { applyUniversityTrackerMigration } from "../persistence/migration.js";
+import { applyUniversityApplicationWorkflowMigration } from "../persistence/migration.js";
 
 const NOW = new Date("2026-09-15T15:00:00.000Z");
 
@@ -48,11 +48,12 @@ function unverifiedPlan(): OwnerUniversityPlan {
       }],
       resolveItemIds: [],
     }],
+    applicationUpdates: [],
   };
 }
 
 beforeAll(async () => {
-  await applyUniversityTrackerMigration();
+  await applyUniversityApplicationWorkflowMigration();
 });
 
 describe("UniversityTrackerRepository", () => {
@@ -131,6 +132,7 @@ describe("UniversityTrackerRepository", () => {
           addDates: [{ label: "Application deadline", date: "2027-01-15", verification }],
           resolveItemIds: [],
         }],
+        applicationUpdates: [],
       },
     });
     const snapshot = await repository.readSnapshot(principalId);
@@ -180,6 +182,7 @@ describe("UniversityTrackerRepository", () => {
           addDates: [],
           resolveItemIds: [],
         }],
+        applicationUpdates: [],
       },
     })).rejects.toThrow("university_tracker_verification_invalid");
     await expect(repository.readSnapshot(principalId)).resolves.toMatchObject({
@@ -219,6 +222,7 @@ describe("UniversityTrackerRepository", () => {
           addDates: [],
           resolveItemIds: [requirement.itemId],
         }],
+        applicationUpdates: [],
       },
     });
     const thirdTurn = "01k5fb9pg00000000000000922" as Ulid;
@@ -246,6 +250,7 @@ describe("UniversityTrackerRepository", () => {
           addDates: [],
           resolveItemIds: [],
         }],
+        applicationUpdates: [],
       },
     });
     const counts = await env.DB.prepare(`SELECT status, COUNT(*) AS count
