@@ -629,6 +629,40 @@ stops background work. Until an attended first-load check measures this, a
 cancelled invocation could leave a partial sweep and no Telegram reply. Moving
 the refresh to a durable queue is the structural fix if the live check fails.
 
+## Study-coach evidence is not yet integrated with R2 owner controls
+
+The first study-coach slice keeps its weak-area evidence, cited practice and
+plain-speech check-in settings in separate operational D1 tables. Direct owner
+Telegram turns can correct or forget those operational records, while
+forwarded, external-reply, model and feed text cannot. A quote of Jarvis's own
+message is still a direct owner turn because Telegram adds that quote when the
+owner highlights part of Jarvis's response before replying. The R2 channel-neutral
+owner-controls service is now merged but is not composed into Telegram, so this
+slice deliberately does not depend on it and does not claim that an R2 forget
+request reaches these tables. A later reviewed integration must route the same
+owner control to both stores without weakening either store's provenance checks.
+
+## Study-coach digest check-ins are claimed before delivery
+
+The first study-coach slice advances `last_prompted_on` while assembling a
+daily digest. A failed Telegram delivery can therefore spend that check-in
+without showing it, and the manual `/digest` path also spends it even though
+the scheduled digest has not run. Moving the claim after delivery requires a
+durable candidate/receipt boundary so a post-send write failure does not turn
+an at-least-once cron retry into a duplicate digest. Until that boundary is
+designed, check-ins are useful prompts but are not guaranteed delivery.
+
+## Study-coach retirement and forget controls are one-way
+
+The first study-coach slice supersedes active owner and practice evidence after
+30 days, as well as when it must make room under the active-evidence caps.
+`superseded` is terminal, so an old point cannot return to the operational view.
+The plain-speech forget control is narrower still: it requires the exact
+"forget that X is/was a weak spot" shape, affects only active evidence, and has
+no undo. The immutable source history remains available for a later reviewed
+recall/control integration, but the current study-coach snapshot, summaries and
+check-ins do not expose those retired or forgotten points.
+
 ## Must-report gap: deployed, gateway delivery still needs verification
 
 R0 item 6 adds `WATCHDOG_REQUIRED_COMPONENTS`, default `cloud-gateway`.

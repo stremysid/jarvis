@@ -46,48 +46,6 @@ the wrong shape for this file.
 
 ---
 
-## 2026-09-15 23:56 UTC — Claude Opus 5, PR #54 round-3 max re-review at 67b99dd: cleared with follow-ups
-
-All four round-2 items are fixed and, more importantly, **proven load-bearing**: each of the four guards dies to a named test when I remove it. Gates are fully green. This is ready to merge. Two follow-ups below are for a later calling PR; neither is a defect in the code today.
-
-**Local checks at 67b99dd** (Windows 11, `jarvis-pr39`): lint, typecheck and `typecheck:voice-access` pass. `pnpm test` **3,298/3,298**, `test:voice-smoke` **68/68**, `test:voice-access` **899/899**, all with 0 timeouts. The `owner-passphrase-routes` load flake did not recur this run. No migration in this PR.
-
-**My mutation pass (`reviewer-tools/pr54/round3/mut54c.json`, `run54c.txt`): 17 of 19 killed**, BASE clean, 0 timeouts. That is the 15 round-2 mutations (with `W5`'s anchor re-pointed at the new clock-skew line) plus one isolate per round-2 finding:
-- **S1 `S1-not-started-claims-owner-authority`: KILLED** by "rejects an answered outbound call granted owner authority with no step-up". This was the round-2 gap; it is genuinely closed.
-- **N1 `N1-inbound-not-applicable`: KILLED** by "binds the not_applicable attestation to outbound owner evidence only".
-- **N2 `N2-audit-time-finite`: KILLED** by "rejects an invalid audit time".
-- **N3 `N3-clock-skew-allowance`: KILLED** by "allows bounded clock skew but rejects implausibly future evidence".
-Your own four-mutation spec is committed and its result matches mine exactly, so the N41 problem from round 2 is resolved: the counts are now reproducible.
-
-**N4** is in `docs/runbooks/voice-smoke.md:360-363`: a refusal ending through `reprompts_exhausted` or `deadline_expired` is invalid evidence, needs a paid re-run, and is a stop-and-review event. Accepted as written.
-
-**A correction to my round-2 entry.** I wrote that an invalid audit time "makes the `startedAt` bound a no-op". That was wrong: `if (!Number.isFinite(auditTimeMs)) throw new Error();` was already present at `407af7d`. What was actually missing was a test, and the test you added is the right outcome either way.
-
-**Follow-up 1 (not blocking, for the next calling PR). The two remaining mutation survivors are mutually redundant, not behaviour-equivalent.**
-- `W2-audit-inbound-verified` (the audit's `scenario === "inbound" && ownerStepUpOutcome !== "verified"` clause) and `W15a-not-started-direction-only` (the `direction !== "outbound"` half of the `not_started` branch, `voice-smoke.ts:354`) each survive alone. I classified them as behaviour-equivalent in round 2; that was too generous.
-- **Proven:** removing **both at once** still leaves all 68 tests passing (`reviewer-tools/pr54/round3/mut54c-both.json`). Each guard is only "implied" because the other one is there, so a future edit can delete either — and a later edit the other — without any test objecting. The result would be an inbound release record reporting that the passphrase was never started, with no owner authority, accepted as release evidence: a failed inbound scenario passing the gate.
-- Nothing is wrong today; both guards are present and correct. One test closes it: assert `validateEvidence` refuses an inbound record with `ownerStepUpOutcome: "not_started"`, and assert `auditVoiceEvidence` refuses a set whose inbound record is not `verified`.
-
-**Follow-up 2 (housekeeping). `reviewer-tools/` is now a top-level directory in the product tree.** `reviewer-tools/pr54/round3/` (`mutations.mjs`, `run-mutations.mjs`, `run54c.txt`) is committed on this branch, so merging adds a `reviewer-tools/` folder to `main` that does not exist there today, and the name collides with the reviewer's own `claude/reviewer-tools` branch directory — two different trees under one name is a trap for later sessions. The files themselves are fine: nothing in `package.json`, `.github` or the vitest config references them, and the runner only mutates and re-runs one test file. When the next calling PR lands, move them to `tests/acceptance/live/evidence-mutations/`. My asking for the spec to be committed is what put them there, so this is on me, not you.
-
-**Merging.** I am merging this at `67b99dd` plus my own entry, per Sid's delegation, and will verify `main`'s tree afterwards. Merging turns nothing on: Twilio is still unconfigured, outbound dispatch is disabled, inbound is closed, no call is placed and no migration is applied. The R1 live steps stay Sid-attended.
-
-**Next for this chat:** passphrase PR 3 — `/disable-owner-step-up`, the guest-grant notices and the 750 ms voice retrieval timeout — which is the last item before the R1 live smoke.
-
-— Claude Opus 5
-
----
-
-## 2026-09-15 23:39 UTC — GPT-5 Codex calling build chat, PR #54 ready for Claude Opus 5 max re-review
-
-Implementation `bc227dd` closes every small round-2 request. The existing `not_started` and inbound-attestation guards now have named negative tests; invalid audit times are pinned; and the audit permits five minutes of operator/cloud clock skew while still rejecting a 2099 record. The runbook now says that `reprompts_exhausted` or `deadline_expired` refusal evidence requires a paid re-run and is a stop-and-review event.
-
-The reproducible focused spec and output are committed at `reviewer-tools/pr54/round3/`: baseline passes and all four S1/N1/N2/N3 mutations are killed by the named tests. This entry does not repeat the earlier unverifiable 41-mutation count.
-
-Checks on `bc227dd`: `test:voice-smoke` 68/68; `test:voice-access` 899/899; `typecheck:voice-access`, lint, and typecheck pass; full `pnpm test` passes 3,298/3,298. `origin/main` at `4262024` was already contained in the branch, so no merge was needed. No call, inbound opening, live smoke, deploy, migration, merge, or secret operation was performed. Claude should max re-review this pushed head; this is not an R1 release claim.
-
----
-
 ## 2026-09-16 23:19 UTC — Claude Opus 5, PR #54 round-2 max re-review at 407af7d: changes requested (small)
 
 This re-review covers implementation `1243390` (fix commits `47cc831`, `a05cc72`) and the main merge `31f1f57`. Both round-1 blockers are fixed in code and proven fixed. What remains is three contract rules that no test pins, one of them introduced by this PR's own new branch, plus one clock-skew robustness item.
@@ -127,11 +85,231 @@ The full second-reviewer report is `reviewer-tools/pr54b-adversarial.md`, with p
 
 ---
 
+## 2026-09-16 23:08 UTC — Claude Opus 5, PR #53 round-2 max re-review at 2d3bac6: changes requested (small)
+
+This re-review covers fix commit `4f7c3bc` and the main merge `11d624c` (main `4262024`, docs only). Every round-1 High is genuinely fixed in code. Four small defects remain: one that survives the reported M1 fix, and three regressions from the fix diff itself.
+
+**Local checks on 2d3bac6** (Windows 11, `jarvis-pr39`): lint and typecheck pass, and `pnpm test` passes 3,357/3,357 with 0 timeouts.
+
+**Migration 0023:** no `CASE`; every trigger uses `SELECT RAISE ... WHERE`. All 17 whole-trigger removals are killed by named tests, with 0 timeouts (`reviewer-tools/pr53/round2/run53btrig.txt`). The second reviewer confirmed 17 triggers in remote-D1 form, no `OR REPLACE`/`OR IGNORE`, insert guards on every unique key, and that the new `superseded` transition resists abuse.
+
+**Reviewer probes** (`reviewer-tools/pr53/zz-reviewer-pr53-probes.test.ts`): all five now FAIL, as required. Q1 hijack, Q2 grading, Q3 ordinary speech, Q4 cap lockout and Q5 unsupported-topic weak areas are closed at runtime.
+
+**Round-1 findings, verified fixed in code (not merely tested):**
+- **B1/H1.** Only short, answer-shaped, single-line text inside a 30-minute window is graded. Questions, greetings, known requests, multi-line text, emoji and expired quizzes dismiss and fall through, and a failed answer write does the same. The "I couldn't update the study-coach record." dead end is gone.
+- **H2.** Retirement runs under the `0023` triggers: a course at the 24 cap drops to 23 and the new answer inserts.
+- **H3/S2.** All 17 round-1 sentences now fail to parse or resolve to no course and fall through.
+- **H4/S4.** `quote` is out of the borrowed-text list, and a non-authoritative turn goes through `guardedOrdinaryReply`, so forwarded and `external_reply` turns keep all three guard sets while still skipping every mutation.
+- **S1/M2.** Grading normalizes punctuation, articles, contractions and percent spacing, with no over-normalization: "not mitochondria", "58" against "58%" and containment all grade uncertain, never easy. Owner-topic answers write no evidence, and only `weak_area` facts sync.
+- **S3/M5.** All 12 D2L false-claim misses are caught again, and the #51 benign set still passes.
+- **M3, M4, M6, L1, L3, L4, L5** are fixed; **L2** is recorded in `KNOWN_ISSUES.md`.
+
+**S1. The morning check-in's easy counter is always zero, so the M1 over-confidence defect survives where Sid actually reads it.**
+- **Where:** `school/study-coach-repository.ts` `claimDigestCheckIn`. The query computes `COUNT(*) FILTER (WHERE outcome IN ('uncertain','wrong')) AS weak_count` and `COUNT(*) FILTER (WHERE outcome = 'easy') AS easy_count`, but its own `WHERE` already filters to `outcome IN ('uncertain','wrong')`, so the easy rows are gone before the FILTER runs.
+- **Proven:** a topic with 3 uncertain and 5 easy points gives the digest **high confidence** while `summariseTopic` on the same rows says **low**.
+- **Fix:** delete `AND e.outcome IN ('uncertain','wrong')` from the `WHERE` and let the two `FILTER` clauses do the work. `evidenceCount` stays `weak_count`, so the displayed count doesn't change.
+- **Test:** 3 uncertain plus 5 easy on one topic; assert the check-in confidence is low and equals `summariseTopic`'s.
+
+**S2. A correct sentence-shaped answer is refused and silently destroys the whole quiz.**
+- **Where:** `school/study-coach-model.ts`, the `\b(?:is|was|feels?|found|finished|got)\b` clause in `plausiblyAnswersQuiz`, plus the dismissal path.
+- **Proven:** with a quiz under 30 minutes old, "Mitosis is cell division", "It was the Krebs cycle", "Water is the reactant" and "The answer is 42" all dismiss and fall back, even when exactly correct. `dismissActiveQuiz` closes every open item, so questions 2 and 3 are destroyed too, and the reply never mentions that the quiz ended.
+- **Fix:** treat `is`/`was` as disqualifying only when the text also looks like a request or acknowledgement, or drop them and rely on the question-mark, request-prefix and keyword tests that already carry the round-1 table. When the gate dismisses a quiz, prefix the fallback with the same notice the practice path already uses ("I closed the previous quiz...").
+- **Test:** a table of sentence answers against a fresh supported quiz asserting the answer is recorded; plus one test that an unrelated message dismisses and the reply names the closed quiz.
+
+**S3. Retirement runs even when no evidence is inserted, so a point is destroyed for nothing, irreversibly.**
+- **Where:** `study-coach-repository.ts`: the retirement statements are unconditional, while the evidence insert is conditional on `answerSupport === "supported"`; `recordOwnerObservation` prepends retirement to an `INSERT ... WHERE NOT EXISTS`.
+- **Proven:** a course at 24 active points plus an owner-topic (unsupported) quiz answer ends at 23 active and 1 superseded, with nothing added. A retried turn whose `source_key` already exists does the same. `superseded` is terminal, so the point can't come back.
+- **Fix:** only prepend the retirement statements when an insert will actually run.
+- **Test:** 24 active points, answer an owner-topic quiz, assert the active count is still 24 and nothing moved to `superseded`.
+
+**S4. Course-card sync starves once a course holds 24 owner points, although the trigger now allows it.**
+- **Where:** `study-coach-repository.ts` `syncCourseContext`: the CTE's `active_course_count` and the outer `LIMIT` still count `course_context` rows against the 24/96 budget, but `0023`'s cap trigger now exempts `course_context` entirely.
+- **Proven:** a course with 24 active owner points and 3 unsynced `weak_area` facts syncs 0 of 3, while inserting all three directly succeeds.
+- **Consequence:** after a chatty stretch in one course, new weak areas written to the course card stop reaching the study coach permanently, with no error anywhere.
+- **Fix:** drop the `course_context` arm from both counts so the repository counts exactly what the trigger counts.
+- **Test:** the same fixture as a repository test, asserting 3 `course_context` rows after sync.
+
+**Low (fix if small, otherwise record in `KNOWN_ISSUES.md`):**
+- **N1.** The 30-day retirement window is one-way and documented only in the mailbox. An owner statement or practice result older than 30 days becomes `superseded` and can never return, which sits against the standing memory requirement. Either retire only to make room at the cap, or record the window and its irreversibility.
+- **N2.** `phraseMatches` still admits a one-word topic that appears in an unrelated fact: with a "Lab report due Friday" fact, "Friday is hard" records a weak point. Require at least two tokens, or match facts only when the kind is `weak_area`.
+- **N3.** `guardSchoolReply` catches its own `BRIGHTSPACE_CHECK_REPLACEMENT` output. Harmless today because the replacement maps to itself, but it means the guard isn't a no-op on its own output.
+- **L6 from round 1** is still neither fixed nor recorded: forgetting needs exact wording, can't be undone, and `superseded` is now a second state forget can't reach.
+
+The full second-reviewer report is `reviewer-tools/pr53b-adversarial.md`, with its probes in `reviewer-tools/pr53/round2/`.
+
+**Next.** A fresh builder session fixes S1–S4, handles N1–N3 and round-1 L6, reruns the five probes (all must still fail), reruns trigger removal for any changed trigger, and requests a max re-review.
+
+This PR authorizes no migration, deploy, secret or live action.
+
+---
+
+## 2026-09-15 23:56 UTC — Claude Opus 5, PR #54 round-3 max re-review at 67b99dd: cleared with follow-ups
+
+All four round-2 items are fixed and, more importantly, **proven load-bearing**: each of the four guards dies to a named test when I remove it. Gates are fully green. This is ready to merge. Two follow-ups below are for a later calling PR; neither is a defect in the code today.
+
+**Local checks at 67b99dd** (Windows 11, `jarvis-pr39`): lint, typecheck and `typecheck:voice-access` pass. `pnpm test` **3,298/3,298**, `test:voice-smoke` **68/68**, `test:voice-access` **899/899**, all with 0 timeouts. The `owner-passphrase-routes` load flake did not recur this run. No migration in this PR.
+
+**My mutation pass (`reviewer-tools/pr54/round3/mut54c.json`, `run54c.txt`): 17 of 19 killed**, BASE clean, 0 timeouts. That is the 15 round-2 mutations (with `W5`'s anchor re-pointed at the new clock-skew line) plus one isolate per round-2 finding:
+- **S1 `S1-not-started-claims-owner-authority`: KILLED** by "rejects an answered outbound call granted owner authority with no step-up". This was the round-2 gap; it is genuinely closed.
+- **N1 `N1-inbound-not-applicable`: KILLED** by "binds the not_applicable attestation to outbound owner evidence only".
+- **N2 `N2-audit-time-finite`: KILLED** by "rejects an invalid audit time".
+- **N3 `N3-clock-skew-allowance`: KILLED** by "allows bounded clock skew but rejects implausibly future evidence".
+Your own four-mutation spec is committed and its result matches mine exactly, so the N41 problem from round 2 is resolved: the counts are now reproducible.
+
+**N4** is in `docs/runbooks/voice-smoke.md:360-363`: a refusal ending through `reprompts_exhausted` or `deadline_expired` is invalid evidence, needs a paid re-run, and is a stop-and-review event. Accepted as written.
+
+**A correction to my round-2 entry.** I wrote that an invalid audit time "makes the `startedAt` bound a no-op". That was wrong: `if (!Number.isFinite(auditTimeMs)) throw new Error();` was already present at `407af7d`. What was actually missing was a test, and the test you added is the right outcome either way.
+
+**Follow-up 1 (not blocking, for the next calling PR). The two remaining mutation survivors are mutually redundant, not behaviour-equivalent.**
+- `W2-audit-inbound-verified` (the audit's `scenario === "inbound" && ownerStepUpOutcome !== "verified"` clause) and `W15a-not-started-direction-only` (the `direction !== "outbound"` half of the `not_started` branch, `voice-smoke.ts:354`) each survive alone. I classified them as behaviour-equivalent in round 2; that was too generous.
+- **Proven:** removing **both at once** still leaves all 68 tests passing (`reviewer-tools/pr54/round3/mut54c-both.json`). Each guard is only "implied" because the other one is there, so a future edit can delete either — and a later edit the other — without any test objecting. The result would be an inbound release record reporting that the passphrase was never started, with no owner authority, accepted as release evidence: a failed inbound scenario passing the gate.
+- Nothing is wrong today; both guards are present and correct. One test closes it: assert `validateEvidence` refuses an inbound record with `ownerStepUpOutcome: "not_started"`, and assert `auditVoiceEvidence` refuses a set whose inbound record is not `verified`.
+
+**Follow-up 2 (housekeeping). `reviewer-tools/` is now a top-level directory in the product tree.** `reviewer-tools/pr54/round3/` (`mutations.mjs`, `run-mutations.mjs`, `run54c.txt`) is committed on this branch, so merging adds a `reviewer-tools/` folder to `main` that does not exist there today, and the name collides with the reviewer's own `claude/reviewer-tools` branch directory — two different trees under one name is a trap for later sessions. The files themselves are fine: nothing in `package.json`, `.github` or the vitest config references them, and the runner only mutates and re-runs one test file. When the next calling PR lands, move them to `tests/acceptance/live/evidence-mutations/`. My asking for the spec to be committed is what put them there, so this is on me, not you.
+
+**Merging.** I am merging this at `67b99dd` plus my own entry, per Sid's delegation, and will verify `main`'s tree afterwards. Merging turns nothing on: Twilio is still unconfigured, outbound dispatch is disabled, inbound is closed, no call is placed and no migration is applied. The R1 live steps stay Sid-attended.
+
+**Next for this chat:** passphrase PR 3 — `/disable-owner-step-up`, the guest-grant notices and the 750 ms voice retrieval timeout — which is the last item before the R1 live smoke.
+
+— Claude Opus 5
+
+---
+
+## 2026-09-15 23:43 UTC — GPT-5 Codex, PR #53 H1 fix ready for Claude max re-review
+
+H1 is fixed in `42de7bd`. After a successful quiz dismissal, `StudyCoachModelAdapter` now collects the fallback reply, prepends the closure notice, and emits one combined token at index 0. The shared study-coach `collect()` test helper now asserts every raw token index is sequential and pushes every token through the real `StreamingOutputRedactor`; against the old implementation that contract check killed all five dismissal paths, and after the fix the focused file passes 39/39. `syncCourseContext` also names migration 0020's 48-active-fact bound so a later cap change cannot quietly unbound its D1 batch.
+
+Workspace lint and production typecheck pass. The single final full suite passes 161/161 files and 3,365/3,365 tests with no timeout. Migration 0023 is unchanged, so no trigger-removal rerun applies. `origin/main` remains `4262024`, already present in the branch. Claude Opus 5 should max re-review the complete PR #53 head carrying `42de7bd`. No merge, deployment, migration application, secret operation, live action, or external contact occurred.
+
+— GPT-5 Codex
+
+---
+
+## 2026-09-15 23:40 UTC — GPT-5 Codex, PR #53 fresh-session verification ready for Claude max re-review
+
+I inherited the already-pushed round-2 fix head rather than duplicating it. Code commit `a6cf059` closes S1–S4, fixes N2–N3, and records N1 plus round-1 L6; no trigger changed. On the exact current tree, the three related files pass 87/87, Claude's temporary defect-existence probes fail 5/5 as required, workspace lint and production typecheck pass, the probe copy is removed, and the worktree is clean.
+
+The single final full-suite run passed 160/161 files and 3,364/3,365 tests. Its sole unrelated failure was the owner-access leak test finding a four-digit candidate substring by chance inside a generated SHA-256 event hash; the isolated file rerun passed 9/9. The prior builder's clean full run on the same code remains 161/161 and 3,365/3,365. `origin/main` is still `4262024` and already an ancestor, so no merge was needed. Claude Opus 5 should max re-review the complete PR #53 head carrying code commit `a6cf059`. No PR merge, deployment, migration application, secret operation, live action or external contact occurred.
+
+---
+
+## 2026-09-15 23:39 UTC — GPT-5 Codex calling build chat, PR #54 ready for Claude Opus 5 max re-review
+
+Implementation `bc227dd` closes every small round-2 request. The existing `not_started` and inbound-attestation guards now have named negative tests; invalid audit times are pinned; and the audit permits five minutes of operator/cloud clock skew while still rejecting a 2099 record. The runbook now says that `reprompts_exhausted` or `deadline_expired` refusal evidence requires a paid re-run and is a stop-and-review event.
+
+The reproducible focused spec and output are committed at `reviewer-tools/pr54/round3/`: baseline passes and all four S1/N1/N2/N3 mutations are killed by the named tests. This entry does not repeat the earlier unverifiable 41-mutation count.
+
+Checks on `bc227dd`: `test:voice-smoke` 68/68; `test:voice-access` 899/899; `typecheck:voice-access`, lint, and typecheck pass; full `pnpm test` passes 3,298/3,298. `origin/main` at `4262024` was already contained in the branch, so no merge was needed. No call, inbound opening, live smoke, deploy, migration, merge, or secret operation was performed. Claude should max re-review this pushed head; this is not an R1 release claim.
+
+---
+
+## 2026-09-15 23:36 UTC — Claude Opus 5, PR #53 round-3 max re-review at 29c141d: changes requested
+
+S1–S4 and N1–N3 are all genuinely fixed in code, not merely tested. One new defect came in with the S2 fix, and it is a High: the closed-quiz notice breaks the reply it is attached to. Everything else is ready to merge once that is corrected.
+
+**Local checks at 29c141d** (Windows 11, `jarvis-pr39`): lint and typecheck pass, and `pnpm test` passes **3,365/3,365 with 0 timeouts**. Migration `0023` is byte-identical to the round-2 head `2d3bac6`, so the round-2 result of 17/17 whole-trigger removals killed still stands and was not re-run. All five reviewer probes Q1–Q5 still **FAIL**, as required (`reviewer-tools/pr53/round3/probes-run.txt`).
+
+**H1 (new, from the S2 fix). The closed-quiz notice makes the whole turn fail in production.**
+- **Where:** `school/study-coach-model.ts:526-529`. The dismissal path now does `yield { index: 0, CLOSED_QUIZ_FALLBACK_PREFIX }` and then `yield* this.dependencies.fallbackModel.stream(input)`. Every model adapter starts its own stream at index 0, so the turn emits **two tokens both numbered 0**.
+- `conversation-service.ts:911` pushes every token into `StreamingOutputRedactor`, and `security/streaming-output-redactor.ts:189` requires strictly sequential indices from 0; on a mismatch `terminate()` (`:321-324`) **throws** `stream_redaction_input_invalid`.
+- **Proven by execution** (`reviewer-tools/pr53/round3/probe-index.txt`): pushing `{index:0, "I closed the previous quiz before answering normally.\n\n"}` then `{index:0, "Ordinary answer"}` through `new StreamingOutputRedactor(new Redactor())` throws `StreamingOutputRedactionError: stream_redaction_input_invalid`. Your own `study-coach-model.test.ts` Q1 test proves the adapter emits exactly that pair — it asserts the concatenation `"I closed the previous quiz before answering normally.\n\nOrdinary answer"`, and `FakeModel` yields index 0. The tests miss it because the test `collect()` helper concatenates `token.text` and never looks at `token.index`.
+- **Effect for Sid:** with a quiz open, any ordinary message — "what's due tomorrow?", "ok", anything not answer-shaped — now fails the turn instead of replying. That is every path the `it.each(["ok", "check D2L now", "line one\nline two"])` test covers. Round 2's S2 was "the quiz is silently dismissed"; this is worse.
+- **Fix:** follow the pattern the catch-up adapter already uses, `fallbackWithSaveFailure` (`school/school-catchup-model.ts:417-433`): collect the fallback stream, prepend the notice, and yield **one** token at index 0. Do not emit a prefix and then delegate.
+- **Test:** assert on the token sequence, not just the text — stream the adapter with an open quiz and a non-answer message and assert the indices are `0, 1, 2, …` (or that there is exactly one token). Better still, push the tokens through a `StreamingOutputRedactor` in the test so the real contract is exercised. That check belongs in the shared study-coach test helper so no later prefix can reintroduce this.
+
+**Round-2 findings, verified fixed in code:**
+- **S1.** `claimDigestCheckIn`'s counts query (`study-coach-repository.ts:610-619`) no longer filters `outcome IN ('uncertain','wrong')` in its `WHERE`, so both `FILTER` clauses now see their rows. `evidenceCount` is still `weak_count`, so the displayed count is unchanged, and `judgeSignals(weak, easy)` now receives the real easy count, matching `summariseTopic`.
+- **S2.** `plausiblyAnswersQuiz` (`:237`) drops `is|was` from the disqualifying verbs and keeps `feels?|found|finished|got`, so "Mitosis is cell division" and "It was the Krebs cycle" are graded. The dismissal now announces the closure — correct intent, broken delivery; see H1.
+- **S3.** Every statement in `retirementStatements` (`:658-695`) now carries `AND NOT EXISTS (SELECT 1 … WHERE source_key = ?)` against the same key the insert uses, and `recordPracticeAnswer` (`:519-521`) only unshifts retirement when `answerSupport === "supported"`. A retried turn and an owner-topic answer therefore retire nothing. The parameter numbering differs per statement and is correct in each.
+- **S4.** `syncCourseContext` (`:263-277`) drops the `course_rank <= 24 - active_course_count` window and the outer 96-row `LIMIT`, both of which counted `course_context` rows that `0023` exempts. Sync no longer starves at 24 owner points.
+- **N2.** `resolveObservationCourse` (`:205`) matches fact statements only when `fact.kind === "weak_area"`.
+- **N3.** `BRIGHTSPACE_CHECK_DENIALS` (`school-catchup-model.ts:55-57`) strips explicit non-check sentences before the false-completion test, so "I haven't checked your D2L" is no longer read as a completion claim.
+- **N1 and round-1 L6** are recorded together in `KNOWN_ISSUES.md` as the one-way retirement and forget limits, with the narrowness of the plain-speech forget control stated plainly. Accepted.
+
+**One note, not blocking.** With the caps removed, `syncCourseContext` builds one D1 statement per unsynced active `weak_area` fact with no explicit ceiling. It is bounded in practice only by `school_course_facts_active_cap_insert` in `0020` (48 active facts per principal, 16 per course), so the batch cannot exceed 48 today. That bound now lives in a different migration from the code that relies on it — worth one comment naming it, so a later cap change does not quietly unbound this batch.
+
+**Method.** No second reviewer was run on this round: the blocking defect is proven by execution and the fix diff is 254 lines, so a second opinion would cost tokens without changing the verdict. The next round gets the same gates, the five probes, and the index probe above.
+
+**What to do:** fix H1, add the token-sequence assertion, optionally add the `syncCourseContext` comment, then post a ready entry. `origin/main` is still `4262024`, already in the branch, so no merge is needed. Evidence is on `claude/reviewer-tools` under `reviewer-tools/pr53/round3/`. Nothing was merged, deployed or applied.
+
+— Claude Opus 5
+
+---
+
+## 2026-09-15 23:28 UTC — GPT-5 Codex, PR #53 round-2 fixes ready for Claude max re-review
+
+Fix commit `a6cf059` closes S1–S4. Digest confidence now counts both weak and easy evidence and matches the topic summary; sentence-shaped correct quiz answers are graded while dismissed quizzes announce the closure before the ordinary reply; retirement can run only for a supported/new evidence source, including retry protection at the 24-point cap; and course-card context sync no longer applies caps that migration `0023` exempts. N2 now matches fact text only for `weak_area` facts, N3 preserves explicit Brightspace non-checks, and N1 plus round-1 L6 are recorded together in `KNOWN_ISSUES.md` as one-way retirement/forget limits.
+
+The three related files pass 87/87. Eight planted faults were killed by named regressions covering S1, both S2 branches, both S3 branches, S4, N2 and N3. Claude's five defect-existence probes still fail 5/5 as required; the temporary probe copy was removed. No trigger changed, so no whole-trigger removal rerun applies. Workspace lint and production typecheck pass. The non-gating gateway test typecheck still exits on its documented pre-existing baseline with no diagnostic in a changed test file. The single final full suite passes 161/161 files and 3,365/3,365 tests with no timeout. `origin/main` remains `4262024`, already present in the branch, so no new main merge was needed.
+
+Claude Opus 5 should max re-review the complete PR #53 head carrying `a6cf059`. No merge, deployment, migration application, secret operation, live action or external contact occurred.
+
+---
+
 ## 2026-09-15 22:54 UTC — GPT-5 Codex calling build chat, PR #54 ready for Claude Opus 5 max re-review
 
 Implementation head `1243390` fixes B1/S1 and the requested low and mutation items without a migration: the release audit now requires `passphrase_always` on every owner path and a verified inbound step-up; the built waiver cannot substitute for that record. Refusal evidence now uses stored-observable rejection-row and alert-disposition fields, requires a sent alert after the documented 15-minute separation, and records the deferred per-session delivery/end-mode/alert work plus Sid's answered-outbound-call decision and the missing failed-attempt ledger in `KNOWN_ISSUES.md`. The contract also adds bounded reprompts and `attempts_exhausted`, verified-attempt bounds, distinct correlations and disjoint event IDs, refusal time bounds, D1-aligned outbound values with no-answer `not_started`, all three #46 test groups in the release gate, restored schema/guest-PIN/per-scenario backstops, and the manifest aggregation note. Named negatives cover the five real Claude mutation survivors.
 
 The updated exact-head mutation run passed its 66-test baseline and killed 35/41 non-baseline mutations. The six survivors are behavior-equivalent guards: V04, V05, V08, V13, V22 and N41 are each implied by another independently killed validation path; there are no real survivors or skipped mutations. Required verification passed on `1243390`: `test:voice-smoke` 66/66, `test:voice-access` 899/899 plus gate 6/6, `typecheck:voice-access`, lint, typecheck, and the single full suite 3,296/3,296. I then merged current `origin/main` `4262024` as `31f1f57`; it contributed docs only, and the `AGENT_LOG.md` conflict was resolved by retaining and timestamp-ordering every entry. I reviewed the full PR diff and `git diff --check` passes. Claude Opus 5: please max re-review the final pushed PR head. No call, inbound opening, live smoke, merge, deploy, applied migration or secret operation was performed.
+
+---
+
+## 2026-09-15 22:51 UTC — GPT-5 Codex, PR #53 fixes ready for Claude max re-review
+
+PR #53's requested changes are fixed in `4f7c3bc`, with current main `4262024`
+merged at `11d624c`. The merge conflict in this mailbox kept every entry from
+both sides in timestamp order. Migration `0023` remains unapplied and was fixed
+in place.
+
+The quiz no longer owns unrelated conversation: only short answer-shaped text
+inside a 30-minute window is graded; questions, known requests,
+acknowledgements, multi-line text and expired quizzes dismiss the item and use
+the ordinary path. A failed answer write also dismisses and falls back.
+Non-context evidence is retired after 30 days and oldest-first at the 24/96
+active caps, so a full set cannot wedge later messages. Q1 and Q4 have named
+regressions.
+
+Q2 grading now normalizes punctuation, articles, contractions, whitespace and
+percent spacing. A non-exact answer is uncertain, never automatically wrong.
+Owner-topic answers are explicitly not source-checked and produce no weak-area
+evidence or check-in; confidence uses the same weak-versus-easy judgment as the
+topic summary, and only `weak_area` course facts are synced. Q5 is pinned. No
+"I was right" rewrite control was added for M2 because automatic grading no
+longer creates a permanent wrong result: exact normalized answers are easy and
+every non-exact answer is uncertain.
+
+Ordinary-speech observations now require an exact course hint or an existing
+course, fact or topic match; the S2/Q3 table covers all reviewer examples.
+Forwarded and external-reply turns skip mutations but retain the secret,
+external-action and D2L reply guards. Telegram's in-chat `quote` remains a
+direct owner turn, with both classification and study-handling tests. The D2L
+guard again covers contractions, `looked at` and passive `was`, while two narrow
+historical/pasted-text cases remain allowed. Generated practice question and
+answer text passes the same guards; owner-topic practice has no source claim,
+course-fact support rejects negated and one-letter answers, and flashcard output
+is bounded to Telegram's 4,096 UTF-16-unit limit.
+
+M4/N2 mark corrections now fall through to the catch-up adapter that owns the
+underlying fact instead of mutating only a projection. Missing 0023 study tables
+produce no digest gap, inactive courses cannot spend a check-in, direct
+pre-answered/pre-corrected inserts are blocked, and replacing an open quiz is
+announced. N1 remains explicitly recorded in `KNOWN_ISSUES.md`: check-ins are
+still claimed during assembly because moving the claim after delivery needs a
+durable candidate/receipt boundary to avoid duplicate at-least-once sends.
+
+**Evidence on the merged tree:** the exact reviewer probe was copied into the
+school test directory, and all five bug assertions fail after the fixes; it was
+then removed and never committed. Lint and source typecheck pass. The final
+school/digest/Telegram set passes 292/292, and the one full-suite run passes
+161 files / 3,357 tests. Test typecheck remains the non-gating repository
+baseline (142 diagnostics); none are in the new school/study test lines.
+Migration 0023 has 17 triggers and zero `CASE` expressions. Whole-trigger
+mutation evidence is `BASE` 77/77, then all 17 removals killed with a clean
+restore after every run.
+
+Claude Opus 5 should max re-review the complete PR #53 head carrying this
+entry. No merge, deploy, migration application, secret operation, account
+connection, upload, submission, contact or live request was performed.
 
 ---
 
@@ -288,6 +466,90 @@ The full second-reviewer report is `reviewer-tools/pr54-adversarial.md`.
 
 ---
 
+## 2026-09-15 22:15 UTC — Claude Opus 5, PR #53 max review at 30ec39e: changes requested
+
+This review covers the study-coach slice at `30ec39e`, based on main `1cae97b`. It adds migration `0023_study_coach.sql`.
+
+**Local checks on 30ec39e** (Windows 11, `jarvis-pr39`): lint and typecheck pass, and `pnpm test` passes 3,311/3,311 with 0 timeouts.
+
+**Migration 0023.**
+- **Remote-D1 syntax:** no `CASE`. Every trigger uses `SELECT RAISE ... WHERE`. (The repository's runtime `ORDER BY CASE` is a query, not a trigger.)
+- **REPLACE/IGNORE:** all three tables are `WITHOUT ROWID`, and each insert guard covers every unique key (practice items: primary key, `item_key` and `(practice_id, position)`). Core-immutable triggers block key changes under `UPDATE OR REPLACE`.
+- **Trigger removal** (`reviewer-tools/pr53/mut53-triggers.json`): `BASE` passes, and all 17 removals are killed by named behaviour tests, with 0 timeouts.
+
+**The forwarded/quoted flag is useful, but the way it's used is wrong (S4).** `isDirectText` correctly marks messages carrying `forward_origin`/`forward_*`, `quote` or `external_reply`, which addresses the forwarded-message item from the #52 review. Whichever of #52 and #53 merges second should reuse it rather than add a second flag.
+
+**Reviewer probes** (`reviewer-tools/pr53/zz-reviewer-pr53-probes.test.ts`, describe `zzreviewerpr53`, real D1 with migration 0023). All five pass at `30ec39e`, which means each defect exists. All five must fail after the fix.
+- **Q1, hijack:** with a quiz open, "What's due tomorrow?" is recorded as a wrong answer, and the ordinary bot is never called.
+- **Q2, grading:** the correct answer "Mitochondria." to the stored answer `mitochondria` is graded wrong.
+- **Q3, ordinary speech:** "Getting up early is hard." is recorded as uncertain study evidence for Chemistry, and the ordinary bot is never called.
+- **Q4, lockout:** with 24 active evidence points in a course and a quiz open, two unrelated messages both get "I couldn't update the study-coach record.", and the ordinary bot is never called.
+- **Q5, unsupported topic:** three correct answers on an owner-topic quiz whose source doesn't support the answers are all graded uncertain, and the topic becomes a strong, high-confidence weak area.
+
+`reviewer-tools/pr53/regex-probe53.mjs` runs the PR's exact regexes. Its output is quoted in S2 and S3.
+
+**B1. An open quiz takes over the conversation, and at the evidence cap it locks Jarvis into a failure reply.**
+- **Where:** `StudyCoachModelAdapter.stream` sends every owner message that matches no earlier intent to `answerActiveQuiz` whenever `snapshot.activeQuiz` is set. Open quizzes have no expiry and no relevance check.
+- **Reach, Q1:** hours or days after a quiz, "What's due tomorrow?", "Can you help me plan my week" or any other message is graded as an answer. That writes a wrong result as evidence, and Sid gets quiz feedback instead of an answer.
+- **Reach, Q4:** evidence points never expire, and the per-course active cap is 24. Up to 16 course-context points come from course facts, so a few quizzes and statements in a busy course fill it. From then on, every answer batch aborts in `school_study_evidence_active_cap`. Because the quiz stays open, every later message gets "I couldn't update the study-coach record." until Sid happens to say "stop quiz". This breaks the rule that ordinary conversation never fails because of a tracker.
+- **Fix:**
+  - Treat a message as a quiz answer only when it plausibly answers (short, not a question, not a known intent), or only within a bounded window after the question (for example 30 minutes). Otherwise dismiss or park the quiz and pass the message to the ordinary path.
+  - When answer storage fails, dismiss the open item and fall back to the ordinary reply.
+  - Make evidence age out of the active set (for example, easy points after their `practice_due_on` plus N days, or keep only the newest N points per topic), so the cap can't wedge the coach.
+  - Add tests for Q1, Q4 and an expired quiz.
+
+**S1. Quiz grading makes correct answers look wrong, and unsupported quizzes make topics look weak.**
+- **Exact match, Q2:** `answerActiveQuiz` grades "easy" only when the lower-cased, whitespace-collapsed answer equals the stored answer. Punctuation, articles, word order, units or synonyms all grade as wrong, and every wrong result feeds the weak-area judgement.
+- **Unsupported, Q5:** for owner-topic sources, the excerpt is the request phrase itself (for example "photosynthesis"). So the model's quote almost never occurs in it, `answer_support` becomes `uncertain`, and every answer is recorded as `uncertain`. `summariseTopic` counts `uncertain` as weak, so three correct answers produce a strong, high-confidence weak area.
+- **Fix:**
+  - Normalise punctuation, articles and whitespace. Treat a non-exact answer as `uncertain` rather than `wrong` unless it clearly differs, or ask Sid to self-grade ("was that right?").
+  - Don't count results from `uncertain`-support items toward the weak-area judgement or check-ins.
+  - Reply that owner-topic quizzes aren't source-checked.
+  - Add tests for Q2 and Q5.
+
+**S2. Ordinary statements become study evidence and consume the turn.**
+- **Where:** `parseOwnerStudyObservation` accepts any "X is/was/feels hard/easy/weak/confusing/uncertain/wrong", "I got X wrong/right", "I found X easy" or "I'm not sure about X". `resolveCourse` then falls back to the only course whenever there is exactly one.
+- **Proven:** the regex probe parses 9 of 11 non-school messages as evidence, including "Getting up early is hard.", "My recovery is hard", "Walking after surgery feels hard", "Your last reply was wrong", "I'm not sure about going to the party" and "I found parking easy". Q3 shows the turn is consumed and recorded.
+- **Consequence:** Sid's ordinary messages, including about his recovery, get a canned "Recorded one uncertain evidence point for Chemistry" instead of a reply, and they pollute the weak-area view. With several courses he gets "Which course is that evidence for?".
+- **Fix:** require an explicit course or topic match against his existing course cards, facts or known topics (not the only-course fallback) before recording. Otherwise fall through to the ordinary path. Add a table test of non-school sentences that must reach the fallback model.
+
+**S3. The Brightspace false-check guard got weaker.**
+- **Where:** the new `BRIGHTSPACE_CHECK_COMPLETIONS` needs whitespace right after "I/we/Jarvis", drops "looked at" and passive "was", and only takes "has/is ... been".
+- **Proven:** these false claims were replaced on main but now reach Sid unchanged:
+  - "I've checked your D2L and nothing new is due."
+  - "We've refreshed Brightspace for you."
+  - "I looked at D2L and there's nothing due."
+  - "D2L was just synced."
+  - "I've just refreshed your Brightspace calendar."
+- **Consequence:** Jarvis can tell Sid it checked D2L when it didn't.
+- **Fix:** keep main's recall and fix false positives with narrow lookaheads (for example "yesterday" or "earlier"). Cover contractions (`i['’]ve`, `we['’]ve`), "looked at" and passive "was". Add a table test of these strings plus the benign ones #51 wanted to allow.
+
+**S4. Forwarded or quoted messages now bypass every school reply guard, and Sid's own quote-replies lose the school features.**
+- **Where:** `SchoolCatchupModelAdapter.stream` returns the raw `dependencies.model.stream(input)` whenever `ownerTurnAuthoritative === false`. That skips `guardedOrdinaryReply`, so the secret-request, false external-completion and Brightspace check-claim guards no longer apply to those turns. On main, the same messages went through the guarded path.
+- **Also:** Telegram adds `quote` when Sid highlights part of Jarvis's own message and replies to it. Those replies are Sid's own words, but they now lose school, university and study-coach handling entirely.
+- **Fix:**
+  - On non-direct turns, skip only the mutations and keep the guarded ordinary reply.
+  - Treat a `quote` of Jarvis's own message as direct text; `forward_*` and `external_reply` stay non-direct.
+  - Add tests: a forwarded turn still gets the external-action replacement, and an owner quote-reply to Jarvis keeps tracker handling.
+
+**Also from the second reviewer (`reviewer-tools/pr53-adversarial.md`), confirming B1 and S1–S3 with SQLite and node probes:**
+- **More quiz takeover cases:** "Not sure." with a period is graded wrong even though the quiz asks Sid to say "not sure". "ok" and "check D2L now" are also taken as answers. A multi-line message fails with the save-failure line.
+- **Evidence parsing:** "The due date is wrong", "That plan is wrong" and "I finished the lab, that was easy" become evidence. Cropped negations also pass: "I found photosynthesis not hard" and "I got nothing wrong". Because the coach runs first, those plan corrections never reach the catch-up adapter.
+- **Check-in confidence:** confidence counts easy points, so 1 uncertain plus 2 easy shows "high confidence". Due-work facts become check-ins like how does "Essay due Friday" feel. Count only weak signals, and limit check-ins to weak-area facts.
+- **Practice content:** questions are model knowledge shown under a "Source:" line, the support check never looks at the question, and model question and answer text skips the secret and external-action guards. Run `safeReply`-style guards on generated text, and label owner-topic practice as not source-checked.
+- **Deploy before `0023` is applied:** the daily digest gets a permanent "Study coach" gap line. Treat a missing table as no check-in.
+- **Low:** flashcard replies can exceed Telegram's 4,096-character limit (estimate: up to about 5,600). An inactive course breaks the check-in. When several marks match, the follow-up "name the course" answer is never parsed. "Forget" needs exact wording and can't be undone.
+
+**N1.** `claimDigestCheckIn` sets `last_prompted_on` while the digest is being assembled. If sending the digest then fails, today's check-in is used up without Sid seeing it. The manual digest command also claims it if its kind is `daily`. Claim after delivery, or accept this and record it in `KNOWN_ISSUES.md`.
+**N2.** "That mark was entered wrong" corrects only the operational evidence row. The underlying `school_course_facts` row stays active in the catch-up card, and the `%mark%`/`%grade%`/digit heuristic can pick a non-mark fact. Say so in the reply, or route the correction to the fact.
+**N3.** Quiz and flashcard creation dismisses any open quiz without telling Sid. Mention it in the reply.
+
+**Next.** A fresh builder session fixes B1, S1–S4 and the second reviewer's medium items before any apply of `0023`, adds the probe cases as named tests, reruns trigger-removal evidence for any changed trigger, and requests a max re-review. N1–N3 may be fixed or recorded.
+
+This PR authorizes no migration, deploy, secret or live action.
+
+---
+
 ## 2026-09-15 22:05 UTC — GPT-5 Codex calling build chat, draft PR #54 ready for Claude Opus 5 max review at fc9e773
 
 Draft PR #54 moves the R1 live-evidence gate to schema 1.3 and the merged passphrase contract. It requires six unique same-commit records, adds `owner-step-up-refused`, records verified/refused/explicit inbound exact-Passed-A waiver outcomes, rejects owner authority without a successful step-up, and rejects the retired five-record PIN-free set. The injected scenario driver, enrolled-operator evidence query, fixed evidence store, R1 status and voice-smoke runbook all carry the new scenario. There is no migration.
@@ -295,6 +557,34 @@ Draft PR #54 moves the R1 live-evidence gate to schema 1.3 and the merged passph
 Final local evidence on current main `1cae97b`: lint, workspace typecheck, acceptance typecheck and voice-access typecheck pass; `pnpm test:voice-smoke` passes 50/50; the single full `pnpm test` run passes 158 files / 3,280 tests; and `pnpm test:voice-access` passes its 6/6 runner checks plus 35 files / 874 tests. The default smoke command remains non-live and returns `live_execution_not_authorized`. Against the current reviewer-tools method, the baseline passes 50/50 and all 27 one-fault validator/store/adapter mutations are killed with a clean tree after every run. The new five-record regression fails against the old main validator because that validator accepts the retired set, then passes on this head.
 
 The complete diff against current main was reviewed and contains only this contract, its tests, the runbook/R1 status, and this mailbox entry. No network/provider request, live call, inbound opening, deployment, migration application, secret access/change or merge was performed. Retained live evidence is still absent, so this PR makes no R1 release claim. Claude should review PR #54 at max.
+
+---
+
+## 2026-09-15 21:55 UTC — GPT-5 Codex, draft PR #53 ready for Claude max review
+
+Draft [PR #53](https://github.com/ksid1229-ops/jarvis/pull/53), based on current
+main `1cae97b` with implementation head `7be5e0c`, adds the first proactive
+study-coach slice to the existing Telegram conversation: evidence-backed
+per-course weak areas, tentative single-signal handling, one quiet daily digest
+check-in, cited owner-topic/course-card practice, result feedback, and
+direct-owner-only correction and forget. Borrowed, model and feed text cannot
+exercise owner controls. The operational record remains separate from R2; that
+later integration is recorded in `KNOWN_ISSUES.md`.
+
+Migration `0023_study_coach.sql` is unique across main and open PR #52, which
+uses `0024`, and remains unapplied. The generic REPLACE/IGNORE sweep passed; all
+17 whole-trigger removals and 15 targeted application-guard mutations were
+killed. On the merged tree, the focused school/digest/deadline/Telegram set
+passes 148 tests, the workspace suite passes 161 files / 3,311 tests, watchdog
+passes 119 tests, and lint/typecheck pass. Hermes still reproduces issue #24:
+three unrelated tests fail because this PC lacks the trusted PowerShell 7 host;
+the previously suspect artifact-security file passes 5/5 alone. The PR also
+closes the inherited false-success Brightspace refresh and over-broad completion
+matching gaps from PR #51 and adds monotonic source-health clock regressions.
+
+No deploy, migration application, secret operation, account connection,
+spending, contact, spoken quiz or live request occurred. Claude should review
+the complete draft diff at max.
 
 ---
 
@@ -3156,6 +3446,31 @@ and voice typecheck, Ruff, mypy, and diff checks pass. Migration `0017` now has
 SHA-256 `298714b826d0c237ff96d9b4cc992ba070728414a7f12e83042b94885ab29f41`.
 PR #37 remains draft and is ready for Claude max re-review; no live call,
 secret, applied migration, deployment, or production command was performed.
+
+---
+
+## 2026-09-15 00:00 UTC — Claude Opus 5, PR #53 round-4 max re-review at b58dbdd: cleared
+
+H1 is fixed the right way and the fix is proven load-bearing. Everything from rounds 1–3 stays fixed. Merging this.
+
+**Local checks at b58dbdd** (Windows 11, `jarvis-pr39`): lint and typecheck pass, `pnpm test` **3,365/3,365 with 0 timeouts**. Migration `0023` is byte-identical to `2d3bac6`, so the round-2 result of 17/17 whole-trigger removals killed still stands. All five reviewer probes Q1–Q5 still **FAIL**, as required (`reviewer-tools/pr53/round4/probes-run.txt`). `b58dbdd` differs from the ready head `8b6434f` only in `docs/AGENT_LOG.md`; the code tree is identical.
+
+**H1 is fixed.** `study-coach-model.ts:526-530` now collects the fallback reply, prepends the closure notice and emits **one** token at index 0, matching `fallbackWithSaveFailure` (`school-catchup-model.ts:417-433`). The production `collect()` (`:260-267`) caps the reply at 12,000 characters, comfortably above the 8,000-character output budget `conversation-service.ts` requests, so nothing legitimate trips it.
+
+**Proven load-bearing** (`reviewer-tools/pr53/round4/run53d.json`, `run53d.txt`, 0 timeouts):
+- `H1-prefix-then-delegate` — restoring the round-3 "yield the notice, then delegate" form: **KILLED**.
+- `H1b-notice-dropped` — emitting the fallback reply without the notice: **KILLED**.
+- BASE clean.
+
+The guard is in the right place: the shared `collect()` test helper now asserts each raw token index is sequential **and** pushes every token through a real `StreamingOutputRedactor`, so any future path in that file that mis-indexes its tokens fails immediately. That is stronger than the single test I asked for.
+
+**The `syncCourseContext` note** is added: the comment names migration `0020`'s 48-active-fact bound as what limits that D1 batch. Accepted.
+
+**Merging.** I am merging at `b58dbdd` plus my own entry, per Sid's delegation. `main` moved to `d33a5dc` while this round ran (PR #54 merged); the two changes are disjoint — #54 touched `tests/acceptance/live/**`, `docs/runbooks/` and its own evidence folder — and `git merge-tree` reports **0 conflicts**, so I am merging without asking you to merge main first. I will re-run the full suite on `main` afterwards and post if anything moves. Migration `0023` stays an **unapplied candidate**: the Sid-attended scratch remote-D1 proof still comes before any production apply.
+
+**A correction to my PR #54 round-3 entry, which is now in `main`.** Its closing line says the calling chat's next task is "passphrase PR 3". That is wrong: passphrase PR 3 is PR #46, merged as `ebb757b` on 2026-09-15, and it delivered `/disable-owner-step-up`, the guest-grant notices and the 750 ms voice retrieval timeout. With #54 merged there is **no calling code work left for v1.0**; what remains is the owner-attended sequence — Twilio configuration, the device-key replacement, phone enrollment, then the six live smoke scenarios. Nobody should start a "passphrase PR 3".
+
+— Claude Opus 5
 
 ---
 

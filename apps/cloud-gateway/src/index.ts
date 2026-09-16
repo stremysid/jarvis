@@ -47,6 +47,8 @@ import { TelegramRestProvider } from "./providers/telegram-provider.js";
 import { Redactor } from "./security/redaction.js";
 import { SchoolCatchupModelAdapter } from "./school/school-catchup-model.js";
 import { SchoolCatchupRepository } from "./school/school-catchup-repository.js";
+import { StudyCoachModelAdapter } from "./school/study-coach-model.js";
+import { StudyCoachRepository } from "./school/study-coach-repository.js";
 import { UniversityTrackerRepository } from "./university/university-tracker-repository.js";
 export { CallSession } from "./voice/call-session-do.js";
 
@@ -112,19 +114,28 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
     const baseModel = new DeepSeekModelAdapter({ apiKey, model: env.DEEPSEEK_MODEL });
     const ownerPrincipalId = env.OWNER_PRINCIPAL_ID;
     const model = ownerPrincipalId !== undefined && accepted.principalId === ownerPrincipalId
-      ? new SchoolCatchupModelAdapter({
-        model: baseModel,
-        repository: new SchoolCatchupRepository(env.DB),
-        universityRepository: new UniversityTrackerRepository(env.DB),
-        redactor,
-        timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
-        ownerPrincipalId,
-        refreshBrightspace: async (now) => runOnDemandBrightspaceRefresh({
-          env,
-          clock: { now: () => new Date(now.getTime()) },
-          delivery: { send: async () => undefined },
-          fetcher: globalThis.fetch.bind(globalThis),
+      ? new StudyCoachModelAdapter({
+        fallbackModel: new SchoolCatchupModelAdapter({
+          model: baseModel,
+          repository: new SchoolCatchupRepository(env.DB),
+          universityRepository: new UniversityTrackerRepository(env.DB),
+          redactor,
+          timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
+          ownerPrincipalId,
+          ownerTurnAuthoritative: accepted.isDirectText,
+          refreshBrightspace: async (now) => runOnDemandBrightspaceRefresh({
+            env,
+            clock: { now: () => new Date(now.getTime()) },
+            delivery: { send: async () => undefined },
+            fetcher: globalThis.fetch.bind(globalThis),
+          }),
         }),
+        practiceModel: baseModel,
+        repository: new StudyCoachRepository(env.DB),
+        redactor,
+        ownerPrincipalId,
+        ownerTurnAuthoritative: accepted.isDirectText,
+        timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
       })
       : baseModel;
 
@@ -237,6 +248,11 @@ function commandContext(env: Env, principalId: string): CommandContext {
         sources: {
           readCatchupActions: async (date) =>
             new SchoolCatchupRepository(env.DB).listActionsForDate(principalId, date),
+          claimStudyCheckIn: async (date, weekday, minuteOfDay) => {
+            const study = new StudyCoachRepository(env.DB);
+            const now = clock.now();
+            return study.syncAndClaimDigestCheckIn({ principalId, today: date, weekday, minuteOfDay, now });
+          },
           readDeadlines: async (withinDays) =>
             new DeadlineRepository(env.DB).listDueWithin({
               from: clock.now(),
