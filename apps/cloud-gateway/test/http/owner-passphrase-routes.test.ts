@@ -28,6 +28,22 @@ function dispatch(request: Request, environment: Partial<Env>): Promise<Response
   return fetch(request, environment, { waitUntil: () => undefined });
 }
 
+function expectNoPassphraseWordsStored(
+  storage: { results: Array<{ salt: string; digest: string; created_by_key_id: string }> },
+  phrase: string,
+): void {
+  for (const word of phrase.split(" ")) {
+    const wordHex = Array.from(new TextEncoder().encode(word), (byte) => (
+      byte.toString(16).padStart(2, "0")
+    )).join("").toUpperCase();
+    for (const { salt, digest, created_by_key_id: createdByKeyId } of storage.results) {
+      expect(salt).not.toContain(wordHex);
+      expect(digest).not.toContain(wordHex);
+      expect(createdByKeyId).not.toContain(word);
+    }
+  }
+}
+
 describe("owner passphrase route", () => {
   let privateKey: CryptoKey;
   let environment: Partial<Env>;
@@ -134,10 +150,10 @@ describe("owner passphrase route", () => {
       expect(result.phrase).toMatch(/^[a-z]{4,8} [a-z]{4,8} [a-z]{4,8}$/u);
       expect(result.verifierVersion).toBe(1);
       expect(result.verifierStatus).toBe("active");
-      const storage = JSON.stringify(await env.DB.prepare(
-        "SELECT hex(salt) AS salt, hex(digest) AS digest FROM owner_passphrase_verifiers",
-      ).all());
-      for (const word of result.phrase.split(" ")) expect(storage).not.toContain(word);
+      const storage = await env.DB.prepare(
+        "SELECT hex(salt) AS salt, hex(digest) AS digest, created_by_key_id FROM owner_passphrase_verifiers",
+      ).all<{ salt: string; digest: string; created_by_key_id: string }>();
+      expectNoPassphraseWordsStored(storage, result.phrase);
       expect(JSON.stringify(consoleSpy.mock.calls)).not.toContain(result.phrase);
 
       const status = await dispatch(await signedRequest({ schemaVersion: "1.0", operation: "status" }), environment);
@@ -147,6 +163,23 @@ describe("owner passphrase route", () => {
     } finally {
       consoleSpy.mockRestore();
     }
+  });
+
+  it("ignores D1 envelope metadata when checking stored passphrase words", () => {
+    const storage = {
+      results: [{ salt: "AA", digest: "BB", created_by_key_id: "key:home" }],
+      meta: { served_by: "miniflare.db" },
+    };
+    expect(JSON.stringify(storage)).toContain("serve");
+    expect(JSON.stringify(storage.results)).toContain("salt");
+    expectNoPassphraseWordsStored(storage, "serve salt bloom");
+  });
+
+  it("rejects a digest containing a passphrase word encoded as hex", () => {
+    const storage = {
+      results: [{ salt: "AA", digest: "AA7365727665BB", created_by_key_id: "key:home" }],
+    };
+    expect(() => expectNoPassphraseWordsStored(storage, "serve salt bloom")).toThrow();
   });
 
   it("does not reveal missing configuration before authenticating the device", async () => {
