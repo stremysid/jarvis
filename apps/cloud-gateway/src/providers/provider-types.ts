@@ -83,6 +83,41 @@ export interface ModelCompleteJsonInput {
   reasoningEffort: "high";
 }
 
+export interface ModelCompleteJsonUsage {
+  readonly priceId: string;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly reservedCostMicros: number;
+  readonly settledCostMicros: number;
+  readonly d1Statements: number;
+}
+
+export interface ModelCompleteJsonCompletion {
+  readonly value: unknown;
+  readonly usage: ModelCompleteJsonUsage;
+}
+
+const issuedCompleteJsonCompletions = new WeakSet<object>();
+
+/** Mints the only provider completion shape the workflow treats as billable. */
+export function issueModelCompleteJsonCompletion(
+  value: unknown,
+  usage: ModelCompleteJsonUsage,
+): ModelCompleteJsonCompletion {
+  const completion = Object.freeze({ value, usage: Object.freeze({ ...usage }) });
+  issuedCompleteJsonCompletions.add(completion);
+  return completion;
+}
+
+/** Fake providers may still return raw JSON; only minted production results carry usage. */
+export function snapshotModelCompleteJsonCompletion(value: unknown): ModelCompleteJsonCompletion | null {
+  if (value === null || typeof value !== "object" || !issuedCompleteJsonCompletions.has(value)
+    || !Object.isFrozen(value)) return null;
+  const completion = value as ModelCompleteJsonCompletion;
+  return Object.isFrozen(completion.usage) ? completion : null;
+}
+
 export interface ModelProvider {
   streamText(input: ModelStreamTextInput): AsyncIterable<ModelChunk>;
   completeJson(input: ModelCompleteJsonInput): Promise<unknown>;

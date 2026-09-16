@@ -1,10 +1,14 @@
 import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { canonicalJson, createEnvelope, newUlid, sha256Hex } from "../../../../packages/contracts/src/index.js";
 import worker from "../../src/index.js";
 import { TieredEventReader } from "../../src/archive/tiered-event-reader.js";
 import { ArchivalService } from "../../src/archive/archival-service.js";
 import { ArchiveRepository } from "../../src/archive/archive-repository.js";
 import { appendEvents, markDelivered, resetArchiveFixture, setCreatedAt } from "./archive-fixture.js";
+import { EventRepository } from "../../src/persistence/event-repository.js";
+import { Redactor } from "../../src/security/redaction.js";
+import { applyMemoryDistillationMigration } from "../persistence/migration.js";
 
 async function hourly(iso = "2026-12-01T00:00:00.000Z") {
   const ctx = createExecutionContext();
@@ -16,6 +20,8 @@ async function hourly(iso = "2026-12-01T00:00:00.000Z") {
       GOOGLE_CLIENT_ID: undefined,
       GOOGLE_CLIENT_SECRET: undefined,
       GOOGLE_REFRESH_TOKEN: undefined,
+      OWNER_PRINCIPAL_ID: undefined,
+      DEEPSEEK_API_KEY: undefined,
     }, ctx);
   await waitOnExecutionContext(ctx);
 }
@@ -23,12 +29,16 @@ async function hourly(iso = "2026-12-01T00:00:00.000Z") {
 describe("hourly archival through the Worker entrypoint", () => {
   let reports: unknown[][];
   beforeEach(async () => {
+    await applyMemoryDistillationMigration();
     await resetArchiveFixture();
     await env.DB.prepare("DELETE FROM scheduled_runs").run();
     reports = [];
     vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => { reports.push(args); });
   });
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
 
   it("archives one bounded batch without GitHub and claims each hour only once", async () => {
     const events = await appendEvents(25);
@@ -76,8 +86,109 @@ describe("hourly archival through the Worker entrypoint", () => {
         job: "poll",
         result: "ran",
         detail: expect.stringContaining(
-          "archival failed (archive_operation_failed); Classroom not configured; Brightspace not configured; Memory distillation not configured",
+          "archival failed (archive_operation_failed); Classroom not configured; Brightspace not configured; Memory distillation not configured; Memory history indexing not configured",
         ),
+      })],
+    })]);
+  });
+
+  it("composes production distillation and history indexing only when configured", async () => {
+    const principalId = `principal:production-memory:${newUlid()}`;
+    const text = "My favourite subject is math.";
+    const now = new Date();
+    const timestamp = now.toISOString();
+    await env.DB.prepare(`INSERT INTO principals (
+      principal_id, principal_type, status, display_name, created_at, updated_at
+    ) VALUES (?, 'human', 'active', 'production memory composition', ?, ?)`)
+      .bind(principalId, timestamp, timestamp).run();
+    const eventId = newUlid(now);
+    const redacted = new Redactor().redactText(text);
+    if (!redacted.ok) throw new Error("production_memory_composition_redaction_failed");
+    const envelope = await createEnvelope({
+      schemaVersion: "1.0",
+      eventId,
+      eventType: "conversation.user_committed",
+      source: "conversation",
+      subjectId: principalId,
+      occurredAt: timestamp,
+      receivedAt: timestamp,
+      correlationId: newUlid(now),
+      contentType: "application/json",
+      payload: {
+        schemaCode: 1,
+        channelCode: 2,
+        sensitivityCode: 1,
+        historyEligible: true,
+        text: redacted,
+        directOwnerText: true,
+      },
+      producerVersion: "conversation-v1",
+    });
+    const appended = await new EventRepository(env.DB).append({
+      envelope,
+      scope: "production-memory-composition",
+      key: eventId,
+      requestHash: await sha256Hex(canonicalJson([eventId, text])),
+    });
+    const fetcher = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
+      choices: [{
+        finish_reason: "stop",
+        message: { content: JSON.stringify({
+          proposals: [{
+            text,
+            sourceEventIds: [eventId],
+            sourceExcerpts: [{ sourceEventId: eventId, excerpt: text }],
+            confidence: 0.95,
+            sensitivity: "normal",
+          }],
+        }) },
+      }],
+      usage: {
+        prompt_tokens: 100,
+        completion_tokens: 50,
+        prompt_cache_hit_tokens: 0,
+        prompt_cache_miss_tokens: 100,
+      },
+    }), { headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetcher);
+    const ctx = createExecutionContext();
+    await worker.scheduled(createScheduledController({
+      cron: "0 * * * *",
+      scheduledTime: now.getTime(),
+    }), {
+      ...env,
+      OWNER_PRINCIPAL_ID: principalId,
+      DEEPSEEK_API_KEY: "test-deepseek-key",
+      DEEPSEEK_MODEL: undefined,
+      MEMORY_EXTRACTION_MODEL: "deepseek-flash",
+      MEMORY_EXTRACTION_MONTHLY_CAP_USD: "5",
+      TELEGRAM_BOT_TOKEN: undefined,
+      GITHUB_TOKEN: undefined,
+      GOOGLE_CLIENT_ID: undefined,
+      GOOGLE_CLIENT_SECRET: undefined,
+      GOOGLE_REFRESH_TOKEN: undefined,
+      BRIGHTSPACE_ICAL_URL: undefined,
+    }, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_items item
+      JOIN memory_item_state state ON state.principal_id = item.principal_id AND state.item_id = item.item_id
+      WHERE item.principal_id = ? AND state.lifecycle_state = 'active'`).bind(principalId).first("count")).toBe(1);
+    expect(await env.DB.prepare(`SELECT current_event_sequence FROM memory_cursors
+      WHERE principal_id = ? AND cursor_name = 'distillation'`).bind(principalId)
+      .first("current_event_sequence")).toBe(appended.eventSequence);
+    expect(await env.DB.prepare(`SELECT current_event_sequence FROM memory_cursors
+      WHERE principal_id = ? AND cursor_name = 'fts_history'`).bind(principalId)
+      .first("current_event_sequence")).toBe(appended.eventSequence);
+    expect(await env.DB.prepare(`SELECT settled_cost_micros FROM memory_runs
+      WHERE principal_id = ? AND job = 'distillation'`).bind(principalId)
+      .first<number>("settled_cost_micros")).toBeGreaterThan(0);
+    expect(reports).toContainEqual(["scheduled", expect.objectContaining({
+      jobs: [expect.objectContaining({
+        job: "poll",
+        result: "ran",
+        detail: expect.stringMatching(/Memory succeeded.*Memory history complete/u),
       })],
     })]);
   });

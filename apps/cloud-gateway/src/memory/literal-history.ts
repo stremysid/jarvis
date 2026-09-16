@@ -46,6 +46,13 @@ export const LITERAL_HISTORY_SEARCH_LIMITS = Object.freeze({
   resultsExamined: MAX_SEARCH_RESULTS,
 });
 
+/** Ceiling for the production indexNext shape used by the hourly job. */
+export const LITERAL_HISTORY_INDEX_STEP_LIMITS = Object.freeze({
+  d1Statements: 64,
+  eventsExamined: 2,
+  textBytesExamined: 65_536,
+});
+
 export type LiteralHistoryErrorCode =
   | "memory_history_corrupt"
   | "memory_history_not_found"

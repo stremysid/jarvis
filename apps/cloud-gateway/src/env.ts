@@ -77,6 +77,12 @@ export interface Env {
    */
   DEEPSEEK_MODEL?: string;
 
+  /** Memory extraction model. Defaults to DEEPSEEK_MODEL, then deepseek-flash. */
+  MEMORY_EXTRACTION_MODEL?: string;
+
+  /** Hard calendar-month extraction cap in USD. Defaults to 5. */
+  MEMORY_EXTRACTION_MONTHLY_CAP_USD?: string;
+
   /**
    * Telegram thinking mode. Defaults to disabled. Any value except enabled or
    * disabled also uses the default and logs deepseek_telegram_thinking_invalid once.

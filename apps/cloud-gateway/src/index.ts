@@ -49,12 +49,13 @@ import {
 import { DeviceRepository } from "./persistence/device-repository.js";
 import { EventRepository } from "./persistence/event-repository.js";
 import { PolicyService } from "./policy/policy-service.js";
-import { DeepSeekModelAdapter } from "./providers/deepseek-provider.js";
+import { DeepSeekJsonProvider, DeepSeekModelAdapter } from "./providers/deepseek-provider.js";
 import { ProviderCircuitBreaker } from "./providers/provider-circuit-breaker.js";
 import { TelegramRestProvider, withTelegramTyping } from "./providers/telegram-provider.js";
 import { Redactor } from "./security/redaction.js";
 import { TelegramMemoryControlModelAdapter } from "./memory/telegram-memory-controls.js";
 import { TelegramMemoryRetriever } from "./memory/telegram-memory-retriever.js";
+import { MemoryExtractionBudget } from "./memory/memory-extraction-budget.js";
 import { SchoolCatchupModelAdapter } from "./school/school-catchup-model.js";
 import { SchoolCatchupRepository } from "./school/school-catchup-repository.js";
 import { StudyCoachModelAdapter } from "./school/study-coach-model.js";
@@ -504,24 +505,43 @@ ${COMMAND_HELP}`));
     const clock = { now: () => new Date(controller.scheduledTime) };
     const send = telegramSender(env);
     const principalId = env.OWNER_PRINCIPAL_ID;
-
-    const context = {
-      env,
-      clock,
-      delivery: {
-        send: async (text: string) => {
-          // No sender and no owner means no way to deliver. Raising here
-          // records it as a job failure rather than reporting a digest that
-          // went nowhere as sent.
-          if (send === null) throw new Error("TELEGRAM_BOT_TOKEN is not set");
-          if (principalId === undefined) throw new Error("OWNER_PRINCIPAL_ID is not set");
-          const identity = await new DeviceRepository(env.DB).findOwnerTelegramChat(principalId);
-          if (identity === null) throw new Error("no verified Telegram identity for the owner");
-          await send(identity, text);
-        },
+    const delivery = {
+      send: async (text: string) => {
+        // No sender and no owner means no way to deliver. Raising here
+        // records it as a job failure rather than reporting a digest that
+        // went nowhere as sent.
+        if (send === null) throw new Error("TELEGRAM_BOT_TOKEN is not set");
+        if (principalId === undefined) throw new Error("OWNER_PRINCIPAL_ID is not set");
+        const identity = await new DeviceRepository(env.DB).findOwnerTelegramChat(principalId);
+        if (identity === null) throw new Error("no verified Telegram identity for the owner");
+        await send(identity, text);
       },
-      fetcher: globalThis.fetch.bind(globalThis),
     };
+    const fetcher = globalThis.fetch.bind(globalThis);
+    const extractionModel = env.MEMORY_EXTRACTION_MODEL ?? env.DEEPSEEK_MODEL ?? "deepseek-flash";
+    const extractionBudget = env.DEEPSEEK_API_KEY !== undefined && env.DEEPSEEK_API_KEY.length > 0
+      && principalId !== undefined && principalId.length > 0
+      ? new MemoryExtractionBudget({
+        database: env.DB,
+        modelId: extractionModel,
+        monthlyCapUsd: env.MEMORY_EXTRACTION_MONTHLY_CAP_USD,
+        now: clock.now,
+        notice: delivery,
+      })
+      : null;
+    const memoryDistillation = extractionBudget === null
+      ? undefined
+      : {
+        provider: new DeepSeekJsonProvider({
+          apiKey: env.DEEPSEEK_API_KEY!,
+          model: extractionModel,
+          budget: extractionBudget,
+          fetchImplementation: fetcher,
+        }),
+        providerModelId: extractionBudget.providerModelId,
+        prepare: (ownerPrincipalId: string) => extractionBudget.prepare(ownerPrincipalId),
+      };
+    const context = { env, clock, delivery, fetcher, memoryDistillation };
 
     const report = await handleScheduled(controller.cron, clock.now(), {
       runs: buildScheduledRuns(context),

@@ -9,9 +9,12 @@ import {
 } from "../../../../packages/contracts/src/index.js";
 import type { AppendedEvent, SyncEventReader } from "../persistence/event-repository.js";
 import {
+  snapshotModelCompleteJsonCompletion,
   snapshotProviderFailure,
+  type ModelCompleteJsonUsage,
   type ModelProvider,
 } from "../providers/provider-types.js";
+import { snapshotMemoryExtractionFailure } from "./memory-extraction-budget.js";
 import { Redactor } from "../security/redaction.js";
 import {
   decideAutomaticPromotion,
@@ -134,6 +137,7 @@ export interface AutomaticDistillationOptions {
   readonly repository: Pick<MemoryRepository, "bootstrapTopics" | "commitInitialItem">;
   readonly provider: Pick<ModelProvider, "completeJson">;
   readonly providerModelId: string;
+  readonly priceId?: Ulid;
   readonly principalId: string;
   readonly now: () => Date;
   readonly nextId?: (now: Date) => Ulid;
@@ -508,6 +512,10 @@ function failureClassification(error: unknown): Readonly<{
   outcome: "budget_blocked" | "provider_credit_blocked" | "failed";
   failureCode: string | null;
 }> {
+  const extraction = snapshotMemoryExtractionFailure(error);
+  if (extraction !== null) {
+    return Object.freeze({ outcome: "failed", failureCode: extraction });
+  }
   const failure = snapshotProviderFailure(error);
   if (failure?.category === "policy_denied") {
     return Object.freeze({ outcome: "budget_blocked", failureCode: null });
@@ -533,6 +541,9 @@ export class AutomaticMemoryDistillationWorkflow {
     safeText(options.principalId, 256);
     if (!PROVIDER_MODEL.test(options.providerModelId)) {
       throw new TypeError("memory_distillation_provider_model_invalid");
+    }
+    if (options.priceId !== undefined && !ULID.test(options.priceId)) {
+      throw new TypeError("memory_distillation_price_invalid");
     }
   }
 
@@ -608,6 +619,7 @@ export class AutomaticMemoryDistillationWorkflow {
         budget,
       );
       const committed: CommittedItem[] = [];
+      let providerUsage: ModelCompleteJsonUsage | null = null;
       try {
         const eligible = scanned.filter((event) => event.disposition === "eligible");
         const textBytes = eligible.reduce((total, event) => total + event.textBytes, 0);
@@ -646,6 +658,12 @@ export class AutomaticMemoryDistillationWorkflow {
             maxOutputTokens: MAX_PROVIDER_OUTPUT_TOKENS,
             reasoningEffort: "high",
           });
+          const completion = snapshotModelCompleteJsonCompletion(providerOutput);
+          if (completion !== null) {
+            providerOutput = completion.value;
+            providerUsage = completion.usage;
+            budget.d1Statements += completion.usage.d1Statements;
+          }
         } catch (error) {
           const failure = failureClassification(error);
           const finalized = await this.finalizeRun(
@@ -667,6 +685,7 @@ export class AutomaticMemoryDistillationWorkflow {
             "failed",
             "distillation_provider_output_invalid",
             budget,
+            providerUsage,
           );
           return this.result(run, finalized, cursor.sequence, latest, budget, observedEvents);
         }
@@ -693,6 +712,7 @@ export class AutomaticMemoryDistillationWorkflow {
             "failed",
             "distillation_provider_output_invalid",
             budget,
+            providerUsage,
           );
           return this.result(run, finalized, cursor.sequence, latest, budget, observedEvents);
         }
@@ -700,7 +720,9 @@ export class AutomaticMemoryDistillationWorkflow {
         const continuationRequired = proposals.length > selectedProposals.length;
         budget.proposalsAccepted = selectedProposals.length;
         if (selectedProposals.length === 0) {
-          const finalized = await this.finalizeRun(run, scanned, committed, "nothing_new", null, budget);
+          const finalized = await this.finalizeRun(
+            run, scanned, committed, "nothing_new", null, budget, providerUsage,
+          );
           if (finalized.outcome === "nothing_new") await this.advanceCursor(cursor, endSequence, budget);
           const finalCursor = finalized.outcome === "nothing_new" ? endSequence : cursor.sequence;
           return this.result(run, finalized, finalCursor, latest, budget, observedEvents);
@@ -718,7 +740,9 @@ export class AutomaticMemoryDistillationWorkflow {
             createdInRun: !result.replayed,
           }));
         }
-        const finalized = await this.finalizeRun(run, scanned, committed, "succeeded", null, budget);
+        const finalized = await this.finalizeRun(
+          run, scanned, committed, "succeeded", null, budget, providerUsage,
+        );
         if (finalized.outcome === "succeeded" && !continuationRequired) {
           await this.advanceCursor(cursor, endSequence, budget);
         }
@@ -744,6 +768,7 @@ export class AutomaticMemoryDistillationWorkflow {
             ? error.message
             : "distillation_step_failed",
           budget,
+          providerUsage,
         );
         return this.result(run, finalized, cursor.sequence, latest, budget, observedEvents);
       }
@@ -781,7 +806,7 @@ export class AutomaticMemoryDistillationWorkflow {
         await this.options.database.prepare(`INSERT INTO memory_runs (
           run_id, principal_id, run_key, job, reprocess_job_id, start_event_sequence,
           end_event_sequence, provider_model_id, price_id, outcome, started_at
-        ) VALUES (?, ?, ?, 'distillation', NULL, ?, ?, ?, NULL, 'running', ?)`)
+        ) VALUES (?, ?, ?, 'distillation', NULL, ?, ?, ?, ?, 'running', ?)`)
           .bind(
             runId,
             this.options.principalId,
@@ -789,6 +814,7 @@ export class AutomaticMemoryDistillationWorkflow {
             startEventSequence,
             endEventSequence,
             this.options.providerModelId,
+            this.options.priceId ?? null,
             startedAt,
           ).run();
         return Object.freeze({ runId, startedAt, startEventSequence, endEventSequence });
@@ -999,6 +1025,7 @@ export class AutomaticMemoryDistillationWorkflow {
     outcome: AutomaticDistillationOutcome,
     failureCode: string | null,
     budget: MutableBudget,
+    usage: ModelCompleteJsonUsage | null = null,
   ): Promise<FinalizedRun> {
     const completedAt = freshTimestamp(this.options.now, run.startedAt);
     const statements: D1PreparedStatement[] = [];
@@ -1043,11 +1070,18 @@ export class AutomaticMemoryDistillationWorkflow {
     }
     const createdItemCount = items.filter((item) => item.createdInRun).length;
     statements.push(this.options.database.prepare(`UPDATE memory_runs
-      SET input_event_count = ?, created_item_count = ?, outcome = ?, completed_at = ?, failure_code = ?
+      SET input_event_count = ?, created_item_count = ?, input_tokens = ?, output_tokens = ?,
+        cache_read_tokens = ?, reserved_cost_micros = ?, settled_cost_micros = ?,
+        outcome = ?, completed_at = ?, failure_code = ?
       WHERE principal_id = ? AND run_id = ? AND outcome = 'running'`)
       .bind(
         events.length,
         createdItemCount,
+        usage?.inputTokens ?? 0,
+        usage?.outputTokens ?? 0,
+        usage?.cacheReadTokens ?? 0,
+        usage?.reservedCostMicros ?? 0,
+        usage?.settledCostMicros ?? 0,
         outcome,
         completedAt,
         failureCode,
@@ -1058,7 +1092,7 @@ export class AutomaticMemoryDistillationWorkflow {
     try {
       await this.options.database.batch(statements);
     } catch {
-      return this.failRunningRun(run, completedAt, budget);
+      return this.failRunningRun(run, completedAt, budget, usage);
     }
     budget.d1Statements += 1;
     const stored = await this.readRun(run.runId);
@@ -1074,6 +1108,7 @@ export class AutomaticMemoryDistillationWorkflow {
     run: ActiveRun,
     completedAt: string,
     budget: MutableBudget,
+    usage: ModelCompleteJsonUsage | null,
   ): Promise<FinalizedRun> {
     budget.d1Statements += 1;
     await this.options.database.prepare(`UPDATE memory_runs
@@ -1088,9 +1123,20 @@ export class AutomaticMemoryDistillationWorkflow {
           WHERE receipt.principal_id = memory_runs.principal_id
             AND receipt.run_id = memory_runs.run_id
         ),
-        outcome = 'failed', completed_at = ?, failure_code = 'distillation_finalization_failed'
+        input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, reserved_cost_micros = ?,
+        settled_cost_micros = ?, outcome = 'failed', completed_at = ?,
+        failure_code = 'distillation_finalization_failed'
       WHERE principal_id = ? AND run_id = ? AND outcome = 'running'`)
-      .bind(completedAt, this.options.principalId, run.runId).run();
+      .bind(
+        usage?.inputTokens ?? 0,
+        usage?.outputTokens ?? 0,
+        usage?.cacheReadTokens ?? 0,
+        usage?.reservedCostMicros ?? 0,
+        usage?.settledCostMicros ?? 0,
+        completedAt,
+        this.options.principalId,
+        run.runId,
+      ).run();
     budget.d1Statements += 1;
     return this.readRun(run.runId);
   }

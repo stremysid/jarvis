@@ -18,6 +18,8 @@ import {
   AutomaticMemoryDistillationWorkflow,
 } from "../../src/memory/automatic-distillation.js";
 import { MemoryRepository } from "../../src/memory/memory-repository.js";
+import { MemoryExtractionFailure } from "../../src/memory/memory-extraction-budget.js";
+import { TelegramMemoryRetriever } from "../../src/memory/telegram-memory-retriever.js";
 import type { CommitInitialMemoryInput } from "../../src/memory/memory-types.js";
 import {
   EventRepository,
@@ -980,6 +982,70 @@ describe("automatic memory distillation", () => {
       .bind(principalId).first("current_event_sequence")).toBe(event.eventSequence);
     expect(await env.DB.prepare("SELECT run_key FROM memory_runs WHERE principal_id = ?")
       .bind(principalId).first("run_key")).toBe(`memory-distill:${now.toISOString().slice(0, 13)}:0`);
+  });
+
+  it("records a fixed cap refusal code without advancing the cursor", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    await appendConversation(events, principalId, "I prefer tea.");
+    const provider = new FakeModelProvider({ completeJson: [] });
+    provider.failNext(new MemoryExtractionFailure("memory_extraction_monthly_cap_exceeded"));
+
+    const result = await workflow(principalId, provider).runNext({ runKey: `cap-refused:${newUlid()}` });
+
+    expect(result).toMatchObject({
+      outcome: "failed",
+      cursorEventSequence: 0,
+      failureCode: "memory_extraction_monthly_cap_exceeded",
+    });
+    expect(await env.DB.prepare("SELECT failure_code FROM memory_runs WHERE run_id = ?")
+      .bind(result.runId).first("failure_code")).toBe("memory_extraction_monthly_cap_exceeded");
+  });
+
+  it("turns a direct owner Telegram fact into active retrievable memory in one hourly run", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const text = "My favourite subject is math.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+    const provider = new FakeModelProvider({ completeJson: [proposal(event, text)] });
+    const context: JobEnvironment = {
+      env: {
+        ...env,
+        OWNER_PRINCIPAL_ID: principalId,
+        GITHUB_TOKEN: undefined,
+        GOOGLE_CLIENT_ID: undefined,
+        GOOGLE_CLIENT_SECRET: undefined,
+        GOOGLE_REFRESH_TOKEN: undefined,
+        BRIGHTSPACE_ICAL_URL: undefined,
+      },
+      clock: { now: () => new Date() },
+      delivery: { send: async () => undefined },
+      fetcher: globalThis.fetch.bind(globalThis),
+      memoryDistillation: { provider, providerModelId: MODEL_ID },
+    };
+    const poll = buildJobTable(context).poll;
+    if (poll === undefined) throw new Error("automatic_distillation_poll_missing");
+
+    const result = await poll();
+    const contexts = await new TelegramMemoryRetriever({ database: env.DB, archive: env.ARCHIVE }).retrieve({
+      principalId,
+      channel: "telegram",
+      purpose: "conversation",
+      query: "What's my favourite subject?",
+      maxTokens: 32_000,
+    });
+
+    expect(result).toMatchObject({ ok: true, detail: expect.stringContaining("Memory succeeded, 1 created") });
+    expect(await env.DB.prepare(`SELECT state.lifecycle_state, version.origin
+      FROM memory_items item
+      JOIN memory_item_state state ON state.principal_id = item.principal_id AND state.item_id = item.item_id
+      JOIN memory_item_versions version
+        ON version.principal_id = state.principal_id AND version.version_id = state.current_version_id
+      WHERE item.principal_id = ?`).bind(principalId).first()).toEqual({
+      lifecycle_state: "active",
+      origin: "authenticated_first_person",
+    });
+    expect(contexts.some((context) => context.text.includes("My favourite subject is math."))).toBe(true);
   });
 
   it("drains multiple production-default steps per hour while only eligible owner events consume the event budget", async () => {
