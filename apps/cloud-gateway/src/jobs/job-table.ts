@@ -32,6 +32,7 @@ import { StudyCoachRepository } from "../school/study-coach-repository.js";
 import type { JobOutcome, JobTable } from "../scheduler/scheduled-handler.js";
 import { D1GuestGrantNoticeSink } from "../voice/guest-grant-notice.js";
 import { runDigestJob, unconfiguredDeadlineSourceKinds, type DigestDelivery } from "./digest-job.js";
+import { D1GuestGrantNoticeDrainer, type GuestGrantNoticeDrainOutcome } from "./guest-grant-notice-drain.js";
 
 export interface JobEnvironment {
   readonly env: Env;
@@ -485,24 +486,28 @@ async function drain(context: JobEnvironment): Promise<JobOutcome> {
   const principalId = context.env.OWNER_PRINCIPAL_ID;
   if (principalId === undefined) return { ok: false, failure: "OWNER_PRINCIPAL_ID is not set" };
   try {
-    const noticeDetail = context.env.TELEGRAM_BOT_TOKEN === undefined
-      ? "guest notices not configured"
-      : await new D1GuestGrantNoticeSink(
+    const noticeDetail: GuestGrantNoticeDrainOutcome | "not_configured" = context.env.TELEGRAM_BOT_TOKEN === undefined
+      ? "not_configured"
+      : await new D1GuestGrantNoticeDrainer(
         context.env.DB,
-        new TelegramRestProvider({
+        new D1GuestGrantNoticeSink(context.env.DB, new TelegramRestProvider({
           botToken: context.env.TELEGRAM_BOT_TOKEN,
           fetchImplementation: context.fetcher,
-        }),
-        () => context.clock.now(),
-      ).drain(context.clock.now());
+        })),
+        context.clock,
+      ).run();
     const open = await new DecisionService({
       repository: new DecisionRepository(context.env.DB),
       now: () => context.clock.now(),
     }).queue(principalId);
-    const notices = typeof noticeDetail === "string"
-      ? noticeDetail
-      : `${noticeDetail.delivered} guest notices delivered, ${noticeDetail.failed} deferred`;
-    return { ok: true, detail: `${open.length} open; ${notices}` };
+    const notices: Readonly<Record<typeof noticeDetail, string>> = {
+      not_configured: "guest notices not configured",
+      completed: "guest notice drain completed",
+      delivery_deferred: "guest notice delivery deferred and retained for retry",
+      already_running: "guest notice drain already running",
+      expired_run_recovered: "expired guest notice drain moved to failed for retry",
+    };
+    return { ok: true, detail: `${open.length} open; ${notices[noticeDetail]}` };
   } catch (error) {
     return { ok: false, failure: describe(error) };
   }
