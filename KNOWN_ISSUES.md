@@ -1,14 +1,14 @@
 # Known issues
 
-## University application details has three deliberately closed edges
+## University application details has five deliberately closed edges
 
 - **Forwarded and quoted offer text:** the existing Telegram input still has no
   trusted forwarded/quoted provenance. The workflow parser requires a direct
-  first-person owner statement, rejects common reported speech, and binds the
-  named offer to the owner turn, but it cannot categorically distinguish text
-  Sid typed from another person's first-person sentence that was forwarded or
-  pasted without an attribution phrase. Offer ingestion must remain Telegram-
-  owner-only until the channel adapter persists that provenance.
+  first-person owner statement, rejects quoted text, forwarding markers,
+  reported speech and hedges, and binds the named offer to exactly one tracked
+  school and program. It still cannot distinguish an unattributed verbatim
+  paste from Sid's own words. Offer ingestion must remain Telegram-owner-only
+  until the channel adapter persists trusted provenance.
 - **Fee amounts:** payment steps can be prepared and tracked, but this slice has
   no exact-source monetary field. Currency amounts are therefore rejected from
   stored preparation details instead of being remembered or guessed. Add a
@@ -18,6 +18,18 @@
   transition the step. Only Sid's direct report of his own action and his direct
   receipt of an offer or decision are accepted. A later verified-portal or
   trusted-provenance slice is required for external-party completion evidence.
+- **Sixty-four-revision workflow ceiling:** the append-only schema deliberately
+  caps one workflow identity at 64 revisions, and its immutable unique key does
+  not permit a hidden replacement identity. Reaching the cap fails visibly and
+  saves nothing. Safe rollover needs a reviewed migration that records explicit
+  predecessor lineage; silently replacing the identity here would break the
+  named-item audit property this slice is meant to preserve.
+- **Conversational local-time entry:** timed deadlines now render in their
+  stored IANA timezone, but the evidence boundary accepts a timed deadline only
+  when Sid states both its exact RFC 3339 UTC instant and timezone. Converting a
+  phrase such as "January 15 at 11:59 PM Toronto time" safely needs a separate,
+  tested local-time parser. Until then, ordinary local-time phrases fail closed
+  instead of being guessed.
 
 ## University application workflow has seven deferred integration and presentation limits
 

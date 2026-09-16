@@ -29,9 +29,11 @@ const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/u;
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
 const OWNER_SUBMISSION = /(?:\bi(?:['’]ve| have)?\s+(?:(?:already|just|now|successfully)\s+)?|^(?:(?:already|just|now|successfully)\s+)?)(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
 const CONDITIONAL_OR_QUESTION = /\?|\b(?:if|unless|maybe|perhaps|might|could|would)\b/iu;
-const HEARSAY = /\b(?:thinks?|heard|said|might|maybe)\b/iu;
-const NEGATION = /\b(?:not|never|none|nothing|haven't|hasn't|hadn't|didn't|don't|doesn't|won't|can't|cannot|couldn't|wouldn't|shouldn't|isn't|aren't|wasn't|weren't)\b|n['’]t\b/iu;
+const HEARSAY = /\b(?:thinks?|heard|said|says|told|reports?|claims?|might|maybe|apparently)\b/iu;
+const NEGATION = /\b(?:no|not|never|none|nothing|haven't|hasn't|hadn't|didn't|don't|doesn't|won't|can't|cannot|couldn't|wouldn't|shouldn't|isn't|aren't|wasn't|weren't)\b|n['’]t\b|\byet\s+to\b/iu;
 const RETRACTION = /\b(?:actually|correction|wait|jk|just\s+kidding|didn't\s+go\s+through|did\s+not\s+go\s+through)\b/iu;
+const OWNER_HEDGE = /\b(?:afraid|apparently|concerned|feel\s+like|guess|hope|maybe|might|pretty\s+sure|probably|scared|seems?|sounds?\s+like|think|worried)\b/iu;
+const FORWARDED_OR_QUOTED_OWNER_CLAIM = /\b(?:begin\s+forwarded|dear\s+sid|email\s+from|forwarded\s+message|from:|message\s+from)\b|["“][^"”]{0,384}\bi\b[^"”]{0,384}["”]/iu;
 const SUBMISSION_CORRECTION = /\b(?:didn't|did\s+not|wasn't|was\s+not|never)\s+(?:(?:actually|really|successfully|just|ever)\s+){0,2}(?:submit|send|upload|turn\s+in)|\b(?:submission|upload)\b.{0,48}\b(?:failed|crashed|rejected)|\bdid(?:n't|\s+not)\s+go\s+through\b|\b(?:undo|reopen|mark)\b.{0,48}\bnot\s+submitted\b/iu;
 const RETIREMENT = /\b(?:not\s+(?:applying|needed)|skip(?:ping)?|remove|duplicate|wrong\s+item|no\s+longer\s+need)\b/iu;
 const BARE_DONT_NEED = /\b(?:don't|do\s+not)\s+need\b/iu;
@@ -41,8 +43,15 @@ const DRAFTING_REPORT = /\b(?:i(?:['’]m|\s+am)\s+(?:drafting|working\s+on)|i(?
 const READY_REPORT = /\b(?:i(?:['’]ve|\s+have|\s)\s*(?:finished|completed)|i(?:['’]m|\s+am)\s+done\s+with|ready\s+to\s+submit|(?:draft|essay|application|aif|statement|reference|transcript)\s+is\s+ready)\b/iu;
 const DATE_CORRECTION = /\b(?:wrong|incorrect|remove|clear|unknown|unpublished|not\s+published|no\s+longer)\b.{0,48}\b(?:date|deadline)\b|\b(?:date|deadline)\b.{0,48}\b(?:wrong|incorrect|remove|clear|unknown|unpublished|not\s+published|no\s+longer)\b/iu;
 const LABEL_METADATA = /\b(?:verified|unverified)\b|\b\d{4}[-/.]\d{2}[-/.]\d{2}\b|\b\d{1,2}[/.]\d{1,2}[/.]\d{2,4}\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2},?\s+20\d{2}\b|\b\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+20\d{2})?\s*$/iu;
-const JOINT_OWNER_SUBMISSION = /\b(?:(?:m(?:s|r)\.?|dr\.?)\s+\p{L}+[\p{L}'’.-]*|(?:my\s+)?(?:mom|mother|dad|father|parents?|guardians?|sister|brother|sibling)|(?:my\s+)?(?:teacher|counsell?or|referee))\s+and\s+i\s+(?:(?:have|had)\s+)?(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
-const REPORTED_OWNER_SUBMISSION = /\b(?:asked|said|says|told|wrote|writes|sent\s+me|forwarded)\b.{0,64}\bi\s+(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
+const OWNER_STATUS_ACTION = String.raw`(?:accepted|asked|called|contacted|created|declined|emailed|got|messaged|ordered|paid|received|registered|rejected|requested|sent\s+in|signed\s+up|submitted|texted|turned\s+down|turned\s+in|uploaded|waitlisted|withdrew)`;
+const JOINT_OWNER_ACTION = new RegExp(
+  String.raw`\b(?:(?:m(?:s|r)\.?|dr\.?)\s+\p{L}+[\p{L}'’.-]*|(?:my\s+)?(?:mom|mother|dad|father|parents?|guardians?|sister|brother|sibling)|(?:my\s+)?(?:teacher|counsell?or|referee))\s+and\s+i\s+(?:(?:have|had)\s+)?(?:(?:already|just|now|successfully)\s+)?${OWNER_STATUS_ACTION}\b`,
+  "iu",
+);
+const REPORTED_OWNER_ACTION = new RegExp(
+  String.raw`\b(?:asked|emailed|forwarded|messaged|said|says|sent|texted|told|wrote|writes)\b(?:\s+me)?[^.!?\r\n]{0,80}\bi\s+(?:(?:have|had)\s+)?(?:(?:already|just|now|successfully)\s+)?${OWNER_STATUS_ACTION}\b`,
+  "iu",
+);
 const PREPARATION_REQUEST = /\b(?:draft|prepare|outline|revise|critique|review|checklist|steps?|tell\s+me\s+(?:how|what)|help\s+me)\b/iu;
 const OWNER_ACTION_DONE: Readonly<Record<UniversityWorkflowKind, RegExp | null>> = Object.freeze({
   submission_step: /\bi\s+(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in)\b/iu,
@@ -56,16 +65,23 @@ const OWNER_ACTION_DONE: Readonly<Record<UniversityWorkflowKind, RegExp | null>>
   offer_response: null,
 });
 const OWNER_ACTION_NOT_DONE = /\bi\s+(?:haven['’]t|have\s+not|didn['’]t|did\s+not|couldn['’]t|could\s+not)\b/iu;
-const OWNER_OFFERED = /\b(?:i\s+(?:(?:have|just)\s+)?(?:got|received|have)\s+(?:an?\s+)?(?:[\p{L}'’.-]+\s+){0,4}offer|(?:they|the\s+university)\s+offered\s+me)\b/iu;
+const OWNER_OFFERED = /\bi\s+(?:(?:have|just)\s+)?(?:got|received)\s+(?:an?\s+)?(?:[\p{L}'’.-]+\s+){0,6}offer(?:\s+of\s+admission)?\b|\bi\s+have\s+an?\s+(?:[\p{L}'’.-]+\s+){0,6}offer(?:\s+of\s+admission)?\b/iu;
 const OWNER_WAITLISTED = /\bi\s+(?:(?:have|just)\s+)?(?:got\s+|was\s+|have\s+been\s+)?waitlisted\b/iu;
 const OWNER_REJECTED = /\bi\s+(?:(?:have|just)\s+)?(?:got\s+|was\s+|have\s+been\s+)?rejected\b|\bi\s+(?:didn['’]t|did\s+not)\s+get\s+in\b/iu;
 const OWNER_WITHDREW = /\bi\s+(?:(?:have|just)\s+)?withdrew\b/iu;
 const OWNER_CONDITION_PENDING = /\bi\s+(?:still\s+)?(?:need|have)\s+to\b|\bmy\s+condition\s+is\s+(?:still\s+)?pending\b/iu;
 const OWNER_CONDITION_SATISFIED = /\bi\s+(?:(?:have|just)\s+)?(?:met|satisfied|completed)\b/iu;
 const OWNER_CONDITION_UNSATISFIED = /\bi\s+(?:didn['’]t|did\s+not|haven['’]t|have\s+not)\s+(?:meet|satisfy|complete)\b/iu;
-const OWNER_ACCEPTED = /\bi\s+(?:(?:have|just)\s+)?accepted\b.{0,32}\b(?:offer|admission)\b/iu;
-const OWNER_DECLINED = /\bi\s+(?:(?:have|just)\s+)?(?:declined|turned\s+down)\b.{0,32}\b(?:offer|admission)\b/iu;
-const CURRENCY_AMOUNT = /(?:[$€£]\s*\d|\b(?:cad|usd|eur|gbp)\s*\d|\b\d+(?:[.,]\d{2})?\s*(?:cad|usd|eur|gbp|dollars?)\b)/iu;
+const OWNER_ACCEPTED = /\bi\s+(?:(?:have|just)\s+)?accepted\s+(?:(?:my|the|an?)\s+)?(?:[\p{L}'’.-]+\s+){0,4}(?:offer|admission)\b/iu;
+const OWNER_DECLINED = /\bi\s+(?:(?:have|just)\s+)?(?:declined|turned\s+down)\s+(?:(?:my|the|an?)\s+)?(?:[\p{L}'’.-]+\s+){0,4}(?:offer|admission)\b/iu;
+const NUMERIC_MONEY = /(?:[$€£]\s*\d|\b(?:cad|usd|eur|gbp)\s*\d|\b\d+(?:[.,]\d{1,2})?\s*(?:bucks?|cad|usd|eur|gbp|dollars?)\b|\b(?:fee|cost|pay(?:ment)?)\b.{0,24}\b\d+(?:[.,]\d{1,2})?\b|\b\d+(?:[.,]\d{1,2})?\b.{0,24}\b(?:fee|cost|pay(?:ment)?)\b)/iu;
+const SPELLED_MONEY = /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million)(?:[-\s]+(?:and\s+)?(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million)){0,8}\s+(?:bucks?|cad|usd|eur|gbp|dollars?)\b/iu;
+const PREPARED_DATE_OR_VERIFICATION = /\b(?:verified|unverified|confirmed|official(?:ly)?|published|according\s+to|current\s+cycle|source\s+says|website\s+says)\b|\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b|\b\d{1,2}[-/.]\d{1,2}(?:[-/.]\d{2,4})?\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+20\d{2})?\b|\b(?:deadline|due\s+date)\s+(?:is|was|will\s+be|falls?)\b|\bdue\s+(?:at|before|by|on)\b|\b(?:today|tomorrow|tonight|spring|summer|fall|autumn|winter|next\s+(?:week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|this\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/iu;
+const PREPARED_REQUIREMENT_ASSERTION = /\b(?:(?:requires?|needs?|must\s+have|has\s+to\s+include)\s+(?:an?|one|two|three|four|five|six|seven|eight|nine|ten|\d+|references?|courses?|credits?|average|grade|prerequisites?|supplements?)|requirements?\s+(?:are|include)|mandatory|eligibility|eligible|minimum|prerequisites?|\d+(?:\.\d+)?\s*%|average\s+(?:of\s+)?\d|grade\s+(?:of\s+)?\d)\b/iu;
+const PREPARED_MONEY_ASSERTION = /\b(?:fee|cost|payment|price)\b.{0,24}\b(?:amounts?\s+to|costs?|is|are|totals?|was|were|will\s+be|waived?|refundable|non-?refundable)\b|\b(?:costs?|totals?)\b.{0,24}\b(?:fee|payment|price)\b|\b(?:free|no\s+fee|waived?\s+fee|deposit|tuition)\b/iu;
+const EMAIL_ADDRESS = /\b[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}\b/iu;
+const PHONE_NUMBER = /(?:^|\D)(?:\+?\d[\d ().-]{7,}\d)(?:\D|$)/u;
+export const MAX_WORKFLOW_PREPARED_DETAILS_PER_PLAN_BYTES = 12_000;
 const ADMISSION_CYCLE = /^20\d{2}(?:[-–]20\d{2})?$/u;
 const encoder = new TextEncoder();
 const MONTH_WORDS = Object.freeze([
@@ -92,6 +108,12 @@ const WORKFLOW_STATUSES = new Set<UniversityWorkflowStatus>([
   "owner_reported_pending", "owner_reported_satisfied", "owner_reported_unsatisfied",
   "owner_reported_accepted", "owner_reported_declined", "not_needed_by_sid",
 ]);
+const TERMINAL_WORKFLOW_STATUSES = new Set<UniversityWorkflowStatus>([
+  "owner_reported_done", "owner_reported_rejected", "owner_reported_withdrawn",
+  "owner_reported_satisfied", "owner_reported_accepted", "owner_reported_declined",
+  "not_needed_by_sid",
+]);
+const RECENT_TERMINAL_WORKFLOW_MILLISECONDS = 2 * 24 * 60 * 60 * 1_000;
 
 const KIND_WORDS: Readonly<Record<UniversityApplicationItemKind, readonly string[]>> = Object.freeze({
   supplementary_application: Object.freeze(["supplementary application", "supplementary", "aif"]),
@@ -183,6 +205,17 @@ function containsLabel(value: string, label: string): boolean {
     .replace(/['’ʼ`]/gu, "'").replace(/[\p{Pd}]+/gu, " ").replace(/\s+/gu, " ").trim();
   const candidate = normalize(label);
   return candidate.length > 0 && normalize(value).includes(candidate);
+}
+
+export function isWorkflowLabelSafe(value: string): boolean {
+  return !LABEL_METADATA.test(value) && !PREPARED_DATE_OR_VERIFICATION.test(value)
+    && !NUMERIC_MONEY.test(value) && !SPELLED_MONEY.test(value)
+    && !EMAIL_ADDRESS.test(value) && !PHONE_NUMBER.test(value);
+}
+
+export function isWorkflowPreparedDetailsSafe(value: string): boolean {
+  return !PREPARED_DATE_OR_VERIFICATION.test(value) && !PREPARED_REQUIREMENT_ASSERTION.test(value)
+    && !NUMERIC_MONEY.test(value) && !SPELLED_MONEY.test(value) && !PREPARED_MONEY_ASSERTION.test(value);
 }
 
 function clauseGroups(
@@ -509,6 +542,34 @@ function clauseNamesOnlyItem(
   return namesApplicationItem(clause, label, kind, program);
 }
 
+function targetEvidenceClauses(
+  evidence: string,
+  protectedPhrases: readonly string[],
+  namesTarget: (clause: string) => boolean,
+  namesOtherTarget: (clause: string) => boolean,
+  allowAdjacentReactivation: boolean,
+): readonly string[] {
+  return Object.freeze(clauseGroups(evidence, true, protectedPhrases).flatMap((sentence) => {
+    let immediatelyFollowsTarget = false;
+    const relevant: string[] = [];
+    for (const clause of sentence) {
+      if (namesTarget(clause)) {
+        immediatelyFollowsTarget = true;
+        relevant.push(clause);
+        continue;
+      }
+      if (namesOtherTarget(clause)) {
+        immediatelyFollowsTarget = false;
+        continue;
+      }
+      if (allowAdjacentReactivation && immediatelyFollowsTarget && (/\b(?:it|that)\b/iu.test(clause)
+        || /\bi\b/iu.test(clause) && REACTIVATION.test(clause))) relevant.push(clause);
+      immediatelyFollowsTarget = false;
+    }
+    return relevant;
+  }));
+}
+
 function itemEvidenceClauses(
   evidence: string,
   itemRef: string,
@@ -517,26 +578,14 @@ function itemEvidenceClauses(
   program: ApplicationProgramContext | null,
   snapshot: UniversityTrackerSnapshot | null,
 ): readonly string[] {
-  return Object.freeze(clauseGroups(evidence, true, itemNames(label, program)).flatMap((sentence) => {
-    let immediatelyFollowsTarget = false;
-    const relevant: string[] = [];
-    for (const clause of sentence) {
-      if (clauseNamesOnlyItem(clause, itemRef, label, kind, program, snapshot)) {
-        immediatelyFollowsTarget = true;
-        relevant.push(clause);
-        continue;
-      }
-      const namesTrackedItem = namedApplicationItems(clause, snapshot).length > 0;
-      if (namesTrackedItem || namesApplicationItem(clause, label, kind, program)) {
-        immediatelyFollowsTarget = false;
-        continue;
-      }
-      if (immediatelyFollowsTarget && (/\b(?:it|that)\b/iu.test(clause)
-        || /\bi\b/iu.test(clause) && REACTIVATION.test(clause))) relevant.push(clause);
-      immediatelyFollowsTarget = false;
-    }
-    return relevant;
-  }));
+  return targetEvidenceClauses(
+    evidence,
+    itemNames(label, program),
+    (clause) => clauseNamesOnlyItem(clause, itemRef, label, kind, program, snapshot),
+    (clause) => namedApplicationItems(clause, snapshot).length > 0
+      || namesApplicationItem(clause, label, kind, program),
+    true,
+  );
 }
 
 function namesItemAsThirdPartyPossession(
@@ -548,6 +597,34 @@ function namesItemAsThirdPartyPossession(
   if (/\bfor\s+you\b/iu.test(evidence)) return true;
   if (label !== null && normalized.includes(`your ${evidenceText(label)}`)) return true;
   return kind !== null && KIND_WORDS[kind].some((word) => normalized.includes(`your ${evidenceText(word)}`));
+}
+
+function supportsDirectOwnerClaim(
+  evidence: string,
+  clausesForTarget: readonly string[],
+  action: RegExp,
+  options: {
+    readonly allowNegation?: boolean;
+    readonly rejectForwardedOrQuoted?: boolean;
+    readonly rejectHedges?: boolean;
+    readonly namesThirdPartyPossession?: (clause: string) => boolean;
+    readonly clauseAllowed?: (clause: string) => boolean;
+  } = {},
+): boolean {
+  if (JOINT_OWNER_ACTION.test(evidence) || REPORTED_OWNER_ACTION.test(evidence)
+    || RETRACTION.test(evidence)
+    || options.rejectHedges === true && OWNER_HEDGE.test(evidence)
+    || options.rejectForwardedOrQuoted === true && FORWARDED_OR_QUOTED_OWNER_CLAIM.test(evidence)) return false;
+  return clausesForTarget.some((clause) => {
+    const conditionalText = options.allowNegation === true
+      ? clause.replace(/\b(?:couldn['’]t|could\s+not|wouldn['’]t|would\s+not)\b/giu, "")
+      : clause;
+    if (CONDITIONAL_OR_QUESTION.test(conditionalText) || HEARSAY.test(clause) || RETRACTION.test(clause)
+      || options.allowNegation !== true && NEGATION.test(clause)
+      || options.namesThirdPartyPossession?.(clause) === true
+      || options.clauseAllowed?.(clause) === false) return false;
+    return action.test(clause);
+  });
 }
 
 function bareDontNeedTargetsItem(clause: string, label: string | null): boolean {
@@ -580,11 +657,9 @@ export function supportsStatus(
 ): boolean {
   const evidenceClauses = itemEvidenceClauses(evidence, itemRef, label, kind, program, snapshot);
   if (status === "submitted_by_sid") {
-    return !JOINT_OWNER_SUBMISSION.test(evidence) && !REPORTED_OWNER_SUBMISSION.test(evidence)
-      && !RETRACTION.test(evidence) && evidenceClauses.some((clause) =>
-      OWNER_SUBMISSION.test(clause) && !NEGATION.test(clause)
-      && !RETRACTION.test(clause) && !CONDITIONAL_OR_QUESTION.test(clause)
-      && !namesItemAsThirdPartyPossession(clause, label, kind));
+    return supportsDirectOwnerClaim(evidence, evidenceClauses, OWNER_SUBMISSION, {
+      namesThirdPartyPossession: (clause) => namesItemAsThirdPartyPossession(clause, label, kind),
+    });
   }
   if (existingStatus === "submitted_by_sid") {
     return evidenceClauses.some((clause) =>
@@ -736,6 +811,33 @@ function namedWorkflowItems(
     .filter((item) => containsLabel(evidence, item.label)));
 }
 
+function universityAliases(program: ApplicationProgramContext): readonly string[] {
+  return Object.freeze([
+    program.university,
+    program.university.replace(/^university\s+of\s+/iu, "").replace(/\s+university$/iu, ""),
+  ].filter((value, index, values) => value.length > 0 && values.indexOf(value) === index));
+}
+
+function clauseNamesExactlyOneTrackedProgram(
+  clause: string,
+  program: ApplicationProgramContext,
+  snapshot: UniversityTrackerSnapshot | null,
+): boolean {
+  if (!universityAliases(program).some((alias) => mentions(clause, alias))
+    || !mentions(clause, program.programName)) return false;
+  if (snapshot === null) return true;
+  const namedUniversities = new Set(snapshot.programs.filter((candidate) =>
+    universityAliases(candidate).some((alias) => mentions(clause, alias)))
+    .map((candidate) => evidenceText(candidate.university)));
+  if (namedUniversities.size === 0) return true;
+  if (namedUniversities.size !== 1 || !namedUniversities.has(evidenceText(program.university))) return false;
+  const namedProgramsAtSchool = snapshot.programs.filter((candidate) =>
+    evidenceText(candidate.university) === evidenceText(program.university)
+    && mentions(clause, candidate.programName));
+  return namedProgramsAtSchool.length === 1
+    && evidenceText(namedProgramsAtSchool[0]?.programName ?? "") === evidenceText(program.programName);
+}
+
 function workflowTargetClauses(
   evidence: string,
   workflowRef: string,
@@ -748,55 +850,97 @@ function workflowTargetClauses(
 ): readonly string[] {
   const protectedPhrases = [workflowLabel, applicationLabel, ...programAliases(program)]
     .filter((value): value is string => value !== null);
-  return Object.freeze(clauses(evidence, true, protectedPhrases).filter((clause) => {
-    if (!containsLabel(clause, workflowLabel)) return false;
-    const namedWorkflows = namedWorkflowItems(clause, snapshot);
-    const namesOnlyWorkflow = namedWorkflows.length === 0
-      || namedWorkflows.length === 1 && namedWorkflows[0]?.workflowId === workflowRef;
-    if (!namesOnlyWorkflow) return false;
-    if (applicationItemRef !== null) {
-      if (applicationLabel === null || !containsLabel(clause, applicationLabel)) return false;
-      return clauseNamesOnlyItem(
-        clause,
-        applicationItemRef,
-        applicationLabel,
-        applicationKind,
-        program,
-        snapshot,
-      );
-    }
-    const namesNoApplicationItem = namedApplicationItems(clause, snapshot).length === 0;
-    const namesProgram = programAliases(program).some((alias) => mentions(clause, alias));
-    return namesNoApplicationItem && namesProgram;
-  }));
+  return targetEvidenceClauses(
+    evidence,
+    protectedPhrases,
+    (clause) => {
+      if (!containsLabel(clause, workflowLabel)) return false;
+      const namedWorkflows = namedWorkflowItems(clause, snapshot);
+      const namesOnlyWorkflow = namedWorkflows.length === 0
+        || namedWorkflows.length === 1 && namedWorkflows[0]?.workflowId === workflowRef;
+      if (!namesOnlyWorkflow) return false;
+      if (applicationItemRef !== null) {
+        if (applicationLabel === null || !containsLabel(clause, applicationLabel)) return false;
+        return clauseNamesOnlyItem(
+          clause,
+          applicationItemRef,
+          applicationLabel,
+          applicationKind,
+          program,
+          snapshot,
+        );
+      }
+      return namedApplicationItems(clause, snapshot).length === 0
+        && clauseNamesExactlyOneTrackedProgram(clause, program, snapshot);
+    },
+    (clause) => namedWorkflowItems(clause, snapshot).length > 0
+      || namedApplicationItems(clause, snapshot).length > 0,
+    false,
+  );
+}
+
+function contactRecipientMatchesLabel(clause: string, workflowLabel: string): boolean {
+  const match = /\bi\s+(?:(?:already|just|now|successfully)\s+)?(?:contacted|emailed|messaged|called|asked)\s+(?<recipient>[^,.;!?]{1,80}?)(?=\s+(?:about|for|regarding|covering)\b)/iu.exec(clause);
+  const recipient = evidenceText(match?.groups?.recipient ?? "");
+  if (recipient.length === 0) return false;
+  const ignored = new Set(["contact", "email", "follow", "message", "reference", "request", "step", "up"]);
+  const targetWords = evidenceText(workflowLabel).split(" ")
+    .filter((word) => word.length > 1 && !ignored.has(word));
+  return targetWords.length > 0 && targetWords.every((word) => recipient.split(" ").includes(word));
 }
 
 function supportsWorkflowStatus(
   status: UniversityWorkflowStatus,
   kind: UniversityWorkflowKind,
+  evidence: string,
+  workflowLabel: string,
+  applicationLabel: string | null,
+  applicationKind: UniversityApplicationItemKind | null,
   clausesForTarget: readonly string[],
 ): boolean {
   if (!workflowStatusAllowed(kind, status)) return false;
-  return clausesForTarget.some((clause) => {
+  if (status === "prepared") return clausesForTarget.some((clause) => {
     if (CONDITIONAL_OR_QUESTION.test(clause) || HEARSAY.test(clause) || RETRACTION.test(clause)) return false;
-    if (status === "prepared") return PREPARATION_REQUEST.test(clause) && !OWNER_ACTION_NOT_DONE.test(clause);
-    if (status === "not_needed_by_sid") {
-      return (RETIREMENT.test(clause) || BARE_DONT_NEED.test(clause)) && !retirementNegated(clause);
-    }
-    if (status === "owner_reported_done") {
-      const pattern = OWNER_ACTION_DONE[kind];
-      return pattern !== null && pattern.test(clause) && !NEGATION.test(clause);
-    }
-    if (status === "owner_reported_not_done") return OWNER_ACTION_NOT_DONE.test(clause);
-    if (status === "owner_reported_offered") return OWNER_OFFERED.test(clause) && !NEGATION.test(clause);
-    if (status === "owner_reported_waitlisted") return OWNER_WAITLISTED.test(clause) && !NEGATION.test(clause);
-    if (status === "owner_reported_rejected") return OWNER_REJECTED.test(clause);
-    if (status === "owner_reported_withdrawn") return OWNER_WITHDREW.test(clause) && !NEGATION.test(clause);
-    if (status === "owner_reported_pending") return OWNER_CONDITION_PENDING.test(clause);
-    if (status === "owner_reported_satisfied") return OWNER_CONDITION_SATISFIED.test(clause) && !NEGATION.test(clause);
-    if (status === "owner_reported_unsatisfied") return OWNER_CONDITION_UNSATISFIED.test(clause);
-    if (status === "owner_reported_accepted") return OWNER_ACCEPTED.test(clause) && !NEGATION.test(clause);
-    return status === "owner_reported_declined" && OWNER_DECLINED.test(clause) && !NEGATION.test(clause);
+    return PREPARATION_REQUEST.test(clause) && !OWNER_ACTION_NOT_DONE.test(clause);
+  });
+  if (status === "not_needed_by_sid") return clausesForTarget.some((clause) =>
+    !CONDITIONAL_OR_QUESTION.test(clause) && !HEARSAY.test(clause) && !RETRACTION.test(evidence)
+    && (RETIREMENT.test(clause) || BARE_DONT_NEED.test(clause)) && !retirementNegated(clause));
+  const thirdPartyPossession = (clause: string): boolean =>
+    namesItemAsThirdPartyPossession(clause, applicationLabel ?? workflowLabel, applicationKind);
+  if (status === "owner_reported_done") {
+    const pattern = OWNER_ACTION_DONE[kind];
+    return pattern !== null && supportsDirectOwnerClaim(evidence, clausesForTarget, pattern, {
+      rejectForwardedOrQuoted: true,
+      rejectHedges: true,
+      namesThirdPartyPossession: thirdPartyPossession,
+      clauseAllowed: kind === "contact_step"
+        ? (clause) => contactRecipientMatchesLabel(clause, workflowLabel)
+        : undefined,
+    });
+  }
+  if (status === "owner_reported_not_done") {
+    return supportsDirectOwnerClaim(evidence, clausesForTarget, OWNER_ACTION_NOT_DONE, {
+      allowNegation: true,
+      rejectForwardedOrQuoted: true,
+      rejectHedges: true,
+      namesThirdPartyPossession: thirdPartyPossession,
+    });
+  }
+  const action = status === "owner_reported_offered" ? OWNER_OFFERED
+    : status === "owner_reported_waitlisted" ? OWNER_WAITLISTED
+      : status === "owner_reported_rejected" ? OWNER_REJECTED
+        : status === "owner_reported_withdrawn" ? OWNER_WITHDREW
+          : status === "owner_reported_pending" ? OWNER_CONDITION_PENDING
+            : status === "owner_reported_satisfied" ? OWNER_CONDITION_SATISFIED
+              : status === "owner_reported_unsatisfied" ? OWNER_CONDITION_UNSATISFIED
+                : status === "owner_reported_accepted" ? OWNER_ACCEPTED
+                  : OWNER_DECLINED;
+  return supportsDirectOwnerClaim(evidence, clausesForTarget, action, {
+    allowNegation: status === "owner_reported_unsatisfied",
+    rejectForwardedOrQuoted: true,
+    rejectHedges: true,
+    namesThirdPartyPossession: thirdPartyPossession,
   });
 }
 
@@ -812,16 +956,24 @@ export function supportsWorkflowStatusEvidence(
   program: ApplicationProgramContext,
   snapshot: UniversityTrackerSnapshot | null,
 ): boolean {
-  return supportsWorkflowStatus(status, kind, workflowTargetClauses(
+  return supportsWorkflowStatus(
+    status,
+    kind,
     evidence,
-    workflowRef,
     workflowLabel,
-    applicationItemRef,
     applicationLabel,
     applicationKind,
-    program,
-    snapshot,
-  ));
+    workflowTargetClauses(
+      evidence,
+      workflowRef,
+      workflowLabel,
+      applicationItemRef,
+      applicationLabel,
+      applicationKind,
+      program,
+      snapshot,
+    ),
+  );
 }
 
 function workflowDeadline(
@@ -915,7 +1067,8 @@ function workflowUpdate(
   const label = optionalInline(item.label, 160, "university_workflow_model_item_invalid", redactor);
   const preparedDetails = item.preparedDetails === null ? null
     : evidenceValue(item.preparedDetails, 2_048, "university_workflow_model_item_invalid", redactor);
-  if (preparedDetails !== null && CURRENCY_AMOUNT.test(preparedDetails)) {
+  if (label !== null && !isWorkflowLabelSafe(label)
+    || preparedDetails !== null && !isWorkflowPreparedDetailsSafe(preparedDetails)) {
     throw new TypeError("university_workflow_model_item_invalid");
   }
   const program = existing?.program ?? snapshot?.programs.find((candidate) => candidate.programId === item.programRef)
@@ -1038,6 +1191,11 @@ export function parseOwnerUniversityPlan(
     programUpdates,
     applicationUpdates,
   )));
+  const preparedDetailsBytes = workflowUpdates.reduce((total, update) =>
+    total + (update.preparedDetails === null ? 0 : encoder.encode(update.preparedDetails).byteLength), 0);
+  if (preparedDetailsBytes > MAX_WORKFLOW_PREPARED_DETAILS_PER_PLAN_BYTES) {
+    throw new TypeError("university_tracker_model_response_invalid");
+  }
   if (applicationUpdates.filter((update) => update.status === "submitted_by_sid").length > 1) {
     throw new TypeError("university_application_model_item_invalid");
   }
@@ -1051,7 +1209,9 @@ export function universityStateJson(
   snapshot: UniversityTrackerSnapshot,
   ownerMessage = "",
   maximumExpandedPrograms = 2,
+  now: Date | null = null,
 ): string {
+  const nowMilliseconds = now === null ? null : now.getTime();
   const expandedProgramIds = new Set(snapshot.programs.filter((program) =>
     programAliases(program).some((name) => mentions(ownerMessage, name)))
     .slice(0, maximumExpandedPrograms).map((program) => program.programId));
@@ -1083,7 +1243,20 @@ export function universityStateJson(
         label: item.label,
         status: item.status,
       }));
-    const workflowItems = (program.workflowItems ?? []).map((item) => namedProgram ? {
+    const workflowItems = (program.workflowItems ?? []).filter((item) => {
+      const namedWorkflow = containsLabel(ownerMessage, item.label);
+      const applicationItem = item.applicationItemId === null
+        ? null
+        : program.applicationItems.find((candidate) => candidate.itemId === item.applicationItemId) ?? null;
+      const parentClosed = applicationItem?.status === "submitted_by_sid"
+        || applicationItem?.status === "not_needed_by_sid";
+      if (parentClosed) return namedWorkflow;
+      if (!TERMINAL_WORKFLOW_STATUSES.has(item.status) || namedWorkflow) return true;
+      if (nowMilliseconds === null || !Number.isFinite(nowMilliseconds)) return false;
+      const updatedAt = Date.parse(item.updatedAt);
+      return Number.isFinite(updatedAt)
+        && nowMilliseconds - updatedAt <= RECENT_TERMINAL_WORKFLOW_MILLISECONDS;
+    }).map((item) => namedProgram ? {
       workflowId: item.workflowId,
       applicationItemId: item.applicationItemId,
       kind: item.kind,

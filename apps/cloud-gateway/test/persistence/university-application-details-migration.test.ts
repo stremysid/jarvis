@@ -9,7 +9,12 @@ import { applyUniversityApplicationDetailsMigration } from "./migration.js";
 
 const NOW = new Date("2026-09-16T14:00:00.000Z");
 
-async function seedTurn(principalId: string, turnId: Ulid, text: string): Promise<void> {
+async function seedTurn(
+  principalId: string,
+  turnId: Ulid,
+  text: string,
+  channel: "telegram" | "voice" = "telegram",
+): Promise<void> {
   await env.DB.prepare(`INSERT OR IGNORE INTO principals (
     principal_id, principal_type, status, display_name, created_at, updated_at
   ) VALUES (?1, 'human', 'active', 'Workflow owner', ?2, ?2)`).bind(principalId, NOW.toISOString()).run();
@@ -17,9 +22,9 @@ async function seedTurn(principalId: string, turnId: Ulid, text: string): Promis
   if (!redacted.ok) throw new Error("university_workflow_fixture_redaction_failed");
   await new ConversationRepository(env.DB, new EventRepository(env.DB)).getOrCreateTurn({
     turnId,
-    sessionId: `telegram:${principalId}`,
+    sessionId: `${channel}:${principalId}`,
     principalId,
-    channel: "telegram",
+    channel,
     userText: redacted,
     now: NOW,
   });
@@ -79,17 +84,20 @@ async function seedProgramAndApplication(
 function insertIdentity(input: {
   readonly principalId: string;
   readonly programId: Ulid;
-  readonly applicationItemId: Ulid;
+  readonly applicationItemId: Ulid | null;
   readonly workflowId: Ulid;
   readonly key?: string;
   readonly label?: string;
+  readonly kind?: "submission_step" | "offer" | "offer_condition" | "offer_response";
+  readonly createdAt?: string;
 }): D1PreparedStatement {
   return env.DB.prepare(`INSERT INTO university_workflow_items (
     principal_id, program_id, application_item_id, workflow_id, workflow_key,
     workflow_kind, workflow_label, owner_role, created_at
-  ) VALUES (?1, ?2, ?3, ?4, ?5, 'submission_step', ?6, 'sid', ?7)`)
+  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'sid', ?8)`)
     .bind(input.principalId, input.programId, input.applicationItemId, input.workflowId,
-      input.key ?? `submission | ${input.workflowId}`, input.label ?? "Submit the essay", NOW.toISOString());
+      input.key ?? `submission | ${input.workflowId}`, input.kind ?? "submission_step",
+      input.label ?? "Submit the essay", input.createdAt ?? NOW.toISOString());
 }
 
 function insertRevision(input: {
@@ -99,6 +107,7 @@ function insertRevision(input: {
   readonly eventId: Ulid;
   readonly revision?: number;
   readonly status?: string;
+  readonly createdAt?: string;
 }): D1PreparedStatement {
   return env.DB.prepare(`INSERT INTO university_workflow_revisions (
     principal_id, workflow_id, event_id, revision_number, workflow_status,
@@ -107,7 +116,7 @@ function insertRevision(input: {
   ) VALUES (?1, ?2, ?3, ?4, ?5, 'Owner submits this item.', 'owner_only',
     NULL, NULL, NULL, 'unverified', NULL, NULL, NULL, ?6, ?7)`)
     .bind(input.principalId, input.workflowId, input.eventId, input.revision ?? 1,
-      input.status ?? "prepared", input.turnId, NOW.toISOString());
+      input.status ?? "prepared", input.turnId, input.createdAt ?? NOW.toISOString());
 }
 
 beforeAll(async () => {
@@ -163,6 +172,30 @@ describe("0029 university application details migration", () => {
       principalId,
       workflowId: newUlid(new Date(NOW.getTime() + 100)),
       key: "submission | cap 64",
+    }).run()).rejects.toThrow(/university_workflow_item_limit_exceeded/u);
+  });
+
+  it("university_workflow_items_cap_insert refuses a one-hundred-twenty-ninth item for one principal", async () => {
+    const principalId = "principal:workflow-owner-cap";
+    const first = await seedProgramAndApplication(principalId, "OwnerFirst");
+    const second = await seedProgramAndApplication(principalId, "OwnerSecond");
+    const third = await seedProgramAndApplication(principalId, "OwnerThird");
+    for (const [seeded, offset] of [[first, 1_000], [second, 2_000]] as const) {
+      for (let index = 0; index < 64; index += 1) {
+        await insertIdentity({
+          ...seeded,
+          principalId,
+          workflowId: newUlid(new Date(NOW.getTime() + offset + index)),
+          key: `submission | owner cap ${offset}-${index}`,
+          label: `Owner cap item ${offset}-${index}`,
+        }).run();
+      }
+    }
+    await expect(insertIdentity({
+      ...third,
+      principalId,
+      workflowId: newUlid(new Date(NOW.getTime() + 3_000)),
+      key: "submission | owner cap 129",
     }).run()).rejects.toThrow(/university_workflow_item_limit_exceeded/u);
   });
 
@@ -227,6 +260,25 @@ describe("0029 university application details migration", () => {
     }).run()).rejects.toThrow(/university_workflow_revision_sequence_invalid/u);
   });
 
+  it("university_workflow_revisions_sequence_guard refuses a revision created before its item", async () => {
+    const principalId = "principal:workflow-revision-created-order";
+    const seeded = await seedProgramAndApplication(principalId);
+    const workflowId = newUlid(NOW);
+    await insertIdentity({
+      ...seeded,
+      principalId,
+      workflowId,
+      createdAt: "2026-09-16T14:01:00.000Z",
+    }).run();
+    await expect(insertRevision({
+      principalId,
+      workflowId,
+      turnId: seeded.turnId,
+      eventId: newUlid(new Date(NOW.getTime() + 1)),
+      createdAt: NOW.toISOString(),
+    }).run()).rejects.toThrow(/university_workflow_revision_sequence_invalid/u);
+  });
+
   it("university_workflow_revisions_status_guard refuses an offer status on an action item", async () => {
     const principalId = "principal:workflow-revision-status";
     const seeded = await seedProgramAndApplication(principalId);
@@ -241,6 +293,33 @@ describe("0029 university application details migration", () => {
     }).run()).rejects.toThrow(/university_workflow_revision_status_invalid/u);
   });
 
+  it.each([
+    ["submission_step", "prepared"],
+    ["offer", "owner_reported_offered"],
+    ["offer_condition", "owner_reported_pending"],
+    ["offer_response", "owner_reported_accepted"],
+  ] as const)("university_workflow_revisions_status_guard admits the %s status family", async (kind, status) => {
+    const principalId = `principal:workflow-revision-status-${kind}`;
+    const seeded = await seedProgramAndApplication(principalId);
+    const workflowId = newUlid(NOW);
+    await insertIdentity({
+      principalId,
+      programId: seeded.programId,
+      applicationItemId: kind === "submission_step" ? seeded.applicationItemId : null,
+      workflowId,
+      kind,
+      key: `${kind} | allowed`,
+      label: `${kind} allowed status`,
+    }).run();
+    await expect(insertRevision({
+      principalId,
+      workflowId,
+      turnId: seeded.turnId,
+      eventId: newUlid(new Date(NOW.getTime() + kind.length)),
+      status,
+    }).run()).resolves.toBeDefined();
+  });
+
   it("university_workflow_revisions_require_owner_turn refuses another principal's turn", async () => {
     const principalId = "principal:workflow-revision-owner";
     const seeded = await seedProgramAndApplication(principalId);
@@ -253,6 +332,21 @@ describe("0029 university application details migration", () => {
       workflowId,
       turnId: otherTurn,
       eventId: newUlid(new Date(NOW.getTime() + 21)),
+    }).run()).rejects.toThrow(/university_workflow_revision_owner_turn_invalid/u);
+  });
+
+  it("university_workflow_revisions_require_owner_turn refuses a non-Telegram owner turn", async () => {
+    const principalId = "principal:workflow-revision-channel";
+    const seeded = await seedProgramAndApplication(principalId);
+    const workflowId = newUlid(NOW);
+    await insertIdentity({ ...seeded, principalId, workflowId }).run();
+    const voiceTurn = newUlid(new Date(NOW.getTime() + 30));
+    await seedTurn(principalId, voiceTurn, "I prepared the step by voice.", "voice");
+    await expect(insertRevision({
+      principalId,
+      workflowId,
+      turnId: voiceTurn,
+      eventId: newUlid(new Date(NOW.getTime() + 31)),
     }).run()).rejects.toThrow(/university_workflow_revision_owner_turn_invalid/u);
   });
 

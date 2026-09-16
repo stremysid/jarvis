@@ -169,8 +169,9 @@ describe("university application priorities", () => {
     }, daily(), clockAt("2026-09-15T11:30:00.000Z"));
 
     expect(digest.text).toContain(
-      "Essay submission [prepared; owner sid; due 2027-01-15T22:00:00.000Z America/Toronto (unverified)]",
+      "Essay submission [prepared; owner sid; due Jan 15, 2027, 5:00 PM EST (unverified)]",
     );
+    expect(digest.text).not.toContain("2027-01-15T22:00:00.000Z America/Toronto");
     expect(digest.text).not.toContain("Completed upload");
   });
 });

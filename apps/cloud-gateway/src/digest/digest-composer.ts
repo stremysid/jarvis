@@ -189,6 +189,19 @@ function workflowStatus(status: DigestUniversityWorkflow["status"]): string {
   return status;
 }
 
+function timedWorkflowDeadline(instant: string, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZoneName: "short",
+  }).format(new Date(instant));
+}
+
 function applicationSection(
   items: readonly DigestApplicationItem[],
   workflowItems: readonly DigestUniversityWorkflow[],
@@ -221,11 +234,12 @@ function applicationSection(
         : `due ${neutraliseInline(item.dueDate)} (${item.verificationState})`;
       return `${neutraliseInline(item.university)} — ${neutraliseInline(item.programName)}: ${neutraliseInline(item.label)} [${applicationStatus(item.status)}; ${due}]`;
     }), ...orderedWorkflow.map((item) => {
-      const dueValue = item.dueAt ?? item.dueDate;
-      const zone = item.dueAt === null || item.dueTimeZone === null ? "" : ` ${neutraliseInline(item.dueTimeZone)}`;
+      const dueValue = item.dueAt !== null && item.dueTimeZone !== null
+        ? timedWorkflowDeadline(item.dueAt, item.dueTimeZone)
+        : item.dueDate;
       const due = dueValue === null
         ? "due date unverified -- awaiting current-cycle source"
-        : `due ${neutraliseInline(dueValue)}${zone} (${item.verificationState})`;
+        : `due ${neutraliseInline(dueValue)} (${item.verificationState})`;
       return `${neutraliseInline(item.university)} — ${neutraliseInline(item.programName)}: ${neutraliseInline(item.label)} [${workflowStatus(item.status)}; owner ${item.owner}; ${due}]`;
     })],
   };

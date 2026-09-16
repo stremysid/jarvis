@@ -111,6 +111,33 @@ describe("UniversityTrackerRepository application details", () => {
     expect(await repository.listWorkflowItemsByDueDate(principalId)).toEqual([
       expect.objectContaining({ workflowId: workflow?.workflowId, university: "Queen's University" }),
     ]);
+
+    if (program === undefined || application === undefined) throw new Error("university_workflow_fixture_missing");
+    const submittedAt = new Date("2026-09-16T16:05:00.000Z");
+    const submittedTurnId = newUlid(submittedAt);
+    const submittedText = "I submitted the Queen's essay.";
+    await seedTurn(principalId, submittedTurnId, submittedText, submittedAt);
+    await repository.applyOwnerPlan({
+      principalId,
+      turnId: submittedTurnId,
+      responseHash: "6".repeat(64),
+      now: submittedAt,
+      plan: {
+        engaged: true,
+        programUpdates: [],
+        applicationUpdates: [{
+          itemRef: application.itemId,
+          programRef: program.programId,
+          kind: null,
+          label: null,
+          status: "submitted_by_sid",
+          statusEvidence: submittedText,
+          dueDate: null,
+        }],
+        workflowUpdates: [],
+      },
+    });
+    expect(await repository.listWorkflowItemsByDueDate(principalId)).toEqual([]);
   });
 
   it("appends an owner-reported completion and retains the earlier prepared revision", async () => {
@@ -248,6 +275,102 @@ describe("UniversityTrackerRepository application details", () => {
             verification: { state: "unverified", sourceUrl: null, cycle: null },
             evidence: ownerText,
           },
+          executionBoundary: "owner_only",
+        }],
+      },
+    })).rejects.toThrow("university_workflow_item_invalid");
+  });
+
+  it("revalidates exact school and program binding before storing an offer decision", async () => {
+    const principalId = "principal:workflow-repository-offer-binding";
+    const setupTurnId = newUlid(NOW);
+    await seedTurn(principalId, setupTurnId, "Track Waterloo and Western Computer Science.");
+    const repository = new UniversityTrackerRepository(env.DB);
+    await repository.applyOwnerPlan({
+      principalId,
+      turnId: setupTurnId,
+      responseHash: "8".repeat(64),
+      now: NOW,
+      plan: {
+        engaged: true,
+        programUpdates: [{
+          programRef: "new-1", university: "University of Waterloo", campus: null,
+          programName: "Computer Science", ouacCode: null,
+          verification: { state: "unverified", sourceUrl: null, cycle: null },
+          addRequirements: [], addDates: [], resolveItemIds: [],
+        }, {
+          programRef: "new-2", university: "Western University", campus: null,
+          programName: "Computer Science", ouacCode: null,
+          verification: { state: "unverified", sourceUrl: null, cycle: null },
+          addRequirements: [], addDates: [], resolveItemIds: [],
+        }],
+        applicationUpdates: [],
+        workflowUpdates: [],
+      },
+    });
+    const programs = (await repository.readSnapshot(principalId)).programs;
+    const waterloo = programs.find((program) => program.university === "University of Waterloo");
+    if (waterloo === undefined) throw new Error("university_workflow_fixture_missing");
+    const offerAt = new Date("2026-09-16T16:10:00.000Z");
+    const offerTurnId = newUlid(offerAt);
+    const offerText = "I received a University of Waterloo Computer Science offer.";
+    await seedTurn(principalId, offerTurnId, offerText, offerAt);
+    await repository.applyOwnerPlan({
+      principalId,
+      turnId: offerTurnId,
+      responseHash: "9".repeat(64),
+      now: offerAt,
+      plan: {
+        engaged: true,
+        programUpdates: [],
+        applicationUpdates: [],
+        workflowUpdates: [{
+          workflowRef: "new-workflow-1",
+          programRef: waterloo.programId,
+          applicationItemRef: null,
+          kind: "offer",
+          label: "University of Waterloo Computer Science offer",
+          owner: "university",
+          status: "owner_reported_offered",
+          statusEvidence: offerText,
+          preparedDetails: null,
+          deadline: {
+            date: null, instant: null, timeZone: null,
+            verification: { state: "unverified", sourceUrl: null, cycle: null },
+            evidence: offerText,
+          },
+          executionBoundary: "owner_only",
+        }],
+      },
+    });
+    const offer = (await repository.readSnapshot(principalId)).programs
+      .find((program) => program.programId === waterloo.programId)?.workflowItems?.[0];
+    if (offer === undefined) throw new Error("university_workflow_fixture_missing");
+    const crossAt = new Date("2026-09-16T16:15:00.000Z");
+    const crossTurnId = newUlid(crossAt);
+    const crossText = "I received a Western University Computer Science offer instead of the University of Waterloo Computer Science offer.";
+    await seedTurn(principalId, crossTurnId, crossText, crossAt);
+
+    await expect(repository.applyOwnerPlan({
+      principalId,
+      turnId: crossTurnId,
+      responseHash: "a".repeat(64),
+      now: crossAt,
+      plan: {
+        engaged: true,
+        programUpdates: [],
+        applicationUpdates: [],
+        workflowUpdates: [{
+          workflowRef: offer.workflowId,
+          programRef: waterloo.programId,
+          applicationItemRef: null,
+          kind: null,
+          label: null,
+          owner: null,
+          status: "owner_reported_offered",
+          statusEvidence: crossText,
+          preparedDetails: null,
+          deadline: null,
           executionBoundary: "owner_only",
         }],
       },

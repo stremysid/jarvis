@@ -252,7 +252,25 @@ describe("SchoolCatchupModelAdapter", () => {
     expect(model.requests).toBe(1);
   });
 
-  it("preserves the existing model path when the school prompt cannot fit the bounded provider envelope", async () => {
+  it("fails closed with a truthful reply when model output exceeds the JSON cap", async () => {
+    const model = new SequenceModel(["x".repeat(32_001)]);
+    const applyOwnerPlan = vi.fn(async () => undefined);
+    const adapter = new SchoolCatchupModelAdapter({
+      model,
+      repository: { readSnapshot: async () => snapshot(), applyOwnerPlan },
+      redactor: new Redactor(),
+      timeZone: "America/Toronto",
+      now: () => NOW,
+    });
+
+    await expect(collect(adapter.stream(input()))).resolves.toBe(
+      "I couldn't safely process that planning response, so I didn't save any tracker changes. Please name one course, school, program, or application item and try again.",
+    );
+    expect(model.requests).toHaveLength(1);
+    expect(applyOwnerPlan).not.toHaveBeenCalled();
+  });
+
+  it("tells the owner when bounded tracker state cannot fit the provider envelope", async () => {
     const model = new SequenceModel(["Existing model answer"]);
     const base = snapshot().courses[0]!;
     const oversizedSnapshot: SchoolCatchupSnapshot = {
@@ -277,8 +295,10 @@ describe("SchoolCatchupModelAdapter", () => {
     });
     const original = input({ userText: "Continue our conversation" });
 
-    await expect(collect(adapter.stream(original))).resolves.toBe("Existing model answer");
-    expect(model.requests).toEqual([original]);
+    await expect(collect(adapter.stream(original))).resolves.toBe(
+      "Your school and university tracker is too large for one safe update. I didn't save anything from this message; name one course, school, program, or application item and try again.",
+    );
+    expect(model.requests).toEqual([]);
   });
 
   it("replaces secret requests and false external-action claims with fixed truthful boundaries", async () => {
@@ -337,6 +357,35 @@ describe("SchoolCatchupModelAdapter", () => {
     );
   });
 
+  it.each([
+    "Done! I accepted your Waterloo offer.",
+    "I've declined the Western offer for you.",
+    "All set, I ordered your official transcript and it's on its way to Western.",
+    "I followed up with your counsellor.",
+    "Your Waterloo offer has been accepted.",
+    "Your transcript has been ordered.",
+    "Your OUAC fee has been paid.",
+  ])("replaces an external-action completion claim end to end through the chat adapter: %s", async (unsafeReply) => {
+    const model = new SequenceModel([JSON.stringify({
+      engaged: false,
+      reply: unsafeReply,
+      courseUpdates: [],
+      completeActionIds: [],
+      plan: [],
+    })]);
+    const adapter = new SchoolCatchupModelAdapter({
+      model,
+      repository: { readSnapshot: async () => snapshot(), applyOwnerPlan: async () => undefined },
+      redactor: new Redactor(),
+      timeZone: "America/Toronto",
+      now: () => NOW,
+    });
+
+    await expect(collect(adapter.stream(input({ userText: "What should I do next?" })))).resolves.toBe(
+      "I can't do or confirm that action. I can prepare a draft or exact checklist, but you must send, upload, submit, pay, sign up, or contact them yourself.",
+    );
+  });
+
   it("catches external-action and secret-handoff paraphrases without clobbering advice", () => {
     const caught = [
       "Submitted it for you.",
@@ -355,6 +404,13 @@ describe("SchoolCatchupModelAdapter", () => {
       "I've uploaded your application.",
       "I've sent in your application.",
       "I reached out to your referee.",
+      "I withdrew your Queen's application.",
+      "I've created your OUAC account.",
+      "I set up your OUAC account and paid the fee.",
+      "I wrote to Ms. Lee about your reference.",
+      "I confirmed your spot at Waterloo.",
+      "I signed you up for the Waterloo portal.",
+      "Your reference request went out to Ms. Lee.",
       "We're spending the application fee now.",
       "Paste your verification code.",
       "Tell me your password.",

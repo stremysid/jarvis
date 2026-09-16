@@ -18,7 +18,13 @@ import type {
   UniversityWorkflowOwner,
   UniversityWorkflowStatus,
 } from "./university-tracker-types.js";
-import { supportsStatus, supportsWorkflowStatusEvidence } from "./university-tracker-model.js";
+import {
+  isWorkflowLabelSafe,
+  isWorkflowPreparedDetailsSafe,
+  MAX_WORKFLOW_PREPARED_DETAILS_PER_PLAN_BYTES,
+  supportsStatus,
+  supportsWorkflowStatusEvidence,
+} from "./university-tracker-model.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
@@ -27,7 +33,6 @@ const RESPONSE_LOCAL_PROGRAM = /^new-[1-9][0-9]{0,2}$/u;
 const RESPONSE_LOCAL_APPLICATION_ITEM = /^new-item-[1-9][0-9]{0,2}$/u;
 const RESPONSE_LOCAL_WORKFLOW_ITEM = /^new-workflow-[1-9][0-9]{0,2}$/u;
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
-const CURRENCY_AMOUNT = /(?:[$€£]\s*\d|\b(?:cad|usd|eur|gbp)\s*\d|\b\d+(?:[.,]\d{2})?\s*(?:cad|usd|eur|gbp|dollars?)\b)/iu;
 const MAX_PROGRAMS = 16;
 const MAX_ITEMS_PER_PROGRAM = 32;
 const MAX_ITEMS = 128;
@@ -408,7 +413,7 @@ export class UniversityTrackerRepository {
 
   async readSnapshot(principalIdValue: string): Promise<UniversityTrackerSnapshot> {
     const principalId = principal(principalIdValue);
-    const [programResult, itemResult, applicationResult, workflowResult] = await Promise.all([
+    const [programResult, itemResult, applicationResult] = await Promise.all([
       this.database.prepare(`SELECT principal_id, program_id, university_name, campus_name, program_name,
           ouac_code, verification_state, source_url, admission_cycle, verified_at
         FROM university_programs
@@ -428,7 +433,10 @@ export class UniversityTrackerRepository {
         WHERE principal_id = ?1
         ORDER BY program_id, item_kind, item_key, item_id
         LIMIT 256`).bind(principalId).all<ApplicationItemRow>(),
-      this.database.prepare(`SELECT w.principal_id, w.program_id, w.application_item_id,
+    ]);
+    let workflowRows: readonly WorkflowRow[] = Object.freeze([]);
+    try {
+      const workflowResult = await this.database.prepare(`SELECT w.principal_id, w.program_id, w.application_item_id,
           r.event_id, w.workflow_id, r.revision_number, w.workflow_kind, w.workflow_label,
           w.owner_role, r.workflow_status, r.prepared_details, r.execution_boundary,
           r.due_date, r.due_at, r.due_timezone, r.verification_state, r.source_url,
@@ -444,8 +452,14 @@ export class UniversityTrackerRepository {
               AND newer.revision_number > r.revision_number
           )
         ORDER BY w.program_id, w.workflow_key, w.workflow_id
-        LIMIT 129`).bind(principalId).all<WorkflowRow>(),
-    ]);
+        LIMIT 129`).bind(principalId).all<WorkflowRow>();
+      workflowRows = rows(workflowResult);
+    } catch (error) {
+      if (!(error instanceof Error)
+        || !/no such table:\s*university_workflow_(?:items|revisions)/iu.test(error.message)) throw error;
+      // Code can precede the separately controlled migration without taking
+      // school catch-up and the already-migrated university tracker offline.
+    }
     const programs = rows(programResult).slice(0, MAX_PROGRAMS).map((row) => programFromRow(row, principalId));
     const programIds = new Set(programs.map((program) => program.programId));
     const itemsByProgram = new Map<Ulid, UniversityTrackerItem[]>();
@@ -465,7 +479,6 @@ export class UniversityTrackerRepository {
       if (items.length < MAX_APPLICATION_HISTORY_ITEMS_PER_PROGRAM) items.push(item);
       applicationItemsByProgram.set(row.program_id as Ulid, items);
     }
-    const workflowRows = rows(workflowResult);
     if (workflowRows.length > MAX_WORKFLOW_ITEMS) throw new RangeError("university_workflow_snapshot_limit_exceeded");
     for (const row of workflowRows) {
       if (!programIds.has(row.program_id as Ulid)) continue;
@@ -540,6 +553,12 @@ export class UniversityTrackerRepository {
         ON p.principal_id = w.principal_id AND p.program_id = w.program_id
       WHERE w.principal_id = ?1
         AND p.active = 1
+        AND (w.application_item_id IS NULL OR EXISTS (
+          SELECT 1 FROM university_application_items i
+          WHERE i.principal_id = w.principal_id
+            AND i.item_id = w.application_item_id
+            AND i.item_status NOT IN ('submitted_by_sid', 'not_needed_by_sid')
+        ))
         AND r.workflow_status NOT IN (
           'owner_reported_done', 'owner_reported_rejected', 'owner_reported_withdrawn',
           'owner_reported_satisfied', 'owner_reported_accepted', 'owner_reported_declined',
@@ -898,6 +917,7 @@ export class UniversityTrackerRepository {
     const seenWorkflowRefs = new Set<string>();
     const workflowIdentityStatements: D1PreparedStatement[] = [];
     const workflowRevisionStatements: D1PreparedStatement[] = [];
+    let preparedDetailsBytes = 0;
     for (const update of input.plan.workflowUpdates ?? []) {
       if (seenWorkflowRefs.has(update.workflowRef)) throw new TypeError("university_workflow_ref_duplicate");
       seenWorkflowRefs.add(update.workflowRef);
@@ -926,7 +946,7 @@ export class UniversityTrackerRepository {
         : inline(update.label, "university_workflow_item_invalid", 160);
       const owner = update.owner ?? existingRecord?.item.owner;
       const status = update.status ?? existingRecord?.item.status;
-      if (kind === undefined || !WORKFLOW_KINDS.has(kind) || label === undefined
+      if (kind === undefined || !WORKFLOW_KINDS.has(kind) || label === undefined || !isWorkflowLabelSafe(label)
         || owner === undefined || !WORKFLOW_OWNERS.has(owner)
         || status === undefined || !WORKFLOW_STATUSES.has(status)
         || !workflowStatusAllowed(kind, status)) {
@@ -978,7 +998,11 @@ export class UniversityTrackerRepository {
       let preparedDetails = existingRecord?.item.preparedDetails ?? null;
       if (update.preparedDetails !== null) {
         preparedDetails = evidence(update.preparedDetails, "university_workflow_item_invalid", 2_048);
-        if (CURRENCY_AMOUNT.test(preparedDetails)) throw new TypeError("university_workflow_item_invalid");
+        if (!isWorkflowPreparedDetailsSafe(preparedDetails)) throw new TypeError("university_workflow_item_invalid");
+        preparedDetailsBytes += encoder.encode(preparedDetails).byteLength;
+        if (preparedDetailsBytes > MAX_WORKFLOW_PREPARED_DETAILS_PER_PLAN_BYTES) {
+          throw new RangeError("university_workflow_prepared_details_budget_exceeded");
+        }
       }
       let dueDate = existingRecord?.item.deadline.date ?? null;
       let dueAt = existingRecord?.item.deadline.instant ?? null;
