@@ -1,0 +1,10 @@
+import { run } from "./guards.mjs";
+import * as F from "./fixtures.mjs";
+let t = "I accepted that there's no Waterloo offer response coming.";
+run("acceptance of reality as offer accepted", t, F.newUpdate(F.WATERLOO, "offer_response", "Waterloo offer response", "owner_reported_accepted", t));
+t = "I accepted the Waterloo offer response deadline might pass.";
+run("hedged acceptance", t, F.newUpdate(F.WATERLOO, "offer_response", "Waterloo offer response", "owner_reported_accepted", t));
+t = "I accepted my Western offer, not the Waterloo offer response.";
+run("comma split control", t, F.newUpdate(F.WATERLOO, "offer_response", "Waterloo offer response", "owner_reported_accepted", t));
+t = "I accepted my Western offer instead of the Waterloo offer response.";
+run("cross-program acceptance", t, F.newUpdate(F.WATERLOO, "offer_response", "Waterloo offer response", "owner_reported_accepted", t));

@@ -1,0 +1,25 @@
+import { isUniversityExecutionRequest as H } from "./head/apps/cloud-gateway/src/school/school-catchup-model.ts";
+import { isUniversityExecutionRequest as R1 } from "./r1/apps/cloud-gateway/src/school/school-catchup-model.ts";
+for (const t of [
+  "Let me know what's due this week.",
+  "Can you let me know what homework I have?",
+  "Please let me know if I missed anything in chem.",
+  "Jarvis, let me know when D2L updates.",
+  "Text from my counsellor: meeting moved to 2.",
+  "Contact info for Ms Lee is on the school site.",
+  "Email to Western bounced, what should I do?",
+  "Call with my counsellor is tomorrow at 3.",
+  "Message my teacher sent says the quiz is Friday.",
+  "Submit date for the Western essay is Jan 15.",
+  "Upload link for the AIF isn't working.",
+  "Decline in my math mark is stressing me out.",
+  "Accept that I'm behind and make me a catch-up plan.",
+  "Follow up with Ms Lee is on my list for Friday.",
+  "Could you text me a reminder at 7?",
+  "Can you message me tomorrow morning to study chem?",
+  "Call me out if I skip studying tonight.",
+  "Buy time on the essay by doing chem first?",
+  "Register for the SAT is on my to-do list, is it worth it?",
+  "Can you let me know if Ms Lee replied?",
+  "Can you call it a night and summarize what I did?",
+]) console.log(`head=${H(t) ? "REFUSED" : "passes "} r1=${R1(t) ? "REFUSED" : "passes "} | ${t}`);
