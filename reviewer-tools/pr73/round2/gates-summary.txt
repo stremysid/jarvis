@@ -1,0 +1,29 @@
+head be29f60
+lint rc=0
+typecheck rc=0
+test rc=1
+ FAIL  |default| apps/cloud-gateway/test/memory/memory-repository.test.ts > MemoryRepository > keeps the canonical root and inbox identities after both display names are renamed
+ Test Files  1 failed | 177 passed (178)
+      Tests  1 failed | 3980 passed (3981)
+round1-defect-tests rc=1
+     × A1 a turned-in, returned 9/10 Classroom quiz becomes an 'overdue' weak spot plus a 'low grade' 159ms
+     × A2 the same weak-area evidence is re-claimed every day (slice-1 prompted it once) 163ms
+     × A3 an unrelated overdue deadline inflates a one-point, low-confidence topic to 'high confidence' 129ms
+     × A4 a generic 'I finished it' fifteen days later retires the old check-in and swallows the reply 82ms
+     × A5 raw points without a scale: 10/10 is 'low', and 45/50 then 9/10 is a 'falling grade' 2ms
+     × A6 24 stale-open past deadlines crowd out a deadline due in two hours 370ms
+     × A4b with no check-in ever claimed, "that is wrong" still gets a canned study-coach reply 105ms
+      Tests  7 failed (7)
+=== summary
+SURVIVED  BASE
+KILLED    T-school_assignment_observations_scale_update_guard
+KILLED    T-school_assignment_observation_revisions_scale_insert_guard
+KILLED    T-school_study_check_in_claims_insert_guard
+KILLED    T-school_study_check_in_claims_update_guard
+KILLED    T-school_study_check_in_claims_delete_guard
+KILLED    T-school_study_signal_controls_insert_guard
+KILLED    T-school_study_signal_controls_update_guard
+KILLED    T-school_study_signal_controls_delete_guard
+back on main, tree clean=true
+(node:32668) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

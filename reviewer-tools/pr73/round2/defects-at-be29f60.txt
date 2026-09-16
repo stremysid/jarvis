@@ -1,0 +1,184 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr40
+
+Using secrets defined in process.env
+stdout | apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts > PR #73 adversarial > A1 a turned-in, returned 9/10 Classroom quiz becomes an 'overdue' weak spot plus a 'low grade'
+A1 DIGEST >>>
+Digest -- 2026-09-15
+Nothing due, nothing changed, nothing waiting on you.
+<<<
+
+stdout | apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts > PR #73 adversarial > A2 the same weak-area evidence is re-claimed every day (slice-1 prompted it once)
+A2 topics per day [ 'Titration calculations feel uncertain', null, null, null ]
+
+stdout | apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts > PR #73 adversarial > A3 an unrelated overdue deadline inflates a one-point, low-confidence topic to 'high confidence'
+A3 DIGEST >>>
+Digest -- 2026-09-15
+
+Coursework check-in
+Physics: study target “Projectile motion feels uncertain” (1 evidence point, low confidence; not a fixed judgment; last observed 2026-09-15).
+Source 1 — course-card evidence — Physics: “Projectile motion feels uncertain” (2026-09-15; owner_reported): The active course card names this as a weak area.
+Want a 10-minute quiz or flashcards? Reply “quiz me on that weak spot” or “make flashcards for that weak spot”.
+<<<
+
+stdout | apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts > PR #73 adversarial > A5 raw points without a scale: 10/10 is 'low', and 45/50 then 9/10 is a 'falling grade'
+A5 signals []
+
+stdout | apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts > PR #73 adversarial > A4b with no check-in ever claimed, "that is wrong" still gets a canned study-coach reply
+A4b reply: You are right, I misread your calendar.
+
+ ❯ |default| apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts (7 tests | 7 failed) 1299ms
+     × A1 a turned-in, returned 9/10 Classroom quiz becomes an 'overdue' weak spot plus a 'low grade' 159ms
+     × A2 the same weak-area evidence is re-claimed every day (slice-1 prompted it once) 163ms
+     × A3 an unrelated overdue deadline inflates a one-point, low-confidence topic to 'high confidence' 129ms
+     × A4 a generic 'I finished it' fifteen days later retires the old check-in and swallows the reply 82ms
+     × A5 raw points without a scale: 10/10 is 'low', and 45/50 then 9/10 is a 'falling grade' 2ms
+     × A6 24 stale-open past deadlines crowd out a deadline due in two hours 370ms
+     × A4b with no check-in ever claimed, "that is wrong" still gets a canned study-coach reply 105ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts > PR #73 adversarial > A1 a turned-in, returned 9/10 Classroom quiz becomes an 'overdue' weak spot plus a 'low grade'
+AssertionError: expected 'Digest -- 2026-09-15\nNothing due, no…' to contain 'deadline 01m2nztqxncqcnxm1cv3pwjdsw'
+
+- Expected
++ Received
+
+- deadline 01m2nztqxncqcnxm1cv3pwjdsw
++ Digest -- 2026-09-15
++ Nothing due, nothing changed, nothing waiting on you.
+
+ ❯ apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts:133:25
+    131|     const digest = await assembleDigest("daily", digestDeps(item.princ…
+    132|     console.log("A1 DIGEST >>>\n" + digest.text + "\n<<<");
+    133|     expect(digest.text).toContain(`deadline ${due.deadline.deadlineId}…
+       |                         ^
+    134|     expect(digest.text).toContain("The open deadline was overdue as of…
+    135|     expect(digest.text).toContain("Google Classroom assigned grade 9."…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts > PR #73 adversarial > A2 the same weak-area evidence is re-claimed every day (slice-1 prompted it once)
+AssertionError: expected [ …(4) ] to deeply equal [ …(4) ]
+
+- Expected
++ Received
+
+  [
+    "Titration calculations feel uncertain",
+-   "Titration calculations feel uncertain",
+-   "Titration calculations feel uncertain",
+-   "Titration calculations feel uncertain",
++   null,
++   null,
++   null,
+  ]
+
+ ❯ apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts:154:20
+    152|     }
+    153|     console.log("A2 topics per day", topics);
+    154|     expect(topics).toEqual(Array(4).fill("Titration calculations feel …
+       |                    ^
+    155|   });
+    156|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts > PR #73 adversarial > A3 an unrelated overdue deadline inflates a one-point, low-confidence topic to 'high confidence'
+AssertionError: expected 'Digest -- 2026-09-15\n\nCoursework ch…' to contain 'Physics: study target “Projectile mot…'
+
+- Expected
++ Received
+
+- Physics: study target “Projectile motion feels uncertain” (2 evidence points, high confidence;
++ Digest -- 2026-09-15
++
++ Coursework check-in
++ Physics: study target “Projectile motion feels uncertain” (1 evidence point, low confidence; not a fixed judgment; last observed 2026-09-15).
++ Source 1 — course-card evidence — Physics: “Projectile motion feels uncertain” (2026-09-15; owner_reported): The active course card names this as a weak area.
++ Want a 10-minute quiz or flashcards? Reply “quiz me on that weak spot” or “make flashcards for that weak spot”.
+
+ ❯ apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts:169:25
+    167|     const digest = await assembleDigest("daily", digestDeps(item.princ…
+    168|     console.log("A3 DIGEST >>>\n" + digest.text + "\n<<<");
+    169|     expect(digest.text).toContain("Physics: study target “Projectile m…
+       |                         ^
+    170|   });
+    171|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts > PR #73 adversarial > A4 a generic 'I finished it' fifteen days later retires the old check-in and swallows the reply
+AssertionError: expected null not to be null
+ ❯ apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts:180:55
+    178|     const later = new Date(NOW.getTime() + 15 * 86_400_000);
+    179|     for (const text of ["I finished it", "it is done", "that is wrong"…
+    180|       expect(parseStudySignalControlIntent(text)).not.toBeNull();
+       |                                                       ^
+    181|     }
+    182|     const turnId = await addTurn(item.principalId, "I finished it", la…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts > PR #73 adversarial > A5 raw points without a scale: 10/10 is 'low', and 45/50 then 9/10 is a 'falling grade'
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts:221:77
+    219|     }, NOW);
+    220|     console.log("A5 signals", JSON.stringify(signals.map((s) => ({ sco…
+    221|     expect(signals.some((s) => s.citations.length === 2 && s.score ===…
+       |                                                                             ^
+    222|     expect(signals.some((s) => s.citations.length === 1 && s.citations…
+    223|     const pick = chooseStudyCheckIn(signals);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts > PR #73 adversarial > A6 24 stale-open past deadlines crowd out a deadline due in two hours
+AssertionError: expected [ { deadline: { …(13) }, …(3) } ] to have a length of 24 but got 1
+
+- Expected
++ Received
+
+- 24
++ 1
+
+ ❯ apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts:245:24
+    243|     });
+    244|     const candidates = await deadlines.listStudyCandidates(NOW);
+    245|     expect(candidates).toHaveLength(24);
+       |                        ^
+    246|     expect(candidates.some((c) => c.deadline.deadlineId === soon.deadl…
+    247|     void item;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/7]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts > PR #73 adversarial > A4b with no check-in ever claimed, "that is wrong" still gets a canned study-coach reply
+AssertionError: expected 'You are right, I misread your calenda…' to be 'I couldn\'t identify an active cited …' // Object.is equality
+
+Expected: "I couldn't identify an active cited signal to retire."
+Received: "You are right, I misread your calendar."
+
+ ❯ apps/cloud-gateway/test/school/zz-adversarial-pr73.test.ts:264:19
+    262|     })));
+    263|     console.log('A4b reply:', reply);
+    264|     expect(reply).toBe("I couldn't identify an active cited signal to …
+       |                   ^
+    265|     expect(fallback.inputs).toHaveLength(0);
+    266|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/7]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  7 failed (7)
+   Start at  16:51:41
+   Duration  3.91s (transform 1.10s, setup 0ms, import 1.74s, tests 1.30s, environment 0ms)
+

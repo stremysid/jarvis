@@ -1,0 +1,77 @@
+checked out be29f60 at be29f60
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  16 passed (16)
+
+== T-school_assignment_observations_scale_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-weak-spots-migration.test.ts (16 tests | 2 failed) 2454ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 14 passed (16)
+   × installs both private tables and all eight remote-safe guards 12ms
+   × proves the observation scale update guard binds max points to the content hash 54ms
+
+== T-school_assignment_observation_revisions_scale_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-weak-spots-migration.test.ts (16 tests | 2 failed) 2320ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 14 passed (16)
+   × installs both private tables and all eight remote-safe guards 12ms
+   × proves the observation revision scale guard preserves the replaced max points 37ms
+
+== T-school_study_check_in_claims_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-weak-spots-migration.test.ts (16 tests | 2 failed) 2368ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 14 passed (16)
+   × installs both private tables and all eight remote-safe guards 12ms
+   × proves the check-in insert guard is load-bearing by removing the whole trigger 144ms
+
+== T-school_study_check_in_claims_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-weak-spots-migration.test.ts (16 tests | 2 failed) 2114ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 14 passed (16)
+   × installs both private tables and all eight remote-safe guards 13ms
+   × proves the check-in update guard is load-bearing by removing the whole trigger 117ms
+
+== T-school_study_check_in_claims_delete_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-weak-spots-migration.test.ts (16 tests | 2 failed) 3449ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 14 passed (16)
+   × installs both private tables and all eight remote-safe guards 12ms
+   × proves the check-in delete guard is load-bearing by removing the whole trigger 314ms
+
+== T-school_study_signal_controls_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-weak-spots-migration.test.ts (16 tests | 9 failed) 4411ms
+   Test Files  1 failed (1)
+   Tests  9 failed | 7 passed (16)
+   × installs both private tables and all eight remote-safe guards 15ms
+   × proves the control insert guard enforces direct Telegram provenance 106ms
+   × the control insert guard rejects a duplicate before INSERT OR REPLACE can rewrite it 113ms
+   × the control insert guard requires the correction turn to belong to the same principal 125ms
+
+== T-school_study_signal_controls_update_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-weak-spots-migration.test.ts (16 tests | 2 failed) 1822ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 14 passed (16)
+   × installs both private tables and all eight remote-safe guards 11ms
+   × proves the control update guard is load-bearing by removing the whole trigger 123ms
+
+== T-school_study_signal_controls_delete_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/study-coach-weak-spots-migration.test.ts (16 tests | 2 failed) 3543ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 14 passed (16)
+   × installs both private tables and all eight remote-safe guards 11ms
+   × proves the control delete guard is load-bearing by removing the whole trigger 730ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-school_assignment_observations_scale_update_guard
+KILLED    T-school_assignment_observation_revisions_scale_insert_guard
+KILLED    T-school_study_check_in_claims_insert_guard
+KILLED    T-school_study_check_in_claims_update_guard
+KILLED    T-school_study_check_in_claims_delete_guard
+KILLED    T-school_study_signal_controls_insert_guard
+KILLED    T-school_study_signal_controls_update_guard
+KILLED    T-school_study_signal_controls_delete_guard
+back on main, tree clean=true
+(node:32668) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
