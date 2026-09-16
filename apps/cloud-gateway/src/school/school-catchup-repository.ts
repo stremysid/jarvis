@@ -299,7 +299,8 @@ export class SchoolCatchupRepository {
     for (const update of input.plan.courseUpdates) {
       if (seenCourseRefs.has(update.courseRef)) throw new TypeError("school_catchup_course_ref_duplicate");
       seenCourseRefs.add(update.courseRef);
-      const existingId = ULID.test(update.courseRef) ? update.courseRef as Ulid : null;
+      let existingId = ULID.test(update.courseRef) ? update.courseRef as Ulid : null;
+      let responseLocalMatchedExisting = false;
       let courseId: Ulid;
       if (existingId !== null) {
         if (!coursesById.has(existingId)) throw new TypeError("school_catchup_course_unknown");
@@ -308,12 +309,27 @@ export class SchoolCatchupRepository {
         if (!RESPONSE_LOCAL_COURSE.test(update.courseRef) || update.name === null) {
           throw new TypeError("school_catchup_course_ref_invalid");
         }
-        courseId = newUlid(now);
-        finalCourseIds.add(courseId);
-        activeFactCounts.set(courseId, 0);
+        const proposedName = inline(update.name, "school_catchup_course_name_invalid", 160);
+        const proposedKey = key(proposedName, 160, "school_catchup_course_name_invalid");
+        const matchedCourse = current.courses.find((course) =>
+          key(course.name, 160, "school_catchup_course_name_invalid") === proposedKey);
+        if (matchedCourse === undefined) {
+          courseId = newUlid(now);
+          finalCourseIds.add(courseId);
+          activeFactCounts.set(courseId, 0);
+        } else {
+          // A response-local ref is model formatting, not course identity. An
+          // exact stored key is the only safe repair; fuzzy aliases could join
+          // two real classes and must still fail at the normal boundaries.
+          existingId = matchedCourse.courseId;
+          courseId = matchedCourse.courseId;
+          responseLocalMatchedExisting = true;
+        }
       }
       courseIdsByRef.set(update.courseRef, courseId);
-      const name = update.name === null
+      const name = responseLocalMatchedExisting
+        ? coursesById.get(courseId)!.name
+        : update.name === null
         ? coursesById.get(courseId)?.name ?? null
         : inline(update.name, "school_catchup_course_name_invalid", 160);
       if (name === null) throw new TypeError("school_catchup_course_name_invalid");
@@ -330,7 +346,7 @@ export class SchoolCatchupRepository {
           .bind(principalId, courseId, key(name, 160, "school_catchup_course_name_invalid"), name,
             platform, platform === null ? null : "owner_reported", platform === null ? null : nowIso,
             turnId, nowIso));
-      } else if (update.name !== null || update.platform !== null) {
+      } else if ((!responseLocalMatchedExisting && update.name !== null) || update.platform !== null) {
         statements.push(this.database.prepare(`UPDATE school_course_cards
           SET course_key = ?1, course_name = ?2, platform_name = ?3,
               platform_source = ?4, platform_source_ref = NULL, platform_observed_at = ?5,

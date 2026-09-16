@@ -742,6 +742,23 @@ function withoutUnsupportedAcknowledgementMutations(
   });
 }
 
+function planSaveFailureCode(error: unknown): string {
+  if (!(error instanceof Error)) return "other";
+  const message = error.message;
+  if (/\bstale_snapshot\b|\b(?:school_catchup|university_tracker)_turn_conflict\b/u.test(message)) {
+    return "stale_snapshot";
+  }
+  const rule = /\b(?:school|university)_[a-z0-9_]{1,120}\b/u.exec(message)?.[0];
+  if ((error instanceof TypeError || error instanceof RangeError) && rule !== undefined) {
+    return `validation:${rule}`;
+  }
+  if (rule !== undefined && (/\bD1_ERROR\b|\bSQLITE_(?:CONSTRAINT|ERROR)\b/u.test(message)
+    || /_(?:conflict|forbidden|immutable|invalid|limit_exceeded)$/u.test(rule))) {
+    return `d1_trigger:${rule}`;
+  }
+  return "other";
+}
+
 async function* fallbackWithSaveFailure(
   model: ModelAdapter,
   input: ModelAdapterStreamInput,
@@ -959,7 +976,8 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
           plan: schoolPlan,
           now,
         });
-      } catch {
+      } catch (error) {
+        console.warn("school_plan_save_failed", { code: planSaveFailureCode(error) });
         if (offerReport) {
           yield Object.freeze({ index: 0, text: offerNotSavedLine(input.userText, universitySnapshot, false) });
           return;
@@ -993,7 +1011,8 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
           plan: universityPlan,
           now,
         });
-      } catch {
+      } catch (error) {
+        console.warn("university_plan_save_failed", { code: planSaveFailureCode(error) });
         if (offerReport || offerUpdate) {
           yield Object.freeze({ index: 0, text: offerNotSavedLine(input.userText, universitySnapshot, false, true) });
           return;
