@@ -15,7 +15,9 @@ import {
   MemoryRepository,
 } from "../../src/memory/memory-repository.js";
 import { ConversationRepository } from "../../src/conversation/conversation-repository.js";
-import { EventRepository } from "../../src/persistence/event-repository.js";
+import { ArchiveRepository } from "../../src/archive/archive-repository.js";
+import { encodeArchiveSegment } from "../../src/archive/segment-codec.js";
+import { EventRepository, type AppendedEvent } from "../../src/persistence/event-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
 import {
   MemoryRepositoryError,
@@ -213,6 +215,98 @@ async function commandCount(): Promise<number> {
   return row?.count ?? -1;
 }
 
+async function archiveAndPurgeTurn(turn: SeededTurn): Promise<void> {
+  const stored = await env.DB.prepare(`SELECT envelope_json, content_hash FROM events
+    WHERE sequence = ? AND event_id = ?`).bind(turn.input.eventSequence, turn.input.eventId)
+    .first<{ envelope_json: string; content_hash: string }>();
+  if (stored === null) throw new Error("memory_owner_archive_source_missing");
+  const envelope = {
+    ...(JSON.parse(stored.envelope_json) as AppendedEvent["envelope"]),
+    eventSequence: turn.input.eventSequence,
+  };
+  const event: AppendedEvent = {
+    eventSequence: turn.input.eventSequence,
+    envelope,
+    replayed: true,
+  };
+  const encoded = await encodeArchiveSegment([event]);
+  const objectKey = `events/sha256/${encoded.compressedSha256}.ndjson.gz`;
+  await env.ARCHIVE.put(objectKey, encoded.compressedBytes, {
+    sha256: encoded.compressedSha256,
+  });
+  const guardNames = [
+    "archive_manifests_require_next_range",
+    "archive_state_advance_guard",
+  ] as const;
+  const guards = await env.DB.prepare(`SELECT name, sql FROM sqlite_schema
+    WHERE type = 'trigger' AND name IN (?, ?)`)
+    .bind(...guardNames).all<{ name: string; sql: string }>();
+  if (guards.results.length !== guardNames.length) {
+    throw new Error("memory_owner_archive_guard_missing");
+  }
+  for (const guard of guards.results) await env.DB.prepare(`DROP TRIGGER ${guard.name}`).run();
+  const archivedAt = new Date(eventClock + 1_000).toISOString();
+  try {
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO archive_manifests (
+        manifest_id, start_sequence, end_sequence, event_count, status, created_at, sealed_at
+      ) VALUES (?, ?, ?, 1, 'sealed', ?, ?)`)
+        .bind(
+          encoded.compressedSha256,
+          turn.input.eventSequence,
+          turn.input.eventSequence,
+          archivedAt,
+          archivedAt,
+        ),
+      env.DB.prepare(`INSERT INTO archive_segments (
+        segment_id, manifest_id, object_key, compressed_sha256,
+        compressed_byte_length, uncompressed_byte_length, codec, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'jarvis-gzip-ndjson-v1', ?)`)
+        .bind(
+          encoded.compressedSha256,
+          encoded.compressedSha256,
+          objectKey,
+          encoded.compressedSha256,
+          encoded.compressedBytes.byteLength,
+          encoded.uncompressedByteLength,
+          archivedAt,
+        ),
+      env.DB.prepare(`INSERT INTO archive_segment_events (
+        event_sequence, event_id, segment_id, envelope_sha256, content_hash, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?)`)
+        .bind(
+          turn.input.eventSequence,
+          turn.input.eventId,
+          encoded.compressedSha256,
+          await sha256Hex(canonicalJson(envelope)),
+          stored.content_hash,
+          archivedAt,
+        ),
+      env.DB.prepare(`UPDATE archive_state
+        SET sealed_through = ?, updated_at = ? WHERE singleton = 1`)
+        .bind(turn.input.eventSequence, archivedAt),
+      env.DB.prepare(`INSERT INTO outbox (
+        outbox_id, event_sequence, topic, status, attempts,
+        available_at, delivered_at, created_at
+      ) VALUES (?, ?, 'memory-owner-controls-test', 'delivered', 1, ?, ?, ?)`)
+        .bind(newUlid(), turn.input.eventSequence, archivedAt, archivedAt, archivedAt),
+    ]);
+  } finally {
+    for (const guard of guards.results) await env.DB.prepare(guard.sql).run();
+  }
+  await new ArchiveRepository(env.DB).purgeDelivered({
+    manifestId: encoded.compressedSha256,
+    startSequence: turn.input.eventSequence,
+    endSequence: turn.input.eventSequence,
+    eventCount: 1,
+    objectKey,
+    compressedSha256: encoded.compressedSha256,
+    compressedByteLength: encoded.compressedBytes.byteLength,
+    uncompressedByteLength: encoded.uncompressedByteLength,
+    sealedAt: archivedAt,
+  }, archivedAt);
+}
+
 beforeAll(async () => {
   await applyMemoryIngressMigration();
   await seedPrincipal(OWNER_ID, "human");
@@ -221,7 +315,7 @@ beforeAll(async () => {
 describe("MemoryOwnerControlsService", () => {
   it("remembers exact text from the authenticated owner's current turn and replays it exactly", async () => {
     const turn = await seedTurn("Please remember that I prefer concise release notes.");
-    const service = new MemoryOwnerControlsService(env.DB);
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
     const input = rememberInput(turn, "I prefer concise release notes.");
 
     const first = await service.remember(input);
@@ -259,9 +353,49 @@ describe("MemoryOwnerControlsService", () => {
     });
   });
 
+  it("refuses remember recovery through a valid command accepted for a different owner turn", async () => {
+    const targetTurn = await seedTurn("Please remember that the archive color is amber.");
+    const acceptedTurn = await seedTurn("Please remember that the review color is violet.");
+    await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).remember(
+      rememberInput(acceptedTurn, "the review color is violet."),
+    );
+    const unrelatedCommand = await env.DB.prepare(`SELECT event_id FROM events
+      WHERE subject_id = ? AND event_type = 'memory.owner_command'
+      ORDER BY sequence DESC LIMIT 1`).bind(OWNER_ID).first<{ event_id: Ulid }>();
+    if (unrelatedCommand === null) throw new Error("memory_owner_unrelated_command_missing");
+
+    await expectCode(
+      new MemoryRepository(env.DB).readAcceptedOwnerTurn(targetTurn.input, unrelatedCommand.event_id),
+      "memory_refused",
+    );
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_items
+      WHERE creation_event_id = ?`).bind(targetTurn.input.eventId).first("count")).toBe(0);
+  });
+
+  it("requires the accepted owner command to carry the item transition operation", async () => {
+    const turn = await seedTurn("Remember that accepted commands stay operation-bound.");
+    await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).remember(
+      rememberInput(turn, "accepted commands stay operation-bound."),
+    );
+    const command = await env.DB.prepare(`SELECT event_id FROM events
+      WHERE subject_id = ? AND event_type = 'memory.owner_command'
+      ORDER BY sequence DESC LIMIT 1`).bind(OWNER_ID).first<{ event_id: Ulid }>();
+    if (command === null) throw new Error("memory_owner_operation_command_missing");
+    await env.DB.prepare(`UPDATE events SET envelope_json = json_set(
+      envelope_json, '$.payload.operation', 'item.forget'
+    ) WHERE event_id = ?`).bind(command.event_id).run();
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_valid_owner_commands
+      WHERE event_id = ?`).bind(command.event_id).first("count")).toBe(1);
+
+    await expectCode(
+      new MemoryRepository(env.DB).readAcceptedOwnerTurn(turn.input, command.event_id),
+      "memory_refused",
+    );
+  });
+
   it("suppresses text when a remember replay is no longer the current transition", async () => {
     const turn = await seedTurn("Remember that I prefer dark mode.");
-    const service = new MemoryOwnerControlsService(env.DB);
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
     const input = rememberInput(turn, "I prefer dark mode.");
     const remembered = await service.remember(input);
     const forgetTurn = await seedTurn(
@@ -293,7 +427,12 @@ describe("MemoryOwnerControlsService", () => {
     const input = rememberInput(turn, "I prefer corrupt receipts to be explicit.");
     const events = new EventRepository(env.DB);
     const append = vi.spyOn(events, "append");
-    const service = new MemoryOwnerControlsService(env.DB, new MemoryRepository(env.DB), events);
+    const service = new MemoryOwnerControlsService(
+      env.DB,
+      env.ARCHIVE,
+      new MemoryRepository(env.DB),
+      events,
+    );
     await service.remember(input);
     const stored = await append.mock.results[0]?.value;
     if (stored === undefined) throw new Error("memory_owner_command_fixture_missing");
@@ -318,6 +457,7 @@ describe("MemoryOwnerControlsService", () => {
     let issued = false;
     const service = new MemoryOwnerControlsService(
       env.DB,
+      env.ARCHIVE,
       new MemoryRepository(env.DB),
       undefined,
       {
@@ -351,7 +491,7 @@ describe("MemoryOwnerControlsService", () => {
     const before = await commandCount();
 
     await expectCode(
-      new MemoryOwnerControlsService(env.DB).remember(rememberInput(turn, requestedText)),
+      new MemoryOwnerControlsService(env.DB, env.ARCHIVE).remember(rememberInput(turn, requestedText)),
       "memory_refused",
     );
 
@@ -367,7 +507,8 @@ describe("MemoryOwnerControlsService", () => {
   ])("normalizes %s only for whole-remainder comparison", async (_label, ownerText, text) => {
     const turn = await seedTurn(ownerText);
 
-    const result = await new MemoryOwnerControlsService(env.DB).remember(rememberInput(turn, text));
+    const result = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE)
+      .remember(rememberInput(turn, text));
 
     expect(result.item.version.text).toBe(text);
     expect(result.item.lifecycle.actor).toBe("owner");
@@ -387,7 +528,7 @@ describe("MemoryOwnerControlsService", () => {
     const beforeAttempt = await commandCount();
 
     await expectCode(
-      new MemoryOwnerControlsService(env.DB, faultingMemory).remember(input),
+      new MemoryOwnerControlsService(env.DB, env.ARCHIVE, faultingMemory).remember(input),
       "memory_unavailable",
     );
     expect(await commandCount()).toBe(beforeAttempt + 1);
@@ -395,14 +536,14 @@ describe("MemoryOwnerControlsService", () => {
       "Forget my compact menu preference.",
       { memoryIntent: "forget" },
     );
-    await new MemoryOwnerControlsService(env.DB).forget({
+    await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).forget({
       ownerTurn: forgetTurn.input,
       candidateItemIds: [sibling.itemId],
     });
     const beforeRetry = await commandCount();
 
     await expectCode(
-      new MemoryOwnerControlsService(env.DB).remember(input),
+      new MemoryOwnerControlsService(env.DB, env.ARCHIVE).remember(input),
       "memory_refused",
     );
 
@@ -418,7 +559,7 @@ describe("MemoryOwnerControlsService", () => {
     const before = await commandCount();
 
     await expectCode(
-      new MemoryOwnerControlsService(env.DB).remember(rememberInput(turn, text)),
+      new MemoryOwnerControlsService(env.DB, env.ARCHIVE).remember(rememberInput(turn, text)),
       "memory_refused",
     );
 
@@ -433,7 +574,7 @@ describe("MemoryOwnerControlsService", () => {
     const append = vi.spyOn(events, "append");
 
     await expectCode(
-      new MemoryOwnerControlsService(env.DB, new MemoryRepository(env.DB), events)
+      new MemoryOwnerControlsService(env.DB, env.ARCHIVE, new MemoryRepository(env.DB), events)
         .remember(rememberInput(turn, "The launch is Friday.")),
       "memory_refused",
     );
@@ -451,7 +592,7 @@ describe("MemoryOwnerControlsService", () => {
     await seedTurn("This is the owner's newer current turn.");
     const before = await commandCount();
 
-    await expectCode(new MemoryOwnerControlsService(env.DB).remember(
+    await expectCode(new MemoryOwnerControlsService(env.DB, env.ARCHIVE).remember(
       rememberInput(stale, stale.text),
     ), "memory_refused");
 
@@ -462,7 +603,7 @@ describe("MemoryOwnerControlsService", () => {
     const turn = await seedTurn("Remember that I prefer channel-bound controls.");
     const before = await commandCount();
 
-    await expectCode(new MemoryOwnerControlsService(env.DB).remember({
+    await expectCode(new MemoryOwnerControlsService(env.DB, env.ARCHIVE).remember({
       ...rememberInput(turn, "I prefer channel-bound controls."),
       ownerTurn: { ...turn.input, channel: "voice" },
     }), "memory_refused");
@@ -531,7 +672,7 @@ describe("MemoryOwnerControlsService", () => {
       now: new Date(eventClock + 1),
     });
 
-    const result = await new MemoryOwnerControlsService(env.DB).remember(
+    const result = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).remember(
       rememberInput(turn, "I prefer controls after the reply."),
     );
 
@@ -553,7 +694,7 @@ describe("MemoryOwnerControlsService", () => {
     ] as const;
 
     for (const flags of rejectedFlags) {
-      await expectCode(new MemoryOwnerControlsService(env.DB).remember({
+      await expectCode(new MemoryOwnerControlsService(env.DB, env.ARCHIVE).remember({
         ...rememberInput(turn, "my reports should be short"),
         ownerTurn: { ...turn.input, ...flags },
       }), "memory_refused");
@@ -564,7 +705,7 @@ describe("MemoryOwnerControlsService", () => {
 
   it("treats a casual forget-that turn as conversation rather than a memory control", async () => {
     const sourceTurn = await seedTurn("Remember that I prefer short status updates.");
-    const service = new MemoryOwnerControlsService(env.DB);
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
     const remembered = await service.remember(
       rememberInput(sourceTurn, "I prefer short status updates."),
     );
@@ -585,13 +726,13 @@ describe("MemoryOwnerControlsService", () => {
 
   it("refuses an operation that does not match the trusted per-operation intent", async () => {
     const sourceTurn = await seedTurn("Remember that I prefer operation-bound controls.");
-    const remembered = await new MemoryOwnerControlsService(env.DB).remember(
+    const remembered = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).remember(
       rememberInput(sourceTurn, "I prefer operation-bound controls."),
     );
     const mismatched = await seedTurn("Forget the operation-bound preference.");
     const before = await commandCount();
 
-    await expectCode(new MemoryOwnerControlsService(env.DB).forget({
+    await expectCode(new MemoryOwnerControlsService(env.DB, env.ARCHIVE).forget({
       ownerTurn: mismatched.input,
       candidateItemIds: [remembered.item.itemId],
     }), "memory_refused");
@@ -601,7 +742,7 @@ describe("MemoryOwnerControlsService", () => {
 
   it("refuses a second different mutation authorized by one owner event", async () => {
     const turn = await seedTurn("Remember that I prefer one mutation per turn.");
-    const service = new MemoryOwnerControlsService(env.DB);
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
     const remembered = await service.remember(
       rememberInput(turn, "I prefer one mutation per turn."),
     );
@@ -626,11 +767,11 @@ describe("MemoryOwnerControlsService", () => {
     const guest = await seedTurn("Remember this guest claim.", { principalId: guestId });
     const before = await commandCount();
 
-    await expectCode(new MemoryOwnerControlsService(env.DB).remember({
+    await expectCode(new MemoryOwnerControlsService(env.DB, env.ARCHIVE).remember({
       ...rememberInput(modelTurn, modelTurn.text),
       ownerTurn: { ...modelTurn.input, modelGenerated: true },
     }), "memory_refused");
-    await expectCode(new MemoryOwnerControlsService(env.DB).remember(
+    await expectCode(new MemoryOwnerControlsService(env.DB, env.ARCHIVE).remember(
       rememberInput(guest, guest.text),
     ), "memory_refused");
 
@@ -639,7 +780,7 @@ describe("MemoryOwnerControlsService", () => {
 
   it("refuses an ambiguous target before recording a command or changing memory", async () => {
     const rememberedTurn = await seedTurn("Remember that I prefer deterministic tests.");
-    const remembered = await new MemoryOwnerControlsService(env.DB).remember(
+    const remembered = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).remember(
       rememberInput(rememberedTurn, "I prefer deterministic tests."),
     );
     const forgetTurn = await seedTurn(
@@ -648,7 +789,7 @@ describe("MemoryOwnerControlsService", () => {
     );
     const before = await commandCount();
 
-    await expectCode(new MemoryOwnerControlsService(env.DB).forget({
+    await expectCode(new MemoryOwnerControlsService(env.DB, env.ARCHIVE).forget({
       ownerTurn: forgetTurn.input,
       candidateItemIds: [remembered.item.itemId, newUlid()],
     }), "memory_ambiguous");
@@ -663,7 +804,7 @@ describe("MemoryOwnerControlsService", () => {
 
   it("refuses to lift a memory that is not forgotten before recording a command", async () => {
     const sourceTurn = await seedTurn("Remember that I prefer explicit restore state.");
-    const service = new MemoryOwnerControlsService(env.DB);
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
     const remembered = await service.remember(
       rememberInput(sourceTurn, "I prefer explicit restore state."),
     );
@@ -683,7 +824,7 @@ describe("MemoryOwnerControlsService", () => {
 
   it("atomically accepts at most one concurrent mutation for one owner event", async () => {
     const existingTurn = await seedTurn("Remember that I prefer existing controls.");
-    const service = new MemoryOwnerControlsService(env.DB);
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
     const existing = await service.remember(
       rememberInput(existingTurn, "I prefer existing controls."),
     );
@@ -710,7 +851,7 @@ describe("MemoryOwnerControlsService", () => {
 
   it("explains deterministic provenance without a command or a mutation", async () => {
     const rememberedTurn = await seedTurn("Remember that my summaries use plain language.");
-    const remembered = await new MemoryOwnerControlsService(env.DB).remember(
+    const remembered = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).remember(
       rememberInput(rememberedTurn, "my summaries use plain language."),
     );
     const whyTurn = await seedTurn(
@@ -719,7 +860,7 @@ describe("MemoryOwnerControlsService", () => {
     );
     const before = await commandCount();
 
-    const explanation = await new MemoryOwnerControlsService(env.DB).explain({
+    const explanation = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).explain({
       ownerTurn: whyTurn.input,
       candidateItemIds: [remembered.item.itemId],
     });
@@ -747,7 +888,7 @@ describe("MemoryOwnerControlsService", () => {
 
   it("forgets and restores one memory with exact suppression counts while retaining raw evidence", async () => {
     const sourceTurn = await seedTurn("Remember that I prefer reports without tables.");
-    const service = new MemoryOwnerControlsService(env.DB);
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
     const remembered = await service.remember(
       rememberInput(sourceTurn, "I prefer reports without tables."),
     );
@@ -835,7 +976,7 @@ describe("MemoryOwnerControlsService", () => {
   it("reports sibling memories hidden by a forget and a restore that remains suppressed", async () => {
     const rememberedText = "I prefer dark mode. I prefer compact menus.";
     const sourceTurn = await seedTurn(`Remember, ${rememberedText}`);
-    const service = new MemoryOwnerControlsService(env.DB);
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
     const input = rememberInput(sourceTurn, rememberedText);
     const first = await service.remember(input);
     const sibling = await commitItemFromTurn(sourceTurn, "I prefer compact menus.");
@@ -915,7 +1056,7 @@ describe("MemoryOwnerControlsService", () => {
       lifecycleState: "proposed",
       origin: "model",
     });
-    const service = new MemoryOwnerControlsService(env.DB);
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
     const forgetTurn = await seedTurn(
       "Forget the proposed violet layout preference.",
       { memoryIntent: "forget" },
@@ -943,7 +1084,7 @@ describe("MemoryOwnerControlsService", () => {
 
   it("rolls back a faulted forget batch and completes it on the exact command replay", async () => {
     const sourceTurn = await seedTurn("Remember that transactional memory updates matter.");
-    const remembered = await new MemoryOwnerControlsService(env.DB).remember(
+    const remembered = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).remember(
       rememberInput(sourceTurn, "transactional memory updates matter."),
     );
     const forgetTurn = await seedTurn(
@@ -956,7 +1097,7 @@ describe("MemoryOwnerControlsService", () => {
         : null,
     });
 
-    await expectCode(new MemoryOwnerControlsService(env.DB, faultingMemory).forget({
+    await expectCode(new MemoryOwnerControlsService(env.DB, env.ARCHIVE, faultingMemory).forget({
       ownerTurn: forgetTurn.input,
       candidateItemIds: [remembered.item.itemId],
     }), "memory_unavailable");
@@ -972,10 +1113,41 @@ describe("MemoryOwnerControlsService", () => {
     expect(suppressionCount?.count).toBe(0);
 
     await seedTurn("This newer turn must not strand an already accepted forget command.");
-    const recovered = await new MemoryOwnerControlsService(env.DB).forget({
+    const recovered = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).forget({
       ownerTurn: forgetTurn.input,
       candidateItemIds: [remembered.item.itemId],
     });
     expect(recovered).toMatchObject({ replayed: true, newlyHiddenTurnCount: 1 });
+  });
+
+  it("forgets and lifts a memory after its source turn is archived and purged through the default repository", async () => {
+    const sourceTurn = await seedTurn("Remember that archived owner controls need real R2 evidence.");
+    const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
+    const remembered = await service.remember(
+      rememberInput(sourceTurn, "archived owner controls need real R2 evidence."),
+    );
+    await archiveAndPurgeTurn(sourceTurn);
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM events WHERE event_id = ?")
+      .bind(sourceTurn.input.eventId).first("count")).toBe(0);
+
+    const forgetTurn = await seedTurn(
+      "Forget the archived owner-control preference.",
+      { memoryIntent: "forget" },
+    );
+    await expect(service.forget({
+      ownerTurn: forgetTurn.input,
+      candidateItemIds: [remembered.item.itemId],
+    })).resolves.toMatchObject({ state: "forgotten", newlyHiddenTurnCount: 1 });
+
+    const liftTurn = await seedTurn(
+      "Restore the archived owner-control preference.",
+      { memoryIntent: "lift" },
+    );
+    await expect(service.lift({
+      ownerTurn: liftTurn.input,
+      candidateItemIds: [remembered.item.itemId],
+    })).resolves.toMatchObject({
+      item: { lifecycle: { state: "active" }, version: { basis: "confirmed" } },
+    });
   });
 });

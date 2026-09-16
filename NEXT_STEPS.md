@@ -62,8 +62,10 @@ with additive migration `0016_cloud_memory.sql`.
 with migration `0019_memory_ingress.sql`. PR #44 merged the reviewed runtime
 slice plan as `3e28bda`; main also owns `0020_school_catchup.sql` and
 `0022_university_tracker.sql`, while PR #46 is merged as `ebb757b` and owns
-`0021_voice_owner_delivery.sql`. Draft PR #53 reserves `0023` and draft PR #52
-reserves `0024`; the next unreserved migration name is `0025`.
+`0021_voice_owner_delivery.sql`. PR #53 merged `0023_study_coach.sql`,
+open PR #52 reserves `0024_university_application_workflow.sql`, and draft
+[PR #56](https://github.com/ksid1229-ops/jarvis/pull/56) uses the next free
+name, `0025_archive_literal_history.sql`.
 None of `0016` through `0020` or `0022` has been applied by this R2 work. The
 Sid-attended scratch remote-D1 proof remains mandatory before any production
 apply.
@@ -75,9 +77,16 @@ the channel-neutral canonical D1 repository, exact source validation, atomic
 initial writes, canonical reads, root/inbox bootstrap and current-path-first
 topic resolution. It claims no migration and has no Telegram, voice, calls,
 provider, scheduler, Vectorize or archive-index composition.
-[PR #50](https://github.com/ksid1229-ops/jarvis/pull/50) merged its
-channel-neutral owner-controls successor as `1cae97b` without adding a migration
-or channel wiring. The later dependency order remains unchanged.
+[PR #50](https://github.com/ksid1229-ops/jarvis/pull/50) merged as `1cae97b`
+with its channel-neutral owner-controls successor and no migration or channel
+wiring. Draft [PR #56](https://github.com/ksid1229-ops/jarvis/pull/56) builds
+the second slice: suppression-safe live/R2 literal coverage, exact provenance
+results and a bounded resumable exhaustive-search job. Migration `0025` is
+unapplied, and the later dependency order remains unchanged. Although the
+service accepts `MAX_JOB_EVENTS = 16`, the 262,144-byte step budget and the
+32,768-byte per-event ceiling make eight events the real maximum per step.
+Runtime slices 3 and 4 must supply a durable driver for the potentially long
+walk; this slice intentionally has no scheduler or composition.
 
 ## R2 item 3: fact projection
 
@@ -295,18 +304,20 @@ R2.
 PRs #35, #36 and #38 established the pure policy and approved design. PR #39
 merged the `0016` schema, PR #42 merged the `0019` ingress guard, PR #44 merged
 the runtime-slice plan, and PR #47 merged the first uncomposed channel-neutral
-repository as `60ae90d`.
-[PR #50](https://github.com/ksid1229-ops/jarvis/pull/50) merged the uncomposed
-owner-controls service as `1cae97b`; no runtime writer is exposed to a channel
-yet. No archive-complete indexer or automatic distillation Workflow exists.
+repository as `60ae90d`. Draft
+[PR #50](https://github.com/ksid1229-ops/jarvis/pull/50) merged as `1cae97b`
+with the uncomposed owner-controls service. Draft
+[PR #56](https://github.com/ksid1229-ops/jarvis/pull/56) adds the archive-
+complete literal index and exhaustive search without exposing either runtime
+writer to a channel. No automatic distillation Workflow exists.
 Sid uses ordinary speech and text for remember, why, forget and lift actions;
 slash commands are at most hidden fallbacks. After one reviewed scratch-target
 setup, restore drills run automatically and alert Sid only on failure.
 
-Use
+Review PR #56 against
 [`docs/plan/2026-09-15-r2-memory-runtime-slices.md`](docs/plan/2026-09-15-r2-memory-runtime-slices.md)
-and the approved design before starting archive-complete literal history. No
-live model comparison runs without Sid's explicit approval. R1 and R5 remain
+and the approved design before starting slice 3 automatic distillation. No live
+model comparison runs without Sid's explicit approval. R1 and R5 remain
 independent cloud-side work.
 
 ## Next gate

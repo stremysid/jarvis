@@ -23,6 +23,7 @@ import voiceOwnerDeliverySql from "../../src/persistence/migrations/0021_voice_o
 import universityTrackerSql from "../../src/persistence/migrations/0022_university_tracker.sql?raw";
 import studyCoachSql from "../../src/persistence/migrations/0023_study_coach.sql?raw";
 import universityApplicationWorkflowSql from "../../src/persistence/migrations/0024_university_application_workflow.sql?raw";
+import archiveLiteralHistorySql from "../../src/persistence/migrations/0025_archive_literal_history.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
@@ -35,6 +36,7 @@ let voiceOwnerDeliveryMigrated: Promise<void> | undefined;
 let universityTrackerMigrated: Promise<void> | undefined;
 let studyCoachMigrated: Promise<void> | undefined;
 let universityApplicationWorkflowMigrated: Promise<void> | undefined;
+let archiveLiteralHistoryMigrated: Promise<void> | undefined;
 
 /**
  * Split a migration into the statements D1 applies one at a time.
@@ -193,6 +195,15 @@ export async function applyUniversityApplicationWorkflowMigration(): Promise<voi
     { name: "0024_university_application_workflow.sql", queries: splitMigration(universityApplicationWorkflowSql) },
   ]);
   await universityApplicationWorkflowMigrated;
+}
+
+/** Applies durable archive-complete literal-search jobs after memory ingress. */
+export async function applyArchiveLiteralHistoryMigration(): Promise<void> {
+  await applyMemoryIngressMigration();
+  archiveLiteralHistoryMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0025_archive_literal_history.sql", queries: splitMigration(archiveLiteralHistorySql) },
+  ]);
+  await archiveLiteralHistoryMigrated;
 }
 
 /** Test-only reset for immutable per-call step-up and guest-attempt records. */

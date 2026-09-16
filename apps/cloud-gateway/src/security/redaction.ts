@@ -31,10 +31,20 @@ function fieldMarker(channel: "voice" | "telegram", field: string): RedactionMar
   return undefined;
 }
 
+function structuralUlidField(field: string): boolean {
+  if (typeof field !== "string" || !field.isWellFormed()) return false;
+  const normalized = normalizedFieldName(field);
+  return normalized === "id" || normalized.endsWith("_id") || normalized.endsWith("_ids");
+}
+
 /** Removes values that must never cross the ingress logging or event boundary. */
 export class Redactor implements RedactorContract {
   redact(input: { text: string; channel: "voice" | "telegram"; field: string }): RedactionResult {
-    return sanitizeRedaction(input.text, fieldMarker(input.channel, input.field));
+    return sanitizeRedaction(
+      input.text,
+      fieldMarker(input.channel, input.field),
+      structuralUlidField(input.field),
+    );
   }
 
   redactText(text: string): RedactionResult {
