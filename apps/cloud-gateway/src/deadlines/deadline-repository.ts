@@ -314,7 +314,8 @@ export class DeadlineRepository {
   /**
    * A sweep failed. `last_success_at` is deliberately not touched: how long it
    * has been broken is the part that decides whether this is a blip or the
-   * reason the digest has been quiet all week.
+   * reason the digest has been quiet all week. The timestamp guards keep an
+   * overlapping older failure from replacing newer source health.
    *
    * The reason is truncated rather than refused. It reaches here from a caught
    * exception, and an exception message can carry a scraped page, so it is
@@ -326,8 +327,11 @@ export class DeadlineRepository {
     const at = toInstant(new Date(now.getTime()));
     const bounded = truncateFailure(failure);
     const result = await this.#database.prepare(
-      "UPDATE deadline_sources SET last_failure = ?, last_failure_at = ? WHERE source_id = ?",
-    ).bind(bounded, at, sourceId).run();
+      `UPDATE deadline_sources SET last_failure = ?, last_failure_at = ?
+       WHERE source_id = ?
+         AND (last_success_at IS NULL OR last_success_at <= ?)
+         AND (last_failure_at IS NULL OR last_failure_at <= ?)`,
+    ).bind(bounded, at, sourceId, at, at).run();
     return result.meta.changes > 0;
   }
 

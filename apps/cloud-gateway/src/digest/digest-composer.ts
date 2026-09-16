@@ -203,6 +203,19 @@ function applicationSection(items: readonly DigestApplicationItem[]): DigestSect
   };
 }
 
+function studyCheckInSection(input: DigestInput): DigestSection | null {
+  const checkIn = input.studyCheckIn;
+  if (checkIn === undefined || checkIn === null) return null;
+  const count = `${checkIn.evidenceCount} evidence ${checkIn.evidenceCount === 1 ? "point" : "points"}`;
+  const caution = checkIn.evidenceCount === 1 ? "; not a fixed judgment" : "";
+  return {
+    heading: "Coursework check-in",
+    lines: [
+      `${neutraliseInline(checkIn.course)}: how does “${neutraliseInline(checkIn.topic)}” feel today? (${count}, ${checkIn.confidence} confidence${caution}; last observed ${neutraliseInline(checkIn.observedAt.slice(0, 10))})`,
+    ],
+  };
+}
+
 function projectSection(input: DigestInput): DigestSection | null {
   const lines: string[] = [];
   for (const project of input.projects) {
@@ -311,6 +324,7 @@ export function compose(
     deadlineSection(input, now, horizon),
     catchupSection(input.catchupActions),
     applicationSection(input.applicationItems),
+    studyCheckInSection(input),
     projectSection(input),
     decisionSection(input),
     gaps,

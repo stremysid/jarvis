@@ -31,21 +31,26 @@ conversation: programs, requirements and dates are each labelled `verified` or
 `unverified`, and verified details retain their current official source and
 admission cycle. It also closes PR #45 follow-ups F1-F3. Its additive
 `0022_university_tracker.sql` remains an unapplied candidate; PR #46 is merged
-as `ebb757b` and owns `0021_voice_owner_delivery.sql`. PR #49 merged as
-`deea39c` with the Brightspace private iCalendar feed in the existing hourly
-poll, deadline tables and morning digest, plus PR #43 follow-ups F1 and F2. PR
-#51 merged as `10d4cd7`, finishing
-build-sequence step 3 before the feed secret is set with bounded partial
-results, explicit parser/cancellation regressions and a rate-limited owner-only
-plain-speech refresh path. No new migration was needed. The study coach
-continues separately on `codex/r5-study-coach-slice1`. Draft
-[PR #52](https://github.com/ksid1229-ops/jarvis/pull/52) starts build-sequence
-step 6: per-program application checklists, current-owner conversational
-updates, due-date verification labels and the next application items in the
-morning digest. Its additive `0024_university_application_workflow.sql` remains
-an unapplied candidate; fix implementation `f2475f8` is ready for Claude Opus 5
-max re-review, and `0023` stays reserved for the study-coach branch. None
-of these slices
+as `ebb757b` and owns `0021_voice_owner_delivery.sql`. PR #49 merged as `deea39c`
+with the Brightspace
+private iCalendar feed in the existing hourly poll, deadline tables and morning
+digest, plus PR #43 follow-ups F1 and F2.
+[PR #51](https://github.com/ksid1229-ops/jarvis/pull/51) is merged as `10d4cd7`
+and finishes build-sequence
+step 3 before the feed secret is set: bounded partial results, explicit
+parser/cancellation regressions, and a rate-limited owner-only plain-speech
+refresh path. No new migration is needed. Build-sequence step 4 (the study coach)
+is now draft [PR #53](https://github.com/ksid1229-ops/jarvis/pull/53): separate
+evidence-backed weak-area records, at most one quiet coursework check-in per
+day, cited quizzes and flashcards, and direct-owner-only correction and forget.
+Its additive `0023_study_coach.sql` remains unapplied and deliberately does not
+depend on the channel-neutral R2 owner-controls service. Draft
+[PR #52](https://github.com/ksid1229-ops/jarvis/pull/52) independently owns
+`0024_university_application_workflow.sql` for per-program application
+checklists, current-owner conversational updates, due-date verification labels,
+and the next unfinished application items in the morning digest. Claude's
+round-3 max review requested changes at `12a7bbf`; its remediation is in this
+branch. Both `0023` and `0024` remain unapplied candidates. None of these slices
 authorizes OAuth consent, a secret operation, migration, deployment, school or
 university contact, purchase, sign-up, submission or live account access.
 
@@ -57,7 +62,8 @@ with additive migration `0016_cloud_memory.sql`.
 with migration `0019_memory_ingress.sql`. PR #44 merged the reviewed runtime
 slice plan as `3e28bda`; main also owns `0020_school_catchup.sql` and
 `0022_university_tracker.sql`, while PR #46 is merged as `ebb757b` and owns
-`0021_voice_owner_delivery.sql`. The next free migration name is `0023`.
+`0021_voice_owner_delivery.sql`. Draft PR #53 reserves `0023` and draft PR #52
+reserves `0024`; the next unreserved migration name is `0025`.
 None of `0016` through `0020` or `0022` has been applied by this R2 work. The
 Sid-attended scratch remote-D1 proof remains mandatory before any production
 apply.
@@ -68,10 +74,10 @@ with the first runtime slice in
 the channel-neutral canonical D1 repository, exact source validation, atomic
 initial writes, canonical reads, root/inbox bootstrap and current-path-first
 topic resolution. It claims no migration and has no Telegram, voice, calls,
-provider, scheduler, Vectorize or archive-index composition. Draft
-[PR #50](https://github.com/ksid1229-ops/jarvis/pull/50) builds its
-channel-neutral owner-controls successor without adding a migration or channel
-wiring. The later dependency order remains unchanged.
+provider, scheduler, Vectorize or archive-index composition.
+[PR #50](https://github.com/ksid1229-ops/jarvis/pull/50) merged its
+channel-neutral owner-controls successor as `1cae97b` without adding a migration
+or channel wiring. The later dependency order remains unchanged.
 
 ## R2 item 3: fact projection
 
@@ -200,9 +206,14 @@ not drive R1 or R2 implementation. Measure the shared R2 retriever against the
 back to no extra context.
 
 Run `pnpm test:voice-access` and `pnpm typecheck:voice-access` locally.
-The passphrase implementation must expand `pnpm release:voice-gate` from five
-retained live records to six by adding `owner-step-up-refused`; until then its
-PIN-free owner schema is superseded and cannot support an R1 release claim.
+The live-evidence contract now requires six retained records, including
+`owner-step-up-refused`, and rejects the former PIN-free five-record schema.
+The initial release audit requires `passphrase_always` on every owner path and
+a verified inbound phrase; the dormant exact Passed-A waiver remains valid only
+as a per-record shape for a future optional record and cannot replace inbound.
+No owner authority is accepted without a successful step-up outcome. No
+retained live evidence exists yet, so this contract change does not itself
+support an R1 release claim.
 Fake success is not live acceptance. PR #23's review fixes at `695e762` are
 included in merged `main` through PR #25. Item 1's code merged through PR #25
 as `fd39301`. It composes the real Durable Object runtime and
@@ -284,15 +295,15 @@ R2.
 PRs #35, #36 and #38 established the pure policy and approved design. PR #39
 merged the `0016` schema, PR #42 merged the `0019` ingress guard, PR #44 merged
 the runtime-slice plan, and PR #47 merged the first uncomposed channel-neutral
-repository as `60ae90d`. Draft
-[PR #50](https://github.com/ksid1229-ops/jarvis/pull/50) builds the uncomposed
-owner-controls service; no runtime writer is exposed to a channel yet. No
-archive-complete indexer or automatic distillation Workflow exists.
+repository as `60ae90d`.
+[PR #50](https://github.com/ksid1229-ops/jarvis/pull/50) merged the uncomposed
+owner-controls service as `1cae97b`; no runtime writer is exposed to a channel
+yet. No archive-complete indexer or automatic distillation Workflow exists.
 Sid uses ordinary speech and text for remember, why, forget and lift actions;
 slash commands are at most hidden fallbacks. After one reviewed scratch-target
 setup, restore drills run automatically and alert Sid only on failure.
 
-Review PR #50 against
+Use
 [`docs/plan/2026-09-15-r2-memory-runtime-slices.md`](docs/plan/2026-09-15-r2-memory-runtime-slices.md)
 and the approved design before starting archive-complete literal history. No
 live model comparison runs without Sid's explicit approval. R1 and R5 remain

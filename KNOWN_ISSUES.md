@@ -152,6 +152,29 @@ Until rollout and live acceptance, both paths remain release blockers and
 inbound must stay closed. The security contract and implementation order are in
 [`docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md`](docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md).
 
+## R1 live voice evidence has three deferred observability limits
+
+The release evidence can observe one durable rejection row, one durable
+rejection-delivery row, and whether the shared owner alert was sent or
+coalesced. It cannot prove per session that the fixed refusal reached the
+provider or whether ConversationRelay ended through the clean `end` frame or
+the policy-close fallback. A runtime follow-up must persist per-session
+`refusal_sent`, end mode, and alert disposition before retained evidence claims
+those facts. That follow-up needs a migration and is deliberately outside PR
+#54.
+
+Sid has not required a paid live scenario for an answered outbound call that
+fails step-up, such as voicemail or another person answering. This is the live-
+evidence form of the existing outbound voicemail gap above. Adding an
+`outbound-step-up-refused` release scenario means another paid call and waits
+for Sid's explicit decision; PR #54 records the gap but does not add it.
+
+The local evidence store also retains only a passing record. It has no ledger
+of failed paid attempts, so an operator could clean up and retry until a lucky
+latency or delivery result passes without the audit detecting the earlier
+runs. Add a retained, correlation-bound attempt ledger before describing the
+live gate as resistant to selective retry.
+
 ## Guest PIN attempt counts reset when a call Durable Object hibernates
 
 The guest path keeps `#failedPinAttempts` in the in-memory call-session core.
@@ -640,6 +663,40 @@ do not establish that a cold production invocation finishes before the Worker
 stops background work. Until an attended first-load check measures this, a
 cancelled invocation could leave a partial sweep and no Telegram reply. Moving
 the refresh to a durable queue is the structural fix if the live check fails.
+
+## Study-coach evidence is not yet integrated with R2 owner controls
+
+The first study-coach slice keeps its weak-area evidence, cited practice and
+plain-speech check-in settings in separate operational D1 tables. Direct owner
+Telegram turns can correct or forget those operational records, while
+forwarded, external-reply, model and feed text cannot. A quote of Jarvis's own
+message is still a direct owner turn because Telegram adds that quote when the
+owner highlights part of Jarvis's response before replying. The R2 channel-neutral
+owner-controls service is now merged but is not composed into Telegram, so this
+slice deliberately does not depend on it and does not claim that an R2 forget
+request reaches these tables. A later reviewed integration must route the same
+owner control to both stores without weakening either store's provenance checks.
+
+## Study-coach digest check-ins are claimed before delivery
+
+The first study-coach slice advances `last_prompted_on` while assembling a
+daily digest. A failed Telegram delivery can therefore spend that check-in
+without showing it, and the manual `/digest` path also spends it even though
+the scheduled digest has not run. Moving the claim after delivery requires a
+durable candidate/receipt boundary so a post-send write failure does not turn
+an at-least-once cron retry into a duplicate digest. Until that boundary is
+designed, check-ins are useful prompts but are not guaranteed delivery.
+
+## Study-coach retirement and forget controls are one-way
+
+The first study-coach slice supersedes active owner and practice evidence after
+30 days, as well as when it must make room under the active-evidence caps.
+`superseded` is terminal, so an old point cannot return to the operational view.
+The plain-speech forget control is narrower still: it requires the exact
+"forget that X is/was a weak spot" shape, affects only active evidence, and has
+no undo. The immutable source history remains available for a later reviewed
+recall/control integration, but the current study-coach snapshot, summaries and
+check-ins do not expose those retired or forgotten points.
 
 ## Must-report gap: deployed, gateway delivery still needs verification
 

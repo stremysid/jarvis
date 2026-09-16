@@ -57,8 +57,15 @@ const PLAN_SAVE_COMPLETIONS = Object.freeze([
   /\b(?:saved|updated|recorded|stored|added)\b.{0,48}\b(?:to|in)\s+(?:your\s+)?(?:school|course|catch-?up|plan|university|program|tracker)\b/iu,
 ]);
 const BRIGHTSPACE_CHECK_COMPLETIONS = Object.freeze([
-  /\b(?:i|we|jarvis)\b.{0,32}\b(?:checked|refreshed|synced|looked\s+at)\b.{0,40}\b(?:d2l|brightspace)\b/iu,
-  /\b(?:d2l|brightspace)\b.{0,40}\b(?:has|is|was)\s+(?:already\s+|just\s+)?(?:checked|refreshed|synced)\b/iu,
+  /\b(?:i|we|jarvis)(?:['’](?:ve|re))?\b.{0,40}\b(?:checked|refreshed|synced|looked\s+at)\b.{0,48}\b(?:d2l|brightspace)\b/iu,
+  /\b(?:d2l|brightspace)\b.{0,40}\b(?:has|is|was)\s+(?:(?:already|just)\s+)?(?:been\s+)?(?:checked|refreshed|synced)\b/iu,
+]);
+const BRIGHTSPACE_CHECK_DISCUSSION = Object.freeze([
+  /\b(?:looked\s+at|reviewed)\s+(?:the\s+)?(?:d2l|brightspace)\s+(?:dates?|text|details?)\s+you\s+(?:pasted|sent|shared)\b/iu,
+  /\bjarvis\b.{0,32}\b(?:checked|refreshed|synced|looked\s+at)\b.{0,40}\b(?:d2l|brightspace)\b\s+(?:an?|one|\d+)\s+(?:minute|hour|day|week)s?\s+ago\b/iu,
+]);
+const BRIGHTSPACE_CHECK_DENIALS = Object.freeze([
+  /\b(?:i|we|jarvis)\s+(?:haven['’]t|have\s+not|didn['’]t|did\s+not)\s+(?:checked|refreshed|synced|looked\s+at)\s+(?:your\s+)?(?:d2l|brightspace)\b/giu,
 ]);
 const OWNER_ACKNOWLEDGEMENT = /^\s*(?:ok(?:ay)?|thanks?(?:\s+you)?|got\s+it|sounds\s+good|cool|alright|sure|👍)\s*[.!]?\s*$/iu;
 const BRIGHTSPACE_REFRESH_REQUEST = /^\s*(?:jarvis[,\s]+)?(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:check|refresh|update)\s+(?:my\s+)?(?:d2l|brightspace)(?:\s+(?:calendar|deadlines?|feed))?\s+(?:right\s+)?now(?:\s*,?\s*please)?[.!?]*\s*$/iu;
@@ -82,6 +89,7 @@ interface SchoolCatchupModelDependencies {
   readonly now?: () => Date;
   readonly ownerPrincipalId?: string;
   readonly refreshBrightspace?: (now: Date) => Promise<string>;
+  readonly ownerTurnAuthoritative?: boolean;
 }
 
 /** A narrow natural-language intent, deliberately separate from slash commands. */
@@ -217,7 +225,15 @@ function planAction(
   });
 }
 
-function safeReply(
+function isFalseBrightspaceCheckCompletion(reply: string): boolean {
+  const claimsOnly = [...BRIGHTSPACE_CHECK_DISCUSSION, ...BRIGHTSPACE_CHECK_DENIALS].reduce(
+    (remaining, discussion) => remaining.replace(discussion, ""),
+    reply,
+  );
+  return BRIGHTSPACE_CHECK_COMPLETIONS.some((pattern) => pattern.test(claimsOnly));
+}
+
+export function guardSchoolReply(
   value: unknown,
   redactor: SchoolCatchupModelDependencies["redactor"],
 ): string {
@@ -259,7 +275,7 @@ function guardReplyClaims(reply: string): string {
   if (FALSE_EXTERNAL_COMPLETIONS.some((pattern) => pattern.test(reply)) || hasPassiveExternalCompletion(reply)) {
     return EXTERNAL_ACTION_REPLACEMENT;
   }
-  if (BRIGHTSPACE_CHECK_COMPLETIONS.some((pattern) => pattern.test(reply))) {
+  if (isFalseBrightspaceCheckCompletion(reply)) {
     return BRIGHTSPACE_CHECK_REPLACEMENT;
   }
   return reply;
@@ -310,7 +326,7 @@ export function parseOwnerCatchupPlan(
   }
   return Object.freeze({
     engaged: item.engaged,
-    reply: safeReply(item.reply, redactor),
+    reply: guardSchoolReply(item.reply, redactor),
     courseUpdates: Object.freeze(courseUpdates),
     completeActionIds,
     plan: Object.freeze(plan),
@@ -485,9 +501,11 @@ async function* fallbackWithSaveFailure(
 ): AsyncIterable<ModelToken> {
   const ordinaryReply = (await collectJson(model.stream(input))).trim();
   const guardedReply = safeOrdinaryReply(ordinaryReply, redactor);
-  const reply = PLAN_SAVE_COMPLETIONS.some((pattern) => pattern.test(guardedReply))
+  const reply = guardedReply !== ordinaryReply
+    ? guardedReply
+    : PLAN_SAVE_COMPLETIONS.some((pattern) => pattern.test(ordinaryReply))
       ? scope === "school" ? UNSAVED_FALLBACK_REPLY : UNSAVED_UNIVERSITY_FALLBACK_REPLY
-      : guardedReply;
+      : ordinaryReply;
   const failureLine = scope === "school" ? SAVE_FAILURE_LINE : UNIVERSITY_SAVE_FAILURE_LINE;
   const text = reply.length === 0 ? failureLine : `${reply}\n\n${failureLine}`;
   yield Object.freeze({ index: 0, text });
@@ -516,6 +534,10 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
   async *stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
     if (input.channel !== "telegram") {
       yield* this.dependencies.model.stream(input);
+      return;
+    }
+    if (this.dependencies.ownerTurnAuthoritative === false) {
+      yield* guardedOrdinaryReply(this.dependencies.model, input, this.dependencies.redactor);
       return;
     }
     const now = new Date(this.now().getTime());
