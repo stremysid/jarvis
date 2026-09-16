@@ -4,6 +4,20 @@
 - R2 is the archive store.
 - Authentication state does not use eventually consistent KV.
 
+## Answered outbound calls require refusal evidence (2026-09-16, owner decision)
+
+Sid approved adding `outbound-step-up-refused` as the seventh retained R1 live
+voice scenario and accepted the additional paid outbound call, estimated at
+roughly one cent. The scenario must prove that an answered call whose listener
+does not say the owner passphrase ends without owner authority, an authenticated
+turn, a model request, a personal-context read, purpose disclosure or a private
+message. Its outcome is `refused` because step-up started and failed;
+`not_started` remains exclusive to an outbound call that nobody answered.
+
+This expands the reviewed evidence contract. It does not itself authorize a
+call, open inbound calling, enable outbound controls, deploy, change secrets or
+bypass the attended operator gates.
+
 ## School and university are the next product priority (2026-09-15, owner decision)
 
 Sid is in Grade 12 in Ontario, has two missed weeks to catch up, and expects to

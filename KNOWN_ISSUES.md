@@ -126,7 +126,7 @@ Until rollout and live acceptance, both paths remain release blockers and
 inbound must stay closed. The security contract and implementation order are in
 [`docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md`](docs/superpowers/specs/2026-09-14-owner-call-passphrase-design.md).
 
-## R1 live voice evidence has three deferred observability limits
+## R1 live voice evidence has two deferred observability limits
 
 The release evidence can observe one durable rejection row, one durable
 rejection-delivery row, and whether the shared owner alert was sent or
@@ -137,11 +137,11 @@ the policy-close fallback. A runtime follow-up must persist per-session
 those facts. That follow-up needs a migration and is deliberately outside PR
 #54.
 
-Sid has not required a paid live scenario for an answered outbound call that
-fails step-up, such as voicemail or another person answering. This is the live-
-evidence form of the existing outbound voicemail gap above. Adding an
-`outbound-step-up-refused` release scenario means another paid call and waits
-for Sid's explicit decision; PR #54 records the gap but does not add it.
+On 2026-09-16 Sid approved the additional paid live scenario for an answered
+outbound call that fails step-up, such as voicemail or another person answering.
+The seven-record release contract now requires `outbound-step-up-refused`.
+This decision accepts the roughly one-cent call cost but does not itself place
+or authorize a call outside the attended operator sequence.
 
 The local evidence store also retains only a passing record. It has no ledger
 of failed paid attempts, so an operator could clean up and retry until a lucky

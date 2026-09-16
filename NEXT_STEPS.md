@@ -211,8 +211,10 @@ not drive R1 or R2 implementation. Measure the shared R2 retriever against the
 back to no extra context.
 
 Run `pnpm test:voice-access` and `pnpm typecheck:voice-access` locally.
-The live-evidence contract now requires six retained records, including
-`owner-step-up-refused`, and rejects the former PIN-free five-record schema.
+The live-evidence contract now requires seven retained records, including
+`owner-step-up-refused` and the answered outbound
+`outbound-step-up-refused`, and rejects both the former six-record contract and
+the earlier PIN-free five-record schema.
 The initial release audit requires `passphrase_always` on every owner path and
 a verified inbound phrase; the dormant exact Passed-A waiver remains valid only
 as a per-record shape for a future optional record and cannot replace inbound.
