@@ -112,7 +112,7 @@ describe("ClassroomClient", () => {
     if (url.pathname === "/v1/courses/c-physics/courseWork") {
       return json({
         courseWork: [
-          { id: "1", title: "Unit 3 Quiz", dueDate: { year: 2026, month: 9, day: 15 }, dueTime: { hours: 18, minutes: 30 } },
+          { id: "1", title: "Unit 3 Quiz", maxPoints: 10, dueDate: { year: 2026, month: 9, day: 15 }, dueTime: { hours: 18, minutes: 30 } },
           // No due date: material, not a deadline.
           { id: "2", title: "Formula sheet" },
         ],
@@ -141,6 +141,11 @@ describe("ClassroomClient", () => {
     // from collapsing onto one row under the (source, external_id) key.
     expect(new Set(items.map((item) => item.externalId)).size).toBe(items.length);
     expect(collection.undatedExternalIds).toEqual(["c-physics:2"]);
+    expect([...collection.courseWorkMaxPoints]).toEqual([
+      ["c-physics:1", 10],
+      ["c-physics:2", null],
+      ["c-english:1", null],
+    ]);
     expect(calls.every((call) => call.authorization === "Bearer token-abc")).toBe(true);
     expect(calls.map((call) => new URL(call.url).pathname)).toEqual([
       "/v1/courses", "/v1/courses/c-physics/courseWork", "/v1/courses/c-english/courseWork",

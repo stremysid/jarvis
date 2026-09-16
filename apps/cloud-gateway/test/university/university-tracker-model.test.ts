@@ -83,6 +83,7 @@ function verifiedResponse(): string {
       resolveItemIds: [],
     }],
     applicationUpdates: [],
+    workflowUpdates: [],
   });
 }
 
@@ -101,7 +102,11 @@ describe("university conversation model", () => {
       now: () => NOW,
     });
 
-    await expect(collect(adapter.stream(modelInput(userText)))).resolves.toContain("Verified for the 2027 cycle");
+    await expect(collect(adapter.stream(modelInput(userText)))).resolves.toBe([
+      "Saved: University of Waterloo Computer Science (verified).",
+      "Saved requirement for University of Waterloo Computer Science: Required courses (verified).",
+      "Saved date for University of Waterloo Computer Science: Application deadline, 2027-01-15 (verified).",
+    ].join("\n"));
     expect(model.requests).toHaveLength(1);
     expect(model.requests[0]?.userText).toContain("ordinary conversation, not a form and not a command interface");
     expect(model.requests[0]?.userText).toContain("university_state_json=");
@@ -136,6 +141,7 @@ describe("university conversation model", () => {
   });
 
   it("falls back without claiming a university save when persistence rejects the plan", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const userText = `For the 2027 cycle, add Waterloo Computer Science from ${SOURCE}.`;
     const model = new SequenceModel([verifiedResponse(), "I saved your university tracker."]);
     const adapter = new SchoolCatchupModelAdapter({
@@ -143,15 +149,24 @@ describe("university conversation model", () => {
       repository: { readSnapshot: async () => schoolSnapshot(), applyOwnerPlan: async () => undefined },
       universityRepository: {
         readSnapshot: async () => universitySnapshot(),
-        applyOwnerPlan: async () => { throw new Error("private D1 detail"); },
+        applyOwnerPlan: async () => {
+          throw new Error("D1_ERROR: university_program_insert_conflict: SQLITE_CONSTRAINT");
+        },
       },
       redactor: new Redactor(),
       timeZone: "America/Toronto",
       now: () => NOW,
     });
 
-    await expect(collect(adapter.stream(modelInput(userText)))).resolves.toBe(
-      "I can still help with the university planning in your message.\n\nI couldn't update your university tracker.",
-    );
+    try {
+      await expect(collect(adapter.stream(modelInput(userText)))).resolves.toBe(
+        "I can still help with the university planning in your message.\n\nI couldn't update your university tracker.",
+      );
+      expect(warning).toHaveBeenCalledWith("university_plan_save_failed", {
+        code: "d1_trigger:university_program_insert_conflict",
+      });
+    } finally {
+      warning.mockRestore();
+    }
   });
 });

@@ -23,6 +23,8 @@ import type {
   DigestGap,
   DigestInput,
   DigestSection,
+  DigestStudySignalCitation,
+  DigestUniversityWorkflow,
 } from "./digest-types.js";
 
 /**
@@ -194,9 +196,13 @@ function catchupSection(actions: readonly DigestCatchupAction[]): DigestSection 
 
 function schoolObservationSection(input: DigestInput, timeZone: string): DigestSection | null {
   const lines = [
-    ...input.grades.map((grade) =>
-      `[verified: ${grade.source}; checked ${localTimestamp(grade.lastSeenAt, timeZone)}] ${neutraliseInline(grade.course)}: ${neutraliseInline(grade.title)} — assigned grade ${String(grade.assignedGrade)} (scale and weight not supplied)`,
-    ),
+    ...input.grades.map((grade) => {
+      const scale = grade.maxPoints === null
+        ? `${String(grade.assignedGrade)} (scale and weight not supplied)`
+        : `${String(grade.assignedGrade)}/${String(grade.maxPoints)} (${(grade.assignedGrade / grade.maxPoints * 100).toFixed(1)}%)`;
+      const observedAt = grade.gradeUpdatedAt ?? grade.lastSeenAt;
+      return `[verified: ${grade.source}; graded ${localTimestamp(observedAt, timeZone)}] ${neutraliseInline(grade.course)}: ${neutraliseInline(grade.title)} — assigned grade ${scale}`;
+    }),
     ...input.missingWork.map((item) =>
       `[derived: ${item.source} showed no submission as of ${localTimestamp(item.lastSeenAt, timeZone)}] ${neutraliseInline(item.course)}: ${neutraliseInline(item.title)} (deadline passed ${localTimestamp(item.dueAt, timeZone)})`,
     ),
@@ -212,7 +218,29 @@ function applicationStatus(status: DigestApplicationItem["status"]): string {
   return status;
 }
 
-function applicationSection(items: readonly DigestApplicationItem[]): DigestSection | null {
+function workflowStatus(status: DigestUniversityWorkflow["status"]): string {
+  if (status === "not_needed_by_sid") return "not needed by Sid";
+  if (status.startsWith("owner_reported_")) return status.slice("owner_reported_".length).replaceAll("_", " ");
+  return status;
+}
+
+function timedWorkflowDeadline(instant: string, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZoneName: "short",
+  }).format(new Date(instant));
+}
+
+function applicationSection(
+  items: readonly DigestApplicationItem[],
+  workflowItems: readonly DigestUniversityWorkflow[],
+): DigestSection | null {
   const ordered = [...items]
     .filter((item) => item.status !== "submitted_by_sid" && item.status !== "not_needed_by_sid")
     .sort((left, right) => {
@@ -221,15 +249,34 @@ function applicationSection(items: readonly DigestApplicationItem[]): DigestSect
       return (left.dueDate ?? "").localeCompare(right.dueDate ?? "") || left.itemId.localeCompare(right.itemId);
     })
     .slice(0, APPLICATION_ITEM_LIMIT);
-  if (ordered.length === 0) return null;
+  const orderedWorkflow = [...workflowItems].filter((item) => ![
+    "owner_reported_done", "owner_reported_rejected", "owner_reported_withdrawn",
+    "owner_reported_satisfied", "owner_reported_accepted", "owner_reported_declined",
+    "not_needed_by_sid",
+  ].includes(item.status)).sort((left, right) => {
+    const leftDue = left.dueAt ?? left.dueDate;
+    const rightDue = right.dueAt ?? right.dueDate;
+    if (leftDue === null && rightDue !== null) return 1;
+    if (leftDue !== null && rightDue === null) return -1;
+    return (leftDue ?? "").localeCompare(rightDue ?? "") || left.workflowId.localeCompare(right.workflowId);
+  }).slice(0, APPLICATION_ITEM_LIMIT);
+  if (ordered.length === 0 && orderedWorkflow.length === 0) return null;
   return {
     heading: "University applications",
-    lines: ordered.map((item) => {
+    lines: [...ordered.map((item) => {
       const due = item.dueDate === null
         ? "due date unverified -- awaiting current-cycle source"
         : `due ${neutraliseInline(item.dueDate)} (${item.verificationState})`;
       return `${neutraliseInline(item.university)} — ${neutraliseInline(item.programName)}: ${neutraliseInline(item.label)} [${applicationStatus(item.status)}; ${due}]`;
-    }),
+    }), ...orderedWorkflow.map((item) => {
+      const dueValue = item.dueAt !== null && item.dueTimeZone !== null
+        ? timedWorkflowDeadline(item.dueAt, item.dueTimeZone)
+        : item.dueDate;
+      const due = dueValue === null
+        ? "due date unverified -- awaiting current-cycle source"
+        : `due ${neutraliseInline(dueValue)} (${item.verificationState})`;
+      return `${neutraliseInline(item.university)} — ${neutraliseInline(item.programName)}: ${neutraliseInline(item.label)} [${workflowStatus(item.status)}; owner ${item.owner}; ${due}]`;
+    })],
   };
 }
 
@@ -238,10 +285,23 @@ function studyCheckInSection(input: DigestInput): DigestSection | null {
   if (checkIn === undefined || checkIn === null) return null;
   const count = `${checkIn.evidenceCount} evidence ${checkIn.evidenceCount === 1 ? "point" : "points"}`;
   const caution = checkIn.evidenceCount === 1 ? "; not a fixed judgment" : "";
+  const sourceLabel = (kind: DigestStudySignalCitation["sourceKind"]): string => {
+    if (kind === "verified_grade") return "Classroom grade";
+    if (kind === "derived_missing_work") return "derived missing-work observation";
+    if (kind === "deadline") return "deadline";
+    if (kind === "quiz_outcome") return "quiz evidence";
+    if (kind === "owner_report") return "owner study note";
+    return "course-card evidence";
+  };
   return {
     heading: "Coursework check-in",
     lines: [
-      `${neutraliseInline(checkIn.course)}: how does “${neutraliseInline(checkIn.topic)}” feel today? (${count}, ${checkIn.confidence} confidence${caution}; last observed ${neutraliseInline(checkIn.observedAt.slice(0, 10))})`,
+      `${neutraliseInline(checkIn.course)}: study target “${neutraliseInline(checkIn.topic)}” (${count}, ${checkIn.confidence} confidence${caution}; last observed ${neutraliseInline(checkIn.observedAt.slice(0, 10))}).`,
+      ...checkIn.citations.map((point, index) => {
+        const stale = point.freshness === "stale" ? "; stale" : "";
+        return `Source ${index + 1} — ${sourceLabel(point.sourceKind)} — ${neutraliseInline(point.course)}: “${neutraliseInline(point.itemLabel)}” (${neutraliseInline(point.observedAt.slice(0, 10))}; ${point.verification}${stale}): ${neutraliseInline(point.detail)}`;
+      }),
+      "Want a 10-minute quiz or flashcards? Reply “quiz me on that weak spot” or “make flashcards for that weak spot”.",
     ],
   };
 }
@@ -354,7 +414,7 @@ export function compose(
     deadlineSection(input, now, horizon),
     schoolObservationSection(input, options.timeZone),
     catchupSection(input.catchupActions),
-    applicationSection(input.applicationItems),
+    applicationSection(input.applicationItems, input.universityWorkflowItems ?? []),
     studyCheckInSection(input),
     projectSection(input),
     decisionSection(input),

@@ -5,10 +5,11 @@ import { assembleDigest } from "../../src/jobs/digest-job.js";
 import {
   CLASSROOM_OBSERVATION_D1_STATEMENT_BUDGET,
   D1StatementBudget,
+  SCHOOL_STUDY_OBSERVATION_ROW_LIMIT,
   SchoolObservationRepository,
 } from "../../src/school/school-observation-repository.js";
 import type { RawSchoolSubmissionObservation } from "../../src/school/school-observation-types.js";
-import { applySchoolObservationsMigration } from "../persistence/migration.js";
+import { applyStudyCoachWeakSpotsMigration } from "../persistence/migration.js";
 
 const NOW = new Date("2026-09-15T12:00:00.000Z");
 
@@ -53,6 +54,7 @@ function observation(
     state: "returned",
     late: false,
     assignedGrade: 83.5,
+    maxPoints: 100,
     sourceUpdatedAt: NOW.toISOString(),
     ...overrides,
   };
@@ -76,7 +78,7 @@ async function completeScan(
 }
 
 beforeAll(async () => {
-  await applySchoolObservationsMigration();
+  await applyStudyCoachWeakSpotsMigration();
 });
 
 describe("SchoolObservationRepository", () => {
@@ -120,19 +122,23 @@ describe("SchoolObservationRepository", () => {
       course: "Calculus",
       title: "Limits quiz",
       assignedGrade: 87.25,
+      maxPoints: 100,
       source: "google_classroom_api",
+      gradeUpdatedAt: changedAt.toISOString(),
       contentChangedAt: changedAt.toISOString(),
       lastSeenAt: changedAt.toISOString(),
     });
-    const revisions = await env.DB.prepare(`SELECT assigned_grade, content_changed_at, replaced_at
+    const revisions = await env.DB.prepare(`SELECT assigned_grade, max_points, content_changed_at, replaced_at
       FROM school_assignment_observation_revisions
       WHERE principal_id = ? ORDER BY replaced_at`).bind(item.principalId).all<{
         assigned_grade: number | null;
+        max_points: number | null;
         content_changed_at: string;
         replaced_at: string;
       }>();
     expect(revisions.results).toEqual([{
       assigned_grade: 83.5,
+      max_points: 100,
       content_changed_at: NOW.toISOString(),
       replaced_at: changedAt.toISOString(),
     }]);
@@ -157,7 +163,51 @@ describe("SchoolObservationRepository", () => {
     expect(snapshot.grades).toEqual([]);
   });
 
-  it("derives no submission seen after a completed scan and resolves it when submission evidence arrives", async () => {
+  it("returns a bounded study-grade snapshot with source freshness", async () => {
+    const item = await fixture("study-grade-bound", "2026-09-16T11:00:00.000Z");
+    const repository = new SchoolObservationRepository(env.DB);
+    const deadlines = new DeadlineRepository(env.DB);
+    await repository.ensureSync(item.principalId, item.sourceId, NOW);
+    const items: RawSchoolSubmissionObservation[] = [observation(item)];
+    for (let index = 1; index <= SCHOOL_STUDY_OBSERVATION_ROW_LIMIT; index += 1) {
+      const externalId = `${item.deadlineExternalId}-${index}`;
+      await deadlines.upsert({
+        sourceId: item.sourceId,
+        externalId,
+        course: "Calculus",
+        title: `Untrusted title ${index}`,
+        dueAt: "2026-09-16T11:00:00.000Z",
+        effort: "other",
+        leadMinutes: 60,
+        now: NOW,
+      });
+      items.push(observation(item, {
+        deadlineExternalId: externalId,
+        externalSubmissionId: `${externalId}:submission-1`,
+        assignedGrade: 60 + index,
+      }));
+    }
+    await repository.ingest({
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      items,
+      now: NOW,
+    });
+    await completeScan(repository, item, NOW);
+
+    const snapshot = await repository.readStudySnapshot({ principalId: item.principalId, now: NOW });
+
+    expect(snapshot.grades).toHaveLength(SCHOOL_STUDY_OBSERVATION_ROW_LIMIT);
+    expect(snapshot.missingWork).toEqual([]);
+    expect(snapshot.grades[0]).toMatchObject({
+      course: "Calculus",
+      source: "google_classroom_api",
+      sourceLastSuccessAt: NOW.toISOString(),
+      sourceLastFailure: null,
+    });
+  });
+
+  it("the study snapshot uses only the latest missing-work transition when submission evidence arrives", async () => {
     const item = await fixture("derived-transition");
     const repository = new SchoolObservationRepository(env.DB);
     await repository.ensureSync(item.principalId, item.sourceId, NOW);
@@ -216,6 +266,8 @@ describe("SchoolObservationRepository", () => {
       now: submittedAt,
     });
     expect(snapshot.missingWork).toEqual([]);
+    expect((await repository.readStudySnapshot({ principalId: item.principalId, now: submittedAt })).missingWork)
+      .toEqual([]);
     const transitions = await env.DB.prepare(`SELECT classification, from_state, to_state
       FROM school_missing_work_transitions WHERE principal_id = ? ORDER BY derived_at`)
       .bind(item.principalId).all<{ classification: string; from_state: string; to_state: string }>();
@@ -225,7 +277,7 @@ describe("SchoolObservationRepository", () => {
     ]);
   });
 
-  it("stops reporting missing work as soon as the current observation says it was turned in", async () => {
+  it("the study snapshot requires the current observation to remain unsubmitted", async () => {
     const item = await fixture("current-submission-state");
     const repository = new SchoolObservationRepository(env.DB);
     await repository.ensureSync(item.principalId, item.sourceId, NOW);
@@ -255,6 +307,8 @@ describe("SchoolObservationRepository", () => {
       changedSince: NOW, now: submittedAt,
     });
     expect(snapshot.missingWork).toEqual([]);
+    expect((await repository.readStudySnapshot({ principalId: item.principalId, now: submittedAt })).missingWork)
+      .toEqual([]);
   });
 
   it("does not derive no submission seen from an observation read before the deadline", async () => {

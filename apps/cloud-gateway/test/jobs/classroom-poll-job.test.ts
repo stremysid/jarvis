@@ -11,6 +11,8 @@ import { resetArchiveFixture } from "../archive/archive-fixture.js";
 import { resetDeadlineTables } from "../deadlines/deadline-fixture.js";
 import {
   applyStudyCoachMigration,
+  applyStudyCoachWeakSpotsMigration,
+  applyUniversityApplicationDetailsMigration,
   applyUniversityApplicationWorkflowMigration,
 } from "../persistence/migration.js";
 
@@ -58,6 +60,8 @@ describe("hourly Classroom ingestion", () => {
     await resetDeadlineTables();
     await applyStudyCoachMigration();
     await applyUniversityApplicationWorkflowMigration();
+    await applyUniversityApplicationDetailsMigration();
+    await applyStudyCoachWeakSpotsMigration();
   });
   afterEach(async () => {
     vi.restoreAllMocks();
@@ -110,9 +114,12 @@ describe("hourly Classroom ingestion", () => {
 
     const digest = buildJobTable(jobContext).digest;
     if (digest === undefined) throw new Error("digest_job_missing");
-    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 1 gaps" });
+    await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 2 gaps" });
     expect(String(send.mock.calls[0]?.[0])).toContain("Unit 1 Quiz");
     expect(String(send.mock.calls[0]?.[0])).toContain("Brightspace: not set up");
+    expect(String(send.mock.calls[0]?.[0])).toContain(
+      "Google Classroom grades/submissions: has never completed a submission scan",
+    );
   });
 
   it("surfaces rejected grade and submission source rows in the hourly poll result", async () => {

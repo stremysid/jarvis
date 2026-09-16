@@ -174,6 +174,14 @@ export interface Deadline {
   readonly remindedAt: string | null;
 }
 
+/** One bounded open deadline with enough source health to label a study signal. */
+export interface StudyDeadlineCandidate {
+  readonly deadline: Deadline;
+  readonly sourceKind: DeadlineSourceKind;
+  readonly sourceLastSuccessAt: string | null;
+  readonly sourceLastFailure: string | null;
+}
+
 /** One version of a deadline as it was seen. Append-only; the table refuses UPDATE and DELETE. */
 export interface DeadlineRevision {
   readonly revisionId: string;

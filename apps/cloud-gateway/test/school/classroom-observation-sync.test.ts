@@ -7,7 +7,7 @@ import {
   D1StatementBudget,
   SchoolObservationRepository,
 } from "../../src/school/school-observation-repository.js";
-import { applySchoolObservationsMigration } from "../persistence/migration.js";
+import { applyStudyCoachWeakSpotsMigration } from "../persistence/migration.js";
 
 const NOW = new Date("2026-09-15T12:00:00.000Z");
 
@@ -44,7 +44,7 @@ async function fixture(suffix: string): Promise<Fixture> {
 }
 
 beforeAll(async () => {
-  await applySchoolObservationsMigration();
+  await applyStudyCoachWeakSpotsMigration();
 });
 
 describe("runClassroomObservationSync", () => {
@@ -72,6 +72,7 @@ describe("runClassroomObservationSync", () => {
       sourceId: item.sourceId,
       budget,
       now: () => NOW,
+      courseWorkMaxPoints: new Map([[item.deadlineExternalId, 100]]),
     });
 
     expect(result).toMatchObject({
@@ -90,6 +91,8 @@ describe("runClassroomObservationSync", () => {
       now: NOW,
     });
     expect(snapshot.grades[0]?.assignedGrade).toBe(91);
+    expect(snapshot.grades[0]?.maxPoints).toBe(100);
+    expect(snapshot.grades[0]?.gradeUpdatedAt).toBe(NOW.toISOString());
     expect(snapshot.missingWork).toEqual([]);
     expect(snapshot.source).toMatchObject({
       checkpointCourseId: null,

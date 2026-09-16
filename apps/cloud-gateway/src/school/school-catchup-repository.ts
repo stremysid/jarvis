@@ -1,12 +1,17 @@
 import { newUlid, type Ulid } from "../../../../packages/contracts/src/index.js";
 import type {
   ApplyOwnerCatchupPlanInput,
+  ApplyOwnerCatchupPlanResult,
+  CatchupPlanAction,
   SchoolCatchupAction,
   SchoolCatchupSnapshot,
   SchoolCourseCard,
   SchoolCourseFact,
   SchoolCourseFactKind,
   SchoolEvidenceSource,
+  SchoolPlanPartialCode,
+  SchoolPlanRepairRule,
+  SchoolPlanValidationRule,
 } from "./school-catchup-types.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
@@ -162,6 +167,80 @@ function addDays(localDate: string, days: number): string {
   return instant.toISOString().slice(0, 10);
 }
 
+interface RepairedPlan {
+  readonly actions: readonly CatchupPlanAction[];
+  readonly repairRules: readonly SchoolPlanRepairRule[];
+  readonly invalidRule: SchoolPlanValidationRule | null;
+}
+
+const REPAIR_RULE_ORDER: readonly SchoolPlanRepairRule[] = Object.freeze([
+  "school_catchup_action_sequence_invalid",
+  "school_catchup_action_date_invalid",
+  "school_catchup_action_invalid",
+  "school_catchup_day_unrealistic",
+]);
+
+function repairedPlan(actions: readonly CatchupPlanAction[], today: string): RepairedPlan {
+  const horizonEnd = addDays(today, 6);
+  const repairs = new Set<SchoolPlanRepairRule>();
+  const bounded: CatchupPlanAction[] = [];
+  for (const action of actions) {
+    let localDate: string;
+    try {
+      localDate = date(action.localDate);
+    } catch {
+      return Object.freeze({ actions: Object.freeze([]), repairRules: Object.freeze([]), invalidRule: "school_catchup_action_date_invalid" });
+    }
+    if (localDate < today || localDate > horizonEnd) {
+      repairs.add("school_catchup_action_date_invalid");
+      continue;
+    }
+    if (!Number.isSafeInteger(action.estimatedMinutes)) {
+      return Object.freeze({ actions: Object.freeze([]), repairRules: Object.freeze([]), invalidRule: "school_catchup_action_invalid" });
+    }
+    const estimatedMinutes = Math.max(5, Math.min(180, action.estimatedMinutes));
+    if (estimatedMinutes !== action.estimatedMinutes) repairs.add("school_catchup_action_invalid");
+    bounded.push(Object.freeze({ ...action, localDate, estimatedMinutes }));
+  }
+
+  const kept: CatchupPlanAction[] = [];
+  const dayTotals = new Map<string, { count: number; minutes: number }>();
+  for (const action of bounded) {
+    const day = dayTotals.get(action.localDate) ?? { count: 0, minutes: 0 };
+    if (day.count >= 3 || day.minutes + action.estimatedMinutes > 180) {
+      repairs.add("school_catchup_day_unrealistic");
+      continue;
+    }
+    day.count += 1;
+    day.minutes += action.estimatedMinutes;
+    dayTotals.set(action.localDate, day);
+    kept.push(action);
+  }
+
+  const nextRankByDate = new Map<string, number>();
+  const renumbered = kept.map((action) => {
+    const sequenceRank = (nextRankByDate.get(action.localDate) ?? 0) + 1;
+    nextRankByDate.set(action.localDate, sequenceRank);
+    if (sequenceRank !== action.sequenceRank) repairs.add("school_catchup_action_sequence_invalid");
+    return Object.freeze({ ...action, sequenceRank });
+  });
+  return Object.freeze({
+    actions: Object.freeze(renumbered),
+    repairRules: Object.freeze(REPAIR_RULE_ORDER.filter((rule) => repairs.has(rule))),
+    invalidRule: null,
+  });
+}
+
+function partialResult(
+  scheduleSaved: boolean,
+  repairs: readonly SchoolPlanRepairRule[],
+  failure: SchoolPlanValidationRule | null = null,
+): ApplyOwnerCatchupPlanResult {
+  const codes = repairs.map((rule): SchoolPlanPartialCode => `partial:repaired:${rule}`);
+  if (failure !== null) codes.push(`partial:${failure}`);
+  return Object.freeze({ scheduleSaved, partialCodes: Object.freeze(codes) });
+}
+
 export class SchoolCatchupRepository {
   constructor(private readonly database: D1Database) {}
 
@@ -256,7 +335,10 @@ export class SchoolCatchupRepository {
     return Object.freeze(rows.map((row) => actionRow(row, principalId)));
   }
 
-  async applyOwnerPlan(input: ApplyOwnerCatchupPlanInput): Promise<void> {
+  async applyOwnerPlan(
+    input: ApplyOwnerCatchupPlanInput,
+    onResult?: (result: ApplyOwnerCatchupPlanResult) => void,
+  ): Promise<void> {
     const principalId = principal(input.principalId);
     const turnId = ulid(input.turnId, "school_catchup_turn_invalid");
     const today = date(input.today);
@@ -266,14 +348,11 @@ export class SchoolCatchupRepository {
     if (!SHA256.test(input.responseHash) || !input.plan.engaged) {
       throw new TypeError("school_catchup_plan_invalid");
     }
-    if (input.plan.plan.length > MAX_PLANNED_ACTIONS) {
-      throw new RangeError("school_catchup_action_limit_exceeded");
-    }
-
     const receipt = await this.database.prepare(`SELECT response_hash FROM school_catchup_turn_receipts
       WHERE principal_id = ?1 AND turn_id = ?2`).bind(principalId, turnId).first<ReceiptRow>();
     if (receipt !== null) {
       if (receipt.response_hash !== input.responseHash) throw new Error("school_catchup_turn_conflict");
+      onResult?.(partialResult(true, []));
       return;
     }
 
@@ -299,7 +378,8 @@ export class SchoolCatchupRepository {
     for (const update of input.plan.courseUpdates) {
       if (seenCourseRefs.has(update.courseRef)) throw new TypeError("school_catchup_course_ref_duplicate");
       seenCourseRefs.add(update.courseRef);
-      const existingId = ULID.test(update.courseRef) ? update.courseRef as Ulid : null;
+      let existingId = ULID.test(update.courseRef) ? update.courseRef as Ulid : null;
+      let responseLocalMatchedExisting = false;
       let courseId: Ulid;
       if (existingId !== null) {
         if (!coursesById.has(existingId)) throw new TypeError("school_catchup_course_unknown");
@@ -308,12 +388,27 @@ export class SchoolCatchupRepository {
         if (!RESPONSE_LOCAL_COURSE.test(update.courseRef) || update.name === null) {
           throw new TypeError("school_catchup_course_ref_invalid");
         }
-        courseId = newUlid(now);
-        finalCourseIds.add(courseId);
-        activeFactCounts.set(courseId, 0);
+        const proposedName = inline(update.name, "school_catchup_course_name_invalid", 160);
+        const proposedKey = key(proposedName, 160, "school_catchup_course_name_invalid");
+        const matchedCourse = current.courses.find((course) =>
+          key(course.name, 160, "school_catchup_course_name_invalid") === proposedKey);
+        if (matchedCourse === undefined) {
+          courseId = newUlid(now);
+          finalCourseIds.add(courseId);
+          activeFactCounts.set(courseId, 0);
+        } else {
+          // A response-local ref is model formatting, not course identity. An
+          // exact stored key is the only safe repair; fuzzy aliases could join
+          // two real classes and must still fail at the normal boundaries.
+          existingId = matchedCourse.courseId;
+          courseId = matchedCourse.courseId;
+          responseLocalMatchedExisting = true;
+        }
       }
       courseIdsByRef.set(update.courseRef, courseId);
-      const name = update.name === null
+      const name = responseLocalMatchedExisting
+        ? coursesById.get(courseId)!.name
+        : update.name === null
         ? coursesById.get(courseId)?.name ?? null
         : inline(update.name, "school_catchup_course_name_invalid", 160);
       if (name === null) throw new TypeError("school_catchup_course_name_invalid");
@@ -330,7 +425,7 @@ export class SchoolCatchupRepository {
           .bind(principalId, courseId, key(name, 160, "school_catchup_course_name_invalid"), name,
             platform, platform === null ? null : "owner_reported", platform === null ? null : nowIso,
             turnId, nowIso));
-      } else if (update.name !== null || update.platform !== null) {
+      } else if ((!responseLocalMatchedExisting && update.name !== null) || update.platform !== null) {
         statements.push(this.database.prepare(`UPDATE school_course_cards
           SET course_key = ?1, course_name = ?2, platform_name = ?3,
               platform_source = ?4, platform_source_ref = NULL, platform_observed_at = ?5,
@@ -389,50 +484,52 @@ export class SchoolCatchupRepository {
         WHERE principal_id = ?2 AND action_id = ?3 AND status = 'planned'`).bind(nowIso, principalId, actionId));
     }
 
-    const horizonEnd = addDays(today, 6);
+    const nonScheduleStatementCount = statements.length;
+    const repaired = repairedPlan(input.plan.plan, today);
     const plannedCourseIds = new Set<Ulid>();
-    const dates = new Map<string, { minutes: number; ranks: Set<number>; count: number }>();
-    for (const action of input.plan.plan) {
-      const courseId = courseIdsByRef.get(action.courseRef)
-        ?? (ULID.test(action.courseRef) ? action.courseRef as Ulid : null);
-      if (courseId === null || !finalCourseIds.has(courseId)) throw new TypeError("school_catchup_action_course_invalid");
-      const localDate = date(action.localDate);
-      if (localDate < today || localDate > horizonEnd) throw new TypeError("school_catchup_action_date_invalid");
-      if (!Number.isSafeInteger(action.sequenceRank) || action.sequenceRank < 1 || action.sequenceRank > 20
-        || !Number.isSafeInteger(action.estimatedMinutes) || action.estimatedMinutes < 5
-        || action.estimatedMinutes > 180) {
-        throw new TypeError("school_catchup_action_invalid");
-      }
-      const day = dates.get(localDate) ?? { minutes: 0, ranks: new Set<number>(), count: 0 };
-      day.minutes += action.estimatedMinutes;
-      day.count += 1;
-      if (day.ranks.has(action.sequenceRank) || day.count > 3 || day.minutes > 180) {
-        throw new TypeError("school_catchup_day_unrealistic");
-      }
-      day.ranks.add(action.sequenceRank);
-      dates.set(localDate, day);
-      plannedCourseIds.add(courseId);
+    let scheduleFailure = repaired.invalidRule;
+    if (scheduleFailure === null && repaired.actions.length > MAX_PLANNED_ACTIONS) {
+      scheduleFailure = "school_catchup_action_limit_exceeded";
     }
-    if (finalCourseIds.size > 0 && [...finalCourseIds].some((courseId) => !plannedCourseIds.has(courseId))) {
-      throw new TypeError("school_catchup_course_missing_next_action");
+    if (scheduleFailure === null) {
+      for (const action of repaired.actions) {
+        const courseId = courseIdsByRef.get(action.courseRef)
+          ?? (ULID.test(action.courseRef) ? action.courseRef as Ulid : null);
+        if (courseId === null || !finalCourseIds.has(courseId)) {
+          scheduleFailure = "school_catchup_action_course_invalid";
+          break;
+        }
+        try {
+          inline(action.text, "school_catchup_action_invalid", 512);
+        } catch {
+          scheduleFailure = "school_catchup_action_invalid";
+          break;
+        }
+        plannedCourseIds.add(courseId);
+      }
     }
-    for (const day of dates.values()) {
-      const ordered = [...day.ranks].sort((left, right) => left - right);
-      if (ordered.some((rank, index) => rank !== index + 1)) throw new TypeError("school_catchup_action_sequence_invalid");
+    if (scheduleFailure === null && finalCourseIds.size > 0
+      && [...finalCourseIds].some((courseId) => !plannedCourseIds.has(courseId))) {
+      scheduleFailure = "school_catchup_course_missing_next_action";
     }
 
-    statements.push(this.database.prepare(`UPDATE school_catchup_actions
-      SET status = 'superseded', superseded_at = ?1, updated_at = ?1
-      WHERE principal_id = ?2 AND status = 'planned'`).bind(nowIso, principalId));
-    for (const action of input.plan.plan) {
-      const courseId = courseIdsByRef.get(action.courseRef)
-        ?? action.courseRef as Ulid;
-      statements.push(this.database.prepare(`INSERT INTO school_catchup_actions (
-        principal_id, action_id, course_id, local_date, sequence_rank, action_text,
-        estimated_minutes, status, plan_turn_id, completed_at, superseded_at, created_at, updated_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'planned', ?8, NULL, NULL, ?9, ?9)`)
-        .bind(principalId, newUlid(now), courseId, action.localDate, action.sequenceRank,
-          inline(action.text, "school_catchup_action_invalid", 512), action.estimatedMinutes, turnId, nowIso));
+    if (scheduleFailure !== null && nonScheduleStatementCount === 0) {
+      throw new TypeError(scheduleFailure);
+    }
+    if (scheduleFailure === null) {
+      statements.push(this.database.prepare(`UPDATE school_catchup_actions
+        SET status = 'superseded', superseded_at = ?1, updated_at = ?1
+        WHERE principal_id = ?2 AND status = 'planned'`).bind(nowIso, principalId));
+      for (const action of repaired.actions) {
+        const courseId = courseIdsByRef.get(action.courseRef)
+          ?? action.courseRef as Ulid;
+        statements.push(this.database.prepare(`INSERT INTO school_catchup_actions (
+          principal_id, action_id, course_id, local_date, sequence_rank, action_text,
+          estimated_minutes, status, plan_turn_id, completed_at, superseded_at, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'planned', ?8, NULL, NULL, ?9, ?9)`)
+          .bind(principalId, newUlid(now), courseId, action.localDate, action.sequenceRank,
+            inline(action.text, "school_catchup_action_invalid", 512), action.estimatedMinutes, turnId, nowIso));
+      }
     }
     const historyCutoff = new Date(now.getTime() - HISTORY_RETENTION_MILLISECONDS).toISOString();
     statements.push(this.database.prepare(`DELETE FROM school_course_facts
@@ -445,5 +542,6 @@ export class SchoolCatchupRepository {
       principal_id, turn_id, response_hash, applied_at
     ) VALUES (?1, ?2, ?3, ?4)`).bind(principalId, turnId, input.responseHash, nowIso));
     await this.database.batch(statements);
+    onResult?.(partialResult(scheduleFailure === null, repaired.repairRules, scheduleFailure));
   }
 }

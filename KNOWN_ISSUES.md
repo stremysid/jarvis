@@ -1,5 +1,55 @@
 # Known issues
 
+## University application details has eight deliberately closed edges
+
+- **Forwarded and quoted offer text:** the existing Telegram input still has no
+  trusted forwarded/quoted provenance. An offer, condition or response is
+  recorded only when Sid's whole message is one explicit sentence such as "I
+  got an offer from <tracked university> for <tracked program>", so quoted
+  text, forwarding markers, reported speech, hedges and second clauses cannot
+  appear. It still cannot distinguish an unattributed verbatim paste of that
+  exact sentence from Sid's own words. Offer ingestion must remain
+  Telegram-owner-only until the channel adapter persists trusted provenance.
+- **Natural offer wording is not recorded:** "I got my Waterloo offer!!",
+  "I got into Waterloo" or a lead-in such as "So I got an offer…" save nothing.
+  Sid sees a fixed line that says nothing was saved and gives the exact
+  sentence to send. This is the reviewer-mandated trade-off for zero records
+  from negated, hedged, hearsay or hypothetical wording.
+- **Receipts replace the model reply on save turns:** after a university save
+  Sid sees only fixed receipt lines built from the stored plan and tracked
+  names (with any requested draft shown as unverified draft text). A model
+  follow-up question on that turn is not shown. On turns that save nothing,
+  request no action and report no offer, the model reply passes main's
+  unchanged reply guard, so a claim outside main's list (for example
+  "Accepted your Waterloo offer!") still reaches Sid exactly as on main.
+- **PR #52 checklist kept identical to main, including two main gaps:**
+  submitted_by_sid is still recorded for "Mom emailed Dr. Shah that I submitted
+  the Western essay." (a reporter verb outside main's list, split at "Dr.") and
+  for a trailing hedge such as "I submitted the Western essay, I think." The
+  new workflow steps refuse both shapes. Changing the checklist needs its own
+  reviewed follow-up.
+- **Fee amounts:** payment steps can be prepared and tracked, but this slice has
+  no exact-source monetary field. Currency amounts are therefore rejected from
+  stored preparation details instead of being remembered or guessed. Add a
+  source-, cycle- and currency-bound fee record before Jarvis tracks an amount.
+- **Third-party completion:** referee, guidance, school and university owners
+  can be named on pending steps, but a relayed claim that they acted cannot
+  transition the step. Only Sid's direct report of his own action and his direct
+  receipt of an offer or decision are accepted. A later verified-portal or
+  trusted-provenance slice is required for external-party completion evidence.
+- **Sixty-four-revision workflow ceiling:** the append-only schema deliberately
+  caps one workflow identity at 64 revisions, and its immutable unique key does
+  not permit a hidden replacement identity. Reaching the cap fails visibly and
+  saves nothing. Safe rollover needs a reviewed migration that records explicit
+  predecessor lineage; silently replacing the identity here would break the
+  named-item audit property this slice is meant to preserve.
+- **Conversational local-time entry:** timed deadlines now render in their
+  stored IANA timezone, but the evidence boundary accepts a timed deadline only
+  when Sid states both its exact RFC 3339 UTC instant and timezone. Converting a
+  phrase such as "January 15 at 11:59 PM Toronto time" safely needs a separate,
+  tested local-time parser. Until then, ordinary local-time phrases fail closed
+  instead of being guessed.
+
 ## University application workflow has seven deferred integration and presentation limits
 
 PR #52 binds every application status report to the one item named across the

@@ -1,4 +1,4 @@
-import type { JsonValue, Ulid } from "../../../../packages/contracts/src/index.js";
+import type { Ulid } from "../../../../packages/contracts/src/index.js";
 import { canonicalJson } from "../../../../packages/contracts/src/index.js";
 import type {
   OwnerApplicationDueDateUpdate,
@@ -8,16 +8,23 @@ import type {
   OwnerUniversityProgramUpdate,
   OwnerUniversityRequirementAddition,
   OwnerUniversityVerification,
+  OwnerUniversityWorkflowDeadlineUpdate,
+  OwnerUniversityWorkflowUpdate,
   UniversityApplicationItemKind,
   UniversityApplicationItem,
   UniversityApplicationItemStatus,
   UniversityProgram,
   UniversityTrackerSnapshot,
+  UniversityWorkflowItem,
+  UniversityWorkflowKind,
+  UniversityWorkflowOwner,
+  UniversityWorkflowStatus,
 } from "./university-tracker-types.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const NEW_PROGRAM = /^new-[1-9][0-9]{0,2}$/u;
 const NEW_APPLICATION_ITEM = /^new-item-[1-9][0-9]{0,2}$/u;
+const NEW_WORKFLOW_ITEM = /^new-workflow-[1-9][0-9]{0,2}$/u;
 const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/u;
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
 const OWNER_SUBMISSION = /(?:\bi(?:['’]ve| have)?\s+(?:(?:already|just|now|successfully)\s+)?|^(?:(?:already|just|now|successfully)\s+)?)(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
@@ -43,12 +50,77 @@ const MONTH_WORDS = Object.freeze([
   "jul(?:y)?", "aug(?:ust)?", "sep(?:t(?:ember)?)?", "oct(?:ober)?", "nov(?:ember)?", "dec(?:ember)?",
 ]);
 
+// Workflow-only evidence rules. Every one of them only refuses more than the
+// PR #52 checklist does; none relaxes the shared direct-owner validator below.
+const OWNER_HEDGE = /\b(?:afraid|apparently|bet|concerned|convinced|dreamt|dreamed|feel\s+like|guess|hope|imagine|i(?:'|’)?m\s+sure|i\s+am\s+sure|maybe|might|pretend|pretty\s+sure|probably|scared|seems?|sounds?\s+like|think|wish|worried)\b/iu;
+const WORKFLOW_HEARSAY = /\b(?:thinks?|heard|said|says|reports?|claims?|told|might|maybe|apparently)\b/iu;
+const FORWARDED_OR_QUOTED_OWNER_CLAIM = /\b(?:begin\s+forwarded|dear\s+sid|email\s+from|forwarded\s+message|from:|message\s+from)\b|["“][^"”]{0,384}\bi\b[^"”]{0,384}["”]/iu;
+const DELEGATED_OWNER_ACTION = /\bi\s+asked\s+(?:(?:my\s+)?(?:mom|mother|dad|father|parent|guardian|teacher|counsell?or|referee)|(?:m(?:s|r|rs)|dr|prof)\.?\s+\p{L}+)\s+to\b/iu;
+const THIRD_PARTY_REPORTER = String.raw`(?:(?:my\s+)?(?:mom|mother|dad|father|parents?|guardians?|sister|brother|sibling|friend|coach|teacher|counsell?or|referee|guidance)|the\s+(?:school|university)|(?:m(?:s|r|rs|x)|dr|prof)\.?\s+\p{L}+)`;
+const PREPARATION_REQUEST = /\b(?:draft|prepare|outline|revise|critique|review|checklist|steps?|tell\s+me\s+(?:how|what)|help\s+me)\b/iu;
+const OWNER_ACTION_NOT_DONE = /\bi\s+(?:haven['’]t|have\s+not|didn['’]t|did\s+not|couldn['’]t|could\s+not)\b/iu;
+const STEP_ACTION_VERBS: Readonly<Record<StepWorkflowKind, string>> = Object.freeze({
+  submission_step: String.raw`submitted|sent\s+in|turned\s+in`,
+  upload_step: String.raw`uploaded`,
+  contact_step: String.raw`contacted|emailed|messaged|called|asked(?!\s+you\b)|sent\s+(?:the\s+)?request`,
+  signup_step: String.raw`signed\s+up|registered|created\s+(?:the|my|an?)\s+account`,
+  payment_step: String.raw`paid`,
+  transcript_order_step: String.raw`(?:ordered|requested)\s+(?:(?:my|the|an?)\s+)?(?:official\s+)?transcript`,
+});
+const MONTH_DAY_LABEL = /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+\d{1,2}\b|\b\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/iu;
+const NUMERIC_MONEY = /(?:[$€£]\s*\d|\b(?:cad|usd|eur|gbp)\s*\d|\b\d+(?:[.,]\d{1,2})?\s*(?:bucks?|cad|usd|eur|gbp|dollars?)\b|\b(?:fee|cost|pay(?:ment)?)\b.{0,24}\b\d+(?:[.,]\d{1,2})?\b|\b\d+(?:[.,]\d{1,2})?\b.{0,24}\b(?:fee|cost|pay(?:ment)?)\b)/iu;
+const SPELLED_MONEY = /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million)(?:[-\s]+(?:and\s+)?(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million)){0,8}\s+(?:bucks?|cad|usd|eur|gbp|dollars?)\b/iu;
+const EMAIL_ADDRESS = /\b[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}\b/iu;
+const PHONE_NUMBER = /(?:^|\D)(?:\+?\d[\d ().-]{7,}\d)(?:\D|$)/u;
+const ISO_INSTANT = /\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\b/gu;
+export const MAX_WORKFLOW_PREPARED_DETAILS_PER_PLAN_BYTES = 12_000;
+const UNVERIFIED_DRAFT_PREFIX = "Unverified draft text; never treat this as a tracker date, requirement, amount, or completed action:\n";
+const MAX_WORKFLOW_PREPARED_DETAILS_BYTES = 2_048;
+
 const APPLICATION_KINDS = new Set<UniversityApplicationItemKind>([
   "supplementary_application", "essay", "personal_statement", "reference", "transcript", "scholarship",
 ]);
 const APPLICATION_STATUSES = new Set<UniversityApplicationItemStatus>([
   "not_started", "drafting", "ready", "submitted_by_sid", "not_needed_by_sid",
 ]);
+const WORKFLOW_KINDS = new Set<UniversityWorkflowKind>([
+  "submission_step", "upload_step", "contact_step", "signup_step", "payment_step",
+  "transcript_order_step", "offer", "offer_condition", "offer_response",
+]);
+const WORKFLOW_OWNERS = new Set<UniversityWorkflowOwner>([
+  "sid", "referee", "guidance", "school", "university",
+]);
+const WORKFLOW_STATUSES = new Set<UniversityWorkflowStatus>([
+  "prepared", "owner_reported_done", "owner_reported_not_done", "owner_reported_offered",
+  "owner_reported_waitlisted", "owner_reported_rejected", "owner_reported_withdrawn",
+  "owner_reported_pending", "owner_reported_satisfied", "owner_reported_unsatisfied",
+  "owner_reported_accepted", "owner_reported_declined", "not_needed_by_sid",
+]);
+const TERMINAL_WORKFLOW_STATUSES = new Set<UniversityWorkflowStatus>([
+  "owner_reported_done", "owner_reported_rejected", "owner_reported_withdrawn",
+  "owner_reported_satisfied", "owner_reported_accepted", "owner_reported_declined",
+  "not_needed_by_sid",
+]);
+const RECENT_TERMINAL_WORKFLOW_MILLISECONDS = 2 * 24 * 60 * 60 * 1_000;
+
+type OfferWorkflowKind = Extract<UniversityWorkflowKind, "offer" | "offer_condition" | "offer_response">;
+type StepWorkflowKind = Exclude<UniversityWorkflowKind, OfferWorkflowKind>;
+
+/** Offer rows never carry model-chosen names: the label and owner are fixed per kind. */
+export const OFFER_WORKFLOW_LABELS: Readonly<Record<OfferWorkflowKind, string>> = Object.freeze({
+  offer: "offer",
+  offer_condition: "offer conditions",
+  offer_response: "offer response",
+});
+export const OFFER_WORKFLOW_OWNERS: Readonly<Record<OfferWorkflowKind, UniversityWorkflowOwner>> = Object.freeze({
+  offer: "university",
+  offer_condition: "sid",
+  offer_response: "sid",
+});
+
+export function isOfferWorkflowKind(kind: UniversityWorkflowKind): kind is OfferWorkflowKind {
+  return kind === "offer" || kind === "offer_condition" || kind === "offer_response";
+}
 
 const KIND_WORDS: Readonly<Record<UniversityApplicationItemKind, readonly string[]>> = Object.freeze({
   supplementary_application: Object.freeze(["supplementary application", "supplementary", "aif"]),
@@ -505,6 +577,30 @@ function namesItemAsThirdPartyPossession(
   return kind !== null && KIND_WORDS[kind].some((word) => normalized.includes(`your ${evidenceText(word)}`));
 }
 
+interface DirectOwnerClaim {
+  readonly action: RegExp;
+  readonly joint: RegExp;
+  readonly reported: RegExp;
+  readonly namesThirdPartyPossession: (clause: string) => boolean;
+}
+
+/**
+ * PR #52's direct first-person claim check, unchanged. submitted_by_sid passes
+ * main's exact patterns; workflow step completions pass the same shapes with
+ * their own verbs and may add refusals before calling it, never relaxations.
+ */
+function supportsDirectOwnerClaim(
+  evidence: string,
+  evidenceClauses: readonly string[],
+  claim: DirectOwnerClaim,
+): boolean {
+  return !claim.joint.test(evidence) && !claim.reported.test(evidence)
+    && !RETRACTION.test(evidence) && evidenceClauses.some((clause) =>
+    claim.action.test(clause) && !NEGATION.test(clause)
+    && !RETRACTION.test(clause) && !CONDITIONAL_OR_QUESTION.test(clause)
+    && !claim.namesThirdPartyPossession(clause));
+}
+
 function bareDontNeedTargetsItem(clause: string, label: string | null): boolean {
   const match = BARE_DONT_NEED.exec(clause);
   if (match === null || label === null) return false;
@@ -535,11 +631,12 @@ export function supportsStatus(
 ): boolean {
   const evidenceClauses = itemEvidenceClauses(evidence, itemRef, label, kind, program, snapshot);
   if (status === "submitted_by_sid") {
-    return !JOINT_OWNER_SUBMISSION.test(evidence) && !REPORTED_OWNER_SUBMISSION.test(evidence)
-      && !RETRACTION.test(evidence) && evidenceClauses.some((clause) =>
-      OWNER_SUBMISSION.test(clause) && !NEGATION.test(clause)
-      && !RETRACTION.test(clause) && !CONDITIONAL_OR_QUESTION.test(clause)
-      && !namesItemAsThirdPartyPossession(clause, label, kind));
+    return supportsDirectOwnerClaim(evidence, evidenceClauses, {
+      action: OWNER_SUBMISSION,
+      joint: JOINT_OWNER_SUBMISSION,
+      reported: REPORTED_OWNER_SUBMISSION,
+      namesThirdPartyPossession: (clause) => namesItemAsThirdPartyPossession(clause, label, kind),
+    });
   }
   if (existingStatus === "submitted_by_sid") {
     return evidenceClauses.some((clause) =>
@@ -645,6 +742,564 @@ function applicationUpdate(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Workflow steps and offer records (migration 0029). Nothing below is used by
+// the PR #52 application-item checklist above.
+// ---------------------------------------------------------------------------
+
+function maskTitleAbbreviations(value: string): string {
+  return value.replace(/\b(Mr|Ms|Mrs|Mx|Dr|St|Prof)\.(?=\s+\p{L})/giu, "$1");
+}
+
+function workflowContainsLabel(value: string, label: string): boolean {
+  return containsLabel(maskTitleAbbreviations(value), maskTitleAbbreviations(label));
+}
+
+export function isWorkflowLabelSafe(value: string): boolean {
+  return !LABEL_METADATA.test(value) && !MONTH_DAY_LABEL.test(value)
+    && !/\b(?:confirmed|official(?:ly)?)\b/iu.test(value)
+    && !/\b(?:deadline|due|by|before)\b.{0,24}\b(?:today|tomorrow|tonight|next\s+(?:week|month|monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b/iu.test(value)
+    && !NUMERIC_MONEY.test(value) && !SPELLED_MONEY.test(value)
+    && !EMAIL_ADDRESS.test(value) && !PHONE_NUMBER.test(value);
+}
+
+export function isWorkflowPreparedDetailsSafe(value: string): boolean {
+  const draft = value.startsWith(UNVERIFIED_DRAFT_PREFIX) ? value.slice(UNVERIFIED_DRAFT_PREFIX.length) : value;
+  return draft.trim().length > 0 && draft.isWellFormed() && draft === draft.normalize("NFC")
+    && !draft.split(/\r?\n/u).some((line) => UNSAFE_INLINE.test(line));
+}
+
+/** The draft text inside a stored unverified-draft wrapper, for Sid to review. */
+export function unverifiedDraftText(value: string): string {
+  return value.startsWith(UNVERIFIED_DRAFT_PREFIX) ? value.slice(UNVERIFIED_DRAFT_PREFIX.length) : value;
+}
+
+export function asUnverifiedWorkflowDraft(
+  value: string,
+  error = "university_workflow_model_item_invalid",
+): string {
+  const draft = value.startsWith(UNVERIFIED_DRAFT_PREFIX) ? value.slice(UNVERIFIED_DRAFT_PREFIX.length) : value;
+  if (!isWorkflowPreparedDetailsSafe(draft)) throw new TypeError(error);
+  const wrapped = `${UNVERIFIED_DRAFT_PREFIX}${draft}`;
+  if (encoder.encode(wrapped).byteLength > MAX_WORKFLOW_PREPARED_DETAILS_BYTES) {
+    throw new TypeError(error);
+  }
+  return wrapped;
+}
+
+function workflowClauseGroups(
+  value: string,
+  protectedPhrases: readonly string[],
+): readonly (readonly string[])[] {
+  const masked = maskTitleAbbreviations(value);
+  return clauseGroups(masked, true, [
+    ...protectedPhrases.map(maskTitleAbbreviations),
+    ...(masked.match(ISO_INSTANT) ?? []),
+  ]);
+}
+
+function validTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: value }).format(0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function workflowStatusAllowed(kind: UniversityWorkflowKind, status: UniversityWorkflowStatus): boolean {
+  if (kind === "offer") {
+    return status === "owner_reported_offered" || status === "owner_reported_waitlisted"
+      || status === "owner_reported_rejected" || status === "owner_reported_withdrawn";
+  }
+  if (kind === "offer_condition") {
+    return status === "owner_reported_pending" || status === "owner_reported_satisfied"
+      || status === "owner_reported_unsatisfied";
+  }
+  if (kind === "offer_response") {
+    return status === "prepared" || status === "owner_reported_accepted" || status === "owner_reported_declined";
+  }
+  return status === "not_needed_by_sid"
+    || status === "prepared" || status === "owner_reported_done" || status === "owner_reported_not_done";
+}
+
+function currentWorkflowItem(
+  snapshot: UniversityTrackerSnapshot | null,
+  workflowRef: string,
+): { readonly item: UniversityWorkflowItem; readonly program: UniversityProgram } | null {
+  if (snapshot === null || !ULID.test(workflowRef)) return null;
+  for (const program of snapshot.programs) {
+    const item = (program.workflowItems ?? []).find((candidate) => candidate.workflowId === workflowRef);
+    if (item !== undefined) return Object.freeze({ item, program });
+  }
+  return null;
+}
+
+function namedWorkflowItems(
+  evidence: string,
+  snapshot: UniversityTrackerSnapshot | null,
+): readonly UniversityWorkflowItem[] {
+  if (snapshot === null) return Object.freeze([]);
+  return Object.freeze(snapshot.programs.flatMap((program) => program.workflowItems ?? [])
+    .filter((item) => !isOfferWorkflowKind(item.kind) && workflowContainsLabel(evidence, item.label)));
+}
+
+function stepTargetClauses(
+  evidence: string,
+  workflowRef: string,
+  workflowLabel: string,
+  applicationItemRef: string | null,
+  applicationLabel: string | null,
+  applicationKind: UniversityApplicationItemKind | null,
+  program: ApplicationProgramContext,
+  snapshot: UniversityTrackerSnapshot | null,
+): readonly string[] {
+  if (applicationItemRef === null || applicationLabel === null) return Object.freeze([]);
+  const protectedPhrases = [workflowLabel, applicationLabel, ...programAliases(program)];
+  return Object.freeze(workflowClauseGroups(evidence, protectedPhrases).flatMap((sentence) =>
+    sentence.filter((clause) => {
+      if (!workflowContainsLabel(clause, workflowLabel) || !workflowContainsLabel(clause, applicationLabel)) {
+        return false;
+      }
+      const namedWorkflows = namedWorkflowItems(clause, snapshot);
+      if (namedWorkflows.length > 1
+        || namedWorkflows.length === 1 && namedWorkflows[0]?.workflowId !== workflowRef) return false;
+      return clauseNamesOnlyItem(clause, applicationItemRef, applicationLabel, applicationKind, program, snapshot);
+    })));
+}
+
+function contactRecipientMatchesLabel(clause: string, workflowLabel: string): boolean {
+  const match = /\bi\s+(?:(?:already|just|now|successfully)\s+)?(?:contacted|emailed|messaged|called|asked)\s+(?<recipient>[^,.;!?]{1,80}?)(?=\s+(?:about|for|regarding|covering)\b)/iu.exec(clause);
+  const recipient = evidenceText(match?.groups?.recipient ?? "");
+  if (recipient.length === 0 || /\b(?:assistant|mom|mother|dad|father|parent|guardian)\b/iu.test(recipient)) return false;
+  const ignored = new Set(["contact", "email", "follow", "message", "reference", "request", "step", "up"]);
+  const targetWords = evidenceText(workflowLabel).split(" ")
+    .filter((word) => word.length > 1 && !ignored.has(word));
+  return targetWords.length > 0 && targetWords.every((word) => recipient.split(" ").includes(word));
+}
+
+function stepOwnerClaim(kind: StepWorkflowKind, namesThirdPartyPossession: (clause: string) => boolean): DirectOwnerClaim {
+  const verbs = STEP_ACTION_VERBS[kind];
+  return Object.freeze({
+    action: new RegExp(String.raw`\bi(?:['’]ve|\s+have)?\s+(?:(?:already|just|now|successfully)\s+)?(?:${verbs})\b`, "iu"),
+    joint: new RegExp(
+      String.raw`\b(?:(?:m(?:s|r)\.?|dr\.?)\s+\p{L}+[\p{L}'’.-]*|(?:my\s+)?(?:mom|mother|dad|father|parents?|guardians?|sister|brother|sibling)|(?:my\s+)?(?:teacher|counsell?or|referee))\s+and\s+i\s+(?:(?:have|had)\s+)?(?:(?:already|just|now|successfully)\s+)?(?:${verbs})\b`,
+      "iu",
+    ),
+    reported: new RegExp(
+      String.raw`\b(?:asked|said|says|told|wrote|writes|sent\s+me|forwarded)\b.{0,64}\bi\s+(?:(?:already|just|now|successfully)\s+)?(?:${verbs})\b`,
+      "iu",
+    ),
+    namesThirdPartyPossession,
+  });
+}
+
+/** Refusals that apply to every workflow step status before PR #52's shared validator runs. */
+function stepEvidenceRefused(evidence: string, verbs: string): boolean {
+  const masked = maskTitleAbbreviations(evidence);
+  return FORWARDED_OR_QUOTED_OWNER_CLAIM.test(evidence)
+    || DELEGATED_OWNER_ACTION.test(masked)
+    || new RegExp(String.raw`\b${THIRD_PARTY_REPORTER}\b(?:(?!\bi\b)[^.!?\r\n]){0,40}\b(?:asked|emailed|forwarded|messaged|said|says|sent|texted|told|wrote|writes)\b[^.!?\r\n]{0,80}\bi\s+(?:(?:have|had)\s+)?(?:(?:already|just|now|successfully)\s+)?(?:${verbs})\b`, "iu").test(masked)
+    || new RegExp(String.raw`\b(?:that|saying|whether|if)\s+i\s+(?:(?:have|had)\s+)?(?:(?:already|just|now|successfully)\s+)?(?:${verbs})\b`, "iu").test(masked);
+}
+
+function supportsStepStatus(
+  status: UniversityWorkflowStatus,
+  kind: StepWorkflowKind,
+  evidence: string,
+  workflowLabel: string,
+  applicationLabel: string | null,
+  applicationKind: UniversityApplicationItemKind | null,
+  clausesForTarget: readonly string[],
+): boolean {
+  if (clausesForTarget.length === 0) return false;
+  if (status === "prepared") {
+    if (CONDITIONAL_OR_QUESTION.test(evidence) || RETRACTION.test(evidence)) return false;
+    return clausesForTarget.some((clause) =>
+      !CONDITIONAL_OR_QUESTION.test(clause) && !WORKFLOW_HEARSAY.test(clause) && !RETRACTION.test(clause)
+      && PREPARATION_REQUEST.test(clause) && !OWNER_ACTION_NOT_DONE.test(clause));
+  }
+  if (status === "not_needed_by_sid") {
+    return !RETRACTION.test(evidence) && clausesForTarget.some((clause) =>
+      !CONDITIONAL_OR_QUESTION.test(clause) && !WORKFLOW_HEARSAY.test(clause) && !RETRACTION.test(clause)
+      && (RETIREMENT.test(clause) && !retirementNegated(clause) || bareDontNeedTargetsItem(clause, workflowLabel)));
+  }
+  const thirdPartyPossession = (clause: string): boolean =>
+    namesItemAsThirdPartyPossession(clause, applicationLabel ?? workflowLabel, applicationKind);
+  const verbs = STEP_ACTION_VERBS[kind];
+  if (stepEvidenceRefused(evidence, verbs) || OWNER_HEDGE.test(evidence)) return false;
+  const hedgedOrHearsay = (clause: string): boolean => OWNER_HEDGE.test(clause) || WORKFLOW_HEARSAY.test(clause);
+  if (status === "owner_reported_done") {
+    const claim = stepOwnerClaim(kind, thirdPartyPossession);
+    const checked = clausesForTarget.filter((clause) => !hedgedOrHearsay(clause)
+      && (kind !== "contact_step" || contactRecipientMatchesLabel(clause, workflowLabel)));
+    return supportsDirectOwnerClaim(evidence, checked, claim);
+  }
+  if (status === "owner_reported_not_done") {
+    const claim = stepOwnerClaim(kind, thirdPartyPossession);
+    return !claim.joint.test(evidence) && !claim.reported.test(evidence) && !RETRACTION.test(evidence)
+      && clausesForTarget.some((clause) => OWNER_ACTION_NOT_DONE.test(clause)
+        && !RETRACTION.test(clause) && !hedgedOrHearsay(clause)
+        && !CONDITIONAL_OR_QUESTION.test(clause.replace(/\b(?:couldn['’]t|could\s+not)\b/giu, ""))
+        && !thirdPartyPossession(clause));
+  }
+  return false;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function normalizedOwnerSentence(value: string): string {
+  return value.normalize("NFC").toLocaleLowerCase("en-CA")
+    .replace(/[’ʼ`]/gu, "'")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .replace(/^(?:hey\s+)?jarvis\s*[,:!-]?\s+/u, "")
+    .replace(/\s*[.!]+$/u, "")
+    .trim();
+}
+
+function normalizedName(value: string): string {
+  return value.normalize("NFC").toLocaleLowerCase("en-CA").replace(/[’ʼ`]/gu, "'").replace(/\s+/gu, " ").trim();
+}
+
+function universityNameAliases(university: string): readonly string[] {
+  const full = normalizedName(university);
+  const short = full.replace(/^university\s+of\s+/u, "").replace(/\s+university$/u, "").trim();
+  return Object.freeze([...new Set([full, short].filter((value) => value.length > 0))]);
+}
+
+/** The single explicit sentence that records each offer-family status. */
+function offerTemplates(status: UniversityWorkflowStatus): readonly ((school: string, program: string) => string)[] {
+  const fromFor = (school: string, program: string): string =>
+    String.raw`(?:from (?:the )?${school} for ${program}|for ${program} from (?:the )?${school})`;
+  switch (status) {
+    case "owner_reported_offered":
+      return [(s, p) => String.raw`i (?:just )?(?:got|received) (?:an|a) (?:(?:conditional|unconditional) )?offer ${fromFor(s, p)}`];
+    case "owner_reported_waitlisted":
+      return [(s, p) => String.raw`i (?:got|was|have been|'ve been) waitlisted (?:(?:by|at) (?:the )?${s} for ${p}|for ${p} (?:by|at) (?:the )?${s})`];
+    case "owner_reported_rejected":
+      return [(s, p) => String.raw`i (?:got|was|have been|'ve been) rejected (?:by (?:the )?${s} for ${p}|for ${p} by (?:the )?${s})`];
+    case "owner_reported_withdrawn":
+      return [(s, p) => String.raw`i withdrew (?:my application )?(?:from (?:the )?${s} for ${p}|from ${p} at (?:the )?${s})`];
+    case "owner_reported_pending":
+      return [(s, p) => String.raw`the conditions? (?:of|on) my offer ${fromFor(s, p)} (?:is|are) (?:still )?pending`];
+    case "owner_reported_satisfied":
+      return [(s, p) => String.raw`i (?:have |'ve )?met the conditions? (?:of|on) my offer ${fromFor(s, p)}`];
+    case "owner_reported_unsatisfied":
+      return [(s, p) => String.raw`i (?:did not|didn't) meet the conditions? (?:of|on) my offer ${fromFor(s, p)}`];
+    case "owner_reported_accepted":
+      return [(s, p) => String.raw`i accepted (?:my|the) offer ${fromFor(s, p)}`];
+    case "owner_reported_declined":
+      return [(s, p) => String.raw`i declined (?:my|the) offer ${fromFor(s, p)}`];
+    case "prepared":
+      return [(s, p) => String.raw`(?:please )?(?:draft|prepare) (?:a |my |the )?(?:reply|response) to (?:my|the) offer ${fromFor(s, p)}`];
+    default:
+      return [];
+  }
+}
+
+function offerMessageMatchesProgram(
+  status: UniversityWorkflowStatus,
+  ownerMessage: string,
+  program: ApplicationProgramContext,
+): boolean {
+  const sentence = normalizedOwnerSentence(ownerMessage);
+  const programName = escapeRegExp(normalizedName(program.programName));
+  return universityNameAliases(program.university).some((alias) =>
+    offerTemplates(status).some((template) =>
+      new RegExp(`^${template(escapeRegExp(alias), programName)}$`, "u").test(sentence)));
+}
+
+/**
+ * Offer, condition and response records come only from one whole-message
+ * sentence that names a tracked university and its tracked program, with
+ * nothing else in the message. No negation, hedge, hearsay, question or
+ * second clause can appear, because no other words are allowed at all.
+ */
+export function supportsOfferStatusEvidence(
+  status: UniversityWorkflowStatus,
+  kind: UniversityWorkflowKind,
+  ownerMessage: string,
+  program: ApplicationProgramContext,
+  snapshot: UniversityTrackerSnapshot | null,
+): boolean {
+  if (!isOfferWorkflowKind(kind) || !workflowStatusAllowed(kind, status)
+    || encoder.encode(ownerMessage).byteLength > 512 || /[\r\n]/u.test(ownerMessage.trim())) return false;
+  if (!offerMessageMatchesProgram(status, ownerMessage, program)) return false;
+  if (snapshot === null) return true;
+  const matches = snapshot.programs.filter((candidate) => offerMessageMatchesProgram(status, ownerMessage, candidate));
+  return matches.length === 1
+    && normalizedName(matches[0]?.university ?? "") === normalizedName(program.university)
+    && normalizedName(matches[0]?.programName ?? "") === normalizedName(program.programName);
+}
+
+export function supportsWorkflowStatusEvidence(
+  status: UniversityWorkflowStatus,
+  kind: UniversityWorkflowKind,
+  evidence: string,
+  workflowRef: string,
+  workflowLabel: string,
+  applicationItemRef: string | null,
+  applicationLabel: string | null,
+  applicationKind: UniversityApplicationItemKind | null,
+  program: ApplicationProgramContext,
+  snapshot: UniversityTrackerSnapshot | null,
+): boolean {
+  if (!workflowStatusAllowed(kind, status)) return false;
+  if (isOfferWorkflowKind(kind)) return supportsOfferStatusEvidence(status, kind, evidence, program, snapshot);
+  return supportsStepStatus(
+    status,
+    kind,
+    evidence,
+    workflowLabel,
+    applicationLabel,
+    applicationKind,
+    stepTargetClauses(
+      evidence,
+      workflowRef,
+      workflowLabel,
+      applicationItemRef,
+      applicationLabel,
+      applicationKind,
+      program,
+      snapshot,
+    ),
+  );
+}
+
+function workflowDeadline(
+  value: unknown,
+  ownerMessage: string,
+  redactor: Redactor,
+  targetClauses: readonly string[],
+): OwnerUniversityWorkflowDeadlineUpdate {
+  const item = exactRecord(
+    value,
+    ["date", "instant", "timeZone", "verification", "evidence"],
+    "university_workflow_model_deadline_invalid",
+  );
+  const date = item.date === null
+    ? null
+    : inline(item.date, 10, "university_workflow_model_deadline_invalid", redactor);
+  const instant = item.instant === null
+    ? null
+    : inline(item.instant, 32, "university_workflow_model_deadline_invalid", redactor);
+  const timeZone = item.timeZone === null
+    ? null
+    : inline(item.timeZone, 64, "university_workflow_model_deadline_invalid", redactor);
+  if (date !== null && (!LOCAL_DATE.test(date)
+    || new Date(`${date}T00:00:00.000Z`).toISOString().slice(0, 10) !== date
+    || instant !== null || timeZone !== null)) {
+    throw new TypeError("university_workflow_model_deadline_invalid");
+  }
+  if (instant !== null && (!Number.isFinite(Date.parse(instant))
+    || new Date(Date.parse(instant)).toISOString() !== instant
+    || timeZone === null || !validTimeZone(timeZone)
+    || !ownerMessage.includes(instant) || !ownerMessage.includes(timeZone))) {
+    throw new TypeError("university_workflow_model_deadline_invalid");
+  }
+  if (date === null && instant === null && timeZone !== null) {
+    throw new TypeError("university_workflow_model_deadline_invalid");
+  }
+  const checkedVerification = verification(item.verification, ownerMessage, redactor);
+  if (checkedVerification.state === "unverified"
+    && (checkedVerification.sourceUrl !== null || checkedVerification.cycle !== null)) {
+    throw new TypeError("university_workflow_model_deadline_invalid");
+  }
+  const evidence = ownerEvidence(item.evidence, ownerMessage, "university_workflow_model_deadline_invalid", redactor);
+  if (evidence !== ownerMessage || targetClauses.length === 0) {
+    throw new TypeError("university_workflow_model_deadline_invalid");
+  }
+  if (date !== null && !targetClauses.some((clause) => evidenceSupportsDate(clause, date))) {
+    throw new TypeError("university_workflow_model_deadline_invalid");
+  }
+  if (instant !== null && !targetClauses.some((clause) => clause.includes(instant) && clause.includes(timeZone ?? ""))) {
+    throw new TypeError("university_workflow_model_deadline_invalid");
+  }
+  if (checkedVerification.state === "verified" && !targetClauses.some((clause) =>
+    clause.includes(checkedVerification.sourceUrl ?? "")
+    && evidenceSupportsCycle(clause, checkedVerification.cycle ?? ""))) {
+    throw new TypeError("university_workflow_model_deadline_invalid");
+  }
+  return Object.freeze({ date, instant, timeZone, verification: checkedVerification, evidence });
+}
+
+function workflowUpdate(
+  value: unknown,
+  ownerMessage: string,
+  redactor: Redactor,
+  snapshot: UniversityTrackerSnapshot | null,
+  programUpdates: readonly OwnerUniversityProgramUpdate[],
+  applicationUpdates: readonly OwnerUniversityApplicationUpdate[],
+): OwnerUniversityWorkflowUpdate {
+  const item = exactRecord(value, [
+    "workflowRef", "programRef", "applicationItemRef", "kind", "label", "owner", "status",
+    "statusEvidence", "preparedDetails", "deadline", "executionBoundary",
+  ], "university_workflow_model_item_invalid");
+  if (typeof item.workflowRef !== "string"
+    || !ULID.test(item.workflowRef) && !NEW_WORKFLOW_ITEM.test(item.workflowRef)
+    || typeof item.programRef !== "string"
+    || !ULID.test(item.programRef) && !NEW_PROGRAM.test(item.programRef)
+    || item.applicationItemRef !== null && (typeof item.applicationItemRef !== "string"
+      || !ULID.test(item.applicationItemRef) && !NEW_APPLICATION_ITEM.test(item.applicationItemRef))
+    || item.executionBoundary !== "owner_only") {
+    throw new TypeError("university_workflow_model_item_invalid");
+  }
+  const existing = currentWorkflowItem(snapshot, item.workflowRef);
+  const isNew = NEW_WORKFLOW_ITEM.test(item.workflowRef);
+  if (isNew === (existing !== null)) throw new TypeError("university_workflow_model_item_invalid");
+  const kind = item.kind === null ? null : item.kind as UniversityWorkflowKind;
+  const owner = item.owner === null ? null : item.owner as UniversityWorkflowOwner;
+  const status = item.status === null ? null : item.status as UniversityWorkflowStatus;
+  if (kind !== null && !WORKFLOW_KINDS.has(kind) || owner !== null && !WORKFLOW_OWNERS.has(owner)
+    || status !== null && !WORKFLOW_STATUSES.has(status)) {
+    throw new TypeError("university_workflow_model_item_invalid");
+  }
+  const modelLabel = optionalInline(item.label, 160, "university_workflow_model_item_invalid", redactor);
+  const preparedDetails = item.preparedDetails === null ? null
+    : asUnverifiedWorkflowDraft(evidenceValue(
+      item.preparedDetails,
+      2_048,
+      "university_workflow_model_item_invalid",
+      redactor,
+    ));
+  const program = existing?.program ?? snapshot?.programs.find((candidate) => candidate.programId === item.programRef)
+    ?? programUpdates.find((candidate) => candidate.programRef === item.programRef);
+  if (program === undefined || program.university === null || program.programName === null
+    || existing !== null && existing.program.programId !== item.programRef) {
+    throw new TypeError("university_workflow_model_item_invalid");
+  }
+  const programContext: ApplicationProgramContext = Object.freeze({
+    university: program.university,
+    programName: program.programName,
+  });
+  const effectiveKind = kind ?? existing?.item.kind ?? null;
+  if (effectiveKind === null || isNew && (kind === null || owner === null || modelLabel === null || status === null
+    || item.deadline === null)
+    || !isNew && (kind !== null || owner !== null || modelLabel !== null || item.applicationItemRef !== null)
+    || !isNew && status === null && preparedDetails === null && item.deadline === null) {
+    throw new TypeError("university_workflow_model_item_invalid");
+  }
+  if (isOfferWorkflowKind(effectiveKind)) {
+    return offerWorkflowUpdate(
+      item, isNew, effectiveKind, status, preparedDetails, programContext, ownerMessage, redactor, snapshot,
+    );
+  }
+  const label = modelLabel;
+  if (preparedDetails !== null && !isWorkflowPreparedDetailsSafe(preparedDetails)
+    || label !== null && !isWorkflowLabelSafe(label)) {
+    throw new TypeError("university_workflow_model_item_invalid");
+  }
+  const effectiveOwner = owner ?? existing?.item.owner ?? null;
+  const effectiveLabel = label ?? existing?.item.label ?? null;
+  const effectiveApplicationRef = isNew
+    ? item.applicationItemRef as string | null
+    : existing?.item.applicationItemId ?? null;
+  const existingApplication = snapshot?.programs.flatMap((candidate) => candidate.applicationItems.map((application) => ({
+    application,
+    programId: candidate.programId,
+  }))).find((candidate) => candidate.application.itemId === effectiveApplicationRef);
+  const responseApplication = applicationUpdates.find((candidate) => candidate.itemRef === effectiveApplicationRef);
+  const applicationLabel = existingApplication?.application.label ?? responseApplication?.label ?? null;
+  const applicationKind = existingApplication?.application.kind ?? responseApplication?.kind ?? null;
+  if (effectiveOwner === null || effectiveLabel === null
+    || effectiveApplicationRef === null || applicationLabel === null || applicationKind === null
+    || existingApplication !== undefined && existingApplication.programId !== item.programRef
+    || responseApplication !== undefined && responseApplication.programRef !== item.programRef
+    || isNew && !workflowContainsLabel(ownerMessage, effectiveLabel)) {
+    throw new TypeError("university_workflow_model_item_invalid");
+  }
+  const targetClauses = stepTargetClauses(
+    ownerMessage,
+    item.workflowRef,
+    effectiveLabel,
+    effectiveApplicationRef,
+    applicationLabel,
+    applicationKind,
+    programContext,
+    snapshot,
+  );
+  const statusEvidence = item.statusEvidence === null ? null
+    : ownerEvidence(item.statusEvidence, ownerMessage, "university_workflow_model_item_invalid", redactor);
+  if (status === null && statusEvidence !== null || status !== null && (statusEvidence !== ownerMessage
+    || !supportsWorkflowStatusEvidence(
+      status,
+      effectiveKind,
+      statusEvidence,
+      item.workflowRef,
+      effectiveLabel,
+      effectiveApplicationRef,
+      applicationLabel,
+      applicationKind,
+      programContext,
+      snapshot,
+    ))) {
+    throw new TypeError("university_workflow_model_item_invalid");
+  }
+  if (preparedDetails !== null && !isNew && !targetClauses.some((clause) => PREPARATION_REQUEST.test(clause))) {
+    throw new TypeError("university_workflow_model_item_invalid");
+  }
+  const deadline = item.deadline === null ? null
+    : workflowDeadline(item.deadline, ownerMessage, redactor, targetClauses);
+  return Object.freeze({
+    workflowRef: item.workflowRef as string,
+    programRef: item.programRef as string,
+    applicationItemRef: isNew ? effectiveApplicationRef : null,
+    kind,
+    label,
+    owner,
+    status,
+    statusEvidence,
+    preparedDetails,
+    deadline,
+    executionBoundary: "owner_only",
+  });
+}
+
+function offerWorkflowUpdate(
+  item: Record<string, unknown>,
+  isNew: boolean,
+  kind: OfferWorkflowKind,
+  status: UniversityWorkflowStatus | null,
+  preparedDetails: string | null,
+  program: ApplicationProgramContext,
+  ownerMessage: string,
+  redactor: Redactor,
+  snapshot: UniversityTrackerSnapshot | null,
+): OwnerUniversityWorkflowUpdate {
+  const statusEvidence = item.statusEvidence === null ? null
+    : ownerEvidence(item.statusEvidence, ownerMessage, "university_workflow_model_item_invalid", redactor);
+  // Every offer-family change, including a draft or deadline revision, needs
+  // the one explicit sentence for its status, and only a response draft may
+  // carry prepared text.
+  if (status === null || item.applicationItemRef !== null || statusEvidence !== ownerMessage
+    || preparedDetails !== null && status !== "prepared"
+    || !supportsOfferStatusEvidence(status, kind, ownerMessage, program, snapshot)) {
+    throw new TypeError("university_workflow_model_item_invalid");
+  }
+  const deadline = item.deadline === null ? null
+    : workflowDeadline(item.deadline, ownerMessage, redactor, [ownerMessage]);
+  if (deadline !== null && (deadline.date !== null || deadline.instant !== null
+    || deadline.verification.state !== "unverified")) {
+    throw new TypeError("university_workflow_model_deadline_invalid");
+  }
+  return Object.freeze({
+    workflowRef: item.workflowRef as string,
+    programRef: item.programRef as string,
+    applicationItemRef: null,
+    kind: isNew ? kind : null,
+    label: isNew ? OFFER_WORKFLOW_LABELS[kind] : null,
+    owner: isNew ? OFFER_WORKFLOW_OWNERS[kind] : null,
+    status,
+    statusEvidence,
+    preparedDetails,
+    deadline,
+    executionBoundary: "owner_only",
+  });
+}
+
 export function parseOwnerUniversityPlan(
   value: unknown,
   ownerMessage: string,
@@ -652,9 +1307,14 @@ export function parseOwnerUniversityPlan(
   snapshot: UniversityTrackerSnapshot | null = null,
 ): OwnerUniversityPlan {
   const currentOwnerMessage = ownerMessage.trim();
+  // Direct pre-step-6 callers remain read-compatible. The live combined model
+  // contract requires workflowUpdates before this parser is reached.
+  const responseFields = value !== null && typeof value === "object" && Object.hasOwn(value, "workflowUpdates")
+    ? ["engaged", "programUpdates", "applicationUpdates", "workflowUpdates"]
+    : ["engaged", "programUpdates", "applicationUpdates"];
   const item = exactRecord(
     value,
-    ["engaged", "programUpdates", "applicationUpdates"],
+    responseFields,
     "university_tracker_model_response_invalid",
   );
   if (typeof item.engaged !== "boolean") throw new TypeError("university_tracker_model_response_invalid");
@@ -665,20 +1325,39 @@ export function parseOwnerUniversityPlan(
     32,
     "university_tracker_model_response_invalid",
   ).map((entry) => applicationUpdate(entry, currentOwnerMessage, redactor, snapshot, programUpdates)));
+  const workflowUpdates = Object.freeze(denseArray(
+    item.workflowUpdates ?? [],
+    16,
+    "university_tracker_model_response_invalid",
+  ).map((entry) => workflowUpdate(
+    entry,
+    currentOwnerMessage,
+    redactor,
+    snapshot,
+    programUpdates,
+    applicationUpdates,
+  )));
+  const preparedDetailsBytes = workflowUpdates.reduce((total, update) =>
+    total + (update.preparedDetails === null ? 0 : encoder.encode(update.preparedDetails).byteLength), 0);
+  if (preparedDetailsBytes > MAX_WORKFLOW_PREPARED_DETAILS_PER_PLAN_BYTES) {
+    throw new TypeError("university_tracker_model_response_invalid");
+  }
   if (applicationUpdates.filter((update) => update.status === "submitted_by_sid").length > 1) {
     throw new TypeError("university_application_model_item_invalid");
   }
-  if (!item.engaged && (programUpdates.length > 0 || applicationUpdates.length > 0)) {
+  if (!item.engaged && (programUpdates.length > 0 || applicationUpdates.length > 0 || workflowUpdates.length > 0)) {
     throw new TypeError("university_tracker_model_response_invalid");
   }
-  return Object.freeze({ engaged: item.engaged, programUpdates, applicationUpdates });
+  return Object.freeze({ engaged: item.engaged, programUpdates, applicationUpdates, workflowUpdates });
 }
 
 export function universityStateJson(
   snapshot: UniversityTrackerSnapshot,
   ownerMessage = "",
   maximumExpandedPrograms = 2,
+  now: Date | null = null,
 ): string {
+  const nowMilliseconds = now === null ? null : now.getTime();
   const expandedProgramIds = new Set(snapshot.programs.filter((program) =>
     programAliases(program).some((name) => mentions(ownerMessage, name)))
     .slice(0, maximumExpandedPrograms).map((program) => program.programId));
@@ -700,8 +1379,7 @@ export function universityStateJson(
         itemId: item.itemId,
         label: item.label,
         status: item.status,
-        dueDate: item.dueDate,
-        verificationState: item.verification.state,
+        deadline: item.dueDate === null ? "unverified" : `${item.dueDate}:${item.verification.state}`,
       });
     const inactiveApplicationItems = program.applicationItems.filter((item) =>
       (item.status === "submitted_by_sid" || item.status === "not_needed_by_sid")
@@ -711,6 +1389,42 @@ export function universityStateJson(
         label: item.label,
         status: item.status,
       }));
+    const workflowItems = (program.workflowItems ?? []).filter((item) => {
+      const namedWorkflow = workflowContainsLabel(ownerMessage, item.label);
+      const applicationItem = item.applicationItemId === null
+        ? null
+        : program.applicationItems.find((candidate) => candidate.itemId === item.applicationItemId) ?? null;
+      const hiddenByParent = applicationItem?.status === "not_needed_by_sid"
+        || applicationItem?.status === "submitted_by_sid"
+          && (item.kind === "submission_step" || item.kind === "upload_step");
+      if (hiddenByParent) return namedWorkflow;
+      if (!TERMINAL_WORKFLOW_STATUSES.has(item.status) || namedWorkflow) return true;
+      if (nowMilliseconds === null || !Number.isFinite(nowMilliseconds)) return false;
+      const updatedAt = Date.parse(item.updatedAt);
+      return Number.isFinite(updatedAt)
+        && nowMilliseconds - updatedAt <= RECENT_TERMINAL_WORKFLOW_MILLISECONDS;
+    }).map((item) => namedProgram ? {
+      workflowId: item.workflowId,
+      applicationItemId: item.applicationItemId,
+      kind: item.kind,
+      label: item.label,
+      owner: item.owner,
+      status: item.status,
+      executionBoundary: item.executionBoundary,
+      deadline: item.deadline,
+    } : {
+      workflowId: item.workflowId,
+      kind: item.kind,
+      label: item.label,
+      owner: item.owner,
+      status: item.status,
+      deadline: {
+        date: item.deadline.date,
+        instant: item.deadline.instant,
+        timeZone: item.deadline.timeZone,
+        verificationState: item.deadline.verification.state,
+      },
+    });
     if (!namedProgram) return {
       programId: program.programId,
       university: program.university,
@@ -729,6 +1443,7 @@ export function universityStateJson(
       })),
       applicationItems,
       inactiveApplicationItems,
+      ...(workflowItems.length === 0 ? {} : { workflowItems }),
     };
     return {
       programId: program.programId,
@@ -741,6 +1456,7 @@ export function universityStateJson(
       dates: program.dates,
       applicationItems,
       inactiveApplicationItems,
+      ...(workflowItems.length === 0 ? {} : { workflowItems }),
     };
-  }) as unknown as JsonValue);
+  }));
 }
