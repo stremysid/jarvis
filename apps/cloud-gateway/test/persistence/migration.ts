@@ -25,6 +25,7 @@ import universityTrackerSql from "../../src/persistence/migrations/0022_universi
 import studyCoachSql from "../../src/persistence/migrations/0023_study_coach.sql?raw";
 import universityApplicationWorkflowSql from "../../src/persistence/migrations/0024_university_application_workflow.sql?raw";
 import archiveLiteralHistorySql from "../../src/persistence/migrations/0025_archive_literal_history.sql?raw";
+import memoryDistillationSql from "../../src/persistence/migrations/0026_memory_distillation.sql?raw";
 import schoolObservationsSql from "../../src/persistence/migrations/0027_school_observations.sql?raw";
 import guestGrantNoticeDrainSql from "../../src/persistence/migrations/0028_guest_grant_notice_drain.sql?raw";
 
@@ -40,6 +41,7 @@ let universityTrackerMigrated: Promise<void> | undefined;
 let studyCoachMigrated: Promise<void> | undefined;
 let universityApplicationWorkflowMigrated: Promise<void> | undefined;
 let archiveLiteralHistoryMigrated: Promise<void> | undefined;
+let memoryDistillationMigrated: Promise<void> | undefined;
 let schoolObservationsMigrated: Promise<void> | undefined;
 let guestGrantNoticeDrainMigrated: Promise<void> | undefined;
 
@@ -186,6 +188,15 @@ export async function applyArchiveLiteralHistoryMigration(): Promise<void> {
     { name: "0025_archive_literal_history.sql", queries: splitMigration(archiveLiteralHistorySql) },
   ]);
   await archiveLiteralHistoryMigrated;
+}
+
+/** Applies automatic-distillation receipts and cursor guards after literal history. */
+export async function applyMemoryDistillationMigration(): Promise<void> {
+  await applyArchiveLiteralHistoryMigration();
+  memoryDistillationMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0026_memory_distillation.sql", queries: splitMigration(memoryDistillationSql) },
+  ]);
+  await memoryDistillationMigrated;
 }
 
 /** Applies verified school observations and derived missing-work transitions. */

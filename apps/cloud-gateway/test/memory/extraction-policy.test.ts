@@ -34,6 +34,34 @@ describe("shared memory extraction policy", () => {
     })).toBe(false);
   });
 
+  it.each([
+    ["a text attribution", "Mum texted me. I am moving to Calgary in June."],
+    ["a written attribution", "My adviser wrote this. I am applying to Waterloo."],
+    ["a message attribution", "Dad messaged me. My account details are up to date."],
+    ["a reported attribution", "The counsellor reported this. I have submitted the form."],
+  ])("keeps first-person speech framed by %s out of automatic trust", (_name, sourceText) => {
+    const quote = sourceText.slice(sourceText.indexOf(". ") + 2);
+    expect(isAuthenticatedFirstPersonQuote({ quote, sourceText, authenticatedOwner: true })).toBe(false);
+  });
+
+  it("does not authenticate one sentence cut from a longer direct-marked message", () => {
+    const quote = "I prefer tea.";
+    expect(isAuthenticatedFirstPersonQuote({
+      quote,
+      sourceText: `${quote} Mum texted me about dinner.`,
+      authenticatedOwner: true,
+    })).toBe(false);
+  });
+
+  it("authenticates a whole direct-marked first-person message", () => {
+    const text = "I wrote my Western essay.";
+    expect(isAuthenticatedFirstPersonQuote({
+      quote: text,
+      sourceText: text,
+      authenticatedOwner: true,
+    })).toBe(true);
+  });
+
   for (const testCase of policyVectors.promotionCases) {
     it(testCase.name, () => {
       expect(
