@@ -1,0 +1,53 @@
+checked out 5f150b1 at 5f150b1
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  142 passed (142)
+
+== H1-url-masking: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/university/university-application-workflow-model.test.ts (135 tests | 1 failed) 117ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 141 passed (142)
+   × keeps a complete HTTPS source inside a verified application-date clause 5ms
+
+== H1b-url-restore: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/university/university-application-workflow-model.test.ts (135 tests | 1 failed) 114ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 141 passed (142)
+   × keeps a complete HTTPS source inside a verified application-date clause 5ms
+
+== H2-connector-fallback-date: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  142 passed (142)
+
+== H2b-connector-fallback-status: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/university/university-application-workflow-model.test.ts (135 tests | 4 failed) 120ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  4 failed | 138 passed (142)
+   × keeps a connective inside the named item while applying status I submitted my Arts and Science essay 4ms
+   × keeps a connective inside the named item while applying status I'm working on the Arts and Science essay 1ms
+   × keeps a connective inside the named item while applying status I finished the Arts and Science essay 1ms
+   × creates an item whose label and program contain a connective 0ms
+
+== M2-punctuation-folding: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/university/university-application-workflow-model.test.ts (135 tests | 4 failed) 119ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  4 failed | 138 passed (142)
+   × accepts equivalent apostrophes and dashes in a new-item label: Add the Queen’s Commerce reference / Queen's Commerce reference 5ms
+   × accepts equivalent apostrophes and dashes in a new-item label: Add the Queen's Commerce reference / Queen’s Commerce reference 0ms
+   × accepts equivalent apostrophes and dashes in a new-item label: Add the video-interview / video interview 1ms
+   × accepts equivalent apostrophes and dashes in a new-item label: Add the video interview / video-interview 0ms
+
+== M4-reported-submission: MATCHED 0 TIMES, skipped
+
+=== summary
+SURVIVED  BASE
+KILLED    H1-url-masking
+KILLED    H1b-url-restore
+SURVIVED  H2-connector-fallback-date
+KILLED    H2b-connector-fallback-status
+KILLED    M2-punctuation-folding
+SKIPPED   M4-reported-submission
+back on main, tree clean=true
+(node:37128) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

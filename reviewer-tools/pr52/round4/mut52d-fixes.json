@@ -1,0 +1,76 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "5f150b1",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+   "from": "  const withoutMonthDots = withoutUrls.replace(\n",
+   "to": "  const withoutMonthDots = withoutUrls.replace(\n",
+   "tests": [
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts"
+   ]
+  },
+  {
+   "id": "H1-url-masking",
+   "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+   "from": "  const withoutMonthDots = withoutUrls.replace(\n",
+   "to": "  const withoutMonthDots = value.replace(\n",
+   "tests": [
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts"
+   ]
+  },
+  {
+   "id": "H1b-url-restore",
+   "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+   "from": "    .map((clause) => clause.replace(maskedUrl, (_token, index: string) => urls[Number(index)] ?? \"\"))\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts"
+   ]
+  },
+  {
+   "id": "H2-connector-fallback-date",
+   "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+   "from": "  const dateClauses = date !== null && splitDateClauses.length === 0\n",
+   "to": "  const dateClauses = false && date !== null && splitDateClauses.length === 0\n",
+   "tests": [
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts"
+   ]
+  },
+  {
+   "id": "H2b-connector-fallback-status",
+   "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+   "from": "    ...(namesOnlyItem && itemNameContainsConnector(label, program) ? [evidence] : []),\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts"
+   ]
+  },
+  {
+   "id": "M2-punctuation-folding",
+   "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+   "from": "    .replace(/['\u2019\u02bc`]/gu, \"'\").replace(/[\\p{Pd}]+/gu, \" \").replace(/\\s+/gu, \" \").trim();\n",
+   "to": "    .replace(/\\s+/gu, \" \").trim();\n",
+   "tests": [
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts"
+   ]
+  },
+  {
+   "id": "M4-reported-submission",
+   "file": "apps/cloud-gateway/src/university/university-tracker-model.ts",
+   "from": "\b(?:asked|said|says|told|wrote|writes|sent\\s+me|forwarded)\b",
+   "to": "\b(?:asked|said|told)\b",
+   "tests": [
+    "apps/cloud-gateway/test/university/university-application-workflow-model.test.ts",
+    "apps/cloud-gateway/test/university/university-application-workflow-repository.test.ts"
+   ]
+  }
+ ]
+}
