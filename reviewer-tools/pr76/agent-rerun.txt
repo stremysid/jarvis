@@ -1,0 +1,12 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/zz-pr76-adversarial.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr39
+
+Using secrets defined in process.env
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  17:33:01
+   Duration  24.66s (transform 1.09s, setup 0ms, import 1.75s, tests 22.13s, environment 0ms)
+
