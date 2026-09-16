@@ -8,6 +8,7 @@ const repoRoot = fileURLToPath(new URL('../', import.meta.url));
 const defaultMigrationRoot = fileURLToPath(
   new URL('../apps/cloud-gateway/src/persistence/migrations/', import.meta.url),
 );
+const wranglerPath = resolve(repoRoot, 'node_modules/wrangler/bin/wrangler.js');
 
 const receiptTableSql = `CREATE TABLE IF NOT EXISTS d1_migrations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,6 +94,18 @@ function executeChecked(execute, request, description) {
   }
 }
 
+export function buildWranglerExecuteInvocation({ database, config, sql }) {
+  return {
+    executable: process.execPath,
+    args: [
+      wranglerPath,
+      'd1', 'execute', database, '--remote',
+      '--config', config, '--env', '', `--command=${sql}`,
+    ],
+    options: { cwd: repoRoot, stdio: 'inherit' },
+  };
+}
+
 export function applyBaseline({ migrations, execute, report = console.log }) {
   executeChecked(
     execute,
@@ -156,10 +169,10 @@ export function runCli(argv) {
     throw new Error('The scratch-only Wrangler config must point at the repository migration directory.');
   }
 
-  const execute = ({ sql }) => spawnSync('pnpm.cmd', [
-    'exec', 'wrangler', 'd1', 'execute', database, '--remote',
-    '--config', config, '--env', '', '--command', sql,
-  ], { cwd: repoRoot, stdio: 'inherit' });
+  const execute = ({ sql }) => {
+    const invocation = buildWranglerExecuteInvocation({ database, config, sql });
+    return spawnSync(invocation.executable, invocation.args, invocation.options);
+  };
   discoverCandidateNames();
   const migrations = loadMigrations();
   applyBaseline({ migrations, execute });

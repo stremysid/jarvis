@@ -6,10 +6,36 @@ import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import {
   applyBaseline,
+  buildWranglerExecuteInvocation,
   discoverCandidateNames,
   loadMigrations,
 } from '../prepare-d1-scratch-baseline.mjs';
 import { splitMigration } from '../split-migration.mjs';
+
+test('the scratch baseline invokes Wrangler through Node and keeps each SQL statement in one command argument', () => {
+  const statements = [
+    '-- Production was migrated before this replay.\nCREATE TABLE sample (id TEXT);',
+    `INSERT INTO sample (id) VALUES ('{"source":"scratch"}');`,
+  ];
+
+  for (const sql of statements) {
+    const invocation = buildWranglerExecuteInvocation({
+      database: 'jarvis-scratch-test',
+      config: 'C:\\outside repo\\scratch.toml',
+      sql,
+    });
+
+    assert.equal(invocation.executable, process.execPath);
+    assert.equal(
+      invocation.args[0].replaceAll('\\', '/').endsWith('node_modules/wrangler/bin/wrangler.js'),
+      true,
+    );
+    assert.deepEqual(invocation.args.filter((argument) => argument.startsWith('--command=')), [
+      `--command=${sql}`,
+    ]);
+    assert.equal(invocation.args.includes(sql), false);
+  }
+});
 
 test('the scratch baseline loader uses the shared splitter for a trigger-bearing migration', () => {
   const root = mkdtempSync(join(tmpdir(), 'jarvis scratch baseline '));
