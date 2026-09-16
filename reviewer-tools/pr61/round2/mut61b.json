@@ -1,0 +1,136 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "4d99d15",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0027_school_observations.sql",
+   "from": "CREATE TABLE school_observation_sync (",
+   "to": "CREATE TABLE school_observation_sync (",
+   "tests": [
+    "apps/cloud-gateway/test/school",
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/digest/digest-composer.test.ts",
+    "apps/cloud-gateway/test/jobs/digest-job.test.ts",
+    "apps/cloud-gateway/test/jobs/classroom-poll-job.test.ts"
+   ]
+  },
+  {
+   "id": "T-transitions-insert-guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0027_school_observations.sql",
+   "from": "CREATE TRIGGER school_missing_work_transitions_insert_guard\nBEFORE INSERT ON school_missing_work_transitions\nWHEN EXISTS (\n  SELECT 1 FROM school_missing_work_transitions\n  WHERE principal_id = NEW.principal_id\n    AND (\n      transition_id = NEW.transition_id\n      OR (deadline_id = NEW.deadline_id AND derived_at = NEW.derived_at)\n    )\n) OR NOT EXISTS (\n  SELECT 1 FROM school_observation_sync AS sync\n  JOIN deadlines AS d ON d.source_id = sync.source_id\n  JOIN deadline_sources AS s ON s.source_id = d.source_id\n  WHERE sync.principal_id = NEW.principal_id\n    AND d.deadline_id = NEW.deadline_id\n    AND s.kind = 'classroom'\n    AND sync.last_success_at IS NOT NULL\n    AND sync.last_success_at = NEW.derived_at\n    AND sync.derivation_scan_at = NEW.derived_at\n    AND sync.derivation_started_at IS NOT NULL\n    AND d.due_at = NEW.basis_due_at\n) OR NEW.from_state IS NOT COALESCE((\n  SELECT to_state FROM school_missing_work_transitions\n  WHERE principal_id = NEW.principal_id AND deadline_id = NEW.deadline_id\n  ORDER BY derived_at DESC, transition_id DESC\n  LIMIT 1\n), 'untracked') OR NOT (\n  (\n    NEW.to_state = 'closed'\n    AND NEW.basis_observation_id IS NULL\n    AND EXISTS (\n      SELECT 1 FROM deadlines\n      WHERE deadline_id = NEW.deadline_id AND status != 'open'\n    )\n  ) OR (\n    NEW.to_state = 'submission_seen'\n    AND EXISTS (\n      SELECT 1 FROM school_assignment_observations\n      WHERE principal_id = NEW.principal_id\n        AND observation_id = NEW.basis_observation_id\n        AND deadline_id = NEW.deadline_id\n        AND last_seen_at >= (\n          SELECT sync.derivation_started_at\n          FROM school_observation_sync AS sync\n          JOIN deadlines AS covered ON covered.source_id = sync.source_id\n          WHERE sync.principal_id = NEW.principal_id AND covered.deadline_id = NEW.deadline_id\n        )\n        AND submission_state IN ('turned_in', 'returned', 'student_edited_after_turn_in')\n    )\n  ) OR (\n    NEW.to_state IN ('not_due', 'no_submission_seen')\n    AND EXISTS (\n      SELECT 1 FROM deadlines\n      WHERE deadline_id = NEW.deadline_id\n        AND status = 'open'\n        AND (\n          (NEW.to_state = 'not_due' AND due_at > NEW.derived_at)\n          OR (NEW.to_state = 'no_submission_seen' AND due_at <= NEW.derived_at)\n        )\n    )\n    AND (\n      EXISTS (\n        SELECT 1 FROM school_assignment_observations\n        WHERE principal_id = NEW.principal_id\n          AND observation_id = NEW.basis_observation_id\n          AND deadline_id = NEW.deadline_id\n          AND last_seen_at >= (\n            SELECT sync.derivation_started_at\n            FROM school_observation_sync AS sync\n            JOIN deadlines AS covered ON covered.source_id = sync.source_id\n            WHERE sync.principal_id = NEW.principal_id AND covered.deadline_id = NEW.deadline_id\n          )\n          AND submission_state IN ('new', 'created', 'reclaimed_by_student')\n          AND (\n            NEW.to_state = 'not_due'\n            OR last_seen_at >= (\n              SELECT due_at FROM deadlines WHERE deadline_id = NEW.deadline_id\n            )\n          )\n      )\n    )\n  )\n)\nBEGIN\n  SELECT RAISE(ABORT, 'school_missing_work_transition_insert_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/school",
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/digest/digest-composer.test.ts",
+    "apps/cloud-gateway/test/jobs/digest-job.test.ts",
+    "apps/cloud-gateway/test/jobs/classroom-poll-job.test.ts"
+   ]
+  },
+  {
+   "id": "H2-trigger-read-after-due",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0027_school_observations.sql",
+   "from": "            OR last_seen_at >= (\n              SELECT due_at FROM deadlines WHERE deadline_id = NEW.deadline_id\n            )",
+   "to": "            OR 1",
+   "tests": [
+    "apps/cloud-gateway/test/school",
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/digest/digest-composer.test.ts",
+    "apps/cloud-gateway/test/jobs/digest-job.test.ts",
+    "apps/cloud-gateway/test/jobs/classroom-poll-job.test.ts"
+   ]
+  },
+  {
+   "id": "H1-digest-basis-still-unsubmitted",
+   "file": "apps/cloud-gateway/src/school/school-observation-repository.ts",
+   "from": "           AND basis.submission_state IN ('new', 'created', 'reclaimed_by_student')\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/school",
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/digest/digest-composer.test.ts",
+    "apps/cloud-gateway/test/jobs/digest-job.test.ts",
+    "apps/cloud-gateway/test/jobs/classroom-poll-job.test.ts"
+   ]
+  },
+  {
+   "id": "H1-stamp-read-time",
+   "file": "apps/cloud-gateway/src/school/school-observation-repository.ts",
+   "from": "t.classification, t.to_state, basis.last_seen_at",
+   "to": "t.classification, t.to_state, sync.last_success_at AS last_seen_at",
+   "tests": [
+    "apps/cloud-gateway/test/school",
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/digest/digest-composer.test.ts",
+    "apps/cloud-gateway/test/jobs/digest-job.test.ts",
+    "apps/cloud-gateway/test/jobs/classroom-poll-job.test.ts"
+   ]
+  },
+  {
+   "id": "H2-repo-read-after-due",
+   "file": "apps/cloud-gateway/src/school/school-observation-repository.ts",
+   "from": "            : lastSeenAt >= dueAt\n              ? \"no_submission_seen\"\n              : null;",
+   "to": "            : \"no_submission_seen\";",
+   "tests": [
+    "apps/cloud-gateway/test/school",
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/digest/digest-composer.test.ts",
+    "apps/cloud-gateway/test/jobs/digest-job.test.ts",
+    "apps/cloud-gateway/test/jobs/classroom-poll-job.test.ts"
+   ]
+  },
+  {
+   "id": "M1-replay-idempotent",
+   "file": "apps/cloud-gateway/src/school/school-observation-repository.ts",
+   "from": "      if (row.already_derived === 1) continue;\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/school",
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/digest/digest-composer.test.ts",
+    "apps/cloud-gateway/test/jobs/digest-job.test.ts",
+    "apps/cloud-gateway/test/jobs/classroom-poll-job.test.ts"
+   ]
+  },
+  {
+   "id": "M1-derivation-stale-reset",
+   "file": "apps/cloud-gateway/src/school/classroom-observation-sync.ts",
+   "from": "derivationAge > MAXIMUM_SCAN_AGE_MS",
+   "to": "derivationAge > Number.MAX_SAFE_INTEGER",
+   "tests": [
+    "apps/cloud-gateway/test/school",
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/digest/digest-composer.test.ts",
+    "apps/cloud-gateway/test/jobs/digest-job.test.ts",
+    "apps/cloud-gateway/test/jobs/classroom-poll-job.test.ts"
+   ]
+  },
+  {
+   "id": "M2-local-due",
+   "file": "apps/cloud-gateway/src/digest/digest-composer.ts",
+   "from": "(deadline passed ${localTimestamp(item.dueAt, timeZone)})",
+   "to": "(deadline passed ${item.dueAt})",
+   "tests": [
+    "apps/cloud-gateway/test/school",
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/digest/digest-composer.test.ts",
+    "apps/cloud-gateway/test/jobs/digest-job.test.ts",
+    "apps/cloud-gateway/test/jobs/classroom-poll-job.test.ts"
+   ]
+  },
+  {
+   "id": "M2-local-evidence",
+   "file": "apps/cloud-gateway/src/digest/digest-composer.ts",
+   "from": "showed no submission as of ${localTimestamp(item.lastSeenAt, timeZone)}",
+   "to": "showed no submission as of ${item.lastSeenAt}",
+   "tests": [
+    "apps/cloud-gateway/test/school",
+    "apps/cloud-gateway/test/persistence/school-observation-migration.test.ts",
+    "apps/cloud-gateway/test/digest/digest-composer.test.ts",
+    "apps/cloud-gateway/test/jobs/digest-job.test.ts",
+    "apps/cloud-gateway/test/jobs/classroom-poll-job.test.ts"
+   ]
+  }
+ ]
+}

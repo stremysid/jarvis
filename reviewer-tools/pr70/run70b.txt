@@ -1,0 +1,32 @@
+checked out 27ff8bb at 27ff8bb
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  4 passed (4)
+   Tests  85 passed (85)
+
+== G2-0001-cursor-compare: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/sync/sync-service.test.ts (21 tests | 1 failed) 5366ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 84 passed (85)
+   × aborts a direct acknowledgement with a stale expected current without changing the cursor 176ms
+
+== G3-0001-snapshot-state: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/sync/sync-service.test.ts (21 tests | 1 failed) 5296ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 84 passed (85)
+   × aborts a direct acknowledgement of an already acknowledged snapshot and rolls back the cursor 674ms
+
+== G7-0006-identity-state: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/sync/identity-challenge.test.ts (13 tests | 1 failed) 874ms
+   Test Files  1 failed | 3 passed (4)
+   Tests  1 failed | 84 passed (85)
+   × keeps activation and challenge consumption atomic when the identity changes during confirmation 65ms
+
+=== summary
+SURVIVED  BASE
+KILLED    G2-0001-cursor-compare
+KILLED    G3-0001-snapshot-state
+KILLED    G7-0006-identity-state
+back on main, tree clean=true
+(node:16080) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

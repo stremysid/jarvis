@@ -1,0 +1,171 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr40",
+ "branch": "18d8b26",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0028_guest_grant_notice_drain.sql",
+   "from": "CREATE TRIGGER guest_grant_notice_drain_state_insert_guard\n",
+   "to": "CREATE TRIGGER guest_grant_notice_drain_state_insert_guard\n",
+   "tests": [
+    "apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts",
+    "apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts",
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts"
+   ]
+  },
+  {
+   "id": "T-guest_grant_notice_drain_state_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0028_guest_grant_notice_drain.sql",
+   "from": "CREATE TRIGGER guest_grant_notice_drain_state_insert_guard\nBEFORE INSERT ON guest_grant_notice_drain_state\nWHEN EXISTS (\n  SELECT 1 FROM guest_grant_notice_drain_state existing\n  WHERE existing.singleton_id = NEW.singleton_id\n) OR NEW.singleton_id <> 1\n  OR NEW.status <> 'ready'\n  OR NEW.cursor_created_at IS NOT NULL\n  OR NEW.cursor_mutation_id IS NOT NULL\n  OR NEW.run_id IS NOT NULL\n  OR NEW.lease_expires_at IS NOT NULL\n  OR NEW.updated_at <> '1970-01-01T00:00:00.000Z'\n  OR NEW.failure_code IS NOT NULL\nBEGIN\n  SELECT RAISE(ABORT, 'guest_grant_notice_drain_state_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts",
+    "apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts",
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts"
+   ]
+  },
+  {
+   "id": "T-guest_grant_notice_drain_state_transition_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0028_guest_grant_notice_drain.sql",
+   "from": "CREATE TRIGGER guest_grant_notice_drain_state_transition_guard\nBEFORE UPDATE ON guest_grant_notice_drain_state\nWHEN NEW.singleton_id <> OLD.singleton_id\n  OR NOT (\n    OLD.status IN ('ready', 'failed')\n      AND NEW.status = 'running'\n      AND NEW.cursor_created_at IS OLD.cursor_created_at\n      AND NEW.cursor_mutation_id IS OLD.cursor_mutation_id\n      AND NEW.run_id IS NOT NULL AND length(NEW.run_id) = 36\n      AND NEW.lease_expires_at IS NOT NULL AND NEW.lease_expires_at > NEW.updated_at\n      AND NEW.updated_at >= OLD.updated_at\n      AND NEW.failure_code IS NULL\n    OR OLD.status = 'running'\n      AND NEW.status = 'running'\n      AND NEW.run_id = OLD.run_id\n      AND NEW.lease_expires_at = OLD.lease_expires_at\n      AND NEW.updated_at >= OLD.updated_at\n      AND NEW.failure_code IS NULL\n      AND NEW.cursor_created_at IS NOT NULL\n      AND NEW.cursor_mutation_id IS NOT NULL\n      AND EXISTS (\n        SELECT 1 FROM guest_grant_notices notice\n        WHERE notice.mutation_id = NEW.cursor_mutation_id\n          AND notice.created_at = NEW.cursor_created_at\n      )\n    OR OLD.status = 'running'\n      AND NEW.status IN ('ready', 'failed')\n      AND NEW.cursor_created_at IS OLD.cursor_created_at\n      AND NEW.cursor_mutation_id IS OLD.cursor_mutation_id\n      AND NEW.run_id IS NULL\n      AND NEW.lease_expires_at IS NULL\n      AND NEW.updated_at >= OLD.updated_at\n      AND (\n        NEW.status = 'ready' AND NEW.failure_code IS NULL\n        OR NEW.status = 'failed'\n          AND NEW.failure_code IN ('notice_delivery_failed', 'drain_operation_failed')\n      )\n    OR OLD.status = 'running'\n      AND OLD.lease_expires_at <= NEW.updated_at\n      AND NEW.status = 'failed'\n      AND NEW.cursor_created_at IS OLD.cursor_created_at\n      AND NEW.cursor_mutation_id IS OLD.cursor_mutation_id\n      AND NEW.run_id IS NULL\n      AND NEW.lease_expires_at IS NULL\n      AND NEW.failure_code = 'lease_expired'\n  )\nBEGIN\n  SELECT RAISE(ABORT, 'guest_grant_notice_drain_state_transition_invalid');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts",
+    "apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts",
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts"
+   ]
+  },
+  {
+   "id": "T-guest_grant_notice_drain_state_delete_forbidden",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0028_guest_grant_notice_drain.sql",
+   "from": "CREATE TRIGGER guest_grant_notice_drain_state_delete_forbidden\nBEFORE DELETE ON guest_grant_notice_drain_state\nBEGIN\n  SELECT RAISE(ABORT, 'guest_grant_notice_drain_state_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts",
+    "apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts",
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts"
+   ]
+  },
+  {
+   "id": "R-recover-return",
+   "file": "apps/cloud-gateway/src/jobs/guest-grant-notice-drain.ts",
+   "from": "    if (recovered.meta.changes === 1) return \"expired_run_recovered\";\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts",
+    "apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts",
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts"
+   ]
+  },
+  {
+   "id": "R-already-running",
+   "file": "apps/cloud-gateway/src/jobs/guest-grant-notice-drain.ts",
+   "from": "      if (current?.status === \"running\") return \"already_running\";\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts",
+    "apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts",
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts"
+   ]
+  },
+  {
+   "id": "R-claim-filter",
+   "file": "apps/cloud-gateway/src/jobs/guest-grant-notice-drain.ts",
+   "from": "WHERE status = 'pending' AND (claim_id IS NULL OR claim_expires_at <= ?)",
+   "to": "WHERE status = 'pending' AND (? IS NOT NULL)",
+   "tests": [
+    "apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts",
+    "apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts",
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts"
+   ]
+  },
+  {
+   "id": "R-deferred-status",
+   "file": "apps/cloud-gateway/src/jobs/guest-grant-notice-drain.ts",
+   "from": "          deferred ? \"failed\" : \"ready\",\n          completedAt,\n          deferred ? \"notice_delivery_failed\" : null,",
+   "to": "          \"ready\",\n          completedAt,\n          null,",
+   "tests": [
+    "apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts",
+    "apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts",
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts"
+   ]
+  },
+  {
+   "id": "R-monotonic",
+   "file": "apps/cloud-gateway/src/jobs/guest-grant-notice-drain.ts",
+   "from": "  return current < floor ? floor : current;",
+   "to": "  return current;",
+   "tests": [
+    "apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts",
+    "apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts",
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts"
+   ]
+  },
+  {
+   "id": "R-advance-lost-check",
+   "file": "apps/cloud-gateway/src/jobs/guest-grant-notice-drain.ts",
+   "from": "        if (advanced.meta.changes !== 1) throw new Error(\"guest_grant_notice_drain_checkpoint_lost\");\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts",
+    "apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts",
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts"
+   ]
+  },
+  {
+   "id": "R-undeliverable-skip",
+   "file": "apps/cloud-gateway/src/jobs/guest-grant-notice-drain.ts",
+   "from": "        if (!key.deliverable) {\n          deferred = true;\n        } else {",
+   "to": "        {",
+   "tests": [
+    "apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts",
+    "apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts",
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts"
+   ]
+  },
+  {
+   "id": "G-lease-expired-bound",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0028_guest_grant_notice_drain.sql",
+   "from": "      AND OLD.lease_expires_at <= NEW.updated_at\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts",
+    "apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts",
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts"
+   ]
+  },
+  {
+   "id": "G-cursor-notice-exists",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0028_guest_grant_notice_drain.sql",
+   "from": "      AND EXISTS (\n        SELECT 1 FROM guest_grant_notices notice\n        WHERE notice.mutation_id = NEW.cursor_mutation_id\n          AND notice.created_at = NEW.cursor_created_at\n      )\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts",
+    "apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts",
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts"
+   ]
+  },
+  {
+   "id": "G-claim-cursor-frozen",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0028_guest_grant_notice_drain.sql",
+   "from": "      AND NEW.status = 'running'\n      AND NEW.cursor_created_at IS OLD.cursor_created_at\n      AND NEW.cursor_mutation_id IS OLD.cursor_mutation_id\n",
+   "to": "      AND NEW.status = 'running'\n",
+   "tests": [
+    "apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts",
+    "apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts",
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts"
+   ]
+  },
+  {
+   "id": "G-updated-monotonic-step",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0028_guest_grant_notice_drain.sql",
+   "from": "      AND NEW.lease_expires_at = OLD.lease_expires_at\n      AND NEW.updated_at >= OLD.updated_at\n",
+   "to": "      AND NEW.lease_expires_at = OLD.lease_expires_at\n",
+   "tests": [
+    "apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts",
+    "apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts",
+    "apps/cloud-gateway/test/voice/guest-grant-notice.test.ts"
+   ]
+  }
+ ]
+}

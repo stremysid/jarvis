@@ -1,0 +1,54 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr40",
+ "branch": "27ff8bb",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0001_foundation.sql",
+   "from": "PRAGMA foreign_keys = ON;",
+   "to": "PRAGMA foreign_keys = ON;",
+   "tests": [
+    "apps/cloud-gateway/test/sync/identity-challenge.test.ts",
+    "apps/cloud-gateway/test/sync/sync-service.test.ts",
+    "apps/cloud-gateway/test/persistence/migration-schema.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  },
+  {
+   "id": "G2-0001-cursor-compare",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0001_foundation.sql",
+   "from": "  SELECT RAISE(ABORT, 'sync_cursor_compare_failed') WHERE changes() <> 1;\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/sync/identity-challenge.test.ts",
+    "apps/cloud-gateway/test/sync/sync-service.test.ts",
+    "apps/cloud-gateway/test/persistence/migration-schema.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  },
+  {
+   "id": "G3-0001-snapshot-state",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0001_foundation.sql",
+   "from": "  SELECT RAISE(ABORT, 'sync_snapshot_state_changed') WHERE changes() <> 1;\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/sync/identity-challenge.test.ts",
+    "apps/cloud-gateway/test/sync/sync-service.test.ts",
+    "apps/cloud-gateway/test/persistence/migration-schema.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  },
+  {
+   "id": "G7-0006-identity-state",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0006_voice_access.sql",
+   "from": "  SELECT RAISE(ABORT, 'identity_challenge_state_changed') WHERE changes() <> 1;\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/sync/identity-challenge.test.ts",
+    "apps/cloud-gateway/test/sync/sync-service.test.ts",
+    "apps/cloud-gateway/test/persistence/migration-schema.test.ts",
+    "apps/cloud-gateway/test/persistence/remote-d1-migration-syntax.test.ts"
+   ]
+  }
+ ]
+}

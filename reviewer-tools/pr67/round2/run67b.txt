@@ -1,0 +1,112 @@
+checked out 18d8b26 at 18d8b26
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  23 passed (23)
+
+== T-guest_grant_notice_drain_state_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts (3 tests | 1 failed) 261ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 22 passed (23)
+   × rejects INSERT OR IGNORE and INSERT OR REPLACE collisions on the singleton checkpoint 164ms
+
+== T-guest_grant_notice_drain_state_transition_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts (15 tests | 4 failed) 13751ms
+   Test Files  2 failed | 1 passed (3)
+   Tests  5 failed | 18 passed (23)
+   × rejects a cursor rewrite outside a claimed drain run 47ms
+   × rejects lease-expired failure before the running lease has expired 482ms
+   × rejects a running cursor that does not name an existing notice 1852ms
+   × rejects changing the fair cursor while claiming a failed checkpoint 711ms
+
+== T-guest_grant_notice_drain_state_delete_forbidden: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/guest-grant-notice-drain-migration.test.ts (3 tests | 1 failed) 248ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 22 passed (23)
+   × rejects deletion of the resumable checkpoint 40ms
+
+== R-recover-return: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts (15 tests | 1 failed) 13375ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 22 passed (23)
+   × moves an abandoned running checkpoint to a durable failed state before retrying 490ms
+
+== R-already-running: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts (15 tests | 1 failed) 16447ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 22 passed (23)
+   × reports an overlapping run without notifying while the current lease is active 1127ms
+
+== R-claim-filter: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts (15 tests | 1 failed) 15217ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 22 passed (23)
+   × does not select a notice held by an active delivery claim 902ms
+
+== R-deferred-status: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts (15 tests | 1 failed) 14703ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 22 passed (23)
+   × lets the eleventh notice run first on the next tick after the oldest ten all fail 1231ms
+
+== R-monotonic: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts (15 tests | 1 failed) 19843ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 22 passed (23)
+   × keeps checkpoint timestamps monotonic when the injected clock moves backward 1179ms
+
+== R-advance-lost-check: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts (15 tests | 1 failed) 12285ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 22 passed (23)
+   × stops before the next notice when another run takes the lease mid-batch 1305ms
+
+== R-undeliverable-skip: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts (15 tests | 1 failed) 15513ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 22 passed (23)
+   × skips an undeliverable notice key while advancing the fair cursor past it 890ms
+
+== G-lease-expired-bound: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts (15 tests | 1 failed) 15973ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 22 passed (23)
+   × rejects lease-expired failure before the running lease has expired 505ms
+
+== G-cursor-notice-exists: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts (15 tests | 1 failed) 19399ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 22 passed (23)
+   × rejects a running cursor that does not name an existing notice 507ms
+
+== G-claim-cursor-frozen: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts (15 tests | 1 failed) 13367ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 22 passed (23)
+   × rejects changing the fair cursor while claiming a failed checkpoint 778ms
+
+== G-updated-monotonic-step: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/guest-grant-notice-drain.test.ts (15 tests | 1 failed) 15492ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 22 passed (23)
+   × rejects moving updated_at backward during a running cursor advance 731ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-guest_grant_notice_drain_state_insert_guard
+KILLED    T-guest_grant_notice_drain_state_transition_guard
+KILLED    T-guest_grant_notice_drain_state_delete_forbidden
+KILLED    R-recover-return
+KILLED    R-already-running
+KILLED    R-claim-filter
+KILLED    R-deferred-status
+KILLED    R-monotonic
+KILLED    R-advance-lost-check
+KILLED    R-undeliverable-skip
+KILLED    G-lease-expired-bound
+KILLED    G-cursor-notice-exists
+KILLED    G-claim-cursor-frozen
+KILLED    G-updated-monotonic-step
+back on main, tree clean=true
+(node:9628) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

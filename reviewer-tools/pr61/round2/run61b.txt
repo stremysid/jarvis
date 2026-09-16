@@ -1,0 +1,74 @@
+checked out 4d99d15 at 4d99d15
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  11 passed (11)
+   Tests  189 passed (189)
+
+== T-transitions-insert-guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-observation-migration.test.ts (14 tests | 3 failed) 676ms
+   Test Files  1 failed | 10 passed (11)
+   Tests  3 failed | 186 passed (189)
+   × installs every named trigger in remote-D1 WHEN and SELECT RAISE form 7ms
+   × school_missing_work_transitions_insert_guard permits only reconciled derived no-submission evidence 38ms
+   × school_missing_work_transitions_insert_guard rejects no-submission evidence read before the deadline 37ms
+
+== H2-trigger-read-after-due: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/school-observation-migration.test.ts (14 tests | 1 failed) 672ms
+   Test Files  1 failed | 10 passed (11)
+   Tests  1 failed | 188 passed (189)
+   × school_missing_work_transitions_insert_guard rejects no-submission evidence read before the deadline 38ms
+
+== H1-digest-basis-still-unsubmitted: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/school/school-observation-repository.test.ts (12 tests | 1 failed) 852ms
+   Test Files  1 failed | 10 passed (11)
+   Tests  1 failed | 188 passed (189)
+   × stops reporting missing work as soon as the current observation says it was turned in 60ms
+
+== H1-stamp-read-time: SURVIVED (exit 0), tree clean=true
+   Test Files  11 passed (11)
+   Tests  189 passed (189)
+
+== H2-repo-read-after-due: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/school/school-observation-repository.test.ts (12 tests | 1 failed) 877ms
+   Test Files  1 failed | 10 passed (11)
+   Tests  1 failed | 188 passed (189)
+   × does not derive no submission seen from an observation read before the deadline 42ms
+
+== M1-replay-idempotent: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/school/school-observation-repository.test.ts (12 tests | 1 failed) 861ms
+   Test Files  1 failed | 10 passed (11)
+   Tests  1 failed | 188 passed (189)
+   × replays a committed derivation page idempotently after the deadline changes 58ms
+
+== M1-derivation-stale-reset: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/school/classroom-observation-sync.test.ts (8 tests | 1 failed) 1776ms
+   Test Files  1 failed | 10 passed (11)
+   Tests  1 failed | 188 passed (189)
+   × records and resets a derivation checkpoint that exceeds the declared age bound 38ms
+
+== M2-local-due: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/digest/digest-composer.test.ts (25 tests | 1 failed) 37ms
+   Test Files  1 failed | 10 passed (11)
+   Tests  1 failed | 188 passed (189)
+   × labels an absent submission signal as derived no submission seen and never as a factual miss 5ms
+
+== M2-local-evidence: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/digest/digest-composer.test.ts (25 tests | 1 failed) 34ms
+   Test Files  1 failed | 10 passed (11)
+   Tests  1 failed | 188 passed (189)
+   × labels an absent submission signal as derived no submission seen and never as a factual miss 5ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-transitions-insert-guard
+KILLED    H2-trigger-read-after-due
+KILLED    H1-digest-basis-still-unsubmitted
+SURVIVED  H1-stamp-read-time
+KILLED    H2-repo-read-after-due
+KILLED    M1-replay-idempotent
+KILLED    M1-derivation-stale-reset
+KILLED    M2-local-due
+KILLED    M2-local-evidence
+back on main, tree clean=true
+(node:16500) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
