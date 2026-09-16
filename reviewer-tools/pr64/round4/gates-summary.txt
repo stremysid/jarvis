@@ -1,0 +1,12 @@
+head ee90a65
+lint rc=0
+typecheck rc=0
+test rc=1
+     × suppresses the first post-success phrase repeat before any transcript or model call 5014ms
+     × assembles and suppresses a split post-success phrase repeat before any sink 2312ms
+     × assembles split finals, discards fixed echoes, and clears partial fragments on interruption 5017ms
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > suppresses the first post-success phrase repeat before any transcript or model call
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > assembles and suppresses a split post-success phrase repeat before any sink
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > assembles split finals, discards fixed echoes, and clears partial fragments on interruption
+ Test Files  1 failed | 180 passed (181)
+      Tests  3 failed | 4768 passed (4771)
