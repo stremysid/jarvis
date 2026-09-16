@@ -9,8 +9,10 @@ database. It does not authorize a production migration or deployment.
    that all 197 final trigger names from the nine candidate files exist, both
    unique keys in the scratch guard form reject `INSERT OR REPLACE` and
    `INSERT OR IGNORE`, and remote D1 still rejects the unsupported
-   `CASE`-wrapped `RAISE` form. It proves remote-D1 compatibility, not the
-   contents of production rows, production bindings, or a deployment.
+   `CASE`-wrapped `RAISE` form. It proves remote-D1 compatibility against a
+   clean baseline. It does not prove that the additive migrations accept
+   production-shaped existing rows or production's data volume, and it does
+   not prove production bindings or a deployment.
 
 2. **Name, confirm, and create the throwaway database.** Choose a new name
    containing `scratch`; never reuse an existing database. Read the displayed
@@ -31,7 +33,9 @@ database. It does not authorize a production migration or deployment.
    Expect the Wrangler success line for the entered name, followed by exactly
    `SCRATCH CREATE OK: <entered name>`. Stop if Wrangler says the name already
    exists or shows any target other than the confirmed scratch name. Do not
-   copy the returned database identifier into a repository file.
+   copy the returned database identifier into a repository file. If creation
+   fails at the account's database limit, delete an older, separately confirmed
+   scratch database first; never select a production database to make room.
 
 3. **List, then apply the repository migrations to scratch.** A new database
    must receive the production baseline before the nine candidates, so the
@@ -76,12 +80,31 @@ database. It does not authorize a production migration or deployment.
    Write-Host "SCRATCH MIGRATIONS OK: 9/9 candidate receipts present in filename order."
    ```
 
+   If the repository-candidate comparison throws, the reviewed set changed
+   since this runbook was written; this is not a database failure, so update
+   the list and have the new set reviewed before proceeding.
+
    Expect Wrangler to report the applied baseline `0001` through `0015`, then
    the nine names above in filename order, then exactly `SCRATCH MIGRATIONS
    OK: 9/9 candidate receipts present in filename order.` A missing,
    reordered, extra later, or failed candidate is a stop.
 
-4. **Prove every named trigger exists.** The files contain 200 `CREATE TRIGGER`
+4. **Treat existing production rows as a known gap.** The supported
+   `wrangler d1 migrations apply` command applies every pending file and this
+   procedure has no reviewed way to stop after `0015`. Seeding one human
+   principal, one device, one active Telegram channel identity and one
+   conversation event after step 3 would prove only that post-migration inserts
+   work; it would not prove that `0016` onward accepts rows that already exist.
+   Moving migration files, rewriting configuration or fabricating migration
+   receipts would test a different, riskier procedure, so this runbook does not
+   do that. A successful scratch run can therefore miss a new `NOT NULL` column
+   without a default, a guard that rejects an existing row, or a unique index
+   over already-conflicting data. Before a production apply, obtain a separate
+   review of the candidates against production's protected, non-secret data
+   shape; do not copy or export production rows into scratch under this
+   runbook.
+
+5. **Prove every named trigger exists.** The files contain 200 `CREATE TRIGGER`
    declarations and three intentional replacements, leaving 197 unique final
    names. This command extracts the names from the exact nine files instead of
    maintaining a second hand-written list. In **PowerShell 7**:
@@ -122,11 +145,15 @@ database. It does not authorize a production migration or deployment.
    Write-Host "TRIGGER CHECK OK: 197/197 named triggers present."
    ```
 
+   If the reviewed `197` inventory check throws, the reviewed migration set
+   changed since this runbook was written; this is not a database failure, so
+   update the count from the newly reviewed set before proceeding.
+
    Expect exactly `TRIGGER CHECK OK: 197/197 named triggers present.` in the
    result. Any smaller number is a failure even if the migration command exited
    zero.
 
-5. **Prove both unique-key guards defeat both conflict algorithms.** This is
+6. **Prove both unique-key guards defeat both conflict algorithms.** This is
    the existing `STRICT, WITHOUT ROWID` remote-D1 pattern, expanded to test the
    primary key and alternate unique key with both algorithms. In
    **PowerShell 7**:
@@ -163,7 +190,7 @@ database. It does not authorize a production migration or deployment.
    `scratch_unique_guard_rejected`, then exactly `UNIQUE ROW OK: first/one
    preserved.` Success from any conflict statement is a failure.
 
-6. **Prove `CASE`-wrapped `RAISE` is still rejected.** This deliberately sends
+7. **Prove `CASE`-wrapped `RAISE` is still rejected.** This deliberately sends
    the unsupported form; failure is the expected result. In **PowerShell 7**:
 
    ```powershell
@@ -182,9 +209,11 @@ database. It does not authorize a production migration or deployment.
    Expect the command to fail with `incomplete input: SQLITE_ERROR [code:
    7500]`, followed by exactly the `CASE RAISE CHECK OK` line. If remote D1
    accepts the trigger, stop and obtain a new review; do not reinterpret that
-   as a pass.
+   as a pass. If the command still fails but its wording no longer matches all
+   three checked substrings, ask for review; that mismatch does not mean the
+   database is broken.
 
-7. **Remove the probe objects, then delete scratch.** In **PowerShell 7**:
+8. **Remove the probe objects, then delete scratch.** In **PowerShell 7**:
 
    ```powershell
    cd C:\path\to\jarvis
@@ -207,7 +236,7 @@ database. It does not authorize a production migration or deployment.
    `197/197`, four unique-guard, preserved-row, CASE rejection, and deletion
    lines. Do not record account identifiers or credentials.
 
-8. **Return to the production procedure.** This proof does not authorize the
+9. **Return to the production procedure.** This proof does not authorize the
    apply. If Sid later chooses to apply, use
    [deploy.md, “R0 item 5: migrate, then deploy”](deploy.md#r0-item-5-migrate-then-deploy)
    rather than copying scratch commands. Its trap is decisive:
@@ -216,7 +245,7 @@ database. It does not authorize a production migration or deployment.
    first and reconciles both the count and names to exactly the nine filenames
    in step 3. More, fewer, or differently named files means stop.
 
-9. **Stop cleanly on any failure.** If scratch fails partway, earlier
+10. **Stop cleanly on any failure.** If scratch fails partway, earlier
    migrations remain applied. Record the failed filename and exact error, list
    scratch again, and do not continue the proof on that partial database;
    after preserving evidence, delete it and restart with a newly named scratch
