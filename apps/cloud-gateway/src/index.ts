@@ -9,6 +9,10 @@ import {
   type AcceptedTelegramButtonTap,
   type AcceptedTelegramUpdate,
 } from "./channels/telegram/telegram-webhook.js";
+import {
+  TelegramTurnObserver,
+  telegramTurnOutcomeLog,
+} from "./channels/telegram/telegram-turn-observability.js";
 import { DeadlineRepository } from "./deadlines/deadline-repository.js";
 import { ProjectRepository } from "./projects/project-repository.js";
 import { QuietWindowService } from "./deadlines/quiet-windows.js";
@@ -48,7 +52,7 @@ import { EventRepository } from "./persistence/event-repository.js";
 import { PolicyService } from "./policy/policy-service.js";
 import { DeepSeekModelAdapter } from "./providers/deepseek-provider.js";
 import { ProviderCircuitBreaker } from "./providers/provider-circuit-breaker.js";
-import { TelegramRestProvider } from "./providers/telegram-provider.js";
+import { TelegramRestProvider, withTelegramTyping } from "./providers/telegram-provider.js";
 import { Redactor } from "./security/redaction.js";
 import { SchoolCatchupModelAdapter } from "./school/school-catchup-model.js";
 import { SchoolCatchupRepository } from "./school/school-catchup-repository.js";
@@ -105,88 +109,92 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
   if (apiKey === undefined || botToken === undefined) return;
 
   const controller = new AbortController();
+  const telegram = new TelegramRestProvider({ botToken });
   try {
-    // The delivery target is the channel identity, not the chat. Resolving it
-    // here also re-confirms the identity is still active: authentication
-    // happened when the message arrived, and this runs afterwards.
-    const identity = await new DeviceRepository(env.DB).findActiveVerifiedTelegramIdentity(
-      accepted.telegramUserId,
-    );
-    if (identity === null) return;
+    await withTelegramTyping(telegram, accepted.chatId, async () => {
+      const observer = new TelegramTurnObserver();
+      // The delivery target is the channel identity, not the chat. Resolving it
+      // here also re-confirms the identity is still active: authentication
+      // happened when the message arrived, and this runs afterwards.
+      const identity = await new DeviceRepository(env.DB).findActiveVerifiedTelegramIdentity(
+        accepted.telegramUserId,
+      );
+      if (identity === null) return;
 
-    const events = new EventRepository(env.DB);
-    const repository = new ConversationRepository(env.DB, events);
-    const redactor = new Redactor();
-    const baseModel = new DeepSeekModelAdapter({ apiKey, model: env.DEEPSEEK_MODEL });
-    const ownerPrincipalId = env.OWNER_PRINCIPAL_ID;
-    const model = ownerPrincipalId !== undefined && accepted.principalId === ownerPrincipalId
-      ? new StudyCoachModelAdapter({
-        fallbackModel: new SchoolCatchupModelAdapter({
-          model: baseModel,
-          repository: new SchoolCatchupRepository(env.DB),
-          universityRepository: new UniversityTrackerRepository(env.DB),
+      const events = new EventRepository(env.DB);
+      const repository = new ConversationRepository(env.DB, events);
+      const redactor = new Redactor();
+      const baseModel = observer.observeProvider(new DeepSeekModelAdapter({
+        apiKey,
+        model: env.DEEPSEEK_MODEL,
+        telegramTurn: true,
+        telegramThinking: env.DEEPSEEK_TELEGRAM_THINKING,
+      }));
+      const ownerPrincipalId = env.OWNER_PRINCIPAL_ID;
+      const model = ownerPrincipalId !== undefined && accepted.principalId === ownerPrincipalId
+        ? new StudyCoachModelAdapter({
+          fallbackModel: new SchoolCatchupModelAdapter({
+            model: baseModel,
+            repository: new SchoolCatchupRepository(env.DB),
+            universityRepository: new UniversityTrackerRepository(env.DB),
+            redactor,
+            timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
+            ownerPrincipalId,
+            ownerTurnAuthoritative: accepted.isDirectText,
+            refreshBrightspace: async (now) => runOnDemandBrightspaceRefresh({
+              env,
+              clock: { now: () => new Date(now.getTime()) },
+              delivery: { send: async () => undefined },
+              fetcher: globalThis.fetch.bind(globalThis),
+            }),
+          }),
+          practiceModel: baseModel,
+          repository: new StudyCoachRepository(env.DB),
           redactor,
-          timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
           ownerPrincipalId,
           ownerTurnAuthoritative: accepted.isDirectText,
-          refreshBrightspace: async (now) => runOnDemandBrightspaceRefresh({
-            env,
-            clock: { now: () => new Date(now.getTime()) },
-            delivery: { send: async () => undefined },
-            fetcher: globalThis.fetch.bind(globalThis),
-          }),
-        }),
-        practiceModel: baseModel,
-        repository: new StudyCoachRepository(env.DB),
-        redactor,
-        ownerPrincipalId,
-        ownerTurnAuthoritative: accepted.isDirectText,
-        timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
-      })
-      : baseModel;
+          timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
+        })
+        : baseModel;
 
-    const service = new DefaultConversationService({
-      repository,
-      model,
-      context: new D1ContextRetriever(env.DB),
-      dispatcher: new DefaultOutboxDispatcher({
+      const service = new DefaultConversationService({
         repository,
-        identityResolver: new D1TelegramIdentityResolver(env.DB),
-        channels: new Map([["telegram", new TelegramRestProvider({ botToken })]]),
-        circuitBreaker: providerCircuitBreaker,
-      }),
-      redactor,
-    });
-
-    const result = await service.handleTurn({
-      // One conversation per chat, so separate chats do not share a thread.
-      sessionId: `telegram:${accepted.chatId}`,
-      principalId: accepted.principalId,
-      turnId: newUlid(),
-      text: accepted.text,
-      signal: controller.signal,
-      channel: "telegram",
-      kind: "outbox",
-      targetIdentityId: identity.identityId,
-      replyToMessageId: accepted.messageId,
-    });
-
-    // Anything other than delivered is worth seeing. The turn is durably
-    // recorded either way, but silence here is what made the earlier failures
-    // so hard to find.
-    if (result.outcome !== "telegram_delivered") {
-      console.log("telegram_turn_outcome", {
-        eventId: accepted.eventId,
-        outcome: result.outcome,
-        deliveryId: result.deliveryId,
+        model: observer.observeModel(model),
+        context: observer.observeContext(new D1ContextRetriever(env.DB)),
+        dispatcher: observer.observeDelivery(new DefaultOutboxDispatcher({
+          repository,
+          identityResolver: new D1TelegramIdentityResolver(env.DB),
+          channels: new Map([["telegram", telegram]]),
+          circuitBreaker: providerCircuitBreaker,
+        })),
+        redactor,
       });
-    }
-  } catch (error) {
+
+      const result = await service.handleTurn({
+        // One conversation per chat, so separate chats do not share a thread.
+        sessionId: `telegram:${accepted.chatId}`,
+        principalId: accepted.principalId,
+        turnId: newUlid(),
+        text: accepted.text,
+        signal: controller.signal,
+        channel: "telegram",
+        kind: "outbox",
+        targetIdentityId: identity.identityId,
+        replyToMessageId: accepted.messageId,
+      });
+
+      console.log("telegram_turn_outcome", telegramTurnOutcomeLog(
+        accepted.eventId,
+        result.outcome,
+        observer.snapshot(),
+      ));
+    });
+  } catch {
     // Contained, not hidden: the inbound message is already archived, so this
     // is a delivery problem rather than data loss.
     console.error("telegram_reply_failed", {
       eventId: accepted.eventId,
-      reason: error instanceof Error ? error.message : String(error),
+      reason: "unexpected",
     });
   }
 }

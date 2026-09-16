@@ -77,6 +77,12 @@ export interface Env {
    */
   DEEPSEEK_MODEL?: string;
 
+  /**
+   * Telegram thinking mode. Defaults to disabled. Any value except enabled or
+   * disabled also uses the default and logs deepseek_telegram_thinking_invalid once.
+   */
+  DEEPSEEK_TELEGRAM_THINKING?: string;
+
   /** Explicit owner limits. Missing or malformed capacity configuration refuses admission. */
   CAPACITY_D1_BUDGET_BYTES?: string;
   CAPACITY_R2_BUDGET_BYTES?: string;

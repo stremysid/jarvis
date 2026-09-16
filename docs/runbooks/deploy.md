@@ -76,7 +76,7 @@ All other string bindings are optional in `env.ts`, so they stay out of
 | Capability | Optional binding names to configure for that capability |
 |---|---|
 | Telegram text | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_BOT_USERNAME` |
-| Model responses | `DEEPSEEK_API_KEY`; `DEEPSEEK_MODEL` overrides the model |
+| Model responses | `DEEPSEEK_API_KEY`; `DEEPSEEK_MODEL` overrides the model; `DEEPSEEK_TELEGRAM_THINKING` is `enabled` or `disabled` and defaults to `disabled` for Telegram turns. Any other value uses that default and logs `deepseek_telegram_thinking_invalid` once |
 | Device sync | `SYNC_CONTINUATION_SECRET` |
 | Scheduled jobs and digest | `OWNER_PRINCIPAL_ID`, `DIGEST_TIMEZONE` |
 | Gateway heartbeat | `WATCHDOG_HEARTBEAT_URL`, `WATCHDOG_HEARTBEAT_SECRET` |
