@@ -68,6 +68,18 @@ export interface DigestStudyCheckIn {
   readonly evidenceCount: number;
   readonly confidence: "low" | "medium" | "high";
   readonly observedAt: string;
+  readonly citations: readonly DigestStudySignalCitation[];
+}
+
+export interface DigestStudySignalCitation {
+  readonly sourceKind: "verified_grade" | "derived_missing_work" | "deadline" | "quiz_outcome" | "owner_report" | "course_context";
+  readonly sourceRecordId: string;
+  readonly course: string;
+  readonly itemLabel: string;
+  readonly observedAt: string;
+  readonly verification: "verified" | "derived" | "owner_reported" | "unverified";
+  readonly freshness: "current" | "stale";
+  readonly detail: string;
 }
 
 export interface DigestGradeObservation {
@@ -75,6 +87,8 @@ export interface DigestGradeObservation {
   readonly course: string;
   readonly title: string;
   readonly assignedGrade: number;
+  readonly maxPoints: number | null;
+  readonly gradeUpdatedAt: string | null;
   readonly source: "Google Classroom";
   readonly lastSeenAt: string;
 }
