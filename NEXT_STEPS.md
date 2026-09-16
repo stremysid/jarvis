@@ -49,8 +49,9 @@ depend on the channel-neutral R2 owner-controls service. Draft
 `0024_university_application_workflow.sql` for per-program application
 checklists, current-owner conversational updates, due-date verification labels,
 and the next unfinished application items in the morning digest. Claude's
-round-3 max review requested changes at `12a7bbf`; its remediation is in this
-branch. Both `0023` and `0024` remain unapplied candidates. None of these slices
+round-3 max review requested changes at `12a7bbf`; implementation `d5f5ede`
+plus current-main merge `f2d5c9f` is ready for max re-review. Both `0023` and
+`0024` remain unapplied candidates. None of these slices
 authorizes OAuth consent, a secret operation, migration, deployment, school or
 university contact, purchase, sign-up, submission or live account access.
 

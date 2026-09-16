@@ -23,9 +23,10 @@ remains reserved for the separate study-coach branch. This draft performs no
 submission, upload, school/referee contact, purchase, sign-up, migration,
 deployment or live request. Claude Opus 5 max review requested changes at
 `3388c39`, and the round-3 max review requested further changes at `12a7bbf`.
-The round-3 remediation is in this branch; its current validation belongs in
-the newest `docs/AGENT_LOG.md` entry. Deferred cross-layer and presentation
-limits are listed in `KNOWN_ISSUES.md`.
+Implementation `d5f5ede` plus current-main merge `f2d5c9f` is ready for max
+re-review. The final merged tree passes lint, production typecheck, 52/52
+migration-focused tests and the full 166-file/3,591-test suite. Deferred
+cross-layer and presentation limits are listed in `KNOWN_ISSUES.md`.
 
 ## R5 study coach is in draft review
 
