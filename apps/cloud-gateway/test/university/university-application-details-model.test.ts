@@ -364,13 +364,13 @@ describe("university application detail model", () => {
     }), reviewerStepSnapshot())).toThrow("university_workflow_model_item_invalid");
   });
 
-  it("records an offer only from Sid's direct statement", () => {
-    const text = "I received a Western Medical Sciences offer.";
+  it("records an offer only from Sid's one explicit sentence, with a fixed label and owner", () => {
+    const text = "I received an offer from Western University for Medical Sciences.";
     expect(parseWorkflow(text, workflowUpdate({
       applicationItemRef: null,
       kind: "offer",
-      label: "Western Medical Sciences offer",
-      owner: "university",
+      label: "Western Medical Sciences offer (confirmed, reply by June 1)",
+      owner: "sid",
       status: "owner_reported_offered",
       statusEvidence: text,
       preparedDetails: null,
@@ -378,37 +378,47 @@ describe("university application detail model", () => {
         date: null, instant: null, timeZone: null,
         verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text,
       },
-    }))).toMatchObject({ workflowUpdates: [{ status: "owner_reported_offered" }] });
+    }))).toMatchObject({ workflowUpdates: [{
+      status: "owner_reported_offered", kind: "offer", label: "offer", owner: "university",
+    }] });
   });
 
-  it("binds a natural school-only offer report when that school has exactly one tracked program", () => {
-    const text = "I got my Waterloo offer!!";
-    expect(parseWorkflow(text, workflowUpdate({
-      programRef: WATERLOO, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
+  it("refuses an offer update that carries a deadline date or prepared text", () => {
+    const text = "I got an offer from Western for Medical Sciences.";
+    const offer = (overrides: Record<string, unknown>) => workflowUpdate({
+      applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
       status: "owner_reported_offered", statusEvidence: text, preparedDetails: null,
       deadline: { date: null, instant: null, timeZone: null,
         verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
-    }), decisionSnapshot())).toMatchObject({ workflowUpdates: [{ programRef: WATERLOO }] });
+      ...overrides,
+    });
+    expect(parseWorkflow(text, offer({}))).toMatchObject({ workflowUpdates: [{ status: "owner_reported_offered" }] });
+    expect(() => parseWorkflow(text, offer({ preparedDetails: "Reply by June 1." })))
+      .toThrow("university_workflow_model_item_invalid");
+    expect(() => parseWorkflow(text, offer({ deadline: { date: "2027-06-01", instant: null, timeZone: null,
+      verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text } })))
+      .toThrow("university_workflow_model_deadline_invalid");
   });
 
   it.each([
     ["I got into Waterloo!!", WATERLOO],
     ["Western accepted me", PROGRAM],
+    ["I got my Waterloo offer!!", WATERLOO],
     ["I got my Waterloo offer", WATERLOO],
     ["I got an offer from Waterloo!", WATERLOO],
     ["I got a Waterloo CS offer", WATERLOO],
     ["I got my Waterloo Computer Science offer", WATERLOO],
     ["I received a Western Medical Sciences offer", PROGRAM],
-  ] as const)("binds the reviewer probe's direct offer wording to its sole school program: %s", (text, programRef) => {
-    expect(parseWorkflow(text, workflowUpdate({
+  ] as const)("never infers the program from a school-only or reworded offer report: %s", (text, programRef) => {
+    expect(() => parseWorkflow(text, workflowUpdate({
       programRef, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
       status: "owner_reported_offered", statusEvidence: text, preparedDetails: null,
       deadline: { date: null, instant: null, timeZone: null,
         verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
-    }), decisionSnapshot())).toMatchObject({ workflowUpdates: [{ programRef }] });
+    }), decisionSnapshot())).toThrow("university_workflow_model_item_invalid");
   });
 
-  it("requires the program name only when one school has several tracked programs", () => {
+  it("binds only the explicitly named program when one school has several tracked programs", () => {
     const current = decisionSnapshot();
     const waterloo = current.programs.find((program) => program.programId === WATERLOO)!;
     const ambiguous: UniversityTrackerSnapshot = {
@@ -417,16 +427,30 @@ describe("university application detail model", () => {
         ...waterloo, programId: SECOND_WORKFLOW, programName: "Software Engineering", applicationItems: [],
       }],
     };
-    const update = (text: string) => workflowUpdate({
-      programRef: WATERLOO, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
+    const update = (text: string, programRef: Ulid) => workflowUpdate({
+      programRef, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
       status: "owner_reported_offered", statusEvidence: text, preparedDetails: null,
       deadline: { date: null, instant: null, timeZone: null,
         verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
     });
+    const named = "I got an offer from Waterloo for Software Engineering.";
+    expect(parseWorkflow(named, update(named, SECOND_WORKFLOW), ambiguous))
+      .toMatchObject({ workflowUpdates: [{ programRef: SECOND_WORKFLOW }] });
+    expect(() => parseWorkflow(named, update(named, WATERLOO), ambiguous)).toThrow("university_workflow_model_item_invalid");
     const missing = "I got my Waterloo offer.";
-    const named = "I got my Waterloo Computer Science offer.";
-    expect(() => parseWorkflow(missing, update(missing), ambiguous)).toThrow("university_workflow_model_item_invalid");
-    expect(parseWorkflow(named, update(named), ambiguous)).toMatchObject({ workflowUpdates: [{ programRef: WATERLOO }] });
+    expect(() => parseWorkflow(missing, update(missing, WATERLOO), ambiguous)).toThrow("university_workflow_model_item_invalid");
+
+    const twoCampuses: UniversityTrackerSnapshot = {
+      ...current,
+      programs: [...current.programs, {
+        ...waterloo, programId: SECOND_WORKFLOW, campus: "Stratford", applicationItems: [],
+      }],
+    };
+    const sameName = "I got an offer from Waterloo for Computer Science.";
+    expect(parseWorkflow(sameName, update(sameName, WATERLOO), decisionSnapshot()))
+      .toMatchObject({ workflowUpdates: [{ programRef: WATERLOO }] });
+    expect(() => parseWorkflow(sameName, update(sameName, WATERLOO), twoCampuses))
+      .toThrow("university_workflow_model_item_invalid");
   });
 
   it.each([
@@ -455,14 +479,27 @@ describe("university application detail model", () => {
     "Mom cried when I told her: I got an offer from Waterloo for Computer Science.",
     "I got an offer from Waterloo for Computer Science. Actually so happy.",
     "Wait, I got an offer from Waterloo for Computer Science!",
+  ])("records nothing when the explicit offer sentence has a second clause: %s", (text) => {
+    expect(() => parseWorkflow(text, workflowUpdate({
+      programRef: WATERLOO, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
+      status: "owner_reported_offered", statusEvidence: text, preparedDetails: null,
+      deadline: { date: null, instant: null, timeZone: null,
+        verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+    }), decisionSnapshot())).toThrow("university_workflow_model_item_invalid");
+  });
+
+  it.each([
     "I got an offer from Waterloo for Computer Science.",
-  ])("accepts the reviewer probe's direct offer even with trailing emotion: %s", (text) => {
+    "I got an offer from University of Waterloo for Computer Science!!",
+    "I got an offer for Computer Science from the University of Waterloo",
+    "Jarvis, I just got a conditional offer from Waterloo for Computer Science.",
+  ])("records the explicit offer sentence: %s", (text) => {
     expect(parseWorkflow(text, workflowUpdate({
       programRef: WATERLOO, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
       status: "owner_reported_offered", statusEvidence: text, preparedDetails: null,
       deadline: { date: null, instant: null, timeZone: null,
         verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
-    }), decisionSnapshot())).toMatchObject({ workflowUpdates: [{ status: "owner_reported_offered" }] });
+    }), decisionSnapshot())).toMatchObject({ workflowUpdates: [{ status: "owner_reported_offered", programRef: WATERLOO }] });
   });
 
   it.each([
@@ -515,23 +552,26 @@ describe("university application detail model", () => {
     }), decisionSnapshot())).toThrow("university_workflow_model_item_invalid");
   });
 
-  it("pins accepted-status adjacency to an offer or admission noun", () => {
-    const direct = "I accepted the Waterloo response offer.";
-    const withoutNoun = "I accepted the Waterloo response.";
-    const supports = (text: string): boolean => supportsWorkflowStatusEvidence(
-      "owner_reported_accepted",
-      "offer_response",
-      text,
-      "new-workflow-1",
-      "Waterloo response",
-      null,
-      null,
-      null,
-      { university: "University of Waterloo", programName: "Computer Science" },
-      null,
-    );
-    expect(supports(direct)).toBe(true);
-    expect(supports(withoutNoun)).toBe(false);
+  it("records an offer response only from the explicit accepted or declined sentence", () => {
+    const supports = (status: "owner_reported_accepted" | "owner_reported_declined", text: string): boolean =>
+      supportsWorkflowStatusEvidence(
+        status,
+        "offer_response",
+        text,
+        "new-workflow-1",
+        "offer response",
+        null,
+        null,
+        null,
+        { university: "University of Waterloo", programName: "Computer Science" },
+        null,
+      );
+    expect(supports("owner_reported_accepted", "I accepted my offer from Waterloo for Computer Science.")).toBe(true);
+    expect(supports("owner_reported_declined", "I declined the offer from University of Waterloo for Computer Science.")).toBe(true);
+    expect(supports("owner_reported_accepted", "I accepted the Waterloo response offer.")).toBe(false);
+    expect(supports("owner_reported_accepted", "I accepted the Waterloo response.")).toBe(false);
+    expect(supports("owner_reported_accepted", "I declined my offer from Waterloo for Computer Science.")).toBe(false);
+    expect(supports("owner_reported_accepted", "I haven't accepted my offer from Waterloo for Computer Science.")).toBe(false);
   });
 
   it("requires an offer clause to name exactly one tracked school and its program", () => {
@@ -982,51 +1022,13 @@ describe("university application detail model", () => {
     }))).toThrow("university_workflow_model_deadline_invalid");
   });
 
-  it.each([
-    "I've gone ahead and accepted your Waterloo offer.",
-    "All done: Waterloo offer accepted.",
-    "Transcript ordered and on its way to Western.",
-    "Your Waterloo acceptance is in.",
-    "Western has your transcript now.",
-    "Message sent to your counsellor.",
-    "Consider it done.",
-    "Booked your campus tour.",
-    "Your OUAC account is set up.",
-    "I let Ms. Lee know.",
-    "Accepted your Waterloo offer!",
-    "OUAC fee paid.",
-    "Emailed Ms. Lee for you.",
-    "I've taken care of the OUAC fee.",
-    "I handled your Waterloo acceptance.",
-    "I've locked in your spot at Waterloo.",
-    "Your spot at Waterloo is secured.",
-    "Ms. Lee now has your reference request.",
-    "I got in touch with your counsellor.",
-    "I responded to Waterloo's offer and said yes.",
-    "I replied to Ms. Lee.",
-    "I completed your OUAC payment.",
-    "I finalized your Waterloo AIF submission.",
-    "Your AIF is in.",
-    "Waterloo received your AIF.",
-    "I mailed your transcript request.",
-    "I filed the OUAC form.",
-    "Done and done. Western's offer is yours, I said yes.",
-    "Jarvis accepted the Waterloo offer on your behalf.",
-    "I've RSVP'd yes to Western.",
-  ])("B1 replaces a structural external-state claim through the real adapter: %s", async (reply) => {
-    const model = new SequenceModel([combinedResponse({ reply })]);
-    await expect(collect(adapterWith(model).stream(input("What should I do next?")))).resolves.toBe(
-      "I can't do or confirm that action. I can prepare a draft or exact checklist, but you must send, upload, submit, pay, sign up, or contact them yourself.",
-    );
-  });
-
-  it("S1 binds a natural offer report to the only tracked program through the real adapter", async () => {
-    const text = "I got my Waterloo offer!!";
+  it("shows only the fixed receipt after an offer save, never the model's reply", async () => {
+    const text = "I got an offer from University of Waterloo for Computer Science.";
     const model = new SequenceModel([combinedResponse({
       universityEngaged: true,
-      reply: "Congrats — that is huge.",
+      reply: "Congrats! I accepted it for you and recorded it.",
       workflowUpdates: [workflowUpdate({
-        programRef: WATERLOO, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
+        programRef: WATERLOO, applicationItemRef: null, kind: "offer", label: "Waterloo offer, confirmed", owner: "sid",
         status: "owner_reported_offered", statusEvidence: text, preparedDetails: null,
         deadline: { date: null, instant: null, timeZone: null,
           verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
@@ -1034,13 +1036,16 @@ describe("university application detail model", () => {
     })]);
     const applyOwnerPlan = vi.fn(async (_request: ApplyOwnerUniversityPlanInput) => undefined);
     await expect(collect(adapterWith(model, decisionSnapshot(), applyOwnerPlan).stream(input(text))))
-      .resolves.toBe("Congrats — that is huge.");
+      .resolves.toBe("Saved: University of Waterloo Computer Science offer (you told me; unverified).");
+    expect(model.requests).toHaveLength(1);
     expect(applyOwnerPlan).toHaveBeenCalledWith(expect.objectContaining({
-      plan: expect.objectContaining({ workflowUpdates: [expect.objectContaining({ programRef: WATERLOO })] }),
+      plan: expect.objectContaining({ workflowUpdates: [expect.objectContaining({
+        programRef: WATERLOO, kind: "offer", label: "offer", owner: "university",
+      })] }),
     }));
   });
 
-  it("S1 asks only for the missing program when one school has several tracked programs", async () => {
+  it("asks for the one missing program when an offer report names a school with several programs", async () => {
     const current = decisionSnapshot();
     const waterloo = current.programs.find((program) => program.programId === WATERLOO)!;
     const ambiguous: UniversityTrackerSnapshot = {
@@ -1049,17 +1054,19 @@ describe("university application detail model", () => {
         ...waterloo, programId: SECOND_WORKFLOW, programName: "Software Engineering", applicationItems: [],
       }],
     };
-    const model = new SequenceModel([]);
-    await expect(collect(adapterWith(model, ambiguous).stream(input("I got my Waterloo offer!!"))))
-      .resolves.toBe("Which Waterloo program — Computer Science or Software Engineering?");
-    expect(model.requests).toEqual([]);
+    const model = new SequenceModel([combinedResponse({ reply: "Congrats, I recorded it!" })]);
+    const applyOwnerPlan = vi.fn(async (_request: ApplyOwnerUniversityPlanInput) => undefined);
+    await expect(collect(adapterWith(model, ambiguous, applyOwnerPlan).stream(input("I got my Waterloo offer!!"))))
+      .resolves.toBe("I didn't save anything from that message. Which University of Waterloo program is it (tracked: Computer Science, Software Engineering)? Send one sentence on its own, like: I got an offer from University of Waterloo for <program>. Send any other question separately.");
+    expect(model.requests).toHaveLength(1);
+    expect(applyOwnerPlan).not.toHaveBeenCalled();
   });
 
   it.each([
     "I wish I got an offer from Waterloo for Computer Science.",
     "I dreamt I got an offer from Waterloo for Computer Science.",
     "Imagine I got an offer from Waterloo for Computer Science.",
-  ])("S1 and S4 make a refused imagined offer visibly unsaved through the real adapter: %s", async (text) => {
+  ])("makes a refused imagined offer visibly unsaved without model text: %s", async (text) => {
     const model = new SequenceModel([combinedResponse({
       universityEngaged: true,
       reply: "Congrats!",
@@ -1072,12 +1079,13 @@ describe("university application detail model", () => {
     }), "Congrats! I've recorded your Waterloo offer in your university tracker."]);
     const applyOwnerPlan = vi.fn(async (_request: ApplyOwnerUniversityPlanInput) => undefined);
     await expect(collect(adapterWith(model, decisionSnapshot(), applyOwnerPlan).stream(input(text)))).resolves.toBe(
-      "I can still help with the university planning in your message.\n\nI couldn't update your university tracker.",
+      "I didn't save anything from that message. I only save an offer update you state directly in one sentence on its own, like: I got an offer from University of Waterloo for Computer Science. Send any other question separately.",
     );
+    expect(model.requests).toHaveLength(1);
     expect(applyOwnerPlan).not.toHaveBeenCalled();
   });
 
-  it("S1 makes a structured refusal visible even when the model falsely clears engagement", async () => {
+  it("makes a structured offer refusal visible even when the model falsely clears engagement", async () => {
     const text = "I got an offer from Toronto instead of Waterloo.";
     const model = new SequenceModel([combinedResponse({
       universityEngaged: false,
@@ -1091,9 +1099,56 @@ describe("university application detail model", () => {
     }), "I've recorded your Waterloo offer in the university tracker."]);
     const applyOwnerPlan = vi.fn(async (_request: ApplyOwnerUniversityPlanInput) => undefined);
     await expect(collect(adapterWith(model, decisionSnapshot(), applyOwnerPlan).stream(input(text)))).resolves.toBe(
-      "I can still help with the university planning in your message.\n\nI couldn't update your university tracker.",
+      "I didn't save anything from that message. I only save an offer update you state directly in one sentence on its own, like: I got an offer from University of Waterloo for <program>. Send any other question separately.",
     );
+    expect(model.requests).toHaveLength(1);
     expect(applyOwnerPlan).not.toHaveBeenCalled();
+  });
+
+  it("says nothing was saved when the repository rejects an explicit offer", async () => {
+    const text = "I got an offer from Waterloo for Computer Science.";
+    const model = new SequenceModel([combinedResponse({
+      universityEngaged: true,
+      reply: "Saved and accepted.",
+      workflowUpdates: [workflowUpdate({
+        programRef: WATERLOO, applicationItemRef: null, kind: "offer", label: "offer", owner: "university",
+        status: "owner_reported_offered", statusEvidence: text, preparedDetails: null,
+        deadline: { date: null, instant: null, timeZone: null,
+          verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+      })],
+    }), "I saved it."]);
+    const applyOwnerPlan = vi.fn(async (_request: ApplyOwnerUniversityPlanInput) => { throw new Error("d1 unavailable"); });
+    await expect(collect(adapterWith(model, decisionSnapshot(), applyOwnerPlan).stream(input(text)))).resolves.toBe(
+      "I couldn't update your university tracker, so nothing from that message was saved. Try again later as one sentence on its own, like: I got an offer from University of Waterloo for Computer Science. Send any other question separately.",
+    );
+    expect(model.requests).toHaveLength(1);
+  });
+
+  it("builds step, application-item and program receipts from the stored plan", async () => {
+    const text = "I emailed Ms Lee about the Ms Lee reference request for the Western reference.";
+    const model = new SequenceModel([combinedResponse({
+      universityEngaged: true,
+      reply: "I emailed Ms. Lee for you and marked it done.",
+      workflowUpdates: [workflowUpdate({
+        workflowRef: WORKFLOW, applicationItemRef: null, kind: null, label: null, owner: null,
+        status: "owner_reported_done", statusEvidence: text, preparedDetails: null, deadline: null,
+      })],
+    })]);
+    const current = reviewerStepSnapshot();
+    const applyOwnerPlan = vi.fn(async (_request: ApplyOwnerUniversityPlanInput) => undefined);
+    await expect(collect(adapterWith(model, current, applyOwnerPlan).stream(input(text)))).resolves.toBe(
+      "Saved: Ms Lee reference request for Western University Medical Sciences marked done (you told me; unverified).",
+    );
+    expect(applyOwnerPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps main's reply guard and model text on an ordinary turn that saves nothing", async () => {
+    const model = new SequenceModel([combinedResponse({ reply: "Waterloo interviews are often in March." })]);
+    await expect(collect(adapterWith(model).stream(input("When does Waterloo interview?"))))
+      .resolves.toBe("Waterloo interviews are often in March.");
+    const claim = new SequenceModel([combinedResponse({ reply: "I submitted your Western application." })]);
+    await expect(collect(adapterWith(claim).stream(input("What should I do next?"))))
+      .resolves.toBe("I can't confirm that action. Spending, sign-ups, uploads, submissions, and contacting people require your tap.");
   });
 
   it("S2 refuses titled-name reported speech on the submitted-by-Sid adapter path", async () => {
@@ -1167,23 +1222,30 @@ describe("university application detail model", () => {
       workflowUpdates: [update],
     }), "I saved your university tracker."]);
     const applyOwnerPlan = vi.fn(async (_request: ApplyOwnerUniversityPlanInput) => undefined);
-    await expect(collect(adapterWith(model, current, applyOwnerPlan).stream(input(text)))).resolves.toContain(
-      "I couldn't update your university tracker.",
-    );
+    const reply = await collect(adapterWith(model, current, applyOwnerPlan).stream(input(text)));
+    if (kind === "offer") {
+      expect(reply).toBe("I didn't save anything from that message. I only save an offer update you state directly in one sentence on its own, like: I got an offer from University of Waterloo for Computer Science. Send any other question separately.");
+    } else {
+      expect(reply).toContain("I couldn't update your university tracker.");
+    }
     expect(applyOwnerPlan).not.toHaveBeenCalled();
   });
 
-  it("S4 stores an ordinary prepared draft only inside the unverified draft wrapper through the adapter", async () => {
+  it("S4 stores an ordinary prepared draft only inside the unverified draft wrapper and shows it in the receipt", async () => {
     const text = "Draft the Ms Chen reference request for the Western reference.";
     const details = "Thank you for your time today. Submit before 15 January.";
     const model = new SequenceModel([combinedResponse({
       universityEngaged: true,
-      reply: "Here is the draft for you to review.",
+      reply: "Here is the draft for you to review. I sent it to Ms Chen.",
       workflowUpdates: [workflowUpdate({ preparedDetails: details })],
     })]);
     const applyOwnerPlan = vi.fn(async (_request: ApplyOwnerUniversityPlanInput) => undefined);
     await expect(collect(adapterWith(model, snapshot(), applyOwnerPlan).stream(input(text))))
-      .resolves.toBe("Here is the draft for you to review.");
+      .resolves.toBe([
+        "Saved: Ms Chen reference request for Western University Medical Sciences as prepared (unverified; you do this step yourself).",
+        "Unverified draft for you to review and send yourself:",
+        details,
+      ].join("\n"));
     expect(applyOwnerPlan).toHaveBeenCalledWith(expect.objectContaining({ plan: expect.objectContaining({
       workflowUpdates: [expect.objectContaining({ preparedDetails: expect.stringMatching(/^Unverified draft text;/u) })],
     }) }));

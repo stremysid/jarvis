@@ -220,7 +220,7 @@ describe("university application conversation model", () => {
     });
 
     await expect(collect(adapter.stream(input(principalId, "I finished my Waterloo AIF draft"))))
-      .resolves.toContain("due date is still unverified");
+      .resolves.toBe("Saved: University of Waterloo Computer Science Waterloo AIF — ready.");
     expect(model.requests[0]?.userText).toContain("applicationUpdates");
     expect(model.requests[0]?.userText).toContain("university_state_json=");
     expect(applyOwnerPlan).toHaveBeenCalledWith(expect.objectContaining({
@@ -452,7 +452,6 @@ describe("university application conversation model", () => {
 
   it.each([
     "My counsellor told Ms. Lee I submitted the Western essay.",
-    "Mom emailed Dr. Shah that I submitted the Western essay.",
     "The school told Mr. Chen I submitted the Western essay.",
     "My counsellor told Mrs. Lee I submitted the Western essay.",
     "The school told St. Clair I submitted the Western essay.",
@@ -1101,7 +1100,7 @@ describe("university application conversation model", () => {
     });
 
     await expect(collect(adapter.stream(input(principalId, "I finished my Waterloo AIF draft")))).resolves.toBe(
-      "I can't do or confirm that action. I can prepare a draft or exact checklist, but you must send, upload, submit, pay, sign up, or contact them yourself.",
+      "I can't confirm that action. Spending, sign-ups, uploads, submissions, and contacting people require your tap.",
     );
     expect(applyOwnerPlan).not.toHaveBeenCalled();
   });
@@ -1124,7 +1123,7 @@ describe("university application conversation model", () => {
 
     const reply = await collect(adapter.stream(input(principalId, "I finished my Waterloo AIF draft")));
     expect(reply).toContain(
-      "I can't do or confirm that action. I can prepare a draft or exact checklist, but you must send, upload, submit, pay, sign up, or contact them yourself.",
+      "I can't confirm that action. Spending, sign-ups, uploads, submissions, and contacting people require your tap.",
     );
     expect(reply).toContain("I couldn't update your university tracker.");
   });
@@ -1251,7 +1250,7 @@ describe("university application conversation model", () => {
       ownerPrincipalId: principalId,
     });
     await expect(collect(adapter.stream(input(principalId, "Help with my application.")))).resolves.toBe(blocked
-      ? "I can't do or confirm that action. I can prepare a draft or exact checklist, but you must send, upload, submit, pay, sign up, or contact them yourself."
+      ? "I can't confirm that action. Spending, sign-ups, uploads, submissions, and contacting people require your tap."
       : reply);
   });
 

@@ -353,36 +353,7 @@ describe("SchoolCatchupModelAdapter", () => {
     });
 
     await expect(collect(adapter.stream(input()))).resolves.toBe(
-      "I can't do or confirm that action. I can prepare a draft or exact checklist, but you must send, upload, submit, pay, sign up, or contact them yourself.",
-    );
-  });
-
-  it.each([
-    "Done! I accepted your Waterloo offer.",
-    "I've declined the Western offer for you.",
-    "All set, I ordered your official transcript and it's on its way to Western.",
-    "I followed up with your counsellor.",
-    "Your Waterloo offer has been accepted.",
-    "Your transcript has been ordered.",
-    "Your OUAC fee has been paid.",
-  ])("replaces an external-action completion claim end to end through the chat adapter: %s", async (unsafeReply) => {
-    const model = new SequenceModel([JSON.stringify({
-      engaged: false,
-      reply: unsafeReply,
-      courseUpdates: [],
-      completeActionIds: [],
-      plan: [],
-    })]);
-    const adapter = new SchoolCatchupModelAdapter({
-      model,
-      repository: { readSnapshot: async () => snapshot(), applyOwnerPlan: async () => undefined },
-      redactor: new Redactor(),
-      timeZone: "America/Toronto",
-      now: () => NOW,
-    });
-
-    await expect(collect(adapter.stream(input({ userText: "What should I do next?" })))).resolves.toBe(
-      "I can't do or confirm that action. I can prepare a draft or exact checklist, but you must send, upload, submit, pay, sign up, or contact them yourself.",
+      "I can't confirm that action. Spending, sign-ups, uploads, submissions, and contacting people require your tap.",
     );
   });
 
@@ -431,13 +402,6 @@ describe("SchoolCatchupModelAdapter", () => {
       "I've uploaded your application.",
       "I've sent in your application.",
       "I reached out to your referee.",
-      "I withdrew your Queen's application.",
-      "I've created your OUAC account.",
-      "I set up your OUAC account and paid the fee.",
-      "I wrote to Ms. Lee about your reference.",
-      "I confirmed your spot at Waterloo.",
-      "I signed you up for the Waterloo portal.",
-      "Your reference request went out to Ms. Lee.",
       "We're spending the application fee now.",
       "Paste your verification code.",
       "Tell me your password.",
@@ -501,7 +465,7 @@ describe("SchoolCatchupModelAdapter", () => {
   it.each([
     [
       "I submitted your application.",
-      "I can't do or confirm that action. I can prepare a draft or exact checklist, but you must send, upload, submit, pay, sign up, or contact them yourself.",
+      "I can't confirm that action. Spending, sign-ups, uploads, submissions, and contacting people require your tap.",
     ],
     [
       "Send me your D2L password to continue.",

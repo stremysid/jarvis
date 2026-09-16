@@ -102,7 +102,11 @@ describe("university conversation model", () => {
       now: () => NOW,
     });
 
-    await expect(collect(adapter.stream(modelInput(userText)))).resolves.toContain("Verified for the 2027 cycle");
+    await expect(collect(adapter.stream(modelInput(userText)))).resolves.toBe([
+      "Saved: University of Waterloo Computer Science (verified).",
+      "Saved requirement for University of Waterloo Computer Science: Required courses (verified).",
+      "Saved date for University of Waterloo Computer Science: Application deadline, 2027-01-15 (verified).",
+    ].join("\n"));
     expect(model.requests).toHaveLength(1);
     expect(model.requests[0]?.userText).toContain("ordinary conversation, not a form and not a command interface");
     expect(model.requests[0]?.userText).toContain("university_state_json=");

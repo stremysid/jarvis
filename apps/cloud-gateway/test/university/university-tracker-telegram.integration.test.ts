@@ -132,7 +132,14 @@ describe("university tracker Telegram integration", () => {
     })).resolves.toMatchObject({ outcome: "telegram_delivered" });
 
     expect(baseModel.requests).toHaveLength(1);
-    expect(telegram.requests[0]?.text).toContain("Unverified for the 2027 cycle");
+    // Receipts, not model claims: the stored rows are reported in fixed text.
+    expect(telegram.requests[0]?.text).toContain([
+      "Saved: University of Waterloo Computer Science (unverified).",
+      "Saved requirement for University of Waterloo Computer Science: Required Grade 12 courses (unverified).",
+      "Saved date for University of Waterloo Computer Science: Application deadline, no date yet (unverified).",
+      "Saved: University of Waterloo Computer Science Entrance scholarship — not started; due date unverified.",
+    ].join("\n"));
+    expect(telegram.requests[0]?.text).not.toContain("Which other program are you considering?");
     await expect(universityRepository.readSnapshot(principalId)).resolves.toMatchObject({
       programs: [{
         programName: "Computer Science",

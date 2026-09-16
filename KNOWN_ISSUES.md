@@ -1,14 +1,33 @@
 # Known issues
 
-## University application details has five deliberately closed edges
+## University application details has eight deliberately closed edges
 
 - **Forwarded and quoted offer text:** the existing Telegram input still has no
-  trusted forwarded/quoted provenance. The workflow parser requires a direct
-  first-person owner statement, rejects quoted text, forwarding markers,
-  reported speech and hedges, and binds the named offer to exactly one tracked
-  school and program. It still cannot distinguish an unattributed verbatim
-  paste from Sid's own words. Offer ingestion must remain Telegram-owner-only
-  until the channel adapter persists trusted provenance.
+  trusted forwarded/quoted provenance. An offer, condition or response is
+  recorded only when Sid's whole message is one explicit sentence such as "I
+  got an offer from <tracked university> for <tracked program>", so quoted
+  text, forwarding markers, reported speech, hedges and second clauses cannot
+  appear. It still cannot distinguish an unattributed verbatim paste of that
+  exact sentence from Sid's own words. Offer ingestion must remain
+  Telegram-owner-only until the channel adapter persists trusted provenance.
+- **Natural offer wording is not recorded:** "I got my Waterloo offer!!",
+  "I got into Waterloo" or a lead-in such as "So I got an offer…" save nothing.
+  Sid sees a fixed line that says nothing was saved and gives the exact
+  sentence to send. This is the reviewer-mandated trade-off for zero records
+  from negated, hedged, hearsay or hypothetical wording.
+- **Receipts replace the model reply on save turns:** after a university save
+  Sid sees only fixed receipt lines built from the stored plan and tracked
+  names (with any requested draft shown as unverified draft text). A model
+  follow-up question on that turn is not shown. On turns that save nothing,
+  request no action and report no offer, the model reply passes main's
+  unchanged reply guard, so a claim outside main's list (for example
+  "Accepted your Waterloo offer!") still reaches Sid exactly as on main.
+- **PR #52 checklist kept identical to main, including two main gaps:**
+  submitted_by_sid is still recorded for "Mom emailed Dr. Shah that I submitted
+  the Western essay." (a reporter verb outside main's list, split at "Dr.") and
+  for a trailing hedge such as "I submitted the Western essay, I think." The
+  new workflow steps refuse both shapes. Changing the checklist needs its own
+  reviewed follow-up.
 - **Fee amounts:** payment steps can be prepared and tracked, but this slice has
   no exact-source monetary field. Currency amounts are therefore rejected from
   stored preparation details instead of being remembered or guessed. Add a

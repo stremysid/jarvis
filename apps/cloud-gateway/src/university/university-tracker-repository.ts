@@ -20,9 +20,12 @@ import type {
 } from "./university-tracker-types.js";
 import {
   asUnverifiedWorkflowDraft,
+  isOfferWorkflowKind,
   isWorkflowLabelSafe,
   isWorkflowPreparedDetailsSafe,
   MAX_WORKFLOW_PREPARED_DETAILS_PER_PLAN_BYTES,
+  OFFER_WORKFLOW_LABELS,
+  OFFER_WORKFLOW_OWNERS,
   supportsStatus,
   supportsWorkflowStatusEvidence,
 } from "./university-tracker-model.js";
@@ -955,6 +958,15 @@ export class UniversityTrackerRepository {
         || owner === undefined || !WORKFLOW_OWNERS.has(owner)
         || status === undefined || !WORKFLOW_STATUSES.has(status)
         || !workflowStatusAllowed(kind, status)) {
+        throw new TypeError("university_workflow_item_invalid");
+      }
+      // Offer-family rows carry no model-chosen name, and each revision needs
+      // the explicit owner sentence re-checked below.
+      if (isOfferWorkflowKind(kind) && (update.status === null
+        || isNew && (label !== OFFER_WORKFLOW_LABELS[kind] || owner !== OFFER_WORKFLOW_OWNERS[kind])
+        || update.preparedDetails !== null && update.status !== "prepared"
+        || update.deadline !== null && (update.deadline.date !== null || update.deadline.instant !== null
+          || update.deadline.verification.state !== "unverified"))) {
         throw new TypeError("university_workflow_item_invalid");
       }
       let applicationItemId = existingRecord?.item.applicationItemId ?? null;

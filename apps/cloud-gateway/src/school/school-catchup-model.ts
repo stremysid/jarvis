@@ -11,6 +11,12 @@ import type {
   SchoolCourseFactKind,
 } from "./school-catchup-types.js";
 import { parseOwnerUniversityPlan, universityStateJson } from "../university/university-tracker-model.js";
+import {
+  isOfferUpdateReport,
+  offerNotSavedLine,
+  planSavesOfferUpdate,
+  universityPlanReceipt,
+} from "../university/university-tracker-receipt.js";
 import type { UniversityTrackerRepository } from "../university/university-tracker-repository.js";
 import type { OwnerUniversityPlan, UniversityTrackerSnapshot } from "../university/university-tracker-types.js";
 
@@ -34,18 +40,23 @@ const SECRET_ADVISORY = new RegExp(
   String.raw`\b(?:never|do\s+not|don't|should\s+not|shouldn't)\s+(?:send|paste|share|tell|give|provide|hand)\b.{0,64}\b(?:your\s+)?${SECRET_NAMES}\b`,
   "giu",
 );
-const THIRD_PARTY = String.raw`(?:m(?:s|r|rs)\.?\s+\p{L}[\p{L}'’.-]*|dr\.?\s+\p{L}[\p{L}'’.-]*|(?:your\s+|my\s+)?(?:teacher|referee|counsell?or|guidance(?:\s+office)?|school|university|admissions)|ouac(?![-\s]+style))`;
-const EXTERNAL_REPLY_TARGET = new RegExp(
-  String.raw`\b(?:offer|acceptance|admission|spot|fee|payment|account|portal|transcript|application|aif|supplement|essay|scholarship|personal\s+statement|reference|form|booking|campus\s+tour|registration|submission|request|${THIRD_PARTY}|waterloo|western|queen['’]s|toronto|mcmaster|uwo|uoft|uw)\b`,
-  "iu",
+const THIRD_PARTY = String.raw`\b(?:m(?:s|r)\.?\s+\p{L}[\p{L}'’.-]*|dr\.?\s+\p{L}[\p{L}'’.-]*|(?:your\s+)?(?:teacher|referee|counsellor|guidance(?:\s+office)?|school|university)|ouac(?![-\s]+style))\b`;
+const FIRST_PERSON_AGENT = String.raw`(?:(?:i(?:['’](?:ve|m))?|we(?:['’](?:ve|re))?)|jarvis)`;
+const FIRST_PERSON_ACTION_CLAIM = new RegExp(
+  String.raw`\b${FIRST_PERSON_AGENT}\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?(?<verb>sent\s+in|sending\s+in|turned\s+in|turning\s+in|signed\s+up|signing\s+up|handed\s+in|put\s+in|reached\s+out|reaching\s+out|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked)\b`,
+  "giu",
 );
-const COMPLETED_OR_CHANGED = /\b(?:[\p{L}]{3,}(?:ed|en)|sent|paid|done|gone|got|made|took|taken|wrote|told|let|set|put|went|said|rsvp(?:['’]d)?)\b/iu;
-const EXTERNAL_STATE = /\b(?:has|have|had|is|are|was|were|got)\b.{0,24}\b(?:now|already|just|been|in\s*[.!]?|out\b|yours\b|secured\b|complete\b|completed\b|ready\b|set\s+up\b)/iu;
-const BENIGN_REPLY_OBJECT = /\b(?:created?|made|set\s+up|ordered|accepted|updated|saved|revised|prepared|marked)\b.{0,32}\b(?:study\s+plans?|plans?|drafts?|checklists?|study\s+blocks?|tasks?|corrections?)\b/iu;
-const BENIGN_REPLY_CONTEXT = /^(?:verified|unverified)\b|\b(?:i(?:['’]m|\s+am)\s+(?:asking\b|filing\s+this\s+under\b)|i(?:['’]ve|\s+have)?\s*(?:asked\s+(?:earlier|before|about|you\b)|requested\s+(?:that\s+you\b|nothing)|called\s+it|told\s+you\b|sent\s+you\b)|(?:marked|noted|recorded|stored|put)\b.{0,40}\b(?:draft|tracker|note|reminders?)\b|\bin\s+(?:your\s+|the\s+)?tracker\b|\bin\s+your\s+school['’]s\s+queue\b|\bis\s+in\s+(?:good\s+shape|your\s+drafts?\s+folder)\b)/iu;
-const ADVICE_OR_OWNER_REPORT = /\b(?:once|after|when|until|before|whether|make\s+sure|check\s+whether|ask\b|log\s+in|you\s+(?:said|told\s+me)|by\s+you|you\s+must|you\s+should|you\s+can)\b/iu;
-const EXPLICIT_NON_COMPLETION = /\b(?:not|never|didn['’]t|did\s+not|haven['’]t|have\s+not|wasn['’]t|was\s+not)\b.{0,20}\b(?:[\p{L}]{3,}(?:ed|en)|sent|paid|done)\b/iu;
-const DEICTIC_COMPLETION = /\b(?:consider\s+it\s+done|done\s+and\s+done|(?:i(?:['’](?:ve|m))?|we(?:['’](?:ve|re))?)\s+(?:taken\s+care\s+of\s+it|reached\s+out|requested\s+it|applied\s+on\s+your\s+behalf|registered\s+for\s+the\s+paid\s+service|signed\s+up)|(?:submitted|uploaded|sent|filed|booked|paid)\b.{0,40}\bfor\s+you)\b/iu;
+const FALSE_EXTERNAL_COMPLETIONS = Object.freeze([
+  /\b(?:(?:i(?:['’](?:ve|m))?|we(?:['’](?:ve|re))?)|jarvis)\b.{0,24}\bcompleted\b.{0,32}\bsubmission\b/iu,
+  /\b(?:submitted|uploaded|sent|sent\s+in|turned\s+in|forwarded|filed|registered|purchased|paid\s+for|applied|booked)\b.{0,40}\bfor\s+you\b/iu,
+  new RegExp(String.raw`\b${FIRST_PERSON_AGENT}\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?let\s+(?:the\s+)?${THIRD_PARTY}\s+know\b`, "iu"),
+  new RegExp(String.raw`\b${THIRD_PARTY}\b.{0,32}\b(?:has|have|was|were)\s+(?:already\s+|just\s+|now\s+)?been\s+(?:contacted|emailed|messaged|called|notified)\b`, "iu"),
+  /\b(?:(?:i(?:['’]ve)?|we(?:['’](?:ve|re))?))\s+(?:have\s+)?(?:spent|spending)\b.{0,48}\b(?:fee|money|funds|dollars?|cad|usd)\b/iu,
+  /^\s*submitted\s*[!.]\s+(?!(?:is|was|did|do|does|are|were|can|could|would|should|will|what|which|who|when|where|why|how)\b[^?]*\?\s*$)\S/iu,
+]);
+const PASSIVE_EXTERNAL_COMPLETION = /\b(?:your\s+)?(?:application|aif|supplement|essay|personal\s+statement|transcript|reference|scholarship|form|request)\b.{0,64}\b(?:(?:is|was|have)\s+(?:already\s+|just\s+|now\s+)?(?:submitted|uploaded|sent|forwarded|turned\s+in|filed)|has\s+(?:(?:already|now)\s+)?been\s+(?:submitted|uploaded|sent|forwarded|turned\s+in|filed)|got\s+(?:submitted|uploaded|sent|forwarded|turned\s+in|filed))/giu;
+const PASSIVE_EXTERNAL_DELIVERY = /\b(?:[Yy]our\s+)?(?:application|AIF|supplement|essay|personal\s+statement|transcript|reference|scholarship|form|request)\b.{0,64}\bis\s+(?:now\s+)?in\s+with\s+(?:[A-Z][\p{L}\p{N}'’.-]*|OUAC)\b/gu;
+const PASSIVE_ADVICE_CONTEXT = /\b(?:once|after|when|until|before|whether|make\s+sure|check|if)\b/iu;
 const PLAN_SAVE_COMPLETIONS = Object.freeze([
   /\b(?:i|we|jarvis)\b.{0,32}\b(?:saved|updated|recorded|stored|added|changed|replanned)\b.{0,64}\b(?:school|course|catch-?up|plan|action|fact|university|program|requirement|date|tracker)\b/iu,
   /\b(?:school|course|catch-?up|plan|university|program|tracker)\b.{0,32}\b(?:has|is|was)\s+(?:been\s+)?(?:saved|updated|recorded|stored|changed|replanned)\b/iu,
@@ -64,13 +75,25 @@ const BRIGHTSPACE_CHECK_DENIALS = Object.freeze([
 ]);
 const OWNER_ACKNOWLEDGEMENT = /^\s*(?:ok(?:ay)?|thanks?(?:\s+you)?|got\s+it|sounds\s+good|cool|alright|sure|👍)\s*[.!]?\s*$/iu;
 const BRIGHTSPACE_REFRESH_REQUEST = /^\s*(?:jarvis[,\s]+)?(?:(?:can|could|would|will)\s+you\s+|please\s+)?(?:check|refresh|update)\s+(?:my\s+)?(?:d2l|brightspace)(?:\s+(?:calendar|deadlines?|feed))?\s+(?:right\s+)?now(?:\s*,?\s*please)?[.!?]*\s*$/iu;
-const EXTERNAL_REQUEST_PARTY = String.raw`(?:${THIRD_PARTY}|waterloo|western|queen['’]s|toronto|mcmaster|uwo|uoft|uw)`;
-const EXTERNAL_EXECUTION_ACTION = new RegExp(
-  String.raw`^(?:submit(?!\s+(?:button|date|deadline|link|page|status)\b)|upload(?!\s+(?:button|date|deadline|link|page|status)\b)|pay(?!\s+attention\b)(?:\s+(?:the|a|my)\s+(?:application\s+)?fee)?|purchase\b|buy(?!\s+time\b)\b|register\b|sign\s+(?:me\s+)?up\b|create\s+(?:an?|my|the)\s+account\b|order\s+(?:(?:it|this|that)\b|(?:(?:an?|my|the)\s+)?(?:official\s+)?transcript\b)|(?:accept|decline)\s+(?:it|this)\b|(?:accept|decline)\s+(?!(?:me|that|from|in)\b).{0,48}\b(?:offer|admission|spot|${EXTERNAL_REQUEST_PARTY})\b|withdraw\b.{0,48}\bapplication\b|confirm\b.{0,48}\b(?:offer|admission|spot)\b|(?:contact|email|message|call|text)\s+(?!(?:me|that|from|in|with|to)\b)(?:${EXTERNAL_REQUEST_PARTY})\b|reach\s+out\s+to\s+(?:${EXTERNAL_REQUEST_PARTY})\b|follow\s+up\s+with\s+(?:${EXTERNAL_REQUEST_PARTY})\b|let\s+(?!(?:me|that|from|in)\b)(?:${EXTERNAL_REQUEST_PARTY})\s+know\b|ask\s+(?:${EXTERNAL_REQUEST_PARTY})\b|send\s+(?:(?:in\s+)?(?:my|the|an?)\s+(?:application|form|essay|statement|reference|transcript|request)|(?:${EXTERNAL_REQUEST_PARTY})\b))`,
-  "iu",
+// Pre-model refusal: a request that Jarvis act on an external target. The
+// target is a person, school or office, an external object such as an offer,
+// fee or transcript, or a pronoun whose referent is an offer or school named
+// elsewhere in the message. "me", "that", "from", "in" and possessives are
+// never a target, so ordinary school requests still reach the model.
+const SCHOOL_NAMES = String.raw`waterloo|western|queen['’]s|toronto|mcmaster|uwo|uoft|uw|mcgill|ubc|york|ottawa|carleton|guelph|laurier|tmu|ryerson|brock|trent|windsor|lakehead|laurentian|nipissing|ontario\s+tech|dalhousie|concordia|montreal|alberta|calgary`;
+const REQUEST_PARTY = String.raw`(?:(?:m(?:s|r|rs|x)|dr|prof(?:essor)?|coach)\s+\p{L}[\p{L}'’-]*|(?:(?:my|the|our)\s+)?(?:[\p{L}]+\s+)?(?:teachers?|counsell?ors?|referees?|guidance(?:\s+(?:office|counsell?or))?|principal|registrar|admissions?(?:\s+office)?|school|university|college|ouac|tutor|professor)|(?:the\s+)?(?:${SCHOOL_NAMES})(?:\s+(?:admissions?(?:\s+office)?|registrar|university))?)(?!['’]s\b)(?!\s*['’]s\b)`;
+const REQUEST_EXTERNAL_OBJECT = String.raw`(?:offers?|admissions?|acceptance|spot|seat|deposit|fees?|payment|transcripts?|applications?|aif|supplement(?:ary\s+application)?|forms?|portal|account|references?(?:\s+(?:request|letter))?|recommendation|essays?|personal\s+statement|scholarships?|campus\s+tour|tour|interview|appointment|registration|lab(?:\s+report)?|homework|assignment|permission\s+slip|sat|tutoring|${SCHOOL_NAMES})`;
+const DECISION_OBJECT = String.raw`(?:offers?|admission|acceptance|spot|seat|place|application|invitation|${SCHOOL_NAMES})`;
+const TRANSACTION_VERB = String.raw`submit(?:ting)?|upload(?:ing)?|pay(?:ing)?|purchas(?:e|ing)|buy(?:ing)?|regist(?:er|ering)|sign(?:ing)?\s+(?:me\s+)?up|enrol(?:l|ling)?|apply(?:ing)?|book(?:ing)?|rsvp(?:['’]?ing)?|order(?:ing)?|fil(?:e|ing)|hand(?:ing)?\s+in|turn(?:ing)?\s+in|send(?:ing)?|forward(?:ing)?|mail(?:ing)?`;
+const COMMUNICATION_VERB = String.raw`e-?mail(?:ing)?|text(?:ing)?|messag(?:e|ing)|dm|call(?:ing)?|phon(?:e|ing)|contact(?:ing)?|tell(?:ing)?|notify(?:ing)?|ask(?:ing)?|remind(?:ing)?|reach(?:ing)?\s+out\s+to|follow(?:ing)?\s+up\s+with|(?:reply|replying|respond|responding|writ(?:e|ing))\s+(?:back\s+)?to|let(?:ting)?`;
+const DECISION_VERB = String.raw`accept(?:ing)?|declin(?:e|ing)|confirm(?:ing)?|withdraw(?:ing)?|reject(?:ing)?|turn(?:ing)?\s+down|defer(?:ring)?`;
+const REQUESTED_ACTION = new RegExp(
+  String.raw`^(?:go\s+(?:ahead\s+)?and\s+|just\s+)*(?:(?<transaction>${TRANSACTION_VERB})|(?<communication>${COMMUNICATION_VERB})|(?<decision>${DECISION_VERB}))\b(?<rest>.*)$`,
+  "isu",
 );
-const COURTESY_REQUEST = /\b(?:(?:can|could|would|will)\s+(?:you|jarvis)|can\s+u|i\s+(?:want|need)\s+(?:you|jarvis)\s+to)\s+(?:please\s+)?(?:just\s+)?/giu;
-const DIRECTIVE_PREFIX = /^(?:(?:hey|ugh)\s+)*(?:jarvis\s*[,!:]?\s*|(?:please|pls)\s+|go\s+ahead\s+(?:and\s+)?)*(?:please\s+)?(?:just\s+)?/iu;
+const COURTESY_MARKER = /\b(?:would\s+you\s+mind|(?:can|could|would|will)\s+(?:you|u|jarvis)(?:\s+(?:please|pls|just|maybe))*|(?:i\s+(?:want|need)|i['’]d\s+like)\s+(?:you|jarvis)\s+to|please|pls|plz)\s*,?\s+/giu;
+const DIRECTIVE_PREFIX = /^(?:(?:hey|ugh|ok(?:ay)?|omg|so|also|now)\s*[,!]?\s+)*(?:jarvis\s*[,!:]?\s+)?(?:(?:please|pls|plz)\s+)?(?:go\s+ahead\s*(?:and|,)?\s+)?(?:just\s+)?/iu;
+const PREPARATION_START = /^(?:draft|prepare|review|revise|outline|fill\s+out|write|make|check|proofread|finish)\b/iu;
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
 const encoder = new TextEncoder();
 const SAVE_FAILURE_LINE = "I couldn't update your school plan.";
@@ -79,7 +102,8 @@ const UNSAVED_FALLBACK_REPLY = "I can still help with the school work in your me
 const UNSAVED_UNIVERSITY_FALLBACK_REPLY = "I can still help with the university planning in your message.";
 const ACKNOWLEDGEMENT_REPLY = "Got it.";
 const SECRET_REPLACEMENT = "I can't accept passwords, tokens, recovery codes, or MFA codes. Complete credential steps only on the provider's own page.";
-const EXTERNAL_ACTION_REPLACEMENT = "I can't do or confirm that action. I can prepare a draft or exact checklist, but you must send, upload, submit, pay, sign up, or contact them yourself.";
+const EXTERNAL_ACTION_REPLACEMENT = "I can't confirm that action. Spending, sign-ups, uploads, submissions, and contacting people require your tap.";
+const EXECUTION_REQUEST_REFUSAL = "I can't do that for you. I can prepare a draft or exact checklist, but you must send, upload, submit, pay, sign up, or contact them yourself.";
 const BRIGHTSPACE_CHECK_REPLACEMENT = "I haven't checked D2L. Say 'check D2L now' to run the bounded refresh.";
 const TRACKER_TOO_LARGE_REPLY = "Your school and university tracker is too large for one safe update. I didn't save anything from this message; name one course, school, program, or application item and try again.";
 const MODEL_RESPONSE_TOO_LARGE_REPLY = "I couldn't safely process that planning response, so I didn't save any tracker changes. Please name one course, school, program, or application item and try again.";
@@ -101,27 +125,96 @@ export function isBrightspaceRefreshRequest(text: string): boolean {
   return text.isWellFormed() && BRIGHTSPACE_REFRESH_REQUEST.test(text.normalize("NFC"));
 }
 
+function requestedActionTargetsExternal(phrase: string, message: string): boolean {
+  const match = REQUESTED_ACTION.exec(phrase.trim());
+  if (match?.groups === undefined) return false;
+  const verb = (match.groups.transaction ?? match.groups.communication ?? match.groups.decision ?? "")
+    .toLocaleLowerCase("en-CA").replace(/\s+/gu, " ");
+  const rest = (match.groups.rest ?? "").trim().replace(/[.!?]+$/u, "").trim();
+  const startsWith = (pattern: string): boolean => new RegExp(`^(?:${pattern})`, "iu").test(rest);
+  const within = (pattern: string, words = 8): boolean =>
+    new RegExp(String.raw`^(?:\S+\s+){0,${words}}?(?:${pattern})\b`, "iu").test(rest);
+  if (match.groups.communication !== undefined) {
+    if (verb.startsWith("let")) return new RegExp(String.raw`^${REQUEST_PARTY}\s+know\b`, "iu").test(rest);
+    return new RegExp(String.raw`^${REQUEST_PARTY}\b`, "iu").test(rest);
+  }
+  if (match.groups.decision !== undefined) {
+    if (startsWith(String.raw`(?:that|in|me|from|as|to)\b`)) return false;
+    if (startsWith(String.raw`(?:it|this|them)\b`)) {
+      return !/^(?:it|this|them)\s+as\b/iu.test(rest) && new RegExp(String.raw`\b${DECISION_OBJECT}\b`, "iu").test(message);
+    }
+    return within(DECISION_OBJECT);
+  }
+  if (startsWith(String.raw`(?:your|that)\b`) || startsWith(String.raw`(?:button|date|deadline|link|page|status|time|attention)\b`)) {
+    return false;
+  }
+  if (verb.startsWith("pay") && /\ba\s+visit\b/iu.test(rest)) return false;
+  if (/^(?:send|forward|mail)/u.test(verb)) {
+    if (startsWith(String.raw`(?:me\b|(?:(?:it|this|that|them)\s+)?(?:back|to\s+me|over\s+here)\b)`) || /\bback\b/iu.test(rest)) {
+      return false;
+    }
+    return startsWith(String.raw`(?:it|this|them)\b`) || new RegExp(String.raw`^${REQUEST_PARTY}\b`, "iu").test(rest)
+      || new RegExp(String.raw`\bto\s+${REQUEST_PARTY}\b`, "iu").test(rest) || within(REQUEST_EXTERNAL_OBJECT);
+  }
+  if (verb.startsWith("order")) {
+    if (/\b(?:by|in|alphabetically|chronologically)\b/iu.test(rest) || startsWith(String.raw`(?:my\s+)?(?:tasks|list|notes|plan|priorities)\b`)) {
+      return false;
+    }
+    return startsWith(String.raw`(?:it|this|them)\b`) || within(REQUEST_EXTERNAL_OBJECT);
+  }
+  if (verb.startsWith("apply")) {
+    return startsWith(String.raw`(?:to|for)\b`) && within(`${REQUEST_PARTY}|${REQUEST_EXTERNAL_OBJECT}|program`, 10)
+      || /\bfor\s+me\b/iu.test(rest);
+  }
+  if (verb.startsWith("book")) {
+    return within(`${REQUEST_PARTY}|campus|tour|interview|appointment|${SCHOOL_NAMES}`, 10);
+  }
+  if (verb.startsWith("fil")) return within(`${REQUEST_PARTY}|${REQUEST_EXTERNAL_OBJECT}`, 10);
+  return startsWith(String.raw`(?:it|this|them)\b|(?:me\s+)?up\b`) || within(`${REQUEST_PARTY}|${REQUEST_EXTERNAL_OBJECT}`, 10)
+    || /\bfor\s+me\b/iu.test(rest);
+}
+
+function chainRequestsExternal(phrase: string, message: string, chainAll: boolean): boolean {
+  if (requestedActionTargetsExternal(phrase, message)) return true;
+  if (!chainAll && !PREPARATION_START.test(phrase.trim())) return false;
+  return phrase.split(/\s*(?:,|;|\band\b|\bthen\b)\s*/iu).slice(1)
+    .some((part) => requestedActionTargetsExternal(part.replace(/^(?:then|and)\s+/iu, ""), message));
+}
+
+function sentenceRequestsExternalAction(sentence: string, message: string): boolean {
+  const text = sentence.trim();
+  if (text.length === 0 || /\bon\s+my\s+(?:to-?do\s+)?(?:list|calendar|plan)\b/iu.test(text)) return false;
+  COURTESY_MARKER.lastIndex = 0;
+  for (const marker of text.matchAll(COURTESY_MARKER)) {
+    if (chainRequestsExternal(text.slice(marker.index + marker[0].length), message, true)) return true;
+  }
+  const imperative = text.replace(DIRECTIVE_PREFIX, "");
+  if (!/^(?:don['’]t|do\s+not|never|no\s+need)\b/iu.test(imperative)
+    && !/\b(?:sent|says?|shows?|moved|bounced)\b.{0,48}$/iu.test(imperative)
+    && chainRequestsExternal(imperative, message, false)) return true;
+  return text.split(/,\s*/u).slice(1).some((clause) =>
+    /\b(?:pls|plz|please|for\s+me)\b/iu.test(clause)
+    && requestedActionTargetsExternal(clause.replace(DIRECTIVE_PREFIX, ""), message));
+}
+
 /** Refuses execution while leaving requests for a draft, checklist, or instructions available. */
 export function isUniversityExecutionRequest(text: string): boolean {
   if (!text.isWellFormed()) return false;
-  const normalized = text.normalize("NFC");
-  if (/^\s*(?:yes[,\s]+)?do\s+it\s*[.!?]*\s*$/iu.test(normalized)) return true;
-  COURTESY_REQUEST.lastIndex = 0;
-  for (const match of normalized.matchAll(COURTESY_REQUEST)) {
-    const requested = normalized.slice(match.index + match[0].length).trimStart();
-    if (EXTERNAL_EXECUTION_ACTION.test(requested)
-      || requested.split(/\b(?:and|then)\b/iu).slice(1)
-        .some((part) => EXTERNAL_EXECUTION_ACTION.test(part.trimStart()))) return true;
+  const message = text.normalize("NFC").replace(/\b(Mr|Ms|Mrs|Mx|Dr|St|Prof)\.(?=\s+\p{L})/giu, "$1");
+  if (/^\s*(?:yes[,\s]+)?(?:please\s+)?do\s+it\s*(?:pls|please)?\s*[.!?]*\s*$/iu.test(message)) return true;
+  let listContext = false;
+  for (const line of message.split(/\r?\n/u)) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    const listItem = listContext || /^(?:\d+[.)]|[-*•])\s+/u.test(trimmed);
+    if (/:\s*$/u.test(trimmed)) listContext = true;
+    if (listItem) continue;
+    const beforeListColon = trimmed.replace(/\b(?:list|to-?do|todo|tasks?|things\s+to\s+do)\b[^:]*:.*$/iu, "");
+    for (const sentence of beforeListColon.match(/[^.!?]+[.!?]*/gu) ?? []) {
+      if (sentenceRequestsExternalAction(sentence, message)) return true;
+    }
   }
-  return (normalized.match(/[^.!?\r\n]+[.!?]?/gu) ?? []).some((sentence) => {
-    const action = sentence.trim().replace(DIRECTIVE_PREFIX, "");
-    const chainedPreparation = /^\s*(?:draft|prepare|review|revise|outline)\b/iu.test(action)
-      && action.split(/\b(?:and|then)\b/iu).slice(1)
-        .some((part) => EXTERNAL_EXECUTION_ACTION.test(part.trimStart()));
-    if (!EXTERNAL_EXECUTION_ACTION.test(action) && !chainedPreparation) return false;
-    return !/\b(?:is|was|will\s+be)\s+on\s+my\s+(?:(?:to-?do)\s+)?(?:list|calendar)\b/iu.test(action)
-      && !/\b(?:sent|says?|shows?|moved|bounced)\b.{0,48}$/iu.test(action);
-  });
+  return false;
 }
 
 function exactRecord(value: unknown, fields: readonly string[], error: string): Record<string, unknown> {
@@ -268,21 +361,66 @@ export function guardSchoolReply(
   return guardReplyClaims(reply);
 }
 
-function hasUnsafeExternalStateClaim(reply: string): boolean {
-  if (DEICTIC_COMPLETION.test(reply)) return true;
-  const withoutTitleDots = reply.replace(/\b(Mr|Ms|Mrs|Dr|St)\.(?=\s+\p{L})/giu, "$1");
-  const clauses = withoutTitleDots.split(/(?:[.!?\r\n]+|;|\b(?:and|then|but)\b)/iu)
-    .map((clause) => clause.trim()).filter(Boolean);
-  return clauses.some((clause) => {
-    if (!EXTERNAL_REPLY_TARGET.test(clause) || BENIGN_REPLY_OBJECT.test(clause) || BENIGN_REPLY_CONTEXT.test(clause)
-      || ADVICE_OR_OWNER_REPORT.test(clause) || EXPLICIT_NON_COMPLETION.test(clause)
-      || /\b(?:last|previous)\s+(?:year|term|cycle)\b.{0,64}\bby\s+(?:the\s+)?(?:school|university|government|family)\b/iu.test(clause)) {
-      return false;
+function sentenceAround(value: string, start: number, end: number): { readonly text: string; readonly start: number } {
+  const before = Math.max(value.lastIndexOf(".", start - 1), value.lastIndexOf("!", start - 1),
+    value.lastIndexOf("?", start - 1), value.lastIndexOf("\n", start - 1));
+  const endings = [value.indexOf(".", end), value.indexOf("!", end), value.indexOf("?", end), value.indexOf("\n", end)]
+    .filter((index) => index >= 0);
+  const after = endings.length === 0 ? value.length : Math.min(...endings);
+  return Object.freeze({ text: value.slice(before + 1, after + 1), start: before + 1 });
+}
+
+function hasPassiveExternalCompletion(reply: string): boolean {
+  for (const pattern of [PASSIVE_EXTERNAL_COMPLETION, PASSIVE_EXTERNAL_DELIVERY]) {
+    pattern.lastIndex = 0;
+    for (const match of reply.matchAll(pattern)) {
+      const start = match.index;
+      const end = start + match[0].length;
+      const sentence = sentenceAround(reply, start, end);
+      const before = sentence.text.slice(0, start - sentence.start);
+      const after = reply.slice(end, end + 24);
+      if (PASSIVE_ADVICE_CONTEXT.test(before) || /\bby\s+you\b/iu.test(after)
+        || /\byou\s+(?:said|told\s+me)\b/iu.test(sentence.text)) continue;
+      return true;
     }
-    return COMPLETED_OR_CHANGED.test(clause) || EXTERNAL_STATE.test(clause)
-      || /\b(?:i(?:['’]m|\s+am)|we(?:['’]re|\s+are)|jarvis\s+is)\b.{0,24}\b\p{L}{3,}ing\b/iu.test(clause)
-      || /\b(?:all\s+(?:done|set)|on\s+its\s+way|now\s+has|has\s+your|is\s+yours|said\s+yes|went\s+out)\b/iu.test(clause);
-  });
+  }
+  return false;
+}
+
+function allowedFirstPersonActionClaim(verb: string, tail: string): boolean {
+  const action = verb.toLocaleLowerCase("en-CA").replace(/\s+/gu, " ");
+  if (action === "asked") {
+    return /^\s+(?:(?:earlier|before)\b|(?:whether|if|which|what|about)\b|you\s+to\b)/iu.test(tail);
+  }
+  if (action === "requested") {
+    return /^\s+(?:nothing\b|no\b|that\s+you\b|you\s+to\b)/iu.test(tail);
+  }
+  if (action === "told") return /^\s+you\b/iu.test(tail);
+  if (action === "sent" || action === "sending" || action === "shared") {
+    return /^\s+you\b/iu.test(tail) || /^\s+[^;]{0,64}\b(?:to|with)\s+you\b/iu.test(tail);
+  }
+  if (action === "called") return /^\s+it\b/iu.test(tail);
+  if (action === "applied") {
+    return /^\s+(?:your\s+(?:feedback|edits|changes|notes)\b|(?:the\s+same|a\s+stricter)\s+(?:structure|word\s+limit)\b)/iu
+      .test(tail);
+  }
+  if (action === "booked") return /^\s+(?:out\s+)?(?:no\b|nothing\b)/iu.test(tail);
+  if (action === "put in") {
+    return /^\s+(?:(?:a|the|one|two|\d+)\s+)?(?:note|placeholder\s+due\s+date|reminders?|tracker)\b/iu.test(tail);
+  }
+  return false;
+}
+
+function hasUnsafeFirstPersonActionClaim(reply: string): boolean {
+  FIRST_PERSON_ACTION_CLAIM.lastIndex = 0;
+  for (const match of reply.matchAll(FIRST_PERSON_ACTION_CLAIM)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    const sentence = sentenceAround(reply, start, end);
+    const tail = sentence.text.slice(end - sentence.start);
+    if (!allowedFirstPersonActionClaim(match.groups?.verb ?? "", tail)) return true;
+  }
+  return false;
 }
 
 function guardReplyClaims(reply: string): string {
@@ -290,7 +428,8 @@ function guardReplyClaims(reply: string): string {
   if (SECRET_REQUESTS.some((pattern) => pattern.test(withoutAdvisories))) {
     return SECRET_REPLACEMENT;
   }
-  if (hasUnsafeExternalStateClaim(reply)) {
+  if (FALSE_EXTERNAL_COMPLETIONS.some((pattern) => pattern.test(reply))
+    || hasUnsafeFirstPersonActionClaim(reply) || hasPassiveExternalCompletion(reply)) {
     return EXTERNAL_ACTION_REPLACEMENT;
   }
   if (isFalseBrightspaceCheckCompletion(reply)) {
@@ -340,22 +479,6 @@ function universityAliases(university: string): readonly string[] {
     university,
     university.replace(/^university\s+of\s+/iu, "").replace(/\s+university$/iu, ""),
   ].filter(Boolean))]);
-}
-
-function missingOfferProgramQuestion(
-  ownerMessage: string,
-  snapshot: UniversityTrackerSnapshot,
-): string | null {
-  if (!/\bi\s+(?:(?:have|just)\s+)?(?:got|received)\b.{0,64}\boffer\b/iu.test(ownerMessage)) return null;
-  const namedSchools = [...new Set(snapshot.programs.filter((program) =>
-    universityAliases(program.university).some((alias) => mentionsName(ownerMessage, alias)))
-    .map((program) => normalizedEvidence(program.university)))];
-  if (namedSchools.length !== 1) return null;
-  const programs = snapshot.programs.filter((program) => normalizedEvidence(program.university) === namedSchools[0]);
-  if (programs.length < 2 || programs.some((program) => mentionsName(ownerMessage, program.programName))) return null;
-  const school = universityAliases(programs[0]?.university ?? "").at(-1) ?? "that university";
-  const examples = programs.slice(0, 2).map((program) => program.programName).join(" or ");
-  return `Which ${school} program — ${examples}?`;
 }
 
 function messageTouchesTracker(
@@ -470,7 +593,9 @@ For universityEngaged, follow these rules:
 - inactiveApplicationItems contains only submitted or not-needed history named by the current owner message. Use its itemId only for an explicit correction or reactivation supported by that whole message.
 - Do not guess an application item, program, requirement or date. Store only details Sid supplies in the current message. Every due date is visibly verified or unverified under the same current official URL and cycle rule above.
 - workflowUpdates fields are workflowRef, programRef, applicationItemRef, kind, label, owner, status, statusEvidence, preparedDetails, deadline and executionBoundary. Kinds: submission_step, upload_step, contact_step, signup_step, payment_step, transcript_order_step, offer, offer_condition, offer_response. Owners: sid, referee, guidance, school, university. Statuses: prepared, not_needed_by_sid, or owner_reported_done/not_done/offered/waitlisted/rejected/withdrawn/pending/satisfied/unsatisfied/accepted/declined where appropriate.
-- Use an existing id or new-workflow-N. New actions link one application item; offer kinds use null. New rows require identity, status, whole-message evidence, deadline and owner_only. Existing rows keep identity null and change status, draft/checklist text or deadline. One clause must name the workflow label. prepared needs Sid's request; every reported state needs Sid's direct first-person report. Never infer from a page or another person. Store no invented fact, date or fee. deadline carries date or exact UTC plus IANA timezone, verification, and whole-message evidence.
+- Use an existing id or new-workflow-N. New actions link one application item; offer kinds use null. New rows require identity, status, whole-message evidence, deadline and owner_only. Existing rows keep identity null and change status, draft/checklist text or deadline. One clause must name the workflow label and its application item. prepared needs Sid's request; every reported step state needs Sid's direct first-person report. Never infer from a page or another person. Store no invented fact, date or fee. deadline carries date or exact UTC plus IANA timezone, verification, and whole-message evidence.
+- Offer, offer_condition and offer_response rows are saved only when the whole owner message is exactly one sentence naming a tracked university and its tracked program, such as "I got an offer from <university> for <program>", "I got waitlisted by <university> for <program>", "I got rejected by <university> for <program>", "I withdrew from <university> for <program>", "I met the conditions of my offer from <university> for <program>", "I accepted my offer from <university> for <program>" or "I declined my offer from <university> for <program>". Otherwise return no offer update. Their label and owner are fixed by Jarvis, and their deadline date is null.
+- Never say in reply that anything was saved, recorded, sent, submitted, accepted, paid or contacted. When a university update is stored, Sid sees only Jarvis's fixed receipt, so put any draft or checklist he asked for in that row's preparedDetails.
 
 In every reply, visibly say verified or unverified when summarizing a program, requirement or due date. Never ask for credentials. Jarvis never spends, signs up, uploads, submits, accepts an offer, orders a transcript, or contacts any person, school or portal. Prepare the exact draft or checklist, tell Sid what he must do himself, and record only what he later says he did. A stored submitted_by_sid or owner_reported status reports only what Sid said and never claims Jarvis acted.
 
@@ -571,9 +696,12 @@ async function* fallbackWithSaveFailure(
   redactor: SchoolCatchupModelDependencies["redactor"],
 ): AsyncIterable<ModelToken> {
   const ordinaryReply = (await collectJson(model.stream(input))).trim();
-  const reply = PLAN_SAVE_COMPLETIONS.some((pattern) => pattern.test(ordinaryReply))
-    ? scope === "school" ? UNSAVED_FALLBACK_REPLY : UNSAVED_UNIVERSITY_FALLBACK_REPLY
-    : safeOrdinaryReply(ordinaryReply, redactor);
+  const guardedReply = safeOrdinaryReply(ordinaryReply, redactor);
+  const reply = guardedReply !== ordinaryReply
+    ? guardedReply
+    : PLAN_SAVE_COMPLETIONS.some((pattern) => pattern.test(ordinaryReply))
+      ? scope === "school" ? UNSAVED_FALLBACK_REPLY : UNSAVED_UNIVERSITY_FALLBACK_REPLY
+      : ordinaryReply;
   const failureLine = scope === "school" ? SAVE_FAILURE_LINE : UNIVERSITY_SAVE_FAILURE_LINE;
   const text = reply.length === 0 ? failureLine : `${reply}\n\n${failureLine}`;
   yield Object.freeze({ index: 0, text });
@@ -601,6 +729,20 @@ async function* guardedOrdinaryReplyWithNotice(
   yield Object.freeze({ index: 0, text: ordinaryReply.length === 0 ? notice : `${ordinaryReply}\n\n${notice}` });
 }
 
+/** A fixed school receipt, used when a turn's model text must not be shown. */
+function schoolPlanReceipt(plan: OwnerCatchupPlan, snapshot: SchoolCatchupSnapshot, today: string): string {
+  const courseName = (courseRef: string): string =>
+    snapshot.courses.find((course) => course.courseId === courseRef)?.name
+      ?? plan.courseUpdates.find((update) => update.courseRef === courseRef)?.name
+      ?? "a course";
+  const todayActions = [...plan.plan].filter((action) => action.localDate === today)
+    .sort((left, right) => left.sequenceRank - right.sequenceRank)
+    .map((action) => `${courseName(action.courseRef)}: ${action.text} (${action.estimatedMinutes} min)`);
+  return todayActions.length === 0
+    ? "Saved your school plan update."
+    : `Saved your school plan. Today: ${todayActions.join("; ")}.`;
+}
+
 /** Converts one owner Telegram model response into both a durable plan revision and a natural reply. */
 export class SchoolCatchupModelAdapter implements ModelAdapter {
   private readonly now: () => Date;
@@ -619,7 +761,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       return;
     }
     if (isUniversityExecutionRequest(input.userText)) {
-      yield Object.freeze({ index: 0, text: EXTERNAL_ACTION_REPLACEMENT });
+      yield Object.freeze({ index: 0, text: EXECUTION_REQUEST_REFUSAL });
       return;
     }
     const now = new Date(this.now().getTime());
@@ -651,19 +793,21 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
         ]);
       }
     } catch {
+      if (this.dependencies.universityRepository !== undefined && isOfferUpdateReport(input.userText, null)) {
+        // Nothing can be saved on this path, so an offer report never gets
+        // model text that might describe it as recorded or acted on.
+        yield Object.freeze({ index: 0, text: offerNotSavedLine(input.userText, null, false) });
+        return;
+      }
       // A missing migration or a malformed private row must not take down the
       // owner's ordinary Telegram conversation.
       yield* guardedOrdinaryReply(this.dependencies.model, input, this.dependencies.redactor);
       return;
     }
+    // An offer, decision or condition report is answered only with fixed text:
+    // a receipt built from the stored rows, or a line saying nothing was saved.
+    const offerReport = universitySnapshot !== null && isOfferUpdateReport(input.userText, universitySnapshot);
     let structuredPrompt = promptFor(input, snapshot, today, universitySnapshot, false, now);
-    if (universitySnapshot !== null) {
-      const missingProgram = missingOfferProgramQuestion(input.userText, universitySnapshot);
-      if (missingProgram !== null) {
-        yield Object.freeze({ index: 0, text: missingProgram });
-        return;
-      }
-    }
     if (universitySnapshot !== null && encoder.encode(structuredPrompt).byteLength > MAX_STRUCTURED_PROMPT_BYTES) {
       structuredPrompt = promptFor(input, snapshot, today, universitySnapshot, true, now);
     }
@@ -702,6 +846,10 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
     try {
       payload = JSON.parse(jsonPayload(raw)) as unknown;
     } catch {
+      if (offerReport) {
+        yield Object.freeze({ index: 0, text: offerNotSavedLine(input.userText, universitySnapshot, false) });
+        return;
+      }
       yield* guardedOrdinaryReply(this.dependencies.model, input, this.dependencies.redactor);
       return;
     }
@@ -725,6 +873,20 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       const response = payload !== null && typeof payload === "object" ? payload as Record<string, unknown> : null;
       const hasUpdates = (field: string): boolean => Array.isArray(response?.[field])
         && (response?.[field] as readonly unknown[]).length > 0;
+      // A refused offer-family proposal is untrusted model output, read here
+      // only to choose the more conservative fixed reply.
+      const proposedOfferUpdate = universitySnapshot !== null && Array.isArray(response?.workflowUpdates)
+        && (response.workflowUpdates as readonly unknown[]).some((update) => {
+          if (update === null || typeof update !== "object") return false;
+          const proposal = update as Record<string, unknown>;
+          return typeof proposal.kind === "string" && proposal.kind.startsWith("offer")
+            || universitySnapshot.programs.some((program) => (program.workflowItems ?? []).some((item) =>
+              item.workflowId === proposal.workflowRef && item.kind.startsWith("offer")));
+        });
+      if (offerReport || proposedOfferUpdate) {
+        yield Object.freeze({ index: 0, text: offerNotSavedLine(input.userText, universitySnapshot, false) });
+        return;
+      }
       const scope = response?.universityEngaged === true
         || hasUpdates("programUpdates") || hasUpdates("applicationUpdates") || hasUpdates("workflowUpdates")
         ? "university"
@@ -748,17 +910,29 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
           now,
         });
       } catch {
+        if (offerReport) {
+          yield Object.freeze({ index: 0, text: offerNotSavedLine(input.userText, universitySnapshot, false) });
+          return;
+        }
         // Never release the structured reply: it may claim a plan was saved.
         // The ordinary bot still answers, with one fixed line naming the gap.
         yield* fallbackWithSaveFailure(this.dependencies.model, input, "school", this.dependencies.redactor);
         return;
       }
-    } else if (universityPlan?.engaged) {
+      if (offerReport) {
+        yield Object.freeze({
+          index: 0,
+          text: `${schoolPlanReceipt(schoolPlan, snapshot, today)}\n\n${offerNotSavedLine(input.userText, universitySnapshot, true)}`,
+        });
+        return;
+      }
+    } else if (universityPlan?.engaged && universitySnapshot !== null) {
       if ((universityPlan.applicationUpdates.length > 0 || universityPlan.workflowUpdates.length > 0)
         && input.principalId !== this.dependencies.ownerPrincipalId) {
         yield* guardedOrdinaryReply(this.dependencies.model, input, this.dependencies.redactor);
         return;
       }
+      const offerUpdate = planSavesOfferUpdate(universityPlan, universitySnapshot);
       try {
         const universityRepository = this.dependencies.universityRepository;
         if (universityRepository === undefined) throw new Error("university_tracker_repository_missing");
@@ -770,9 +944,29 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
           now,
         });
       } catch {
+        if (offerReport || offerUpdate) {
+          yield Object.freeze({ index: 0, text: offerNotSavedLine(input.userText, universitySnapshot, false, true) });
+          return;
+        }
         yield* fallbackWithSaveFailure(this.dependencies.model, input, "university", this.dependencies.redactor);
         return;
       }
+      // Receipts, not model claims: after a university save Sid sees only
+      // fixed sentences built from the stored plan and tracked names.
+      const receipt = universityPlanReceipt(universityPlan, universitySnapshot);
+      if (receipt.length > 0) {
+        yield Object.freeze({
+          index: 0,
+          text: offerReport && !offerUpdate
+            ? `${receipt}\n\n${offerNotSavedLine(input.userText, universitySnapshot, true)}`
+            : receipt,
+        });
+        return;
+      }
+    }
+    if (offerReport) {
+      yield Object.freeze({ index: 0, text: offerNotSavedLine(input.userText, universitySnapshot, false) });
+      return;
     }
     yield Object.freeze({ index: 0, text: reply });
   }

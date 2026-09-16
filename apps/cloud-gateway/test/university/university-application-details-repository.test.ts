@@ -385,7 +385,7 @@ describe("UniversityTrackerRepository application details", () => {
     if (waterloo === undefined || western === undefined) throw new Error("university_workflow_fixture_missing");
     const offerAt = new Date("2026-09-16T16:10:00.000Z");
     const offerTurnId = newUlid(offerAt);
-    const offerText = "I received a University of Waterloo Computer Science offer.";
+    const offerText = "I got an offer from University of Waterloo for Computer Science.";
     await seedTurn(principalId, offerTurnId, offerText, offerAt);
     await repository.applyOwnerPlan({
       principalId,
@@ -401,7 +401,7 @@ describe("UniversityTrackerRepository application details", () => {
           programRef: waterloo.programId,
           applicationItemRef: null,
           kind: "offer",
-          label: "University of Waterloo Computer Science offer",
+          label: "offer",
           owner: "university",
           status: "owner_reported_offered",
           statusEvidence: offerText,
@@ -484,6 +484,74 @@ describe("UniversityTrackerRepository application details", () => {
         },
       })).rejects.toThrow("university_workflow_item_invalid");
     }
+  });
+
+  it("rechecks the explicit offer sentence, fixed label and owner at the repository boundary", async () => {
+    const principalId = "principal:workflow-repository-offer-sentence";
+    const repository = new UniversityTrackerRepository(env.DB);
+    const setupTurnId = newUlid(NOW);
+    await seedTurn(principalId, setupTurnId, "Track Waterloo Computer Science.");
+    await repository.applyOwnerPlan({
+      principalId, turnId: setupTurnId, responseHash: "c".repeat(64), now: NOW,
+      plan: {
+        engaged: true,
+        programUpdates: [{
+          programRef: "new-1", university: "University of Waterloo", campus: null,
+          programName: "Computer Science", ouacCode: null,
+          verification: { state: "unverified", sourceUrl: null, cycle: null },
+          addRequirements: [], addDates: [], resolveItemIds: [],
+        }],
+        applicationUpdates: [],
+        workflowUpdates: [],
+      },
+    });
+    const waterloo = (await repository.readSnapshot(principalId)).programs[0];
+    if (waterloo === undefined) throw new Error("university_workflow_fixture_missing");
+    let minute = 20;
+    const apply = async (text: string, update: Record<string, unknown>): Promise<void> => {
+      const now = new Date(`2026-09-16T16:${minute}:00.000Z`);
+      const turnId = newUlid(now);
+      minute += 1;
+      await seedTurn(principalId, turnId, text, now);
+      await repository.applyOwnerPlan({
+        principalId, turnId, responseHash: String(minute).padStart(64, "d"), now,
+        plan: {
+          engaged: true, programUpdates: [], applicationUpdates: [],
+          workflowUpdates: [{
+            workflowRef: "new-workflow-1", programRef: waterloo.programId, applicationItemRef: null,
+            kind: "offer", label: "offer", owner: "university", status: "owner_reported_offered",
+            statusEvidence: text, preparedDetails: null,
+            deadline: { date: null, instant: null, timeZone: null,
+              verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+            executionBoundary: "owner_only",
+            ...update,
+          } as never],
+        },
+      });
+    };
+    const explicit = "I got waitlisted by Waterloo for Computer Science.";
+    await expect(apply(explicit, { status: "owner_reported_waitlisted", label: "Waterloo offer (confirmed, reply by June 1)" }))
+      .rejects.toThrow("university_workflow_item_invalid");
+    await expect(apply(explicit, { status: "owner_reported_waitlisted", owner: "sid" }))
+      .rejects.toThrow("university_workflow_item_invalid");
+    await expect(apply(explicit, { status: "owner_reported_waitlisted", preparedDetails: "Reply by June 1." }))
+      .rejects.toThrow("university_workflow_item_invalid");
+    for (const text of ["Waterloo still hasn't accepted me.", "I got a Waterloo Math offer.", "I hope I got an offer from Waterloo for Computer Science."]) {
+      await expect(apply(text, {})).rejects.toThrow("university_workflow_item_invalid");
+    }
+    expect((await repository.readSnapshot(principalId)).programs[0]?.workflowItems).toEqual([]);
+
+    await apply(explicit, { status: "owner_reported_waitlisted" });
+    const waitlisted = (await repository.readSnapshot(principalId)).programs[0]?.workflowItems?.[0];
+    if (waitlisted === undefined) throw new Error("university_workflow_fixture_missing");
+    const offered = "I got an offer from University of Waterloo for Computer Science!";
+    await apply(offered, {
+      workflowRef: waitlisted.workflowId, kind: null, label: null, owner: null, deadline: null,
+    });
+    await expect(repository.listWorkflowItemsByDueDate(principalId)).resolves.toMatchObject([{
+      university: "University of Waterloo", programName: "Computer Science", label: "offer",
+      owner: "university", status: "owner_reported_offered",
+    }]);
   });
 
   it("rechecks a digest-visible workflow label at the repository boundary", async () => {
