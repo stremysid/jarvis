@@ -310,7 +310,7 @@
 <main>
   <header class="mast">
     <h1>Jarvis status</h1>
-    <p>Updated Sep 16, 1:40 PM your time. Memory now learns on its own and the grades check is merged. The database rehearsal ran for real on a throwaway Cloudflare database and passed. It also turned up six bugs in the checklist itself, all worked around and now being fixed properly.</p>
+    <p>Updated Sep 16, 2:25 PM your time. The switch-on checklist is fixed and merged, and it ran cleanly start to finish twice on your PC. Memory in Telegram was sent back: as built, Jarvis would have stopped replying on Telegram. A builder is fixing it, and the university workflow fixes are being re-checked.</p>
     <div class="live">
       <span>Gateway live: version <span class="mono">28109492</span></span>
       <span>Health check OK</span>
@@ -334,6 +334,7 @@
         <span class="step">#70 database can be rebuilt · merged</span><span class="arrow" aria-hidden="true">→</span>
         <span class="step">#60 rehearsal checklist · merged</span><span class="arrow" aria-hidden="true">→</span>
         <span class="step">Rehearsal on throwaway database · passed</span><span class="arrow" aria-hidden="true">→</span>
+        <span class="step">#71 checklist works on Windows · merged</span><span class="arrow" aria-hidden="true">→</span>
         <span class="step now">Switch on for real · you, when ready</span>
       </div>
     </div>
@@ -371,7 +372,7 @@
           <div class="track"><span class="track-label">Pieces</span>
             <div class="segs" role="img" aria-label="11 pieces: 6 built, 1 with a builder, 4 not started"><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg work"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span><span class="seg"></span></div>
           </div>
-          <p class="rung-note">Built: memory storage, remember and forget, full recall of old chats, and learning on its own (<a href="https://github.com/ksid1229-ops/jarvis/pull/59">#59</a>). With a builder: memory in your Telegram chats (<a href="https://github.com/ksid1229-ops/jarvis/pull/62">#62</a>). Not started: meaning search, nightly backup, calls, rollout.</p>
+          <p class="rung-note">Built: memory storage, remember and forget, full recall of old chats, and learning on its own (<a href="https://github.com/ksid1229-ops/jarvis/pull/59">#59</a>). Sent back and with a builder: memory in your Telegram chats (<a href="https://github.com/ksid1229-ops/jarvis/pull/62">#62</a>). Not started: meaning search, nightly backup, calls, rollout.</p>
         </div>
       </div>
 
@@ -380,9 +381,9 @@
         <div class="rung-body">
           <div class="rung-head"><span class="rung-name">School and university</span><span class="rung-count">6 of 7 built</span></div>
           <div class="track"><span class="track-label">Pieces</span>
-            <div class="segs" role="img" aria-label="7 pieces: 6 built, 1 with a builder"><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg work"></span></div>
+            <div class="segs" role="img" aria-label="7 pieces: 6 built, 1 in review"><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg done"></span><span class="seg review"></span></div>
           </div>
-          <p class="rung-note">Built: catch-up plan per course, D2L and Classroom deadlines, university tracker, application checklist, first study coach, grades and missing-work check (<a href="https://github.com/ksid1229-ops/jarvis/pull/61">#61</a>). With a builder: full application workflow (<a href="https://github.com/ksid1229-ops/jarvis/pull/64">#64</a>).</p>
+          <p class="rung-note">Built: catch-up plan per course, D2L and Classroom deadlines, university tracker, application checklist, first study coach, grades and missing-work check (<a href="https://github.com/ksid1229-ops/jarvis/pull/61">#61</a>). Fixes in review with me: full application workflow (<a href="https://github.com/ksid1229-ops/jarvis/pull/64">#64</a>).</p>
         </div>
       </div>
 
@@ -459,7 +460,7 @@
 
     <div class="task">
       <strong>1. Switch the database changes on — ready when you are</strong>
-      <p>I ran the rehearsal for you on throwaway Cloudflare databases, each deleted afterwards; your real database was never touched. Your waiting changes applied cleanly over test data, and all 221 safety rules were in place. I'm rerunning it now with the memory change that just merged. The checklist had six bugs that would have stopped you partway; they're being fixed. After that, switching on for real is yours: about 15 minutes, with me walking you through each step.</p>
+      <p>I ran the rehearsal for you on throwaway Cloudflare databases, each deleted afterwards; your real database was never touched. All 13 waiting changes applied cleanly over test data, and all 231 safety rules were in place. The checklist's Windows bugs are fixed (<a href="https://github.com/ksid1229-ops/jarvis/pull/71">#71</a>), and the fixed version ran start to finish twice. Switching on for real is yours: about 15 minutes, with me walking you through each step.</p>
     </div>
 
     <div class="task">
@@ -476,7 +477,7 @@ npx.cmd wrangler d1 delete jarvis-probe-caseraise</pre>
 
     <div class="task">
       <strong>Merged today</strong>
-      <p><a href="https://github.com/ksid1229-ops/jarvis/pull/54">#54</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/53">#53</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/56">#56</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/57">#57</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/58">#58</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/52">#52</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/68">#68</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/63">#63</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/69">#69</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/70">#70</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/67">#67</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/60">#60</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/61">#61</a> and <a href="https://github.com/ksid1229-ops/jarvis/pull/59">#59</a>, each checked on the combined code afterwards. Nothing is deployed or switched on.</p>
+      <p><a href="https://github.com/ksid1229-ops/jarvis/pull/54">#54</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/53">#53</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/56">#56</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/57">#57</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/58">#58</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/52">#52</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/68">#68</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/63">#63</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/69">#69</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/70">#70</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/67">#67</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/60">#60</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/61">#61</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/59">#59</a> and <a href="https://github.com/ksid1229-ops/jarvis/pull/71">#71</a>, each checked on the combined code afterwards. Nothing is deployed or switched on.</p>
     </div>
   </div>
 
@@ -484,34 +485,46 @@ npx.cmd wrangler d1 delete jarvis-probe-caseraise</pre>
     <h2>Pull requests</h2>
     <div class="ledger">
       <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/62">#62</a>
+        <span class="what">Memory in your Telegram chats</span>
+        <span class="pill warn">Being fixed</span>
+        <span class="detail">Sent back with 4 serious problems. As built, Jarvis would stop replying on Telegram. "Remember that…" and "forget that" would never work, voice calls would lose what you'd told Jarvis, and Telegram would forget the message you sent just before. A builder is fixing all of it, and each fix has to pass a test that fails today.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/64">#64</a>
+        <span class="what">Full university application workflow</span>
+        <span class="pill ready">Re-checking</span>
+        <span class="detail">Supplements, scholarships, essays, references, transcripts and offers. The fixes are in and all 3,998 tests pass. A second reviewer is checking that Jarvis can't claim "I accepted your Waterloo offer", mix up schools, or quietly skip "I got into Waterloo!!".</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/71">#71</a>
+        <span class="what">Switch-on checklist works on Windows</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged (<span class="mono">d6af660</span>). Fixes the six bugs the real rehearsal found. The fixed checklist then ran exactly as written on a throwaway database, twice, with every step passing and the database deleted afterwards.</span>
+      </div>
+      <div class="row">
         <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/70">#70</a>
         <span class="what">Database can be rebuilt from scratch</span>
         <span class="pill good">Merged</span>
         <span class="detail">Merged (<span class="mono">010f93b</span>). Rewrote the 7 old rules Cloudflare can't read into the form it can, with the same meaning and error messages, byte for byte the same as an independent rewrite. Round 2 added the two tests that were missing, so every rewritten rule is proven to still fire.</span>
       </div>
       <div class="row">
-        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/$1<span class="pill good">Merged</span>
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/59">#59</a>
+        <span class="what">Memory learns on its own</span>
+        <span class="pill good">Merged</span>
         <span class="detail">Merged (<span class="mono">4e21369</span>). Jarvis pulls what matters out of your chats automatically and keeps up with a busy day. A message you forward from someone else is never saved as your own words, a long message with many facts isn't dropped, and school checks always run first. All 3,868 tests pass.</span>
       </div>
       <div class="row">
-        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/$1<span class="pill good">Merged</span>
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/61">#61</a>
+        <span class="what">Grades and missing work</span>
+        <span class="pill good">Merged</span>
         <span class="detail">Merged (<span class="mono">2d098d0</span>). Reads your submissions and marks from Google Classroom into your morning update. Every way it could tell you something false was found, fixed and proven over three rounds: handed-in work shown as missing, work checked before its deadline, a teacher extending a deadline. Times show in Toronto time.</span>
-      </div>
-      <div class="row">
-        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/64">#64</a>
-        <span class="what">Full university application workflow</span>
-        <span class="pill warn">Being fixed</span>
-        <span class="detail">Supplements, scholarships, essays, references, transcripts and offers. Sent back: Jarvis could claim "I accepted your Waterloo offer", file one school's news under another, and save "I got no offer" as an offer. Fixing by reusing the checks that already work for your application checklist.</span>
       </div>
       <div class="row">
         <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/67">#67</a>
         <span class="what">Guest-PIN messages never get stuck</span>
         <span class="pill good">Merged</span>
         <span class="detail">Merged (<span class="mono">fd65944</span>). One message that kept failing used to block every newer one; now they take turns, and a failing message is never thrown away. All 14 safety checks proven by tests.</span>
-      </div>
-      <div class="row">
-        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/$1<span class="pill warn">Being updated</span>
-        <span class="detail">Now that <a href="https://github.com/ksid1229-ops/jarvis/pull/59">#59</a> is merged, the builder is moving this onto the final memory code. It's also adding the marker that tells memory a message is really from you, so your own statements can be trusted.</span>
       </div>
       <div class="row">
         <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/60">#60</a>
@@ -692,33 +705,4 @@ npx.cmd wrangler d1 delete jarvis-probe-caseraise</pre>
     </ul>
   </section>
 
-  <details>
-    <summary>PC build plan (paused)</summary>
-    <div class="parked">
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr><th>Part</th><th>Where</th><th class="num">CAD</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>Core Ultra 7 270K Plus + Z890 Eagle + 32GB</td><td>Micro Center</td><td class="num">~$859</td></tr>
-            <tr><td>RX 9060 XT 16GB</td><td>Micro Center</td><td class="num">~$644</td></tr>
-            <tr><td>Samsung 990 EVO Plus 1TB</td><td>Newegg</td><td class="num">$250</td></tr>
-            <tr><td>SAMA S50 case</td><td>Newegg</td><td class="num">$100</td></tr>
-            <tr><td>SAMA G750W power supply</td><td>Newegg</td><td class="num">$95</td></tr>
-            <tr><td>SAMA L70 360mm cooler</td><td>Newegg</td><td class="num">$50</td></tr>
-          </tbody>
-          <tfoot>
-            <tr><td>Total before Canadian tax</td><td></td><td class="num">~$2,000</td></tr>
-          </tfoot>
-        </table>
-      </div>
-      <ul class="checklist">
-        <li>Ask Micro Center to swap the RAM for 2×32GB (64GB).</li>
-        <li>Stay in the US 48+ hours so $800 comes back tax-free.</li>
-        <li>Check Task Manager GPU and memory with your usual Studio windows open.</li>
-      </ul>
-      <p class="note">USD at 1.386. Micro Center prices include NJ tax at 3.3125%.</p>
-    </div>
-  </details>
 </main>
