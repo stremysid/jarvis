@@ -3,11 +3,12 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
-## 2026-09-16 — GPT-5 Codex, migration 0028 reserved for R5 application workflow step 6
+## 2026-09-16 — GPT-5 Codex, migration 0029 reserved for R5 application workflow step 6
 
 Open PR inspection found `0026_memory_distillation.sql` on PR #59 and
-`0027_school_observations.sql` on PR #61. This branch therefore reserves
-`0028` for the fuller university application/document workflow. The slice is
+`0027_school_observations.sql` on PR #61, while PR #67 owns
+`0028_guest_grant_notice_drain.sql`. This branch therefore reserves `0029`
+for the fuller university application/document workflow. The slice is
 preparation- and record-only: it cannot send, upload, sign up, pay, submit, or
 contact any person, school, or portal. No migration is applied by this work.
 
