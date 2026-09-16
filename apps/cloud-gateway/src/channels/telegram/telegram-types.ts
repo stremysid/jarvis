@@ -28,6 +28,8 @@ export interface AcceptedTelegramText {
   readonly text: string;
   /** False when Telegram identifies the text as forwarded or externally borrowed. */
   readonly isDirectText: boolean;
+  /** Narrower authority used only by plain-speech memory controls. */
+  readonly isMemoryControlAuthoritative: boolean;
 }
 
 /**
@@ -78,6 +80,10 @@ const BORROWED_TEXT_KEYS = [
   "forward_origin", "forward_from", "forward_from_chat", "forward_sender_name",
   "forward_date", "is_automatic_forward", "external_reply",
 ] as const;
+const QUOTED_TEXT_KEYS = ["quote", "reply_to_message"] as const;
+const UNTRUSTED_CONTROL_ENTITY_TYPES = new Set([
+  "blockquote", "expandable_blockquote", "code", "pre",
+]);
 
 /** Update ids and message ids are positive integers; ids are decimal strings. */
 const PROVIDER_SUBJECT = /^[1-9]\d{0,19}$/u;
@@ -113,6 +119,17 @@ function wellFormedText(value: unknown): string | null {
   const normalized = value.normalize("NFC");
   if (normalized.length === 0) return null;
   return normalized;
+}
+
+function containsQuotedOrPastedControlContent(message: Record<string, unknown>, text: string): boolean {
+  if (QUOTED_TEXT_KEYS.some((key) => key in message) || /[\r\n]/u.test(text)) return true;
+  if (!("entities" in message)) return false;
+  const entities = message.entities;
+  if (!Array.isArray(entities)) return true;
+  return entities.some((entity) => {
+    if (!isPlainObject(entity) || typeof entity.type !== "string") return true;
+    return UNTRUSTED_CONTROL_ENTITY_TYPES.has(entity.type);
+  });
 }
 
 /**
@@ -227,6 +244,7 @@ export function classifyTelegramUpdate(raw: unknown): TelegramClassification {
     return { kind: "rejected", updateId, reason: "message_too_large" };
   }
 
+  const isDirectText = !BORROWED_TEXT_KEYS.some((key) => key in message);
   return {
     kind: "text",
     value: Object.freeze({
@@ -235,7 +253,9 @@ export function classifyTelegramUpdate(raw: unknown): TelegramClassification {
       chatId: resolvedChatId,
       messageId,
       text,
-      isDirectText: !BORROWED_TEXT_KEYS.some((key) => key in message),
+      isDirectText,
+      isMemoryControlAuthoritative: isDirectText
+        && !containsQuotedOrPastedControlContent(message, text),
     }),
   };
 }

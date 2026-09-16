@@ -19,7 +19,6 @@ import { assembleDigest, unconfiguredDeadlineSourceKinds } from "./jobs/digest-j
 import { buildJobTable, buildScheduledRuns, runOnDemandBrightspaceRefresh } from "./jobs/job-table.js";
 import { handleScheduled } from "./scheduler/scheduled-handler.js";
 import { heartbeatConfiguration } from "./scheduler/heartbeat-reporter.js";
-import { D1ContextRetriever } from "./conversation/context-retriever.js";
 import { ConversationRepository } from "./conversation/conversation-repository.js";
 import { DefaultConversationService } from "./conversation/conversation-service.js";
 import {
@@ -45,6 +44,8 @@ import { DeepSeekModelAdapter } from "./providers/deepseek-provider.js";
 import { ProviderCircuitBreaker } from "./providers/provider-circuit-breaker.js";
 import { TelegramRestProvider } from "./providers/telegram-provider.js";
 import { Redactor } from "./security/redaction.js";
+import { TelegramMemoryControlModelAdapter } from "./memory/telegram-memory-controls.js";
+import { TelegramMemoryRetriever } from "./memory/telegram-memory-retriever.js";
 import { SchoolCatchupModelAdapter } from "./school/school-catchup-model.js";
 import { SchoolCatchupRepository } from "./school/school-catchup-repository.js";
 import { StudyCoachModelAdapter } from "./school/study-coach-model.js";
@@ -113,7 +114,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
     const redactor = new Redactor();
     const baseModel = new DeepSeekModelAdapter({ apiKey, model: env.DEEPSEEK_MODEL });
     const ownerPrincipalId = env.OWNER_PRINCIPAL_ID;
-    const model = ownerPrincipalId !== undefined && accepted.principalId === ownerPrincipalId
+    const ownerAwareModel = ownerPrincipalId !== undefined && accepted.principalId === ownerPrincipalId
       ? new StudyCoachModelAdapter({
         fallbackModel: new SchoolCatchupModelAdapter({
           model: baseModel,
@@ -138,11 +139,34 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
       })
       : baseModel;
+    const memory = new TelegramMemoryRetriever({
+      database: env.DB,
+      archive: env.ARCHIVE,
+      controlAuthority: ownerPrincipalId !== undefined
+        && accepted.principalId === ownerPrincipalId
+        && accepted.isMemoryControlAuthoritative
+        ? { principalId: accepted.principalId, text: accepted.text }
+        : null,
+    });
+    const model = ownerPrincipalId === undefined
+      ? ownerAwareModel
+      : new TelegramMemoryControlModelAdapter({
+        database: env.DB,
+        archive: env.ARCHIVE,
+        fallbackModel: ownerAwareModel,
+        ownerPrincipalId,
+        authority: {
+          principalId: accepted.principalId,
+          text: accepted.text,
+          isDirectText: accepted.isMemoryControlAuthoritative,
+        },
+        targets: memory,
+      });
 
     const service = new DefaultConversationService({
       repository,
       model,
-      context: new D1ContextRetriever(env.DB),
+      context: memory,
       dispatcher: new DefaultOutboxDispatcher({
         repository,
         identityResolver: new D1TelegramIdentityResolver(env.DB),
