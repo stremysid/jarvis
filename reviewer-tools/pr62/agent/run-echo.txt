@@ -1,0 +1,22 @@
+
+ RUN  v4.1.11 C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-handoff-documentation-c01991/1b142017-0838-4dd9-9f2b-b76bb0eba596/scratchpad/pr62/agent/tree
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/memory/zz-pr62-forget-echo.test.ts (1 test | 1 failed) 424ms
+     × returns Jarvis's echo of a forgotten memory as unlabelled history evidence 259ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/zz-pr62-forget-echo.test.ts > PR62 forget echo > returns Jarvis's echo of a forgotten memory as unlabelled history evidence
+Error: ===ECHO=== deliver=telegram_delivered reply=["Noted: your favourite teacher is Ms Lee."] forgot="Forgot 1 memory and hid 1 of 1 source turns; the original conversation remains retained. You can ask in ordinary language to use it again." contexts=["History evidence [live D1; event 01m2npkdnkmerm5jaeawcs6qcy; 2026-09-16T18:10:27.122Z; telegram]: Forget the memory about favourite teacher.","History evidence [live D1; event 01m2npkdkp4bzrvm1c8btc4y09; 2026-09-16T18:10:27.058Z; telegram]: Noted: your favourite teacher is Ms Lee."] ===END===
+ ❯ apps/cloud-gateway/test/memory/zz-pr62-forget-echo.test.ts:80:11
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  14:10:24
+   Duration  2.85s (transform 949ms, setup 0ms, import 1.70s, tests 424ms, environment 0ms)
+

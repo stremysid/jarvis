@@ -1,0 +1,40 @@
+
+ RUN  v4.1.11 C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-handoff-documentation-c01991/1b142017-0838-4dd9-9f2b-b76bb0eba596/scratchpad/pr62/agent/tree
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/memory/zz-pr62-adversarial.test.ts (10 tests | 1 failed) 1716ms
+     × zz: print 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/zz-pr62-adversarial.test.ts > PR62 adversarial > zz: print
+Error: ===PR62-ADV===
+A outcome=failed delivered=[] items 0->0 modelCalls=0 payload={"channelCode":2,"directOwnerText":true,"historyEligible":true,"schemaCode":1,"sensitivityCode":1,"text":"Remember that my reports should be short."}
+A2 forget outcome=failed delivered=undefined
+A3 explain outcome=failed delivered=undefined
+A-repo validateOwnerTurn marked=memory_refused legacy=resolved
+B voice D1ContextRetriever=context_payload_invalid literal indexNext=memory_history_corrupt
+C base second-turn context=["This week I am reading Hamlet for English class.","ordinary model reply","Can you make a study plan for that book?"] | PR second-turn context=[]
+D outcome=model_outcome_unknown modelCalls=0 delivered=0
+E remember1="Remembered 1 memory. You can ask in ordinary language to forget it." remember2="Remembered 1 memory. You can ask in ordinary language to forget it." | forget-about-my-reports="Which memory do you mean? Tell me a few words from it; I changed nothing." | forget-that-memory="Which memory do you mean? Tell me a few words from it; I changed nothing." | why="Which memory do you mean? Tell me a few words from it; I changed nothing." | forget-about-reports="Forgot 1 memory and hid 1 of 1 source turns; the original conversation remains retained. You can ask in ordinary language to use it again."
+F via_bot:true/true u2028:true/true sender_chat:true/true reply_to_story:true/true
+S PR owner outcome=failed guest outcome=failed modelCalls=0 delivered=0 ownerTurn={"state":"failed","failure_code":"model_failed"} | base outcome=telegram_delivered modelCalls=1 delivered=["ordinary model reply"]
+S-budgets-fixed remember outcome=telegram_delivered text="I could not safely access memory just now, so I changed nothing." items=0 | hamlet=telegram_delivered followup=telegram_delivered followupContext=[] | recall=telegram_delivered recallContext=[] modelCalls=3
+A-debug marked=true outcome=failed seen=["error:ModelAdapterError:model_input_invalid"] delivered=[] items=0 turn={"state":"failed","failure_code":"model_failed"}
+A-debug marked=false outcome=failed seen=["error:ModelAdapterError:model_input_invalid"] delivered=[] items=0 turn={"state":"failed","failure_code":"model_failed"}
+===END===
+ ❯ apps/cloud-gateway/test/memory/zz-pr62-adversarial.test.ts:398:11
+    397|     throw new Error(`===PR62-ADV===\n${log.join("\n")}\n===END===`);
+    398|   });
+    399| });
+       |    ^
+    400|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 9 passed (10)
+   Start at  14:03:16
+   Duration  3.94s (transform 854ms, setup 0ms, import 1.57s, tests 1.72s, environment 0ms)
+
