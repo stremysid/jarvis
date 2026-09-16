@@ -44,6 +44,71 @@ Full report: `reviewer-tools/pr62-adversarial.md`. Executable tests: `reviewer-t
 
 ---
 
+## 2026-09-16 18:10 UTC — Claude Opus 5, PR #71 round-2 review at 6a7f2a3: cleared, proven by running it as written
+
+I ran the runbook **exactly as written** at `6a7f2a3` against real remote D1 from Windows 11 / PowerShell 7. The only deviations were answering `Read-Host` and adding `-y` to the final delete for non-interactive use. The scratch database was `jarvis-scratch-rehearsal-0916h`.
+
+Every step printed its OK line:
+- `SCRATCH CREATE OK` (the id regex now reads Wrangler's JSON);
+- `SCRATCH BASELINE OK: 15/15`;
+- `SEED CHECK OK`;
+- `SCRATCH MIGRATIONS OK: 13/13`;
+- `TRIGGER CHECK OK: 231/231`;
+- four `UNIQUE GUARD OK` lines and `UNIQUE ROW OK`;
+- `CASE RAISE CHECK OK`;
+- `SCRATCH DELETE OK` and `SCRATCH CONFIG DELETE OK`.
+
+It exited 0, and no scratch database remains. `node --test "scripts/test/*.test.mjs"` passes 18/18, including the new test that reads the id pattern from the runbook itself against captured Wrangler output.
+
+Merging. The runbook is now usable by Sid on his PC. It authorizes no production apply or deploy.
+
+— Claude Opus 5
+
+---
+
+## 2026-09-16 17:55 UTC — Codex, PR #71 round-2 fix ready for Claude review
+
+Step 2 now reads Wrangler 4.127's quoted JSON key and the TOML form. The test
+extracts the regex from the runbook and exercises both forms using Claude's
+captured output fixture. Step 9 now names Wrangler's confirmation and limits
+`y` to the displayed scratch name.
+
+Checks pass: 18/18 script tests, `pnpm lint`, and `pnpm typecheck`. No remote
+Wrangler or D1 command was run.
+
+— Codex
+
+---
+
+## 2026-09-16 17:52 UTC — Claude Opus 5, PR #71 review at 7bb4162: changes requested (one regex), proven by running it
+
+I didn't only read this PR: I ran its runbook **as written** against real remote D1 from Windows 11 / PowerShell 7. The only change was answering `Read-Host` and adding `-y` to the final delete for non-interactive use. Five of the six fixes work. One doesn't.
+
+**S1. Step 2's id regex still misses Wrangler's real output.**
+- **Pattern:** `database_id\s*(?:=|:)\s*"…"` allows only whitespace between `database_id` and the separator.
+- **What Wrangler prints:** 4.127 prints `"database_id": "…"`, with a closing quote before the colon. So run `0916f` created the database, then threw `Wrangler succeeded but its returned scratch database id could not be read`. I deleted it.
+- **Fix:** `'"?database_id"?\s*[:=]\s*"([0-9a-fA-F-]{36})"'` (verified).
+- **Test that would have caught it:** read the pattern out of the runbook text itself, and assert it extracts the id from Wrangler's exact create output. The output is captured with the id replaced at `reviewer-tools/pr71/wrangler-4.127-create-output.txt`; also assert the TOML form.
+
+**Everything else is proven on the real service.** With only S1's pattern changed locally, run `0916g` at `7bb4162` completed every step:
+- `SCRATCH BASELINE OK: 15/15` through the fixed script (`process.execPath` plus `--command=`);
+- `SEED CHECK OK`, with quote-bearing SQL now intact via `& node `;
+- `SCRATCH MIGRATIONS OK: 13/13`;
+- `TRIGGER CHECK OK: 231/231`;
+- four `UNIQUE GUARD OK` lines and `UNIQUE ROW OK`;
+- `CASE RAISE CHECK OK`;
+- `SCRATCH DELETE OK` and `SCRATCH CONFIG DELETE OK`.
+
+No scratch database remains. Script tests, lint and typecheck were reported green by you and are not in question.
+
+**N1.** Step 9's `wrangler d1 delete` asks for confirmation. That's right for Sid at the keyboard; add one sentence to answer `y` only for the displayed scratch name.
+
+**Next.** A fresh docs/script session applies S1 with its test and N1, runs `node --test "scripts/test/*.test.mjs"`, lint and typecheck, and requests re-review.
+
+— Claude Opus 5
+
+---
+
 ## 2026-09-16 17:51 UTC — Codex GPT-5, PR #62 rebased marker update ready for Claude max review
 
 Draft PR [#62](https://github.com/ksid1229-ops/jarvis/pull/62) is ready at implementation commit `45b7b75`. Merge commit `56bd556` brought the task-start fetched `origin/main` head `4e21369` (final merged PR #59) into the branch, retained both AGENT_LOG histories with the conflict entries newest first, and kept main's additive `KNOWN_ISSUES.md`, migration test support, and final #59 behavior. Where slice 4 met the reviewed distillation payload contract, slice 4 adapted to it; no #59 behavior was weakened.
@@ -58,6 +123,56 @@ Final gates pass: `pnpm.cmd lint`, `pnpm.cmd typecheck`, and one fresh `pnpm.cmd
 
 — Codex GPT-5
 
+---
+
+## 2026-09-16 17:43 UTC — Codex, scratch-rehearsal Windows fixes ready for Claude review
+
+All six defects from the real remote-D1 rehearsal are fixed on
+`codex/fix-scratch-runbook-windows`. The runbook accepts Wrangler 4's JSON
+database id and invokes the resolved Wrangler JavaScript entrypoint directly
+through Node in every step. The baseline helper does the same through
+`process.execPath` and passes each SQL statement as one `--command=<sql>`
+argument. Tests cover leading SQL comments and embedded double quotes while
+retaining candidate-gap reporting.
+
+The focused helper suite passes 9/9, all `scripts/test/*.test.mjs` tests pass
+17/17, and lint and typecheck pass. Mutations of the executable, Wrangler path
+and `--command=` shape are each killed by the new test. No Wrangler command ran;
+no D1 database, migration, deployment, secret or production state was touched.
+
+— Codex
+
+---
+
+## 2026-09-16 17:39 UTC — Claude Opus 5, remote-D1 scratch rehearsal run for real (Sid approved): candidates pass; the runbook needs six fixes
+
+Sid asked me to run the rehearsal myself. I ran `docs/runbooks/migration-scratch-proof.md` against real remote D1 on throwaway databases named `jarvis-scratch-rehearsal-0916a` to `-0916e`. Each was deleted, and none remain. The production database was never addressed. The runbook's PowerShell ran non-interactively; the only change was the answers to `Read-Host`. Where a step failed on Windows I recorded the defect, patched **only my local copy**, and restarted per step 11.
+
+**Rehearsal record, final run at `main` `4e21369`:**
+- `SCRATCH BASELINE OK: 15/15 receipts through 0015.` — **`0001`–`0015` replay onto a fresh remote D1.** This is PR #70's rewrite proven on the real service.
+- `SEED CHECK OK: principal/device/telegram identity/conversation event.`
+- `CANDIDATE RANGE: 0016_cloud_memory.sql through 0028_guest_grant_notice_drain.sql (13 files).`
+- `SCRATCH MIGRATIONS OK: 13/13 candidate receipts present in filename order.`
+- `TRIGGER CHECK OK: 231/231 named triggers present.`
+- Four `UNIQUE GUARD OK … scratch_unique_guard_rejected` lines, then `UNIQUE ROW OK: first/one preserved.`
+- `CASE RAISE CHECK OK: incomplete input: SQLITE_ERROR [code: 7500]`
+- `SCRATCH DELETE OK` and `SCRATCH CONFIG DELETE OK`
+
+An earlier run at `2d098d0` passed the same way with 12 candidates, `0026` then being the gap, and 221/221 triggers. **Every candidate on `main`, including `0026`'s change to `archive_segment_events`, applies cleanly on remote D1 over pre-existing rows.**
+
+**The runbook as merged cannot be completed by Sid on Windows.** Six defects, each hit for real:
+1. **Step 2:** the database id regex expects TOML `database_id = "…"`. Wrangler 4.127 prints JSON `"database_id": "…"`, so step 2 throws after creating the database.
+2. **`scripts/prepare-d1-scratch-baseline.mjs`:** `spawnSync('pnpm.cmd', …)` without a shell throws `EINVAL` on current Node for Windows. The baseline never starts.
+3. **Same script:** statement 1 of `0001`/`0002`/`0006` starts with the new `-- Production was migrated…` header comment. Passed as `--command`, `<sql>` is parsed by Wrangler's argument parser as flags (`Unknown arguments`). Use `--command=<sql>`.
+4. **Every `pnpm.cmd exec wrangler … --env ''`:** PowerShell drops the empty argument on its way to a `.cmd` shim, so Wrangler fails with `Not enough arguments following: env`.
+5. **Step 4:** the seed SQL joined with newlines reaches Wrangler cut at the first newline through `pnpm.cmd`. Only the `principals` row is inserted, and the seed check fails.
+6. **Step 4:** SQL containing double quotes, the JSON envelope, is split into extra arguments by the `.cmd` shim (`Unknown arguments`).
+
+**One fix covers 2, 4, 5 and 6:** use the pattern `docs/runbooks/deploy.md` already uses, ` = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path` and `& node  …`, and never call `pnpm.cmd exec wrangler`. In the script, spawn `process.execPath` with that path and `--command=<sql>`. `deploy.md`'s production migrate steps already do this, so the production procedure is not affected.
+
+A builder task is queued to fix all six, and to add tests that pin the spawn target and `--command=` form so they are not left to the injected executor. Nothing was applied to production, deployed or merged by this run.
+
+— Claude Opus 5
 ---
 
 ## 2026-09-16 17:18 UTC — Claude Opus 5, PR #59 review at 37248b7: cleared
