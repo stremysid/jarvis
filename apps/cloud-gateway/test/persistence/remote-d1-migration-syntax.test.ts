@@ -53,6 +53,17 @@ const GUEST_GRANT_NOTICE_DRAIN_TRIGGERS = Object.freeze([
   "guest_grant_notice_drain_state_delete_forbidden",
 ]);
 
+const STUDY_COACH_WEAK_SPOT_TRIGGERS = Object.freeze([
+  "school_assignment_observations_scale_update_guard",
+  "school_assignment_observation_revisions_scale_insert_guard",
+  "school_study_check_in_claims_insert_guard",
+  "school_study_check_in_claims_update_guard",
+  "school_study_check_in_claims_delete_guard",
+  "school_study_signal_controls_insert_guard",
+  "school_study_signal_controls_update_guard",
+  "school_study_signal_controls_delete_guard",
+]);
+
 describe("remote D1 migration trigger syntax", () => {
   it("discovers every migration", () => {
     expect(remoteD1Migrations.map(({ name }) => name)).toEqual([
@@ -84,6 +95,7 @@ describe("remote D1 migration trigger syntax", () => {
       "0026_memory_distillation.sql",
       "0027_school_observations.sql",
       "0028_guest_grant_notice_drain.sql",
+      "0030_study_coach_weak_spots.sql",
     ]);
   });
 
@@ -141,5 +153,23 @@ describe("remote D1 migration trigger syntax", () => {
     const names = [...(migration?.sql ?? "").matchAll(/\bCREATE\s+TRIGGER\s+([a-z0-9_]+)/giu)]
       .map((match) => match[1]);
     expect(names).toEqual(GUEST_GRANT_NOTICE_DRAIN_TRIGGERS);
+  });
+
+  it("pins every 0030 trigger in complete SELECT RAISE WHERE form", () => {
+    const migration = remoteD1Migrations.find(({ name }) => name === "0030_study_coach_weak_spots.sql");
+    expect(migration).toBeDefined();
+    const sql = migration?.sql ?? "";
+    const names = [...sql.matchAll(/\bCREATE\s+TRIGGER\s+([a-z0-9_]+)/giu)]
+      .map((match) => match[1]);
+    expect(names).toEqual(STUDY_COACH_WEAK_SPOT_TRIGGERS);
+    for (const trigger of STUDY_COACH_WEAK_SPOT_TRIGGERS) {
+      const definition = new RegExp(
+        `\\bCREATE\\s+TRIGGER\\s+${trigger}\\b[\\s\\S]*?\\bEND;`,
+        "iu",
+      ).exec(sql)?.[0];
+      expect(definition).toBeDefined();
+      expect(definition).toMatch(/\bBEGIN\s+SELECT\s+RAISE\s*\(ABORT,[^;]+\)\s+WHERE\b[\s\S]*;\s*END;$/iu);
+      expect(definition).not.toMatch(/\bSELECT\s+CASE\b[^;]*\bRAISE\s*\(/iu);
+    }
   });
 });

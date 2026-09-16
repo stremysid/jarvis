@@ -23,6 +23,7 @@ import type {
   DigestGap,
   DigestInput,
   DigestSection,
+  DigestStudySignalCitation,
 } from "./digest-types.js";
 
 /**
@@ -194,9 +195,13 @@ function catchupSection(actions: readonly DigestCatchupAction[]): DigestSection 
 
 function schoolObservationSection(input: DigestInput, timeZone: string): DigestSection | null {
   const lines = [
-    ...input.grades.map((grade) =>
-      `[verified: ${grade.source}; checked ${localTimestamp(grade.lastSeenAt, timeZone)}] ${neutraliseInline(grade.course)}: ${neutraliseInline(grade.title)} — assigned grade ${String(grade.assignedGrade)} (scale and weight not supplied)`,
-    ),
+    ...input.grades.map((grade) => {
+      const scale = grade.maxPoints === null
+        ? `${String(grade.assignedGrade)} (scale and weight not supplied)`
+        : `${String(grade.assignedGrade)}/${String(grade.maxPoints)} (${(grade.assignedGrade / grade.maxPoints * 100).toFixed(1)}%)`;
+      const observedAt = grade.gradeUpdatedAt ?? grade.lastSeenAt;
+      return `[verified: ${grade.source}; graded ${localTimestamp(observedAt, timeZone)}] ${neutraliseInline(grade.course)}: ${neutraliseInline(grade.title)} — assigned grade ${scale}`;
+    }),
     ...input.missingWork.map((item) =>
       `[derived: ${item.source} showed no submission as of ${localTimestamp(item.lastSeenAt, timeZone)}] ${neutraliseInline(item.course)}: ${neutraliseInline(item.title)} (deadline passed ${localTimestamp(item.dueAt, timeZone)})`,
     ),
@@ -238,10 +243,23 @@ function studyCheckInSection(input: DigestInput): DigestSection | null {
   if (checkIn === undefined || checkIn === null) return null;
   const count = `${checkIn.evidenceCount} evidence ${checkIn.evidenceCount === 1 ? "point" : "points"}`;
   const caution = checkIn.evidenceCount === 1 ? "; not a fixed judgment" : "";
+  const sourceLabel = (kind: DigestStudySignalCitation["sourceKind"]): string => {
+    if (kind === "verified_grade") return "Classroom grade";
+    if (kind === "derived_missing_work") return "derived missing-work observation";
+    if (kind === "deadline") return "deadline";
+    if (kind === "quiz_outcome") return "quiz evidence";
+    if (kind === "owner_report") return "owner study note";
+    return "course-card evidence";
+  };
   return {
     heading: "Coursework check-in",
     lines: [
-      `${neutraliseInline(checkIn.course)}: how does “${neutraliseInline(checkIn.topic)}” feel today? (${count}, ${checkIn.confidence} confidence${caution}; last observed ${neutraliseInline(checkIn.observedAt.slice(0, 10))})`,
+      `${neutraliseInline(checkIn.course)}: study target “${neutraliseInline(checkIn.topic)}” (${count}, ${checkIn.confidence} confidence${caution}; last observed ${neutraliseInline(checkIn.observedAt.slice(0, 10))}).`,
+      ...checkIn.citations.map((point, index) => {
+        const stale = point.freshness === "stale" ? "; stale" : "";
+        return `Source ${index + 1} — ${sourceLabel(point.sourceKind)} — ${neutraliseInline(point.course)}: “${neutraliseInline(point.itemLabel)}” (${neutraliseInline(point.observedAt.slice(0, 10))}; ${point.verification}${stale}): ${neutraliseInline(point.detail)}`;
+      }),
+      "Want a 10-minute quiz or flashcards? Reply “quiz me on that weak spot” or “make flashcards for that weak spot”.",
     ],
   };
 }

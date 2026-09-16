@@ -73,6 +73,7 @@ export interface ClassroomCourseWork {
   readonly id: string;
   readonly courseId: string;
   readonly title: string;
+  readonly maxPoints: number | null;
   readonly dueDate: ClassroomDate | null;
   readonly dueTime: ClassroomTimeOfDay | null;
 }
@@ -99,6 +100,8 @@ export interface ClassroomDeadlineCollection {
   readonly items: readonly RawDeadlineItem[];
   /** Stable course/work ids whose source coursework has no usable due date. */
   readonly undatedExternalIds: readonly string[];
+  /** Published coursework scales keyed by the same stable id as deadlines. */
+  readonly courseWorkMaxPoints: ReadonlyMap<string, number | null>;
 }
 
 /** A failed Classroom call. `transient` is what decides whether the sweep is worth retrying. */
@@ -358,6 +361,12 @@ export class ClassroomClient {
           id,
           courseId,
           title,
+          maxPoints: typeof entry.maxPoints === "number"
+            && Number.isFinite(entry.maxPoints)
+            && entry.maxPoints > 0
+            && entry.maxPoints <= 1_000_000_000
+            ? entry.maxPoints
+            : null,
           dueDate: isPlainObject(entry.dueDate) ? (entry.dueDate as ClassroomDate) : null,
           // `workType` is deliberately not read. A MULTIPLE_CHOICE_QUESTION is
           // not necessarily a quiz and an ASSIGNMENT can be a term project, so
@@ -466,8 +475,10 @@ export class ClassroomClient {
   async collectDeadlineSweep(courses?: readonly ClassroomCourse[]): Promise<ClassroomDeadlineCollection> {
     const items: RawDeadlineItem[] = [];
     const undatedExternalIds: string[] = [];
+    const courseWorkMaxPoints = new Map<string, number | null>();
     for (const course of courses ?? await this.listCourses()) {
       for (const work of await this.listCourseWork(course.id)) {
+        courseWorkMaxPoints.set(`${course.id}:${work.id}`, work.maxPoints);
         const dueAt = classroomDueInstant(work, this.#dueOptions);
         if (dueAt === null) {
           undatedExternalIds.push(`${course.id}:${work.id}`);
@@ -484,6 +495,7 @@ export class ClassroomClient {
     return Object.freeze({
       items: Object.freeze(items),
       undatedExternalIds: Object.freeze(undatedExternalIds),
+      courseWorkMaxPoints,
     });
   }
 

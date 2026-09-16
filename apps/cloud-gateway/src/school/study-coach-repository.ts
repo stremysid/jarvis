@@ -13,15 +13,24 @@ import type {
   StudyPracticeItem,
   StudyPracticeMode,
   StudyPreference,
+  StudySignalCitation,
+  StudySignalControlReason,
   StudyTopicSummary,
 } from "./study-coach-types.js";
 import type { SchoolCourseFactKind, SchoolEvidenceSource } from "./school-catchup-types.js";
+import {
+  chooseStudyCheckIn,
+  deriveStudySignals,
+  type StudySignalInputs,
+} from "./study-coach-signals.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/u;
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
 const encoder = new TextEncoder();
 const EVIDENCE_RETENTION_DAYS = 30;
+const MAX_CLAIM_CITATIONS_BYTES = 4_096;
+const MAX_CLAIM_SOURCE_KEYS_BYTES = 1_024;
 const DEFAULT_PREFERENCE: StudyPreference = Object.freeze({
   enabled: true,
   allowedDaysMask: 127,
@@ -58,6 +67,8 @@ interface EvidenceRow {
   observed_at: string;
   practice_due_on: string;
   last_prompted_on: string | null;
+  source_fact_id: string | null;
+  source_practice_item_id: string | null;
 }
 
 interface PreferenceRow {
@@ -82,6 +93,21 @@ interface PracticeRow {
   source_excerpt: string;
   source_observed_at: string;
   created_at: string;
+}
+
+interface CheckInRow {
+  principal_id: string;
+  claim_id: string;
+  local_date: string;
+  course_id: string;
+  course_name: string;
+  topic: string;
+  outcome: "uncertain" | "wrong";
+  evidence_count: number;
+  confidence: StudyConfidence;
+  observed_at: string;
+  citations_json: string;
+  claimed_at: string;
 }
 
 function rows<T>(result: D1Result<T>): readonly T[] {
@@ -153,11 +179,82 @@ function evidencePoint(row: EvidenceRow, expectedPrincipal: string): StudyEviden
     topicKey: inline(row.topic_key, "school_study_evidence_invalid"),
     outcome: row.outcome,
     evidenceKind: row.evidence_kind,
+    sourceRecordId: row.evidence_kind === "practice_result"
+      ? ulid(row.source_practice_item_id, "school_study_evidence_invalid")
+      : row.evidence_kind === "course_context"
+        ? ulid(row.source_fact_id, "school_study_evidence_invalid")
+        : ulid(row.evidence_id, "school_study_evidence_invalid"),
     evidenceText: inline(row.evidence_text, "school_study_evidence_invalid"),
     confidence: row.confidence,
     observedAt: iso(row.observed_at, "school_study_evidence_invalid"),
     practiceDueOn: localDate(row.practice_due_on),
     lastPromptedOn: row.last_prompted_on === null ? null : localDate(row.last_prompted_on),
+  });
+}
+
+function placeholders(count: number): string {
+  return new Array(count).fill("?").join(", ");
+}
+
+function citationsJson(value: string): readonly StudySignalCitation[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value) as unknown;
+  } catch {
+    throw new TypeError("school_study_check_in_citations_invalid");
+  }
+  if (!Array.isArray(parsed) || parsed.length < 1 || parsed.length > 4) {
+    throw new TypeError("school_study_check_in_citations_invalid");
+  }
+  return Object.freeze(parsed.map((candidate): StudySignalCitation => {
+    if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate)) {
+      throw new TypeError("school_study_check_in_citations_invalid");
+    }
+    const record = candidate as Record<string, unknown>;
+    const expected = [
+      "sourceKey", "sourceKind", "sourceRecordId", "course", "itemLabel", "observedAt",
+      "verification", "freshness", "detail",
+    ];
+    if (Reflect.ownKeys(record).some((key) => typeof key !== "string" || !expected.includes(key))
+      || Reflect.ownKeys(record).length !== expected.length
+      || !["verified_grade", "derived_missing_work", "deadline", "quiz_outcome", "owner_report", "course_context"]
+        .includes(String(record.sourceKind))
+      || !["verified", "derived", "owner_reported", "unverified"].includes(String(record.verification))
+      || !["current", "stale"].includes(String(record.freshness))) {
+      throw new TypeError("school_study_check_in_citations_invalid");
+    }
+    return Object.freeze({
+      sourceKey: inline(record.sourceKey, "school_study_check_in_citations_invalid", 160),
+      sourceKind: record.sourceKind as StudySignalCitation["sourceKind"],
+      sourceRecordId: inline(record.sourceRecordId, "school_study_check_in_citations_invalid", 256),
+      course: inline(record.course, "school_study_check_in_citations_invalid", 160),
+      itemLabel: inline(record.itemLabel, "school_study_check_in_citations_invalid"),
+      observedAt: iso(record.observedAt, "school_study_check_in_citations_invalid"),
+      verification: record.verification as StudySignalCitation["verification"],
+      freshness: record.freshness as StudySignalCitation["freshness"],
+      detail: inline(record.detail, "school_study_check_in_citations_invalid"),
+    });
+  }));
+}
+
+function checkIn(row: CheckInRow, expectedPrincipal: string): StudyCheckIn {
+  if (row.principal_id !== expectedPrincipal || !["uncertain", "wrong"].includes(row.outcome)
+    || !["low", "medium", "high"].includes(row.confidence)
+    || !Number.isSafeInteger(row.evidence_count) || row.evidence_count < 1 || row.evidence_count > 4) {
+    throw new TypeError("school_study_check_in_invalid");
+  }
+  const citations = citationsJson(row.citations_json);
+  if (citations.length !== row.evidence_count) throw new TypeError("school_study_check_in_invalid");
+  return Object.freeze({
+    courseId: ulid(row.course_id, "school_study_check_in_invalid"),
+    courseName: inline(row.course_name, "school_study_check_in_invalid", 160),
+    topic: inline(row.topic, "school_study_check_in_invalid"),
+    outcome: row.outcome,
+    evidenceCount: row.evidence_count,
+    confidence: row.confidence,
+    observedAt: iso(row.observed_at, "school_study_check_in_invalid"),
+    claimedAt: iso(row.claimed_at, "school_study_check_in_invalid"),
+    citations,
   });
 }
 
@@ -310,7 +407,8 @@ export class StudyCoachRepository {
         ORDER BY observed_at, fact_id LIMIT 48`).bind(principalId).all<FactRow>(),
       this.database.prepare(`SELECT e.principal_id, e.evidence_id, e.course_id, e.topic_key,
           e.topic, e.outcome, e.evidence_kind, e.evidence_text, e.confidence,
-          e.observed_at, e.practice_due_on, e.last_prompted_on
+          e.observed_at, e.practice_due_on, e.last_prompted_on,
+          e.source_fact_id, e.source_practice_item_id
         FROM school_study_evidence e
         LEFT JOIN school_course_facts f
           ON f.principal_id = e.principal_id AND f.fact_id = e.source_fact_id
@@ -554,6 +652,7 @@ export class StudyCoachRepository {
     readonly weekday: number;
     readonly minuteOfDay: number;
     readonly now: Date;
+    readonly signalInputs?: StudySignalInputs;
   }): Promise<StudyCheckIn | null> {
     await this.syncCourseContext(input.principalId, input.today, input.now);
     return this.claimDigestCheckIn(input);
@@ -565,6 +664,7 @@ export class StudyCoachRepository {
     readonly weekday: number;
     readonly minuteOfDay: number;
     readonly now: Date;
+    readonly signalInputs?: StudySignalInputs;
   }): Promise<StudyCheckIn | null> {
     const principalId = principal(input.principalId);
     const today = localDate(input.today);
@@ -581,55 +681,128 @@ export class StudyCoachRepository {
       ? input.minuteOfDay >= setting.quietStartMinute && input.minuteOfDay < setting.quietEndMinute
       : input.minuteOfDay >= setting.quietStartMinute || input.minuteOfDay < setting.quietEndMinute;
     if (!setting.enabled || !allowedToday || quiet) return null;
-    const row = await this.database.prepare(`UPDATE school_study_evidence
-      SET last_prompted_on = ?1, updated_at = ?2
-      WHERE principal_id = ?3 AND evidence_id = (
-        SELECT e.evidence_id FROM school_study_evidence e
-        JOIN school_course_cards c
-          ON c.principal_id = e.principal_id AND c.course_id = e.course_id AND c.active = 1
-        LEFT JOIN school_course_facts f
-          ON f.principal_id = e.principal_id AND f.fact_id = e.source_fact_id
-        WHERE e.principal_id = ?3 AND e.status = 'active'
-          AND e.outcome IN ('uncertain', 'wrong') AND e.practice_due_on <= ?1
-          AND (e.last_prompted_on IS NULL OR e.last_prompted_on < e.practice_due_on)
-          AND NOT EXISTS (
-            SELECT 1 FROM school_study_evidence prompted
-            WHERE prompted.principal_id = ?3 AND prompted.last_prompted_on = ?1
-          )
-          AND (e.evidence_kind != 'course_context' OR f.status = 'active')
-        ORDER BY e.practice_due_on, CASE e.outcome WHEN 'wrong' THEN 0 ELSE 1 END,
-          e.observed_at DESC, e.evidence_id LIMIT 1
-      )
-      RETURNING principal_id, evidence_id, course_id, topic_key, topic, outcome,
-        evidence_kind, evidence_text, confidence, observed_at, practice_due_on,
-        last_prompted_on`).bind(today, now.toISOString(), principalId).first<EvidenceRow>();
-    if (row === null || row.outcome === "easy") return null;
-    const course = await this.database.prepare(`SELECT principal_id, course_id, course_name
-      FROM school_course_cards WHERE principal_id = ?1 AND course_id = ?2 AND active = 1`)
-      .bind(principalId, row.course_id).first<CourseRow>();
-    if (course === null) throw new TypeError("school_study_course_invalid");
-    this.requireCourse(course, principalId);
-    const counts = await this.database.prepare(`SELECT
-        COUNT(*) FILTER (WHERE e.outcome IN ('uncertain', 'wrong')) AS weak_count,
-        COUNT(*) FILTER (WHERE e.outcome = 'easy') AS easy_count
-      FROM school_study_evidence e
-      LEFT JOIN school_course_facts f
-        ON f.principal_id = e.principal_id AND f.fact_id = e.source_fact_id
-      WHERE e.principal_id = ?1 AND e.course_id = ?2 AND e.topic_key = ?3
-        AND e.status = 'active'
-        AND (e.evidence_kind != 'course_context' OR f.status = 'active')`)
-      .bind(principalId, row.course_id, row.topic_key).first<{ weak_count: number; easy_count: number }>();
-    const point = evidencePoint(row, principalId);
-    const evidenceCount = counts?.weak_count ?? 1;
-    const judgement = judgeSignals(evidenceCount, counts?.easy_count ?? 0);
-    return Object.freeze({
-      courseName: course.course_name,
-      topic: point.topic,
-      outcome: row.outcome,
-      evidenceCount,
-      confidence: confidenceFor(judgement),
-      observedAt: point.observedAt,
-    });
+    if (await this.readClaimedCheckIn(principalId, today) !== null) return null;
+    const legacy = await this.database.prepare(`SELECT 1 AS found FROM school_study_evidence
+      WHERE principal_id = ?1 AND last_prompted_on = ?2 LIMIT 1`)
+      .bind(principalId, today).first<{ found: number }>();
+    if (legacy !== null) return null;
+
+    const snapshot = await this.readSnapshot(principalId, today);
+    const signals = deriveStudySignals(snapshot, { ...input.signalInputs, today }, now);
+    const externalKeys = [...new Set(signals.flatMap((candidate) => candidate.citations)
+      .filter((point) => ["verified_grade", "derived_missing_work", "deadline"].includes(point.sourceKind))
+      .map((point) => point.sourceKey))];
+    const retired = new Set<string>();
+    if (externalKeys.length > 0) {
+      const result = await this.database.prepare(`SELECT source_key FROM school_study_signal_controls
+        WHERE principal_id = ? AND source_key IN (${placeholders(externalKeys.length)})`)
+        .bind(principalId, ...externalKeys).all<{ source_key: string }>();
+      for (const row of rows(result)) retired.add(inline(row.source_key, "school_study_signal_control_invalid", 160));
+    }
+    const selected = chooseStudyCheckIn(signals, retired);
+    if (selected === null) return null;
+    const citations = JSON.stringify(selected.citations);
+    const sourceKeys = JSON.stringify(selected.citations.map((point) => point.sourceKey));
+    if (encoder.encode(citations).byteLength > MAX_CLAIM_CITATIONS_BYTES
+      || encoder.encode(sourceKeys).byteLength > MAX_CLAIM_SOURCE_KEYS_BYTES) {
+      throw new RangeError("school_study_check_in_payload_too_large");
+    }
+    const claimId = newUlid(now);
+    const nowIso = now.toISOString();
+    const statements: D1PreparedStatement[] = [this.database.prepare(`INSERT INTO school_study_check_in_claims (
+      principal_id, claim_id, local_date, course_id, topic, outcome, evidence_count,
+      confidence, observed_at, citations_json, source_keys_json, claimed_at
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`)
+      .bind(principalId, claimId, today, selected.courseId, selected.topic, selected.outcome,
+        selected.evidenceCount, selected.confidence, selected.observedAt, citations, sourceKeys, nowIso)];
+    for (const point of selected.citations) {
+      if (!point.sourceKey.startsWith("evidence:")) continue;
+      const evidenceId = ulid(point.sourceKey.slice("evidence:".length), "school_study_evidence_invalid");
+      statements.push(this.database.prepare(`UPDATE school_study_evidence
+        SET last_prompted_on = ?1, updated_at = ?2
+        WHERE principal_id = ?3 AND evidence_id = ?4 AND status = 'active'
+          AND (last_prompted_on IS NULL OR last_prompted_on < ?1)`)
+        .bind(today, nowIso, principalId, evidenceId));
+    }
+    try {
+      await this.database.batch(statements);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      if (/school_study_check_in_insert_conflict|UNIQUE constraint failed/iu.test(detail)) return null;
+      throw error;
+    }
+    return Object.freeze({ ...selected, claimedAt: nowIso });
+  }
+
+  async readClaimedCheckIn(principalIdValue: string, todayValue: string): Promise<StudyCheckIn | null> {
+    const principalId = principal(principalIdValue);
+    const today = localDate(todayValue);
+    const row = await this.database.prepare(`SELECT claim.principal_id, claim.claim_id,
+        claim.local_date, claim.course_id, course.course_name, claim.topic, claim.outcome,
+        claim.evidence_count, claim.confidence, claim.observed_at, claim.citations_json,
+        claim.claimed_at
+      FROM school_study_check_in_claims claim
+      JOIN school_course_cards course
+        ON course.principal_id = claim.principal_id AND course.course_id = claim.course_id
+      WHERE claim.principal_id = ?1 AND claim.local_date = ?2`)
+      .bind(principalId, today).first<CheckInRow>();
+    return row === null ? null : checkIn(row, principalId);
+  }
+
+  async retireLatestCheckInSignals(input: {
+    readonly principalId: string;
+    readonly turnId: Ulid;
+    readonly reason: StudySignalControlReason;
+    readonly today: string;
+    readonly now: Date;
+  }): Promise<number> {
+    const principalId = principal(input.principalId);
+    const turnId = ulid(input.turnId, "school_study_turn_invalid");
+    const today = localDate(input.today);
+    const now = new Date(input.now.getTime());
+    if (!Number.isFinite(now.getTime()) || !["wrong", "handled"].includes(input.reason)) {
+      throw new TypeError("school_study_signal_control_invalid");
+    }
+    const claim = await this.database.prepare(`SELECT claim.principal_id, claim.claim_id,
+        claim.local_date, claim.course_id, course.course_name, claim.topic, claim.outcome,
+        claim.evidence_count, claim.confidence, claim.observed_at, claim.citations_json,
+        claim.claimed_at
+      FROM school_study_check_in_claims claim
+      JOIN school_course_cards course
+        ON course.principal_id = claim.principal_id AND course.course_id = claim.course_id
+      WHERE claim.principal_id = ?1 AND claim.local_date = ?2
+      ORDER BY claim.claimed_at DESC LIMIT 1`)
+      .bind(principalId, today).first<CheckInRow>();
+    if (claim === null) return 0;
+    const value = checkIn(claim, principalId);
+    const nowIso = now.toISOString();
+    const statements: D1PreparedStatement[] = [];
+    for (const point of value.citations) {
+      if (point.sourceKey.startsWith("evidence:")) {
+        const evidenceId = ulid(point.sourceKey.slice("evidence:".length), "school_study_evidence_invalid");
+        statements.push(this.database.prepare(`UPDATE school_study_evidence
+          SET status = ?1, control_turn_id = ?2, controlled_at = ?3, updated_at = ?3
+          WHERE principal_id = ?4 AND evidence_id = ?5 AND status = 'active'`)
+          .bind(input.reason === "wrong" ? "corrected" : "forgotten", turnId, nowIso, principalId, evidenceId));
+        continue;
+      }
+      const sourceKind = point.sourceKind === "verified_grade" ? "grade"
+        : point.sourceKind === "derived_missing_work" ? "missing_work"
+          : point.sourceKind === "deadline" ? "deadline" : null;
+      if (sourceKind === null) continue;
+      statements.push(this.database.prepare(`INSERT INTO school_study_signal_controls (
+          principal_id, source_key, source_kind, source_record_id, disposition,
+          check_in_id, control_turn_id, controlled_at, created_at
+        ) SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8
+        WHERE NOT EXISTS (
+          SELECT 1 FROM school_study_signal_controls
+          WHERE principal_id = ?1 AND source_key = ?2
+        )`).bind(principalId, point.sourceKey, sourceKind, point.sourceRecordId,
+          input.reason, claim.claim_id, turnId, nowIso));
+    }
+    if (statements.length === 0) return 0;
+    const results = await this.database.batch(statements);
+    return results.reduce((count, result) => count + result.meta.changes, 0);
   }
 
   private requireCourse(row: CourseRow, expectedPrincipal: string): CourseRow {

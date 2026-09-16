@@ -41,12 +41,15 @@ import {
   type DeadlineSourceKind,
   type DeadlineStatus,
   type QuietWindow,
+  type StudyDeadlineCandidate,
 } from "./deadline-types.js";
 
 const MAXIMUM_IDENTIFIER_CHARACTERS = 256;
 const MAXIMUM_TITLE_CHARACTERS = 512;
 /** The `last_failure` CHECK caps this; exceeding it aborts the write that was reporting the failure. */
 export const MAXIMUM_FAILURE_CHARACTERS = 512;
+export const STUDY_DEADLINE_ROW_LIMIT = 24;
+export const STUDY_DEADLINE_NEAR_DUE_HOURS = 72;
 
 /** One re-read is enough to resolve a concurrent writer; a second means something else is wrong. */
 const UPSERT_ATTEMPTS = 2;
@@ -95,6 +98,12 @@ interface QuietWindowRow {
   readonly ends_at: string;
   readonly created_at: string;
   readonly cancelled_at: string | null;
+}
+
+interface StudyDeadlineRow extends DeadlineRow {
+  readonly source_kind: string;
+  readonly source_last_success_at: string | null;
+  readonly source_last_failure: string | null;
 }
 
 function toDeadline(row: DeadlineRow): Deadline {
@@ -509,6 +518,38 @@ export class DeadlineRepository {
        ORDER BY due_at, deadline_id`,
     ).bind(...statuses, from, to, ...(efforts ?? [])).all<DeadlineRow>();
     return Object.freeze(result.results.map(toDeadline));
+  }
+
+  /** A small study-only window of unfinished work due soonest from now. */
+  async listStudyCandidates(nowValue: Date): Promise<readonly StudyDeadlineCandidate[]> {
+    const now = new Date(nowValue.getTime());
+    toInstant(now);
+    const to = new Date(now.getTime() + STUDY_DEADLINE_NEAR_DUE_HOURS * 3_600_000);
+    const result = await this.#database.prepare(`SELECT d.*,
+        s.kind AS source_kind, s.last_success_at AS source_last_success_at,
+        s.last_failure AS source_last_failure
+      FROM deadlines d
+      JOIN deadline_sources s ON s.source_id = d.source_id AND s.active = 1
+      WHERE d.status = 'open' AND d.due_at >= ?1 AND d.due_at < ?2
+      ORDER BY d.due_at, d.deadline_id
+      LIMIT ${STUDY_DEADLINE_ROW_LIMIT}`)
+      .bind(toInstant(now), toInstant(to)).all<StudyDeadlineRow>();
+    return Object.freeze(result.results.map((row) => {
+      if (!DEADLINE_SOURCE_KINDS.includes(row.source_kind as DeadlineSourceKind)) {
+        throw new TypeError("study_deadline_source_invalid");
+      }
+      if (row.source_last_success_at !== null) requireInstant(row.source_last_success_at, "study_deadline_source_time");
+      if (row.source_last_failure !== null) requireText(
+        row.source_last_failure, "study_deadline_source_failure", MAXIMUM_FAILURE_CHARACTERS,
+      );
+      const deadline = toDeadline(row);
+      return Object.freeze({
+        deadline,
+        sourceKind: row.source_kind as DeadlineSourceKind,
+        sourceLastSuccessAt: row.source_last_success_at,
+        sourceLastFailure: row.source_last_failure,
+      });
+    }));
   }
 
   /**

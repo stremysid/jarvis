@@ -27,6 +27,8 @@ export interface RawSchoolSubmissionObservation {
   readonly state: SchoolSubmissionState;
   readonly late: boolean | null;
   readonly assignedGrade: number | null;
+  /** Coursework scale joined from the published Classroom courseWork row. */
+  readonly maxPoints?: number | null;
   readonly sourceUpdatedAt: string | null;
 }
 
@@ -51,9 +53,12 @@ export interface SchoolGradeObservation {
   readonly deadlineId: string;
   readonly course: string;
   readonly title: string;
-  /** Classroom's assigned grade exactly as supplied. No denominator or weight is inferred. */
+  /** Classroom's assigned grade exactly as supplied. */
   readonly assignedGrade: number;
+  readonly maxPoints: number | null;
   readonly source: "google_classroom_api";
+  /** Classroom's own submission update time, not the time Jarvis polled it. */
+  readonly gradeUpdatedAt: string | null;
   readonly contentChangedAt: string;
   readonly lastSeenAt: string;
 }
@@ -76,4 +81,20 @@ export interface SchoolObservationDigestSnapshot {
   readonly missingWork: readonly SchoolDerivedMissingWork[];
   /** Matching missing-work rows beyond the bounded digest page. */
   readonly missingWorkOmitted: number;
+}
+
+export interface SchoolStudyGradeObservation extends SchoolGradeObservation {
+  readonly sourceLastSuccessAt: string | null;
+  readonly sourceLastFailure: string | null;
+}
+
+export interface SchoolStudyMissingWork extends SchoolDerivedMissingWork {
+  readonly sourceLastSuccessAt: string | null;
+  readonly sourceLastFailure: string | null;
+}
+
+/** Bounded current source records used only for study-signal derivation. */
+export interface SchoolObservationStudySnapshot {
+  readonly grades: readonly SchoolStudyGradeObservation[];
+  readonly missingWork: readonly SchoolStudyMissingWork[];
 }
