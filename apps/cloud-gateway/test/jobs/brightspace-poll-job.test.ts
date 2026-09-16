@@ -12,7 +12,9 @@ import { resetArchiveFixture } from "../archive/archive-fixture.js";
 import { resetDeadlineTables } from "../deadlines/deadline-fixture.js";
 import {
   applyStudyCoachMigration,
+  applyStudyCoachWeakSpotsMigration,
   applyUniversityApplicationDetailsMigration,
+  applyUniversityApplicationWorkflowMigration,
 } from "../persistence/migration.js";
 
 const NOW = new Date("2026-09-15T12:00:00.000Z");
@@ -228,7 +230,9 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
     await resetDeadlineTables();
     await env.DB.prepare("DELETE FROM scheduled_runs").run();
     await applyStudyCoachMigration();
+    await applyUniversityApplicationWorkflowMigration();
     await applyUniversityApplicationDetailsMigration();
+    await applyStudyCoachWeakSpotsMigration();
   });
   afterEach(async () => {
     vi.restoreAllMocks();

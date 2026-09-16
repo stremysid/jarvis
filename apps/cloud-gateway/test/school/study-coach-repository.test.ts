@@ -2,11 +2,12 @@ import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { newUlid, type Ulid } from "../../../../packages/contracts/src/index.js";
 import { ConversationRepository } from "../../src/conversation/conversation-repository.js";
+import { DeadlineRepository } from "../../src/deadlines/deadline-repository.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { SchoolCatchupRepository } from "../../src/school/school-catchup-repository.js";
 import { StudyCoachRepository } from "../../src/school/study-coach-repository.js";
-import { applyStudyCoachMigration } from "../persistence/migration.js";
+import { applyStudyCoachWeakSpotsMigration } from "../persistence/migration.js";
 
 const NOW = new Date("2026-09-15T11:30:00.000Z");
 const TODAY = "2026-09-15";
@@ -76,7 +77,7 @@ async function seedCourse(
 }
 
 beforeAll(async () => {
-  await applyStudyCoachMigration();
+  await applyStudyCoachWeakSpotsMigration();
 });
 
 describe("StudyCoachRepository", () => {
@@ -458,6 +459,66 @@ describe("StudyCoachRepository", () => {
       weekday: 1,
       minuteOfDay: 450,
       now: NOW,
+    })).resolves.toBeNull();
+  });
+
+  it("retires an external cited near-due deadline so it cannot reappear on a later day", async () => {
+    const item = await seedCourse("deadline-control", "Worksheet due", "due_work");
+    const deadlines = new DeadlineRepository(env.DB);
+    const source = await deadlines.createSource({
+      sourceId: "study-deadline-control",
+      kind: "classroom",
+      label: "Google Classroom",
+      now: NOW,
+    });
+    await deadlines.recordSourceSuccess(source.sourceId, NOW);
+    const deadline = await deadlines.upsert({
+      sourceId: source.sourceId,
+      externalId: "chemistry-near-due",
+      course: "Chemistry",
+      title: "Untrusted assignment title",
+      dueAt: "2026-09-16T13:30:00.000Z",
+      effort: "other",
+      leadMinutes: 60,
+      now: NOW,
+    });
+    const repository = new StudyCoachRepository(env.DB);
+    const signalInputs = { deadlines: await deadlines.listStudyCandidates(NOW) };
+    const claim = await repository.syncAndClaimDigestCheckIn({
+      principalId: item.principalId,
+      today: TODAY,
+      weekday: 2,
+      minuteOfDay: 450,
+      now: NOW,
+      signalInputs,
+    });
+    expect(claim).toMatchObject({
+      courseName: "Chemistry",
+      topic: "Chemistry review",
+      citations: [{
+        sourceKey: `deadline:${deadline.deadline.deadlineId}`,
+        sourceRecordId: deadline.deadline.deadlineId,
+        sourceKind: "deadline",
+      }],
+    });
+    expect(claim?.topic).not.toContain("Untrusted assignment title");
+
+    const controlTurn = await addTurn(item.principalId, "I already handled that", 1_000);
+    await expect(repository.retireLatestCheckInSignals({
+      principalId: item.principalId,
+      turnId: controlTurn,
+      reason: "handled",
+      today: TODAY,
+      now: new Date(NOW.getTime() + 1_000),
+    })).resolves.toBe(1);
+    const tomorrow = new Date(NOW.getTime() + 86_400_000);
+    await expect(repository.claimDigestCheckIn({
+      principalId: item.principalId,
+      today: "2026-09-16",
+      weekday: 3,
+      minuteOfDay: 450,
+      now: tomorrow,
+      signalInputs: { deadlines: await deadlines.listStudyCandidates(tomorrow) },
     })).resolves.toBeNull();
   });
 

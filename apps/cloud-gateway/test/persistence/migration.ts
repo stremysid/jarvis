@@ -29,6 +29,7 @@ import memoryDistillationSql from "../../src/persistence/migrations/0026_memory_
 import schoolObservationsSql from "../../src/persistence/migrations/0027_school_observations.sql?raw";
 import guestGrantNoticeDrainSql from "../../src/persistence/migrations/0028_guest_grant_notice_drain.sql?raw";
 import universityApplicationDetailsSql from "../../src/persistence/migrations/0029_university_application_details.sql?raw";
+import studyCoachWeakSpotsSql from "../../src/persistence/migrations/0030_study_coach_weak_spots.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
@@ -46,6 +47,7 @@ let memoryDistillationMigrated: Promise<void> | undefined;
 let schoolObservationsMigrated: Promise<void> | undefined;
 let guestGrantNoticeDrainMigrated: Promise<void> | undefined;
 let universityApplicationDetailsMigrated: Promise<void> | undefined;
+let studyCoachWeakSpotsMigrated: Promise<void> | undefined;
 
 export { splitMigration };
 
@@ -227,6 +229,16 @@ export async function applyGuestGrantNoticeDrainMigration(): Promise<void> {
     { name: "0028_guest_grant_notice_drain.sql", queries: splitMigration(guestGrantNoticeDrainSql) },
   ]);
   await guestGrantNoticeDrainMigrated;
+}
+
+/** Applies durable daily study claims and direct-owner signal controls. */
+export async function applyStudyCoachWeakSpotsMigration(): Promise<void> {
+  await applySchoolObservationsMigration();
+  await applyGuestGrantNoticeDrainMigration();
+  studyCoachWeakSpotsMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0030_study_coach_weak_spots.sql", queries: splitMigration(studyCoachWeakSpotsSql) },
+  ]);
+  await studyCoachWeakSpotsMigrated;
 }
 
 /** Test-only reset for the singleton drain checkpoint. */

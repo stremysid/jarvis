@@ -395,6 +395,8 @@ export async function assembleDigest(
       course: grade.course,
       title: grade.title,
       assignedGrade: grade.assignedGrade,
+      maxPoints: grade.maxPoints,
+      gradeUpdatedAt: grade.gradeUpdatedAt,
       source: "Google Classroom" as const,
       lastSeenAt: grade.lastSeenAt,
     })),
@@ -423,6 +425,16 @@ export async function assembleDigest(
       evidenceCount: studyCheckIn.evidenceCount,
       confidence: studyCheckIn.confidence,
       observedAt: studyCheckIn.observedAt,
+      citations: studyCheckIn.citations.map((point) => ({
+        sourceKind: point.sourceKind,
+        sourceRecordId: point.sourceRecordId,
+        course: point.course,
+        itemLabel: point.itemLabel,
+        observedAt: point.observedAt,
+        verification: point.verification,
+        freshness: point.freshness,
+        detail: point.detail,
+      })),
     },
   };
 

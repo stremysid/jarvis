@@ -182,6 +182,7 @@ async function pollClassroom(context: JobEnvironment): Promise<string> {
       budget,
       now: () => context.clock.now(),
       undatedDeadlineExternalIds: new Set(collected.undatedExternalIds),
+      courseWorkMaxPoints: collected.courseWorkMaxPoints,
     });
     const observationDetail = classroomObservationDetail(observations);
     return `Classroom ${seen} seen, ${report.rejected.length} rejected, ${report.disappeared.length} absent; ${observationDetail}`;
@@ -589,7 +590,14 @@ async function digest(
       readWorkflowItems: async () => university.listWorkflowItemsByDueDate(principalId),
       claimStudyCheckIn: async (date, weekday, minuteOfDay) => {
         const now = context.clock.now();
-        return study.syncAndClaimDigestCheckIn({ principalId, today: date, weekday, minuteOfDay, now });
+        const [schoolSignals, deadlineSignals] = await Promise.all([
+          observations.readStudySnapshot({ principalId, now }),
+          deadlines.listStudyCandidates(now),
+        ]);
+        return study.syncAndClaimDigestCheckIn({
+          principalId, today: date, weekday, minuteOfDay, now,
+          signalInputs: { observations: schoolSignals, deadlines: deadlineSignals },
+        });
       },
       readDeadlines: async (withinDays) =>
         deadlines.listDueWithin({

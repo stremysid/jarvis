@@ -14,7 +14,7 @@ import {
   StudyCoachModelAdapter,
 } from "../../src/school/study-coach-model.js";
 import { StudyCoachRepository } from "../../src/school/study-coach-repository.js";
-import { applyStudyCoachMigration } from "../persistence/migration.js";
+import { applyStudyCoachWeakSpotsMigration } from "../persistence/migration.js";
 
 const NOW = new Date("2026-09-15T11:30:00.000Z");
 const TODAY = "2026-09-15";
@@ -155,7 +155,7 @@ async function openSupportedQuiz(
 }
 
 beforeAll(async () => {
-  await applyStudyCoachMigration();
+  await applyStudyCoachWeakSpotsMigration();
 });
 
 describe("study coach plain-speech parsing", () => {
@@ -187,6 +187,110 @@ describe("StudyCoachModelAdapter", () => {
     expect(response).toBe("ordinary reply");
     expect(fallback.inputs).toHaveLength(1);
     expect(practice.inputs).toHaveLength(0);
+  });
+
+  it("retires the latest cited signal only from the owner's direct plain-speech turn", async () => {
+    const item = await seed("signal-control");
+    const repository = new StudyCoachRepository(env.DB);
+    await expect(repository.syncAndClaimDigestCheckIn({
+      principalId: item.principalId,
+      today: TODAY,
+      weekday: 2,
+      minuteOfDay: 450,
+      now: NOW,
+    })).resolves.toMatchObject({ topic: "Titration calculations feel uncertain" });
+
+    const forwardedTurn = await addTurn(item.principalId, "that signal is wrong", 500);
+    const forwardedFallback = new FakeModel(["ordinary reply"]);
+    await expect(collect(adapter(
+      item.principalId,
+      forwardedFallback,
+      new FakeModel([]),
+      false,
+    ).stream(input(item.principalId, forwardedTurn, "that signal is wrong"))))
+      .resolves.toBe("ordinary reply");
+    expect((await repository.readSnapshot(item.principalId, TODAY)).courses[0]?.topics).toHaveLength(1);
+
+    const pastedTurn = await addTurn(item.principalId, "They said: that signal is wrong", 750);
+    const pastedFallback = new FakeModel(["ordinary pasted reply"]);
+    await expect(collect(adapter(item.principalId, pastedFallback, new FakeModel([])).stream(
+      input(item.principalId, pastedTurn, "They said: that signal is wrong"),
+    ))).resolves.toBe("ordinary pasted reply");
+    expect((await repository.readSnapshot(item.principalId, TODAY)).courses[0]?.topics).toHaveLength(1);
+
+    const directTurn = await addTurn(item.principalId, "that signal is wrong", 1_000);
+    await expect(collect(adapter(item.principalId, new FakeModel([]), new FakeModel([])).stream(
+      input(item.principalId, directTurn, "that signal is wrong"),
+    ))).resolves.toBe("Retired 1 cited study-coach signal as wrong.");
+    expect((await repository.readSnapshot(item.principalId, TODAY)).courses[0]?.topics).toEqual([]);
+  });
+
+  it("accepts plain speech that the cited signal is already handled", async () => {
+    const item = await seed("signal-handled");
+    const repository = new StudyCoachRepository(env.DB);
+    await repository.syncAndClaimDigestCheckIn({
+      principalId: item.principalId,
+      today: TODAY,
+      weekday: 2,
+      minuteOfDay: 450,
+      now: NOW,
+    });
+    const turnId = await addTurn(item.principalId, "I already handled that study check-in", 1_000);
+
+    await expect(collect(adapter(item.principalId, new FakeModel([]), new FakeModel([])).stream(
+      input(item.principalId, turnId, "I already handled that study check-in"),
+    ))).resolves.toBe("Retired 1 cited study-coach signal as handled.");
+    expect((await repository.readSnapshot(item.principalId, TODAY)).courses[0]?.topics).toEqual([]);
+  });
+
+  it.each(["I finished it", "that is wrong", "I did that"])(
+    "keeps the generic phrase on the ordinary model path unchanged: %s",
+    async (text) => {
+      const item = await seed(`generic-control-${text.length}-${text.codePointAt(0) ?? 0}`);
+      await new StudyCoachRepository(env.DB).syncAndClaimDigestCheckIn({
+        principalId: item.principalId,
+        today: TODAY,
+        weekday: 2,
+        minuteOfDay: 450,
+        now: NOW,
+      });
+      const turnId = await addTurn(item.principalId, text, 1_000);
+      const fallback = new FakeModel([`ordinary:${text}`]);
+
+      await expect(collect(adapter(item.principalId, fallback, new FakeModel([])).stream(
+        input(item.principalId, turnId, text),
+      ))).resolves.toBe(`ordinary:${text}`);
+      expect(fallback.inputs).toHaveLength(1);
+    },
+  );
+
+  it("sends an explicit correction to the ordinary model when there is no check-in today", async () => {
+    const item = await seed("no-current-control");
+    const text = "that study check-in is wrong";
+    const turnId = await addTurn(item.principalId, text, 1_000);
+    const fallback = new FakeModel(["ordinary correction reply"]);
+
+    await expect(collect(adapter(item.principalId, fallback, new FakeModel([])).stream(
+      input(item.principalId, turnId, text),
+    ))).resolves.toBe("ordinary correction reply");
+    expect(fallback.inputs).toHaveLength(1);
+  });
+
+  it("sends an explicit correction to the ordinary model when the check-in is from an older day", async () => {
+    const item = await seed("old-control");
+    await new StudyCoachRepository(env.DB).syncAndClaimDigestCheckIn({
+      principalId: item.principalId, today: TODAY, weekday: 2, minuteOfDay: 450, now: NOW,
+    });
+    const later = new Date(NOW.getTime() + 15 * 86_400_000);
+    const text = "that study check-in is wrong";
+    const turnId = await addTurn(item.principalId, text, later.getTime() - NOW.getTime());
+    const fallback = new FakeModel(["ordinary old-correction reply"]);
+
+    await expect(collect(adapter(
+      item.principalId, fallback, new FakeModel([]), true, () => later,
+    ).stream(input(item.principalId, turnId, text))))
+      .resolves.toBe("ordinary old-correction reply");
+    expect(fallback.inputs).toHaveLength(1);
   });
 
   it("updates weekend cadence in plain speech without invoking a model", async () => {
@@ -523,6 +627,35 @@ describe("StudyCoachModelAdapter", () => {
     const topics = (await new StudyCoachRepository(env.DB).readSnapshot(item.principalId, TODAY))
       .courses[0]?.topics.map((topic) => topic.topic);
     expect(topics).not.toContain("water has a molar mass of 18 g/mol for Chemistry");
+  });
+
+  it("uses the current check-in's chosen topic for bounded generated practice", async () => {
+    const item = await seed("checkin-practice", "Stoichiometry needs review");
+    const repository = new StudyCoachRepository(env.DB);
+    await expect(repository.syncAndClaimDigestCheckIn({
+      principalId: item.principalId,
+      today: TODAY,
+      weekday: 2,
+      minuteOfDay: 450,
+      now: NOW,
+    })).resolves.toMatchObject({ topic: "Stoichiometry needs review" });
+    const request = "quiz me on that weak spot";
+    const turnId = await addTurn(item.principalId, request, 1_000);
+    const practice = new FakeModel([JSON.stringify({ items: [{
+      question: "What ratio should you use?",
+      answer: "the balanced-equation ratio",
+      sourceQuote: "unsupported",
+    }] })]);
+
+    const response = await collect(adapter(item.principalId, new FakeModel([]), practice).stream(
+      input(item.principalId, turnId, request),
+    ));
+
+    expect(response).toContain("What ratio should you use?");
+    expect(response).toContain("not source-checked against course material");
+    expect(practice.inputs).toHaveLength(1);
+    expect(practice.inputs[0]?.userText).toContain('source_json="Stoichiometry needs review"');
+    expect(new TextEncoder().encode(practice.inputs[0]!.userText).byteLength).toBeLessThanOrEqual(2_048);
   });
 
   it("makes cited flashcards from exact course-card evidence", async () => {
