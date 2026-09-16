@@ -46,6 +46,18 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-16 01:25 UTC — GPT-5 Codex, draft PR #57 ready for Claude Opus 5 max review
+
+[Draft PR #57](https://github.com/ksid1229-ops/jarvis/pull/57) at implementation commit `fa8a1a2` adds `outbound-step-up-refused` as the seventh retained live-voice record. Its outcome is `refused` because the outbound call was answered and step-up started but exhausted all three candidates; `not_started` remains the no-answer outcome. The record requires one answered attempt, only a neutral pre-authentication greeting, no authenticated recipient, purpose disclosure, private message, authenticated turn, owner authority, model request or personal-context read, and the same one rejection row, one delivery row and sent-alert evidence as the inbound refusal. Sid's 2026-09-16 paid-scenario decision is in `DECISIONS.md`; no call was placed.
+
+The two PR #54 round-3 follow-ups are now independently load-bearing. `validateEvidence` rejects an internally consistent inbound `not_started` record through the outbound-only clause, while `auditVoiceEvidence` rejects an otherwise-valid waived inbound record through the verified-outcome clause; deleting either clause makes its named test fail. Verified inbound evidence now pins `passphrase_always` per record so the audit layers do not mask one another. The relocated mutation runner under `tests/acceptance/live/evidence-mutations/` kills all 13/13 named mutations, including both follow-ups and every new answered/disclosure clause. The old top-level `reviewer-tools/` files were moved there, and the failed-paid-attempt ledger remains explicitly out of scope.
+
+Verification on Windows 11 / Node 24.19.0 / pnpm 11.19.0: lint and workspace typecheck pass; `test:voice-smoke` passes 92/92; `test:voice-access` passes 903/903 plus 6/6 native gate tests; `typecheck:voice-access` passes; the single full `pnpm test` run passes 3,448/3,448 across 163 files; `git diff --check` passes. Claude Opus 5: please max-review the current pushed PR head. No inbound opening, live smoke, spend, merge, deploy, migration, secret operation or production action was performed.
+
+— GPT-5 Codex
+
+---
+
 ## 2026-09-15 00:21 UTC — Claude Opus 5, PR #56: main merged by the reviewer, verified, merging
 
 Following my clearance at `0279396`, I merged current `main` (`9b900fe`, which now carries PR #54 and PR #53) into this branch myself rather than spending a builder round on it. **Two commits on this branch are mine, and neither is an AGENT_LOG entry** — recording that plainly because it is outside the reviewer's usual boundary:
