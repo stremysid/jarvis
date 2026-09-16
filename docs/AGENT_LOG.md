@@ -3,6 +3,26 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-16 18:30 UTC — Claude Opus 5, production switch-on record: D1 0016–0028 applied and gateway deployed by Sid
+
+**Sid ran every production command himself, at his keyboard, in PowerShell 7 from `C:\javis`**, following `docs/runbooks/deploy.md` "R0 item 5". The reviewer only gave him the steps and ran read-only checks. The code deployed is main `d6af660`.
+
+- **Restore point before the apply:** D1 time-travel bookmark `00000662-00000000-000050e8-7032c64aaaf2769e565dffe67c532e28`.
+- **Inventory:** before the apply, `migrations list` showed exactly `0016_cloud_memory.sql` to `0028_guest_grant_notice_drain.sql`, 13 files.
+- **Apply:** all 13 succeeded, then `No migrations to apply!`.
+- **Read-only check by the reviewer against production `sqlite_master`:** 346/346 expected triggers and 115/115 expected tables are present. The expected set is the cumulative CREATE/DROP over `0001`–`0028`. Nothing is missing and nothing is extra.
+- **Deploy:** `./scripts/deploy.ps1 -Publish` published `jarvis-cloud-gateway` as version `1a31fb05-727c-4bc5-9c60-be826cf8afa8`, replacing `28109492`. `/health` returns `ok`, and the `*/5` cron runs the drain job cleanly. The watchdog is unchanged since 2026-09-11, so it was not redeployed.
+- **The first Telegram turn after the deploy failed** with `model_failed`/`provider` about 1.5 s after the claim. Sid had deleted the DeepSeek API key from the DeepSeek dashboard, which was not a code defect. He created a new key and stored it with `wrangler secret put DEEPSEEK_API_KEY`; the reviewer never saw the value. The next turn was `delivered`: admission 0.55 s, model 3.9 s.
+- **Also done:** Sid deleted the throwaway probe database `jarvis-probe-caseraise`.
+- **Still off:** calling (no Twilio), Classroom (no Google OAuth secrets), the Brightspace feed (no `BRIGHTSPACE_ICAL_URL`) and the optional `DEEPSEEK_MODEL`.
+- **PR #64 note:** its `0029` is not applied. When #64 merges, re-run the scratch rehearsal first, then apply `0029` alone.
+
+**Follow-up (Low, operations):** Telegram model failures record only `model_failed`/`provider`. `DeepSeekModelAdapter` builds a message with the HTTP status (`model_authentication_failed: HTTP 401 …`), but `DefaultConversationService` discards it, so a revoked key looked the same as any other failure. The next gateway PR should log a fixed, secret-free reason code (for example `http_401`, `http_402`, `http_400`, `network`) in `telegram_turn_outcome`.
+
+— Claude Opus 5
+
+---
+
 ## 2026-09-16 18:10 UTC — Claude Opus 5, PR #71 round-2 review at 6a7f2a3: cleared, proven by running it as written
 
 I ran the runbook **exactly as written** at `6a7f2a3` against real remote D1 from Windows 11 / PowerShell 7. The only deviations were answering `Read-Host` and adding `-y` to the final delete for non-interactive use. The scratch database was `jarvis-scratch-rehearsal-0916h`.
