@@ -8,6 +8,8 @@ PR=$1; BR=$2; REVIEWED=$3; ENTRY=$4; set -o pipefail
 WT="$SP/work/wt$PR"
 cd "C:/javis/.claude/worktrees/handoff-documentation-c01991"
 git fetch -q origin
+BASE=$(gh pr view "$PR" --json baseRefName --jq .baseRefName)
+[ "$BASE" = "main" ] || { echo "PR BASE IS $BASE, NOT main - retarget (gh pr edit $PR --base main) before merging"; exit 7; }
 [ -d "$WT" ] && git worktree remove --force "$WT"
 git worktree add -q "$WT" "origin/$BR"
 cd "$WT"
