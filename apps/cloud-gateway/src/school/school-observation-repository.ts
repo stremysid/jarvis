@@ -6,7 +6,10 @@ import type {
   SchoolDerivedMissingWork,
   SchoolGradeObservation,
   SchoolObservationDigestSnapshot,
+  SchoolObservationStudySnapshot,
   SchoolObservationSyncState,
+  SchoolStudyGradeObservation,
+  SchoolStudyMissingWork,
   SchoolSubmissionState,
 } from "./school-observation-types.js";
 
@@ -17,6 +20,7 @@ import type {
  */
 export const CLASSROOM_OBSERVATION_D1_STATEMENT_BUDGET = 320;
 export const MISSING_WORK_DERIVATION_PAGE_SIZE = 64;
+export const SCHOOL_STUDY_OBSERVATION_ROW_LIMIT = 24;
 
 export class D1StatementBudget {
   #used = 0;
@@ -82,6 +86,7 @@ interface ObservationRow {
   submission_state: string;
   late: number | null;
   assigned_grade: number | null;
+  max_points: number | null;
   source_updated_at: string | null;
   content_hash: string;
   first_seen_at: string;
@@ -108,6 +113,8 @@ interface GradeRow {
   course: string;
   title: string;
   assigned_grade: number;
+  max_points: number | null;
+  source_updated_at: string | null;
   content_changed_at: string;
   last_seen_at: string;
 }
@@ -122,6 +129,16 @@ interface MissingRow {
   to_state: string;
   last_seen_at: string;
   total_count: number;
+}
+
+interface StudyGradeRow extends GradeRow {
+  source_last_success_at: string | null;
+  source_last_failure: string | null;
+}
+
+interface StudyMissingRow extends MissingRow {
+  source_last_success_at: string | null;
+  source_last_failure: string | null;
 }
 
 export interface ObservationIngestionReport {
@@ -199,6 +216,14 @@ function grade(value: unknown): number | null {
   return value;
 }
 
+function scale(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > 1_000_000_000) {
+    throw new TypeError("school_observation_scale_invalid");
+  }
+  return value;
+}
+
 function syncState(row: SyncRow, expectedPrincipal: string, expectedSource: string): SchoolObservationSyncState {
   if (row.principal_id !== expectedPrincipal || row.source_id !== expectedSource || row.provider !== "google_classroom_api") {
     throw new TypeError("school_observation_sync_row_invalid");
@@ -255,6 +280,7 @@ function observationRow(row: ObservationRow, expectedPrincipal: string): Observa
   const parsedState = state(row.submission_state);
   if (row.late !== null && row.late !== 0 && row.late !== 1) throw new TypeError("school_observation_row_invalid");
   grade(row.assigned_grade);
+  scale(row.max_points);
   optionalInstant(row.source_updated_at, "school_observation_row_invalid");
   instant(row.first_seen_at, "school_observation_row_invalid");
   instant(row.content_changed_at, "school_observation_row_invalid");
@@ -268,6 +294,7 @@ function normalize(raw: RawSchoolSubmissionObservation): RawSchoolSubmissionObse
   const normalizedState = state(raw.state);
   if (raw.late !== null && typeof raw.late !== "boolean") throw new TypeError("school_observation_late_invalid");
   const assignedGrade = grade(raw.assignedGrade);
+  const maxPoints = scale(raw.maxPoints);
   const sourceUpdatedAt = optionalInstant(raw.sourceUpdatedAt, "school_observation_source_time_invalid");
   return Object.freeze({
     deadlineExternalId,
@@ -275,6 +302,7 @@ function normalize(raw: RawSchoolSubmissionObservation): RawSchoolSubmissionObse
     state: normalizedState,
     late: raw.late,
     assignedGrade,
+    maxPoints,
     sourceUpdatedAt,
   });
 }
@@ -291,6 +319,7 @@ function contentHash(item: RawSchoolSubmissionObservation): Promise<string> {
   return sha256Hex(canonicalJson({
     assignedGrade: item.assignedGrade,
     late: item.late,
+    maxPoints: item.maxPoints ?? null,
     sourceUpdatedAt: item.sourceUpdatedAt,
     state: item.state,
   }));
@@ -514,7 +543,7 @@ export class SchoolObservationRepository {
     this.#claim();
     const currentResult = await this.database.prepare(
       `SELECT principal_id, observation_id, source_id, deadline_id, external_submission_id,
-              submission_state, late, assigned_grade, source_updated_at, content_hash,
+              submission_state, late, assigned_grade, max_points, source_updated_at, content_hash,
               first_seen_at, content_changed_at, last_seen_at
        FROM school_assignment_observations
        WHERE principal_id = ? AND deadline_id IN (${placeholders(matched.length)})`,
@@ -539,13 +568,13 @@ export class SchoolObservationRepository {
         statements.push(this.database.prepare(
           `INSERT INTO school_assignment_observations (
              principal_id, observation_id, source_id, deadline_id, external_submission_id,
-             submission_state, late, assigned_grade, source_updated_at, content_hash,
+             submission_state, late, assigned_grade, max_points, source_updated_at, content_hash,
              first_seen_at, content_changed_at, last_seen_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).bind(
           principalId, newUlid(), sourceId, entry.deadlineId, entry.item.externalSubmissionId,
           entry.item.state, entry.item.late === null ? null : entry.item.late ? 1 : 0,
-          entry.item.assignedGrade, entry.item.sourceUpdatedAt, hash,
+          entry.item.assignedGrade, entry.item.maxPoints ?? null, entry.item.sourceUpdatedAt, hash,
           observedAt, observedAt, observedAt,
         ));
         expectedChanges.push(1);
@@ -569,22 +598,23 @@ export class SchoolObservationRepository {
       statements.push(this.database.prepare(
         `INSERT INTO school_assignment_observation_revisions (
            principal_id, revision_id, observation_id, submission_state, late, assigned_grade,
-           source_updated_at, content_hash, content_changed_at, replaced_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           max_points, source_updated_at, content_hash, content_changed_at, replaced_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
         principalId, newUlid(), existing.observation_id, existing.submission_state,
-        existing.late, existing.assigned_grade, existing.source_updated_at,
+        existing.late, existing.assigned_grade, existing.max_points, existing.source_updated_at,
         existing.content_hash, existing.content_changed_at, observedAt,
       ));
       expectedChanges.push(1);
       statements.push(this.database.prepare(
         `UPDATE school_assignment_observations
-         SET submission_state = ?, late = ?, assigned_grade = ?, source_updated_at = ?,
+         SET submission_state = ?, late = ?, assigned_grade = ?, max_points = ?, source_updated_at = ?,
              content_hash = ?, content_changed_at = ?, last_seen_at = ?
          WHERE principal_id = ? AND observation_id = ? AND content_hash = ?`,
       ).bind(
         entry.item.state, entry.item.late === null ? null : entry.item.late ? 1 : 0,
-        entry.item.assignedGrade, entry.item.sourceUpdatedAt, hash, observedAt, observedAt,
+        entry.item.assignedGrade, entry.item.maxPoints ?? null, entry.item.sourceUpdatedAt,
+        hash, observedAt, observedAt,
         principalId, existing.observation_id, existing.content_hash,
       ));
       expectedChanges.push(1);
@@ -734,6 +764,7 @@ export class SchoolObservationRepository {
     const [gradeResult, missingResult, source] = await Promise.all([
       this.database.prepare(
         `SELECT o.observation_id, o.deadline_id, d.course, d.title, o.assigned_grade,
+                o.max_points, o.source_updated_at,
                 o.content_changed_at, o.last_seen_at
          FROM school_assignment_observations AS o
          JOIN deadlines AS d ON d.deadline_id = o.deadline_id AND d.source_id = o.source_id
@@ -785,7 +816,9 @@ export class SchoolObservationRepository {
         course: text(row.course, "school_grade_row_invalid", 2_048),
         title: text(row.title, "school_grade_row_invalid", 2_048),
         assignedGrade: grade(row.assigned_grade) as number,
+        maxPoints: scale(row.max_points),
         source: "google_classroom_api" as const,
+        gradeUpdatedAt: optionalInstant(row.source_updated_at, "school_grade_row_invalid"),
         contentChangedAt: instant(row.content_changed_at, "school_grade_row_invalid"),
         lastSeenAt: instant(row.last_seen_at, "school_grade_row_invalid"),
       });
@@ -816,6 +849,108 @@ export class SchoolObservationRepository {
       missingWork: Object.freeze(missingWork),
       missingWorkOmitted: totalMissingWork - missingWork.length,
     });
+  }
+
+  /**
+   * Reads only the current, bounded records the study coach may derive from.
+   * Assignment titles remain citations in this boundary and never become a
+   * topic downstream.
+   */
+  async readStudySnapshot(input: {
+    readonly principalId: string;
+    readonly now: Date;
+  }): Promise<SchoolObservationStudySnapshot> {
+    const principalId = principal(input.principalId);
+    const now = at(input.now);
+    this.#claim(2);
+    const [gradeResult, missingResult] = await Promise.all([
+      this.database.prepare(`SELECT o.observation_id, o.deadline_id, d.course, d.title,
+          o.assigned_grade, o.max_points, o.source_updated_at,
+          o.content_changed_at, o.last_seen_at,
+          sync.last_success_at AS source_last_success_at,
+          sync.last_failure AS source_last_failure
+        FROM school_assignment_observations o
+        JOIN deadlines d ON d.deadline_id = o.deadline_id AND d.source_id = o.source_id
+        JOIN deadline_sources s ON s.source_id = o.source_id AND s.kind = 'classroom'
+        JOIN school_observation_sync sync
+          ON sync.principal_id = o.principal_id AND sync.source_id = o.source_id
+        WHERE o.principal_id = ?1 AND o.assigned_grade IS NOT NULL
+        ORDER BY o.content_changed_at DESC, o.observation_id
+        LIMIT ${SCHOOL_STUDY_OBSERVATION_ROW_LIMIT}`)
+        .bind(principalId).all<StudyGradeRow>(),
+      this.database.prepare(`SELECT t.transition_id, t.deadline_id, d.course, d.title,
+          d.due_at, t.classification, t.to_state, basis.last_seen_at,
+          1 AS total_count, sync.last_success_at AS source_last_success_at,
+          sync.last_failure AS source_last_failure
+        FROM school_missing_work_transitions t
+        JOIN deadlines d ON d.deadline_id = t.deadline_id
+        JOIN deadline_sources s ON s.source_id = d.source_id AND s.kind = 'classroom'
+        JOIN school_observation_sync sync
+          ON sync.principal_id = t.principal_id AND sync.source_id = d.source_id
+        JOIN school_assignment_observations basis
+          ON basis.principal_id = t.principal_id
+          AND basis.observation_id = t.basis_observation_id
+          AND basis.deadline_id = t.deadline_id
+          AND basis.source_id = d.source_id
+        WHERE t.principal_id = ?1 AND t.to_state = 'no_submission_seen'
+          AND d.status = 'open' AND d.due_at <= ?2
+          AND sync.last_success_at IS NOT NULL
+          AND sync.last_success_started_at IS NOT NULL
+          AND basis.last_seen_at >= sync.last_success_started_at
+          AND basis.last_seen_at >= d.due_at
+          AND basis.submission_state IN ('new', 'created', 'reclaimed_by_student')
+          AND NOT EXISTS (
+            SELECT 1 FROM school_missing_work_transitions later
+            WHERE later.principal_id = t.principal_id AND later.deadline_id = t.deadline_id
+              AND (later.derived_at > t.derived_at
+                OR (later.derived_at = t.derived_at AND later.transition_id > t.transition_id))
+          )
+        ORDER BY d.due_at DESC, d.deadline_id
+        LIMIT ${SCHOOL_STUDY_OBSERVATION_ROW_LIMIT}`)
+        .bind(principalId, now).all<StudyMissingRow>(),
+    ]);
+    const sourceHealth = (row: StudyGradeRow | StudyMissingRow): {
+      readonly sourceLastSuccessAt: string | null;
+      readonly sourceLastFailure: string | null;
+    } => Object.freeze({
+      sourceLastSuccessAt: optionalInstant(row.source_last_success_at, "school_study_source_invalid"),
+      sourceLastFailure: row.source_last_failure === null
+        ? null
+        : text(row.source_last_failure, "school_study_source_invalid", 160),
+    });
+    const grades = rows(gradeResult).map((row): SchoolStudyGradeObservation => {
+      if (typeof row.assigned_grade !== "number") throw new TypeError("school_study_grade_invalid");
+      return Object.freeze({
+        observationId: ulid(row.observation_id, "school_study_grade_invalid"),
+        deadlineId: identifier(row.deadline_id, "school_study_grade_invalid"),
+        course: text(row.course, "school_study_grade_invalid", 2_048),
+        title: text(row.title, "school_study_grade_invalid", 2_048),
+        assignedGrade: grade(row.assigned_grade) as number,
+        maxPoints: scale(row.max_points),
+        source: "google_classroom_api" as const,
+        gradeUpdatedAt: optionalInstant(row.source_updated_at, "school_study_grade_invalid"),
+        contentChangedAt: instant(row.content_changed_at, "school_study_grade_invalid"),
+        lastSeenAt: instant(row.last_seen_at, "school_study_grade_invalid"),
+        ...sourceHealth(row),
+      });
+    });
+    const missingWork = rows(missingResult).map((row): SchoolStudyMissingWork => {
+      if (row.classification !== "derived" || row.to_state !== "no_submission_seen") {
+        throw new TypeError("school_study_missing_work_invalid");
+      }
+      return Object.freeze({
+        transitionId: ulid(row.transition_id, "school_study_missing_work_invalid"),
+        deadlineId: identifier(row.deadline_id, "school_study_missing_work_invalid"),
+        course: text(row.course, "school_study_missing_work_invalid", 2_048),
+        title: text(row.title, "school_study_missing_work_invalid", 2_048),
+        dueAt: instant(row.due_at, "school_study_missing_work_invalid"),
+        classification: "derived" as const,
+        state: "no_submission_seen" as const,
+        lastSeenAt: instant(row.last_seen_at, "school_study_missing_work_invalid"),
+        ...sourceHealth(row),
+      });
+    });
+    return Object.freeze({ grades: Object.freeze(grades), missingWork: Object.freeze(missingWork) });
   }
 
   private async requireSync(principalId: string, sourceId: string): Promise<SchoolObservationSyncState> {

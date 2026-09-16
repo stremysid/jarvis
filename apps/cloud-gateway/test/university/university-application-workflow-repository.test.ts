@@ -7,7 +7,7 @@ import { Redactor } from "../../src/security/redaction.js";
 import { parseOwnerUniversityPlan } from "../../src/university/university-tracker-model.js";
 import { UniversityTrackerRepository } from "../../src/university/university-tracker-repository.js";
 import type { UniversityApplicationItemKind } from "../../src/university/university-tracker-types.js";
-import { applyUniversityApplicationWorkflowMigration } from "../persistence/migration.js";
+import { applyUniversityApplicationDetailsMigration } from "../persistence/migration.js";
 
 const NOW = new Date("2026-09-15T18:30:00.000Z");
 const KINDS: readonly UniversityApplicationItemKind[] = [
@@ -75,7 +75,7 @@ async function seedApplicationItem(input: {
 }
 
 beforeAll(async () => {
-  await applyUniversityApplicationWorkflowMigration();
+  await applyUniversityApplicationDetailsMigration();
 });
 
 describe("UniversityTrackerRepository application workflow", () => {

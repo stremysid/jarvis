@@ -5,6 +5,16 @@ export type StudyOutcome = "easy" | "uncertain" | "wrong";
 export type StudyEvidenceKind = "owner_statement" | "course_context" | "practice_result";
 export type StudyConfidence = "low" | "medium" | "high";
 export type StudyPracticeMode = "quiz" | "flashcard";
+export type StudySignalSourceKind =
+  | "verified_grade"
+  | "derived_missing_work"
+  | "deadline"
+  | "quiz_outcome"
+  | "owner_report"
+  | "course_context";
+export type StudySignalVerification = "verified" | "derived" | "owner_reported" | "unverified";
+export type StudySignalFreshness = "current" | "stale";
+export type StudySignalControlReason = "wrong" | "handled";
 
 export interface StudyCourseFactSource {
   readonly factId: Ulid;
@@ -20,6 +30,8 @@ export interface StudyEvidencePoint {
   readonly topicKey: string;
   readonly outcome: StudyOutcome;
   readonly evidenceKind: StudyEvidenceKind;
+  /** The fact, practice item, or evidence row that proves this point. */
+  readonly sourceRecordId: string;
   readonly evidenceText: string;
   readonly confidence: StudyConfidence;
   readonly observedAt: string;
@@ -75,12 +87,41 @@ export interface StudyCoachSnapshot {
 }
 
 export interface StudyCheckIn {
+  readonly courseId: Ulid;
   readonly courseName: string;
   readonly topic: string;
   readonly outcome: "uncertain" | "wrong";
   readonly evidenceCount: number;
   readonly confidence: StudyConfidence;
   readonly observedAt: string;
+  readonly claimedAt: string;
+  readonly citations: readonly StudySignalCitation[];
+}
+
+export interface StudySignalCitation {
+  readonly sourceKey: string;
+  readonly sourceKind: StudySignalSourceKind;
+  readonly sourceRecordId: string;
+  readonly course: string;
+  /** Untrusted source text kept as a display-only label. */
+  readonly itemLabel: string;
+  readonly observedAt: string;
+  readonly verification: StudySignalVerification;
+  readonly freshness: StudySignalFreshness;
+  /** Deterministic, bounded explanation containing no assignment-title inference. */
+  readonly detail: string;
+}
+
+export interface StudyWeakSpotSignal {
+  readonly courseId: Ulid;
+  readonly courseName: string;
+  /** Null means course-level evidence and never an inferred assignment topic. */
+  readonly topic: string | null;
+  readonly outcome: "uncertain" | "wrong";
+  readonly confidence: StudyConfidence;
+  readonly score: number;
+  readonly observedAt: string;
+  readonly citations: readonly StudySignalCitation[];
 }
 
 export interface GeneratedPracticeItem {

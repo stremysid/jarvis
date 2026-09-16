@@ -11,7 +11,10 @@ import type { Deadline, DeadlineSource } from "../../src/deadlines/deadline-type
 import type { DecisionItem } from "../../src/decisions/decision-types.js";
 import type { ProjectStatus } from "../../src/projects/project-types.js";
 import type { SchoolCatchupAction } from "../../src/school/school-catchup-types.js";
-import type { UniversityApplicationDigestItem } from "../../src/university/university-tracker-types.js";
+import type {
+  UniversityApplicationDigestItem,
+  UniversityWorkflowDigestItem,
+} from "../../src/university/university-tracker-types.js";
 
 /**
  * One question runs through this whole file: what does the owner see when a
@@ -145,6 +148,34 @@ function applicationItem(
   };
 }
 
+function workflowItem(
+  overrides: Partial<UniversityWorkflowDigestItem> = {},
+): UniversityWorkflowDigestItem {
+  return {
+    workflowId: "01k3w1t4000000000000000610" as Ulid,
+    eventId: "01k3w1t4000000000000000611" as Ulid,
+    revision: 1,
+    applicationItemId: "01k3w1t4000000000000000600" as Ulid,
+    university: "Queen's University",
+    programName: "Commerce",
+    kind: "submission_step",
+    label: "Scholarship submission",
+    owner: "sid",
+    status: "prepared",
+    preparedDetails: "This untrusted draft must not appear in the digest.",
+    executionBoundary: "owner_only",
+    deadline: {
+      date: "2026-11-01",
+      instant: null,
+      timeZone: null,
+      verification: { state: "unverified", sourceUrl: null, cycle: null, verifiedAt: null },
+    },
+    sourceTurnId: "01k3w1t4000000000000000601" as Ulid,
+    updatedAt: NOW,
+    ...overrides,
+  };
+}
+
 type DigestDependencyOverrides = Omit<Partial<DigestJobDependencies>, "sources"> & {
   readonly sources?: Partial<DigestSources>;
 };
@@ -184,6 +215,7 @@ describe("assembling from every source", () => {
             return [catchupAction()];
           },
           readApplicationItems: async () => [applicationItem()],
+          readWorkflowItems: async () => [workflowItem()],
           readDeadlines: async () => [deadline()],
           readProjectStatuses: async () => [status()],
           readOpenDecisions: async () => [decision()],
@@ -194,6 +226,8 @@ describe("assembling from every source", () => {
     expect(digest.text).toContain("Quiz 3");
     expect(digest.text).toContain("Finish the missed lab notes");
     expect(digest.text).toContain("Entrance scholarship");
+    expect(digest.text).toContain("Scholarship submission");
+    expect(digest.text).not.toContain("This untrusted draft");
     expect(digest.text).toContain("Approve the vendor quote?");
     expect(digest.text).not.toContain("Could not be read");
   });
@@ -224,7 +258,9 @@ describe("assembling from every source", () => {
             course: "Calculus",
             title: "Quiz 2",
             assignedGrade: 84,
+            maxPoints: 100,
             source: "google_classroom_api",
+            gradeUpdatedAt: NOW,
             contentChangedAt: NOW,
             lastSeenAt: NOW,
           }],
@@ -269,35 +305,54 @@ describe("assembling from every source", () => {
 
   it("says so plainly when every source is empty", async () => {
     const digest = await assembleDigest("daily", deps());
-    expect(digest.text).toContain("Nothing due, nothing changed, nothing waiting on you.");
+    expect(digest.text).toBe("Digest -- 2026-09-02\nNothing due, nothing changed, nothing waiting on you.");
   });
 
   it("adds at most one short coursework check-in to the daily digest", async () => {
     const claimStudyCheckIn = vi.fn(async () => ({
+      courseId: "01k3w1t4000000000000000700" as Ulid,
       courseName: "Chemistry",
       topic: "balancing equations",
       outcome: "uncertain" as const,
       evidenceCount: 1,
       confidence: "low" as const,
       observedAt: "2026-09-01T12:00:00.000Z",
+      claimedAt: NOW,
+      citations: [{
+        sourceKey: "evidence:01k3w1t4000000000000000701",
+        sourceKind: "quiz_outcome" as const,
+        sourceRecordId: "01k3w1t4000000000000000701",
+        course: "Chemistry",
+        itemLabel: "balancing equations",
+        observedAt: "2026-09-01T12:00:00.000Z",
+        verification: "verified" as const,
+        freshness: "current" as const,
+        detail: "One source-supported quiz result was uncertain.",
+      }],
     }));
     const digest = await assembleDigest("daily", deps({ sources: { claimStudyCheckIn } }));
 
     expect(claimStudyCheckIn).toHaveBeenCalledOnce();
     expect(claimStudyCheckIn).toHaveBeenCalledWith("2026-09-02", 3, 450);
     expect(digest.text.match(/Coursework check-in/gu)).toHaveLength(1);
-    expect(digest.text).toContain("Chemistry: how does “balancing equations” feel today?");
+    expect(digest.text).toContain("Chemistry: study target “balancing equations”");
     expect(digest.text).toContain("1 evidence point, low confidence; not a fixed judgment");
+    expect(digest.text).toContain("quiz evidence — Chemistry: “balancing equations” (2026-09-01; verified)");
+    expect(digest.text).not.toContain("01k3w1t4000000000000000701");
+    expect(digest.text).toContain("Want a 10-minute quiz or flashcards?");
   });
 
   it("does not put the daily coursework check-in into the weekly retro", async () => {
     const claimStudyCheckIn = vi.fn(async () => ({
+      courseId: "01k3w1t4000000000000000702" as Ulid,
       courseName: "Chemistry",
       topic: "balancing equations",
       outcome: "wrong" as const,
       evidenceCount: 2,
       confidence: "medium" as const,
       observedAt: NOW,
+      claimedAt: NOW,
+      citations: [],
     }));
     const digest = await assembleDigest("retro", deps({ sources: { claimStudyCheckIn } }));
 
@@ -456,6 +511,7 @@ describe("a source that will not answer", () => {
           grades: [{
             observationId: "observation-a", deadlineId: "deadline-a",
             course: "Calculus", title: "Quiz 2", assignedGrade: 84,
+            maxPoints: null, gradeUpdatedAt: NOW,
             source: "google_classroom_api", contentChangedAt: NOW, lastSeenAt: NOW,
           }],
           missingWork: [],
@@ -568,6 +624,18 @@ describe("a source that will not answer", () => {
     for (const detail of ["school plan down", "applications down", "deadlines down", "projects down", "decisions down"]) {
       expect(digest.text).toContain(detail);
     }
+  });
+
+  it("reports a failed workflow source instead of hiding the missing steps", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readWorkflowItems: async () => {
+          throw new Error("workflow table unavailable");
+        },
+      },
+    }));
+
+    expect(digest.text).toContain("University application steps: workflow table unavailable");
   });
 
   it("still sends when every single source failed", async () => {

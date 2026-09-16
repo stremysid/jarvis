@@ -311,10 +311,19 @@ function commandContext(env: Env, principalId: string): CommandContext {
             new SchoolCatchupRepository(env.DB).listActionsForDate(principalId, date),
           readApplicationItems: async () =>
             new UniversityTrackerRepository(env.DB).listApplicationItemsByDueDate(principalId),
+          readWorkflowItems: async () =>
+            new UniversityTrackerRepository(env.DB).listWorkflowItemsByDueDate(principalId),
           claimStudyCheckIn: async (date, weekday, minuteOfDay) => {
             const study = new StudyCoachRepository(env.DB);
             const now = clock.now();
-            return study.syncAndClaimDigestCheckIn({ principalId, today: date, weekday, minuteOfDay, now });
+            const [schoolSignals, deadlineSignals] = await Promise.all([
+              new SchoolObservationRepository(env.DB).readStudySnapshot({ principalId, now }),
+              new DeadlineRepository(env.DB).listStudyCandidates(now),
+            ]);
+            return study.syncAndClaimDigestCheckIn({
+              principalId, today: date, weekday, minuteOfDay, now,
+              signalInputs: { observations: schoolSignals, deadlines: deadlineSignals },
+            });
           },
           readDeadlines: async (withinDays) =>
             new DeadlineRepository(env.DB).listDueWithin({

@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   DeadlineRepository,
+  STUDY_DEADLINE_ROW_LIMIT,
   deadlineContentHash,
   truncateFailure,
 } from "../../src/deadlines/deadline-repository.js";
@@ -224,6 +225,45 @@ describe("DeadlineRepository", () => {
 
     const next = await repository.listDueWithin({ from: "2026-09-12T00:00:00.000Z", to: "2026-09-13T00:00:00.000Z" });
     expect(next.map((deadline) => deadline.externalId)).toEqual(["c"]);
+  });
+
+  it("bounds study candidates to open near-due rows ordered soonest-first from now", async () => {
+    await repository.recordSourceSuccess(sourceId, MONDAY);
+    let cancelledId = "";
+    for (let index = 0; index < STUDY_DEADLINE_ROW_LIMIT + 2; index += 1) {
+      const created = await upsert({
+        externalId: `study-${String(index).padStart(2, "0")}`,
+        dueAt: minutesAfter(TUESDAY, index + 1).toISOString(),
+        now: TUESDAY,
+      });
+      if (index === 0) cancelledId = created.deadline.externalId;
+    }
+    await upsert({
+      externalId: "past-for-study",
+      dueAt: minutesAfter(TUESDAY, -1).toISOString(),
+      now: TUESDAY,
+    });
+    await upsert({
+      externalId: "too-far-for-study",
+      dueAt: minutesAfter(TUESDAY, 73 * 60).toISOString(),
+      now: TUESDAY,
+    });
+    await repository.cancelOpenByExternalId(sourceId, cancelledId, TUESDAY);
+    await repository.recordSourceFailure(sourceId, "classroom_temporarily_unavailable", TUESDAY);
+
+    const candidates = await repository.listStudyCandidates(TUESDAY);
+
+    expect(candidates).toHaveLength(STUDY_DEADLINE_ROW_LIMIT);
+    expect(candidates.every((candidate) => candidate.deadline.status === "open")).toBe(true);
+    expect(candidates.map((candidate) => candidate.deadline.externalId)).not.toContain("past-for-study");
+    expect(candidates.map((candidate) => candidate.deadline.externalId)).not.toContain(cancelledId);
+    expect(candidates.map((candidate) => candidate.deadline.externalId)).not.toContain("too-far-for-study");
+    expect(candidates[0]).toMatchObject({
+      deadline: { externalId: "study-01" },
+      sourceKind: "classroom",
+      sourceLastSuccessAt: MONDAY.toISOString(),
+      sourceLastFailure: "classroom_temporarily_unavailable",
+    });
   });
 
   it("filters a window by effort, which is how exam windows are found without reading every deadline", async () => {

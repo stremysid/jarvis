@@ -26,7 +26,10 @@ import type { Deadline, DeadlineSource, DeadlineSourceKind } from "../deadlines/
 import { BRIGHTSPACE_WINDOW_ITEM_LIMIT } from "../deadlines/brightspace-ical-client.js";
 import type { DecisionItem } from "../decisions/decision-types.js";
 import type { SchoolCatchupAction } from "../school/school-catchup-types.js";
-import type { UniversityApplicationDigestItem } from "../university/university-tracker-types.js";
+import type {
+  UniversityApplicationDigestItem,
+  UniversityWorkflowDigestItem,
+} from "../university/university-tracker-types.js";
 import type { StudyCheckIn } from "../school/study-coach-types.js";
 import type { SchoolObservationDigestSnapshot } from "../school/school-observation-types.js";
 import { assessStaleness, type ProjectStalenessReport } from "../projects/stalled-detector.js";
@@ -42,6 +45,7 @@ const SCHOOL_OBSERVATION_STALE_AFTER_MS = 12 * 60 * 60 * 1_000;
 export interface DigestSources {
   readCatchupActions(localDate: string): Promise<readonly SchoolCatchupAction[]>;
   readApplicationItems(): Promise<readonly UniversityApplicationDigestItem[]>;
+  readWorkflowItems?(): Promise<readonly UniversityWorkflowDigestItem[]>;
   readDeadlines(withinDays: number): Promise<readonly Deadline[]>;
   readDeadlineSources(): Promise<readonly DeadlineSource[]>;
   readSchoolObservations?(): Promise<SchoolObservationDigestSnapshot>;
@@ -268,9 +272,22 @@ export async function assembleDigest(
   // whether the others are broken too.
   const today = localDate(observedAt, dependencies.timeZone);
   const schedule = localSchedule(observedAt, dependencies.timeZone);
-  const [catchupActions, applicationItems, deadlines, deadlineSources, schoolRead, projects, decisions, studyCheckIn] = await Promise.all([
+  const [
+    catchupActions,
+    applicationItems,
+    workflowItems,
+    deadlines,
+    deadlineSources,
+    schoolRead,
+    projects,
+    decisions,
+    studyCheckIn,
+  ] = await Promise.all([
     readOr("School catch-up", () => dependencies.sources.readCatchupActions(today), gaps),
     readOr("University applications", () => dependencies.sources.readApplicationItems(), gaps),
+    dependencies.sources.readWorkflowItems === undefined
+      ? Promise.resolve([])
+      : readOr("University application steps", () => dependencies.sources.readWorkflowItems?.() ?? Promise.resolve([]), gaps),
     readOr("Deadlines", () => dependencies.sources.readDeadlines(DEADLINE_HORIZON_DAYS), gaps),
     readOr("Deadline source health", () => dependencies.sources.readDeadlineSources(), gaps),
     readSchoolObservationsOr(dependencies.sources.readSchoolObservations, gaps),
@@ -360,12 +377,26 @@ export async function assembleDigest(
       dueDate: item.dueDate,
       verificationState: item.verification.state,
     })),
+    universityWorkflowItems: workflowItems.map((item) => ({
+      workflowId: item.workflowId,
+      university: item.university,
+      programName: item.programName,
+      label: item.label,
+      owner: item.owner,
+      status: item.status,
+      dueDate: item.deadline.date,
+      dueAt: item.deadline.instant,
+      dueTimeZone: item.deadline.timeZone,
+      verificationState: item.deadline.verification.state,
+    })),
     deadlines: deadlines.map(toDigestDeadline),
     grades: (schoolSnapshot?.grades ?? []).map((grade) => ({
       observationId: grade.observationId,
       course: grade.course,
       title: grade.title,
       assignedGrade: grade.assignedGrade,
+      maxPoints: grade.maxPoints,
+      gradeUpdatedAt: grade.gradeUpdatedAt,
       source: "Google Classroom" as const,
       lastSeenAt: grade.lastSeenAt,
     })),
@@ -394,6 +425,16 @@ export async function assembleDigest(
       evidenceCount: studyCheckIn.evidenceCount,
       confidence: studyCheckIn.confidence,
       observedAt: studyCheckIn.observedAt,
+      citations: studyCheckIn.citations.map((point) => ({
+        sourceKind: point.sourceKind,
+        sourceRecordId: point.sourceRecordId,
+        course: point.course,
+        itemLabel: point.itemLabel,
+        observedAt: point.observedAt,
+        verification: point.verification,
+        freshness: point.freshness,
+        detail: point.detail,
+      })),
     },
   };
 
