@@ -89,26 +89,42 @@ integration work must resolve these limits before enabling the affected callers:
   literal-history indexer writes this table today; closing the gap requires an
   atomic replacement protocol or a separate durable current-chunk receipt.
 
-## PR #46 notification delivery retains three bounded at-least-once limits
+## PR #46 notification delivery closes starvation and retains two at-least-once windows
 
-The guest-grant notice outbox keeps a stable per-mutation idempotency key and
-takes a fresh clock value for each row it claims. The Telegram REST boundary
-does not provide an exactly-once receipt, however. If Telegram accepts a
-message and the delivered-marker write then fails or the isolate stops, a
-retry can send the same notice again.
+Guest-grant Telegram delivery remains at-least-once across one precise crash
+window. The outbox passes the stable mutation id as an internal idempotency
+key, but the Telegram Bot API `sendMessage` operation neither accepts nor
+returns that key. If
+Telegram accepts the message and the delivered-marker write then fails, or the
+isolate stops between those operations, the pending row is retried and Sid can
+see the same text twice. Closing that window needs an approved owner-visible
+replay design or a provider operation with durable idempotency; D1 cannot make
+its commit atomic with Telegram. Until then, exact-once and non-confusing
+replay are not claimed.
 
-The drain also has no attempt count or dead-letter policy. A permanently
-undeliverable notice among the oldest ten pending rows can therefore keep
-newer rows outside the bounded batch. Adding that policy requires a product
-decision about retry limits and operator recovery, not an implicit discard in
-this passphrase PR.
+The oldest-ten starvation defect is closed by migration `0028` and the fair
+drain cursor. Each run claims one resumable checkpoint, attempts at most ten
+pending rows after the prior cursor, advances the cursor even when a row
+fails, and then wraps. For a fixed pending set, a permanently undeliverable
+old row therefore cannot keep a newer row outside every batch. An abandoned
+run has a four-minute lease, moves durably from `running` to `failed` on the
+next tick, and resumes on the following tick. The repeated step has a declared
+ceiling of 95 D1 statements for ten notices. There is deliberately no retry
+limit, dead-letter transition, or terminalization: silently terminalizing a
+notice would violate the no-loss property. The decided policy keeps every
+poison notice pending and retries it once per queue rotation. A later slice
+will surface any notice still undelivered after 24 hours as one line in the
+morning digest.
 
-Rejection delivery has the same final-marker edge: if the refusal, end frame,
-and owner alert succeed but the rejection-delivery insert fails, a later
-resume can repeat the refusal and alert observation. Repairing that double
-failure requires a multi-stage durable delivery state. These limits must be
-resolved or explicitly accepted before notification delivery is described as
-exactly once.
+Owner-call rejection completion retains a separate multi-effect window. The
+durable rejection precedes the refusal, end-frame attempt and owner alert, but
+the single rejection-delivered row follows all three. A stop or failed final
+insert after any accepted non-idempotent effect can repeat that effect on
+resume; the in-memory promise prevents only same-isolate overlap. Closing the
+window requires approved per-stage durable receipts plus replay semantics for
+the call relay and Telegram alert. The current code preserves retry instead
+of silently losing Sid's alert, but it does not prove that a replay cannot make
+him doubt whether a second rejection occurred.
 
 ## A late split passphrase repeat is ordinary conversation (PR #40 N9)
 
