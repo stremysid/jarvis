@@ -80,10 +80,16 @@ database. It does not authorize a production migration or deployment.
    for that file succeeds. These are not fabricated receipts: each one
    corresponds to that file's SQL genuinely executed against this database.
    The helper refuses to record a receipt for a file whose statements did not
-   all succeed. In **PowerShell 7**:
+   all succeed. Run this baseline against the empty scratch database before
+   step 4 seeds rows, because the per-request replay does not carry `0006`'s
+   `PRAGMA defer_foreign_keys` into later requests. The script tests are a
+   manual preflight and are not part of `pnpm test`; run them here before any
+   remote action in this step. In **PowerShell 7**:
 
    ```powershell
    cd C:\path\to\jarvis
+   node --test scripts/test/prepare-d1-scratch-baseline.test.mjs
+   if ($LASTEXITCODE -ne 0) { throw "Scratch baseline script tests failed. Stop here." }
    $ScratchDatabase = Read-Host "Confirmed non-production scratch D1 name"
    if ([string]::IsNullOrWhiteSpace($ScratchDatabase) -or $ScratchDatabase -notmatch '^[A-Za-z0-9_-]*scratch[A-Za-z0-9_-]*$') { throw "The name must visibly say scratch." }
    $ScratchConfig = Read-Host "Absolute SCRATCH CONFIG OUTSIDE REPO path from step 2"
@@ -163,7 +169,10 @@ database. It does not authorize a production migration or deployment.
    repository file after `0015` the pending candidate range, matching the
    actual production starting point without hard-coding a count. At `010f93b`
    the discovered range is `0016` through `0025`; `0026` through `0028` are not
-   in main. In **PowerShell 7**:
+   in main. Wrangler's apply command asks for `y/n` confirmation. Answer `y`
+   only if its prompt names the confirmed scratch database and lists exactly
+   the files printed in `CANDIDATE RANGE`; for anything else, answer `n` and
+   stop. In **PowerShell 7**:
 
    ```powershell
    cd C:\path\to\jarvis
@@ -189,6 +198,7 @@ database. It does not authorize a production migration or deployment.
    foreach ($Migration in $CandidateMigrations) {
      if ($ListText -notmatch [regex]::Escape($Migration)) { throw "Expected pending scratch migration was not listed: $Migration" }
    }
+   Write-Host "At Wrangler's y/n prompt, confirm the scratch database name and exact CANDIDATE RANGE; otherwise answer n and stop."
    pnpm.cmd exec wrangler d1 migrations apply $ScratchDatabase --remote --config $ScratchConfig --env ''
    if ($LASTEXITCODE -ne 0) { throw "Scratch candidate apply failed. Stop here." }
    $NamesSql = ($CandidateMigrations | ForEach-Object { "'$($_.Replace("'", "''"))'" }) -join ', '

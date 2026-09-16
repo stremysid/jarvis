@@ -63,8 +63,9 @@ test('the baseline script builds the 0015-equivalent schema from an empty databa
   }
 });
 
-test('the candidate range on main is contiguous from 0016 through 0025', () => {
-  assert.deepEqual(discoverCandidateNames(), [
+test('the candidate range is contiguous from 0016 and includes the reviewed 0016 through 0025 prefix', () => {
+  const candidates = discoverCandidateNames();
+  const reviewedPrefix = [
     '0016_cloud_memory.sql',
     '0017_owner_passphrase.sql',
     '0018_owner_call_step_up.sql',
@@ -75,7 +76,13 @@ test('the candidate range on main is contiguous from 0016 through 0025', () => {
     '0023_study_coach.sql',
     '0024_university_application_workflow.sql',
     '0025_archive_literal_history.sql',
-  ]);
+  ];
+
+  assert.deepEqual(candidates.slice(0, reviewedPrefix.length), reviewedPrefix);
+  assert.deepEqual(
+    candidates.map((name) => Number.parseInt(name.slice(0, 4), 10)),
+    Array.from({ length: candidates.length }, (_, index) => 16 + index),
+  );
 });
 
 test('the scratch baseline stops without recording a receipt when a statement fails', () => {
