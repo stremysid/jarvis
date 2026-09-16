@@ -96,6 +96,26 @@ export interface DigestStudyCheckIn {
   readonly observedAt: string;
 }
 
+export interface DigestGradeObservation {
+  readonly observationId: string;
+  readonly course: string;
+  readonly title: string;
+  readonly assignedGrade: number;
+  readonly source: "Google Classroom";
+  readonly lastSeenAt: string;
+}
+
+export interface DigestDerivedMissingWork {
+  readonly transitionId: string;
+  readonly course: string;
+  readonly title: string;
+  readonly dueAt: string;
+  readonly classification: "derived";
+  readonly state: "no_submission_seen";
+  readonly source: "Google Classroom";
+  readonly lastSeenAt: string;
+}
+
 /**
  * A source that could not be read.
  *
@@ -114,6 +134,9 @@ export interface DigestInput {
   readonly applicationItems: readonly DigestApplicationItem[];
   readonly universityWorkflowItems?: readonly DigestUniversityWorkflow[];
   readonly deadlines: readonly DigestDeadline[];
+  readonly grades: readonly DigestGradeObservation[];
+  readonly missingWork: readonly DigestDerivedMissingWork[];
+  readonly missingWorkOmitted: number;
   readonly projects: readonly DigestProject[];
   readonly decisions: readonly DigestDecision[];
   readonly gaps: readonly DigestGap[];

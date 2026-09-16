@@ -120,6 +120,40 @@ integration work must resolve these limits before enabling the affected callers:
   literal-history indexer writes this table today; closing the gap requires an
   atomic replacement protocol or a separate durable current-chunk receipt.
 
+## Automatic distillation is deliberately provider-disabled in production
+
+The hourly poll now has the complete tiered-read, extraction-policy and
+canonical-repository path, but the production job context supplies no model
+provider. It reports `Memory distillation not configured`, writes no memory run
+and does not advance the distillation cursor. Tests inject the credential-free
+fake provider. Selecting a paid provider, recording real token and cost ledger
+entries, and enabling it remain outside this slice because Sid has not approved
+the reviewed comparison or any spend.
+
+Automatic filing is intentionally conservative. Inferred, archived-only and
+low-confidence items go to the durable `Inbox / Needs filing`. A live
+first-person statement also stays uncertain unless its stored event explicitly
+marks the whole message as direct owner text. No producer writes that marker in
+this PR, so production events fail closed until the reviewed Telegram provenance
+slice supplies it. Semantic topic creation or movement waits for the
+topic-controls slice because letting untrusted provider text choose a topic
+would bypass that control design.
+
+Two reconciliation limits remain explicit. If canonical item commits succeed
+but run finalization fails, an identical proposal replays safely by proposal
+hash. A provider that paraphrases the same fact differently on the fresh attempt
+can still create a duplicate because the orphaned item has no completed-run
+receipt to establish semantic equivalence. Closing that gap needs a durable
+source-coverage reconciliation rule rather than treating model wording as an
+identity key.
+
+The first `archive_segment_events.subject_id` write is enforced by the archive
+reader's hash-checked envelope validation, not by SQL. D1 cannot inspect the R2
+envelope while accepting that first backfill. Migration 0026 makes the subject
+write-once after it is present, and the scratch rehearsal covers the live-table
+alteration, but database-only proof of the initial subject needs a separate
+attestation design.
+
 ## PR #46 notification delivery closes starvation and retains two at-least-once windows
 
 Guest-grant Telegram delivery remains at-least-once across one precise crash
@@ -677,15 +711,52 @@ The current schema has only `deadlines.due_at TEXT NOT NULL`. A Classroom item
 with a date and no time is conservatively mapped to the end of the local day,
 but the store cannot preserve that the source supplied date-only precision.
 Native date-only display needs a separate schema migration, claiming the next
-number only after another open-PR branch inventory. This PR claims no migration.
+number only after another open-PR branch inventory. Candidate `0027` does not
+change deadline precision.
+
+## Grade and submission ingestion still has four approval and coverage gaps
+
+Candidate migration `0027_school_observations.sql` and its repository use only
+the already configured read-only Google Classroom route. They do not request a
+new scope or run consent. The current refresh token's granted scopes are not
+known in code, however. Google's submission endpoint requires a coursework or
+student-submission read scope. If the existing grant lacks it, the poll records
+`classroom_rejected` and the digest names the grades/submissions gap. Obtaining
+another grant remains an owner-approved setup action and is not part of this PR.
+
+The approved Brightspace iCalendar feed carries deadlines, not grades or
+submission state. No Brightspace notification-email parser or API client is
+added here because neither route has been approved. Brightspace grades and
+submissions therefore remain unavailable until Sid approves an existing board
+route or the school approves a least-privilege API application.
+
+Classroom observations are attached only to coursework already present in the
+verified deadline store. Undated coursework has no deadline row, so a grade on
+it is deliberately omitted rather than inventing an assignment identity,
+course, date or title. Supporting it needs a separately reviewed verified
+assignment catalogue.
+
+The observation store also binds one Classroom submission id to each deadline.
+If Classroom recreates that submission under a new id, the replacement is
+rejected and remains ignored. Accepting it safely needs an explicit identity
+reconciliation rule; silently replacing the id would let unrelated evidence
+overwrite the verified observation history.
+
+This slice adds recent verified grades and derived submission checks to the
+existing morning digest. It does not send the plan's same-day lower-grade or
+new-no-submission alert. That alert needs a durable owner-delivery receipt plus
+the conversational threshold and snooze policy, so it is not approximated with
+a second untracked report.
 
 ## Only an explicit calendar cancellation moves a deadline out of `open`
 
 Brightspace `STATUS:CANCELLED` and `STATUS:COMPLETED` now close the matching
 source deadline as `cancelled`. Nothing marks a deadline `submitted` or
-`missed`, and a deadline that merely passes stays `open` forever. The
-grade/missing-work watch described in the plan is what closes those states,
-and it needs separately approved Classroom and Brightspace grade connectors.
+`missed`, and a deadline that merely passes stays `open` forever. Candidate
+`0027` keeps verified submission observations and explicitly derived
+`no_submission_seen` transitions in separate tables rather than rewriting this
+legacy status. Brightspace still needs a separately approved grade/submission
+route.
 
 A completed Brightspace `VTODO` is therefore stored with the same `cancelled`
 status as a teacher-cancelled item. That is correct for stopping deadline

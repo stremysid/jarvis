@@ -68,13 +68,14 @@ with additive migration `0016_cloud_memory.sql`.
 with migration `0019_memory_ingress.sql`. PR #44 merged the reviewed runtime
 slice plan as `3e28bda`; main also owns `0020_school_catchup.sql` and
 `0022_university_tracker.sql`, while PR #46 is merged as `ebb757b` and owns
-`0021_voice_owner_delivery.sql`. PR #53 merged `0023_study_coach.sql`,
-open PR #52 reserves `0024_university_application_workflow.sql`, and draft
-[PR #56](https://github.com/ksid1229-ops/jarvis/pull/56) uses the next free
-name, `0025_archive_literal_history.sql`.
-None of `0016` through `0020` or `0022` has been applied by this R2 work. The
-Sid-attended scratch remote-D1 proof remains mandatory before any production
-apply; follow the [migration scratch proof runbook](docs/runbooks/migration-scratch-proof.md).
+`0021_voice_owner_delivery.sql`. PR #53 merged `0023_study_coach.sql`, open PR
+#52 reserves `0024_university_application_workflow.sql`, and PR #56 merged
+`0025_archive_literal_history.sql`. Draft
+[PR #59](https://github.com/ksid1229-ops/jarvis/pull/59) uses the next free
+name, `0026_memory_distillation.sql`. No migration after `0015` has been applied
+by this R2 work. The Sid-attended scratch remote-D1 proof remains mandatory
+before any production apply; follow the
+[migration scratch proof runbook](docs/runbooks/migration-scratch-proof.md).
 
 [PR #47](https://github.com/ksid1229-ops/jarvis/pull/47) merged as `60ae90d`
 with the first runtime slice in
@@ -85,14 +86,19 @@ topic resolution. It claims no migration and has no Telegram, voice, calls,
 provider, scheduler, Vectorize or archive-index composition.
 [PR #50](https://github.com/ksid1229-ops/jarvis/pull/50) merged as `1cae97b`
 with its channel-neutral owner-controls successor and no migration or channel
-wiring. Draft [PR #56](https://github.com/ksid1229-ops/jarvis/pull/56) builds
-the second slice: suppression-safe live/R2 literal coverage, exact provenance
-results and a bounded resumable exhaustive-search job. Migration `0025` is
-unapplied, and the later dependency order remains unchanged. Although the
+wiring. [PR #56](https://github.com/ksid1229-ops/jarvis/pull/56) merged as
+`282f066` with the second slice: suppression-safe live/R2 literal coverage,
+exact provenance results and a bounded resumable exhaustive-search job.
+Migration `0025` is unapplied. Draft
+[PR #59](https://github.com/ksid1229-ops/jarvis/pull/59) builds slice 3 with a
+fake-provider hourly path, durable receipts, schema-reconciled counts and a
+cursor that advances only after the canonical item batch. Production remains
+provider-disabled until a paid provider, spend cap and real token/cost ledger
+receive separate approval. Although the
 service accepts `MAX_JOB_EVENTS = 16`, the 262,144-byte step budget and the
 32,768-byte per-event ceiling make eight events the real maximum per step.
-Runtime slices 3 and 4 must supply a durable driver for the potentially long
-walk; this slice intentionally has no scheduler or composition.
+Slice 3 supplies a bounded fresh-attempt path; slice 4 remains responsible for
+Telegram recall and plain-speech controls without changing voice composition.
 
 ## R2 item 3: fact projection
 
@@ -311,21 +317,22 @@ R2.
 PRs #35, #36 and #38 established the pure policy and approved design. PR #39
 merged the `0016` schema, PR #42 merged the `0019` ingress guard, PR #44 merged
 the runtime-slice plan, and PR #47 merged the first uncomposed channel-neutral
-repository as `60ae90d`. Draft
+repository as `60ae90d`.
 [PR #50](https://github.com/ksid1229-ops/jarvis/pull/50) merged as `1cae97b`
-with the uncomposed owner-controls service. Draft
-[PR #56](https://github.com/ksid1229-ops/jarvis/pull/56) adds the archive-
-complete literal index and exhaustive search without exposing either runtime
-writer to a channel. No automatic distillation Workflow exists.
+with the uncomposed owner-controls service. PR #56 merged the archive-complete
+literal index and exhaustive search without exposing either runtime writer to a
+channel. Draft [PR #59](https://github.com/ksid1229-ops/jarvis/pull/59) adds the
+bounded automatic-distillation workflow and `0026` receipts behind a fake-
+provider seam; the production provider remains disabled and visible.
 Sid uses ordinary speech and text for remember, why, forget and lift actions;
 slash commands are at most hidden fallbacks. After one reviewed scratch-target
 setup, restore drills run automatically and alert Sid only on failure.
 
-Review PR #56 against
+Review PR #59 at Claude max against
 [`docs/plan/2026-09-15-r2-memory-runtime-slices.md`](docs/plan/2026-09-15-r2-memory-runtime-slices.md)
-and the approved design before starting slice 3 automatic distillation. No live
-model comparison runs without Sid's explicit approval. R1 and R5 remain
-independent cloud-side work.
+and the approved design before starting slice 4 Telegram integration. No live
+model comparison or provider activation runs without Sid's explicit approval.
+R1 and R5 remain independent cloud-side work.
 
 ## Next gate
 

@@ -8,7 +8,9 @@
 import type { Env } from "../env.js";
 import { ArchivalService } from "../archive/archival-service.js";
 import { ArchivalWorker } from "../archive/archival-worker.js";
+import { ArchiveRepository } from "../archive/archive-repository.js";
 import { ARCHIVE_SEGMENT_LIMITS } from "../archive/segment-codec.js";
+import { TieredEventReader } from "../archive/tiered-event-reader.js";
 import { ClassroomClient, ClassroomRequestError } from "../deadlines/classroom-client.js";
 import {
   BRIGHTSPACE_WINDOW_ITEM_LIMIT,
@@ -24,11 +26,26 @@ import { DecisionService } from "../decisions/decision-service.js";
 import { GitHubClient } from "../projects/github-client.js";
 import { ProjectPoller } from "../projects/project-poller.js";
 import { ProjectRepository } from "../projects/project-repository.js";
+import {
+  AUTOMATIC_DISTILLATION_STEP_LIMITS,
+  AutomaticMemoryDistillationWorkflow,
+} from "../memory/automatic-distillation.js";
+import { MemoryRepository } from "../memory/memory-repository.js";
+import { EventRepository } from "../persistence/event-repository.js";
+import type { ModelProvider } from "../providers/provider-types.js";
 import { TelegramRestProvider } from "../providers/telegram-provider.js";
 import { ScheduledRunRepository } from "../scheduler/scheduled-run-repository.js";
 import { SchoolCatchupRepository } from "../school/school-catchup-repository.js";
 import { UniversityTrackerRepository } from "../university/university-tracker-repository.js";
 import { StudyCoachRepository } from "../school/study-coach-repository.js";
+import {
+  runClassroomObservationSync,
+  type ClassroomObservationSyncResult,
+} from "../school/classroom-observation-sync.js";
+import {
+  D1StatementBudget,
+  SchoolObservationRepository,
+} from "../school/school-observation-repository.js";
 import type { JobOutcome, JobTable } from "../scheduler/scheduled-handler.js";
 import { D1GuestGrantNoticeSink } from "../voice/guest-grant-notice.js";
 import { runDigestJob, unconfiguredDeadlineSourceKinds, type DigestDelivery } from "./digest-job.js";
@@ -39,18 +56,26 @@ export interface JobEnvironment {
   readonly clock: { now(): Date };
   readonly delivery: DigestDelivery;
   readonly fetcher: typeof fetch;
+  /** Omitted in production until Sid approves a reviewed provider and cap. */
+  readonly memoryDistillation?: Readonly<{
+    provider: Pick<ModelProvider, "completeJson">;
+    providerModelId: string;
+  }>;
 }
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-const CLASSROOM_SOURCE_ID = "google-classroom";
+export const CLASSROOM_SOURCE_ID = "google-classroom";
 const BRIGHTSPACE_SOURCE_ID = "brightspace-ical";
 const BRIGHTSPACE_PAST_WINDOW_MS = 14 * 86_400_000;
 const BRIGHTSPACE_FUTURE_WINDOW_MS = 120 * 86_400_000;
 const BRIGHTSPACE_ON_DEMAND_JOB = "brightspace_on_demand";
 const BRIGHTSPACE_ON_DEMAND_COOLDOWN_MS = 5 * 60_000;
+const MEMORY_DISTILLATION_STEPS_PER_POLL = 8;
+const MEMORY_DISTILLATION_WALL_CLOCK_BUDGET_MS = 4 * 60_000;
+const MEMORY_DISTILLATION_D1_STATEMENT_ALLOWANCE = 1_000;
 
 export interface SelectedBrightspaceWindow extends BrightspaceCalendarResult {
   readonly truncatedCount: number;
@@ -73,6 +98,12 @@ export type BrightspaceRefreshResult =
     readonly detail: string;
     readonly lastSuccessAt: string | null;
   };
+
+export function classroomObservationDetail(observations: ClassroomObservationSyncResult): string {
+  return observations.outcome === "failed"
+    ? `grade/submission sync failed (${observations.failure ?? "school_observation_sync_failed"}); ${observations.undatedCoursework} undated coursework submissions skipped; ${observations.rejected} submission observations rejected`
+    : `grade/submission ${observations.outcome} within its declared D1 statement budget; ${observations.undatedCoursework} undated coursework submissions skipped; ${observations.rejected} submission observations rejected`;
+}
 
 function classroomFailure(error: unknown): string {
   if (error instanceof ClassroomRequestError || error instanceof GoogleOAuthRequestError) return error.message;
@@ -130,12 +161,30 @@ async function pollClassroom(context: JobEnvironment): Promise<string> {
       // date-only assignment into the end of the owner's local school day.
       timeZone: context.env.DIGEST_TIMEZONE ?? "America/Toronto",
     });
+    const courses = await client.listCourses();
+    const collected = await client.collectDeadlineSweep(courses);
     const report = await ingestion.ingest(source.sourceId, {
       kind: "items",
-      items: await client.collectDeadlines(),
+      items: collected.items,
     });
     const seen = report.created.length + report.moved.length + report.unchanged;
-    return `Classroom ${seen} seen, ${report.rejected.length} rejected, ${report.disappeared.length} absent`;
+    const principalId = context.env.OWNER_PRINCIPAL_ID;
+    if (principalId === undefined) {
+      return `Classroom ${seen} seen, ${report.rejected.length} rejected, ${report.disappeared.length} absent; grade/submission sync needs OWNER_PRINCIPAL_ID`;
+    }
+    const budget = new D1StatementBudget();
+    const observations = await runClassroomObservationSync({
+      repository: new SchoolObservationRepository(context.env.DB, budget),
+      client,
+      courses,
+      principalId,
+      sourceId: source.sourceId,
+      budget,
+      now: () => context.clock.now(),
+      undatedDeadlineExternalIds: new Set(collected.undatedExternalIds),
+    });
+    const observationDetail = classroomObservationDetail(observations);
+    return `Classroom ${seen} seen, ${report.rejected.length} rejected, ${report.disappeared.length} absent; ${observationDetail}`;
   } catch (error) {
     const failure = classroomFailure(error);
     await ingestion.ingest(source.sourceId, { kind: "failed", reason: failure });
@@ -375,6 +424,92 @@ async function safeSourcePoll(
   }
 }
 
+async function distilMemory(
+  context: JobEnvironment,
+  archive: ArchivalService,
+): Promise<string> {
+  const configured = context.memoryDistillation;
+  if (configured === undefined) return "Memory distillation not configured";
+  const principalId = context.env.OWNER_PRINCIPAL_ID;
+  if (principalId === undefined) return "Memory distillation failed (owner_not_configured)";
+  const live = new EventRepository(context.env.DB);
+  const tiered = new TieredEventReader({
+    live,
+    archive,
+    state: new ArchiveRepository(context.env.DB),
+  });
+  const workflow = new AutomaticMemoryDistillationWorkflow({
+    database: context.env.DB,
+    events: tiered,
+    repository: new MemoryRepository(context.env.DB, {
+      clock: () => context.clock.now(),
+      archivedEventReader: archive,
+    }),
+    provider: configured.provider,
+    providerModelId: configured.providerModelId,
+    principalId,
+    now: () => context.clock.now(),
+  });
+  const runKey = `memory-distill:${context.clock.now().toISOString().slice(0, 13)}`;
+  const startedAt = context.clock.now().getTime();
+  let createdItemCount = 0;
+  let chargedD1Statements = 0;
+  let skippedEventCount = 0;
+  const skippedReasonCounts: Record<string, number> = {};
+  let stepCount = 0;
+  let stoppedByWallClock = false;
+  let stoppedByD1Allowance = false;
+  let stoppedByCursorStall = false;
+  let lastResult: Awaited<ReturnType<AutomaticMemoryDistillationWorkflow["runNext"]>> | null = null;
+  for (let step = 0; step < MEMORY_DISTILLATION_STEPS_PER_POLL; step += 1) {
+    if (step > 0 && context.clock.now().getTime() - startedAt >= MEMORY_DISTILLATION_WALL_CLOCK_BUDGET_MS) {
+      stoppedByWallClock = true;
+      break;
+    }
+    if (step > 0
+      && chargedD1Statements + AUTOMATIC_DISTILLATION_STEP_LIMITS.d1Statements
+        > MEMORY_DISTILLATION_D1_STATEMENT_ALLOWANCE) {
+      stoppedByD1Allowance = true;
+      break;
+    }
+    const result = await workflow.runNext({ runKey: `${runKey}:${step}` });
+    lastResult = result;
+    stepCount += 1;
+    createdItemCount += result.createdItemCount;
+    chargedD1Statements += result.budget.d1Statements;
+    skippedEventCount += result.skippedEventCount;
+    for (const [reason, count] of Object.entries(result.skippedReasonCounts)) {
+      skippedReasonCounts[reason] = (skippedReasonCounts[reason] ?? 0) + count;
+    }
+    if (result.backlogEventCount === 0) break;
+    if (result.outcome !== "succeeded" && result.outcome !== "nothing_new") break;
+    if (result.continuationRequired) continue;
+    if (result.startEventSequence !== null && result.cursorEventSequence < result.startEventSequence) {
+      stoppedByCursorStall = true;
+      break;
+    }
+  }
+  if (lastResult === null) throw new Error("memory_distillation_step_missing");
+  const backlogUnit = lastResult.backlogEventCount === 1 ? "event" : "events";
+  const eligibleUnit = lastResult.eligibleBacklogEventCount === 1 ? "eligible event" : "eligible events";
+  const eligibleQualifier = lastResult.eligibleBacklogIsLowerBound ? "at least " : "";
+  const skipUnit = skippedEventCount === 1 ? "skip" : "skips";
+  const skipReasons = Object.entries(skippedReasonCounts)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([reason, count]) => `${reason}=${count}`)
+    .join(", ");
+  const stepUnit = stepCount === 1 ? "step" : "steps";
+  const stopReason = stoppedByWallClock
+    ? ", wall-clock budget reached"
+    : stoppedByD1Allowance
+      ? ", D1 statement allowance reached"
+      : stoppedByCursorStall
+        ? ", cursor stalled"
+        : "";
+  const skipDetail = skipReasons.length === 0 ? "" : ` (${skipReasons})`;
+  return `Memory ${lastResult.outcome}, ${createdItemCount} created, ${lastResult.backlogEventCount} ${backlogUnit} pending, ${eligibleQualifier}${lastResult.eligibleBacklogEventCount} ${eligibleUnit} pending, ${skippedEventCount} ${skipUnit}${skipDetail} after ${stepCount} ${stepUnit}${stopReason}`;
+}
+
 /**
  * The hourly reach-out.
  *
@@ -387,9 +522,9 @@ async function poll(context: JobEnvironment): Promise<JobOutcome> {
   // Reuse the archive's retention, readback, sealing and purge checks unchanged.
   // A missing GitHub credential must not disable local D1-to-R2 maintenance.
   let archived: string;
+  const archive = new ArchivalService({ database: context.env.DB, bucket: context.env.ARCHIVE });
   try {
-    const archive = new ArchivalWorker(new ArchivalService({ database: context.env.DB, bucket: context.env.ARCHIVE }));
-    const segment = await archive.run(context.clock.now(), ARCHIVE_SEGMENT_LIMITS.maxEventCount);
+    const segment = await new ArchivalWorker(archive).run(context.clock.now(), ARCHIVE_SEGMENT_LIMITS.maxEventCount);
     archived = segment === null ? "nothing eligible for archival" : `${segment.eventCount} archived`;
   } catch {
     archived = "archival failed (archive_operation_failed)";
@@ -400,7 +535,12 @@ async function poll(context: JobEnvironment): Promise<JobOutcome> {
     "brightspace_ingestion_failed",
     () => pollBrightspace(context),
   );
-  const sourceDetail = `${classroom}; ${brightspace}`;
+  const memory = await safeSourcePoll(
+    "Memory distillation",
+    "memory_distillation_failed",
+    () => distilMemory(context, archive),
+  );
+  const sourceDetail = `${classroom}; ${brightspace}; ${memory}`;
   const token = context.env.GITHUB_TOKEN;
   if (token === undefined) return { ok: true, detail: `${archived}; ${sourceDetail}; project poll not configured` };
 
@@ -439,6 +579,7 @@ async function digest(
   const school = new SchoolCatchupRepository(context.env.DB);
   const university = new UniversityTrackerRepository(context.env.DB);
   const study = new StudyCoachRepository(context.env.DB);
+  const observations = new SchoolObservationRepository(context.env.DB);
   const timeZone = context.env.DIGEST_TIMEZONE ?? "America/Toronto";
 
   const result = await runDigestJob(kind, {
@@ -456,6 +597,15 @@ async function digest(
           to: new Date(context.clock.now().getTime() + withinDays * 86_400_000),
         }),
       readDeadlineSources: async () => deadlines.listSources(),
+      readSchoolObservations: async () => {
+        const now = new Date(context.clock.now().getTime());
+        return observations.readDigestSnapshot({
+          principalId,
+          sourceId: CLASSROOM_SOURCE_ID,
+          changedSince: new Date(now.getTime() - 7 * 86_400_000),
+          now,
+        });
+      },
       readProjectStatuses: async () => projects.readActiveProjectStatuses(),
       readOpenDecisions: async () => decisions.queue(principalId),
     },

@@ -61,7 +61,6 @@ const FIRST_PERSON_UNTRUSTED_FRAMING = [
   /(?<![A-Za-z0-9_])i\s+(?:think|guess|suppose)(?![A-Za-z0-9_])/iu,
   /(?<![A-Za-z0-9_])i\s+(?:do\s+not|don['’]t)\s+know(?![A-Za-z0-9_])/iu,
   /(?<![A-Za-z0-9_])not\s+sure(?![A-Za-z0-9_])/iu,
-  /(?<![A-Za-z0-9_])(?:says|said|told)(?![A-Za-z0-9_])/iu,
   /(?<![A-Za-z0-9_])(?:not|never)(?![A-Za-z0-9_])/iu,
   /n['’]t(?![A-Za-z0-9_])/iu,
 ] as const;
@@ -149,17 +148,18 @@ function wholeSentenceMatch(sourceText: string, quote: string, offset: number): 
  */
 export function isAuthenticatedFirstPersonQuote(input: FirstPersonQuoteInput): boolean {
   if (!input.authenticatedOwner) return false;
-  const quote = input.quote.normalize("NFC").replace(/^ +| +$/gu, "");
-  const sourceText = input.sourceText.normalize("NFC");
+  const quote = input.quote.normalize("NFC").trim();
+  const sourceText = input.sourceText.normalize("NFC").trim();
   if (quote.length === 0 || hasFactTextControls(quote)) return false;
   if (!FIRST_PERSON_TOKEN.test(quote)) return false;
-
-  let offset = sourceText.indexOf(quote);
-  while (offset !== -1) {
-    if (wholeSentenceMatch(sourceText, quote, offset)) return true;
-    offset = sourceText.indexOf(quote, offset + 1);
-  }
-  return false;
+  // Provenance supplies direct-owner authority. Structure supplies the other
+  // half: a model cannot cut one sentence out of a forward or pasted exchange
+  // and relabel it as the owner's own words.
+  const sourceIsWholeQuote = sourceText === quote
+    || sourceText.length === quote.length + 1
+      && sourceText.startsWith(quote)
+      && SENTENCE_PUNCTUATION.has(sourceText.at(-1) ?? "");
+  return sourceIsWholeQuote && wholeSentenceMatch(sourceText, quote, 0);
 }
 
 /** Apply the same closed promotion allowlist as the Python local agent. */
