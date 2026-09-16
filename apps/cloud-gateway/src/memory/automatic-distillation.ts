@@ -31,6 +31,7 @@ const PROVIDER_MODEL = /^(?:deepseek|anthropic|openai):[A-Za-z0-9._/-]{1,160}$/u
 const PAYLOAD_FIELDS = new Set([
   "schemaCode", "channelCode", "sensitivityCode", "historyEligible", "text",
 ]);
+const PAYLOAD_WITH_DIRECT_OWNER_FIELDS = new Set([...PAYLOAD_FIELDS, "directOwnerText"]);
 const PROPOSAL_FIELDS = new Set([
   "text", "sourceEventIds", "sourceExcerpts", "confidence", "sensitivity",
 ]);
@@ -51,6 +52,7 @@ const RUN_FIELDS = new Set([
   "run_id", "outcome", "input_event_count", "created_item_count", "failure_code",
 ]);
 const RUN_KEY_FIELDS = new Set(["outcome", "failure_code"]);
+const PROPOSAL_HASH_FIELDS = new Set(["proposal_hash"]);
 const MAX_ELIGIBLE_EVENTS = 8;
 const RAW_EVENTS_PER_ELIGIBLE_EVENT = 5;
 const MAX_SCANNED_EVENTS = MAX_ELIGIBLE_EVENTS * RAW_EVENTS_PER_ELIGIBLE_EVENT;
@@ -76,7 +78,7 @@ const STEP_SETUP_D1_STATEMENT_CEILING = 1 + TIERED_LATEST_D1_STATEMENT_CEILING
   + TIERED_READ_D1_STATEMENT_CEILING + ARCHIVE_SUBJECT_BACKFILL_D1_STATEMENT_CEILING;
 const SUCCESSFUL_STEP_D1_STATEMENT_CEILING = STEP_SETUP_D1_STATEMENT_CEILING
   + TOPIC_BOOTSTRAP_D1_STATEMENT_CEILING + FULL_ITEM_BATCH_D1_STATEMENT_CEILING
-  + MAX_NARROWING_ATTEMPTS * (RUN_START_D1_STATEMENT_CEILING + FINALIZATION_D1_STATEMENT_CEILING) + 2;
+  + MAX_NARROWING_ATTEMPTS * (RUN_START_D1_STATEMENT_CEILING + FINALIZATION_D1_STATEMENT_CEILING) + 3;
 const POLICY_VERSION = "automatic-distillation-v1";
 const INBOX_CONFIDENCE_THRESHOLD = 0.8;
 const encoder = new TextEncoder();
@@ -118,6 +120,11 @@ export interface AutomaticDistillationStepResult {
   readonly failureCode: string | null;
   readonly latestEventSequence: number;
   readonly backlogEventCount: number;
+  readonly eligibleBacklogEventCount: number;
+  readonly eligibleBacklogIsLowerBound: boolean;
+  readonly skippedEventCount: number;
+  readonly skippedReasonCounts: Readonly<Record<string, number>>;
+  readonly continuationRequired: boolean;
   readonly budget: AutomaticDistillationBudget;
 }
 
@@ -152,6 +159,7 @@ interface ScannedEvent {
   readonly envelopeHash: Sha256Hex;
   readonly contentHash: Sha256Hex;
   readonly occurredAt: string;
+  readonly directOwnerText: boolean;
   readonly disposition: "eligible" | "skipped";
   readonly skipReason: string | null;
   readonly channel: MemorySourceChannel | null;
@@ -201,7 +209,11 @@ type FinalizedRun = Readonly<{
   inputEventCount: number;
   createdItemCount: number;
   failureCode: string | null;
+  skippedEventCount: number;
+  skippedReasonCounts: Readonly<Record<string, number>>;
 }>;
+
+type ObservedEvent = Readonly<Pick<ScannedEvent, "eventSequence" | "disposition">>;
 
 function corrupt(): never {
   throw new Error("memory_distillation_corrupt");
@@ -326,6 +338,7 @@ async function validateStoredEvent(
   if (envelope.eventType !== "conversation.user_committed") {
     return Object.freeze({
       ...base,
+      directOwnerText: false,
       disposition: "skipped" as const,
       skipReason: "event_type_ineligible",
       channel: null,
@@ -334,9 +347,15 @@ async function validateStoredEvent(
     });
   }
   if (envelope.source !== "conversation" || envelope.producerVersion !== "conversation-v1") corrupt();
-  const payload = exactRecord(envelope.payload, PAYLOAD_FIELDS);
+  const payload = exactRecord(
+    envelope.payload,
+    Object.prototype.hasOwnProperty.call(envelope.payload, "directOwnerText")
+      ? PAYLOAD_WITH_DIRECT_OWNER_FIELDS
+      : PAYLOAD_FIELDS,
+  );
   if (payload.schemaCode !== 1 || payload.sensitivityCode !== 1
-    || typeof payload.historyEligible !== "boolean") corrupt();
+    || typeof payload.historyEligible !== "boolean"
+    || Object.hasOwn(payload, "directOwnerText") && typeof payload.directOwnerText !== "boolean") corrupt();
   const sourceChannel = channel(payload.channelCode);
   if (typeof payload.text !== "string" || payload.text.length === 0 || !payload.text.isWellFormed()) corrupt();
   const text = payload.text;
@@ -344,6 +363,7 @@ async function validateStoredEvent(
   if (textBytes > MAX_STORED_EVENT_TEXT_BYTES) {
     return Object.freeze({
       ...base,
+      directOwnerText: payload.directOwnerText === true,
       disposition: "skipped" as const,
       skipReason: "event_text_too_large",
       channel: null,
@@ -356,6 +376,7 @@ async function validateStoredEvent(
   const eligible = envelope.subjectId === principalId && payload.historyEligible;
   return Object.freeze({
     ...base,
+    directOwnerText: payload.directOwnerText === true,
     disposition: eligible ? "eligible" as const : "skipped" as const,
     skipReason: eligible
       ? null
@@ -393,6 +414,20 @@ function skippedForBudget(event: ScannedEvent, skipReason: string): ScannedEvent
     text: null,
     textBytes: 0,
   });
+}
+
+function skippedReceipts(events: readonly ScannedEvent[]): Readonly<{
+  count: number;
+  reasons: Readonly<Record<string, number>>;
+}> {
+  const reasons: Record<string, number> = {};
+  let count = 0;
+  for (const event of events) {
+    if (event.disposition !== "skipped" || event.skipReason === null) continue;
+    count += 1;
+    reasons[event.skipReason] = (reasons[event.skipReason] ?? 0) + 1;
+  }
+  return Object.freeze({ count, reasons: Object.freeze(reasons) });
 }
 
 function attemptRunKey(runKey: string, attempt: number): string {
@@ -530,6 +565,7 @@ export class AutomaticMemoryDistillationWorkflow {
     }
 
     const readLimit = Math.min(MAX_SCANNED_EVENTS, latest - cursor.sequence);
+    let observedEvents: readonly ObservedEvent[] = [];
     let initialWindow: readonly ScannedEvent[];
     try {
       budget.d1Statements += TIERED_READ_D1_STATEMENT_CEILING;
@@ -539,6 +575,7 @@ export class AutomaticMemoryDistillationWorkflow {
         if (rawEvents[index]?.eventSequence !== cursor.sequence + index + 1) corrupt();
       }
       const validated = await Promise.all(rawEvents.map((event) => validateStoredEvent(event, this.options.principalId)));
+      observedEvents = validated;
       budget.sourceEventsScanned = validated.length;
       const selected = prefixThroughEligibleLimit(validated, maxEvents);
       budget.eventsExamined = selected.filter((event) => event.disposition === "eligible").length;
@@ -557,7 +594,7 @@ export class AutomaticMemoryDistillationWorkflow {
           : "distillation_step_failed",
         budget,
       );
-      return this.result(run, finalized, cursor.sequence, latest, budget);
+      return this.result(run, finalized, cursor.sequence, latest, budget, observedEvents);
     }
 
     let scanned = initialWindow;
@@ -582,11 +619,11 @@ export class AutomaticMemoryDistillationWorkflow {
             const finalized = await this.finalizeRun(run, skipped, committed, "nothing_new", null, budget);
             if (finalized.outcome === "nothing_new") await this.advanceCursor(cursor, endSequence, budget);
             const finalCursor = finalized.outcome === "nothing_new" ? endSequence : cursor.sequence;
-            return this.result(run, finalized, finalCursor, latest, budget);
+            return this.result(run, finalized, finalCursor, latest, budget, observedEvents);
           }
           const finalized = await this.finalizeRun(run, scanned, committed, "budget_blocked", null, budget);
           if (finalized.outcome !== "budget_blocked") {
-            return this.result(run, finalized, cursor.sequence, latest, budget);
+            return this.result(run, finalized, cursor.sequence, latest, budget, observedEvents);
           }
           scanned = narrowWindow(scanned, Math.max(1, Math.floor(eligible.length / 2)));
           continue;
@@ -595,7 +632,7 @@ export class AutomaticMemoryDistillationWorkflow {
           const finalized = await this.finalizeRun(run, scanned, committed, "nothing_new", null, budget);
           if (finalized.outcome === "nothing_new") await this.advanceCursor(cursor, endSequence, budget);
           const finalCursor = finalized.outcome === "nothing_new" ? endSequence : cursor.sequence;
-          return this.result(run, finalized, finalCursor, latest, budget);
+          return this.result(run, finalized, finalCursor, latest, budget, observedEvents);
         }
 
         let providerOutput: unknown;
@@ -619,7 +656,7 @@ export class AutomaticMemoryDistillationWorkflow {
             failure.failureCode,
             budget,
           );
-          return this.result(run, finalized, cursor.sequence, latest, budget);
+          return this.result(run, finalized, cursor.sequence, latest, budget, observedEvents);
         }
         const providerEntries = exactArray(providerOutput, MAX_PROVIDER_RESPONSE_ENTRIES);
         if (providerEntries === null) {
@@ -631,9 +668,10 @@ export class AutomaticMemoryDistillationWorkflow {
             "distillation_provider_output_invalid",
             budget,
           );
-          return this.result(run, finalized, cursor.sequence, latest, budget);
+          return this.result(run, finalized, cursor.sequence, latest, budget, observedEvents);
         }
         const supplied = new Map(eligible.map((event) => [event.eventId, event] as const));
+        const coveredProposalHashes = await this.readCoveredProposalHashes(scanned, budget);
         const proposals: ValidatedProviderProposal[] = [];
         const seen = new Set<string>();
         let invalidProposal = false;
@@ -643,7 +681,7 @@ export class AutomaticMemoryDistillationWorkflow {
             invalidProposal = true;
             break;
           }
-          if (seen.has(proposal.proposalHash)) continue;
+          if (seen.has(proposal.proposalHash) || coveredProposalHashes.has(proposal.proposalHash)) continue;
           seen.add(proposal.proposalHash);
           proposals.push(proposal);
         }
@@ -656,36 +694,21 @@ export class AutomaticMemoryDistillationWorkflow {
             "distillation_provider_output_invalid",
             budget,
           );
-          return this.result(run, finalized, cursor.sequence, latest, budget);
+          return this.result(run, finalized, cursor.sequence, latest, budget, observedEvents);
         }
-        if (proposals.length > maxProposals) {
-          if (eligible.length === 1) {
-            const skipped = scanned.map((event) => event === eligible[0]
-              ? skippedForBudget(event, "proposal_budget_exceeded")
-              : event);
-            const finalized = await this.finalizeRun(run, skipped, committed, "nothing_new", null, budget);
-            if (finalized.outcome === "nothing_new") await this.advanceCursor(cursor, endSequence, budget);
-            const finalCursor = finalized.outcome === "nothing_new" ? endSequence : cursor.sequence;
-            return this.result(run, finalized, finalCursor, latest, budget);
-          }
-          const finalized = await this.finalizeRun(run, scanned, committed, "budget_blocked", null, budget);
-          if (finalized.outcome !== "budget_blocked") {
-            return this.result(run, finalized, cursor.sequence, latest, budget);
-          }
-          scanned = narrowWindow(scanned, Math.max(1, Math.floor(eligible.length / 2)));
-          continue;
-        }
-        budget.proposalsAccepted = proposals.length;
-        if (proposals.length === 0) {
+        const selectedProposals = proposals.slice(0, maxProposals);
+        const continuationRequired = proposals.length > selectedProposals.length;
+        budget.proposalsAccepted = selectedProposals.length;
+        if (selectedProposals.length === 0) {
           const finalized = await this.finalizeRun(run, scanned, committed, "nothing_new", null, budget);
           if (finalized.outcome === "nothing_new") await this.advanceCursor(cursor, endSequence, budget);
           const finalCursor = finalized.outcome === "nothing_new" ? endSequence : cursor.sequence;
-          return this.result(run, finalized, finalCursor, latest, budget);
+          return this.result(run, finalized, finalCursor, latest, budget, observedEvents);
         }
 
         budget.d1Statements += TOPIC_BOOTSTRAP_D1_STATEMENT_CEILING;
         const topics = await this.options.repository.bootstrapTopics(this.options.principalId);
-        for (const proposal of proposals) {
+        for (const proposal of selectedProposals) {
           const commitInput = await this.commitInput(proposal, supplied, topics.root.topicId, topics.inbox.topicId);
           budget.d1Statements += CANONICAL_ITEM_COMMIT_D1_STATEMENT_CEILING;
           const result = await this.options.repository.commitInitialItem(commitInput);
@@ -696,9 +719,21 @@ export class AutomaticMemoryDistillationWorkflow {
           }));
         }
         const finalized = await this.finalizeRun(run, scanned, committed, "succeeded", null, budget);
-        if (finalized.outcome === "succeeded") await this.advanceCursor(cursor, endSequence, budget);
-        const finalCursor = finalized.outcome === "succeeded" ? endSequence : cursor.sequence;
-        return this.result(run, finalized, finalCursor, latest, budget);
+        if (finalized.outcome === "succeeded" && !continuationRequired) {
+          await this.advanceCursor(cursor, endSequence, budget);
+        }
+        const finalCursor = finalized.outcome === "succeeded" && !continuationRequired
+          ? endSequence
+          : cursor.sequence;
+        return this.result(
+          run,
+          finalized,
+          finalCursor,
+          latest,
+          budget,
+          observedEvents,
+          continuationRequired && finalized.outcome === "succeeded",
+        );
       } catch (error) {
         const finalized = await this.finalizeRun(
           run,
@@ -710,7 +745,7 @@ export class AutomaticMemoryDistillationWorkflow {
             : "distillation_step_failed",
           budget,
         );
-        return this.result(run, finalized, cursor.sequence, latest, budget);
+        return this.result(run, finalized, cursor.sequence, latest, budget, observedEvents);
       }
     }
     unavailable();
@@ -772,6 +807,31 @@ export class AutomaticMemoryDistillationWorkflow {
       }
     }
     unavailable();
+  }
+
+  private async readCoveredProposalHashes(
+    events: readonly ScannedEvent[],
+    budget: MutableBudget,
+  ): Promise<ReadonlySet<Sha256Hex>> {
+    const first = events[0]?.eventSequence;
+    const last = events.at(-1)?.eventSequence;
+    if (first === undefined || last === undefined) corrupt();
+    budget.d1Statements += 1;
+    const rows = await this.options.database.prepare(`SELECT DISTINCT item_receipt.proposal_hash
+      FROM memory_distillation_item_receipts item_receipt
+      JOIN memory_distillation_event_receipts event_receipt
+        ON event_receipt.principal_id = item_receipt.principal_id
+        AND event_receipt.run_id = item_receipt.run_id
+      WHERE item_receipt.principal_id = ?
+        AND event_receipt.event_sequence BETWEEN ? AND ?`)
+      .bind(this.options.principalId, first, last)
+      .all<{ proposal_hash: unknown }>();
+    const hashes = new Set<Sha256Hex>();
+    for (const row of rows.results) {
+      exactRow(row, PROPOSAL_HASH_FIELDS);
+      hashes.add(safeHash(row.proposal_hash));
+    }
+    return hashes;
   }
 
   private async resolveSourceLocations(
@@ -851,13 +911,13 @@ export class AutomaticMemoryDistillationWorkflow {
       && isAuthenticatedFirstPersonQuote({
         quote: proposal.text,
         sourceText: source.text,
-        authenticatedOwner: true,
+        authenticatedOwner: source.directOwnerText,
       }));
     const archivedQuote = !liveQuote && ordered.some((source) => source.text !== null
       && isAuthenticatedFirstPersonQuote({
         quote: proposal.text,
         sourceText: source.text,
-        authenticatedOwner: true,
+        authenticatedOwner: source.directOwnerText,
       }));
     const origin = liveQuote || archivedQuote ? "authenticated_first_person" as const : "model" as const;
     const promotion = decideAutomaticPromotion({ origin, currentState: "proposed" });
@@ -948,7 +1008,10 @@ export class AutomaticMemoryDistillationWorkflow {
         disposition, skip_reason, source_location, r2_segment_id, recorded_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .bind(
-          await deterministicUlid(run.runId, "event-receipt", event.eventSequence),
+          await deterministicUlid(run.runId, "event-receipt", {
+            runId: run.runId,
+            eventSequence: event.eventSequence,
+          }),
           this.options.principalId,
           run.runId,
           event.eventSequence,
@@ -966,7 +1029,10 @@ export class AutomaticMemoryDistillationWorkflow {
         receipt_id, principal_id, run_id, item_id, proposal_hash, created_in_run, recorded_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?)`)
         .bind(
-          await deterministicUlid(run.runId, "item-receipt", item.itemId),
+          await deterministicUlid(run.runId, "item-receipt", {
+            runId: run.runId,
+            itemId: item.itemId,
+          }),
           this.options.principalId,
           run.runId,
           item.itemId,
@@ -996,7 +1062,12 @@ export class AutomaticMemoryDistillationWorkflow {
     }
     budget.d1Statements += 1;
     const stored = await this.readRun(run.runId);
-    return stored;
+    const skipped = skippedReceipts(events);
+    return Object.freeze({
+      ...stored,
+      skippedEventCount: skipped.count,
+      skippedReasonCounts: skipped.reasons,
+    });
   }
 
   private async failRunningRun(
@@ -1062,6 +1133,8 @@ export class AutomaticMemoryDistillationWorkflow {
       inputEventCount: safeInteger(row.input_event_count, 0, MAX_SCANNED_EVENTS),
       createdItemCount: safeInteger(row.created_item_count, 0, MAX_PROPOSALS),
       failureCode: row.failure_code as string | null,
+      skippedEventCount: 0,
+      skippedReasonCounts: Object.freeze({}),
     });
   }
 
@@ -1071,7 +1144,12 @@ export class AutomaticMemoryDistillationWorkflow {
     cursorEventSequence: number,
     latestEventSequence: number,
     budget: MutableBudget,
+    observedEvents: readonly ObservedEvent[] = [],
+    continuationRequired = false,
   ): AutomaticDistillationStepResult {
+    const eligibleBacklogEventCount = observedEvents.filter((event) =>
+      event.eventSequence > cursorEventSequence && event.disposition === "eligible").length;
+    const observedThrough = observedEvents.at(-1)?.eventSequence ?? cursorEventSequence;
     return Object.freeze({
       runId: run.runId,
       outcome: finalized.outcome,
@@ -1083,6 +1161,11 @@ export class AutomaticMemoryDistillationWorkflow {
       failureCode: finalized.failureCode,
       latestEventSequence,
       backlogEventCount: latestEventSequence - cursorEventSequence,
+      eligibleBacklogEventCount,
+      eligibleBacklogIsLowerBound: observedThrough < latestEventSequence,
+      skippedEventCount: finalized.skippedEventCount,
+      skippedReasonCounts: finalized.skippedReasonCounts,
+      continuationRequired,
       budget: freezeBudget(budget),
     });
   }

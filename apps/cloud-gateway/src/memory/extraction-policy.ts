@@ -53,8 +53,6 @@ const FORBIDDEN_PROPOSAL_KEYS = new Set([
 ]);
 
 const FIRST_PERSON_TOKEN = /(?<![A-Za-z0-9_])(?:i(?:['’](?:m|ve|d|ll))?|me|my|mine|myself)(?![A-Za-z0-9_])/iu;
-const FIRST_PERSON_ATTRIBUTION_FRAMING =
-  /(?<![A-Za-z0-9_])(?:says|said|told|texted|wrote|messaged|emailed|reported|claimed|mentioned|quoted)(?![A-Za-z0-9_])/iu;
 const FIRST_PERSON_UNTRUSTED_FRAMING = [
   /(?<![A-Za-z0-9_])(?:if|unless|whether|when)(?![A-Za-z0-9_])/iu,
   /(?<![A-Za-z0-9_])(?:maybe|might|probably|perhaps|could)(?![A-Za-z0-9_])/iu,
@@ -63,7 +61,6 @@ const FIRST_PERSON_UNTRUSTED_FRAMING = [
   /(?<![A-Za-z0-9_])i\s+(?:think|guess|suppose)(?![A-Za-z0-9_])/iu,
   /(?<![A-Za-z0-9_])i\s+(?:do\s+not|don['’]t)\s+know(?![A-Za-z0-9_])/iu,
   /(?<![A-Za-z0-9_])not\s+sure(?![A-Za-z0-9_])/iu,
-  FIRST_PERSON_ATTRIBUTION_FRAMING,
   /(?<![A-Za-z0-9_])(?:not|never)(?![A-Za-z0-9_])/iu,
   /n['’]t(?![A-Za-z0-9_])/iu,
 ] as const;
@@ -151,20 +148,18 @@ function wholeSentenceMatch(sourceText: string, quote: string, offset: number): 
  */
 export function isAuthenticatedFirstPersonQuote(input: FirstPersonQuoteInput): boolean {
   if (!input.authenticatedOwner) return false;
-  const quote = input.quote.normalize("NFC").replace(/^ +| +$/gu, "");
-  const sourceText = input.sourceText.normalize("NFC");
+  const quote = input.quote.normalize("NFC").trim();
+  const sourceText = input.sourceText.normalize("NFC").trim();
   if (quote.length === 0 || hasFactTextControls(quote)) return false;
   if (!FIRST_PERSON_TOKEN.test(quote)) return false;
-  let offset = sourceText.indexOf(quote);
-  while (offset !== -1) {
-    // A model cannot erase a preceding attribution and turn somebody else's
-    // words into confirmed owner evidence. Later, unrelated framing does not
-    // retroactively weaken a complete owner sentence.
-    const attributed = FIRST_PERSON_ATTRIBUTION_FRAMING.test(sourceText.slice(0, offset));
-    if (!attributed && wholeSentenceMatch(sourceText, quote, offset)) return true;
-    offset = sourceText.indexOf(quote, offset + 1);
-  }
-  return false;
+  // Provenance supplies direct-owner authority. Structure supplies the other
+  // half: a model cannot cut one sentence out of a forward or pasted exchange
+  // and relabel it as the owner's own words.
+  const sourceIsWholeQuote = sourceText === quote
+    || sourceText.length === quote.length + 1
+      && sourceText.startsWith(quote)
+      && SENTENCE_PUNCTUATION.has(sourceText.at(-1) ?? "");
+  return sourceIsWholeQuote && wholeSentenceMatch(sourceText, quote, 0);
 }
 
 /** Apply the same closed promotion allowlist as the Python local agent. */

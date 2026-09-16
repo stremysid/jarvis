@@ -76,7 +76,7 @@ describe("hourly archival through the Worker entrypoint", () => {
         job: "poll",
         result: "ran",
         detail: expect.stringContaining(
-          "archival failed (archive_operation_failed); Memory distillation not configured; Classroom not configured; Brightspace not configured",
+          "archival failed (archive_operation_failed); Classroom not configured; Brightspace not configured; Memory distillation not configured",
         ),
       })],
     })]);

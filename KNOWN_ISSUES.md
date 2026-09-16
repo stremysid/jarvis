@@ -100,10 +100,28 @@ entries, and enabling it remain outside this slice because Sid has not approved
 the reviewed comparison or any spend.
 
 Automatic filing is intentionally conservative. Inferred, archived-only and
-low-confidence items go to the durable `Inbox / Needs filing`; only a
-high-confidence exact live first-person statement is placed at the memory root.
-Semantic topic creation or movement waits for the topic-controls slice because
-letting untrusted provider text choose a topic would bypass that control design.
+low-confidence items go to the durable `Inbox / Needs filing`. A live
+first-person statement also stays uncertain unless its stored event explicitly
+marks the whole message as direct owner text. No producer writes that marker in
+this PR, so production events fail closed until the reviewed Telegram provenance
+slice supplies it. Semantic topic creation or movement waits for the
+topic-controls slice because letting untrusted provider text choose a topic
+would bypass that control design.
+
+Two reconciliation limits remain explicit. If canonical item commits succeed
+but run finalization fails, an identical proposal replays safely by proposal
+hash. A provider that paraphrases the same fact differently on the fresh attempt
+can still create a duplicate because the orphaned item has no completed-run
+receipt to establish semantic equivalence. Closing that gap needs a durable
+source-coverage reconciliation rule rather than treating model wording as an
+identity key.
+
+The first `archive_segment_events.subject_id` write is enforced by the archive
+reader's hash-checked envelope validation, not by SQL. D1 cannot inspect the R2
+envelope while accepting that first backfill. Migration 0026 makes the subject
+write-once after it is present, and the scratch rehearsal covers the live-table
+alteration, but database-only proof of the initial subject needs a separate
+attestation design.
 
 ## PR #46 notification delivery retains three bounded at-least-once limits
 

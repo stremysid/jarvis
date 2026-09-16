@@ -1,3 +1,6 @@
+-- This candidate alters archive_segment_events, a live table created in 0001.
+-- Scratch rehearsal must cover the column add, subject backfill, and trigger replacement against that prior schema.
+
 ALTER TABLE archive_segment_events ADD COLUMN subject_id TEXT;
 
 DROP TRIGGER archive_segment_events_no_update;

@@ -90,6 +90,13 @@ describe("remote D1 migration trigger syntax", () => {
       .toHaveLength(MEMORY_DISTILLATION_TRIGGERS.length);
   });
 
+  it("marks the live archive table alteration for complete scratch rehearsal", () => {
+    const migration = remoteD1Migrations.find(({ name }) => name === "0026_memory_distillation.sql");
+    expect(migration?.sql).toMatch(
+      /^-- This candidate alters archive_segment_events, a live table created in 0001\.\n-- Scratch rehearsal must cover the column add, subject backfill, and trigger replacement against that prior schema\./u,
+    );
+  });
+
   it.each(MEMORY_DISTILLATION_TRIGGERS)(
     "keeps %s in WHEN BEGIN SELECT RAISE remote-D1 form",
     (trigger) => {

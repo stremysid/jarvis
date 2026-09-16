@@ -44,11 +44,20 @@ describe("shared memory extraction policy", () => {
     expect(isAuthenticatedFirstPersonQuote({ quote, sourceText, authenticatedOwner: true })).toBe(false);
   });
 
-  it("keeps an owner sentence trusted when an unrelated attribution follows it", () => {
+  it("does not authenticate one sentence cut from a longer direct-marked message", () => {
     const quote = "I prefer tea.";
     expect(isAuthenticatedFirstPersonQuote({
       quote,
       sourceText: `${quote} Mum texted me about dinner.`,
+      authenticatedOwner: true,
+    })).toBe(false);
+  });
+
+  it("authenticates a whole direct-marked first-person message", () => {
+    const text = "I wrote my Western essay.";
+    expect(isAuthenticatedFirstPersonQuote({
+      quote: text,
+      sourceText: text,
       authenticatedOwner: true,
     })).toBe(true);
   });

@@ -26,7 +26,10 @@ import { DecisionService } from "../decisions/decision-service.js";
 import { GitHubClient } from "../projects/github-client.js";
 import { ProjectPoller } from "../projects/project-poller.js";
 import { ProjectRepository } from "../projects/project-repository.js";
-import { AutomaticMemoryDistillationWorkflow } from "../memory/automatic-distillation.js";
+import {
+  AUTOMATIC_DISTILLATION_STEP_LIMITS,
+  AutomaticMemoryDistillationWorkflow,
+} from "../memory/automatic-distillation.js";
 import { MemoryRepository } from "../memory/memory-repository.js";
 import { EventRepository } from "../persistence/event-repository.js";
 import type { ModelProvider } from "../providers/provider-types.js";
@@ -62,6 +65,8 @@ const BRIGHTSPACE_FUTURE_WINDOW_MS = 120 * 86_400_000;
 const BRIGHTSPACE_ON_DEMAND_JOB = "brightspace_on_demand";
 const BRIGHTSPACE_ON_DEMAND_COOLDOWN_MS = 5 * 60_000;
 const MEMORY_DISTILLATION_STEPS_PER_POLL = 8;
+const MEMORY_DISTILLATION_WALL_CLOCK_BUDGET_MS = 4 * 60_000;
+const MEMORY_DISTILLATION_D1_STATEMENT_ALLOWANCE = 1_000;
 
 export interface SelectedBrightspaceWindow extends BrightspaceCalendarResult {
   readonly truncatedCount: number;
@@ -413,21 +418,63 @@ async function distilMemory(
     now: () => context.clock.now(),
   });
   const runKey = `memory-distill:${context.clock.now().toISOString().slice(0, 13)}`;
+  const startedAt = context.clock.now().getTime();
   let createdItemCount = 0;
+  let chargedD1Statements = 0;
+  let skippedEventCount = 0;
+  const skippedReasonCounts: Record<string, number> = {};
   let stepCount = 0;
+  let stoppedByWallClock = false;
+  let stoppedByD1Allowance = false;
+  let stoppedByCursorStall = false;
   let lastResult: Awaited<ReturnType<AutomaticMemoryDistillationWorkflow["runNext"]>> | null = null;
   for (let step = 0; step < MEMORY_DISTILLATION_STEPS_PER_POLL; step += 1) {
+    if (step > 0 && context.clock.now().getTime() - startedAt >= MEMORY_DISTILLATION_WALL_CLOCK_BUDGET_MS) {
+      stoppedByWallClock = true;
+      break;
+    }
+    if (step > 0
+      && chargedD1Statements + AUTOMATIC_DISTILLATION_STEP_LIMITS.d1Statements
+        > MEMORY_DISTILLATION_D1_STATEMENT_ALLOWANCE) {
+      stoppedByD1Allowance = true;
+      break;
+    }
     const result = await workflow.runNext({ runKey: `${runKey}:${step}` });
     lastResult = result;
     stepCount += 1;
     createdItemCount += result.createdItemCount;
+    chargedD1Statements += result.budget.d1Statements;
+    skippedEventCount += result.skippedEventCount;
+    for (const [reason, count] of Object.entries(result.skippedReasonCounts)) {
+      skippedReasonCounts[reason] = (skippedReasonCounts[reason] ?? 0) + count;
+    }
     if (result.backlogEventCount === 0) break;
     if (result.outcome !== "succeeded" && result.outcome !== "nothing_new") break;
+    if (result.continuationRequired) continue;
+    if (result.startEventSequence !== null && result.cursorEventSequence < result.startEventSequence) {
+      stoppedByCursorStall = true;
+      break;
+    }
   }
   if (lastResult === null) throw new Error("memory_distillation_step_missing");
   const backlogUnit = lastResult.backlogEventCount === 1 ? "event" : "events";
+  const eligibleUnit = lastResult.eligibleBacklogEventCount === 1 ? "eligible event" : "eligible events";
+  const eligibleQualifier = lastResult.eligibleBacklogIsLowerBound ? "at least " : "";
+  const skipUnit = skippedEventCount === 1 ? "skip" : "skips";
+  const skipReasons = Object.entries(skippedReasonCounts)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([reason, count]) => `${reason}=${count}`)
+    .join(", ");
   const stepUnit = stepCount === 1 ? "step" : "steps";
-  return `Memory ${lastResult.outcome}, ${createdItemCount} created, ${lastResult.backlogEventCount} ${backlogUnit} pending after ${stepCount} ${stepUnit}`;
+  const stopReason = stoppedByWallClock
+    ? ", wall-clock budget reached"
+    : stoppedByD1Allowance
+      ? ", D1 statement allowance reached"
+      : stoppedByCursorStall
+        ? ", cursor stalled"
+        : "";
+  const skipDetail = skipReasons.length === 0 ? "" : ` (${skipReasons})`;
+  return `Memory ${lastResult.outcome}, ${createdItemCount} created, ${lastResult.backlogEventCount} ${backlogUnit} pending, ${eligibleQualifier}${lastResult.eligibleBacklogEventCount} ${eligibleUnit} pending, ${skippedEventCount} ${skipUnit}${skipDetail} after ${stepCount} ${stepUnit}${stopReason}`;
 }
 
 /**
@@ -449,18 +496,18 @@ async function poll(context: JobEnvironment): Promise<JobOutcome> {
   } catch {
     archived = "archival failed (archive_operation_failed)";
   }
-  const memory = await safeSourcePoll(
-    "Memory distillation",
-    "memory_distillation_failed",
-    () => distilMemory(context, archive),
-  );
   const classroom = await safeSourcePoll("Classroom", "classroom_ingestion_failed", () => pollClassroom(context));
   const brightspace = await safeSourcePoll(
     "Brightspace",
     "brightspace_ingestion_failed",
     () => pollBrightspace(context),
   );
-  const sourceDetail = `${memory}; ${classroom}; ${brightspace}`;
+  const memory = await safeSourcePoll(
+    "Memory distillation",
+    "memory_distillation_failed",
+    () => distilMemory(context, archive),
+  );
+  const sourceDetail = `${classroom}; ${brightspace}; ${memory}`;
   const token = context.env.GITHUB_TOKEN;
   if (token === undefined) return { ok: true, detail: `${archived}; ${sourceDetail}; project poll not configured` };
 
