@@ -34,6 +34,12 @@ const VOICE_OWNER_DELIVERY_TRIGGERS = Object.freeze([
   "guest_grant_notices_delete_forbidden",
 ]);
 
+const GUEST_GRANT_NOTICE_DRAIN_TRIGGERS = Object.freeze([
+  "guest_grant_notice_drain_state_insert_guard",
+  "guest_grant_notice_drain_state_transition_guard",
+  "guest_grant_notice_drain_state_delete_forbidden",
+]);
+
 describe("remote D1 migration trigger syntax", () => {
   it("discovers every migration", () => {
     expect(remoteD1Migrations.map(({ name }) => name)).toEqual([
@@ -63,6 +69,7 @@ describe("remote D1 migration trigger syntax", () => {
       "0024_university_application_workflow.sql",
       "0025_archive_literal_history.sql",
       "0029_university_application_details.sql",
+      "0028_guest_grant_notice_drain.sql",
     ]);
   });
 
@@ -77,5 +84,13 @@ describe("remote D1 migration trigger syntax", () => {
     const names = [...(migration?.sql ?? "").matchAll(/\bCREATE\s+TRIGGER\s+([a-z0-9_]+)/giu)]
       .map((match) => match[1]);
     expect(names).toEqual(VOICE_OWNER_DELIVERY_TRIGGERS);
+  });
+
+  it("pins every 0028 trigger as one complete named definition", () => {
+    const migration = remoteD1Migrations.find(({ name }) => name === "0028_guest_grant_notice_drain.sql");
+    expect(migration).toBeDefined();
+    const names = [...(migration?.sql ?? "").matchAll(/\bCREATE\s+TRIGGER\s+([a-z0-9_]+)/giu)]
+      .map((match) => match[1]);
+    expect(names).toEqual(GUEST_GRANT_NOTICE_DRAIN_TRIGGERS);
   });
 });

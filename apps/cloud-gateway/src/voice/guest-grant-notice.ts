@@ -6,11 +6,6 @@ export interface GuestGrantNoticeSink {
   notify(input: Readonly<{ mutationId: Ulid; now: Date }>): Promise<void>;
 }
 
-export interface GuestGrantNoticeDrainResult {
-  readonly delivered: number;
-  readonly failed: number;
-}
-
 interface NoticeRow {
   mutation_id: string;
   owner_principal_id: string;
@@ -47,7 +42,6 @@ export class D1GuestGrantNoticeSink implements GuestGrantNoticeSink {
   constructor(
     private readonly database: D1Database,
     private readonly telegram: Pick<TelegramProvider, "sendMessage">,
-    private readonly now?: () => Date,
   ) {}
 
   async notify(input: Parameters<GuestGrantNoticeSink["notify"]>[0]): Promise<void> {
@@ -116,30 +110,6 @@ export class D1GuestGrantNoticeSink implements GuestGrantNoticeSink {
       }
       throw error;
     }
-  }
-
-  async drain(now: Date, limit = 10): Promise<GuestGrantNoticeDrainResult> {
-    const at = iso(now);
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
-      throw new TypeError("guest_grant_notice_input_invalid");
-    }
-    const rows = await this.database.prepare(`SELECT mutation_id FROM guest_grant_notices
-      WHERE status = 'pending' AND (claim_id IS NULL OR claim_expires_at <= ?)
-      ORDER BY created_at, mutation_id LIMIT ?`).bind(at, limit).all<{ mutation_id: string }>();
-    let delivered = 0;
-    let failed = 0;
-    for (const row of rows.results) {
-      try {
-        await this.notify({
-          mutationId: row.mutation_id as Ulid,
-          now: this.now === undefined ? new Date(now) : this.now(),
-        });
-        delivered += 1;
-      } catch {
-        failed += 1;
-      }
-    }
-    return Object.freeze({ delivered, failed });
   }
 
   async #notice(mutationId: Ulid): Promise<NoticeRow | null> {

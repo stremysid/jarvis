@@ -25,6 +25,7 @@ import studyCoachSql from "../../src/persistence/migrations/0023_study_coach.sql
 import universityApplicationWorkflowSql from "../../src/persistence/migrations/0024_university_application_workflow.sql?raw";
 import archiveLiteralHistorySql from "../../src/persistence/migrations/0025_archive_literal_history.sql?raw";
 import universityApplicationDetailsSql from "../../src/persistence/migrations/0029_university_application_details.sql?raw";
+import guestGrantNoticeDrainSql from "../../src/persistence/migrations/0028_guest_grant_notice_drain.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
@@ -39,6 +40,7 @@ let studyCoachMigrated: Promise<void> | undefined;
 let universityApplicationWorkflowMigrated: Promise<void> | undefined;
 let archiveLiteralHistoryMigrated: Promise<void> | undefined;
 let universityApplicationDetailsMigrated: Promise<void> | undefined;
+let guestGrantNoticeDrainMigrated: Promise<void> | undefined;
 
 /**
  * Split a migration into the statements D1 applies one at a time.
@@ -215,6 +217,33 @@ export async function applyArchiveLiteralHistoryMigration(): Promise<void> {
     { name: "0025_archive_literal_history.sql", queries: splitMigration(archiveLiteralHistorySql) },
   ]);
   await archiveLiteralHistoryMigrated;
+}
+
+/** Applies fair, resumable guest-notice drain state after the delivery outbox. */
+export async function applyGuestGrantNoticeDrainMigration(): Promise<void> {
+  await applyVoiceOwnerDeliveryMigration();
+  guestGrantNoticeDrainMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0028_guest_grant_notice_drain.sql", queries: splitMigration(guestGrantNoticeDrainSql) },
+  ]);
+  await guestGrantNoticeDrainMigrated;
+}
+
+/** Test-only reset for the singleton drain checkpoint. */
+export async function clearGuestGrantNoticeDrainStateForTest(): Promise<void> {
+  await applyGuestGrantNoticeDrainMigration();
+  const guards = await env.DB.prepare(`SELECT name, sql FROM sqlite_schema
+    WHERE type = 'trigger' AND tbl_name = 'guest_grant_notice_drain_state'`)
+    .all<{ name: string; sql: string }>();
+  for (const guard of guards.results) await env.DB.prepare(`DROP TRIGGER IF EXISTS ${guard.name}`).run();
+  try {
+    await env.DB.prepare("DELETE FROM guest_grant_notice_drain_state").run();
+    await env.DB.prepare(`INSERT INTO guest_grant_notice_drain_state (
+      singleton_id, status, cursor_created_at, cursor_mutation_id,
+      run_id, lease_expires_at, updated_at, failure_code
+    ) VALUES (1, 'ready', NULL, NULL, NULL, NULL, '1970-01-01T00:00:00.000Z', NULL)`).run();
+  } finally {
+    for (const guard of guards.results) await env.DB.prepare(guard.sql).run();
+  }
 }
 
 /** Test-only reset for immutable per-call step-up and guest-attempt records. */
