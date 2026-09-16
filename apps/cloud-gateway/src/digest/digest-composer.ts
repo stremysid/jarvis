@@ -23,6 +23,7 @@ import type {
   DigestGap,
   DigestInput,
   DigestSection,
+  DigestStudySignalCitation,
 } from "./digest-types.js";
 
 /**
@@ -238,10 +239,23 @@ function studyCheckInSection(input: DigestInput): DigestSection | null {
   if (checkIn === undefined || checkIn === null) return null;
   const count = `${checkIn.evidenceCount} evidence ${checkIn.evidenceCount === 1 ? "point" : "points"}`;
   const caution = checkIn.evidenceCount === 1 ? "; not a fixed judgment" : "";
+  const sourceLabel = (kind: DigestStudySignalCitation["sourceKind"]): string => {
+    if (kind === "verified_grade") return "Classroom grade";
+    if (kind === "derived_missing_work") return "derived missing-work observation";
+    if (kind === "deadline") return "deadline";
+    if (kind === "quiz_outcome") return "quiz evidence";
+    if (kind === "owner_report") return "owner study note";
+    return "course-card evidence";
+  };
   return {
     heading: "Coursework check-in",
     lines: [
-      `${neutraliseInline(checkIn.course)}: how does “${neutraliseInline(checkIn.topic)}” feel today? (${count}, ${checkIn.confidence} confidence${caution}; last observed ${neutraliseInline(checkIn.observedAt.slice(0, 10))})`,
+      `${neutraliseInline(checkIn.course)}: study target “${neutraliseInline(checkIn.topic)}” (${count}, ${checkIn.confidence} confidence${caution}; last observed ${neutraliseInline(checkIn.observedAt.slice(0, 10))}).`,
+      ...checkIn.citations.map((point, index) => {
+        const stale = point.freshness === "stale" ? "; stale" : "";
+        return `Source ${index + 1} — ${sourceLabel(point.sourceKind)} ${neutraliseInline(point.sourceRecordId)} (${neutraliseInline(point.observedAt.slice(0, 10))}; ${point.verification}${stale}): ${neutraliseInline(point.detail)}`;
+      }),
+      "Want a 10-minute quiz or flashcards? Reply “quiz me on that weak spot” or “make flashcards for that weak spot”.",
     ],
   };
 }

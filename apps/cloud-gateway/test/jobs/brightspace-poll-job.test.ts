@@ -11,7 +11,7 @@ import {
 import { resetArchiveFixture } from "../archive/archive-fixture.js";
 import { resetDeadlineTables } from "../deadlines/deadline-fixture.js";
 import {
-  applyStudyCoachMigration,
+  applyStudyCoachWeakSpotsMigration,
   applyUniversityApplicationWorkflowMigration,
 } from "../persistence/migration.js";
 
@@ -227,8 +227,8 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
     await resetArchiveFixture();
     await resetDeadlineTables();
     await env.DB.prepare("DELETE FROM scheduled_runs").run();
-    await applyStudyCoachMigration();
     await applyUniversityApplicationWorkflowMigration();
+    await applyStudyCoachWeakSpotsMigration();
   });
   afterEach(async () => {
     vi.restoreAllMocks();

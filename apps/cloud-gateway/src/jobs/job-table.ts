@@ -588,7 +588,14 @@ async function digest(
       readApplicationItems: async () => university.listApplicationItemsByDueDate(principalId),
       claimStudyCheckIn: async (date, weekday, minuteOfDay) => {
         const now = context.clock.now();
-        return study.syncAndClaimDigestCheckIn({ principalId, today: date, weekday, minuteOfDay, now });
+        const [schoolSignals, deadlineSignals] = await Promise.all([
+          observations.readStudySnapshot({ principalId, now }),
+          deadlines.listStudyCandidates(now),
+        ]);
+        return study.syncAndClaimDigestCheckIn({
+          principalId, today: date, weekday, minuteOfDay, now,
+          signalInputs: { observations: schoolSignals, deadlines: deadlineSignals },
+        });
       },
       readDeadlines: async (withinDays) =>
         deadlines.listDueWithin({

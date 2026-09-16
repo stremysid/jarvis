@@ -5,6 +5,7 @@ import { assembleDigest } from "../../src/jobs/digest-job.js";
 import {
   CLASSROOM_OBSERVATION_D1_STATEMENT_BUDGET,
   D1StatementBudget,
+  SCHOOL_STUDY_OBSERVATION_ROW_LIMIT,
   SchoolObservationRepository,
 } from "../../src/school/school-observation-repository.js";
 import type { RawSchoolSubmissionObservation } from "../../src/school/school-observation-types.js";
@@ -155,6 +156,50 @@ describe("SchoolObservationRepository", () => {
       now: NOW,
     });
     expect(snapshot.grades).toEqual([]);
+  });
+
+  it("returns a bounded study-grade snapshot with source freshness", async () => {
+    const item = await fixture("study-grade-bound", "2026-09-16T11:00:00.000Z");
+    const repository = new SchoolObservationRepository(env.DB);
+    const deadlines = new DeadlineRepository(env.DB);
+    await repository.ensureSync(item.principalId, item.sourceId, NOW);
+    const items: RawSchoolSubmissionObservation[] = [observation(item)];
+    for (let index = 1; index <= SCHOOL_STUDY_OBSERVATION_ROW_LIMIT; index += 1) {
+      const externalId = `${item.deadlineExternalId}-${index}`;
+      await deadlines.upsert({
+        sourceId: item.sourceId,
+        externalId,
+        course: "Calculus",
+        title: `Untrusted title ${index}`,
+        dueAt: "2026-09-16T11:00:00.000Z",
+        effort: "other",
+        leadMinutes: 60,
+        now: NOW,
+      });
+      items.push(observation(item, {
+        deadlineExternalId: externalId,
+        externalSubmissionId: `${externalId}:submission-1`,
+        assignedGrade: 60 + index,
+      }));
+    }
+    await repository.ingest({
+      principalId: item.principalId,
+      sourceId: item.sourceId,
+      items,
+      now: NOW,
+    });
+    await completeScan(repository, item, NOW);
+
+    const snapshot = await repository.readStudySnapshot({ principalId: item.principalId, now: NOW });
+
+    expect(snapshot.grades).toHaveLength(SCHOOL_STUDY_OBSERVATION_ROW_LIMIT);
+    expect(snapshot.missingWork).toEqual([]);
+    expect(snapshot.grades[0]).toMatchObject({
+      course: "Calculus",
+      source: "google_classroom_api",
+      sourceLastSuccessAt: NOW.toISOString(),
+      sourceLastFailure: null,
+    });
   });
 
   it("derives no submission seen after a completed scan and resolves it when submission evidence arrives", async () => {

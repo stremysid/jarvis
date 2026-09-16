@@ -394,6 +394,14 @@ export async function assembleDigest(
       evidenceCount: studyCheckIn.evidenceCount,
       confidence: studyCheckIn.confidence,
       observedAt: studyCheckIn.observedAt,
+      citations: studyCheckIn.citations.map((point) => ({
+        sourceKind: point.sourceKind,
+        sourceRecordId: point.sourceRecordId,
+        observedAt: point.observedAt,
+        verification: point.verification,
+        freshness: point.freshness,
+        detail: point.detail,
+      })),
     },
   };
 

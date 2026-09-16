@@ -68,6 +68,16 @@ export interface DigestStudyCheckIn {
   readonly evidenceCount: number;
   readonly confidence: "low" | "medium" | "high";
   readonly observedAt: string;
+  readonly citations: readonly DigestStudySignalCitation[];
+}
+
+export interface DigestStudySignalCitation {
+  readonly sourceKind: "verified_grade" | "derived_missing_work" | "deadline" | "quiz_outcome" | "owner_report" | "course_context";
+  readonly sourceRecordId: string;
+  readonly observedAt: string;
+  readonly verification: "verified" | "derived" | "owner_reported" | "unverified";
+  readonly freshness: "current" | "stale";
+  readonly detail: string;
 }
 
 export interface DigestGradeObservation {

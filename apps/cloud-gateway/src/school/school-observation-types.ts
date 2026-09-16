@@ -77,3 +77,19 @@ export interface SchoolObservationDigestSnapshot {
   /** Matching missing-work rows beyond the bounded digest page. */
   readonly missingWorkOmitted: number;
 }
+
+export interface SchoolStudyGradeObservation extends SchoolGradeObservation {
+  readonly sourceLastSuccessAt: string | null;
+  readonly sourceLastFailure: string | null;
+}
+
+export interface SchoolStudyMissingWork extends SchoolDerivedMissingWork {
+  readonly sourceLastSuccessAt: string | null;
+  readonly sourceLastFailure: string | null;
+}
+
+/** Bounded current source records used only for study-signal derivation. */
+export interface SchoolObservationStudySnapshot {
+  readonly grades: readonly SchoolStudyGradeObservation[];
+  readonly missingWork: readonly SchoolStudyMissingWork[];
+}
