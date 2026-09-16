@@ -1,0 +1,39 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/zz-pr62b-crowd.test.ts --reporter=verbose --silent=false
+
+ RUN  v4.1.11 C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-jarvis-code-review-0b1695/f3f2b419-52e6-4c42-b275-f2c7a15d27ac/scratchpad/pr62b/agent/tree
+
+Using secrets defined in process.env
+stdout | apps/cloud-gateway/test/memory/zz-pr62b-crowd.test.ts > PR62b literal recall crowding > LH: newer assistant echoes use up the four literal slots and hide Sid's original message
+LH {"four":["My chemistry test is on Friday."],"fourStatus":"hits","eight":["My chemistry test is on Friday."]}
+
+ × |default| apps/cloud-gateway/test/memory/zz-pr62b-crowd.test.ts > PR62b literal recall crowding > LH: newer assistant echoes use up the four literal slots and hide Sid's original message 443ms
+   → expected [ { …(8) } ] to have a length of +0 but got 1
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/zz-pr62b-crowd.test.ts > PR62b literal recall crowding > LH: newer assistant echoes use up the four literal slots and hide Sid's original message
+AssertionError: expected [ { …(8) } ] to have a length of +0 but got 1
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ apps/cloud-gateway/test/memory/zz-pr62b-crowd.test.ts:92:23
+     90|     console.log("LH", JSON.stringify({ four: four.hits.map((hit) => hi…
+     91|     expect(eight.hits.map((hit) => hit.excerpt)).toContain("My chemist…
+     92|     expect(four.hits).toHaveLength(0);
+       |                       ^
+     93|   });
+     94| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  15:10:19
+   Duration  2.60s (transform 698ms, setup 0ms, import 1.34s, tests 615ms, environment 0ms)
+

@@ -1,0 +1,116 @@
+checked out 94f852c at 94f852c
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  66 passed (66)
+
+== M01-via_bot: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts (24 tests | 1 failed) 3620ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 65 passed (66)
+   × treats via_bot text as borrowed rather than direct owner text 18ms
+
+== M02-u2028: MATCHED 0 TIMES, skipped
+
+== M03-newline: MATCHED 0 TIMES, skipped
+
+== M04-code-entity: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts (24 tests | 1 failed) 3743ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 65 passed (66)
+   × keeps code and expandable blockquote entities out of directOwnerText 18ms
+
+== M05-quote-key: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts (24 tests | 2 failed) 3655ms
+   Test Files  2 failed (2)
+   Tests  3 failed | 63 passed (66)
+   × treats Sid's text that quotes a message in the same chat as direct 4ms
+   × marks quoted owner Telegram text false and keeps its fact uncertain 110ms
+   × keeps Telegram quote metadata out of directOwnerText 14ms
+
+== M06-factory-owner: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts (24 tests | 1 failed) 3743ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 23 passed (24)
+   × marks a guest's direct Telegram text false and keeps its fact uncertain 114ms
+
+== M07-factory-authoritative: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts (24 tests | 4 failed) 3546ms
+   Test Files  1 failed (1)
+   Tests  4 failed | 20 passed (24)
+   × marks quoted owner Telegram text false and keeps its fact uncertain 102ms
+   × keeps newline-separated pasted text out of directOwnerText 14ms
+   × keeps code and expandable blockquote entities out of directOwnerText 13ms
+   × keeps Telegram quote metadata out of directOwnerText 12ms
+
+== M08-replay-identity: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts (24 tests | 1 failed) 3974ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 45 passed (46)
+   × rejects replaying one turn id with a changed direct-owner marker 20ms
+
+== M09-marker-channel: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  46 passed (46)
+
+== M10-exactly-one: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  24 passed (24)
+
+== M11-controls-owner: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts (24 tests | 1 failed) 4992ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 23 passed (24)
+   × keeps forwarded, quoted, pasted, conversational and guest wording untrusted 159ms
+
+== M12-controls-text-binding: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  24 passed (24)
+
+== M13-reader-context: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  43 passed (43)
+
+== M14-reader-literal: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  38 passed (38)
+
+== M15-reader-repository: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  47 passed (47)
+
+== M16-reader-projection: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  111 passed (111)
+
+== M17-reader-controls: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  24 passed (24)
+
+== M18-telegram-snapshot-channel: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  52 passed (52)
+
+=== summary
+SURVIVED  BASE
+KILLED    M01-via_bot
+SKIPPED   M02-u2028
+SKIPPED   M03-newline
+KILLED    M04-code-entity
+KILLED    M05-quote-key
+KILLED    M06-factory-owner
+KILLED    M07-factory-authoritative
+KILLED    M08-replay-identity
+SURVIVED  M09-marker-channel
+SURVIVED  M10-exactly-one
+KILLED    M11-controls-owner
+SURVIVED  M12-controls-text-binding
+SURVIVED  M13-reader-context
+SURVIVED  M14-reader-literal
+SURVIVED  M15-reader-repository
+SURVIVED  M16-reader-projection
+SURVIVED  M17-reader-controls
+SURVIVED  M18-telegram-snapshot-channel
+back on main, tree clean=true
+(node:26468) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

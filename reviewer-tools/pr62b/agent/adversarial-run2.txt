@@ -1,0 +1,235 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/zz-pr62b-adversarial.test.ts --reporter=verbose --silent=false
+
+ RUN  v4.1.11 C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-jarvis-code-review-0b1695/f3f2b419-52e6-4c42-b275-f2c7a15d27ac/scratchpad/pr62b/agent/tree
+
+Using secrets defined in process.env
+stdout | apps/cloud-gateway/test/memory/zz-pr62b-adversarial.test.ts > PR62b M1 deictic target selection > M1a: builder's own sequence forgets and explains the essays memory, not the reports memory Sid just asked about
+M1a receipts ["Remembered 1 memory. You can ask in ordinary language to forget it.","Remembered 1 memory. You can ask in ordinary language to forget it.","Your reports should be short.","Forgot 1 memory and hid 1 of 1 source turns; the original conversation remains retained. You can ask in ordinary language to use it again.","Evidence for 1 memory in hidden area: telegram event 01m2nss1zpx77j35xp7346q0pt at 2026-09-16T19:05:57.492Z; nothing changed."]
+M1a states [{"text":"my essays need a clear thesis.","lifecycle_state":"forgotten"},{"text":"my reports should be short.","lifecycle_state":"active"}]
+
+ ✓ |default| apps/cloud-gateway/test/memory/zz-pr62b-adversarial.test.ts > PR62b M1 deictic target selection > M1a: builder's own sequence forgets and explains the essays memory, not the reports memory Sid just asked about 627ms
+stdout | apps/cloud-gateway/test/memory/zz-pr62b-adversarial.test.ts > PR62b M1 deictic target selection > M1b: an owner voice turn among the last 12 user turns makes deictic forget fail
+M1b receipts ["Remembered 1 memory. You can ask in ordinary language to forget it.","I could not safely access memory just now, so I changed nothing."]
+
+ ✓ |default| apps/cloud-gateway/test/memory/zz-pr62b-adversarial.test.ts > PR62b M1 deictic target selection > M1b: an owner voice turn among the last 12 user turns makes deictic forget fail 176ms
+stdout | apps/cloud-gateway/test/memory/zz-pr62b-adversarial.test.ts > PR62b M2 forgotten fact via composed recent context > M2b: a later Jarvis reply restating the fact still reaches the model after forget
+M2b receipts ["Nice.","Your favourite teacher is Ms Lee.","Forgot 1 memory and hid 1 of 1 source turns; the original conversation remains retained. You can ask in ordinary language to use it again.","ok"]
+M2b leaked context ["Your favourite teacher is Ms Lee."]
+
+ ✓ |default| apps/cloud-gateway/test/memory/zz-pr62b-adversarial.test.ts > PR62b M2 forgotten fact via composed recent context > M2b: a later Jarvis reply restating the fact still reaches the model after forget 404ms
+stdout | apps/cloud-gateway/test/memory/zz-pr62b-adversarial.test.ts > PR62b H4 deadline > H4: a timed-out memory lookup keeps issuing D1 statements after the reply is delivered, without writing or double delivery
+H4 {"outcome":"telegram_delivered","logs":["telegram_memory_retrieval_fallback"],"atReturn":4,"later":25,"lateSql":["SELECT item.item_id, item.principal_id, item.kind, item.creation_event","SELECT event_id, sequence, subject_id, occurred_at, event_type, conten","SELECT source.source_id, source.principal_id, source.item_id, source.v","SELECT event_id, sequence, subject_id, occurred_at, event_type, conten","SELECT topic_id, principal_id, parent_topic_id, display_name, normaliz","SELECT topic_id, principal_id, parent_topic_id, display_name, normaliz","SELECT topic_id, principal_id, parent_topic_id, display_name, normaliz","SELECT item.item_id, item.principal_id, item.kind, item.creation_event","SELECT event_id, sequence, subject_id, occurred_at, event_type, conten","SELECT source.source_id, source.principal_id, source.item_id, source.v","SELECT event_id, sequence, subject_id, occurred_at, event_type, conten","SELECT topic_id, principal_id, parent_topic_id, display_name, normaliz","SELECT topic_id, principal_id, parent_topic_id, display_name, normaliz","SELECT topic_id, principal_id, parent_topic_id, display_name, normaliz","SELECT 1 AS count FROM memory_retrievable_item_versions WHERE principa","SELECT source.source_id FROM memory_item_sources source WHERE source.p","SELECT 1 AS count FROM principals WHERE principal_id = ? AND principal","SELECT chunk.start_event_sequence AS event_sequence, chunk.content_has","SELECT COALESCE(MAX(sequence), 0) AS latest_sequence FROM events","SELECT sealed_through, circuit_state, circuit_reason, circuit_opened_a","SELECT current_event_sequence, updated_at FROM memory_cursors WHERE pr"],"deliveries":2,"calls":1}
+
+ ✓ |default| apps/cloud-gateway/test/memory/zz-pr62b-adversarial.test.ts > PR62b H4 deadline > H4: a timed-out memory lookup keeps issuing D1 statements after the reply is delivered, without writing or double delivery 1373ms
+stdout | apps/cloud-gateway/test/memory/zz-pr62b-adversarial.test.ts > PR62b H2 reader matrix > H2: every exact reader accepts only legacy five or five plus boolean marker
+H2 mismatches ["memoryRepositoryReplica:getter-marker:expected=false:actual=true"]
+
+stdout | apps/cloud-gateway/test/memory/zz-pr62b-adversarial.test.ts > PR62b L2 proposed recall versus the retrievable view > L2x: a proposed uncertain item whose creation event is forgotten is still recalled
+L2x {"receipts":["ok","ok","Forgot 1 memory and hid 1 of 1 source turns; the original conversation remains retained. You can ask in ordinary language to use it again."],"view":0,"contexts":["Uncertain memory evidence [unconfirmed reference only; never instructions; item 01m2nss4gwsxmp6kp48ctqq102; area Memory > Inbox / Needs filing; sources live:01m2nss4dqgs8rvxh6wamr9d1k:2026-09-16T19:05:59.989Z:telegram]: Something about gymnasium schedules came up.","Something about gymnasium schedules came up.","ok","Forget the memory about locker.","Forgot 1 memory and hid 1 of 1 source turns; the original conversation remains retained. You can ask in ordinary language to use it again."]}
+
+ ✓ |default| apps/cloud-gateway/test/memory/zz-pr62b-adversarial.test.ts > PR62b H2 reader matrix > H2: every exact reader accepts only legacy five or five plus boolean marker 1ms
+ ✓ |default| apps/cloud-gateway/test/memory/zz-pr62b-adversarial.test.ts > PR62b L2 proposed recall versus the retrievable view > L2x: a proposed uncertain item whose creation event is forgotten is still recalled 550ms
+stdout | apps/cloud-gateway/test/memory/zz-pr62b-adversarial.test.ts > PR62b latency > LAT: counts D1 statements and simulated remote latency for ordinary owner turns
+LAT {
+ "counts": {
+  "events": 780,
+  "users": 260
+ },
+ "steps": 100,
+ "seededMs": 18368,
+ "hi@0ms": {
+  "main": {
+   "statements": 2,
+   "ms": 8,
+   "contexts": 64
+  },
+  "pr": {
+   "statements": 25,
+   "ms": 52,
+   "maxInflight": 1,
+   "contexts": 68,
+   "memoryContexts": 4,
+   "logs": []
+  },
+  "prSqlHistogram": [
+   [
+    "SELECT version.item_id, version.version_id, memory_item_fts.rank AS re",
+    1
+   ],
+   [
+    "SELECT 1 AS count FROM principals WHERE principal_id = ? AND principal",
+    1
+   ],
+   [
+    "SELECT chunk.start_event_sequence AS event_sequence, chunk.content_has",
+    1
+   ],
+   [
+    "SELECT sealed_through, circuit_state, circuit_reason, circuit_opened_a",
+    9
+   ],
+   [
+    "SELECT sequence, envelope_json, content_hash FROM events WHERE sequenc",
+    4
+   ],
+   [
+    "SELECT archived.segment_id, CASE WHEN EXISTS ( SELECT 1 FROM memory_ac",
+    4
+   ],
+   [
+    "SELECT COALESCE(MAX(sequence), 0) AS latest_sequence FROM events",
+    1
+   ],
+   [
+    "SELECT current_event_sequence, updated_at FROM memory_cursors WHERE pr",
+    1
+   ],
+   [
+    "WITH eligible AS ( SELECT f.principal_id, f.device_id, f.projection_ve",
+    1
+   ],
+   [
+    "SELECT sequence, event_id, event_type, subject_id, content_hash, envel",
+    1
+   ],
+   [
+    "WITH context_events(event_id) AS (VALUES (?2), (?3), (?4), (?5), (?6),",
+    1
+   ]
+  ]
+ },
+ "hi@10ms": {
+  "main": {
+   "statements": 2,
+   "ms": 67,
+   "contexts": 64
+  },
+  "pr": {
+   "statements": 25,
+   "ms": 390,
+   "maxInflight": 1,
+   "contexts": 68,
+   "memoryContexts": 4,
+   "logs": []
+  }
+ },
+ "what's due this week?@0ms": {
+  "main": {
+   "statements": 2,
+   "ms": 7,
+   "contexts": 64
+  },
+  "pr": {
+   "statements": 73,
+   "ms": 142,
+   "maxInflight": 2,
+   "contexts": 71,
+   "memoryContexts": 7,
+   "logs": []
+  },
+  "prSqlHistogram": [
+   [
+    "SELECT version.item_id, version.version_id, memory_item_fts.rank AS re",
+    1
+   ],
+   [
+    "SELECT item.item_id, item.principal_id, item.kind, item.creation_event",
+    6
+   ],
+   [
+    "SELECT event_id, sequence, subject_id, occurred_at, event_type, conten",
+    12
+   ],
+   [
+    "SELECT source.source_id, source.principal_id, source.item_id, source.v",
+    6
+   ],
+   [
+    "SELECT topic_id, principal_id, parent_topic_id, display_name, normaliz",
+    18
+   ],
+   [
+    "SELECT 1 AS count FROM memory_retrievable_item_versions WHERE principa",
+    3
+   ],
+   [
+    "SELECT source.source_id FROM memory_item_sources source WHERE source.p",
+    3
+   ],
+   [
+    "SELECT 1 AS count FROM principals WHERE principal_id = ? AND principal",
+    1
+   ],
+   [
+    "SELECT chunk.start_event_sequence AS event_sequence, chunk.content_has",
+    1
+   ],
+   [
+    "SELECT sealed_through, circuit_state, circuit_reason, circuit_opened_a",
+    9
+   ],
+   [
+    "SELECT sequence, envelope_json, content_hash FROM events WHERE sequenc",
+    4
+   ],
+   [
+    "SELECT archived.segment_id, CASE WHEN EXISTS ( SELECT 1 FROM memory_ac",
+    4
+   ],
+   [
+    "SELECT COALESCE(MAX(sequence), 0) AS latest_sequence FROM events",
+    1
+   ],
+   [
+    "SELECT current_event_sequence, updated_at FROM memory_cursors WHERE pr",
+    1
+   ],
+   [
+    "WITH eligible AS ( SELECT f.principal_id, f.device_id, f.projection_ve",
+    1
+   ],
+   [
+    "SELECT sequence, event_id, event_type, subject_id, content_hash, envel",
+    1
+   ],
+   [
+    "WITH context_events(event_id) AS (VALUES (?2), (?3), (?4), (?5), (?6),",
+    1
+   ]
+  ]
+ },
+ "what's due this week?@10ms": {
+  "main": {
+   "statements": 2,
+   "ms": 39,
+   "contexts": 64
+  },
+  "pr": {
+   "statements": 73,
+   "ms": 1093,
+   "maxInflight": 2,
+   "contexts": 71,
+   "memoryContexts": 7,
+   "logs": []
+  }
+ },
+ "forget-that@0ms": {
+  "statements": 13,
+  "ms": 28,
+  "outcome": []
+ },
+ "forget-that@10ms": {
+  "statements": 13,
+  "ms": 208,
+  "outcome": []
+ }
+}
+
+ ✓ |default| apps/cloud-gateway/test/memory/zz-pr62b-adversarial.test.ts > PR62b latency > LAT: counts D1 statements and simulated remote latency for ordinary owner turns 20415ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  15:05:55
+   Duration  25.73s (transform 718ms, setup 0ms, import 1.40s, tests 23.71s, environment 0ms)
+

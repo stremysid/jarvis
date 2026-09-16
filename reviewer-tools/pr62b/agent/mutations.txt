@@ -1,0 +1,82 @@
+M3-exactly-one-controls: SURVIVED (Tests  101 passed (101)) exit=0
+
+M3-exactly-one-service: KILLED (Tests  1 failed | 100 passed (101)) exit=1
+    - MemoryOwnerControlsService > refuses an ambiguous target before recording a command or changing memory
+M3-exactly-one-both: KILLED (Tests  2 failed | 99 passed (101)) exit=1
+    - MemoryOwnerControlsService > refuses an ambiguous target before recording a command or changing memory
+    - Telegram memory target selection and replay guards > refuses an ambiguous control unless exactly one memory matches
+M3-replay-identity: KILLED (Tests  1 failed | 65 passed (66)) exit=1
+    - Telegram memory target selection and replay guards > rejects replaying one turn id with a changed direct-owner marker
+M3-newline: KILLED (Tests  1 failed | 65 passed (66)) exit=1
+    - Telegram direct-owner text boundary > keeps newline-separated pasted text out of directOwnerText
+M3-u2028: KILLED (Tests  1 failed | 65 passed (66)) exit=1
+    - Telegram direct-owner text boundary > treats U+2028-separated text as pasted rather than authoritative
+M3-code-entity: KILLED (Tests  1 failed | 65 passed (66)) exit=1
+    - Telegram direct-owner text boundary > keeps code and expandable blockquote entities out of directOwnerText
+M3-expandable-entity: KILLED (Tests  1 failed | 65 passed (66)) exit=1
+    - Telegram direct-owner text boundary > keeps code and expandable blockquote entities out of directOwnerText
+M3-quote-key: KILLED (Tests  3 failed | 63 passed (66)) exit=1
+    - classifying a Telegram update > treats Sid's text that quotes a message in the same chat as direct
+    - Telegram automatic-memory authority > marks quoted owner Telegram text false and keeps its fact uncertain
+    - Telegram direct-owner text boundary > keeps Telegram quote metadata out of directOwnerText
+M3-via-bot: KILLED (Tests  1 failed | 65 passed (66)) exit=1
+    - Telegram direct-owner text boundary > treats via_bot text as borrowed rather than direct owner text
+H1-telegram-caps-to-voice: KILLED (Tests  8 failed | 58 passed (66)) exit=1
+    - Telegram memory production conversation integration > replies with the default Telegram budgets for an owner turn, owner control, and guest turn
+    - Telegram memory production conversation integration > keeps a six-field owner event usable by controls, the repository, recent context, literal history, and projection
+    - Telegram memory production conversation integration > preserves the recent Hamlet turn while adding canonical memory context
+    - Telegram memory production conversation integration > falls back to recent context and logs a fixed code when memory tables are missing
+    - Telegram memory production conversation integration > bounds a stalled memory lookup and still replies through the real service
+    - Telegram memory target selection and replay guards > refuses an ambiguous control unless exactly one memory matches
+    - Telegram memory target selection and replay guards > resolves that to the most recent clearly referenced memory
+    - Telegram forget recall safety > does not recall a forgotten fact through Jarvis's earlier echo
+H1-telegram-channel-check: SURVIVED (Tests  188 passed (188)) exit=0
+
+H2-context-retriever: KILLED (Tests  4 failed | 62 passed (66)) exit=1
+    - Telegram memory production conversation integration > keeps a six-field owner event usable by controls, the repository, recent context, literal history, and projection
+    - Telegram memory production conversation integration > preserves the recent Hamlet turn while adding canonical memory context
+    - Telegram memory production conversation integration > falls back to recent context and logs a fixed code when memory tables are missing
+    - Telegram memory production conversation integration > bounds a stalled memory lookup and still replies through the real service
+H2-literal-history: KILLED (Tests  2 failed | 64 passed (66)) exit=1
+    - Telegram memory production conversation integration > keeps a six-field owner event usable by controls, the repository, recent context, literal history, and projection
+    - Telegram forget recall safety > does not recall a forgotten fact through Jarvis's earlier echo
+H2-controls: KILLED (Tests  5 failed | 61 passed (66)) exit=1
+    - Telegram memory production conversation integration > replies with the default Telegram budgets for an owner turn, owner control, and guest turn
+    - Telegram memory production conversation integration > keeps a six-field owner event usable by controls, the repository, recent context, literal history, and projection
+    - Telegram memory target selection and replay guards > refuses an ambiguous control unless exactly one memory matches
+    - Telegram memory target selection and replay guards > resolves that to the most recent clearly referenced memory
+    - Telegram forget recall safety > does not recall a forgotten fact through Jarvis's earlier echo
+H2-projection: KILLED (Tests  1 failed | 65 passed (66)) exit=1
+    - Telegram memory production conversation integration > keeps a six-field owner event usable by controls, the repository, recent context, literal history, and projection
+H2-memory-repository: KILLED (Tests  5 failed | 61 passed (66)) exit=1
+    - Telegram memory production conversation integration > replies with the default Telegram budgets for an owner turn, owner control, and guest turn
+    - Telegram memory production conversation integration > keeps a six-field owner event usable by controls, the repository, recent context, literal history, and projection
+    - Telegram memory target selection and replay guards > refuses an ambiguous control unless exactly one memory matches
+    - Telegram memory target selection and replay guards > resolves that to the most recent clearly referenced memory
+    - Telegram forget recall safety > does not recall a forgotten fact through Jarvis's earlier echo
+H2-retriever-reference: KILLED (Tests  1 failed | 65 passed (66)) exit=1
+    - Telegram memory target selection and replay guards > resolves that to the most recent clearly referenced memory
+H3-drop-base: KILLED (Tests  1 failed | 65 passed (66)) exit=1
+    - Telegram memory production conversation integration > preserves the recent Hamlet turn while adding canonical memory context
+H4-no-fallback: KILLED (Tests  2 failed | 64 passed (66)) exit=1
+    - Telegram memory production conversation integration > falls back to recent context and logs a fixed code when memory tables are missing
+    - Telegram memory production conversation integration > bounds a stalled memory lookup and still replies through the real service
+H4-no-timeout: KILLED (Tests  1 failed | 65 passed (66)) exit=1
+    - Telegram memory production conversation integration > bounds a stalled memory lookup and still replies through the real service
+M2-literal-assistant: KILLED (Tests  1 failed | 79 passed (80)) exit=1
+    - Telegram forget recall safety > does not recall a forgotten fact through Jarvis's earlier echo
+M2-composed-owner-turn: KILLED (Tests  1 failed | 65 passed (66)) exit=1
+    - Telegram forget recall safety > does not recall a forgotten fact through Jarvis's earlier echo
+M2-no-suppression-filter: KILLED (Tests  1 failed | 65 passed (66)) exit=1
+    - Telegram forget recall safety > does not recall a forgotten fact through Jarvis's earlier echo
+L2-no-uncertain-label: KILLED (Tests  1 failed | 65 passed (66)) exit=1
+    - Telegram memory retrieval > recalls proposed facts as uncertain reference evidence and never as instructions
+L2-no-proposed-recall: KILLED (Tests  1 failed | 65 passed (66)) exit=1
+    - Telegram memory retrieval > recalls proposed facts as uncertain reference evidence and never as instructions
+M1-deictic-ambiguous: SURVIVED (Tests  66 passed (66)) exit=0
+
+M1-and-to-or: SURVIVED (Tests  66 passed (66)) exit=0
+
+M1-no-stopwords: SURVIVED (Tests  66 passed (66)) exit=0
+
+done

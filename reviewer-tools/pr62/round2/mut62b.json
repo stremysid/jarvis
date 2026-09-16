@@ -1,0 +1,191 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "94f852c",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/channels/telegram/telegram-types.ts",
+   "from": "const QUOTED_TEXT_KEYS = [\"quote\", \"reply_to_message\"] as const;",
+   "to": "const QUOTED_TEXT_KEYS = [\"quote\", \"reply_to_message\"] as const; ",
+   "tests": [
+    "apps/cloud-gateway/test/channels/telegram-classification.test.ts",
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "M01-via_bot",
+   "file": "apps/cloud-gateway/src/channels/telegram/telegram-types.ts",
+   "from": "\"external_reply\", \"via_bot\",",
+   "to": "\"external_reply\",",
+   "tests": [
+    "apps/cloud-gateway/test/channels/telegram-classification.test.ts",
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "M02-u2028",
+   "file": "apps/cloud-gateway/src/channels/telegram/telegram-types.ts",
+   "from": "/[\\r\\n\\u2028\\u2029]/u.test(text)",
+   "to": "/[\\r\\n]/u.test(text)",
+   "tests": [
+    "apps/cloud-gateway/test/channels/telegram-classification.test.ts",
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "M03-newline",
+   "file": "apps/cloud-gateway/src/channels/telegram/telegram-types.ts",
+   "from": " || /[\\r\\n\\u2028\\u2029]/u.test(text)) return true;",
+   "to": ") return true;",
+   "tests": [
+    "apps/cloud-gateway/test/channels/telegram-classification.test.ts",
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "M04-code-entity",
+   "file": "apps/cloud-gateway/src/channels/telegram/telegram-types.ts",
+   "from": "\"blockquote\", \"expandable_blockquote\", \"code\", \"pre\",",
+   "to": "\"blockquote\", \"expandable_blockquote\", \"pre\",",
+   "tests": [
+    "apps/cloud-gateway/test/channels/telegram-classification.test.ts",
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "M05-quote-key",
+   "file": "apps/cloud-gateway/src/channels/telegram/telegram-types.ts",
+   "from": "const QUOTED_TEXT_KEYS = [\"quote\", \"reply_to_message\"] as const;",
+   "to": "const QUOTED_TEXT_KEYS = [\"reply_to_message\"] as const;",
+   "tests": [
+    "apps/cloud-gateway/test/channels/telegram-classification.test.ts",
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "M06-factory-owner",
+   "file": "apps/cloud-gateway/src/index.ts",
+   "from": "ownerPrincipalId !== undefined\n      && accepted.principalId === ownerPrincipalId\n      && accepted.isDirectText",
+   "to": "ownerPrincipalId !== undefined\n      && accepted.isDirectText",
+   "tests": [
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "M07-factory-authoritative",
+   "file": "apps/cloud-gateway/src/index.ts",
+   "from": "      && accepted.isDirectText\n      && accepted.isMemoryControlAuthoritative,\n  });",
+   "to": "      && accepted.isDirectText,\n  });",
+   "tests": [
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "M08-replay-identity",
+   "file": "apps/cloud-gateway/src/conversation/conversation-repository.ts",
+   "from": "        this.telegramDirectOwnerText,\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/conversation-repository.test.ts",
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "M09-marker-channel",
+   "file": "apps/cloud-gateway/src/conversation/conversation-repository.ts",
+   "from": "if (this.telegramDirectOwnerText !== undefined && channel !== \"telegram\") {",
+   "to": "if (false) {",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/conversation-repository.test.ts",
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "M10-exactly-one",
+   "file": "apps/cloud-gateway/src/memory/telegram-memory-controls.ts",
+   "from": "if (candidates.length !== 1) {",
+   "to": "if (candidates.length < 1) {",
+   "tests": [
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "M11-controls-owner",
+   "file": "apps/cloud-gateway/src/memory/telegram-memory-controls.ts",
+   "from": "      && input.principalId === this.options.ownerPrincipalId\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "M12-controls-text-binding",
+   "file": "apps/cloud-gateway/src/memory/telegram-memory-controls.ts",
+   "from": "      && this.authority.text === input.userText\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "M13-reader-context",
+   "file": "apps/cloud-gateway/src/conversation/context-retriever.ts",
+   "from": "&& typeof payload.directOwnerText !== \"boolean\"",
+   "to": "&& false",
+   "tests": [
+    "apps/cloud-gateway/test/conversation/context-retriever.test.ts",
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "M14-reader-literal",
+   "file": "apps/cloud-gateway/src/memory/literal-history.ts",
+   "from": "&& typeof payload.directOwnerText !== \"boolean\"",
+   "to": "&& false",
+   "tests": [
+    "apps/cloud-gateway/test/memory/literal-history.test.ts",
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "M15-reader-repository",
+   "file": "apps/cloud-gateway/src/memory/memory-repository.ts",
+   "from": "\n      || Object.hasOwn(payload, \"directOwnerText\") && typeof payload.directOwnerText !== \"boolean\") refuse();",
+   "to": ") refuse();",
+   "tests": [
+    "apps/cloud-gateway/test/memory/memory-repository.test.ts",
+    "apps/cloud-gateway/test/memory/memory-repository-faults.test.ts",
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "M16-reader-projection",
+   "file": "apps/cloud-gateway/src/sync/memory-projection.ts",
+   "from": "&& typeof payload.directOwnerText !== \"boolean\"",
+   "to": "&& false",
+   "tests": [
+    "apps/cloud-gateway/test/sync/memory-projection.test.ts",
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "M17-reader-controls",
+   "file": "apps/cloud-gateway/src/memory/telegram-memory-controls.ts",
+   "from": "&& typeof payload.directOwnerText !== \"boolean\"",
+   "to": "&& false",
+   "tests": [
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "M18-telegram-snapshot-channel",
+   "file": "apps/cloud-gateway/src/model/model-adapter.ts",
+   "from": "  if (captured.channel !== \"telegram\") throw failure(\"model_input_invalid\");\n  return captured;",
+   "to": "  return captured;",
+   "tests": [
+    "apps/cloud-gateway/test/model/model-adapter.test.ts",
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  }
+ ]
+}

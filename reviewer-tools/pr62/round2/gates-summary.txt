@@ -1,0 +1,10 @@
+head 94f852c
+lint rc=0
+typecheck rc=0
+test rc=0
+ Test Files  174 passed (174)
+      Tests  3895 passed (3895)
+adversarial rc=1
+     × returns Jarvis's echo of a forgotten memory as unlabelled history evidence 291ms
+     × zz: print 3ms
+      Tests  2 failed | 9 passed (11)
