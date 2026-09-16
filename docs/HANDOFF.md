@@ -1,6 +1,6 @@
 # Handoff
 
-Current as of **2026-09-15**. Verify the current branch and checks before
+Current as of **2026-09-16**. Verify the current branch and checks before
 using this checkpoint. R0 passed; calling remains R1.
 
 PR #25 merged as `fd39301` after max review. Production D1 now has migrations
@@ -134,9 +134,10 @@ Item 3 still requires the live smoke. The separate item-4 candidate on
 `codex/r1-retire-legacy-pin` removes the legacy eight-digit owner verifier,
 updates the foundation design to the grant-bound guest model, and adds PR
 #28's evidence-store failure regression. Its PIN-free owner wording is
-superseded by the
-2026-09-14 owner-passphrase design; live smoke must use the later six-record
-step-up contract. It does not
+superseded by the 2026-09-14 owner-passphrase design; live smoke must use the
+later seven-record
+step-up contract, including the answered outbound refusal Sid approved on
+2026-09-16. It does not
 delete the stored `PIN_VERIFIER_JSON` secret or deploy anything. That stored
 secret is already deletable as the separate owner-confirmed step in
 `docs/runbooks/deploy.md`; do not run it during a live call or attended

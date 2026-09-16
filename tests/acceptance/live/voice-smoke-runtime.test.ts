@@ -85,6 +85,19 @@ const ownerStepUpRefusedEvidence = Object.freeze({
   ownerAlertDisposition: "sent",
 });
 
+const outboundStepUpRefusedEvidence = Object.freeze({
+  ...ownerStepUpRefusedEvidence,
+  scenario: "outbound-step-up-refused",
+  manifestKey: "outbound_step_up_refused",
+  callerIdAttestation: "not_applicable",
+  callAttempts: 1,
+  recipientAnswered: true,
+  recipientAuthenticated: false,
+  neutralGreetingBeforeAuthentication: true,
+  purposeDisclosed: false,
+  privateMessageLeft: false,
+});
+
 const completePreflight = Object.freeze({
   schemaVersion: "1.0",
   operatorAuthorized: true,
@@ -142,6 +155,35 @@ describe("injected live voice-smoke driver", () => {
       ["execute", { scenario: "owner-step-up-refused", deployedCommitSha: COMMIT_SHA }],
       ["query", {
         scenario: "owner-step-up-refused",
+        deployedCommitSha: COMMIT_SHA,
+        correlationId: CORRELATION_ID,
+      }],
+    ]);
+  });
+
+  it("injects and verifies the answered outbound refusal through the scenario and enrolled-operator adapters", async () => {
+    const observed: unknown[] = [];
+    const driver = createVoiceSmokeDriver({
+      preflight: async (scenario) => {
+        observed.push(["preflight", scenario]);
+        return completePreflight;
+      },
+      execute: async (request) => {
+        observed.push(["execute", request]);
+        return { schemaVersion: "1.0", scenario: "outbound-step-up-refused", correlationId: CORRELATION_ID };
+      },
+      queryEvidence: async (request) => {
+        observed.push(["query", request]);
+        return outboundStepUpRefusedEvidence;
+      },
+    });
+
+    await expect(driver.run("outbound-step-up-refused")).resolves.toEqual(outboundStepUpRefusedEvidence);
+    expect(observed).toEqual([
+      ["preflight", "outbound-step-up-refused"],
+      ["execute", { scenario: "outbound-step-up-refused", deployedCommitSha: COMMIT_SHA }],
+      ["query", {
+        scenario: "outbound-step-up-refused",
         deployedCommitSha: COMMIT_SHA,
         correlationId: CORRELATION_ID,
       }],
@@ -286,6 +328,7 @@ describe("local voice-smoke evidence store", () => {
     await writeFile(join(directory, "inbound.json"), "retained\n", "utf8");
     await expect(store.exists("inbound.json")).resolves.toBe(true);
     await expect(store.exists("owner-step-up-refused.json")).resolves.toBe(false);
+    await expect(store.exists("outbound-step-up-refused.json")).resolves.toBe(false);
     await expect(store.exists("operator-notes.txt")).rejects.toThrow(/^unsafe_evidence_path$/u);
   });
 

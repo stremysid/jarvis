@@ -69,7 +69,7 @@ open PR #52 reserves `0024_university_application_workflow.sql`, and draft
 name, `0025_archive_literal_history.sql`.
 None of `0016` through `0020` or `0022` has been applied by this R2 work. The
 Sid-attended scratch remote-D1 proof remains mandatory before any production
-apply.
+apply; follow the [migration scratch proof runbook](docs/runbooks/migration-scratch-proof.md).
 
 [PR #47](https://github.com/ksid1229-ops/jarvis/pull/47) merged as `60ae90d`
 with the first runtime slice in
@@ -216,8 +216,10 @@ not drive R1 or R2 implementation. Measure the shared R2 retriever against the
 back to no extra context.
 
 Run `pnpm test:voice-access` and `pnpm typecheck:voice-access` locally.
-The live-evidence contract now requires six retained records, including
-`owner-step-up-refused`, and rejects the former PIN-free five-record schema.
+The live-evidence contract now requires seven retained records, including
+`owner-step-up-refused` and the answered outbound
+`outbound-step-up-refused`, and rejects both the former six-record contract and
+the earlier PIN-free five-record schema.
 The initial release audit requires `passphrase_always` on every owner path and
 a verified inbound phrase; the dormant exact Passed-A waiver remains valid only
 as a per-record shape for a future optional record and cannot replace inbound.
