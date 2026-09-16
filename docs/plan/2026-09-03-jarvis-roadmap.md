@@ -153,8 +153,8 @@ from, its state, and the milestone in section 7 that delivers it.
 | Guest callers with per-number capabilities and a guest PIN | voice-access design | built | R1 |
 | Send on command: "email X and tell them Y", text from Jarvis's number, iMessage handoff for Sid's own number; from Telegram or a call; confirm before anyone else is contacted | Sid, Sep 3; plan §1 | absent | R6 |
 | iOS Shortcuts and Siri: "Hey Siri, tell Jarvis..." | Sid, Sep 3 | absent | R6 |
-| Location-aware reminders via Telegram or a Shortcut | Sid, Sep 3 | absent | R6 |
-| "When should I leave": departure time from live traffic, car preheated to match | Sid, Sep 3 | absent | R6 |
+| Location-aware reminders through Sid's one Jarvis-run personal calendar, covering school deadlines, St. Remy and personal plans | Sid, Sep 3 and 15 | absent; provider is unknown until R6 starts | R6 |
+| "When should I leave": departure time from location and live traffic, with the Tesla used for alerts and preheating when its integration arrives | Sid, Sep 3 and 15 | absent | R6, R8 |
 | PWA pocket dashboard: decisions, deadlines, projects, St. Remy status | plan §1 | absent | R9 |
 | Telegram deep links into the PWA; Web Push as a secondary channel | plan §1 | absent | R9 |
 | Voice notes over Telegram: hold to talk, transcribe, spoken reply | plan §1 | absent | R9 |
@@ -194,7 +194,8 @@ from, its state, and the milestone in section 7 that delivers it.
 | Google Classroom deadlines | plan §3 | unwired | R5 |
 | Brightspace deadlines through a private calendar feed in Cloudflare first; school-approved OAuth as the grades/submissions upgrade; browser automation held for terms review, with MFA via Telegram if ever approved | plan §3; corrected Sep 15 | absent; board feed availability unverified | R5 |
 | One deadline store, conflict flagging, effort-scaled reminders, exam quiet hours | plan §3, §5 | built, empty | R0, R5 |
-| Per-course catch-up plan, proactive study coach, quizzes and flashcards | Sid, Sep 15; [school plan](2026-09-15-school-university-plan.md) | absent | **R5** |
+| Per-course catch-up plan | Sid, Sep 15; [school plan](2026-09-15-school-university-plan.md) | started | **R5** |
+| Proactive study coach: regular coursework check-ins, weak spots from memory, grades and deadlines, automatic quizzes, flashcards, spoken car quizzing and free-tool discovery | Sid, Sep 15 | started; first slice merged | **R5a** |
 | Grade and missing-work watch | plan §5; Sid, Sep 15 | absent | R5 |
 | University applications: programs, requirements, deadlines, writing, documents, scholarships and required marks | Sid, Sep 15; [school plan](2026-09-15-school-university-plan.md) | absent | **R5** |
 | Morning digest and Sunday retro | plan §3, §5 | built | R0 |
@@ -223,7 +224,7 @@ from, its state, and the milestone in section 7 that delivers it.
 | Errands with the tier-3 confirm flow in a real browser; ticketing as monitor-and-assist | plan §9 | absent | R8 |
 | Tesla: preheat at tier 2, unlock and start at tier 3, unasked preheat from calendar and weather | plan §9 | absent | R8 |
 | Standing watches through Hermes cron and subagents; a repository-owned skills library | addition | absent | R8 |
-| Calendar changes at tier 2, protected focus blocks | plan §3, §4 | absent | R7 |
+| One Jarvis-managed personal calendar, with reversible tier-2 changes and protected focus blocks | plan §3, §4; Sid, Sep 15 | absent | R6 |
 | Global kill switch | foundation §5.2 | built for calls | R3 extends |
 
 ### 4.5 Platform: what keeps it running
@@ -388,9 +389,8 @@ Mark each superseded by this file rather than deleting it.
 ## 7. Milestones, in dependency order
 
 Each has an exit test a person can perform. Effort is a rough
-builder-session estimate. [BUILDING.md](../BUILDING.md) says which model
-builds and reviews each one, and when a stuck session must stop and escalate
-rather than grind.
+builder-session estimate. [BUILDING.md](../BUILDING.md) records the review and
+stop rules; the current builder-model note is in `NEXT_STEPS.md`.
 
 ### R0. Green and deployed
 
@@ -512,9 +512,10 @@ complete scope and official-source rules are in the
    "check D2L now" in the digest. Classroom timed fields are UTC; the current
    instant-only schema maps date-only items to local end-of-day and cannot
    preserve date-only semantics without a separately numbered migration.
-4. Add regular conversational check-ins and an evidence-based study coach.
-   Generate cited quizzes and flashcards automatically, support plain-speech
-   correction and forgetting, and add spoken quizzing after R1 calls are live.
+4. The first study-coach slice is merged: it records evidence-backed weak
+   areas, allows at most one quiet coursework check-in per day, generates cited
+   quizzes and flashcards, and supports plain-speech correction and forgetting.
+   The broader proactive coach follows this milestone.
 5. Add submission/grade observations and explicitly derived missing-work
    alerts. Classroom has no authoritative `missing` state. Use Brightspace
    grade/feedback notifications or API data only through an approved route.
@@ -523,9 +524,8 @@ complete scope and official-source rules are in the
    contact/submission steps. Never copy a prior-cycle date or call an unsourced
    date verified. Payments, transcript releases and contact always need a tap.
 7. Feed verified commitments into the later personal calendar: R6 supplies
-   the combined read agenda and departure reminders; R7 supplies reversible
-   calendar writes and protected focus blocks. Do not create a second school
-   calendar.
+   one managed agenda, reversible writes, protected focus blocks and departure
+   reminders. Do not create a second school calendar.
 
 **Exit.** Conversation alone produces a current catch-up action for every
 course and a sourced target-program tracker. The morning digest shows one
@@ -535,6 +535,24 @@ the missing-work and weak-area flow, and Jarvis creates a sourced quiz and
 flashcard set. Application, supplementary and scholarship dates remain visibly
 verified or unverified; required-mark calculations use verified prerequisites.
 Nothing is submitted, purchased, signed up for or sent to another person
+without Sid's tap.
+
+### R5a. Proactive study coach
+
+Started: the first slice is merged. The complete coach depends on R2 memory
+and R5 grades and deadlines.
+
+1. Check in regularly about coursework and use R2 memory plus R5 grade,
+   deadline and weak-area evidence to learn where Sid struggles.
+2. Automatically make useful study material without waiting to be asked:
+   cited quizzes, flashcards and spoken quizzing in the car once calls are live.
+3. Find free tools that fit the current weak spot without waiting to be asked.
+   Spending, account sign-ups and contacting another person always require
+   Sid's explicit tap.
+
+**Exit.** A recorded weak spot and approaching course deadline cause a regular
+check-in with an appropriate quiz, flashcard set or spoken quiz and a relevant
+free tool. Nothing is purchased, signed up for or sent to another person
 without Sid's tap.
 
 ### R3. Hands: task execution and device capabilities, v1.3
@@ -597,24 +615,30 @@ stopped by hand; Jarvis alerts within minutes and restarts it. "Tell Claude
 to change the invoice footer": Claude Code makes the change, Jarvis asks
 before deploying, and deploys after the tap.
 
-### R6. Reach: send on command, Siri, location, v1.5
+### R6. Reach: personal calendar, send on command, Siri, location, v1.5
 
-Two sessions. Depends on R3.
+Depends on R3; the calendar's school and St. Remy coverage also depends on R5
+and R4.
 
 1. Send on command: Gmail API for email, the Twilio number for texts, an
    iMessage handoff link for Sid's own number. Read-back and a confirm before
    anything goes to another person, on Telegram and on a call.
 2. An iOS Shortcut that posts to Jarvis, so Siri can relay a message, and a
    location Shortcut Sid can trigger.
-3. "When should I leave": for calendar items with a place, departure time
-   from a maps routing API, a reminder at the right moment, the car preheat
-   aligned when Tesla arrives in R8.
-4. Add the read side of Sid's personal calendar: one combined agenda for
-   school, applications and personal commitments. Calendar writes remain R7.
+3. Run one personal calendar for school deadlines, St. Remy and personal
+   plans, with reversible tier-2 changes and protected focus blocks. Whether
+   Sid's calendar is iCloud or Google is unknown; ask when R6 starts and do not
+   assume.
+4. Upgrade "when should I leave" from a standalone reminder into that calendar.
+   For an item with a place, combine location and live traffic for the leave-now
+   alert, and use the Tesla for the alert and aligned preheat when its R8
+   integration arrives.
 
 **Exit.** From the car, on a call: "email the supplier and tell them the
 order is confirmed". Jarvis reads the draft back, sends after "yes". A
-meeting across town at 3: Jarvis says "leave by 2:20" at 2:05.
+meeting across town at 3: Jarvis says "leave by 2:20" at 2:05. The same
+managed agenda shows the school, St. Remy and personal commitments that drove
+the alert.
 
 ### R7. A real assistant's memory and manager, v1.6
 
@@ -629,9 +653,7 @@ Three to four sessions. Depends on R2, R5.
    outage fallback.
 4. Prep briefs. Gmail triage. Workload line. Cost tracker, Jarvis first.
    Real-time pings on KNOWN_ISSUES and DECISIONS changes.
-5. Document ingestion: Gmail, Drive, PDFs. Run the personal calendar at tier 2
-   with reversible writes and protected focus blocks, extending R6's combined
-   read agenda. The minimisation policy.
+5. Document ingestion: Gmail, Drive, PDFs. The minimisation policy.
 
 **Exit.** "Why do you think I hate mornings?" gets an answer with a dated
 source. A brief arrives before a class. The Sunday retro has a workload
@@ -704,9 +726,10 @@ here and move NEXT_STEPS.md to the next one.
 | R1 Calling | v1.0, first release | active; draft PR #40 open | |
 | R2 Cloud memory | v1.1 | active; 0016 schema merged, not applied | |
 | R5 School and university | v1.2 | plan revision ready for re-review | |
+| R5a Proactive study coach | | started; first slice merged | |
 | R3 Hands | v1.3 | not started | |
 | R4 St. Remy | v1.4 | not started | |
-| R6 Reach | v1.5 | not started | |
+| R6 Reach and personal calendar | v1.5 | not started | |
 | R7 Memory and manager | v1.6 | not started | |
 | R8 Hands extended | v1.7 | not started | |
 | R9 Windows into Jarvis | v1.8 | not started | |
