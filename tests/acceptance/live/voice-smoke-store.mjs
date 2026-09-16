@@ -9,6 +9,7 @@ const SCENARIOS = Object.freeze([
   "unauthorized-caller",
   "outbound-answer",
   "outbound-no-answer",
+  "owner-step-up-refused",
   "failure-callbacks",
 ]);
 const ULID_TEXT = "[0-7][0-9a-hjkmnp-tv-z]{25}";
