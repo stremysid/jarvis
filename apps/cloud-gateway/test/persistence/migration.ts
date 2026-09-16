@@ -24,6 +24,7 @@ import universityTrackerSql from "../../src/persistence/migrations/0022_universi
 import studyCoachSql from "../../src/persistence/migrations/0023_study_coach.sql?raw";
 import universityApplicationWorkflowSql from "../../src/persistence/migrations/0024_university_application_workflow.sql?raw";
 import archiveLiteralHistorySql from "../../src/persistence/migrations/0025_archive_literal_history.sql?raw";
+import schoolProgressSql from "../../src/persistence/migrations/0027_school_progress.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
@@ -37,6 +38,7 @@ let universityTrackerMigrated: Promise<void> | undefined;
 let studyCoachMigrated: Promise<void> | undefined;
 let universityApplicationWorkflowMigrated: Promise<void> | undefined;
 let archiveLiteralHistoryMigrated: Promise<void> | undefined;
+let schoolProgressMigrated: Promise<void> | undefined;
 
 /**
  * Split a migration into the statements D1 applies one at a time.
@@ -204,6 +206,16 @@ export async function applyArchiveLiteralHistoryMigration(): Promise<void> {
     { name: "0025_archive_literal_history.sql", queries: splitMigration(archiveLiteralHistorySql) },
   ]);
   await archiveLiteralHistoryMigrated;
+}
+
+/** Applies verified school progress storage after every migration currently on main. */
+export async function applySchoolProgressMigration(): Promise<void> {
+  await applyUniversityApplicationWorkflowMigration();
+  await applyArchiveLiteralHistoryMigration();
+  schoolProgressMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0027_school_progress.sql", queries: splitMigration(schoolProgressSql) },
+  ]);
+  await schoolProgressMigrated;
 }
 
 /** Test-only reset for immutable per-call step-up and guest-attempt records. */

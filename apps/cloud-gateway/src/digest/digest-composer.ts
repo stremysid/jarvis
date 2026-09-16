@@ -19,9 +19,11 @@
 import type {
   DigestApplicationItem,
   DigestCatchupAction,
+  DigestDerivedMissingWork,
   Digest,
   DigestGap,
   DigestInput,
+  DigestSchoolGrade,
   DigestSection,
 } from "./digest-types.js";
 
@@ -175,6 +177,33 @@ function catchupSection(actions: readonly DigestCatchupAction[]): DigestSection 
   };
 }
 
+function points(value: number): string {
+  return Number.isInteger(value) ? String(value) : String(Math.round(value * 100) / 100);
+}
+
+function schoolProgressSection(
+  missingWork: readonly DigestDerivedMissingWork[],
+  grades: readonly DigestSchoolGrade[],
+): DigestSection | null {
+  if (missingWork.length === 0 && grades.length === 0) return null;
+  const missingLines = [...missingWork]
+    .sort((left, right) => left.dueAt.localeCompare(right.dueAt) || left.workItemId.localeCompare(right.workItemId))
+    .map((item) =>
+      `Derived — no submission seen: ${neutraliseInline(item.course)}: ${neutraliseInline(item.title)} (deadline passed; ${item.source} checked ${neutraliseInline(item.checkedAt)})`);
+  const gradeLines = [...grades]
+    .sort((left, right) => right.observedAt.localeCompare(left.observedAt) || left.workItemId.localeCompare(right.workItemId))
+    .map((item) => {
+      const mark = item.maximumPoints === null
+        ? `${points(item.assignedPoints)} points; maximum not supplied`
+        : `${points(item.assignedPoints)} / ${points(item.maximumPoints)} points`;
+      const providerFreshness = item.sourceUpdatedAt === null
+        ? ""
+        : `; source updated ${neutraliseInline(item.sourceUpdatedAt)}`;
+      return `${neutraliseInline(item.course)}: ${neutraliseInline(item.title)} — grade ${mark} (verified: ${item.source}; checked ${neutraliseInline(item.observedAt)}${providerFreshness})`;
+    });
+  return { heading: "School progress", lines: [...missingLines, ...gradeLines] };
+}
+
 function applicationStatus(status: DigestApplicationItem["status"]): string {
   if (status === "not_started") return "not started";
   if (status === "submitted_by_sid") return "submitted by Sid";
@@ -322,6 +351,7 @@ export function compose(
   const gaps = gapSection(input.gaps);
   const candidates = [
     deadlineSection(input, now, horizon),
+    schoolProgressSection(input.derivedMissingWork, input.schoolGrades),
     catchupSection(input.catchupActions),
     applicationSection(input.applicationItems),
     studyCheckInSection(input),

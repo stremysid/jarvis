@@ -16,6 +16,11 @@
  */
 
 import type { RawDeadlineItem } from "./deadline-types.js";
+import {
+  SCHOOL_PROGRESS_ITEMS_PER_SWEEP,
+  type RawSchoolProgressItem,
+  type SchoolSubmissionState,
+} from "../school/school-progress-types.js";
 
 const API_ORIGIN = "https://classroom.googleapis.com";
 
@@ -69,6 +74,24 @@ export interface ClassroomCourseWork {
   readonly title: string;
   readonly dueDate: ClassroomDate | null;
   readonly dueTime: ClassroomTimeOfDay | null;
+  readonly maximumPoints: number | null;
+}
+
+export interface ClassroomStudentSubmission {
+  readonly id: string;
+  readonly courseId: string;
+  readonly courseWorkId: string;
+  readonly state: SchoolSubmissionState;
+  readonly late: boolean | null;
+  readonly assignedGrade: number | null;
+  readonly updateTime: string | null;
+}
+
+export interface ClassroomProgressCollection {
+  readonly items: readonly RawSchoolProgressItem[];
+  readonly rejectedCount: number;
+  /** Null when this course is complete, otherwise the last item in this slice. */
+  readonly checkpointExternalId: string | null;
 }
 
 export interface ClassroomDueOptions {
@@ -98,6 +121,30 @@ export class ClassroomRequestError extends Error {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function optionalPoints(value: unknown, allowZero: boolean): number | null {
+  if (value === undefined) return null;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1_000_000) return null;
+  if (!allowZero && value === 0) return null;
+  return value;
+}
+
+function canonicalOptionalInstant(value: unknown): string | null | undefined {
+  if (value === undefined) return null;
+  if (typeof value !== "string") return undefined;
+  const milliseconds = Date.parse(value);
+  return Number.isFinite(milliseconds) ? new Date(milliseconds).toISOString() : undefined;
+}
+
+function submissionState(value: unknown): SchoolSubmissionState | null {
+  if (value === "NEW") return "new";
+  if (value === "CREATED") return "created";
+  if (value === "TURNED_IN") return "turned_in";
+  if (value === "RETURNED") return "returned";
+  if (value === "RECLAIMED_BY_STUDENT") return "reclaimed";
+  if (value === "STUDENT_EDITED_AFTER_TURN_IN") return "edited_after_turn_in";
+  return null;
 }
 
 function optionalInteger(value: unknown, low: number, high: number): number | null {
@@ -317,6 +364,7 @@ export class ClassroomClient {
           // not necessarily a quiz and an ASSIGNMENT can be a term project, so
           // it would add confidence without adding information.
           dueTime: isPlainObject(entry.dueTime) ? (entry.dueTime as ClassroomTimeOfDay) : null,
+          maximumPoints: optionalPoints(entry.maxPoints, false),
         }));
       }
     }
@@ -331,9 +379,10 @@ export class ClassroomClient {
    * unique only within its course, and the store's uniqueness key is (source,
    * external id). Two courses' first assignment would otherwise be one row.
    */
-  async collectDeadlines(): Promise<readonly RawDeadlineItem[]> {
+  async collectDeadlines(coursesValue?: readonly ClassroomCourse[]): Promise<readonly RawDeadlineItem[]> {
     const items: RawDeadlineItem[] = [];
-    for (const course of await this.listCourses()) {
+    const courses = coursesValue ?? await this.listCourses();
+    for (const course of courses) {
       for (const work of await this.listCourseWork(course.id)) {
         const dueAt = classroomDueInstant(work, this.#dueOptions);
         if (dueAt === null) continue;
@@ -346,6 +395,126 @@ export class ClassroomClient {
       }
     }
     return Object.freeze(items);
+  }
+
+  /**
+   * The owner's own submission rows for one course.
+   *
+   * The literal `-` is Google's documented all-coursework selector and is
+   * code, not response data. `userId=me` keeps the route incapable of walking
+   * another student's records even if a broader teacher scope were ever
+   * present on the token.
+   */
+  async listStudentSubmissions(courseId: string): Promise<{
+    readonly submissions: readonly ClassroomStudentSubmission[];
+    readonly rejectedCount: number;
+    readonly rejectedCourseWorkIds: readonly string[];
+  }> {
+    if (typeof courseId !== "string" || courseId.length === 0) {
+      throw new TypeError("classroom_course_id_invalid");
+    }
+    const submissions: ClassroomStudentSubmission[] = [];
+    const rejectedCourseWorkIds = new Set<string>();
+    let rejectedCount = 0;
+    const path = `/v1/courses/${encodeURIComponent(courseId)}/courseWork/-/studentSubmissions`;
+    for await (const page of this.#pages(path, { userId: "me" }, "studentSubmissions")) {
+      for (const entry of page) {
+        if (!isPlainObject(entry)) {
+          rejectedCount += 1;
+          continue;
+        }
+        const id = entry.id;
+        const responseCourseId = entry.courseId;
+        const courseWorkId = entry.courseWorkId;
+        const state = submissionState(entry.state);
+        const late = entry.late === undefined ? null : typeof entry.late === "boolean" ? entry.late : undefined;
+        const assignedGrade = optionalPoints(entry.assignedGrade, true);
+        const updateTime = canonicalOptionalInstant(entry.updateTime);
+        if (
+          typeof id !== "string" || id.length === 0
+          || responseCourseId !== courseId
+          || typeof courseWorkId !== "string" || courseWorkId.length === 0
+          || state === null || late === undefined || updateTime === undefined
+          || entry.assignedGrade !== undefined && assignedGrade === null
+        ) {
+          if (typeof courseWorkId === "string" && courseWorkId.length > 0) {
+            rejectedCourseWorkIds.add(courseWorkId);
+          }
+          rejectedCount += 1;
+          continue;
+        }
+        submissions.push(Object.freeze({
+          id,
+          courseId,
+          courseWorkId,
+          state,
+          late,
+          assignedGrade,
+          updateTime,
+        }));
+      }
+    }
+    return Object.freeze({
+      submissions: Object.freeze(submissions),
+      rejectedCount,
+      rejectedCourseWorkIds: Object.freeze([...rejectedCourseWorkIds]),
+    });
+  }
+
+  /** One bounded course slice for the resumable scheduled progress walk. */
+  async collectProgressForCourse(
+    course: ClassroomCourse,
+    now: Date,
+    afterExternalId: string | null = null,
+  ): Promise<ClassroomProgressCollection> {
+    const observed = now.getTime();
+    if (!Number.isFinite(observed)) throw new TypeError("classroom_progress_clock_invalid");
+    const work = await this.listCourseWork(course.id);
+    const collected = await this.listStudentSubmissions(course.id);
+    const submissions = new Map<string, ClassroomStudentSubmission>();
+    const rejectedCourseWorkIds = new Set(collected.rejectedCourseWorkIds);
+    let duplicateCount = 0;
+    for (const submission of collected.submissions) {
+      if (submissions.has(submission.courseWorkId)) {
+        rejectedCourseWorkIds.add(submission.courseWorkId);
+        duplicateCount += 1;
+      } else {
+        submissions.set(submission.courseWorkId, submission);
+      }
+    }
+    const knownWork = new Set(work.map((item) => item.id));
+    const rejectedCount = collected.rejectedCount
+      + duplicateCount
+      + collected.submissions.filter((submission) => !knownWork.has(submission.courseWorkId)).length;
+    const items = work.filter((item) => !rejectedCourseWorkIds.has(item.id)).map((item): RawSchoolProgressItem => {
+      const submission = submissions.get(item.id) ?? null;
+      return Object.freeze({
+        externalId: `${course.id}:${item.id}`,
+        course: course.name,
+        title: item.title,
+        dueAt: classroomDueInstant(item, this.#dueOptions),
+        maximumPoints: item.maximumPoints,
+        submission: submission === null ? null : Object.freeze({
+          externalId: submission.id,
+          state: submission.state,
+          late: submission.late,
+          sourceUpdatedAt: submission.updateTime,
+        }),
+        assignedPoints: submission?.assignedGrade ?? null,
+      });
+    });
+    const ordered = [...items].sort((left, right) => left.externalId.localeCompare(right.externalId));
+    const nextIndex = afterExternalId === null
+      ? 0
+      : ordered.findIndex((item) => item.externalId.localeCompare(afterExternalId) > 0);
+    const start = nextIndex === -1 ? ordered.length : nextIndex;
+    const selected = ordered.slice(start, start + SCHOOL_PROGRESS_ITEMS_PER_SWEEP);
+    const complete = start + selected.length >= ordered.length;
+    return Object.freeze({
+      items: Object.freeze(selected),
+      rejectedCount,
+      checkpointExternalId: complete ? null : selected.at(-1)?.externalId ?? afterExternalId,
+    });
   }
 
   async *#pages(path: string, query: Record<string, string>, field: string): AsyncGenerator<readonly unknown[]> {

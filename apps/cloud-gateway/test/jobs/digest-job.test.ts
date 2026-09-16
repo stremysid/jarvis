@@ -154,6 +154,7 @@ function deps(overrides: DigestDependencyOverrides = {}): DigestJobDependencies 
     sources: {
       readCatchupActions: async () => [],
       readApplicationItems: async () => [],
+      readSchoolProgress: async () => ({ grades: [], missingWork: [], sourceState: null }),
       readDeadlines: async () => [],
       readDeadlineSources: async () => [],
       readProjectStatuses: async () => [],
@@ -252,9 +253,55 @@ describe("assembling from every source", () => {
     expect(claimStudyCheckIn).not.toHaveBeenCalled();
     expect(digest.text).not.toContain("Coursework check-in");
   });
+
+  it("adds verified grades and derived no-submission-seen signals to the same digest", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readSchoolProgress: async () => ({
+          grades: [{
+            workItemId: "work-lab", course: "Chemistry", title: "Lab",
+            assignedPoints: 84, maximumPoints: 100, source: "Google Classroom API",
+            observedAt: NOW, sourceUpdatedAt: NOW,
+          }],
+          missingWork: [{
+            workItemId: "work-essay", course: "English", title: "Essay",
+            dueAt: "2026-09-01T20:00:00.000Z", source: "Google Classroom API",
+            checkedAt: NOW, derivedAt: NOW, label: "derived_no_submission_seen",
+          }],
+          sourceState: null,
+        }),
+      },
+    }));
+
+    expect(digest.text.match(/School progress/gu)).toHaveLength(1);
+    expect(digest.text).toContain("Derived — no submission seen");
+    expect(digest.text).toContain("verified: Google Classroom API");
+  });
 });
 
 describe("a source that will not answer", () => {
+  it("reports a durable school-progress health gap without hiding last-known observations", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readSchoolProgress: async () => ({
+          grades: [{
+            workItemId: "work-lab", course: "Chemistry", title: "Lab",
+            assignedPoints: 84, maximumPoints: 100, source: "Google Classroom API",
+            observedAt: NOW, sourceUpdatedAt: NOW,
+          }],
+          missingWork: [],
+          sourceState: {
+            principalId: "principal-a", sourceId: "google-classroom", route: "classroom_api",
+            checkpointCourseId: "course-chem", checkpointWorkItemExternalId: null, lastSuccessAt: NOW,
+            lastFailure: "classroom_rejected", lastFailureAt: NOW,
+          },
+        }),
+      },
+    }));
+
+    expect(digest.text).toContain("grade 84 / 100 points");
+    expect(digest.text).toContain("Google Classroom progress: classroom_rejected");
+  });
   it("keeps last-known deadlines visible while naming a failed Classroom sweep", async () => {
     const digest = await assembleDigest(
       "daily",

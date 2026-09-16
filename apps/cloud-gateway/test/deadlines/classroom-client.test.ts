@@ -227,4 +227,107 @@ describe("ClassroomClient", () => {
     await new ClassroomClient({ accessToken: async () => "t", fetchImplementation }).collectDeadlines();
     expect(calls.every((call) => new URL(call.url).origin === "https://classroom.googleapis.com")).toBe(true);
   });
+
+  it("reads only the owner's verified submission and assigned-grade fields through the existing API route", async () => {
+    const { fetchImplementation, calls } = stubFetch((url) => {
+      if (url.pathname === "/v1/courses/c-chem/courseWork") {
+        return json({ courseWork: [{
+          id: "lab",
+          title: "Acid-base lab",
+          dueDate: { year: 2026, month: 9, day: 15 },
+          dueTime: { hours: 20 },
+          maxPoints: 100,
+          alternateLink: "https://evil.example/ignore",
+        }] });
+      }
+      if (url.pathname === "/v1/courses/c-chem/courseWork/-/studentSubmissions") {
+        return json({ studentSubmissions: [{
+          id: "submission-lab",
+          courseId: "c-chem",
+          courseWorkId: "lab",
+          state: "RETURNED",
+          late: true,
+          assignedGrade: 84.5,
+          draftGrade: 99,
+          updateTime: "2026-09-16T12:55:00Z",
+          alternateLink: "https://evil.example/ignore",
+        }] });
+      }
+      throw new Error(`unrouted ${url.pathname}`);
+    });
+    const client = new ClassroomClient({ accessToken: async () => "t", fetchImplementation, timeZone: "America/Toronto" });
+
+    const result = await client.collectProgressForCourse(
+      { id: "c-chem", name: "SCH4U Chemistry" },
+      new Date("2026-09-16T13:00:00.000Z"),
+    );
+
+    expect(result).toEqual({
+      items: [{
+        externalId: "c-chem:lab",
+        course: "SCH4U Chemistry",
+        title: "Acid-base lab",
+        dueAt: "2026-09-15T20:00:00.000Z",
+        maximumPoints: 100,
+        submission: {
+          externalId: "submission-lab",
+          state: "returned",
+          late: true,
+          sourceUpdatedAt: "2026-09-16T12:55:00.000Z",
+        },
+        assignedPoints: 84.5,
+      }],
+      rejectedCount: 0,
+      checkpointExternalId: null,
+    });
+    const submissionUrl = new URL(calls[1]!.url);
+    expect(submissionUrl.searchParams.get("userId")).toBe("me");
+    expect(calls.every((call) => new URL(call.url).origin === "https://classroom.googleapis.com")).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("draftGrade");
+  });
+
+  it("rejects an unknown stored submission state and leaves the item as no accepted submission signal", async () => {
+    const { fetchImplementation } = stubFetch((url) => {
+      if (url.pathname.endsWith("/courseWork")) {
+        return json({ courseWork: [{ id: "lab", title: "Lab", dueDate: { year: 2026, month: 9, day: 15 } }] });
+      }
+      return json({ studentSubmissions: [{
+        id: "submission-lab", courseId: "c-chem", courseWorkId: "lab", state: "INVENTED_STATE",
+      }] });
+    });
+    const result = await new ClassroomClient({ accessToken: async () => "t", fetchImplementation })
+      .collectProgressForCourse({ id: "c-chem", name: "Chemistry" }, new Date("2026-09-16T13:00:00.000Z"));
+
+    expect(result.rejectedCount).toBe(1);
+    expect(result.items).toEqual([]);
+  });
+
+  it("bounds and resumes one course slice without starving overflow", async () => {
+    const courseWork = Array.from({ length: 50 }, (_, index) => ({
+      id: `work-${index}`,
+      title: `Work ${index}`,
+      dueDate: { year: 2026, month: 9, day: 20 },
+      maxPoints: 10,
+    }));
+    const { fetchImplementation } = stubFetch((url) => url.pathname.endsWith("/courseWork")
+      ? json({ courseWork })
+      : json({ studentSubmissions: [{
+        id: "submission-49", courseId: "c-chem", courseWorkId: "work-49",
+        state: "RETURNED", assignedGrade: 8,
+      }] }));
+    const client = new ClassroomClient({ accessToken: async () => "t", fetchImplementation });
+    const result = await client
+      .collectProgressForCourse({ id: "c-chem", name: "Chemistry" }, new Date("2026-09-16T13:00:00.000Z"));
+
+    expect(result.items).toHaveLength(48);
+    expect(result.checkpointExternalId).toBe(result.items.at(-1)?.externalId);
+    const resumed = await client.collectProgressForCourse(
+      { id: "c-chem", name: "Chemistry" },
+      new Date("2026-09-16T14:00:00.000Z"),
+      result.checkpointExternalId,
+    );
+    expect(resumed.items).toHaveLength(2);
+    expect(resumed.checkpointExternalId).toBeNull();
+    expect(new Set([...result.items, ...resumed.items].map((item) => item.externalId)).size).toBe(50);
+  });
 });

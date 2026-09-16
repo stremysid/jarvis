@@ -70,6 +70,28 @@ export interface DigestStudyCheckIn {
   readonly observedAt: string;
 }
 
+export interface DigestSchoolGrade {
+  readonly workItemId: string;
+  readonly course: string;
+  readonly title: string;
+  readonly assignedPoints: number;
+  readonly maximumPoints: number | null;
+  readonly source: "Google Classroom API";
+  readonly observedAt: string;
+  readonly sourceUpdatedAt: string | null;
+}
+
+export interface DigestDerivedMissingWork {
+  readonly workItemId: string;
+  readonly course: string;
+  readonly title: string;
+  readonly dueAt: string;
+  readonly source: "Google Classroom API";
+  readonly checkedAt: string;
+  readonly derivedAt: string;
+  readonly label: "derived_no_submission_seen";
+}
+
 /**
  * A source that could not be read.
  *
@@ -86,6 +108,8 @@ export interface DigestGap {
 export interface DigestInput {
   readonly catchupActions: readonly DigestCatchupAction[];
   readonly applicationItems: readonly DigestApplicationItem[];
+  readonly schoolGrades: readonly DigestSchoolGrade[];
+  readonly derivedMissingWork: readonly DigestDerivedMissingWork[];
   readonly deadlines: readonly DigestDeadline[];
   readonly projects: readonly DigestProject[];
   readonly decisions: readonly DigestDecision[];

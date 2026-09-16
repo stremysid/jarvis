@@ -49,6 +49,7 @@ describe("remote D1 migration trigger syntax", () => {
       "0023_study_coach.sql",
       "0024_university_application_workflow.sql",
       "0025_archive_literal_history.sql",
+      "0027_school_progress.sql",
     ]);
   });
 

@@ -632,13 +632,43 @@ but the store cannot preserve that the source supplied date-only precision.
 Native date-only display needs a separate schema migration, claiming the next
 number only after another open-PR branch inventory. This PR claims no migration.
 
+## School progress still has Brightspace access and alerting gaps
+
+Migration `0027` adds append-only Classroom submission and assigned-grade
+observations, plus schema-checked transitions whose only overdue wording is
+`derived — no submission seen`. The existing Classroom token is reused through
+the already-configured read-only API route. The code does not request a new
+scope or run a consent flow. If the stored grant lacks
+`classroom.coursework.me.readonly`, the progress checkpoint records a fixed
+failure and deadlines continue to sync, but grades remain unavailable until Sid
+explicitly approves a new consent step.
+
+The approved Brightspace route is still the private iCalendar feed. That feed
+contains calendar items, not authoritative grades or the owner's submission
+state. No Brightspace notification or API connector is invented in this slice.
+Brightspace grades and submission observations therefore remain unavailable
+until Sid approves a specific read-only route and its live provenance is tested.
+
+The progress walk processes at most 48 Classroom work items per hourly run and
+keeps durable course and work-item checkpoints. Large courses resume at the next
+item before the walk advances to another course. Rejected provider rows stay
+visible as a source-health gap. The Classroom HTTP client still caps any single
+Google pagination chain at 25 pages and records a reachable failure if Google
+never terminates it.
+
+Grades and new `no submission seen` transitions appear in the existing morning
+digest. The plan's separate same-day lower-grade/new-transition alert is not in
+this slice because no reviewed alert threshold or deduplicated delivery receipt
+exists yet. Adding one without those controls risks repeated high-stress alerts.
+
 ## Only an explicit calendar cancellation moves a deadline out of `open`
 
 Brightspace `STATUS:CANCELLED` and `STATUS:COMPLETED` now close the matching
-source deadline as `cancelled`. Nothing marks a deadline `submitted` or
-`missed`, and a deadline that merely passes stays `open` forever. The
-grade/missing-work watch described in the plan is what closes those states,
-and it needs separately approved Classroom and Brightspace grade connectors.
+source deadline as `cancelled`. The progress store does not rewrite this older
+deadline status: a deadline that merely passes stays `open`, while `0027`
+separately derives and labels `no submission seen` from due time plus the latest
+accepted Classroom submission observation. Brightspace cannot participate until
+an approved grade/submission route exists.
 
 A completed Brightspace `VTODO` is therefore stored with the same `cancelled`
 status as a teacher-cancelled item. That is correct for stopping deadline

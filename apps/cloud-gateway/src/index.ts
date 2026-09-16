@@ -47,6 +47,7 @@ import { TelegramRestProvider } from "./providers/telegram-provider.js";
 import { Redactor } from "./security/redaction.js";
 import { SchoolCatchupModelAdapter } from "./school/school-catchup-model.js";
 import { SchoolCatchupRepository } from "./school/school-catchup-repository.js";
+import { SchoolProgressRepository } from "./school/school-progress-repository.js";
 import { StudyCoachModelAdapter } from "./school/study-coach-model.js";
 import { StudyCoachRepository } from "./school/study-coach-repository.js";
 import { UniversityTrackerRepository } from "./university/university-tracker-repository.js";
@@ -250,6 +251,7 @@ function commandContext(env: Env, principalId: string): CommandContext {
             new SchoolCatchupRepository(env.DB).listActionsForDate(principalId, date),
           readApplicationItems: async () =>
             new UniversityTrackerRepository(env.DB).listApplicationItemsByDueDate(principalId),
+          readSchoolProgress: async () => new SchoolProgressRepository(env.DB).readDigest(principalId),
           claimStudyCheckIn: async (date, weekday, minuteOfDay) => {
             const study = new StudyCoachRepository(env.DB);
             const now = clock.now();

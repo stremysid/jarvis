@@ -29,7 +29,10 @@ function daily(zone = TORONTO): ComposeOptions {
 }
 
 function empty(): DigestInput {
-  return { catchupActions: [], applicationItems: [], deadlines: [], projects: [], decisions: [], gaps: [] };
+  return {
+    catchupActions: [], applicationItems: [], schoolGrades: [], derivedMissingWork: [],
+    deadlines: [], projects: [], decisions: [], gaps: [],
+  };
 }
 
 function project(overrides: Partial<DigestProject> = {}): DigestProject {
@@ -285,6 +288,57 @@ describe("today's school catch-up", () => {
     expect(digest.truncated).toBe(true);
     expect(digest.text).toContain("Teacher-set final assignment");
     expect(digest.sections.some((section) => section.heading === "Due")).toBe(true);
+  });
+});
+
+describe("verified grades and derived missing-work signals", () => {
+  it("labels no-submission-seen as derived and never upgrades it into a missed-work fact", () => {
+    const digest = compose({
+      ...empty(),
+      derivedMissingWork: [{
+        workItemId: "work-lab",
+        course: "SCH4U Chemistry",
+        title: "Acid-base lab",
+        dueAt: "2026-09-15T20:00:00.000Z",
+        source: "Google Classroom API",
+        checkedAt: "2026-09-16T12:00:00.000Z",
+        derivedAt: "2026-09-16T12:00:00.000Z",
+        label: "derived_no_submission_seen",
+      }],
+    }, daily(), clockAt("2026-09-16T12:00:00.000Z"));
+
+    expect(digest.text).toContain("Derived — no submission seen");
+    expect(digest.text).toContain("Google Classroom API checked 2026-09-16T12:00:00.000Z");
+    expect(digest.text).not.toMatch(/you missed|was missed|missing assignment/iu);
+  });
+
+  it("shows only source-supplied grade fields with verified source and freshness", () => {
+    const digest = compose({
+      ...empty(),
+      schoolGrades: [{
+        workItemId: "work-lab",
+        course: "SCH4U Chemistry",
+        title: "Acid-base lab",
+        assignedPoints: 84.5,
+        maximumPoints: 100,
+        source: "Google Classroom API",
+        observedAt: "2026-09-16T13:00:00.000Z",
+        sourceUpdatedAt: "2026-09-16T12:55:00.000Z",
+      }, {
+        workItemId: "work-reflection",
+        course: "SCH4U Chemistry",
+        title: "Reflection",
+        assignedPoints: 7,
+        maximumPoints: null,
+        source: "Google Classroom API",
+        observedAt: "2026-09-16T12:30:00.000Z",
+        sourceUpdatedAt: null,
+      }],
+    }, daily(), clockAt("2026-09-16T13:00:00.000Z"));
+
+    expect(digest.text).toContain("grade 84.5 / 100 points (verified: Google Classroom API; checked 2026-09-16T13:00:00.000Z");
+    expect(digest.text).toContain("grade 7 points; maximum not supplied");
+    expect(digest.text).not.toContain("%");
   });
 });
 

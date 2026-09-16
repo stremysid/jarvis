@@ -28,6 +28,7 @@ import type { DecisionItem } from "../decisions/decision-types.js";
 import type { SchoolCatchupAction } from "../school/school-catchup-types.js";
 import type { UniversityApplicationDigestItem } from "../university/university-tracker-types.js";
 import type { StudyCheckIn } from "../school/study-coach-types.js";
+import type { SchoolProgressDigestSnapshot } from "../school/school-progress-types.js";
 import { assessStaleness, type ProjectStalenessReport } from "../projects/stalled-detector.js";
 import { documentAt, type ProjectStatus } from "../projects/project-types.js";
 
@@ -39,6 +40,7 @@ const DEADLINE_SOURCE_STALE_AFTER_MS = 3 * 60 * 60 * 1_000;
 export interface DigestSources {
   readCatchupActions(localDate: string): Promise<readonly SchoolCatchupAction[]>;
   readApplicationItems(): Promise<readonly UniversityApplicationDigestItem[]>;
+  readSchoolProgress(): Promise<SchoolProgressDigestSnapshot>;
   readDeadlines(withinDays: number): Promise<readonly Deadline[]>;
   readDeadlineSources(): Promise<readonly DeadlineSource[]>;
   readProjectStatuses(): Promise<readonly ProjectStatus[]>;
@@ -137,6 +139,35 @@ async function readOr<T>(
 
 function missingStudyCoachTable(error: unknown): boolean {
   return /no such table:\s*school_(?:study|practice)_/iu.test(describe(error));
+}
+
+function schoolProgressGap(
+  source: SchoolProgressDigestSnapshot["sourceState"],
+  observedAt: Date,
+): string | null {
+  if (source === null) return null;
+  if (source.lastFailure !== null) return source.lastFailure;
+  if (source.lastSuccessAt === null) return "has never synced";
+  const lastSuccess = Date.parse(source.lastSuccessAt);
+  const age = observedAt.getTime() - lastSuccess;
+  if (!Number.isFinite(lastSuccess) || age < 0) return "last successful sync time is unreadable";
+  return age > DEADLINE_SOURCE_STALE_AFTER_MS ? "last successful sync is stale" : null;
+}
+
+function missingSchoolProgressTable(error: unknown): boolean {
+  return /no such table:\s*school_(?:progress|submission|grade|missing_work)_/iu.test(describe(error));
+}
+
+async function readSchoolProgressOr(
+  read: () => Promise<SchoolProgressDigestSnapshot>,
+  gaps: DigestGap[],
+): Promise<SchoolProgressDigestSnapshot> {
+  try {
+    return await read();
+  } catch (error) {
+    if (!missingSchoolProgressTable(error)) gaps.push({ source: "School progress", detail: describe(error) });
+    return Object.freeze({ grades: [], missingWork: [], sourceState: null });
+  }
 }
 
 async function readStudyCheckInOr(
@@ -238,9 +269,10 @@ export async function assembleDigest(
   // whether the others are broken too.
   const today = localDate(observedAt, dependencies.timeZone);
   const schedule = localSchedule(observedAt, dependencies.timeZone);
-  const [catchupActions, applicationItems, deadlines, deadlineSources, projects, decisions, studyCheckIn] = await Promise.all([
+  const [catchupActions, applicationItems, schoolProgress, deadlines, deadlineSources, projects, decisions, studyCheckIn] = await Promise.all([
     readOr("School catch-up", () => dependencies.sources.readCatchupActions(today), gaps),
     readOr("University applications", () => dependencies.sources.readApplicationItems(), gaps),
+    readSchoolProgressOr(() => dependencies.sources.readSchoolProgress(), gaps),
     readOr("Deadlines", () => dependencies.sources.readDeadlines(DEADLINE_HORIZON_DAYS), gaps),
     readOr("Deadline source health", () => dependencies.sources.readDeadlineSources(), gaps),
     readOr("Projects", () => dependencies.sources.readProjectStatuses(), gaps),
@@ -251,6 +283,9 @@ export async function assembleDigest(
         today, schedule.weekday, schedule.minuteOfDay,
       ), gaps),
   ]);
+
+  const progressGap = schoolProgressGap(schoolProgress.sourceState, observedAt);
+  if (progressGap !== null) gaps.push({ source: "Google Classroom progress", detail: progressGap });
 
   const unconfigured = new Set(dependencies.unconfiguredDeadlineSourceKinds ?? []);
   for (const kind of unconfigured) {
@@ -308,6 +343,8 @@ export async function assembleDigest(
       dueDate: item.dueDate,
       verificationState: item.verification.state,
     })),
+    schoolGrades: schoolProgress.grades,
+    derivedMissingWork: schoolProgress.missingWork,
     deadlines: deadlines.map(toDigestDeadline),
     projects: projects.map((status) => toDigestProject(status, reports.get(status.project.projectId))),
     decisions: decisions.map((item) => ({

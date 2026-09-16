@@ -27,6 +27,7 @@ import { ProjectRepository } from "../projects/project-repository.js";
 import { TelegramRestProvider } from "../providers/telegram-provider.js";
 import { ScheduledRunRepository } from "../scheduler/scheduled-run-repository.js";
 import { SchoolCatchupRepository } from "../school/school-catchup-repository.js";
+import { SchoolProgressRepository } from "../school/school-progress-repository.js";
 import { UniversityTrackerRepository } from "../university/university-tracker-repository.js";
 import { StudyCoachRepository } from "../school/study-coach-repository.js";
 import type { JobOutcome, JobTable } from "../scheduler/scheduled-handler.js";
@@ -80,6 +81,71 @@ function classroomFailure(error: unknown): string {
   return "classroom_ingestion_failed";
 }
 
+function classroomProgressFailure(error: unknown): string {
+  if (error instanceof ClassroomRequestError) return error.message;
+  return "school_progress_sync_failed";
+}
+
+function missingSchoolProgressTable(error: unknown): boolean {
+  return /no such table:\s*school_(?:progress|submission|grade|missing_work)_/iu.test(describe(error));
+}
+
+async function pollClassroomProgress(
+  context: JobEnvironment,
+  client: ClassroomClient,
+  courses: readonly { readonly id: string; readonly name: string }[],
+): Promise<string> {
+  const principalId = context.env.OWNER_PRINCIPAL_ID;
+  if (principalId === undefined) return "Classroom progress owner not configured";
+  const repository = new SchoolProgressRepository(context.env.DB);
+  try {
+    const observedAt = new Date(context.clock.now().getTime());
+    const source = await repository.readSourceState(principalId, observedAt);
+    const ordered = [...courses].sort((left, right) => left.id.localeCompare(right.id));
+    const resumingCourse = source.checkpointWorkItemExternalId === null
+      ? null
+      : ordered.find((course) => course.id === source.checkpointCourseId) ?? null;
+    const selected = resumingCourse
+      ?? ordered.find((course) => source.checkpointCourseId === null
+        || course.id.localeCompare(source.checkpointCourseId) > 0)
+      ?? ordered[0]
+      ?? null;
+    if (selected === null) {
+      await repository.ingestClassroomCourse({
+        principalId,
+        sourceId: CLASSROOM_SOURCE_ID,
+        items: [],
+        checkpointCourseId: null,
+        checkpointWorkItemExternalId: null,
+        healthGap: null,
+        now: observedAt,
+      });
+      return "Classroom progress synced";
+    }
+    const collected = await client.collectProgressForCourse(
+      selected,
+      observedAt,
+      resumingCourse === null ? null : source.checkpointWorkItemExternalId,
+    );
+    const healthGap = collected.rejectedCount > 0 ? "classroom_progress_items_rejected" as const : null;
+    await repository.ingestClassroomCourse({
+      principalId,
+      sourceId: CLASSROOM_SOURCE_ID,
+      items: collected.items,
+      checkpointCourseId: selected.id,
+      checkpointWorkItemExternalId: collected.checkpointExternalId,
+      healthGap,
+      now: observedAt,
+    });
+    return healthGap === null ? "Classroom progress synced" : `Classroom progress partial (${healthGap})`;
+  } catch (error) {
+    if (missingSchoolProgressTable(error)) return "Classroom progress schema not applied";
+    const failure = classroomProgressFailure(error);
+    try { await repository.recordFailure(principalId, failure, context.clock.now()); } catch { /* The fixed job detail remains. */ }
+    return `Classroom progress failed (${failure})`;
+  }
+}
+
 async function pollClassroom(context: JobEnvironment): Promise<string> {
   const credentials = [
     context.env.GOOGLE_CLIENT_ID,
@@ -129,12 +195,14 @@ async function pollClassroom(context: JobEnvironment): Promise<string> {
       // date-only assignment into the end of the owner's local school day.
       timeZone: context.env.DIGEST_TIMEZONE ?? "America/Toronto",
     });
+    const courses = await client.listCourses();
     const report = await ingestion.ingest(source.sourceId, {
       kind: "items",
-      items: await client.collectDeadlines(),
+      items: await client.collectDeadlines(courses),
     });
     const seen = report.created.length + report.moved.length + report.unchanged;
-    return `Classroom ${seen} seen, ${report.rejected.length} rejected, ${report.disappeared.length} absent`;
+    const progress = await pollClassroomProgress(context, client, courses);
+    return `Classroom ${seen} seen, ${report.rejected.length} rejected, ${report.disappeared.length} absent; ${progress}`;
   } catch (error) {
     const failure = classroomFailure(error);
     await ingestion.ingest(source.sourceId, { kind: "failed", reason: failure });
@@ -436,6 +504,7 @@ async function digest(
     now: () => context.clock.now(),
   });
   const school = new SchoolCatchupRepository(context.env.DB);
+  const progress = new SchoolProgressRepository(context.env.DB);
   const university = new UniversityTrackerRepository(context.env.DB);
   const study = new StudyCoachRepository(context.env.DB);
   const timeZone = context.env.DIGEST_TIMEZONE ?? "America/Toronto";
@@ -444,6 +513,7 @@ async function digest(
     sources: {
       readCatchupActions: async (date) => school.listActionsForDate(principalId, date),
       readApplicationItems: async () => university.listApplicationItemsByDueDate(principalId),
+      readSchoolProgress: async () => progress.readDigest(principalId),
       claimStudyCheckIn: async (date, weekday, minuteOfDay) => {
         const now = context.clock.now();
         return study.syncAndClaimDigestCheckIn({ principalId, today: date, weekday, minuteOfDay, now });
