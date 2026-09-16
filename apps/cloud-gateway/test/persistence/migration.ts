@@ -25,6 +25,7 @@ import universityTrackerSql from "../../src/persistence/migrations/0022_universi
 import studyCoachSql from "../../src/persistence/migrations/0023_study_coach.sql?raw";
 import universityApplicationWorkflowSql from "../../src/persistence/migrations/0024_university_application_workflow.sql?raw";
 import archiveLiteralHistorySql from "../../src/persistence/migrations/0025_archive_literal_history.sql?raw";
+import schoolObservationsSql from "../../src/persistence/migrations/0027_school_observations.sql?raw";
 import guestGrantNoticeDrainSql from "../../src/persistence/migrations/0028_guest_grant_notice_drain.sql?raw";
 
 let migrated: Promise<void> | undefined;
@@ -39,6 +40,7 @@ let universityTrackerMigrated: Promise<void> | undefined;
 let studyCoachMigrated: Promise<void> | undefined;
 let universityApplicationWorkflowMigrated: Promise<void> | undefined;
 let archiveLiteralHistoryMigrated: Promise<void> | undefined;
+let schoolObservationsMigrated: Promise<void> | undefined;
 let guestGrantNoticeDrainMigrated: Promise<void> | undefined;
 
 export { splitMigration };
@@ -184,6 +186,16 @@ export async function applyArchiveLiteralHistoryMigration(): Promise<void> {
     { name: "0025_archive_literal_history.sql", queries: splitMigration(archiveLiteralHistorySql) },
   ]);
   await archiveLiteralHistoryMigrated;
+}
+
+/** Applies verified school observations and derived missing-work transitions. */
+export async function applySchoolObservationsMigration(): Promise<void> {
+  await applyStudyCoachMigration();
+  await applyArchiveLiteralHistoryMigration();
+  schoolObservationsMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0027_school_observations.sql", queries: splitMigration(schoolObservationsSql) },
+  ]);
+  await schoolObservationsMigrated;
 }
 
 /** Applies fair, resumable guest-notice drain state after the delivery outbox. */

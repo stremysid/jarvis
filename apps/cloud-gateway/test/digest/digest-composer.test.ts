@@ -29,7 +29,10 @@ function daily(zone = TORONTO): ComposeOptions {
 }
 
 function empty(): DigestInput {
-  return { catchupActions: [], applicationItems: [], deadlines: [], projects: [], decisions: [], gaps: [] };
+  return {
+    catchupActions: [], applicationItems: [], deadlines: [], grades: [], missingWork: [], missingWorkOmitted: 0,
+    projects: [], decisions: [], gaps: [],
+  };
 }
 
 function project(overrides: Partial<DigestProject> = {}): DigestProject {
@@ -285,6 +288,74 @@ describe("today's school catch-up", () => {
     expect(digest.truncated).toBe(true);
     expect(digest.text).toContain("Teacher-set final assignment");
     expect(digest.sections.some((section) => section.heading === "Due")).toBe(true);
+  });
+});
+
+describe("verified grades and derived submission checks", () => {
+  it("shows an assigned grade only with its verified source and freshness", () => {
+    const digest = compose({
+      ...empty(),
+      grades: [{
+        observationId: "observation-a",
+        course: "Calculus",
+        title: "Limits quiz",
+        assignedGrade: 83.5,
+        source: "Google Classroom",
+        lastSeenAt: "2026-09-02T10:00:00.000Z",
+      }],
+    }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
+
+    expect(digest.text).toContain("[verified: Google Classroom; checked 2026-09-02 06:00 local]");
+    expect(digest.text).toContain("assigned grade 83.5");
+    expect(digest.text).toContain("scale and weight not supplied");
+    expect(digest.text).not.toContain("83.5%");
+  });
+
+  it("labels an absent submission signal as derived no submission seen and never as a factual miss", () => {
+    const digest = compose({
+      ...empty(),
+      missingWork: [{
+        transitionId: "transition-a",
+        course: "Chemistry",
+        title: "Lab reflection",
+        dueAt: "2026-09-02T03:59:59.999Z",
+        classification: "derived",
+        state: "no_submission_seen",
+        source: "Google Classroom",
+        lastSeenAt: "2026-09-02T04:30:00.000Z",
+      }],
+    }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
+
+    expect(digest.text).toContain("[derived: Google Classroom showed no submission as of 2026-09-02 00:30 local]");
+    expect(digest.text).toContain("deadline passed 2026-09-01 23:59 local");
+    expect(digest.text).not.toContain("2026-09-02T03:59:59.999Z");
+    expect(digest.text).not.toMatch(/you missed|missed assignment|confirmed missing/iu);
+  });
+
+  it("makes the bounded missing-work remainder visible", () => {
+    const digest = compose({
+      ...empty(),
+      missingWorkOmitted: 45,
+    }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
+
+    expect(digest.text).toContain("Grades and submission checks\n+45 more");
+  });
+
+  it("keeps due work ahead of grade and submission observations", () => {
+    const digest = compose({
+      ...empty(),
+      deadlines: [{
+        deadlineId: "deadline-a", course: "Calculus", title: "Quiz 3",
+        dueAt: "2026-09-02T18:00:00.000Z", effort: "quiz",
+      }],
+      grades: [{
+        observationId: "observation-a", course: "Calculus", title: "Quiz 2",
+        assignedGrade: 80, source: "Google Classroom", lastSeenAt: "2026-09-02T10:00:00.000Z",
+      }],
+    }, daily(), clockAt("2026-09-02T11:30:00.000Z"));
+    expect(digest.sections.findIndex((section) => section.heading === "Due")).toBeLessThan(
+      digest.sections.findIndex((section) => section.heading === "Grades and submission checks"),
+    );
   });
 });
 
