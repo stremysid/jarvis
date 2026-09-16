@@ -175,6 +175,7 @@ function readyResponse(): string {
       statusEvidence: "I finished my Waterloo AIF draft",
       dueDate: null,
     }],
+    workflowUpdates: [],
   });
 }
 
@@ -219,7 +220,7 @@ describe("university application conversation model", () => {
     });
 
     await expect(collect(adapter.stream(input(principalId, "I finished my Waterloo AIF draft"))))
-      .resolves.toContain("due date is still unverified");
+      .resolves.toBe("Saved: University of Waterloo Computer Science Waterloo AIF — ready.");
     expect(model.requests[0]?.userText).toContain("applicationUpdates");
     expect(model.requests[0]?.userText).toContain("university_state_json=");
     expect(applyOwnerPlan).toHaveBeenCalledWith(expect.objectContaining({
@@ -450,6 +451,21 @@ describe("university application conversation model", () => {
   });
 
   it.each([
+    "My counsellor told Ms. Lee I submitted the Western essay.",
+    "The school told Mr. Chen I submitted the Western essay.",
+    "My counsellor told Mrs. Lee I submitted the Western essay.",
+    "The school told St. Clair I submitted the Western essay.",
+  ])("refuses reported submission across a masked title abbreviation: %s", (text) => {
+    expect(() => parseStatus(
+      roundTwoSnapshot("principal:titled-reported-submission"),
+      text,
+      WESTERN_ESSAY,
+      WESTERN_PROGRAM,
+      "submitted_by_sid",
+    )).toThrow("university_application_model_item_invalid");
+  });
+
+  it.each([
     "My parents and I submitted the Western essay.",
     "My sister and I submitted the Western essay.",
     "My guidance counselor and I submitted the Western essay.",
@@ -481,6 +497,23 @@ describe("university application conversation model", () => {
     const text = "I submitted my Waterloo AIF and started the Western essay.";
     expect(parseStatus(roundTwoSnapshot("principal:round-two-positive"), text, ITEM, PROGRAM, "submitted_by_sid"))
       .toMatchObject({ applicationUpdates: [{ itemRef: ITEM, status: "submitted_by_sid" }] });
+  });
+
+  it.each([
+    ["I submitted the Western essay with no issues.", "submitted_by_sid"],
+    ["I submitted the Western essay like Ms Lee told me to.", "submitted_by_sid"],
+    ["I texted Mom right after I submitted the Western essay.", "submitted_by_sid"],
+    ["I emailed Ms Lee and then I submitted the Western essay.", "submitted_by_sid"],
+    ["I'm no longer applying to Western so skip the Western essay.", "not_needed_by_sid"],
+    ["I finished the Western essay with no more edits to make.", "ready"],
+  ] as const)("keeps PR 52 checklist evidence at least as permissive as main: %s", (text, status) => {
+    expect(parseStatus(
+      roundTwoSnapshot("principal:pr52-checklist-regression"),
+      text,
+      WESTERN_ESSAY,
+      WESTERN_PROGRAM,
+      status,
+    )).toMatchObject({ applicationUpdates: [{ itemRef: WESTERN_ESSAY, status }] });
   });
 
   it.each([
@@ -1257,7 +1290,7 @@ describe("university application conversation model", () => {
       schoolEngaged: false,
       universityEngaged: false,
       reply: "Still here.",
-      courseUpdates: [], completeActionIds: [], plan: [], programUpdates: [], applicationUpdates: [],
+      courseUpdates: [], completeActionIds: [], plan: [], programUpdates: [], applicationUpdates: [], workflowUpdates: [],
     })]);
     const adapter = new SchoolCatchupModelAdapter({
       model,
@@ -1343,7 +1376,7 @@ describe("university application conversation model", () => {
       schoolEngaged: false,
       universityEngaged: false,
       reply: "Still structured and named.",
-      courseUpdates: [], completeActionIds: [], plan: [], programUpdates: [], applicationUpdates: [],
+      courseUpdates: [], completeActionIds: [], plan: [], programUpdates: [], applicationUpdates: [], workflowUpdates: [],
     })]);
     const adapter = new SchoolCatchupModelAdapter({
       model,
@@ -1433,7 +1466,7 @@ describe("university application conversation model", () => {
       schoolEngaged: false,
       universityEngaged: false,
       reply: "Still structured.",
-      courseUpdates: [], completeActionIds: [], plan: [], programUpdates: [], applicationUpdates: [],
+      courseUpdates: [], completeActionIds: [], plan: [], programUpdates: [], applicationUpdates: [], workflowUpdates: [],
     })]);
     const adapter = new SchoolCatchupModelAdapter({
       model,
@@ -1455,5 +1488,81 @@ describe("university application conversation model", () => {
     expect(new TextEncoder().encode(prompt).byteLength).toBeLessThanOrEqual(48_000);
     expect(prompt).not.toContain("d".repeat(200));
     for (const itemId of itemIds) expect(prompt).toContain(itemId);
+  });
+
+  it("lets an ordinary turn pass with a warning when a cap-valid workflow tracker exceeds the prompt budget", async () => {
+    const principalId = "principal:application-model-overflow-escape";
+    let sequence = 0;
+    const programs = Array.from({ length: 16 }, (_, programIndex) => {
+      const programId = newUlid(new Date(NOW.getTime() + sequence++));
+      const applicationItems = Array.from({ length: 8 }, (_, itemIndex) => ({
+        itemId: newUlid(new Date(NOW.getTime() + sequence++)),
+        kind: "essay" as const,
+        label: `Application item ${programIndex}-${itemIndex}`.padEnd(120, "x"),
+        status: "drafting" as const,
+        dueDate: "2027-02-01",
+        verification: { state: "unverified" as const, sourceUrl: null, cycle: null, verifiedAt: null },
+        sourceTurnId: TURN,
+        submittedAt: null,
+        updatedAt: NOW.toISOString(),
+      }));
+      return {
+        programId,
+        university: `University ${programIndex}`,
+        campus: null,
+        programName: `Program ${programIndex}`,
+        ouacCode: null,
+        verification: { state: "unverified" as const, sourceUrl: null, cycle: null, verifiedAt: null },
+        requirements: Array.from({ length: 8 }, (_, itemIndex) => ({
+          itemId: newUlid(new Date(NOW.getTime() + sequence++)),
+          kind: "requirement" as const,
+          label: `Requirement ${programIndex}-${itemIndex}`.padEnd(120, "r"),
+          detail: "Owner-reported requirement.",
+          date: null,
+          verification: { state: "unverified" as const, sourceUrl: null, cycle: null, verifiedAt: null },
+        })),
+        dates: [],
+        applicationItems,
+        workflowItems: applicationItems.map((application, itemIndex) => ({
+          workflowId: newUlid(new Date(NOW.getTime() + sequence++)),
+          eventId: newUlid(new Date(NOW.getTime() + sequence++)),
+          revision: 1,
+          applicationItemId: application.itemId,
+          kind: "contact_step" as const,
+          label: `University ${programIndex} step ${itemIndex}`.padEnd(120, "w"),
+          owner: "sid" as const,
+          status: "prepared" as const,
+          preparedDetails: null,
+          executionBoundary: "owner_only" as const,
+          deadline: { date: null, instant: null, timeZone: null,
+            verification: { state: "unverified" as const, sourceUrl: null, cycle: null, verifiedAt: null } },
+          sourceTurnId: TURN,
+          updatedAt: NOW.toISOString(),
+        })),
+      };
+    });
+    const ordinaryModel = new SequenceModel(["Ordinary answer."]);
+    const adapter = new SchoolCatchupModelAdapter({
+      model: ordinaryModel,
+      repository: { readSnapshot: async () => schoolSnapshot(principalId), applyOwnerPlan: async () => undefined },
+      universityRepository: { readSnapshot: async () => ({ principalId, programs }), applyOwnerPlan: async () => undefined },
+      redactor: new Redactor(), timeZone: "America/Toronto", now: () => NOW, ownerPrincipalId: principalId,
+    });
+
+    await expect(collect(adapter.stream(input(principalId, "ok")))).resolves.toBe(
+      "Ordinary answer.\n\nYour school and university tracker is too large for one safe update. I didn't save anything from this message; name one course, school, program, or application item and try again.",
+    );
+    expect(ordinaryModel.requests).toHaveLength(1);
+
+    const trackerModel = new SequenceModel(["must not run"]);
+    const trackerAdapter = new SchoolCatchupModelAdapter({
+      model: trackerModel,
+      repository: { readSnapshot: async () => schoolSnapshot(principalId), applyOwnerPlan: async () => undefined },
+      universityRepository: { readSnapshot: async () => ({ principalId, programs }), applyOwnerPlan: async () => undefined },
+      redactor: new Redactor(), timeZone: "America/Toronto", now: () => NOW, ownerPrincipalId: principalId,
+    });
+    await expect(collect(trackerAdapter.stream(input(principalId, "Mark every University 3 step not needed."))))
+      .resolves.toContain("tracker is too large");
+    expect(trackerModel.requests).toEqual([]);
   });
 });

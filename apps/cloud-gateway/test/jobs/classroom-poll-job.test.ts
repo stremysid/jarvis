@@ -10,7 +10,9 @@ import { ProjectPoller } from "../../src/projects/project-poller.js";
 import { resetArchiveFixture } from "../archive/archive-fixture.js";
 import { resetDeadlineTables } from "../deadlines/deadline-fixture.js";
 import {
+  applyStudyCoachMigration,
   applyStudyCoachWeakSpotsMigration,
+  applyUniversityApplicationDetailsMigration,
   applyUniversityApplicationWorkflowMigration,
 } from "../persistence/migration.js";
 
@@ -56,7 +58,9 @@ describe("hourly Classroom ingestion", () => {
   beforeEach(async () => {
     await resetArchiveFixture();
     await resetDeadlineTables();
+    await applyStudyCoachMigration();
     await applyUniversityApplicationWorkflowMigration();
+    await applyUniversityApplicationDetailsMigration();
     await applyStudyCoachWeakSpotsMigration();
   });
   afterEach(async () => {
