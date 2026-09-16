@@ -109,11 +109,12 @@ fails, and then wraps. For a fixed pending set, a permanently undeliverable
 old row therefore cannot keep a newer row outside every batch. An abandoned
 run has a four-minute lease, moves durably from `running` to `failed` on the
 next tick, and resumes on the following tick. The repeated step has a declared
-ceiling of 95 D1 statements for ten notices. There is deliberately still no
-retry limit or dead-letter transition: silently terminalizing a notice would
-violate the no-loss property. Adding quarantine requires Sid to choose an
-owner-visible recovery and requeue policy; until then, a poison notice remains
-pending and is retried once per queue rotation.
+ceiling of 95 D1 statements for ten notices. There is deliberately no retry
+limit, dead-letter transition, or terminalization: silently terminalizing a
+notice would violate the no-loss property. The decided policy keeps every
+poison notice pending and retries it once per queue rotation. A later slice
+will surface any notice still undelivered after 24 hours as one line in the
+morning digest.
 
 Owner-call rejection completion retains a separate multi-effect window. The
 durable rejection precedes the refusal, end-frame attempt and owner alert, but
