@@ -276,6 +276,13 @@ interface SuppressedSourceRow {
   readonly source_id: unknown;
 }
 
+interface VisibilityRow {
+  readonly item_id: unknown;
+  readonly current_version_id: unknown;
+  readonly retrievable: unknown;
+  readonly creation_event_suppressed: unknown;
+}
+
 interface AcceptedOwnerTurn {
   readonly text: string;
   readonly suppressed: boolean;
@@ -864,18 +871,40 @@ export class MemoryRepository {
   async readItemVisibility(
     principalIdInput: string,
     itemIdInput: Ulid,
-  ): Promise<Readonly<{ retrievable: boolean; suppressedSourceIds: readonly Ulid[] }>> {
+  ): Promise<Readonly<{
+    retrievable: boolean;
+    creationEventSuppressed: boolean;
+    suppressedSourceIds: readonly Ulid[];
+  }>> {
     return this.safely(async () => {
       const principalId = safeInputText(principalIdInput, 256);
       const itemId = inputUlid(itemIdInput);
-      const item = await this.readCurrentItemInternal(principalId, itemId);
-      const [retrievable, suppressed] = await Promise.all([
-        this.database.prepare(`SELECT 1 AS count FROM memory_retrievable_item_versions
-          WHERE principal_id = ? AND item_id = ? AND version_id = ? LIMIT 1`)
-          .bind(principalId, itemId, item.version.versionId).first<CountRow>(),
+      const [visibility, suppressed] = await Promise.all([
+        this.database.prepare(`SELECT item.item_id, state.current_version_id,
+            EXISTS (
+              SELECT 1 FROM memory_retrievable_item_versions retrievable
+              WHERE retrievable.principal_id = item.principal_id
+                AND retrievable.item_id = item.item_id
+                AND retrievable.version_id = state.current_version_id
+            ) AS retrievable,
+            EXISTS (
+              SELECT 1 FROM memory_active_event_suppressions suppression
+              WHERE suppression.principal_id = item.principal_id
+                AND (suppression.target_event_id = item.creation_event_id
+                  OR item.creation_event_sequence BETWEEN suppression.start_event_sequence
+                    AND suppression.end_event_sequence)
+            ) AS creation_event_suppressed
+          FROM memory_items item
+          LEFT JOIN memory_item_state state
+            ON state.principal_id = item.principal_id AND state.item_id = item.item_id
+          WHERE item.principal_id = ? AND item.item_id = ?`)
+          .bind(principalId, itemId).first<VisibilityRow>(),
         this.database.prepare(`SELECT source.source_id
           FROM memory_item_sources source
-          WHERE source.principal_id = ? AND source.item_id = ? AND source.version_id = ?
+          JOIN memory_item_state state
+            ON state.principal_id = source.principal_id AND state.item_id = source.item_id
+            AND state.current_version_id = source.version_id
+          WHERE source.principal_id = ? AND source.item_id = ?
             AND EXISTS (
               SELECT 1 FROM memory_active_event_suppressions suppression
               WHERE suppression.principal_id = source.principal_id
@@ -886,21 +915,24 @@ export class MemoryRepository {
                 )
             )
           ORDER BY source.source_position`)
-          .bind(principalId, itemId, item.version.versionId).all<SuppressedSourceRow>(),
+          .bind(principalId, itemId).all<SuppressedSourceRow>(),
       ]);
-      if (retrievable !== null) {
-        exactRow(retrievable, new Set(["count"]));
-        if (rowInteger(retrievable.count, 1, 1) !== 1) corrupt();
-      }
+      if (visibility === null) throw new MemoryRepositoryError("memory_not_found");
+      exactRow(visibility, new Set([
+        "item_id", "current_version_id", "retrievable", "creation_event_suppressed",
+      ]));
+      if (rowUlid(visibility.item_id) !== itemId) corrupt();
+      rowUlid(visibility.current_version_id);
+      const retrievable = rowInteger(visibility.retrievable, 0, 1) === 1;
+      const creationEventSuppressed = rowInteger(visibility.creation_event_suppressed, 0, 1) === 1;
       const suppressedSourceIds = suppressed.results.map((row) => {
         exactRow(row, new Set(["source_id"]));
-        const sourceId = rowUlid(row.source_id);
-        if (!item.sources.some((source) => source.sourceId === sourceId)) corrupt();
-        return sourceId;
+        return rowUlid(row.source_id);
       });
       if (new Set(suppressedSourceIds).size !== suppressedSourceIds.length) corrupt();
       return Object.freeze({
-        retrievable: retrievable !== null,
+        retrievable,
+        creationEventSuppressed,
         suppressedSourceIds: Object.freeze(suppressedSourceIds),
       });
     });
@@ -1721,12 +1753,16 @@ export class MemoryRepository {
       || envelope.payload === null || typeof envelope.payload !== "object"
       || Array.isArray(envelope.payload)) refuse();
     const payload = envelope.payload;
-    const payloadKeys = new Set(Object.keys(payload));
-    if (payloadKeys.size !== 5
-      || ["schemaCode", "channelCode", "sensitivityCode", "historyEligible", "text"]
-        .some((field) => !payloadKeys.has(field))
+    const payloadKeys = Reflect.ownKeys(payload);
+    const allowedPayloadFields = new Set([
+      "schemaCode", "channelCode", "sensitivityCode", "historyEligible", "text",
+      ...(Object.hasOwn(payload, "directOwnerText") ? ["directOwnerText"] : []),
+    ]);
+    if (payloadKeys.length !== allowedPayloadFields.size
+      || payloadKeys.some((field) => typeof field !== "string" || !allowedPayloadFields.has(field))
       || payload.schemaCode !== 1 || payload.sensitivityCode !== 1
-      || payload.historyEligible !== true) refuse();
+      || payload.historyEligible !== true
+      || Object.hasOwn(payload, "directOwnerText") && typeof payload.directOwnerText !== "boolean") refuse();
     return safeRowText(payload.text, 32_768);
   }
 
