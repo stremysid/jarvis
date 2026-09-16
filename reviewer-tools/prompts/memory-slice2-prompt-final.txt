@@ -1,0 +1,14 @@
+You are the memory build chat for Jarvis (repo ksid1229-ops/jarvis), starting a new PR in a fresh session. PR #50 (channel-neutral owner controls) is merged as 1cae97b. Other Codex sessions use this shared folder on other branches, so do not switch branches here: git fetch origin, then create your own git worktree next to this folder on a fresh branch codex/r2-archive-literal-history off origin/main, and do all work, tests and pushes only in that worktree. Before pushing, confirm git diff --stat origin/main...HEAD holds only your own work.
+
+Read first: docs/plan/2026-09-15-r2-memory-runtime-slices.md (section 3, slice 2, and section 4 boundaries), docs/plan/2026-09-14-r2-memory-design.md, NEXT_STEPS.md, KNOWN_ISSUES.md, DECISIONS.md, and the newest Claude entries for PRs #47 and #50 in docs/AGENT_LOG.md.
+
+Build R2 slice 2, archive-complete literal history and coverage, as one reviewable draft PR:
+1. Bounded history chunks and full-text coverage built from live D1 conversation events and every verified R2 archive segment, reusing the tiered event reader and the archive seal and hash checks.
+2. Active suppressions (forgotten turns) are applied before any text enters a chunk, an index or a result, and a lift makes the text eligible again.
+3. A literal search API that returns exact excerpts with their event provenance. A no-hit answer is allowed only when coverage is complete; otherwise the result names the missing range instead of claiming nothing was found.
+4. A checkpointed, resumable exhaustive-search job that stays within the Worker's D1 query and CPU budgets, with a counted-budget test.
+5. Channel-neutral: no Telegram, voice/** or calls/** wiring, no Vectorize, and no paid model. Do not change D1ContextRetriever.
+
+If this needs tables or FTS5 virtual tables, use migration 0025. Migration 0023 is reserved for the study coach and 0024 for the application track, so check every open branch first. Use remote-D1-safe triggers only (WHEN ... RAISE or SELECT RAISE ... WHERE, never CASE ... RAISE), REPLACE/IGNORE-safe guards, a generic REPLACE sweep test and behavioural tests that kill each whole-trigger removal. Never use wrangler d1 export. Open the draft PR for Claude max review. Without a migration, Claude reviews at xhigh.
+
+Standing rules: one session per PR including its fix rounds; read files in slices but search the whole file before editing and review the full diff before posting ready; while iterating run only related tests with failures-only output, and the full suite once before ready; run the applicable reviewer checklists in claude/reviewer-tools (REPLACE/IGNORE sweeps, trigger removal, mutation-check your new guards) before ready; never merge, deploy, apply migrations or touch secrets. Post in docs/AGENT_LOG.md when ready for review, then remove your extra worktree only after pushing.

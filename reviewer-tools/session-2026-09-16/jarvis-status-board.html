@@ -1,0 +1,523 @@
+<title>Jarvis Status Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Barlow+Semi+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+  :root {
+    --ground: #F2F5F8;
+    --surface: #FFFFFF;
+    --ink: #15202B;
+    --muted: #55677A;
+    --rule: #D5DEE7;
+    --accent: #2F6690;
+    --accent-soft: #E3EDF5;
+    --good: #2E7D5B;
+    --good-soft: #E1F2E9;
+    --warn: #A96A12;
+    --warn-soft: #FBEEDB;
+    --bad: #B83A33;
+    --bad-soft: #F9E3E1;
+    --code-bg: #E9EEF3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0E141A;
+      --surface: #16202A;
+      --ink: #E7EDF3;
+      --muted: #9AABBB;
+      --rule: #2A3947;
+      --accent: #7FB2DB;
+      --accent-soft: #1C2E3D;
+      --good: #6CC49A;
+      --good-soft: #15302A;
+      --warn: #E6B25E;
+      --warn-soft: #362A16;
+      --bad: #F08A83;
+      --bad-soft: #3A1F1E;
+      --code-bg: #1F2B36;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0E141A;
+    --surface: #16202A;
+    --ink: #E7EDF3;
+    --muted: #9AABBB;
+    --rule: #2A3947;
+    --accent: #7FB2DB;
+    --accent-soft: #1C2E3D;
+    --good: #6CC49A;
+    --good-soft: #15302A;
+    --warn: #E6B25E;
+    --warn-soft: #362A16;
+    --bad: #F08A83;
+    --bad-soft: #3A1F1E;
+    --code-bg: #1F2B36;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+    font-size: 19px;
+    line-height: 1.55;
+  }
+  main {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 36px 20px 64px;
+    display: grid;
+    gap: 40px;
+  }
+  h1, h2 {
+    font-family: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+    font-weight: 700;
+    margin: 0;
+    text-wrap: balance;
+    letter-spacing: 0.01em;
+  }
+  h1 { font-size: 40px; line-height: 1.1; }
+  h2, summary {
+    font-family: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--rule);
+  }
+  .mast { display: grid; gap: 6px; }
+  .mast p { margin: 0; color: var(--muted); font-size: 17px; }
+  .live {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 18px;
+    font-size: 16px;
+    color: var(--muted);
+  }
+  .live span::before {
+    content: "";
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--good);
+    margin-right: 7px;
+    vertical-align: 1px;
+  }
+  .mono, code {
+    font-family: "IBM Plex Mono", Consolas, monospace;
+    font-weight: 500;
+    font-size: 0.82em;
+  }
+  section { display: grid; gap: 14px; }
+  a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 2px; }
+  a:hover { text-decoration-thickness: 3px; }
+  a:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+  .needs {
+    background: var(--surface);
+    border: 2px solid var(--accent);
+    border-radius: 10px;
+    padding: 22px 24px;
+    display: grid;
+    gap: 18px;
+  }
+  .needs h2 { color: var(--accent); border-color: var(--accent-soft); }
+  .task { display: grid; gap: 6px; }
+  .task strong { font-size: 21px; }
+  .task p { margin: 0; color: var(--muted); max-width: 62ch; }
+
+  .ledger { display: grid; gap: 0; }
+  .row {
+    display: grid;
+    grid-template-columns: 64px 1fr auto;
+    gap: 6px 16px;
+    align-items: baseline;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .pr { font-family: "Barlow Semi Condensed", "Arial Narrow", sans-serif; font-weight: 700; font-size: 22px; }
+  .pr.soon { color: var(--muted); }
+  .what { font-weight: 700; }
+  .detail { grid-column: 2 / 4; color: var(--muted); font-size: 17px; }
+  .pill {
+    font-family: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 3px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .pill.good { color: var(--good); background: var(--good-soft); }
+  .pill.ready { color: var(--accent); background: var(--accent-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+
+  .later { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+  .later li {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 16px;
+    align-items: baseline;
+    padding: 12px 0 12px 16px;
+    border-left: 4px solid var(--rule);
+  }
+  .later li p { grid-column: 1 / 3; margin: 0; color: var(--muted); font-size: 17px; max-width: 62ch; }
+  .who { font-size: 15px; color: var(--muted); white-space: nowrap; }
+  .note { margin: 0; color: var(--muted); font-size: 17px; }
+
+  details { display: grid; gap: 14px; }
+  summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; gap: 12px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "Show"; letter-spacing: 0.08em; }
+  details[open] summary::after { content: "Hide"; }
+  summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; border-radius: 2px; }
+  .parked { display: grid; gap: 14px; padding-top: 14px; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 17px; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--rule); }
+  th {
+    font-family: "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tfoot td { font-weight: 700; border-bottom: none; }
+  .checklist { margin: 0; padding-left: 22px; display: grid; gap: 6px; color: var(--ink); }
+
+  @media (max-width: 560px) {
+    body { font-size: 18px; }
+    h1 { font-size: 32px; }
+    .row { grid-template-columns: 52px 1fr; }
+    .row .pill { grid-column: 2; justify-self: start; }
+    .detail { grid-column: 2; }
+  }
+</style>
+
+<main>
+  <header class="mast">
+    <h1>Jarvis status</h1>
+    <p>Updated Sep 15, 11:25 PM your time. Five merged tonight. You and I then ran the database procedure for real and found it cannot finish — see "Needs you" below; the short version is your changes are fine and the procedure is not, and a rebuild is under way. Also still going: the application checklist on round six, and the next memory piece is in review. I review, relay and merge, two builders at a time. R1 is still the v1.0 release gate: phone Jarvis from the car.</p>
+    <div class="live">
+      <span>Gateway live: version <span class="mono">28109492</span></span>
+      <span>Health check OK</span>
+    </div>
+  </header>
+
+  <div class="needs">
+    <h2>Needs you</h2>
+
+    <div class="task">
+      <strong>1. Switch the database changes on — blocked on me, not you</strong>
+      <p>We tried this together tonight and it stopped at the first step, for a reason worth knowing: the rehearsal procedure starts from an empty database, and three of your oldest changes cannot be re-applied to an empty one. They have been live on your real database for ages, so this has never mattered — until a procedure tried to replay them. <strong>Your nine waiting changes are fine</strong>; I checked every one, and the real database starts from where it already is, so those three are never touched. Nothing is wrong with your account and both throwaway databases were deleted. A rebuilt procedure is being written now — one that brings the throwaway up to where your real database actually stands, then tries the nine on top, which is the thing worth testing. I will bring it back to you when it is a checklist that finishes.</p>
+    </div>
+
+    <div class="task">
+      <strong>2. Turn calling on — the last step to v1.0</strong>
+      <p>As of tonight there is no code work left for calling. What is left is yours, in order: set up Twilio (account, number, keys, auto-recharge off), swap the security key on this PC, add your phone, then the real test calls including the one where three wrong tries of the secret phrase ends the call. Say when and I will walk you through it one step at a time. Setting the Twilio webhook makes incoming calls live, so we do it in the right order.</p>
+    </div>
+
+    <div class="task">
+      <strong>3. One decision left</strong>
+      <p><strong>Answered:</strong> yes to the extra paid test call for voicemail answering an outgoing call — a builder is adding that scenario now, so we no longer need to know how long your phone rings before voicemail picks up. And your keys were never in a Google Doc, so nothing to rotate.<br>
+      <strong>Still open — calendar for v1.6:</strong> class briefs and calendar changes need a combined calendar view, which the roadmap currently puts after PC control. The merged plan offers two ways round it. Only matters when those parts get built, but I will need your pick.</p>
+    </div>
+
+    <div class="task">
+      <strong>Small one, only if you want</strong>
+      <p>Set up the 5-minute outside "is Jarvis down" check now that v1.0 is close. That is the whole list — the key rotation came off it, and nothing I do touches your clipboard.</p>
+    </div>
+
+    <div class="task">
+      <strong>Done so far today</strong>
+      <p>With your permission I merged <a href="https://github.com/ksid1229-ops/jarvis/pull/40">#40</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/41">#41</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/43">#43</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/42">#42</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/44">#44</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/45">#45</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/48">#48</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/47">#47</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/49">#49</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/51">#51</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/46">#46</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/50">#50</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/54">#54</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/53">#53</a>, <a href="https://github.com/ksid1229-ops/jarvis/pull/56">#56</a> and <a href="https://github.com/ksid1229-ops/jarvis/pull/57">#57</a> and <a href="https://github.com/ksid1229-ops/jarvis/pull/58">#58</a>, and checked each one on the combined code afterwards. Nothing is deployed or switched on.</p>
+    </div>
+  </div>
+
+  <section>
+    <h2>Pull requests</h2>
+    <div class="ledger">
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/58">#58</a>
+        <span class="what">Your database runbook</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged (<span class="mono">c23f0c9</span>). This is the step-by-step for job 1 below, written for your PC and PowerShell: make a throwaway database, apply the nine changes to it, check every guard really works, delete it, and only then decide about the real one. I checked its numbers myself rather than trusting them. Two things it now tells you that it did not: what to do when it stops because a newer database change has landed since it was written (that is expected, not a failure), and — honestly — that testing on an empty database cannot prove the changes work against your real data. It says what could still go wrong and requires a separate check before the real one. Nothing in it applies anything.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/57">#57</a>
+        <span class="what">Voicemail test call</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">93e3d0d</span>). This is the scenario you said yes to: Jarvis rings you, something answers that is not you saying the secret phrase — your voicemail, or someone else — and it has to end the call having said nothing about you and given no access. I checked each of those promises by deleting it and confirming a test catches it: no access granted, nobody authenticated, only the neutral greeting, the reason for calling never said, and nothing private left on the recording. All eleven checks held. It also closed the two loose ends from the release check. Calling now has no code work left at all. The real test calls go from six to seven, all still run by you. All 3,448 tests plus 903 calling tests pass. Nothing is turned on.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/56">#56</a>
+        <span class="what">Full history for old memories</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">282f066</span>). Jarvis can read back your exact past conversations, including older ones moved to long-term storage, and prove nothing is missing from the stretch it quotes. Anything you told it to forget stays hidden, and the database itself enforces that, not just a filter. Every problem I found is fixed, including the big one: "forget that" now works on very old conversations for real. I checked each fix by deleting it and confirming a test catches it — all seven did. 3,424 tests pass on the combined code. Nothing is turned on and the database change is not applied.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/55">#55</a>
+        <span class="what">v1.6 build plan</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">4262024</span>). It's a written plan only, no code. It breaks v1.6 (Jarvis as your manager: habit profile, class briefs, Gmail and Drive, calendar, smarter model use, weekly cost line) into small steps, and lists the choices that are yours: Google permissions, any paid model and its monthly limit, and the calendar. One choice for later, before those parts get built: class briefs and calendar changes need a calendar view, which the roadmap puts after PC control. The plan offers two ways around that, and I'll ask you when it matters. Nothing is turned on or connected.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/54">#54</a>
+        <span class="what">Calling release check</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">d33a5dc</span>). This was the last code piece before v1.0. It is the checklist of real recorded test calls calling must pass before it can be called ready, including one proving that after three wrong tries of the secret phrase the call ends with no access to your information. The hole I found is closed, the four small things are fixed, and I checked each rule by deleting it and confirming a test catches it: 17 of 19 caught, and the four new ones all caught. All 3,298 tests plus 899 calling tests and 68 release-check tests pass. Merging turns nothing on: Twilio is still not set up, outgoing calls are off, incoming is closed, and no call is placed. What is left for calling is yours: the Twilio setup, adding your phone, and the real test calls.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/53">#53</a>
+        <span class="what">Study coach</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">9b900fe</span>). Jarvis notices which topics you are weak on from real evidence, like quiz results and what you tell it, never from a single guess. It gives you one quiet study check-in in your morning update and quizzes you on your own course material, answers graded fairly whether you reply in a word or a sentence. The last problem — an ordinary message during a quiz failing your whole reply — is fixed, and I proved the fix holds by breaking it again and watching a test catch it. 3,365 tests pass. Nothing is turned on and the database change is not applied.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/52">#52</a>
+        <span class="what">University application checklist</span>
+        <span class="pill warn">Fixes needed</span>
+        <span class="detail">For each program on your shortlist, Jarvis tracks supplementary applications, essays, personal statements, references, transcripts and scholarships, each with a status and a due date marked verified or unverified. You update it in plain words and your morning update lists the next few items. It never submits, uploads or contacts anyone. Round five: the official-deadline and "Arts and Science" problems are properly fixed and all 3,639 tests pass. Two things still wrong, both proved by running them. The "wrong item" bug now survives a comma instead of a full stop — "The Western essay is next, the Common App is done and I submitted it" still marks your Western essay submitted and drops it from your digest. And the reply guard broke both ways at once: four claims it should block get through, and sixteen ordinary sentences are wrongly blocked, including "I have requested nothing from the school on your behalf". This is the third round where fixing one thing broke another in the same two places, so I asked for a different approach rather than another patch. Nothing merged is affected. Nothing is turned on.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/51">#51</a>
+        <span class="what">D2L deadlines, finished</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">10d4cd7</span>). D2L now keeps your upcoming deadlines first even in a very busy semester, warns you if syncing stops, and you can say "check D2L now" for a fresh read (at most every five minutes). Times show in Toronto time. All 3,188 tests pass. The school builder has started the study coach next. Nothing is turned on.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/50">#50</a>
+        <span class="what">Remember and forget, in plain words</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged (<span class="mono">1cae97b</span>). The builder folded in today's other merged work. I confirmed its code matches exactly what I checked and that all 3,276 tests pass. This is the piece behind "remember this", "forget that" and "why do you think that". Jarvis saves only exactly what you asked it to remember, so a sentence can't be cut loose from an "if" or "just kidding", and forgotten words stay hidden everywhere. The memory builder has started the next piece: keeping full history for old memories. Nothing is turned on.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/49">#49</a>
+        <span class="what">D2L deadlines</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">deea39c</span>). Jarvis reads your private D2L calendar link every hour and puts your deadlines in the morning update, with no D2L login. The fix round made it actually load on Cloudflare, fixed the same mistake in the Google Classroom sign-in and credit checks, and stopped one odd teacher event from blocking the rest. All 3,170 tests pass. One leftover goes in the next school piece before you set it up: a very busy semester (over 180 calendar entries) would stop D2L updates instead of showing the soonest ones. Nothing is turned on.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/47">#47</a>
+        <span class="what">Memory core</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">60ae90d</span>). The first real piece of Jarvis's cloud memory: safely saving and reading memories and their filing tree, and refusing a made-up quote pinned to a real message. All 3,129 tests pass. The memory chat has started the next piece, the part behind "remember this" and "forget that" in plain speech. Nothing is turned on.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/46">#46</a>
+        <span class="what">Secret phrase, step 3 of 3</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">ebb757b</span>). The secret phrase is complete. You can switch it off from Telegram, you're told when someone gets guest access, and calls don't hang waiting on memory. If Telegram glitches, the alert that someone failed your phrase now retries instead of getting lost. All 3,235 tests and 874 call tests pass. The calling builder has started the next piece: the checklist of real test calls needed before calling goes live. Merging turns nothing on; the database change and going live still wait for you.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/48">#48</a>
+        <span class="what">University tracker</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">1130694</span>). Jarvis keeps track of the programs you're looking at, their requirements and deadlines, marked verified only when you pasted the official link and admission year. The "I've emailed your teacher" hole is fixed, and finished school steps are kept for 30 days. All 3,112 tests pass. Nothing is turned on until the database changes are tested with you.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/44">#44</a>
+        <span class="what">Memory build plan</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">3e28bda</span>). The order for building memory: the core first, then searching all your old chats, automatic remembering, plain-speech "forget that", and calls last. Only you, in your own words, can make Jarvis remember or forget, never a forwarded message or a casual "forget that". Notes only.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/45">#45</a>
+        <span class="what">School catch-up conversation</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">e0b5072</span>). Jarvis chats with you on Telegram about each course: what you missed, what's due, and a daily catch-up plan in your morning update, with real due dates always listed first. If a school update fails, Jarvis still answers you and says the plan wasn't updated. Nothing is turned on until the database change is tested with you.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/42">#42</a>
+        <span class="what">Memory safety follow-up</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">f0bfbe9</span>). Only Jarvis's own memory controls can give memory commands; a forged one is refused. I removed each of its safety checks one at a time and a test caught every one that matters. Nothing applied: the database change gets tested on a throwaway copy with you first.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/43">#43</a>
+        <span class="what">Google Classroom deadlines</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">1fe35ee</span>). Jarvis checks Classroom every hour and puts your deadlines in the morning update, saying clearly if Classroom couldn't be read. Nothing turns on until you do the Google sign-in steps later. A fix for its sign-in request is coming in <a href="https://github.com/ksid1229-ops/jarvis/pull/49">#49</a>.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/41">#41</a>
+        <span class="what">School and university plan</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">d42dce7</span>). Catch-up help and a university tracker come first. D2L deadlines come through its official calendar link, not by Jarvis logging in as you. Notes only, nothing to deploy.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/40">#40</a>
+        <span class="what">Secret phrase, step 2 of 3</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">dfb8ca8</span>). Jarvis asks for your phrase on every call before giving owner access: 3 tries, then a hang-up. Every unverified call ends on time with a refusal and an alert to you. Merging turns nothing on.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/39">#39</a>
+        <span class="what">Memory database</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">0d659bf</span>). The tables that will hold Jarvis's memory, after six rounds of checks. Nothing is turned on; the database change gets tested on a throwaway copy with you before it ever touches the real one.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/38">#38</a>
+        <span class="what">Memory follow-ups</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">b8b47bd</span>). "I'll probably…" and "I guess…" now count as guesses, and a two-sentence quote can't sneak in as fact. Nothing to deploy.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/37">#37</a>
+        <span class="what">Secret phrase, step 1 of 3</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">2619f02</span>). Jarvis makes your 3-word phrase and stores only a scrambled check of it, never the words. Nothing to deploy yet.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/36">#36</a>
+        <span class="what">Memory plan</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Merged exactly as checked (<span class="mono">fcd55ef</span>). The full plan for memory in the cloud. "Forget that" hides the old chat too, and switching AI provider later is built in. Notes only.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/35">#35</a>
+        <span class="what">Fact or guess, and the filing tree</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Jarvis only counts a whole, plain sentence you said as fact; questions and "if" or "maybe" sentences stay marked as guesses. <span class="mono">fb7c864</span></span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/34">#34</a>
+        <span class="what">Phone setup cleanups</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Clearer setup steps and two crash fixes in the PC tool. Nothing to deploy. <span class="mono">52f0881</span></span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/33">#33</a>
+        <span class="what">Secret phrase for calls (plan)</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">The plan for your phrase on calls both ways: 3 words, 3 tries before the call ends, and a spoofer can't lock you out. <span class="mono">726b78b</span></span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/32">#32</a>
+        <span class="what">Remove the old 8-digit PIN code</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">The old 8-digit PIN code is gone. Nothing to deploy. <span class="mono">8150e36</span></span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/31">#31</a>
+        <span class="what">Phone setup feature</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Nothing is turned on yet. You'll run the phone setup later, one approval at a time. <span class="mono">8ae758a</span></span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/30">#30</a>
+        <span class="what">Steps to swap the security key</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Notes and tests only. You'll run these steps later, one approval at a time. <span class="mono">ca51a9b</span></span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/29">#29</a>
+        <span class="what">Ways to add your phone</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Records your choice: option 1 with a new security key on this PC. <span class="mono">f2424f5</span></span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/28">#28</a>
+        <span class="what">Test-call tool (first part)</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">It still can't place a real call; that part comes later.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/27">#27</a>
+        <span class="what">Notes and tests cleanup</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Notes and tests only. <span class="mono">374c3bb</span></span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/25">#25</a>
+        <span class="what">Real calling wiring + database change</span>
+        <span class="pill good">Live</span>
+        <span class="detail">Live since Sep 13, 11:42 PM UTC. Calling is still switched off until your Twilio setup. <span class="mono">fd39301</span></span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/26">#26</a>
+        <span class="what">Cloudflare database fix</span>
+        <span class="pill good">Live</span>
+        <span class="detail">Fixed the rules Cloudflare refused, so <a href="https://github.com/ksid1229-ops/jarvis/pull/16">#16</a> could go live. <span class="mono">9363b58</span></span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/16">#16</a>
+        <span class="what">Memory search + database change</span>
+        <span class="pill good">Live</span>
+        <span class="detail">Live since Sep 13, 11:20 PM UTC.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/23">#23</a>
+        <span class="what">Calling tests and /call</span>
+        <span class="pill good">Live</span>
+        <span class="detail"><span class="mono">/call</span> answers "not configured" until calling is set up.</span>
+      </div>
+      <div class="row">
+        <a class="pr" href="https://github.com/ksid1229-ops/jarvis/pull/22">#22</a>
+        <span class="what">CLAUDE.md notes file</span>
+        <span class="pill good">Merged</span>
+        <span class="detail">Docs only. <span class="mono">e1e6faa</span></span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Later, not now</h2>
+    <ul class="later">
+      <li>
+        <strong>Calling setup</strong><span class="who">You</span>
+        <p>Add the Twilio keys and settings, then turn calling on. Hold off until the phone setup and secret phrase are done. Keep Twilio auto-recharge off.</p>
+      </li>
+      <li>
+        <strong>Keys in a Google Doc?</strong><span class="who">You, if so</span>
+        <p>Replace the DeepSeek key and the Telegram bot token. Leave the "pepper" keys and the PIN key alone; changing those breaks saved PINs.</p>
+      </li>
+      <li>
+        <strong>School and university help</strong><span class="who">Being built</span>
+        <p>Top priority. Catch-up help, the university tracker, and Classroom and D2L deadlines are merged. Two builders are working right now, in the background on your PC: the study coach (check-ins, your weak spots, quizzes and flashcards), and the university application checklist (essays, references, transcripts, scholarships). Both are on their third round of fixes. Nothing is sent or submitted without you.</p>
+      </li>
+      <li>
+        <strong>Best-possible memory</strong><span class="who">Being built</span>
+        <p>Jarvis will keep everything, remember what matters, find anything you ask about, and work with your PCs off. Capped at $5 a month. Details in the <a href="https://claude.ai/code/artifact/5ef1176e-b047-4365-ad6b-bd49f8bc0526">Jarvis Memory Plan</a>.</p>
+      </li>
+    </ul>
+  </section>
+
+  <details>
+    <summary>PC build plan (paused)</summary>
+    <div class="parked">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Part</th><th>Where</th><th class="num">CAD</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Core Ultra 7 270K Plus + Z890 Eagle + 32GB</td><td>Micro Center</td><td class="num">~$859</td></tr>
+            <tr><td>RX 9060 XT 16GB</td><td>Micro Center</td><td class="num">~$644</td></tr>
+            <tr><td>Samsung 990 EVO Plus 1TB</td><td>Newegg</td><td class="num">$250</td></tr>
+            <tr><td>SAMA S50 case</td><td>Newegg</td><td class="num">$100</td></tr>
+            <tr><td>SAMA G750W power supply</td><td>Newegg</td><td class="num">$95</td></tr>
+            <tr><td>SAMA L70 360mm cooler</td><td>Newegg</td><td class="num">$50</td></tr>
+          </tbody>
+          <tfoot>
+            <tr><td>Total before Canadian tax</td><td></td><td class="num">~$2,000</td></tr>
+          </tfoot>
+        </table>
+      </div>
+      <ul class="checklist">
+        <li>Ask Micro Center to swap the RAM for 2×32GB (64GB).</li>
+        <li>Stay in the US 48+ hours so $800 comes back tax-free.</li>
+        <li>Check Task Manager GPU and memory with your usual Studio windows open.</li>
+      </ul>
+      <p class="note">USD at 1.386. Micro Center prices include NJ tax at 3.3125%.</p>
+    </div>
+  </details>
+</main>

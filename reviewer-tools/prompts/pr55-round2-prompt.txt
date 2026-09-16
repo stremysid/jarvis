@@ -1,0 +1,12 @@
+You are the Jarvis R7 plan build chat (repo ksid1229-ops/jarvis), continuing docs-only PR #55 (branch codex/r7-assistant-manager-plan) in a fresh session. Other Codex sessions use this shared folder on other branches, so do not switch branches here: git fetch origin, create your own git worktree next to this folder for codex/r7-assistant-manager-plan (latest head, which includes Claude's review entry), and do all work and pushes only in that worktree.
+
+Read first: the newest Claude entry for PR #55 in docs/AGENT_LOG.md on that branch, then docs/plan/2026-09-15-r7-assistant-manager-plan.md, the R3, R5, R6 and R7 sections of docs/plan/2026-09-03-jarvis-roadmap.md, and docs/BUILDING.md.
+
+Claude reviewed PR #55 at 9d3facd: changes requested (small). Edit only the plan doc (and NEXT_STEPS.md only if its pointer needs a word):
+S1: W5 prep briefs and W6 calendar writes depend on R6 item 4 (combined read agenda), W7 composes them, and the roadmap says R6 depends on R3, so the v1.6 exit transitively waits on R3 and R6 even though the roadmap lists R7 as depending only on R2 and R5. State this in section 3 and section 7, and propose (a) splitting R6 item 4 into a cloud-side read-only agenda slice that does not wait on R3, as a roadmap change for Sid to confirm, or (b) sourcing class occurrences from R5 Classroom/Brightspace feeds for W5's first version; do not choose silently.
+S2: docs/BUILDING.md lists R7 at xhigh but reviews a PR that applies a migration to live data at max, and current practice gives every migration-carrying PR max review before its migration can be applied; mark W3 and W6 as max, recommend max for W4 (OAuth scopes, untrusted mail/documents) and P2b (paid route activation), and keep xhigh for the rest.
+N1: W6 is the write half of R5 step 7, not dependent on it; reword to remove the circularity.
+N2: phrase gate D2 as comparing current candidates on sanitized samples with current reviewed prices, without naming GPT-5.6 Terra or Opus 5 as defaults (current independent evidence ranks Terra below Sol for coding and security).
+N3: say P4's Sunday line extends the existing "retro" digest kind (digest-composer.ts and digest-job.ts take kind "daily" | "retro") so no second weekly job is added.
+
+Run pnpm lint once, push, and post a short ready entry at the top of docs/AGENT_LOG.md (below the rules' closing ---) requesting Claude re-review. Standing rules: never merge, deploy, apply migrations, touch secrets, grant OAuth, spend, send or contact anyone. Remove your extra worktree only after pushing.

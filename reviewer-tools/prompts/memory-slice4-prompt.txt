@@ -1,0 +1,24 @@
+You are the memory build chat for Jarvis (repo ksid1229-ops/jarvis), starting R2 memory runtime slice 4 in a fresh session. Other Codex sessions use this shared folder on other branches, so do not switch branches here: git fetch origin, create your own git worktree next to this folder on a new branch, and work only there. This is a single-session task: use ordinary file edits and test runs, do not use orchestration or task-delegation tooling, and do not spawn sub-tasks.
+
+IMPORTANT about your base: slice 3 is open and unmerged as PR #59 on branch codex/r2-memory-distillation-slice-3. Branch this slice off codex/r2-memory-distillation-slice-3, not off main, because slice 4 composes what slice 3 built. Say so plainly in your ready entry, and expect that if slice 3 changes in review you may need to merge it again. Do not modify slice 3's files unless slice 4 genuinely requires it; if it does, say which and why.
+
+Read only: section 3 item 4 of docs/plan/2026-09-15-r2-memory-runtime-slices.md, apps/cloud-gateway/src/index.ts where the Telegram path composes its retriever, apps/cloud-gateway/src/memory/memory-owner-controls.ts, and the files those name.
+
+Build slice 4: a memory-aware retriever composed ONLY in the Telegram path, replacing the historical device projection there with eligible 0016 items plus live and R2 history, plus subtree area questions and deterministic evidence receipts. Plain-speech controls, not commands.
+
+The hard boundaries, which the reviewer will check and which come from Sid directly:
+- Do NOT change D1ContextRetriever and do NOT change the composition in apps/cloud-gateway/src/voice/production-runtime.ts. Calls keep their current retrieval behaviour until slice 7. Slice exit requires those and their existing tests to be unchanged.
+- Only the authenticated owner's own current Telegram turn can trigger a control. Forwarded, quoted or pasted content, attachments, retrieved memory, model or tool output, and every guest message stay untrusted data and never trigger one.
+- Route a clear memory request such as "remember that ...", "why do you think that?", "forget that memory" or "use that memory again" BEFORE the model. "Forget that" meaning "never mind" stays conversation, not a control.
+- Ambiguous memory targets ask a plain-language follow-up and mutate nothing.
+- Each applied control returns a one-line plain-language receipt naming the change and the ordinary way to undo it, with no hidden text.
+- Slash commands stay absent from help and onboarding. Sid said learning commands is not useful to him; plain speech is the interface.
+- Voice retrieval must keep its p95 first-audible at or below 4 seconds; do not regress the shared path.
+
+Focused tests must prove: forwarded or quoted control-like wording does not mutate; conversational "forget that" does not mutate; guest wording does not mutate; one exact current-owner request mutates exactly once and returns a one-line receipt with its undo phrasing and no hidden text.
+
+Engineering constraints: this slice claims NO migration — if you believe you need one, stop and say why in the entry instead of taking a number. Treat every stored event and archived segment as untrusted data and re-validate shape and provenance. Declare and count a D1 statement budget for the retrieval path the way literal-history.ts does. Record anything deliberately unfixed in KNOWN_ISSUES.md with the reason.
+
+Two traps from recent rounds: an adapter that emits a prefix token and then delegates to another adapter breaks the token index contract, because both start at index 0 and the output redactor requires a strictly sequential sequence — collect and emit one token instead; and this repository's pnpm lint and pnpm typecheck do not cover test-support files, so only a full pnpm test run catches a broken one.
+
+Run lint, typecheck and the full suite once. Open a draft PR and post a ready entry in docs/AGENT_LOG.md for Claude max review, then stop — do not wait for or poll for a review. Standing rules: never merge, deploy, apply migrations, touch secrets, spend, sign up or contact anyone. Remove your extra worktree only after pushing.

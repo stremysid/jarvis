@@ -1,0 +1,30 @@
+## 2026-09-15 HH:MM UTC — Claude Opus 5, PR #53 round-3 max re-review at 29c141d: changes requested
+
+S1–S4 and N1–N3 are all genuinely fixed in code, not merely tested. One new defect came in with the S2 fix, and it is a High: the closed-quiz notice breaks the reply it is attached to. Everything else is ready to merge once that is corrected.
+
+**Local checks at 29c141d** (Windows 11, `jarvis-pr39`): lint and typecheck pass, and `pnpm test` passes **3,365/3,365 with 0 timeouts**. Migration `0023` is byte-identical to the round-2 head `2d3bac6`, so the round-2 result of 17/17 whole-trigger removals killed still stands and was not re-run. All five reviewer probes Q1–Q5 still **FAIL**, as required (`reviewer-tools/pr53/round3/probes-run.txt`).
+
+**H1 (new, from the S2 fix). The closed-quiz notice makes the whole turn fail in production.**
+- **Where:** `school/study-coach-model.ts:526-529`. The dismissal path now does `yield { index: 0, CLOSED_QUIZ_FALLBACK_PREFIX }` and then `yield* this.dependencies.fallbackModel.stream(input)`. Every model adapter starts its own stream at index 0, so the turn emits **two tokens both numbered 0**.
+- `conversation-service.ts:911` pushes every token into `StreamingOutputRedactor`, and `security/streaming-output-redactor.ts:189` requires strictly sequential indices from 0; on a mismatch `terminate()` (`:321-324`) **throws** `stream_redaction_input_invalid`.
+- **Proven by execution** (`reviewer-tools/pr53/round3/probe-index.txt`): pushing `{index:0, "I closed the previous quiz before answering normally.\n\n"}` then `{index:0, "Ordinary answer"}` through `new StreamingOutputRedactor(new Redactor())` throws `StreamingOutputRedactionError: stream_redaction_input_invalid`. Your own `study-coach-model.test.ts` Q1 test proves the adapter emits exactly that pair — it asserts the concatenation `"I closed the previous quiz before answering normally.\n\nOrdinary answer"`, and `FakeModel` yields index 0. The tests miss it because the test `collect()` helper concatenates `token.text` and never looks at `token.index`.
+- **Effect for Sid:** with a quiz open, any ordinary message — "what's due tomorrow?", "ok", anything not answer-shaped — now fails the turn instead of replying. That is every path the `it.each(["ok", "check D2L now", "line one\nline two"])` test covers. Round 2's S2 was "the quiz is silently dismissed"; this is worse.
+- **Fix:** follow the pattern the catch-up adapter already uses, `fallbackWithSaveFailure` (`school/school-catchup-model.ts:417-433`): collect the fallback stream, prepend the notice, and yield **one** token at index 0. Do not emit a prefix and then delegate.
+- **Test:** assert on the token sequence, not just the text — stream the adapter with an open quiz and a non-answer message and assert the indices are `0, 1, 2, …` (or that there is exactly one token). Better still, push the tokens through a `StreamingOutputRedactor` in the test so the real contract is exercised. That check belongs in the shared study-coach test helper so no later prefix can reintroduce this.
+
+**Round-2 findings, verified fixed in code:**
+- **S1.** `claimDigestCheckIn`'s counts query (`study-coach-repository.ts:610-619`) no longer filters `outcome IN ('uncertain','wrong')` in its `WHERE`, so both `FILTER` clauses now see their rows. `evidenceCount` is still `weak_count`, so the displayed count is unchanged, and `judgeSignals(weak, easy)` now receives the real easy count, matching `summariseTopic`.
+- **S2.** `plausiblyAnswersQuiz` (`:237`) drops `is|was` from the disqualifying verbs and keeps `feels?|found|finished|got`, so "Mitosis is cell division" and "It was the Krebs cycle" are graded. The dismissal now announces the closure — correct intent, broken delivery; see H1.
+- **S3.** Every statement in `retirementStatements` (`:658-695`) now carries `AND NOT EXISTS (SELECT 1 … WHERE source_key = ?)` against the same key the insert uses, and `recordPracticeAnswer` (`:519-521`) only unshifts retirement when `answerSupport === "supported"`. A retried turn and an owner-topic answer therefore retire nothing. The parameter numbering differs per statement and is correct in each.
+- **S4.** `syncCourseContext` (`:263-277`) drops the `course_rank <= 24 - active_course_count` window and the outer 96-row `LIMIT`, both of which counted `course_context` rows that `0023` exempts. Sync no longer starves at 24 owner points.
+- **N2.** `resolveObservationCourse` (`:205`) matches fact statements only when `fact.kind === "weak_area"`.
+- **N3.** `BRIGHTSPACE_CHECK_DENIALS` (`school-catchup-model.ts:55-57`) strips explicit non-check sentences before the false-completion test, so "I haven't checked your D2L" is no longer read as a completion claim.
+- **N1 and round-1 L6** are recorded together in `KNOWN_ISSUES.md` as the one-way retirement and forget limits, with the narrowness of the plain-speech forget control stated plainly. Accepted.
+
+**One note, not blocking.** With the caps removed, `syncCourseContext` builds one D1 statement per unsynced active `weak_area` fact with no explicit ceiling. It is bounded in practice only by `school_course_facts_active_cap_insert` in `0020` (48 active facts per principal, 16 per course), so the batch cannot exceed 48 today. That bound now lives in a different migration from the code that relies on it — worth one comment naming it, so a later cap change does not quietly unbound this batch.
+
+**Method.** No second reviewer was run on this round: the blocking defect is proven by execution and the fix diff is 254 lines, so a second opinion would cost tokens without changing the verdict. The next round gets the same gates, the five probes, and the index probe above.
+
+**What to do:** fix H1, add the token-sequence assertion, optionally add the `syncCourseContext` comment, then post a ready entry. `origin/main` is still `4262024`, already in the branch, so no merge is needed. Evidence is on `claude/reviewer-tools` under `reviewer-tools/pr53/round3/`. Nothing was merged, deployed or applied.
+
+— Claude Opus 5

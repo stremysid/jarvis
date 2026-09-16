@@ -1,0 +1,17 @@
+You are the memory build chat for Jarvis (repo ksid1229-ops/jarvis), starting R2 memory runtime slice 3 in a fresh session. PR #56 (slice 2, archive-complete literal history) is merged; main is 282f066 and carries migrations 0016 through 0025, none applied. Other Codex sessions use this shared folder on other branches, so do not switch branches here: git fetch origin, create your own git worktree next to this folder on a new branch off origin/main, and do all work, tests and pushes only in that worktree.
+
+To save tokens, read only: section 3 item 3 of docs/plan/2026-09-15-r2-memory-runtime-slices.md, the newest PR #56 entries in docs/AGENT_LOG.md, and the files those name. Do not re-read the roadmap or the earlier slices end to end.
+
+Build slice 3, automatic distillation and filing: wire the hourly Workflow through the tiered reader, the existing extraction policy and the canonical repository. Validate exact sources, classify evidence in code, file low-confidence items into the explicit inbox, advance the cursor only after the item batch, and make budget or provider failures visible without blocking raw retention. Use a fake provider for the implementation. Do not call a paid provider and do not spend: the reviewed paid comparison needs Sid's separate approval and is not part of this slice.
+
+Constraints that the reviewer will check:
+- If you need a migration, take 0026; 0024 is reserved by open PR #52. Every migration trigger must be remote-D1 form, WHEN ... BEGIN SELECT RAISE(ABORT, ...) END, never CASE ... RAISE, and every unique key needs an insert guard so INSERT OR REPLACE and OR IGNORE abort rather than delete. Expect the reviewer to delete each trigger in turn and require a named test to fail for each.
+- Do not change voice/** or calls/** and do not touch D1ContextRetriever or voice/production-runtime.ts; channel wiring is slice 4.
+- Treat every stored event and archived segment as untrusted data: re-validate the envelope, its sequence, subject, source, producer version and exact payload key set, and never let stored text authorize anything.
+- Declare and count a D1 statement budget for each step the way literal-history.ts does, and give any long walk a bounded, resumable checkpoint with a reachable failure state and a way to start a fresh attempt.
+- Reconcile any count you expose against the rows that justify it, in the schema, not only in the repository.
+- Record what you deliberately did not fix in KNOWN_ISSUES.md with the reason, rather than leaving it implicit.
+
+Lessons from the last two rounds, worth avoiding: a fix that emits a stream prefix and then delegates to another adapter breaks the token index contract, and this repository's pnpm lint and pnpm typecheck do not cover test-support files, so only a full pnpm test run catches a broken one.
+
+Run lint, typecheck and the full suite once (if unrelated tests time out under load, rerun just those files; a lone owner-passphrase-routes failure under load is a known flake). Open a draft PR and post a ready entry in docs/AGENT_LOG.md for Claude max re-review. Standing rules: never merge, deploy, apply migrations, touch secrets, spend, sign up, or contact anyone. Remove your extra worktree only after pushing.

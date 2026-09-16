@@ -1,0 +1,15 @@
+You are the memory build chat for Jarvis (repo ksid1229-ops/jarvis), finishing PR #50 (branch codex/r2-owner-controls-service) in a fresh session. Claude has cleared PR #50 (see the newest Claude entry in docs/AGENT_LOG.md on that branch), but the branch no longer merges cleanly with origin/main: PRs #51 and #46 merged since, and KNOWN_ISSUES.md and docs/AGENT_LOG.md conflict.
+
+Other Codex sessions use this shared folder on other branches, so do not switch branches here: git fetch origin, then create your own git worktree next to this folder for codex/r2-owner-controls-service (latest head), and do all work, tests and pushes only in that worktree.
+
+Do exactly this and nothing else:
+1. git merge origin/main into the branch.
+2. Resolve KNOWN_ISSUES.md by keeping every entry from both sides, with no rewording beyond joining the two lists.
+3. Resolve docs/AGENT_LOG.md by keeping every entry from both sides, newest first, with no duplicates.
+4. Accept NEXT_STEPS.md's automatic merge, but check that both the merged #46/#51 text and the #50 text are present and still accurate.
+5. Make no source, test, migration or behaviour change of any kind. The only non-merge edits allowed are the conflict resolutions above.
+6. Run lint, typecheck and the full pnpm test suite once on the merged result.
+7. Push the merge commit, then post a short docs/AGENT_LOG.md entry ("PR #50 merged current main for Claude merged-tree verification at <sha>") with the test counts, and push that too.
+8. Remove your extra worktree only after pushing.
+
+Never merge the PR, deploy, apply migrations or touch secrets.

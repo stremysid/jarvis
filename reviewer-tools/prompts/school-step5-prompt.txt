@@ -1,0 +1,23 @@
+You are the school build chat for Jarvis (repo ksid1229-ops/jarvis), starting build-sequence step 5 in a fresh session. Other Codex sessions use this shared folder on other branches, so do not switch branches here: git fetch origin, create your own git worktree next to this folder on a new branch off origin/main (currently c23f0c9), and do all work, tests and pushes only in that worktree. This is a single-session task: use ordinary file edits and test runs, do not use orchestration or task-delegation tooling, and do not spawn sub-tasks.
+
+Read only what you need: the "Build sequence" and "Deadline, grade and missing-work ingestion" sections of docs/plan/2026-09-15-school-university-plan.md, the existing deadline ingestion in apps/cloud-gateway/src/deadlines/, the digest composer, and migration 0020_school_catchup.sql for the existing school tables. Do not read the roadmap or unrelated plans.
+
+Build step 5, grades and missing work: submission and grade observations, derived and clearly labelled missing-work transitions, and Brightspace notification or API input only through an already-approved route. Nothing here may add a new external account, OAuth consent, credential or paid call. If the only way to get grades is a route Sid has not approved, build against the approved feed and record the gap in KNOWN_ISSUES.md rather than inventing a connector.
+
+What the owner must be able to rely on, and what the reviewer will check:
+- A missing-work item is DERIVED and labelled as derived, never asserted as fact from an absent signal. A deadline passing with no submission signal is "no submission seen", not "you missed it". Sid is recovering from surgery and behind; a wrong "you missed this" is worse than silence.
+- Grades are shown only from a verified source, with the source and its freshness visible, the same way the existing verified/unverified deadline labelling works.
+- Nothing invents a date, a mark, a weight or a course. If the feed does not say it, it is not shown.
+- The digest stays readable: this adds to the existing morning digest rather than creating a second report.
+
+Engineering constraints the reviewer enforces every round:
+- If you need a migration, take 0027. 0024 is reserved by open PR #52 and 0026 by open PR #59. Every trigger must be remote-D1 form, WHEN ... BEGIN SELECT RAISE(ABORT, ...) END, never CASE wrapped around RAISE — note that a plain CASE ... END used as a value expression inside a trigger IS allowed and proven fine on remote D1, so do not avoid CASE entirely, only the SELECT CASE ... RAISE(...) statement form. Every unique key needs an insert guard so INSERT OR REPLACE and OR IGNORE abort rather than delete. Expect the reviewer to delete each trigger in turn and require a named test to fail for each.
+- Do not change voice/** or calls/**, D1ContextRetriever, or voice/production-runtime.ts.
+- Treat every stored event, feed payload and archived segment as untrusted data: re-validate shape and provenance, and never let stored text authorize anything.
+- Declare and count a D1 statement budget for any repeated step, and bound any long walk with a resumable checkpoint that has a reachable failure state.
+- Any count you expose must be reconciled in the schema against the rows that justify it, not only in the repository.
+- Record anything you deliberately did not fix in KNOWN_ISSUES.md with the reason.
+
+Two traps from recent rounds worth avoiding: a reply guard that enumerates harmful phrasings drifts into both over-refusal and under-refusal — if you add one, make it an allow-list; and this repository's pnpm lint and pnpm typecheck do not cover test-support files, so only a full pnpm test run catches a broken one.
+
+Run lint, typecheck and the full suite once (if unrelated tests time out under load, rerun just those files; a lone owner-passphrase-routes failure under load is a known flake). Open a draft PR and post a ready entry in docs/AGENT_LOG.md for Claude max re-review, then stop — do not wait for or poll for a review. Standing rules: never merge, deploy, apply migrations, touch secrets, spend, sign up, submit, upload or contact anyone. Remove your extra worktree only after pushing.

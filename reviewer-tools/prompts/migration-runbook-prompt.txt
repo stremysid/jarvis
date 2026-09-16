@@ -1,0 +1,21 @@
+You are a Jarvis build chat (repo ksid1229-ops/jarvis) starting a small docs-only PR in a fresh session. Other Codex sessions use this shared folder on other branches, so do not switch branches here: git fetch origin, create your own git worktree next to this folder on a new branch off origin/main (main is 282f066), and do all work and pushes only in that worktree.
+
+Task: write one new runbook, docs/runbooks/migration-scratch-proof.md, for the owner-attended step that currently has no runbook. Nine reviewed migrations are merged and unapplied — 0016_cloud_memory, 0017_owner_passphrase, 0018_owner_call_step_up, 0019_memory_ingress, 0020_school_catchup, 0021_voice_owner_delivery, 0022_university_tracker, 0023_study_coach and 0025_archive_literal_history — and NEXT_STEPS.md and docs/HANDOFF.md both say a Sid-attended scratch remote-D1 proof is mandatory before any production apply, but no document says how to run it. This PR writes only the document. It applies nothing and changes no code.
+
+Read only what you need: the existing docs/runbooks/deploy.md section "R0 item 5: migrate, then deploy", the scratch-D1 block in docs/runbooks/owner-passphrase.md (lines about 40-70, the existing PowerShell 7 pattern to copy), and the nine migration files themselves. Do not read the roadmap or the plans.
+
+The runbook must be written for the only machine it will ever run on: Windows 11, PowerShell 7, from the repository root, using pnpm.cmd and wrangler the way deploy.md and owner-passphrase.md already do. Never bash, never chmod, never systemd. Every command block names the shell and starts with the cd. It must cover, in order:
+
+1. What this proves and what it does not. Applying to scratch proves the SQL is accepted by remote D1 (the real engine, not local SQLite) and that each trigger and unique-key guard behaves; it does not prove anything about production data.
+2. Creating and naming a throwaway D1 database, and confirming out loud that it is not the production one. Every command takes the scratch name from a prompt or variable, never a literal that could be the production database.
+3. Applying the nine pending migrations to the scratch database in order, with the exact commands and the expected output.
+4. The specific checks worth running afterwards on scratch: that every named trigger exists, that an INSERT OR REPLACE and an INSERT OR IGNORE against each new unique key abort rather than delete, and that a CASE-wrapped RAISE would have been rejected. Give the copy-pasteable statements.
+5. Cleanup: deleting the scratch database, and what to record.
+6. The production apply, pointing at deploy.md rather than repeating it, and stating plainly the trap deploy.md already warns about: `wrangler d1 migrations apply` applies EVERY pending migration in the directory, not a chosen subset, so the owner must run `migrations list` first and reconcile the count against the nine above.
+7. Stop conditions: what to do when a migration fails partway (earlier ones stay applied), and that the owner never continues to a deploy after an unresolved migration failure.
+
+Keep it short enough to follow while tired, one numbered step per action, with the exact text to expect. Do not invent a wrangler flag you have not seen in the existing runbooks; if you are unsure a flag exists, say which command to run to check rather than guessing.
+
+Also add one line to NEXT_STEPS.md pointing at the new runbook where it says the scratch proof is mandatory, and an AGENT_LOG entry.
+
+Run lint and typecheck; the full suite is not needed for a docs-only change, but run it once if you touch anything outside docs. Open a draft PR and post a ready entry in docs/AGENT_LOG.md for Claude review. Standing rules: never merge, deploy, apply a migration, create or delete a real database, touch secrets, spend or contact anyone. Remove your extra worktree only after pushing.
