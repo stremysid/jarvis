@@ -156,7 +156,7 @@ describe("SchoolCatchupModelAdapter", () => {
       today: "2026-09-15",
       responseHash: expect.stringMatching(/^[a-f0-9]{64}$/u),
       plan: expect.objectContaining({ engaged: true }),
-    }));
+    }), expect.any(Function));
   });
 
   it("drops the oldest retrieved context until the structured prompt fits its byte budget", async () => {
