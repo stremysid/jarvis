@@ -17,6 +17,7 @@
  */
 
 import type {
+  DigestApplicationItem,
   DigestCatchupAction,
   Digest,
   DigestGap,
@@ -37,6 +38,7 @@ const MAX_EXCERPT_LINES = 3;
 
 const DEADLINE_HORIZON_DAYS = 7;
 const RETRO_HORIZON_DAYS = 7;
+const APPLICATION_ITEM_LIMIT = 5;
 
 /**
  * Quoted rather than plain. The prefix is what stops a line inside a
@@ -111,6 +113,23 @@ export function localDate(instant: Date, timeZone: string): string {
   return `${find("year")}-${find("month")}-${find("day")}`;
 }
 
+function localTimestamp(value: string, timeZone: string): string {
+  const instant = new Date(value);
+  if (!Number.isFinite(instant.getTime())) return neutraliseInline(value);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(instant);
+  const find = (type: string): string =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  return `${find("year")}-${find("month")}-${find("day")} ${find("hour")}:${find("minute")} local`;
+}
+
 /** Local weekday index, 0 = Sunday, or -1 when it could not be determined. */
 export function localWeekday(instant: Date, timeZone: string): number {
   const name = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" })
@@ -170,6 +189,47 @@ function catchupSection(actions: readonly DigestCatchupAction[]): DigestSection 
     lines: ordered.map((action) =>
       `${action.sequenceRank}. ${neutraliseInline(action.course)}: ${neutraliseInline(action.text)} (${action.estimatedMinutes} min)`,
     ),
+  };
+}
+
+function schoolObservationSection(input: DigestInput, timeZone: string): DigestSection | null {
+  const lines = [
+    ...input.grades.map((grade) =>
+      `[verified: ${grade.source}; checked ${localTimestamp(grade.lastSeenAt, timeZone)}] ${neutraliseInline(grade.course)}: ${neutraliseInline(grade.title)} — assigned grade ${String(grade.assignedGrade)} (scale and weight not supplied)`,
+    ),
+    ...input.missingWork.map((item) =>
+      `[derived: ${item.source} showed no submission as of ${localTimestamp(item.lastSeenAt, timeZone)}] ${neutraliseInline(item.course)}: ${neutraliseInline(item.title)} (deadline passed ${localTimestamp(item.dueAt, timeZone)})`,
+    ),
+    ...(input.missingWorkOmitted > 0 ? [`+${input.missingWorkOmitted} more`] : []),
+  ];
+  return lines.length === 0 ? null : { heading: "Grades and submission checks", lines };
+}
+
+function applicationStatus(status: DigestApplicationItem["status"]): string {
+  if (status === "not_started") return "not started";
+  if (status === "submitted_by_sid") return "submitted by Sid";
+  if (status === "not_needed_by_sid") return "not needed by Sid";
+  return status;
+}
+
+function applicationSection(items: readonly DigestApplicationItem[]): DigestSection | null {
+  const ordered = [...items]
+    .filter((item) => item.status !== "submitted_by_sid" && item.status !== "not_needed_by_sid")
+    .sort((left, right) => {
+      if (left.dueDate === null && right.dueDate !== null) return 1;
+      if (left.dueDate !== null && right.dueDate === null) return -1;
+      return (left.dueDate ?? "").localeCompare(right.dueDate ?? "") || left.itemId.localeCompare(right.itemId);
+    })
+    .slice(0, APPLICATION_ITEM_LIMIT);
+  if (ordered.length === 0) return null;
+  return {
+    heading: "University applications",
+    lines: ordered.map((item) => {
+      const due = item.dueDate === null
+        ? "due date unverified -- awaiting current-cycle source"
+        : `due ${neutraliseInline(item.dueDate)} (${item.verificationState})`;
+      return `${neutraliseInline(item.university)} — ${neutraliseInline(item.programName)}: ${neutraliseInline(item.label)} [${applicationStatus(item.status)}; ${due}]`;
+    }),
   };
 }
 
@@ -292,7 +352,9 @@ export function compose(
   const gaps = gapSection(input.gaps);
   const candidates = [
     deadlineSection(input, now, horizon),
+    schoolObservationSection(input, options.timeZone),
     catchupSection(input.catchupActions),
+    applicationSection(input.applicationItems),
     studyCheckInSection(input),
     projectSection(input),
     decisionSection(input),

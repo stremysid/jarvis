@@ -13,12 +13,15 @@ const JUMP_JOB_ID = "01k5fsvag00000000000000009";
 const COUNT_JOB_ID = "01k5fsvag0000000000000000a";
 const DISABLED_JOB_ID = "01k5fsvag0000000000000000b";
 const ARCHIVE_JOB_ID = "01k5fsvag0000000000000000c";
+const DISABLED_HIT_JOB_ID = "01k5fsvag0000000000000000k";
 const EVENT_ID = "01k5fsvag00000000000000003";
+const DISABLED_HIT_EVENT_ID = "01k5fsvag0000000000000000m";
 const COVERAGE_ID = "01k5fsvag00000000000000007";
 const CHUNK_ID = "01k5fsvag00000000000000008";
 const QUERY_HASH = "1".repeat(64);
 const CONTENT_HASH = "2".repeat(64);
 const OTHER_PRINCIPAL_ID = "principal:literal-history-migration-other";
+const DISABLED_HIT_PRINCIPAL_ID = "principal:literal-history-migration-disabled-hit";
 
 const TRIGGERS = [
   "memory_literal_search_hits_delete_forbidden",
@@ -244,6 +247,53 @@ describe("0025 archive literal-history migration", () => {
     ) VALUES (?1, ?2, 2, ?3, ?4, ?5)`)
       .bind(PRINCIPAL_ID, JOB_ID, "01k5fsvag00000000000000004", CONTENT_HASH, LATER).run())
       .rejects.toThrow(/memory_literal_search_hit_receipt_invalid/u);
+  });
+
+  it("memory_literal_search_hits_insert_guard rejects a receipt for a disabled principal", async () => {
+    await env.DB.prepare(`INSERT INTO principals (
+      principal_id, principal_type, status, display_name, created_at, updated_at
+    ) VALUES (?, 'human', 'active', 'Disabled hit owner', ?, ?)`)
+      .bind(DISABLED_HIT_PRINCIPAL_ID, NOW, NOW).run();
+    await env.DB.prepare(`INSERT INTO events (
+      event_id, event_type, source, subject_id, occurred_at, received_at,
+      content_hash, envelope_json, created_at
+    ) VALUES (?, 'jarvis.conversation', 'local', ?, ?, ?, ?, '{}', ?)`)
+      .bind(DISABLED_HIT_EVENT_ID, DISABLED_HIT_PRINCIPAL_ID, NOW, NOW, CONTENT_HASH, NOW).run();
+    const eventSequence = await env.DB.prepare("SELECT sequence FROM events WHERE event_id = ?")
+      .bind(DISABLED_HIT_EVENT_ID).first<number>("sequence");
+    if (eventSequence === null) throw new Error("literal_history_disabled_hit_fixture_missing");
+    await env.DB.prepare(`INSERT INTO memory_literal_search_jobs (
+      job_id, principal_id, job_key, query_text, query_hash,
+      snapshot_event_sequence, checkpoint_event_sequence,
+      scanned_event_count, matched_event_count, status, failure_code,
+      created_at, updated_at, completed_at
+    ) VALUES (?, ?, 'disabled-hit-owner', 'needle', ?, ?, 0, 0, 0,
+      'pending', NULL, ?, ?, NULL)`)
+      .bind(
+        DISABLED_HIT_JOB_ID,
+        DISABLED_HIT_PRINCIPAL_ID,
+        QUERY_HASH,
+        eventSequence,
+        NOW,
+        NOW,
+      ).run();
+    await env.DB.prepare(`UPDATE memory_literal_search_jobs
+      SET status = 'running', updated_at = ? WHERE principal_id = ? AND job_id = ?`)
+      .bind(LATER, DISABLED_HIT_PRINCIPAL_ID, DISABLED_HIT_JOB_ID).run();
+    await env.DB.prepare("UPDATE principals SET status = 'disabled' WHERE principal_id = ?")
+      .bind(DISABLED_HIT_PRINCIPAL_ID).run();
+
+    await expect(env.DB.prepare(`INSERT INTO memory_literal_search_hits (
+      principal_id, job_id, event_sequence, event_id, content_hash, found_at
+    ) VALUES (?, ?, ?, ?, ?, ?)`)
+      .bind(
+        DISABLED_HIT_PRINCIPAL_ID,
+        DISABLED_HIT_JOB_ID,
+        eventSequence,
+        DISABLED_HIT_EVENT_ID,
+        CONTENT_HASH,
+        LATER,
+      ).run()).rejects.toThrow(/memory_literal_search_hit_receipt_invalid/u);
   });
 
   it("memory_literal_search_hits_immutable_update rejects receipt mutation", async () => {

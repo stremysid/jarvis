@@ -1,3 +1,6 @@
+-- Production was migrated with the earlier CASE-wrapped trigger guard.
+-- This semantically identical rewrite exists so a fresh database can be rebuilt. Production was not re-migrated.
+
 PRAGMA defer_foreign_keys = ON;
 
 DROP INDEX principals_one_human_idx;
@@ -49,7 +52,7 @@ BEGIN
         AND d.status = 'active'
         AND p.status = 'active'
     );
-  SELECT CASE WHEN changes() <> 1 THEN RAISE(ABORT, 'identity_challenge_state_changed') END;
+  SELECT RAISE(ABORT, 'identity_challenge_state_changed') WHERE changes() <> 1;
 END;
 
 CREATE TRIGGER call_sessions_require_inbound_lineage

@@ -62,7 +62,6 @@ _FIRST_PERSON_UNTRUSTED_FRAMING = (
         re.I | re.ASCII,
     ),
     re.compile(r"(?<![A-Za-z0-9_])not\s+sure(?![A-Za-z0-9_])", re.I | re.ASCII),
-    re.compile(r"(?<![A-Za-z0-9_])(?:says|said|told)(?![A-Za-z0-9_])", re.I | re.ASCII),
 )
 _SENTENCE_PUNCTUATION = frozenset(".!?")
 _ASCII_WHITESPACE = frozenset(" \t\r\n\f\v")
@@ -152,19 +151,23 @@ def is_authenticated_first_person_quote(
     """Accept only one complete, unframed first-person owner sentence."""
     if not authenticated_owner:
         return False
-    normalized_quote = unicodedata.normalize("NFC", quote).strip(" ")
-    normalized_source = unicodedata.normalize("NFC", source_text)
+    normalized_quote = unicodedata.normalize("NFC", quote).strip()
+    normalized_source = unicodedata.normalize("NFC", source_text).strip()
     if not normalized_quote or has_fact_text_controls(normalized_quote):
         return False
     if _FIRST_PERSON_TOKEN.search(normalized_quote) is None:
         return False
 
-    offset = normalized_source.find(normalized_quote)
-    while offset != -1:
-        if _is_whole_trusted_sentence(normalized_source, normalized_quote, offset):
-            return True
-        offset = normalized_source.find(normalized_quote, offset + 1)
-    return False
+    source_is_whole_quote = normalized_source == normalized_quote or (
+        len(normalized_source) == len(normalized_quote) + 1
+        and normalized_source.startswith(normalized_quote)
+        and normalized_source[-1] in _SENTENCE_PUNCTUATION
+    )
+    return source_is_whole_quote and _is_whole_trusted_sentence(
+        normalized_source,
+        normalized_quote,
+        0,
+    )
 
 
 def is_uncertain_origin(origin: FactOrigin) -> bool:

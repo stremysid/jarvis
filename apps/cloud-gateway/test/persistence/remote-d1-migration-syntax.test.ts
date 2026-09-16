@@ -19,7 +19,7 @@ const remoteD1Migrations = Object.entries(migrationModules).map(([path, sql]) =>
   if (name === undefined) throw new Error(`migration name missing: ${path}`);
   const sequence = Number.parseInt(name.slice(0, 4), 10);
   return { name, sequence, sql };
-}).filter(({ sequence }) => sequence >= 14).sort((left, right) => left.sequence - right.sequence);
+}).sort((left, right) => left.sequence - right.sequence);
 
 const VOICE_OWNER_DELIVERY_TRIGGERS = Object.freeze([
   "owner_call_step_up_disabled_rejections_insert_guard",
@@ -35,6 +35,7 @@ const VOICE_OWNER_DELIVERY_TRIGGERS = Object.freeze([
 ]);
 
 const MEMORY_DISTILLATION_TRIGGERS = Object.freeze([
+  "archive_segment_events_no_update",
   "memory_distillation_event_receipts_insert_guard",
   "memory_distillation_event_receipts_immutable_update",
   "memory_distillation_event_receipts_delete_forbidden",
@@ -46,9 +47,28 @@ const MEMORY_DISTILLATION_TRIGGERS = Object.freeze([
   "memory_distillation_cursor_update_guard",
 ]);
 
+const GUEST_GRANT_NOTICE_DRAIN_TRIGGERS = Object.freeze([
+  "guest_grant_notice_drain_state_insert_guard",
+  "guest_grant_notice_drain_state_transition_guard",
+  "guest_grant_notice_drain_state_delete_forbidden",
+]);
+
 describe("remote D1 migration trigger syntax", () => {
-  it("discovers every migration from 0014 onward", () => {
+  it("discovers every migration", () => {
     expect(remoteD1Migrations.map(({ name }) => name)).toEqual([
+      "0001_foundation.sql",
+      "0002_foundation_hardening.sql",
+      "0003_calling.sql",
+      "0004_call_sessions.sql",
+      "0005_conversation.sql",
+      "0006_voice_access.sql",
+      "0007_voice_access_boundaries.sql",
+      "0008_autonomy.sql",
+      "0009_decisions.sql",
+      "0010_projects.sql",
+      "0011_deadlines.sql",
+      "0012_liveness.sql",
+      "0013_scheduled_runs.sql",
       "0014_memory_projection.sql",
       "0015_voice_runtime.sql",
       "0016_cloud_memory.sql",
@@ -59,12 +79,17 @@ describe("remote D1 migration trigger syntax", () => {
       "0021_voice_owner_delivery.sql",
       "0022_university_tracker.sql",
       "0023_study_coach.sql",
+      "0024_university_application_workflow.sql",
       "0025_archive_literal_history.sql",
       "0026_memory_distillation.sql",
+      "0027_school_observations.sql",
+      "0028_guest_grant_notice_drain.sql",
     ]);
   });
 
   it.each(remoteD1Migrations)("rejects CASE-wrapped RAISE statements in $name", ({ sql }) => {
+    // Remote D1 accepts plain CASE ... END value expressions inside triggers.
+    // Only the statement form SELECT CASE ... RAISE( is rejected.
     expect(sql).not.toMatch(/\bSELECT\s+CASE\b[^;]*\bRAISE\s*\(/iu);
   });
 
@@ -88,6 +113,13 @@ describe("remote D1 migration trigger syntax", () => {
       .toHaveLength(MEMORY_DISTILLATION_TRIGGERS.length);
   });
 
+  it("marks the live archive table alteration for complete scratch rehearsal", () => {
+    const migration = remoteD1Migrations.find(({ name }) => name === "0026_memory_distillation.sql");
+    expect(migration?.sql).toMatch(
+      /^-- This candidate alters archive_segment_events, a live table created in 0001\.\r?\n-- Scratch rehearsal must cover the column add, subject backfill, and trigger replacement against that prior schema\./u,
+    );
+  });
+
   it.each(MEMORY_DISTILLATION_TRIGGERS)(
     "keeps %s in WHEN BEGIN SELECT RAISE remote-D1 form",
     (trigger) => {
@@ -102,4 +134,12 @@ describe("remote D1 migration trigger syntax", () => {
       expect(definition).not.toMatch(/\bSELECT\s+CASE\b[^;]*\bRAISE\s*\(/iu);
     },
   );
+
+  it("pins every 0028 trigger as one complete named definition", () => {
+    const migration = remoteD1Migrations.find(({ name }) => name === "0028_guest_grant_notice_drain.sql");
+    expect(migration).toBeDefined();
+    const names = [...(migration?.sql ?? "").matchAll(/\bCREATE\s+TRIGGER\s+([a-z0-9_]+)/giu)]
+      .map((match) => match[1]);
+    expect(names).toEqual(GUEST_GRANT_NOTICE_DRAIN_TRIGGERS);
+  });
 });

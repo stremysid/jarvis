@@ -1,11 +1,18 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DeadlineRepository } from "../../src/deadlines/deadline-repository.js";
-import { buildJobTable, type JobEnvironment } from "../../src/jobs/job-table.js";
+import {
+  buildJobTable,
+  classroomObservationDetail,
+  type JobEnvironment,
+} from "../../src/jobs/job-table.js";
 import { ProjectPoller } from "../../src/projects/project-poller.js";
 import { resetArchiveFixture } from "../archive/archive-fixture.js";
 import { resetDeadlineTables } from "../deadlines/deadline-fixture.js";
-import { applyStudyCoachMigration } from "../persistence/migration.js";
+import {
+  applyStudyCoachMigration,
+  applyUniversityApplicationWorkflowMigration,
+} from "../persistence/migration.js";
 
 const NOW = new Date("2026-09-15T12:00:00.000Z");
 const CONFIGURED = {
@@ -50,6 +57,7 @@ describe("hourly Classroom ingestion", () => {
     await resetArchiveFixture();
     await resetDeadlineTables();
     await applyStudyCoachMigration();
+    await applyUniversityApplicationWorkflowMigration();
   });
   afterEach(async () => {
     vi.restoreAllMocks();
@@ -105,6 +113,19 @@ describe("hourly Classroom ingestion", () => {
     await expect(digest()).resolves.toMatchObject({ ok: true, detail: "sent with 1 gaps" });
     expect(String(send.mock.calls[0]?.[0])).toContain("Unit 1 Quiz");
     expect(String(send.mock.calls[0]?.[0])).toContain("Brightspace: not set up");
+  });
+
+  it("surfaces rejected grade and submission source rows in the hourly poll result", async () => {
+    expect(classroomObservationDetail({
+      outcome: "complete",
+      pages: 1,
+      seen: 0,
+      undatedCoursework: 2,
+      rejected: 1,
+      transitions: 0,
+      failure: null,
+      statementsUsed: 4,
+    })).toContain("2 undated coursework submissions skipped; 1 submission observations rejected");
   });
 
   it("does not contact Google or create a source when all configuration is absent", async () => {

@@ -9,11 +9,11 @@
       "expected": true
     },
     {
-      "name": "accepts a curly-apostrophe first-person contraction",
+      "name": "rejects a first-person sentence cut from a longer message",
       "quote": "I’m renovating St. Remy",
       "sourceText": "Earlier note. I’m renovating St. Remy. Another note.",
       "authenticatedOwner": true,
-      "expected": true
+      "expected": false
     },
     {
       "name": "rejects a paraphrase that is not an exact source quote",
@@ -100,11 +100,11 @@
       "expected": false
     },
     {
-      "name": "rejects a whole owner statement framed as reported speech",
+      "name": "trusts a whole direct report without extracting its inner quote",
       "quote": "I said I'm moving to Ottawa.",
       "sourceText": "I said I'm moving to Ottawa.",
       "authenticatedOwner": true,
-      "expected": false
+      "expected": true
     },
     {
       "name": "rejects a whole owner sentence framed with I think",

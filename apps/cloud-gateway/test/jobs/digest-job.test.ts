@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { Ulid } from "../../../../packages/contracts/src/index.js";
 import {
   assembleDigest,
   runDigestJob,
@@ -10,6 +11,7 @@ import type { Deadline, DeadlineSource } from "../../src/deadlines/deadline-type
 import type { DecisionItem } from "../../src/decisions/decision-types.js";
 import type { ProjectStatus } from "../../src/projects/project-types.js";
 import type { SchoolCatchupAction } from "../../src/school/school-catchup-types.js";
+import type { UniversityApplicationDigestItem } from "../../src/university/university-tracker-types.js";
 
 /**
  * One question runs through this whole file: what does the owner see when a
@@ -124,6 +126,25 @@ function catchupAction(overrides: Partial<SchoolCatchupAction> = {}): SchoolCatc
   } as SchoolCatchupAction;
 }
 
+function applicationItem(
+  overrides: Partial<UniversityApplicationDigestItem> = {},
+): UniversityApplicationDigestItem {
+  return {
+    itemId: "01k3w1t4000000000000000600" as Ulid,
+    university: "Queen's University",
+    programName: "Commerce",
+    kind: "scholarship",
+    label: "Entrance scholarship",
+    status: "not_started",
+    dueDate: "2026-11-01",
+    verification: { state: "unverified", sourceUrl: null, cycle: "2027", verifiedAt: null },
+    sourceTurnId: "01k3w1t4000000000000000601" as Ulid,
+    submittedAt: null,
+    updatedAt: NOW,
+    ...overrides,
+  };
+}
+
 type DigestDependencyOverrides = Omit<Partial<DigestJobDependencies>, "sources"> & {
   readonly sources?: Partial<DigestSources>;
 };
@@ -132,8 +153,10 @@ function deps(overrides: DigestDependencyOverrides = {}): DigestJobDependencies 
   const defaults: DigestJobDependencies = {
     sources: {
       readCatchupActions: async () => [],
+      readApplicationItems: async () => [],
       readDeadlines: async () => [],
       readDeadlineSources: async () => [],
+      readSchoolObservations: async () => ({ source: null, grades: [], missingWork: [], missingWorkOmitted: 0 }),
       readProjectStatuses: async () => [],
       readOpenDecisions: async () => [],
     },
@@ -151,7 +174,7 @@ function deps(overrides: DigestDependencyOverrides = {}): DigestJobDependencies 
 }
 
 describe("assembling from every source", () => {
-  it("puts catch-up actions, deadlines, projects and decisions into one message", async () => {
+  it("puts catch-up actions, application items, deadlines, projects and decisions into one message", async () => {
     const digest = await assembleDigest(
       "daily",
       deps({
@@ -160,6 +183,7 @@ describe("assembling from every source", () => {
             expect(date).toBe("2026-09-02");
             return [catchupAction()];
           },
+          readApplicationItems: async () => [applicationItem()],
           readDeadlines: async () => [deadline()],
           readProjectStatuses: async () => [status()],
           readOpenDecisions: async () => [decision()],
@@ -169,8 +193,60 @@ describe("assembling from every source", () => {
 
     expect(digest.text).toContain("Quiz 3");
     expect(digest.text).toContain("Finish the missed lab notes");
+    expect(digest.text).toContain("Entrance scholarship");
     expect(digest.text).toContain("Approve the vendor quote?");
     expect(digest.text).not.toContain("Could not be read");
+  });
+
+  it("adds verified grades and derived no-submission observations to the existing digest", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readDeadlineSources: async () => [deadlineSource()],
+        readSchoolObservations: async () => ({
+          source: {
+            principalId: "principal-a",
+            sourceId: "source-a",
+            checkpointCourseId: null,
+            checkpointPageToken: null,
+            scanStartedAt: null,
+            derivationScanAt: null,
+            derivationStartedAt: null,
+            derivationAfterDeadlineId: null,
+            lastBatchAt: NOW,
+            lastSuccessAt: NOW,
+            lastSuccessStartedAt: NOW,
+            lastFailure: null,
+            lastFailureAt: null,
+          },
+          grades: [{
+            observationId: "observation-a",
+            deadlineId: "deadline-a",
+            course: "Calculus",
+            title: "Quiz 2",
+            assignedGrade: 84,
+            source: "google_classroom_api",
+            contentChangedAt: NOW,
+            lastSeenAt: NOW,
+          }],
+          missingWork: [{
+            transitionId: "transition-a",
+            deadlineId: "deadline-b",
+            course: "Chemistry",
+            title: "Lab reflection",
+            dueAt: "2026-09-01T18:00:00.000Z",
+            classification: "derived",
+            state: "no_submission_seen",
+            lastSeenAt: NOW,
+          }],
+          missingWorkOmitted: 0,
+        }),
+      },
+    }));
+
+    expect(digest.text).toContain("verified: Google Classroom");
+    expect(digest.text).toContain("assigned grade 84");
+    expect(digest.text).toContain("derived: Google Classroom showed no submission as of");
+    expect(digest.text).not.toContain("you missed");
   });
 
   it("uses one clock snapshot for today's catch-up query and the digest date", async () => {
@@ -364,6 +440,83 @@ describe("a source that will not answer", () => {
     expect(digest.text).not.toContain("no such table");
   });
 
+  it("keeps last-known grades visible while naming a failed submission scan", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readDeadlineSources: async () => [deadlineSource()],
+        readSchoolObservations: async () => ({
+          source: {
+            principalId: "principal-a", sourceId: "source-a",
+            checkpointCourseId: "course-a", checkpointPageToken: null, scanStartedAt: NOW,
+            derivationScanAt: null, derivationStartedAt: null, derivationAfterDeadlineId: null,
+            lastBatchAt: NOW, lastSuccessAt: NOW,
+            lastSuccessStartedAt: NOW,
+            lastFailure: "classroom_rejected", lastFailureAt: NOW,
+          },
+          grades: [{
+            observationId: "observation-a", deadlineId: "deadline-a",
+            course: "Calculus", title: "Quiz 2", assignedGrade: 84,
+            source: "google_classroom_api", contentChangedAt: NOW, lastSeenAt: NOW,
+          }],
+          missingWork: [],
+          missingWorkOmitted: 0,
+        }),
+      },
+    }));
+    expect(digest.text).toContain("assigned grade 84");
+    expect(digest.text).toContain("Google Classroom grades/submissions: classroom_rejected");
+  });
+
+  it("names an active Classroom observation source that has never completed a scan", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readDeadlineSources: async () => [deadlineSource()],
+        readSchoolObservations: async () => ({ source: null, grades: [], missingWork: [], missingWorkOmitted: 0 }),
+      },
+    }));
+
+    expect(digest.text).toContain(
+      "Google Classroom grades/submissions: has never completed a submission scan",
+    );
+  });
+
+  it("names a completed Classroom observation scan once its evidence is stale", async () => {
+    const staleAt = "2026-09-01T23:29:59.999Z";
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readDeadlineSources: async () => [deadlineSource()],
+        readSchoolObservations: async () => ({
+          source: {
+            principalId: "principal-a", sourceId: "source-a",
+            checkpointCourseId: null, checkpointPageToken: null, scanStartedAt: null,
+            derivationScanAt: null, derivationStartedAt: null, derivationAfterDeadlineId: null,
+            lastBatchAt: staleAt, lastSuccessAt: staleAt,
+            lastSuccessStartedAt: staleAt, lastFailure: null, lastFailureAt: null,
+          },
+          grades: [],
+          missingWork: [],
+          missingWorkOmitted: 0,
+        }),
+      },
+    }));
+
+    expect(digest.text).toContain(
+      "Google Classroom grades/submissions: last completed scan is stale",
+    );
+  });
+
+  it("treats unapplied school-observation tables as the older digest rather than a false outage", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readSchoolObservations: async () => {
+          throw new Error("D1_ERROR: no such table: school_assignment_observations");
+        },
+      },
+    }));
+    expect(digest.text).not.toContain("Google Classroom grades/submissions");
+    expect(digest.text).not.toContain("no such table");
+  });
+
   it("still reports the sources that did answer", async () => {
     const digest = await assembleDigest(
       "daily",
@@ -398,6 +551,9 @@ describe("a source that will not answer", () => {
           readCatchupActions: async () => {
             throw new Error("school plan down");
           },
+          readApplicationItems: async () => {
+            throw new Error("applications down");
+          },
           readDeadlines: async () => {
             throw new Error("deadlines down");
           },
@@ -409,7 +565,7 @@ describe("a source that will not answer", () => {
 
     expect(readProjectStatuses).toHaveBeenCalled();
     expect(readOpenDecisions).toHaveBeenCalled();
-    for (const detail of ["school plan down", "deadlines down", "projects down", "decisions down"]) {
+    for (const detail of ["school plan down", "applications down", "deadlines down", "projects down", "decisions down"]) {
       expect(digest.text).toContain(detail);
     }
   });
@@ -423,6 +579,9 @@ describe("a source that will not answer", () => {
       deps({
         sources: {
           readCatchupActions: async () => {
+            throw new Error("down");
+          },
+          readApplicationItems: async () => {
             throw new Error("down");
           },
           readDeadlines: async () => {
@@ -440,7 +599,7 @@ describe("a source that will not answer", () => {
     );
 
     expect(result.sent).toBe(true);
-    expect(result.gaps).toBe(4);
+    expect(result.gaps).toBe(5);
     expect(String(send.mock.calls[0]?.[0])).toContain("Could not be read");
   });
 });

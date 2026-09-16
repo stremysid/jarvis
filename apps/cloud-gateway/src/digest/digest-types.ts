@@ -51,6 +51,16 @@ export interface DigestCatchupAction {
   readonly estimatedMinutes: number;
 }
 
+export interface DigestApplicationItem {
+  readonly itemId: string;
+  readonly university: string;
+  readonly programName: string;
+  readonly label: string;
+  readonly status: "not_started" | "drafting" | "ready" | "submitted_by_sid" | "not_needed_by_sid";
+  readonly dueDate: string | null;
+  readonly verificationState: "verified" | "unverified";
+}
+
 export interface DigestStudyCheckIn {
   readonly course: string;
   readonly topic: string;
@@ -58,6 +68,26 @@ export interface DigestStudyCheckIn {
   readonly evidenceCount: number;
   readonly confidence: "low" | "medium" | "high";
   readonly observedAt: string;
+}
+
+export interface DigestGradeObservation {
+  readonly observationId: string;
+  readonly course: string;
+  readonly title: string;
+  readonly assignedGrade: number;
+  readonly source: "Google Classroom";
+  readonly lastSeenAt: string;
+}
+
+export interface DigestDerivedMissingWork {
+  readonly transitionId: string;
+  readonly course: string;
+  readonly title: string;
+  readonly dueAt: string;
+  readonly classification: "derived";
+  readonly state: "no_submission_seen";
+  readonly source: "Google Classroom";
+  readonly lastSeenAt: string;
 }
 
 /**
@@ -75,7 +105,11 @@ export interface DigestGap {
 
 export interface DigestInput {
   readonly catchupActions: readonly DigestCatchupAction[];
+  readonly applicationItems: readonly DigestApplicationItem[];
   readonly deadlines: readonly DigestDeadline[];
+  readonly grades: readonly DigestGradeObservation[];
+  readonly missingWork: readonly DigestDerivedMissingWork[];
+  readonly missingWorkOmitted: number;
   readonly projects: readonly DigestProject[];
   readonly decisions: readonly DigestDecision[];
   readonly gaps: readonly DigestGap[];

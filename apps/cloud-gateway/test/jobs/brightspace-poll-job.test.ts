@@ -10,7 +10,10 @@ import {
 } from "../../src/jobs/job-table.js";
 import { resetArchiveFixture } from "../archive/archive-fixture.js";
 import { resetDeadlineTables } from "../deadlines/deadline-fixture.js";
-import { applyStudyCoachMigration } from "../persistence/migration.js";
+import {
+  applyStudyCoachMigration,
+  applyUniversityApplicationWorkflowMigration,
+} from "../persistence/migration.js";
 
 const NOW = new Date("2026-09-15T12:00:00.000Z");
 const FEED_URL = "https://school.example/d2l/le/calendar/feed/user.ics?subscription=fixture-only";
@@ -225,6 +228,7 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
     await resetDeadlineTables();
     await env.DB.prepare("DELETE FROM scheduled_runs").run();
     await applyStudyCoachMigration();
+    await applyUniversityApplicationWorkflowMigration();
   });
   afterEach(async () => {
     vi.restoreAllMocks();
@@ -558,7 +562,7 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
 
     await expect(runPoll(context(fetcher, { DB: database, BRIGHTSPACE_ICAL_URL: FEED_URL }))).resolves.toMatchObject({
       detail: expect.stringContaining(
-        "archival failed (archive_operation_failed); Memory distillation not configured; Classroom not configured; Brightspace 1 seen",
+        "archival failed (archive_operation_failed); Classroom not configured; Brightspace 1 seen, 0 cancelled, 0 rejected, 0 absent; Memory distillation not configured",
       ),
     });
     expect(fetcher).toHaveBeenCalledTimes(1);
