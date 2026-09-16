@@ -10,23 +10,22 @@ because Twilio is not configured; outbound calling is separately disabled by
 `outbound_runtime_controls.enabled = 0`. The release gate still requires the
 retained live-call evidence.
 
-## R5 study coach is in draft review
+## R5 study coach is merged; university workflow remains in draft review
 
 PR #51 merged as `10d4cd7` and completes the Brightspace step-3 feed work
-without setting its secret or making a live request. Draft
-[PR #53](https://github.com/ksid1229-ops/jarvis/pull/53) is the first proactive
+without setting its secret or making a live request.
+[PR #53](https://github.com/ksid1229-ops/jarvis/pull/53) merged as `9b900fe`
+with the first proactive
 study-coach slice on the existing Telegram conversation: evidence-backed
 per-course weak areas, one quiet daily check-in when evidence changes or is due,
 cited owner-topic/course-card practice, and direct-owner-only correction and
-forget. Claude's first max review requested changes at `30ec39e`; fix commit
-`4f7c3bc` plus current-main merge `11d624c` is ready for max re-review. Its
-additive `0023_study_coach.sql` is unapplied. The operational record
+forget. Its additive `0023_study_coach.sql` is unapplied. The operational record
 stays separate from R2 until a later reviewed integration, and spoken quizzes
 wait for R1 calling. Draft PR #52 independently owns migration `0024` for the
 university application workflow. No school account, secret, deploy, migration,
-contact, purchase, submission or live request is authorized by either draft.
+contact, purchase, submission or live request is authorized by that draft.
 
-## R1 is active; R2 literal-history slice is in draft review
+## R1 is active; R2 automatic-distillation slice is in draft review
 
 R0 passed on 2026-09-11. R1 depends on R0 and is entirely cloud-side.
 PR #23 supplied item 2's fake calling/access matrix and confirmed Telegram
@@ -174,13 +173,12 @@ PR #42 merged the owner-command ingress boundary in
 `0019_memory_ingress.sql` as `f0bfbe9`; PR #44 merged the reviewed runtime-slice
 plan as `3e28bda`; main also owns `0020_school_catchup.sql` and
 `0022_university_tracker.sql`, while PR #46 merged as `ebb757b` with
-`0021_voice_owner_delivery.sql`. Open PR #53 reserves
-`0023_study_coach.sql`, open PR #52 reserves
-`0024_university_application_workflow.sql`, and draft PR #56 uses
-`0025_archive_literal_history.sql`.
-This R2 work applied none of `0016` through `0020` or `0022`. The R2 migrations
-still require the reviewed, Sid-attended scratch remote-D1 proof before Sid
-decides on a production apply.
+`0021_voice_owner_delivery.sql`, and main now also owns
+`0023_study_coach.sql` and `0025_archive_literal_history.sql`. Open PR #52
+reserves `0024_university_application_workflow.sql`; draft PR #59 uses the next
+free name, `0026_memory_distillation.sql`. No migration after `0015` has been
+applied by this R2 work. The pending migrations still require the reviewed,
+Sid-attended scratch remote-D1 proof before Sid decides on a production apply.
 
 [PR #47](https://github.com/ksid1229-ops/jarvis/pull/47) merged as `60ae90d`
 with the first slice in
@@ -193,13 +191,30 @@ scheduled job uses it. It changes no migration and performs no live call,
 provider call, migration application, secret operation or deployment.
 [PR #50](https://github.com/ksid1229-ops/jarvis/pull/50) merged as `1cae97b`
 with the uncomposed channel-neutral owner-controls service. Draft
-[PR #56](https://github.com/ksid1229-ops/jarvis/pull/56) builds slice 2: bounded
+[PR #56](https://github.com/ksid1229-ops/jarvis/pull/56) merged as `282f066`
+with slice 2: bounded
 literal-history chunks and complete live/verified-R2 coverage, suppression-safe
 exact provenance results, and a checkpointed exhaustive-search job with counted
 D1 and text budgets. It also preserves immutable source receipts while deriving
 their current archived location after live-event purge. Migration `0025` is not
 applied. Sid will eventually use ordinary speech and text rather than learned
 commands; Telegram and voice intent routing remain later slices.
+
+Draft [PR #59](https://github.com/ksid1229-ops/jarvis/pull/59) builds slice 3:
+the hourly automatic-distillation step reads bounded live/R2 history, revalidates
+stored event envelopes and exact excerpts, applies the existing extraction
+policy and canonical repository, files uncertain or low-confidence items into
+the explicit inbox, and advances its cursor only after the item batch. Migration
+`0026` adds immutable event/item receipts plus schema-enforced count and cursor
+reconciliation. The production job remains visibly provider-disabled: tests use
+only the fake provider, while paid-provider selection and the real token/cost
+ledger wait for separate owner approval and are recorded in `KNOWN_ISSUES.md`.
+Local validation on implementation `0825b8d` passes lint, typecheck, 82 focused
+tests and the complete 165-file / 3,499-test workspace suite. Deleting each of
+the nine `0026` triggers and planting twelve runtime/budget/source faults failed
+named tests before exact restoration. Independent Claude max review is pending;
+no live provider call, deploy, migration apply, secret operation or spend
+occurred.
 
 Reviewer pre-probes on the first ready head exposed that a live event receipt
 could accompany an exact excerpt absent from the event. Fix `052f1fc` now
