@@ -444,6 +444,7 @@ async function digest(
     sources: {
       readCatchupActions: async (date) => school.listActionsForDate(principalId, date),
       readApplicationItems: async () => university.listApplicationItemsByDueDate(principalId),
+      readWorkflowItems: async () => university.listWorkflowItemsByDueDate(principalId),
       claimStudyCheckIn: async (date, weekday, minuteOfDay) => {
         const now = context.clock.now();
         return study.syncAndClaimDigestCheckIn({ principalId, today: date, weekday, minuteOfDay, now });

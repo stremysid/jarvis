@@ -24,6 +24,7 @@ import universityTrackerSql from "../../src/persistence/migrations/0022_universi
 import studyCoachSql from "../../src/persistence/migrations/0023_study_coach.sql?raw";
 import universityApplicationWorkflowSql from "../../src/persistence/migrations/0024_university_application_workflow.sql?raw";
 import archiveLiteralHistorySql from "../../src/persistence/migrations/0025_archive_literal_history.sql?raw";
+import universityApplicationDetailsSql from "../../src/persistence/migrations/0029_university_application_details.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
@@ -37,6 +38,7 @@ let universityTrackerMigrated: Promise<void> | undefined;
 let studyCoachMigrated: Promise<void> | undefined;
 let universityApplicationWorkflowMigrated: Promise<void> | undefined;
 let archiveLiteralHistoryMigrated: Promise<void> | undefined;
+let universityApplicationDetailsMigrated: Promise<void> | undefined;
 
 /**
  * Split a migration into the statements D1 applies one at a time.
@@ -195,6 +197,15 @@ export async function applyUniversityApplicationWorkflowMigration(): Promise<voi
     { name: "0024_university_application_workflow.sql", queries: splitMigration(universityApplicationWorkflowSql) },
   ]);
   await universityApplicationWorkflowMigrated;
+}
+
+/** Applies append-only application preparation and owner-reported workflow revisions. */
+export async function applyUniversityApplicationDetailsMigration(): Promise<void> {
+  await applyUniversityApplicationWorkflowMigration();
+  universityApplicationDetailsMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0029_university_application_details.sql", queries: splitMigration(universityApplicationDetailsSql) },
+  ]);
+  await universityApplicationDetailsMigrated;
 }
 
 /** Applies durable archive-complete literal-search jobs after memory ingress. */

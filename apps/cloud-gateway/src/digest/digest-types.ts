@@ -61,6 +61,32 @@ export interface DigestApplicationItem {
   readonly verificationState: "verified" | "unverified";
 }
 
+export interface DigestUniversityWorkflow {
+  readonly workflowId: string;
+  readonly university: string;
+  readonly programName: string;
+  readonly label: string;
+  readonly owner: "sid" | "referee" | "guidance" | "school" | "university";
+  readonly status:
+    | "prepared"
+    | "owner_reported_done"
+    | "owner_reported_not_done"
+    | "owner_reported_offered"
+    | "owner_reported_waitlisted"
+    | "owner_reported_rejected"
+    | "owner_reported_withdrawn"
+    | "owner_reported_pending"
+    | "owner_reported_satisfied"
+    | "owner_reported_unsatisfied"
+    | "owner_reported_accepted"
+    | "owner_reported_declined"
+    | "not_needed_by_sid";
+  readonly dueDate: string | null;
+  readonly dueAt: string | null;
+  readonly dueTimeZone: string | null;
+  readonly verificationState: "verified" | "unverified";
+}
+
 export interface DigestStudyCheckIn {
   readonly course: string;
   readonly topic: string;
@@ -86,6 +112,7 @@ export interface DigestGap {
 export interface DigestInput {
   readonly catchupActions: readonly DigestCatchupAction[];
   readonly applicationItems: readonly DigestApplicationItem[];
+  readonly universityWorkflowItems?: readonly DigestUniversityWorkflow[];
   readonly deadlines: readonly DigestDeadline[];
   readonly projects: readonly DigestProject[];
   readonly decisions: readonly DigestDecision[];

@@ -175,6 +175,7 @@ function readyResponse(): string {
       statusEvidence: "I finished my Waterloo AIF draft",
       dueDate: null,
     }],
+    workflowUpdates: [],
   });
 }
 
@@ -1067,7 +1068,7 @@ describe("university application conversation model", () => {
     });
 
     await expect(collect(adapter.stream(input(principalId, "I finished my Waterloo AIF draft")))).resolves.toBe(
-      "I can't confirm that action. Spending, sign-ups, uploads, submissions, and contacting people require your tap.",
+      "I can't do or confirm that action. I can prepare a draft or exact checklist, but you must send, upload, submit, pay, sign up, or contact them yourself.",
     );
     expect(applyOwnerPlan).not.toHaveBeenCalled();
   });
@@ -1090,7 +1091,7 @@ describe("university application conversation model", () => {
 
     const reply = await collect(adapter.stream(input(principalId, "I finished my Waterloo AIF draft")));
     expect(reply).toContain(
-      "I can't confirm that action. Spending, sign-ups, uploads, submissions, and contacting people require your tap.",
+      "I can't do or confirm that action. I can prepare a draft or exact checklist, but you must send, upload, submit, pay, sign up, or contact them yourself.",
     );
     expect(reply).toContain("I couldn't update your university tracker.");
   });
@@ -1217,7 +1218,7 @@ describe("university application conversation model", () => {
       ownerPrincipalId: principalId,
     });
     await expect(collect(adapter.stream(input(principalId, "Help with my application.")))).resolves.toBe(blocked
-      ? "I can't confirm that action. Spending, sign-ups, uploads, submissions, and contacting people require your tap."
+      ? "I can't do or confirm that action. I can prepare a draft or exact checklist, but you must send, upload, submit, pay, sign up, or contact them yourself."
       : reply);
   });
 
@@ -1257,7 +1258,7 @@ describe("university application conversation model", () => {
       schoolEngaged: false,
       universityEngaged: false,
       reply: "Still here.",
-      courseUpdates: [], completeActionIds: [], plan: [], programUpdates: [], applicationUpdates: [],
+      courseUpdates: [], completeActionIds: [], plan: [], programUpdates: [], applicationUpdates: [], workflowUpdates: [],
     })]);
     const adapter = new SchoolCatchupModelAdapter({
       model,
@@ -1343,7 +1344,7 @@ describe("university application conversation model", () => {
       schoolEngaged: false,
       universityEngaged: false,
       reply: "Still structured and named.",
-      courseUpdates: [], completeActionIds: [], plan: [], programUpdates: [], applicationUpdates: [],
+      courseUpdates: [], completeActionIds: [], plan: [], programUpdates: [], applicationUpdates: [], workflowUpdates: [],
     })]);
     const adapter = new SchoolCatchupModelAdapter({
       model,
@@ -1433,7 +1434,7 @@ describe("university application conversation model", () => {
       schoolEngaged: false,
       universityEngaged: false,
       reply: "Still structured.",
-      courseUpdates: [], completeActionIds: [], plan: [], programUpdates: [], applicationUpdates: [],
+      courseUpdates: [], completeActionIds: [], plan: [], programUpdates: [], applicationUpdates: [], workflowUpdates: [],
     })]);
     const adapter = new SchoolCatchupModelAdapter({
       model,

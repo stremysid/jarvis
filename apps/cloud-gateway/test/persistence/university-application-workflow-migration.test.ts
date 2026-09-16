@@ -5,7 +5,7 @@ import { ConversationRepository } from "../../src/conversation/conversation-repo
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { UniversityTrackerRepository } from "../../src/university/university-tracker-repository.js";
-import { applyUniversityApplicationWorkflowMigration } from "./migration.js";
+import { applyUniversityApplicationDetailsMigration } from "./migration.js";
 
 const NOW = new Date("2026-09-15T18:00:00.000Z");
 async function seedTurn(principalId: string, turnId: Ulid, text = "Update my university applications."): Promise<void> {
@@ -78,7 +78,7 @@ function insertItem(input: {
 }
 
 beforeAll(async () => {
-  await applyUniversityApplicationWorkflowMigration();
+  await applyUniversityApplicationDetailsMigration();
 });
 
 describe("0024 university application workflow migration", () => {

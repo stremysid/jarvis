@@ -333,7 +333,7 @@ describe("SchoolCatchupModelAdapter", () => {
     });
 
     await expect(collect(adapter.stream(input()))).resolves.toBe(
-      "I can't confirm that action. Spending, sign-ups, uploads, submissions, and contacting people require your tap.",
+      "I can't do or confirm that action. I can prepare a draft or exact checklist, but you must send, upload, submit, pay, sign up, or contact them yourself.",
     );
   });
 
@@ -418,7 +418,7 @@ describe("SchoolCatchupModelAdapter", () => {
   it.each([
     [
       "I submitted your application.",
-      "I can't confirm that action. Spending, sign-ups, uploads, submissions, and contacting people require your tap.",
+      "I can't do or confirm that action. I can prepare a draft or exact checklist, but you must send, upload, submit, pay, sign up, or contact them yourself.",
     ],
     [
       "Send me your D2L password to continue.",

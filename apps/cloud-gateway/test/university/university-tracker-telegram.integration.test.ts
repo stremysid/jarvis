@@ -12,7 +12,7 @@ import { SchoolCatchupModelAdapter } from "../../src/school/school-catchup-model
 import { SchoolCatchupRepository } from "../../src/school/school-catchup-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { UniversityTrackerRepository } from "../../src/university/university-tracker-repository.js";
-import { applyUniversityApplicationWorkflowMigration } from "../persistence/migration.js";
+import { applyUniversityApplicationDetailsMigration } from "../persistence/migration.js";
 
 const NOW = new Date("2026-09-15T16:00:00.000Z");
 const TURN = "01k5fb9pg00000000000000b00" as Ulid;
@@ -32,7 +32,7 @@ class SingleResponseModel implements ModelAdapter {
 }
 
 beforeAll(async () => {
-  await applyUniversityApplicationWorkflowMigration();
+  await applyUniversityApplicationDetailsMigration();
 });
 
 describe("university tracker Telegram integration", () => {
@@ -88,6 +88,7 @@ describe("university tracker Telegram integration", () => {
           evidence: ownerMessage,
         },
       }],
+      workflowUpdates: [],
     });
     const baseModel = new SingleResponseModel(structuredReply);
     const redactor = new Redactor();

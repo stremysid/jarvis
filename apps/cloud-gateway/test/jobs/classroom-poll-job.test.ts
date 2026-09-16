@@ -7,7 +7,7 @@ import { resetArchiveFixture } from "../archive/archive-fixture.js";
 import { resetDeadlineTables } from "../deadlines/deadline-fixture.js";
 import {
   applyStudyCoachMigration,
-  applyUniversityApplicationWorkflowMigration,
+  applyUniversityApplicationDetailsMigration,
 } from "../persistence/migration.js";
 
 const NOW = new Date("2026-09-15T12:00:00.000Z");
@@ -53,7 +53,7 @@ describe("hourly Classroom ingestion", () => {
     await resetArchiveFixture();
     await resetDeadlineTables();
     await applyStudyCoachMigration();
-    await applyUniversityApplicationWorkflowMigration();
+    await applyUniversityApplicationDetailsMigration();
   });
   afterEach(async () => {
     vi.restoreAllMocks();

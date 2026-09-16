@@ -26,7 +26,10 @@ import type { Deadline, DeadlineSource, DeadlineSourceKind } from "../deadlines/
 import { BRIGHTSPACE_WINDOW_ITEM_LIMIT } from "../deadlines/brightspace-ical-client.js";
 import type { DecisionItem } from "../decisions/decision-types.js";
 import type { SchoolCatchupAction } from "../school/school-catchup-types.js";
-import type { UniversityApplicationDigestItem } from "../university/university-tracker-types.js";
+import type {
+  UniversityApplicationDigestItem,
+  UniversityWorkflowDigestItem,
+} from "../university/university-tracker-types.js";
 import type { StudyCheckIn } from "../school/study-coach-types.js";
 import { assessStaleness, type ProjectStalenessReport } from "../projects/stalled-detector.js";
 import { documentAt, type ProjectStatus } from "../projects/project-types.js";
@@ -39,6 +42,7 @@ const DEADLINE_SOURCE_STALE_AFTER_MS = 3 * 60 * 60 * 1_000;
 export interface DigestSources {
   readCatchupActions(localDate: string): Promise<readonly SchoolCatchupAction[]>;
   readApplicationItems(): Promise<readonly UniversityApplicationDigestItem[]>;
+  readWorkflowItems?(): Promise<readonly UniversityWorkflowDigestItem[]>;
   readDeadlines(withinDays: number): Promise<readonly Deadline[]>;
   readDeadlineSources(): Promise<readonly DeadlineSource[]>;
   readProjectStatuses(): Promise<readonly ProjectStatus[]>;
@@ -238,9 +242,12 @@ export async function assembleDigest(
   // whether the others are broken too.
   const today = localDate(observedAt, dependencies.timeZone);
   const schedule = localSchedule(observedAt, dependencies.timeZone);
-  const [catchupActions, applicationItems, deadlines, deadlineSources, projects, decisions, studyCheckIn] = await Promise.all([
+  const [catchupActions, applicationItems, workflowItems, deadlines, deadlineSources, projects, decisions, studyCheckIn] = await Promise.all([
     readOr("School catch-up", () => dependencies.sources.readCatchupActions(today), gaps),
     readOr("University applications", () => dependencies.sources.readApplicationItems(), gaps),
+    dependencies.sources.readWorkflowItems === undefined
+      ? Promise.resolve([])
+      : readOr("University application steps", () => dependencies.sources.readWorkflowItems?.() ?? Promise.resolve([]), gaps),
     readOr("Deadlines", () => dependencies.sources.readDeadlines(DEADLINE_HORIZON_DAYS), gaps),
     readOr("Deadline source health", () => dependencies.sources.readDeadlineSources(), gaps),
     readOr("Projects", () => dependencies.sources.readProjectStatuses(), gaps),
@@ -307,6 +314,18 @@ export async function assembleDigest(
       status: item.status,
       dueDate: item.dueDate,
       verificationState: item.verification.state,
+    })),
+    universityWorkflowItems: workflowItems.map((item) => ({
+      workflowId: item.workflowId,
+      university: item.university,
+      programName: item.programName,
+      label: item.label,
+      owner: item.owner,
+      status: item.status,
+      dueDate: item.deadline.date,
+      dueAt: item.deadline.instant,
+      dueTimeZone: item.deadline.timeZone,
+      verificationState: item.deadline.verification.state,
     })),
     deadlines: deadlines.map(toDigestDeadline),
     projects: projects.map((status) => toDigestProject(status, reports.get(status.project.projectId))),

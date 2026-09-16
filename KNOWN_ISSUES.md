@@ -1,5 +1,24 @@
 # Known issues
 
+## University application details has three deliberately closed edges
+
+- **Forwarded and quoted offer text:** the existing Telegram input still has no
+  trusted forwarded/quoted provenance. The workflow parser requires a direct
+  first-person owner statement, rejects common reported speech, and binds the
+  named offer to the owner turn, but it cannot categorically distinguish text
+  Sid typed from another person's first-person sentence that was forwarded or
+  pasted without an attribution phrase. Offer ingestion must remain Telegram-
+  owner-only until the channel adapter persists that provenance.
+- **Fee amounts:** payment steps can be prepared and tracked, but this slice has
+  no exact-source monetary field. Currency amounts are therefore rejected from
+  stored preparation details instead of being remembered or guessed. Add a
+  source-, cycle- and currency-bound fee record before Jarvis tracks an amount.
+- **Third-party completion:** referee, guidance, school and university owners
+  can be named on pending steps, but a relayed claim that they acted cannot
+  transition the step. Only Sid's direct report of his own action and his direct
+  receipt of an offer or decision are accepted. A later verified-portal or
+  trusted-provenance slice is required for external-party completion evidence.
+
 ## University application workflow has seven deferred integration and presentation limits
 
 PR #52 binds every application status report to the one item named across the

@@ -23,6 +23,7 @@ import type {
   DigestGap,
   DigestInput,
   DigestSection,
+  DigestUniversityWorkflow,
 } from "./digest-types.js";
 
 /**
@@ -182,7 +183,16 @@ function applicationStatus(status: DigestApplicationItem["status"]): string {
   return status;
 }
 
-function applicationSection(items: readonly DigestApplicationItem[]): DigestSection | null {
+function workflowStatus(status: DigestUniversityWorkflow["status"]): string {
+  if (status === "not_needed_by_sid") return "not needed by Sid";
+  if (status.startsWith("owner_reported_")) return status.slice("owner_reported_".length).replaceAll("_", " ");
+  return status;
+}
+
+function applicationSection(
+  items: readonly DigestApplicationItem[],
+  workflowItems: readonly DigestUniversityWorkflow[],
+): DigestSection | null {
   const ordered = [...items]
     .filter((item) => item.status !== "submitted_by_sid" && item.status !== "not_needed_by_sid")
     .sort((left, right) => {
@@ -191,15 +201,33 @@ function applicationSection(items: readonly DigestApplicationItem[]): DigestSect
       return (left.dueDate ?? "").localeCompare(right.dueDate ?? "") || left.itemId.localeCompare(right.itemId);
     })
     .slice(0, APPLICATION_ITEM_LIMIT);
-  if (ordered.length === 0) return null;
+  const orderedWorkflow = [...workflowItems].filter((item) => ![
+    "owner_reported_done", "owner_reported_rejected", "owner_reported_withdrawn",
+    "owner_reported_satisfied", "owner_reported_accepted", "owner_reported_declined",
+    "not_needed_by_sid",
+  ].includes(item.status)).sort((left, right) => {
+    const leftDue = left.dueAt ?? left.dueDate;
+    const rightDue = right.dueAt ?? right.dueDate;
+    if (leftDue === null && rightDue !== null) return 1;
+    if (leftDue !== null && rightDue === null) return -1;
+    return (leftDue ?? "").localeCompare(rightDue ?? "") || left.workflowId.localeCompare(right.workflowId);
+  }).slice(0, APPLICATION_ITEM_LIMIT);
+  if (ordered.length === 0 && orderedWorkflow.length === 0) return null;
   return {
     heading: "University applications",
-    lines: ordered.map((item) => {
+    lines: [...ordered.map((item) => {
       const due = item.dueDate === null
         ? "due date unverified -- awaiting current-cycle source"
         : `due ${neutraliseInline(item.dueDate)} (${item.verificationState})`;
       return `${neutraliseInline(item.university)} — ${neutraliseInline(item.programName)}: ${neutraliseInline(item.label)} [${applicationStatus(item.status)}; ${due}]`;
-    }),
+    }), ...orderedWorkflow.map((item) => {
+      const dueValue = item.dueAt ?? item.dueDate;
+      const zone = item.dueAt === null || item.dueTimeZone === null ? "" : ` ${neutraliseInline(item.dueTimeZone)}`;
+      const due = dueValue === null
+        ? "due date unverified -- awaiting current-cycle source"
+        : `due ${neutraliseInline(dueValue)}${zone} (${item.verificationState})`;
+      return `${neutraliseInline(item.university)} — ${neutraliseInline(item.programName)}: ${neutraliseInline(item.label)} [${workflowStatus(item.status)}; owner ${item.owner}; ${due}]`;
+    })],
   };
 }
 
@@ -323,7 +351,7 @@ export function compose(
   const candidates = [
     deadlineSection(input, now, horizon),
     catchupSection(input.catchupActions),
-    applicationSection(input.applicationItems),
+    applicationSection(input.applicationItems, input.universityWorkflowItems ?? []),
     studyCheckInSection(input),
     projectSection(input),
     decisionSection(input),

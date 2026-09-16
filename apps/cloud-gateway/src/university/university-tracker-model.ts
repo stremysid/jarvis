@@ -1,4 +1,4 @@
-import type { JsonValue, Ulid } from "../../../../packages/contracts/src/index.js";
+import type { Ulid } from "../../../../packages/contracts/src/index.js";
 import { canonicalJson } from "../../../../packages/contracts/src/index.js";
 import type {
   OwnerApplicationDueDateUpdate,
@@ -8,16 +8,23 @@ import type {
   OwnerUniversityProgramUpdate,
   OwnerUniversityRequirementAddition,
   OwnerUniversityVerification,
+  OwnerUniversityWorkflowDeadlineUpdate,
+  OwnerUniversityWorkflowUpdate,
   UniversityApplicationItemKind,
   UniversityApplicationItem,
   UniversityApplicationItemStatus,
   UniversityProgram,
   UniversityTrackerSnapshot,
+  UniversityWorkflowItem,
+  UniversityWorkflowKind,
+  UniversityWorkflowOwner,
+  UniversityWorkflowStatus,
 } from "./university-tracker-types.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const NEW_PROGRAM = /^new-[1-9][0-9]{0,2}$/u;
 const NEW_APPLICATION_ITEM = /^new-item-[1-9][0-9]{0,2}$/u;
+const NEW_WORKFLOW_ITEM = /^new-workflow-[1-9][0-9]{0,2}$/u;
 const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/u;
 const UNSAFE_INLINE = /[\p{C}\r\n]/u;
 const OWNER_SUBMISSION = /(?:\bi(?:['’]ve| have)?\s+(?:(?:already|just|now|successfully)\s+)?|^(?:(?:already|just|now|successfully)\s+)?)(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
@@ -36,6 +43,29 @@ const DATE_CORRECTION = /\b(?:wrong|incorrect|remove|clear|unknown|unpublished|n
 const LABEL_METADATA = /\b(?:verified|unverified)\b|\b\d{4}[-/.]\d{2}[-/.]\d{2}\b|\b\d{1,2}[/.]\d{1,2}[/.]\d{2,4}\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2},?\s+20\d{2}\b|\b\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+20\d{2})?\s*$/iu;
 const JOINT_OWNER_SUBMISSION = /\b(?:(?:m(?:s|r)\.?|dr\.?)\s+\p{L}+[\p{L}'’.-]*|(?:my\s+)?(?:mom|mother|dad|father|parents?|guardians?|sister|brother|sibling)|(?:my\s+)?(?:teacher|counsell?or|referee))\s+and\s+i\s+(?:(?:have|had)\s+)?(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
 const REPORTED_OWNER_SUBMISSION = /\b(?:asked|said|says|told|wrote|writes|sent\s+me|forwarded)\b.{0,64}\bi\s+(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
+const PREPARATION_REQUEST = /\b(?:draft|prepare|outline|revise|critique|review|checklist|steps?|tell\s+me\s+(?:how|what)|help\s+me)\b/iu;
+const OWNER_ACTION_DONE: Readonly<Record<UniversityWorkflowKind, RegExp | null>> = Object.freeze({
+  submission_step: /\bi\s+(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in)\b/iu,
+  upload_step: /\bi\s+(?:(?:already|just|now|successfully)\s+)?uploaded\b/iu,
+  contact_step: /\bi\s+(?:(?:already|just|now|successfully)\s+)?(?:contacted|emailed|messaged|called|asked(?!\s+you\b)|sent\s+(?:the\s+)?request)\b/iu,
+  signup_step: /\bi\s+(?:(?:already|just|now|successfully)\s+)?(?:signed\s+up|registered|created\s+(?:the|my|an?)\s+account)\b/iu,
+  payment_step: /\bi\s+(?:(?:already|just|now|successfully)\s+)?paid\b/iu,
+  transcript_order_step: /\bi\s+(?:(?:already|just|now|successfully)\s+)?(?:ordered|requested)\s+(?:(?:my|the|an?)\s+)?(?:official\s+)?transcript\b/iu,
+  offer: null,
+  offer_condition: null,
+  offer_response: null,
+});
+const OWNER_ACTION_NOT_DONE = /\bi\s+(?:haven['’]t|have\s+not|didn['’]t|did\s+not|couldn['’]t|could\s+not)\b/iu;
+const OWNER_OFFERED = /\b(?:i\s+(?:(?:have|just)\s+)?(?:got|received|have)\s+(?:an?\s+)?(?:[\p{L}'’.-]+\s+){0,4}offer|(?:they|the\s+university)\s+offered\s+me)\b/iu;
+const OWNER_WAITLISTED = /\bi\s+(?:(?:have|just)\s+)?(?:got\s+|was\s+|have\s+been\s+)?waitlisted\b/iu;
+const OWNER_REJECTED = /\bi\s+(?:(?:have|just)\s+)?(?:got\s+|was\s+|have\s+been\s+)?rejected\b|\bi\s+(?:didn['’]t|did\s+not)\s+get\s+in\b/iu;
+const OWNER_WITHDREW = /\bi\s+(?:(?:have|just)\s+)?withdrew\b/iu;
+const OWNER_CONDITION_PENDING = /\bi\s+(?:still\s+)?(?:need|have)\s+to\b|\bmy\s+condition\s+is\s+(?:still\s+)?pending\b/iu;
+const OWNER_CONDITION_SATISFIED = /\bi\s+(?:(?:have|just)\s+)?(?:met|satisfied|completed)\b/iu;
+const OWNER_CONDITION_UNSATISFIED = /\bi\s+(?:didn['’]t|did\s+not|haven['’]t|have\s+not)\s+(?:meet|satisfy|complete)\b/iu;
+const OWNER_ACCEPTED = /\bi\s+(?:(?:have|just)\s+)?accepted\b.{0,32}\b(?:offer|admission)\b/iu;
+const OWNER_DECLINED = /\bi\s+(?:(?:have|just)\s+)?(?:declined|turned\s+down)\b.{0,32}\b(?:offer|admission)\b/iu;
+const CURRENCY_AMOUNT = /(?:[$€£]\s*\d|\b(?:cad|usd|eur|gbp)\s*\d|\b\d+(?:[.,]\d{2})?\s*(?:cad|usd|eur|gbp|dollars?)\b)/iu;
 const ADMISSION_CYCLE = /^20\d{2}(?:[-–]20\d{2})?$/u;
 const encoder = new TextEncoder();
 const MONTH_WORDS = Object.freeze([
@@ -48,6 +78,19 @@ const APPLICATION_KINDS = new Set<UniversityApplicationItemKind>([
 ]);
 const APPLICATION_STATUSES = new Set<UniversityApplicationItemStatus>([
   "not_started", "drafting", "ready", "submitted_by_sid", "not_needed_by_sid",
+]);
+const WORKFLOW_KINDS = new Set<UniversityWorkflowKind>([
+  "submission_step", "upload_step", "contact_step", "signup_step", "payment_step",
+  "transcript_order_step", "offer", "offer_condition", "offer_response",
+]);
+const WORKFLOW_OWNERS = new Set<UniversityWorkflowOwner>([
+  "sid", "referee", "guidance", "school", "university",
+]);
+const WORKFLOW_STATUSES = new Set<UniversityWorkflowStatus>([
+  "prepared", "owner_reported_done", "owner_reported_not_done", "owner_reported_offered",
+  "owner_reported_waitlisted", "owner_reported_rejected", "owner_reported_withdrawn",
+  "owner_reported_pending", "owner_reported_satisfied", "owner_reported_unsatisfied",
+  "owner_reported_accepted", "owner_reported_declined", "not_needed_by_sid",
 ]);
 
 const KIND_WORDS: Readonly<Record<UniversityApplicationItemKind, readonly string[]>> = Object.freeze({
@@ -164,7 +207,9 @@ function clauseGroups(
   const phrases: string[] = [];
   let phraseMarker = "PHRASEMASKTOKEN";
   while (value.includes(phraseMarker)) phraseMarker = `_${phraseMarker}`;
-  const phrasePatterns = [...new Set(protectedPhrases.map((phrase) => phrase.trim()).filter(Boolean))]
+  const automaticPhrases = withoutMonthDots.match(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\b/gu) ?? [];
+  const phrasePatterns = [...new Set([...protectedPhrases, ...automaticPhrases]
+    .map((phrase) => phrase.trim()).filter(Boolean))]
     .sort((left, right) => right.length - left.length)
     .map((phrase) => new RegExp(
       phrase.split(/\s+/u).map((part) => part.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("\\s+"),
@@ -645,6 +690,317 @@ function applicationUpdate(
   });
 }
 
+function validTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: value }).format(0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function workflowStatusAllowed(kind: UniversityWorkflowKind, status: UniversityWorkflowStatus): boolean {
+  if (status === "not_needed_by_sid") return true;
+  if (kind === "offer") {
+    return status === "owner_reported_offered" || status === "owner_reported_waitlisted"
+      || status === "owner_reported_rejected" || status === "owner_reported_withdrawn";
+  }
+  if (kind === "offer_condition") {
+    return status === "owner_reported_pending" || status === "owner_reported_satisfied"
+      || status === "owner_reported_unsatisfied";
+  }
+  if (kind === "offer_response") {
+    return status === "prepared" || status === "owner_reported_accepted" || status === "owner_reported_declined";
+  }
+  return status === "prepared" || status === "owner_reported_done" || status === "owner_reported_not_done";
+}
+
+function currentWorkflowItem(
+  snapshot: UniversityTrackerSnapshot | null,
+  workflowRef: string,
+): { readonly item: UniversityWorkflowItem; readonly program: UniversityProgram } | null {
+  if (snapshot === null || !ULID.test(workflowRef)) return null;
+  for (const program of snapshot.programs) {
+    const item = (program.workflowItems ?? []).find((candidate) => candidate.workflowId === workflowRef);
+    if (item !== undefined) return Object.freeze({ item, program });
+  }
+  return null;
+}
+
+function namedWorkflowItems(
+  evidence: string,
+  snapshot: UniversityTrackerSnapshot | null,
+): readonly UniversityWorkflowItem[] {
+  if (snapshot === null) return Object.freeze([]);
+  return Object.freeze(snapshot.programs.flatMap((program) => program.workflowItems ?? [])
+    .filter((item) => containsLabel(evidence, item.label)));
+}
+
+function workflowTargetClauses(
+  evidence: string,
+  workflowRef: string,
+  workflowLabel: string,
+  applicationItemRef: string | null,
+  applicationLabel: string | null,
+  applicationKind: UniversityApplicationItemKind | null,
+  program: ApplicationProgramContext,
+  snapshot: UniversityTrackerSnapshot | null,
+): readonly string[] {
+  const protectedPhrases = [workflowLabel, applicationLabel, ...programAliases(program)]
+    .filter((value): value is string => value !== null);
+  return Object.freeze(clauses(evidence, true, protectedPhrases).filter((clause) => {
+    if (!containsLabel(clause, workflowLabel)) return false;
+    const namedWorkflows = namedWorkflowItems(clause, snapshot);
+    const namesOnlyWorkflow = namedWorkflows.length === 0
+      || namedWorkflows.length === 1 && namedWorkflows[0]?.workflowId === workflowRef;
+    if (!namesOnlyWorkflow) return false;
+    if (applicationItemRef !== null) {
+      if (applicationLabel === null || !containsLabel(clause, applicationLabel)) return false;
+      return clauseNamesOnlyItem(
+        clause,
+        applicationItemRef,
+        applicationLabel,
+        applicationKind,
+        program,
+        snapshot,
+      );
+    }
+    const namesNoApplicationItem = namedApplicationItems(clause, snapshot).length === 0;
+    const namesProgram = programAliases(program).some((alias) => mentions(clause, alias));
+    return namesNoApplicationItem && namesProgram;
+  }));
+}
+
+function supportsWorkflowStatus(
+  status: UniversityWorkflowStatus,
+  kind: UniversityWorkflowKind,
+  clausesForTarget: readonly string[],
+): boolean {
+  if (!workflowStatusAllowed(kind, status)) return false;
+  return clausesForTarget.some((clause) => {
+    if (CONDITIONAL_OR_QUESTION.test(clause) || HEARSAY.test(clause) || RETRACTION.test(clause)) return false;
+    if (status === "prepared") return PREPARATION_REQUEST.test(clause) && !OWNER_ACTION_NOT_DONE.test(clause);
+    if (status === "not_needed_by_sid") {
+      return (RETIREMENT.test(clause) || BARE_DONT_NEED.test(clause)) && !retirementNegated(clause);
+    }
+    if (status === "owner_reported_done") {
+      const pattern = OWNER_ACTION_DONE[kind];
+      return pattern !== null && pattern.test(clause) && !NEGATION.test(clause);
+    }
+    if (status === "owner_reported_not_done") return OWNER_ACTION_NOT_DONE.test(clause);
+    if (status === "owner_reported_offered") return OWNER_OFFERED.test(clause) && !NEGATION.test(clause);
+    if (status === "owner_reported_waitlisted") return OWNER_WAITLISTED.test(clause) && !NEGATION.test(clause);
+    if (status === "owner_reported_rejected") return OWNER_REJECTED.test(clause);
+    if (status === "owner_reported_withdrawn") return OWNER_WITHDREW.test(clause) && !NEGATION.test(clause);
+    if (status === "owner_reported_pending") return OWNER_CONDITION_PENDING.test(clause);
+    if (status === "owner_reported_satisfied") return OWNER_CONDITION_SATISFIED.test(clause) && !NEGATION.test(clause);
+    if (status === "owner_reported_unsatisfied") return OWNER_CONDITION_UNSATISFIED.test(clause);
+    if (status === "owner_reported_accepted") return OWNER_ACCEPTED.test(clause) && !NEGATION.test(clause);
+    return status === "owner_reported_declined" && OWNER_DECLINED.test(clause) && !NEGATION.test(clause);
+  });
+}
+
+export function supportsWorkflowStatusEvidence(
+  status: UniversityWorkflowStatus,
+  kind: UniversityWorkflowKind,
+  evidence: string,
+  workflowRef: string,
+  workflowLabel: string,
+  applicationItemRef: string | null,
+  applicationLabel: string | null,
+  applicationKind: UniversityApplicationItemKind | null,
+  program: ApplicationProgramContext,
+  snapshot: UniversityTrackerSnapshot | null,
+): boolean {
+  return supportsWorkflowStatus(status, kind, workflowTargetClauses(
+    evidence,
+    workflowRef,
+    workflowLabel,
+    applicationItemRef,
+    applicationLabel,
+    applicationKind,
+    program,
+    snapshot,
+  ));
+}
+
+function workflowDeadline(
+  value: unknown,
+  ownerMessage: string,
+  redactor: Redactor,
+  targetClauses: readonly string[],
+): OwnerUniversityWorkflowDeadlineUpdate {
+  const item = exactRecord(
+    value,
+    ["date", "instant", "timeZone", "verification", "evidence"],
+    "university_workflow_model_deadline_invalid",
+  );
+  const date = item.date === null
+    ? null
+    : inline(item.date, 10, "university_workflow_model_deadline_invalid", redactor);
+  const instant = item.instant === null
+    ? null
+    : inline(item.instant, 32, "university_workflow_model_deadline_invalid", redactor);
+  const timeZone = item.timeZone === null
+    ? null
+    : inline(item.timeZone, 64, "university_workflow_model_deadline_invalid", redactor);
+  if (date !== null && (!LOCAL_DATE.test(date)
+    || new Date(`${date}T00:00:00.000Z`).toISOString().slice(0, 10) !== date
+    || instant !== null || timeZone !== null)) {
+    throw new TypeError("university_workflow_model_deadline_invalid");
+  }
+  if (instant !== null && (!Number.isFinite(Date.parse(instant))
+    || new Date(Date.parse(instant)).toISOString() !== instant
+    || timeZone === null || !validTimeZone(timeZone)
+    || !ownerMessage.includes(instant) || !ownerMessage.includes(timeZone))) {
+    throw new TypeError("university_workflow_model_deadline_invalid");
+  }
+  if (date === null && instant === null && timeZone !== null) {
+    throw new TypeError("university_workflow_model_deadline_invalid");
+  }
+  const checkedVerification = verification(item.verification, ownerMessage, redactor);
+  if (checkedVerification.state === "unverified"
+    && (checkedVerification.sourceUrl !== null || checkedVerification.cycle !== null)) {
+    throw new TypeError("university_workflow_model_deadline_invalid");
+  }
+  const evidence = ownerEvidence(item.evidence, ownerMessage, "university_workflow_model_deadline_invalid", redactor);
+  if (evidence !== ownerMessage || targetClauses.length === 0) {
+    throw new TypeError("university_workflow_model_deadline_invalid");
+  }
+  if (date !== null && !targetClauses.some((clause) => evidenceSupportsDate(clause, date))) {
+    throw new TypeError("university_workflow_model_deadline_invalid");
+  }
+  if (instant !== null && !targetClauses.some((clause) => clause.includes(instant) && clause.includes(timeZone ?? ""))) {
+    throw new TypeError("university_workflow_model_deadline_invalid");
+  }
+  if (checkedVerification.state === "verified" && !targetClauses.some((clause) =>
+    clause.includes(checkedVerification.sourceUrl ?? "")
+    && evidenceSupportsCycle(clause, checkedVerification.cycle ?? ""))) {
+    throw new TypeError("university_workflow_model_deadline_invalid");
+  }
+  return Object.freeze({ date, instant, timeZone, verification: checkedVerification, evidence });
+}
+
+function workflowUpdate(
+  value: unknown,
+  ownerMessage: string,
+  redactor: Redactor,
+  snapshot: UniversityTrackerSnapshot | null,
+  programUpdates: readonly OwnerUniversityProgramUpdate[],
+  applicationUpdates: readonly OwnerUniversityApplicationUpdate[],
+): OwnerUniversityWorkflowUpdate {
+  const item = exactRecord(value, [
+    "workflowRef", "programRef", "applicationItemRef", "kind", "label", "owner", "status",
+    "statusEvidence", "preparedDetails", "deadline", "executionBoundary",
+  ], "university_workflow_model_item_invalid");
+  if (typeof item.workflowRef !== "string"
+    || !ULID.test(item.workflowRef) && !NEW_WORKFLOW_ITEM.test(item.workflowRef)
+    || typeof item.programRef !== "string"
+    || !ULID.test(item.programRef) && !NEW_PROGRAM.test(item.programRef)
+    || item.applicationItemRef !== null && (typeof item.applicationItemRef !== "string"
+      || !ULID.test(item.applicationItemRef) && !NEW_APPLICATION_ITEM.test(item.applicationItemRef))
+    || item.executionBoundary !== "owner_only") {
+    throw new TypeError("university_workflow_model_item_invalid");
+  }
+  const existing = currentWorkflowItem(snapshot, item.workflowRef);
+  const isNew = NEW_WORKFLOW_ITEM.test(item.workflowRef);
+  if (isNew === (existing !== null)) throw new TypeError("university_workflow_model_item_invalid");
+  const kind = item.kind === null ? null : item.kind as UniversityWorkflowKind;
+  const owner = item.owner === null ? null : item.owner as UniversityWorkflowOwner;
+  const status = item.status === null ? null : item.status as UniversityWorkflowStatus;
+  if (kind !== null && !WORKFLOW_KINDS.has(kind) || owner !== null && !WORKFLOW_OWNERS.has(owner)
+    || status !== null && !WORKFLOW_STATUSES.has(status)) {
+    throw new TypeError("university_workflow_model_item_invalid");
+  }
+  const label = optionalInline(item.label, 160, "university_workflow_model_item_invalid", redactor);
+  const preparedDetails = item.preparedDetails === null ? null
+    : evidenceValue(item.preparedDetails, 2_048, "university_workflow_model_item_invalid", redactor);
+  if (preparedDetails !== null && CURRENCY_AMOUNT.test(preparedDetails)) {
+    throw new TypeError("university_workflow_model_item_invalid");
+  }
+  const program = existing?.program ?? snapshot?.programs.find((candidate) => candidate.programId === item.programRef)
+    ?? programUpdates.find((candidate) => candidate.programRef === item.programRef);
+  if (program === undefined || program.university === null || program.programName === null
+    || existing !== null && existing.program.programId !== item.programRef) {
+    throw new TypeError("university_workflow_model_item_invalid");
+  }
+  const programContext: ApplicationProgramContext = Object.freeze({
+    university: program.university,
+    programName: program.programName,
+  });
+  const effectiveKind = kind ?? existing?.item.kind ?? null;
+  const effectiveOwner = owner ?? existing?.item.owner ?? null;
+  const effectiveLabel = label ?? existing?.item.label ?? null;
+  const effectiveApplicationRef = isNew
+    ? item.applicationItemRef as string | null
+    : existing?.item.applicationItemId ?? null;
+  const existingApplication = snapshot?.programs.flatMap((candidate) => candidate.applicationItems.map((application) => ({
+    application,
+    programId: candidate.programId,
+  }))).find((candidate) => candidate.application.itemId === effectiveApplicationRef);
+  const responseApplication = applicationUpdates.find((candidate) => candidate.itemRef === effectiveApplicationRef);
+  const applicationLabel = existingApplication?.application.label ?? responseApplication?.label ?? null;
+  const applicationKind = existingApplication?.application.kind ?? responseApplication?.kind ?? null;
+  if (effectiveKind === null || effectiveOwner === null || effectiveLabel === null
+    || isNew && (kind === null || owner === null || label === null || status === null
+      || item.deadline === null)
+    || !isNew && (kind !== null || owner !== null || label !== null || item.applicationItemRef !== null)
+    || !isNew && status === null && preparedDetails === null && item.deadline === null
+    || effectiveKind.startsWith("offer") && effectiveApplicationRef !== null
+    || !effectiveKind.startsWith("offer") && (effectiveApplicationRef === null
+      || applicationLabel === null || applicationKind === null
+      || existingApplication !== undefined && existingApplication.programId !== item.programRef
+      || responseApplication !== undefined && responseApplication.programRef !== item.programRef)
+    || isNew && !containsLabel(ownerMessage, effectiveLabel)) {
+    throw new TypeError("university_workflow_model_item_invalid");
+  }
+  const targetClauses = workflowTargetClauses(
+    ownerMessage,
+    item.workflowRef,
+    effectiveLabel,
+    effectiveApplicationRef,
+    applicationLabel,
+    applicationKind,
+    programContext,
+    snapshot,
+  );
+  const statusEvidence = item.statusEvidence === null ? null
+    : ownerEvidence(item.statusEvidence, ownerMessage, "university_workflow_model_item_invalid", redactor);
+  if (status === null && statusEvidence !== null || status !== null && (statusEvidence !== ownerMessage
+    || !supportsWorkflowStatusEvidence(
+      status,
+      effectiveKind,
+      statusEvidence,
+      item.workflowRef,
+      effectiveLabel,
+      effectiveApplicationRef,
+      applicationLabel,
+      applicationKind,
+      programContext,
+      snapshot,
+    ))) {
+    throw new TypeError("university_workflow_model_item_invalid");
+  }
+  if (preparedDetails !== null && !isNew && !targetClauses.some((clause) => PREPARATION_REQUEST.test(clause))) {
+    throw new TypeError("university_workflow_model_item_invalid");
+  }
+  const deadline = item.deadline === null ? null
+    : workflowDeadline(item.deadline, ownerMessage, redactor, targetClauses);
+  return Object.freeze({
+    workflowRef: item.workflowRef,
+    programRef: item.programRef,
+    applicationItemRef: isNew ? effectiveApplicationRef : null,
+    kind,
+    label,
+    owner,
+    status,
+    statusEvidence,
+    preparedDetails,
+    deadline,
+    executionBoundary: "owner_only",
+  });
+}
+
 export function parseOwnerUniversityPlan(
   value: unknown,
   ownerMessage: string,
@@ -652,9 +1008,14 @@ export function parseOwnerUniversityPlan(
   snapshot: UniversityTrackerSnapshot | null = null,
 ): OwnerUniversityPlan {
   const currentOwnerMessage = ownerMessage.trim();
+  // Direct pre-step-6 callers remain read-compatible. The live combined model
+  // contract requires workflowUpdates before this parser is reached.
+  const responseFields = value !== null && typeof value === "object" && Object.hasOwn(value, "workflowUpdates")
+    ? ["engaged", "programUpdates", "applicationUpdates", "workflowUpdates"]
+    : ["engaged", "programUpdates", "applicationUpdates"];
   const item = exactRecord(
     value,
-    ["engaged", "programUpdates", "applicationUpdates"],
+    responseFields,
     "university_tracker_model_response_invalid",
   );
   if (typeof item.engaged !== "boolean") throw new TypeError("university_tracker_model_response_invalid");
@@ -665,13 +1026,25 @@ export function parseOwnerUniversityPlan(
     32,
     "university_tracker_model_response_invalid",
   ).map((entry) => applicationUpdate(entry, currentOwnerMessage, redactor, snapshot, programUpdates)));
+  const workflowUpdates = Object.freeze(denseArray(
+    item.workflowUpdates ?? [],
+    16,
+    "university_tracker_model_response_invalid",
+  ).map((entry) => workflowUpdate(
+    entry,
+    currentOwnerMessage,
+    redactor,
+    snapshot,
+    programUpdates,
+    applicationUpdates,
+  )));
   if (applicationUpdates.filter((update) => update.status === "submitted_by_sid").length > 1) {
     throw new TypeError("university_application_model_item_invalid");
   }
-  if (!item.engaged && (programUpdates.length > 0 || applicationUpdates.length > 0)) {
+  if (!item.engaged && (programUpdates.length > 0 || applicationUpdates.length > 0 || workflowUpdates.length > 0)) {
     throw new TypeError("university_tracker_model_response_invalid");
   }
-  return Object.freeze({ engaged: item.engaged, programUpdates, applicationUpdates });
+  return Object.freeze({ engaged: item.engaged, programUpdates, applicationUpdates, workflowUpdates });
 }
 
 export function universityStateJson(
@@ -700,8 +1073,7 @@ export function universityStateJson(
         itemId: item.itemId,
         label: item.label,
         status: item.status,
-        dueDate: item.dueDate,
-        verificationState: item.verification.state,
+        deadline: item.dueDate === null ? "unverified" : `${item.dueDate}:${item.verification.state}`,
       });
     const inactiveApplicationItems = program.applicationItems.filter((item) =>
       (item.status === "submitted_by_sid" || item.status === "not_needed_by_sid")
@@ -711,6 +1083,29 @@ export function universityStateJson(
         label: item.label,
         status: item.status,
       }));
+    const workflowItems = (program.workflowItems ?? []).map((item) => namedProgram ? {
+      workflowId: item.workflowId,
+      applicationItemId: item.applicationItemId,
+      kind: item.kind,
+      label: item.label,
+      owner: item.owner,
+      status: item.status,
+      preparedDetails: item.preparedDetails,
+      executionBoundary: item.executionBoundary,
+      deadline: item.deadline,
+    } : {
+      workflowId: item.workflowId,
+      kind: item.kind,
+      label: item.label,
+      owner: item.owner,
+      status: item.status,
+      deadline: {
+        date: item.deadline.date,
+        instant: item.deadline.instant,
+        timeZone: item.deadline.timeZone,
+        verificationState: item.deadline.verification.state,
+      },
+    });
     if (!namedProgram) return {
       programId: program.programId,
       university: program.university,
@@ -729,6 +1124,7 @@ export function universityStateJson(
       })),
       applicationItems,
       inactiveApplicationItems,
+      ...(workflowItems.length === 0 ? {} : { workflowItems }),
     };
     return {
       programId: program.programId,
@@ -741,6 +1137,7 @@ export function universityStateJson(
       dates: program.dates,
       applicationItems,
       inactiveApplicationItems,
+      ...(workflowItems.length === 0 ? {} : { workflowItems }),
     };
-  }) as unknown as JsonValue);
+  }));
 }
