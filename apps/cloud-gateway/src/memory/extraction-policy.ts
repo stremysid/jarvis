@@ -61,7 +61,7 @@ const FIRST_PERSON_UNTRUSTED_FRAMING = [
   /(?<![A-Za-z0-9_])i\s+(?:think|guess|suppose)(?![A-Za-z0-9_])/iu,
   /(?<![A-Za-z0-9_])i\s+(?:do\s+not|don['’]t)\s+know(?![A-Za-z0-9_])/iu,
   /(?<![A-Za-z0-9_])not\s+sure(?![A-Za-z0-9_])/iu,
-  /(?<![A-Za-z0-9_])(?:says|said|told)(?![A-Za-z0-9_])/iu,
+  /(?<![A-Za-z0-9_])(?:says|said|told|texted|wrote|messaged|emailed|reported|claimed|mentioned|quoted)(?![A-Za-z0-9_])/iu,
   /(?<![A-Za-z0-9_])(?:not|never)(?![A-Za-z0-9_])/iu,
   /n['’]t(?![A-Za-z0-9_])/iu,
 ] as const;
@@ -153,6 +153,10 @@ export function isAuthenticatedFirstPersonQuote(input: FirstPersonQuoteInput): b
   const sourceText = input.sourceText.normalize("NFC");
   if (quote.length === 0 || hasFactTextControls(quote)) return false;
   if (!FIRST_PERSON_TOKEN.test(quote)) return false;
+  // The quoted sentence is not owner evidence when the surrounding turn says
+  // it came from somebody else. Checking only the extracted span lets a model
+  // erase that attribution and manufacture a confirmed owner fact.
+  if (FIRST_PERSON_UNTRUSTED_FRAMING.some((pattern) => pattern.test(sourceText))) return false;
 
   let offset = sourceText.indexOf(quote);
   while (offset !== -1) {

@@ -61,6 +61,7 @@ const BRIGHTSPACE_PAST_WINDOW_MS = 14 * 86_400_000;
 const BRIGHTSPACE_FUTURE_WINDOW_MS = 120 * 86_400_000;
 const BRIGHTSPACE_ON_DEMAND_JOB = "brightspace_on_demand";
 const BRIGHTSPACE_ON_DEMAND_COOLDOWN_MS = 5 * 60_000;
+const MEMORY_DISTILLATION_STEPS_PER_POLL = 8;
 
 export interface SelectedBrightspaceWindow extends BrightspaceCalendarResult {
   readonly truncatedCount: number;
@@ -411,10 +412,22 @@ async function distilMemory(
     principalId,
     now: () => context.clock.now(),
   });
-  const result = await workflow.runNext({
-    runKey: `memory-distill:${context.clock.now().toISOString().slice(0, 13)}`,
-  });
-  return `Memory ${result.outcome}, ${result.createdItemCount} created`;
+  const runKey = `memory-distill:${context.clock.now().toISOString().slice(0, 13)}`;
+  let createdItemCount = 0;
+  let stepCount = 0;
+  let lastResult: Awaited<ReturnType<AutomaticMemoryDistillationWorkflow["runNext"]>> | null = null;
+  for (let step = 0; step < MEMORY_DISTILLATION_STEPS_PER_POLL; step += 1) {
+    const result = await workflow.runNext({ runKey: `${runKey}:${step}` });
+    lastResult = result;
+    stepCount += 1;
+    createdItemCount += result.createdItemCount;
+    if (result.backlogEventCount === 0) break;
+    if (result.outcome !== "succeeded" && result.outcome !== "nothing_new") break;
+  }
+  if (lastResult === null) throw new Error("memory_distillation_step_missing");
+  const backlogUnit = lastResult.backlogEventCount === 1 ? "event" : "events";
+  const stepUnit = stepCount === 1 ? "step" : "steps";
+  return `Memory ${lastResult.outcome}, ${createdItemCount} created, ${lastResult.backlogEventCount} ${backlogUnit} pending after ${stepCount} ${stepUnit}`;
 }
 
 /**

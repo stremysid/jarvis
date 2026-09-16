@@ -405,6 +405,89 @@ describe("0026 memory distillation migration", () => {
       .rejects.toThrow("memory_distillation_run_counts_invalid");
   });
 
+  it("memory_distillation_runs_reconcile_guard keeps a terminal failed run from becoming nothing_new", async () => {
+    const principalId = await seedPrincipal();
+    const event = await appendOwnerEvent(principalId);
+    const runId = await runningRun(principalId, event.eventSequence);
+    const completedAt = new Date(Date.now() + 1).toISOString();
+    await env.DB.prepare(`INSERT INTO memory_distillation_event_receipts (
+      receipt_id, principal_id, run_id, event_sequence, event_id, content_hash,
+      disposition, source_location, r2_segment_id, recorded_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 'eligible', 'live', NULL, ?)`)
+      .bind(
+        newUlid(),
+        principalId,
+        runId,
+        event.eventSequence,
+        event.envelope.eventId,
+        event.envelope.contentHash,
+        completedAt,
+      ).run();
+    await env.DB.prepare(`UPDATE memory_runs SET input_event_count = 1,
+      outcome = 'failed', completed_at = ?, failure_code = 'fixture_failure'
+      WHERE principal_id = ? AND run_id = ?`).bind(completedAt, principalId, runId).run();
+
+    await expect(env.DB.prepare(`UPDATE memory_runs SET outcome = 'nothing_new', failure_code = NULL
+      WHERE principal_id = ? AND run_id = ?`).bind(principalId, runId).run())
+      .rejects.toThrow("memory_distillation_run_counts_invalid");
+  });
+
+  it("memory_distillation_event_receipts_insert_guard requires owner coverage for an eligible archived receipt", async () => {
+    const principalId = await seedPrincipal();
+    const otherPrincipalId = await seedPrincipal();
+    const event = await appendOwnerEvent(principalId);
+    const old = new Date(Date.now() - 100 * 86_400_000).toISOString();
+    await env.DB.batch([
+      env.DB.prepare("UPDATE events SET created_at = ? WHERE sequence = ?").bind(old, event.eventSequence),
+      env.DB.prepare(`UPDATE outbox SET status = 'delivered', delivered_at = ? WHERE event_sequence = ?`)
+        .bind(old, event.eventSequence),
+    ]);
+    const archive = new ArchivalService({ database: env.DB, bucket: env.ARCHIVE });
+    await expect(archive.archiveEligible(new Date(), 8)).resolves.not.toBeNull();
+    const segmentId = await env.DB.prepare(`SELECT segment_id FROM archive_segment_events
+      WHERE event_sequence = ? AND event_id = ?`).bind(event.eventSequence, event.envelope.eventId)
+      .first<string>("segment_id");
+    if (segmentId === null) throw new Error("memory_distillation_archive_segment_fixture_missing");
+    await env.DB.prepare(`UPDATE archive_segment_events SET subject_id = ?
+      WHERE event_sequence = ? AND event_id = ?`)
+      .bind(principalId, event.eventSequence, event.envelope.eventId).run();
+    await expect(env.DB.prepare(`UPDATE archive_segment_events SET subject_id = ?
+      WHERE event_sequence = ? AND event_id = ?`)
+      .bind(otherPrincipalId, event.eventSequence, event.envelope.eventId).run())
+      .rejects.toThrow("archive_coverage_immutable");
+    const ownerRunId = await runningRun(principalId, event.eventSequence);
+    const forgedRunId = await runningRun(otherPrincipalId, event.eventSequence);
+    const recordedAt = new Date(Date.now() + 1_000).toISOString();
+    await expect(env.DB.prepare(`INSERT INTO memory_distillation_event_receipts (
+      receipt_id, principal_id, run_id, event_sequence, event_id, content_hash,
+      disposition, source_location, r2_segment_id, recorded_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 'eligible', 'archived', ?, ?)`)
+      .bind(
+        newUlid(),
+        principalId,
+        ownerRunId,
+        event.eventSequence,
+        event.envelope.eventId,
+        event.envelope.contentHash,
+        segmentId,
+        recordedAt,
+      ).run()).resolves.toBeDefined();
+    await expect(env.DB.prepare(`INSERT INTO memory_distillation_event_receipts (
+      receipt_id, principal_id, run_id, event_sequence, event_id, content_hash,
+      disposition, source_location, r2_segment_id, recorded_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 'eligible', 'archived', ?, ?)`)
+      .bind(
+        newUlid(),
+        otherPrincipalId,
+        forgedRunId,
+        event.eventSequence,
+        event.envelope.eventId,
+        event.envelope.contentHash,
+        segmentId,
+        recordedAt,
+      ).run()).rejects.toThrow("memory_distillation_event_receipt_invalid");
+  });
+
   it("memory_distillation_cursor_insert_guard rejects progress without a reconciled item batch", async () => {
     const principalId = await seedPrincipal();
     await expect(env.DB.prepare(`INSERT INTO memory_cursors (
@@ -425,6 +508,19 @@ describe("0026 memory distillation migration", () => {
     await expect(env.DB.prepare(`UPDATE memory_cursors SET current_event_sequence = 1,
       updated_at = ? WHERE principal_id = ? AND cursor_name = 'distillation'`)
       .bind(new Date(Date.now() + 1).toISOString(), principalId).run())
+      .rejects.toThrow("memory_distillation_cursor_advance_invalid");
+  });
+
+  it("memory_distillation_cursor_update_guard rejects moving a distillation cursor backwards", async () => {
+    const fixture = await completedRun();
+    const cursor = await env.DB.prepare(`SELECT current_event_sequence FROM memory_cursors
+      WHERE principal_id = ? AND cursor_name = 'distillation'`)
+      .bind(fixture.principalId).first<number>("current_event_sequence");
+    if (cursor === null || cursor < 1) throw new Error("memory_distillation_cursor_fixture_missing");
+
+    await expect(env.DB.prepare(`UPDATE memory_cursors SET current_event_sequence = ?, updated_at = ?
+      WHERE principal_id = ? AND cursor_name = 'distillation'`)
+      .bind(cursor - 1, new Date(Date.now() + 1).toISOString(), fixture.principalId).run())
       .rejects.toThrow("memory_distillation_cursor_advance_invalid");
   });
 

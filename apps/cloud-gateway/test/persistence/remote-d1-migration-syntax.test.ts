@@ -35,6 +35,7 @@ const VOICE_OWNER_DELIVERY_TRIGGERS = Object.freeze([
 ]);
 
 const MEMORY_DISTILLATION_TRIGGERS = Object.freeze([
+  "archive_segment_events_no_update",
   "memory_distillation_event_receipts_insert_guard",
   "memory_distillation_event_receipts_immutable_update",
   "memory_distillation_event_receipts_delete_forbidden",

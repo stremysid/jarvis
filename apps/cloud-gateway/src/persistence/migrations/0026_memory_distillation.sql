@@ -1,3 +1,39 @@
+ALTER TABLE archive_segment_events ADD COLUMN subject_id TEXT;
+
+DROP TRIGGER archive_segment_events_no_update;
+
+UPDATE archive_segment_events
+SET subject_id = (
+  SELECT event.subject_id FROM events event
+  WHERE event.sequence = archive_segment_events.event_sequence
+    AND event.event_id = archive_segment_events.event_id
+    AND event.content_hash = archive_segment_events.content_hash
+)
+WHERE subject_id IS NULL
+  AND EXISTS (
+    SELECT 1 FROM events event
+    WHERE event.sequence = archive_segment_events.event_sequence
+      AND event.event_id = archive_segment_events.event_id
+      AND event.content_hash = archive_segment_events.content_hash
+  );
+
+CREATE TRIGGER archive_segment_events_no_update
+BEFORE UPDATE ON archive_segment_events
+WHEN OLD.subject_id IS NOT NULL
+  OR NEW.subject_id IS NULL
+  OR typeof(NEW.subject_id) <> 'text'
+  OR length(CAST(NEW.subject_id AS BLOB)) NOT BETWEEN 1 AND 256
+  OR instr(NEW.subject_id, char(0)) <> 0
+  OR NEW.event_sequence <> OLD.event_sequence
+  OR NEW.event_id <> OLD.event_id
+  OR NEW.segment_id <> OLD.segment_id
+  OR NEW.envelope_sha256 <> OLD.envelope_sha256
+  OR NEW.content_hash <> OLD.content_hash
+  OR NEW.created_at <> OLD.created_at
+BEGIN
+  SELECT RAISE(ABORT, 'archive_coverage_immutable');
+END;
+
 CREATE TABLE memory_distillation_event_receipts (
   receipt_id TEXT PRIMARY KEY CHECK (
     length(receipt_id) = 26 AND substr(receipt_id, 1, 1) BETWEEN '0' AND '7'
@@ -16,6 +52,14 @@ CREATE TABLE memory_distillation_event_receipts (
     length(content_hash) = 64 AND content_hash NOT GLOB '*[^0-9a-f]*'
   ),
   disposition TEXT NOT NULL CHECK (disposition IN ('eligible', 'skipped')),
+  skip_reason TEXT CHECK (skip_reason IN (
+    'event_type_ineligible',
+    'owner_scope_ineligible',
+    'history_ineligible',
+    'event_text_too_large',
+    'text_budget_exceeded',
+    'proposal_budget_exceeded'
+  )),
   source_location TEXT NOT NULL CHECK (source_location IN ('live', 'archived')),
   r2_segment_id TEXT CHECK (
     r2_segment_id IS NULL OR (
@@ -33,6 +77,10 @@ CREATE TABLE memory_distillation_event_receipts (
   CHECK (
     (source_location = 'live' AND r2_segment_id IS NULL)
     OR (source_location = 'archived' AND r2_segment_id IS NOT NULL)
+  ),
+  CHECK (
+    (disposition = 'eligible' AND skip_reason IS NULL)
+    OR (disposition = 'skipped' AND skip_reason IS NOT NULL)
   )
 ) STRICT, WITHOUT ROWID;
 
@@ -96,6 +144,7 @@ WHEN EXISTS (
         AND archived.event_id = NEW.event_id
         AND archived.content_hash = NEW.content_hash
         AND archived.segment_id = NEW.r2_segment_id
+        AND (NEW.disposition = 'skipped' OR archived.subject_id = NEW.principal_id)
     )
   )
 BEGIN
@@ -200,8 +249,11 @@ END;
 CREATE TRIGGER memory_distillation_runs_reconcile_guard
 BEFORE UPDATE ON memory_runs
 WHEN OLD.job = 'distillation'
-  AND NEW.outcome <> 'running'
   AND (
+    OLD.outcome <> 'running'
+    OR (
+      NEW.outcome <> 'running'
+      AND (
     NEW.input_event_count <> (
       SELECT count(*) FROM memory_distillation_event_receipts receipt
       WHERE receipt.principal_id = NEW.principal_id AND receipt.run_id = NEW.run_id
@@ -247,6 +299,8 @@ WHEN OLD.job = 'distillation'
         WHERE receipt.principal_id = NEW.principal_id AND receipt.run_id = NEW.run_id
       )
     )
+      )
+    )
   )
 BEGIN
   SELECT RAISE(ABORT, 'memory_distillation_run_counts_invalid');
@@ -281,8 +335,11 @@ END;
 CREATE TRIGGER memory_distillation_cursor_update_guard
 BEFORE UPDATE ON memory_cursors
 WHEN NEW.cursor_name = 'distillation'
-  AND NEW.current_event_sequence > OLD.current_event_sequence
-  AND NOT EXISTS (
+  AND (
+    NEW.current_event_sequence < OLD.current_event_sequence
+    OR (
+      NEW.current_event_sequence > OLD.current_event_sequence
+      AND NOT EXISTS (
     SELECT 1 FROM memory_runs run
     WHERE run.principal_id = NEW.principal_id
       AND run.job = 'distillation'
@@ -299,6 +356,8 @@ WHEN NEW.cursor_name = 'distillation'
         FROM memory_distillation_item_receipts receipt
         WHERE receipt.principal_id = run.principal_id AND receipt.run_id = run.run_id
       )
+      )
+    )
   )
 BEGIN
   SELECT RAISE(ABORT, 'memory_distillation_cursor_advance_invalid');

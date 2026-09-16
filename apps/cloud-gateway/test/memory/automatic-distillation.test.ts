@@ -150,11 +150,13 @@ function workflow(
   provider: FakeModelProvider,
   repository?: Pick<MemoryRepository, "bootstrapTopics" | "commitInitialItem">,
   eventReader?: SyncEventReader,
+  database?: D1Database,
 ): AutomaticMemoryDistillationWorkflow {
-  const archive = new ArchivalService({ database: env.DB, bucket: env.ARCHIVE });
-  const live = new EventRepository(env.DB);
+  const selectedDatabase = database ?? env.DB;
+  const archive = new ArchivalService({ database: selectedDatabase, bucket: env.ARCHIVE });
+  const live = new EventRepository(selectedDatabase);
   return new AutomaticMemoryDistillationWorkflow({
-    database: env.DB,
+    database: selectedDatabase,
     events: eventReader ?? new TieredEventReader({
       live,
       archive,
@@ -254,6 +256,26 @@ describe("automatic memory distillation", () => {
     });
 
     await workflow(principalId, provider).runNext({ runKey: `inbox:${newUlid()}` });
+
+    expect(await storedItem(principalId)).toEqual({
+      origin: "model",
+      uncertain: 1,
+      lifecycle_state: "proposed",
+      display_name: "Inbox / Needs filing",
+    });
+  });
+
+  it("keeps a first-person sentence attributed elsewhere in the owner turn proposed and uncertain", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const sourceText = "Mum texted me. I am moving to Calgary in June.";
+    const fact = "I am moving to Calgary in June.";
+    const event = await appendConversation(events, principalId, sourceText);
+    const provider = new FakeModelProvider({
+      completeJson: [proposal(event, sourceText, fact)],
+    });
+
+    await workflow(principalId, provider).runNext({ runKey: `attributed:${newUlid()}` });
 
     expect(await storedItem(principalId)).toEqual({
       origin: "model",
@@ -677,37 +699,35 @@ describe("automatic memory distillation", () => {
       .bind(result.runId).first("outcome")).toBe("provider_credit_blocked");
   });
 
-  it("makes the proposal budget failure durable and leaves the cursor resumable", async () => {
+  it("narrows a proposal-heavy window and skips only the irreducible event before advancing", async () => {
     const principalId = await principal();
     const events = new EventRepository(env.DB);
     const sourceText = "I am choosing a durable paint finish.";
-    const event = await appendConversation(events, principalId, sourceText);
+    const first = await appendConversation(events, principalId, sourceText);
+    const second = await appendConversation(events, principalId, "I am also choosing durable flooring.");
     const proposals = Array.from({ length: 5 }, (_, index) =>
-      proposal(event, sourceText, `The owner recorded paint preference ${index}.`, 0.7));
+      proposal(first, sourceText, `The owner recorded paint preference ${index}.`, 0.7));
     const provider = new FakeModelProvider({ completeJson: proposals });
 
     const result = await workflow(principalId, provider).runNext({ runKey: `budget:${newUlid()}` });
-    const resumedProvider = new FakeModelProvider({ completeJson: proposals.slice(0, 4) });
-    const resumed = await workflow(principalId, resumedProvider)
-      .runNext({ runKey: `budget-resumed:${newUlid()}` });
 
     expect(result).toMatchObject({
-      outcome: "budget_blocked",
-      cursorEventSequence: 0,
+      outcome: "nothing_new",
+      cursorEventSequence: first.eventSequence,
       inputEventCount: 1,
       createdItemCount: 0,
       failureCode: null,
+      backlogEventCount: second.eventSequence - first.eventSequence,
     });
-    expect(await env.DB.prepare("SELECT outcome FROM memory_runs WHERE run_id = ?")
-      .bind(result.runId).first("outcome")).toBe("budget_blocked");
-    expect(resumed).toMatchObject({
-      outcome: "succeeded",
-      cursorEventSequence: event.eventSequence,
-      createdItemCount: 4,
-    });
+    expect(provider.requests).toHaveLength(2);
+    expect(await env.DB.prepare(`SELECT skip_reason FROM memory_distillation_event_receipts
+      WHERE principal_id = ? AND run_id = ?`).bind(principalId, result.runId).first("skip_reason"))
+      .toBe("proposal_budget_exceeded");
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_runs
+      WHERE principal_id = ? AND outcome = 'budget_blocked'`).bind(principalId).first("count")).toBe(1);
   });
 
-  it("records an oversized text walk and a smaller fresh attempt advances from the same cursor", async () => {
+  it("narrows a seventy-kilobyte production-default window and advances in the same call", async () => {
     const principalId = await principal();
     const events = new EventRepository(env.DB);
     const largePreference = `I prefer ${"x".repeat(24_000)}.`;
@@ -717,29 +737,45 @@ describe("automatic memory distillation", () => {
     const provider = new FakeModelProvider({ completeJson: [] });
     const distillation = workflow(principalId, provider);
 
-    const blocked = await distillation.runNext({ runKey: `text-budget:${newUlid()}` });
-    const resumed = await distillation.runNext({
-      runKey: `text-budget-resumed:${newUlid()}`,
-      maxEvents: 1,
-    });
+    const result = await distillation.runNext({ runKey: `text-budget:${newUlid()}` });
 
-    expect(blocked).toMatchObject({
-      outcome: "budget_blocked",
-      cursorEventSequence: 0,
-      inputEventCount: 3,
-      createdItemCount: 0,
-      failureCode: null,
-    });
-    expect(blocked.budget.textBytesExamined).toBeGreaterThan(65_536);
-    expect(blocked.budget.textBytesExamined)
-      .toBeLessThanOrEqual(AUTOMATIC_DISTILLATION_STEP_LIMITS.textBytesExamined);
-    expect(resumed).toMatchObject({
+    expect(result).toMatchObject({
       outcome: "nothing_new",
       cursorEventSequence: first.eventSequence,
       inputEventCount: 1,
       createdItemCount: 0,
+      failureCode: null,
     });
+    expect(result.budget.textBytesExamined).toBeGreaterThan(65_536);
+    expect(result.budget.textBytesExamined)
+      .toBeLessThanOrEqual(AUTOMATIC_DISTILLATION_STEP_LIMITS.textBytesExamined);
     expect(provider.requests).toHaveLength(1);
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_runs
+      WHERE principal_id = ? AND outcome = 'budget_blocked'`).bind(principalId).first("count")).toBe(1);
+  });
+
+  it("records one oversized event with a visible skip reason and advances without a provider call", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const oversized = `I prefer ${"x".repeat(70_000)}.`;
+    const event = await appendConversation(events, principalId, oversized);
+    const provider = new FakeModelProvider({ completeJson: [] });
+
+    const result = await workflow(principalId, provider).runNext({ runKey: `single-text-budget:${newUlid()}` });
+
+    expect(result).toMatchObject({
+      outcome: "nothing_new",
+      cursorEventSequence: event.eventSequence,
+      inputEventCount: 1,
+      backlogEventCount: 0,
+    });
+    expect(provider.requests).toHaveLength(0);
+    expect(await env.DB.prepare(`SELECT disposition, skip_reason
+      FROM memory_distillation_event_receipts WHERE principal_id = ? AND run_id = ?`)
+      .bind(principalId, result.runId).first()).toEqual({
+      disposition: "skipped",
+      skip_reason: "text_budget_exceeded",
+    });
   });
 
   it("records a corrupt archived read before any stored excerpt reaches the provider", async () => {
@@ -826,6 +862,46 @@ describe("automatic memory distillation", () => {
       .bind(principalId).first("count")).toBe(2);
   });
 
+  it("terminalizes a finalization receipt conflict so a fresh run can replay and advance", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const text = "I prefer tea.";
+    const event = await appendConversation(events, principalId, text);
+    const provider = new FakeModelProvider({ completeJson: [proposal(event, text)] });
+    const archive = new ArchivalService({ database: env.DB, bucket: env.ARCHIVE });
+    const canonical = new MemoryRepository(env.DB, { archivedEventReader: archive });
+    const reader = new TieredEventReader({
+      live: events,
+      archive,
+      state: new ArchiveRepository(env.DB),
+    });
+    const conflictingDatabase = {
+      prepare: (query: string) => env.DB.prepare(query),
+      batch: async <T>(statements: D1PreparedStatement[]) => {
+        void statements;
+        throw new Error("memory_distillation_item_receipt_invalid");
+      },
+    } as D1Database;
+
+    const failed = await workflow(principalId, provider, canonical, reader, conflictingDatabase)
+      .runNext({ runKey: `finalize-conflict:${newUlid()}` });
+    const resumed = await workflow(principalId, provider, canonical, reader)
+      .runNext({ runKey: `finalize-conflict-resume:${newUlid()}` });
+
+    expect(failed).toMatchObject({
+      outcome: "failed",
+      cursorEventSequence: 0,
+      failureCode: "distillation_finalization_failed",
+    });
+    expect(await env.DB.prepare("SELECT outcome FROM memory_runs WHERE run_id = ?")
+      .bind(failed.runId).first("outcome")).toBe("failed");
+    expect(resumed).toMatchObject({
+      outcome: "succeeded",
+      cursorEventSequence: event.eventSequence,
+      backlogEventCount: 0,
+    });
+  });
+
   it("runs the injected fake through the hourly poll after raw archival", async () => {
     const principalId = await principal();
     const events = new EventRepository(env.DB);
@@ -861,7 +937,7 @@ describe("automatic memory distillation", () => {
 
     expect(result).toMatchObject({ ok: true });
     expect(result.ok && result.detail).toContain("1 archived");
-    expect(result.ok && result.detail).toContain("Memory succeeded, 1 created");
+    expect(result.ok && result.detail).toContain("Memory succeeded, 1 created, 0 events pending after 1 step");
     expect(await env.DB.prepare("SELECT count(*) AS count FROM events WHERE sequence = ?")
       .bind(event.eventSequence).first("count")).toBe(0);
     expect(await env.DB.prepare(`SELECT source_location FROM memory_item_sources
@@ -870,7 +946,100 @@ describe("automatic memory distillation", () => {
       WHERE principal_id = ? AND cursor_name = 'distillation'`)
       .bind(principalId).first("current_event_sequence")).toBe(event.eventSequence);
     expect(await env.DB.prepare("SELECT run_key FROM memory_runs WHERE principal_id = ?")
-      .bind(principalId).first("run_key")).toBe(`memory-distill:${now.toISOString().slice(0, 13)}`);
+      .bind(principalId).first("run_key")).toBe(`memory-distill:${now.toISOString().slice(0, 13)}:0`);
+  });
+
+  it("drains multiple production-default steps per hour while only eligible owner events consume the event budget", async () => {
+    const principalId = await principal();
+    const otherPrincipalId = await principal();
+    const events = new EventRepository(env.DB);
+    let latest = 0;
+    for (let turn = 0; turn < 12; turn += 1) {
+      latest = (await appendConversation(events, principalId, `I recorded owner preference ${turn}.`)).eventSequence;
+      for (let noise = 0; noise < 4; noise += 1) {
+        latest = (await appendConversation(
+          events,
+          otherPrincipalId,
+          `I recorded unrelated preference ${turn}-${noise}.`,
+        )).eventSequence;
+      }
+    }
+    const provider = new FakeModelProvider({ completeJson: [] });
+    const now = new Date();
+    const context: JobEnvironment = {
+      env: {
+        ...env,
+        OWNER_PRINCIPAL_ID: principalId,
+        GITHUB_TOKEN: undefined,
+        GOOGLE_CLIENT_ID: undefined,
+        GOOGLE_CLIENT_SECRET: undefined,
+        GOOGLE_REFRESH_TOKEN: undefined,
+        BRIGHTSPACE_ICAL_URL: undefined,
+      },
+      clock: { now: () => new Date(now.valueOf()) },
+      delivery: { send: async () => undefined },
+      fetcher: globalThis.fetch.bind(globalThis),
+      memoryDistillation: { provider, providerModelId: MODEL_ID },
+    };
+    const poll = buildJobTable(context).poll;
+    if (poll === undefined) throw new Error("automatic_distillation_poll_missing");
+
+    const result = await poll();
+    const runs = await env.DB.prepare(`SELECT run_key, input_event_count
+      FROM memory_runs WHERE principal_id = ? AND job = 'distillation' ORDER BY run_key ASC`)
+      .bind(principalId).all<{ run_key: string; input_event_count: number }>();
+
+    expect(result).toMatchObject({
+      ok: true,
+      detail: expect.stringContaining("Memory nothing_new, 0 created, 0 events pending after 2 steps"),
+    });
+    expect(provider.requests).toHaveLength(2);
+    expect(runs.results).toEqual([
+      { run_key: `memory-distill:${now.toISOString().slice(0, 13)}:0`, input_event_count: 36 },
+      { run_key: `memory-distill:${now.toISOString().slice(0, 13)}:1`, input_event_count: 24 },
+    ]);
+    expect(await env.DB.prepare(`SELECT current_event_sequence FROM memory_cursors
+      WHERE principal_id = ? AND cursor_name = 'distillation'`)
+      .bind(principalId).first("current_event_sequence")).toBe(latest);
+  });
+
+  it("reports a positive backlog when the bounded hourly step loop cannot catch up", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    let latest = 0;
+    for (let turn = 0; turn < 65; turn += 1) {
+      latest = (await appendConversation(events, principalId, `I recorded queued preference ${turn}.`)).eventSequence;
+    }
+    const provider = new FakeModelProvider({ completeJson: [] });
+    const context: JobEnvironment = {
+      env: {
+        ...env,
+        OWNER_PRINCIPAL_ID: principalId,
+        GITHUB_TOKEN: undefined,
+        GOOGLE_CLIENT_ID: undefined,
+        GOOGLE_CLIENT_SECRET: undefined,
+        GOOGLE_REFRESH_TOKEN: undefined,
+        BRIGHTSPACE_ICAL_URL: undefined,
+      },
+      clock: { now: () => new Date() },
+      delivery: { send: async () => undefined },
+      fetcher: globalThis.fetch.bind(globalThis),
+      memoryDistillation: { provider, providerModelId: MODEL_ID },
+    };
+    const poll = buildJobTable(context).poll;
+    if (poll === undefined) throw new Error("automatic_distillation_poll_missing");
+
+    const result = await poll();
+    const cursor = await env.DB.prepare(`SELECT current_event_sequence FROM memory_cursors
+      WHERE principal_id = ? AND cursor_name = 'distillation'`)
+      .bind(principalId).first<number>("current_event_sequence");
+
+    expect(result).toMatchObject({
+      ok: true,
+      detail: expect.stringContaining("1 event pending after 8 steps"),
+    });
+    expect(provider.requests).toHaveLength(8);
+    expect(cursor).toBe(latest - 1);
   });
 
   it("keeps production distillation disabled without writing a run or advancing a cursor", async () => {

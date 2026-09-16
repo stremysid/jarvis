@@ -34,6 +34,16 @@ describe("shared memory extraction policy", () => {
     })).toBe(false);
   });
 
+  it.each([
+    ["a text attribution", "Mum texted me. I am moving to Calgary in June."],
+    ["a written attribution", "My adviser wrote this. I am applying to Waterloo."],
+    ["a message attribution", "Dad messaged me. My account number is 12345678."],
+    ["a reported attribution", "The counsellor reported this. I have submitted the form."],
+  ])("keeps first-person speech framed by %s out of automatic trust", (_name, sourceText) => {
+    const quote = sourceText.slice(sourceText.indexOf(". ") + 2);
+    expect(isAuthenticatedFirstPersonQuote({ quote, sourceText, authenticatedOwner: true })).toBe(false);
+  });
+
   for (const testCase of policyVectors.promotionCases) {
     it(testCase.name, () => {
       expect(
