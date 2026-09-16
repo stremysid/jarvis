@@ -4,6 +4,20 @@
 - R2 is the archive store.
 - Authentication state does not use eventually consistent KV.
 
+## Applied migration text was rewritten for fresh-database replay (2026-09-16, reviewer decision)
+
+Production applied migrations `0001`, `0002` and `0006` with trigger guards in
+the earlier `SELECT CASE WHEN ... THEN RAISE(...) END` form. Remote D1 rejects
+that statement form, so the recorded migration sources now use the semantically
+identical `SELECT RAISE(...) WHERE ...` form already proven by migrations `0014`
+and `0015`. Production was not re-migrated; this source-only rewrite exists so a
+fresh database can replay every migration and rebuild the schema from scratch.
+
+The reviewer took this decision rather than the owner because preserving the
+earlier applied-migration text would leave the database permanently impossible
+to rebuild, while D1 records applied migration names rather than their source
+contents and the rewritten guards preserve the same predicates and errors.
+
 ## Answered outbound calls require refusal evidence (2026-09-16, owner decision)
 
 Sid approved adding `outbound-step-up-refused` as the seventh retained R1 live
