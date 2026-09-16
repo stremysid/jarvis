@@ -173,6 +173,11 @@ BEGIN
         OR NEW.verified_at <= OLD.verified_at
       )
     )
+    OR (
+      OLD.verification_state = 'verified'
+      AND NEW.verification_state = 'unverified'
+      AND (NEW.source_url IS NOT NULL OR NEW.admission_cycle IS NOT NULL)
+    )
     OR NEW.verified_at < OLD.verified_at
     OR (
       OLD.item_status IN ('submitted_by_sid', 'not_needed_by_sid')

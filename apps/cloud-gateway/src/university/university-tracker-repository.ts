@@ -189,6 +189,15 @@ function checkedVerification(
   });
 }
 
+function checkedApplicationVerification(
+  value: OwnerUniversityVerification,
+  nowIso: string,
+): UniversityVerification {
+  const checked = checkedVerification(value, nowIso);
+  if (checked.state === "verified") return checked;
+  return Object.freeze({ state: "unverified", sourceUrl: null, cycle: null, verifiedAt: null });
+}
+
 function verificationFromRow(value: VerificationRow, error: string): UniversityVerification {
   if (value.verification_state !== "verified" && value.verification_state !== "unverified") throw new TypeError(error);
   const url = sourceUrl(value.source_url, error);
@@ -515,6 +524,7 @@ export class UniversityTrackerRepository {
     for (const programId of finalProgramIds) {
       if (!knownApplicationKeys.has(programId)) knownApplicationKeys.set(programId, new Set());
     }
+    const applicationRetirementStatements: D1PreparedStatement[] = [];
     const applicationStatusStatements: D1PreparedStatement[] = [];
     const applicationInsertStatements: D1PreparedStatement[] = [];
     for (const update of input.plan.applicationUpdates ?? []) {
@@ -528,8 +538,8 @@ export class UniversityTrackerRepository {
       if (programId === undefined || !finalProgramIds.has(programId)) {
         throw new TypeError("university_application_program_unknown");
       }
-      const existingId = ULID.test(update.itemRef) ? update.itemRef as Ulid : null;
-      const existingRecord = existingId === null ? undefined : applicationItemsById.get(existingId);
+      let existingId = ULID.test(update.itemRef) ? update.itemRef as Ulid : null;
+      let existingRecord = existingId === null ? undefined : applicationItemsById.get(existingId);
       if (existingId === null && !RESPONSE_LOCAL_APPLICATION_ITEM.test(update.itemRef)
         || existingId !== null && existingRecord === undefined
         || existingRecord !== undefined && existingRecord.programId !== programId) {
@@ -549,7 +559,13 @@ export class UniversityTrackerRepository {
       }
       const dedupe = applicationItemKey(kind, label);
       if (existingId === null && knownApplicationKeys.get(programId)?.has(dedupe)) {
-        throw new TypeError("university_application_item_exists");
+        const duplicate = [...applicationItemsById.values()].find((candidate) =>
+          candidate.programId === programId
+          && applicationItemKey(candidate.item.kind, candidate.item.label) === dedupe);
+        if (duplicate === undefined) throw new TypeError("university_application_item_exists");
+        if (duplicate.item.status !== "not_needed_by_sid") continue;
+        existingId = duplicate.item.itemId;
+        existingRecord = duplicate;
       }
       if (update.status === null && update.statusEvidence !== null
         || update.status !== null && update.statusEvidence === null) {
@@ -572,10 +588,13 @@ export class UniversityTrackerRepository {
           && update.dueDate.verification.sourceUrl === currentVerification.sourceUrl
           && update.dueDate.verification.cycle === currentVerification.cycle
           ? currentVerification
-          : checkedVerification(update.dueDate.verification, nowIso);
+          : checkedApplicationVerification(update.dueDate.verification, nowIso);
         if (dueVerification.state === "verified" && dueDate === null) {
           throw new TypeError("university_application_item_invalid");
         }
+      }
+      if (dueVerification?.state === "unverified") {
+        dueVerification = Object.freeze({ state: "unverified", sourceUrl: null, cycle: null, verifiedAt: null });
       }
       if (dueVerification === null || existingId === null && update.dueDate === null
         || existingId === null && (update.status === null || update.statusEvidence === null)) {
@@ -618,13 +637,18 @@ export class UniversityTrackerRepository {
           applicationItemCounts.set(programId, (applicationItemCounts.get(programId) ?? 0) - 1);
           applicationItemCount -= 1;
         }
-        applicationStatusStatements.push(this.database.prepare(`UPDATE university_application_items
+        const statement = this.database.prepare(`UPDATE university_application_items
           SET item_status = ?1, due_date = ?2, verification_state = ?3, source_url = ?4,
               admission_cycle = ?5, verified_at = ?6, source_turn_id = ?7,
               submitted_at = ?8, updated_at = ?9
           WHERE principal_id = ?10 AND item_id = ?11`)
           .bind(status, dueDate, dueVerification.state, dueVerification.sourceUrl, dueVerification.cycle,
-            dueVerification.verifiedAt, turnId, submittedAt, nowIso, principalId, existingId));
+            dueVerification.verifiedAt, turnId, submittedAt, nowIso, principalId, existingId);
+        if (existingRecord?.item.status !== "not_needed_by_sid" && status === "not_needed_by_sid") {
+          applicationRetirementStatements.push(statement);
+        } else {
+          applicationStatusStatements.push(statement);
+        }
       }
     }
     if (finalProgramIds.size > MAX_PROGRAMS) throw new RangeError("university_tracker_program_limit_exceeded");
@@ -640,7 +664,7 @@ export class UniversityTrackerRepository {
     statements.push(...resolves, ...inserts);
     // Retirements must release capacity before any same-plan insert reaches the
     // database trigger. The repository already validates the final counts.
-    statements.push(...applicationStatusStatements, ...applicationInsertStatements);
+    statements.push(...applicationRetirementStatements, ...applicationStatusStatements, ...applicationInsertStatements);
     statements.push(this.database.prepare(`INSERT INTO university_tracker_turn_receipts (
       principal_id, turn_id, response_hash, applied_at
     ) VALUES (?1, ?2, ?3, ?4)`).bind(principalId, turnId, input.responseHash, nowIso));

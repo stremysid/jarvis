@@ -122,6 +122,27 @@ function roundTwoSnapshot(principalId: string): UniversityTrackerSnapshot {
   };
 }
 
+function conjunctionSnapshot(principalId: string): UniversityTrackerSnapshot {
+  const base = universitySnapshot(principalId);
+  const item = base.programs[0]!.applicationItems[0]!;
+  return {
+    ...base,
+    programs: [{
+      ...base.programs[0]!,
+      programId: UOFT_PROGRAM,
+      university: "University of Toronto",
+      programName: "Arts and Science",
+      applicationItems: [{
+        ...item,
+        itemId: UOFT_ESSAY,
+        kind: "essay",
+        label: "Arts and Science essay",
+        status: "not_started",
+      }],
+    }],
+  };
+}
+
 function readyResponse(): string {
   return JSON.stringify({
     schoolEngaged: false,
@@ -396,6 +417,20 @@ describe("university application conversation model", () => {
   });
 
   it.each([
+    "Mom says: I submitted the Western essay for you",
+    "From guidance: I uploaded your Western essay today",
+    "Hi Sid. I have uploaded your Western essay to OUAC. Ms. Lee",
+  ])("refuses common forwarded or third-party submission wording: %s", (text) => {
+    expect(() => parseStatus(
+      roundTwoSnapshot("principal:reported-submission"),
+      text,
+      WESTERN_ESSAY,
+      WESTERN_PROGRAM,
+      "submitted_by_sid",
+    )).toThrow("university_application_model_item_invalid");
+  });
+
+  it.each([
     ["Keep the Queen's scholarship", QUEENS_SCHOLARSHIP, QUEENS_PROGRAM, "submitted_by_sid"],
     ["I need the Queen's scholarship after all", QUEENS_SCHOLARSHIP, QUEENS_PROGRAM, "submitted_by_sid"],
     ["Don't restore the Queen's scholarship, I never submitted it", QUEENS_SCHOLARSHIP, QUEENS_PROGRAM, "submitted_by_sid"],
@@ -473,6 +508,68 @@ describe("university application conversation model", () => {
       .toMatchObject({ applicationUpdates: [{ itemRef: WESTERN_ESSAY, status }] });
   });
 
+  it.each([
+    ["I submitted my Arts and Science essay", "submitted_by_sid"],
+    ["I'm working on the Arts and Science essay", "drafting"],
+    ["I finished the Arts and Science essay", "ready"],
+    ["Skip the Arts and Science essay, it's a duplicate", "not_needed_by_sid"],
+  ] as const)("keeps a connective inside the named item while applying status %s", (text, status) => {
+    expect(parseStatus(
+      conjunctionSnapshot("principal:conjunction-status"),
+      text,
+      UOFT_ESSAY,
+      UOFT_PROGRAM,
+      status,
+    )).toMatchObject({ applicationUpdates: [{ itemRef: UOFT_ESSAY, status }] });
+  });
+
+  it("accepts a date for an item whose program and label contain a connective", () => {
+    const text = "The Arts and Science essay is due Feb 1, 2027";
+    expect(parseOwnerUniversityPlan({
+      engaged: true,
+      programUpdates: [],
+      applicationUpdates: [{
+        itemRef: UOFT_ESSAY, programRef: UOFT_PROGRAM, kind: null, label: null,
+        status: null, statusEvidence: null,
+        dueDate: {
+          date: "2027-02-01",
+          verification: { state: "unverified", sourceUrl: null, cycle: null },
+          evidence: text,
+        },
+      }],
+    }, text, new Redactor(), conjunctionSnapshot("principal:conjunction-date")))
+      .toMatchObject({ applicationUpdates: [{ dueDate: { date: "2027-02-01" } }] });
+  });
+
+  it("creates an item whose label and program contain a connective", () => {
+    const text = "Add the Arts and Science supplement for UofT";
+    expect(parseOwnerUniversityPlan({
+      engaged: true,
+      programUpdates: [],
+      applicationUpdates: [{
+        itemRef: "new-item-1", programRef: UOFT_PROGRAM, kind: "supplementary_application",
+        label: "Arts and Science supplement", status: "not_started", statusEvidence: text,
+        dueDate: {
+          date: null,
+          verification: { state: "unverified", sourceUrl: null, cycle: null },
+          evidence: text,
+        },
+      }],
+    }, text, new Redactor(), conjunctionSnapshot("principal:conjunction-create")))
+      .toMatchObject({ applicationUpdates: [{ label: "Arts and Science supplement", status: "not_started" }] });
+  });
+
+  it("binds an unnamed follow-up submission clause when the whole message names only one item", () => {
+    const text = "I finished the Western essay then submitted it";
+    expect(parseStatus(
+      roundTwoSnapshot("principal:follow-up-submission"),
+      text,
+      WESTERN_ESSAY,
+      WESTERN_PROGRAM,
+      "submitted_by_sid",
+    )).toMatchObject({ applicationUpdates: [{ itemRef: WESTERN_ESSAY, status: "submitted_by_sid" }] });
+  });
+
   it("accepts a whole-message owner correction for a named submitted item", () => {
     const text = "I didn't submit the Waterloo AIF; reopen it as ready.";
     const snapshot = universitySnapshot("principal:application-model-owner");
@@ -499,6 +596,7 @@ describe("university application conversation model", () => {
       applicationUpdates: [{ status: "ready", statusEvidence: text }],
     });
     expect(universityStateJson(submitted, text)).toContain(ITEM);
+    expect(universityStateJson(submitted, text, 0)).toContain(ITEM);
     expect(universityStateJson(submitted, "What should I work on next?")).not.toContain(ITEM);
   });
 
@@ -590,6 +688,26 @@ describe("university application conversation model", () => {
       }],
     }, text, new Redactor(), universitySnapshot("principal:application-label-metadata")))
       .toThrow("university_application_model_item_invalid");
+  });
+
+  it.each([
+    ["Add the Queen's Commerce reference", "Queen's Commerce reference"],
+    ["Add the Queen’s Commerce reference", "Queen's Commerce reference"],
+    ["Add the Queen's Commerce reference", "Queen’s Commerce reference"],
+    ["Add the Queen’s Commerce reference", "Queen’s Commerce reference"],
+    ["Add the video-interview", "video interview"],
+    ["Add the video interview", "video-interview"],
+  ])("accepts equivalent apostrophes and dashes in a new-item label: %s / %s", (text, label) => {
+    expect(parseOwnerUniversityPlan({
+      engaged: true,
+      programUpdates: [],
+      applicationUpdates: [{
+        itemRef: "new-item-1", programRef: PROGRAM, kind: "reference",
+        label, status: "not_started", statusEvidence: text,
+        dueDate: { date: null, verification: { state: "unverified", sourceUrl: null, cycle: null }, evidence: text },
+      }],
+    }, text, new Redactor(), universitySnapshot("principal:application-label-punctuation")))
+      .toMatchObject({ applicationUpdates: [{ label }] });
   });
 
   it("allows a non-date title that happens to contain a month and day", () => {
@@ -715,6 +833,27 @@ describe("university application conversation model", () => {
       .toThrow("university_application_model_date_invalid");
   });
 
+  it("keeps a complete HTTPS source inside a verified application-date clause", () => {
+    const text = "Waterloo AIF due Feb 1, 2027 per https://uwaterloo.ca/aif for the 2027 cycle";
+    expect(parseOwnerUniversityPlan({
+      engaged: true,
+      programUpdates: [],
+      applicationUpdates: [{
+        itemRef: ITEM, programRef: PROGRAM, kind: null, label: null,
+        status: null, statusEvidence: null,
+        dueDate: {
+          date: "2027-02-01",
+          verification: { state: "verified", sourceUrl: "https://uwaterloo.ca/aif", cycle: "2027" },
+          evidence: text,
+        },
+      }],
+    }, text, new Redactor(), universitySnapshot("principal:verified-application-date")))
+      .toMatchObject({ applicationUpdates: [{ dueDate: {
+        date: "2027-02-01",
+        verification: { state: "verified", sourceUrl: "https://uwaterloo.ca/aif", cycle: "2027" },
+      } }] });
+  });
+
   it("refuses an ambiguous all-numeric application date", () => {
     const text = "Add the Waterloo AIF due 03/04/2027.";
     expect(() => parseOwnerUniversityPlan({
@@ -835,6 +974,22 @@ describe("university application conversation model", () => {
     [false, "I called it the Waterloo AIF in your tracker."],
     [false, "We're asking OUAC-style questions to build your list."],
     [false, "I'm filing this under the Western program."],
+    [false, "I asked earlier which university you are aiming for."],
+    [false, "I asked earlier which school you are applying from."],
+    [false, "I told you the university deadline is Feb 1, so start now."],
+    [false, "I called it your school essay in the tracker."],
+    [false, "I asked about the transcript because your guidance office handles it, not you."],
+    [false, "I shared a checklist with you; your teacher may want a different one."],
+    [false, "I sent you the list above so your counsellor can review it with you."],
+    [false, "Your essay is in good shape."],
+    [false, "Your personal statement is in your drafts folder."],
+    [false, "Your application is in progress, not submitted."],
+    [false, "Your transcript request is in your school's queue, so you still have to confirm it."],
+    [false, "Your Waterloo AIF is in the tracker as drafting."],
+    [false, "I've applied your feedback to the outline."],
+    [false, "I booked nothing; only you can book the interview."],
+    [false, "I've put in a note about the Waterloo deadline."],
+    [false, "Submitted. Is that what you meant?"],
     [true, "Your Waterloo AIF has now been submitted."],
     [true, "Your Waterloo AIF got submitted."],
     [true, "Your AIF is now in with Waterloo."],
@@ -923,6 +1078,94 @@ describe("university application conversation model", () => {
     expect(model.requests[0]?.userText).toContain("university_state_json=");
     expect(model.requests[0]?.userText).not.toContain("Application item 0-0");
     expect(new TextEncoder().encode(model.requests[0]?.userText ?? "").byteLength).toBeLessThanOrEqual(48_000);
+  });
+
+  it("keeps twelve named programs with full active rows inside the structured prompt budget", async () => {
+    const principalId = "principal:application-model-named-programs";
+    let sequence = 0;
+    const itemIds: Ulid[] = [];
+    const programs = Array.from({ length: 12 }, (_, programIndex) => {
+      const programId = newUlid(new Date(NOW.getTime() + sequence++));
+      const programItems = Array.from({ length: 6 }, (_, itemIndex) => {
+        const itemId = newUlid(new Date(NOW.getTime() + sequence++));
+        itemIds.push(itemId);
+        return {
+          itemId,
+          kind: itemIndex < 4 ? "requirement" as const : "date" as const,
+          label: `Program item ${programIndex}-${itemIndex}`.padEnd(40, "x"),
+          detail: itemIndex < 4 ? "d".repeat(200) : null,
+          date: itemIndex < 4 ? null : "2027-01-15",
+          verification: {
+            state: "verified" as const,
+            sourceUrl: `https://university${programIndex}.example/${itemIndex}/${"x".repeat(45)}`,
+            cycle: "2027 cycle",
+            verifiedAt: NOW.toISOString(),
+          },
+        };
+      });
+      const applicationItems = Array.from({ length: 6 }, (_, itemIndex) => {
+        const itemId = newUlid(new Date(NOW.getTime() + sequence++));
+        itemIds.push(itemId);
+        return {
+          itemId,
+          kind: "essay" as const,
+          label: `Application item ${programIndex}-${itemIndex}`.padEnd(40, "x"),
+          status: "drafting" as const,
+          dueDate: "2027-02-01",
+          verification: {
+            state: "verified" as const,
+            sourceUrl: `https://university${programIndex}.example/app/${itemIndex}/${"x".repeat(45)}`,
+            cycle: "2027 cycle",
+            verifiedAt: NOW.toISOString(),
+          },
+          sourceTurnId: TURN,
+          submittedAt: null,
+          updatedAt: NOW.toISOString(),
+        };
+      });
+      return {
+        programId,
+        university: `University of Named Place ${programIndex}`,
+        campus: null,
+        programName: `Named Honours Program ${programIndex}`,
+        ouacCode: "WXY",
+        verification: {
+          state: "verified" as const,
+          sourceUrl: `https://university${programIndex}.example/program`,
+          cycle: "2027 cycle",
+          verifiedAt: NOW.toISOString(),
+        },
+        requirements: programItems.slice(0, 4),
+        dates: programItems.slice(4),
+        applicationItems,
+      };
+    });
+    const model = new SequenceModel([JSON.stringify({
+      schoolEngaged: false,
+      universityEngaged: false,
+      reply: "Still structured and named.",
+      courseUpdates: [], completeActionIds: [], plan: [], programUpdates: [], applicationUpdates: [],
+    })]);
+    const adapter = new SchoolCatchupModelAdapter({
+      model,
+      repository: { readSnapshot: async () => schoolSnapshot(principalId), applyOwnerPlan: async () => undefined },
+      universityRepository: {
+        readSnapshot: async () => ({ principalId, programs }),
+        applyOwnerPlan: async () => undefined,
+      },
+      redactor: new Redactor(),
+      timeZone: "America/Toronto",
+      now: () => NOW,
+      ownerPrincipalId: principalId,
+    });
+    const shortlist = `My list is ${programs.map((program) => program.programName).join(", ")}.`;
+
+    await expect(collect(adapter.stream(input(principalId, shortlist))))
+      .resolves.toBe("Still structured and named.");
+    const prompt = model.requests[0]?.userText ?? "";
+    expect(prompt).toContain("university_state_json=");
+    expect(new TextEncoder().encode(prompt).byteLength).toBeLessThanOrEqual(48_000);
+    for (const itemId of itemIds) expect(prompt).toContain(itemId);
   });
 
   it("keeps 128 active application items and 128 program items inside the structured prompt budget", async () => {

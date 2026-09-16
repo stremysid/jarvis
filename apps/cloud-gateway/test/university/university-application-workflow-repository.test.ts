@@ -167,6 +167,40 @@ describe("UniversityTrackerRepository application workflow", () => {
         }],
       }],
     });
+
+    const unverifiedNow = new Date("2026-09-15T18:40:00.000Z");
+    const unverifiedTurn = newUlid(unverifiedNow);
+    const unverifiedEvidence = "The Waterloo AIF may instead be due January 16, 2027.";
+    await seedTurn(principalId, unverifiedTurn, unverifiedEvidence, unverifiedNow);
+    await repository.applyOwnerPlan({
+      principalId,
+      turnId: unverifiedTurn,
+      responseHash: "0".repeat(64),
+      now: unverifiedNow,
+      plan: {
+        engaged: true,
+        programUpdates: [],
+        applicationUpdates: [{
+          itemRef: aif.itemId,
+          programRef: first.programId,
+          kind: null,
+          label: null,
+          status: null,
+          statusEvidence: null,
+          dueDate: {
+            date: "2027-01-16",
+            verification: { state: "unverified", sourceUrl, cycle: "2027" },
+            evidence: unverifiedEvidence,
+          },
+        }],
+      },
+    });
+    await expect(repository.readSnapshot(principalId)).resolves.toMatchObject({
+      programs: [{ applicationItems: [{
+        dueDate: "2027-01-16",
+        verification: { state: "unverified", sourceUrl: null, cycle: null, verifiedAt: null },
+      }] }],
+    });
   });
 
   it("keeps submitted-by-Sid as owner-reported history and lets a later owner turn correct it", async () => {
@@ -332,7 +366,7 @@ describe("UniversityTrackerRepository application workflow", () => {
     ]);
   });
 
-  it("visibly refuses a response-local duplicate of an existing application item", async () => {
+  it("reactivates a response-local duplicate of a retired item without discarding other updates", async () => {
     const principalId = "principal:application-repository-duplicate";
     const turnId = newUlid(NOW);
     const evidence = "Add my Waterloo AIF to the checklist.";
@@ -356,24 +390,55 @@ describe("UniversityTrackerRepository application workflow", () => {
       },
     });
     const program = (await repository.readSnapshot(principalId)).programs[0]!;
+    const item = program.applicationItems[0]!;
     const secondNow = new Date("2026-09-15T19:00:00.000Z");
     const secondTurn = newUlid(secondNow);
-    await seedTurn(principalId, secondTurn, evidence, secondNow);
-    await expect(repository.applyOwnerPlan({
+    const retireEvidence = "I no longer need the Waterloo AIF.";
+    await seedTurn(principalId, secondTurn, retireEvidence, secondNow);
+    await repository.applyOwnerPlan({
       principalId, turnId: secondTurn, responseHash: "b".repeat(64), now: secondNow,
       plan: {
         engaged: true, programUpdates: [],
         applicationUpdates: [{
-          itemRef: "new-item-1", programRef: program.programId, kind: "supplementary_application",
-          label: "Waterloo AIF", status: "not_started", statusEvidence: evidence,
-          dueDate: { date: null, verification: { state: "unverified", sourceUrl: null, cycle: "2027" }, evidence },
+          itemRef: item.itemId, programRef: program.programId, kind: null, label: null,
+          status: "not_needed_by_sid", statusEvidence: retireEvidence, dueDate: null,
         }],
       },
-    })).rejects.toThrow("university_application_item_exists");
-    await expect(repository.readSnapshot(principalId)).resolves.toMatchObject({
-      programs: [{ applicationItems: [{ label: "Waterloo AIF" }] }],
     });
-    expect((await repository.readSnapshot(principalId)).programs[0]?.applicationItems).toHaveLength(1);
+
+    const restoreNow = new Date("2026-09-15T19:05:00.000Z");
+    const restoreTurn = newUlid(restoreNow);
+    const restoreEvidence = "Restore my Waterloo AIF and add the English requirement.";
+    await seedTurn(principalId, restoreTurn, restoreEvidence, restoreNow);
+    await expect(repository.applyOwnerPlan({
+      principalId, turnId: restoreTurn, responseHash: "c".repeat(64), now: restoreNow,
+      plan: {
+        engaged: true,
+        programUpdates: [{
+          programRef: program.programId, university: null, campus: null, programName: null,
+          ouacCode: null, verification: null,
+          addRequirements: [{
+            label: "English requirement",
+            detail: "Owner reported English requirement",
+            verification: { state: "unverified", sourceUrl: null, cycle: null },
+          }],
+          addDates: [], resolveItemIds: [],
+        }],
+        applicationUpdates: [{
+          itemRef: "new-item-1", programRef: program.programId, kind: "supplementary_application",
+          label: "Waterloo AIF", status: "not_started", statusEvidence: restoreEvidence,
+          dueDate: {
+            date: null,
+            verification: { state: "unverified", sourceUrl: null, cycle: "2027" },
+            evidence: restoreEvidence,
+          },
+        }],
+      },
+    })).resolves.toBeUndefined();
+    const saved = (await repository.readSnapshot(principalId)).programs[0]!;
+    expect(saved.requirements).toMatchObject([{ label: "English requirement" }]);
+    expect(saved.applicationItems).toMatchObject([{ label: "Waterloo AIF", status: "not_started" }]);
+    expect(saved.applicationItems).toHaveLength(1);
   });
 
   it("applies retirements before inserts when the final plan stays at the active cap", async () => {
@@ -431,6 +496,32 @@ describe("UniversityTrackerRepository application workflow", () => {
     expect(saved).toEqual(expect.arrayContaining([
       expect.objectContaining({ label: "Ordered 0", status: "not_needed_by_sid" }),
       expect.objectContaining({ label: "Replacement essay", status: "not_started" }),
+    ]));
+
+    const reorderNow = new Date("2026-09-15T19:15:00.000Z");
+    const reorderTurn = newUlid(reorderNow);
+    const reorderEvidence = "Restore Ordered 0 and retire Ordered 1.";
+    await seedTurn(principalId, reorderTurn, reorderEvidence, reorderNow);
+    const retired = saved.find((item) => item.label === "Ordered 0")!;
+    const active = saved.find((item) => item.label === "Ordered 1")!;
+    await expect(repository.applyOwnerPlan({
+      principalId, turnId: reorderTurn, responseHash: "1".repeat(64), now: reorderNow,
+      plan: {
+        engaged: true, programUpdates: [],
+        applicationUpdates: [{
+          itemRef: retired.itemId, programRef: current.programId,
+          kind: null, label: null, status: "not_started", statusEvidence: reorderEvidence, dueDate: null,
+        }, {
+          itemRef: active.itemId, programRef: current.programId,
+          kind: null, label: null, status: "not_needed_by_sid", statusEvidence: reorderEvidence, dueDate: null,
+        }],
+      },
+    })).resolves.toBeUndefined();
+    const reordered = (await repository.readSnapshot(principalId)).programs[0]!.applicationItems;
+    expect(reordered.filter((item) => item.status !== "not_needed_by_sid")).toHaveLength(32);
+    expect(reordered).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "Ordered 0", status: "not_started" }),
+      expect.objectContaining({ label: "Ordered 1", status: "not_needed_by_sid" }),
     ]));
   });
 

@@ -35,7 +35,7 @@ const READY_REPORT = /\b(?:i(?:['’]ve|\s+have|\s)\s*(?:finished|completed)|i(?
 const DATE_CORRECTION = /\b(?:wrong|incorrect|remove|clear|unknown|unpublished|not\s+published|no\s+longer)\b.{0,48}\b(?:date|deadline)\b|\b(?:date|deadline)\b.{0,48}\b(?:wrong|incorrect|remove|clear|unknown|unpublished|not\s+published|no\s+longer)\b/iu;
 const LABEL_METADATA = /\b(?:verified|unverified)\b|\b\d{4}[-/.]\d{2}[-/.]\d{2}\b|\b\d{1,2}[/.]\d{1,2}[/.]\d{2,4}\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)\b|\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2},?\s+20\d{2}\b|\b\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s+20\d{2})?\s*$/iu;
 const JOINT_OWNER_SUBMISSION = /\b(?:m(?:s|r)\.?|dr\.?)\s+\p{L}+[\p{L}'’.-]*\s+and\s+i\s+(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
-const REPORTED_OWNER_SUBMISSION = /\b(?:asked|said|told)\b.{0,64}\bi\s+(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
+const REPORTED_OWNER_SUBMISSION = /\b(?:asked|said|says|told|wrote|writes|sent\s+me|forwarded)\b.{0,64}\bi\s+(?:(?:already|just|now|successfully)\s+)?(?:submitted|sent\s+in|turned\s+in|uploaded)\b/iu;
 const ADMISSION_CYCLE = /^20\d{2}(?:[-–]20\d{2})?$/u;
 const encoder = new TextEncoder();
 const MONTH_WORDS = Object.freeze([
@@ -137,13 +137,23 @@ function mentions(value: string, candidate: string): boolean {
 
 function containsLabel(value: string, label: string): boolean {
   const normalize = (text: string): string => text.normalize("NFC").toLocaleLowerCase("en-CA")
-    .replace(/\s+/gu, " ").trim();
+    .replace(/['’ʼ`]/gu, "'").replace(/[\p{Pd}]+/gu, " ").replace(/\s+/gu, " ").trim();
   const candidate = normalize(label);
   return candidate.length > 0 && normalize(value).includes(candidate);
 }
 
 function clauses(value: string, splitCommas: boolean): readonly string[] {
-  const withoutMonthDots = value.replace(
+  const urls: string[] = [];
+  let urlMarker = "URLMASKTOKEN";
+  while (value.includes(urlMarker)) urlMarker = `_${urlMarker}`;
+  const withoutUrls = value.replace(/https?:\/\/\S+/giu, (matched) => {
+    const trailing = /[.,;!?]+$/u.exec(matched)?.[0] ?? "";
+    const url = trailing.length === 0 ? matched : matched.slice(0, -trailing.length);
+    const token = `${urlMarker}${urls.length}${urlMarker}`;
+    urls.push(url);
+    return `${token}${trailing}`;
+  });
+  const withoutMonthDots = withoutUrls.replace(
     /\b(jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\./giu,
     "$1",
   );
@@ -151,7 +161,9 @@ function clauses(value: string, splitCommas: boolean): readonly string[] {
   const connector = splitCommas
     ? /,\s*(?:and\s+)?|\b(?:and|but|then)\b/iu
     : /\b(?:and|but|then)\b/iu;
+  const maskedUrl = new RegExp(`${urlMarker}(\\d+)${urlMarker}`, "gu");
   return Object.freeze(sentences.flatMap((sentence) => sentence.split(connector))
+    .map((clause) => clause.replace(maskedUrl, (_token, index: string) => urls[Number(index)] ?? ""))
     .map((clause) => clause.trim()).filter((clause) => clause.length > 0));
 }
 
@@ -311,9 +323,15 @@ function applicationDueDate(
   if (date !== null && !evidenceSupportsDate(evidence, date)) {
     throw new TypeError("university_application_model_date_invalid");
   }
-  const dateClauses = date === null ? Object.freeze([]) : clauses(ownerMessage, false).filter((clause) =>
+  const splitDateClauses = date === null ? Object.freeze([]) : clauses(ownerMessage, false).filter((clause) =>
     evidenceSupportsDate(clause, date)
     && clauseNamesOnlyItem(clause, itemRef, label, kind, program, snapshot));
+  const dateClauses = date !== null && splitDateClauses.length === 0
+    && evidenceSupportsDate(ownerMessage, date)
+    && evidenceNamesOnlyItem(ownerMessage, itemRef, label, kind, program, snapshot)
+    && itemNameContainsConnector(label, program)
+    ? Object.freeze([ownerMessage])
+    : splitDateClauses;
   if (date !== null && dateClauses.length === 0) throw new TypeError("university_application_model_date_invalid");
   if (date !== null && existingItem?.dueDate !== null && existingItem?.dueDate !== undefined
     && date !== existingItem.dueDate
@@ -356,6 +374,14 @@ function programAliases(program: ApplicationProgramContext): readonly string[] {
     program.university.replace(/^university\s+of\s+/iu, "").replace(/\s+university$/iu, ""),
     program.programName,
   ].filter((value, index, values) => value.length > 0 && values.indexOf(value) === index));
+}
+
+function itemNameContainsConnector(
+  label: string | null,
+  program: ApplicationProgramContext | null,
+): boolean {
+  return [label, ...(program === null ? [] : programAliases(program))]
+    .some((value) => value !== null && /\b(?:and|but|then)\b/iu.test(value));
 }
 
 function namesApplicationItem(
@@ -406,6 +432,30 @@ function clauseNamesOnlyItem(
   return namesApplicationItem(clause, label, kind, program);
 }
 
+function evidenceNamesOnlyItem(
+  evidence: string,
+  itemRef: string,
+  label: string | null,
+  kind: UniversityApplicationItemKind | null,
+  program: ApplicationProgramContext | null,
+  snapshot: UniversityTrackerSnapshot | null,
+): boolean {
+  const named = namedApplicationItems(evidence, snapshot);
+  if (ULID.test(itemRef)) return named.length === 1 && named[0]?.itemId === itemRef;
+  return named.length === 0 && namesApplicationItem(evidence, label, kind, program);
+}
+
+function namesItemAsThirdPartyPossession(
+  evidence: string,
+  label: string | null,
+  kind: UniversityApplicationItemKind | null,
+): boolean {
+  const normalized = evidenceText(evidence);
+  if (/\bfor\s+you\b/iu.test(evidence)) return true;
+  if (label !== null && normalized.includes(`your ${evidenceText(label)}`)) return true;
+  return kind !== null && KIND_WORDS[kind].some((word) => normalized.includes(`your ${evidenceText(word)}`));
+}
+
 function bareDontNeedTargetsItem(clause: string, label: string | null): boolean {
   const match = BARE_DONT_NEED.exec(clause);
   if (match === null || label === null) return false;
@@ -436,29 +486,39 @@ function supportsStatus(
 ): boolean {
   const namedClauses = clauses(evidence, true).filter((clause) =>
     clauseNamesOnlyItem(clause, itemRef, label, kind, program, snapshot));
+  const namesOnlyItem = evidenceNamesOnlyItem(evidence, itemRef, label, kind, program, snapshot);
+  const anaphoricClauses = namesOnlyItem
+    ? clauses(evidence, true).filter((clause) => /\b(?:it|that)\b/iu.test(clause))
+    : Object.freeze([]);
+  const evidenceClauses = Object.freeze([
+    ...namedClauses,
+    ...anaphoricClauses,
+    ...(namesOnlyItem && itemNameContainsConnector(label, program) ? [evidence] : []),
+  ]);
   if (status === "submitted_by_sid") {
     return !JOINT_OWNER_SUBMISSION.test(evidence) && !REPORTED_OWNER_SUBMISSION.test(evidence)
-      && !RETRACTION.test(evidence) && namedClauses.some((clause) =>
+      && !RETRACTION.test(evidence) && evidenceClauses.some((clause) =>
       OWNER_SUBMISSION.test(clause) && !NEGATION.test(clause)
-      && !RETRACTION.test(clause) && !CONDITIONAL_OR_QUESTION.test(clause));
+      && !RETRACTION.test(clause) && !CONDITIONAL_OR_QUESTION.test(clause)
+      && !namesItemAsThirdPartyPossession(clause, label, kind));
   }
   if (existingStatus === "submitted_by_sid") {
-    return namedClauses.some((clause) =>
+    return evidenceClauses.some((clause) =>
       SUBMISSION_CORRECTION.test(clause) && !CONDITIONAL_OR_QUESTION.test(clause));
   }
   if (existingStatus === "not_needed_by_sid" && status !== "not_needed_by_sid") {
-    return namedClauses.some((clause) =>
+    return evidenceClauses.some((clause) =>
       REACTIVATION.test(clause) && !NEGATION.test(clause)
       && !RETRACTION.test(clause) && !CONDITIONAL_OR_QUESTION.test(clause));
   }
   if (status === "not_needed_by_sid") {
-    return namedClauses.some((clause) => !CONDITIONAL_OR_QUESTION.test(clause)
+    return evidenceClauses.some((clause) => !CONDITIONAL_OR_QUESTION.test(clause)
       && !RETRACTION.test(clause)
       && (RETIREMENT.test(clause) && !retirementNegated(clause)
         || bareDontNeedTargetsItem(clause, label)));
   }
-  if (isNew && status === "not_started") return namedClauses.length > 0;
-  return namedClauses.some((clause) => {
+  if (isNew && status === "not_started") return evidenceClauses.length > 0;
+  return evidenceClauses.some((clause) => {
     if (CONDITIONAL_OR_QUESTION.test(clause) || RETRACTION.test(clause)) return false;
     if (status === "not_started") return NOT_STARTED_REPORT.test(clause);
     if (NEGATION.test(clause)) return false;
@@ -575,9 +635,16 @@ export function parseOwnerUniversityPlan(
   return Object.freeze({ engaged: item.engaged, programUpdates, applicationUpdates });
 }
 
-export function universityStateJson(snapshot: UniversityTrackerSnapshot, ownerMessage = ""): string {
+export function universityStateJson(
+  snapshot: UniversityTrackerSnapshot,
+  ownerMessage = "",
+  maximumExpandedPrograms = 2,
+): string {
+  const expandedProgramIds = new Set(snapshot.programs.filter((program) =>
+    programAliases(program).some((name) => mentions(ownerMessage, name)))
+    .slice(0, maximumExpandedPrograms).map((program) => program.programId));
   return canonicalJson(snapshot.programs.map((program) => {
-    const namedProgram = programAliases(program).some((name) => mentions(ownerMessage, name));
+    const namedProgram = expandedProgramIds.has(program.programId);
     const applicationItems = program.applicationItems.filter((item) =>
       item.status !== "submitted_by_sid" && item.status !== "not_needed_by_sid").map((item) => namedProgram ? {
         itemId: item.itemId,

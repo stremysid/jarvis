@@ -2,16 +2,18 @@
 
 ## University application workflow has six deferred integration and presentation limits
 
-PR #52 binds every application status report to the named item, keeps correction
-and retirement reversible on a later owner turn, and requires a verified
-application due date's URL and cycle in the same evidence. These limits remain:
+PR #52 binds every application status report to the one item named across the
+owner's clauses, keeps correction and retirement reversible on a later owner
+turn, and preserves complete HTTPS URLs while binding a verified application
+date, source and cycle phrase to that item. These limits remain:
 
 - **Forwarded and quoted Telegram text:** accepted Telegram text and
   `ModelAdapterStreamInput` carry no persisted forwarded/quoted provenance.
   The parser therefore cannot distinguish Sid's own words from a forwarded
-  teacher message. Item naming, one-submission-per-turn and the later correction
-  path reduce the reach, but the channel-adapter work must add trusted provenance
-  before forwarded text can be categorically refused as `submitted_by_sid`.
+  teacher message. Item naming, one-submission-per-turn, common reported-speech
+  filters, third-party possessives and the later correction path reduce the
+  reach, but the channel adapter must add trusted provenance before forwarded
+  text can be categorically refused as `submitted_by_sid`.
 - **Official and current-cycle verification:** application due-date evidence now
   binds its syntactically valid admission cycle and HTTPS URL to one excerpt, but
   the service still cannot establish that an arbitrary HTTPS host is official or
@@ -28,10 +30,10 @@ application due date's URL and cycle in the same evidence. These limits remain:
   migration before deploying this code, or add a missing-table compatibility read.
 - **Digest presentation:** overdue application items sort first but are not marked
   overdue, and verified application dates do not show their admission cycle.
-- **Long or multiline submission reports:** application evidence is a single
-  safe inline value capped at 512 UTF-8 bytes. Longer or multiline owner reports
-  fail closed and cannot record `submitted_by_sid`; the reply does not yet explain
-  that evidence limit.
+- **Long submission reports:** application evidence accepts bounded multiline
+  owner text but remains capped at 512 UTF-8 bytes. Longer reports fail closed
+  and cannot record `submitted_by_sid`; the reply does not yet explain that
+  evidence limit.
 
 ## Owner memory controls have seven deferred integration limits
 

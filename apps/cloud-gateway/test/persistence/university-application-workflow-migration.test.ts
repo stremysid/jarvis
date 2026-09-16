@@ -168,7 +168,8 @@ describe("0024 university application workflow migration", () => {
     const laterTurn = newUlid(later);
     await seedTurn(principalId, laterTurn, "I didn't submit this item.");
     await expect(env.DB.prepare(`UPDATE university_application_items
-      SET item_status = 'ready', submitted_at = NULL, source_turn_id = ?1, updated_at = ?2
+      SET item_status = 'ready', submitted_at = NULL, source_url = NULL, admission_cycle = NULL,
+          source_turn_id = ?1, updated_at = ?2
       WHERE principal_id = ?3 AND item_id = ?4`)
       .bind(laterTurn, later.toISOString(), principalId, itemId).run()).resolves.toBeDefined();
   });
@@ -261,6 +262,37 @@ describe("0024 university application workflow migration", () => {
       WHERE principal_id = ?3 AND item_id = ?4`)
       .bind(laterTurn, later.toISOString(), principalId, itemId).run())
       .rejects.toThrow(/university_application_item_state_invalid/u);
+  });
+
+  it("requires source metadata to be cleared when a date becomes unverified", async () => {
+    const principalId = "principal:application-migration-unverify-source";
+    const { programId, turnId } = await seedProgram(principalId);
+    const itemId = newUlid(new Date("2026-09-15T18:00:01.000Z"));
+    await insertItem({ principalId, programId, turnId, itemId }).run();
+    const verified = new Date("2026-09-15T18:05:00.000Z");
+    const verifiedTurn = newUlid(verified);
+    await seedTurn(principalId, verifiedTurn, "The official date is January 15, 2027.");
+    await env.DB.prepare(`UPDATE university_application_items
+      SET due_date = '2027-01-15', verification_state = 'verified',
+          source_url = 'https://example.edu/deadline', admission_cycle = '2027 cycle',
+          verified_at = ?1, source_turn_id = ?2, updated_at = ?1
+      WHERE principal_id = ?3 AND item_id = ?4`)
+      .bind(verified.toISOString(), verifiedTurn, principalId, itemId).run();
+    const later = new Date("2026-09-15T18:10:00.000Z");
+    const laterTurn = newUlid(later);
+    await seedTurn(principalId, laterTurn, "That date is no longer verified.");
+
+    await expect(env.DB.prepare(`UPDATE university_application_items
+      SET verification_state = 'unverified', verified_at = NULL,
+          source_turn_id = ?1, updated_at = ?2
+      WHERE principal_id = ?3 AND item_id = ?4`)
+      .bind(laterTurn, later.toISOString(), principalId, itemId).run())
+      .rejects.toThrow(/university_application_item_state_invalid/u);
+    await expect(env.DB.prepare(`UPDATE university_application_items
+      SET verification_state = 'unverified', source_url = NULL, admission_cycle = NULL,
+          verified_at = NULL, source_turn_id = ?1, updated_at = ?2
+      WHERE principal_id = ?3 AND item_id = ?4`)
+      .bind(laterTurn, later.toISOString(), principalId, itemId).run()).resolves.toBeDefined();
   });
 
   it("refuses a verification timestamp that moves backwards", async () => {
