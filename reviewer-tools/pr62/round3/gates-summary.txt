@@ -1,0 +1,44 @@
+head 07331ca
+lint rc=0
+typecheck rc=0
+test rc=1
+     × backfills pre-0007 provider bindings conservatively without extending authority 5633ms
+     × fails one stalled model turn at the real thirty-second limit and permits the caller's next turn 42116ms
+     × accepts exactly 64 KiB of valid JSON and closes the next byte with 1009 before a turn 7121ms
+     × reconciles an accepted-but-lost dispatch and claims signed outbound TwiML without Task 6 activation 12282ms
+     × refuses a call origin with malformed envelope 8190ms
+     × refuses a valid envelope with an untrusted event type 14739ms
+     × refuses a valid envelope with an untrusted source 7268ms
+     × refuses a valid envelope with an untrusted producer 11962ms
+     × suppresses the first post-success phrase repeat before any transcript or model call 5587ms
+     × passes a nonmatching first candidate-shaped final through as ordinary owner speech 6332ms
+     × stops buffering short word-list replies after the bounded split-repeat window 4880ms
+     × caps non-candidate assembly re-prompts durably without spending mismatch attempts 5674ms
+     × treats "ablaze abrasion" as a non-candidate without spending a mismatch attempt 5429ms
+     × treats "please ablaze abrasion abrasive" as a non-candidate without spending a mismatch attempt 11864ms
+     × activates a pending phone after only one separately budgeted signed challenge response 13388ms
+ FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > fails one stalled model turn at the real thirty-second limit and permits the caller's next turn
+ FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > accepts exactly 64 KiB of valid JSON and closes the next byte with 1009 before a turn
+ FAIL  |default| tests/acceptance/fake/voice-call-path.test.ts > fake voice call path > reconciles an accepted-but-lost dispatch and claims signed outbound TwiML without Task 6 activation
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > caps non-candidate assembly re-prompts durably without spending mismatch attempts
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > treats "ablaze abrasion" as a non-candidate without spending a mismatch attempt
+ FAIL  |default| tests/acceptance/fake/voice-owner-call-step-up.test.ts > owner call passphrase step-up > treats "please ablaze abrasion abrasive" as a non-candidate without spending a mismatch attempt
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > suppresses the first post-success phrase repeat before any transcript or model call
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > passes a nonmatching first candidate-shaped final through as ordinary owner speech
+ FAIL  |default| tests/acceptance/fake/voice-owner-passphrase-security.test.ts > owner-call passphrase security contract > stops buffering short word-list replies after the bounded split-repeat window
+ FAIL  |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a call origin with malformed envelope
+ FAIL  |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a valid envelope with an untrusted event type
+ FAIL  |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a valid envelope with an untrusted source
+ FAIL  |default| tests/acceptance/fake/voice-telegram-call.test.ts > fake Telegram self-call acceptance > refuses a valid envelope with an untrusted producer
+ FAIL  |default| apps/cloud-gateway/test/persistence/voice-access-incremental-migration.test.ts > voice-access incremental migration > backfills pre-0007 provider bindings conservatively without extending authority
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSessionCore access, enrollment, and conversation > activates a pending phone after only one separately budgeted signed challenge response
+round2-defect-tests rc=1
+     × M1a: builder's own sequence forgets and explains the essays memory, not the reports memory Sid just asked about 544ms
+     × M1b: an owner voice turn among the last 12 user turns makes deictic forget fail 241ms
+     × M2b: a later Jarvis reply restating the fact still reaches the model after forget 371ms
+     × H4: a timed-out memory lookup keeps issuing D1 statements after the reply is delivered, without writing or double delivery 785ms
+AssertionError: expected [ { …(2) }, { …(2) } ] to deeply equal [ { …(2) }, { …(2) } ]
+AssertionError: expected 'Forgot 1 memory and hid 1 of 1 source…' to match /could not safely access memory/u
+AssertionError: expected [] to deeply equal [ 'Your favourite teacher is Ms Lee.' ]
+AssertionError: expected 5 to be greater than 5
+      Tests  4 failed | 3 passed (7)

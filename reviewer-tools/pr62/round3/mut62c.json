@@ -1,0 +1,69 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "07331ca",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/memory/telegram-memory-retriever.ts",
+   "from": "const DEFAULT_RETRIEVAL_TIMEOUT_MS = 400;",
+   "to": "const DEFAULT_RETRIEVAL_TIMEOUT_MS = 400; ",
+   "tests": [
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "R1-abort-stops-statements",
+   "file": "apps/cloud-gateway/src/memory/telegram-memory-retriever.ts",
+   "from": "    if (this.aborted) throw new RangeError(\"telegram_memory_retrieval_aborted\");\n",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "R2-deadline-400",
+   "file": "apps/cloud-gateway/src/memory/telegram-memory-retriever.ts",
+   "from": "const DEFAULT_RETRIEVAL_TIMEOUT_MS = 400;",
+   "to": "const DEFAULT_RETRIEVAL_TIMEOUT_MS = 30_000;",
+   "tests": [
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "R3-recall-stopwords",
+   "file": "apps/cloud-gateway/src/memory/telegram-memory-retriever.ts",
+   "from": "    if (RECALL_STOPWORDS.has(folded) || encoder.encode(term).byteLength > MAX_FTS_TERM_BYTES",
+   "to": "    if (encoder.encode(term).byteLength > MAX_FTS_TERM_BYTES",
+   "tests": [
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "R4-creation-event-suppressed",
+   "file": "apps/cloud-gateway/src/memory/telegram-memory-retriever.ts",
+   "from": ": visibility.creationEventSuppressed || visibility.suppressedSourceIds.length > 0) return null;",
+   "to": ": visibility.suppressedSourceIds.length > 0) return null;",
+   "tests": [
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "R5-recent-suppression",
+   "file": "apps/cloud-gateway/src/memory/telegram-memory-retriever.ts",
+   "from": "const suppressed = row.suppressed === 1 ? true : row.suppressed === 0 ? false : null;",
+   "to": "const suppressed = row.suppressed === 1 ? false : row.suppressed === 0 ? false : null;",
+   "tests": [
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  },
+  {
+   "id": "R6-controls-exactly-one",
+   "file": "apps/cloud-gateway/src/memory/telegram-memory-controls.ts",
+   "from": "    if (candidates.length !== 1) {\n      return Object.freeze({",
+   "to": "    if (candidates.length < 1) {\n      return Object.freeze({",
+   "tests": [
+    "apps/cloud-gateway/test/memory/telegram-memory.test.ts"
+   ]
+  }
+ ]
+}

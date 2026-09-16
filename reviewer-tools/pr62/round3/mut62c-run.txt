@@ -1,0 +1,53 @@
+checked out 07331ca at 07331ca
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  33 passed (33)
+
+== R1-abort-stops-statements: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts (33 tests | 1 failed) 7283ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 32 passed (33)
+   × aborts a timed-out lookup before it can issue another D1 statement 482ms
+
+== R2-deadline-400: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts (33 tests | 17 failed) 1330ms
+   Test Files  1 failed (1)
+   Tests  17 failed | 16 passed (33)
+   × keeps forwarded, quoted, pasted, conversational and guest wording untrusted 29ms
+   × applies one exact current-owner request once and emits one visible undo receipt 21ms
+   × replies with the default Telegram budgets for an owner turn, owner control, and guest turn 5ms
+   × keeps a six-field owner event usable by controls, the repository, recent context, literal history, and projection 3ms
+
+== R3-recall-stopwords: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts (33 tests | 1 failed) 7291ms
+   Test Files  1 failed (1)
+   Tests  1 failed | 32 passed (33)
+   × resolves that only to the memory injected into the previous reply and names every receipt 373ms
+
+== R4-creation-event-suppressed: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  33 passed (33)
+
+== R5-recent-suppression: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts (33 tests | 2 failed) 8329ms
+   Test Files  1 failed (1)
+   Tests  2 failed | 31 passed (33)
+   × removes later assistant replies that retrieved, cited, or restated a forgotten item 407ms
+   × does not recall a forgotten fact through Jarvis's earlier echo 656ms
+
+== R6-controls-exactly-one: SURVIVED (exit 0), tree clean=true
+   Test Files  1 passed (1)
+   Tests  33 passed (33)
+
+=== summary
+SURVIVED  BASE
+KILLED    R1-abort-stops-statements
+KILLED    R2-deadline-400
+KILLED    R3-recall-stopwords
+SURVIVED  R4-creation-event-suppressed
+KILLED    R5-recent-suppression
+SURVIVED  R6-controls-exactly-one
+back on main, tree clean=true
+(node:30036) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
