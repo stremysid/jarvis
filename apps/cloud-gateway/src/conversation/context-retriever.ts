@@ -24,6 +24,10 @@ const HISTORY_PAYLOAD_FIELDS = new Set([
   "historyEligible",
   "text",
 ]);
+const HISTORY_PAYLOAD_WITH_OWNER_MARKER_FIELDS = new Set([
+  ...HISTORY_PAYLOAD_FIELDS,
+  "directOwnerText",
+]);
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const MAX_CANDIDATES = 128;
 const MAX_FACT_CANDIDATES = 128;
@@ -115,6 +119,20 @@ function exactDataRecord(value: unknown, fields: ReadonlySet<string>, error: str
     captured[field] = descriptor.value;
   }
   return captured;
+}
+
+function historyPayload(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError("context_payload_invalid");
+  }
+  const fields = Object.hasOwn(value, "directOwnerText")
+    ? HISTORY_PAYLOAD_WITH_OWNER_MARKER_FIELDS
+    : HISTORY_PAYLOAD_FIELDS;
+  const payload = exactDataRecord(value, fields, "context_payload_invalid");
+  if (Object.hasOwn(payload, "directOwnerText") && typeof payload.directOwnerText !== "boolean") {
+    throw new TypeError("context_payload_invalid");
+  }
+  return payload;
 }
 
 function requireText(value: unknown, label: string, maximumBytes: number): string {
@@ -320,7 +338,7 @@ function snapshotResultRows(value: unknown): unknown {
 }
 
 function historyText(payload: unknown, eventType: string): string {
-  const value = exactDataRecord(payload, HISTORY_PAYLOAD_FIELDS, "context_payload_invalid");
+  const value = historyPayload(payload);
   if (value.schemaCode !== 1 || value.sensitivityCode !== 1 || value.historyEligible !== true
     || eventType === "conversation.assistant_delivered" && value.channelCode !== 2
     || eventType === "conversation.user_committed" && value.channelCode !== 1 && value.channelCode !== 2) {

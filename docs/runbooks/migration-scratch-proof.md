@@ -27,17 +27,18 @@ database. It does not authorize a production migration or deployment.
 
    ```powershell
    cd C:\path\to\jarvis
+   $wrangler = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path
    $ScratchDatabase = Read-Host "New throwaway D1 name containing 'scratch'"
    if ([string]::IsNullOrWhiteSpace($ScratchDatabase) -or $ScratchDatabase -notmatch '^[A-Za-z0-9_-]*scratch[A-Za-z0-9_-]*$') { throw "The name must visibly say scratch and contain only letters, digits, underscores or hyphens." }
    Write-Host "TARGET: $ScratchDatabase is disposable scratch, not production."
    $ConfirmedScratch = Read-Host "Read TARGET aloud, then re-enter the exact scratch name"
    if ($ConfirmedScratch -cne $ScratchDatabase) { throw "Scratch target was not confirmed." }
-   $CreateOutput = & pnpm.cmd exec wrangler d1 create $ScratchDatabase 2>&1
+   $CreateOutput = & node $wrangler d1 create $ScratchDatabase 2>&1
    $CreateExit = $LASTEXITCODE
    $CreateOutput | Write-Host
    if ($CreateExit -ne 0) { throw "Scratch D1 creation failed." }
    $CreateText = $CreateOutput -join "`n"
-   $IdMatch = [regex]::Match($CreateText, 'database_id\s*=\s*"([0-9a-fA-F-]{36})"')
+   $IdMatch = [regex]::Match($CreateText, '"?database_id"?\s*[:=]\s*"([0-9a-fA-F-]{36})"')
    if (-not $IdMatch.Success) { throw "Wrangler succeeded but its returned scratch database id could not be read. Delete the confirmed scratch database before restarting." }
    $ScratchDatabaseId = $IdMatch.Groups[1].Value
    $MigrationRoot = (Resolve-Path -LiteralPath 'apps/cloud-gateway/src/persistence/migrations').Path
@@ -88,6 +89,7 @@ database. It does not authorize a production migration or deployment.
 
    ```powershell
    cd C:\path\to\jarvis
+   $wrangler = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path
    node --test scripts/test/prepare-d1-scratch-baseline.test.mjs
    if ($LASTEXITCODE -ne 0) { throw "Scratch baseline script tests failed. Stop here." }
    $ScratchDatabase = Read-Host "Confirmed non-production scratch D1 name"
@@ -103,7 +105,7 @@ database. It does not authorize a production migration or deployment.
    if ($BaselineFiles.Count -ne 15) { throw "Expected exactly 15 baseline files through 0015." }
    $NamesSql = ($BaselineFiles | ForEach-Object { "'$($_.Replace("'", "''"))'" }) -join ', '
    $ReceiptSql = "SELECT name FROM d1_migrations WHERE name IN ($NamesSql) ORDER BY id;"
-   $ReceiptOutput = & pnpm.cmd exec wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' --command $ReceiptSql 2>&1
+   $ReceiptOutput = & node $wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' "--command=$ReceiptSql" 2>&1
    $ReceiptExit = $LASTEXITCODE
    $ReceiptText = $ReceiptOutput -join "`n"
    $ReceiptOutput | Write-Host
@@ -127,6 +129,7 @@ database. It does not authorize a production migration or deployment.
 
    ```powershell
    cd C:\path\to\jarvis
+   $wrangler = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path
    $ScratchDatabase = Read-Host "Confirmed non-production scratch D1 name"
    if ([string]::IsNullOrWhiteSpace($ScratchDatabase) -or $ScratchDatabase -notmatch '^[A-Za-z0-9_-]*scratch[A-Za-z0-9_-]*$') { throw "The name must visibly say scratch." }
    $ScratchConfig = [IO.Path]::GetFullPath((Read-Host "Absolute SCRATCH CONFIG OUTSIDE REPO path from step 2"))
@@ -147,10 +150,10 @@ database. It does not authorize a production migration or deployment.
      "INSERT INTO channel_identities (identity_id, principal_id, channel, provider_subject, status, verified_at, created_at, enrolled_by_device_id) VALUES ('$IdentityId', '$PrincipalId', 'telegram', 'synthetic-scratch-telegram-subject-not-an-account', 'active', '$At', '$At', '$DeviceId');",
      "INSERT INTO events (event_id, event_type, source, subject_id, occurred_at, received_at, content_hash, envelope_json, created_at) VALUES ('$EventId', 'conversation.user_committed', 'telegram', '$PrincipalId', '$At', '$At', '$ContentHash', '$EnvelopeJson', '$At');"
    ) -join "`n"
-   pnpm.cmd exec wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' --command $SeedSql
+   & node $wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' "--command=$SeedSql"
    if ($LASTEXITCODE -ne 0) { throw "Production-shaped scratch seed failed." }
    $SeedCheckSql = "SELECT 'SEED CHECK OK: principal/device/telegram identity/conversation event.' AS result WHERE (SELECT COUNT(*) FROM principals WHERE principal_id = '$PrincipalId') = 1 AND (SELECT COUNT(*) FROM device_keys WHERE device_id = '$DeviceId' AND principal_id = '$PrincipalId' AND status = 'active') = 1 AND (SELECT COUNT(*) FROM channel_identities WHERE identity_id = '$IdentityId' AND principal_id = '$PrincipalId' AND channel = 'telegram' AND status = 'active') = 1 AND (SELECT COUNT(*) FROM events WHERE event_id = '$EventId' AND subject_id = '$PrincipalId' AND event_type = 'conversation.user_committed') = 1;"
-   $SeedCheck = & pnpm.cmd exec wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' --command $SeedCheckSql 2>&1
+   $SeedCheck = & node $wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' "--command=$SeedCheckSql" 2>&1
    $SeedCheckExit = $LASTEXITCODE
    $SeedCheckText = $SeedCheck -join "`n"
    $SeedCheck | Write-Host
@@ -177,6 +180,7 @@ database. It does not authorize a production migration or deployment.
 
    ```powershell
    cd C:\path\to\jarvis
+   $wrangler = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path
    $ScratchDatabase = Read-Host "Confirmed non-production scratch D1 name"
    if ([string]::IsNullOrWhiteSpace($ScratchDatabase) -or $ScratchDatabase -notmatch '^[A-Za-z0-9_-]*scratch[A-Za-z0-9_-]*$') { throw "The name must visibly say scratch." }
    $ScratchConfig = [IO.Path]::GetFullPath((Read-Host "Absolute SCRATCH CONFIG OUTSIDE REPO path from step 2"))
@@ -205,7 +209,7 @@ database. It does not authorize a production migration or deployment.
    $CandidateMigrations = @($CandidateFiles | Select-Object -ExpandProperty Name)
    $CandidateCount = $CandidateMigrations.Count
    Write-Host "CANDIDATE RANGE: $($CandidateMigrations[0]) through $($CandidateMigrations[-1]) ($CandidateCount files)."
-   $ListOutput = & pnpm.cmd exec wrangler d1 migrations list $ScratchDatabase --remote --config $ScratchConfig --env '' 2>&1
+   $ListOutput = & node $wrangler d1 migrations list $ScratchDatabase --remote --config $ScratchConfig --env '' 2>&1
    $ListExit = $LASTEXITCODE
    $ListText = $ListOutput -join "`n"
    $ListOutput | Write-Host
@@ -214,11 +218,11 @@ database. It does not authorize a production migration or deployment.
      if ($ListText -notmatch [regex]::Escape($Migration)) { throw "Expected pending scratch migration was not listed: $Migration" }
    }
    Write-Host "At Wrangler's y/n prompt, confirm the scratch database name and exact CANDIDATE RANGE; otherwise answer n and stop."
-   pnpm.cmd exec wrangler d1 migrations apply $ScratchDatabase --remote --config $ScratchConfig --env ''
+   & node $wrangler d1 migrations apply $ScratchDatabase --remote --config $ScratchConfig --env ''
    if ($LASTEXITCODE -ne 0) { throw "Scratch candidate apply failed. Stop here." }
    $NamesSql = ($CandidateMigrations | ForEach-Object { "'$($_.Replace("'", "''"))'" }) -join ', '
    $AppliedSql = "SELECT name FROM d1_migrations WHERE name IN ($NamesSql) ORDER BY name;"
-   $Applied = & pnpm.cmd exec wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' --command $AppliedSql 2>&1
+   $Applied = & node $wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' "--command=$AppliedSql" 2>&1
    $AppliedExit = $LASTEXITCODE
    $AppliedText = $Applied -join "`n"
    $Applied | Write-Host
@@ -246,6 +250,7 @@ database. It does not authorize a production migration or deployment.
 
    ```powershell
    cd C:\path\to\jarvis
+   $wrangler = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path
    $ScratchDatabase = Read-Host "Confirmed non-production scratch D1 name"
    if ([string]::IsNullOrWhiteSpace($ScratchDatabase) -or $ScratchDatabase -notmatch '^[A-Za-z0-9_-]*scratch[A-Za-z0-9_-]*$') { throw "The name must visibly say scratch." }
    $ScratchConfig = [IO.Path]::GetFullPath((Read-Host "Absolute SCRATCH CONFIG OUTSIDE REPO path from step 2"))
@@ -258,7 +263,7 @@ database. It does not authorize a production migration or deployment.
    }) | Sort-Object -Unique
    if ($ExpectedTriggers.Count -eq 0) { throw "Repository candidates contain no named triggers." }
    $TriggerSql = "SELECT name FROM sqlite_schema WHERE type = 'trigger' ORDER BY name;"
-   $TriggerCheck = & pnpm.cmd exec wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' --command $TriggerSql 2>&1
+   $TriggerCheck = & node $wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' "--command=$TriggerSql" 2>&1
    $TriggerExit = $LASTEXITCODE
    $TriggerText = $TriggerCheck -join "`n"
    $TriggerCheck | Write-Host
@@ -278,11 +283,12 @@ database. It does not authorize a production migration or deployment.
 
    ```powershell
    cd C:\path\to\jarvis
+   $wrangler = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path
    $ScratchDatabase = Read-Host "Confirmed non-production scratch D1 name"
    if ([string]::IsNullOrWhiteSpace($ScratchDatabase) -or $ScratchDatabase -notmatch '^[A-Za-z0-9_-]*scratch[A-Za-z0-9_-]*$') { throw "The name must visibly say scratch." }
    $ScratchConfig = [IO.Path]::GetFullPath((Read-Host "Absolute SCRATCH CONFIG OUTSIDE REPO path from step 2"))
    $SetupSql = "DROP TRIGGER IF EXISTS scratch_unique_guard_insert; DROP TABLE IF EXISTS scratch_unique_guard; CREATE TABLE scratch_unique_guard (id TEXT PRIMARY KEY, alternate TEXT NOT NULL UNIQUE) STRICT, WITHOUT ROWID; CREATE TRIGGER scratch_unique_guard_insert BEFORE INSERT ON scratch_unique_guard BEGIN SELECT RAISE(ABORT, 'scratch_unique_guard_rejected') WHERE EXISTS (SELECT 1 FROM scratch_unique_guard WHERE id = NEW.id) OR EXISTS (SELECT 1 FROM scratch_unique_guard WHERE alternate = NEW.alternate); END; INSERT INTO scratch_unique_guard (id, alternate) VALUES ('first', 'one');"
-   pnpm.cmd exec wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' --command $SetupSql
+   & node $wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' "--command=$SetupSql"
    if ($LASTEXITCODE -ne 0) { throw "Unique-key probe setup failed." }
    $GuardCases = @(
      @{ Name = 'OR REPLACE primary key'; Sql = "INSERT OR REPLACE INTO scratch_unique_guard (id, alternate) VALUES ('first', 'two');" },
@@ -291,14 +297,14 @@ database. It does not authorize a production migration or deployment.
      @{ Name = 'OR IGNORE alternate key'; Sql = "INSERT OR IGNORE INTO scratch_unique_guard (id, alternate) VALUES ('second', 'one');" }
    )
    foreach ($GuardCase in $GuardCases) {
-     $GuardOutput = & pnpm.cmd exec wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' --command $GuardCase.Sql 2>&1
+     $GuardOutput = & node $wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' "--command=$($GuardCase.Sql)" 2>&1
      $GuardExit = $LASTEXITCODE
      $GuardText = $GuardOutput -join "`n"
      if ($GuardExit -eq 0 -or $GuardText -notmatch 'scratch_unique_guard_rejected') { throw "Unique-key guard failed: $($GuardCase.Name)" }
      Write-Host "UNIQUE GUARD OK: $($GuardCase.Name) -> scratch_unique_guard_rejected"
    }
    $PreservedSql = "SELECT CASE WHEN COUNT(*) = 1 AND MIN(id) = 'first' AND MIN(alternate) = 'one' THEN 'UNIQUE ROW OK: first/one preserved.' ELSE 'UNIQUE ROW FAILED' END AS result FROM scratch_unique_guard;"
-   $Preserved = & pnpm.cmd exec wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' --command $PreservedSql 2>&1
+   $Preserved = & node $wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' "--command=$PreservedSql" 2>&1
    $PreservedExit = $LASTEXITCODE
    $PreservedText = $Preserved -join "`n"
    $Preserved | Write-Host
@@ -316,11 +322,12 @@ database. It does not authorize a production migration or deployment.
 
    ```powershell
    cd C:\path\to\jarvis
+   $wrangler = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path
    $ScratchDatabase = Read-Host "Confirmed non-production scratch D1 name"
    if ([string]::IsNullOrWhiteSpace($ScratchDatabase) -or $ScratchDatabase -notmatch '^[A-Za-z0-9_-]*scratch[A-Za-z0-9_-]*$') { throw "The name must visibly say scratch." }
    $ScratchConfig = [IO.Path]::GetFullPath((Read-Host "Absolute SCRATCH CONFIG OUTSIDE REPO path from step 2"))
    $CaseSql = "DROP TRIGGER IF EXISTS scratch_case_wrapped_raise; CREATE TRIGGER scratch_case_wrapped_raise BEFORE INSERT ON scratch_unique_guard BEGIN SELECT CASE WHEN EXISTS (SELECT 1 FROM scratch_unique_guard WHERE id = NEW.id) THEN RAISE(ABORT, 'scratch_case_wrapped_raise_rejected') END; END;"
-   $CaseOutput = & pnpm.cmd exec wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' --command $CaseSql 2>&1
+   $CaseOutput = & node $wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' "--command=$CaseSql" 2>&1
    $CaseExit = $LASTEXITCODE
    $CaseText = $CaseOutput -join "`n"
    $CaseOutput | Write-Host
@@ -338,6 +345,7 @@ database. It does not authorize a production migration or deployment.
 
    ```powershell
    cd C:\path\to\jarvis
+   $wrangler = (Resolve-Path 'node_modules/wrangler/bin/wrangler.js').Path
    $ScratchDatabase = Read-Host "Confirmed non-production scratch D1 name to delete"
    if ([string]::IsNullOrWhiteSpace($ScratchDatabase) -or $ScratchDatabase -notmatch '^[A-Za-z0-9_-]*scratch[A-Za-z0-9_-]*$') { throw "The name must visibly say scratch." }
    $ScratchConfig = [IO.Path]::GetFullPath((Read-Host "Absolute SCRATCH CONFIG OUTSIDE REPO path from step 2"))
@@ -345,9 +353,9 @@ database. It does not authorize a production migration or deployment.
    $ConfirmedScratch = Read-Host "Read DELETE TARGET aloud, then re-enter the exact scratch name"
    if ($ConfirmedScratch -cne $ScratchDatabase) { throw "Scratch deletion target was not confirmed." }
    $CleanupSql = "DROP TRIGGER IF EXISTS scratch_case_wrapped_raise; DROP TRIGGER IF EXISTS scratch_unique_guard_insert; DROP TABLE IF EXISTS scratch_unique_guard;"
-   pnpm.cmd exec wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' --command $CleanupSql
+   & node $wrangler d1 execute $ScratchDatabase --remote --config $ScratchConfig --env '' "--command=$CleanupSql"
    if ($LASTEXITCODE -ne 0) { throw "Scratch probe cleanup failed." }
-   pnpm.cmd exec wrangler d1 delete $ScratchDatabase --config $ScratchConfig --env ''
+   & node $wrangler d1 delete $ScratchDatabase --config $ScratchConfig --env ''
    if ($LASTEXITCODE -ne 0) { throw "Scratch D1 deletion failed." }
    Remove-Item -LiteralPath $ScratchConfig
    if (Test-Path -LiteralPath $ScratchConfig) { throw "Scratch database was deleted but its external config remains; remove it manually." }
@@ -355,8 +363,9 @@ database. It does not authorize a production migration or deployment.
    Write-Host "SCRATCH CONFIG DELETE OK: $ScratchConfig"
    ```
 
-   Confirm deletion only for the displayed scratch name. Keep the commit SHA,
-   UTC time, scratch name, `15/15` baseline line, dynamic candidate-range and
+   Wrangler asks for confirmation during deletion; answer `y` only for the
+   displayed scratch name. Keep the commit SHA, UTC time, scratch name,
+   `15/15` baseline line, dynamic candidate-range and
    receipt-count lines, dynamic trigger-count line, seed marker, four
    unique-guard lines, preserved-row line, CASE rejection and both deletion
    lines in the protected rollout record. Do not record account identifiers or
