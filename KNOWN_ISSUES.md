@@ -49,6 +49,22 @@ integration work must resolve these limits before enabling the affected callers:
   literal-history indexer writes this table today; closing the gap requires an
   atomic replacement protocol or a separate durable current-chunk receipt.
 
+## Automatic distillation is deliberately provider-disabled in production
+
+The hourly poll now has the complete tiered-read, extraction-policy and
+canonical-repository path, but the production job context supplies no model
+provider. It reports `Memory distillation not configured`, writes no memory run
+and does not advance the distillation cursor. Tests inject the credential-free
+fake provider. Selecting a paid provider, recording real token and cost ledger
+entries, and enabling it remain outside this slice because Sid has not approved
+the reviewed comparison or any spend.
+
+Automatic filing is intentionally conservative. Inferred, archived-only and
+low-confidence items go to the durable `Inbox / Needs filing`; only a
+high-confidence exact live first-person statement is placed at the memory root.
+Semantic topic creation or movement waits for the topic-controls slice because
+letting untrusted provider text choose a topic would bypass that control design.
+
 ## PR #46 notification delivery retains three bounded at-least-once limits
 
 The guest-grant notice outbox keeps a stable per-mutation idempotency key and

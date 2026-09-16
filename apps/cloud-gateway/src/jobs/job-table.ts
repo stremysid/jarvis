@@ -8,7 +8,9 @@
 import type { Env } from "../env.js";
 import { ArchivalService } from "../archive/archival-service.js";
 import { ArchivalWorker } from "../archive/archival-worker.js";
+import { ArchiveRepository } from "../archive/archive-repository.js";
 import { ARCHIVE_SEGMENT_LIMITS } from "../archive/segment-codec.js";
+import { TieredEventReader } from "../archive/tiered-event-reader.js";
 import { ClassroomClient, ClassroomRequestError } from "../deadlines/classroom-client.js";
 import {
   BRIGHTSPACE_WINDOW_ITEM_LIMIT,
@@ -24,6 +26,10 @@ import { DecisionService } from "../decisions/decision-service.js";
 import { GitHubClient } from "../projects/github-client.js";
 import { ProjectPoller } from "../projects/project-poller.js";
 import { ProjectRepository } from "../projects/project-repository.js";
+import { AutomaticMemoryDistillationWorkflow } from "../memory/automatic-distillation.js";
+import { MemoryRepository } from "../memory/memory-repository.js";
+import { EventRepository } from "../persistence/event-repository.js";
+import type { ModelProvider } from "../providers/provider-types.js";
 import { TelegramRestProvider } from "../providers/telegram-provider.js";
 import { ScheduledRunRepository } from "../scheduler/scheduled-run-repository.js";
 import { SchoolCatchupRepository } from "../school/school-catchup-repository.js";
@@ -37,6 +43,11 @@ export interface JobEnvironment {
   readonly clock: { now(): Date };
   readonly delivery: DigestDelivery;
   readonly fetcher: typeof fetch;
+  /** Omitted in production until Sid approves a reviewed provider and cap. */
+  readonly memoryDistillation?: Readonly<{
+    provider: Pick<ModelProvider, "completeJson">;
+    providerModelId: string;
+  }>;
 }
 
 function describe(error: unknown): string {
@@ -373,6 +384,38 @@ async function safeSourcePoll(
   }
 }
 
+async function distilMemory(
+  context: JobEnvironment,
+  archive: ArchivalService,
+): Promise<string> {
+  const configured = context.memoryDistillation;
+  if (configured === undefined) return "Memory distillation not configured";
+  const principalId = context.env.OWNER_PRINCIPAL_ID;
+  if (principalId === undefined) return "Memory distillation failed (owner_not_configured)";
+  const live = new EventRepository(context.env.DB);
+  const tiered = new TieredEventReader({
+    live,
+    archive,
+    state: new ArchiveRepository(context.env.DB),
+  });
+  const workflow = new AutomaticMemoryDistillationWorkflow({
+    database: context.env.DB,
+    events: tiered,
+    repository: new MemoryRepository(context.env.DB, {
+      clock: () => context.clock.now(),
+      archivedEventReader: archive,
+    }),
+    provider: configured.provider,
+    providerModelId: configured.providerModelId,
+    principalId,
+    now: () => context.clock.now(),
+  });
+  const result = await workflow.runNext({
+    runKey: `memory-distill:${context.clock.now().toISOString().slice(0, 13)}`,
+  });
+  return `Memory ${result.outcome}, ${result.createdItemCount} created`;
+}
+
 /**
  * The hourly reach-out.
  *
@@ -385,20 +428,25 @@ async function poll(context: JobEnvironment): Promise<JobOutcome> {
   // Reuse the archive's retention, readback, sealing and purge checks unchanged.
   // A missing GitHub credential must not disable local D1-to-R2 maintenance.
   let archived: string;
+  const archive = new ArchivalService({ database: context.env.DB, bucket: context.env.ARCHIVE });
   try {
-    const archive = new ArchivalWorker(new ArchivalService({ database: context.env.DB, bucket: context.env.ARCHIVE }));
-    const segment = await archive.run(context.clock.now(), ARCHIVE_SEGMENT_LIMITS.maxEventCount);
+    const segment = await new ArchivalWorker(archive).run(context.clock.now(), ARCHIVE_SEGMENT_LIMITS.maxEventCount);
     archived = segment === null ? "nothing eligible for archival" : `${segment.eventCount} archived`;
   } catch {
     archived = "archival failed (archive_operation_failed)";
   }
+  const memory = await safeSourcePoll(
+    "Memory distillation",
+    "memory_distillation_failed",
+    () => distilMemory(context, archive),
+  );
   const classroom = await safeSourcePoll("Classroom", "classroom_ingestion_failed", () => pollClassroom(context));
   const brightspace = await safeSourcePoll(
     "Brightspace",
     "brightspace_ingestion_failed",
     () => pollBrightspace(context),
   );
-  const sourceDetail = `${classroom}; ${brightspace}`;
+  const sourceDetail = `${memory}; ${classroom}; ${brightspace}`;
   const token = context.env.GITHUB_TOKEN;
   if (token === undefined) return { ok: true, detail: `${archived}; ${sourceDetail}; project poll not configured` };
 

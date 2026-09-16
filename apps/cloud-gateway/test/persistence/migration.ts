@@ -23,6 +23,7 @@ import voiceOwnerDeliverySql from "../../src/persistence/migrations/0021_voice_o
 import universityTrackerSql from "../../src/persistence/migrations/0022_university_tracker.sql?raw";
 import studyCoachSql from "../../src/persistence/migrations/0023_study_coach.sql?raw";
 import archiveLiteralHistorySql from "../../src/persistence/migrations/0025_archive_literal_history.sql?raw";
+import memoryDistillationSql from "../../src/persistence/migrations/0026_memory_distillation.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
@@ -35,6 +36,7 @@ let voiceOwnerDeliveryMigrated: Promise<void> | undefined;
 let universityTrackerMigrated: Promise<void> | undefined;
 let studyCoachMigrated: Promise<void> | undefined;
 let archiveLiteralHistoryMigrated: Promise<void> | undefined;
+let memoryDistillationMigrated: Promise<void> | undefined;
 
 /**
  * Split a migration into the statements D1 applies one at a time.
@@ -193,6 +195,15 @@ export async function applyArchiveLiteralHistoryMigration(): Promise<void> {
     { name: "0025_archive_literal_history.sql", queries: splitMigration(archiveLiteralHistorySql) },
   ]);
   await archiveLiteralHistoryMigrated;
+}
+
+/** Applies automatic-distillation receipts and cursor guards after literal history. */
+export async function applyMemoryDistillationMigration(): Promise<void> {
+  await applyArchiveLiteralHistoryMigration();
+  memoryDistillationMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0026_memory_distillation.sql", queries: splitMigration(memoryDistillationSql) },
+  ]);
+  await memoryDistillationMigrated;
 }
 
 /** Test-only reset for immutable per-call step-up and guest-attempt records. */

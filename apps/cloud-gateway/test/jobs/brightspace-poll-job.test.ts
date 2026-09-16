@@ -557,7 +557,9 @@ describe("hourly Brightspace calendar-feed ingestion", () => {
     const fetcher = vi.fn(async () => new Response(FEED)) as unknown as typeof fetch;
 
     await expect(runPoll(context(fetcher, { DB: database, BRIGHTSPACE_ICAL_URL: FEED_URL }))).resolves.toMatchObject({
-      detail: expect.stringContaining("archival failed (archive_operation_failed); Classroom not configured; Brightspace 1 seen"),
+      detail: expect.stringContaining(
+        "archival failed (archive_operation_failed); Memory distillation not configured; Classroom not configured; Brightspace 1 seen",
+      ),
     });
     expect(fetcher).toHaveBeenCalledTimes(1);
   });

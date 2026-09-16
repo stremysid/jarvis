@@ -34,6 +34,18 @@ const VOICE_OWNER_DELIVERY_TRIGGERS = Object.freeze([
   "guest_grant_notices_delete_forbidden",
 ]);
 
+const MEMORY_DISTILLATION_TRIGGERS = Object.freeze([
+  "memory_distillation_event_receipts_insert_guard",
+  "memory_distillation_event_receipts_immutable_update",
+  "memory_distillation_event_receipts_delete_forbidden",
+  "memory_distillation_item_receipts_insert_guard",
+  "memory_distillation_item_receipts_immutable_update",
+  "memory_distillation_item_receipts_delete_forbidden",
+  "memory_distillation_runs_reconcile_guard",
+  "memory_distillation_cursor_insert_guard",
+  "memory_distillation_cursor_update_guard",
+]);
+
 describe("remote D1 migration trigger syntax", () => {
   it("discovers every migration from 0014 onward", () => {
     expect(remoteD1Migrations.map(({ name }) => name)).toEqual([
@@ -48,6 +60,7 @@ describe("remote D1 migration trigger syntax", () => {
       "0022_university_tracker.sql",
       "0023_study_coach.sql",
       "0025_archive_literal_history.sql",
+      "0026_memory_distillation.sql",
     ]);
   });
 
@@ -62,4 +75,31 @@ describe("remote D1 migration trigger syntax", () => {
       .map((match) => match[1]);
     expect(names).toEqual(VOICE_OWNER_DELIVERY_TRIGGERS);
   });
+
+  it("pins every 0026 trigger as one complete remote-D1 definition", () => {
+    const migration = remoteD1Migrations.find(({ name }) => name === "0026_memory_distillation.sql");
+    expect(migration).toBeDefined();
+    const sql = migration?.sql ?? "";
+    const names = [...sql.matchAll(/\bCREATE\s+TRIGGER\s+([a-z0-9_]+)/giu)]
+      .map((match) => match[1]);
+    expect(names).toEqual(MEMORY_DISTILLATION_TRIGGERS);
+    expect(sql.match(/\bCREATE\s+TRIGGER\b/giu)).toHaveLength(MEMORY_DISTILLATION_TRIGGERS.length);
+    expect(sql.match(/\bWHEN\b[\s\S]*?\bBEGIN\s+SELECT\s+RAISE\s*\(ABORT,/giu))
+      .toHaveLength(MEMORY_DISTILLATION_TRIGGERS.length);
+  });
+
+  it.each(MEMORY_DISTILLATION_TRIGGERS)(
+    "keeps %s in WHEN BEGIN SELECT RAISE remote-D1 form",
+    (trigger) => {
+      const migration = remoteD1Migrations.find(({ name }) => name === "0026_memory_distillation.sql");
+      const sql = migration?.sql ?? "";
+      const definition = new RegExp(
+        `\\bCREATE\\s+TRIGGER\\s+${trigger}\\b[\\s\\S]*?\\bEND;`,
+        "iu",
+      ).exec(sql)?.[0];
+      expect(definition).toBeDefined();
+      expect(definition).toMatch(/\bWHEN\b[\s\S]*?\bBEGIN\s+SELECT\s+RAISE\s*\(ABORT,[^;]+\);\s*END;$/iu);
+      expect(definition).not.toMatch(/\bSELECT\s+CASE\b[^;]*\bRAISE\s*\(/iu);
+    },
+  );
 });
