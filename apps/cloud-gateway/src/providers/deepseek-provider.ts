@@ -41,6 +41,69 @@ export interface DeepSeekAdapterOptions {
   readonly fetchImplementation?: typeof fetch;
   readonly baseUrl?: string;
   readonly model?: string;
+  /** Limits the Telegram-only wire policy to adapters composed for live chat turns. */
+  readonly telegramTurn?: boolean;
+  readonly telegramThinking?: string;
+}
+
+export type DeepSeekFailureReason =
+  | "http_400"
+  | "http_401"
+  | "http_402"
+  | "http_403"
+  | "http_429"
+  | "http_5xx"
+  | "network"
+  | "timeout"
+  | "input_invalid"
+  | "other";
+
+type ThinkingMode = "enabled" | "disabled";
+
+let invalidTelegramThinkingLogged = false;
+
+function telegramThinkingMode(value: string | undefined): ThinkingMode {
+  if (value === undefined || value === "disabled") return "disabled";
+  if (value === "enabled") return "enabled";
+  if (!invalidTelegramThinkingLogged) {
+    invalidTelegramThinkingLogged = true;
+    console.warn("deepseek_telegram_thinking_invalid");
+  }
+  return "disabled";
+}
+
+function httpFailureReason(status: number): DeepSeekFailureReason {
+  if (status === 400) return "http_400";
+  if (status === 401) return "http_401";
+  if (status === 402) return "http_402";
+  if (status === 403) return "http_403";
+  if (status === 429) return "http_429";
+  if (status >= 500 && status <= 599) return "http_5xx";
+  return "other";
+}
+
+function timeoutFailure(error: unknown, signal: AbortSignal): boolean {
+  if (signal.aborted) return true;
+  if (!(error instanceof Error)) return false;
+  return error.name === "AbortError" || error.name === "TimeoutError" || /\b(?:abort|timeout)\b/iu.test(error.message);
+}
+
+export class DeepSeekAdapterError extends Error {
+  constructor(
+    readonly failureReason: DeepSeekFailureReason,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "DeepSeekAdapterError";
+  }
+}
+
+/** Returns only the fixed telemetry code; the provider body remains in the private error. */
+export function deepSeekFailureReason(error: unknown): DeepSeekFailureReason {
+  if (error instanceof DeepSeekAdapterError) return error.failureReason;
+  if (error instanceof TypeError || error instanceof RangeError) return "input_invalid";
+  return "other";
 }
 
 interface ChatMessage {
@@ -53,6 +116,7 @@ export class DeepSeekModelAdapter implements ModelAdapter {
   readonly #fetch: typeof fetch;
   readonly #baseUrl: string;
   readonly #model: string;
+  readonly #telegramThinking: ThinkingMode | null;
 
   constructor(options: DeepSeekAdapterOptions) {
     if (options.apiKey.length === 0) throw new TypeError("deepseek_api_key_invalid");
@@ -65,15 +129,25 @@ export class DeepSeekModelAdapter implements ModelAdapter {
     this.#fetch = options.fetchImplementation ?? globalThis.fetch.bind(globalThis);
     this.#baseUrl = options.baseUrl ?? API_ORIGIN;
     this.#model = options.model ?? DEFAULT_MODEL;
+    this.#telegramThinking = options.telegramTurn === true
+      ? telegramThinkingMode(options.telegramThinking)
+      : null;
   }
 
   async *stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
     const messages = buildMessages(input);
-    const body = JSON.stringify({
-      model: this.#model, messages, stream: true,
-      reasoning_effort: input.reasoningEffort, max_tokens: MAX_MODEL_OUTPUT_TOKENS,
-    });
-    if (new TextEncoder().encode(body).byteLength > MAX_MODEL_REQUEST_BYTES) throw new Error("model_request_too_large");
+    const body = JSON.stringify(this.#telegramThinking !== null && input.channel === "telegram"
+      ? {
+        model: this.#model, messages, stream: true,
+        thinking: { type: this.#telegramThinking }, max_tokens: MAX_MODEL_OUTPUT_TOKENS,
+      }
+      : {
+        model: this.#model, messages, stream: true,
+        reasoning_effort: input.reasoningEffort, max_tokens: MAX_MODEL_OUTPUT_TOKENS,
+      });
+    if (new TextEncoder().encode(body).byteLength > MAX_MODEL_REQUEST_BYTES) {
+      throw new DeepSeekAdapterError("input_invalid", "model_request_too_large");
+    }
 
     // Combine the caller's signal with our own timeout so either can stop the
     // request, and so the socket is always released.
@@ -101,7 +175,11 @@ export class DeepSeekModelAdapter implements ModelAdapter {
       // fetch, and "model_unavailable" alone cannot distinguish them -- which
       // is exactly what made this failure opaque the first time.
       const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-      throw new Error(`model_unavailable: ${detail}`, { cause: error });
+      throw new DeepSeekAdapterError(
+        timeoutFailure(error, controller.signal) ? "timeout" : "network",
+        `model_unavailable: ${detail}`,
+        { cause: error },
+      );
     }
 
     if (!response.ok || response.body === null) {
@@ -112,7 +190,10 @@ export class DeepSeekModelAdapter implements ModelAdapter {
       // indistinguishable from every other failure.
       const detail = await response.text().catch(() => "");
       const reason = response.status === 401 ? "model_authentication_failed" : "model_unavailable";
-      throw new Error(`${reason}: HTTP ${response.status} ${detail.slice(0, 300)}`);
+      throw new DeepSeekAdapterError(
+        httpFailureReason(response.status),
+        `${reason}: HTTP ${response.status} ${detail.slice(0, 300)}`,
+      );
     }
 
     // Fires only until the first token arrives; a provider that connects and
@@ -143,6 +224,14 @@ export class DeepSeekModelAdapter implements ModelAdapter {
         index += 1;
         if (emitted >= input.maxOutputCharacters) return;
       }
+    } catch (error) {
+      if (error instanceof DeepSeekAdapterError) throw error;
+      const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      throw new DeepSeekAdapterError(
+        timeoutFailure(error, controller.signal) ? "timeout" : "network",
+        `model_unavailable: ${detail}`,
+        { cause: error },
+      );
     } finally {
       clearTimeout(firstToken);
       clearTimeout(overall);
