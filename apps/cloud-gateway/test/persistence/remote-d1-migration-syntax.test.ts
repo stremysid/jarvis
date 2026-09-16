@@ -93,7 +93,7 @@ describe("remote D1 migration trigger syntax", () => {
   it("marks the live archive table alteration for complete scratch rehearsal", () => {
     const migration = remoteD1Migrations.find(({ name }) => name === "0026_memory_distillation.sql");
     expect(migration?.sql).toMatch(
-      /^-- This candidate alters archive_segment_events, a live table created in 0001\.\n-- Scratch rehearsal must cover the column add, subject backfill, and trigger replacement against that prior schema\./u,
+      /^-- This candidate alters archive_segment_events, a live table created in 0001\.\r?\n-- Scratch rehearsal must cover the column add, subject backfill, and trigger replacement against that prior schema\./u,
     );
   });
 
