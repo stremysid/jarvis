@@ -38,9 +38,18 @@ import { ScheduledRunRepository } from "../scheduler/scheduled-run-repository.js
 import { SchoolCatchupRepository } from "../school/school-catchup-repository.js";
 import { UniversityTrackerRepository } from "../university/university-tracker-repository.js";
 import { StudyCoachRepository } from "../school/study-coach-repository.js";
+import {
+  runClassroomObservationSync,
+  type ClassroomObservationSyncResult,
+} from "../school/classroom-observation-sync.js";
+import {
+  D1StatementBudget,
+  SchoolObservationRepository,
+} from "../school/school-observation-repository.js";
 import type { JobOutcome, JobTable } from "../scheduler/scheduled-handler.js";
 import { D1GuestGrantNoticeSink } from "../voice/guest-grant-notice.js";
 import { runDigestJob, unconfiguredDeadlineSourceKinds, type DigestDelivery } from "./digest-job.js";
+import { D1GuestGrantNoticeDrainer, type GuestGrantNoticeDrainOutcome } from "./guest-grant-notice-drain.js";
 
 export interface JobEnvironment {
   readonly env: Env;
@@ -58,7 +67,7 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-const CLASSROOM_SOURCE_ID = "google-classroom";
+export const CLASSROOM_SOURCE_ID = "google-classroom";
 const BRIGHTSPACE_SOURCE_ID = "brightspace-ical";
 const BRIGHTSPACE_PAST_WINDOW_MS = 14 * 86_400_000;
 const BRIGHTSPACE_FUTURE_WINDOW_MS = 120 * 86_400_000;
@@ -89,6 +98,12 @@ export type BrightspaceRefreshResult =
     readonly detail: string;
     readonly lastSuccessAt: string | null;
   };
+
+export function classroomObservationDetail(observations: ClassroomObservationSyncResult): string {
+  return observations.outcome === "failed"
+    ? `grade/submission sync failed (${observations.failure ?? "school_observation_sync_failed"}); ${observations.undatedCoursework} undated coursework submissions skipped; ${observations.rejected} submission observations rejected`
+    : `grade/submission ${observations.outcome} within its declared D1 statement budget; ${observations.undatedCoursework} undated coursework submissions skipped; ${observations.rejected} submission observations rejected`;
+}
 
 function classroomFailure(error: unknown): string {
   if (error instanceof ClassroomRequestError || error instanceof GoogleOAuthRequestError) return error.message;
@@ -146,12 +161,30 @@ async function pollClassroom(context: JobEnvironment): Promise<string> {
       // date-only assignment into the end of the owner's local school day.
       timeZone: context.env.DIGEST_TIMEZONE ?? "America/Toronto",
     });
+    const courses = await client.listCourses();
+    const collected = await client.collectDeadlineSweep(courses);
     const report = await ingestion.ingest(source.sourceId, {
       kind: "items",
-      items: await client.collectDeadlines(),
+      items: collected.items,
     });
     const seen = report.created.length + report.moved.length + report.unchanged;
-    return `Classroom ${seen} seen, ${report.rejected.length} rejected, ${report.disappeared.length} absent`;
+    const principalId = context.env.OWNER_PRINCIPAL_ID;
+    if (principalId === undefined) {
+      return `Classroom ${seen} seen, ${report.rejected.length} rejected, ${report.disappeared.length} absent; grade/submission sync needs OWNER_PRINCIPAL_ID`;
+    }
+    const budget = new D1StatementBudget();
+    const observations = await runClassroomObservationSync({
+      repository: new SchoolObservationRepository(context.env.DB, budget),
+      client,
+      courses,
+      principalId,
+      sourceId: source.sourceId,
+      budget,
+      now: () => context.clock.now(),
+      undatedDeadlineExternalIds: new Set(collected.undatedExternalIds),
+    });
+    const observationDetail = classroomObservationDetail(observations);
+    return `Classroom ${seen} seen, ${report.rejected.length} rejected, ${report.disappeared.length} absent; ${observationDetail}`;
   } catch (error) {
     const failure = classroomFailure(error);
     await ingestion.ingest(source.sourceId, { kind: "failed", reason: failure });
@@ -546,6 +579,7 @@ async function digest(
   const school = new SchoolCatchupRepository(context.env.DB);
   const university = new UniversityTrackerRepository(context.env.DB);
   const study = new StudyCoachRepository(context.env.DB);
+  const observations = new SchoolObservationRepository(context.env.DB);
   const timeZone = context.env.DIGEST_TIMEZONE ?? "America/Toronto";
 
   const result = await runDigestJob(kind, {
@@ -562,6 +596,15 @@ async function digest(
           to: new Date(context.clock.now().getTime() + withinDays * 86_400_000),
         }),
       readDeadlineSources: async () => deadlines.listSources(),
+      readSchoolObservations: async () => {
+        const now = new Date(context.clock.now().getTime());
+        return observations.readDigestSnapshot({
+          principalId,
+          sourceId: CLASSROOM_SOURCE_ID,
+          changedSince: new Date(now.getTime() - 7 * 86_400_000),
+          now,
+        });
+      },
       readProjectStatuses: async () => projects.readActiveProjectStatuses(),
       readOpenDecisions: async () => decisions.queue(principalId),
     },
@@ -593,24 +636,28 @@ async function drain(context: JobEnvironment): Promise<JobOutcome> {
   const principalId = context.env.OWNER_PRINCIPAL_ID;
   if (principalId === undefined) return { ok: false, failure: "OWNER_PRINCIPAL_ID is not set" };
   try {
-    const noticeDetail = context.env.TELEGRAM_BOT_TOKEN === undefined
-      ? "guest notices not configured"
-      : await new D1GuestGrantNoticeSink(
+    const noticeDetail: GuestGrantNoticeDrainOutcome | "not_configured" = context.env.TELEGRAM_BOT_TOKEN === undefined
+      ? "not_configured"
+      : await new D1GuestGrantNoticeDrainer(
         context.env.DB,
-        new TelegramRestProvider({
+        new D1GuestGrantNoticeSink(context.env.DB, new TelegramRestProvider({
           botToken: context.env.TELEGRAM_BOT_TOKEN,
           fetchImplementation: context.fetcher,
-        }),
-        () => context.clock.now(),
-      ).drain(context.clock.now());
+        })),
+        context.clock,
+      ).run();
     const open = await new DecisionService({
       repository: new DecisionRepository(context.env.DB),
       now: () => context.clock.now(),
     }).queue(principalId);
-    const notices = typeof noticeDetail === "string"
-      ? noticeDetail
-      : `${noticeDetail.delivered} guest notices delivered, ${noticeDetail.failed} deferred`;
-    return { ok: true, detail: `${open.length} open; ${notices}` };
+    const notices: Readonly<Record<typeof noticeDetail, string>> = {
+      not_configured: "guest notices not configured",
+      completed: "guest notice drain completed",
+      delivery_deferred: "guest notice delivery deferred and retained for retry",
+      already_running: "guest notice drain already running",
+      expired_run_recovered: "expired guest notice drain moved to failed for retry",
+    };
+    return { ok: true, detail: `${open.length} open; ${notices[noticeDetail]}` };
   } catch (error) {
     return { ok: false, failure: describe(error) };
   }

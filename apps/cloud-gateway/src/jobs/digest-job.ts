@@ -28,6 +28,7 @@ import type { DecisionItem } from "../decisions/decision-types.js";
 import type { SchoolCatchupAction } from "../school/school-catchup-types.js";
 import type { UniversityApplicationDigestItem } from "../university/university-tracker-types.js";
 import type { StudyCheckIn } from "../school/study-coach-types.js";
+import type { SchoolObservationDigestSnapshot } from "../school/school-observation-types.js";
 import { assessStaleness, type ProjectStalenessReport } from "../projects/stalled-detector.js";
 import { documentAt, type ProjectStatus } from "../projects/project-types.js";
 
@@ -35,12 +36,15 @@ import { documentAt, type ProjectStatus } from "../projects/project-types.js";
 const DEADLINE_HORIZON_DAYS = 7;
 /** Hourly sources get two missed firings before the third makes staleness visible. */
 const DEADLINE_SOURCE_STALE_AFTER_MS = 3 * 60 * 60 * 1_000;
+/** A complete grades/submissions walk may span several hourly checkpoint slices. */
+const SCHOOL_OBSERVATION_STALE_AFTER_MS = 12 * 60 * 60 * 1_000;
 
 export interface DigestSources {
   readCatchupActions(localDate: string): Promise<readonly SchoolCatchupAction[]>;
   readApplicationItems(): Promise<readonly UniversityApplicationDigestItem[]>;
   readDeadlines(withinDays: number): Promise<readonly Deadline[]>;
   readDeadlineSources(): Promise<readonly DeadlineSource[]>;
+  readSchoolObservations?(): Promise<SchoolObservationDigestSnapshot>;
   readProjectStatuses(): Promise<readonly ProjectStatus[]>;
   readOpenDecisions(): Promise<readonly DecisionItem[]>;
   claimStudyCheckIn?(localDate: string, weekday: number, minuteOfDay: number): Promise<StudyCheckIn | null>;
@@ -137,6 +141,32 @@ async function readOr<T>(
 
 function missingStudyCoachTable(error: unknown): boolean {
   return /no such table:\s*school_(?:study|practice)_/iu.test(describe(error));
+}
+
+function missingSchoolObservationTable(error: unknown): boolean {
+  return /no such table:\s*school_(?:observation_sync|assignment_observations|missing_work_transitions)/iu
+    .test(describe(error));
+}
+
+interface SchoolObservationRead {
+  readonly available: boolean;
+  readonly snapshot: SchoolObservationDigestSnapshot | null;
+}
+
+async function readSchoolObservationsOr(
+  read: (() => Promise<SchoolObservationDigestSnapshot>) | undefined,
+  gaps: DigestGap[],
+): Promise<SchoolObservationRead> {
+  if (read === undefined) return { available: false, snapshot: null };
+  try {
+    return { available: true, snapshot: await read() };
+  } catch (error) {
+    // Code may be deployed before additive candidate migration 0027. Until
+    // the tables exist, the older digest remains the live product.
+    if (missingSchoolObservationTable(error)) return { available: false, snapshot: null };
+    gaps.push({ source: "Google Classroom grades/submissions", detail: describe(error) });
+    return { available: true, snapshot: null };
+  }
 }
 
 async function readStudyCheckInOr(
@@ -238,11 +268,12 @@ export async function assembleDigest(
   // whether the others are broken too.
   const today = localDate(observedAt, dependencies.timeZone);
   const schedule = localSchedule(observedAt, dependencies.timeZone);
-  const [catchupActions, applicationItems, deadlines, deadlineSources, projects, decisions, studyCheckIn] = await Promise.all([
+  const [catchupActions, applicationItems, deadlines, deadlineSources, schoolRead, projects, decisions, studyCheckIn] = await Promise.all([
     readOr("School catch-up", () => dependencies.sources.readCatchupActions(today), gaps),
     readOr("University applications", () => dependencies.sources.readApplicationItems(), gaps),
     readOr("Deadlines", () => dependencies.sources.readDeadlines(DEADLINE_HORIZON_DAYS), gaps),
     readOr("Deadline source health", () => dependencies.sources.readDeadlineSources(), gaps),
+    readSchoolObservationsOr(dependencies.sources.readSchoolObservations, gaps),
     readOr("Projects", () => dependencies.sources.readProjectStatuses(), gaps),
     readOr("Decision queue", () => dependencies.sources.readOpenDecisions(), gaps),
     dependencies.sources.claimStudyCheckIn === undefined || kind !== "daily"
@@ -274,6 +305,27 @@ export async function assembleDigest(
     // The stored label is source data. Gap source names are structural text in
     // the composer, so select a fixed label from the validated kind instead.
     gaps.push({ source: deadlineSourceName(source), detail });
+  }
+
+  const classroomSource = deadlineSources.find((source) => source.kind === "classroom" && source.active);
+  const schoolSnapshot = schoolRead.snapshot;
+  if (schoolRead.available && schoolSnapshot !== null && classroomSource !== undefined) {
+    const observationSource = schoolSnapshot.source;
+    if (observationSource === null) {
+      gaps.push({ source: "Google Classroom grades/submissions", detail: "has never completed a submission scan" });
+    } else if (observationSource.lastFailure !== null) {
+      gaps.push({ source: "Google Classroom grades/submissions", detail: observationSource.lastFailure });
+    } else if (observationSource.lastSuccessAt === null) {
+      gaps.push({ source: "Google Classroom grades/submissions", detail: "has never completed a submission scan" });
+    } else {
+      const lastSuccess = Date.parse(observationSource.lastSuccessAt);
+      const age = observedAt.getTime() - lastSuccess;
+      if (!Number.isFinite(lastSuccess) || age < 0) {
+        gaps.push({ source: "Google Classroom grades/submissions", detail: "last completed scan time is unreadable" });
+      } else if (age > SCHOOL_OBSERVATION_STALE_AFTER_MS) {
+        gaps.push({ source: "Google Classroom grades/submissions", detail: "last completed scan is stale" });
+      }
+    }
   }
 
   // Staleness is derived here rather than stored, because "stale" is a
@@ -309,6 +361,25 @@ export async function assembleDigest(
       verificationState: item.verification.state,
     })),
     deadlines: deadlines.map(toDigestDeadline),
+    grades: (schoolSnapshot?.grades ?? []).map((grade) => ({
+      observationId: grade.observationId,
+      course: grade.course,
+      title: grade.title,
+      assignedGrade: grade.assignedGrade,
+      source: "Google Classroom" as const,
+      lastSeenAt: grade.lastSeenAt,
+    })),
+    missingWork: (schoolSnapshot?.missingWork ?? []).map((item) => ({
+      transitionId: item.transitionId,
+      course: item.course,
+      title: item.title,
+      dueAt: item.dueAt,
+      classification: "derived" as const,
+      state: "no_submission_seen" as const,
+      source: "Google Classroom" as const,
+      lastSeenAt: item.lastSeenAt,
+    })),
+    missingWorkOmitted: schoolSnapshot?.missingWorkOmitted ?? 0,
     projects: projects.map((status) => toDigestProject(status, reports.get(status.project.projectId))),
     decisions: decisions.map((item) => ({
       decisionId: item.decisionId,

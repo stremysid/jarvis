@@ -123,26 +123,42 @@ write-once after it is present, and the scratch rehearsal covers the live-table
 alteration, but database-only proof of the initial subject needs a separate
 attestation design.
 
-## PR #46 notification delivery retains three bounded at-least-once limits
+## PR #46 notification delivery closes starvation and retains two at-least-once windows
 
-The guest-grant notice outbox keeps a stable per-mutation idempotency key and
-takes a fresh clock value for each row it claims. The Telegram REST boundary
-does not provide an exactly-once receipt, however. If Telegram accepts a
-message and the delivered-marker write then fails or the isolate stops, a
-retry can send the same notice again.
+Guest-grant Telegram delivery remains at-least-once across one precise crash
+window. The outbox passes the stable mutation id as an internal idempotency
+key, but the Telegram Bot API `sendMessage` operation neither accepts nor
+returns that key. If
+Telegram accepts the message and the delivered-marker write then fails, or the
+isolate stops between those operations, the pending row is retried and Sid can
+see the same text twice. Closing that window needs an approved owner-visible
+replay design or a provider operation with durable idempotency; D1 cannot make
+its commit atomic with Telegram. Until then, exact-once and non-confusing
+replay are not claimed.
 
-The drain also has no attempt count or dead-letter policy. A permanently
-undeliverable notice among the oldest ten pending rows can therefore keep
-newer rows outside the bounded batch. Adding that policy requires a product
-decision about retry limits and operator recovery, not an implicit discard in
-this passphrase PR.
+The oldest-ten starvation defect is closed by migration `0028` and the fair
+drain cursor. Each run claims one resumable checkpoint, attempts at most ten
+pending rows after the prior cursor, advances the cursor even when a row
+fails, and then wraps. For a fixed pending set, a permanently undeliverable
+old row therefore cannot keep a newer row outside every batch. An abandoned
+run has a four-minute lease, moves durably from `running` to `failed` on the
+next tick, and resumes on the following tick. The repeated step has a declared
+ceiling of 95 D1 statements for ten notices. There is deliberately no retry
+limit, dead-letter transition, or terminalization: silently terminalizing a
+notice would violate the no-loss property. The decided policy keeps every
+poison notice pending and retries it once per queue rotation. A later slice
+will surface any notice still undelivered after 24 hours as one line in the
+morning digest.
 
-Rejection delivery has the same final-marker edge: if the refusal, end frame,
-and owner alert succeed but the rejection-delivery insert fails, a later
-resume can repeat the refusal and alert observation. Repairing that double
-failure requires a multi-stage durable delivery state. These limits must be
-resolved or explicitly accepted before notification delivery is described as
-exactly once.
+Owner-call rejection completion retains a separate multi-effect window. The
+durable rejection precedes the refusal, end-frame attempt and owner alert, but
+the single rejection-delivered row follows all three. A stop or failed final
+insert after any accepted non-idempotent effect can repeat that effect on
+resume; the in-memory promise prevents only same-isolate overlap. Closing the
+window requires approved per-stage durable receipts plus replay semantics for
+the call relay and Telegram alert. The current code preserves retry instead
+of silently losing Sid's alert, but it does not prove that a replay cannot make
+him doubt whether a second rejection occurred.
 
 ## A late split passphrase repeat is ordinary conversation (PR #40 N9)
 
@@ -664,15 +680,52 @@ The current schema has only `deadlines.due_at TEXT NOT NULL`. A Classroom item
 with a date and no time is conservatively mapped to the end of the local day,
 but the store cannot preserve that the source supplied date-only precision.
 Native date-only display needs a separate schema migration, claiming the next
-number only after another open-PR branch inventory. This PR claims no migration.
+number only after another open-PR branch inventory. Candidate `0027` does not
+change deadline precision.
+
+## Grade and submission ingestion still has four approval and coverage gaps
+
+Candidate migration `0027_school_observations.sql` and its repository use only
+the already configured read-only Google Classroom route. They do not request a
+new scope or run consent. The current refresh token's granted scopes are not
+known in code, however. Google's submission endpoint requires a coursework or
+student-submission read scope. If the existing grant lacks it, the poll records
+`classroom_rejected` and the digest names the grades/submissions gap. Obtaining
+another grant remains an owner-approved setup action and is not part of this PR.
+
+The approved Brightspace iCalendar feed carries deadlines, not grades or
+submission state. No Brightspace notification-email parser or API client is
+added here because neither route has been approved. Brightspace grades and
+submissions therefore remain unavailable until Sid approves an existing board
+route or the school approves a least-privilege API application.
+
+Classroom observations are attached only to coursework already present in the
+verified deadline store. Undated coursework has no deadline row, so a grade on
+it is deliberately omitted rather than inventing an assignment identity,
+course, date or title. Supporting it needs a separately reviewed verified
+assignment catalogue.
+
+The observation store also binds one Classroom submission id to each deadline.
+If Classroom recreates that submission under a new id, the replacement is
+rejected and remains ignored. Accepting it safely needs an explicit identity
+reconciliation rule; silently replacing the id would let unrelated evidence
+overwrite the verified observation history.
+
+This slice adds recent verified grades and derived submission checks to the
+existing morning digest. It does not send the plan's same-day lower-grade or
+new-no-submission alert. That alert needs a durable owner-delivery receipt plus
+the conversational threshold and snooze policy, so it is not approximated with
+a second untracked report.
 
 ## Only an explicit calendar cancellation moves a deadline out of `open`
 
 Brightspace `STATUS:CANCELLED` and `STATUS:COMPLETED` now close the matching
 source deadline as `cancelled`. Nothing marks a deadline `submitted` or
-`missed`, and a deadline that merely passes stays `open` forever. The
-grade/missing-work watch described in the plan is what closes those states,
-and it needs separately approved Classroom and Brightspace grade connectors.
+`missed`, and a deadline that merely passes stays `open` forever. Candidate
+`0027` keeps verified submission observations and explicitly derived
+`no_submission_seen` transitions in separate tables rather than rewriting this
+legacy status. Brightspace still needs a separately approved grade/submission
+route.
 
 A completed Brightspace `VTODO` is therefore stored with the same `cancelled`
 status as a teacher-cancelled item. That is correct for stopping deadline

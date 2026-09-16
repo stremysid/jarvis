@@ -16,7 +16,12 @@ import { DecisionRepository } from "./decisions/decision-repository.js";
 import { DecisionService } from "./decisions/decision-service.js";
 import { parseDecisionCallbackData } from "./decisions/telegram-keyboard.js";
 import { assembleDigest, unconfiguredDeadlineSourceKinds } from "./jobs/digest-job.js";
-import { buildJobTable, buildScheduledRuns, runOnDemandBrightspaceRefresh } from "./jobs/job-table.js";
+import {
+  CLASSROOM_SOURCE_ID,
+  buildJobTable,
+  buildScheduledRuns,
+  runOnDemandBrightspaceRefresh,
+} from "./jobs/job-table.js";
 import { handleScheduled } from "./scheduler/scheduled-handler.js";
 import { heartbeatConfiguration } from "./scheduler/heartbeat-reporter.js";
 import { D1ContextRetriever } from "./conversation/context-retriever.js";
@@ -49,6 +54,7 @@ import { SchoolCatchupModelAdapter } from "./school/school-catchup-model.js";
 import { SchoolCatchupRepository } from "./school/school-catchup-repository.js";
 import { StudyCoachModelAdapter } from "./school/study-coach-model.js";
 import { StudyCoachRepository } from "./school/study-coach-repository.js";
+import { SchoolObservationRepository } from "./school/school-observation-repository.js";
 import { UniversityTrackerRepository } from "./university/university-tracker-repository.js";
 export { CallSession } from "./voice/call-session-do.js";
 
@@ -261,6 +267,15 @@ function commandContext(env: Env, principalId: string): CommandContext {
               to: new Date(clock.now().getTime() + withinDays * 86_400_000),
             }),
           readDeadlineSources: async () => new DeadlineRepository(env.DB).listSources(),
+          readSchoolObservations: async () => {
+            const now = new Date(clock.now().getTime());
+            return new SchoolObservationRepository(env.DB).readDigestSnapshot({
+              principalId,
+              sourceId: CLASSROOM_SOURCE_ID,
+              changedSince: new Date(now.getTime() - 7 * 86_400_000),
+              now,
+            });
+          },
           readProjectStatuses: async () => new ProjectRepository(env.DB).readActiveProjectStatuses(),
           readOpenDecisions: async () =>
             new DecisionService({ repository: new DecisionRepository(env.DB) }).queue(principalId),
