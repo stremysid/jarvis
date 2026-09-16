@@ -1,0 +1,126 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "ebabd18",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0029_university_application_details.sql",
+   "from": "CREATE TRIGGER university_workflow_items_insert_guard\n",
+   "to": "CREATE TRIGGER university_workflow_items_insert_guard\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts",
+    "apps/cloud-gateway/test/university"
+   ]
+  },
+  {
+   "id": "T-university_workflow_items_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0029_university_application_details.sql",
+   "from": "CREATE TRIGGER university_workflow_items_insert_guard\nBEFORE INSERT ON university_workflow_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_workflow_item_insert_conflict') WHERE EXISTS (\n    SELECT 1 FROM university_workflow_items\n    WHERE principal_id = NEW.principal_id\n      AND (workflow_id = NEW.workflow_id\n        OR (program_id = NEW.program_id AND workflow_key = NEW.workflow_key))\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts",
+    "apps/cloud-gateway/test/university"
+   ]
+  },
+  {
+   "id": "T-university_workflow_items_application_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0029_university_application_details.sql",
+   "from": "CREATE TRIGGER university_workflow_items_application_guard\nBEFORE INSERT ON university_workflow_items\nWHEN NEW.application_item_id IS NOT NULL\nBEGIN\n  SELECT RAISE(ABORT, 'university_workflow_application_item_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM university_application_items\n    WHERE principal_id = NEW.principal_id\n      AND program_id = NEW.program_id\n      AND item_id = NEW.application_item_id\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts",
+    "apps/cloud-gateway/test/university"
+   ]
+  },
+  {
+   "id": "T-university_workflow_items_cap_insert",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0029_university_application_details.sql",
+   "from": "CREATE TRIGGER university_workflow_items_cap_insert\nBEFORE INSERT ON university_workflow_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_workflow_item_limit_exceeded') WHERE (\n    SELECT COUNT(*) FROM university_workflow_items\n    WHERE principal_id = NEW.principal_id\n  ) >= 128 OR (\n    SELECT COUNT(*) FROM university_workflow_items\n    WHERE principal_id = NEW.principal_id AND program_id = NEW.program_id\n  ) >= 64;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts",
+    "apps/cloud-gateway/test/university"
+   ]
+  },
+  {
+   "id": "T-university_workflow_items_reject_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0029_university_application_details.sql",
+   "from": "CREATE TRIGGER university_workflow_items_reject_update\nBEFORE UPDATE ON university_workflow_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_workflow_item_update_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts",
+    "apps/cloud-gateway/test/university"
+   ]
+  },
+  {
+   "id": "T-university_workflow_items_reject_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0029_university_application_details.sql",
+   "from": "CREATE TRIGGER university_workflow_items_reject_delete\nBEFORE DELETE ON university_workflow_items\nBEGIN\n  SELECT RAISE(ABORT, 'university_workflow_item_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts",
+    "apps/cloud-gateway/test/university"
+   ]
+  },
+  {
+   "id": "T-university_workflow_revisions_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0029_university_application_details.sql",
+   "from": "CREATE TRIGGER university_workflow_revisions_insert_guard\nBEFORE INSERT ON university_workflow_revisions\nBEGIN\n  SELECT RAISE(ABORT, 'university_workflow_revision_insert_conflict') WHERE EXISTS (\n    SELECT 1 FROM university_workflow_revisions\n    WHERE principal_id = NEW.principal_id\n      AND (event_id = NEW.event_id\n        OR (workflow_id = NEW.workflow_id AND revision_number = NEW.revision_number))\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts",
+    "apps/cloud-gateway/test/university"
+   ]
+  },
+  {
+   "id": "T-university_workflow_revisions_sequence_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0029_university_application_details.sql",
+   "from": "CREATE TRIGGER university_workflow_revisions_sequence_guard\nBEFORE INSERT ON university_workflow_revisions\nWHEN NOT EXISTS (\n  SELECT 1 FROM university_workflow_revisions\n  WHERE principal_id = NEW.principal_id\n    AND workflow_id = NEW.workflow_id\n    AND revision_number = NEW.revision_number\n)\nBEGIN\n  SELECT RAISE(ABORT, 'university_workflow_revision_sequence_invalid') WHERE\n    NEW.revision_number != COALESCE((\n      SELECT MAX(revision_number) FROM university_workflow_revisions\n      WHERE principal_id = NEW.principal_id AND workflow_id = NEW.workflow_id\n    ), 0) + 1\n    OR NOT EXISTS (\n      SELECT 1 FROM university_workflow_items\n      WHERE principal_id = NEW.principal_id\n        AND workflow_id = NEW.workflow_id\n        AND created_at <= NEW.created_at\n    );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts",
+    "apps/cloud-gateway/test/university"
+   ]
+  },
+  {
+   "id": "T-university_workflow_revisions_status_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0029_university_application_details.sql",
+   "from": "CREATE TRIGGER university_workflow_revisions_status_guard\nBEFORE INSERT ON university_workflow_revisions\nBEGIN\n  SELECT RAISE(ABORT, 'university_workflow_revision_status_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM university_workflow_items\n    WHERE principal_id = NEW.principal_id\n      AND workflow_id = NEW.workflow_id\n      AND (\n        (workflow_kind IN (\n          'submission_step', 'upload_step', 'contact_step', 'signup_step',\n          'payment_step', 'transcript_order_step'\n        ) AND NEW.workflow_status IN (\n          'prepared', 'owner_reported_done', 'owner_reported_not_done', 'not_needed_by_sid'\n        ))\n        OR (workflow_kind = 'offer' AND NEW.workflow_status IN (\n          'owner_reported_offered', 'owner_reported_waitlisted', 'owner_reported_rejected',\n          'owner_reported_withdrawn', 'not_needed_by_sid'\n        ))\n        OR (workflow_kind = 'offer_condition' AND NEW.workflow_status IN (\n          'owner_reported_pending', 'owner_reported_satisfied',\n          'owner_reported_unsatisfied', 'not_needed_by_sid'\n        ))\n        OR (workflow_kind = 'offer_response' AND NEW.workflow_status IN (\n          'prepared', 'owner_reported_accepted', 'owner_reported_declined', 'not_needed_by_sid'\n        ))\n      )\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts",
+    "apps/cloud-gateway/test/university"
+   ]
+  },
+  {
+   "id": "T-university_workflow_revisions_require_owner_turn",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0029_university_application_details.sql",
+   "from": "CREATE TRIGGER university_workflow_revisions_require_owner_turn\nBEFORE INSERT ON university_workflow_revisions\nBEGIN\n  SELECT RAISE(ABORT, 'university_workflow_revision_owner_turn_invalid') WHERE NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.source_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel = 'telegram'\n  );\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts",
+    "apps/cloud-gateway/test/university"
+   ]
+  },
+  {
+   "id": "T-university_workflow_revisions_reject_update",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0029_university_application_details.sql",
+   "from": "CREATE TRIGGER university_workflow_revisions_reject_update\nBEFORE UPDATE ON university_workflow_revisions\nBEGIN\n  SELECT RAISE(ABORT, 'university_workflow_revision_update_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts",
+    "apps/cloud-gateway/test/university"
+   ]
+  },
+  {
+   "id": "T-university_workflow_revisions_reject_delete",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0029_university_application_details.sql",
+   "from": "CREATE TRIGGER university_workflow_revisions_reject_delete\nBEFORE DELETE ON university_workflow_revisions\nBEGIN\n  SELECT RAISE(ABORT, 'university_workflow_revision_delete_forbidden');\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts",
+    "apps/cloud-gateway/test/university"
+   ]
+  }
+ ]
+}

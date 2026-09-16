@@ -1,6 +1,6 @@
 You are the memory build chat for Jarvis (repo ksid1229-ops/jarvis), continuing PR #59 (branch codex/r2-memory-distillation-slice-3, R2 automatic distillation, migration 0026) in a fresh session. Other Codex sessions use this shared folder on other branches, so do not switch branches here: git fetch origin, create your own git worktree next to this folder for codex/r2-memory-distillation-slice-3 (latest head, which includes Claude's review entry), and work only there. Single-session task: ordinary file edits and test runs, no orchestration or task-delegation tooling, no sub-tasks.
 
-Read only: the newest Claude entry for PR #59 in docs/AGENT_LOG.md on that branch, the report reviewer-tools/pr59-adversarial.md on branch claude/reviewer-tools once it appears there, and the files those name.
+Read only: the newest Claude entry for PR #59 in docs/AGENT_LOG.md on that branch, and the files those name.
 
 Claude's max review at ebd41f9: changes requested, 2 High, 5 Medium, 4 Low. The gates are clean (3,499/3,499, 0026 has no CASE, 9/9 trigger removals killed with BASE surviving) and the no-spend boundary is proven real. Both Highs are about the job never making progress rather than doing something wrong:
 
@@ -14,4 +14,4 @@ M2: more than four proposals is terminal for the window — same non-narrowing s
 
 Every new rule needs its own load-bearing test: expect the reviewer to delete each one in turn and require a named test to fail. Keep every trigger in remote-D1 form, WHEN ... BEGIN SELECT RAISE(ABORT, ...) END — note a plain CASE ... END used as a value expression inside a trigger is allowed and proven fine on remote D1, only the SELECT CASE ... RAISE(...) statement form is rejected. Do not change voice/**, calls/**, D1ContextRetriever or production-runtime.ts, and do not add a spend path.
 
-Run lint, typecheck and the full suite once. Merge origin/main first — it is c23f0c9. Push and post a ready entry in docs/AGENT_LOG.md for Claude max re-review, then stop; do not wait for or poll for a review. Standing rules: never merge, deploy, apply migrations, touch secrets, spend, sign up or contact anyone. Remove your extra worktree only after pushing.
+Run lint, typecheck and the full suite once. Merge origin/main first — it is e808093. Push and post a ready entry in docs/AGENT_LOG.md for Claude max re-review, then stop; do not wait for or poll for a review. Standing rules: never merge, deploy, apply migrations, touch secrets, spend, sign up or contact anyone. Remove your extra worktree only after pushing.

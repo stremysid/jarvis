@@ -1,0 +1,91 @@
+checked out ebabd18 at ebabd18
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  9 passed (9)
+   Tests  349 passed (349)
+
+== T-university_workflow_items_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts (18 tests | 1 failed) 2025ms
+   Test Files  1 failed | 8 passed (9)
+   Tests  1 failed | 348 passed (349)
+   × university_workflow_items_insert_guard rejects REPLACE and IGNORE for both unique keys 80ms
+
+== T-university_workflow_items_application_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts (18 tests | 1 failed) 1932ms
+   Test Files  1 failed | 8 passed (9)
+   Tests  1 failed | 348 passed (349)
+   × university_workflow_items_application_guard refuses an application item from another program 108ms
+
+== T-university_workflow_items_cap_insert: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts (18 tests | 2 failed) 2068ms
+   Test Files  1 failed | 8 passed (9)
+   Tests  2 failed | 347 passed (349)
+   × university_workflow_items_cap_insert refuses a sixty-fifth item for one program 271ms
+   × university_workflow_items_cap_insert refuses a one-hundred-twenty-ninth item for one principal 556ms
+
+== T-university_workflow_items_reject_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts (18 tests | 1 failed) 1892ms
+   Test Files  1 failed | 8 passed (9)
+   Tests  1 failed | 348 passed (349)
+   × university_workflow_items_reject_update keeps the named identity immutable 49ms
+
+== T-university_workflow_items_reject_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts (18 tests | 1 failed) 2116ms
+   Test Files  1 failed | 8 passed (9)
+   Tests  1 failed | 348 passed (349)
+   × university_workflow_items_reject_delete refuses deletion 47ms
+
+== T-university_workflow_revisions_insert_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts (18 tests | 1 failed) 1643ms
+   Test Files  1 failed | 8 passed (9)
+   Tests  1 failed | 348 passed (349)
+   × university_workflow_revisions_insert_guard rejects REPLACE and IGNORE for both unique keys 52ms
+
+== T-university_workflow_revisions_sequence_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts (18 tests | 2 failed) 2315ms
+   Test Files  1 failed | 8 passed (9)
+   Tests  2 failed | 347 passed (349)
+   × university_workflow_revisions_sequence_guard refuses a skipped revision 52ms
+   × university_workflow_revisions_sequence_guard refuses a revision created before its item 43ms
+
+== T-university_workflow_revisions_status_guard: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts (18 tests | 1 failed) 2548ms
+   Test Files  1 failed | 8 passed (9)
+   Tests  1 failed | 348 passed (349)
+   × university_workflow_revisions_status_guard refuses an offer status on an action item 48ms
+
+== T-university_workflow_revisions_require_owner_turn: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts (18 tests | 2 failed) 2188ms
+   Test Files  1 failed | 8 passed (9)
+   Tests  2 failed | 347 passed (349)
+   × university_workflow_revisions_require_owner_turn refuses another principal's turn 64ms
+   × university_workflow_revisions_require_owner_turn refuses a non-Telegram owner turn 42ms
+
+== T-university_workflow_revisions_reject_update: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts (18 tests | 1 failed) 2255ms
+   Test Files  1 failed | 8 passed (9)
+   Tests  1 failed | 348 passed (349)
+   × university_workflow_revisions_reject_update keeps history immutable 37ms
+
+== T-university_workflow_revisions_reject_delete: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/university-application-details-migration.test.ts (18 tests | 1 failed) 2002ms
+   Test Files  1 failed | 8 passed (9)
+   Tests  1 failed | 348 passed (349)
+   × university_workflow_revisions_reject_delete refuses deletion 48ms
+
+=== summary
+SURVIVED  BASE
+KILLED    T-university_workflow_items_insert_guard
+KILLED    T-university_workflow_items_application_guard
+KILLED    T-university_workflow_items_cap_insert
+KILLED    T-university_workflow_items_reject_update
+KILLED    T-university_workflow_items_reject_delete
+KILLED    T-university_workflow_revisions_insert_guard
+KILLED    T-university_workflow_revisions_sequence_guard
+KILLED    T-university_workflow_revisions_status_guard
+KILLED    T-university_workflow_revisions_require_owner_turn
+KILLED    T-university_workflow_revisions_reject_update
+KILLED    T-university_workflow_revisions_reject_delete
+back on main, tree clean=true
+(node:10864) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
