@@ -1,0 +1,46 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "a9f2532",
+ "mutations": [
+  {
+   "id": "S2-recipient-not-authenticated",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "    || evidence.recipientAuthenticated !== false\n    || evidence.neutralGreetingBeforeAuthentication !== true\n    || evidence.purposeDisclosed !== false\n    || evidence.privateMessageLeft !== false\n",
+   "to": "    || evidence.neutralGreetingBeforeAuthentication !== true\n    || evidence.purposeDisclosed !== false\n    || evidence.privateMessageLeft !== false\n",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "S3-neutral-greeting",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "    || evidence.recipientAuthenticated !== false\n    || evidence.neutralGreetingBeforeAuthentication !== true\n    || evidence.purposeDisclosed !== false\n    || evidence.privateMessageLeft !== false\n",
+   "to": "    || evidence.recipientAuthenticated !== false\n    || evidence.purposeDisclosed !== false\n    || evidence.privateMessageLeft !== false\n",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "S4-purpose-not-disclosed",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "    || evidence.recipientAuthenticated !== false\n    || evidence.neutralGreetingBeforeAuthentication !== true\n    || evidence.purposeDisclosed !== false\n    || evidence.privateMessageLeft !== false\n",
+   "to": "    || evidence.recipientAuthenticated !== false\n    || evidence.neutralGreetingBeforeAuthentication !== true\n    || evidence.privateMessageLeft !== false\n",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "S5-no-private-message-left",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "    || evidence.recipientAuthenticated !== false\n    || evidence.neutralGreetingBeforeAuthentication !== true\n    || evidence.purposeDisclosed !== false\n    || evidence.privateMessageLeft !== false\n",
+   "to": "    || evidence.recipientAuthenticated !== false\n    || evidence.neutralGreetingBeforeAuthentication !== true\n    || evidence.purposeDisclosed !== false\n",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  }
+ ]
+}

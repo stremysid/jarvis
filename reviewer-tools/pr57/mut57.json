@@ -1,0 +1,130 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr39",
+ "branch": "a9f2532",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "        if (scenario === \"inbound\" && dataField(record as object, \"ownerStepUpOutcome\") !== \"verified\") throw new Error();\n",
+   "to": "        if (scenario === \"inbound\" && dataField(record as object, \"ownerStepUpOutcome\") !== \"verified\") throw new Error();\n",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "W2-audit-inbound-verified",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "        if (scenario === \"inbound\" && dataField(record as object, \"ownerStepUpOutcome\") !== \"verified\") throw new Error();\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "W15a-not-started-direction-only",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "      direction !== \"outbound\"\n      || claimsOwnerAuthority\n",
+   "to": "      claimsOwnerAuthority\n",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "W2+W15a-together",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "      direction !== \"outbound\"\n      || claimsOwnerAuthority\n",
+   "to": "      claimsOwnerAuthority\n",
+   "also": {
+    "from": "        if (scenario === \"inbound\" && dataField(record as object, \"ownerStepUpOutcome\") !== \"verified\") throw new Error();\n",
+    "to": ""
+   },
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "N1-inbound-policy-passphrase-always",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "        || direction === \"inbound\" && policy !== \"passphrase_always\"\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "N2-audit-policy-scope",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "        if (scenario !== \"inbound\" && dataField(record as object, \"ownerCallerIdPolicy\") !== \"passphrase_always\") throw new Error();\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "S1-recipient-answered",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "    evidence.callAttempts !== 1\n    || evidence.recipientAnswered !== true\n",
+   "to": "    evidence.callAttempts !== 1\n",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "S2-recipient-not-authenticated",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "    || evidence.recipientAuthenticated !== false\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "S3-neutral-greeting",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "    || evidence.neutralGreetingBeforeAuthentication !== true\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "S4-purpose-not-disclosed",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "    || evidence.purposeDisclosed !== false\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "S5-no-private-message-left",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "    || evidence.privateMessageLeft !== false\n",
+   "to": "",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  },
+  {
+   "id": "S6-outbound-direction",
+   "file": "tests/acceptance/live/voice-smoke.ts",
+   "from": "  validateRefusedOwnerStepUp(evidence, \"outbound\");\n",
+   "to": "  validateRefusedOwnerStepUp(evidence, \"inbound\");\n",
+   "tests": [
+    "tests/acceptance/live/voice-smoke.test.ts",
+    "tests/acceptance/live/voice-smoke-runtime.test.ts"
+   ]
+  }
+ ]
+}

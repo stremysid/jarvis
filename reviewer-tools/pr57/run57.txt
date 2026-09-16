@@ -1,0 +1,78 @@
+checked out a9f2532 at a9f2532
+
+== BASE: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  92 passed (92)
+
+== W2-audit-inbound-verified: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (75 tests | 2 failed) 35ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  2 failed | 90 passed (92)
+   × rejects the mixed-policy set that replaces live inbound phrase verification with a waiver 5ms
+   × requires the release audit's inbound record to have a verified owner step-up outcome 0ms
+
+== W15a-not-started-direction-only: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (75 tests | 1 failed) 34ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 91 passed (92)
+   × refuses an inbound record whose owner step-up outcome is not_started 4ms
+
+== W2+W15a-together: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (75 tests | 3 failed) 35ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  3 failed | 89 passed (92)
+   × refuses an inbound record whose owner step-up outcome is not_started 3ms
+   × rejects the mixed-policy set that replaces live inbound phrase verification with a waiver 1ms
+   × requires the release audit's inbound record to have a verified owner step-up outcome 0ms
+
+== N1-inbound-policy-passphrase-always: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (75 tests | 1 failed) 34ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 91 passed (92)
+   × requires a verified inbound record itself to use the passphrase-always policy 4ms
+
+== N2-audit-policy-scope: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (75 tests | 1 failed) 36ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 91 passed (92)
+   × rejects owner-path records that disagree on the caller-ID policy 5ms
+
+== S1-recipient-answered: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke.test.ts (75 tests | 1 failed) 43ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 91 passed (92)
+   × requires outbound step-up-refused evidence to show an answered recipient 5ms
+
+== S2-recipient-not-authenticated: MATCHED 2 TIMES, skipped
+
+== S3-neutral-greeting: MATCHED 2 TIMES, skipped
+
+== S4-purpose-not-disclosed: MATCHED 2 TIMES, skipped
+
+== S5-no-private-message-left: MATCHED 2 TIMES, skipped
+
+== S6-outbound-direction: KILLED (exit 1), tree clean=true
+   ❯ |default| tests/acceptance/live/voice-smoke-runtime.test.ts (17 tests | 1 failed) 41ms
+   Test Files  2 failed (2)
+   Tests  4 failed | 88 passed (92)
+   × accepts an answered outbound refusal only after the passphrase step-up was attempted and refused 4ms
+   × accepts exactly one validated passed record for every blocking voice scenario 0ms
+   × allows bounded clock skew but rejects implausibly future evidence 0ms
+   × injects and verifies the answered outbound refusal through the scenario and enrolled-operator adapters 4ms
+
+=== summary
+SURVIVED  BASE
+KILLED    W2-audit-inbound-verified
+KILLED    W15a-not-started-direction-only
+KILLED    W2+W15a-together
+KILLED    N1-inbound-policy-passphrase-always
+KILLED    N2-audit-policy-scope
+KILLED    S1-recipient-answered
+SKIPPED   S2-recipient-not-authenticated
+SKIPPED   S3-neutral-greeting
+SKIPPED   S4-purpose-not-disclosed
+SKIPPED   S5-no-private-message-left
+KILLED    S6-outbound-direction
+back on main, tree clean=true
+(node:7028) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

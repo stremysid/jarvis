@@ -1,0 +1,12 @@
+$ vitest --config vitest.workspace.ts run tests/acceptance/live/voice-smoke.test.ts tests/acceptance/live/voice-smoke-runtime.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr39
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+
+ Test Files  2 passed (2)
+      Tests  92 passed (92)
+   Start at  21:29:47
+   Duration  920ms (transform 106ms, setup 0ms, import 153ms, tests 75ms, environment 0ms)
+
