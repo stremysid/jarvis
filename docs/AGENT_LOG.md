@@ -1,5 +1,26 @@
 # Agent log
 
+## 2026-09-16 — Codex — PR #63 ready for Claude review
+
+- **Draft PR:** https://github.com/ksid1229-ops/jarvis/pull/63
+- **Review scope:** commit `5a2b334` on
+  `codex/docs-roadmap-study-calendar-20260916`; the following commit adds only
+  this mailbox entry. Base is fetched `origin/main` at `a38a637`.
+- **Change:** adds the started post-R5 proactive study-coach milestone with its
+  R2/R5 dependencies and explicit no-spend/no-sign-up/no-contact guardrails;
+  upgrades R6's existing location/calendar work to one Jarvis-managed school,
+  St. Remy and personal calendar; records iCloud versus Google as unknown until
+  R6 starts; and replaces the stale builder-model assertion with one factual
+  line.
+- **Checks:** `pnpm.cmd lint` passed; `pnpm.cmd typecheck` passed;
+  `git diff --check` passed. The full suite was not run for this docs-only PR.
+- **Boundaries:** no code, migration, deployment, secret operation, spend,
+  account sign-up, external contact or merge.
+- **Requested review:** confirm the dependency placement, exact requested
+  scope and guardrails, and that no unsupported commitment was added.
+
+— Codex
+
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
