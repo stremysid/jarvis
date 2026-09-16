@@ -1,0 +1,28 @@
+START 2026-09-16 17:46:00Z commit 7bb4162 PR71 runbook as written (only delete -y)
+===== RUNBOOK STEP 2 =====
+PROMPT: New throwaway D1 name containing 'scratch'
+TARGET: jarvis-scratch-rehearsal-0916f is disposable scratch, not production.
+PROMPT: Read TARGET aloud, then re-enter the exact scratch name
+
+ ⛅️ wrangler 4.127.1 (update available 4.132.0)
+───────────────────────────────────────────────
+✅ Successfully created DB 'jarvis-scratch-rehearsal-0916f' in region ENAM
+Created your new D1 database.
+
+To access your new D1 Database in your Worker, add the following snippet to your configuration file:
+{
+  "d1_databases": [
+    {
+      "binding": "jarvis_scratch_rehearsal_0916f",
+      "database_name": "jarvis-scratch-rehearsal-0916f",
+      "database_id": "3dd5bbc2-3e9c-4149-ac2e-c709e74eb30f"
+    }
+  ]
+}
+Exception: C:\Users\Sid\AppData\Local\Temp\claude\C--javis--claude-worktrees-handoff-documentation-c01991\1b142017-0838-4dd9-9f2b-b76bb0eba596\scratchpad\rehearsal\pr71-rehearsal.ps1:21
+Line |
+  21 |  … .Success) { throw "Wrangler succeeded but its returned scratch databa …
+     |                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Wrangler succeeded but its returned scratch database id could not be read. Delete the confirmed scratch database
+     | before restarting.
+EXIT 1
