@@ -14,6 +14,7 @@ import { ArchiveRepository } from "../../src/archive/archive-repository.js";
 import { TieredEventReader } from "../../src/archive/tiered-event-reader.js";
 import {
   LITERAL_HISTORY_EXHAUSTIVE_STEP_LIMITS,
+  LITERAL_HISTORY_INDEX_STEP_LIMITS,
   LITERAL_HISTORY_SEARCH_LIMITS,
   LiteralHistoryError,
   LiteralHistoryService,
@@ -363,6 +364,39 @@ describe("LiteralHistoryService", () => {
     });
     expect(LITERAL_HISTORY_SEARCH_LIMITS.d1Statements).toBe(62);
     expect(counted.queryCount()).toBeLessThanOrEqual(LITERAL_HISTORY_SEARCH_LIMITS.d1Statements);
+  });
+
+  it("keeps the hourly indexing shape inside its declared D1 statement budget", async () => {
+    const time = clock();
+    const live = new EventRepository(env.DB);
+    for (let index = 0; index < LITERAL_HISTORY_INDEX_STEP_LIMITS.eventsExamined; index += 1) {
+      await appendConversation(live, time, `Hourly index budget event ${index}.`);
+    }
+    const counted = queryCountingDatabase();
+    const tiered = new TieredEventReader({
+      live: new EventRepository(counted.database),
+      archive: new ArchivalService({ database: counted.database, bucket: env.ARCHIVE }),
+      state: new ArchiveRepository(counted.database),
+    });
+    const literal = new LiteralHistoryService({
+      database: counted.database,
+      events: tiered,
+      archive: new ArchiveRepository(counted.database),
+      now: time.now,
+      nextId: () => newUlid(time.now()),
+    });
+
+    const result = await literal.indexNext({
+      principalId: OWNER_ID,
+      maxEvents: LITERAL_HISTORY_INDEX_STEP_LIMITS.eventsExamined,
+      maxTextBytes: LITERAL_HISTORY_INDEX_STEP_LIMITS.textBytesExamined,
+    });
+
+    expect(result).toMatchObject({
+      eventsExamined: LITERAL_HISTORY_INDEX_STEP_LIMITS.eventsExamined,
+      complete: true,
+    });
+    expect(counted.queryCount()).toBeLessThanOrEqual(LITERAL_HISTORY_INDEX_STEP_LIMITS.d1Statements);
   });
 
   it("advances indexing when the wall clock moves behind the stored cursor timestamp", async () => {
