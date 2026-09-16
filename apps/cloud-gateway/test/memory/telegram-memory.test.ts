@@ -20,6 +20,8 @@ import {
 import {
   TELEGRAM_MEMORY_RETRIEVAL_LIMITS,
   TelegramMemoryRetriever,
+  type TelegramMemoryRetrievalLogCode,
+  type TelegramMemoryRetrievalTimings,
 } from "../../src/memory/telegram-memory-retriever.js";
 import { LiteralHistoryService } from "../../src/memory/literal-history.js";
 import { MemoryRepository } from "../../src/memory/memory-repository.js";
@@ -169,7 +171,11 @@ function productionService(options: {
   readonly metadata?: Record<string, unknown>;
   readonly retrieverDatabase?: D1Database;
   readonly retrievalTimeoutMs?: number;
-  readonly log?: (code: "telegram_memory_retrieval_fallback") => void;
+  readonly baseRetrievalTimeoutMs?: number;
+  readonly log?: (
+    code: TelegramMemoryRetrievalLogCode,
+    timings: TelegramMemoryRetrievalTimings,
+  ) => void;
 }): DefaultConversationService {
   const classified = classifyTelegramUpdate({
     update_id: servicePrincipalSerial,
@@ -203,6 +209,9 @@ function productionService(options: {
     ...(options.retrievalTimeoutMs === undefined
       ? {}
       : { retrievalTimeoutMs: options.retrievalTimeoutMs }),
+    ...(options.baseRetrievalTimeoutMs === undefined
+      ? {}
+      : { baseRetrievalTimeoutMs: options.baseRetrievalTimeoutMs }),
     ...(options.log === undefined ? {} : { log: options.log }),
   });
   const model = new TelegramMemoryControlModelAdapter({
@@ -811,6 +820,77 @@ describe("Telegram memory production conversation integration", () => {
     expect(model.inputs[1]?.context.some((context) => context.text.includes("reading Hamlet"))).toBe(true);
   });
 
+  it("keeps the previous user message and Jarvis reply when memory exceeds its own deadline", async () => {
+    const owner = await seedServicePrincipal("independent-deadlines");
+    const model = new RecordingModel();
+    const telegram = new FakeTelegramProvider();
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "I have a chem test Friday.",
+      model,
+      telegram,
+    });
+    const stats = newD1Stats();
+    const logs: Array<Readonly<{
+      code: TelegramMemoryRetrievalLogCode;
+      timings: TelegramMemoryRetrievalTimings;
+    }>> = [];
+    const delayedDatabase = countingDatabase(env.DB, stats, () => 25);
+
+    const followUp = await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "What did I just tell you?",
+      model,
+      telegram,
+      retrieverDatabase: delayedDatabase,
+      retrievalTimeoutMs: 40,
+      log: (code, timings) => logs.push(Object.freeze({ code, timings })),
+    });
+
+    const context = model.inputs[1]?.context ?? [];
+    expect(followUp.outcome).toBe("telegram_delivered");
+    expect(context.some((entry) => entry.text === "I have a chem test Friday.")).toBe(true);
+    expect(context.some((entry) => entry.text === "ordinary conversation")).toBe(true);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]?.code).toBe("telegram_memory_retrieval_memory_timeout");
+    expect(Number.isInteger(logs[0]!.timings.baseMs)).toBe(true);
+    expect(Number.isInteger(logs[0]!.timings.memoryMs)).toBe(true);
+    expect(logs[0]!.timings.baseMs).toBeGreaterThan(logs[0]!.timings.memoryMs);
+    console.log("telegram_memory_latency_measurement", JSON.stringify({
+      baseMs: logs[0]?.timings.baseMs,
+      memoryMs: logs[0]?.timings.memoryMs,
+      statements: stats.statements,
+    }));
+  });
+
+  it("includes canonical memory when its independent lookup is fast", async () => {
+    const owner = await seedServicePrincipal("fast-memory");
+    const model = new RecordingModel();
+    const telegram = new FakeTelegramProvider();
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "Remember that my chemistry test is Friday.",
+      model,
+      telegram,
+    });
+
+    const followUp = await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "When is my chemistry test?",
+      model,
+      telegram,
+    });
+
+    expect(followUp.outcome).toBe("telegram_delivered");
+    expect(model.inputs).toHaveLength(1);
+    expect(model.inputs[0]?.context.some((entry) => entry.text.startsWith("Memory evidence [")
+      && entry.text.includes("chemistry test is Friday"))).toBe(true);
+  });
+
   it("falls back to recent context and logs a fixed code when memory tables are missing", async () => {
     const owner = await seedServicePrincipal("missing-table");
     const model = new RecordingModel();
@@ -882,7 +962,7 @@ describe("Telegram memory production conversation integration", () => {
 
     expect(result.outcome).toBe("telegram_delivered");
     expect(model.calls).toBe(1);
-    expect(logs).toEqual(["telegram_memory_retrieval_fallback"]);
+    expect(logs).toEqual(["telegram_memory_retrieval_memory_timeout"]);
   });
 
   it("aborts a timed-out lookup before it can issue another D1 statement", async () => {
@@ -916,8 +996,74 @@ describe("Telegram memory production conversation integration", () => {
     const statementsAtReturn = stats.statements;
     await new Promise<void>((resolve) => setTimeout(resolve, 250));
     expect(result.outcome).toBe("telegram_delivered");
-    expect(logs).toEqual(["telegram_memory_retrieval_fallback"]);
+    expect(logs).toEqual(["telegram_memory_retrieval_memory_timeout"]);
     expect(stats.statements).toBe(statementsAtReturn);
+  });
+
+  it("returns no context and logs the base error code when recent-turn retrieval fails", async () => {
+    const owner = await seedServicePrincipal("base-error");
+    const model = new RecordingModel();
+    const telegram = new FakeTelegramProvider();
+    const logs: string[] = [];
+    const failedBase = new Proxy(env.DB as object, {
+      get(target, property) {
+        if (property === "prepare") {
+          return (sql: string) => {
+            if (/FROM events INDEXED BY events_subject_sequence_idx/u.test(sql)) {
+              throw new Error("injected_base_failure");
+            }
+            return Reflect.apply((target as D1Database).prepare, target, [sql]);
+          };
+        }
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function" ? (value as (...args: never[]) => unknown).bind(target) : value;
+      },
+    }) as D1Database;
+
+    const result = await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "What did I just tell you?",
+      model,
+      telegram,
+      retrieverDatabase: failedBase,
+      log: (code, timings) => {
+        expect(Number.isInteger(timings.baseMs)).toBe(true);
+        expect(Number.isInteger(timings.memoryMs)).toBe(true);
+        logs.push(code);
+      },
+    });
+
+    expect(result.outcome).toBe("telegram_delivered");
+    expect(model.inputs[0]?.context).toEqual([]);
+    expect(logs).toEqual(["telegram_memory_retrieval_base_error"]);
+  });
+
+  it("logs a distinct code when the bounded base lookup stalls", async () => {
+    const logs: string[] = [];
+    const contexts = await new TelegramMemoryRetriever({
+      database: env.DB,
+      archive: env.ARCHIVE,
+      baseContext: {
+        retrieve: () => new Promise<never>(() => undefined),
+      },
+      retrievalTimeoutMs: 5,
+      baseRetrievalTimeoutMs: 10,
+      log: (code, timings) => {
+        expect(Number.isInteger(timings.baseMs)).toBe(true);
+        expect(Number.isInteger(timings.memoryMs)).toBe(true);
+        logs.push(code);
+      },
+    }).retrieve({
+      principalId: "principal:telegram-base-timeout",
+      channel: "telegram",
+      purpose: "conversation",
+      query: "hi",
+      maxTokens: 32_000,
+    });
+
+    expect(contexts).toEqual([]);
+    expect(logs).toEqual(["telegram_memory_retrieval_base_timeout"]);
   });
 });
 
@@ -1570,6 +1716,45 @@ describe("Telegram memory retrieval", () => {
 });
 
 describe("Telegram memory retrieval statement bounds", () => {
+  it("checks forgotten-turn suppression with one bounded statement over the base rows", async () => {
+    const owner = await seedServicePrincipal("suppression-statement");
+    const telegram = new FakeTelegramProvider();
+    const model = new RecordingModel();
+    await sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text: "Hello Jarvis",
+      model,
+      telegram,
+    });
+    const input = Object.freeze({
+      principalId: owner.principalId,
+      channel: "telegram" as const,
+      purpose: "conversation" as const,
+      query: "hi",
+      maxTokens: 32_000,
+    });
+    const baseContexts = await new D1ContextRetriever(env.DB).retrieve(input);
+    const stats = newD1Stats();
+    const database = countingDatabase(env.DB, stats, () => 25);
+    const startedAt = performance.now();
+
+    await new TelegramMemoryRetriever({
+      database,
+      archive: env.ARCHIVE,
+      baseContext: { retrieve: () => Promise.resolve(baseContexts) },
+      log: () => undefined,
+    }).retrieve(input);
+    const elapsedMs = Math.round(performance.now() - startedAt);
+
+    console.log("telegram_memory_suppression_measurement", JSON.stringify({
+      elapsedMs,
+      statements: stats.statements,
+    }));
+    expect(stats.statements).toBe(1);
+    expect(elapsedMs).toBeGreaterThanOrEqual(20);
+  });
+
   it("uses at most 10 D1 statements for hi and at most 40 for an ordinary due-date question", async () => {
     const owner = await seedServicePrincipal("statement-bounds");
     const telegram = new FakeTelegramProvider();
