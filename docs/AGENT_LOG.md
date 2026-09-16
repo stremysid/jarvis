@@ -32,7 +32,8 @@ before. Named cases cover `remeber`, `rember`, `remmeber`, and `rememebr`.
 Ordinary-word near misses `remembered that`, `rememberance`, and `member that`
 remain conversation, and forget/use-again/why parsing is untouched.
 
-Evidence on the final tree, after merging `origin/main` at `36e33ad`:
+Evidence on the final tree, after merging PR #73 and then PR #64 from
+`origin/main` at `8c4fea4`:
 
 - The real service composition `StudyCoachModelAdapter ->
   SchoolCatchupModelAdapter`, with real school/study/university repositories,
@@ -44,8 +45,9 @@ Evidence on the final tree, after merging `origin/main` at `36e33ad`:
   study practice and non-owner delegation retain their context.
 - Mutation checks killed clearing structured context (four named failures) and
   reverting typo tolerance to exact matching (all four typo cases failed).
-- `pnpm lint` and `pnpm typecheck` pass. The final merged-tree focused run is
-  **5 files / 349 tests**. Watchdog is **119/119**.
+- `pnpm lint` and `pnpm typecheck` pass. The final merged-tree school, memory
+  and complete university run is **13 files / 1,167 tests**. Watchdog is
+  **119/119**.
 - The single `pnpm test:all` run reached **3,949/3,950** gateway tests. Its one
   relevant failure was the existing maximum university/application fixture at
   48,022 bytes; static prose was shortened without weakening the rule, and the

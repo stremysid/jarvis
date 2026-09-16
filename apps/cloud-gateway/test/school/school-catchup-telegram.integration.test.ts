@@ -162,6 +162,7 @@ describe("school catch-up Telegram integration", () => {
       plan: [],
       programUpdates: [],
       applicationUpdates: [],
+      workflowUpdates: [],
     }));
     const redactor = new Redactor();
     const schoolRepository = new SchoolCatchupRepository(env.DB);
