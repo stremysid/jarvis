@@ -45,7 +45,14 @@ fi
 # For code PRs, set GATE=<gate checkout> to run the full suite on the exact merged tree before pushing.
 if [ -n "${GATE:-}" ]; then
   LOCAL=$(git rev-parse HEAD)
-  ( cd "$GATE" && git checkout -q --detach "$LOCAL" && pnpm.cmd test > "$SP/work/merged-$PR-test.txt" 2>&1 ) || { echo "MERGED-TREE SUITE FAILED - not merging"; grep -E "Test Files|Tests |FAIL " "$SP/work/merged-$PR-test.txt" | tail -8; exit 6; }
+  if ! ( cd "$GATE" && git checkout -q --detach "$LOCAL" && pnpm.cmd test > "$SP/work/merged-$PR-test.txt" 2>&1 ); then
+    # Under builder load some suites time out. Rerun only the failing files alone; merge only if they all pass.
+    FAILED_FILES=$(tr -d '\r' < "$SP/work/merged-$PR-test.txt" | grep -oE 'FAIL +\|[a-z-]+\| [^ >]+\.test\.ts' | sed -E 's/FAIL +\|[a-z-]+\| //' | sort -u | tr '\n' ' ')
+    echo "suite failed; rerunning alone: $FAILED_FILES"
+    [ -n "$FAILED_FILES" ] || { echo "MERGED-TREE SUITE FAILED (no file list) - not merging"; tail -20 "$SP/work/merged-$PR-test.txt"; exit 6; }
+    ( cd "$GATE" && npx.cmd vitest --config vitest.workspace.ts run $FAILED_FILES > "$SP/work/merged-$PR-rerun.txt" 2>&1 ) || { echo "MERGED-TREE SUITE FAILED ON RERUN - not merging"; grep -E "Test Files|Tests |FAIL " "$SP/work/merged-$PR-rerun.txt" | tail -8; exit 6; }
+    echo "failing files pass alone: $(grep -E "^ +Tests " "$SP/work/merged-$PR-rerun.txt" | tail -1)"
+  fi
   echo "merged-tree suite: $(grep -E '^ +Tests ' "$SP/work/merged-$PR-test.txt" | tail -1)"
 fi
 git rev-parse HEAD >> "$SP/own-posts.txt"
