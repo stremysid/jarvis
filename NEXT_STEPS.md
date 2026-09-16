@@ -64,7 +64,7 @@ open PR #52 reserves `0024_university_application_workflow.sql`, and draft
 name, `0025_archive_literal_history.sql`.
 None of `0016` through `0020` or `0022` has been applied by this R2 work. The
 Sid-attended scratch remote-D1 proof remains mandatory before any production
-apply.
+apply; follow the [migration scratch proof runbook](docs/runbooks/migration-scratch-proof.md).
 
 [PR #47](https://github.com/ksid1229-ops/jarvis/pull/47) merged as `60ae90d`
 with the first runtime slice in
