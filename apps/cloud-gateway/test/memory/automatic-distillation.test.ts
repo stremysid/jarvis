@@ -883,10 +883,11 @@ describe("automatic memory distillation", () => {
       },
     } as D1Database;
 
+    const runKey = `finalize-conflict:${newUlid()}`;
     const failed = await workflow(principalId, provider, canonical, reader, conflictingDatabase)
-      .runNext({ runKey: `finalize-conflict:${newUlid()}` });
+      .runNext({ runKey });
     const resumed = await workflow(principalId, provider, canonical, reader)
-      .runNext({ runKey: `finalize-conflict-resume:${newUlid()}` });
+      .runNext({ runKey });
 
     expect(failed).toMatchObject({
       outcome: "failed",
@@ -900,6 +901,8 @@ describe("automatic memory distillation", () => {
       cursorEventSequence: event.eventSequence,
       backlogEventCount: 0,
     });
+    expect(await env.DB.prepare("SELECT run_key FROM memory_runs WHERE run_id = ?")
+      .bind(resumed.runId).first("run_key")).toBe(`${runKey}:r1`);
   });
 
   it("runs the injected fake through the hourly poll after raw archival", async () => {

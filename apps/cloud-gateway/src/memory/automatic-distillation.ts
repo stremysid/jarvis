@@ -50,6 +50,7 @@ const ARCHIVE_RECEIPT_FIELDS = new Set([
 const RUN_FIELDS = new Set([
   "run_id", "outcome", "input_event_count", "created_item_count", "failure_code",
 ]);
+const RUN_KEY_FIELDS = new Set(["outcome", "failure_code"]);
 const MAX_ELIGIBLE_EVENTS = 8;
 const RAW_EVENTS_PER_ELIGIBLE_EVENT = 5;
 const MAX_SCANNED_EVENTS = MAX_ELIGIBLE_EVENTS * RAW_EVENTS_PER_ELIGIBLE_EVENT;
@@ -62,6 +63,7 @@ const MAX_PROPOSALS = 4;
 const MAX_PROVIDER_RESPONSE_ENTRIES = 32;
 const MAX_PROVIDER_OUTPUT_TOKENS = 2_048;
 const MAX_NARROWING_ATTEMPTS = 4;
+const MAX_RUN_KEY_RETRIES = 3;
 const TIERED_LATEST_D1_STATEMENT_CEILING = 2;
 const TIERED_READ_D1_STATEMENT_CEILING = 6;
 const ARCHIVE_SUBJECT_BACKFILL_D1_STATEMENT_CEILING = MAX_SCANNED_EVENTS + 1;
@@ -69,11 +71,12 @@ const TOPIC_BOOTSTRAP_D1_STATEMENT_CEILING = 20;
 const CANONICAL_ITEM_COMMIT_D1_STATEMENT_CEILING = 64;
 const FINALIZATION_D1_STATEMENT_CEILING = MAX_SCANNED_EVENTS + MAX_PROPOSALS + 4;
 const FULL_ITEM_BATCH_D1_STATEMENT_CEILING = MAX_PROPOSALS * CANONICAL_ITEM_COMMIT_D1_STATEMENT_CEILING;
+const RUN_START_D1_STATEMENT_CEILING = 1 + MAX_RUN_KEY_RETRIES * 2;
 const STEP_SETUP_D1_STATEMENT_CEILING = 1 + TIERED_LATEST_D1_STATEMENT_CEILING
   + TIERED_READ_D1_STATEMENT_CEILING + ARCHIVE_SUBJECT_BACKFILL_D1_STATEMENT_CEILING;
 const SUCCESSFUL_STEP_D1_STATEMENT_CEILING = STEP_SETUP_D1_STATEMENT_CEILING
   + TOPIC_BOOTSTRAP_D1_STATEMENT_CEILING + FULL_ITEM_BATCH_D1_STATEMENT_CEILING
-  + MAX_NARROWING_ATTEMPTS * (1 + FINALIZATION_D1_STATEMENT_CEILING) + 2;
+  + MAX_NARROWING_ATTEMPTS * (RUN_START_D1_STATEMENT_CEILING + FINALIZATION_D1_STATEMENT_CEILING) + 2;
 const POLICY_VERSION = "automatic-distillation-v1";
 const INBOX_CONFIDENCE_THRESHOLD = 0.8;
 const encoder = new TextEncoder();
@@ -398,6 +401,11 @@ function attemptRunKey(runKey: string, attempt: number): string {
   return `${runKey.slice(0, 256 - suffix.length)}${suffix}`;
 }
 
+function retryRunKey(runKey: string, retry: number): string {
+  const suffix = `:r${retry}`;
+  return `${runKey.slice(0, 256 - suffix.length)}${suffix}`;
+}
+
 function providerPrompt(events: readonly ScannedEvent[]): string {
   return canonicalJson({
     instructions: [
@@ -516,8 +524,7 @@ export class AutomaticMemoryDistillationWorkflow {
     const latest = await this.options.events.latestSequence();
     if (!Number.isSafeInteger(latest) || latest < 0 || cursor.sequence > latest) corrupt();
     if (cursor.sequence === latest) {
-      budget.d1Statements += 1;
-      const run = await this.startRun(runKey, null, null);
+      const run = await this.startRun(runKey, null, null, budget);
       const finalized = await this.finalizeRun(run, [], [], "nothing_new", null, budget);
       return this.result(run, finalized, cursor.sequence, latest, budget);
     }
@@ -539,8 +546,7 @@ export class AutomaticMemoryDistillationWorkflow {
       budget.d1Statements += ARCHIVE_SUBJECT_BACKFILL_D1_STATEMENT_CEILING;
       initialWindow = await this.resolveSourceLocations(selected);
     } catch (error) {
-      budget.d1Statements += 1;
-      const run = await this.startRun(runKey, cursor.sequence + 1, cursor.sequence + readLimit);
+      const run = await this.startRun(runKey, cursor.sequence + 1, cursor.sequence + readLimit, budget);
       const finalized = await this.finalizeRun(
         run,
         [],
@@ -558,11 +564,11 @@ export class AutomaticMemoryDistillationWorkflow {
     for (let attempt = 0; attempt < MAX_NARROWING_ATTEMPTS; attempt += 1) {
       const endSequence = scanned.at(-1)?.eventSequence;
       if (endSequence === undefined) corrupt();
-      budget.d1Statements += 1;
       const run = await this.startRun(
         attemptRunKey(runKey, attempt),
         cursor.sequence + 1,
         endSequence,
+        budget,
       );
       const committed: CommittedItem[] = [];
       try {
@@ -726,26 +732,46 @@ export class AutomaticMemoryDistillationWorkflow {
     runKey: string,
     startEventSequence: number | null,
     endEventSequence: number | null,
+    budget: MutableBudget,
   ): Promise<ActiveRun> {
-    const now = this.options.now();
-    if (!(now instanceof Date) || !Number.isFinite(now.valueOf())) unavailable();
-    const runId = this.nextId(new Date(now.valueOf()));
-    if (!ULID.test(runId)) unavailable();
-    const startedAt = now.toISOString();
-    await this.options.database.prepare(`INSERT INTO memory_runs (
-      run_id, principal_id, run_key, job, reprocess_job_id, start_event_sequence,
-      end_event_sequence, provider_model_id, price_id, outcome, started_at
-    ) VALUES (?, ?, ?, 'distillation', NULL, ?, ?, ?, NULL, 'running', ?)`)
-      .bind(
-        runId,
-        this.options.principalId,
-        runKey,
-        startEventSequence,
-        endEventSequence,
-        this.options.providerModelId,
-        startedAt,
-      ).run();
-    return Object.freeze({ runId, startedAt, startEventSequence, endEventSequence });
+    let selectedRunKey = runKey;
+    for (let retry = 0; retry <= MAX_RUN_KEY_RETRIES; retry += 1) {
+      const now = this.options.now();
+      if (!(now instanceof Date) || !Number.isFinite(now.valueOf())) unavailable();
+      const runId = this.nextId(new Date(now.valueOf()));
+      if (!ULID.test(runId)) unavailable();
+      const startedAt = now.toISOString();
+      budget.d1Statements += 1;
+      try {
+        await this.options.database.prepare(`INSERT INTO memory_runs (
+          run_id, principal_id, run_key, job, reprocess_job_id, start_event_sequence,
+          end_event_sequence, provider_model_id, price_id, outcome, started_at
+        ) VALUES (?, ?, ?, 'distillation', NULL, ?, ?, ?, NULL, 'running', ?)`)
+          .bind(
+            runId,
+            this.options.principalId,
+            selectedRunKey,
+            startEventSequence,
+            endEventSequence,
+            this.options.providerModelId,
+            startedAt,
+          ).run();
+        return Object.freeze({ runId, startedAt, startEventSequence, endEventSequence });
+      } catch (error) {
+        budget.d1Statements += 1;
+        const existing = await this.options.database.prepare(`SELECT outcome, failure_code
+          FROM memory_runs WHERE principal_id = ? AND run_key = ?`)
+          .bind(this.options.principalId, selectedRunKey)
+          .first<{ outcome: unknown; failure_code: unknown }>();
+        if (existing === null) throw error;
+        exactRow(existing, RUN_KEY_FIELDS);
+        if (existing.outcome !== "failed"
+          || existing.failure_code !== "distillation_finalization_failed"
+          || retry === MAX_RUN_KEY_RETRIES) throw error;
+        selectedRunKey = retryRunKey(runKey, retry + 1);
+      }
+    }
+    unavailable();
   }
 
   private async resolveSourceLocations(

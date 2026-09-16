@@ -37,11 +37,20 @@ describe("shared memory extraction policy", () => {
   it.each([
     ["a text attribution", "Mum texted me. I am moving to Calgary in June."],
     ["a written attribution", "My adviser wrote this. I am applying to Waterloo."],
-    ["a message attribution", "Dad messaged me. My account number is 12345678."],
+    ["a message attribution", "Dad messaged me. My account details are up to date."],
     ["a reported attribution", "The counsellor reported this. I have submitted the form."],
   ])("keeps first-person speech framed by %s out of automatic trust", (_name, sourceText) => {
     const quote = sourceText.slice(sourceText.indexOf(". ") + 2);
     expect(isAuthenticatedFirstPersonQuote({ quote, sourceText, authenticatedOwner: true })).toBe(false);
+  });
+
+  it("keeps an owner sentence trusted when an unrelated attribution follows it", () => {
+    const quote = "I prefer tea.";
+    expect(isAuthenticatedFirstPersonQuote({
+      quote,
+      sourceText: `${quote} Mum texted me about dinner.`,
+      authenticatedOwner: true,
+    })).toBe(true);
   });
 
   for (const testCase of policyVectors.promotionCases) {
