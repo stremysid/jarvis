@@ -26,9 +26,11 @@ function target(match: RegExpExecArray): string | null {
 
 function rememberWord(value: string): boolean {
   const word = value.toLocaleLowerCase("en-CA");
+  if (!word.startsWith("r")) return false;
   // These are ordinary words, not plausible imperative typos. Keeping them
   // out prevents prose such as "remembered that" from becoming a control.
-  if (word === "remembered" || word === "member") return false;
+  if (word === "renumber" || word === "remembered"
+    || word === "members" || word === "member") return false;
   const expected = "remember";
   let previous = Array.from({ length: expected.length + 1 }, (_, index) => index);
   for (let row = 1; row <= word.length; row += 1) {

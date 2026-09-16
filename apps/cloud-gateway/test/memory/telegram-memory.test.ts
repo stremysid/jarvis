@@ -555,24 +555,74 @@ beforeAll(async () => {
 });
 
 describe("Telegram remember language", () => {
-  it.each([
-    "Remeber that my fav subject is math",
-    "Please rember, that my fav subject is math",
-    "remmeber: my fav subject is math",
-    "rememebr my fav subject is math",
-  ])("accepts the bounded remember typo: %s", (text) => {
-    expect(parseTelegramMemoryControl(text)).toEqual({
+  it("accepts remeber as a whole-message remember typo", () => {
+    expect(parseTelegramMemoryControl("Remeber that my fav subject is math")).toEqual({
       intent: "remember",
       memoryText: "my fav subject is math",
     });
   });
 
-  it.each([
-    "remembered that my fav subject is math",
-    "rememberance that my fav subject is math",
-    "member that my fav subject is math",
-  ])("rejects the remember near-miss: %s", (text) => {
-    expect(parseTelegramMemoryControl(text)).toBeNull();
+  it("accepts rember as a whole-message remember typo", () => {
+    expect(parseTelegramMemoryControl("Please rember, that my fav subject is math")).toEqual({
+      intent: "remember",
+      memoryText: "my fav subject is math",
+    });
+  });
+
+  it("accepts rmember as a whole-message remember typo", () => {
+    expect(parseTelegramMemoryControl("rmember that my fav subject is math")).toEqual({
+      intent: "remember",
+      memoryText: "my fav subject is math",
+    });
+  });
+
+  it("accepts remembr as a whole-message remember typo", () => {
+    expect(parseTelegramMemoryControl("remembr that my fav subject is math")).toEqual({
+      intent: "remember",
+      memoryText: "my fav subject is math",
+    });
+  });
+
+  it("accepts remmeber as a whole-message remember typo", () => {
+    expect(parseTelegramMemoryControl("remmeber: my fav subject is math")).toEqual({
+      intent: "remember",
+      memoryText: "my fav subject is math",
+    });
+  });
+
+  it("rejects December as the first word of a whole message", () => {
+    expect(parseTelegramMemoryControl("December exams start on the 5th")).toBeNull();
+  });
+
+  it("rejects December followed by a comma in a whole message", () => {
+    expect(parseTelegramMemoryControl("December, I have three tests")).toBeNull();
+  });
+
+  it("rejects renumber as the first word of a whole message", () => {
+    expect(parseTelegramMemoryControl("renumber the pages please")).toBeNull();
+  });
+
+  it("rejects remembered as the first word of a whole message", () => {
+    expect(parseTelegramMemoryControl("remembered that my fav subject is math")).toBeNull();
+  });
+
+  it("rejects members as the first word of a whole message", () => {
+    expect(parseTelegramMemoryControl("members of the team prefer math")).toBeNull();
+  });
+
+  it("rejects member as the first word of a whole message", () => {
+    expect(parseTelegramMemoryControl("member of the team prefers math")).toBeNull();
+  });
+
+  it("keeps accepting the existing rememebr typo", () => {
+    expect(parseTelegramMemoryControl("rememebr my fav subject is math")).toEqual({
+      intent: "remember",
+      memoryText: "my fav subject is math",
+    });
+  });
+
+  it("keeps rejecting the existing rememberance near-miss", () => {
+    expect(parseTelegramMemoryControl("rememberance that my fav subject is math")).toBeNull();
   });
 });
 
