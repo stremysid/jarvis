@@ -725,8 +725,8 @@ here and move NEXT_STEPS.md to the next one.
 | R0 Green and deployed | | passed | 2026-09-11 |
 | R1 Calling | v1.0, first release | active; draft PR #40 open | |
 | R2 Cloud memory | v1.1 | active; 0016 schema merged, not applied | |
-| R5 School and university | v1.2 | plan revision ready for re-review | |
-| R5A Proactive study coach | | started; first slice merged | |
+| R5 School and university | v1.2 | active; catch-up, study-coach slice 1 and application tracker merged, migrations unapplied | |
+| R5A Proactive study coach | within v1.2 | started; first slice merged | |
 | R3 Hands | v1.3 | not started | |
 | R4 St. Remy | v1.4 | not started | |
 | R6 Reach | v1.5 | not started | |

@@ -50,14 +50,13 @@ the full proactive coach follows R2 memory and R5 deadlines, with regular
 coursework check-ins, weak spots learned from memory, grades and deadlines,
 automatic study material and spoken car quizzing, and unasked finding of free
 tools. Spending, account sign-ups and contact with another person still require
-Sid's explicit tap. Draft
-[PR #52](https://github.com/ksid1229-ops/jarvis/pull/52) independently owns
-`0024_university_application_workflow.sql` for per-program application
-checklists, current-owner conversational updates, due-date verification labels,
-and the next unfinished application items in the morning digest. Claude's
-round-3 max review requested changes at `12a7bbf`; implementation `d5f5ede`
-plus current-main merge `f2d5c9f` is ready for max re-review. Both `0023` and
-`0024` remain unapplied candidates. None of these slices
+Sid's explicit tap.
+[PR #52](https://github.com/ksid1229-ops/jarvis/pull/52) merged as `a38a637`
+and independently owns `0024_university_application_workflow.sql` for
+per-program application checklists, current-owner conversational updates,
+due-date verification labels, and the next unfinished application items in the
+morning digest. `0024_university_application_workflow.sql` remains an unapplied
+candidate. `0023` also remains unapplied. None of these slices
 authorizes OAuth consent, a secret operation, migration, deployment, school or
 university contact, purchase, sign-up, submission or live account access.
 
@@ -158,9 +157,8 @@ projection or node.
 ## R1 is the next milestone
 
 Build it per the roadmap's section 7 and `docs/BUILDING.md`.
-`docs/BUILDING.md` still names GPT-5.6 Sol for building; the builder model has
-since changed. The cross-vendor gate holds -- the same model never builds and
-reviews the same work.
+Who builds and who reviews each milestone, including R1's max-depth review, is
+in `docs/BUILDING.md`.
 
 The R1 acceptance audit in `docs/AGENT_LOG.md` records the original gaps;
 the criteria remain in both calling plans and the live-smoke contract.
