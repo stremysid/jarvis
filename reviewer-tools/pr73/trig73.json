@@ -1,0 +1,69 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr40",
+ "branch": "3c62b5a",
+ "mutations": [
+  {
+   "id": "BASE",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0030_study_coach_weak_spots.sql",
+   "from": "CREATE TRIGGER school_study_check_in_claims_insert_guard\n",
+   "to": "CREATE TRIGGER school_study_check_in_claims_insert_guard\n",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-weak-spots-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_study_check_in_claims_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0030_study_coach_weak_spots.sql",
+   "from": "CREATE TRIGGER school_study_check_in_claims_insert_guard\nBEFORE INSERT ON school_study_check_in_claims\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_check_in_insert_conflict') WHERE EXISTS (\n    SELECT 1 FROM school_study_check_in_claims\n    WHERE principal_id = NEW.principal_id\n      AND (local_date = NEW.local_date OR claim_id = NEW.claim_id)\n  ) OR NOT EXISTS (\n    SELECT 1 FROM school_course_cards\n    WHERE principal_id = NEW.principal_id AND course_id = NEW.course_id AND active = 1\n  ) OR EXISTS (\n    SELECT 1 FROM json_each(NEW.source_keys_json)\n    WHERE type != 'text' OR length(value) NOT BETWEEN 1 AND 160\n  ) OR (\n    SELECT COUNT(DISTINCT value) FROM json_each(NEW.source_keys_json)\n  ) != NEW.evidence_count;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-weak-spots-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_study_check_in_claims_update_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0030_study_coach_weak_spots.sql",
+   "from": "CREATE TRIGGER school_study_check_in_claims_update_guard\nBEFORE UPDATE ON school_study_check_in_claims\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_check_in_update_forbidden') WHERE 1 = 1;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-weak-spots-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_study_check_in_claims_delete_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0030_study_coach_weak_spots.sql",
+   "from": "CREATE TRIGGER school_study_check_in_claims_delete_guard\nBEFORE DELETE ON school_study_check_in_claims\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_check_in_delete_forbidden') WHERE 1 = 1;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-weak-spots-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_study_signal_controls_insert_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0030_study_coach_weak_spots.sql",
+   "from": "CREATE TRIGGER school_study_signal_controls_insert_guard\nBEFORE INSERT ON school_study_signal_controls\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_signal_control_insert_invalid') WHERE EXISTS (\n    SELECT 1 FROM school_study_signal_controls\n    WHERE principal_id = NEW.principal_id AND source_key = NEW.source_key\n  ) OR NOT EXISTS (\n    SELECT 1 FROM conversation_turns\n    WHERE turn_id = NEW.control_turn_id\n      AND principal_id = NEW.principal_id\n      AND channel = 'telegram'\n  ) OR NOT EXISTS (\n    SELECT 1 FROM school_study_check_in_claims claim, json_each(claim.source_keys_json) source\n    WHERE claim.principal_id = NEW.principal_id\n      AND claim.claim_id = NEW.check_in_id\n      AND source.type = 'text'\n      AND source.value = NEW.source_key\n  ) OR NEW.source_key != (NEW.source_kind || ':' || NEW.source_record_id)\n    OR (NEW.source_kind = 'grade' AND NOT EXISTS (\n      SELECT 1 FROM school_assignment_observations\n      WHERE principal_id = NEW.principal_id AND observation_id = NEW.source_record_id\n    ))\n    OR (NEW.source_kind = 'missing_work' AND NOT EXISTS (\n      SELECT 1 FROM school_missing_work_transitions\n      WHERE principal_id = NEW.principal_id AND transition_id = NEW.source_record_id\n    ))\n    OR (NEW.source_kind = 'deadline' AND NOT EXISTS (\n      SELECT 1 FROM deadlines WHERE deadline_id = NEW.source_record_id\n    ));\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-weak-spots-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_study_signal_controls_update_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0030_study_coach_weak_spots.sql",
+   "from": "CREATE TRIGGER school_study_signal_controls_update_guard\nBEFORE UPDATE ON school_study_signal_controls\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_signal_control_update_forbidden') WHERE 1 = 1;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-weak-spots-migration.test.ts"
+   ]
+  },
+  {
+   "id": "T-school_study_signal_controls_delete_guard",
+   "file": "apps/cloud-gateway/src/persistence/migrations/0030_study_coach_weak_spots.sql",
+   "from": "CREATE TRIGGER school_study_signal_controls_delete_guard\nBEFORE DELETE ON school_study_signal_controls\nBEGIN\n  SELECT RAISE(ABORT, 'school_study_signal_control_delete_forbidden') WHERE 1 = 1;\nEND;",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/persistence/study-coach-weak-spots-migration.test.ts"
+   ]
+  }
+ ]
+}

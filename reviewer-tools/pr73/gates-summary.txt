@@ -1,0 +1,18 @@
+head 3c62b5a
+lint rc=0
+typecheck rc=0
+test rc=0
+ Test Files  177 passed (177)
+      Tests  3926 passed (3926)
+trig rc=0
+=== summary
+SURVIVED  BASE
+KILLED    T-school_study_check_in_claims_insert_guard
+KILLED    T-school_study_check_in_claims_update_guard
+KILLED    T-school_study_check_in_claims_delete_guard
+KILLED    T-school_study_signal_controls_insert_guard
+KILLED    T-school_study_signal_controls_update_guard
+KILLED    T-school_study_signal_controls_delete_guard
+back on main, tree clean=true
+(node:24708) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
