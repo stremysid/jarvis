@@ -1,13 +1,15 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { FOLLOW_UP_MUTATIONS } from "./follow-up-mutations.mjs";
 import { MUTATIONS } from "./mutations.mjs";
 
-const ROOT = fileURLToPath(new URL("../../../", import.meta.url));
-const TARGET = fileURLToPath(new URL("../../../tests/acceptance/live/voice-smoke.ts", import.meta.url));
+const ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
+const TARGET = fileURLToPath(new URL("../voice-smoke.ts", import.meta.url));
 const TEST = "tests/acceptance/live/voice-smoke.test.ts";
 const ORIGINAL = readFileSync(TARGET, "utf8");
 const NORMALIZED = ORIGINAL.replaceAll("\r\n", "\n");
+const ALL_MUTATIONS = Object.freeze([...MUTATIONS, ...FOLLOW_UP_MUTATIONS]);
 
 function runVitest() {
   const args = ["exec", "vitest", "run", TEST, "--no-cache"];
@@ -36,7 +38,7 @@ if (baseline.status !== 0) {
   process.exitCode = 1;
 } else {
   try {
-    for (const mutation of MUTATIONS) {
+    for (const mutation of ALL_MUTATIONS) {
       const matches = occurrenceCount(NORMALIZED, mutation.from);
       if (matches !== 1) {
         console.log(`${mutation.id}: INVALID_SPEC anchor_matches=${matches}`);
@@ -59,6 +61,6 @@ if (baseline.status !== 0) {
   } finally {
     writeFileSync(TARGET, ORIGINAL, "utf8");
   }
-  console.log(`summary: ${failed ? "FAIL" : `${MUTATIONS.length}/${MUTATIONS.length} KILLED`}`);
+  console.log(`summary: ${failed ? "FAIL" : `${ALL_MUTATIONS.length}/${ALL_MUTATIONS.length} KILLED`}`);
   if (failed) process.exitCode = 1;
 }

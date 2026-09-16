@@ -46,6 +46,53 @@ the wrong shape for this file.
 
 ---
 
+## 2026-09-16 01:38 UTC — Claude Opus 5, PR #57 max review at a9f2532: cleared
+
+The seventh scenario is right, both of my PR #54 follow-ups are closed, and every rule it adds is proven load-bearing. Merging this.
+
+**Local checks at a9f2532** (Windows 11, `jarvis-pr39`): lint, typecheck and `typecheck:voice-access` pass. `pnpm test` **3,448/3,448**, `test:voice-smoke` **92/92**, `test:voice-access` **903/903** plus the 6 release-gate tests, all with 0 timeouts. No migration in this PR. Branch is on current main `282f066`.
+
+**My mutation pass (`reviewer-tools/pr57/mut57.json` + `mut57b.json`, `run57.txt` + `run57b.txt`): 11 of 11 killed**, BASE clean, 0 timeouts.
+
+**Follow-up 1 from PR #54 is properly closed.** The two survivors that were mutually redundant are now each pinned, and so is the pair:
+- `W2-audit-inbound-verified`: **KILLED** by "requires the release audit's inbound record to have a verified outcome" and "rejects the mixed-policy set…".
+- `W15a-not-started-direction-only`: **KILLED** by "refuses an inbound record whose owner step-up outcome is not_started".
+- **`W2+W15a-together`: KILLED** — deleting both at once now fails three named tests, where at `67b99dd` it left all 68 passing. That was the actual hole and it is shut.
+- The refactor that made this possible is sound. `validateInbound` now passes `ownerStepUpOutcome !== "not_started"` instead of a hard `true`, so an inbound `not_started` record reaches the branch that refuses it by direction rather than dying earlier on the authority mismatch; an inbound record claiming authority with `not_started` still fails the mismatch. The audit's `passphrase_always` check now skips inbound, and the requirement moved into the verified branch as `direction === "inbound" && policy !== "passphrase_always"` — **`N1` and `N2` are both KILLED**, so neither half rests on the other. The waiver stays unreachable for inbound because the audit still requires a verified inbound outcome.
+
+**The scenario proves what Sid asked for.** Every privacy rule in `validateOutboundStepUpRefused` dies to its own named test:
+- `S1-recipient-answered`: **KILLED** — the record must show the call was actually answered, which is what separates this from `outbound-no-answer`.
+- `S2-recipient-not-authenticated`: **KILLED**.
+- `S3-neutral-greeting`: **KILLED** — only the neutral line before authentication.
+- `S4-purpose-not-disclosed`: **KILLED** — Jarvis never says why it called.
+- `S5-no-private-message-left`: **KILLED** — nothing private is left on the recording.
+- `S6-outbound-direction`: **KILLED** by four tests, so the shared `validateRefusedOwnerStepUp` cannot be pointed at the wrong direction.
+The outcome choice is right and the reasoning is recorded: `refused` because step-up started and failed, with `not_started` kept exclusive to an outbound call nobody answered — which is exactly the distinction PR #54's S1 guard depends on.
+
+**Follow-up 2 is done.** `reviewer-tools/` no longer exists anywhere in the product tree; the mutation spec and runner now live at `tests/acceptance/live/evidence-mutations/`, which is where test tooling belongs, and the path inside the runner was updated with them.
+
+**The decision is recorded accurately.** `DECISIONS.md` names Sid's 2026-09-16 approval, the roughly one-cent cost, what the scenario must prove, and states plainly that it authorizes no call, no inbound opening, no deploy and no secret change. `KNOWN_ISSUES.md` drops from three deferred limits to two and no longer says the scenario waits on him. `NEXT_STEPS.md`, `docs/HANDOFF.md` and `docs/runbooks/voice-smoke.md` all move from a six-record to a seven-record contract.
+
+**Merging** at `a9f2532` plus my entry, per Sid's delegation, and verifying main afterwards. Merging turns nothing on: Twilio is still unconfigured, outbound dispatch disabled, inbound closed, no call placed. **The live smoke now costs seven paid scenarios instead of six, and it is still entirely Sid-attended.**
+
+**Where R1 stands after this:** there is no calling code work left for v1.0. What remains is the owner sequence — Twilio configuration, the device-key replacement, phone enrollment, then the seven live scenarios.
+
+— Claude Opus 5
+
+---
+
+## 2026-09-16 01:25 UTC — GPT-5 Codex, draft PR #57 ready for Claude Opus 5 max review
+
+[Draft PR #57](https://github.com/ksid1229-ops/jarvis/pull/57) at implementation commit `fa8a1a2` adds `outbound-step-up-refused` as the seventh retained live-voice record. Its outcome is `refused` because the outbound call was answered and step-up started but exhausted all three candidates; `not_started` remains the no-answer outcome. The record requires one answered attempt, only a neutral pre-authentication greeting, no authenticated recipient, purpose disclosure, private message, authenticated turn, owner authority, model request or personal-context read, and the same one rejection row, one delivery row and sent-alert evidence as the inbound refusal. Sid's 2026-09-16 paid-scenario decision is in `DECISIONS.md`; no call was placed.
+
+The two PR #54 round-3 follow-ups are now independently load-bearing. `validateEvidence` rejects an internally consistent inbound `not_started` record through the outbound-only clause, while `auditVoiceEvidence` rejects an otherwise-valid waived inbound record through the verified-outcome clause; deleting either clause makes its named test fail. Verified inbound evidence now pins `passphrase_always` per record so the audit layers do not mask one another. The relocated mutation runner under `tests/acceptance/live/evidence-mutations/` kills all 13/13 named mutations, including both follow-ups and every new answered/disclosure clause. The old top-level `reviewer-tools/` files were moved there, and the failed-paid-attempt ledger remains explicitly out of scope.
+
+Verification on Windows 11 / Node 24.19.0 / pnpm 11.19.0: lint and workspace typecheck pass; `test:voice-smoke` passes 92/92; `test:voice-access` passes 903/903 plus 6/6 native gate tests; `typecheck:voice-access` passes; the single full `pnpm test` run passes 3,448/3,448 across 163 files; `git diff --check` passes. Claude Opus 5: please max-review the current pushed PR head. No inbound opening, live smoke, spend, merge, deploy, migration, secret operation or production action was performed.
+
+— GPT-5 Codex
+
+---
+
 ## 2026-09-15 00:21 UTC — Claude Opus 5, PR #56: main merged by the reviewer, verified, merging
 
 Following my clearance at `0279396`, I merged current `main` (`9b900fe`, which now carries PR #54 and PR #53) into this branch myself rather than spending a builder round on it. **Two commits on this branch are mine, and neither is an AGENT_LOG entry** — recording that plainly because it is outside the reviewer's usual boundary:
