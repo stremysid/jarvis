@@ -11,7 +11,10 @@ import type { Deadline, DeadlineSource } from "../../src/deadlines/deadline-type
 import type { DecisionItem } from "../../src/decisions/decision-types.js";
 import type { ProjectStatus } from "../../src/projects/project-types.js";
 import type { SchoolCatchupAction } from "../../src/school/school-catchup-types.js";
-import type { UniversityApplicationDigestItem } from "../../src/university/university-tracker-types.js";
+import type {
+  UniversityApplicationDigestItem,
+  UniversityWorkflowDigestItem,
+} from "../../src/university/university-tracker-types.js";
 
 /**
  * One question runs through this whole file: what does the owner see when a
@@ -145,6 +148,34 @@ function applicationItem(
   };
 }
 
+function workflowItem(
+  overrides: Partial<UniversityWorkflowDigestItem> = {},
+): UniversityWorkflowDigestItem {
+  return {
+    workflowId: "01k3w1t4000000000000000610" as Ulid,
+    eventId: "01k3w1t4000000000000000611" as Ulid,
+    revision: 1,
+    applicationItemId: "01k3w1t4000000000000000600" as Ulid,
+    university: "Queen's University",
+    programName: "Commerce",
+    kind: "submission_step",
+    label: "Scholarship submission",
+    owner: "sid",
+    status: "prepared",
+    preparedDetails: "This untrusted draft must not appear in the digest.",
+    executionBoundary: "owner_only",
+    deadline: {
+      date: "2026-11-01",
+      instant: null,
+      timeZone: null,
+      verification: { state: "unverified", sourceUrl: null, cycle: null, verifiedAt: null },
+    },
+    sourceTurnId: "01k3w1t4000000000000000601" as Ulid,
+    updatedAt: NOW,
+    ...overrides,
+  };
+}
+
 type DigestDependencyOverrides = Omit<Partial<DigestJobDependencies>, "sources"> & {
   readonly sources?: Partial<DigestSources>;
 };
@@ -184,6 +215,7 @@ describe("assembling from every source", () => {
             return [catchupAction()];
           },
           readApplicationItems: async () => [applicationItem()],
+          readWorkflowItems: async () => [workflowItem()],
           readDeadlines: async () => [deadline()],
           readProjectStatuses: async () => [status()],
           readOpenDecisions: async () => [decision()],
@@ -194,6 +226,8 @@ describe("assembling from every source", () => {
     expect(digest.text).toContain("Quiz 3");
     expect(digest.text).toContain("Finish the missed lab notes");
     expect(digest.text).toContain("Entrance scholarship");
+    expect(digest.text).toContain("Scholarship submission");
+    expect(digest.text).not.toContain("This untrusted draft");
     expect(digest.text).toContain("Approve the vendor quote?");
     expect(digest.text).not.toContain("Could not be read");
   });
@@ -590,6 +624,18 @@ describe("a source that will not answer", () => {
     for (const detail of ["school plan down", "applications down", "deadlines down", "projects down", "decisions down"]) {
       expect(digest.text).toContain(detail);
     }
+  });
+
+  it("reports a failed workflow source instead of hiding the missing steps", async () => {
+    const digest = await assembleDigest("daily", deps({
+      sources: {
+        readWorkflowItems: async () => {
+          throw new Error("workflow table unavailable");
+        },
+      },
+    }));
+
+    expect(digest.text).toContain("University application steps: workflow table unavailable");
   });
 
   it("still sends when every single source failed", async () => {

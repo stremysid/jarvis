@@ -6,7 +6,7 @@ import { EventRepository } from "../../src/persistence/event-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { UniversityTrackerRepository } from "../../src/university/university-tracker-repository.js";
 import type { OwnerUniversityPlan } from "../../src/university/university-tracker-types.js";
-import { applyUniversityApplicationWorkflowMigration } from "../persistence/migration.js";
+import { applyUniversityApplicationDetailsMigration } from "../persistence/migration.js";
 
 const NOW = new Date("2026-09-15T15:00:00.000Z");
 
@@ -49,11 +49,12 @@ function unverifiedPlan(): OwnerUniversityPlan {
       resolveItemIds: [],
     }],
     applicationUpdates: [],
+    workflowUpdates: [],
   };
 }
 
 beforeAll(async () => {
-  await applyUniversityApplicationWorkflowMigration();
+  await applyUniversityApplicationDetailsMigration();
 });
 
 describe("UniversityTrackerRepository", () => {

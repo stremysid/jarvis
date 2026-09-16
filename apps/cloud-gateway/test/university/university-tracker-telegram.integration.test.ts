@@ -12,7 +12,7 @@ import { SchoolCatchupModelAdapter } from "../../src/school/school-catchup-model
 import { SchoolCatchupRepository } from "../../src/school/school-catchup-repository.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { UniversityTrackerRepository } from "../../src/university/university-tracker-repository.js";
-import { applyUniversityApplicationWorkflowMigration } from "../persistence/migration.js";
+import { applyUniversityApplicationDetailsMigration } from "../persistence/migration.js";
 
 const NOW = new Date("2026-09-15T16:00:00.000Z");
 const TURN = "01k5fb9pg00000000000000b00" as Ulid;
@@ -32,7 +32,7 @@ class SingleResponseModel implements ModelAdapter {
 }
 
 beforeAll(async () => {
-  await applyUniversityApplicationWorkflowMigration();
+  await applyUniversityApplicationDetailsMigration();
 });
 
 describe("university tracker Telegram integration", () => {
@@ -88,6 +88,7 @@ describe("university tracker Telegram integration", () => {
           evidence: ownerMessage,
         },
       }],
+      workflowUpdates: [],
     });
     const baseModel = new SingleResponseModel(structuredReply);
     const redactor = new Redactor();
@@ -131,7 +132,14 @@ describe("university tracker Telegram integration", () => {
     })).resolves.toMatchObject({ outcome: "telegram_delivered" });
 
     expect(baseModel.requests).toHaveLength(1);
-    expect(telegram.requests[0]?.text).toContain("Unverified for the 2027 cycle");
+    // Receipts, not model claims: the stored rows are reported in fixed text.
+    expect(telegram.requests[0]?.text).toContain([
+      "Saved: University of Waterloo Computer Science (unverified).",
+      "Saved requirement for University of Waterloo Computer Science: Required Grade 12 courses (unverified).",
+      "Saved date for University of Waterloo Computer Science: Application deadline, no date yet (unverified).",
+      "Saved: University of Waterloo Computer Science Entrance scholarship — not started; due date unverified.",
+    ].join("\n"));
+    expect(telegram.requests[0]?.text).not.toContain("Which other program are you considering?");
     await expect(universityRepository.readSnapshot(principalId)).resolves.toMatchObject({
       programs: [{
         programName: "Computer Science",

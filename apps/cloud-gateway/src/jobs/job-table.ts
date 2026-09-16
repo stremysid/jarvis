@@ -587,6 +587,7 @@ async function digest(
     sources: {
       readCatchupActions: async (date) => school.listActionsForDate(principalId, date),
       readApplicationItems: async () => university.listApplicationItemsByDueDate(principalId),
+      readWorkflowItems: async () => university.listWorkflowItemsByDueDate(principalId),
       claimStudyCheckIn: async (date, weekday, minuteOfDay) => {
         const now = context.clock.now();
         const [schoolSignals, deadlineSignals] = await Promise.all([

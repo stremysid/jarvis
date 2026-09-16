@@ -95,6 +95,7 @@ describe("remote D1 migration trigger syntax", () => {
       "0026_memory_distillation.sql",
       "0027_school_observations.sql",
       "0028_guest_grant_notice_drain.sql",
+      "0029_university_application_details.sql",
       "0030_study_coach_weak_spots.sql",
     ]);
   });

@@ -6,7 +6,12 @@ import {
   type ComposeOptions,
   type DigestClock,
 } from "../../src/digest/digest-composer.js";
-import type { DigestApplicationItem, DigestInput, DigestProject } from "../../src/digest/digest-types.js";
+import type {
+  DigestApplicationItem,
+  DigestInput,
+  DigestProject,
+  DigestUniversityWorkflow,
+} from "../../src/digest/digest-types.js";
 
 /**
  * A digest that omits a failure is indistinguishable from a digest reporting
@@ -57,6 +62,22 @@ function applicationItem(overrides: Partial<DigestApplicationItem> = {}): Digest
     status: "drafting",
     dueDate: "2027-01-15",
     verificationState: "verified",
+    ...overrides,
+  };
+}
+
+function workflowItem(overrides: Partial<DigestUniversityWorkflow> = {}): DigestUniversityWorkflow {
+  return {
+    workflowId: "workflow-a",
+    university: "Queen's University",
+    programName: "Computing",
+    label: "Essay submission",
+    owner: "sid",
+    status: "prepared",
+    dueDate: null,
+    dueAt: "2027-01-15T22:00:00.000Z",
+    dueTimeZone: "America/Toronto",
+    verificationState: "unverified",
     ...overrides,
   };
 }
@@ -133,6 +154,28 @@ describe("university application priorities", () => {
     }, daily(), clockAt("2026-09-15T11:30:00.000Z"));
 
     expect(digest.text).toContain("Entrance scholarship [not started; due date unverified -- awaiting current-cycle source]");
+  });
+
+  it("shows pending owner-only steps without exposing generated preparation text", () => {
+    const digest = compose({
+      ...empty(),
+      universityWorkflowItems: [
+        workflowItem(),
+        workflowItem({
+          workflowId: "workflow-done",
+          label: "Completed upload",
+          status: "owner_reported_done",
+          dueAt: null,
+          dueTimeZone: null,
+        }),
+      ],
+    }, daily(), clockAt("2026-09-15T11:30:00.000Z"));
+
+    expect(digest.text).toContain(
+      "Essay submission [prepared; owner sid; due Jan 15, 2027, 5:00 PM EST (unverified)]",
+    );
+    expect(digest.text).not.toContain("2027-01-15T22:00:00.000Z America/Toronto");
+    expect(digest.text).not.toContain("Completed upload");
   });
 });
 
