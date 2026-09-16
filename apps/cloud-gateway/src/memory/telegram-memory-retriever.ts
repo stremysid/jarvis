@@ -45,9 +45,15 @@ const MAX_MEMORY_CANDIDATES = 3;
 const MAX_HISTORY_RESULTS = 4;
 const MAX_CONTROL_TARGETS = 2;
 const MAX_REFERENCED_ITEMS = 8;
-const DEFAULT_RETRIEVAL_TIMEOUT_MS = 400;
+const MAX_FORGOTTEN_ITEMS = 128;
+const DEFAULT_RETRIEVAL_TIMEOUT_MS = 800;
+const DEFAULT_BASE_RETRIEVAL_TIMEOUT_MS = 2_500;
 const MAX_RETRIEVAL_TIMEOUT_MS = 5_000;
+const MAX_BASE_RETRIEVAL_TIMEOUT_MS = 10_000;
 const RETRIEVAL_FALLBACK_CODE = "telegram_memory_retrieval_fallback";
+const RETRIEVAL_MEMORY_TIMEOUT_CODE = "telegram_memory_retrieval_memory_timeout";
+const RETRIEVAL_BASE_TIMEOUT_CODE = "telegram_memory_retrieval_base_timeout";
+const RETRIEVAL_BASE_ERROR_CODE = "telegram_memory_retrieval_base_error";
 const ASSISTANT_STAGE_EVENT_TYPE = "conversation.assistant_staged";
 const ASSISTANT_DELIVERED_EVENT_TYPE = "conversation.assistant_delivered";
 const ALL_MEMORY_STATES: readonly MemoryLifecycleState[] = Object.freeze([
@@ -116,7 +122,22 @@ export interface TelegramMemoryRetrieverOptions {
   readonly controlAuthority?: Readonly<{ principalId: string; text: string }> | null;
   readonly baseContext?: ContextRetriever;
   readonly retrievalTimeoutMs?: number;
-  readonly log?: (code: typeof RETRIEVAL_FALLBACK_CODE) => void;
+  readonly baseRetrievalTimeoutMs?: number;
+  readonly log?: (
+    code: TelegramMemoryRetrievalLogCode,
+    timings: TelegramMemoryRetrievalTimings,
+  ) => void;
+}
+
+export type TelegramMemoryRetrievalLogCode =
+  | typeof RETRIEVAL_FALLBACK_CODE
+  | typeof RETRIEVAL_MEMORY_TIMEOUT_CODE
+  | typeof RETRIEVAL_BASE_TIMEOUT_CODE
+  | typeof RETRIEVAL_BASE_ERROR_CODE;
+
+export interface TelegramMemoryRetrievalTimings {
+  readonly baseMs: number;
+  readonly memoryMs: number;
 }
 
 interface CandidateRow {
@@ -260,7 +281,8 @@ function ftsQuery(value: string): string | null {
   return terms.length === 0 ? null : terms.map(({ term }) => `"${term}"`).join(" OR ");
 }
 
-interface ContextEventRow {
+interface SuppressionRow {
+  readonly row_kind: unknown;
   readonly event_id: unknown;
   readonly event_type: unknown;
   readonly event_envelope_json: unknown;
@@ -269,9 +291,6 @@ interface ContextEventRow {
   readonly staged_event_id: unknown;
   readonly staged_envelope_json: unknown;
   readonly suppressed: unknown;
-}
-
-interface ForgottenItemRow {
   readonly item_id: unknown;
   readonly text: unknown;
 }
@@ -463,6 +482,18 @@ function restatesMemory(reply: string, memoryText: string): boolean {
   return required.every((term) => available.has(term));
 }
 
+class RetrievalTimeoutError extends Error {}
+
+type TimedOutcome<T> =
+  | Readonly<{ status: "fulfilled"; value: T; elapsedMs: number }>
+  | Readonly<{ status: "timeout"; elapsedMs: number }>
+  | Readonly<{ status: "error"; elapsedMs: number }>;
+
+function elapsedMilliseconds(startedAt: number): number {
+  const elapsed = performance.now() - startedAt;
+  return Number.isFinite(elapsed) ? Math.max(0, Math.round(elapsed)) : 0;
+}
+
 async function withinTimeout<T>(
   operation: Promise<T>,
   timeoutMs: number,
@@ -472,13 +503,33 @@ async function withinTimeout<T>(
   const timeout = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(() => {
       onTimeout();
-      reject(new Error("telegram_memory_retrieval_timeout"));
+      reject(new RetrievalTimeoutError("telegram_memory_retrieval_timeout"));
     }, timeoutMs);
   });
   try {
     return await Promise.race([operation, timeout]);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+async function timedOutcome<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  startedAt: number,
+  onTimeout: () => void = () => undefined,
+): Promise<TimedOutcome<T>> {
+  try {
+    return Object.freeze({
+      status: "fulfilled",
+      value: await withinTimeout(operation, timeoutMs, onTimeout),
+      elapsedMs: elapsedMilliseconds(startedAt),
+    });
+  } catch (error) {
+    return Object.freeze({
+      status: error instanceof RetrievalTimeoutError ? "timeout" : "error",
+      elapsedMs: elapsedMilliseconds(startedAt),
+    });
   }
 }
 
@@ -494,17 +545,26 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
   private readonly controlAuthority: Readonly<{ principalId: string; text: string }> | null;
   private readonly baseContext: ContextRetriever;
   private readonly retrievalTimeoutMs: number;
-  private readonly log: (code: typeof RETRIEVAL_FALLBACK_CODE) => void;
+  private readonly baseRetrievalTimeoutMs: number;
+  private readonly log: (
+    code: TelegramMemoryRetrievalLogCode,
+    timings: TelegramMemoryRetrievalTimings,
+  ) => void;
 
   constructor(private readonly options: TelegramMemoryRetrieverOptions) {
     this.now = options.now ?? (() => new Date());
     this.nextId = options.nextId ?? (() => newUlid(this.now()));
     this.baseContext = options.baseContext ?? new D1ContextRetriever(options.database);
     this.retrievalTimeoutMs = options.retrievalTimeoutMs ?? DEFAULT_RETRIEVAL_TIMEOUT_MS;
-    this.log = options.log ?? ((code) => console.warn(code));
+    this.baseRetrievalTimeoutMs = options.baseRetrievalTimeoutMs ?? DEFAULT_BASE_RETRIEVAL_TIMEOUT_MS;
+    this.log = options.log ?? ((code, timings) => console.warn(code, timings));
     if (!Number.isSafeInteger(this.retrievalTimeoutMs) || this.retrievalTimeoutMs < 1
       || this.retrievalTimeoutMs > MAX_RETRIEVAL_TIMEOUT_MS) {
       throw new TypeError("telegram_memory_timeout_invalid");
+    }
+    if (!Number.isSafeInteger(this.baseRetrievalTimeoutMs) || this.baseRetrievalTimeoutMs < 1
+      || this.baseRetrievalTimeoutMs > MAX_BASE_RETRIEVAL_TIMEOUT_MS) {
+      throw new TypeError("telegram_memory_base_timeout_invalid");
     }
     const authority = options.controlAuthority ?? null;
     this.controlAuthority = authority === null ? null : Object.freeze({
@@ -530,43 +590,67 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
     const baseInput = Object.freeze({ ...captured, maxTokens: baseLimit });
     const budget = new StatementBudget(TELEGRAM_MEMORY_RETRIEVAL_LIMITS.d1Statements);
     const dependencies = this.dependencies(budget);
-    let completedBase: readonly RetrievedContext[] | undefined;
-    const basePromise = this.retrieveBase(baseInput, true).then((contexts) => {
-      completedBase = contexts;
-      return contexts;
+    const baseStartedAt = performance.now();
+    const basePromise = this.retrieveBase(baseInput, true).catch((error: unknown) => {
+      budget.abort();
+      throw error;
     });
+    const baseOutcomePromise = timedOutcome(
+      basePromise,
+      this.baseRetrievalTimeoutMs,
+      baseStartedAt,
+      () => budget.abort(),
+    );
+    const memoryStartedAt = performance.now();
     const memoryPromise = this.retrieveMemory(
       dependencies,
       memoryInput,
       this.timestamp(),
       basePromise,
-    );
-    const deadline = Date.now() + this.retrievalTimeoutMs;
-    try {
-      const [memoryContexts, baseContexts] = await withinTimeout(
-        Promise.all([memoryPromise, basePromise]),
-        this.retrievalTimeoutMs,
-        () => budget.abort(),
-      );
-      const seen = new Set(memoryContexts.map((context) => `${context.sourceEventId}\u0000${context.text}`));
-      return Object.freeze([
-        ...memoryContexts,
-        ...baseContexts.filter((context) => {
-          const key = `${context.sourceEventId}\u0000${context.text}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        }),
-      ]);
-    } catch {
+    ).catch((error: unknown) => {
       budget.abort();
-      this.log(RETRIEVAL_FALLBACK_CODE);
-      if (completedBase !== undefined) return completedBase;
-      const remaining = deadline - Date.now();
-      if (remaining < 1) return Object.freeze([]);
-      try { return await withinTimeout(basePromise, remaining); }
-      catch { return Object.freeze([]); }
+      throw error;
+    });
+    const memoryOutcomePromise = timedOutcome(
+      memoryPromise,
+      this.retrievalTimeoutMs,
+      memoryStartedAt,
+      () => budget.abort(),
+    );
+    const [baseOutcome, memoryOutcome] = await Promise.all([
+      baseOutcomePromise,
+      memoryOutcomePromise,
+    ]);
+    const timings = Object.freeze({
+      baseMs: baseOutcome.elapsedMs,
+      memoryMs: memoryOutcome.elapsedMs,
+    });
+    if (baseOutcome.status !== "fulfilled") {
+      this.log(
+        baseOutcome.status === "timeout" ? RETRIEVAL_BASE_TIMEOUT_CODE : RETRIEVAL_BASE_ERROR_CODE,
+        timings,
+      );
+      return Object.freeze([]);
     }
+    if (memoryOutcome.status !== "fulfilled") {
+      this.log(
+        memoryOutcome.status === "timeout" ? RETRIEVAL_MEMORY_TIMEOUT_CODE : RETRIEVAL_FALLBACK_CODE,
+        timings,
+      );
+      return baseOutcome.value;
+    }
+    const seen = new Set(memoryOutcome.value.map(
+      (context) => `${context.sourceEventId}\u0000${context.text}`,
+    ));
+    return Object.freeze([
+      ...memoryOutcome.value,
+      ...baseOutcome.value.filter((context) => {
+        const key = `${context.sourceEventId}\u0000${context.text}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }),
+    ]);
   }
 
   private async retrieveMemory(
@@ -656,22 +740,11 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
     input: Readonly<ContextRetrieverInput>,
     filterSuppressions: boolean,
   ): Promise<readonly RetrievedContext[]> {
-    let contexts: readonly RetrievedContext[];
-    try {
-      contexts = await this.baseContext.retrieve(input);
-    } catch {
-      this.log(RETRIEVAL_FALLBACK_CODE);
-      return Object.freeze([]);
-    }
+    const contexts = await this.baseContext.retrieve(input);
     if (!filterSuppressions || contexts.length === 0) return contexts;
-    try {
-      return await this.withoutForgottenTurns(input.principalId, contexts);
-    } catch {
-      // If suppression state cannot be checked, omit recent turns rather than
-      // reintroducing text the owner asked Jarvis to forget.
-      this.log(RETRIEVAL_FALLBACK_CODE);
-      return Object.freeze([]);
-    }
+    // Suppression failure is a base-context failure: returning unfiltered text
+    // could reintroduce a turn the owner explicitly asked Jarvis to forget.
+    return this.withoutForgottenTurns(input.principalId, contexts);
   }
 
   private async withoutForgottenTurns(
@@ -681,9 +754,20 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
     const eventIds = [...new Set(contexts.map((context) => safeUlid(context.sourceEventId)))];
     if (eventIds.length === 0) return Object.freeze([]);
     const values = eventIds.map((_eventId, index) => `(?${index + 2})`).join(", ");
-    const [eventResult, forgottenResult] = await Promise.all([
-      this.options.database.prepare(`WITH context_events(event_id) AS (VALUES ${values})
-        SELECT context.event_id, event.event_type, event.envelope_json AS event_envelope_json,
+    const forgottenLimitParameter = eventIds.length + 2;
+    const result = await this.options.database.prepare(`WITH context_events(event_id) AS (VALUES ${values}),
+        forgotten_items AS (
+          SELECT state.item_id, version.text
+          FROM memory_item_state state
+          JOIN memory_item_versions version
+            ON version.principal_id = state.principal_id
+            AND version.item_id = state.item_id
+          WHERE state.principal_id = ?1 AND state.lifecycle_state = 'forgotten'
+          ORDER BY state.item_id ASC
+          LIMIT ?${forgottenLimitParameter}
+        )
+        SELECT 'event' AS row_kind, context.event_id, event.event_type,
+          event.envelope_json AS event_envelope_json,
           turn.turn_id, turn.user_event_id, delivery.staged_event_id,
           staged.envelope_json AS staged_envelope_json,
           EXISTS (
@@ -696,27 +780,46 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
                 OR owner_event.sequence BETWEEN suppression.start_event_sequence AND suppression.end_event_sequence
               )
             )
-          ) AS suppressed
+          ) AS suppressed,
+          NULL AS item_id, NULL AS text
         FROM context_events context
         JOIN events event ON event.event_id = context.event_id AND event.subject_id = ?1
         LEFT JOIN conversation_turns turn ON turn.delivered_assistant_event_id = event.event_id
         LEFT JOIN events owner_event ON owner_event.event_id = turn.user_event_id
         LEFT JOIN conversation_deliveries delivery ON delivery.delivery_id = turn.staged_delivery_id
-        LEFT JOIN events staged ON staged.event_id = delivery.staged_event_id`)
-        .bind(principalId, ...eventIds).all<ContextEventRow>(),
-      this.options.database.prepare(`SELECT state.item_id, version.text
-        FROM memory_item_state state
-        JOIN memory_item_versions version
-          ON version.principal_id = state.principal_id
-          AND version.item_id = state.item_id
-        WHERE state.principal_id = ? AND state.lifecycle_state = 'forgotten'`)
-        .bind(principalId).all<ForgottenItemRow>(),
+        LEFT JOIN events staged ON staged.event_id = delivery.staged_event_id
+        UNION ALL
+        SELECT 'forgotten' AS row_kind, NULL AS event_id, NULL AS event_type,
+          NULL AS event_envelope_json, NULL AS turn_id, NULL AS user_event_id,
+          NULL AS staged_event_id, NULL AS staged_envelope_json, NULL AS suppressed,
+          forgotten.item_id, forgotten.text
+        FROM forgotten_items forgotten`)
+      .bind(principalId, ...eventIds, MAX_FORGOTTEN_ITEMS + 1)
+      .all<SuppressionRow>();
+    const rowFields = new Set([
+      "row_kind", "event_id", "event_type", "event_envelope_json", "turn_id",
+      "user_event_id", "staged_event_id", "staged_envelope_json", "suppressed",
+      "item_id", "text",
     ]);
-    if (eventResult.results.length !== eventIds.length) {
+    const eventRows: SuppressionRow[] = [];
+    const forgottenRows: SuppressionRow[] = [];
+    for (const row of result.results) {
+      exactRow(row, rowFields, "telegram_memory_suppression_invalid");
+      if (row.row_kind === "event" && row.item_id === null && row.text === null) {
+        eventRows.push(row);
+      } else if (row.row_kind === "forgotten"
+        && row.event_id === null && row.event_type === null && row.event_envelope_json === null
+        && row.turn_id === null && row.user_event_id === null && row.staged_event_id === null
+        && row.staged_envelope_json === null && row.suppressed === null) {
+        forgottenRows.push(row);
+      } else {
+        throw new TypeError("telegram_memory_suppression_invalid");
+      }
+    }
+    if (eventRows.length !== eventIds.length || forgottenRows.length > MAX_FORGOTTEN_ITEMS) {
       throw new TypeError("telegram_memory_suppression_invalid");
     }
-    const forgotten = forgottenResult.results.map((row) => {
-      exactRow(row, new Set(["item_id", "text"]), "telegram_memory_suppression_invalid");
+    const forgotten = forgottenRows.map((row) => {
       return Object.freeze({
         itemId: safeUlid(row.item_id),
         text: safeText(row.text, 4_096, "telegram_memory_suppression_invalid"),
@@ -728,11 +831,7 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       suppressed: boolean;
       referencedItemIds: readonly Ulid[];
     }>>();
-    await Promise.all(eventResult.results.map(async (row) => {
-      exactRow(row, new Set([
-        "event_id", "event_type", "event_envelope_json", "turn_id", "user_event_id",
-        "staged_event_id", "staged_envelope_json", "suppressed",
-      ]), "telegram_memory_suppression_invalid");
+    await Promise.all(eventRows.map(async (row) => {
       const eventId = safeUlid(row.event_id);
       const suppressed = row.suppressed === 1 ? true : row.suppressed === 0 ? false : null;
       if (suppressed === null || typeof row.event_envelope_json !== "string") {
