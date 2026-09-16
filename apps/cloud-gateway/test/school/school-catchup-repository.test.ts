@@ -255,6 +255,56 @@ describe("SchoolCatchupRepository", () => {
     expect(prunedActions?.count).toBe(0);
   });
 
+  it("keeps the existing schedule when only a valid course fact can be saved", async () => {
+    const principalId = "principal:school-partial-plan";
+    const firstTurn = "01k5fb9pg00000000000000613" as Ulid;
+    await seedTelegramTurn(principalId, firstTurn, "I need a chemistry catch-up plan.");
+    const repository = new SchoolCatchupRepository(env.DB);
+    await repository.applyOwnerPlan({
+      principalId, turnId: firstTurn, today: TODAY, responseHash: "a".repeat(64), plan: initialPlan(), now: NOW,
+    });
+    const before = await repository.readSnapshot(principalId, TODAY);
+    const course = before.courses[0]!;
+    const existingAction = course.currentNextAction!;
+    const secondTurn = "01k5fb9pg00000000000000614" as Ulid;
+    const secondNow = new Date("2026-09-15T12:15:00.000Z");
+    await addTelegramTurn(principalId, secondTurn, "My chemistry test is Friday.", secondNow);
+
+    await expect(repository.applyOwnerPlan({
+      principalId,
+      turnId: secondTurn,
+      today: TODAY,
+      responseHash: "b".repeat(64),
+      now: secondNow,
+      plan: {
+        engaged: true,
+        reply: "Owner-reported: the chemistry test is Friday.",
+        courseUpdates: [{
+          courseRef: course.courseId,
+          name: null,
+          platform: null,
+          addFacts: [{ kind: "due_work", statement: "Chemistry test is Friday" }],
+          resolveFactIds: [],
+        }],
+        completeActionIds: [],
+        plan: [],
+      },
+    })).resolves.toEqual({
+      scheduleSaved: false,
+      partialCodes: ["partial:school_catchup_course_missing_next_action"],
+    });
+
+    const after = await repository.readSnapshot(principalId, TODAY);
+    expect(after.courses[0]?.currentNextAction).toMatchObject({
+      actionId: existingAction.actionId,
+      text: existingAction.text,
+      status: "planned",
+    });
+    expect(after.courses[0]?.ownerReportedFacts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "due_work", statement: "Chemistry test is Friday" }),
+    ]));
+  });
+
   it("stores a re-reported resolved owner fact as a new active fact", async () => {
     const principalId = "principal:school-fact-rereported";
     const firstTurn = "01k5fb9pg00000000000000640" as Ulid;
@@ -352,7 +402,7 @@ describe("SchoolCatchupRepository", () => {
     expect(rereported?.factId).not.toBe(fact.factId);
   });
 
-  it("rejects an unrealistic day atomically", async () => {
+  it("drops an action that would push a day beyond 180 minutes", async () => {
     const principalId = "principal:school-cap";
     const turnId = "01k5fb9pg00000000000000620" as Ulid;
     await seedTelegramTurn(principalId, turnId, "I take calculus.");
@@ -367,8 +417,13 @@ describe("SchoolCatchupRepository", () => {
     };
     await expect(repository.applyOwnerPlan({
       principalId, turnId, today: TODAY, responseHash: "d".repeat(64), plan: overloaded, now: NOW,
-    })).rejects.toThrow("school_catchup_day_unrealistic");
-    await expect(repository.readSnapshot(principalId, TODAY)).resolves.toMatchObject({ courses: [] });
+    })).resolves.toEqual({
+      scheduleSaved: true,
+      partialCodes: ["partial:repaired:school_catchup_day_unrealistic"],
+    });
+    await expect(repository.listActionsForDate(principalId, TODAY)).resolves.toEqual([
+      expect.objectContaining({ text: "Set one", estimatedMinutes: 100, sequenceRank: 1 }),
+    ]);
   });
 
   it("resolves every fact before inserting any replacement fact in the batch", async () => {
@@ -445,7 +500,7 @@ describe("SchoolCatchupRepository", () => {
           estimatedMinutes: 20,
         })),
       },
-    })).resolves.toBeUndefined();
+    })).resolves.toEqual({ scheduleSaved: true, partialCodes: [] });
     const active = await env.DB.prepare(`SELECT COUNT(*) AS count FROM school_course_facts
       WHERE principal_id = ?1 AND status = 'active'`).bind(principalId).first<{ count: number }>();
     expect(active?.count).toBe(48);
