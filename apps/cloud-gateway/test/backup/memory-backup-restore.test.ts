@@ -10,7 +10,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { ArchivalService } from "../../src/archive/archival-service.js";
 import { ArchiveRepository } from "../../src/archive/archive-repository.js";
 import { TieredEventReader } from "../../src/archive/tiered-event-reader.js";
+import { AutonomyRepository } from "../../src/autonomy/autonomy-repository.js";
 import {
+  continueVerifiedMemoryBackupRestore,
+  finalizeVerifiedMemoryBackupRestore,
   readLatestVerifiedMemoryBackup,
   restoreVerifiedMemoryBackupRows,
   type MemoryBackupRestoreManifest,
@@ -66,6 +69,13 @@ const ids = Object.freeze({
   evidence: "01k5nm0000000000000000000k",
   grant: "01k5nm0000000000000000000m",
   grantEvent: "01k5nm0000000000000000000n",
+  itemReceipt: "01k5nm0000000000000000000p",
+  event2: "01k5nm0000000000000000000q",
+  event3: "01k5nm0000000000000000000r",
+  run2: "01k5nm0000000000000000000s",
+  run3: "01k5nm0000000000000000000t",
+  receipt2: "01k5nm0000000000000000000v",
+  receipt3: "01k5nm0000000000000000000w",
 });
 
 async function clearBucket(bucket: R2Bucket): Promise<void> {
@@ -178,6 +188,38 @@ async function seedPostInitialRows(): Promise<void> {
     .bind(ids.event).first<{ sequence: number; content_hash: string }>();
   if (event === null) throw new Error("restore fixture event missing");
   const hash = "a".repeat(64);
+  const event2Envelope = await createEnvelope({
+    schemaVersion: "1.0",
+    eventId: ids.event2,
+    eventType: "conversation.user_committed",
+    source: "conversation",
+    subjectId: "principal:owner",
+    occurredAt: oldTimestamp,
+    receivedAt: oldTimestamp,
+    correlationId: newUlid(),
+    contentType: "application/json",
+    payload: redactPayload({
+      schemaCode: 1, channelCode: 2, sensitivityCode: 1,
+      historyEligible: true, text: "second restore event",
+    }),
+    producerVersion: "conversation-v1",
+  });
+  const event3Envelope = await createEnvelope({
+    schemaVersion: "1.0",
+    eventId: ids.event3,
+    eventType: "conversation.user_committed",
+    source: "conversation",
+    subjectId: "principal:owner",
+    occurredAt: oldTimestamp,
+    receivedAt: oldTimestamp,
+    correlationId: newUlid(),
+    contentType: "application/json",
+    payload: redactPayload({
+      schemaCode: 1, channelCode: 2, sensitivityCode: 1,
+      historyEligible: true, text: "failed restore event",
+    }),
+    producerVersion: "conversation-v1",
+  });
   await withAllTriggersDropped(async () => {
     await env.DB.batch([
       env.DB.prepare(`INSERT INTO device_keys (
@@ -191,6 +233,24 @@ async function seedPostInitialRows(): Promise<void> {
         created_at, enrolled_by_device_id
       ) VALUES ('identity:restore-voice', 'principal:owner', 'voice', 'restore-voice',
         'active', ?, ?, 'device:restore')`).bind(oldTimestamp, oldTimestamp),
+      env.DB.prepare(`INSERT INTO events (
+        sequence, event_id, event_type, source, subject_id, occurred_at, received_at,
+        content_hash, envelope_json, created_at
+      ) VALUES (2, ?, 'conversation.user_committed', 'conversation', 'principal:owner',
+        ?, ?, ?, ?, ?)`)
+        .bind(
+          ids.event2, oldTimestamp, oldTimestamp, event2Envelope.contentHash,
+          canonicalJson(event2Envelope), oldTimestamp,
+        ),
+      env.DB.prepare(`INSERT INTO events (
+        sequence, event_id, event_type, source, subject_id, occurred_at, received_at,
+        content_hash, envelope_json, created_at
+      ) VALUES (3, ?, 'conversation.user_committed', 'conversation', 'principal:owner',
+        ?, ?, ?, ?, ?)`)
+        .bind(
+          ids.event3, oldTimestamp, oldTimestamp, event3Envelope.contentHash,
+          canonicalJson(event3Envelope), oldTimestamp,
+        ),
       env.DB.prepare(`INSERT INTO memory_item_transitions (
         transition_id, principal_id, item_id, transition_number, version_id,
         lifecycle_state, reason, actor, policy_version, owner_authorizing_event_id, occurred_at
@@ -254,10 +314,40 @@ async function seedPostInitialRows(): Promise<void> {
         disposition, skip_reason, source_location, r2_segment_id, recorded_at
       ) VALUES (?, 'principal:owner', ?, ?, ?, ?, 'eligible', NULL, 'live', NULL, ?)`)
         .bind(ids.receipt, ids.run, event.sequence, ids.event, event.content_hash, laterOldTimestamp),
+      env.DB.prepare(`INSERT INTO memory_distillation_item_receipts (
+        receipt_id, principal_id, run_id, item_id, proposal_hash, created_in_run, recorded_at
+      ) VALUES (?, 'principal:owner', ?, ?, ?, 0, ?)`)
+        .bind(ids.itemReceipt, ids.run, ids.item, "d".repeat(64), laterOldTimestamp),
+      env.DB.prepare(`INSERT INTO memory_runs (
+        run_id, principal_id, run_key, job, reprocess_job_id, start_event_sequence,
+        end_event_sequence, provider_model_id, price_id, input_event_count,
+        created_item_count, input_tokens, output_tokens, cache_read_tokens,
+        reserved_cost_micros, settled_cost_micros, outcome, started_at, completed_at, failure_code
+      ) VALUES (?, 'principal:owner', 'restore-second-run', 'distillation', NULL, 2, 2,
+        'deepseek:restore', ?, 1, 0, 0, 0, 0, 0, 0, 'nothing_new', ?, ?, NULL)`)
+        .bind(ids.run2, ids.price, oldTimestamp, laterOldTimestamp),
+      env.DB.prepare(`INSERT INTO memory_distillation_event_receipts (
+        receipt_id, principal_id, run_id, event_sequence, event_id, content_hash,
+        disposition, skip_reason, source_location, r2_segment_id, recorded_at
+      ) VALUES (?, 'principal:owner', ?, 2, ?, ?, 'skipped', 'history_ineligible', 'live', NULL, ?)`)
+        .bind(ids.receipt2, ids.run2, ids.event2, event2Envelope.contentHash, laterOldTimestamp),
+      env.DB.prepare(`INSERT INTO memory_runs (
+        run_id, principal_id, run_key, job, reprocess_job_id, start_event_sequence,
+        end_event_sequence, provider_model_id, price_id, input_event_count,
+        created_item_count, input_tokens, output_tokens, cache_read_tokens,
+        reserved_cost_micros, settled_cost_micros, outcome, started_at, completed_at, failure_code
+      ) VALUES (?, 'principal:owner', 'restore-failed-run', 'distillation', NULL, 3, 3,
+        'deepseek:restore', ?, 1, 0, 0, 0, 0, 0, 0, 'failed', ?, ?, 'provider_timeout')`)
+        .bind(ids.run3, ids.price, oldTimestamp, laterOldTimestamp),
+      env.DB.prepare(`INSERT INTO memory_distillation_event_receipts (
+        receipt_id, principal_id, run_id, event_sequence, event_id, content_hash,
+        disposition, skip_reason, source_location, r2_segment_id, recorded_at
+      ) VALUES (?, 'principal:owner', ?, 3, ?, ?, 'eligible', NULL, 'live', NULL, ?)`)
+        .bind(ids.receipt3, ids.run3, ids.event3, event3Envelope.contentHash, laterOldTimestamp),
       env.DB.prepare(`INSERT INTO memory_cursors (
         principal_id, cursor_name, current_event_sequence, updated_at
       ) VALUES ('principal:owner', 'distillation', ?, ?)`)
-        .bind(event.sequence, laterOldTimestamp),
+        .bind(2, laterOldTimestamp),
       env.DB.prepare(`INSERT INTO memory_reprocess_jobs (
         job_id, principal_id, owner_authorizing_event_id, start_event_sequence,
         end_event_sequence, start_day, end_day, maximum_event_count,
@@ -401,8 +491,24 @@ async function tableHash(table: string, omittedColumns: readonly string[] = []):
   return sha256Hex(canonicalJson(normalized));
 }
 
+function countingDatabase(counter: { statements: number; sql: string[] }): D1Database {
+  return new Proxy(env.DB, {
+    get(target, property) {
+      if (property === "prepare") return (sql: string) => {
+        counter.statements += 1;
+        counter.sql.push(sql);
+        return target.prepare(sql);
+      };
+      if (property === "batch") return async (statements: D1PreparedStatement[]) => target.batch(statements);
+      const value = Reflect.get(target, property) as unknown;
+      return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as D1Database;
+}
+
 describe("verified memory backup restore", () => {
   beforeEach(async () => {
+    await recreateFreshDatabaseForBackupRestoreTest();
     await clearMemoryBackupDataForTest();
     await clearBucket(backupBucket);
     await clearBucket(archiveBucket);
@@ -411,6 +517,10 @@ describe("verified memory backup restore", () => {
   it("restores post-initial rows and rebuilds every excluded memory projection", async () => {
     await seedBaseMemory();
     await seedPostInitialRows();
+    await new AutonomyRepository(env.DB).setMode("live", timestamp);
+    await env.DB.prepare(`UPDATE outbound_runtime_controls
+      SET enabled = 1, quiet_starts_at = ?, quiet_ends_at = ? WHERE singleton_id = 1`)
+      .bind("2026-09-17T01:00:00.000Z", "2026-09-17T02:00:00.000Z").run();
     await rebuildHistory();
     expect(await env.DB.prepare(`SELECT outcome FROM memory_runs WHERE run_id = ?`)
       .bind(ids.run).first()).toEqual({ outcome: "succeeded" });
@@ -426,6 +536,13 @@ describe("verified memory backup restore", () => {
       .bind(ids.practice).first()).toEqual({ status: "answered" });
     expect(await env.DB.prepare(`SELECT status FROM school_study_evidence WHERE evidence_id = ?`)
       .bind(ids.evidence).first()).toEqual({ status: "corrected" });
+    const sourceCursors = await env.DB.prepare(`SELECT cursor_name, current_event_sequence
+      FROM memory_cursors WHERE principal_id = 'principal:owner' ORDER BY cursor_name`)
+      .all<{ cursor_name: string; current_event_sequence: number }>();
+    expect(sourceCursors.results.map((row) => row.cursor_name)).toEqual([
+      "distillation",
+      "fts_history",
+    ]);
 
     const manifest = await finishBackup();
     const verifiedSet = await readLatestVerifiedMemoryBackup(backupBucket);
@@ -433,6 +550,9 @@ describe("verified memory backup restore", () => {
     const rowsByTable = verifiedSet.rowsByTable;
     const sampledTables = [
       "events",
+      "capability_tiers",
+      "autonomy_mode",
+      "outbound_runtime_controls",
       "conversation_turns",
       "memory_runs",
       "memory_cost_ledger",
@@ -446,7 +566,7 @@ describe("verified memory backup restore", () => {
     ] as const;
     const expectedHashes = new Map<string, string>();
     for (const table of sampledTables) {
-      expectedHashes.set(table, await sha256Hex(canonicalJson(rowsByTable.get(table) ?? [])));
+      expectedHashes.set(table, await tableHash(table));
     }
     const derivedSamples = new Map<string, readonly string[]>([
       ["memory_item_state", []],
@@ -500,12 +620,80 @@ describe("verified memory backup restore", () => {
       expect(await tableHash(table, derivedSamples.get(table)), table).toBe(expected);
     }
     expect(await env.DB.prepare(`SELECT cursor_name, current_event_sequence FROM memory_cursors
-      WHERE principal_id = 'principal:owner' ORDER BY cursor_name`).all()).toMatchObject({ results: [
-      { cursor_name: "distillation", current_event_sequence: 1 },
-      { cursor_name: "fts_history", current_event_sequence: 1 },
-      { cursor_name: "fts_items", current_event_sequence: 1 },
-    ] });
+      WHERE principal_id = 'principal:owner' ORDER BY cursor_name`).all()).toMatchObject({
+      results: sourceCursors.results,
+    });
     expect(await env.DB.prepare(`SELECT count(*) AS count FROM sqlite_schema
       WHERE type = 'trigger'`).first()).not.toEqual({ count: 0 });
+  }, 300_000);
+
+  it("resumes after triggers were dropped and keeps every continuation well below the D1 query limit", async () => {
+    await seedBaseMemory();
+    await seedPostInitialRows();
+    await rebuildHistory();
+    const manifest = await finishBackup();
+    const set = await readLatestVerifiedMemoryBackup(backupBucket);
+    await recreateFreshDatabaseForBackupRestoreTest();
+    const laterMigration = `CREATE TABLE zz_later_table (id INTEGER PRIMARY KEY);
+
+CREATE TRIGGER zz_later_table_guard
+BEFORE INSERT ON zz_later_table
+BEGIN
+  SELECT RAISE(ABORT, 'zz') WHERE NEW.id < 0;
+END;
+`;
+    let outcome: Awaited<ReturnType<typeof continueVerifiedMemoryBackupRestore>> = {
+      outcome: "pending",
+      phase: "drop_triggers",
+      itemIndex: 0,
+    };
+    let maxStatements = 0;
+    let sawDroppedTriggerWindow = false;
+    for (let invocation = 0; invocation < 200 && outcome.outcome === "pending"; invocation += 1) {
+      const counter = { statements: 0, sql: [] as string[] };
+      outcome = await continueVerifiedMemoryBackupRestore({
+        database: countingDatabase(counter),
+        databaseSchemaVersion: manifest.databaseSchemaVersion,
+        rowsByTable: set.rowsByTable,
+        migrationSql: [...migrationSources, laterMigration],
+        restoreId: manifest.runId,
+        maxStatementsPerStep: 32,
+        jobs: { rebuildHistory, rebuildVectors: async () => undefined },
+        shortfalls: Object.fromEntries(manifest.tableCuts.map((cut) => [cut.table, cut.shortfallRowCount])),
+      });
+      maxStatements = Math.max(maxStatements, counter.statements);
+      if (outcome.outcome === "pending" && outcome.phase === "drop_triggers" && outcome.itemIndex > 0) {
+        sawDroppedTriggerWindow = true;
+      }
+    }
+    expect(outcome.outcome).toBe("complete");
+    expect(sawDroppedTriggerWindow).toBe(true);
+    expect(maxStatements).toBeLessThan(250);
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM sqlite_schema
+      WHERE type = 'trigger' AND name = 'zz_later_table_guard'`).first()).toEqual({ count: 0 });
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM sqlite_schema
+      WHERE type = 'trigger'`).first()).not.toEqual({ count: 0 });
+    await finalizeVerifiedMemoryBackupRestore(env.DB, manifest.runId);
+    expect(await env.DB.prepare(`SELECT name FROM sqlite_schema
+      WHERE type = 'table' AND name = 'memory_backup_restore_progress'`).first()).toBeNull();
+  }, 300_000);
+
+  it("refuses a non-fresh target before its first DDL", async () => {
+    await seedBaseMemory();
+    const manifest = await finishBackup();
+    const set = await readLatestVerifiedMemoryBackup(backupBucket);
+    const counter = { statements: 0, sql: [] as string[] };
+    await expect(continueVerifiedMemoryBackupRestore({
+      database: countingDatabase(counter),
+      databaseSchemaVersion: manifest.databaseSchemaVersion,
+      rowsByTable: set.rowsByTable,
+      migrationSql: migrationSources,
+      restoreId: manifest.runId,
+      jobs: { rebuildHistory, rebuildVectors: async () => undefined },
+    })).rejects.toThrow(/memory_backup_restore_target_not_fresh/u);
+    expect(counter.sql.some((sql) => /^DROP TRIGGER/u.test(sql))).toBe(false);
+    expect(counter.sql.some((sql) => /^CREATE TABLE memory_backup_restore_progress/u.test(sql))).toBe(false);
+    expect(await env.DB.prepare(`SELECT name FROM sqlite_schema
+      WHERE type = 'table' AND name = 'memory_backup_restore_progress'`).first()).toBeNull();
   }, 300_000);
 });

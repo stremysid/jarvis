@@ -1,128 +1,270 @@
 # Restore the nightly memory backup
 
-This runbook restores the latest verified R2 backup into a new D1 database.
-It is a disaster recovery procedure. Keep application traffic stopped until
-the final checks pass and the owner approves promotion of the new database.
+This is an owner-attended Windows 11 / PowerShell 7 disaster-recovery
+procedure. Rehearse the entire restore on a newly created scratch D1 first.
+Promotion, deployment, secret changes, production migration, and replacement
+database creation remain separate owner-authorized actions.
 
-The implementation is
-`apps/cloud-gateway/src/backup/memory-backup-restore.ts`. Use
-`readLatestVerifiedMemoryBackup` to resolve `memory-backup/latest.json`, verify
-the manifest hash and every data object, and then use
-`restoreVerifiedMemoryBackupRows` for the database rebuild. Do not replay the
-NDJSON objects with ad hoc `INSERT` commands. Production insert guards reject
-old and completed rows, and insert triggers can create duplicate projections.
+Never run `wrangler d1 export` against production. The verified R2 set is the
+backup. R2 does not provide object versions for this procedure; record the
+verified manifest run id and hashes, not an "object version".
 
-## Consistency boundary
+The restore operator is
+`apps/cloud-gateway/src/backup/memory-backup-restore-operator.ts`. Mutation
+pages are capped at 64 statements, and the permanent test holds every complete
+`/step` invocation below 250 prepared statements. Its D1 progress row makes a
+killed call safe to rerun, including after triggers have been dropped. The first call
+refuses a target whose authoritative tables contain anything except the four
+migration-seeded sets (`archive_state`, `capability_tiers`, `autonomy_mode`, and
+`outbound_runtime_controls`) before its first DDL.
 
-A backup set is not one exact point in time. The service records each table's
-upper key and expected row count when the run starts, then reads mutable rows
-when their page is exported. A row deleted after the cut is absent from the set;
-the manifest records that absence as `shortfallRowCount`. A mutable row can
-contain a value written after the cut. Restore rebuilds cursors and archive marks
-from the rows that are actually present instead of trusting exported marks.
+## 1. Read the verified set metadata
 
-Only the most recent 48 hours of `scheduled_runs` are included. The following
-short lived or backup control tables are intentionally absent:
+Run from the repository root. These commands download only the latest pointer
+and its manifest into a temporary recovery directory. The operator later
+verifies the pointer hash, manifest hash, every object hash, byte count, row
+count, classification, and shortfall before it mutates the target.
 
-- `identity_challenges`, `sync_snapshots`, `request_nonces`, and
-  `authentication_attempt_reservations`
-- `memory_backup_runs`, `memory_backup_row_ordinals`,
-  `memory_backup_table_cuts`, `memory_backup_objects`, and
-  `memory_backup_alerts`
-
-The set also omits projections that the restore code rebuilds: item and
-placement state, history chunks and coverage, vector receipts, memory cursors,
-and the four FTS indexes. Component liveness and notice drain leases start from
-their migrated initial state. The historical device fact projection must be
-republished through its signed source procedure if it is still in use; its D1
-staging and publication cache is not an authoritative cloud memory source.
-
-The R2 set never contains Worker secrets. The replacement deployment must use
-the same approved peppers and provider secrets through the normal secret
-recovery process.
-
-## Preconditions
-
-1. Record the `latest.json` object version and preserve the complete named set.
-2. Create a new, empty D1 database. Do not point a Worker or cron at it.
-3. Apply the repository's migrations in order through the manifest's
-   `databaseSchemaVersion`. Migration `0031_memory_backup.sql` is still
-   unapplied at the time this runbook was written; applying any migration is a
-   separate owner authorized production action.
-4. Prepare the existing literal history rebuild job and the deployed Vectorize
-   writer. Both callbacks must run to completion. The restore API fails closed
-   if either callback rejects. The current repository does not contain a
-   Vectorize writer, so a production restore cannot be promoted until the
-   deployed writer or its reviewed replacement is available and proves that
-   Vectorize agrees with the rebuilt `memory_vectors` ledger.
-
-## Restore
-
-Run the following sequence from a controlled operator program with the target
-D1 and backup R2 bindings. Keep the migration SQL in filename order.
-
-1. Call `readLatestVerifiedMemoryBackup(BACKUP)`. Stop if the pointer, manifest,
-   manifest hash, object hash, object byte count, row count, table
-   classification, or recorded shortfall is invalid.
-2. Confirm that the target's newest `d1_migrations.name` exactly equals
-   `set.manifest.databaseSchemaVersion`.
-3. Call `restoreVerifiedMemoryBackupRows` with:
-   - the fresh target D1 binding;
-   - the manifest schema version and `set.rowsByTable`;
-   - every migration file as raw SQL in filename order;
-   - the existing literal history and vector rebuild jobs;
-   - the manifest shortfalls keyed by table.
-
-The restore function then performs the guarded sequence:
-
-1. It derives the final trigger definitions from the ordered migration SQL and
-   drops every trigger in the fresh target.
-2. It enables deferred foreign keys and inserts the authoritative rows in
-   dependency order. Rows seeded by migrations must match exactly.
-3. It checks foreign keys and recreates the full final trigger set from the
-   migration SQL.
-4. It derives `archive_state.sealed_through` only from contiguous verified
-   manifests, segments, and segment event receipts. An exported open circuit is
-   restored as open.
-5. It rebuilds `memory_item_state` from the latest transition and
-   `memory_item_placement_state` from the latest placement and later topic merge
-   events.
-6. It runs the literal history and vector rebuild jobs, then issues the FTS5
-   `rebuild` command for `memory_fact_projection_fts`, `memory_item_fts`,
-   `memory_episode_fts`, and `memory_history_fts`.
-7. It recreates each `memory_cursors` position from authoritative receipts:
-   distillation receipts, episodes, item and episode sources, history coverage,
-   vector ledger rows, and archive manifests. This prevents a restored system
-   from paying to distill events that already have receipts.
-8. It checks every authoritative table count and runs
-   `PRAGMA foreign_key_check` again.
-
-If insertion fails after triggers are dropped, the implementation recreates
-the trigger set before returning the error. Discard the failed target and begin
-again with a fresh D1 database; do not continue from a partly investigated
-target.
-
-## Validation before promotion
-
-Save the restore report and the manifest beside the recovery record, without
-copying private row contents. Check:
-
-```sql
-SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1;
-PRAGMA foreign_key_check;
-SELECT type, count(*) FROM sqlite_schema
-WHERE type IN ('table', 'trigger') GROUP BY type ORDER BY type;
-SELECT cursor_name, current_event_sequence FROM memory_cursors
-ORDER BY principal_id, cursor_name;
-SELECT singleton, sealed_through, circuit_state FROM archive_state;
+```powershell
+$ErrorActionPreference = 'Stop'
+$PSNativeCommandArgumentPassing = 'Standard'
+cd C:\path\to\jarvis
+$RepoRoot = (Resolve-Path -LiteralPath '.').Path
+$wrangler = (Resolve-Path -LiteralPath 'node_modules/wrangler/bin/wrangler.js').Path
+$ProductionConfig = (Resolve-Path -LiteralPath 'apps/cloud-gateway/wrangler.toml').Path
+$RecoveryRoot = Join-Path ([IO.Path]::GetTempPath()) ("jarvis-memory-restore-{0}" -f [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $RecoveryRoot | Out-Null
+$LatestPath = Join-Path $RecoveryRoot 'latest.json'
+& node $wrangler r2 object get 'jarvis-memory-backup/memory-backup/latest.json' --remote --file $LatestPath --config $ProductionConfig --env ''
+if ($LASTEXITCODE -ne 0) { throw 'Reading the latest backup pointer failed.' }
+$Latest = Get-Content -Raw -LiteralPath $LatestPath | ConvertFrom-Json
+if ($Latest.schemaVersion -cne '1.0' -or [string]::IsNullOrWhiteSpace($Latest.manifestObjectKey)) { throw 'The latest pointer is invalid.' }
+$ManifestPath = Join-Path $RecoveryRoot 'manifest.json'
+& node $wrangler r2 object get ("jarvis-memory-backup/{0}" -f $Latest.manifestObjectKey) --remote --file $ManifestPath --config $ProductionConfig --env ''
+if ($LASTEXITCODE -ne 0) { throw 'Reading the backup manifest failed.' }
+$Manifest = Get-Content -Raw -LiteralPath $ManifestPath | ConvertFrom-Json
+if ($Manifest.schemaVersion -cne '1.0' -or $Manifest.runId -cne $Latest.runId -or [string]::IsNullOrWhiteSpace($Manifest.databaseSchemaVersion)) { throw 'The manifest does not match the latest pointer.' }
+Write-Host "VERIFIED SET CANDIDATE: run $($Manifest.runId), schema $($Manifest.databaseSchemaVersion). The operator must still verify all hashes."
 ```
 
-For each manifest table, compare the target count with `exportedRowCount`, not
-`expectedRowCount`. Review every nonzero `shortfallRowCount`. Compare sampled
-row hashes for events, completed memory runs, costs, topic events, passphrase
-verifiers, guest notices, search jobs, reprocess jobs, and school evidence.
-Verify the rebuilt item and placement state, history coverage, Vectorize lookup,
-and literal retrieval through the application interfaces.
+Do not download or inspect the NDJSON row objects manually. Do not copy their
+contents into a log or recovery record.
 
-Promotion, Worker deployment, secret changes, and migration application remain
-separate owner authorized actions.
+## 2. Create and separately confirm a scratch D1
+
+Choose a new name containing `scratch`. Type it again after reading the target
+line aloud. Never reuse an existing D1.
+
+```powershell
+$ScratchDatabase = Read-Host "New throwaway D1 name containing 'scratch'"
+if ([string]::IsNullOrWhiteSpace($ScratchDatabase) -or $ScratchDatabase -notmatch '^[A-Za-z0-9_-]*scratch[A-Za-z0-9_-]*$') { throw 'The name must visibly say scratch and contain only letters, digits, underscores, or hyphens.' }
+Write-Host "RESTORE TARGET: $ScratchDatabase is disposable scratch, not production."
+$ConfirmedScratch = Read-Host 'Read RESTORE TARGET aloud, then type the exact scratch name again'
+if ($ConfirmedScratch -cne $ScratchDatabase) { throw 'The separately typed scratch name did not match.' }
+$CreateOutput = & node $wrangler d1 create $ScratchDatabase 2>&1
+$CreateExit = $LASTEXITCODE
+$CreateOutput | Write-Host
+if ($CreateExit -ne 0) { throw 'Scratch D1 creation failed.' }
+$CreateText = $CreateOutput -join "`n"
+$IdMatch = [regex]::Match($CreateText, '"?database_id"?\s*[:=]\s*"([0-9a-fA-F-]{36})"')
+if (-not $IdMatch.Success) { throw 'Wrangler succeeded but the scratch database id could not be read. Delete the confirmed scratch D1 before restarting.' }
+$ScratchDatabaseId = $IdMatch.Groups[1].Value
+```
+
+## 3. Build a schema-limited external Wrangler config
+
+Only migrations through the set's `databaseSchemaVersion` may be visible to
+Wrangler or to trigger reconstruction. The API independently checks the
+target's ordered `d1_migrations` receipts and ignores any later SQL supplied by
+the repository.
+
+```powershell
+$MigrationSource = (Resolve-Path -LiteralPath 'apps/cloud-gateway/src/persistence/migrations').Path
+$MigrationFiles = @(Get-ChildItem -LiteralPath $MigrationSource -Filter '*.sql' | Sort-Object Name)
+$SchemaIndex = -1
+for ($Index = 0; $Index -lt $MigrationFiles.Count; $Index++) {
+  if ($MigrationFiles[$Index].Name -ceq $Manifest.databaseSchemaVersion) { $SchemaIndex = $Index; break }
+}
+if ($SchemaIndex -lt 0) { throw "The checked-out repository does not contain $($Manifest.databaseSchemaVersion). Check out the commit matching the verified set." }
+$SelectedMigrations = @($MigrationFiles[0..$SchemaIndex])
+$ExpectedSequences = @($SelectedMigrations | ForEach-Object { [int]$_.Name.Substring(0, 4) })
+if ($ExpectedSequences.Count -eq 0 -or $ExpectedSequences[-1] -ne [int]$Manifest.databaseSchemaVersion.Substring(0, 4)) { throw 'The schema-limited migration prefix is invalid.' }
+$RestoreMigrationRoot = Join-Path $RecoveryRoot 'migrations'
+New-Item -ItemType Directory -Path $RestoreMigrationRoot | Out-Null
+foreach ($Migration in $SelectedMigrations) { Copy-Item -LiteralPath $Migration.FullName -Destination (Join-Path $RestoreMigrationRoot $Migration.Name) }
+$OperatorEntry = (Resolve-Path -LiteralPath 'apps/cloud-gateway/src/backup/memory-backup-restore-operator.ts').Path.Replace('\', '/')
+$MigrationRootForToml = $RestoreMigrationRoot.Replace('\', '/')
+$RestoreConfig = Join-Path $RecoveryRoot 'restore.toml'
+$RestoreConfigLines = @(
+  'name = "jarvis-memory-backup-restore-scratch"',
+  "main = `"$OperatorEntry`"",
+  'compatibility_date = "2026-09-16"',
+  '',
+  '[[rules]]',
+  'type = "Text"',
+  'globs = ["**/*.sql"]',
+  'fallthrough = true',
+  '',
+  '[[d1_databases]]',
+  'binding = "DB"',
+  "database_name = `"$ScratchDatabase`"",
+  "database_id = `"$ScratchDatabaseId`"",
+  "migrations_dir = `"$MigrationRootForToml`"",
+  '',
+  '[[r2_buckets]]',
+  'binding = "ARCHIVE"',
+  'bucket_name = "jarvis-archive"',
+  '',
+  '[[r2_buckets]]',
+  'binding = "BACKUP"',
+  'bucket_name = "jarvis-memory-backup"'
+)
+$RestoreConfigLines | Set-Content -LiteralPath $RestoreConfig -Encoding utf8NoBOM
+node scripts/check-memory-backup-restore-target.mjs --database $ScratchDatabase --confirm-database $ConfirmedScratch --config $RestoreConfig
+if ($LASTEXITCODE -ne 0) { throw 'Restore target safety check failed.' }
+```
+
+The checker requires the name twice, requires `scratch`, requires the external
+config to target the bounded operator entry, and refuses the production
+database id read from the repository's `wrangler.toml`. It does not print either
+database id.
+
+## 4. Apply only the set's migrations to scratch
+
+List first. The final listed and applied receipt must be exactly the manifest's
+schema version. A later repository migration must not appear because the
+external migration directory contains only the selected prefix.
+
+```powershell
+& node $wrangler d1 migrations list $ScratchDatabase --remote --config $RestoreConfig --env ''
+if ($LASTEXITCODE -ne 0) { throw 'Scratch migration list failed.' }
+Write-Host "At Wrangler's y/n prompt, confirm only $ScratchDatabase and migrations through $($Manifest.databaseSchemaVersion); otherwise answer n."
+& node $wrangler d1 migrations apply $ScratchDatabase --remote --config $RestoreConfig --env ''
+if ($LASTEXITCODE -ne 0) { throw 'Scratch migration apply failed. Delete this partial scratch D1 and restart.' }
+$ReceiptSql = 'SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1;'
+$ReceiptOutput = & node $wrangler d1 execute $ScratchDatabase --remote --config $RestoreConfig --env '' --json "--command=$ReceiptSql" 2>&1
+$ReceiptExit = $LASTEXITCODE
+$ReceiptText = $ReceiptOutput -join "`n"
+if ($ReceiptExit -ne 0 -or $ReceiptText -notmatch [regex]::Escape($Manifest.databaseSchemaVersion)) { throw 'Scratch migration receipt does not match the verified set schema.' }
+Write-Host "SCRATCH SCHEMA OK: $($Manifest.databaseSchemaVersion)"
+```
+
+## 5. Run the bounded, resumable restore
+
+The temporary operator token is not written to the repository or the recovery
+record. Start Wrangler through Node so Windows does not reinterpret the fixed
+arguments. The operator binds only the separately checked scratch D1. Its R2
+bindings are read-only in the operator source.
+
+```powershell
+$OperatorTokenBytes = [byte[]]::new(32)
+[Security.Cryptography.RandomNumberGenerator]::Fill($OperatorTokenBytes)
+$OperatorToken = [Convert]::ToBase64String($OperatorTokenBytes)
+$Port = 8791
+$DevOut = Join-Path $RecoveryRoot 'wrangler-dev.out.log'
+$DevErr = Join-Path $RecoveryRoot 'wrangler-dev.err.log'
+$DevArguments = @(
+  "`"$wrangler`"", 'dev', '--remote', '--config', "`"$RestoreConfig`"",
+  '--ip', '127.0.0.1', '--port', $Port, '--no-show-interactive-dev-session',
+  '--log-level', 'error',
+  '--var', "RESTORE_TARGET_DATABASE_NAME:$ScratchDatabase",
+  '--var', "RESTORE_CONFIRMED_DATABASE_NAME:$ConfirmedScratch",
+  '--var', "RESTORE_OPERATOR_TOKEN:$OperatorToken",
+  '--var', "RESTORE_RUN_DATE:$($Latest.runDate)",
+  '--var', "RESTORE_RUN_ID:$($Latest.runId)",
+  '--var', "RESTORE_MANIFEST_OBJECT_KEY:$($Latest.manifestObjectKey)",
+  '--var', "RESTORE_MANIFEST_SHA256:$($Latest.manifestSha256)"
+)
+$DevProcess = Start-Process -FilePath (Get-Command node).Source -ArgumentList $DevArguments -PassThru -WindowStyle Hidden -RedirectStandardOutput $DevOut -RedirectStandardError $DevErr
+try {
+  $Headers = @{ Authorization = "Bearer $OperatorToken" }
+  $Ready = $false
+  for ($Attempt = 0; $Attempt -lt 30 -and -not $Ready; $Attempt++) {
+    try {
+      $Response = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$Port/step" -Headers $Headers
+      $Ready = $true
+    } catch {
+      if ($DevProcess.HasExited) { throw "Restore operator stopped early. Read $DevErr without copying private data into the recovery record." }
+      Start-Sleep -Seconds 1
+    }
+  }
+  if (-not $Ready) { throw 'Restore operator did not become ready.' }
+  while ($Response.outcome -ceq 'pending') {
+    Write-Host "RESTORE PENDING: $($Response.phase) index $($Response.itemIndex)"
+    $Response = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$Port/step" -Headers $Headers
+  }
+  if ($Response.outcome -cne 'complete' -or $Response.restoreId -cne $Manifest.runId) { throw 'Restore did not complete the selected verified set.' }
+  $ReportPath = Join-Path $RecoveryRoot 'restore-report.json'
+  $Response | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $ReportPath -Encoding utf8NoBOM
+  Write-Host "RESTORE COMPLETE: $($Response.restoreId)"
+  Write-Host "REPORT SAVED: $ReportPath"
+
+  $ForeignKeyOutput = & node $wrangler d1 execute $ScratchDatabase --remote --config $RestoreConfig --env '' --json '--command=PRAGMA foreign_key_check;' 2>&1
+  $ForeignKeyExit = $LASTEXITCODE
+  $ForeignKeyText = $ForeignKeyOutput -join "`n"
+  if ($ForeignKeyExit -ne 0) { throw 'Scratch foreign-key check failed.' }
+  $ForeignKeyJson = $ForeignKeyText | ConvertFrom-Json
+  $ForeignKeyRows = @($ForeignKeyJson | ForEach-Object { $_.results } | ForEach-Object { $_ })
+  if ($ForeignKeyRows.Count -ne 0) { throw 'Scratch foreign-key check returned violations.' }
+  $TriggerOutput = & node $wrangler d1 execute $ScratchDatabase --remote --config $RestoreConfig --env '' --json '--command=SELECT count(*) AS count FROM sqlite_schema WHERE type = ''trigger'';' 2>&1
+  if ($LASTEXITCODE -ne 0) { throw 'Scratch trigger check failed.' }
+  $CursorOutput = & node $wrangler d1 execute $ScratchDatabase --remote --config $RestoreConfig --env '' --json '--command=SELECT principal_id, cursor_name, current_event_sequence FROM memory_cursors ORDER BY principal_id, cursor_name;' 2>&1
+  if ($LASTEXITCODE -ne 0) { throw 'Scratch cursor check failed.' }
+  $CursorText = $CursorOutput -join "`n"
+  if ($CursorText -match 'summaries|fts_items|fts_episodes|embeddings|export') { throw 'Restore created a cursor that production does not maintain.' }
+
+  $FinalizeHeaders = @{ Authorization = "Bearer $OperatorToken"; 'X-Restore-Id' = $Response.restoreId }
+  $Finalized = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$Port/finalize" -Headers $FinalizeHeaders
+  if ($Finalized.outcome -cne 'finalized') { throw 'Restore completion receipt was not finalized.' }
+  Write-Host "SCRATCH RESTORE REHEARSAL OK: $($Response.restoreId)"
+} finally {
+  if (-not $DevProcess.HasExited) { Stop-Process -Id $DevProcess.Id }
+  $OperatorToken = $null
+  [Array]::Clear($OperatorTokenBytes, 0, $OperatorTokenBytes.Length)
+}
+```
+
+If the terminal, network, or Wrangler process dies at any point before
+`complete`, run the target checker again, restart the same operator against the
+same scratch config, and repeat `/step`. Do not recreate the database and do
+not manually recreate triggers. The D1 progress row resumes the exact set and
+rejects a different manifest.
+
+The repository still has no Vectorize writer. The response therefore records
+`vectorRebuild: "unavailable"`. Scratch rehearsal may complete with an empty
+vector ledger, but a real recovery must not be promoted until a reviewed writer
+proves the rebuilt D1 ledger and remote Vectorize index agree.
+
+## 6. Validate scratch and record only non-private evidence
+
+Keep the commit SHA, UTC time, scratch name, manifest run id, schema version,
+each `RESTORE PENDING` phase, the `RESTORE COMPLETE` line, the report path, the
+foreign-key/trigger/cursor command exit status, and the final rehearsal line.
+Do not record row contents, account identifiers, database ids, tokens, or
+private backup objects.
+
+Review every nonzero `shortfallRowCount` from the manifest. Compare the report's
+authoritative table counts with `exportedRowCount`, not `expectedRowCount`.
+Exercise literal retrieval and item/topic state through the scratch-bound
+application before any promotion decision.
+
+Only after this scratch rehearsal passes may the owner create a separate empty
+replacement D1 and repeat the same schema-limited, separately confirmed flow.
+The checker still refuses the current production database id. Swapping a
+binding, applying a production migration, deploying, changing secrets, or
+promoting the replacement is not part of this runbook.
+
+## 7. Delete the disposable scratch database
+
+After saving the rehearsal evidence, type the scratch name a third time and
+delete only that confirmed target. This is destructive and owner-attended.
+
+```powershell
+Write-Host "DELETE TARGET: $ScratchDatabase is the disposable rehearsal D1."
+$DeleteConfirmation = Read-Host 'Type the exact scratch name to delete it'
+if ($DeleteConfirmation -cne $ScratchDatabase) { throw 'Scratch deletion target was not confirmed.' }
+& node $wrangler d1 delete $ScratchDatabase --config $RestoreConfig --env ''
+if ($LASTEXITCODE -ne 0) { throw 'Scratch D1 deletion failed.' }
+Remove-Item -LiteralPath $RecoveryRoot -Recurse
+Write-Host "SCRATCH DELETE OK: $ScratchDatabase"
+```

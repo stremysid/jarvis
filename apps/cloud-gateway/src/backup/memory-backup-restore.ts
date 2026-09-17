@@ -36,11 +36,19 @@ export interface VerifiedMemoryBackupSet {
   readonly rowsByTable: RestoreRows;
 }
 
+export interface MemoryBackupRestorePointer {
+  readonly schemaVersion: "1.0";
+  readonly runDate: string;
+  readonly runId: string;
+  readonly manifestObjectKey: string;
+  readonly manifestSha256: string;
+}
+
 export interface MemoryBackupRestoreJobs {
-  /** Run the existing literal-history job until it reports complete. */
-  rebuildHistory(): Promise<void>;
-  /** Run the Vectorize writer until its D1 ledger and remote index agree. */
-  rebuildVectors(): Promise<void>;
+  /** Return false when one bounded literal-history step completed but more work remains. */
+  rebuildHistory(): Promise<void | boolean>;
+  /** Return false when one bounded Vectorize step completed but more work remains. */
+  rebuildVectors(): Promise<void | boolean>;
 }
 
 export interface MemoryBackupRestoreReport {
@@ -52,12 +60,56 @@ export interface MemoryBackupRestoreReport {
   readonly sealedThrough: number;
 }
 
+export type MemoryBackupRestorePhase =
+  | "drop_triggers"
+  | "reset_seeded_rows"
+  | "insert_rows"
+  | "rebuild_archive"
+  | "rebuild_item_state"
+  | "rebuild_placement_state"
+  | "rebuild_history"
+  | "rebuild_vectors"
+  | "rebuild_fts"
+  | "rebuild_cursors"
+  | "recreate_triggers"
+  | "verify"
+  | "complete";
+
+export type MemoryBackupRestoreStep =
+  | Readonly<{ outcome: "pending"; phase: MemoryBackupRestorePhase; itemIndex: number }>
+  | Readonly<{ outcome: "complete"; report: MemoryBackupRestoreReport }>;
+
 type RestoreRows = ReadonlyMap<string, readonly Record<string, unknown>[]>;
 
-interface SchemaNameRow {
-  name: string;
-  sql: string | null;
-}
+type RestoreMigration = string | Readonly<{ name: string; sql: string }>;
+
+const MIGRATION_SEEDED_ROWS = Object.freeze({
+  archive_state: Object.freeze([1]),
+  autonomy_mode: Object.freeze([1]),
+  capability_tiers: Object.freeze([
+    "contact.third_party",
+    "delete.data",
+    "notify.owner",
+    "open.application",
+    "read.archive",
+    "read.deadlines",
+    "read.repository",
+    "spend.money",
+    "vehicle.precondition",
+    "vehicle.unlock",
+    "write.calendar",
+    "write.production",
+    "write.project_file",
+  ]),
+  outbound_runtime_controls: Object.freeze([1]),
+} as const);
+
+const MIGRATION_SEEDED_KEYS = Object.freeze({
+  archive_state: "singleton",
+  autonomy_mode: "singleton",
+  capability_tiers: "capability",
+  outbound_runtime_controls: "singleton_id",
+} as const);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -119,6 +171,14 @@ export async function readLatestVerifiedMemoryBackup(
   } catch {
     throw new Error("memory_backup_restore_latest_invalid");
   }
+  return readVerifiedMemoryBackupByPointer(bucket, pointer);
+}
+
+/** Reads the exact pointer recorded by the operator even if latest.json advances. */
+export async function readVerifiedMemoryBackupByPointer(
+  bucket: MemoryBackupBucket,
+  pointer: unknown,
+): Promise<VerifiedMemoryBackupSet> {
   if (!isRecord(pointer) || pointer.schemaVersion !== "1.0"
     || typeof pointer.runDate !== "string" || typeof pointer.runId !== "string"
     || typeof pointer.manifestObjectKey !== "string"
@@ -170,85 +230,93 @@ function finalTriggerSql(migrations: readonly string[]): ReadonlyMap<string, str
   return triggers;
 }
 
-async function primaryKey(database: D1Database, table: string): Promise<readonly string[]> {
-  const info = await database.prepare(`PRAGMA table_info(${quoteIdentifier(table)})`)
-    .all<{ name: string; pk: number }>();
-  const columns = info.results.filter((column) => column.pk > 0)
-    .sort((left, right) => left.pk - right.pk).map((column) => column.name);
-  if (columns.length === 0) throw new Error(`memory_backup_restore_primary_key_missing:${table}`);
-  return columns;
+async function migrationSqlThrough(
+  database: D1Database,
+  schemaVersion: string,
+  migrations: readonly RestoreMigration[],
+): Promise<readonly string[]> {
+  const receipts = await database.prepare(
+    "SELECT name FROM d1_migrations ORDER BY id",
+  ).all<{ name: string }>();
+  if (receipts.results.at(-1)?.name !== schemaVersion) {
+    throw new Error("memory_backup_restore_schema_mismatch");
+  }
+  const named = migrations.every((migration) => typeof migration !== "string");
+  const unnamed = migrations.every((migration) => typeof migration === "string");
+  if (!named && !unnamed) throw new Error("memory_backup_restore_migrations_invalid");
+  if (unnamed) {
+    if (migrations.length < receipts.results.length) {
+      throw new Error("memory_backup_restore_migrations_missing");
+    }
+    return migrations.slice(0, receipts.results.length) as readonly string[];
+  }
+  const records = migrations as readonly Readonly<{ name: string; sql: string }>[];
+  const schemaIndex = records.findIndex(({ name }) => name === schemaVersion);
+  if (schemaIndex < 0) throw new Error("memory_backup_restore_migrations_missing");
+  const prefix = records.slice(0, schemaIndex + 1);
+  if (prefix.length !== receipts.results.length
+    || prefix.some(({ name }, index) => name !== receipts.results[index]?.name)) {
+    throw new Error("memory_backup_restore_migrations_invalid");
+  }
+  return prefix.map(({ sql }) => sql);
 }
 
-async function insertAuthoritativeRows(database: D1Database, rowsByTable: RestoreRows): Promise<void> {
-  const statements: D1PreparedStatement[] = [database.prepare("PRAGMA defer_foreign_keys = ON")];
-  for (const table of MEMORY_BACKUP_TABLES) {
-    if (table === "archive_state") continue;
-    const rows = rowsByTable.get(table) ?? [];
-    const keys = await primaryKey(database, table);
-    for (const row of rows) {
-      const columns = Object.keys(row);
-      const where = keys.map((column) => `${quoteIdentifier(column)} IS ?`).join(" AND ");
-      const existing = await database.prepare(`SELECT * FROM ${quoteIdentifier(table)} WHERE ${where}`)
-        .bind(...keys.map((column) => row[column])).first<Record<string, unknown>>();
-      if (existing !== null) {
-        if (canonicalJson(existing) !== canonicalJson(row)) {
-          throw new Error(`memory_backup_restore_target_not_fresh:${table}`);
-        }
-        continue;
-      }
-      statements.push(database.prepare(`INSERT INTO ${quoteIdentifier(table)} (
-        ${columns.map(quoteIdentifier).join(", ")}
-      ) VALUES (${columns.map(() => "?").join(", ")})`).bind(...columns.map((column) => row[column])));
+async function assertFreshRestoreTarget(database: D1Database): Promise<void> {
+  const counts = await database.batch(MEMORY_BACKUP_TABLES.map((table) =>
+    database.prepare(`SELECT count(*) AS row_count FROM ${quoteIdentifier(table)}`)));
+  for (let index = 0; index < MEMORY_BACKUP_TABLES.length; index += 1) {
+    const table = MEMORY_BACKUP_TABLES[index]!;
+    const count = (counts[index]?.results[0] as { row_count?: number } | undefined)?.row_count;
+    const allowed = MIGRATION_SEEDED_ROWS[table as keyof typeof MIGRATION_SEEDED_ROWS]?.length ?? 0;
+    if (count !== allowed) throw new Error(`memory_backup_restore_target_not_fresh:${table}`);
+  }
+  for (const [table, expected] of Object.entries(MIGRATION_SEEDED_ROWS)) {
+    const key = MIGRATION_SEEDED_KEYS[table as keyof typeof MIGRATION_SEEDED_KEYS];
+    const rows = await database.prepare(
+      `SELECT ${quoteIdentifier(key)} AS seed_key FROM ${quoteIdentifier(table)} ORDER BY ${quoteIdentifier(key)}`,
+    ).all<{ seed_key: string | number }>();
+    if (canonicalJson(rows.results.map(({ seed_key }) => seed_key)) !== canonicalJson(expected)) {
+      throw new Error(`memory_backup_restore_target_not_fresh:${table}`);
     }
   }
-  await database.batch(statements);
-  const foreignKeys = await database.prepare("PRAGMA foreign_key_check").all();
-  if (foreignKeys.results.length > 0) throw new Error("memory_backup_restore_foreign_key_check_failed");
-}
-
-async function recreateTriggers(
-  database: D1Database,
-  triggers: ReadonlyMap<string, string>,
-): Promise<void> {
-  for (const sql of triggers.values()) await database.prepare(sql).run();
 }
 
 async function rebuildArchiveMark(
   database: D1Database,
-  source: Record<string, unknown> | undefined,
 ): Promise<number> {
-  const manifests = await database.prepare(`SELECT manifest.end_sequence, manifest.sealed_at
-    FROM archive_manifests manifest
-    JOIN archive_segments segment ON segment.manifest_id = manifest.manifest_id
-    WHERE manifest.status = 'sealed'
-      AND (SELECT count(*) FROM archive_segment_events event
-        WHERE event.segment_id = segment.segment_id) = manifest.event_count
-      AND (SELECT min(event_sequence) FROM archive_segment_events event
-        WHERE event.segment_id = segment.segment_id) = manifest.start_sequence
-      AND (SELECT max(event_sequence) FROM archive_segment_events event
-        WHERE event.segment_id = segment.segment_id) = manifest.end_sequence
-    ORDER BY manifest.start_sequence`).all<{ end_sequence: number; sealed_at: string }>();
-  let sealedThrough = 0;
-  for (const manifest of manifests.results) {
-    const next = await database.prepare(`SELECT start_sequence FROM archive_manifests
-      WHERE end_sequence = ?`).bind(manifest.end_sequence).first<{ start_sequence: number }>();
-    if (next?.start_sequence !== sealedThrough + 1) break;
-    await database.prepare(`UPDATE archive_state SET sealed_through = ?, updated_at = ?
-      WHERE singleton = 1 AND sealed_through = ?`).bind(
-      manifest.end_sequence, manifest.sealed_at, sealedThrough,
-    ).run();
-    sealedThrough = manifest.end_sequence;
-  }
-  if (source?.circuit_state === "open") {
-    await database.prepare(`UPDATE archive_state SET circuit_state = 'open', circuit_reason = ?,
-      circuit_opened_at = ?, updated_at = max(updated_at, ?) WHERE singleton = 1`).bind(
-      source.circuit_reason, source.circuit_opened_at, source.updated_at,
-    ).run();
-  }
+  const contiguous = await database.prepare(`WITH RECURSIVE valid AS (
+      SELECT manifest.start_sequence, manifest.end_sequence, manifest.sealed_at
+      FROM archive_manifests manifest
+      JOIN archive_segments segment ON segment.manifest_id = manifest.manifest_id
+      WHERE manifest.status = 'sealed'
+        AND (SELECT count(*) FROM archive_segment_events event
+          WHERE event.segment_id = segment.segment_id) = manifest.event_count
+        AND (SELECT min(event_sequence) FROM archive_segment_events event
+          WHERE event.segment_id = segment.segment_id) = manifest.start_sequence
+        AND (SELECT max(event_sequence) FROM archive_segment_events event
+          WHERE event.segment_id = segment.segment_id) = manifest.end_sequence
+    ), chain(end_sequence, sealed_at) AS (
+      SELECT end_sequence, sealed_at FROM valid WHERE start_sequence = 1
+      UNION
+      SELECT next.end_sequence,
+        CASE WHEN next.sealed_at > chain.sealed_at THEN next.sealed_at ELSE chain.sealed_at END
+      FROM chain JOIN valid next ON next.start_sequence = chain.end_sequence + 1
+    )
+    SELECT end_sequence, sealed_at FROM chain ORDER BY end_sequence DESC LIMIT 1`)
+    .first<{ end_sequence: number; sealed_at: string }>();
+  const sealedThrough = contiguous?.end_sequence ?? 0;
+  const source = await database.prepare(`SELECT updated_at FROM archive_state WHERE singleton = 1`)
+    .first<{ updated_at: string }>();
+  await database.prepare(`UPDATE archive_state SET sealed_through = ?, updated_at = ?
+    WHERE singleton = 1`).bind(
+    sealedThrough,
+    contiguous?.sealed_at ?? source?.updated_at ?? "1970-01-01T00:00:00.000Z",
+  ).run();
   return sealedThrough;
 }
 
 async function rebuildItemState(database: D1Database): Promise<number> {
+  await database.prepare("DELETE FROM memory_item_state").run();
   const result = await database.prepare(`INSERT INTO memory_item_state (
     principal_id, item_id, current_version_id, lifecycle_state,
     last_transition_id, last_transition_number, updated_at
@@ -266,6 +334,7 @@ async function rebuildItemState(database: D1Database): Promise<number> {
 }
 
 async function rebuildPlacementState(database: D1Database): Promise<number> {
+  await database.prepare("DELETE FROM memory_item_placement_state").run();
   const result = await database.prepare(`INSERT INTO memory_item_placement_state (
     principal_id, placement_id, item_id, topic_id, relation, status,
     last_event_kind, last_event_id, last_placement_event_number, updated_at
@@ -335,40 +404,47 @@ async function rebuildFts(database: D1Database): Promise<void> {
 
 async function rebuildCursors(database: D1Database): Promise<number> {
   const sources = [
-    `SELECT principal_id, 'distillation' AS cursor_name,
-      max(event_sequence) AS current_event_sequence, max(recorded_at) AS updated_at
-      FROM memory_distillation_event_receipts GROUP BY principal_id`,
-    `SELECT principal_id, 'summaries' AS cursor_name,
-      max(end_event_sequence) AS current_event_sequence, max(created_at) AS updated_at
-      FROM memory_episodes GROUP BY principal_id`,
-    `SELECT principal_id, 'fts_items' AS cursor_name,
-      max(event_sequence) AS current_event_sequence, max(created_at) AS updated_at
-      FROM memory_item_sources GROUP BY principal_id`,
-    `SELECT principal_id, 'fts_episodes' AS cursor_name,
-      max(event_sequence) AS current_event_sequence, max(occurred_at) AS updated_at
-      FROM memory_episode_sources GROUP BY principal_id`,
+    `WITH RECURSIVE valid AS (
+      SELECT run.principal_id, run.start_event_sequence, run.end_event_sequence,
+        coalesce(run.completed_at, run.started_at) AS updated_at
+      FROM memory_runs run
+      WHERE run.job = 'distillation'
+        AND run.outcome IN ('succeeded', 'nothing_new')
+        AND run.start_event_sequence IS NOT NULL
+        AND run.end_event_sequence IS NOT NULL
+        AND run.input_event_count = run.end_event_sequence - run.start_event_sequence + 1
+        AND run.input_event_count = (
+          SELECT count(*) FROM memory_distillation_event_receipts receipt
+          WHERE receipt.principal_id = run.principal_id AND receipt.run_id = run.run_id
+        )
+        AND run.created_item_count = (
+          SELECT coalesce(sum(receipt.created_in_run), 0)
+          FROM memory_distillation_item_receipts receipt
+          WHERE receipt.principal_id = run.principal_id AND receipt.run_id = run.run_id
+        )
+        AND ((run.outcome = 'succeeded' AND EXISTS (
+          SELECT 1 FROM memory_distillation_item_receipts receipt
+          WHERE receipt.principal_id = run.principal_id AND receipt.run_id = run.run_id
+        )) OR (run.outcome = 'nothing_new' AND NOT EXISTS (
+          SELECT 1 FROM memory_distillation_item_receipts receipt
+          WHERE receipt.principal_id = run.principal_id AND receipt.run_id = run.run_id
+        )))
+    ), chain(principal_id, end_event_sequence, updated_at) AS (
+      SELECT principal_id, end_event_sequence, updated_at
+      FROM valid WHERE start_event_sequence = 1
+      UNION
+      SELECT next.principal_id, next.end_event_sequence,
+        CASE WHEN next.updated_at > chain.updated_at THEN next.updated_at ELSE chain.updated_at END
+      FROM chain JOIN valid next
+        ON next.principal_id = chain.principal_id
+        AND next.start_event_sequence = chain.end_event_sequence + 1
+    )
+    SELECT principal_id, 'distillation' AS cursor_name,
+      max(end_event_sequence) AS current_event_sequence, max(updated_at) AS updated_at
+    FROM chain GROUP BY principal_id`,
     `SELECT principal_id, 'fts_history' AS cursor_name,
       max(end_event_sequence) AS current_event_sequence, max(indexed_at) AS updated_at
       FROM memory_history_coverage GROUP BY principal_id`,
-    `SELECT vector.principal_id, 'embeddings' AS cursor_name, max(CASE vector.item_kind
-      WHEN 'item' THEN (SELECT max(source.event_sequence)
-        FROM memory_item_versions version
-        JOIN memory_item_sources source
-          ON source.principal_id = version.principal_id AND source.version_id = version.version_id
-        WHERE version.principal_id = vector.principal_id
-          AND version.item_id = vector.item_id AND version.text_hash = vector.content_hash)
-      WHEN 'episode' THEN (SELECT episode.end_event_sequence FROM memory_episodes episode
-        WHERE episode.principal_id = vector.principal_id AND episode.episode_id = vector.item_id
-          AND episode.content_hash = vector.content_hash)
-      WHEN 'history_chunk' THEN (SELECT chunk.end_event_sequence FROM memory_history_chunks chunk
-        WHERE chunk.principal_id = vector.principal_id AND chunk.chunk_id = vector.item_id
-          AND chunk.content_hash = vector.content_hash)
-    END) AS current_event_sequence, max(vector.upserted_at) AS updated_at
-      FROM memory_vectors vector WHERE vector.deleted_at IS NULL GROUP BY vector.principal_id`,
-    `SELECT principal_id, 'export' AS cursor_name,
-      max(end_sequence) AS current_event_sequence, max(sealed_at) AS updated_at
-    FROM archive_manifests CROSS JOIN principals
-      WHERE principal_type = 'human' GROUP BY principal_id`,
   ] as const;
   let changes = 0;
   for (const source of sources) {
@@ -393,25 +469,10 @@ async function rebuildCursors(database: D1Database): Promise<number> {
       .first<{ count: number }>();
     if ((mismatch?.count ?? 0) > 0) throw new Error("memory_backup_restore_cursor_rebuild_mismatch");
   }
+  const unexpected = await database.prepare(`SELECT count(*) AS count FROM memory_cursors
+    WHERE cursor_name NOT IN ('distillation', 'fts_history')`).first<{ count: number }>();
+  if ((unexpected?.count ?? 0) > 0) throw new Error("memory_backup_restore_cursor_name_invalid");
   return changes;
-}
-
-async function suspendDerivedStateGuards(
-  database: D1Database,
-  triggers: ReadonlyMap<string, string>,
-): Promise<() => Promise<void>> {
-  const names = [
-    "memory_item_state_insert_guard",
-    "memory_item_placement_state_insert_guard",
-  ] as const;
-  for (const name of names) await database.prepare(`DROP TRIGGER ${name}`).run();
-  return async () => {
-    for (const name of names) {
-      const sql = triggers.get(name);
-      if (sql === undefined) throw new Error(`memory_backup_restore_trigger_missing:${name}`);
-      await database.prepare(sql).run();
-    }
-  };
 }
 
 async function assertAuthoritativeCounts(database: D1Database, rowsByTable: RestoreRows): Promise<void> {
@@ -462,72 +523,280 @@ export async function readVerifiedMemoryBackupRows(
   return rows;
 }
 
-/**
- * Restores an already verified set into a database that has just received all
- * migrations. Trigger definitions come from those migration files, never from
- * the backup set or the mutable target schema.
- */
-export async function restoreVerifiedMemoryBackupRows(options: Readonly<{
+export interface MemoryBackupRestoreOptions {
   database: D1Database;
   databaseSchemaVersion: string;
   rowsByTable: RestoreRows;
-  migrationSql: readonly string[];
+  migrationSql: readonly RestoreMigration[];
   jobs: MemoryBackupRestoreJobs;
   shortfalls?: Readonly<Record<string, number>>;
-}>): Promise<MemoryBackupRestoreReport> {
-  const schemaVersion = await options.database.prepare(
-    "SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1",
-  ).first<{ name: string }>();
-  if (schemaVersion === null) throw new Error("memory_backup_restore_migrations_missing");
-  if (schemaVersion.name !== options.databaseSchemaVersion) {
-    throw new Error("memory_backup_restore_schema_mismatch");
+  /** The verified manifest run id. Tests without a manifest derive a content hash. */
+  restoreId?: string;
+  /** Mutation statements per continuation. The preflight is read-only and bounded separately. */
+  maxStatementsPerStep?: number;
+}
+
+interface RestoreProgressRow {
+  restore_id: string;
+  set_hash: string;
+  schema_version: string;
+  phase: MemoryBackupRestorePhase;
+  item_index: number;
+  sealed_through: number;
+  rebuilt_item_states: number;
+  rebuilt_placement_states: number;
+  rebuilt_cursors: number;
+}
+
+const RESTORE_PROGRESS_TABLE = "memory_backup_restore_progress";
+
+function requireStepLimit(value: number): void {
+  if (!Number.isSafeInteger(value) || value < 8 || value > 128) {
+    throw new RangeError("memory_backup_restore_step_limit_invalid");
   }
-  const triggerSql = finalTriggerSql(options.migrationSql);
-  const liveTriggers = await options.database.prepare(
-    "SELECT name, sql FROM sqlite_schema WHERE type = 'trigger' ORDER BY name",
-  ).all<SchemaNameRow>();
-  if (liveTriggers.results.some(({ name }) => !triggerSql.has(name))) {
+}
+
+async function restoreSetHash(options: MemoryBackupRestoreOptions): Promise<string> {
+  return sha256Hex(canonicalJson({
+    databaseSchemaVersion: options.databaseSchemaVersion,
+    rows: MEMORY_BACKUP_TABLES.map((table) => [table, options.rowsByTable.get(table) ?? []]),
+    shortfalls: options.shortfalls ?? {},
+  }));
+}
+
+async function readRestoreProgress(database: D1Database): Promise<RestoreProgressRow | null> {
+  const exists = await database.prepare(`SELECT name FROM sqlite_schema
+    WHERE type = 'table' AND name = ?`).bind(RESTORE_PROGRESS_TABLE).first<{ name: string }>();
+  if (exists === null) return null;
+  const progress = await database.prepare(`SELECT restore_id, set_hash, schema_version, phase,
+    item_index, sealed_through, rebuilt_item_states, rebuilt_placement_states, rebuilt_cursors
+    FROM ${RESTORE_PROGRESS_TABLE} WHERE singleton = 1`).first<RestoreProgressRow>();
+  if (progress === null) throw new Error("memory_backup_restore_progress_invalid");
+  return progress;
+}
+
+async function initializeRestoreProgress(
+  options: MemoryBackupRestoreOptions,
+  restoreId: string,
+  setHash: string,
+  triggers: ReadonlyMap<string, string>,
+): Promise<RestoreProgressRow> {
+  await assertFreshRestoreTarget(options.database);
+  const live = await options.database.prepare(
+    "SELECT name FROM sqlite_schema WHERE type = 'trigger' ORDER BY name",
+  ).all<{ name: string }>();
+  const liveNames = new Set(live.results.map(({ name }) => name));
+  if (liveNames.size !== triggers.size || [...triggers.keys()].some((name) => !liveNames.has(name))) {
     throw new Error("memory_backup_restore_trigger_classification_invalid");
   }
-  for (const trigger of liveTriggers.results) {
-    await options.database.prepare(`DROP TRIGGER ${quoteIdentifier(trigger.name)}`).run();
-  }
-  try {
-    await insertAuthoritativeRows(options.database, options.rowsByTable);
-  } catch (error) {
-    await recreateTriggers(options.database, triggerSql);
-    throw error;
-  }
-  await recreateTriggers(options.database, triggerSql);
-  const sealedThrough = await rebuildArchiveMark(
-    options.database,
-    options.rowsByTable.get("archive_state")?.[0],
-  );
-  const restoreStateGuards = await suspendDerivedStateGuards(options.database, triggerSql);
-  let rebuiltItemStates: number;
-  let rebuiltPlacementStates: number;
-  try {
-    rebuiltItemStates = await rebuildItemState(options.database);
-    rebuiltPlacementStates = await rebuildPlacementState(options.database);
-  } finally {
-    await restoreStateGuards();
-  }
-  await options.jobs.rebuildHistory();
-  await options.jobs.rebuildVectors();
-  await rebuildFts(options.database);
-  const rebuiltCursors = await rebuildCursors(options.database);
-  await assertAuthoritativeCounts(options.database, options.rowsByTable);
-  const foreignKeys = await options.database.prepare("PRAGMA foreign_key_check").all();
-  if (foreignKeys.results.length > 0) throw new Error("memory_backup_restore_foreign_key_check_failed");
-  const restoredRows = Object.fromEntries(MEMORY_BACKUP_TABLES.map((table) => [
-    table, table === "archive_state" ? 1 : (options.rowsByTable.get(table)?.length ?? 0),
-  ]));
+  await options.database.batch([
+    options.database.prepare(`CREATE TABLE ${RESTORE_PROGRESS_TABLE} (
+      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+      restore_id TEXT NOT NULL,
+      set_hash TEXT NOT NULL CHECK (length(set_hash) = 64 AND set_hash NOT GLOB '*[^0-9a-f]*'),
+      schema_version TEXT NOT NULL,
+      phase TEXT NOT NULL CHECK (phase IN (
+        'drop_triggers', 'reset_seeded_rows', 'insert_rows', 'rebuild_archive',
+        'rebuild_item_state', 'rebuild_placement_state', 'rebuild_history',
+        'rebuild_vectors', 'rebuild_fts', 'rebuild_cursors', 'recreate_triggers',
+        'verify', 'complete'
+      )),
+      item_index INTEGER NOT NULL CHECK (item_index >= 0),
+      sealed_through INTEGER NOT NULL CHECK (sealed_through >= 0),
+      rebuilt_item_states INTEGER NOT NULL CHECK (rebuilt_item_states >= 0),
+      rebuilt_placement_states INTEGER NOT NULL CHECK (rebuilt_placement_states >= 0),
+      rebuilt_cursors INTEGER NOT NULL CHECK (rebuilt_cursors >= 0)
+    ) STRICT`),
+    options.database.prepare(`INSERT INTO ${RESTORE_PROGRESS_TABLE} (
+      singleton, restore_id, set_hash, schema_version, phase, item_index,
+      sealed_through, rebuilt_item_states, rebuilt_placement_states, rebuilt_cursors
+    ) VALUES (1, ?, ?, ?, 'drop_triggers', 0, 0, 0, 0, 0)`)
+      .bind(restoreId, setHash, options.databaseSchemaVersion),
+  ]);
+  const progress = await readRestoreProgress(options.database);
+  if (progress === null) throw new Error("memory_backup_restore_progress_invalid");
+  return progress;
+}
+
+function restoredRows(options: MemoryBackupRestoreOptions): Readonly<Record<string, number>> {
+  return Object.freeze(Object.fromEntries(MEMORY_BACKUP_TABLES.map((table) => [
+    table, options.rowsByTable.get(table)?.length ?? 0,
+  ])));
+}
+
+function restoreReport(
+  options: MemoryBackupRestoreOptions,
+  progress: RestoreProgressRow,
+): MemoryBackupRestoreReport {
   return Object.freeze({
-    restoredRows: Object.freeze(restoredRows),
+    restoredRows: restoredRows(options),
     shortfalls: Object.freeze({ ...(options.shortfalls ?? {}) }),
-    rebuiltItemStates,
-    rebuiltPlacementStates,
-    rebuiltCursors,
-    sealedThrough,
+    rebuiltItemStates: progress.rebuilt_item_states,
+    rebuiltPlacementStates: progress.rebuilt_placement_states,
+    rebuiltCursors: progress.rebuilt_cursors,
+    sealedThrough: progress.sealed_through,
   });
+}
+
+async function advanceProgress(
+  database: D1Database,
+  phase: MemoryBackupRestorePhase,
+  itemIndex = 0,
+  assignments = "",
+  bindings: readonly unknown[] = [],
+): Promise<void> {
+  await database.prepare(`UPDATE ${RESTORE_PROGRESS_TABLE}
+    SET phase = ?, item_index = ?${assignments} WHERE singleton = 1`)
+    .bind(phase, itemIndex, ...bindings).run();
+}
+
+function authoritativeRows(options: MemoryBackupRestoreOptions): readonly Readonly<{
+  table: MemoryBackupTableName;
+  row: Record<string, unknown>;
+}>[] {
+  return MEMORY_BACKUP_TABLES.flatMap((table) =>
+    (options.rowsByTable.get(table) ?? []).map((row) => Object.freeze({ table, row })));
+}
+
+/**
+ * Performs one durable restore step. Every mutation page is capped at 128
+ * statements, and the progress row makes a killed invocation safe to rerun.
+ */
+export async function continueVerifiedMemoryBackupRestore(
+  options: Readonly<MemoryBackupRestoreOptions>,
+): Promise<MemoryBackupRestoreStep> {
+  const limit = options.maxStatementsPerStep ?? 64;
+  requireStepLimit(limit);
+  const selectedMigrations = await migrationSqlThrough(
+    options.database, options.databaseSchemaVersion, options.migrationSql,
+  );
+  const triggers = finalTriggerSql(selectedMigrations);
+  const setHash = await restoreSetHash(options);
+  const restoreId = options.restoreId ?? setHash;
+  let progress = await readRestoreProgress(options.database)
+    ?? await initializeRestoreProgress(options, restoreId, setHash, triggers);
+  if (progress.restore_id !== restoreId || progress.set_hash !== setHash
+    || progress.schema_version !== options.databaseSchemaVersion) {
+    throw new Error("memory_backup_restore_progress_mismatch");
+  }
+  const triggerEntries = [...triggers.entries()];
+  if (progress.phase === "drop_triggers") {
+    const page = triggerEntries.slice(progress.item_index, progress.item_index + limit - 1);
+    const nextIndex = progress.item_index + page.length;
+    const nextPhase = nextIndex === triggerEntries.length ? "reset_seeded_rows" : "drop_triggers";
+    await options.database.batch([
+      ...page.map(([name]) => options.database.prepare(`DROP TRIGGER IF EXISTS ${quoteIdentifier(name)}`)),
+      options.database.prepare(`UPDATE ${RESTORE_PROGRESS_TABLE} SET phase = ?, item_index = ?
+        WHERE singleton = 1`).bind(nextPhase, nextPhase === "drop_triggers" ? nextIndex : 0),
+    ]);
+  } else if (progress.phase === "reset_seeded_rows") {
+    await options.database.batch([
+      ...Object.keys(MIGRATION_SEEDED_ROWS).reverse()
+        .map((table) => options.database.prepare(`DELETE FROM ${quoteIdentifier(table)}`)),
+      options.database.prepare(`UPDATE ${RESTORE_PROGRESS_TABLE}
+        SET phase = 'insert_rows', item_index = 0 WHERE singleton = 1`),
+    ]);
+  } else if (progress.phase === "insert_rows") {
+    const rows = authoritativeRows(options);
+    const page = rows.slice(progress.item_index, progress.item_index + limit - 2);
+    const nextIndex = progress.item_index + page.length;
+    const nextPhase = nextIndex === rows.length ? "rebuild_archive" : "insert_rows";
+    await options.database.batch([
+      options.database.prepare("PRAGMA defer_foreign_keys = ON"),
+      ...page.map(({ table, row }) => {
+        const columns = Object.keys(row);
+        return options.database.prepare(`INSERT INTO ${quoteIdentifier(table)} (
+          ${columns.map(quoteIdentifier).join(", ")}
+        ) VALUES (${columns.map(() => "?").join(", ")})`)
+          .bind(...columns.map((column) => row[column]));
+      }),
+      options.database.prepare(`UPDATE ${RESTORE_PROGRESS_TABLE} SET phase = ?, item_index = ?
+        WHERE singleton = 1`).bind(nextPhase, nextPhase === "insert_rows" ? nextIndex : 0),
+    ]);
+  } else if (progress.phase === "rebuild_archive") {
+    const sealedThrough = await rebuildArchiveMark(options.database);
+    await advanceProgress(
+      options.database, "rebuild_item_state", 0, ", sealed_through = ?", [sealedThrough],
+    );
+  } else if (progress.phase === "rebuild_item_state") {
+    const count = await rebuildItemState(options.database);
+    await advanceProgress(
+      options.database, "rebuild_placement_state", 0, ", rebuilt_item_states = ?", [count],
+    );
+  } else if (progress.phase === "rebuild_placement_state") {
+    const count = await rebuildPlacementState(options.database);
+    await advanceProgress(
+      options.database, "rebuild_history", 0, ", rebuilt_placement_states = ?", [count],
+    );
+  } else if (progress.phase === "rebuild_history") {
+    const complete = await options.jobs.rebuildHistory();
+    if (complete !== false) await advanceProgress(options.database, "rebuild_vectors");
+  } else if (progress.phase === "rebuild_vectors") {
+    const complete = await options.jobs.rebuildVectors();
+    if (complete !== false) await advanceProgress(options.database, "rebuild_fts");
+  } else if (progress.phase === "rebuild_fts") {
+    await rebuildFts(options.database);
+    await advanceProgress(options.database, "rebuild_cursors");
+  } else if (progress.phase === "rebuild_cursors") {
+    const count = await rebuildCursors(options.database);
+    await advanceProgress(
+      options.database, "recreate_triggers", 0, ", rebuilt_cursors = ?", [count],
+    );
+  } else if (progress.phase === "recreate_triggers") {
+    const page = triggerEntries.slice(progress.item_index, progress.item_index + limit - 1);
+    const nextIndex = progress.item_index + page.length;
+    const nextPhase = nextIndex === triggerEntries.length ? "verify" : "recreate_triggers";
+    await options.database.batch([
+      ...page.map(([, sql]) => options.database.prepare(sql)),
+      options.database.prepare(`UPDATE ${RESTORE_PROGRESS_TABLE} SET phase = ?, item_index = ?
+        WHERE singleton = 1`).bind(nextPhase, nextPhase === "recreate_triggers" ? nextIndex : 0),
+    ]);
+  } else if (progress.phase === "verify") {
+    await assertAuthoritativeCounts(options.database, options.rowsByTable);
+    const foreignKeys = await options.database.prepare("PRAGMA foreign_key_check").all();
+    if (foreignKeys.results.length > 0) throw new Error("memory_backup_restore_foreign_key_check_failed");
+    const live = await options.database.prepare(
+      "SELECT name FROM sqlite_schema WHERE type = 'trigger'",
+    ).all<{ name: string }>();
+    const liveNames = new Set(live.results.map(({ name }) => name));
+    if (liveNames.size !== triggers.size || [...triggers.keys()].some((name) => !liveNames.has(name))) {
+      throw new Error("memory_backup_restore_trigger_rebuild_mismatch");
+    }
+    await advanceProgress(options.database, "complete");
+  }
+  progress = await readRestoreProgress(options.database) ?? progress;
+  return progress.phase === "complete"
+    ? Object.freeze({ outcome: "complete", report: restoreReport(options, progress) })
+    : Object.freeze({ outcome: "pending", phase: progress.phase, itemIndex: progress.item_index });
+}
+
+/** Removes the operator receipt only after its completed report has been saved. */
+export async function finalizeVerifiedMemoryBackupRestore(
+  database: D1Database,
+  restoreId: string,
+): Promise<void> {
+  const progress = await readRestoreProgress(database);
+  if (progress === null || progress.phase !== "complete" || progress.restore_id !== restoreId) {
+    throw new Error("memory_backup_restore_not_complete");
+  }
+  await database.prepare(`DROP TABLE ${RESTORE_PROGRESS_TABLE}`).run();
+}
+
+/**
+ * Test and in-Worker convenience wrapper. Operators use the bounded continuation
+ * above and keep the completion receipt until they have saved the report.
+ */
+export async function restoreVerifiedMemoryBackupRows(
+  options: Readonly<MemoryBackupRestoreOptions>,
+): Promise<MemoryBackupRestoreReport> {
+  const setHash = await restoreSetHash(options);
+  const restoreId = options.restoreId ?? setHash;
+  for (let step = 0; step < 10_000; step += 1) {
+    const outcome = await continueVerifiedMemoryBackupRestore({ ...options, restoreId });
+    if (outcome.outcome === "complete") {
+      await finalizeVerifiedMemoryBackupRestore(options.database, restoreId);
+      return outcome.report;
+    }
+  }
+  throw new Error("memory_backup_restore_did_not_complete");
 }
