@@ -33,6 +33,7 @@ import {
   AUTOMATIC_DISTILLATION_STEP_LIMITS,
   AUTOMATIC_INBOX_REFILE_D1_STATEMENT_CEILING,
   AutomaticMemoryDistillationWorkflow,
+  automaticDistillationStepD1StatementCeiling,
 } from "../memory/automatic-distillation.js";
 import { MemoryRepository } from "../memory/memory-repository.js";
 import {
@@ -510,14 +511,20 @@ async function distilMemory(
       stoppedByWallClock = true;
       break;
     }
-    if (step > 0
-      && chargedD1Statements + AUTOMATIC_DISTILLATION_STEP_LIMITS.d1Statements + providerD1Ceiling
-        + AUTOMATIC_INBOX_REFILE_D1_STATEMENT_CEILING
-        > MEMORY_DISTILLATION_D1_STATEMENT_ALLOWANCE) {
-      stoppedByD1Allowance = true;
-      break;
+    let proposalCap = AUTOMATIC_DISTILLATION_STEP_LIMITS.proposalsAccepted;
+    if (step > 0) {
+      const availableForStep = MEMORY_DISTILLATION_D1_STATEMENT_ALLOWANCE - chargedD1Statements
+        - providerD1Ceiling - AUTOMATIC_INBOX_REFILE_D1_STATEMENT_CEILING;
+      while (proposalCap > 0
+        && automaticDistillationStepD1StatementCeiling(proposalCap) > availableForStep) {
+        proposalCap -= 1;
+      }
+      if (proposalCap < 1) {
+        stoppedByD1Allowance = true;
+        break;
+      }
     }
-    const result = await workflow.runNext({ runKey: `${runKey}:${step}` });
+    const result = await workflow.runNext({ runKey: `${runKey}:${step}`, proposalCap });
     lastResult = result;
     stepCount += 1;
     createdItemCount += result.createdItemCount;

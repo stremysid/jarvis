@@ -275,6 +275,14 @@ interface InboxRefilingRow {
   readonly last_placement_event_number: unknown;
   readonly confidence: unknown;
   readonly reason: unknown;
+  readonly updated_at: unknown;
+}
+
+interface AutomaticTopicHintRow {
+  readonly top_topic_id: unknown;
+  readonly top_name: unknown;
+  readonly child_topic_id: unknown;
+  readonly child_name: unknown;
 }
 
 interface PreviousLifecycleRow {
@@ -329,6 +337,12 @@ interface SourceReceiptExpectation {
   readonly excerpt: string;
   readonly channel: MemorySourceChannel;
   readonly occurredAt: string;
+}
+
+interface ValidatedBatchedReceipt {
+  readonly envelope: Awaited<ReturnType<typeof validateEnvelope>>;
+  readonly sourceLocation: MemorySourceLocation;
+  readonly r2SegmentId: Sha256Hex | null;
 }
 
 interface CapturedInput {
@@ -397,6 +411,7 @@ const AUTOMATIC_TOPIC_CHILD_LIMIT = 40;
 const AUTOMATIC_INBOX_REFILE_LIMIT = 10;
 const AUTOMATIC_INBOX_REFILE_CANDIDATE_LIMIT = 100;
 const AUTOMATIC_TOPIC_COMPONENT_BYTES = 64;
+export const AUTOMATIC_TOPIC_PROMPT_TREE_BYTES = 4_096;
 const AUTOMATIC_FILING_REASON_PREFIX = "automatic filing v1 ";
 const AUTOMATIC_FILING_EVIDENCE = "verified item sources";
 const repositoryTestSeams = new WeakMap<MemoryRepository, Readonly<{
@@ -577,7 +592,19 @@ interface AutomaticCommitPlan {
 }
 
 function foldedTopicName(displayName: string): string {
-  return displayName.normalize("NFKC").toLocaleLowerCase("en-US");
+  return displayName.normalize("NFKC")
+    .replace(/\p{Default_Ignorable_Code_Point}/gu, "")
+    .toLocaleLowerCase("en-US");
+}
+
+function hasForbiddenAutomaticTopicDisplayControl(displayName: string): boolean {
+  for (const character of displayName) {
+    if (character === "\u200d") continue;
+    const codePoint = character.codePointAt(0);
+    if (/\p{Cf}/u.test(character)
+      || (codePoint !== undefined && codePoint >= 0xe0000 && codePoint <= 0xe007f)) return true;
+  }
+  return false;
 }
 
 function payloadContainsExactExcerpt(payload: JsonValue, excerpt: string): boolean {
@@ -628,6 +655,8 @@ export function normalizeAutomaticTopicPath(
     || value.length < 1 || value.length > AUTOMATIC_TOPIC_DEPTH_LIMIT + 1) return null;
   const keys = Object.keys(value);
   if (keys.length !== value.length || keys.some((key, index) => key !== String(index))) return null;
+  if (value.some((component) => typeof component === "string"
+    && hasForbiddenAutomaticTopicDisplayControl(component.normalize("NFC")))) return null;
   let components: Array<{ readonly display: string; readonly normalized: string }>;
   try {
     components = value.map(topicComponent);
@@ -647,10 +676,13 @@ export function normalizeAutomaticTopicPath(
     foldedTopicName(inboxDisplayName),
   ]);
   for (const component of components) {
-    if (utf8.encode(component.display).byteLength > AUTOMATIC_TOPIC_COMPONENT_BYTES
-      || /[>/]/u.test(component.display)
-      || /\p{Cf}/u.test(component.display)
-      || /[\u2028\u2029]/u.test(component.display)
+    const folded = foldedTopicName(component.display);
+    if (folded.length === 0
+      || utf8.encode(component.display).byteLength > AUTOMATIC_TOPIC_COMPONENT_BYTES
+      || hasForbiddenAutomaticTopicDisplayControl(component.display)
+      || /[>/]/u.test(folded)
+      || /\p{Cf}/u.test(folded)
+      || /[\u2028\u2029]/u.test(folded)
       || inboxNames.has(foldedTopicName(component.display))) return null;
   }
   return Object.freeze(components.map((component) => component.display));
@@ -1004,11 +1036,15 @@ export class MemoryRepository {
     });
   }
 
-  async commitInitialItem(input: CommitInitialMemoryInput): Promise<CommitInitialMemoryResult> {
+  async commitInitialItem(
+    input: CommitInitialMemoryInput,
+    onAutomaticFilingPreparation?: () => void,
+  ): Promise<CommitInitialMemoryResult> {
     return this.safely(async () => {
       const captured = captureInput(input);
       await this.validateHashes(captured);
       await this.requireActivePrincipal(captured.principalId);
+      if (captured.automaticFiling !== null) onAutomaticFilingPreparation?.();
       let plan = await this.prepareAutomaticCommit(captured);
       const replay = await this.inspectReplay(plan.input);
       if (replay === "exact") {
@@ -1022,7 +1058,10 @@ export class MemoryRepository {
 
       let lastError: unknown;
       for (let attempt = 1; attempt <= this.maximumWriteAttempts; attempt += 1) {
-        if (attempt > 1) plan = await this.prepareAutomaticCommit(captured);
+        if (attempt > 1) {
+          if (captured.automaticFiling !== null) onAutomaticFilingPreparation?.();
+          plan = await this.prepareAutomaticCommit(captured);
+        }
         await this.validateSourceReceipts(captured);
         if (plan.topicStatements.length === 0) {
           await this.requireActiveTopic(captured.principalId, plan.input.placement.topicId);
@@ -1176,10 +1215,12 @@ export class MemoryRepository {
       const statements = itemIds.flatMap((itemId) => this.retrievalItemStatements(principalId, itemId));
       const batch = await this.database.batch(statements);
       if (batch.length !== statements.length) corrupt();
-      const selected: RetrievalMemoryItem[] = [];
       const statementsPerItem = 8;
-      for (let index = 0; index < itemIds.length; index += 1) {
-        const itemId = itemIds[index]!;
+      const receiptCache = new Map<string, Promise<ValidatedBatchedReceipt>>();
+      const selected = await Promise.all(itemIds.map(async (
+        itemId,
+        index,
+      ): Promise<RetrievalMemoryItem | null> => {
         const offset = index * statementsPerItem;
         const resultAt = (statementOffset: number): readonly Record<string, unknown>[] => {
           const result = batch[offset + statementOffset];
@@ -1189,7 +1230,7 @@ export class MemoryRepository {
         const canonicalRows = resultAt(0) as unknown as readonly CanonicalRow[];
         const partialRows = resultAt(1) as unknown as readonly ItemRow[];
         if (canonicalRows.length === 0) {
-          if (partialRows.length === 0) continue;
+          if (partialRows.length === 0) return null;
           if (partialRows.length !== 1) corrupt();
           const partial = partialRows[0]!;
           exactRow(partial, itemFields);
@@ -1217,6 +1258,7 @@ export class MemoryRepository {
               eventId,
               eventSequence,
               null,
+              receiptCache,
             );
           } catch (error) {
             if (error instanceof MemoryRepositoryError && error.code === "memory_refused") corrupt();
@@ -1242,6 +1284,7 @@ export class MemoryRepository {
               eventId,
               eventSequence,
               source,
+              receiptCache,
             );
           },
         );
@@ -1265,7 +1308,7 @@ export class MemoryRepository {
             return rowUlid(row.source_id);
           });
         if (new Set(suppressedSourceIds).size !== suppressedSourceIds.length) corrupt();
-        selected.push(Object.freeze({
+        return Object.freeze({
           item: Object.freeze({
             ...canonical,
             sources: Object.freeze(sources),
@@ -1276,9 +1319,9 @@ export class MemoryRepository {
             creationEventSuppressed: rowInteger(visibility.creation_event_suppressed, 0, 1) === 1,
             suppressedSourceIds: Object.freeze(suppressedSourceIds),
           }),
-        }));
-      }
-      return Object.freeze(selected);
+        });
+      }));
+      return Object.freeze(selected.filter((entry): entry is RetrievalMemoryItem => entry !== null));
     });
   }
 
@@ -1509,6 +1552,81 @@ export class MemoryRepository {
     });
   }
 
+  async readAutomaticTopicPromptTree(
+    principalIdInput: string,
+  ): Promise<readonly (readonly [string, readonly string[]])[]> {
+    return this.safely(async () => {
+      const principalId = safeInputText(principalIdInput, 256);
+      const rows = await this.database.prepare(`SELECT
+          top.topic_id AS top_topic_id, top.display_name AS top_name,
+          child.topic_id AS child_topic_id, child.display_name AS child_name
+        FROM memory_topics root
+        JOIN memory_topic_events root_bootstrap
+          ON root_bootstrap.principal_id = root.principal_id
+          AND root_bootstrap.topic_id = root.topic_id
+          AND root_bootstrap.operation = 'create'
+          AND root_bootstrap.actor = 'rules'
+          AND root_bootstrap.reason = ?
+        JOIN memory_topics top
+          ON top.principal_id = root.principal_id
+          AND top.parent_topic_id = root.topic_id
+          AND top.status = 'active'
+        LEFT JOIN memory_topics child
+          ON child.principal_id = top.principal_id
+          AND child.parent_topic_id = top.topic_id
+          AND child.status = 'active'
+        WHERE root.principal_id = ? AND root.status = 'active'
+          AND NOT EXISTS (
+            SELECT 1 FROM memory_topic_events inbox_bootstrap
+            WHERE inbox_bootstrap.principal_id = top.principal_id
+              AND inbox_bootstrap.topic_id = top.topic_id
+              AND inbox_bootstrap.operation = 'create'
+              AND inbox_bootstrap.actor = 'rules'
+              AND inbox_bootstrap.reason = ?
+          )
+        ORDER BY top.created_at ASC, top.topic_id ASC,
+          child.created_at ASC, child.topic_id ASC`)
+        .bind(ROOT_BOOTSTRAP_REASON, principalId, INBOX_BOOTSTRAP_REASON)
+        .all<AutomaticTopicHintRow>();
+      const tree = new Map<Ulid, { name: string; children: string[] }>();
+      for (const row of rows.results) {
+        exactRow(row, new Set(["top_topic_id", "top_name", "child_topic_id", "child_name"]));
+        const topTopicId = rowUlid(row.top_topic_id);
+        const topName = safeRowText(row.top_name, 256);
+        const existing = tree.get(topTopicId);
+        if (existing !== undefined && existing.name !== topName) corrupt();
+        const entry = existing ?? { name: topName, children: [] };
+        if (row.child_topic_id === null) {
+          if (row.child_name !== null) corrupt();
+        } else {
+          rowUlid(row.child_topic_id);
+          entry.children.push(safeRowText(row.child_name, 256));
+        }
+        tree.set(topTopicId, entry);
+      }
+      const entries = [...tree.values()];
+      const bounded: Array<[string, string[]]> = entries.map((entry) => [entry.name, []]);
+      if (utf8.encode(canonicalJson(bounded)).byteLength > AUTOMATIC_TOPIC_PROMPT_TREE_BYTES) corrupt();
+      for (let childIndex = 0; ; childIndex += 1) {
+        let foundChild = false;
+        for (let topIndex = 0; topIndex < entries.length; topIndex += 1) {
+          const child = entries[topIndex]?.children[childIndex];
+          if (child === undefined) continue;
+          foundChild = true;
+          const children = bounded[topIndex]?.[1];
+          if (children === undefined) corrupt();
+          children.push(child);
+          if (utf8.encode(canonicalJson(bounded)).byteLength > AUTOMATIC_TOPIC_PROMPT_TREE_BYTES) {
+            children.pop();
+          }
+        }
+        if (!foundChild) break;
+      }
+      return Object.freeze(bounded.map(([name, children]) =>
+        Object.freeze([name, Object.freeze([...children])] as const)));
+    });
+  }
+
   async refileAutomaticInboxItems(principalIdInput: string): Promise<AutomaticInboxRefilingResult> {
     return this.safely(async () => {
       const principalId = safeInputText(principalIdInput, 256);
@@ -1517,8 +1635,11 @@ export class MemoryRepository {
       if (bootstrapped === null) {
         return Object.freeze({ examinedItemCount: 0, refiledItemCount: 0, failedItemCount: 0 });
       }
-      const rows = await this.database.prepare(`SELECT placement.placement_id, placement.item_id,
-          placement.last_placement_event_number, event.confidence, event.reason
+      const retryableReasonInputs = [
+        `${AUTOMATIC_FILING_REASON_PREFIX}{"decision":"inbox_cap",`,
+        `${AUTOMATIC_FILING_REASON_PREFIX}{"decision":"inbox_filing_failure",`,
+      ] as const;
+      const countRow = await this.database.prepare(`SELECT count(*) AS count
         FROM memory_item_placement_state placement
         JOIN memory_item_placement_events event
           ON event.principal_id = placement.principal_id
@@ -1533,27 +1654,65 @@ export class MemoryRepository {
           AND placement.relation = 'primary' AND placement.status = 'active'
           AND state.lifecycle_state = 'active' AND version.uncertain = 0
           AND event.confidence >= 0.6
-          AND (instr(event.reason, ?) = 1 OR instr(event.reason, ?) = 1)
-        ORDER BY placement.updated_at ASC, placement.item_id ASC
-        LIMIT ?`).bind(
+          AND (instr(event.reason, ?) = 1 OR instr(event.reason, ?) = 1)`)
+        .bind(principalId, bootstrapped.inbox.topicId, ...retryableReasonInputs)
+        .first<CountRow>();
+      if (countRow === null) corrupt();
+      exactRow(countRow, new Set(["count"]));
+      const candidateCount = rowInteger(countRow.count, 0, Number.MAX_SAFE_INTEGER);
+      if (candidateCount === 0) {
+        return Object.freeze({ examinedItemCount: 0, refiledItemCount: 0, failedItemCount: 0 });
+      }
+      const hourIndex = Math.floor(this.freshNow().valueOf() / 3_600_000);
+      const offset = (hourIndex * AUTOMATIC_INBOX_REFILE_CANDIDATE_LIMIT) % candidateCount;
+      const candidateLimit = Math.min(AUTOMATIC_INBOX_REFILE_CANDIDATE_LIMIT, candidateCount);
+      const rows = await this.database.prepare(`WITH candidates AS (
+          SELECT placement.placement_id, placement.item_id,
+          placement.last_placement_event_number, event.confidence, event.reason,
+          placement.updated_at
+          FROM memory_item_placement_state placement
+          JOIN memory_item_placement_events event
+            ON event.principal_id = placement.principal_id
+            AND event.placement_id = placement.placement_id
+            AND event.placement_event_number = placement.last_placement_event_number
+          JOIN memory_item_state state
+            ON state.principal_id = placement.principal_id AND state.item_id = placement.item_id
+          JOIN memory_item_versions version
+            ON version.principal_id = state.principal_id
+            AND version.version_id = state.current_version_id
+          WHERE placement.principal_id = ? AND placement.topic_id = ?
+            AND placement.relation = 'primary' AND placement.status = 'active'
+            AND state.lifecycle_state = 'active' AND version.uncertain = 0
+            AND event.confidence >= 0.6
+            AND (instr(event.reason, ?) = 1 OR instr(event.reason, ?) = 1)
+        ), rotated AS (
+          SELECT candidates.*, 0 AS rotation FROM candidates
+          UNION ALL
+          SELECT candidates.*, 1 AS rotation FROM candidates
+        )
+        SELECT placement_id, item_id, last_placement_event_number, confidence, reason, updated_at
+        FROM rotated
+        ORDER BY rotation ASC, updated_at ASC, item_id ASC
+        LIMIT ? OFFSET ?`).bind(
           principalId,
           bootstrapped.inbox.topicId,
-          `${AUTOMATIC_FILING_REASON_PREFIX}{"decision":"inbox_cap",`,
-          `${AUTOMATIC_FILING_REASON_PREFIX}{"decision":"inbox_filing_failure",`,
-          AUTOMATIC_INBOX_REFILE_CANDIDATE_LIMIT,
+          ...retryableReasonInputs,
+          candidateLimit,
+          offset,
         )
         .all<InboxRefilingRow>();
       let examinedItemCount = 0;
       let refiledItemCount = 0;
       let failedItemCount = 0;
       for (const row of rows.results) {
-        if (refiledItemCount >= AUTOMATIC_INBOX_REFILE_LIMIT) break;
+        if (refiledItemCount + failedItemCount >= AUTOMATIC_INBOX_REFILE_LIMIT) break;
         examinedItemCount += 1;
         exactRow(row, new Set([
-          "placement_id", "item_id", "last_placement_event_number", "confidence", "reason",
+          "placement_id", "item_id", "last_placement_event_number", "confidence", "reason", "updated_at",
         ]));
         const placementId = rowUlid(row.placement_id);
         const itemId = rowUlid(row.item_id);
+        rowTimestamp(row.updated_at);
         const eventNumber = rowInteger(row.last_placement_event_number, 1, Number.MAX_SAFE_INTEGER);
         const confidence = this.rowConfidence(row.confidence);
         const reason = parseAutomaticFilingReason(row.reason);
@@ -2169,7 +2328,7 @@ export class MemoryRepository {
           alias.normalized_alias, alias.path_alias, alias.created_by_topic_event_id,
           alias.created_at, alias.topic_id, 0, ',' || alias.topic_id || ','
         FROM memory_topic_aliases alias
-        WHERE alias.principal_id = ? AND alias.normalized_alias = ?
+        WHERE alias.principal_id = ?
         UNION ALL
         SELECT candidate.alias_id, candidate.principal_id, candidate.display_alias,
           candidate.normalized_alias, candidate.path_alias, candidate.created_by_topic_event_id,
@@ -2194,19 +2353,25 @@ export class MemoryRepository {
       WHERE topic.parent_topic_id = ? AND topic.status = 'active'
       ORDER BY candidate.created_at DESC, candidate.created_by_topic_event_id DESC,
         candidate.alias_id DESC
-      LIMIT 2`).bind(principalId, normalizedAlias, parentTopicId).all<AliasRow>();
+      `).bind(principalId, parentTopicId).all<AliasRow>();
+    let exact: AliasRow | undefined;
+    let folded: AliasRow | undefined;
+    const wantedFold = foldedTopicName(normalizedAlias);
     for (const row of result.results) {
       exactRow(row, aliasFields);
       rowUlid(row.alias_id);
       rowPrincipal(row.principal_id, principalId);
       rowUlid(row.topic_id);
-      safeRowText(row.display_alias, 256);
-      if (safeRowText(row.normalized_alias, 256) !== normalizedAlias) corrupt();
+      const displayAlias = safeRowText(row.display_alias, 256);
+      const storedNormalizedAlias = safeRowText(row.normalized_alias, 256);
+      if (storedNormalizedAlias !== normalizedTopicName(displayAlias)) corrupt();
       safeRowText(row.path_alias, 2048);
       rowUlid(row.created_by_topic_event_id);
       rowTimestamp(row.created_at);
+      if (exact === undefined && storedNormalizedAlias === normalizedAlias) exact = row;
+      if (folded === undefined && foldedTopicName(displayAlias) === wantedFold) folded = row;
     }
-    const newest = result.results[0];
+    const newest = exact ?? folded;
     if (newest === undefined) return null;
     const topic = await this.readTopic(principalId, rowUlid(newest.topic_id));
     if (topic === null || topic.status !== "active" || topic.parentTopicId !== parentTopicId) corrupt();
@@ -2923,7 +3088,7 @@ export class MemoryRepository {
         JOIN memory_topics topic
           ON topic.principal_id = ?1 AND topic.topic_id = topic_walk.topic_id
         ORDER BY topic.topic_id ASC`)
-        .bind(principalId, itemId, MEMORY_TOPIC_REDIRECT_LIMIT),
+        .bind(principalId, itemId, MEMORY_TOPIC_REDIRECT_LIMIT * 2),
       this.database.prepare(`SELECT item.item_id, state.current_version_id,
           EXISTS (
             SELECT 1 FROM memory_retrievable_item_versions retrievable
@@ -2984,35 +3149,67 @@ export class MemoryRepository {
     eventId: Ulid,
     eventSequence: number,
     source: SourceReceiptExpectation | null,
+    cache: Map<string, Promise<ValidatedBatchedReceipt>>,
   ): Promise<void> {
-    const sourceLocation = source?.sourceLocation ?? null;
-    const r2SegmentId = source?.r2SegmentId ?? null;
-    if (sourceLocation !== "archived") {
-      for (const row of liveRows) {
-        exactRow(row, eventReceiptFields);
-        if (rowUlid(row.event_id) !== eventId
-          || rowInteger(row.sequence, 1, Number.MAX_SAFE_INTEGER) !== eventSequence) continue;
-        if (rowPrincipal(row.subject_id, principalId) !== principalId
-          || (source !== null && rowTimestamp(row.occurred_at) !== source.occurredAt)) refuse();
-        await this.validateLiveEventEvidence(row, principalId, eventId, source);
-        return;
-      }
+    const key = `${eventId}\u0000${eventSequence}`;
+    let pending = cache.get(key);
+    if (pending === undefined) {
+      pending = this.validateBatchedReceiptOnce(
+        liveRows,
+        archivedRows,
+        principalId,
+        eventId,
+        eventSequence,
+      );
+      cache.set(key, pending);
     }
+    const receipt = await pending;
+    if (source === null) return;
+    if (receipt.sourceLocation !== source.sourceLocation
+      || receipt.r2SegmentId !== source.r2SegmentId
+      || receipt.envelope.occurredAt !== source.occurredAt
+      || liveEventChannel(receipt.envelope.eventType, receipt.envelope.payload) !== source.channel
+      || !payloadContainsExactExcerpt(receipt.envelope.payload, source.excerpt)) refuse();
+  }
+
+  private async validateBatchedReceiptOnce(
+    liveRows: readonly EventReceiptRow[],
+    archivedRows: readonly ArchivedReceiptRow[],
+    principalId: string,
+    eventId: Ulid,
+    eventSequence: number,
+  ): Promise<ValidatedBatchedReceipt> {
     for (const row of archivedRows) {
       exactRow(row, new Set([
         "event_id", "event_sequence", "segment_id", "envelope_sha256", "content_hash",
       ]));
       if (rowUlid(row.event_id) !== eventId
         || rowInteger(row.event_sequence, 1, Number.MAX_SAFE_INTEGER) !== eventSequence) continue;
-      if (r2SegmentId !== null && rowHash(row.segment_id) !== r2SegmentId) continue;
-      await this.validateArchivedEventEvidence(
+      const r2SegmentId = rowHash(row.segment_id);
+      const envelope = await this.validateArchivedEventEvidence(
         row,
         principalId,
         eventId,
         eventSequence,
-        source,
+        null,
       );
-      return;
+      return Object.freeze({
+        envelope,
+        sourceLocation: "archived" as const,
+        r2SegmentId,
+      });
+    }
+    for (const row of liveRows) {
+      exactRow(row, eventReceiptFields);
+      if (rowUlid(row.event_id) !== eventId
+        || rowInteger(row.sequence, 1, Number.MAX_SAFE_INTEGER) !== eventSequence) continue;
+      if (rowPrincipal(row.subject_id, principalId) !== principalId) refuse();
+      const envelope = await this.validateLiveEventEvidence(row, principalId, eventId, null);
+      return Object.freeze({
+        envelope,
+        sourceLocation: "live" as const,
+        r2SegmentId: null,
+      });
     }
     refuse();
   }
