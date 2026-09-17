@@ -337,6 +337,16 @@ function snapshotResultRows(value: unknown): unknown {
   return descriptor.value;
 }
 
+async function executeStatements(
+  database: D1Database,
+  statements: D1PreparedStatement[],
+): Promise<readonly D1Result<unknown>[]> {
+  if (typeof database.batch === "function") return database.batch(statements);
+  // Some existing callers provide the pre-batch D1 surface. Keep their
+  // validation behaviour while production D1 takes the single-trip path.
+  return Promise.all(statements.map(async (statement) => statement.all()));
+}
+
 function historyText(payload: unknown, eventType: string): string {
   const value = historyPayload(payload);
   if (value.schemaCode !== 1 || value.sensitivityCode !== 1 || value.historyEligible !== true
@@ -409,7 +419,7 @@ export class D1ContextRetriever implements ContextRetriever {
     const statements = factStatement === null
       ? [historyStatement]
       : [factStatement, historyStatement];
-    const batch = await this.database.batch(statements);
+    const batch = await executeStatements(this.database, statements);
     if (batch.length !== statements.length) throw new TypeError("context_result_invalid");
     if (factStatement !== null) {
       const factResult = batch[0];
