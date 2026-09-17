@@ -128,7 +128,7 @@ function ownerActionReport(value: string): boolean {
 }
 
 function externalObject(value: string): boolean {
-  return /\b(?:waterloo|western|queen['’]s|mcgill|ubc|ouac|admissions?|registrar|guidance|m(?:s|r)\.?\s+\p{L}+|dr\.?\s+\p{L}+|prof(?:essor)?\.?\s+\p{L}+|mom|mother|dad|father|teacher|counsell?or|dentist|restaurant|pai|application|aif|offer|acceptance|spot|seat|deposit|fee|payment|transcript|reference|request|essay|form|message|voicemail|reservation|table|campus\s+visit|interview|housing|residence)\b/iu
+  return /\b(?:waterloo|western|queen['’]s|mcgill|ubc|ouac|admissions?|registrar|guidance|m(?:s|r)\.?\s+\p{L}+|dr\.?\s+\p{L}+|prof(?:essor)?\.?\s+\p{L}+|mom|mother|dad|father|teacher|counsell?or|dentist|restaurant|pai|application|aif|offer|acceptance|spot|seat|deposit|fee|payment|transcript|reference|request|essay|form|message|voicemail|appointment|reservation|table|campus\s+visit|interview|housing|residence)\b/iu
     .test(value);
 }
 
@@ -137,7 +137,7 @@ function actionKindFromWords(value: string): ReplyActionKind | null {
   if (/\btext(?:ed|ing)\b/iu.test(value)) return "text";
   if (/\bmessag(?:e[ds]?|ing)\b|\bdm(?:ed|ing)?\b/iu.test(value)) return "message";
   if (/\bcall(?:ed|ing)?\b|\bphon(?:e[ds]?|ing)\b|\brang\b|\bvoicemail\b/iu.test(value)) return "call";
-  if (/\breserv(?:e[ds]?|ing|ation)\b|\bbook(?:ed|ing)\b/iu.test(value)) return "book";
+  if (/\breserv(?:e[ds]?|ing|ation)\b|\bbook(?:ed|ing)\b|\bschedul(?:e[ds]?|ing)\b/iu.test(value)) return "book";
   if (/\b(?:held|hold(?:ing)?)\b.{0,28}\b(?:spot|seat|place)\b|\b(?:spot|seat|place)\b.{0,28}\b(?:held|locked|secured)\b/iu.test(value)) return "reserve";
   if (/\bpay(?:ment|ments|ing|ed)?\b|\bpaid\b|\bwent\s+through\b/iu.test(value)) return "pay";
   if (/\bb(?:uy|ought|uying)\b|\bpurchas(?:e[ds]?|ing)\b|\border(?:ed|ing)\b/iu.test(value)) return "buy";
@@ -184,9 +184,9 @@ function externalActionKinds(value: string): readonly ReplyActionKind[] {
 
   const kinds = new Set<ReplyActionKind>();
   const directKind = actionKindFromWords(value);
-  const agentClaim = /\b(?:i|we|jarvis)(?:['’](?:ve|m|ll|re|d))?\b.{0,48}\b(?:have\s+|am\s+|will\s+|went\s+ahead\s+and\s+|did\s+|hit\s+|just\s+|now\s+|already\s+|successfully\s+)*(?:e-?mail|text|messag|dm|call|phon|rang|book|reserv|pay|paid|bought|buy|purchas|order|submit|upload|register|sign\s+up|enrol|appl|contact|notif|told|shar|forward|gave|accept|acceptd|acccept|declin|reject|sent|sending|spoke|ask|left|held|said\s+yes)\w*/iu
+  const agentClaim = /\b(?:i|we|jarvis)(?:['’](?:ve|m|ll|re|d))?\b.{0,48}\b(?:have\s+|am\s+|will\s+|went\s+ahead\s+and\s+|did\s+|hit\s+|just\s+|now\s+|already\s+|successfully\s+)*(?:e-?mail|text|messag|dm|call|phon|rang|book|reserv|schedul|pay|paid|bought|buy|purchas|order|submit|upload|register|sign\s+up|enrol|appl|contact|notif|told|shar|forward|gave|accept|acceptd|acccept|declin|reject|sent|sending|spoke|ask|left|held|said\s+yes)\w*/iu
     .test(value);
-  const progressiveOrBare = /^\s*(?:[-*•]\s*)?(?:(?:on\s+it\s*[,—-]\s*)?(?:accepting|booking|reserving|paying|buying|submitting|uploading|registering|applying|emailing|texting|messaging|calling|contacting|notifying|sharing)\b|(?:just\s+)?(?:accepted|acceptd|acccepted|booked|reserved|paid|bought|submitted|uploaded|registered|applied|emailed|texted|messaged|called|contacted|notified|shared|sent)\b|done\b)/iu
+  const progressiveOrBare = /^\s*(?:[-*•]\s*)?(?:(?:on\s+it\s*[,—-]\s*)?(?:accepting|booking|reserving|scheduling|paying|buying|submitting|uploading|registering|applying|emailing|texting|messaging|calling|contacting|notifying|sharing)\b|(?:just\s+)?(?:accepted|acceptd|acccepted|booked|reserved|scheduled|paid|bought|submitted|uploaded|registered|applied|emailed|texted|messaged|called|contacted|notified|shared|sent)\b|done\b)/iu
     .test(value);
   if (directKind !== null && (agentClaim || progressiveOrBare) && !trackerStatus) kinds.add(directKind);
 
@@ -198,7 +198,7 @@ function externalActionKinds(value: string): readonly ReplyActionKind[] {
   if (object && !trackerStatus && /\b(?:is|was|gets?|got|has\s+been|have\s+been)?\s*(?:submitted|sent\s+in|turned\s+in|filed)\b|\boff\s+to\s+admissions\b/iu.test(value)) kinds.add("submit");
   if (object && /\b(?:is|was|gets?|got|has\s+been|have\s+been)?\s*uploaded\b/iu.test(value)) kinds.add("upload");
   if (object && !trackerStatus && /\b(?:deposit|fee|payment)\b.{0,40}\b(?:paid|went\s+through|done|complete)\b|\b(?:paid|done(?:\s+and\s+dusted)?)\b.{0,40}\b(?:deposit|fee|payment)\b|✔️/iu.test(value)) kinds.add("pay");
-  if (object && /\b(?:visit|interview|reservation|table)\b.{0,40}\b(?:booked|confirmed)\b|\bbooked\b/iu.test(value)) kinds.add("book");
+  if (object && /\b(?:visit|interview|appointment|reservation|table)\b.{0,40}\b(?:booked|confirmed|scheduled)\b|\b(?:booked|scheduled)\b/iu.test(value)) kinds.add("book");
   if (object && /\b(?:spot|seat|place|housing)\b.{0,40}\b(?:confirmed|locked|secured|held)\b|\bconfirmed\b.{0,24}\b(?:spot|seat|place)\b|\ball\s+set\s+with\b|\bofficially\s+going\s+to\b/iu.test(value)) kinds.add("reserve");
   if (object && /\bregistered\s+with\b/iu.test(value)) kinds.add("register");
   if (object && /\b(?:message|email|text|note)\b.{0,32}\b(?:sent|delivered)\b/iu.test(value)) kinds.add("message");
@@ -237,15 +237,18 @@ export function guardReplyActionClaims(
   receipts: readonly ReplyActionReceipt[] = Object.freeze([]),
 ): GuardedReplyActionClaims {
   requireTurnId(turnId);
-  if (draftContext(reply)) {
-    return Object.freeze({ text: reply, removedSentences: 0, refusedKinds: Object.freeze([]) });
-  }
   const allowed = receiptKinds(turnId, receipts);
   const segments = sentenceSegments(reply);
   const refused = new Set<ReplyActionKind>();
   const kept: string[] = [];
   let removedSentences = 0;
+  let draftStarted = false;
   for (const segment of segments) {
+    if (draftStarted || draftContext(segment.text)) {
+      draftStarted = true;
+      kept.push(segment.text);
+      continue;
+    }
     const missing = claimKinds(segment.text).filter((kind) => !allowed.has(kind));
     if (missing.length === 0) {
       kept.push(segment.text);

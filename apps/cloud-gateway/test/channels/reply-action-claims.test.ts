@@ -107,6 +107,7 @@ describe("owner Telegram reply action claims", () => {
     "Message sent to Mom.",
     "I'll call the dentist now.",
     "On it, booking now.",
+    "I scheduled an appointment with the dentist.",
   ])("refuses Sid's unreceipted external-action case: %s", (reply) => {
     expect(guardReplyActionClaims(TURN, reply).text).toBe(
       "I can't send messages, make calls or bookings, pay, submit, register, apply, or contact anyone yet; I can draft or prepare it for you.",
@@ -125,6 +126,14 @@ describe("owner Telegram reply action claims", () => {
     expect(guardReplyActionClaims(TURN, reply).text).toBe(
       "Pai's phone number is 416-555-0100. I can draft what to say about allergies. I can't send messages, make calls or bookings, pay, submit, register, apply, or contact anyone yet; I can draft or prepare it for you.",
     );
+  });
+
+  it("does not let a later draft label excuse an earlier false action claim", () => {
+    const reply = "Booked Pai for 7pm. Here's a draft: Hi Mom, dinner is at seven.";
+    const guarded = guardReplyActionClaims(TURN, reply).text;
+    expect(guarded).not.toContain("Booked Pai");
+    expect(guarded).toContain("Here's a draft: Hi Mom, dinner is at seven.");
+    expect(guarded).toContain("I can't send messages");
   });
 
   it("allows the future booked follow-up only when code issued a booking receipt for this turn", () => {
