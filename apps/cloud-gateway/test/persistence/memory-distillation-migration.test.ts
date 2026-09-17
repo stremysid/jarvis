@@ -92,6 +92,8 @@ async function completedRun(itemCount = 1): Promise<{
       sourceExcerpts: [{ sourceEventId: event.envelope.eventId, excerpt: text }],
       confidence: 0.95,
       sensitivity: "normal",
+      topicPath: ["Personal"],
+      filingConfidence: 0.9,
     })),
   });
   const archive = new ArchivalService({ database: env.DB, bucket: env.ARCHIVE });
@@ -283,6 +285,8 @@ describe("0026 memory distillation migration", () => {
         sourceExcerpts: [{ sourceEventId: event.envelope.eventId, excerpt: text }],
         confidence: 0.95,
         sensitivity: "normal",
+        topicPath: ["Personal"],
+        filingConfidence: 0.9,
       }],
     });
     const archive = new ArchivalService({ database: env.DB, bucket: env.ARCHIVE });
