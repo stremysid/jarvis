@@ -1,0 +1,21 @@
+M1_agent_authority_check rc 1 ['      Tests  10 failed | 170 passed (180)'] ['FAIL  |default| apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts > owner Telegram agent > refuses a tool when the current Telegram principal is a guest', 'FAIL  |default| apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts > owner Telegram agent > returns a durable one-tap decision instead of forgetting several items', 'FAIL  |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts > MemoryOwnerControlsService > forgets and restores one memory with exact suppression counts while retaining raw evidence', 'FAIL  |default| apps/cloud-gateway/test/memory/memory-owner-controls.test.ts > MemoryOwnerControlsService > reports sibling memories hidden by a forget and a restore that remains suppressed']
+M2_pipeline_owner_turn_recheck_plus_M1 rc 1 ['      Tests  3 failed | 177 passed (180)'] ['FAIL  |default| apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts > owner Telegram agent > refuses a tool when the current Telegram principal is a guest', 'FAIL  |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts > Telegram memory production conversation integration > replies with the default Telegram budgets for an owner turn, owner control, and guest turn', 'FAIL  |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts > Telegram memory production conversation integration > keeps a six-field owner event usable by controls, the repository, recent context, literal history, and projection']
+M3_durable_directOwnerText_check rc 1 ['      Tests  2 failed | 178 passed (180)'] ["FAIL  |default| apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts > owner Telegram agent > grounds a typo memory tool call in Sid's exact current words", 'FAIL  |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts > Telegram memory retrieval statement bounds > returns production-shaped memory within the D1 latency and round-trip ceilings']
+M4_callback_data_check rc 0 ['      Tests  180 passed (180)'] []
+M5_origin_reference_itemset_check rc 0 ['      Tests  180 passed (180)'] []
+M6_answered_and_option_checks rc 0 ['      Tests  180 passed (180)'] []
+M7_answering_identity_principal_check rc 0 ['      Tests  180 passed (180)'] []
+M8_confirmed_offer_check rc 0 ['      Tests  180 passed (180)'] []
+M9_decision_delivery_mark_throw rc 0 ['      Tests  180 passed (180)'] []
+M10_staged_markup_decision_match rc 0 ['      Tests  180 passed (180)'] []
+M11_agent_confirm_excerpt_grounding rc 1 ['      Tests  1 failed | 179 passed (180)'] ['FAIL  |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts > Telegram forget recall safety > removes later assistant replies that retrieved, cited, or restated a forgotten item']
+M12_forget_eligibility rc 1 ['      Tests  1 failed | 179 passed (180)'] ['FAIL  |default| apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts > owner Telegram agent > refuses memory ids that are absent from context or owned by somebody else']
+  File "C:\Users\Sid\AppData\Local\Temp\claude\C--javis--claude-worktrees-jarvis-code-review-0b1695\f3f2b419-52e6-4c42-b275-f2c7a15d27ac\scratchpad\pr86\mutate.py", line 19
+    "M13_pipeline_direct_text_checks": [(A, "
+                                            ^
+SyntaxError: unterminated string literal (detected at line 19)
+M3_durable_directOwnerText_check rc 0 ['      Tests  180 passed (180)'] []
+M11_agent_confirm_excerpt_grounding rc 0 ['      Tests  180 passed (180)'] []
+M13_pipeline_direct_text_checks rc 0 ['      Tests  180 passed (180)'] []
+M3_durable_directOwnerText_check rc 0 ['      Tests  180 passed (180)'] []
+M13_pipeline_direct_text_checks rc 0 ['      Tests  180 passed (180)'] []
