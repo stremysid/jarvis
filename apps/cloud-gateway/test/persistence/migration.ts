@@ -31,6 +31,7 @@ import guestGrantNoticeDrainSql from "../../src/persistence/migrations/0028_gues
 import universityApplicationDetailsSql from "../../src/persistence/migrations/0029_university_application_details.sql?raw";
 import studyCoachWeakSpotsSql from "../../src/persistence/migrations/0030_study_coach_weak_spots.sql?raw";
 import memoryBackupSql from "../../src/persistence/migrations/0031_memory_backup.sql?raw";
+import memoryLivingNotesSql from "../../src/persistence/migrations/0032_memory_living_notes.sql?raw";
 
 let migrated: Promise<void> | undefined;
 let voiceRuntimeMigrated: Promise<void> | undefined;
@@ -50,6 +51,7 @@ let guestGrantNoticeDrainMigrated: Promise<void> | undefined;
 let universityApplicationDetailsMigrated: Promise<void> | undefined;
 let studyCoachWeakSpotsMigrated: Promise<void> | undefined;
 let memoryBackupMigrated: Promise<void> | undefined;
+let memoryLivingNotesMigrated: Promise<void> | undefined;
 
 export { splitMigration };
 
@@ -254,6 +256,15 @@ export async function applyMemoryBackupMigration(): Promise<void> {
   await memoryBackupMigrated;
 }
 
+/** Applies living-note history, receipts and immediate derivation redaction. */
+export async function applyMemoryLivingNotesMigration(): Promise<void> {
+  await applyMemoryBackupMigration();
+  memoryLivingNotesMigrated ??= applyD1Migrations(env.DB, [
+    { name: "0032_memory_living_notes.sql", queries: splitMigration(memoryLivingNotesSql) },
+  ]);
+  await memoryLivingNotesMigrated;
+}
+
 const allCloudGatewayMigrations = Object.freeze([
   ...voiceAccessBaseMigrations,
   voiceAccessBoundariesMigration,
@@ -275,11 +286,12 @@ const allCloudGatewayMigrations = Object.freeze([
   { name: "0029_university_application_details.sql", queries: splitMigration(universityApplicationDetailsSql) },
   { name: "0030_study_coach_weak_spots.sql", queries: splitMigration(studyCoachWeakSpotsSql) },
   { name: "0031_memory_backup.sql", queries: splitMigration(memoryBackupSql) },
+  { name: "0032_memory_living_notes.sql", queries: splitMigration(memoryLivingNotesSql) },
 ]);
 
 /** Rebuilds this isolated test binding as a newly migrated restore target. */
 export async function recreateFreshDatabaseForBackupRestoreTest(): Promise<void> {
-  await applyMemoryBackupMigration();
+  await applyMemoryLivingNotesMigration();
   const virtualTables = await env.DB.prepare(`SELECT name FROM sqlite_schema
     WHERE type = 'table' AND sql LIKE 'CREATE VIRTUAL TABLE%'`).all<{ name: string }>();
   const views = await env.DB.prepare("SELECT name FROM sqlite_schema WHERE type = 'view'")
@@ -342,7 +354,7 @@ export async function recreateFreshDatabaseForBackupRestoreTest(): Promise<void>
 
 /** Test-only reset that preserves and restores every production backup guard. */
 export async function clearMemoryBackupDataForTest(): Promise<void> {
-  await applyMemoryBackupMigration();
+  await applyMemoryLivingNotesMigration();
   const guards = await env.DB.prepare(`SELECT name, sql FROM sqlite_schema
     WHERE type = 'trigger' AND name LIKE 'memory_backup_%'`)
     .all<{ name: string; sql: string }>();

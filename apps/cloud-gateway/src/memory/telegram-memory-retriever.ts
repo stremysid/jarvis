@@ -49,6 +49,7 @@ const MAX_QUERY_CHARACTERS = 8_000;
 const MAX_FTS_TERMS = 16;
 const MAX_FTS_TERM_BYTES = 128;
 const MAX_MEMORY_CANDIDATES = 3;
+const MAX_LIVING_TOPIC_NOTES = 2;
 const MAX_HISTORY_RESULTS = 4;
 const MAX_CONTROL_TARGETS = 2;
 const MAX_REFERENCED_ITEMS = 8;
@@ -120,8 +121,8 @@ const encoder = new TextEncoder();
 export const TELEGRAM_MEMORY_RETRIEVAL_LIMITS = Object.freeze({
   d1Statements: 900,
   liveBaseD1RoundTrips: 2,
-  liveMemoryD1RoundTrips: 9,
-  liveTotalD1RoundTrips: 11,
+  liveMemoryD1RoundTrips: 10,
+  liveTotalD1RoundTrips: 12,
   memoryItemsExamined: MAX_MEMORY_CANDIDATES,
   historyResultsExamined: LITERAL_HISTORY_SEARCH_LIMITS.resultsExamined,
   historyD1Statements: MAX_HISTORY_D1_STATEMENTS,
@@ -209,10 +210,26 @@ interface RetrievalDependencies {
 }
 
 interface MemoryRetrievalResult {
+  readonly profileContext: RetrievedContext | null;
+  readonly noteContexts: readonly RankedMemoryContext[];
   readonly candidateContexts: readonly RankedMemoryContext[];
   readonly history: LiteralHistorySearchResult | null;
   readonly historyFailure: string | null;
   readonly meaningContexts: readonly RankedMemoryContext[];
+}
+
+interface CandidateRecall {
+  readonly profileContext: RetrievedContext | null;
+  readonly noteContexts: readonly RankedMemoryContext[];
+  readonly itemContexts: readonly RankedMemoryContext[];
+}
+
+interface LivingNoteRow {
+  readonly note_kind: unknown;
+  readonly note_version_id: unknown;
+  readonly markdown: unknown;
+  readonly restricted: unknown;
+  readonly created_at: unknown;
 }
 
 interface RankedMemoryContext {
@@ -1048,8 +1065,14 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       throw new TypeError("telegram_memory_candidate_lookup_failed");
     }
     return Object.freeze({
+      profileContext: candidateOutcome.status === "fulfilled"
+        ? candidateOutcome.value.profileContext
+        : null,
+      noteContexts: candidateOutcome.status === "fulfilled"
+        ? candidateOutcome.value.noteContexts
+        : Object.freeze([]),
       candidateContexts: candidateOutcome.status === "fulfilled"
-        ? candidateOutcome.value
+        ? candidateOutcome.value.itemContexts
         : Object.freeze([]),
       history: historyOutcome.result,
       historyFailure: historyOutcome.failure,
@@ -1124,6 +1147,16 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       );
       const contexts: RetrievedContext[] = [];
       let bytes = 0;
+      const preferred = [
+        ...(memory.profileContext === null ? [] : [memory.profileContext]),
+        ...memory.noteContexts.map(({ context }) => context),
+      ];
+      for (const context of preferred) {
+        const textBytes = encoder.encode(context.text).byteLength;
+        if (bytes + textBytes > captured.maxTokens) continue;
+        bytes += textBytes;
+        contexts.push(context);
+      }
       for (const { context } of fused) {
         const textBytes = encoder.encode(context.text).byteLength;
         if (bytes + textBytes > captured.maxTokens) continue;
@@ -1140,12 +1173,20 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
     dependencies: RetrievalDependencies,
     captured: Readonly<ContextRetrieverInput>,
     timestamp: string,
-  ): Promise<readonly RankedMemoryContext[]> {
+  ): Promise<CandidateRecall> {
     const candidates = await this.readCandidates(dependencies, captured, timestamp);
-    const reads = await dependencies.memory.readCurrentItemsWithVisibility(
-      captured.principalId,
-      candidates.map(({ itemId }) => itemId),
-    );
+    const [reads, livingNotes] = await Promise.all([
+      dependencies.memory.readCurrentItemsWithVisibility(
+        captured.principalId,
+        candidates.map(({ itemId }) => itemId),
+      ),
+      this.readLivingNotes(
+        dependencies.database,
+        captured.principalId,
+        candidates.map(({ itemId }) => itemId),
+        timestamp,
+      ),
+    ]);
     const byItemId = new Map(reads.map((read) => [read.item.itemId, read]));
     const contexts: RankedMemoryContext[] = [];
     for (const candidate of candidates) {
@@ -1166,7 +1207,143 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
         }),
       }));
     }
-    return Object.freeze(contexts);
+    return Object.freeze({
+      profileContext: livingNotes.profileContext,
+      noteContexts: livingNotes.noteContexts,
+      itemContexts: Object.freeze(contexts),
+    });
+  }
+
+  /** One bounded read returns the stable root profile and the candidate areas' notes. */
+  private async readLivingNotes(
+    database: D1Database,
+    principalId: string,
+    itemIds: readonly Ulid[],
+    timestamp: string,
+  ): Promise<Readonly<{
+    profileContext: RetrievedContext | null;
+    noteContexts: readonly RankedMemoryContext[];
+  }>> {
+    const candidateValues = itemIds.length === 0
+      ? "SELECT NULL AS item_id WHERE 0"
+      : `VALUES ${itemIds.map(() => "(?)").join(", ")}`;
+    const result = await database.prepare(`WITH candidate_items(item_id) AS (${candidateValues}),
+        selected_topics(topic_id) AS (
+          SELECT DISTINCT placement.topic_id
+          FROM candidate_items candidate
+          JOIN memory_item_placement_state placement
+            ON placement.principal_id = ? AND placement.item_id = candidate.item_id
+            AND placement.relation = 'primary' AND placement.status = 'active'
+        ),
+        eligible AS (
+          SELECT CASE WHEN topic.parent_topic_id IS NULL THEN 'profile' ELSE 'note' END AS note_kind,
+            note.note_version_id, note.markdown, note.created_at,
+            EXISTS (
+              SELECT 1 FROM memory_topic_note_sources restricted_source
+              JOIN memory_item_versions restricted_version
+                ON restricted_version.principal_id = restricted_source.principal_id
+                AND restricted_version.version_id = restricted_source.item_version_id
+              WHERE restricted_source.principal_id = note.principal_id
+                AND restricted_source.note_version_id = note.note_version_id
+                AND restricted_source.source_kind = 'item'
+                AND restricted_version.sensitivity = 'sensitive'
+            ) AS restricted
+          FROM memory_topic_note_heads head
+          JOIN memory_topic_note_versions note
+            ON note.principal_id = head.principal_id
+            AND note.note_version_id = head.current_note_version_id
+          JOIN memory_topics topic
+            ON topic.principal_id = head.principal_id AND topic.topic_id = head.topic_id
+          WHERE head.principal_id = ? AND head.visibility = 'current' AND topic.status = 'active'
+            AND (topic.parent_topic_id IS NULL OR topic.topic_id IN (SELECT topic_id FROM selected_topics))
+            AND NOT EXISTS (
+              SELECT 1 FROM memory_topic_note_sources source
+              LEFT JOIN memory_item_state state
+                ON source.source_kind = 'item' AND state.principal_id = source.principal_id
+                AND state.item_id = source.source_id
+              LEFT JOIN memory_item_versions version
+                ON source.source_kind = 'item' AND version.principal_id = source.principal_id
+                AND version.version_id = source.item_version_id
+              LEFT JOIN memory_items item
+                ON source.source_kind = 'item' AND item.principal_id = source.principal_id
+                AND item.item_id = source.source_id
+              WHERE source.principal_id = note.principal_id
+                AND source.note_version_id = note.note_version_id
+                AND source.source_kind = 'item'
+                AND (
+                  state.item_id IS NULL OR version.version_id IS NULL OR item.item_id IS NULL
+                  OR state.lifecycle_state <> 'active'
+                  OR EXISTS (
+                    SELECT 1 FROM memory_consolidation_change_receipts supersession
+                    WHERE supersession.principal_id = source.principal_id
+                      AND supersession.change_kind = 'supersession'
+                      AND supersession.subject_id = source.source_id
+                  )
+                  OR state.current_version_id <> source.item_version_id
+                  OR version.valid_from IS NOT NULL AND version.valid_from > ?
+                  OR version.valid_to IS NOT NULL AND version.valid_to <= ?
+                  OR EXISTS (
+                    SELECT 1 FROM memory_active_event_suppressions suppression
+                    WHERE suppression.principal_id = source.principal_id
+                      AND (suppression.target_event_id = item.creation_event_id
+                        OR item.creation_event_sequence BETWEEN suppression.start_event_sequence
+                          AND suppression.end_event_sequence)
+                  )
+                  OR EXISTS (
+                    SELECT 1 FROM memory_item_sources item_source
+                    JOIN memory_active_event_suppressions suppression
+                      ON suppression.principal_id = item_source.principal_id
+                      AND (suppression.target_event_id = item_source.event_id
+                        OR item_source.event_sequence BETWEEN suppression.start_event_sequence
+                          AND suppression.end_event_sequence)
+                    WHERE item_source.principal_id = source.principal_id
+                      AND item_source.item_id = source.source_id
+                      AND item_source.version_id = source.item_version_id
+                  )
+                )
+            )
+            AND (topic.parent_topic_id IS NOT NULL OR NOT EXISTS (
+              SELECT 1 FROM memory_topic_note_heads changed_head
+              WHERE changed_head.principal_id = head.principal_id
+                AND changed_head.topic_id <> head.topic_id
+                AND changed_head.updated_at > note.created_at
+            ))
+        )
+      SELECT note_kind, note_version_id, markdown, restricted, created_at FROM eligible
+      ORDER BY CASE note_kind WHEN 'profile' THEN 0 ELSE 1 END, created_at DESC, note_version_id ASC
+      LIMIT ?`)
+      .bind(...itemIds, principalId, principalId, timestamp, timestamp, MAX_LIVING_TOPIC_NOTES + 1)
+      .all<LivingNoteRow>();
+    const fields = new Set(["note_kind", "note_version_id", "markdown", "restricted", "created_at"]);
+    let profileContext: RetrievedContext | null = null;
+    const noteContexts: RankedMemoryContext[] = [];
+    for (const row of result.results) {
+      exactRow(row, fields, "telegram_memory_living_note_invalid");
+      const noteVersionId = safeUlid(row.note_version_id);
+      const markdown = safeText(row.markdown, 16_384, "telegram_memory_living_note_invalid");
+      if (row.note_kind !== "profile" && row.note_kind !== "note"
+        || row.restricted !== 0 && row.restricted !== 1
+        || typeof row.created_at !== "string" || new Date(row.created_at).toISOString() !== row.created_at) {
+        throw new TypeError("telegram_memory_living_note_invalid");
+      }
+      const context = Object.freeze({
+        sourceEventId: noteVersionId,
+        text: `${row.note_kind === "profile" ? "Living profile" : "Living topic note"} `
+          + `[derived; note version ${noteVersionId}]:\n${markdown}`,
+        sensitivity: row.restricted === 1 ? "restricted" as const : "personal" as const,
+      });
+      if (row.note_kind === "profile") {
+        if (profileContext !== null) throw new TypeError("telegram_memory_living_note_invalid");
+        profileContext = context;
+      } else if (noteContexts.length < MAX_LIVING_TOPIC_NOTES) {
+        noteContexts.push(Object.freeze({
+          key: `note:${noteVersionId}`,
+          context,
+          dedupText: markdown,
+        }));
+      }
+    }
+    return Object.freeze({ profileContext, noteContexts: Object.freeze(noteContexts) });
   }
 
   private async readMeaningContexts(
@@ -1276,6 +1453,12 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
         AND eligible.version_id = version.version_id
       WHERE (version.valid_from IS NULL OR version.valid_from <= ?)
         AND (version.valid_to IS NULL OR version.valid_to > ?)
+        AND NOT EXISTS (
+          SELECT 1 FROM memory_consolidation_change_receipts supersession
+          WHERE supersession.principal_id = state.principal_id
+            AND supersession.change_kind = 'supersession'
+            AND supersession.subject_id = state.item_id
+        )
       UNION ALL
       SELECT requested.ordinal, requested.item_kind,
         requested.item_id, requested.content_hash, NULL,
@@ -1793,6 +1976,12 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
               WHERE source.principal_id = version.principal_id
                 AND source.item_id = version.item_id AND source.version_id = version.version_id
             )
+            AND NOT EXISTS (
+              SELECT 1 FROM memory_consolidation_change_receipts supersession
+              WHERE supersession.principal_id = state.principal_id
+                AND supersession.change_kind = 'supersession'
+                AND supersession.subject_id = state.item_id
+            )
           ORDER BY version.created_at DESC, version.item_id ASC LIMIT ?4`)
           .bind(topic.topicId, input.principalId, timestamp, MAX_MEMORY_CANDIDATES)
           .all<CandidateRow>();
@@ -1835,6 +2024,12 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
                 AND suppression.end_event_sequence)
           WHERE source.principal_id = version.principal_id
             AND source.item_id = version.item_id AND source.version_id = version.version_id
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM memory_consolidation_change_receipts supersession
+          WHERE supersession.principal_id = state.principal_id
+            AND supersession.change_kind = 'supersession'
+            AND supersession.subject_id = state.item_id
         )
       ORDER BY memory_item_fts.rank ASC, version.created_at DESC, version.item_id ASC LIMIT ?`)
       .bind(terms, input.principalId, timestamp, timestamp, MAX_MEMORY_CANDIDATES)

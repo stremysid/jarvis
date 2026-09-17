@@ -36,6 +36,7 @@ import {
   automaticDistillationStepD1StatementCeiling,
 } from "../memory/automatic-distillation.js";
 import { MemoryRepository } from "../memory/memory-repository.js";
+import { LivingMemoryConsolidationWorkflow } from "../memory/living-notes.js";
 import {
   MEMORY_MEANING_BINDING_MISSING_CODE,
   MemoryMeaningService,
@@ -85,6 +86,12 @@ export interface JobEnvironment {
     prepare?: (principalId: string) => Promise<PreparedMemoryExtractionPrice>;
   }>;
   readonly memoryDistillationFactory?: () => NonNullable<JobEnvironment["memoryDistillation"]>;
+  readonly memoryConsolidation?: Readonly<{
+    provider: Pick<ModelProvider, "completeJson">;
+    providerModelId: string;
+    prepare: (principalId: string) => Promise<PreparedMemoryExtractionPrice>;
+  }>;
+  readonly memoryConsolidationFactory?: () => NonNullable<JobEnvironment["memoryConsolidation"]>;
   readonly memoryMeaningFactory?: () => Readonly<{
     runIndexStep(principalId: string): Promise<MemoryMeaningIndexOutcome>;
   }>;
@@ -853,7 +860,60 @@ function backupJobOutcome(result: MemoryBackupOutcome): JobOutcome {
 
 async function backup(context: JobEnvironment): Promise<JobOutcome> {
   const timeZone = context.env.DIGEST_TIMEZONE ?? "America/Toronto";
-  return backupJobOutcome(await memoryBackup(context).runNightly(localDate(context.clock.now(), timeZone)));
+  const consolidation = await runMemoryConsolidationJob(context);
+  const backupOutcome = backupJobOutcome(
+    await memoryBackup(context).runNightly(localDate(context.clock.now(), timeZone)),
+  );
+  if (!backupOutcome.ok) return backupOutcome;
+  if (!consolidation.ok) return consolidation;
+  return { ok: true, detail: `${consolidation.detail}; ${backupOutcome.detail}` };
+}
+
+/** The nightly derived-memory phase, exported so its failure contract stays testable without running backup I/O. */
+export async function runMemoryConsolidationJob(context: JobEnvironment): Promise<JobOutcome> {
+  let configured = context.memoryConsolidation;
+  if (configured === undefined && context.memoryConsolidationFactory !== undefined) {
+    try { configured = context.memoryConsolidationFactory(); }
+    catch { return { ok: false, failure: "memory_consolidation_configuration_invalid" }; }
+  }
+  if (configured === undefined) return { ok: true, detail: "Memory consolidation not configured" };
+  const principalId = context.env.OWNER_PRINCIPAL_ID;
+  if (principalId === undefined) return { ok: false, failure: "owner_not_configured" };
+  const liveClock = context.liveClock ?? context.clock;
+  try {
+    await new MemoryRepository(context.env.DB, { clock: () => liveClock.now() })
+      .bootstrapTopics(principalId);
+  } catch {
+    return { ok: false, failure: "memory_consolidation_topic_bootstrap_failed" };
+  }
+  let prepared: PreparedMemoryExtractionPrice;
+  try { prepared = await configured.prepare(principalId); }
+  catch (error) {
+    const code = snapshotMemoryExtractionFailure(error) ?? "memory_extraction_price_unavailable";
+    return { ok: false, failure: code };
+  }
+  if (prepared.providerModelId !== configured.providerModelId) {
+    return { ok: false, failure: "memory_extraction_price_unavailable" };
+  }
+  const result = await new LivingMemoryConsolidationWorkflow({
+    database: context.env.DB,
+    provider: configured.provider,
+    providerModelId: configured.providerModelId,
+    priceId: prepared.priceId,
+    principalId,
+    now: () => liveClock.now(),
+  }).runNight();
+  if (result.outcome === "failed" || result.failureCode !== null) {
+    return { ok: false, failure: result.failureCode ?? "memory_consolidation_failed" };
+  }
+  const cost = `$${(result.settledCostMicros / 1_000_000).toFixed(6)}`;
+  const state = result.continuationRequired ? "pending" : result.outcome;
+  return {
+    ok: true,
+    detail: `Memory consolidation ${state}, ${result.rewrittenNoteCount} notes rewritten, `
+      + `${result.expiryCount} expired, ${result.supersessionCount} superseded, `
+      + `${result.topicMergeCount} areas merged, ${cost} settled`,
+  };
 }
 
 /**
