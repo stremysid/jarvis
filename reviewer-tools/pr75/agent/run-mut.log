@@ -1,0 +1,83 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/conversation apps/cloud-gateway/test/persistence/conversation-repository.test.ts apps/cloud-gateway/test/http/worker-telegram-reply.test.ts apps/cloud-gateway/test/channels/telegram-turn-observability.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-jarvis-code-review-0b1695/f3f2b419-52e6-4c42-b275-f2c7a15d27ac/scratchpad/pr75/agent/tree-mut
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 8 unhandled errors during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-pool]: Timeout starting cloudflare-pool runner.
+ ❯ Timeout._onTimeout node_modules/.pnpm/vitest@4.1.11_vite@8.2.2_esbuild@0.28.1_/node_modules/vitest/dist/chunks/cli-api.CnMVyzaz.js:3531:65
+ ❯ listOnTimeout node:internal/timers:635:17
+ ❯ processTimers node:internal/timers:571:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-pool]: Timeout starting cloudflare-pool runner.
+ ❯ Timeout._onTimeout node_modules/.pnpm/vitest@4.1.11_vite@8.2.2_esbuild@0.28.1_/node_modules/vitest/dist/chunks/cli-api.CnMVyzaz.js:3531:65
+ ❯ listOnTimeout node:internal/timers:635:17
+ ❯ processTimers node:internal/timers:571:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-pool]: Timeout starting cloudflare-pool runner.
+ ❯ Timeout._onTimeout node_modules/.pnpm/vitest@4.1.11_vite@8.2.2_esbuild@0.28.1_/node_modules/vitest/dist/chunks/cli-api.CnMVyzaz.js:3531:65
+ ❯ listOnTimeout node:internal/timers:635:17
+ ❯ processTimers node:internal/timers:571:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-pool]: Timeout starting cloudflare-pool runner.
+ ❯ Timeout._onTimeout node_modules/.pnpm/vitest@4.1.11_vite@8.2.2_esbuild@0.28.1_/node_modules/vitest/dist/chunks/cli-api.CnMVyzaz.js:3531:65
+ ❯ listOnTimeout node:internal/timers:635:17
+ ❯ processTimers node:internal/timers:571:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-pool]: Timeout starting cloudflare-pool runner.
+ ❯ Timeout._onTimeout node_modules/.pnpm/vitest@4.1.11_vite@8.2.2_esbuild@0.28.1_/node_modules/vitest/dist/chunks/cli-api.CnMVyzaz.js:3531:65
+ ❯ listOnTimeout node:internal/timers:635:17
+ ❯ processTimers node:internal/timers:571:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-pool]: Timeout starting cloudflare-pool runner.
+ ❯ Timeout._onTimeout node_modules/.pnpm/vitest@4.1.11_vite@8.2.2_esbuild@0.28.1_/node_modules/vitest/dist/chunks/cli-api.CnMVyzaz.js:3531:65
+ ❯ listOnTimeout node:internal/timers:635:17
+ ❯ processTimers node:internal/timers:571:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-pool]: Timeout starting cloudflare-pool runner.
+ ❯ Timeout._onTimeout node_modules/.pnpm/vitest@4.1.11_vite@8.2.2_esbuild@0.28.1_/node_modules/vitest/dist/chunks/cli-api.CnMVyzaz.js:3531:65
+ ❯ listOnTimeout node:internal/timers:635:17
+ ❯ processTimers node:internal/timers:571:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-pool]: Timeout starting cloudflare-pool runner.
+ ❯ Timeout._onTimeout node_modules/.pnpm/vitest@4.1.11_vite@8.2.2_esbuild@0.28.1_/node_modules/vitest/dist/chunks/cli-api.CnMVyzaz.js:3531:65
+ ❯ listOnTimeout node:internal/timers:635:17
+ ❯ processTimers node:internal/timers:571:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  no tests
+      Tests  no tests
+     Errors  8 errors
+   Start at  20:21:24
+   Duration  90.02s (transform 0ms, setup 0ms, import 0ms, tests 0ms, environment 0ms)
+
+exit=127

@@ -1,0 +1,97 @@
+npm notice run @jarvis/cloud-gateway@0.1.0 npx
+npm notice run vitest --config ../../vitest.workspace.ts run apps/cloud-gateway/test/conversation apps/cloud-gateway/test/persistence/conversation-repository.test.ts apps/cloud-gateway/test/persistence/event-repository.test.ts apps/cloud-gateway/test/faults/conversation-transaction-faults.test.ts apps/cloud-gateway/test/http/worker-telegram-reply.test.ts apps/cloud-gateway/test/channels/telegram-turn-observability.test.ts apps/cloud-gateway/test/memory/telegram-memory.test.ts apps/cloud-gateway/test/school/school-catchup-telegram.integration.test.ts apps/cloud-gateway/test/university/university-tracker-telegram.integration.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr75-adv
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/conversation/adversarial-pr75.test.ts (12 tests | 4 failed) 1073ms
+     × A1 concurrent duplicate admission that loses the idempotency race converges on the winner's turn 194ms
+     × A2 admission batch that commits but loses its response returns the stored turn and one model claim 60ms
+     × A3 staging batch that commits but loses its response still returns the staged turn and delivers once 68ms
+     × A5 settlement batch that commits but loses its response reports delivered and never resends 92ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/conversation/adversarial-pr75.test.ts > PR 75 adversarial: Telegram reply durability > A1 concurrent duplicate admission that loses the idempotency race converges on the winner's turn
+Error: conversation_turn_missing_after_commit
+ ❯ singleBatchRow apps/cloud-gateway/src/conversation/conversation-repository.ts:176:66
+    174|
+    175| function singleBatchRow<T>(result: D1Result<unknown> | undefined, erro…
+    176|   if (result === undefined || result.results.length !== 1) throw new E…
+       |                                                                  ^
+    177|   return result.results[0] as T;
+    178| }
+ ❯ ConversationRepository.getOrCreateTurn apps/cloud-gateway/src/conversation/conversation-repository.ts:463:9
+ ❯ apps/cloud-gateway/test/conversation/adversarial-pr75.test.ts:155:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/conversation/adversarial-pr75.test.ts > PR 75 adversarial: Telegram reply durability > A2 admission batch that commits but loses its response returns the stored turn and one model claim
+Error: conversation_turn_missing_after_commit
+ ❯ singleBatchRow apps/cloud-gateway/src/conversation/conversation-repository.ts:176:66
+    174|
+    175| function singleBatchRow<T>(result: D1Result<unknown> | undefined, erro…
+    176|   if (result === undefined || result.results.length !== 1) throw new E…
+       |                                                                  ^
+    177|   return result.results[0] as T;
+    178| }
+ ❯ ConversationRepository.getOrCreateTurn apps/cloud-gateway/src/conversation/conversation-repository.ts:463:9
+ ❯ apps/cloud-gateway/test/conversation/adversarial-pr75.test.ts:170:23
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/conversation/adversarial-pr75.test.ts > PR 75 adversarial: Telegram reply durability > A3 staging batch that commits but loses its response still returns the staged turn and delivers once
+Error: assistant_stage_missing_after_commit
+ ❯ singleBatchRow apps/cloud-gateway/src/conversation/conversation-repository.ts:176:66
+    174|
+    175| function singleBatchRow<T>(result: D1Result<unknown> | undefined, erro…
+    176|   if (result === undefined || result.results.length !== 1) throw new E…
+       |                                                                  ^
+    177|   return result.results[0] as T;
+    178| }
+ ❯ ConversationRepository.stageAssistantDelivery apps/cloud-gateway/src/conversation/conversation-repository.ts:622:11
+ ❯ apps/cloud-gateway/test/conversation/adversarial-pr75.test.ts:187:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/conversation/adversarial-pr75.test.ts > PR 75 adversarial: Telegram reply durability > A5 settlement batch that commits but loses its response reports delivered and never resends
+AssertionError: expected { outcome: 'unknown', …(1) } to deeply equal { outcome: 'delivered', …(1) }
+
+- Expected
++ Received
+
+  {
+-   "deliveredAssistantEventId": "01m2pcj9rwmhkpxykh294r1gjv",
+-   "outcome": "delivered",
++   "deliveredAssistantEventId": null,
++   "outcome": "unknown",
+  }
+
+ ❯ apps/cloud-gateway/test/conversation/adversarial-pr75.test.ts:233:19
+    231|     expect(hooked.fired()).toBe(true);
+    232|     const row = await deliveryRow(deliveryId);
+    233|     expect(first).toEqual({ outcome: "delivered", deliveredAssistantEv…
+       |                   ^
+    234|     expect(replay).toEqual({ outcome: "already_delivered", deliveredAs…
+    235|     expect(provider.requests).toHaveLength(1);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed | 12 passed (13)
+      Tests  4 failed | 170 passed (174)
+   Start at  20:34:12
+   Duration  16.84s (transform 8.70s, setup 0ms, import 22.45s, tests 19.13s, environment 0ms)
+

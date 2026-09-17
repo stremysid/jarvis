@@ -1,0 +1,12 @@
+npm notice run @jarvis/cloud-gateway@0.1.0 npx
+npm notice run vitest --config ../../vitest.workspace.ts run apps/cloud-gateway/test/conversation/adversarial-pr75.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr75-adv
+
+Using secrets defined in process.env
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  20:33:42
+   Duration  3.31s (transform 793ms, setup 0ms, import 1.51s, tests 969ms, environment 0ms)
+

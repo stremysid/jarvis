@@ -1,0 +1,109 @@
+{
+ "root": "C:/Users/Sid/jarvis-pr40",
+ "mutations": [
+  {
+   "id": "P1-postresults-offset",
+   "file": "apps/cloud-gateway/src/persistence/event-repository.ts",
+   "from": "postResults: Object.freeze(results.slice(3, 3 + postDependencies.length)),",
+   "to": "postResults: Object.freeze(results.slice(2, 2 + postDependencies.length)),",
+   "tests": [
+    "apps/cloud-gateway/test/conversation",
+    "apps/cloud-gateway/test/persistence/conversation-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/event-repository.test.ts",
+    "apps/cloud-gateway/test/http/worker-telegram-reply.test.ts",
+    "apps/cloud-gateway/test/channels/telegram-turn-observability.test.ts"
+   ]
+  },
+  {
+   "id": "P2-claim-expiry",
+   "file": "apps/cloud-gateway/src/conversation/conversation-repository.ts",
+   "from": "if (current.state === \"claimed\" && current.lease_expires_at !== null && current.lease_expires_at <= observedAt.iso) {",
+   "to": "if (false) {",
+   "tests": [
+    "apps/cloud-gateway/test/conversation",
+    "apps/cloud-gateway/test/persistence/conversation-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/event-repository.test.ts",
+    "apps/cloud-gateway/test/http/worker-telegram-reply.test.ts",
+    "apps/cloud-gateway/test/channels/telegram-turn-observability.test.ts"
+   ]
+  },
+  {
+   "id": "P3-cached-text",
+   "file": "apps/cloud-gateway/src/conversation/conversation-repository.ts",
+   "from": "const issuedText = sanitizeRedaction(binding.text);",
+   "to": "const issuedText = sanitizeRedaction(binding.text + \" \");",
+   "tests": [
+    "apps/cloud-gateway/test/conversation",
+    "apps/cloud-gateway/test/persistence/conversation-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/event-repository.test.ts",
+    "apps/cloud-gateway/test/http/worker-telegram-reply.test.ts",
+    "apps/cloud-gateway/test/channels/telegram-turn-observability.test.ts"
+   ]
+  },
+  {
+   "id": "P4-failure-reason",
+   "file": "apps/cloud-gateway/src/index.ts",
+   "from": "return error instanceof TelegramReplyFailure ? error.reason : \"other\";",
+   "to": "return \"other\";",
+   "tests": [
+    "apps/cloud-gateway/test/conversation",
+    "apps/cloud-gateway/test/persistence/conversation-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/event-repository.test.ts",
+    "apps/cloud-gateway/test/http/worker-telegram-reply.test.ts",
+    "apps/cloud-gateway/test/channels/telegram-turn-observability.test.ts"
+   ]
+  },
+  {
+   "id": "P5-send-timing-wiring",
+   "file": "apps/cloud-gateway/src/index.ts",
+   "from": "observeTelegramSend: (operation) => observer.observeTelegramSend(operation),",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/conversation",
+    "apps/cloud-gateway/test/persistence/conversation-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/event-repository.test.ts",
+    "apps/cloud-gateway/test/http/worker-telegram-reply.test.ts",
+    "apps/cloud-gateway/test/channels/telegram-turn-observability.test.ts"
+   ]
+  },
+  {
+   "id": "P6-settle-replay-read",
+   "file": "apps/cloud-gateway/src/conversation/conversation-repository.ts",
+   "from": "const stored = returned ?? await this.readDeliveryRow(binding.deliveryId);",
+   "to": "const stored = returned ?? null;",
+   "tests": [
+    "apps/cloud-gateway/test/conversation",
+    "apps/cloud-gateway/test/persistence/conversation-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/event-repository.test.ts",
+    "apps/cloud-gateway/test/http/worker-telegram-reply.test.ts",
+    "apps/cloud-gateway/test/channels/telegram-turn-observability.test.ts"
+   ]
+  },
+  {
+   "id": "P7-turn-replay-read",
+   "file": "apps/cloud-gateway/src/conversation/conversation-repository.ts",
+   "from": "? await this.readTurn(turnId)",
+   "to": "? null",
+   "tests": [
+    "apps/cloud-gateway/test/conversation",
+    "apps/cloud-gateway/test/persistence/conversation-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/event-repository.test.ts",
+    "apps/cloud-gateway/test/http/worker-telegram-reply.test.ts",
+    "apps/cloud-gateway/test/channels/telegram-turn-observability.test.ts"
+   ]
+  },
+  {
+   "id": "P8-staging-timing-wiring",
+   "file": "apps/cloud-gateway/src/index.ts",
+   "from": "observeStaging: (operation) => observer.observeStaging(operation),",
+   "to": "",
+   "tests": [
+    "apps/cloud-gateway/test/conversation",
+    "apps/cloud-gateway/test/persistence/conversation-repository.test.ts",
+    "apps/cloud-gateway/test/persistence/event-repository.test.ts",
+    "apps/cloud-gateway/test/http/worker-telegram-reply.test.ts",
+    "apps/cloud-gateway/test/channels/telegram-turn-observability.test.ts"
+   ]
+  }
+ ]
+}

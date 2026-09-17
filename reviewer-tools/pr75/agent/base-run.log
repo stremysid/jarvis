@@ -1,0 +1,47 @@
+npm notice run @jarvis/cloud-gateway@0.1.0 npx
+npm notice run vitest --config ../../vitest.workspace.ts run apps/cloud-gateway/test/conversation/telegram-round-trips.test.ts apps/cloud-gateway/test/conversation/adversarial-pr75.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr75-adv
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/conversation/telegram-round-trips.test.ts (1 test | 1 failed) 214ms
+     × keeps admission, context retrieval, and delivered dispatch within their statement ceilings 213ms
+ ❯ |default| apps/cloud-gateway/test/conversation/adversarial-pr75.test.ts (12 tests | 1 failed) 1169ms
+     × A11 delivered history records exactly the text that was sent even if the staged row is altered after claim 93ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/conversation/adversarial-pr75.test.ts > PR 75 adversarial: Telegram reply durability > A11 delivered history records exactly the text that was sent even if the staged row is altered after claim
+TypeError: contentHash does not match payload
+ ❯ validateEnvelope packages/contracts/src/envelope.ts:211:52
+    209|
+    210|   const computedHash = await sha256Hex(canonicalJson(envelope.payload)…
+    211|   if (computedHash !== envelope.contentHash) throw new TypeError("cont…
+       |                                                    ^
+    212|   return envelope as unknown as EventEnvelopeV1;
+    213| }
+ ❯ ConversationRepository.readValidatedStagedText apps/cloud-gateway/src/conversation/conversation-repository.ts:1249:22
+ ❯ ConversationRepository.recordDeliverySuccess apps/cloud-gateway/src/conversation/conversation-repository.ts:896:18
+ ❯ apps/cloud-gateway/test/conversation/adversarial-pr75.test.ts:336:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/conversation/telegram-round-trips.test.ts > ordinary Telegram turn D1 round trips > keeps admission, context retrieval, and delivered dispatch within their statement ceilings
+AssertionError: expected 11 to be less than or equal to 8
+ ❯ apps/cloud-gateway/test/conversation/telegram-round-trips.test.ts:172:40
+    170|
+    171|     expect(dispatch.outcome).toBe("delivered");
+    172|     expect(admissionCounts.statements).toBeLessThanOrEqual(8);
+       |                                        ^
+    173|     expect(admissionCounts.roundTrips).toBeLessThanOrEqual(4);
+    174|     expect(contextCounts.statements).toBeLessThanOrEqual(2);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 11 passed (13)
+   Start at  20:34:41
+   Duration  3.81s (transform 1.59s, setup 0ms, import 3.45s, tests 1.38s, environment 0ms)
+

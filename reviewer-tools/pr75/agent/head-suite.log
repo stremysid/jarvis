@@ -1,0 +1,21 @@
+npm notice run @jarvis/cloud-gateway@0.1.0 npx
+npm notice run vitest --config ../../vitest.workspace.ts run apps/cloud-gateway/test/conversation apps/cloud-gateway/test/persistence/conversation-repository.test.ts apps/cloud-gateway/test/persistence/event-repository.test.ts apps/cloud-gateway/test/faults/conversation-transaction-faults.test.ts apps/cloud-gateway/test/http/worker-telegram-reply.test.ts apps/cloud-gateway/test/channels/telegram-turn-observability.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr75-adv
+
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+Using secrets defined in process.env
+
+ Test Files  10 passed (10)
+      Tests  114 passed (114)
+   Start at  20:33:54
+   Duration  8.39s (transform 6.06s, setup 0ms, import 22.03s, tests 7.11s, environment 0ms)
+

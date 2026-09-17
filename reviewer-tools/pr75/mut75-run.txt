@@ -1,0 +1,57 @@
+
+== P1-postresults-offset: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/conversation/context-retriever.test.ts (19 tests | 1 failed) 1863ms
+   Test Files  4 failed | 4 passed (8)
+   Tests  21 failed | 76 passed (97)
+   × keeps admission, context retrieval, and delivered dispatch within their statement ceilings 149ms
+   × constructs the live DeepSeek adapter with Telegram thinking disabled by default 167ms
+   × atomically commits one canonical user event and turn, replays exact material, and conflicts changed material 145ms
+   × grants one durable model authority, reports concurrent replay in progress, and expires exactly to unknown 43ms
+
+== P2-claim-expiry: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/persistence/conversation-repository.test.ts (22 tests | 1 failed) 4249ms
+   Test Files  1 failed | 7 passed (8)
+   Tests  1 failed | 96 passed (97)
+   × claims one delivery with a validated staged payload and turns exact lease expiry terminal unknown 81ms
+
+== P3-cached-text: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/conversation/context-retriever.test.ts (19 tests | 1 failed) 1612ms
+   Test Files  2 failed | 6 passed (8)
+   Tests  2 failed | 95 passed (97)
+   × acknowledges a provider receipt atomically and converges exact settlement replay without replacing its provider id 67ms
+   × includes assistant text only after the repository records provider acknowledgement 64ms
+
+== P4-failure-reason: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/http/worker-telegram-reply.test.ts (2 tests | 1 failed) 255ms
+   Test Files  1 failed | 7 passed (8)
+   Tests  1 failed | 96 passed (97)
+   × logs only fixed outer reply failure reasons without exception text 38ms
+
+== P5-send-timing-wiring: SURVIVED (exit 0), tree clean=true
+   Test Files  8 passed (8)
+   Tests  97 passed (97)
+
+== P6-settle-replay-read: SURVIVED (exit 0), tree clean=true
+   Test Files  8 passed (8)
+   Tests  97 passed (97)
+
+== P7-turn-replay-read: SURVIVED (exit 0), tree clean=true
+   Test Files  8 passed (8)
+   Tests  97 passed (97)
+
+== P8-staging-timing-wiring: SURVIVED (exit 0), tree clean=true
+   Test Files  8 passed (8)
+   Tests  97 passed (97)
+
+=== summary
+KILLED    P1-postresults-offset
+KILLED    P2-claim-expiry
+KILLED    P3-cached-text
+KILLED    P4-failure-reason
+SURVIVED  P5-send-timing-wiring
+SURVIVED  P6-settle-replay-read
+SURVIVED  P7-turn-replay-read
+SURVIVED  P8-staging-timing-wiring
+back on main, tree clean=true
+(node:9036) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
