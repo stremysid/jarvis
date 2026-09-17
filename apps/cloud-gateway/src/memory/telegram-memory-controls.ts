@@ -231,6 +231,8 @@ export async function readTelegramMemoryOwnerTurn(input: Readonly<{
   database: D1Database;
   modelInput: Readonly<ModelAdapterStreamInput>;
   memoryIntent: MemoryControlIntent | null;
+  /** Pipeline tools use the same durable turn proof but their broader ingress authority. */
+  requireDirectOwnerText?: boolean;
 }>): Promise<MemoryOwnerTurnInput> {
   const modelInput = input.modelInput;
   const rowValue = await input.database.prepare(`SELECT turn.turn_id, turn.principal_id,
@@ -274,7 +276,7 @@ export async function readTelegramMemoryOwnerTurn(input: Readonly<{
     || envelope.producerVersion !== CONVERSATION_EVENT_PRODUCER_VERSION
     || payload.schemaCode !== 1 || payload.channelCode !== 2
     || payload.sensitivityCode !== 1 || payload.historyEligible !== true
-    || payload.directOwnerText !== true
+    || input.requireDirectOwnerText !== false && payload.directOwnerText !== true
     || payload.text !== modelInput.userText || !checked.ok || checked.text !== modelInput.userText) {
     throw new MemoryRepositoryError("memory_refused");
   }

@@ -97,6 +97,7 @@ export interface AcceptedTelegramUpdate {
   readonly messageId: number;
   readonly text: string;
   readonly isDirectText: boolean;
+  readonly isPrivateHumanText: boolean;
   readonly isMemoryControlAuthoritative: boolean;
 }
 
@@ -356,6 +357,7 @@ export async function handleTelegramWebhook(
       // sensitive survives into this path either.
       text: message.text,
       isDirectText: message.isDirectText,
+      isPrivateHumanText: message.isPrivateHumanText,
       isMemoryControlAuthoritative: message.isMemoryControlAuthoritative,
     });
   }

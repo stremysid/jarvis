@@ -126,6 +126,30 @@ describe("DeepSeekAgentProvider", () => {
     ]);
   });
 
+  it("accepts tool calls accompanied by provider content without treating the content as authority", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => agentResponse({
+      finish_reason: "tool_calls",
+      message: {
+        content: "Sure, saving that now.",
+        tool_calls: [{
+          id: "call_with_content",
+          type: "function",
+          function: { name: "memory_remember", arguments: "{}" },
+        }],
+      },
+    }));
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const provider = new DeepSeekAgentProvider({ apiKey: API_KEY, fetchImplementation: fetcher });
+
+    await expect(provider.completeAgent(agentInput())).resolves.toMatchObject({
+      content: null,
+      finishReason: "tool_calls",
+      toolCalls: [{ id: "call_with_content", name: "memory_remember", arguments: "{}" }],
+    });
+    expect(warning).toHaveBeenCalledWith("deepseek_agent_tool_content_ignored", { characters: 22 });
+    warning.mockRestore();
+  });
+
   it("refuses redirected and malformed tool responses", async () => {
     const redirected = new DeepSeekAgentProvider({
       apiKey: API_KEY,

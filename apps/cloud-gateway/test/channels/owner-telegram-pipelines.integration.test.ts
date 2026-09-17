@@ -223,6 +223,10 @@ describe("owner Telegram agent validated feature pipelines", () => {
 
     expect(result.reply).toContain("Saved your school plan. Today: Chemistry: Review titration calculations (25 min).");
     expect(result.agent.requests).toHaveLength(2);
+    expect(JSON.parse(result.agent.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+      status: "completed",
+      receiptId: "receipt:pipeline_call",
+    });
     await expect(result.school.readSnapshot(result.principalId, "2026-09-17")).resolves.toMatchObject({
       courses: [{ name: "Chemistry", ownerReportedFacts: [{ statement: "Titration calculations feel weak" }] }],
     });
@@ -259,6 +263,10 @@ describe("owner Telegram agent validated feature pipelines", () => {
     });
 
     expect(result.reply).toContain("Saved: University of Waterloo Computer Science (unverified).");
+    expect(JSON.parse(result.agent.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+      status: "completed",
+      receiptId: "receipt:pipeline_call",
+    });
     await expect(result.university.readSnapshot(result.principalId)).resolves.toMatchObject({
       programs: [{ university: "University of Waterloo", programName: "Computer Science" }],
     });
@@ -295,6 +303,10 @@ describe("owner Telegram agent validated feature pipelines", () => {
     });
 
     expect(result.reply).toContain("I couldn't validate that as a university update, so I didn't save it.");
+    expect(JSON.parse(result.agent.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+      status: "not_saved",
+      receiptId: null,
+    });
     await expect(result.school.readSnapshot(result.principalId, "2026-09-17"))
       .resolves.toMatchObject({ courses: [] });
   });
@@ -308,6 +320,10 @@ describe("owner Telegram agent validated feature pipelines", () => {
     });
 
     expect(result.reply).toBe("Coursework check-ins are off.");
+    expect(JSON.parse(result.agent.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+      status: "completed",
+      receiptId: "receipt:pipeline_call",
+    });
     await expect(result.study.readSnapshot(result.principalId, "2026-09-17"))
       .resolves.toMatchObject({ preference: { enabled: false } });
     expect(result.baseModel.requests).toHaveLength(0);

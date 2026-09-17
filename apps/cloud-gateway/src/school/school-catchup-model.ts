@@ -439,7 +439,7 @@ function hasUnsafeFirstPersonActionClaim(reply: string): boolean {
   return false;
 }
 
-function guardReplyClaims(reply: string): string {
+export function guardReplyClaims(reply: string): string {
   const withoutAdvisories = reply.replace(SECRET_ADVISORY, "");
   if (SECRET_REQUESTS.some((pattern) => pattern.test(withoutAdvisories))) {
     return SECRET_REPLACEMENT;
@@ -467,7 +467,7 @@ function boundedUtf8(value: string, maximumBytes: number): string {
   return result.trimEnd();
 }
 
-function safeOrdinaryReply(
+export function safeOrdinaryReply(
   value: string,
   redactor: SchoolCatchupModelDependencies["redactor"],
 ): string {
@@ -863,6 +863,13 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
   }
 
   async *stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
+    for await (const token of this.streamOwnerTool(input)) {
+      yield Object.freeze({ index: token.index, text: token.text });
+    }
+  }
+
+  /** Preserves code-observed save state for the owner-agent tool boundary. */
+  async *streamOwnerTool(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
     if (input.channel !== "telegram") {
       yield* this.dependencies.model.stream(input);
       return;
@@ -882,7 +889,11 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       && isBrightspaceRefreshRequest(input.userText)
     ) {
       try {
-        yield Object.freeze({ index: 0, text: await this.dependencies.refreshBrightspace(now) });
+        yield Object.freeze({
+          index: 0,
+          text: await this.dependencies.refreshBrightspace(now),
+          toolOutcome: "saved" as const,
+        });
       } catch {
         yield Object.freeze({
           index: 0,
@@ -1054,6 +1065,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
           text: offerReport
             ? `${partialReply}\n\n${offerNotSavedLine(input.userText, universitySnapshot, true)}`
             : partialReply,
+          toolOutcome: "saved" as const,
         });
         return;
       }
@@ -1061,11 +1073,16 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
         yield Object.freeze({
           index: 0,
           text: `${schoolPlanReceipt(schoolPlan, snapshot, today)}\n\n${offerNotSavedLine(input.userText, universitySnapshot, true)}`,
+          toolOutcome: "saved" as const,
         });
         return;
       }
       if (this.dependencies.fixedActionReceipts) {
-        yield Object.freeze({ index: 0, text: schoolPlanReceipt(schoolPlan, snapshot, today) });
+        yield Object.freeze({
+          index: 0,
+          text: schoolPlanReceipt(schoolPlan, snapshot, today),
+          toolOutcome: "saved" as const,
+        });
         return;
       }
     } else if (universityPlan?.engaged && universitySnapshot !== null) {
@@ -1103,6 +1120,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
           text: offerReport && !offerUpdate
             ? `${receipt}\n\n${offerNotSavedLine(input.userText, universitySnapshot, true)}`
             : receipt,
+          toolOutcome: "saved" as const,
         });
         return;
       }

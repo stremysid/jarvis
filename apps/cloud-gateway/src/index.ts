@@ -211,7 +211,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           redactor,
           timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
           ownerPrincipalId,
-          ownerTurnAuthoritative: accepted.isMemoryControlAuthoritative,
+          ownerTurnAuthoritative: accepted.isDirectText && accepted.isPrivateHumanText,
           agentSelectedScope: "school",
           fixedActionReceipts: true,
           refreshBrightspace: async (now) => runOnDemandBrightspaceRefresh({
@@ -228,7 +228,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           redactor,
           timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
           ownerPrincipalId,
-          ownerTurnAuthoritative: accepted.isMemoryControlAuthoritative,
+          ownerTurnAuthoritative: accepted.isDirectText && accepted.isPrivateHumanText,
           agentSelectedScope: "university",
           fixedActionReceipts: true,
         });
@@ -246,7 +246,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           repository: new StudyCoachRepository(env.DB),
           redactor,
           ownerPrincipalId,
-          ownerTurnAuthoritative: accepted.isMemoryControlAuthoritative,
+          ownerTurnAuthoritative: accepted.isDirectText && accepted.isPrivateHumanText,
           timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
         });
         model = new OwnerTelegramAgentAdapter({
@@ -260,6 +260,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           archive: env.ARCHIVE,
           ownerPrincipalId,
           directOwnerText: accepted.isMemoryControlAuthoritative,
+          directPipelineText: accepted.isDirectText && accepted.isPrivateHumanText,
           authorityText: accepted.text,
           targets: memory,
           decisions: new DecisionService({ repository: new DecisionRepository(env.DB) }),
@@ -476,8 +477,12 @@ async function runTelegramCommand(
  * the channel identity, and the decision service checks that identity against
  * the principal that owns the question.
  */
-async function answerFromTap(env: Env, tap: AcceptedTelegramButtonTap): Promise<void> {
-  const send = telegramSender(env);
+export async function answerFromTap(
+  env: Env,
+  tap: AcceptedTelegramButtonTap,
+  sendOverride?: ((chatId: string, text: string) => Promise<void>) | null,
+): Promise<void> {
+  const send = sendOverride === undefined ? telegramSender(env) : sendOverride;
   const callback = parseDecisionCallbackData(tap.data);
   // Not ours, or malformed. Nothing to do and nothing to say -- a tap on a
   // stale keyboard is ordinary, not an error worth reporting.
@@ -489,25 +494,43 @@ async function answerFromTap(env: Env, tap: AcceptedTelegramButtonTap): Promise<
     );
     if (identity === null) return;
 
-    const result = await new DecisionService({
-      repository: new DecisionRepository(env.DB),
-    }).answer({
+    const decisionRepository = new DecisionRepository(env.DB);
+    const result = await new DecisionService({ repository: decisionRepository }).answer({
       decisionId: callback.decisionId,
       answeredByIdentityId: identity.identityId,
       optionKey: callback.optionKey,
     });
 
     let confirmedForgetReceipts: readonly string[] = Object.freeze([]);
-    if (result.outcome === "recorded"
+    const recordedForget = result.outcome === "recorded"
       && result.routing.origin === "telegram-memory-forget"
       && result.routing.optionKey === "confirm"
-      && result.routing.originReference !== null) {
-      const itemIds = result.routing.originReference.split(",");
+      && result.routing.originReference !== null
+      ? Object.freeze({
+        decisionId: result.routing.decisionId,
+        originReference: result.routing.originReference,
+      })
+      : null;
+    const standingItem = result.outcome === "already_answered"
+      && result.standing.optionKey === "confirm"
+      && result.standing.answeredByIdentityId === identity.identityId
+      ? await decisionRepository.readItem(callback.decisionId)
+      : null;
+    const replayedForget = standingItem !== null
+      && standingItem.principalId === tap.principalId
+      && standingItem.status === "answered"
+      && standingItem.origin === "telegram-memory-forget"
+      && standingItem.originReference !== null
+      ? Object.freeze({ decisionId: standingItem.decisionId, originReference: standingItem.originReference })
+      : null;
+    const forget = recordedForget ?? replayedForget;
+    if (forget !== null) {
+      const itemIds = forget.originReference.split(",");
       if (itemIds.length < 2 || itemIds.length > 8) throw new Error("telegram_memory_forget_decision_invalid");
       const receipts = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).forgetConfirmedDecision({
         principalId: tap.principalId,
         callbackEventId: tap.eventId as ReturnType<typeof newUlid>,
-        decisionId: result.routing.decisionId as ReturnType<typeof newUlid>,
+        decisionId: forget.decisionId as ReturnType<typeof newUlid>,
         itemIds: itemIds as ReturnType<typeof newUlid>[],
       });
       confirmedForgetReceipts = Object.freeze(receipts.map((receipt) => receipt.receipt));
@@ -531,6 +554,16 @@ async function answerFromTap(env: Env, tap: AcceptedTelegramButtonTap): Promise<
       eventId: tap.eventId,
       reason: error instanceof Error ? error.message : String(error),
     });
+    if (send !== null) {
+      try {
+        await send(tap.chatId, "I couldn't finish that confirmed memory change. Tap Confirm again to retry safely.");
+      } catch (sendError) {
+        console.error("telegram_callback_failure_reply_failed", {
+          eventId: tap.eventId,
+          reason: sendError instanceof Error ? sendError.message : String(sendError),
+        });
+      }
+    }
   }
 }
 

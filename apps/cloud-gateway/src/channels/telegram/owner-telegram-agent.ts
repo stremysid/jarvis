@@ -33,15 +33,20 @@ import type {
   ModelFunctionDefinition,
   ModelFunctionResult,
 } from "../../providers/provider-types.js";
+import { guardReplyClaims } from "../../school/school-catchup-model.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const MAX_TOOL_CALLS = 1;
 const MAX_ARGUMENT_BYTES = 4_096;
 const MAX_REPLY_CHARACTERS = 4_096;
+const MAX_PIPELINE_CHARACTERS = 24_000;
+const DEFAULT_TURN_TIMEOUT_MS = 25_000;
 const MAX_CLAIMS = 16;
 const MAX_RECEIPT_IDS = 4;
 const MEMORY_CONTEXT_ITEM = /^(?:Uncertain )?Memory evidence \[[^\]]*\bitem ([0-7][0-9a-hjkmnp-tv-z]{25});/u;
 const encoder = new TextEncoder();
+const POST_COMMIT_FALLBACK = "Done — I couldn't write a longer reply.";
+const DEADLINE_FALLBACK = "I couldn't finish that turn before the deadline. Nothing changed.";
 
 const STRUCTURED_REPLY_EXAMPLE = JSON.stringify({
   reply: "I can help with that.",
@@ -72,20 +77,26 @@ export const OWNER_TELEGRAM_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[]
   }),
   Object.freeze({
     name: "memory_forget",
-    description: "Hide one exact memory by item id. If more than one item could be meant, pass every candidate id so code asks Sid to confirm instead of changing anything.",
+    description: "Hide one exact memory by item id, grounded by supportingExcerpt copied from Sid's current words. If more than one item could be meant, pass every candidate id and omit the excerpt so code asks Sid to confirm instead of changing anything.",
     parameters: Object.freeze({
       type: "object",
       additionalProperties: false,
       required: ["itemIds"],
-      properties: { itemIds: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" } } },
+      properties: {
+        itemIds: { type: "array", minItems: 1, maxItems: 8, items: { type: "string" } },
+        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096 },
+      },
     }),
   }),
   Object.freeze({
     name: "memory_restore",
-    description: "Restore one forgotten memory by an item id present in context or referenced by Jarvis immediately before this turn.",
+    description: "Restore one forgotten memory by an eligible item id. supportingExcerpt must be copied exactly from Sid's current request.",
     parameters: Object.freeze({
-      type: "object", additionalProperties: false, required: ["itemId"],
-      properties: { itemId: { type: "string" } },
+      type: "object", additionalProperties: false, required: ["itemId", "supportingExcerpt"],
+      properties: {
+        itemId: { type: "string" },
+        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096 },
+      },
     }),
   }),
   Object.freeze({
@@ -98,10 +109,13 @@ export const OWNER_TELEGRAM_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[]
   }),
   Object.freeze({
     name: "memory_explain",
-    description: "Explain the verified evidence and current state for one memory item without changing it.",
+    description: "Explain one eligible memory item when supportingExcerpt is copied exactly from Sid's current request.",
     parameters: Object.freeze({
-      type: "object", additionalProperties: false, required: ["itemId"],
-      properties: { itemId: { type: "string" } },
+      type: "object", additionalProperties: false, required: ["itemId", "supportingExcerpt"],
+      properties: {
+        itemId: { type: "string" },
+        supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096 },
+      },
     }),
   }),
   Object.freeze({
@@ -127,6 +141,8 @@ interface OwnerTelegramAgentDependencies {
   readonly archive: ArchiveBucket;
   readonly ownerPrincipalId: string;
   readonly directOwnerText: boolean;
+  /** Main's broader school/study authority: direct text in a private non-bot chat. */
+  readonly directPipelineText?: boolean;
   readonly authorityText: string;
   readonly targets: TelegramMemoryTargetFinder;
   readonly decisions: {
@@ -135,6 +151,8 @@ interface OwnerTelegramAgentDependencies {
   readonly schoolModel: ModelAdapter;
   readonly universityModel: ModelAdapter;
   readonly studyCoachModel: ModelAdapter;
+  /** Test seam and an explicit cap below Telegram's outer 90 second allowance. */
+  readonly turnTimeoutMs?: number;
 }
 
 interface ParsedClaim {
@@ -203,13 +221,31 @@ function parseReply(content: string, allowEmpty: boolean): ParsedReply {
 }
 
 function parseArguments(call: ModelFunctionCall, fields: readonly string[]): Record<string, unknown> {
-  if (!call.arguments.isWellFormed() || encoder.encode(call.arguments).byteLength > MAX_ARGUMENT_BYTES) {
+  const serialized = call.arguments === "" && fields.length === 0 ? "{}" : call.arguments;
+  if (!serialized.isWellFormed() || encoder.encode(serialized).byteLength > MAX_ARGUMENT_BYTES) {
     throw new TypeError("owner_agent_tool_arguments_invalid");
   }
   let decoded: unknown;
-  try { decoded = JSON.parse(call.arguments) as unknown; }
+  try { decoded = JSON.parse(serialized) as unknown; }
   catch { throw new TypeError("owner_agent_tool_arguments_invalid"); }
   return exactRecord(decoded, fields);
+}
+
+interface PipelineOutcome {
+  readonly status: "saved" | "not_saved";
+  readonly receipt: string;
+}
+
+function parseArgumentsWithOptionalExcerpt(
+  call: ModelFunctionCall,
+  requiredFields: readonly string[],
+): Record<string, unknown> {
+  let decoded: Record<string, unknown>;
+  try { decoded = parseArguments(call, requiredFields); }
+  catch {
+    decoded = parseArguments(call, [...requiredFields, "supportingExcerpt"]);
+  }
+  return decoded;
 }
 
 function safeUlid(value: unknown): Ulid {
@@ -239,13 +275,33 @@ function explanationReceipt(explanation: MemoryExplanation, memoryText: string):
   return memoryReceipt(`Evidence for 1 memory in ${area}: ${sources}; nothing changed.`, memoryText);
 }
 
-async function collect(model: ModelAdapter, input: ModelAdapterStreamInput): Promise<string> {
+async function collectPipelineOutcome(
+  model: ModelAdapter,
+  input: ModelAdapterStreamInput,
+): Promise<PipelineOutcome> {
   let text = "";
-  for await (const token of model.stream(input)) {
+  let signalledStatus: PipelineOutcome["status"] | null = null;
+  const structured = model as ModelAdapter & {
+    readonly streamOwnerTool?: (value: ModelAdapterStreamInput) => AsyncIterable<ModelToken>;
+  };
+  const tokens = typeof structured.streamOwnerTool === "function"
+    ? structured.streamOwnerTool(input)
+    : model.stream(input);
+  for await (const token of tokens) {
     text += token.text;
-    if (text.length > MAX_REPLY_CHARACTERS) throw new RangeError("owner_agent_pipeline_reply_too_large");
+    if (text.length > MAX_PIPELINE_CHARACTERS) throw new RangeError("owner_agent_pipeline_reply_too_large");
+    const status = (token as ModelToken & { readonly toolOutcome?: unknown }).toolOutcome;
+    if (status !== undefined) {
+      if (status !== "saved" && status !== "not_saved" || signalledStatus !== null && signalledStatus !== status) {
+        throw new TypeError("owner_agent_pipeline_outcome_invalid");
+      }
+      signalledStatus = status;
+    }
   }
-  return safeText(text, 16_384);
+  const receipt = safeText(text, 65_536);
+  // Production adapters signal their code-observed result. The fixed-receipt
+  // fallback keeps narrow test adapters and older injected adapters compatible.
+  return Object.freeze({ status: signalledStatus ?? (pipelineSaved(receipt) ? "saved" : "not_saved"), receipt });
 }
 
 function contextItemIds(input: Readonly<ModelAdapterStreamInput>): readonly Ulid[] {
@@ -288,6 +344,15 @@ function successfulTool(
   });
 }
 
+function notSavedTool(call: ModelFunctionCall, notice: string): ExecutedTool {
+  return Object.freeze({
+    providerResult: toolResult(call, "not_saved", null, notice),
+    receipt: notice,
+    receiptId: null,
+    referencedItemIds: Object.freeze([]),
+  });
+}
+
 function informationalTool(
   call: ModelFunctionCall,
   receipt: string,
@@ -323,20 +388,52 @@ function removeUnsupportedSentences(reply: ParsedReply, unsupported: readonly Pa
 
 function composeTelegramReply(receipts: readonly string[], reply: string): string {
   const receiptText = receipts.join("\n\n");
-  if (receiptText.length > MAX_REPLY_CHARACTERS) {
-    throw new RangeError("owner_agent_receipts_too_large");
-  }
-  if (receiptText.length === 0) return reply.slice(0, MAX_REPLY_CHARACTERS);
-  if (reply.length === 0) return receiptText;
-  const combined = `${receiptText}\n\n${reply}`;
-  return combined.length <= MAX_REPLY_CHARACTERS ? combined : receiptText;
+  const boundedReply = Array.from(reply).slice(0, MAX_REPLY_CHARACTERS).join("");
+  if (receiptText.length === 0) return boundedReply;
+  if (boundedReply.length === 0) return Array.from(receiptText).slice(0, MAX_REPLY_CHARACTERS).join("");
+  const suffix = `\n\n${boundedReply}`;
+  if (suffix.length >= MAX_REPLY_CHARACTERS) return boundedReply;
+  const boundedReceipt = Array.from(receiptText)
+    .slice(0, MAX_REPLY_CHARACTERS - suffix.length)
+    .join("")
+    .trimEnd();
+  return boundedReceipt.length === 0 ? boundedReply : `${boundedReceipt}${suffix}`;
+}
+
+function pipelineSaved(receipt: string): boolean {
+  return /^(?:Saved\b|Updated\b|Recorded\b|Forgot\s+\d+\b|Retired\s+\d+\b|Quiz stopped\b)/iu.test(receipt.trim());
+}
+
+function groundedExcerpt(input: Readonly<ModelAdapterStreamInput>, value: unknown): string {
+  const excerpt = safeText(value, 4_096);
+  if (!input.userText.includes(excerpt)) throw new TypeError("owner_agent_memory_grounding_invalid");
+  return excerpt;
+}
+
+function isQuestionSentence(previous: string, excerpt: string): boolean {
+  if (excerpt !== excerpt.trim() || !excerpt.endsWith("?") || !/[\p{L}\p{N}]/u.test(excerpt)) return false;
+  const start = previous.indexOf(excerpt);
+  if (start < 0 || previous.indexOf(excerpt, start + excerpt.length) >= 0) return false;
+  const before = previous.slice(0, start).trimEnd();
+  const after = previous.slice(start + excerpt.length).trimStart();
+  return (before.length === 0 || /[.!?]$/u.test(before))
+    && (after.length === 0 || /^[\p{Lu}\d]/u.test(after));
 }
 
 export class OwnerTelegramAgentAdapter implements ModelAdapter {
+  private readonly turnTimeoutMs: number;
+
   constructor(private readonly dependencies: OwnerTelegramAgentDependencies) {
     safeText(dependencies.ownerPrincipalId, 1_024);
     safeText(dependencies.authorityText, 65_536);
     if (typeof dependencies.directOwnerText !== "boolean") throw new TypeError("owner_agent_authority_invalid");
+    if (dependencies.directPipelineText !== undefined && typeof dependencies.directPipelineText !== "boolean") {
+      throw new TypeError("owner_agent_authority_invalid");
+    }
+    this.turnTimeoutMs = dependencies.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS;
+    if (!Number.isSafeInteger(this.turnTimeoutMs) || this.turnTimeoutMs < 1 || this.turnTimeoutMs > 90_000) {
+      throw new RangeError("owner_agent_turn_timeout_invalid");
+    }
   }
 
   stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
@@ -344,49 +441,86 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
   }
 
   private async *streamCaptured(input: Readonly<ModelAdapterStreamInput>): AsyncIterable<ModelToken> {
-    const first = await this.dependencies.provider.completeAgent({
-      correlationId: input.correlationId,
-      principalId: input.principalId,
-      systemPrompt: OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT,
-      userText: input.userText,
-      context: input.context,
-      tools: OWNER_TELEGRAM_TOOL_DEFINITIONS,
-      toolChoice: "auto",
-      timeoutMs: input.timeoutMs,
-      maxOutputTokens: 4_096,
-      signal: input.signal,
+    const controller = new AbortController();
+    let deadlineHit = false;
+    const onAbort = (): void => controller.abort();
+    input.signal.addEventListener("abort", onAbort, { once: true });
+    const timeoutMs = Math.min(input.timeoutMs, this.turnTimeoutMs);
+    const timer = setTimeout(() => {
+      deadlineHit = true;
+      controller.abort();
+    }, timeoutMs);
+    const boundedInput = Object.freeze({
+      ...input,
+      firstTokenTimeoutMs: Math.min(input.firstTokenTimeoutMs, timeoutMs),
+      timeoutMs,
+      signal: controller.signal,
     });
+    try {
+      let first: ModelAgentCompletion;
+      try {
+        first = await this.dependencies.provider.completeAgent({
+          correlationId: input.correlationId,
+          principalId: input.principalId,
+          systemPrompt: OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT,
+          userText: input.userText,
+          context: input.context,
+          tools: OWNER_TELEGRAM_TOOL_DEFINITIONS,
+          toolChoice: "auto",
+          timeoutMs,
+          maxOutputTokens: 4_096,
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (!deadlineHit) throw error;
+        yield Object.freeze({ index: 0, text: DEADLINE_FALLBACK });
+        return;
+      }
 
-    if (first.finishReason === "stop") {
-      const parsed = this.tryReply(first, false);
-      const honest = await this.honestReply(input, parsed, new Set());
-      yield Object.freeze({ index: 0, text: composeTelegramReply([], honest) });
-      return;
+      if (first.finishReason === "stop") {
+        const parsed = this.tryReply(first, false);
+        const honest = await this.honestReply(boundedInput, parsed, new Set());
+        yield Object.freeze({ index: 0, text: composeTelegramReply([], guardReplyClaims(honest)) });
+        return;
+      }
+
+      const executed = await this.executeCalls(boundedInput, first.toolCalls);
+      const results = executed.map((entry) => entry.providerResult);
+      const receiptIds = new Set(executed.flatMap((entry) => entry.receiptId === null ? [] : [entry.receiptId]));
+      const receipts = executed.flatMap((entry) => entry.receipt === null ? [] : [entry.receipt]);
+      const referenced = [...new Set(executed.flatMap((entry) => entry.referencedItemIds))];
+      recordPendingTelegramMemoryReferences(input.correlationId, referenced);
+      if (deadlineHit) {
+        yield Object.freeze({ index: 0, text: composeTelegramReply(receipts, POST_COMMIT_FALLBACK) });
+        return;
+      }
+      let second: ModelAgentCompletion;
+      try {
+        second = await this.dependencies.provider.completeAgent({
+          correlationId: input.correlationId,
+          principalId: input.principalId,
+          systemPrompt: OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT,
+          userText: input.userText,
+          context: input.context,
+          tools: OWNER_TELEGRAM_TOOL_DEFINITIONS,
+          previousToolCalls: first.toolCalls,
+          toolResults: results,
+          toolChoice: "none",
+          timeoutMs,
+          maxOutputTokens: 4_096,
+          signal: controller.signal,
+        });
+      } catch {
+        yield Object.freeze({ index: 0, text: composeTelegramReply(receipts, POST_COMMIT_FALLBACK) });
+        return;
+      }
+      const parsed = this.tryReply(second, true);
+      const honest = await this.honestReply(boundedInput, parsed, receiptIds);
+      yield Object.freeze({ index: 0, text: composeTelegramReply(receipts, guardReplyClaims(honest)) });
+    } finally {
+      clearTimeout(timer);
+      input.signal.removeEventListener("abort", onAbort);
     }
-
-    const executed = await this.executeCalls(input, first.toolCalls);
-    const results = executed.map((entry) => entry.providerResult);
-    const receiptIds = new Set(executed.flatMap((entry) => entry.receiptId === null ? [] : [entry.receiptId]));
-    const receipts = executed.flatMap((entry) => entry.receipt === null ? [] : [entry.receipt]);
-    const referenced = [...new Set(executed.flatMap((entry) => entry.referencedItemIds))];
-    recordPendingTelegramMemoryReferences(input.correlationId, referenced);
-    const second = await this.dependencies.provider.completeAgent({
-      correlationId: input.correlationId,
-      principalId: input.principalId,
-      systemPrompt: OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT,
-      userText: input.userText,
-      context: input.context,
-      tools: OWNER_TELEGRAM_TOOL_DEFINITIONS,
-      previousToolCalls: first.toolCalls,
-      toolResults: results,
-      toolChoice: "none",
-      timeoutMs: input.timeoutMs,
-      maxOutputTokens: 4_096,
-      signal: input.signal,
-    });
-    const parsed = this.tryReply(second, true);
-    const honest = await this.honestReply(input, parsed, receiptIds);
-    yield Object.freeze({ index: 0, text: composeTelegramReply(receipts, honest) });
   }
 
   private tryReply(completion: ModelAgentCompletion, allowEmpty: boolean): ParsedReply {
@@ -428,11 +562,11 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
         signal: input.signal,
       });
       if (completion.finishReason !== "stop" || completion.content === null || completion.toolCalls.length > 0) {
-        return removeUnsupportedSentences(reply, unsupported);
+        return receiptIds.size > 0 ? POST_COMMIT_FALLBACK : removeUnsupportedSentences(reply, unsupported);
       }
       rewritten = parseReply(completion.content, true);
     } catch {
-      return removeUnsupportedSentences(reply, unsupported);
+      return receiptIds.size > 0 ? POST_COMMIT_FALLBACK : removeUnsupportedSentences(reply, unsupported);
     }
     const stillUnsupported = unsupportedClaims(rewritten, receiptIds);
     return stillUnsupported.length === 0
@@ -467,14 +601,22 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
     call: ModelFunctionCall,
   ): Promise<ExecutedTool> {
     if (input.channel !== "telegram" || input.principalId !== this.dependencies.ownerPrincipalId
-      || this.dependencies.authorityText !== input.userText || !this.dependencies.directOwnerText) {
+      || this.dependencies.authorityText !== input.userText) {
       return refusedTool(call, "I refused that tool call because this is not Sid's direct current Telegram text. Nothing changed.");
     }
-    if (call.name === "memory_remember") return this.remember(input, call);
-    if (call.name === "memory_forget") return this.forget(input, call);
-    if (call.name === "memory_restore") return this.restore(input, call);
-    if (call.name === "memory_confirm") return this.confirm(input, call);
-    if (call.name === "memory_explain") return this.explain(input, call);
+    if (call.name.startsWith("memory_")) {
+      if (!this.dependencies.directOwnerText) {
+        return refusedTool(call, "I refused that memory tool call because this is not Sid's direct current Telegram text. Nothing changed.");
+      }
+      if (call.name === "memory_remember") return this.remember(input, call);
+      if (call.name === "memory_forget") return this.forget(input, call);
+      if (call.name === "memory_restore") return this.restore(input, call);
+      if (call.name === "memory_confirm") return this.confirm(input, call);
+      if (call.name === "memory_explain") return this.explain(input, call);
+    }
+    if (this.dependencies.directPipelineText === false) {
+      return refusedTool(call, "I refused that tool call because this is not Sid's direct private Telegram text. Nothing changed.");
+    }
     if (call.name === "school_update") return this.runPipeline(input, call, this.dependencies.schoolModel);
     if (call.name === "university_update") return this.runPipeline(input, call, this.dependencies.universityModel);
     if (call.name === "study_coach") return this.runPipeline(input, call, this.dependencies.studyCoachModel);
@@ -490,6 +632,15 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
       database: this.dependencies.database,
       modelInput: input,
       memoryIntent: intent,
+    });
+  }
+
+  private async pipelineOwnerTurn(input: Readonly<ModelAdapterStreamInput>): Promise<void> {
+    await readTelegramMemoryOwnerTurn({
+      database: this.dependencies.database,
+      modelInput: input,
+      memoryIntent: null,
+      requireDirectOwnerText: false,
     });
   }
 
@@ -558,8 +709,7 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
       "fact", "supportingExcerpt", "evidenceClass", "previousOfferExcerpt", "kind", "sensitivity",
     ]);
     const fact = safeText(args.fact, 4_096);
-    const excerpt = safeText(args.supportingExcerpt, 4_096);
-    if (fact !== excerpt || !input.userText.includes(excerpt)) throw new TypeError("owner_agent_memory_grounding_invalid");
+    const excerpt = groundedExcerpt(input, args.supportingExcerpt);
     const evidenceClass = args.evidenceClass;
     if (evidenceClass !== "stated" && evidenceClass !== "confirmed") {
       throw new TypeError("owner_agent_memory_grounding_invalid");
@@ -569,7 +719,9 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
     } else {
       const offer = safeText(args.previousOfferExcerpt, 4_096);
       const previous = await this.previousAssistantText(input);
-      if (previous === null || !previous.includes(offer)) throw new TypeError("owner_agent_memory_grounding_invalid");
+      if (previous === null || !isQuestionSentence(previous, offer)) {
+        throw new TypeError("owner_agent_memory_grounding_invalid");
+      }
     }
     const kinds = new Set<MemoryKind>(["fact", "preference", "plan", "decision", "relationship"]);
     const sensitivities = new Set<MemorySensitivity>(["normal", "sensitive"]);
@@ -581,6 +733,7 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
       text: fact,
       sourceExcerpt: excerpt,
       basis: evidenceClass,
+      normalizedFromSource: true,
       kind: args.kind as MemoryKind,
       sensitivity: args.sensitivity as MemorySensitivity,
     });
@@ -588,7 +741,7 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
   }
 
   private async forget(input: Readonly<ModelAdapterStreamInput>, call: ModelFunctionCall): Promise<ExecutedTool> {
-    const args = parseArguments(call, ["itemIds"]);
+    const args = parseArgumentsWithOptionalExcerpt(call, ["itemIds"]);
     const itemIds = safeItemIds(args.itemIds);
     const eligible = await this.eligibleItemIds(input, "forget");
     if (itemIds.some((itemId) => !eligible.has(itemId))) throw new TypeError("owner_agent_item_not_eligible");
@@ -612,6 +765,7 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
         itemIds,
       );
     }
+    groundedExcerpt(input, args.supportingExcerpt);
     const item = await new MemoryRepository(this.dependencies.database)
       .readCurrentItem(input.principalId, itemIds[0]!);
     const result = await this.controls().forget({
@@ -622,8 +776,9 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
   }
 
   private async restore(input: Readonly<ModelAdapterStreamInput>, call: ModelFunctionCall): Promise<ExecutedTool> {
-    const args = parseArguments(call, ["itemId"]);
+    const args = parseArgumentsWithOptionalExcerpt(call, ["itemId"]);
     const itemId = safeUlid(args.itemId);
+    groundedExcerpt(input, args.supportingExcerpt);
     await this.requireEligibleItem(input, "lift", itemId);
     const item = await new MemoryRepository(this.dependencies.database).readCurrentItem(input.principalId, itemId);
     const result = await this.controls().lift({
@@ -649,8 +804,9 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
   }
 
   private async explain(input: Readonly<ModelAdapterStreamInput>, call: ModelFunctionCall): Promise<ExecutedTool> {
-    const args = parseArguments(call, ["itemId"]);
+    const args = parseArgumentsWithOptionalExcerpt(call, ["itemId"]);
     const itemId = safeUlid(args.itemId);
+    groundedExcerpt(input, args.supportingExcerpt);
     await this.requireEligibleItem(input, "explain", itemId);
     const item = await new MemoryRepository(this.dependencies.database).readCurrentItem(input.principalId, itemId);
     const explanation = await this.controls().explain({
@@ -666,7 +822,10 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
     model: ModelAdapter,
   ): Promise<ExecutedTool> {
     parseArguments(call, []);
-    await this.ownerTurn(input, null);
-    return successfulTool(call, await collect(model, input));
+    await this.pipelineOwnerTurn(input);
+    const outcome = await collectPipelineOutcome(model, input);
+    return outcome.status === "saved"
+      ? successfulTool(call, outcome.receipt)
+      : notSavedTool(call, outcome.receipt);
   }
 }

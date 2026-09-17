@@ -1094,6 +1094,38 @@ export class MemoryRepository {
     });
   }
 
+  /** Reuses an exact active owner memory when Telegram retries the same request as a new turn. */
+  async findActiveItemByExactText(
+    principalIdInput: string,
+    textInput: string,
+    kindInput: MemoryKind,
+    sensitivityInput: MemorySensitivity,
+  ): Promise<CanonicalMemoryItem | null> {
+    return this.safely(async () => {
+      const principalId = safeInputText(principalIdInput, 256);
+      const text = this.validateItemText(textInput);
+      if (!["fact", "preference", "plan", "decision", "relationship"].includes(kindInput)
+        || !["normal", "sensitive"].includes(sensitivityInput)) refuse();
+      const row = await this.database.prepare(`SELECT item.item_id
+        FROM memory_items item
+        JOIN memory_item_state state
+          ON state.principal_id = item.principal_id AND state.item_id = item.item_id
+        JOIN memory_item_versions version
+          ON version.principal_id = state.principal_id
+          AND version.version_id = state.current_version_id
+        WHERE item.principal_id = ?1 AND item.kind = ?2
+          AND state.lifecycle_state = 'active'
+          AND version.text_hash = ?3 AND version.text = ?4
+          AND version.sensitivity = ?5
+        ORDER BY item.created_at, item.item_id
+        LIMIT 1`).bind(principalId, kindInput, await sha256Hex(text), text, sensitivityInput)
+        .first<{ item_id: unknown }>();
+      if (row === null) return null;
+      if (Reflect.ownKeys(row).length !== 1 || typeof row.item_id !== "string" || !ULID.test(row.item_id)) corrupt();
+      return this.readCurrentItemInternal(principalId, row.item_id as Ulid);
+    });
+  }
+
   async readItemVisibility(
     principalIdInput: string,
     itemIdInput: Ulid,

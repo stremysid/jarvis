@@ -56,6 +56,7 @@ export interface RememberMemoryInput {
   readonly sensitivity: MemorySensitivity;
   readonly sourceExcerpt?: string;
   readonly basis?: "stated" | "confirmed";
+  readonly normalizedFromSource?: boolean;
 }
 
 export interface ConfirmedForgetDecisionInput {
@@ -292,11 +293,17 @@ function normalizeRememberComparison(value: string): string {
     .replace(ZERO_WIDTH_CHARACTERS, "");
 }
 
-function isAuthorizedRememberText(text: string, excerpt: string, ownerText: string): boolean {
+function isAuthorizedRememberText(
+  text: string,
+  excerpt: string,
+  ownerText: string,
+  normalizedFromSource: boolean,
+): boolean {
   return excerpt.length > 0
     && text === text.trim()
     && ownerText.includes(excerpt)
-    && normalizeRememberComparison(text) === normalizeRememberComparison(excerpt);
+    && (normalizedFromSource
+      || normalizeRememberComparison(text) === normalizeRememberComparison(excerpt));
 }
 
 function rememberPayload(value: JsonValue): Readonly<{
@@ -445,7 +452,8 @@ export class MemoryOwnerControlsService {
       const kind = input.kind;
       const sensitivity = input.sensitivity;
       const basis = input.basis ?? "stated";
-      if (basis !== "stated" && basis !== "confirmed") refuse();
+      const normalizedFromSource = input.normalizedFromSource ?? false;
+      if (basis !== "stated" && basis !== "confirmed" || typeof normalizedFromSource !== "boolean") refuse();
       const requestedExcerpt = input.sourceExcerpt === undefined
         ? null
         : this.memory.validateItemText(input.sourceExcerpt);
@@ -456,6 +464,7 @@ export class MemoryOwnerControlsService {
         sensitivity,
         basis,
         requestedExcerpt,
+        normalizedFromSource,
       ]);
       const key = commandKey(ownerTurn, "remember");
       const existing = await this.hasCommand(key, requestHash);
@@ -473,7 +482,7 @@ export class MemoryOwnerControlsService {
         );
         sourceExcerpt = requestedExcerpt
           ?? this.memory.validateItemText(rememberRemainder(acceptedTurn.text));
-        if (!isAuthorizedRememberText(text, sourceExcerpt, acceptedTurn.text)) refuse();
+        if (!isAuthorizedRememberText(text, sourceExcerpt, acceptedTurn.text, normalizedFromSource)) refuse();
       } else {
         acceptedTurn = Object.freeze({
           text: await this.memory.validateOwnerTurn(ownerTurn, "remember"),
@@ -481,7 +490,20 @@ export class MemoryOwnerControlsService {
         });
         sourceExcerpt = requestedExcerpt
           ?? this.memory.validateItemText(rememberRemainder(acceptedTurn.text));
-        if (!isAuthorizedRememberText(text, sourceExcerpt, acceptedTurn.text)) refuse();
+        if (!isAuthorizedRememberText(text, sourceExcerpt, acceptedTurn.text, normalizedFromSource)) refuse();
+        const duplicate = await this.memory.findActiveItemByExactText(
+          ownerTurn.principalId,
+          text,
+          kind,
+          sensitivity,
+        );
+        if (duplicate !== null) {
+          return Object.freeze({
+            item: duplicate,
+            receipt: "That memory was already active, so I did not add a duplicate.",
+            replayed: true,
+          });
+        }
         const topics = await this.memory.bootstrapTopics(ownerTurn.principalId);
         const transitionId = this.nextId();
         command = await this.appendCommand(ownerTurn, key, requestHash, {
@@ -795,12 +817,25 @@ export class MemoryOwnerControlsService {
         command: AppendedEvent;
         decoded: DecodedForgetCommand;
       }>> = [];
+      const receipts: MemoryForgetReceipt[] = [];
       for (const itemId of itemIds) {
+        const current = await this.memory.readCurrentItem(principalId, itemId);
+        if (current.lifecycle.state === "forgotten") {
+          receipts.push(Object.freeze({
+            itemId,
+            state: "forgotten" as const,
+            newlyHiddenTurnCount: 0,
+            totalCoveredTurnCount: current.sources.length,
+            hiddenSiblingItemCount: 0,
+            receipt: "That memory was already forgotten; nothing else changed.",
+            replayed: true,
+          }));
+          continue;
+        }
         const requestHash = await sha256Hex(canonicalJson([
           MEMORY_CONTROL_POLICY_VERSION,
           "confirmed-forget",
           principalId,
-          callbackEventId,
           decisionId,
           itemId,
         ]));
@@ -844,7 +879,6 @@ export class MemoryOwnerControlsService {
         if (decoded.itemId !== itemId) corrupt();
         preparedCommands.push(Object.freeze({ itemId, command, decoded }));
       }
-      const receipts: MemoryForgetReceipt[] = [];
       for (const { itemId, command, decoded } of preparedCommands) {
         const result = await this.memory.forgetItem({
           ...decoded,

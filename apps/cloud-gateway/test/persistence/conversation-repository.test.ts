@@ -19,6 +19,8 @@ import {
   CONVERSATION_EVENT_SOURCE,
   ConversationRepository,
 } from "../../src/conversation/conversation-repository.js";
+import { recordPendingTelegramReplyMarkup } from "../../src/channels/telegram/telegram-reply-markup.js";
+import { encodeDecisionCallbackData } from "../../src/decisions/telegram-keyboard.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { ProviderFailure, ProviderIdempotencyConflictError } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
@@ -321,6 +323,49 @@ describe("ConversationRepository", () => {
       providerMessageId: "telegram-message-101",
       deliveredAssistantEventId: expect.stringMatching(/^[0-7][0-9a-hjkmnp-tv-z]{25}$/u),
     });
+  });
+
+  it("rejects staged markup whose callback decision id differs from its staged decision id", async () => {
+    const first = EVENT_IDS[6]!;
+    const second = EVENT_IDS[7]!;
+    recordPendingTelegramReplyMarkup(TURN_ID, Object.freeze({
+      decisionId: first,
+      replyMarkup: Object.freeze({
+        inline_keyboard: Object.freeze([Object.freeze([Object.freeze({
+          text: "Confirm",
+          callback_data: encodeDecisionCallbackData(second, "confirm"),
+        })])]),
+      }),
+    }));
+    const repo = repository();
+    const { staged } = await stagedDelivery(repo);
+
+    await expect(repo.claimDelivery({ deliveryId: staged.delivery.deliveryId, now: LATER }))
+      .rejects.toThrow("conversation_staged_event_invalid");
+  });
+
+  it("refuses delivery settlement when the staged decision cannot be marked delivered", async () => {
+    const decisionId = EVENT_IDS[6]!;
+    recordPendingTelegramReplyMarkup(TURN_ID, Object.freeze({
+      decisionId,
+      replyMarkup: Object.freeze({
+        inline_keyboard: Object.freeze([Object.freeze([Object.freeze({
+          text: "Confirm",
+          callback_data: encodeDecisionCallbackData(decisionId, "confirm"),
+        })])]),
+      }),
+    }));
+    const repo = repository();
+    const { staged } = await stagedDelivery(repo);
+    const claim = await repo.claimDelivery({ deliveryId: staged.delivery.deliveryId, now: LATER });
+    if (claim.kind !== "claimed") throw new Error("test_lease_failed");
+    repo.beginDelivery(claim.capability, staged.delivery.deliveryId, staged.delivery.materialHash);
+    const receipt = repo.mintProviderDeliveryReceipt({
+      capability: claim.capability,
+      providerMessageId: "telegram-message-decision",
+    });
+    await expect(repo.recordDeliverySuccess({ capability: claim.capability, receipt, now: LATER }))
+      .rejects.toThrow("conversation_decision_delivery_invalid");
   });
 
   it("atomically commits one canonical user event and turn, replays exact material, and conflicts changed material", async () => {

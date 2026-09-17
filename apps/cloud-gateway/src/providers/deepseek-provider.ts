@@ -505,8 +505,14 @@ export class DeepSeekAgentProvider implements ModelAgentProvider {
     const calls = agentToolCalls(messageRecord.tool_calls);
     const content = messageRecord.content;
     if (finishReason === "tool_calls") {
-      if (calls.length === 0 || content !== null && content !== "") {
+      if (calls.length === 0 || content !== null && !agentText(content, 65_536)) {
         throw new DeepSeekAdapterError("other", "agent_response_invalid");
+      }
+      if (typeof content === "string" && content.length > 0) {
+        // Provider prose beside a function call is never authority and never
+        // reaches Sid. Log only bounded metadata; the prose may contain his
+        // private text or a secret and therefore cannot enter Worker logs.
+        console.warn("deepseek_agent_tool_content_ignored", { characters: Array.from(content).length });
       }
       return Object.freeze({ content: null, toolCalls: calls, finishReason });
     }

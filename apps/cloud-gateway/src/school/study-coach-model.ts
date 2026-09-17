@@ -424,6 +424,13 @@ export class StudyCoachModelAdapter implements ModelAdapter {
   }
 
   async *stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
+    for await (const token of this.streamOwnerTool(input)) {
+      yield Object.freeze({ index: token.index, text: token.text });
+    }
+  }
+
+  /** Preserves code-observed save state for the owner-agent tool boundary. */
+  async *streamOwnerTool(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
     if (input.channel !== "telegram" || input.principalId !== this.dependencies.ownerPrincipalId
       || !this.dependencies.ownerTurnAuthoritative) {
       yield* this.dependencies.fallbackModel.stream(input);
@@ -452,6 +459,7 @@ export class StudyCoachModelAdapter implements ModelAdapter {
       yield Object.freeze({
         index: 0,
         text: update.ok ? preferenceIntent.reply : "I couldn't update the study-coach check-in settings.",
+        toolOutcome: update.ok ? "saved" as const : "not_saved" as const,
       });
       return;
     }
@@ -474,6 +482,7 @@ export class StudyCoachModelAdapter implements ModelAdapter {
           : operation.value > 0
             ? `Forgot ${operation.value} operational study-coach evidence ${operation.value === 1 ? "record" : "records"} for ${forgotten}.`
             : `I couldn't identify one active study-coach record for ${forgotten}.`,
+        toolOutcome: operation.ok && operation.value > 0 ? "saved" as const : "not_saved" as const,
       });
       return;
     }
@@ -500,6 +509,7 @@ export class StudyCoachModelAdapter implements ModelAdapter {
           : operation.value > 0
             ? `Retired ${operation.value} cited study-coach ${operation.value === 1 ? "signal" : "signals"} as ${signalControl}.`
             : "I couldn't identify an active cited signal to retire.",
+        toolOutcome: operation.ok && operation.value > 0 ? "saved" as const : "not_saved" as const,
       });
       return;
     }
@@ -518,6 +528,7 @@ export class StudyCoachModelAdapter implements ModelAdapter {
         index: 0,
         text: !operation.ok ? "I couldn't update the study-coach record."
           : operation.value > 0 ? "Quiz stopped." : "No quiz is open.",
+        toolOutcome: operation.ok && operation.value > 0 ? "saved" as const : "not_saved" as const,
       });
       return;
     }
@@ -547,6 +558,7 @@ export class StudyCoachModelAdapter implements ModelAdapter {
         yield Object.freeze({
           index: 0,
           text: await makePractice(this.dependencies, input, course, request.mode, source, replacedQuiz, now),
+          toolOutcome: "saved" as const,
         });
       } catch {
         yield Object.freeze({ index: 0, text: "I couldn't make a cited practice set from that source." });
@@ -579,6 +591,7 @@ export class StudyCoachModelAdapter implements ModelAdapter {
           text: await makePractice(
             this.dependencies, input, course, followUpMode, source, snapshot.activeQuiz !== null, now,
           ),
+          toolOutcome: "saved" as const,
         });
       } catch {
         yield Object.freeze({ index: 0, text: "I couldn't make a practice set for that cited study target." });
@@ -608,6 +621,7 @@ export class StudyCoachModelAdapter implements ModelAdapter {
         text: update.ok
           ? `Recorded one ${observation.outcome} evidence point for ${course.name}: ${observation.topic}. One point is not a durable judgment.`
           : "I couldn't update the study-coach record.",
+        toolOutcome: update.ok ? "saved" as const : "not_saved" as const,
       });
       return;
     }
@@ -619,7 +633,11 @@ export class StudyCoachModelAdapter implements ModelAdapter {
         );
         if (dismissed.ok && dismissed.value > 0) {
           const ordinaryReply = await collect(this.dependencies.fallbackModel.stream(input));
-          yield Object.freeze({ index: 0, text: `${CLOSED_QUIZ_FALLBACK_PREFIX}${ordinaryReply}` });
+          yield Object.freeze({
+            index: 0,
+            text: `${CLOSED_QUIZ_FALLBACK_PREFIX}${ordinaryReply}`,
+            toolOutcome: "saved" as const,
+          });
           return;
         }
         yield* this.dependencies.fallbackModel.stream(input);
@@ -652,6 +670,7 @@ export class StudyCoachModelAdapter implements ModelAdapter {
       yield Object.freeze({
         index: 0,
         text: guardSchoolReply(answerReply(answered, next), this.dependencies.redactor),
+        toolOutcome: "saved" as const,
       });
       return;
     }
