@@ -32,6 +32,7 @@ describe("Telegram turn observability", () => {
     let now = 0;
     let call = 0;
     const observer = new TelegramTurnObserver(() => now);
+    observer.observeMemoryRetrieval({ candidatesMs: 2, historyMs: 3, mergeMs: 4, d1RoundTrips: 5 });
     const context = observer.observeContext({
       async retrieve() {
         now += 11;
@@ -72,6 +73,10 @@ describe("Telegram turn observability", () => {
 
     expect(observer.snapshot()).toEqual({
       contextRetrievalMs: 11,
+      memoryCandidatesMs: 2,
+      memoryHistoryMs: 3,
+      memoryMergeMs: 4,
+      retrievalD1RoundTrips: 5,
       modelFirstResponseMs: 54,
       modelTotalMs: 61,
       deliveryMs: 13,
@@ -101,6 +106,10 @@ describe("Telegram turn observability", () => {
       eventId: "event-1",
       outcome: "failed",
       contextRetrievalMs: 0,
+      memoryCandidatesMs: 0,
+      memoryHistoryMs: 0,
+      memoryMergeMs: 0,
+      retrievalD1RoundTrips: 0,
       modelFirstResponseMs: 0,
       modelTotalMs: 0,
       deliveryMs: 0,
@@ -117,12 +126,16 @@ describe("Telegram turn observability", () => {
   it("omits a model reason from delivery and cancellation outcomes", () => {
     const timings: TelegramTurnTimings = {
       contextRetrievalMs: 1,
-      modelFirstResponseMs: 2,
-      modelTotalMs: 3,
-      deliveryMs: 4,
-      stagingMs: 5,
-      telegramSendMs: 6,
-      settlementMs: 7,
+      memoryCandidatesMs: 2,
+      memoryHistoryMs: 3,
+      memoryMergeMs: 4,
+      retrievalD1RoundTrips: 5,
+      modelFirstResponseMs: 6,
+      modelTotalMs: 7,
+      deliveryMs: 8,
+      stagingMs: 9,
+      telegramSendMs: 10,
+      settlementMs: 11,
       providerCallCount: 1,
       modelFailureReason: "timeout",
     };
