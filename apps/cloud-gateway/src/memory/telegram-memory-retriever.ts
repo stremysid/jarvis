@@ -21,8 +21,10 @@ import {
 import { EventRepository } from "../persistence/event-repository.js";
 import {
   LITERAL_HISTORY_SEARCH_LIMITS,
+  LiteralHistoryError,
   LiteralHistoryService,
   type LiteralHistoryHit,
+  type LiteralHistorySearchResult,
 } from "./literal-history.js";
 import { MemoryRepository } from "./memory-repository.js";
 import {
@@ -51,6 +53,7 @@ const RETRIEVAL_FALLBACK_CODE = "telegram_memory_retrieval_fallback";
 const RETRIEVAL_MEMORY_TIMEOUT_CODE = "telegram_memory_retrieval_memory_timeout";
 const RETRIEVAL_BASE_TIMEOUT_CODE = "telegram_memory_retrieval_base_timeout";
 const RETRIEVAL_BASE_ERROR_CODE = "telegram_memory_retrieval_base_error";
+const RETRIEVAL_HISTORY_FALLBACK_CODE = "telegram_memory_retrieval_history_fallback";
 const ASSISTANT_STAGE_EVENT_TYPE = "conversation.assistant_staged";
 const ASSISTANT_DELIVERED_EVENT_TYPE = "conversation.assistant_delivered";
 const ALL_MEMORY_STATES: readonly MemoryLifecycleState[] = Object.freeze([
@@ -133,7 +136,8 @@ export type TelegramMemoryRetrievalLogCode =
   | typeof RETRIEVAL_FALLBACK_CODE
   | typeof RETRIEVAL_MEMORY_TIMEOUT_CODE
   | typeof RETRIEVAL_BASE_TIMEOUT_CODE
-  | typeof RETRIEVAL_BASE_ERROR_CODE;
+  | typeof RETRIEVAL_BASE_ERROR_CODE
+  | typeof RETRIEVAL_HISTORY_FALLBACK_CODE;
 
 export interface TelegramMemoryRetrievalMetrics {
   readonly candidatesMs: number;
@@ -155,8 +159,15 @@ interface CandidateRow {
 
 interface RetrievalDependencies {
   readonly database: D1Database;
+  readonly archiveState: ArchiveRepository;
   readonly memory: MemoryRepository;
   readonly history: LiteralHistoryService;
+}
+
+interface MemoryRetrievalResult {
+  readonly candidateContexts: readonly RetrievedContext[];
+  readonly history: LiteralHistorySearchResult | null;
+  readonly historyFailure: string | null;
 }
 
 class StatementBudget {
@@ -440,6 +451,16 @@ function recentContextCoversQuery(
   });
 }
 
+function withoutCurrentTurn(
+  query: string,
+  contexts: readonly RetrievedContext[],
+): readonly RetrievedContext[] {
+  const current = contexts.at(-1);
+  return current?.text !== query
+    ? contexts
+    : Object.freeze(contexts.filter((context) => context.sourceEventId !== current.sourceEventId));
+}
+
 function candidateRows(value: unknown): readonly Readonly<{ itemId: Ulid; versionId: Ulid }>[] {
   if (!Array.isArray(value) || value.length > MAX_MEMORY_CANDIDATES) {
     throw new TypeError("telegram_memory_candidates_invalid");
@@ -673,44 +694,92 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       maxTokens: memoryLimit,
     });
     const baseInput = Object.freeze({ ...captured, maxTokens: baseLimit });
-    const budget = new StatementBudget(TELEGRAM_MEMORY_RETRIEVAL_LIMITS.d1Statements);
+    const memoryBudget = new StatementBudget(TELEGRAM_MEMORY_RETRIEVAL_LIMITS.d1Statements);
+    const baseBudget = new StatementBudget(TELEGRAM_MEMORY_RETRIEVAL_LIMITS.d1Statements);
     const roundTrips = new RoundTripCounter();
     const database = roundTripDatabase(this.options.database, roundTrips);
-    const dependencies = this.dependencies(budget, database);
-    const baseContext = this.baseContext ?? new D1ContextRetriever(database);
+    const dependencies = this.dependencies(memoryBudget, database);
+    const baseDatabase = countedDatabase(database, baseBudget);
+    const baseContext = this.baseContext ?? new D1ContextRetriever(baseDatabase);
     const stages = new MemoryStageTimings();
     const baseStartedAt = performance.now();
-    const basePromise = this.retrieveBase(baseContext, database, baseInput, true).catch((error: unknown) => {
-      budget.abort();
+    const basePromise = this.retrieveBase(baseContext, baseDatabase, baseInput, true).catch((error: unknown) => {
+      baseBudget.abort();
       throw error;
     });
     const baseOutcomePromise = timedOutcome(
       basePromise,
       this.baseRetrievalTimeoutMs,
       baseStartedAt,
-      () => budget.abort(),
+      () => baseBudget.abort(),
     );
     const memoryStartedAt = performance.now();
     const memoryPromise = this.retrieveMemory(
       dependencies,
       memoryInput,
       this.timestamp(),
-      basePromise,
       stages,
     ).catch((error: unknown) => {
-      budget.abort();
+      memoryBudget.abort();
       throw error;
     });
     const memoryOutcomePromise = timedOutcome(
       memoryPromise,
       this.retrievalTimeoutMs,
       memoryStartedAt,
-      () => budget.abort(),
+      () => memoryBudget.abort(),
     );
     const [baseOutcome, memoryOutcome] = await Promise.all([
       baseOutcomePromise,
       memoryOutcomePromise,
     ]);
+    if (baseOutcome.status !== "fulfilled") {
+      const metrics = stages.snapshot(roundTrips.used);
+      try { this.observeRetrieval(metrics); }
+      catch { /* Retrieval telemetry must not change the model context or fallback. */ }
+      this.log(
+        baseOutcome.status === "timeout" ? RETRIEVAL_BASE_TIMEOUT_CODE : RETRIEVAL_BASE_ERROR_CODE,
+        Object.freeze({
+          baseMs: baseOutcome.elapsedMs,
+          memoryMs: memoryOutcome.elapsedMs,
+          ...metrics,
+        }),
+      );
+      return Object.freeze([]);
+    }
+    if (memoryOutcome.status !== "fulfilled") {
+      const metrics = stages.snapshot(roundTrips.used);
+      try { this.observeRetrieval(metrics); }
+      catch { /* Retrieval telemetry must not change the model context or fallback. */ }
+      this.log(
+        memoryOutcome.status === "timeout" ? RETRIEVAL_MEMORY_TIMEOUT_CODE : RETRIEVAL_FALLBACK_CODE,
+        Object.freeze({
+          baseMs: baseOutcome.elapsedMs,
+          memoryMs: memoryOutcome.elapsedMs,
+          ...metrics,
+        }),
+      );
+      return baseOutcome.value;
+    }
+    let memoryContexts: readonly RetrievedContext[];
+    try {
+      memoryContexts = await this.mergeMemory(
+        memoryOutcome.value,
+        baseOutcome.value,
+        memoryInput,
+        stages,
+      );
+    } catch {
+      const metrics = stages.snapshot(roundTrips.used);
+      try { this.observeRetrieval(metrics); }
+      catch { /* Retrieval telemetry must not change the model context or fallback. */ }
+      this.log(RETRIEVAL_FALLBACK_CODE, Object.freeze({
+        baseMs: baseOutcome.elapsedMs,
+        memoryMs: memoryOutcome.elapsedMs,
+        ...metrics,
+      }));
+      return baseOutcome.value;
+    }
     const metrics = stages.snapshot(roundTrips.used);
     const timings = Object.freeze({
       baseMs: baseOutcome.elapsedMs,
@@ -719,25 +788,14 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
     });
     try { this.observeRetrieval(metrics); }
     catch { /* Retrieval telemetry must not change the model context or fallback. */ }
-    if (baseOutcome.status !== "fulfilled") {
-      this.log(
-        baseOutcome.status === "timeout" ? RETRIEVAL_BASE_TIMEOUT_CODE : RETRIEVAL_BASE_ERROR_CODE,
-        timings,
-      );
-      return Object.freeze([]);
+    if (memoryOutcome.value.historyFailure !== null) {
+      this.log(RETRIEVAL_HISTORY_FALLBACK_CODE, timings);
     }
-    if (memoryOutcome.status !== "fulfilled") {
-      this.log(
-        memoryOutcome.status === "timeout" ? RETRIEVAL_MEMORY_TIMEOUT_CODE : RETRIEVAL_FALLBACK_CODE,
-        timings,
-      );
-      return baseOutcome.value;
-    }
-    const seen = new Set(memoryOutcome.value.map(
+    const seen = new Set(memoryContexts.map(
       (context) => `${context.sourceEventId}\u0000${context.text}`,
     ));
     return Object.freeze([
-      ...memoryOutcome.value,
+      ...memoryContexts,
       ...baseOutcome.value.filter((context) => {
         const key = `${context.sourceEventId}\u0000${context.text}`;
         if (seen.has(key)) return false;
@@ -751,40 +809,55 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
     dependencies: RetrievalDependencies,
     captured: Readonly<ContextRetrieverInput>,
     timestamp: string,
-    basePromise: Promise<readonly RetrievedContext[]>,
     stages: MemoryStageTimings,
-  ): Promise<readonly RetrievedContext[]> {
+  ): Promise<MemoryRetrievalResult> {
     const candidateContextsPromise = stages.measure("candidates", () => this.readCandidateContexts(
       dependencies, captured, timestamp,
     ));
     const literalQuery = literalHistoryQuery(captured.query);
     const historyPromise = literalQuery === null
-      ? Promise.resolve(null)
-      : stages.measure("history", () => dependencies.history.searchLiteral({
-        principalId: captured.principalId,
-        query: literalQuery,
-        maxResults: MAX_HISTORY_RESULTS,
+      ? Promise.resolve(Object.freeze({ result: null, failure: null }))
+      : stages.measure("history", async () => {
+        const state = await dependencies.archiveState.readState();
+        if (state.circuitState !== "closed") return null;
+        return dependencies.history.searchLiteral({
+          principalId: captured.principalId,
+          query: literalQuery,
+          maxResults: MAX_HISTORY_RESULTS,
+        });
+      }).then((result) => Object.freeze({ result, failure: null })).catch((error: unknown) => Object.freeze({
+        result: null,
+        failure: error instanceof LiteralHistoryError ? error.code : "memory_history_unknown",
       }));
-    // Candidate and literal reads start beside base. Attach handlers now so a
-    // fast D1 failure cannot become unhandled while the base promise settles.
-    void candidateContextsPromise.catch(() => undefined);
-    void historyPromise.catch(() => undefined);
-    const baseContexts = await basePromise;
-    const [history, candidateContexts] = await Promise.all([
+    const [historyOutcome, candidateContexts] = await Promise.all([
       historyPromise,
       candidateContextsPromise,
     ]);
+    return Object.freeze({
+      candidateContexts,
+      history: historyOutcome.result,
+      historyFailure: historyOutcome.failure,
+    });
+  }
+
+  private async mergeMemory(
+    memory: MemoryRetrievalResult,
+    baseContexts: readonly RetrievedContext[],
+    captured: Readonly<ContextRetrieverInput>,
+    stages: MemoryStageTimings,
+  ): Promise<readonly RetrievedContext[]> {
     const finishMerge = stages.start("merge");
     try {
       let historyContexts: readonly RetrievedContext[] = Object.freeze([]);
-      if (history !== null && !recentContextCoversQuery(captured.query, baseContexts)) {
-        if (history.hits.length > LITERAL_HISTORY_SEARCH_LIMITS.resultsExamined) {
+      const recentContexts = withoutCurrentTurn(captured.query, baseContexts);
+      if (memory.history !== null && !recentContextCoversQuery(captured.query, recentContexts)) {
+        if (memory.history.hits.length > LITERAL_HISTORY_SEARCH_LIMITS.resultsExamined) {
           throw new TypeError("telegram_memory_history_invalid");
         }
-        const recentEventIds = new Set(baseContexts.map((context) => context.sourceEventId));
-        const evidence = await Promise.all(history.hits.map(async (hit) => {
+        const recentEventIds = new Set(recentContexts.map((context) => context.sourceEventId));
+        const evidence = await Promise.all(memory.history.hits.map(async (hit) => {
           if (recentEventIds.has(hit.eventId)
-            || baseContexts.some((context) => context.text.includes(hit.excerpt))) return null;
+            || recentContexts.some((context) => context.text.includes(hit.excerpt))) return null;
           return Object.freeze({
             sourceEventId: hit.eventId,
             text: await historyEvidence(hit),
@@ -799,7 +872,7 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       }
       const contexts: RetrievedContext[] = [];
       let bytes = 0;
-      for (const context of [...candidateContexts, ...historyContexts]) {
+      for (const context of [...memory.candidateContexts, ...historyContexts]) {
         const textBytes = encoder.encode(context.text).byteLength;
         if (bytes + textBytes > captured.maxTokens) continue;
         bytes += textBytes;
@@ -1134,12 +1207,17 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
     sourceDatabase: D1Database = this.options.database,
   ): RetrievalDependencies {
     const database = countedDatabase(sourceDatabase, budget);
-    const archive = new ArchivalService({ database, bucket: this.options.archive });
+    const archive = new ArchivalService({
+      database,
+      bucket: this.options.archive,
+      cacheVerifiedSegments: true,
+    });
     const state = new ArchiveRepository(database);
     const live = new EventRepository(database);
     const tiered = new TieredEventReader({ archive, live, state });
     return Object.freeze({
       database,
+      archiveState: state,
       memory: new MemoryRepository(database, { archivedEventReader: archive }),
       history: new LiteralHistoryService({
         database,

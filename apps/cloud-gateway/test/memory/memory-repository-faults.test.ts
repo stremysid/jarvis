@@ -2,6 +2,7 @@ import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { canonicalJson, newUlid, sha256Hex, type Ulid } from "../../../../packages/contracts/src/index.js";
 import {
+  automaticFilingReason,
   MemoryRepository,
   createMemoryRepositoryForTest,
 } from "../../src/memory/memory-repository.js";
@@ -168,6 +169,38 @@ function clockSequence(values: readonly Date[]): () => Date {
   };
 }
 
+function databaseWithMalformedAutomaticChild(database: D1Database): D1Database {
+  const wrap = (statement: D1PreparedStatement): D1PreparedStatement => new Proxy(statement, {
+    get(target, property, receiver): unknown {
+      if (property === "bind") return (...values: unknown[]) => wrap(target.bind(...values));
+      if (property === "all") {
+        return async <T>(): Promise<D1Result<T>> => {
+          const result = await target.all<T>();
+          const first = result.results[0];
+          if (first === undefined || first === null || typeof first !== "object") return result;
+          const malformed = { ...first } as Record<string, unknown>;
+          delete malformed.display_name;
+          return { ...result, results: [malformed as T, ...result.results.slice(1)] };
+        };
+      }
+      const value = Reflect.get(target, property, receiver) as unknown;
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as D1PreparedStatement;
+  return new Proxy(database, {
+    get(target, property, receiver): unknown {
+      if (property === "prepare") {
+        return (query: string): D1PreparedStatement => {
+          const statement = target.prepare(query);
+          return query.includes("ORDER BY created_at ASC, topic_id ASC") ? wrap(statement) : statement;
+        };
+      }
+      const value = Reflect.get(target, property, receiver) as unknown;
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as D1Database;
+}
+
 beforeAll(async () => {
   await applyMemoryIngressMigration();
 });
@@ -306,6 +339,32 @@ describe("MemoryRepository fault boundaries", () => {
 
     await expectCode(repository.commitInitialItem(input), "memory_unavailable");
 
+    await expect(itemRowCounts(principalId, input.itemId)).resolves.toEqual([0, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it("rethrows memory_corrupt from automatic commit preparation", async () => {
+    const principalId = await seedPrincipal();
+    const source = await seedEvent(principalId);
+    const canonical = new MemoryRepository(env.DB);
+    const topics = await canonical.bootstrapTopics(principalId);
+    const base = await inputFor(principalId, source, topics.inbox.topicId);
+    const path = ["School"];
+    const input: CommitInitialMemoryInput = {
+      ...base,
+      placement: {
+        ...base.placement,
+        confidence: 0.9,
+        reason: automaticFilingReason("inbox_filing_failure", path),
+      },
+      automaticFiling: {
+        topicPath: path,
+        maximumNewTopics: 1,
+        inboxTopicId: topics.inbox.topicId,
+      },
+    };
+    const repository = new MemoryRepository(databaseWithMalformedAutomaticChild(env.DB));
+
+    await expectCode(repository.commitInitialItem(input), "memory_corrupt");
     await expect(itemRowCounts(principalId, input.itemId)).resolves.toEqual([0, 0, 0, 0, 0, 0, 0]);
   });
 
