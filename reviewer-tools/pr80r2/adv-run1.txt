@@ -1,0 +1,110 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr80r2-adv
+
+Using secrets defined in process.env
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts > PR 80 round 2 adversarial > ADV3b-r2 throughput: a first full backup exports at least 100 rows per five-minute invocation within D1 and R2 per-invocation limits
+ADV3b-r2 {"outcome":{"outcome":"verified","detail":"memory backup verified"},"invocations":15,"totals":{"rows":976,"objects":64},"maxStatements":325,"maxBatches":17,"maxR2":32,"kinds":[{"key_kind":"ordinal","count":53},{"key_kind":"rowid","count":50},{"key_kind":"sequence","count":1}]}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts > PR 80 round 2 adversarial > GROWTH an unchanged database exports about the same number of rows every night
+GROWTH {"series":[{"night":1,"invocations":9,"rows":208,"objects":16,"receiptRows":0},{"night":2,"invocations":9,"rows":225,"objects":18,"receiptRows":16},{"night":3,"invocations":10,"rows":244,"objects":20,"receiptRows":34},{"night":4,"invocations":10,"rows":265,"objects":21,"receiptRows":54},{"night":5,"invocations":10,"rows":287,"objects":22,"receiptRows":75},{"night":6,"invocations":10,"rows":310,"objects":24,"receiptRows":97},{"night":7,"invocations":10,"rows":335,"objects":25,"receiptRows":121},{"night":8,"invocations":10,"rows":361,"objects":27,"receiptRows":146}],"ordinals":{"count":153},"plan":[{"id":6,"parent":0,"notused":213,"detail":"SCAN source USING INDEX sqlite_autoindex_memory_backup_objects_1"},{"id":11,"parent":0,"notused":45,"detail":"SEARCH ordinal USING COVERING INDEX sqlite_autoindex_memory_backup_row_ordinals_1 (table_name=? AND row_key=? AND rowid>? AND rowid<?)"},{"id":42,"parent":0,"notused":0,"detail":"USE TEMP B-TREE FOR ORDER BY"}],"pageMeta":{"served_by":"miniflare.db","duration":0,"changes":0,"last_row_id":614,"changed_db":false,"size_after":2449408,"rows_read":492,"rows_written":0}}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts > PR 80 round 2 adversarial > GUARD 0031 rejects an object receipt for a run that has no table cuts
+GUARD null
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts > PR 80 round 2 adversarial > RESTORE-A the second night's verified set restores into a fresh D1 with the builder's procedure
+RESTORE-A {"bookkeeping":[["memory_backup_runs",1],["memory_backup_objects",10],["memory_backup_alerts",0]],"error":"Error: D1_ERROR: memory_backup_run_initial_state_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)"}
+
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts > PR 80 round 2 adversarial > RESTORE-B a finished memory run restores into a fresh D1 with the builder's procedure
+RESTORE-B {"error":"Error: D1_ERROR: memory_run_initial_state_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)"}
+
+ ❯ |default| apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts (9 tests | 5 failed) 143607ms
+     × ADV3b-r2 throughput: a first full backup exports at least 100 rows per five-minute invocation within D1 and R2 per-invocation limits 8089ms
+     × GROWTH an unchanged database exports about the same number of rows every night 27228ms
+     × GUARD 0031 rejects an object receipt for a run that has no table cuts 200ms
+     × RESTORE-A the second night's verified set restores into a fresh D1 with the builder's procedure 7931ms
+     × RESTORE-B a finished memory run restores into a fresh D1 with the builder's procedure 4148ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts > PR 80 round 2 adversarial > ADV3b-r2 throughput: a first full backup exports at least 100 rows per five-minute invocation within D1 and R2 per-invocation limits
+AssertionError: expected 65.06666666666666 to be greater than or equal to 100
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts:198:40
+    196|     console.log("ADV3b-r2", JSON.stringify({ outcome, invocations, tot…
+    197|     expect(outcome.outcome).toBe("verified");
+    198|     expect(totals!.rows / invocations).toBeGreaterThanOrEqual(100);
+       |                                        ^
+    199|     expect(maxStatements).toBeLessThanOrEqual(1000);
+    200|     expect(maxR2).toBeLessThanOrEqual(1000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts > PR 80 round 2 adversarial > GROWTH an unchanged database exports about the same number of rows every night
+AssertionError: expected 361 to be less than or equal to 233
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts:307:33
+    305|        WHERE ordinal.ordinal > 0 AND ordinal.ordinal <= 1000000 ORDER …
+    306|     console.log("GROWTH", JSON.stringify({ series, ordinals, plan: pla…
+    307|     expect(series.at(-1)!.rows).toBeLessThanOrEqual(series[1]!.rows + …
+       |                                 ^
+    308|   }, 900_000);
+    309|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts > PR 80 round 2 adversarial > GUARD 0031 rejects an object receipt for a run that has no table cuts
+AssertionError: expected null not to be null
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts:370:23
+    368|     }
+    369|     console.log("GUARD", String(error));
+    370|     expect(error).not.toBeNull();
+       |                       ^
+    371|   });
+    372|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts > PR 80 round 2 adversarial > RESTORE-A the second night's verified set restores into a fresh D1 with the builder's procedure
+AssertionError: expected 'Error: D1_ERROR: memory_backup_run_in…' to be null
+
+- Expected:
+null
+
++ Received:
+"Error: D1_ERROR: memory_backup_run_initial_state_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)"
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts:384:19
+    382|     const error = await restoreRows(rows);
+    383|     console.log("RESTORE-A", JSON.stringify({ bookkeeping, error }));
+    384|     expect(error).toBeNull();
+       |                   ^
+    385|   }, 300_000);
+    386|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts > PR 80 round 2 adversarial > RESTORE-B a finished memory run restores into a fresh D1 with the builder's procedure
+AssertionError: expected 'Error: D1_ERROR: memory_run_initial_s…' to be null
+
+- Expected:
+null
+
++ Received:
+"Error: D1_ERROR: memory_run_initial_state_invalid: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)"
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80r2.test.ts:410:19
+    408|     const error = await restoreRows(rows);
+    409|     console.log("RESTORE-B", JSON.stringify({ error }));
+    410|     expect(error).toBeNull();
+       |                   ^
+    411|   }, 300_000);
+    412| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 4 passed (9)
+   Start at  20:29:52
+   Duration  145.93s (transform 777ms, setup 0ms, import 1.58s, tests 143.61s, environment 0ms)
+

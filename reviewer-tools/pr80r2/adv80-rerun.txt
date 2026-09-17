@@ -1,0 +1,91 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/backup/adversarial-pr80.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr39
+
+Using secrets defined in process.env
+stdout | apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV4 a D1 error after latest.json is written leaves latest pointing at a set cleanup later deletes
+ADV4 {"first":{"outcome":{"outcome":"failed","code":"memory_backup_operation_failed"},"steps":8},"notices":["Last night's memory backup didn't complete; Jarvis will retry tonight."],"statusAfterFirst":{"status":"failed"},"manifestExistedBefore":false,"second":{"outcome":"pending","detail":"memory backup work remains"},"latestUnchanged":true,"manifestExistsAfter":false}
+
+stderr | apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial extra > ADV6 a retention list error after a verified publish reports failure and alerts
+memory_backup_cleanup_failed
+
+ ❯ |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts (8 tests | 3 failed) 59013ms
+     × ADV4 a D1 error after latest.json is written leaves latest pointing at a set cleanup later deletes 2866ms
+     × ADV3b throughput steps for 64 events 3279ms
+     × ADV6 a retention list error after a verified publish reports failure and alerts 38869ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial > ADV4 a D1 error after latest.json is written leaves latest pointing at a set cleanup later deletes
+AssertionError: expected null not to be null
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80.test.ts:140:31
+    138|       manifestExistsAfter: manifestAfter !== null,
+    139|     }));
+    140|     expect(manifestAfter).not.toBeNull();
+       |                               ^
+    141|   }, 120_000);
+    142|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial extra > ADV3b throughput steps for 64 events
+AssertionError: expected { outcome: 'verified', steps: 9 } to deeply equal { outcome: 'verified', steps: -1 }
+
+- Expected
++ Received
+
+  {
+    "outcome": "verified",
+-   "steps": -1,
++   "steps": 9,
+  }
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80.test.ts:193:49
+    191|     await appendEvents(64);
+    192|     const { outcome, steps } = await drive(service(), runDate, 200);
+    193|     expect({ outcome: outcome.outcome, steps }).toEqual({ outcome: "ve…
+       |                                                 ^
+    194|   }, 120_000);
+    195|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/backup/adversarial-pr80.test.ts > PR 80 adversarial extra > ADV6 a retention list error after a verified publish reports failure and alerts
+AssertionError: expected { result: { …(2) }, …(2) } to deeply equal { result: 'show', status: null, …(1) }
+
+- Expected
++ Received
+
+  {
+    "notices": [],
+-   "result": "show",
+-   "status": null,
++   "result": {
++     "outcome": {
++       "detail": "memory backup verified",
++       "outcome": "verified",
++     },
++     "steps": 10,
++   },
++   "status": {
++     "status": "verified",
++   },
+  }
+
+ ❯ apps/cloud-gateway/test/backup/adversarial-pr80.test.ts:215:41
+    213|     const result = await drive(flaky, "2026-09-16", 40);
+    214|     const status = await env.DB.prepare("SELECT status FROM memory_bac…
+    215|     expect({ result, status, notices }).toEqual({ result: "show", stat…
+       |                                         ^
+    216|   }, 300_000);
+    217| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 5 passed (8)
+   Start at  20:39:58
+   Duration  61.33s (transform 764ms, setup 0ms, import 1.47s, tests 59.01s, environment 0ms)
+
