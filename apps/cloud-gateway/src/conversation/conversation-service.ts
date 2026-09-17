@@ -141,6 +141,8 @@ interface CapturedMethod {
   readonly method: (...args: never[]) => unknown;
 }
 
+type ObserveAsyncOperation = <T>(operation: () => Promise<T>) => Promise<T>;
+
 type ConversationRepositoryPort = Pick<ConversationRepository,
   | "getOrCreateTurn"
   | "claimModelTurn"
@@ -180,6 +182,7 @@ export interface ConversationServiceDependencies {
   readonly redactor: RedactorContract;
   readonly now?: () => Date;
   readonly modelBudgets?: Readonly<Record<ConversationChannel, ModelBudget>>;
+  readonly observeStaging?: ObserveAsyncOperation;
 }
 
 type CapturedTurn = Readonly<ConversationHandleTurnInput>;
@@ -644,9 +647,10 @@ export class DefaultConversationService implements ConversationService {
   private readonly outputRedactor: RedactorContract;
   private readonly clock: () => Date;
   private readonly modelBudgets: Readonly<Record<ConversationChannel, ModelBudget>>;
+  private readonly observeStaging: ObserveAsyncOperation;
 
   constructor(dependencies: ConversationServiceDependencies) {
-    const fields = new Set(["repository", "model", "context", "dispatcher", "redactor", "now", "modelBudgets"]);
+    const fields = new Set(["repository", "model", "context", "dispatcher", "redactor", "now", "modelBudgets", "observeStaging"]);
     const required = new Set(["repository", "model", "context", "dispatcher", "redactor"]);
     let descriptors: PropertyDescriptorMap;
     try { descriptors = Object.getOwnPropertyDescriptors(dependencies); }
@@ -697,6 +701,9 @@ export class DefaultConversationService implements ConversationService {
     const now = descriptors.now?.value ?? (() => new Date());
     if (typeof now !== "function") throw new TypeError("conversation_dependency_invalid");
     this.clock = now as () => Date;
+    const observeStaging = descriptors.observeStaging?.value ?? (async <T>(operation: () => Promise<T>) => operation());
+    if (typeof observeStaging !== "function") throw new TypeError("conversation_dependency_invalid");
+    this.observeStaging = observeStaging as ObserveAsyncOperation;
 
     const budgets = descriptors.modelBudgets?.value ?? DEFAULT_MODEL_BUDGETS;
     // Validated rather than trusted: a missing or non-positive deadline would
@@ -986,13 +993,15 @@ export class DefaultConversationService implements ConversationService {
     }
     let stagedValue: unknown;
     try {
-      stagedValue = await call<ReturnType<ConversationRepositoryPort["stageAssistantDelivery"]>>(this.stageAssistantDelivery, {
-        claim: capability,
-        text: finalText,
-        targetIdentityId: captured.targetIdentityId,
-        replyToMessageId: captured.replyToMessageId,
-        now: snapshotDate(this.clock()),
-      });
+      stagedValue = await this.observeStaging(
+        () => call<ReturnType<ConversationRepositoryPort["stageAssistantDelivery"]>>(this.stageAssistantDelivery, {
+          claim: capability,
+          text: finalText,
+          targetIdentityId: captured.targetIdentityId,
+          replyToMessageId: captured.replyToMessageId,
+          now: snapshotDate(this.clock()),
+        }),
+      );
     } catch {
       return Object.freeze({
         outcome: "model_outcome_unknown",
