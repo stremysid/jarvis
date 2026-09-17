@@ -1,5 +1,6 @@
 import { canonicalJson, sha256Hex, type JsonValue, type Ulid } from "../../../../packages/contracts/src/index.js";
 import type { ModelAdapter, ModelAdapterStreamInput, ModelToken, RetrievedContext } from "../model/model-types.js";
+import { issueReplyActionToken } from "../channels/reply-action-claims.js";
 import { localDate } from "../digest/digest-composer.js";
 import type { SchoolCatchupRepository } from "./school-catchup-repository.js";
 import type {
@@ -878,7 +879,11 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       && isBrightspaceRefreshRequest(input.userText)
     ) {
       try {
-        yield Object.freeze({ index: 0, text: await this.dependencies.refreshBrightspace(now) });
+        yield issueReplyActionToken(
+          input.correlationId,
+          await this.dependencies.refreshBrightspace(now),
+          ["brightspace-refresh"],
+        );
       } catch {
         yield Object.freeze({
           index: 0,
@@ -946,6 +951,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
     let schoolPlan: OwnerCatchupPlan;
     let universityPlan: OwnerUniversityPlan | null = null;
     let reply: string;
+    const receiptKinds: ("school-plan" | "university-tracker")[] = [];
     let payload: unknown;
     try {
       payload = JSON.parse(jsonPayload(raw)) as unknown;
@@ -1025,24 +1031,27 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
         yield* fallbackWithSaveFailure(this.dependencies.model, input, "school", this.dependencies.redactor);
         return;
       }
+      receiptKinds.push("school-plan");
       for (const code of saveResult?.partialCodes ?? []) {
         console.warn("school_plan_save_failed", { code });
       }
       if (saveResult?.scheduleSaved === false) {
         const partialReply = replyWithoutUnsavedSchedule(schoolPlan);
-        yield Object.freeze({
-          index: 0,
-          text: offerReport
+        yield issueReplyActionToken(
+          input.correlationId,
+          offerReport
             ? `${partialReply}\n\n${offerNotSavedLine(input.userText, universitySnapshot, true)}`
             : partialReply,
-        });
+          receiptKinds,
+        );
         return;
       }
       if (offerReport) {
-        yield Object.freeze({
-          index: 0,
-          text: `${schoolPlanReceipt(schoolPlan, snapshot, today)}\n\n${offerNotSavedLine(input.userText, universitySnapshot, true)}`,
-        });
+        yield issueReplyActionToken(
+          input.correlationId,
+          `${schoolPlanReceipt(schoolPlan, snapshot, today)}\n\n${offerNotSavedLine(input.userText, universitySnapshot, true)}`,
+          receiptKinds,
+        );
         return;
       }
     } else if (universityPlan?.engaged && universitySnapshot !== null) {
@@ -1071,16 +1080,18 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
         yield* fallbackWithSaveFailure(this.dependencies.model, input, "university", this.dependencies.redactor);
         return;
       }
+      receiptKinds.push("university-tracker");
       // Receipts, not model claims: after a university save Sid sees only
       // fixed sentences built from the stored plan and tracked names.
       const receipt = universityPlanReceipt(universityPlan, universitySnapshot);
       if (receipt.length > 0) {
-        yield Object.freeze({
-          index: 0,
-          text: offerReport && !offerUpdate
+        yield issueReplyActionToken(
+          input.correlationId,
+          offerReport && !offerUpdate
             ? `${receipt}\n\n${offerNotSavedLine(input.userText, universitySnapshot, true)}`
             : receipt,
-        });
+          receiptKinds,
+        );
         return;
       }
     }
@@ -1088,6 +1099,8 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       yield Object.freeze({ index: 0, text: offerNotSavedLine(input.userText, universitySnapshot, false) });
       return;
     }
-    yield Object.freeze({ index: 0, text: reply });
+    yield receiptKinds.length === 0
+      ? Object.freeze({ index: 0, text: reply })
+      : issueReplyActionToken(input.correlationId, reply, receiptKinds);
   }
 }

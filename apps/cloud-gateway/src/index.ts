@@ -5,6 +5,10 @@ import { COMMAND_HELP, parseCommand } from "./channels/telegram/telegram-command
 import { D1TelegramOwnerStepUpCommands } from "./channels/telegram/telegram-owner-step-up-command.js";
 import { TelegramRateLimiter } from "./channels/telegram/telegram-rate-limit.js";
 import {
+  DelegatedReplyTracker,
+  ReplyActionClaimGuardModelAdapter,
+} from "./channels/reply-action-claims.js";
+import {
   handleTelegramWebhook,
   type AcceptedTelegramButtonTap,
   type AcceptedTelegramUpdate,
@@ -228,12 +232,15 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           ? { principalId: accepted.principalId, text: accepted.text }
           : null,
       });
-      const model = ownerPrincipalId === undefined
+      const isOwnerTelegramReply = ownerPrincipalId !== undefined
+        && accepted.principalId === ownerPrincipalId;
+      const memoryFallback = isOwnerTelegramReply ? new DelegatedReplyTracker() : undefined;
+      const memoryAwareModel = ownerPrincipalId === undefined
         ? ownerAwareModel
         : new TelegramMemoryControlModelAdapter({
           database: env.DB,
           archive: env.ARCHIVE,
-          fallbackModel: ownerAwareModel,
+          fallbackModel: memoryFallback?.wrap(ownerAwareModel) ?? ownerAwareModel,
           ownerPrincipalId,
           authority: {
             principalId: accepted.principalId,
@@ -242,6 +249,9 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           },
           targets: memory,
         });
+      const model = isOwnerTelegramReply
+        ? new ReplyActionClaimGuardModelAdapter({ model: memoryAwareModel, memoryFallback })
+        : memoryAwareModel;
 
       const durableDispatcher = telegramReplyStageSync("dispatcher", () => new DefaultOutboxDispatcher({
         repository,

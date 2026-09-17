@@ -37,12 +37,12 @@ async function seedOwner(): Promise<void> {
   ]);
 }
 
-function modelResponse(): Response {
+function modelResponse(text = "Hello."): Response {
   const encoder = new TextEncoder();
   return new Response(new ReadableStream<Uint8Array>({
     start(controller) {
       controller.enqueue(encoder.encode(
-        `data: ${JSON.stringify({ choices: [{ delta: { content: "Hello." } }] })}\n\ndata: [DONE]\n\n`,
+        `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\ndata: [DONE]\n\n`,
       ));
       controller.close();
     },
@@ -128,6 +128,45 @@ describe("live Telegram reply composition", () => {
     expect(Number.isInteger(outcome?.stagingMs)).toBe(true);
     expect(Number.isInteger(outcome?.telegramSendMs)).toBe(true);
     expect(Number.isInteger(outcome?.settlementMs)).toBe(true);
+  });
+
+  it("applies the final action-claim gate to an owner's ordinary Telegram reply", async () => {
+    const requests: Array<Readonly<{ url: string; init: RequestInit | undefined }>> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      requests.push(Object.freeze({ url, init }));
+      if (url.endsWith("/chat/completions")) {
+        return modelResponse("Pai's phone number is 416-555-0100. Booked a table there for 7pm.");
+      }
+      if (url.endsWith("/sendChatAction")) return Response.json({ ok: true, result: true });
+      if (url.endsWith("/sendMessage")) return Response.json({ ok: true, result: { message_id: 99 } });
+      throw new Error("unexpected_fetch");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const waits: Promise<unknown>[] = [];
+    const response = await (worker.fetch as unknown as (
+      candidate: Request,
+      environment: Partial<Env>,
+      context: { waitUntil(promise: Promise<unknown>): void },
+    ) => Promise<Response>)(request(), {
+      DB: env.DB,
+      TELEGRAM_WEBHOOK_SECRET: SECRET,
+      TELEGRAM_BOT_TOKEN: BOT_TOKEN,
+      DEEPSEEK_API_KEY: "synthetic-model-key",
+      OWNER_PRINCIPAL_ID: "principal:owner",
+    }, {
+      waitUntil(promise) { waits.push(promise); },
+    });
+    expect(response.status).toBe(200);
+    await Promise.all(waits);
+
+    const sent = requests.find(({ url }) => url.endsWith("/sendMessage"));
+    const body = JSON.parse(sent?.init?.body as string) as Record<string, unknown>;
+    expect(body.text).toContain("Pai's phone number is 416-555-0100.");
+    expect(body.text).toContain("I can't send messages");
+    expect(body.text).not.toContain("Booked a table");
   });
 
   it("logs only fixed outer reply failure reasons without exception text", async () => {

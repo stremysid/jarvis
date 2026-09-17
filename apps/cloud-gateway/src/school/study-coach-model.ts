@@ -1,6 +1,7 @@
 import type { Ulid } from "../../../../packages/contracts/src/index.js";
 import { localDate } from "../digest/digest-composer.js";
 import type { ModelAdapter, ModelAdapterStreamInput, ModelToken } from "../model/model-types.js";
+import { issueReplyActionToken } from "../channels/reply-action-claims.js";
 import { MAX_MESSAGE_CHARACTERS } from "../providers/telegram-provider.js";
 import { guardSchoolReply, isBrightspaceRefreshRequest } from "./school-catchup-model.js";
 import type { StudyCoachRepository } from "./study-coach-repository.js";
@@ -371,6 +372,12 @@ function boundedTelegramText(value: string): string {
   return `${prefix}${suffix}`;
 }
 
+function studyActionToken(input: ModelAdapterStreamInput, text: string, changed: boolean): ModelToken {
+  return changed
+    ? issueReplyActionToken(input.correlationId, text, ["study-coach"])
+    : Object.freeze({ index: 0, text });
+}
+
 function answerReply(
   answered: { readonly item: StudyPracticeItem; readonly result: StudyOutcome },
   next: StudyPracticeItem | null,
@@ -449,10 +456,11 @@ export class StudyCoachModelAdapter implements ModelAdapter {
         preference: applyPreferencePatch(snapshot.preference, preferenceIntent.patch),
         now,
       }));
-      yield Object.freeze({
-        index: 0,
-        text: update.ok ? preferenceIntent.reply : "I couldn't update the study-coach check-in settings.",
-      });
+      yield studyActionToken(
+        input,
+        update.ok ? preferenceIntent.reply : "I couldn't update the study-coach check-in settings.",
+        update.ok,
+      );
       return;
     }
 
@@ -467,14 +475,15 @@ export class StudyCoachModelAdapter implements ModelAdapter {
           ? this.dependencies.repository.forget(input.principalId, input.correlationId,
             { topicKey: exactTopic[0]!.topic.topicKey }, now)
           : 0);
-      yield Object.freeze({
-        index: 0,
-        text: !operation.ok
+      yield studyActionToken(
+        input,
+        !operation.ok
           ? "I couldn't update the study-coach record."
           : operation.value > 0
             ? `Forgot ${operation.value} operational study-coach evidence ${operation.value === 1 ? "record" : "records"} for ${forgotten}.`
             : `I couldn't identify one active study-coach record for ${forgotten}.`,
-      });
+        operation.ok && operation.value > 0,
+      );
       return;
     }
 
@@ -494,13 +503,14 @@ export class StudyCoachModelAdapter implements ModelAdapter {
         today,
         now,
       }));
-      yield Object.freeze({
-        index: 0,
-        text: !operation.ok ? "I couldn't update the study-coach signal."
+      yield studyActionToken(
+        input,
+        !operation.ok ? "I couldn't update the study-coach signal."
           : operation.value > 0
             ? `Retired ${operation.value} cited study-coach ${operation.value === 1 ? "signal" : "signals"} as ${signalControl}.`
             : "I couldn't identify an active cited signal to retire.",
-      });
+        operation.ok && operation.value > 0,
+      );
       return;
     }
 
@@ -514,11 +524,12 @@ export class StudyCoachModelAdapter implements ModelAdapter {
     if (/^\s*(?:stop|end|cancel)\s+(?:the\s+)?quiz[.!]*\s*$/iu.test(input.userText)) {
       const operation = await attemptStudyOperation(() =>
         this.dependencies.repository.dismissActiveQuiz(input.principalId, now));
-      yield Object.freeze({
-        index: 0,
-        text: !operation.ok ? "I couldn't update the study-coach record."
+      yield studyActionToken(
+        input,
+        !operation.ok ? "I couldn't update the study-coach record."
           : operation.value > 0 ? "Quiz stopped." : "No quiz is open.",
-      });
+        operation.ok && operation.value > 0,
+      );
       return;
     }
 
@@ -544,10 +555,11 @@ export class StudyCoachModelAdapter implements ModelAdapter {
       }
       try {
         const replacedQuiz = snapshot.activeQuiz !== null;
-        yield Object.freeze({
-          index: 0,
-          text: await makePractice(this.dependencies, input, course, request.mode, source, replacedQuiz, now),
-        });
+        yield studyActionToken(
+          input,
+          await makePractice(this.dependencies, input, course, request.mode, source, replacedQuiz, now),
+          true,
+        );
       } catch {
         yield Object.freeze({ index: 0, text: "I couldn't make a cited practice set from that source." });
       }
@@ -574,12 +586,13 @@ export class StudyCoachModelAdapter implements ModelAdapter {
           excerpt: checkIn.topic,
           observedAt: checkIn.claimedAt,
         });
-        yield Object.freeze({
-          index: 0,
-          text: await makePractice(
+        yield studyActionToken(
+          input,
+          await makePractice(
             this.dependencies, input, course, followUpMode, source, snapshot.activeQuiz !== null, now,
           ),
-        });
+          true,
+        );
       } catch {
         yield Object.freeze({ index: 0, text: "I couldn't make a practice set for that cited study target." });
       }
@@ -603,12 +616,13 @@ export class StudyCoachModelAdapter implements ModelAdapter {
         today,
         now,
       }));
-      yield Object.freeze({
-        index: 0,
-        text: update.ok
+      yield studyActionToken(
+        input,
+        update.ok
           ? `Recorded one ${observation.outcome} evidence point for ${course.name}: ${observation.topic}. One point is not a durable judgment.`
           : "I couldn't update the study-coach record.",
-      });
+        update.ok,
+      );
       return;
     }
 
@@ -619,7 +633,7 @@ export class StudyCoachModelAdapter implements ModelAdapter {
         );
         if (dismissed.ok && dismissed.value > 0) {
           const ordinaryReply = await collect(this.dependencies.fallbackModel.stream(input));
-          yield Object.freeze({ index: 0, text: `${CLOSED_QUIZ_FALLBACK_PREFIX}${ordinaryReply}` });
+          yield studyActionToken(input, `${CLOSED_QUIZ_FALLBACK_PREFIX}${ordinaryReply}`, true);
           return;
         }
         yield* this.dependencies.fallbackModel.stream(input);
@@ -649,10 +663,11 @@ export class StudyCoachModelAdapter implements ModelAdapter {
       } catch {
         // The recorded answer is authoritative even if the follow-up read fails.
       }
-      yield Object.freeze({
-        index: 0,
-        text: guardSchoolReply(answerReply(answered, next), this.dependencies.redactor),
-      });
+      yield studyActionToken(
+        input,
+        guardSchoolReply(answerReply(answered, next), this.dependencies.redactor),
+        true,
+      );
       return;
     }
 
