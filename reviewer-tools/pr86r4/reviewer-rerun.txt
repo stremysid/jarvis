@@ -1,0 +1,7 @@
+      Tests  6 failed | 24 passed (30)
+     × A2 a 'yes' answering an unrelated question must not promote a fact Jarvis merely echoed 198ms
+     × A2b the same 'yes' promotion with no injected context at all (production route) 189ms
+     × A3 an explicit rejection containing 'correct it' must not promote the fact 185ms
+     × A5 confirming requires the exact fact Jarvis showed, not a substring of a longer one 189ms
+     × C3 guardReplyClaims: a quoted span that closes early does not cover the next sentence 3ms
+     × C3 guardSchoolReply: a quoted span that closes early does not cover the next sentence 0ms

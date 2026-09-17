@@ -1,0 +1,6 @@
+      Tests  2 failed | 5080 passed (5082)
+ FAIL  |default| apps/cloud-gateway/test/channels/owner-telegram-agent.test.ts > owner Telegram agent > requires control intent before forget, restore, or explain reaches owner controls
+ FAIL  |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts > Telegram forget recall safety > removes later assistant replies that retrieved, cited, or restated a forgotten item
+ Test Files  2 failed | 191 passed (193)
+ Test Files  2 passed (2)
+      Tests  136 passed (136)
