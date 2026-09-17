@@ -1,6 +1,13 @@
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
-import { newUlid, sha256Hex, validateEnvelope } from "../../../../packages/contracts/src/index.js";
+import {
+  canonicalJson,
+  createEnvelope,
+  newUlid,
+  sha256Hex,
+  validateEnvelope,
+  type PersistableEventEnvelopeV1,
+} from "../../../../packages/contracts/src/index.js";
 import { ArchiveRepository } from "../../src/archive/archive-repository.js";
 import { ArchivalService } from "../../src/archive/archival-service.js";
 import { TieredEventReader } from "../../src/archive/tiered-event-reader.js";
@@ -21,6 +28,7 @@ import {
   TELEGRAM_MEMORY_RETRIEVAL_LIMITS,
   TelegramMemoryRetriever,
   type TelegramMemoryRetrievalLogCode,
+  type TelegramMemoryRetrievalMetrics,
   type TelegramMemoryRetrievalTimings,
 } from "../../src/memory/telegram-memory-retriever.js";
 import { LiteralHistoryService } from "../../src/memory/literal-history.js";
@@ -78,12 +86,13 @@ class FixedReplyModel extends RecordingModel {
 
 interface D1Stats {
   statements: number;
+  roundTrips: number;
   inflight: number;
   maxInflight: number;
 }
 
 function newD1Stats(): D1Stats {
-  return { statements: 0, inflight: 0, maxInflight: 0 };
+  return { statements: 0, roundTrips: 0, inflight: 0, maxInflight: 0 };
 }
 
 function countingDatabase(
@@ -91,33 +100,50 @@ function countingDatabase(
   stats: D1Stats,
   delayFor: (sql: string) => number = () => 0,
 ): D1Database {
-  const wrap = (statement: D1PreparedStatement, sql: string): D1PreparedStatement => new Proxy(statement as object, {
-    get(target, property) {
-      if (property === "bind") {
-        return (...values: unknown[]) => wrap((target as D1PreparedStatement).bind(...values), sql);
-      }
-      if (property === "first" || property === "all" || property === "run" || property === "raw") {
-        return async (...args: unknown[]) => {
-          stats.statements += 1;
-          stats.inflight += 1;
-          stats.maxInflight = Math.max(stats.maxInflight, stats.inflight);
-          try {
-            const delayMs = delayFor(sql);
-            if (delayMs > 0) await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+  const statements = new WeakMap<object, Readonly<{ statement: D1PreparedStatement; sql: string }>>();
+  const delayed = async <T>(statementCount: number, sql: readonly string[], operation: () => Promise<T>): Promise<T> => {
+    stats.statements += statementCount;
+    stats.roundTrips += 1;
+    stats.inflight += 1;
+    stats.maxInflight = Math.max(stats.maxInflight, stats.inflight);
+    try {
+      const delayMs = Math.max(0, ...sql.map((text) => delayFor(text)));
+      if (delayMs > 0) await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      return await operation();
+    } finally {
+      stats.inflight -= 1;
+    }
+  };
+  const wrap = (statement: D1PreparedStatement, sql: string): D1PreparedStatement => {
+    const proxy = new Proxy(statement as object, {
+      get(target, property) {
+        if (property === "bind") {
+          return (...values: unknown[]) => wrap((target as D1PreparedStatement).bind(...values), sql);
+        }
+        if (property === "first" || property === "all" || property === "run" || property === "raw") {
+          return (...args: unknown[]) => delayed(1, [sql], async () => {
             const method = Reflect.get(target, property, target) as (...values: unknown[]) => Promise<unknown>;
-            return await method.apply(target, args);
-          } finally {
-            stats.inflight -= 1;
-          }
-        };
-      }
-      const value = Reflect.get(target, property, target) as unknown;
-      return typeof value === "function" ? (value as (...args: never[]) => unknown).bind(target) : value;
-    },
-  }) as D1PreparedStatement;
+            return method.apply(target, args);
+          });
+        }
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function" ? (value as (...args: never[]) => unknown).bind(target) : value;
+      },
+    }) as D1PreparedStatement;
+    statements.set(proxy as object, Object.freeze({ statement, sql }));
+    return proxy;
+  };
   return new Proxy(database as object, {
     get(target, property) {
       if (property === "prepare") return (sql: string) => wrap((target as D1Database).prepare(sql), sql);
+      if (property === "batch") {
+        return (input: D1PreparedStatement[]) => {
+          const captured = input.map((statement) => statements.get(statement as object)
+            ?? Object.freeze({ statement, sql: "" }));
+          return delayed(captured.length, captured.map(({ sql }) => sql), () =>
+            (target as D1Database).batch(captured.map(({ statement }) => statement)));
+        };
+      }
       const value = Reflect.get(target, property, target) as unknown;
       return typeof value === "function" ? (value as (...args: never[]) => unknown).bind(target) : value;
     },
@@ -329,6 +355,136 @@ async function commitTestItem(options: Readonly<{
     },
   });
   return itemId;
+}
+
+interface LatencyFixture {
+  readonly history: LiteralHistoryService;
+  readonly favoriteSubjectItemId: ReturnType<typeof newUlid>;
+}
+
+async function latencyEnvelope(
+  principalId: string,
+  text: string,
+  occurredAt: string,
+  conversation: boolean,
+): Promise<PersistableEventEnvelopeV1> {
+  const token = new Redactor().redactText(text);
+  if (!token.ok || token.text !== text) throw new Error("telegram_memory_latency_redaction_failed");
+  return createEnvelope({
+    schemaVersion: "1.0",
+    eventId: newUlid(new Date(occurredAt)),
+    eventType: conversation ? "conversation.user_committed" : "fixture.background",
+    source: conversation ? "conversation" : "fixture",
+    subjectId: principalId,
+    occurredAt,
+    receivedAt: occurredAt,
+    correlationId: newUlid(new Date(Date.parse(occurredAt) + 1)),
+    contentType: "application/json",
+    payload: {
+      schemaCode: 1,
+      channelCode: 2,
+      sensitivityCode: 1,
+      historyEligible: true,
+      text: token,
+      directOwnerText: true,
+    },
+    producerVersion: conversation ? "conversation-v1" : "fixture-v1",
+  });
+}
+
+async function seedProductionShapedLatencyFixture(principalId: string): Promise<LatencyFixture> {
+  const favoriteSubject = "My favorite subject is math.";
+  const texts = Array.from({ length: 185 }, (_unused, index) => {
+    if (index < 8) return favoriteSubject;
+    if (index === 8) return "My favorite color is blue.";
+    if (index === 9) return "I prefer concise weekly reports.";
+    if (index === 10) return "My study plan starts on Sunday.";
+    return `Production fixture turn ${index} about unrelated notes.`;
+  });
+  const firstTimestamp = Date.parse("2026-09-17T00:00:00.000Z");
+  const envelopes: PersistableEventEnvelopeV1[] = [];
+  for (let index = 0; index < texts.length; index += 1) {
+    envelopes.push(await latencyEnvelope(
+      principalId,
+      texts[index]!,
+      new Date(firstTimestamp + index * 1_000).toISOString(),
+      index < 20,
+    ));
+  }
+  for (let start = 0; start < envelopes.length; start += 50) {
+    await env.DB.batch(envelopes.slice(start, start + 50).map((envelope) => env.DB.prepare(
+      `INSERT INTO events (
+        event_id, event_type, source, subject_id, occurred_at, received_at,
+        content_hash, envelope_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      envelope.eventId,
+      envelope.eventType,
+      envelope.source,
+      envelope.subjectId,
+      envelope.occurredAt,
+      envelope.receivedAt,
+      envelope.contentHash,
+      canonicalJson(envelope),
+      envelope.receivedAt,
+    )));
+  }
+  const rows = await env.DB.prepare(`SELECT event_id, sequence, occurred_at FROM events
+    WHERE subject_id = ? ORDER BY sequence ASC`).bind(principalId)
+    .all<{ event_id: string; sequence: number; occurred_at: string }>();
+  if (rows.results.length !== 185) throw new Error("telegram_memory_latency_event_fixture_invalid");
+  const eventAt = (index: number) => {
+    const row = rows.results[index];
+    if (row === undefined) throw new Error("telegram_memory_latency_event_fixture_invalid");
+    return Object.freeze({
+      eventId: row.event_id as ReturnType<typeof newUlid>,
+      sequence: row.sequence,
+      occurredAt: row.occurred_at,
+    });
+  };
+  const favoriteSubjectItemId = await commitTestItem({
+    principalId,
+    text: favoriteSubject,
+    creation: eventAt(0),
+    state: "proposed",
+    uncertain: true,
+  });
+  await commitTestItem({
+    principalId,
+    text: texts[8]!,
+    creation: eventAt(8),
+    state: "proposed",
+    uncertain: true,
+  });
+  await commitTestItem({ principalId, text: texts[9]!, creation: eventAt(9) });
+  await commitTestItem({ principalId, text: texts[10]!, creation: eventAt(10) });
+
+  const events = new EventRepository(env.DB);
+  const archive = new ArchivalService({ database: env.DB, bucket: env.ARCHIVE });
+  const archiveState = new ArchiveRepository(env.DB);
+  const history = new LiteralHistoryService({
+    database: env.DB,
+    events: new TieredEventReader({ archive, live: events, state: archiveState }),
+    archive: archiveState,
+    now: () => new Date("2026-09-17T01:00:00.000Z"),
+    nextId: () => newUlid(),
+  });
+  for (let step = 0; step < 128; step += 1) {
+    const result = await history.indexNext({
+      principalId,
+      maxEvents: 16,
+      maxTextBytes: 262_144,
+    });
+    if (result.complete) break;
+    if (step === 127) throw new Error("telegram_memory_latency_history_incomplete");
+  }
+  const literal = await history.searchLiteral({
+    principalId,
+    query: "favorite subject math",
+    maxResults: 8,
+  });
+  if (literal.hits.length !== 8) throw new Error("telegram_memory_latency_hits_invalid");
+  return Object.freeze({ history, favoriteSubjectItemId });
 }
 
 async function claimedTurn(principalId: string, text: string): Promise<Readonly<{
@@ -1716,6 +1872,84 @@ describe("Telegram memory retrieval", () => {
 });
 
 describe("Telegram memory retrieval statement bounds", () => {
+  it("returns production-shaped memory within the D1 latency and round-trip ceilings", async () => {
+    const owner = await seedServicePrincipal("production-latency");
+    await seedProductionShapedLatencyFixture(owner.principalId);
+    const input = Object.freeze({
+      principalId: owner.principalId,
+      channel: "telegram" as const,
+      purpose: "conversation" as const,
+      query: "What's my fav subject",
+      maxTokens: 32_000,
+    });
+    const baseStats = newD1Stats();
+    const baseStartedAt = performance.now();
+    await new D1ContextRetriever(countingDatabase(env.DB, baseStats, () => 25)).retrieve(input);
+    const baseMs = Math.round(performance.now() - baseStartedAt);
+    const retrievalStats = newD1Stats();
+    const metrics: TelegramMemoryRetrievalMetrics[] = [];
+    const retrievalStartedAt = performance.now();
+    const contexts = await new TelegramMemoryRetriever({
+      database: countingDatabase(env.DB, retrievalStats, () => 25),
+      archive: env.ARCHIVE,
+      log: () => undefined,
+      observeRetrieval: (value) => metrics.push(value),
+    }).retrieve(input);
+    const memoryMs = Math.round(performance.now() - retrievalStartedAt);
+
+    console.log("telegram_memory_production_latency", JSON.stringify({
+      baseMs,
+      memoryMs,
+      baseStatements: baseStats.statements,
+      baseRoundTrips: baseStats.roundTrips,
+      retrievalStatements: retrievalStats.statements,
+      retrievalRoundTrips: retrievalStats.roundTrips,
+      candidatesMs: metrics[0]?.candidatesMs,
+      historyMs: metrics[0]?.historyMs,
+      mergeMs: metrics[0]?.mergeMs,
+    }));
+    expect(contexts.some((context) => context.text.includes("My favorite subject is math."))).toBe(true);
+    expect(baseMs).toBeLessThanOrEqual(250);
+    expect(memoryMs).toBeLessThanOrEqual(350);
+    expect(metrics).toHaveLength(1);
+    expect(Object.values(metrics[0]!).every(Number.isInteger)).toBe(true);
+    expect(metrics[0]?.d1RoundTrips).toBe(retrievalStats.roundTrips);
+    expect(baseStats.roundTrips).toBeLessThanOrEqual(
+      TELEGRAM_MEMORY_RETRIEVAL_LIMITS.liveBaseD1RoundTrips - 1,
+    );
+    expect(retrievalStats.roundTrips).toBeLessThanOrEqual(8);
+    expect(retrievalStats.roundTrips).toBeLessThanOrEqual(
+      TELEGRAM_MEMORY_RETRIEVAL_LIMITS.liveTotalD1RoundTrips,
+    );
+  });
+
+  it("starts literal history before a 700 ms base lookup can consume the memory deadline", async () => {
+    const owner = await seedServicePrincipal("slow-base-literal");
+    await seedProductionShapedLatencyFixture(owner.principalId);
+    const stats = newD1Stats();
+    const logs: TelegramMemoryRetrievalLogCode[] = [];
+    const contexts = await new TelegramMemoryRetriever({
+      database: countingDatabase(env.DB, stats, () => 25),
+      archive: env.ARCHIVE,
+      baseContext: {
+        async retrieve() {
+          await new Promise<void>((resolve) => setTimeout(resolve, 700));
+          return Object.freeze([]);
+        },
+      },
+      log: (code) => logs.push(code),
+    }).retrieve({
+      principalId: owner.principalId,
+      channel: "telegram",
+      purpose: "conversation",
+      query: "What is my favorite school subject?",
+      maxTokens: 32_000,
+    });
+
+    expect(logs).not.toContain("telegram_memory_retrieval_memory_timeout");
+    expect(contexts.some((context) => context.text.includes("My favorite subject is math."))).toBe(true);
+  });
+
   it("checks forgotten-turn suppression with one bounded statement over the base rows", async () => {
     const owner = await seedServicePrincipal("suppression-statement");
     const telegram = new FakeTelegramProvider();
