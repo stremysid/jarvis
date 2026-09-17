@@ -1,0 +1,2 @@
+      Tests  1 failed | 18 passed | 1 skipped (20)
+     × G1 a turn ending in a question mark plus a non-breaking space does not stall the index 3917ms
