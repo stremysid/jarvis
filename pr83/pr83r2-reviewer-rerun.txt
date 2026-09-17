@@ -1,0 +1,28 @@
+     × I1a production archival (subject_id left NULL) keeps archived owner-history vectors and meaning recall of them 777ms
+     × I1b once distillation has back-filled archived subject_id, archived Jarvis replies do not stall indexing of a new memory 813ms
+     × F2 a lifted memory's source turn becomes meaning-searchable again and the index reports nothing missing 1135ms
+     × L1 at 25 ms per D1 round trip, keyword memory survives every AI/Vectorize latency and ready meaning hits are not discarded 10296ms
+     × L2 ordinary acknowledgements make no Workers AI or Vectorize call; short real questions still search 750ms
+     × Q2 asking the same short question four times does not drown the original statement in meaning results 2885ms
+     × Q3a literal recall (meaning off) survives a short recent owner turn ok that is a substring of the hit 5901ms
+     × Q3c literal recall (meaning off) still works when Sid repeats the question right after asking it 3402ms
+     × Q3b literal recall (meaning off) keeps statements that begin with have/did/will 3911ms
+     × Q5 a remembered item found by meaning search is not repeated as its own source turn 8716ms
+     × I3 a backlog above bge-m3's documented text maxItems (100) still makes progress through the real Workers AI adapter 11472ms
+     × L3 a slow canonical candidate query does not discard meaning evidence that was ready in time 4904ms
+     × DUMP all logged evidence (fails on purpose so Vitest prints it) 1ms
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr83r2.test.ts > PR83r2 narrow: 4 indexer after archival (reset archive; run first) > I1a production archival (subject_id left NULL) keeps archived owner-history vectors and meaning recall of them
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr83r2.test.ts > PR83r2 narrow: 4 indexer after archival (reset archive; run first) > I1b once distillation has back-filled archived subject_id, archived Jarvis replies do not stall indexing of a new memory
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr83r2.test.ts > PR83r2 narrow: 1 forgetting across canonical, literal and meaning > F2 a lifted memory's source turn becomes meaning-searchable again and the index reports nothing missing
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr83r2.test.ts > PR83r2 narrow: 2 latency through the production Telegram service > L1 at 25 ms per D1 round trip, keyword memory survives every AI/Vectorize latency and ready meaning hits are not discarded
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr83r2.test.ts > PR83r2 narrow: 2 latency through the production Telegram service > L2 ordinary acknowledgements make no Workers AI or Vectorize call; short real questions still search
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr83r2.test.ts > PR83r2 narrow: 3 recall quality end to end > Q2 asking the same short question four times does not drown the original statement in meaning results
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr83r2.test.ts > PR83r2 narrow: 3 recall quality end to end > Q3a literal recall (meaning off) survives a short recent owner turn ok that is a substring of the hit
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr83r2.test.ts > PR83r2 narrow: 3 recall quality end to end > Q3c literal recall (meaning off) still works when Sid repeats the question right after asking it
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr83r2.test.ts > PR83r2 narrow: 3 recall quality end to end > Q3b literal recall (meaning off) keeps statements that begin with have/did/will
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr83r2.test.ts > PR83r2 narrow: 3 recall quality end to end > Q5 a remembered item found by meaning search is not repeated as its own source turn
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr83r2.test.ts > PR83r2 narrow: 4b documented Workers AI batch limit and 2b slow canonical path > I3 a backlog above bge-m3's documented text maxItems (100) still makes progress through the real Workers AI adapter
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr83r2.test.ts > PR83r2 narrow: 4b documented Workers AI batch limit and 2b slow canonical path > L3 a slow canonical candidate query does not discard meaning evidence that was ready in time
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr83r2.test.ts > PR83r2 narrow: diagnostic dump > DUMP all logged evidence (fails on purpose so Vitest prints it)
+ Test Files  1 failed (1)
+      Tests  13 failed | 4 passed (17)
