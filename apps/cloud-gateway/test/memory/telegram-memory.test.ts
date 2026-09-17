@@ -661,6 +661,8 @@ async function commitAndDistill(
       sourceExcerpts: [{ sourceEventId: admission.turn.userEventId, excerpt: text }],
       confidence: 0.95,
       sensitivity: "normal",
+      topicPath: ["Personal"],
+      filingConfidence: 0.9,
     }],
   });
   const archive = new ArchivalService({ database: env.DB, bucket: env.ARCHIVE });
@@ -1543,7 +1545,7 @@ describe("Telegram automatic-memory authority", () => {
       origin: "authenticated_first_person",
       uncertain: 0,
       lifecycle_state: "active",
-      display_name: "Memory",
+      display_name: "Personal",
     });
   });
 

@@ -12,15 +12,21 @@ import {
 import { ArchivalService } from "../../src/archive/archival-service.js";
 import { ArchiveRepository } from "../../src/archive/archive-repository.js";
 import { TieredEventReader } from "../../src/archive/tiered-event-reader.js";
+import { buildTelegramConversationRepository } from "../../src/index.js";
 import { buildJobTable, type JobEnvironment } from "../../src/jobs/job-table.js";
 import {
   AUTOMATIC_DISTILLATION_STEP_LIMITS,
   AutomaticMemoryDistillationWorkflow,
 } from "../../src/memory/automatic-distillation.js";
-import { MemoryRepository } from "../../src/memory/memory-repository.js";
+import {
+  automaticFilingReason,
+  createMemoryRepositoryForTest,
+  MemoryRepository,
+  type AutomaticFilingDecision,
+} from "../../src/memory/memory-repository.js";
 import { MemoryExtractionFailure } from "../../src/memory/memory-extraction-budget.js";
 import { TelegramMemoryRetriever } from "../../src/memory/telegram-memory-retriever.js";
-import type { CommitInitialMemoryInput } from "../../src/memory/memory-types.js";
+import { MemoryRepositoryError, type CommitInitialMemoryInput } from "../../src/memory/memory-types.js";
 import {
   EventRepository,
   type AppendedEvent,
@@ -30,6 +36,8 @@ import { FakeModelProvider } from "../../src/providers/fake-model-provider.js";
 import {
   issueModelCompleteJsonSettledFailure,
   MEMORY_EXTRACTION_JSON_CONTRACT,
+  MEMORY_EXTRACTION_JSON_EXAMPLE,
+  MEMORY_EXTRACTION_JSON_SCHEMA,
   ProviderFailure,
 } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
@@ -136,11 +144,86 @@ async function appendConversation(
   });
 }
 
+async function appendDirectOwnerTelegramConversation(
+  events: EventRepository,
+  principalId: string,
+  text: string,
+): Promise<AppendedEvent> {
+  const userText = redactor.redactText(text);
+  if (!userText.ok) throw new Error("automatic_distillation_telegram_redaction_failed");
+  const turnId = newUlid();
+  const admission = await buildTelegramConversationRepository(env.DB, events, {
+    principalId,
+    isDirectText: true,
+    isMemoryControlAuthoritative: true,
+  }, principalId).getOrCreateTurn({
+    turnId,
+    sessionId: `automatic-distillation:${turnId}`,
+    principalId,
+    channel: "telegram",
+    userText,
+    now: new Date(),
+  });
+  const sequence = await env.DB.prepare("SELECT sequence FROM events WHERE event_id = ?")
+    .bind(admission.turn.userEventId).first<number>("sequence");
+  if (sequence === null) throw new Error("automatic_distillation_telegram_event_missing");
+  const [event] = await events.readRange(sequence - 1, 1);
+  if (event?.envelope.eventId !== admission.turn.userEventId) {
+    throw new Error("automatic_distillation_telegram_event_mismatch");
+  }
+  return event;
+}
+
+async function renameStoredTopic(
+  principalId: string,
+  topicId: Ulid,
+  previousName: string,
+  nextName: string,
+  pathAlias: string,
+): Promise<void> {
+  const current = await env.DB.prepare(`SELECT updated_at FROM memory_topics
+    WHERE principal_id = ? AND topic_id = ?`).bind(principalId, topicId)
+    .first<{ updated_at: string }>();
+  if (current === null) throw new Error("automatic_distillation_topic_missing");
+  const occurredAt = new Date(Math.max(Date.now() + 1_000, Date.parse(current.updated_at) + 10)).toISOString();
+  const topicEventId = newUlid();
+  const aliasName = pathAlias.split("/").at(-1) ?? previousName;
+  const aliases = [{
+    aliasId: newUlid(),
+    topicId,
+    displayName: aliasName,
+    normalizedName: aliasName.normalize("NFC").toLocaleLowerCase("en-US"),
+    pathAlias,
+  }];
+  await env.DB.prepare(`INSERT INTO memory_topic_events (
+    topic_event_id, principal_id, topic_id, operation,
+    previous_parent_topic_id, new_parent_topic_id,
+    previous_display_name, previous_normalized_name,
+    new_display_name, new_normalized_name, merge_target_topic_id,
+    reparented_child_ids_json, moved_placement_ids_json, added_aliases_json,
+    reason, actor, owner_authorizing_event_id, occurred_at
+  ) VALUES (?, ?, ?, 'rename', NULL, NULL, ?, ?, ?, ?, NULL,
+    '[]', '[]', ?, 'automatic filing alias fixture', 'rules', NULL, ?)`)
+    .bind(
+      topicEventId,
+      principalId,
+      topicId,
+      previousName,
+      previousName.normalize("NFC").toLocaleLowerCase("en-US"),
+      nextName,
+      nextName.normalize("NFC").toLocaleLowerCase("en-US"),
+      JSON.stringify(aliases),
+      occurredAt,
+    ).run();
+}
+
 function proposal(
   event: AppendedEvent,
   sourceText: string,
   text = sourceText,
   confidence = 0.95,
+  topicPath: readonly string[] = ["Personal"],
+  filingConfidence = 0.9,
 ): Readonly<Record<string, unknown>> {
   return Object.freeze({
     text,
@@ -148,13 +231,19 @@ function proposal(
     sourceExcerpts: [{ sourceEventId: event.envelope.eventId, excerpt: sourceText }],
     confidence,
     sensitivity: "normal",
+    topicPath,
+    filingConfidence,
   });
 }
 
 function workflow(
   principalId: string,
   provider: FakeModelProvider,
-  repository?: Pick<MemoryRepository, "bootstrapTopics" | "commitInitialItem">,
+  repository?: Pick<MemoryRepository,
+    | "bootstrapTopics"
+    | "commitInitialItem"
+    | "resolveOrCreateAutomaticTopicPath"
+    | "refileAutomaticInboxItems">,
   eventReader?: SyncEventReader,
   database?: D1Database,
 ): AutomaticMemoryDistillationWorkflow {
@@ -207,6 +296,102 @@ async function storedItem(principalId: string): Promise<{
   return row;
 }
 
+async function itemCount(principalId: string): Promise<number> {
+  return await env.DB.prepare("SELECT count(*) AS count FROM memory_items WHERE principal_id = ?")
+    .bind(principalId).first<number>("count") ?? -1;
+}
+
+async function placementDetail(principalId: string, itemId?: Ulid): Promise<{
+  topic_id: Ulid;
+  display_name: string;
+  confidence: number;
+  reason: string;
+}> {
+  const row = await env.DB.prepare(`SELECT placement.topic_id, topic.display_name,
+      event.confidence, event.reason
+    FROM memory_item_placement_state placement
+    JOIN memory_item_placement_events event
+      ON event.principal_id = placement.principal_id
+      AND event.placement_id = placement.placement_id
+      AND event.placement_event_number = placement.last_placement_event_number
+    JOIN memory_topics topic
+      ON topic.principal_id = placement.principal_id AND topic.topic_id = placement.topic_id
+    WHERE placement.principal_id = ? AND (? IS NULL OR placement.item_id = ?)
+      AND placement.relation = 'primary' AND placement.status = 'active'
+    ORDER BY placement.updated_at DESC LIMIT 1`).bind(principalId, itemId ?? null, itemId ?? null)
+    .first<{ topic_id: Ulid; display_name: string; confidence: number; reason: string }>();
+  if (row === null) throw new Error("automatic_distillation_placement_missing");
+  return row;
+}
+
+async function commitInboxItem(
+  repository: MemoryRepository,
+  events: EventRepository,
+  principalId: string,
+  inboxTopicId: Ulid,
+  text: string,
+  decision: AutomaticFilingDecision,
+  topicPath: readonly string[],
+  lifecycle: "active" | "proposed" = "active",
+  confidence = 0.9,
+): Promise<Ulid> {
+  const event = await appendConversation(
+    events,
+    principalId,
+    text,
+    lifecycle === "active" ? { directOwnerText: true } : {},
+  );
+  const itemId = newUlid();
+  await repository.commitInitialItem(Object.freeze({
+    principalId,
+    itemId,
+    kind: "fact" as const,
+    creationEventId: event.envelope.eventId,
+    creationEventSequence: event.eventSequence,
+    version: Object.freeze({
+      versionId: newUlid(),
+      text,
+      textHash: await sha256Hex(text),
+      basis: lifecycle === "active" ? "stated" as const : "inferred" as const,
+      origin: lifecycle === "active" ? "authenticated_first_person" as const : "model" as const,
+      uncertain: lifecycle !== "active",
+      sensitivity: "normal" as const,
+      validFrom: null,
+      validTo: null,
+      extractorVersion: "automatic-distillation-v1",
+      extractorModelId: lifecycle === "active" ? null : MODEL_ID,
+    }),
+    sources: Object.freeze([Object.freeze({
+      sourceId: newUlid(),
+      eventId: event.envelope.eventId,
+      eventSequence: event.eventSequence,
+      sourceLocation: "live" as const,
+      r2SegmentId: null,
+      excerpt: text,
+      excerptHash: await sha256Hex(text),
+      channel: "telegram" as const,
+      occurredAt: event.envelope.occurredAt,
+    })]),
+    transition: Object.freeze({
+      transitionId: newUlid(),
+      lifecycleState: lifecycle,
+      reason: lifecycle === "active"
+        ? "exact authenticated first-person evidence"
+        : "model inference awaits owner confirmation",
+      policyVersion: "automatic-distillation-v1",
+    }),
+    placement: Object.freeze({
+      placementId: newUlid(),
+      placementEventId: newUlid(),
+      topicId: inboxTopicId,
+      filingSource: "rule" as const,
+      confidence,
+      reason: automaticFilingReason(decision, topicPath),
+    }),
+  }));
+  return itemId;
+}
+
 beforeAll(async () => {
   await applyMemoryDistillationMigration();
 });
@@ -240,7 +425,7 @@ describe("automatic memory distillation", () => {
       origin: "authenticated_first_person",
       uncertain: 0,
       lifecycle_state: "active",
-      display_name: "Memory",
+      display_name: "Personal",
     });
     expect(await env.DB.prepare(`SELECT count(*) AS count
       FROM memory_distillation_event_receipts WHERE principal_id = ? AND run_id = ?`)
@@ -254,6 +439,25 @@ describe("automatic memory distillation", () => {
     if (request?.operation !== "completeJson") throw new Error("automatic_distillation_prompt_missing");
     const parsedPrompt = JSON.parse(request.prompt) as { instructions: unknown[] };
     expect(parsedPrompt.instructions).toContain(MEMORY_EXTRACTION_JSON_CONTRACT);
+    const schema = JSON.parse(MEMORY_EXTRACTION_JSON_SCHEMA) as {
+      properties: { proposals: { items: { required: string[]; properties: Record<string, unknown> } } };
+    };
+    const example = JSON.parse(MEMORY_EXTRACTION_JSON_EXAMPLE) as {
+      proposals: Array<Record<string, unknown>>;
+    };
+    expect(schema.properties.proposals.items.required).not.toEqual(expect.arrayContaining([
+      "topicPath",
+      "filingConfidence",
+    ]));
+    expect(schema.properties.proposals.items.properties.topicPath).toMatchObject({
+      type: "array",
+      minItems: 1,
+      maxItems: 4,
+    });
+    expect(example.proposals[0]).toMatchObject({
+      topicPath: ["Personal", "Music"],
+      filingConfidence: 0.92,
+    });
   });
 
   it("keeps a forwarded-shaped bare first-person turn uncertain without an explicit direct-owner marker", async () => {
@@ -271,25 +475,734 @@ describe("automatic memory distillation", () => {
       lifecycle_state: "proposed",
       display_name: "Inbox / Needs filing",
     });
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_topics
+      WHERE principal_id = ? AND display_name = 'Personal'`).bind(principalId).first("count")).toBe(0);
   });
 
-  it("files a low-confidence inference into the explicit inbox as proposed evidence", async () => {
+  it("files a low-confidence topic suggestion into the inbox without changing item authority", async () => {
     const principalId = await principal();
     const events = new EventRepository(env.DB);
-    const sourceText = "The blue option may work for the renovation.";
-    const event = await appendConversation(events, principalId, sourceText);
+    const sourceText = "I chose the blue option for the renovation.";
+    const event = await appendConversation(events, principalId, sourceText, { directOwnerText: true });
     const provider = new FakeModelProvider({
-      completeJson: [proposal(event, sourceText, "The owner may prefer the blue option.", 0.4)],
+      completeJson: [proposal(
+        event,
+        sourceText,
+        sourceText,
+        0.95,
+        ["St. Remy", "Website"],
+        0.4,
+      )],
     });
 
     await workflow(principalId, provider).runNext({ runKey: `inbox:${newUlid()}` });
 
     expect(await storedItem(principalId)).toEqual({
-      origin: "model",
-      uncertain: 1,
-      lifecycle_state: "proposed",
+      origin: "authenticated_first_person",
+      uncertain: 0,
+      lifecycle_state: "active",
       display_name: "Inbox / Needs filing",
     });
+  });
+
+  it("retains the memory in the inbox when topic filing fails", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const text = "I am tracking the St. Remy website release.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+    const provider = new FakeModelProvider({
+      completeJson: [proposal(event, text, text, 0.95, ["St. Remy", "Website", "Releases"], 0.9)],
+    });
+    const canonical = new MemoryRepository(env.DB);
+    const filingFailure = {
+      bootstrapTopics: (id: string) => canonical.bootstrapTopics(id),
+      commitInitialItem: (input: CommitInitialMemoryInput) => canonical.commitInitialItem(input),
+      resolveOrCreateAutomaticTopicPath: async (): Promise<never> => {
+        throw new Error("fixture_topic_filing_unavailable");
+      },
+      refileAutomaticInboxItems: (id: string) => canonical.refileAutomaticInboxItems(id),
+    };
+
+    const result = await workflow(principalId, provider, filingFailure)
+      .runNext({ runKey: `filing-failure:${newUlid()}` });
+    const placement = await env.DB.prepare(`SELECT topic.display_name, event.reason
+      FROM memory_item_placement_state placement
+      JOIN memory_topics topic
+        ON topic.principal_id = placement.principal_id AND topic.topic_id = placement.topic_id
+      JOIN memory_item_placement_events event
+        ON event.principal_id = placement.principal_id AND event.placement_id = placement.placement_id
+        AND event.placement_event_number = placement.last_placement_event_number
+      WHERE placement.principal_id = ?`).bind(principalId).first<{
+        display_name: string;
+        reason: string;
+      }>();
+
+    expect(result).toMatchObject({ outcome: "succeeded", createdItemCount: 1 });
+    expect(placement).toMatchObject({
+      display_name: "Inbox / Needs filing",
+      reason: expect.stringContaining('"decision":"inbox_filing_failure"'),
+    });
+  });
+
+  it("keeps the fact and writes a path-free inbox reason when the proposed topic path is invalid", async () => {
+    const cases: readonly (readonly string[])[] = [
+      ["One", "Two", "Three", "Four", "Five"],
+      ["界".repeat(22)],
+      ["Ticket 482913"],
+      ["School", "Unit\u20282"],
+      ["School > Chemistry"],
+      ["School\u200b"],
+    ];
+    for (const [index, topicPath] of cases.entries()) {
+      const principalId = await principal();
+      const events = new EventRepository(env.DB);
+      const text = `I kept invalid filing example ${index}.`;
+      const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+      const provider = new FakeModelProvider({
+        completeJson: [proposal(event, text, text, 0.95, topicPath, 0.9)],
+      });
+
+      const result = await workflow(principalId, provider).runNext({ runKey: `invalid-path:${newUlid()}` });
+      const placement = await placementDetail(principalId);
+
+      expect(result).toMatchObject({ outcome: "succeeded", createdItemCount: 1 });
+      expect(placement.display_name).toBe("Inbox / Needs filing");
+      expect(placement.reason).toContain('"decision":"inbox_invalid_path"');
+      expect(placement.reason).not.toContain("topicPath");
+      expect(placement.reason).not.toContain(topicPath.join("/"));
+    }
+  });
+
+  it("treats a missing or out-of-range filingConfidence as zero without rejecting the fact", async () => {
+    for (const filingConfidence of [undefined, -0.01, 1.01, "invalid"] as const) {
+      const principalId = await principal();
+      const events = new EventRepository(env.DB);
+      const text = `I kept confidence case ${String(filingConfidence)}.`;
+      const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+      const raw = { ...proposal(event, text, text, 0.95, ["Personal"], 0.9) } as Record<string, unknown>;
+      if (filingConfidence === undefined) delete raw.filingConfidence;
+      else raw.filingConfidence = filingConfidence;
+
+      const result = await workflow(principalId, new FakeModelProvider({ completeJson: [raw] }))
+        .runNext({ runKey: `invalid-filing-confidence:${newUlid()}` });
+      const placement = await placementDetail(principalId);
+
+      expect(result).toMatchObject({ outcome: "succeeded", createdItemCount: 1 });
+      expect(placement).toMatchObject({ display_name: "Inbox / Needs filing", confidence: 0 });
+      expect(placement.reason).toContain('"decision":"inbox_low_confidence"');
+    }
+  });
+
+  it("bounds the encoded topic path so quote-heavy names cannot throw while building the filing reason", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const text = "I recorded the quote-heavy filing case.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+    const quoted = '"'.repeat(64);
+    const provider = new FakeModelProvider({
+      completeJson: [proposal(event, text, text, 0.95, [quoted, quoted, quoted], 0.9)],
+    });
+
+    const result = await workflow(principalId, provider).runNext({ runKey: `bounded-path:${newUlid()}` });
+
+    expect(result).toMatchObject({ outcome: "succeeded", createdItemCount: 1 });
+    expect(await placementDetail(principalId)).toMatchObject({ display_name: "Inbox / Needs filing" });
+  });
+
+  it("advances past a proposed fact whose invalid path contains a newline", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const text = "Mum says the reunion is in July.";
+    const event = await appendConversation(events, principalId, text);
+    const provider = new FakeModelProvider({
+      completeJson: [proposal(event, text, text, 0.95, ["Family", "Reunion\nJuly"], 0.9)],
+    });
+    const distillation = workflow(principalId, provider);
+
+    const first = await distillation.runNext({ runKey: `invalid-control-a:${newUlid()}` });
+    const second = await distillation.runNext({ runKey: `invalid-control-b:${newUlid()}` });
+
+    expect([first.outcome, second.outcome]).toEqual(["succeeded", "nothing_new"]);
+    expect(second.cursorEventSequence).toBe(event.eventSequence);
+    expect(provider.requests).toHaveLength(1);
+    expect(await itemCount(principalId)).toBe(1);
+  });
+
+  it("rethrows memory_corrupt from topic resolution instead of hiding repository corruption", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const text = "I recorded a corruption guard fact.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+    const canonical = new MemoryRepository(env.DB);
+    let commitCalls = 0;
+    const repository = {
+      bootstrapTopics: (id: string) => canonical.bootstrapTopics(id),
+      commitInitialItem: (input: CommitInitialMemoryInput) => {
+        commitCalls += 1;
+        return canonical.commitInitialItem(input);
+      },
+      resolveOrCreateAutomaticTopicPath: async (): Promise<never> => {
+        throw new MemoryRepositoryError("memory_corrupt");
+      },
+      refileAutomaticInboxItems: (id: string) => canonical.refileAutomaticInboxItems(id),
+    };
+
+    const result = await workflow(
+      principalId,
+      new FakeModelProvider({ completeJson: [proposal(event, text)] }),
+      repository,
+    ).runNext({ runKey: `corrupt-filing:${newUlid()}` });
+
+    expect(result).toMatchObject({ outcome: "failed", failureCode: "distillation_step_failed" });
+    expect(commitCalls).toBe(0);
+    expect(await itemCount(principalId)).toBe(0);
+  });
+
+  it("does not leave model-created topics when the atomic item commit fails", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const text = "I signed up for the physics olympiad.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+    const canonical = new MemoryRepository(env.DB);
+    const repository = {
+      bootstrapTopics: (id: string) => canonical.bootstrapTopics(id),
+      commitInitialItem: async (): Promise<never> => { throw new Error("fixture_commit_unavailable"); },
+      resolveOrCreateAutomaticTopicPath: (id: string, path: readonly string[], maximum: number) =>
+        canonical.resolveOrCreateAutomaticTopicPath(id, path, maximum),
+      refileAutomaticInboxItems: (id: string) => canonical.refileAutomaticInboxItems(id),
+    };
+
+    const result = await workflow(
+      principalId,
+      new FakeModelProvider({
+        completeJson: [proposal(event, text, text, 0.95, ["School", "Physics", "Olympiad"], 0.9)],
+      }),
+      repository,
+    ).runNext({ runKey: `atomic-filing-failure:${newUlid()}` });
+
+    expect(result.outcome).toBe("failed");
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_topic_events
+      WHERE principal_id = ? AND reason = 'model-inference automatic filing path'`)
+      .bind(principalId).first("count")).toBe(0);
+  });
+
+  it("files into an existing path by normalized sibling names without creating duplicates", async () => {
+    const principalId = await principal();
+    const repository = new MemoryRepository(env.DB);
+    await repository.bootstrapTopics(principalId);
+    await repository.resolveOrCreateAutomaticTopicPath(principalId, ["School", "Chemistry"], 6);
+    const events = new EventRepository(env.DB);
+    const text = "I am studying chemical equilibrium.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+    const provider = new FakeModelProvider({
+      completeJson: [proposal(event, text, text, 0.95, ["sCHOOL", "CHEMISTRY"], 0.91)],
+    });
+
+    await workflow(principalId, provider, repository).runNext({ runKey: `existing-path:${newUlid()}` });
+
+    const itemId = await env.DB.prepare("SELECT item_id FROM memory_items WHERE principal_id = ?")
+      .bind(principalId).first<Ulid>("item_id");
+    if (itemId === null) throw new Error("automatic_distillation_existing_item_missing");
+    const item = await repository.readCurrentItem(principalId, itemId);
+    expect(item.topicPath.map((entry) => entry.displayName)).toEqual([
+      "Memory",
+      "School",
+      "Chemistry",
+    ]);
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_topics WHERE principal_id = ?")
+      .bind(principalId).first("count")).toBe(4);
+  });
+
+  it("drops a leading Memory root and NFKC-folds a full-width sibling name", async () => {
+    const principalId = await principal();
+    const repository = new MemoryRepository(env.DB);
+    await repository.bootstrapTopics(principalId);
+    const school = await repository.resolveOrCreateAutomaticTopicPath(principalId, ["School"], 1);
+    if (school.topic === null) throw new Error("automatic_distillation_school_missing");
+    const events = new EventRepository(env.DB);
+    const text = "I joined the debate club.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+
+    await workflow(
+      principalId,
+      new FakeModelProvider({
+        completeJson: [proposal(event, text, text, 0.95, ["Memory", "ＳＣＨＯＯＬ"], 0.9)],
+      }),
+      repository,
+    ).runNext({ runKey: `nfkc-root:${newUlid()}` });
+
+    const placement = await placementDetail(principalId);
+    expect(placement.topic_id).toBe(school.topic.topicId);
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_topics
+      WHERE principal_id = ? AND parent_topic_id = ? AND status = 'active'`)
+      .bind(principalId, school.topic.path[0]?.topicId).first("count")).toBe(2);
+  });
+
+  it("never creates or files beneath the Inbox from a model path", async () => {
+    const principalId = await principal();
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    const events = new EventRepository(env.DB);
+    const text = "I dissected a frog in biology.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+
+    await workflow(
+      principalId,
+      new FakeModelProvider({
+        completeJson: [proposal(event, text, text, 0.95, ["Inbox / Needs filing", "Biology"], 0.9)],
+      }),
+      repository,
+    ).runNext({ runKey: `inbox-target:${newUlid()}` });
+
+    expect(await placementDetail(principalId)).toMatchObject({
+      topic_id: topics.inbox.topicId,
+      display_name: "Inbox / Needs filing",
+    });
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_topics
+      WHERE principal_id = ? AND parent_topic_id = ? AND status = 'active'`)
+      .bind(principalId, topics.inbox.topicId).first("count")).toBe(0);
+  });
+
+  it("uses the newest sibling alias after active normalized names do not match", async () => {
+    const principalId = await principal();
+    const repository = new MemoryRepository(env.DB);
+    await repository.bootstrapTopics(principalId);
+    const created = await repository.resolveOrCreateAutomaticTopicPath(
+      principalId,
+      ["School", "Chemistry"],
+      6,
+    );
+    if (created.topic === null) throw new Error("automatic_distillation_alias_topic_missing");
+    await renameStoredTopic(
+      principalId,
+      created.topic.topicId,
+      "Chemistry",
+      "Chem",
+      "Memory/School/Chemistry",
+    );
+    const newest = await repository.resolveOrCreateAutomaticTopicPath(
+      principalId,
+      ["School", "Biology"],
+      1,
+    );
+    if (newest.topic === null) throw new Error("automatic_distillation_newest_alias_topic_missing");
+    await renameStoredTopic(
+      principalId,
+      newest.topic.topicId,
+      "Biology",
+      "Chem newest",
+      "Memory/School/Chemistry",
+    );
+    const events = new EventRepository(env.DB);
+    const text = "I have a chemistry lab on Thursday.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+    const provider = new FakeModelProvider({
+      completeJson: [proposal(event, text, text, 0.95, ["School", "Chemistry"], 0.9)],
+    });
+
+    await workflow(principalId, provider, repository).runNext({ runKey: `alias-path:${newUlid()}` });
+
+    const itemId = await env.DB.prepare("SELECT item_id FROM memory_items WHERE principal_id = ?")
+      .bind(principalId).first<Ulid>("item_id");
+    if (itemId === null) throw new Error("automatic_distillation_alias_item_missing");
+    const item = await repository.readCurrentItem(principalId, itemId);
+    expect(item.topicPath.map((entry) => entry.displayName)).toEqual([
+      "Memory",
+      "School",
+      "Chem newest",
+    ]);
+    expect(item.primaryPlacement.topicId).toBe(newest.topic.topicId);
+    expect(item.primaryPlacement.reason).toContain('"decision":"filed_alias"');
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_topics WHERE principal_id = ?")
+      .bind(principalId).first("count")).toBe(5);
+  });
+
+  it("creates only the missing tail with model-inference topic events", async () => {
+    const principalId = await principal();
+    const repository = new MemoryRepository(env.DB);
+    await repository.bootstrapTopics(principalId);
+    await repository.resolveOrCreateAutomaticTopicPath(principalId, ["School"], 6);
+    const events = new EventRepository(env.DB);
+    const text = "I am reviewing acids and bases.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+    const provider = new FakeModelProvider({
+      completeJson: [proposal(
+        event,
+        text,
+        text,
+        0.95,
+        ["School", "Chemistry", "Unit 2"],
+        0.94,
+      )],
+    });
+
+    await workflow(principalId, provider, repository).runNext({ runKey: `new-tail:${newUlid()}` });
+
+    const rows = await env.DB.prepare(`SELECT topic.new_display_name, topic.actor
+      FROM memory_topic_events topic
+      WHERE topic.principal_id = ? AND topic.reason = 'model-inference automatic filing path'
+      ORDER BY topic.occurred_at, topic.topic_event_id`).bind(principalId).all();
+    expect(rows.results).toEqual([
+      { new_display_name: "School", actor: "model" },
+      { new_display_name: "Chemistry", actor: "model" },
+      { new_display_name: "Unit 2", actor: "model" },
+    ]);
+    expect(await storedItem(principalId)).toMatchObject({ display_name: "Unit 2" });
+  });
+
+  it("reuses a path created for an earlier similar item in the same paid run", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const firstText = "I completed the first equilibrium worksheet.";
+    const secondText = "I completed the second equilibrium worksheet.";
+    const first = await appendConversation(events, principalId, firstText, { directOwnerText: true });
+    const second = await appendConversation(events, principalId, secondText, { directOwnerText: true });
+    const provider = new FakeModelProvider({
+      completeJson: [
+        proposal(first, firstText, firstText, 0.95, ["School", "Chemistry", "Unit 2"], 0.9),
+        proposal(second, secondText, secondText, 0.95, ["school", "chemistry", "unit 2"], 0.88),
+      ],
+    });
+
+    await workflow(principalId, provider).runNext({ runKey: `same-run-path:${newUlid()}` });
+
+    const rows = await env.DB.prepare(`SELECT placement.topic_id
+      FROM memory_item_placement_state placement
+      WHERE placement.principal_id = ? AND placement.relation = 'primary'
+      ORDER BY placement.item_id`).bind(principalId).all<{ topic_id: string }>();
+    expect(rows.results).toHaveLength(2);
+    expect(new Set(rows.results.map((row) => row.topic_id)).size).toBe(1);
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_topic_events
+      WHERE principal_id = ? AND reason = 'model-inference automatic filing path'`)
+      .bind(principalId).first("count")).toBe(3);
+    expect(provider.requests).toHaveLength(1);
+  });
+
+  it("walks filed descendants for What do you remember about School > Chemistry", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const text = "I am reviewing reaction rates this week.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+    const provider = new FakeModelProvider({
+      completeJson: [proposal(event, text, text, 0.95, ["School", "Chemistry", "Unit 2"], 0.93)],
+    });
+
+    await workflow(principalId, provider).runNext({ runKey: `area-walk:${newUlid()}` });
+    const contexts = await new TelegramMemoryRetriever({ database: env.DB, archive: env.ARCHIVE }).retrieve({
+      principalId,
+      channel: "telegram",
+      purpose: "conversation",
+      query: "What do you remember about School > Chemistry?",
+      maxTokens: 32_000,
+    });
+
+    expect(contexts.some((context) => context.text.includes(text)
+      && context.text.includes("area Memory > School > Chemistry > Unit 2"))).toBe(true);
+  });
+
+  it("routes whole paths to the inbox when the six-topic hourly creation cap would be exceeded", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const firstText = "I am preparing the chemistry lab report.";
+    const secondText = "I am preparing the St. Remy release notes.";
+    const first = await appendConversation(events, principalId, firstText, { directOwnerText: true });
+    const second = await appendConversation(events, principalId, secondText, { directOwnerText: true });
+    const provider = new FakeModelProvider({
+      completeJson: [
+        proposal(first, firstText, firstText, 0.95, ["School", "Chemistry", "Unit 2", "Labs"], 0.9),
+        proposal(second, secondText, secondText, 0.95, ["St. Remy", "Website", "Releases"], 0.9),
+      ],
+    });
+    const repository = new MemoryRepository(env.DB);
+    const distillation = workflow(principalId, provider, repository);
+
+    await distillation.runNext({ runKey: `topic-run-cap:${newUlid()}` });
+
+    const placements = await env.DB.prepare(`SELECT version.text, topic.display_name, event.reason
+      FROM memory_item_state state
+      JOIN memory_item_versions version
+        ON version.principal_id = state.principal_id AND version.version_id = state.current_version_id
+      JOIN memory_item_placement_state placement
+        ON placement.principal_id = state.principal_id AND placement.item_id = state.item_id
+        AND placement.relation = 'primary' AND placement.status = 'active'
+      JOIN memory_item_placement_events event
+        ON event.principal_id = placement.principal_id AND event.placement_id = placement.placement_id
+        AND event.placement_event_number = placement.last_placement_event_number
+      JOIN memory_topics topic
+        ON topic.principal_id = placement.principal_id AND topic.topic_id = placement.topic_id
+      WHERE state.principal_id = ? ORDER BY version.text`).bind(principalId).all<{
+        text: string;
+        display_name: string;
+        reason: string;
+    }>();
+    expect(placements.results).toEqual([
+      expect.objectContaining({
+        text: secondText,
+        display_name: "Inbox / Needs filing",
+        reason: expect.stringContaining('"decision":"inbox_cap"'),
+      }),
+      expect.objectContaining({ text: firstText, display_name: "Labs" }),
+    ]);
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_topics
+      WHERE principal_id = ? AND display_name = 'St. Remy'`).bind(principalId).first("count")).toBe(0);
+
+    await repository.resolveOrCreateAutomaticTopicPath(
+      principalId,
+      ["St. Remy", "Website", "Releases"],
+      3,
+    );
+    const refiled = await distillation.refileInboxItems();
+    const secondItemId = await env.DB.prepare(`SELECT version.item_id
+      FROM memory_item_versions version WHERE version.principal_id = ? AND version.text = ?`)
+      .bind(principalId, secondText).first<Ulid>("item_id");
+    if (secondItemId === null) throw new Error("automatic_distillation_refile_item_missing");
+    const secondItem = await repository.readCurrentItem(principalId, secondItemId);
+    expect(refiled).toEqual({ examinedItemCount: 1, refiledItemCount: 1, failedItemCount: 0 });
+    expect(refiled.examinedItemCount).toBeLessThanOrEqual(10);
+    expect(secondItem.topicPath.map((entry) => entry.displayName)).toEqual([
+      "Memory",
+      "St. Remy",
+      "Website",
+      "Releases",
+    ]);
+    expect(secondItem.lifecycle).toMatchObject({ state: "active", actor: "rules" });
+    expect(secondItem.version).toMatchObject({ uncertain: false, origin: "authenticated_first_person" });
+    await expect(repository.refileAutomaticInboxItems(principalId)).resolves.toEqual({
+      examinedItemCount: 0,
+      refiledItemCount: 0,
+      failedItemCount: 0,
+    });
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_item_placement_events
+      WHERE principal_id = ? AND operation = 'refile'`).bind(principalId).first("count")).toBe(1);
+  });
+
+  it("routes a new area to the inbox after its parent reaches forty active children", async () => {
+    const principalId = await principal();
+    const repository = new MemoryRepository(env.DB);
+    await repository.bootstrapTopics(principalId);
+    for (let index = 0; index < 39; index += 1) {
+      const created = await repository.resolveOrCreateAutomaticTopicPath(
+        principalId,
+        [`Area ${index}`],
+        1,
+      );
+      expect(created.cappedBy).toBeNull();
+    }
+    const events = new EventRepository(env.DB);
+    const text = "I keep overflow notes here.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+    const provider = new FakeModelProvider({
+      completeJson: [proposal(event, text, text, 0.95, ["Overflow"], 0.9)],
+    });
+
+    await workflow(principalId, provider, repository).runNext({ runKey: `topic-child-cap:${newUlid()}` });
+
+    expect(await storedItem(principalId)).toMatchObject({
+      lifecycle_state: "active",
+      display_name: "Inbox / Needs filing",
+    });
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_topics
+      WHERE principal_id = ? AND display_name = 'Overflow'`).bind(principalId).first("count")).toBe(0);
+  });
+
+  it("keeps the conditional child-cap insert effective when a sibling wins the commit race", async () => {
+    const principalId = await principal();
+    const canonical = new MemoryRepository(env.DB);
+    await canonical.bootstrapTopics(principalId);
+    for (let index = 0; index < 38; index += 1) {
+      const created = await canonical.resolveOrCreateAutomaticTopicPath(principalId, [`Race area ${index}`], 1);
+      if (created.topic === null) throw new Error("automatic_distillation_race_fixture_failed");
+    }
+    const repository = createMemoryRepositoryForTest(env.DB, {
+      beforeBatch: async (operation, attempt) => {
+        if (operation === "commit" && attempt === 1) {
+          const winner = await canonical.resolveOrCreateAutomaticTopicPath(principalId, ["Race winner"], 1);
+          if (winner.topic === null) throw new Error("automatic_distillation_race_winner_missing");
+        }
+      },
+    });
+    const events = new EventRepository(env.DB);
+    const text = "I keep the raced overflow note.";
+    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+
+    await workflow(
+      principalId,
+      new FakeModelProvider({ completeJson: [proposal(event, text, text, 0.95, ["Overflow"], 0.9)] }),
+      repository,
+    ).runNext({ runKey: `topic-child-race:${newUlid()}` });
+
+    expect(await storedItem(principalId)).toMatchObject({ display_name: "Inbox / Needs filing" });
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_topics
+      WHERE principal_id = ? AND display_name = 'Overflow'`).bind(principalId).first("count")).toBe(0);
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_topics
+      WHERE principal_id = ? AND status = 'active'`).bind(principalId).first("count")).toBe(41);
+  });
+
+  it("examines at most ten eligible inbox items in one refile step", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    const target = await repository.resolveOrCreateAutomaticTopicPath(principalId, ["School"], 1);
+    if (target.topic === null) throw new Error("automatic_distillation_refile_target_missing");
+    for (let index = 0; index < 11; index += 1) {
+      const text = `I filed bounded inbox note ${index}.`;
+      const event = await appendConversation(events, principalId, text, { directOwnerText: true });
+      await repository.commitInitialItem(Object.freeze({
+        principalId,
+        itemId: newUlid(),
+        kind: "fact" as const,
+        creationEventId: event.envelope.eventId,
+        creationEventSequence: event.eventSequence,
+        version: Object.freeze({
+          versionId: newUlid(),
+          text,
+          textHash: await sha256Hex(text),
+          basis: "stated" as const,
+          origin: "authenticated_first_person" as const,
+          uncertain: false,
+          sensitivity: "normal" as const,
+          validFrom: null,
+          validTo: null,
+          extractorVersion: "automatic-distillation-v1",
+          extractorModelId: null,
+        }),
+        sources: Object.freeze([Object.freeze({
+          sourceId: newUlid(),
+          eventId: event.envelope.eventId,
+          eventSequence: event.eventSequence,
+          sourceLocation: "live" as const,
+          r2SegmentId: null,
+          excerpt: text,
+          excerptHash: await sha256Hex(text),
+          channel: "telegram" as const,
+          occurredAt: event.envelope.occurredAt,
+        })]),
+        transition: Object.freeze({
+          transitionId: newUlid(),
+          lifecycleState: "active" as const,
+          reason: "exact authenticated first-person evidence",
+          policyVersion: "automatic-distillation-v1",
+        }),
+        placement: Object.freeze({
+          placementId: newUlid(),
+          placementEventId: newUlid(),
+          topicId: topics.inbox.topicId,
+          filingSource: "rule" as const,
+          confidence: 0.9,
+          reason: automaticFilingReason("inbox_cap", ["School"]),
+        }),
+      }));
+    }
+
+    const first = await repository.refileAutomaticInboxItems(principalId);
+
+    expect(first).toEqual({ examinedItemCount: 10, refiledItemCount: 10, failedItemCount: 0 });
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_item_placement_state
+      WHERE principal_id = ? AND topic_id = ? AND status = 'active'`)
+      .bind(principalId, topics.inbox.topicId).first("count")).toBe(1);
+    await expect(repository.refileAutomaticInboxItems(principalId)).resolves.toEqual({
+      examinedItemCount: 1,
+      refiledItemCount: 1,
+      failedItemCount: 0,
+    });
+  });
+
+  it("re-files a later resolvable candidate past ten older unmovable Inbox rows", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    const school = await repository.resolveOrCreateAutomaticTopicPath(principalId, ["School"], 1);
+    if (school.topic === null) throw new Error("automatic_distillation_refile_school_missing");
+    for (let index = 0; index < 10; index += 1) {
+      await commitInboxItem(
+        repository,
+        events,
+        principalId,
+        topics.inbox.topicId,
+        `I capped side note ${index}.`,
+        "inbox_cap",
+        [`Missing ${index}`],
+      );
+    }
+    const fileable = await commitInboxItem(
+      repository,
+      events,
+      principalId,
+      topics.inbox.topicId,
+      "I capped the school note.",
+      "inbox_cap",
+      ["School"],
+    );
+
+    const result = await repository.refileAutomaticInboxItems(principalId);
+
+    expect(result).toMatchObject({ refiledItemCount: 1, failedItemCount: 0 });
+    expect((await placementDetail(principalId, fileable)).topic_id).toBe(school.topic.topicId);
+  });
+
+  it("re-file skips proposed uncertain, low-confidence, and Inbox-target items in SQL and policy", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    await repository.resolveOrCreateAutomaticTopicPath(principalId, ["School"], 1);
+    const proposed = await commitInboxItem(
+      repository, events, principalId, topics.inbox.topicId,
+      "The owner may like school.", "inbox_cap", ["School"], "proposed",
+    );
+    const lowConfidence = await commitInboxItem(
+      repository, events, principalId, topics.inbox.topicId,
+      "I kept the low-confidence note.", "inbox_low_confidence", ["School"], "active", 0.4,
+    );
+    const inboxTarget = await commitInboxItem(
+      repository, events, principalId, topics.inbox.topicId,
+      "I kept the Inbox-target note.", "inbox_filing_failure", ["Inbox / Needs filing"],
+    );
+
+    const result = await repository.refileAutomaticInboxItems(principalId);
+
+    expect(result.refiledItemCount).toBe(0);
+    for (const itemId of [proposed, lowConfidence, inboxTarget]) {
+      expect((await placementDetail(principalId, itemId)).topic_id).toBe(topics.inbox.topicId);
+    }
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_item_placement_events
+      WHERE principal_id = ? AND operation = 'refile'`).bind(principalId).first("count")).toBe(0);
+  });
+
+  it("re-file matches current names exactly and never follows an alias", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    const chemistry = await repository.resolveOrCreateAutomaticTopicPath(
+      principalId,
+      ["School", "Chemistry"],
+      2,
+    );
+    if (chemistry.topic === null) throw new Error("automatic_distillation_refile_alias_missing");
+    await renameStoredTopic(
+      principalId,
+      chemistry.topic.topicId,
+      "Chemistry",
+      "Chem",
+      "Memory/School/Chemistry",
+    );
+    const itemId = await commitInboxItem(
+      repository,
+      events,
+      principalId,
+      topics.inbox.topicId,
+      "I capped the chemistry note.",
+      "inbox_filing_failure",
+      ["School", "Chemistry"],
+    );
+
+    const result = await repository.refileAutomaticInboxItems(principalId);
+
+    expect(result).toEqual({ examinedItemCount: 1, refiledItemCount: 0, failedItemCount: 0 });
+    expect((await placementDetail(principalId, itemId)).topic_id).toBe(topics.inbox.topicId);
   });
 
   it("keeps a sentence extracted from a direct-marked multi-sentence message uncertain", async () => {
@@ -317,7 +1230,12 @@ describe("automatic memory distillation", () => {
     const events = new EventRepository(env.DB);
     const sourceEvents: AppendedEvent[] = [];
     for (let index = 0; index < AUTOMATIC_DISTILLATION_STEP_LIMITS.eventsExamined; index += 1) {
-      sourceEvents.push(await appendConversation(events, principalId, `I recorded preference ${index}.`));
+      sourceEvents.push(await appendConversation(
+        events,
+        principalId,
+        `I recorded preference ${index}.`,
+        { directOwnerText: true },
+      ));
     }
     const provider = new FakeModelProvider({
       completeJson: sourceEvents.slice(0, AUTOMATIC_DISTILLATION_STEP_LIMITS.proposalsAccepted)
@@ -347,6 +1265,12 @@ describe("automatic memory distillation", () => {
       AUTOMATIC_DISTILLATION_STEP_LIMITS.eventsExamined,
       AUTOMATIC_DISTILLATION_STEP_LIMITS.proposalsAccepted,
     ));
+    expect(await env.DB.prepare(`SELECT count(*) AS count
+      FROM memory_item_placement_state placement
+      JOIN memory_topics topic
+        ON topic.principal_id = placement.principal_id AND topic.topic_id = placement.topic_id
+      WHERE placement.principal_id = ? AND topic.display_name = 'Personal'`)
+      .bind(principalId).first("count")).toBe(result.createdItemCount);
     expect(counted.queryCount()).toBeLessThanOrEqual(result.budget.d1Statements);
     expect(result.budget.d1Statements).toBeLessThanOrEqual(AUTOMATIC_DISTILLATION_STEP_LIMITS.d1Statements);
   });
@@ -366,6 +1290,12 @@ describe("automatic memory distillation", () => {
         throw new Error("fixture_bootstrap_result_lost");
       },
       commitInitialItem: (input: CommitInitialMemoryInput) => canonical.commitInitialItem(input),
+      resolveOrCreateAutomaticTopicPath: (
+        id: string,
+        path: readonly string[],
+        maximumNewTopics: number,
+      ) => canonical.resolveOrCreateAutomaticTopicPath(id, path, maximumNewTopics),
+      refileAutomaticInboxItems: (id: string) => canonical.refileAutomaticInboxItems(id),
     };
     const distillation = new AutomaticMemoryDistillationWorkflow({
       database: counted.database,
@@ -888,6 +1818,12 @@ describe("automatic memory distillation", () => {
         if (commitCount === 2) throw new Error("fixture_item_batch_interrupted");
         return canonical.commitInitialItem(input);
       },
+      resolveOrCreateAutomaticTopicPath: (
+        id: string,
+        path: readonly string[],
+        maximumNewTopics: number,
+      ) => canonical.resolveOrCreateAutomaticTopicPath(id, path, maximumNewTopics),
+      refileAutomaticInboxItems: (id: string) => canonical.refileAutomaticInboxItems(id),
     };
 
     const failed = await workflow(principalId, firstProvider, interrupted)
@@ -911,6 +1847,8 @@ describe("automatic memory distillation", () => {
       createdItemCount: 1,
     });
     expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_items WHERE principal_id = ?")
+      .bind(principalId).first("count")).toBe(2);
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_topics WHERE principal_id = ?")
       .bind(principalId).first("count")).toBe(2);
     expect(firstProvider.requests).toHaveLength(1);
     expect(resumedProvider.requests).toHaveLength(1);
@@ -1056,8 +1994,10 @@ describe("automatic memory distillation", () => {
     const principalId = await principal();
     const events = new EventRepository(env.DB);
     const text = "My favourite subject is math.";
-    const event = await appendConversation(events, principalId, text, { directOwnerText: true });
-    const provider = new FakeModelProvider({ completeJson: [proposal(event, text)] });
+    const event = await appendDirectOwnerTelegramConversation(events, principalId, text);
+    const provider = new FakeModelProvider({
+      completeJson: [proposal(event, text, text, 0.95, ["School", "Mathematics"], 0.96)],
+    });
     const context: JobEnvironment = {
       env: {
         ...env,
@@ -1081,19 +2021,25 @@ describe("automatic memory distillation", () => {
       principalId,
       channel: "telegram",
       purpose: "conversation",
-      query: "What's my favourite subject?",
+      query: "What do you remember about School > Mathematics?",
       maxTokens: 32_000,
     });
 
     expect(result).toMatchObject({ ok: true, detail: expect.stringContaining("Memory succeeded, 1 created") });
-    expect(await env.DB.prepare(`SELECT state.lifecycle_state, version.origin
+    expect(await env.DB.prepare(`SELECT state.lifecycle_state, version.origin, topic.display_name
       FROM memory_items item
       JOIN memory_item_state state ON state.principal_id = item.principal_id AND state.item_id = item.item_id
       JOIN memory_item_versions version
         ON version.principal_id = state.principal_id AND version.version_id = state.current_version_id
+      JOIN memory_item_placement_state placement
+        ON placement.principal_id = item.principal_id AND placement.item_id = item.item_id
+        AND placement.relation = 'primary' AND placement.status = 'active'
+      JOIN memory_topics topic
+        ON topic.principal_id = placement.principal_id AND topic.topic_id = placement.topic_id
       WHERE item.principal_id = ?`).bind(principalId).first()).toEqual({
       lifecycle_state: "active",
       origin: "authenticated_first_person",
+      display_name: "Mathematics",
     });
     expect(contexts.some((context) => context.text.includes("My favourite subject is math."))).toBe(true);
   });

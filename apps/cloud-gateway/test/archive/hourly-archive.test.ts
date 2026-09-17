@@ -140,6 +140,8 @@ describe("hourly archival through the Worker entrypoint", () => {
             sourceExcerpts: [{ sourceEventId: eventId, excerpt: text }],
             confidence: 0.95,
             sensitivity: "normal",
+            topicPath: ["Personal"],
+            filingConfidence: 0.9,
           }],
         }) },
       }],
