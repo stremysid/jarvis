@@ -166,6 +166,21 @@ interface ChunkCandidateRow {
   readonly content_hash: unknown;
 }
 
+interface SearchEventRow {
+  readonly ordinal: unknown;
+  readonly candidate_event_sequence: unknown;
+  readonly candidate_content_hash: unknown;
+  readonly live_sequence: unknown;
+  readonly live_event_id: unknown;
+  readonly live_envelope_json: unknown;
+  readonly live_content_hash: unknown;
+  readonly archived_event_id: unknown;
+  readonly segment_id: unknown;
+  readonly suppressed: unknown;
+  readonly sealed_through: unknown;
+  readonly circuit_state: unknown;
+}
+
 interface SuppressionRow {
   readonly target_event_id: unknown;
   readonly start_event_sequence: unknown;
@@ -438,6 +453,28 @@ async function historyEvent(event: AppendedEvent, principalId: string): Promise<
   });
 }
 
+async function storedSearchEvent(row: SearchEventRow): Promise<AppendedEvent> {
+  const sequence = rowInteger(row.live_sequence, 1, Number.MAX_SAFE_INTEGER);
+  const eventId = rowUlid(row.live_event_id);
+  const contentHash = rowHash(row.live_content_hash);
+  if (typeof row.live_envelope_json !== "string" || row.live_envelope_json.length === 0
+    || !row.live_envelope_json.isWellFormed()
+    || encoder.encode(row.live_envelope_json).byteLength > 262_144) corrupt();
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.live_envelope_json) as unknown; }
+  catch { corrupt(); }
+  let envelope: EventEnvelope;
+  try { envelope = await validateEnvelope(decoded); }
+  catch { corrupt(); }
+  if (envelope.eventId !== eventId || envelope.contentHash !== contentHash
+    || envelope.eventSequence !== undefined && envelope.eventSequence !== sequence) corrupt();
+  return Object.freeze({
+    eventSequence: sequence,
+    envelope: Object.freeze({ ...envelope, eventSequence: sequence }),
+    replayed: true,
+  });
+}
+
 const CURSOR_FIELDS = new Set(["current_event_sequence", "updated_at"]);
 const MAINTENANCE_FIELDS = new Set(["event_sequence", "changed_at"]);
 const CHUNK_FIELDS = new Set(["event_sequence", "content_hash"]);
@@ -523,43 +560,58 @@ export class LiteralHistoryService {
   }>): Promise<LiteralHistorySearchResult> {
     return this.safely(async () => {
       const principalId = inputPrincipal(input.principalId);
-      await this.requirePrincipal(principalId);
       const query = inputText(input.query, MAX_QUERY_BYTES);
       const terms = searchTerms(query);
       const maxResults = boundedInteger(input.maxResults ?? 5, 1, MAX_SEARCH_RESULTS);
-      const rows = await this.options.database.prepare(`SELECT chunk.start_event_sequence AS event_sequence,
-          chunk.content_hash
-        FROM memory_history_fts
-        JOIN memory_retrievable_history_chunks chunk
-          ON chunk.chunk_rowid = memory_history_fts.rowid
-        WHERE memory_history_fts MATCH ? AND chunk.principal_id = ?
-          AND chunk.start_event_sequence = chunk.end_event_sequence
-        ORDER BY memory_history_fts.rank ASC, chunk.start_event_sequence DESC
-        LIMIT ?`).bind(terms.ftsQuery, principalId, maxResults).all<ChunkCandidateRow>();
-      const hits: LiteralHistoryHit[] = [];
-      for (const row of rows.results) {
-        exactRow(row, CHUNK_FIELDS);
-        const sequence = rowInteger(row.event_sequence, 1, Number.MAX_SAFE_INTEGER);
-        const expectedTextHash = rowHash(row.content_hash);
-        const event = await this.readHistoryEvent(principalId, sequence);
-        if (event === null || await sha256Hex(event.text) !== expectedTextHash) corrupt();
-        if (event.speaker === "assistant") continue;
-        const span = matchSpan(event.text, terms.folded);
-        if (span === null) corrupt();
-        const provenance = await this.readProvenance(principalId, event);
-        if (provenance === null) continue;
-        hits.push(await this.hit(event, provenance, span));
-      }
-      const coverage = await this.coverageStatus(principalId);
+      const initial = await this.options.database.batch([
+        this.options.database.prepare(`SELECT 1 AS count FROM principals
+          WHERE principal_id = ? AND principal_type = 'human' AND status = 'active'`)
+          .bind(principalId),
+        this.options.database.prepare(`SELECT chunk.start_event_sequence AS event_sequence,
+            chunk.content_hash
+          FROM memory_history_fts
+          JOIN memory_retrievable_history_chunks chunk
+            ON chunk.chunk_rowid = memory_history_fts.rowid
+          WHERE memory_history_fts MATCH ? AND chunk.principal_id = ?
+            AND chunk.start_event_sequence = chunk.end_event_sequence
+            AND NOT EXISTS (
+              SELECT 1 FROM events assistant
+              WHERE assistant.subject_id = chunk.principal_id
+                AND assistant.sequence = chunk.start_event_sequence
+                AND assistant.event_type = 'conversation.assistant_delivered'
+            )
+          ORDER BY memory_history_fts.rank ASC, chunk.start_event_sequence DESC
+          LIMIT ?`).bind(
+          terms.ftsQuery,
+          principalId,
+          LITERAL_HISTORY_SEARCH_LIMITS.resultsExamined,
+        ),
+      ]);
+      if (initial.length !== 2) corrupt();
+      const principalRows = initial[0]?.results;
+      const candidateValues = initial[1]?.results;
+      if (!Array.isArray(principalRows) || !Array.isArray(candidateValues)) corrupt();
+      if (principalRows.length !== 1) refuse();
+      const principal = principalRows[0] as { count: unknown };
+      exactRow(principal, new Set(["count"]));
+      if (rowInteger(principal.count, 1, 1) !== 1) corrupt();
+      if (candidateValues.length > LITERAL_HISTORY_SEARCH_LIMITS.resultsExamined) corrupt();
+      const candidates = candidateValues as unknown as readonly ChunkCandidateRow[];
+      for (const row of candidates) exactRow(row, CHUNK_FIELDS);
+      const [hits, coverage] = await Promise.all([
+        this.searchCandidateHits(principalId, candidates, terms),
+        this.coverageStatus(principalId),
+      ]);
+      const retainedHits = Object.freeze(hits.slice(0, maxResults));
       if (coverage.missingRange !== null) {
         return Object.freeze({
           status: "incomplete",
-          hits: Object.freeze(hits),
+          hits: retainedHits,
           searchedThroughEventSequence: coverage.searchedThrough,
           missingRange: coverage.missingRange,
         });
       }
-      if (hits.length === 0) {
+      if (retainedHits.length === 0) {
         return Object.freeze({
           status: "no_hit",
           hits: Object.freeze([]),
@@ -568,10 +620,101 @@ export class LiteralHistoryService {
       }
       return Object.freeze({
         status: "hits",
-        hits: Object.freeze(hits),
+        hits: retainedHits,
         searchedThroughEventSequence: coverage.searchedThrough,
       });
     });
+  }
+
+  private async searchCandidateHits(
+    principalId: string,
+    candidates: readonly ChunkCandidateRow[],
+    terms: SearchTerms,
+  ): Promise<readonly LiteralHistoryHit[]> {
+    if (candidates.length === 0) return Object.freeze([]);
+    const values = candidates.map(() => "(?, ?, ?)").join(", ");
+    const bindings: unknown[] = [];
+    for (let index = 0; index < candidates.length; index += 1) {
+      const candidate = candidates[index]!;
+      bindings.push(
+        index,
+        rowInteger(candidate.event_sequence, 1, Number.MAX_SAFE_INTEGER),
+        rowHash(candidate.content_hash),
+      );
+    }
+    const result = await this.options.database.prepare(`WITH candidates(
+        ordinal, event_sequence, content_hash
+      ) AS (VALUES ${values})
+      SELECT candidates.ordinal,
+        candidates.event_sequence AS candidate_event_sequence,
+        candidates.content_hash AS candidate_content_hash,
+        live.sequence AS live_sequence, live.event_id AS live_event_id,
+        live.envelope_json AS live_envelope_json,
+        live.content_hash AS live_content_hash,
+        archived.event_id AS archived_event_id, archived.segment_id,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM memory_active_event_suppressions suppression
+          WHERE suppression.principal_id = ? AND (
+            suppression.target_event_id = COALESCE(live.event_id, archived.event_id)
+            OR candidates.event_sequence BETWEEN suppression.start_event_sequence
+              AND suppression.end_event_sequence
+          )
+        ) THEN 1 ELSE 0 END AS suppressed,
+        state.sealed_through, state.circuit_state
+      FROM candidates
+      JOIN archive_state state ON state.singleton = 1
+      LEFT JOIN events live ON live.sequence = candidates.event_sequence
+      LEFT JOIN archive_segment_events archived
+        ON archived.event_sequence = candidates.event_sequence
+      ORDER BY candidates.ordinal ASC`).bind(...bindings, principalId).all<SearchEventRow>();
+    if (result.results.length !== candidates.length) corrupt();
+    const rowFields = new Set([
+      "ordinal", "candidate_event_sequence", "candidate_content_hash", "live_sequence",
+      "live_event_id", "live_envelope_json", "live_content_hash", "archived_event_id",
+      "segment_id", "suppressed", "sealed_through", "circuit_state",
+    ]);
+    let sealedThrough: number | null = null;
+    const events = await Promise.all(result.results.map(async (row, index) => {
+      exactRow(row, rowFields);
+      if (rowInteger(row.ordinal, 0, candidates.length - 1) !== index) corrupt();
+      const eventSequence = rowInteger(row.candidate_event_sequence, 1, Number.MAX_SAFE_INTEGER);
+      if (eventSequence !== rowInteger(candidates[index]!.event_sequence, 1, Number.MAX_SAFE_INTEGER)
+        || rowHash(row.candidate_content_hash) !== rowHash(candidates[index]!.content_hash)) corrupt();
+      if (row.circuit_state !== "closed") unavailable();
+      const observedSeal = rowInteger(row.sealed_through, 0, Number.MAX_SAFE_INTEGER);
+      if (sealedThrough === null) sealedThrough = observedSeal;
+      else if (sealedThrough !== observedSeal) corrupt();
+      if (eventSequence <= observedSeal) {
+        const archived = await this.options.events.readRange(eventSequence - 1, 1);
+        const event = archived[0];
+        if (archived.length !== 1 || event === undefined || event.eventSequence !== eventSequence) corrupt();
+        return event;
+      }
+      if (row.live_sequence === null || row.live_event_id === null
+        || row.live_envelope_json === null || row.live_content_hash === null) corrupt();
+      return storedSearchEvent(row);
+    }));
+    const after = await this.options.archive.readState();
+    if (after.circuitState !== "closed" || sealedThrough === null || after.sealedThrough !== sealedThrough) unavailable();
+    const hits: LiteralHistoryHit[] = [];
+    for (let index = 0; index < result.results.length; index += 1) {
+      const row = result.results[index]!;
+      const event = await historyEvent(events[index]!, principalId);
+      if (event === null || await sha256Hex(event.text) !== rowHash(row.candidate_content_hash)) corrupt();
+      if (event.speaker === "assistant") continue;
+      const span = matchSpan(event.text, terms.folded);
+      if (span === null) corrupt();
+      if (rowInteger(row.suppressed, 0, 1) === 1) continue;
+      let provenance: SourceReceipt;
+      if (row.segment_id === null) {
+        provenance = Object.freeze({ sourceLocation: "live", r2SegmentId: null });
+      } else {
+        if (rowUlid(row.archived_event_id) !== event.eventId) corrupt();
+        provenance = Object.freeze({ sourceLocation: "archived", r2SegmentId: rowHash(row.segment_id) });
+      }
+      hits.push(await this.hit(event, provenance, span));
+    }
+    return Object.freeze(hits);
   }
 
   async createExhaustiveSearch(input: Readonly<{

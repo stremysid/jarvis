@@ -57,6 +57,36 @@ function manifestLengthDatabase(compressedByteLength: number): D1Database {
   } as D1Database;
 }
 
+function changingManifestLengthDatabase(): D1Database {
+  let manifestReads = 0;
+  return {
+    prepare: (query: string) => {
+      const statement = env.DB.prepare(query);
+      if (!query.includes("FROM archive_manifests m")) return statement;
+      return {
+        bind: (...values: unknown[]) => {
+          const bound = statement.bind(...values);
+          return {
+            all: async <T>() => {
+              const result = await bound.all<Record<string, unknown>>();
+              manifestReads += 1;
+              if (manifestReads === 1) return result as D1Result<T>;
+              return {
+                ...result,
+                results: result.results.map((row) => ({
+                  ...row,
+                  compressed_byte_length: Number(row.compressed_byte_length) + 1,
+                })) as T[],
+              };
+            },
+          } as D1PreparedStatement;
+        },
+      } as D1PreparedStatement;
+    },
+    batch: (statements: D1PreparedStatement[]) => env.DB.batch(statements),
+  } as D1Database;
+}
+
 function selectionFailureDatabase(error: Error): D1Database {
   return {
     prepare: (query: string) => {
@@ -598,6 +628,50 @@ describe.sequential("ArchivalService", () => {
     expect(manifestBindings).toEqual([[0, 24, 1, 1]]);
     expect(objectReads).toEqual([stored.results[0]!.object_key]);
     expect(await state()).toEqual({ sealed_through: 3, circuit_state: "closed", circuit_reason: null });
+  });
+
+  it("reads one immutable archive segment object at most once across concurrent range checks", async () => {
+    await appendEvents(2);
+    await setCreatedAt(1, exactCutoff);
+    await setCreatedAt(2, exactCutoff);
+    const manifest = await service().archiveEligible(now, 2);
+    if (manifest === null) throw new Error("archive_segment_cache_fixture_missing");
+    const objectReads: string[] = [];
+    const reader = new ArchivalService({
+      database: env.DB,
+      cacheVerifiedSegments: true,
+      bucket: {
+        put: (...args) => env.ARCHIVE.put(...args),
+        get: async (...args) => {
+          objectReads.push(args[0]);
+          return env.ARCHIVE.get(...args);
+        },
+      },
+    });
+
+    const [first, second] = await Promise.all([
+      reader.readArchivedRange(0, 1),
+      reader.readArchivedRange(1, 1),
+    ]);
+
+    expect(first.map((event) => event.eventSequence)).toEqual([1]);
+    expect(second.map((event) => event.eventSequence)).toEqual([2]);
+    expect(objectReads).toEqual([manifest.objectKey]);
+  });
+
+  it("revalidates manifest fields before reusing a verified segment from the local cache", async () => {
+    await appendEvents(1);
+    await setCreatedAt(1, exactCutoff);
+    const manifest = await service().archiveEligible(now, 1);
+    if (manifest === null) throw new Error("archive_segment_cache_fixture_missing");
+    const reader = new ArchivalService({
+      database: changingManifestLengthDatabase(),
+      bucket: env.ARCHIVE,
+      cacheVerifiedSegments: true,
+    });
+
+    await expect(reader.readArchivedRange(0, 1)).resolves.toHaveLength(1);
+    await expect(reader.readArchivedRange(0, 1)).rejects.toThrow("archive_manifest_mismatch");
   });
 
   it("seeks a many-segment tail read and accesses only the terminal manifest object", async () => {

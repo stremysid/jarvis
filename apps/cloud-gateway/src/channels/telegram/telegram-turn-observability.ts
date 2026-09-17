@@ -14,9 +14,16 @@ import type { TelegramMeaningSearchObservation } from "../../memory/telegram-mem
 
 export interface TelegramTurnTimings {
   readonly contextRetrievalMs: number;
+  readonly memoryCandidatesMs: number;
+  readonly memoryHistoryMs: number;
+  readonly memoryMergeMs: number;
+  readonly retrievalD1RoundTrips: number;
   readonly modelFirstResponseMs: number;
   readonly modelTotalMs: number;
   readonly deliveryMs: number;
+  readonly stagingMs: number;
+  readonly telegramSendMs: number;
+  readonly settlementMs: number;
   readonly providerCallCount: number;
   readonly modelFailureReason: DeepSeekFailureReason | null;
   readonly meaningSearchMs: number;
@@ -33,9 +40,16 @@ function defaultClock(): number {
 export class TelegramTurnObserver {
   readonly #now: MillisecondClock;
   #contextRetrievalMs = 0;
+  #memoryCandidatesMs = 0;
+  #memoryHistoryMs = 0;
+  #memoryMergeMs = 0;
+  #retrievalD1RoundTrips = 0;
   #modelFirstResponseMs = 0;
   #modelTotalMs = 0;
   #deliveryMs = 0;
+  #stagingMs = 0;
+  #telegramSendMs = 0;
+  #settlementMs = 0;
   #providerCallCount = 0;
   #modelFailureReason: DeepSeekFailureReason | null = null;
   #meaningSearchMs = 0;
@@ -62,6 +76,18 @@ export class TelegramTurnObserver {
         }
       },
     });
+  }
+
+  observeMemoryRetrieval(metrics: Readonly<{
+    candidatesMs: number;
+    historyMs: number;
+    mergeMs: number;
+    d1RoundTrips: number;
+  }>): void {
+    this.#memoryCandidatesMs += metrics.candidatesMs;
+    this.#memoryHistoryMs += metrics.historyMs;
+    this.#memoryMergeMs += metrics.mergeMs;
+    this.#retrievalD1RoundTrips += metrics.d1RoundTrips;
   }
 
   observeProvider(model: ModelAdapter): ModelAdapter {
@@ -124,12 +150,46 @@ export class TelegramTurnObserver {
     this.#meaningSearchFallbackCode = observation.fallbackCode;
   }
 
+  async observeStaging<T>(operation: () => Promise<T>): Promise<T> {
+    const startedAt = this.#now();
+    try {
+      return await operation();
+    } finally {
+      this.#stagingMs += this.#elapsed(startedAt);
+    }
+  }
+
+  async observeTelegramSend<T>(operation: () => Promise<T>): Promise<T> {
+    const startedAt = this.#now();
+    try {
+      return await operation();
+    } finally {
+      this.#telegramSendMs += this.#elapsed(startedAt);
+    }
+  }
+
+  async observeSettlement<T>(operation: () => Promise<T>): Promise<T> {
+    const startedAt = this.#now();
+    try {
+      return await operation();
+    } finally {
+      this.#settlementMs += this.#elapsed(startedAt);
+    }
+  }
+
   snapshot(): TelegramTurnTimings {
     return Object.freeze({
       contextRetrievalMs: this.#contextRetrievalMs,
+      memoryCandidatesMs: this.#memoryCandidatesMs,
+      memoryHistoryMs: this.#memoryHistoryMs,
+      memoryMergeMs: this.#memoryMergeMs,
+      retrievalD1RoundTrips: this.#retrievalD1RoundTrips,
       modelFirstResponseMs: this.#modelFirstResponseMs,
       modelTotalMs: this.#modelTotalMs,
       deliveryMs: this.#deliveryMs,
+      stagingMs: this.#stagingMs,
+      telegramSendMs: this.#telegramSendMs,
+      settlementMs: this.#settlementMs,
       providerCallCount: this.#providerCallCount,
       modelFailureReason: this.#modelFailureReason,
       meaningSearchMs: this.#meaningSearchMs,
@@ -148,9 +208,16 @@ export function telegramTurnOutcomeLog(
     eventId,
     outcome,
     contextRetrievalMs: timings.contextRetrievalMs,
+    memoryCandidatesMs: timings.memoryCandidatesMs,
+    memoryHistoryMs: timings.memoryHistoryMs,
+    memoryMergeMs: timings.memoryMergeMs,
+    retrievalD1RoundTrips: timings.retrievalD1RoundTrips,
     modelFirstResponseMs: timings.modelFirstResponseMs,
     modelTotalMs: timings.modelTotalMs,
     deliveryMs: timings.deliveryMs,
+    stagingMs: timings.stagingMs,
+    telegramSendMs: timings.telegramSendMs,
+    settlementMs: timings.settlementMs,
     providerCallCount: timings.providerCallCount,
     meaningSearchMs: timings.meaningSearchMs,
     meaningSearchFallbackCode: timings.meaningSearchFallbackCode,

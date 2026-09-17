@@ -2,9 +2,11 @@ import {
   canonicalJson,
   newUlid,
   sha256Hex,
+  validateEnvelope,
   type Sha256Hex,
   type Ulid,
 } from "../../../../packages/contracts/src/index.js";
+import type { SyncEventReader } from "../persistence/event-repository.js";
 
 export const MEMORY_EMBEDDING_MODEL = "@cf/baai/bge-m3";
 export const MEMORY_EMBEDDING_DIMENSIONS = 1_024;
@@ -13,22 +15,23 @@ export const MEMORY_MEANING_INDEX_RETRYABLE_CODE = "memory_meaning_index_retryab
 
 const SHA256 = /^[a-f0-9]{64}$/u;
 const MAX_MUTATION_ID_BYTES = 128;
-const MAX_QUERY_RESULTS = 8;
+const MAX_QUERY_RESULTS = 4;
+const MIN_QUERY_SCORE = 0.45;
 const encoder = new TextEncoder();
 
 /**
- * One hourly step stays far below the paid-Workers subrequest ceiling: one
- * Workers AI call, at most eight Vectorize mutations, and fewer than 32 D1
- * statements. The byte ceiling also bounds the one embedding request even
- * when history contains a maximal chunk.
+ * One hourly step uses one embedding request and batches each kind of
+ * Vectorize mutation. The byte ceiling holds 128 maximum-sized history
+ * events, so the count ceiling, rather than text length, determines the
+ * 5,000-event backfill duration.
  */
 export const MEMORY_MEANING_INDEX_LIMITS = Object.freeze({
-  mutations: 8,
-  embeddingInputs: 8,
-  embeddingInputBytes: 65_536,
+  mutations: 128,
+  embeddingInputs: 128,
+  embeddingInputBytes: 4_194_304,
   workersAiCalls: 1,
-  vectorizeMutations: 8,
-  d1Statements: 32,
+  vectorizeMutations: 2,
+  d1Statements: 264,
 });
 
 export interface MemoryEmbeddingProvider {
@@ -38,7 +41,7 @@ export interface MemoryEmbeddingProvider {
 export interface MemoryVectorMetadata {
   readonly principal: string;
   readonly itemKind: "item" | "history_chunk";
-  /** A current memory-version id for items, and a chunk id for history. */
+  /** A current memory-version id for items, and the stable event id for history. */
   readonly itemId: string;
   readonly contentHash: Sha256Hex;
 }
@@ -98,6 +101,9 @@ interface IndexCandidateRow {
   readonly item_id: unknown;
   readonly text: unknown;
   readonly content_hash: unknown;
+  readonly event_id: unknown;
+  readonly event_sequence: unknown;
+  readonly event_type: unknown;
 }
 
 interface DeleteCandidateRow {
@@ -125,6 +131,7 @@ export interface MemoryMeaningServiceOptions {
   readonly database: D1Database;
   readonly embeddings: MemoryEmbeddingProvider;
   readonly vectors: MemoryVectorStore;
+  readonly historyEvents?: Pick<SyncEventReader, "readRange">;
   readonly now?: () => Date;
   readonly nextId?: () => Ulid;
   /** A fault seam for retry/idempotency tests; production leaves it absent. */
@@ -155,6 +162,14 @@ function safeCount(value: unknown): number {
   return value;
 }
 
+function safeUlid(value: unknown): Ulid {
+  const captured = safeString(value, 26, "memory_meaning_event_invalid");
+  if (!/^[0-7][0-9a-hjkmnp-tv-z]{25}$/u.test(captured)) {
+    throw new TypeError("memory_meaning_event_invalid");
+  }
+  return captured as Ulid;
+}
+
 function safeTimestamp(now: () => Date): string {
   const value = now();
   if (!(value instanceof Date) || !Number.isFinite(value.valueOf())) {
@@ -178,9 +193,17 @@ export async function readMemoryMeaningCoverage(
         AND (version.valid_from IS NULL OR version.valid_from <= ?2)
         AND (version.valid_to IS NULL OR version.valid_to > ?2)
       UNION ALL
-      SELECT 'history_chunk', chunk.chunk_id, chunk.content_hash
+      SELECT 'history_chunk', COALESCE(live.event_id, archived.event_id), chunk.content_hash
       FROM memory_retrievable_history_chunks chunk
+      LEFT JOIN events live ON live.subject_id = chunk.principal_id
+        AND live.sequence = chunk.start_event_sequence
+      LEFT JOIN archive_segment_events archived
+        ON archived.subject_id = chunk.principal_id
+        AND archived.event_sequence = chunk.start_event_sequence
       WHERE chunk.principal_id = ?1
+        AND COALESCE(live.event_id, archived.event_id) IS NOT NULL
+        AND (live.event_type = 'conversation.user_committed'
+          OR live.event_id IS NULL AND archived.event_id IS NOT NULL)
     )
     SELECT count(*) AS eligible,
       count(vector.vector_ledger_id) AS indexed
@@ -217,12 +240,29 @@ function indexCandidate(row: IndexCandidateRow): Readonly<{
   itemId: string;
   text: string;
   contentHash: Sha256Hex;
+  eventId: Ulid | null;
+  eventSequence: number | null;
+  eventType: string | null;
 }> {
+  const itemKind = safeKind(row.item_kind);
+  const eventId = row.event_id === null ? null : safeUlid(row.event_id);
+  const eventSequence = row.event_sequence === null ? null : safeCount(row.event_sequence);
+  const eventType = row.event_type === null
+    ? null
+    : safeString(row.event_type, 128, "memory_meaning_event_invalid");
+  if (itemKind === "item"
+    ? eventId !== null || eventSequence !== null || eventType !== null
+    : eventId === null || eventSequence === null || eventSequence < 1) {
+    throw new TypeError("memory_meaning_event_invalid");
+  }
   return Object.freeze({
-    itemKind: safeKind(row.item_kind),
+    itemKind,
     itemId: safeString(row.item_id, 128, "memory_meaning_item_id_invalid"),
     text: safeString(row.text, 32_768, "memory_meaning_text_invalid"),
     contentHash: safeHash(row.content_hash),
+    eventId,
+    eventSequence,
+    eventType,
   });
 }
 
@@ -324,7 +364,8 @@ export class MemoryMeaningService implements MeaningSearchReader {
     if (!Array.isArray(result.matches) || result.matches.length > maximum) {
       throw new TypeError("memory_meaning_results_invalid");
     }
-    return Object.freeze(result.matches.map((match) => {
+    const hits: MeaningSearchHit[] = [];
+    for (const match of result.matches) {
       if (typeof match.id !== "string" || match.id.length !== 64 || !SHA256.test(match.id)
         || typeof match.score !== "number" || !Number.isFinite(match.score)
         || match.metadata === undefined) {
@@ -335,14 +376,16 @@ export class MemoryMeaningService implements MeaningSearchReader {
         || metadata.principal !== principalId) {
         throw new TypeError("memory_meaning_result_invalid");
       }
-      return Object.freeze({
+      if (match.score < MIN_QUERY_SCORE) continue;
+      hits.push(Object.freeze({
         vectorId: match.id,
         score: match.score,
         itemKind: safeKind(metadata.itemKind),
         itemId: safeString(metadata.itemId, 128, "memory_meaning_result_invalid"),
         contentHash: safeHash(metadata.contentHash),
-      });
-    }));
+      }));
+    }
+    return Object.freeze(hits);
   }
 
   async runIndexStep(principalIdValue: string): Promise<MemoryMeaningIndexOutcome> {
@@ -352,18 +395,19 @@ export class MemoryMeaningService implements MeaningSearchReader {
     try {
       const timestamp = safeTimestamp(this.now);
       const stale = await this.readDeleteCandidates(principalId, timestamp, MEMORY_MEANING_INDEX_LIMITS.mutations);
-      for (const candidate of stale) {
-        const id = await vectorId({
+      if (stale.length > 0) {
+        const ids = await Promise.all(stale.map((candidate) => vectorId({
           principal: principalId,
           itemKind: candidate.itemKind,
           itemId: candidate.itemId,
           contentHash: candidate.contentHash,
-        });
-        await this.options.vectors.deleteByIds([id]);
-        await this.options.database.prepare(`UPDATE memory_vectors SET deleted_at = ?
-          WHERE principal_id = ? AND vector_ledger_id = ? AND deleted_at IS NULL`)
-          .bind(timestamp, principalId, candidate.vectorLedgerId).run();
-        deleted += 1;
+        })));
+        await this.options.vectors.deleteByIds(ids);
+        await this.options.database.batch(stale.map((candidate) => this.options.database
+          .prepare(`UPDATE memory_vectors SET deleted_at = ?
+            WHERE principal_id = ? AND vector_ledger_id = ? AND deleted_at IS NULL`)
+          .bind(timestamp, principalId, candidate.vectorLedgerId)));
+        deleted = stale.length;
       }
 
       const remainingCapacity = MEMORY_MEANING_INDEX_LIMITS.mutations - deleted;
@@ -372,8 +416,7 @@ export class MemoryMeaningService implements MeaningSearchReader {
         if (candidates.length > 0) {
           const embeddings = await this.options.embeddings.embed(candidates.map((candidate) => candidate.text));
           if (embeddings.length !== candidates.length) throw new TypeError("memory_meaning_embedding_invalid");
-          for (let index = 0; index < candidates.length; index += 1) {
-            const candidate = candidates[index]!;
+          const vectors = await Promise.all(candidates.map(async (candidate, index) => {
             const embedding = embeddings[index];
             if (embedding === undefined) throw new TypeError("memory_meaning_embedding_invalid");
             const id = await vectorId({
@@ -382,7 +425,7 @@ export class MemoryMeaningService implements MeaningSearchReader {
               itemId: candidate.itemId,
               contentHash: candidate.contentHash,
             });
-            const mutation = await this.options.vectors.upsert([{
+            return Object.freeze({
               id,
               values: validateEmbedding(embedding),
               metadata: {
@@ -391,24 +434,32 @@ export class MemoryMeaningService implements MeaningSearchReader {
                 itemId: candidate.itemId,
                 contentHash: candidate.contentHash,
               },
-            }]);
-            await this.options.beforeLedgerWrite?.();
-            try {
-              await this.options.database.prepare(`INSERT INTO memory_vectors (
+            });
+          }));
+          const mutation = await this.options.vectors.upsert(vectors);
+          const acceptedMutationId = mutationId(mutation.mutationId);
+          await this.options.beforeLedgerWrite?.();
+          const ledgerStatements = await Promise.all(candidates.map(async (candidate, index) =>
+            this.options.database.prepare(`INSERT INTO memory_vectors (
                 vector_ledger_id, principal_id, item_kind, item_id,
                 embedding_model, dimensions, content_hash, mutation_id,
                 upserted_at, deleted_at
               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`)
-                .bind(
-                  this.nextId(), principalId, candidate.itemKind, candidate.itemId,
-                  MEMORY_EMBEDDING_MODEL, MEMORY_EMBEDDING_DIMENSIONS,
-                  candidate.contentHash, mutationId(mutation.mutationId), timestamp,
-                ).run();
-              upserted += 1;
-            } catch (error) {
-              if (!await this.hasLiveLedgerRow(principalId, candidate)) throw error;
-            }
+              .bind(
+                this.nextId(), principalId, candidate.itemKind, candidate.itemId,
+                MEMORY_EMBEDDING_MODEL, MEMORY_EMBEDDING_DIMENSIONS,
+                candidate.contentHash,
+                await sha256Hex(canonicalJson({ acceptedMutationId, vectorId: vectors[index]!.id })),
+                timestamp,
+              )));
+          try {
+            await this.options.database.batch(ledgerStatements);
+          } catch (error) {
+            const accepted = await Promise.all(candidates.map((candidate) =>
+              this.hasLiveLedgerRow(principalId, candidate)));
+            if (accepted.some((present) => !present)) throw error;
           }
+          upserted = candidates.length;
         }
       }
 
@@ -455,9 +506,16 @@ export class MemoryMeaningService implements MeaningSearchReader {
           )
           OR vector.item_kind = 'history_chunk' AND NOT EXISTS (
             SELECT 1 FROM memory_retrievable_history_chunks chunk
+            LEFT JOIN events live ON live.subject_id = chunk.principal_id
+              AND live.sequence = chunk.start_event_sequence
+            LEFT JOIN archive_segment_events archived
+              ON archived.subject_id = chunk.principal_id
+              AND archived.event_sequence = chunk.start_event_sequence
             WHERE chunk.principal_id = vector.principal_id
-              AND chunk.chunk_id = vector.item_id
+              AND COALESCE(live.event_id, archived.event_id) = vector.item_id
               AND chunk.content_hash = vector.content_hash
+              AND (live.event_type = 'conversation.user_committed'
+                OR live.event_id IS NULL AND archived.event_id IS NOT NULL)
           )
         )
       ORDER BY vector.upserted_at ASC, vector.vector_ledger_id ASC LIMIT ?4`)
@@ -475,11 +533,13 @@ export class MemoryMeaningService implements MeaningSearchReader {
     timestamp: string,
     limit: number,
   ): Promise<readonly ReturnType<typeof indexCandidate>[]> {
-    const result = await this.options.database.prepare(`SELECT item_kind, item_id, text, content_hash
+    const result = await this.options.database.prepare(`SELECT item_kind, item_id, text, content_hash,
+        event_id, event_sequence, event_type
       FROM (
         SELECT 'item' AS item_kind, version.version_id AS item_id,
           version.text AS text, version.text_hash AS content_hash,
-          version.created_at AS ordered_at
+          NULL AS event_id, NULL AS event_sequence, NULL AS event_type,
+          0 AS priority, version.created_at AS ordered_at
         FROM memory_retrievable_item_versions version
         WHERE version.principal_id = ?1
           AND (version.valid_from IS NULL OR version.valid_from <= ?2)
@@ -491,22 +551,35 @@ export class MemoryMeaningService implements MeaningSearchReader {
               AND vector.embedding_model = ?3 AND vector.content_hash = version.text_hash
           )
         UNION ALL
-        SELECT 'history_chunk', chunk.chunk_id, chunk.text, chunk.content_hash,
-          chunk.created_at
+        SELECT 'history_chunk', COALESCE(live.event_id, archived.event_id),
+          chunk.text, chunk.content_hash,
+          COALESCE(live.event_id, archived.event_id), chunk.start_event_sequence,
+          live.event_type, 1, chunk.created_at
         FROM memory_retrievable_history_chunks chunk
+        LEFT JOIN events live ON live.subject_id = chunk.principal_id
+          AND live.sequence = chunk.start_event_sequence
+        LEFT JOIN archive_segment_events archived
+          ON archived.subject_id = chunk.principal_id
+          AND archived.event_sequence = chunk.start_event_sequence
         WHERE chunk.principal_id = ?1 AND NOT EXISTS (
           SELECT 1 FROM memory_vectors vector
           WHERE vector.principal_id = chunk.principal_id
-            AND vector.item_kind = 'history_chunk' AND vector.item_id = chunk.chunk_id
+            AND vector.item_kind = 'history_chunk'
+            AND vector.item_id = COALESCE(live.event_id, archived.event_id)
             AND vector.embedding_model = ?3 AND vector.content_hash = chunk.content_hash
         )
+          AND COALESCE(live.event_id, archived.event_id) IS NOT NULL
+          AND (live.event_type = 'conversation.user_committed'
+            OR live.event_id IS NULL AND archived.event_id IS NOT NULL)
       ) pending
-      ORDER BY ordered_at ASC, item_kind ASC, item_id ASC LIMIT ?4`)
+      ORDER BY priority ASC, ordered_at DESC, item_id ASC LIMIT ?4`)
       .bind(principalId, timestamp, MEMORY_EMBEDDING_MODEL, limit).all<IndexCandidateRow>();
     const candidates: ReturnType<typeof indexCandidate>[] = [];
     let bytes = 0;
     for (const row of result.results) {
       const candidate = indexCandidate(row);
+      if (candidate.itemKind === "history_chunk"
+        && !await this.isOwnerHistoryCandidate(principalId, candidate)) continue;
       const candidateBytes = encoder.encode(candidate.text).byteLength;
       if (candidates.length >= MEMORY_MEANING_INDEX_LIMITS.embeddingInputs
         || bytes + candidateBytes > MEMORY_MEANING_INDEX_LIMITS.embeddingInputBytes) break;
@@ -514,6 +587,32 @@ export class MemoryMeaningService implements MeaningSearchReader {
       candidates.push(candidate);
     }
     return Object.freeze(candidates);
+  }
+
+  private async isOwnerHistoryCandidate(
+    principalId: string,
+    candidate: ReturnType<typeof indexCandidate>,
+  ): Promise<boolean> {
+    if (candidate.itemKind !== "history_chunk") return true;
+    if (candidate.eventType === "conversation.user_committed") return true;
+    if (candidate.eventType !== null || candidate.eventId === null || candidate.eventSequence === null
+      || this.options.historyEvents === undefined) return false;
+    const events = await this.options.historyEvents.readRange(candidate.eventSequence - 1, 1);
+    const event = events[0];
+    if (events.length !== 1 || event === undefined || event.eventSequence !== candidate.eventSequence) {
+      throw new TypeError("memory_meaning_event_invalid");
+    }
+    const envelope = await validateEnvelope(event.envelope);
+    if (envelope.eventId !== candidate.eventId || envelope.subjectId !== principalId
+      || envelope.eventType !== "conversation.user_committed"
+      || envelope.source !== "conversation" || envelope.producerVersion !== "conversation-v1"
+      || envelope.payload === null || typeof envelope.payload !== "object"
+      || Array.isArray(envelope.payload) || !("text" in envelope.payload)
+      || envelope.payload.text !== candidate.text
+      || await sha256Hex(candidate.text) !== candidate.contentHash) {
+      throw new TypeError("memory_meaning_event_invalid");
+    }
+    return true;
   }
 
   private async hasLiveLedgerRow(

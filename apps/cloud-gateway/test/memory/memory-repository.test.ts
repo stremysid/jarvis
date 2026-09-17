@@ -41,7 +41,7 @@ let principalSerial = 0;
 let topicClock = Date.now() + 1_000;
 
 function nextTimestamp(): string {
-  topicClock += 10;
+  topicClock = Math.max(Date.now() + 1_000, topicClock + 10);
   return new Date(topicClock).toISOString();
 }
 
@@ -524,6 +524,10 @@ async function seedRawInitial(
   options: Readonly<{
     textHash?: Sha256Hex;
     sourceOccurredAt?: string;
+    sourceR2SegmentId?: Sha256Hex | null;
+    sourceChannel?: "telegram" | "voice" | "system";
+    sourceExcerpt?: string;
+    sourceExcerptHash?: Sha256Hex;
     includePlacement?: boolean;
   }> = {},
 ): Promise<void> {
@@ -576,10 +580,10 @@ async function seedRawInitial(
         source.eventId,
         source.eventSequence,
         source.sourceLocation,
-        source.r2SegmentId,
-        source.excerpt,
-        source.excerptHash,
-        source.channel,
+        options.sourceR2SegmentId === undefined ? source.r2SegmentId : options.sourceR2SegmentId,
+        options.sourceExcerpt ?? source.excerpt,
+        options.sourceExcerptHash ?? source.excerptHash,
+        options.sourceChannel ?? source.channel,
         options.sourceOccurredAt ?? source.occurredAt,
         createdAt,
       ),
@@ -648,6 +652,22 @@ describe("MemoryRepository", () => {
       { actor: "rules", operation: "create" },
       { actor: "rules", operation: "create" },
     ]);
+  });
+
+  it("refuses automatic creation deeper than four areas without creating a partial path", async () => {
+    const principalId = await seedPrincipal();
+    const repository = new MemoryRepository(env.DB);
+    await repository.bootstrapTopics(principalId);
+
+    const result = await repository.resolveOrCreateAutomaticTopicPath(
+      principalId,
+      ["One", "Two", "Three", "Four", "Five"],
+      6,
+    );
+
+    expect(result).toEqual({ topic: null, createdTopicCount: 0, cappedBy: "depth" });
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_topics WHERE principal_id = ?")
+      .bind(principalId).first()).toEqual({ count: 2 });
   });
 
   it("keeps the canonical root and inbox identities after both display names are renamed", async () => {
@@ -741,6 +761,33 @@ describe("MemoryRepository", () => {
       lifecycle: { state: "proposed" },
       sources: [{ sourceLocation: "archived", r2SegmentId: archived.segmentId }],
     });
+  });
+
+  it("caches one archived creation and source receipt per event in the batched reader", async () => {
+    const principalId = await seedPrincipal();
+    const archived = await seedArchivedReceipt(principalId);
+    let archivedReads = 0;
+    const reader: ArchivedEventReader = {
+      async readArchivedRange(afterSequence, limit) {
+        archivedReads += 1;
+        return archived.reader.readArchivedRange(afterSequence, limit);
+      },
+    };
+    const repository = new MemoryRepository(env.DB, { archivedEventReader: reader });
+    const topics = await repository.bootstrapTopics(principalId);
+    const input = await inputForArchived(principalId, archived, topics.inbox.topicId);
+    await repository.commitInitialItem(input);
+    archivedReads = 0;
+
+    const batched = await repository.readCurrentItemsWithVisibility(principalId, [input.itemId]);
+    const batchedReads = archivedReads;
+    const [item, visibility] = await Promise.all([
+      repository.readCurrentItem(principalId, input.itemId),
+      repository.readItemVisibility(principalId, input.itemId),
+    ]);
+
+    expect(batched).toEqual([{ item, visibility }]);
+    expect(batchedReads).toBe(1);
   });
 
   it("continues reading an immutable live source after its event moves to an archive segment", async () => {
@@ -850,6 +897,27 @@ describe("MemoryRepository", () => {
     expect(aliasWinner).toMatchObject({ topicId: current, matchedBy: "alias" });
   });
 
+  it("follows a merged sibling alias during automatic path resolution", async () => {
+    const principalId = await seedPrincipal();
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    const retired = await createTopic(principalId, topics.root.topicId, "Retired area");
+    const survivor = await createTopic(principalId, topics.root.topicId, "Current area");
+    await mergeTopic(principalId, retired, "Retired area", survivor);
+
+    const resolved = await repository.resolveOrCreateAutomaticTopicPath(
+      principalId,
+      ["Retired area"],
+      0,
+    );
+
+    expect(resolved).toMatchObject({
+      topic: { topicId: survivor, matchedBy: "alias" },
+      createdTopicCount: 0,
+      cappedBy: null,
+    });
+  });
+
   it("follows merge redirects and fails closed when their bound is exceeded", async () => {
     const principalId = await seedPrincipal();
     const repository = new MemoryRepository(env.DB);
@@ -872,6 +940,56 @@ describe("MemoryRepository", () => {
       repository.resolveTopicPath(principalId, ["Memory", "Retired chain"]),
       "memory_corrupt",
     );
+  });
+
+  it("allows up to 128 combined redirect and parent steps in a batched topic walk", async () => {
+    const prepared = await fixture();
+    const topics = await prepared.repository.bootstrapTopics(prepared.principalId);
+    let parentTopicId = topics.root.topicId;
+    for (let index = 0; index < 40; index += 1) {
+      parentTopicId = await createTopic(prepared.principalId, parentTopicId, `Deep parent ${index}`);
+    }
+    const redirects: Ulid[] = [];
+    for (let index = 0; index < 40; index += 1) {
+      redirects.push(await createTopic(prepared.principalId, topics.root.topicId, `Redirect ${index}`));
+    }
+    const firstRedirect = redirects[0];
+    if (firstRedirect === undefined) throw new Error("memory_repository_redirect_fixture_missing");
+    for (let index = 0; index < redirects.length; index += 1) {
+      const source = redirects[index];
+      const target = redirects[index + 1] ?? parentTopicId;
+      if (source === undefined) throw new Error("memory_repository_redirect_fixture_missing");
+      await mergeTopic(prepared.principalId, source, `Redirect ${index}`, target);
+    }
+    await prepared.repository.commitInitialItem({
+      ...prepared.input,
+      placement: { ...prepared.input.placement, topicId: parentTopicId },
+    });
+    const guards = await env.DB.prepare(`SELECT name, sql FROM sqlite_schema
+      WHERE type = 'trigger' AND tbl_name IN (
+        'memory_item_placement_state', 'memory_item_placement_events'
+      )`).all<{ name: string; sql: string }>();
+    for (const guard of guards.results) await env.DB.prepare(`DROP TRIGGER ${guard.name}`).run();
+    try {
+      await env.DB.batch([
+        env.DB.prepare(`UPDATE memory_item_placement_state SET topic_id = ?
+          WHERE principal_id = ? AND placement_id = ?`)
+          .bind(firstRedirect, prepared.principalId, prepared.input.placement.placementId),
+        env.DB.prepare(`UPDATE memory_item_placement_events SET new_topic_id = ?
+          WHERE principal_id = ? AND placement_event_id = ?`)
+          .bind(firstRedirect, prepared.principalId, prepared.input.placement.placementEventId),
+      ]);
+    } finally {
+      for (const guard of guards.results) await env.DB.prepare(guard.sql).run();
+    }
+
+    const [read] = await prepared.repository.readCurrentItemsWithVisibility(
+      prepared.principalId,
+      [prepared.input.itemId],
+    );
+
+    expect(read?.item.topicPath).toHaveLength(41);
+    expect(read?.item.topicPath.at(-1)?.displayName).toBe("Deep parent 39");
   });
 
   it("fails closed on incomplete rows, hash mismatches and source timestamp mismatches", async () => {
@@ -919,6 +1037,44 @@ describe("MemoryRepository", () => {
       prepared.repository.readCurrentItem(otherPrincipalId, prepared.input.itemId),
       "memory_not_found",
     );
+  });
+
+  it("fails closed when any batched archived-source receipt field is changed", async () => {
+    const principalId = await seedPrincipal();
+    const archived = await seedArchivedReceipt(principalId);
+    const repository = new MemoryRepository(env.DB, { archivedEventReader: archived.reader });
+    const topics = await repository.bootstrapTopics(principalId);
+    const guard = await env.DB.prepare(`SELECT sql FROM sqlite_schema
+      WHERE type = 'trigger' AND name = 'memory_item_sources_insert_guard'`)
+      .first<{ sql: string }>();
+    if (guard === null) throw new Error("memory_repository_source_guard_missing");
+    const names = ["R2 segment id", "occurrence time", "channel", "excerpt"] as const;
+    for (const name of names) {
+      const input = await inputForArchived(principalId, archived, topics.inbox.topicId);
+      const changedExcerpt = "A changed excerpt with its own internally valid hash.";
+      const options: NonNullable<Parameters<typeof seedRawInitial>[1]> = name === "R2 segment id"
+        ? { sourceR2SegmentId: "f".repeat(64) as Sha256Hex }
+        : name === "occurrence time"
+          ? { sourceOccurredAt: new Date(Date.parse(archived.occurredAt) + 1_000).toISOString() }
+          : name === "channel"
+            ? { sourceChannel: "voice" }
+            : {
+                sourceExcerpt: changedExcerpt,
+                sourceExcerptHash: await sha256Hex(changedExcerpt),
+              };
+      await env.DB.prepare("DROP TRIGGER memory_item_sources_insert_guard").run();
+      try {
+        await seedRawInitial(input, options);
+      } finally {
+        await env.DB.prepare(guard.sql).run();
+      }
+
+      const error = await expectCode(
+        repository.readCurrentItemsWithVisibility(principalId, [input.itemId]),
+        "memory_corrupt",
+      );
+      expect(error.code, name).toBe("memory_corrupt");
+    }
   });
 
   it("maps D1 diagnostics to one stable non-secret unavailable outcome", async () => {
