@@ -1,0 +1,25 @@
+killed   | M01 fresh row-count refusal removed | 1 failed | 27 passed (28) | 82s | refuses a non-fresh target before its first DDL 2502ms
+SURVIVES | M02 seeded-key identity refusal removed | 28 passed (28) | 92s | 
+SURVIVES | M03 live-trigger classification refusal removed | 28 passed (28) | 87s | 
+SURVIVES | M04 progress mismatch refusal removed | 28 passed (28) | 79s | 
+SURVIVES | M05 progress set-hash comparison removed | 28 passed (28) | 86s | 
+SURVIVES | M06 schema receipt mismatch refusal removed | 28 passed (28) | 64s | 
+SURVIVES | M07 named migration prefix check removed | 28 passed (28) | 73s | 
+killed   | M08 named migration list not cut at schema version | 1 failed | 27 passed (28) | 76s | exports a consistent cut and excludes events appended after the immutable mark 8777ms
+killed   | M09 unnamed migration list not cut at receipts | 1 failed | 27 passed (28) | 74s | resumes after triggers were dropped and keeps every continuation well below the D1 query limit 6460ms
+SURVIVES | M10 cursor rebuild mismatch refusal removed | 28 passed (28) | 83s | 
+SURVIVES | M11 unexpected cursor name refusal removed | 28 passed (28) | 83s | 
+SURVIVES | M12 verify foreign-key check removed | 28 passed (28) | 85s | 
+SURVIVES | M13 verify trigger rebuild check removed | 28 passed (28) | 86s | 
+SURVIVES | M14 verify authoritative counts removed | 28 passed (28) | 71s | 
+SURVIVES | M15 finalize phase/restore-id guard removed | 28 passed (28) | 71s | 
+SURVIVES | M16 step limit bounds removed | 28 passed (28) | 78s | 
+SURVIVES | M17 failed-run exclusion removed from cursor chain | 28 passed (28) | 67s | 
+SURVIVES | M18 contiguity removed from cursor chain | 28 passed (28) | 68s | 
+SURVIVES | M19 deferred foreign keys removed from row pages | 28 passed (28) | 69s | 
+killed   | M20 cursors rebuilt after triggers (phase order) | 1 failed | 27 passed (28) | 81s | restores post-initial rows and rebuilds every excluded memory projection 7576ms
+killed   | C01 checker production id refusal removed | pass 2 fail 1 | 0s | the restore target checker refuses the production database id from wrangler.toml (1.9575ms) ; failing tests:
+SURVIVES | C02 checker outside-repository refusal removed | pass 3 fail 0 | 0s | 
+SURVIVES | C03 checker operator main-entry refusal removed | pass 3 fail 0 | 0s | 
+SURVIVES | C04 checker config-name equals typed name removed | pass 3 fail 0 | 0s | 
+SURVIVES | C05 checker scratch-name refusal removed | pass 3 fail 0 | 0s | 

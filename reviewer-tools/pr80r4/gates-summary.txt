@@ -1,0 +1,13 @@
+head 6693f21
+lint rc=0
+typecheck rc=0
+test rc=1
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession production composition > refuses short AUTHENTICATION_BUDGET_PEPPER before runtime effects while keeping initialization available
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > cleans up a live core already durably rejected and replays without double provider cleanup
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > cleans up a live core already durably expired and replays without double provider cleanup
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > keeps cleanup pending on provider failure, retries once, and never cleans twice after completion
+ Test Files  1 failed | 189 passed (190)
+      Tests  4 failed | 4939 passed (4943)
+r3 narrow tests:
+      Tests  10 passed (10)
+tree clean: 0

@@ -1,0 +1,12 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/voice/call-session-do.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr40
+
+Using secrets defined in process.env
+
+ Test Files  1 passed (1)
+      Tests  126 passed (126)
+   Start at  23:06:25
+   Duration  159.71s (transform 851ms, setup 0ms, import 1.65s, tests 157.45s, environment 0ms)
+

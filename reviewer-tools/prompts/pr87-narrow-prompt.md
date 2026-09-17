@@ -1,0 +1,15 @@
+You are a narrow second reviewer for the Jarvis project (repo ksid1229-ops/jarvis; owner "Sid"). PR #87 (branch `codex/telegram-retrieval-followups`, head `5f3c1ce`, base `origin/main` `743c4e5`) implements the required follow-ups F1–F6 from Claude's entry "PR #85 max review at 5b05f62: cleared with required follow-ups" in `docs/AGENT_LOG.md` on main. The main reviewer is re-running gates and the PR #85 adversarial tests (A1, B0–B3, C1, C2). Treat claims as unproven. The diff is at `<scratchpad>/pr87/source.diff`; the PR #85 report is `<scratchpad>/pr85-adversarial.md`.
+
+CHECK ONLY THESE
+1. F3, the big one: literal history now reaches real Telegram turns. Prove end to end through the production Telegram service that (a) a statement pushed out of the recent window is recalled by a later question, (b) excluding the current turn from coverage/dedup doesn't cause the current question itself, or turns still in the recent window, to be duplicated as "history evidence", (c) forgotten or suppressed turns still never come back through this newly active path (forget a statement, push it out of the window, ask about it), (d) assistant replies are still never returned as history evidence.
+2. F1/F4: an open archive circuit or failing literal search never removes canonical memories; a slow base (inside 2,500 ms) never discards ready memory; memory work has its own 800 ms deadline; results merge and de-duplicate correctly after both settle; no unhandled promise rejections.
+3. F2: concurrent candidate validation keeps candidate order and budgets; receipt/segment caching can't serve a stale or other-principal result; A1-style archived fixture ≤ 500 ms at 25 ms per round trip.
+4. Latency on the live path now that literal search actually runs on Telegram turns: round trips and wall time at 25 ms per round trip for a production-shaped fixture; still well inside 800 ms?
+5. Guards whose deletion no named test catches (mutation), especially the new current-turn exclusion and the literal-failure fallback.
+
+HOW
+- Do NOT use `C:\Users\Sid\jarvis-pr39` or `C:\Users\Sid\jarvis-pr40`. Reuse the short-path worktree `C:\Users\Sid\jarvis-pr85-adv`: `git -C C:\Users\Sid\jarvis-pr85-adv checkout --detach 5f3c1ce` (keep its untracked test), `pnpm.cmd install --frozen-lockfile`, add tests in `apps/cloud-gateway/test/memory/adversarial-pr87.test.ts`, run from that worktree root: `npx.cmd vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/adversarial-pr87.test.ts`. Tests assert CORRECT behaviour (a failing test = a proven defect). Do not push, merge, deploy or call real services. Leave the worktree in place.
+
+OUTPUT: write `<scratchpad>/pr87-narrow.md` and return it. One-line verdict and counts; findings High → Low with **Where** (file:line at 5f3c1ce), **Proven**, **Effect for Sid**, **Fix**; then short "checked and sound" and "unverified" lists. No padding.
+
+<scratchpad> is C:\Users\Sid\AppData\Local\Temp\claude\C--javis--claude-worktrees-jarvis-code-review-0b1695\f3f2b419-52e6-4c42-b275-f2c7a15d27ac\scratchpad
