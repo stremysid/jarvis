@@ -1,0 +1,96 @@
+
+== M01-filing-only-active: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/automatic-distillation.test.ts (49 tests | 4 failed) 19754ms
+   Test Files  2 failed | 1 passed (3)
+   Tests  7 failed | 111 passed (118)
+   × marks forwarded owner Telegram text false and keeps its fact uncertain 238ms
+   × marks external reply owner Telegram text false and keeps its fact uncertain 241ms
+   × marks quoted owner Telegram text false and keeps its fact uncertain 325ms
+   × keeps a forwarded-shaped bare first-person turn uncertain without an explicit direct-owner marker 283ms
+
+== M02-corrupt-rethrow: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  118 passed (118)
+
+== M03-per-workflow-count: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/automatic-distillation.test.ts (49 tests | 1 failed) 18072ms
+   Test Files  1 failed | 2 passed (3)
+   Tests  1 failed | 117 passed (118)
+   × routes whole paths to the inbox when the six-topic hourly creation cap would be exceeded 856ms
+
+== M04-path-redaction: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  118 passed (118)
+
+== M05-filing-confidence-range: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  118 passed (118)
+
+== M06-path-depth-validation: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  118 passed (118)
+
+== M07-inbox-not-filed-target: SURVIVED (exit 0), tree clean=true
+   Test Files  3 passed (3)
+   Tests  118 passed (118)
+
+== M08-refile-active-certain: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  67 passed (67)
+
+== M09-refile-uncertain-only: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  67 passed (67)
+
+== M10-refile-confidence: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  67 passed (67)
+
+== M11-child-cap-sql: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  67 passed (67)
+
+== M12-child-cap-precheck: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  67 passed (67)
+
+== M13-hourly-cap: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/automatic-distillation.test.ts (49 tests | 1 failed) 19582ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 66 passed (67)
+   × routes whole paths to the inbox when the six-topic hourly creation cap would be exceeded 336ms
+
+== M14-refile-not-inbox: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  67 passed (67)
+
+== M15-refile-decision-filter: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  67 passed (67)
+
+== M16-job-refile-wiring: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/jobs/brightspace-poll-job.test.ts (18 tests | 1 failed) 15195ms
+   Test Files  1 failed | 5 passed (6)
+   Tests  1 failed | 122 passed (123)
+   × keeps the soonest 180 upcoming items ahead of past-due items and reports the digest gap 5931ms
+
+=== summary
+KILLED    M01-filing-only-active
+SURVIVED  M02-corrupt-rethrow
+KILLED    M03-per-workflow-count
+SURVIVED  M04-path-redaction
+SURVIVED  M05-filing-confidence-range
+SURVIVED  M06-path-depth-validation
+SURVIVED  M07-inbox-not-filed-target
+SURVIVED  M08-refile-active-certain
+SURVIVED  M09-refile-uncertain-only
+SURVIVED  M10-refile-confidence
+SURVIVED  M11-child-cap-sql
+SURVIVED  M12-child-cap-precheck
+KILLED    M13-hourly-cap
+SURVIVED  M14-refile-not-inbox
+SURVIVED  M15-refile-decision-filter
+KILLED    M16-job-refile-wiring
+back on main, tree clean=true
+(node:32688) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

@@ -1,0 +1,20 @@
+{
+  "root": "C:/Users/Sid/jarvis-pr39",
+  "mutations": [
+    { "id": "C1-child-cap-both", "file": "apps/cloud-gateway/src/memory/memory-repository.ts",
+      "from": "AND child.status = 'active') < ?",
+      "to": "AND child.status = 'active') < ? + 1000000",
+      "also": { "from": "if (await this.activeChildCount(principalId, resolved.topicId) >= AUTOMATIC_TOPIC_CHILD_LIMIT) {", "to": "if (false) {" },
+      "tests": ["apps/cloud-gateway/test/memory/automatic-distillation.test.ts", "apps/cloud-gateway/test/memory/memory-repository.test.ts"] },
+    { "id": "C2-refile-proposed", "file": "apps/cloud-gateway/src/memory/memory-repository.ts",
+      "from": "if (record.decision !== \"inbox_cap\" && record.decision !== \"inbox_filing_failure\"",
+      "to": "if (false",
+      "also": { "from": "AND state.lifecycle_state = 'active' AND version.uncertain = 0", "to": "AND 1 = 1" },
+      "tests": ["apps/cloud-gateway/test/memory/automatic-distillation.test.ts", "apps/cloud-gateway/test/memory/memory-repository.test.ts"] },
+    { "id": "C3-refile-low-confidence", "file": "apps/cloud-gateway/src/memory/memory-repository.ts",
+      "from": "if (record.decision !== \"inbox_cap\" && record.decision !== \"inbox_filing_failure\"",
+      "to": "if (false",
+      "also": { "from": "AND event.confidence >= 0.6", "to": "AND 1 = 1" },
+      "tests": ["apps/cloud-gateway/test/memory/automatic-distillation.test.ts", "apps/cloud-gateway/test/memory/memory-repository.test.ts"] }
+  ]
+}

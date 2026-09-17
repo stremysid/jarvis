@@ -1,0 +1,22 @@
+
+== C1-child-cap-both: KILLED (exit 1), tree clean=true
+   ❯ |default| apps/cloud-gateway/test/memory/automatic-distillation.test.ts (49 tests | 1 failed) 21221ms
+   Test Files  1 failed | 1 passed (2)
+   Tests  1 failed | 66 passed (67)
+   × routes a new area to the inbox after its parent reaches forty active children 1933ms
+
+== C2-refile-proposed: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  67 passed (67)
+
+== C3-refile-low-confidence: SURVIVED (exit 0), tree clean=true
+   Test Files  2 passed (2)
+   Tests  67 passed (67)
+
+=== summary
+KILLED    C1-child-cap-both
+SURVIVED  C2-refile-proposed
+SURVIVED  C3-refile-low-confidence
+back on main, tree clean=true
+(node:18324) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)

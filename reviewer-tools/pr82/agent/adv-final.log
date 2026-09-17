@@ -1,0 +1,298 @@
+npm notice run @jarvis/cloud-gateway@0.1.0 npx
+npm notice run vitest --config ../../vitest.workspace.ts run apps/cloud-gateway/test/memory/adversarial-pr82.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr82-adv
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/memory/adversarial-pr82.test.ts (20 tests | 13 failed) 8732ms
+     × A1 keeps a valid first-person memory when the model proposes a five-area path 158ms
+     × A2 keeps a memory whose schema-valid non-Latin area name is over 64 UTF-8 bytes 645ms
+     × A3 keeps a memory whose area name contains a six-digit number 139ms
+     × A4 keeps a memory when filingConfidence is missing 134ms
+     × B1 does not fail the whole step when an area name contains a line separator 142ms
+     × B2 does not wedge the cursor on a proposed item whose area name contains a newline 172ms
+     × D1 does not create an area whose name contains the path separator '>' 211ms
+     × D3 does not grow a second School under a model-invented Memory area 216ms
+     × E1 does not create model areas underneath the Inbox 805ms
+     × F1 does not create a look-alike sibling for a zero-width-space variant 208ms
+     × F2 does not create a full-width duplicate of an existing area 205ms
+     × G1 leaves no empty model-created areas when the item commit then fails 163ms
+     × C1 is not starved by ten older Inbox items whose areas never appear 565ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 13 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82.test.ts > PR #82 adversarial: untrusted topic paths never cost Sid a memory > A1 keeps a valid first-person memory when the model proposes a five-area path
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82.test.ts:349:42
+    347|     // The design (section 6.2) says a filing problem never discards t…
+    348|     expect(result.cursorEventSequence).toBe(event.eventSequence);
+    349|     expect(await itemCount(principalId)).toBe(1);
+       |                                          ^
+    350|   });
+    351|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82.test.ts > PR #82 adversarial: untrusted topic paths never cost Sid a memory > A2 keeps a memory whose schema-valid non-Latin area name is over 64 UTF-8 bytes
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82.test.ts:366:42
+    364|     await workflow(principalId, provider).runNext({ runKey: `a2:${newU…
+    365|
+    366|     expect(await itemCount(principalId)).toBe(1);
+       |                                          ^
+    367|   });
+    368|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82.test.ts > PR #82 adversarial: untrusted topic paths never cost Sid a memory > A3 keeps a memory whose area name contains a six-digit number
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82.test.ts:380:42
+    378|     await workflow(principalId, provider).runNext({ runKey: `a3:${newU…
+    379|
+    380|     expect(await itemCount(principalId)).toBe(1);
+       |                                          ^
+    381|   });
+    382|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82.test.ts > PR #82 adversarial: untrusted topic paths never cost Sid a memory > A4 keeps a memory when filingConfidence is missing
+AssertionError: expected +0 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82.test.ts:394:42
+    392|     await workflow(principalId, provider).runNext({ runKey: `a4:${newU…
+    393|
+    394|     expect(await itemCount(principalId)).toBe(1);
+       |                                          ^
+    395|   });
+    396|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82.test.ts > PR #82 adversarial: untrusted topic paths never cost Sid a memory > B1 does not fail the whole step when an area name contains a line separator
+AssertionError: expected { …(16) } to match object { outcome: 'succeeded', …(1) }
+(19 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "createdItemCount": 1,
+-   "outcome": "succeeded",
++   "createdItemCount": 0,
++   "outcome": "failed",
+  }
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82.test.ts:409:20
+    409|   });
+    410|
+    411|   it("B2 does not wedge the cursor on a proposed item whose area name …
+       |           ^
+    412|     const principalId = await principal();
+    413|     const events = new EventRepository(env.DB);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82.test.ts > PR #82 adversarial: untrusted topic paths never cost Sid a memory > B2 does not wedge the cursor on a proposed item whose area name contains a newline
+AssertionError: expected { …(5) } to deeply equal { …(5) }
+
+- Expected
++ Received
+
+  {
+-   "cursor": 1,
+-   "failureCode": null,
+-   "items": 1,
++   "cursor": 0,
++   "failureCode": "distillation_step_failed",
++   "items": 0,
+    "outcomes": [
+-     "succeeded",
+-     "nothing_new",
++     "failed",
++     "failed",
+    ],
+-   "providerCalls": 1,
++   "providerCalls": 2,
+  }
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82.test.ts:430:8
+    428|       items: await itemCount(principalId),
+    429|     }).toEqual({
+    430|       outcomes: ["succeeded", "nothing_new"],
+       |        ^
+    431|       failureCode: null,
+    432|       cursor: event.eventSequence,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82.test.ts > PR #82 adversarial: tree integrity against model-chosen names > D1 does not create an area whose name contains the path separator '>'
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82.test.ts:457:23
+    457|   });
+    458|
+    459|   it("D2 answers 'What do you remember about School > Chemistry?' with…
+       |              ^
+    460|     const principalId = await principal();
+    461|     const repository = new MemoryRepository(env.DB);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82.test.ts > PR #82 adversarial: tree integrity against model-chosen names > D3 does not grow a second School under a model-invented Memory area
+AssertionError: expected { schoolAreas: 2, …(2) } to deeply equal { schoolAreas: 1, …(2) }
+
+- Expected
++ Received
+
+  {
+-   "placedUnderExistingSchool": true,
+-   "rootChildren": 2,
+-   "schoolAreas": 1,
++   "placedUnderExistingSchool": false,
++   "rootChildren": 3,
++   "schoolAreas": 2,
+  }
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82.test.ts:509:8
+    508|     }).toEqual({ schoolAreas: 1, placedUnderExistingSchool: true, root…
+    509|   });
+    510|
+       | ^
+    511|   it("E1 does not create model areas underneath the Inbox", async () =…
+    512|     const principalId = await principal();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82.test.ts > PR #82 adversarial: tree integrity against model-chosen names > E1 does not create model areas underneath the Inbox
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82.test.ts:527:64
+    527|   });
+    528|
+    529|   it("F1 does not create a look-alike sibling for a zero-width-space v…
+       |                                                       ^
+    530|     const principalId = await principal();
+    531|     const repository = new MemoryRepository(env.DB);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82.test.ts > PR #82 adversarial: tree integrity against model-chosen names > F1 does not create a look-alike sibling for a zero-width-space variant
+AssertionError: expected 2 to be 1 // Object.is equality
+
+- Expected
++ Received
+
+- 1
++ 2
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82.test.ts:546:63
+    546|   });
+    547|
+    548|   it("F2 does not create a full-width duplicate of an existing area", …
+       |                                                      ^
+    549|     const principalId = await principal();
+    550|     const repository = new MemoryRepository(env.DB);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82.test.ts > PR #82 adversarial: tree integrity against model-chosen names > F2 does not create a full-width duplicate of an existing area
+AssertionError: expected 3 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 3
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82.test.ts:565:63
+    565|   });
+    566|
+    567|   it("G1 leaves no empty model-created areas when the item commit then…
+       |                                                      ^
+    568|     const principalId = await principal();
+    569|     const canonical = new MemoryRepository(env.DB);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82.test.ts > PR #82 adversarial: tree integrity against model-chosen names > G1 leaves no empty model-created areas when the item commit then fails
+AssertionError: expected 3 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 3
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82.test.ts:589:101
+    591|
+    592| describe("PR #82 adversarial: hourly Inbox re-file", () => {
+    593|   it("C1 is not starved by ten older Inbox items whose areas never app…
+       |                         ^
+    594|     const principalId = await principal();
+    595|     const repository = new MemoryRepository(env.DB);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/13]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82.test.ts > PR #82 adversarial: hourly Inbox re-file > C1 is not starved by ten older Inbox items whose areas never appear
+AssertionError: expected 'Inbox / Needs filing' to be 'School' // Object.is equality
+
+Expected: "School"
+Received: "Inbox / Needs filing"
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82.test.ts:610:69
+    610|   });
+    611|
+    612|   it("S1 never re-files a proposed uncertain item even with a refilabl…
+       |                                                            ^
+    613|     const principalId = await principal();
+    614|     const repository = new MemoryRepository(env.DB);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/13]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  13 failed | 7 passed (20)
+   Start at  20:11:30
+   Duration  10.68s (transform 747ms, setup 0ms, import 1.31s, tests 8.73s, environment 1ms)
+
