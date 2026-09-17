@@ -3,6 +3,25 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-17 22:05 UTC — Claude Opus 5, production defect: PBKDF2 at 600,000 iterations cannot run in the production Workers runtime
+
+**Found during Sid's attended calling setup. `jarvis owner-passphrase generate` fails in production and always will.** The owner passphrase cannot be created, so owner call step-up cannot be armed and calling cannot go live. Guest PINs have the same defect and have never been exercised live.
+
+**Root cause, proven.** Production workerd rejects `crypto.subtle.deriveBits` with `iterations > 100000` (`NotSupportedError: Pbkdf2 failed: iteration counts above 100000 are not supported`); the cap exists because its CPU limiter cannot interrupt BoringSSL mid-derivation. Miniflare and `wrangler dev` do **not** enforce it, which is why 5,096 local tests are green. Sources: cloudflare/workerd issue 1346 and multiple production reports.
+
+- `owner-passphrase-verifier.ts:262` and `guest-pin-verifier.ts` both call PBKDF2-HMAC-SHA256 with `iterations: 600_000`.
+- `0017_owner_passphrase.sql:13` (`iterations = 600000`) and `0006_voice_access.sql:333` (`pin_iterations = 600000`) pin that number in CHECK constraints.
+
+**Evidence chain.** A temporary debug build (deployed with Sid's explicit approval, reverted immediately; production is back on the `12a9385` tree as version `98de437c`) logged the real error the route redacts: `owner_passphrase_derivation_failed`, thrown at `OwnerPassphraseVerifier.create`, with **9 ms CPU and 118 ms wall** — the derivation failed instantly rather than running. Before that I eliminated, with evidence: configuration (the `status` call returns 200), the D1 writes (both statements replayed on a throwaway remote D1 — verifier staged, head published, then deleted), identifier shapes (the service suite passes 11/11 with Sid's exact production ids), and the request body (the Python CLI sends exactly `GENERATE_FIELDS`). A local Workers-pool probe derives 600,000 iterations happily, which is the parity gap itself.
+
+**Required fix.** Keep the work factor, respect the per-call cap: derive in **six chained PBKDF2 passes of 100,000**, each pass taking the previous output as its password, same salt. Total work is unchanged, so the stored `iterations = 600000` stays truthful and **no migration is needed**. No verifier rows exist in production (`owner_passphrase_verifiers`, `owner_passphrase_heads`, and voice identities other than the newly enrolled one are all empty), so nothing stored needs re-deriving.
+
+Apply the same change to the guest-PIN verifier, and add the regression guard this was missing: a named test asserting that **no `deriveBits` call anywhere passes `iterations > 100000`**, plus a KNOWN_ISSUES note that local Workers tests do not enforce production crypto limits.
+
+**Lesson for every future review, mine included:** a green local Workers-pool suite is not evidence about the production runtime. Where the runtime imposes a limit (crypto parameters, CPU, subrequests), the check must be written against the documented production limit, not discovered by a user on a live call.
+
+---
+
 ## 2026-09-17 23:05 UTC — Claude Opus 5, PR #86 merge verification at d88a5c8: merging
 
 **Merge-only round verified; merging.** The conflict resolution keeps both sides, checked by reading `telegram-memory-retriever.ts` against main: PR #83's meaning fusion, exclusions, sub-deadlines and archived-receipt path are intact, and PR #86 adds only its own predicate — `recallableAt` and both pre-filtered queries now exclude `origin = 'model' AND basis = 'inferred'` proposals, plus `confirm` as a control-target operation over `proposed` items.
