@@ -3,11 +3,13 @@ import {
   createEnvelope,
   newUlid,
   sha256Hex,
+  validateEnvelope,
   type JsonValue,
   type RedactedJsonValue,
   type Sha256Hex,
   type Ulid,
 } from "../../../../packages/contracts/src/index.js";
+import { encodeDecisionCallbackData } from "../decisions/telegram-keyboard.js";
 import { Redactor } from "../security/redaction.js";
 import {
   EventRepository,
@@ -20,6 +22,7 @@ import {
   MemoryRepositoryError,
   type CanonicalMemoryItem,
   type CommitInitialMemoryInput,
+  type ConfirmMemoryItemInput,
   type ForgetMemoryItemInput,
   type LiftMemoryItemInput,
   type MemoryControlIntent,
@@ -36,7 +39,7 @@ const MEMORY_CONTROL_EVENT_TYPE = "memory.owner_command";
 const MEMORY_CONTROL_PRODUCER = "memory-control-v1";
 const MEMORY_KINDS = new Set<MemoryKind>(["fact", "preference", "plan", "decision", "relationship"]);
 const MEMORY_SENSITIVITIES = new Set<MemorySensitivity>(["normal", "sensitive"]);
-const MEMORY_CONTROL_INTENTS = new Set<MemoryControlIntent>(["remember", "forget", "lift", "explain"]);
+const MEMORY_CONTROL_INTENTS = new Set<MemoryControlIntent>(["remember", "forget", "lift", "confirm", "explain"]);
 const REMEMBER_CONTROL_PREFIXES = [
   /^(?:please[ \t]+)?remember(?:[ \t]*,[ \t]*|[ \t]+)that:[ \t]*/iu,
   /^(?:please[ \t]+)?remember(?:[ \t]*,[ \t]*|[ \t]+)that[ \t]+/iu,
@@ -51,6 +54,15 @@ export interface RememberMemoryInput {
   readonly text: string;
   readonly kind: MemoryKind;
   readonly sensitivity: MemorySensitivity;
+  readonly sourceExcerpt?: string;
+  readonly basis?: "stated" | "confirmed";
+}
+
+export interface ConfirmedForgetDecisionInput {
+  readonly principalId: string;
+  readonly callbackEventId: Ulid;
+  readonly decisionId: Ulid;
+  readonly itemIds: readonly Ulid[];
 }
 
 export interface TargetedMemoryControlInput {
@@ -78,6 +90,16 @@ export interface MemoryLiftReceipt {
   readonly item: CanonicalMemoryItem | MemoryTextSuppressedItem;
   readonly liftedSuppressionCount: number;
   readonly retrievable: boolean;
+  readonly receipt: string;
+  readonly replayed: boolean;
+}
+
+export interface ConfirmMemoryInput extends TargetedMemoryControlInput {
+  readonly sourceExcerpt: string;
+}
+
+export interface MemoryConfirmReceipt {
+  readonly item: CanonicalMemoryItem;
   readonly receipt: string;
   readonly replayed: boolean;
 }
@@ -270,10 +292,11 @@ function normalizeRememberComparison(value: string): string {
     .replace(ZERO_WIDTH_CHARACTERS, "");
 }
 
-function isAuthorizedRememberText(text: string, remainder: string): boolean {
-  return remainder.length > 0
+function isAuthorizedRememberText(text: string, excerpt: string, ownerText: string): boolean {
+  return excerpt.length > 0
     && text === text.trim()
-    && normalizeRememberComparison(text) === normalizeRememberComparison(remainder);
+    && ownerText.includes(excerpt)
+    && normalizeRememberComparison(text) === normalizeRememberComparison(excerpt);
 }
 
 function rememberPayload(value: JsonValue): Readonly<{
@@ -300,6 +323,31 @@ function rememberPayload(value: JsonValue): Readonly<{
     placementId: inputUlid(payload.placementId),
     placementEventId: inputUlid(payload.placementEventId),
     topicId: inputUlid(payload.topicId),
+  });
+}
+
+function confirmPayload(value: JsonValue): Readonly<{
+  transitionId: Ulid;
+  itemId: Ulid;
+  previousVersionId: Ulid;
+  versionId: Ulid;
+  sourceId: Ulid;
+  copiedSourceIds: readonly Ulid[];
+}> {
+  const payload = record(value);
+  exactKeys(payload, [
+    "operation", "targetId", "itemId", "previousVersionId", "versionId",
+    "lifecycleState", "sourceId", "copiedSourceIds",
+  ]);
+  if (payload.operation !== "item.transition" || payload.lifecycleState !== "active"
+    || !Array.isArray(payload.copiedSourceIds)) refuse();
+  return Object.freeze({
+    transitionId: inputUlid(payload.targetId),
+    itemId: inputUlid(payload.itemId),
+    previousVersionId: inputUlid(payload.previousVersionId),
+    versionId: inputUlid(payload.versionId),
+    sourceId: inputUlid(payload.sourceId),
+    copiedSourceIds: Object.freeze(payload.copiedSourceIds.map(inputUlid)),
   });
 }
 
@@ -396,11 +444,18 @@ export class MemoryOwnerControlsService {
       const text = this.memory.validateItemText(input.text);
       const kind = input.kind;
       const sensitivity = input.sensitivity;
+      const basis = input.basis ?? "stated";
+      if (basis !== "stated" && basis !== "confirmed") refuse();
+      const requestedExcerpt = input.sourceExcerpt === undefined
+        ? null
+        : this.memory.validateItemText(input.sourceExcerpt);
       if (!MEMORY_KINDS.has(kind) || !MEMORY_SENSITIVITIES.has(sensitivity)) refuse();
       const requestHash = await this.requestHash("remember", ownerTurn, [
         text,
         kind,
         sensitivity,
+        basis,
+        requestedExcerpt,
       ]);
       const key = commandKey(ownerTurn, "remember");
       const existing = await this.hasCommand(key, requestHash);
@@ -416,15 +471,17 @@ export class MemoryOwnerControlsService {
           ownerTurn,
           command.envelope.eventId,
         );
-        sourceExcerpt = this.memory.validateItemText(rememberRemainder(acceptedTurn.text));
-        if (!isAuthorizedRememberText(text, sourceExcerpt)) refuse();
+        sourceExcerpt = requestedExcerpt
+          ?? this.memory.validateItemText(rememberRemainder(acceptedTurn.text));
+        if (!isAuthorizedRememberText(text, sourceExcerpt, acceptedTurn.text)) refuse();
       } else {
         acceptedTurn = Object.freeze({
           text: await this.memory.validateOwnerTurn(ownerTurn, "remember"),
           suppressed: false,
         });
-        sourceExcerpt = this.memory.validateItemText(rememberRemainder(acceptedTurn.text));
-        if (!isAuthorizedRememberText(text, sourceExcerpt)) refuse();
+        sourceExcerpt = requestedExcerpt
+          ?? this.memory.validateItemText(rememberRemainder(acceptedTurn.text));
+        if (!isAuthorizedRememberText(text, sourceExcerpt, acceptedTurn.text)) refuse();
         const topics = await this.memory.bootstrapTopics(ownerTurn.principalId);
         const transitionId = this.nextId();
         command = await this.appendCommand(ownerTurn, key, requestHash, {
@@ -450,7 +507,7 @@ export class MemoryOwnerControlsService {
           versionId: payload.versionId,
           text,
           textHash: await sha256Hex(text),
-          basis: "stated",
+          basis,
           origin: "authenticated_first_person",
           uncertain: false,
           sensitivity,
@@ -473,7 +530,9 @@ export class MemoryOwnerControlsService {
         transition: {
           transitionId: payload.transitionId,
           lifecycleState: "active",
-          reason: "owner requested immediate memory",
+          reason: basis === "confirmed"
+            ? "owner confirmed immediate memory"
+            : "owner requested immediate memory",
           policyVersion: MEMORY_CONTROL_POLICY_VERSION,
           ownerAuthorizingEventId: command.envelope.eventId,
         },
@@ -509,6 +568,73 @@ export class MemoryOwnerControlsService {
               : "Remembered 1 memory, but it is currently hidden by another forgotten memory from the same conversation turn."
           : "Remembered 1 memory. You can ask in ordinary language to forget it.",
         replayed,
+      });
+    });
+  }
+
+  async confirm(input: ConfirmMemoryInput): Promise<MemoryConfirmReceipt> {
+    return this.safely(async () => {
+      const ownerTurn = captureOwnerTurn(input.ownerTurn);
+      requireMemoryIntent(ownerTurn, "confirm");
+      const itemId = exactSingleTarget(input.candidateItemIds);
+      const sourceExcerpt = this.memory.validateItemText(input.sourceExcerpt);
+      const requestHash = await this.requestHash("confirm", ownerTurn, [itemId, sourceExcerpt]);
+      const key = commandKey(ownerTurn, "confirm");
+      const existing = await this.hasCommand(key, requestHash);
+      let command: AppendedEvent;
+      if (existing) {
+        command = await this.appendCommand(ownerTurn, key, requestHash, {
+          operation: "item.transition",
+          targetId: this.nextId(),
+        });
+      } else {
+        const ownerText = await this.memory.validateOwnerTurn(ownerTurn, "confirm");
+        if (!ownerText.includes(sourceExcerpt)) refuse();
+        const item = await this.memory.readCurrentItem(ownerTurn.principalId, itemId);
+        if (item.lifecycle.state !== "proposed" || !item.version.uncertain
+          || item.sources.length < 1 || item.sources.length > 7) refuse();
+        command = await this.appendCommand(ownerTurn, key, requestHash, {
+          operation: "item.transition",
+          targetId: this.nextId(),
+          itemId,
+          previousVersionId: item.version.versionId,
+          versionId: this.nextId(),
+          lifecycleState: "active",
+          sourceId: this.nextId(),
+          copiedSourceIds: item.sources.map(() => this.nextId()),
+        });
+      }
+      const acceptedTurn = await this.memory.readAcceptedOwnerTurn(ownerTurn, command.envelope.eventId);
+      if (!acceptedTurn.text.includes(sourceExcerpt) || acceptedTurn.suppressed) refuse();
+      const decoded = decodeStoredCommand(command.envelope.payload, confirmPayload);
+      if (decoded.itemId !== itemId) corrupt();
+      const confirmationInput: ConfirmMemoryItemInput = Object.freeze({
+        principalId: ownerTurn.principalId,
+        itemId,
+        previousVersionId: decoded.previousVersionId,
+        versionId: decoded.versionId,
+        transitionId: decoded.transitionId,
+        ownerAuthorizingEventId: command.envelope.eventId,
+        confirmationSource: Object.freeze({
+          sourceId: decoded.sourceId,
+          eventId: ownerTurn.eventId,
+          eventSequence: ownerTurn.eventSequence,
+          sourceLocation: "live",
+          r2SegmentId: null,
+          excerpt: sourceExcerpt,
+          excerptHash: await sha256Hex(sourceExcerpt),
+          channel: ownerTurn.channel,
+          occurredAt: ownerTurn.occurredAt,
+        }),
+        copiedSourceIds: decoded.copiedSourceIds,
+        reason: "owner confirmed proposed memory",
+        policyVersion: MEMORY_CONTROL_POLICY_VERSION,
+      });
+      const result = await this.memory.confirmItem(confirmationInput);
+      return Object.freeze({
+        item: result.item,
+        receipt: "Confirmed 1 proposed memory for recall. You can ask in ordinary language to forget it.",
+        replayed: command.replayed || result.replayed,
       });
     });
   }
@@ -603,6 +729,149 @@ export class MemoryOwnerControlsService {
     });
   }
 
+  async forgetConfirmedDecision(
+    input: ConfirmedForgetDecisionInput,
+  ): Promise<readonly MemoryForgetReceipt[]> {
+    return this.safely(async () => {
+      const principalId = input.principalId;
+      if (typeof principalId !== "string" || principalId.length < 1 || principalId.length > 256
+        || !principalId.isWellFormed() || principalId !== principalId.normalize("NFC")) refuse();
+      const callbackEventId = inputUlid(input.callbackEventId);
+      const decisionId = inputUlid(input.decisionId);
+      if (!Array.isArray(input.itemIds) || input.itemIds.length < 2 || input.itemIds.length > 8) refuse();
+      const itemIds = input.itemIds.map(inputUlid);
+      if (new Set(itemIds).size !== itemIds.length) refuse();
+      const callback = await this.database.prepare(`SELECT event.event_id, event.envelope_json
+        FROM events event
+        JOIN channel_identities identity
+          ON identity.principal_id = ?1 AND identity.channel = 'telegram'
+          AND identity.status = 'active' AND identity.verified_at IS NOT NULL
+          AND event.subject_id = 'telegram:user:' || identity.provider_subject
+        WHERE event.event_id = ?2 AND event.event_type = 'telegram.callback.received'
+          AND event.source = 'channel:telegram'
+        LIMIT 1`).bind(principalId, callbackEventId).first<{
+          event_id: unknown;
+          envelope_json: unknown;
+        }>();
+      if (callback?.event_id !== callbackEventId || typeof callback.envelope_json !== "string"
+        || Reflect.ownKeys(callback).length !== 2) refuse();
+      let callbackEnvelope: Awaited<ReturnType<typeof validateEnvelope>>;
+      try {
+        callbackEnvelope = await validateEnvelope(JSON.parse(callback.envelope_json) as unknown);
+      } catch {
+        refuse();
+      }
+      if (callbackEnvelope.eventId !== callbackEventId || callbackEnvelope.subjectId.length === 0
+        || callbackEnvelope.payload === null || typeof callbackEnvelope.payload !== "object"
+        || Array.isArray(callbackEnvelope.payload)
+        || (callbackEnvelope.payload as Record<string, unknown>).data
+          !== encodeDecisionCallbackData(decisionId, "confirm")) refuse();
+      const decision = await this.database.prepare(`SELECT item.decision_id, item.principal_id,
+          item.origin, item.origin_reference, item.status, response.option_key,
+          identity.principal_id AS identity_principal_id
+        FROM decision_items item
+        JOIN decision_responses response ON response.decision_id = item.decision_id
+        JOIN channel_identities identity
+          ON identity.identity_id = response.answered_by_identity_id
+          AND identity.channel = 'telegram' AND identity.status = 'active'
+          AND identity.verified_at IS NOT NULL
+        WHERE item.decision_id = ?1
+        LIMIT 1`).bind(decisionId).first<{
+          decision_id: unknown;
+          principal_id: unknown;
+          origin: unknown;
+          origin_reference: unknown;
+          status: unknown;
+          option_key: unknown;
+          identity_principal_id: unknown;
+        }>();
+      if (decision === null || Reflect.ownKeys(decision).length !== 7
+        || decision.decision_id !== decisionId || decision.principal_id !== principalId
+        || decision.identity_principal_id !== principalId || decision.origin !== "telegram-memory-forget"
+        || decision.origin_reference !== itemIds.join(",") || decision.status !== "answered"
+        || decision.option_key !== "confirm") refuse();
+      const preparedCommands: Array<Readonly<{
+        itemId: Ulid;
+        command: AppendedEvent;
+        decoded: DecodedForgetCommand;
+      }>> = [];
+      for (const itemId of itemIds) {
+        const requestHash = await sha256Hex(canonicalJson([
+          MEMORY_CONTROL_POLICY_VERSION,
+          "confirmed-forget",
+          principalId,
+          callbackEventId,
+          decisionId,
+          itemId,
+        ]));
+        const key = `${decisionId}:forget:${itemId}`;
+        const existing = await this.hasCommand(key, requestHash);
+        let command: AppendedEvent;
+        if (existing) {
+          command = await this.appendDecisionCommand({
+            principalId,
+            callbackEventId,
+            key,
+            requestHash,
+            payload: { operation: "item.forget", targetId: this.nextId() },
+          });
+        } else {
+          const prepared = await this.memory.prepareForgetItem(principalId, itemId);
+          command = await this.appendDecisionCommand({
+            principalId,
+            callbackEventId,
+            key,
+            requestHash,
+            payload: {
+              operation: "item.forget",
+              targetId: this.nextId(),
+              itemId,
+              versionId: prepared.item.version.versionId,
+              lifecycleState: "forgotten",
+              suppressions: prepared.sources.map((source) => ({
+                suppressionId: this.nextId(),
+                sourceId: source.sourceId,
+                targetEventId: source.eventId,
+                startEventSequence: null,
+                endEventSequence: null,
+                newlyHiddenTurnCount: source.newlyHiddenTurnCount,
+                totalCoveredTurnCount: source.totalCoveredTurnCount,
+              })),
+            },
+          });
+        }
+        const decoded = decodeStoredCommand(command.envelope.payload, forgetPayload);
+        if (decoded.itemId !== itemId) corrupt();
+        preparedCommands.push(Object.freeze({ itemId, command, decoded }));
+      }
+      const receipts: MemoryForgetReceipt[] = [];
+      for (const { itemId, command, decoded } of preparedCommands) {
+        const result = await this.memory.forgetItem({
+          ...decoded,
+          principalId,
+          ownerAuthorizingEventId: command.envelope.eventId,
+        });
+        const hiddenSiblingItemCount = await this.memory.countSiblingItemsHiddenByForget(
+          principalId,
+          itemId,
+          decoded.transitionId,
+        );
+        receipts.push(Object.freeze({
+          itemId,
+          state: "forgotten" as const,
+          newlyHiddenTurnCount: result.newlyHiddenTurnCount,
+          totalCoveredTurnCount: result.totalCoveredTurnCount,
+          hiddenSiblingItemCount,
+          receipt: `Forgot 1 memory and hid ${result.newlyHiddenTurnCount} of ${result.totalCoveredTurnCount} source turns${hiddenSiblingItemCount === 0
+            ? ""
+            : `, which also hid ${hiddenSiblingItemCount} other active ${hiddenSiblingItemCount === 1 ? "memory" : "memories"}`}; the original conversation remains retained. You can ask in ordinary language to use it again.`,
+          replayed: command.replayed || result.replayed,
+        }));
+      }
+      return Object.freeze(receipts);
+    });
+  }
+
   async lift(input: TargetedMemoryControlInput): Promise<MemoryLiftReceipt> {
     return this.safely(async () => {
       const ownerTurn = captureOwnerTurn(input.ownerTurn);
@@ -684,6 +953,37 @@ export class MemoryOwnerControlsService {
       scope: "memory:owner-control",
       key,
       requestHash,
+    });
+  }
+
+  private async appendDecisionCommand(input: {
+    readonly principalId: string;
+    readonly callbackEventId: Ulid;
+    readonly key: string;
+    readonly requestHash: Sha256Hex;
+    readonly payload: JsonRecord;
+  }): Promise<AppendedEvent> {
+    const eventId = this.nextId();
+    const now = this.freshNow().toISOString();
+    const envelope = await createEnvelope({
+      schemaVersion: "1.0",
+      eventId,
+      correlationId: eventId,
+      causationId: input.callbackEventId,
+      eventType: MEMORY_CONTROL_EVENT_TYPE,
+      source: MEMORY_CONTROL_SOURCE,
+      subjectId: input.principalId,
+      occurredAt: now,
+      receivedAt: now,
+      contentType: "application/json",
+      producerVersion: MEMORY_CONTROL_PRODUCER,
+      payload: redactPayload(input.payload),
+    });
+    return this.events.append({
+      envelope,
+      scope: "memory:owner-control",
+      key: input.key,
+      requestHash: input.requestHash,
     });
   }
 

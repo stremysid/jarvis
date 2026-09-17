@@ -45,12 +45,13 @@ function claimedDelivery(input: {
     createdAt: nowIso,
     updatedAt: nowIso,
     text: input.text,
+    replyMarkup: null,
   });
 }
 
 describe("DefaultOutboxDispatcher", () => {
   it("delivers one claimed Telegram item to its resolved active identity and acknowledges history", async () => {
-    const deliveryId = newUlid() as ConversationDeliveryId;
+    const deliveryId = newUlid() as unknown as ConversationDeliveryId;
     const principalId = "principal:telegram-owner";
     const targetIdentityId = "identity:telegram-owner";
     const item = claimedDelivery({ deliveryId, principalId, targetIdentityId, text: "safe answer" });
@@ -63,7 +64,7 @@ describe("DefaultOutboxDispatcher", () => {
       providerMessageId: "telegram-message-00000001",
     }) as ProviderDeliveryReceipt;
     const deliveredAssistantEventId = newUlid();
-    const { text: _claimedText, ...storedItem } = item;
+    const { text: _claimedText, replyMarkup: _replyMarkup, ...storedItem } = item;
     const delivered = Object.freeze({
       ...storedItem,
       state: "delivered" as const,
@@ -107,12 +108,12 @@ describe("DefaultOutboxDispatcher", () => {
   });
 
   it("settles an untyped provider failure as unknown and never exposes the exception", async () => {
-    const deliveryId = newUlid() as ConversationDeliveryId;
+    const deliveryId = newUlid() as unknown as ConversationDeliveryId;
     const principalId = "principal:telegram-owner";
     const targetIdentityId = "identity:telegram-owner";
     const item = claimedDelivery({ deliveryId, principalId, targetIdentityId, text: "safe answer" });
     const capability = Object.freeze({ deliveryId, materialHash }) as DeliveryLeaseCapability;
-    const { text: _claimedText, ...storedItem } = item;
+    const { text: _claimedText, replyMarkup: _replyMarkup, ...storedItem } = item;
     const unknown = Object.freeze({
       ...storedItem,
       state: "unknown" as const,
@@ -151,12 +152,12 @@ describe("DefaultOutboxDispatcher", () => {
   });
 
   it("begins the lease before identity resolution and settles a disabled target without provider work", async () => {
-    const deliveryId = newUlid() as ConversationDeliveryId;
+    const deliveryId = newUlid() as unknown as ConversationDeliveryId;
     const principalId = "principal:telegram-owner";
     const targetIdentityId = "identity:telegram-disabled";
     const item = claimedDelivery({ deliveryId, principalId, targetIdentityId, text: "safe answer" });
     const capability = Object.freeze({ deliveryId, materialHash }) as DeliveryLeaseCapability;
-    const { text: _claimedText, ...storedItem } = item;
+    const { text: _claimedText, replyMarkup: _replyMarkup, ...storedItem } = item;
     const failed = Object.freeze({
       ...storedItem,
       state: "failed" as const,
@@ -205,12 +206,12 @@ describe("DefaultOutboxDispatcher", () => {
   });
 
   it("turns an open Telegram circuit into a known pre-acceptance retry", async () => {
-    const deliveryId = newUlid() as ConversationDeliveryId;
+    const deliveryId = newUlid() as unknown as ConversationDeliveryId;
     const principalId = "principal:telegram-owner";
     const targetIdentityId = "identity:telegram-owner";
     const item = claimedDelivery({ deliveryId, principalId, targetIdentityId, text: "safe answer" });
     const capability = Object.freeze({ deliveryId, materialHash }) as DeliveryLeaseCapability;
-    const { text: _claimedText, ...storedItem } = item;
+    const { text: _claimedText, replyMarkup: _replyMarkup, ...storedItem } = item;
     const retry = Object.freeze({
       ...storedItem,
       state: "retry_wait" as const,

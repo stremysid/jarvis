@@ -19,12 +19,14 @@ function cloneInput(input: TelegramSendMessageInput): TelegramSendMessageInput {
     idempotencyKey: input.idempotencyKey.normalize("NFC"),
   };
   if (input.replyToMessageId !== undefined) snapshot.replyToMessageId = input.replyToMessageId;
+  if (input.replyMarkup !== undefined) snapshot.replyMarkup = input.replyMarkup;
   return Object.freeze(snapshot);
 }
 
 function materialOf(input: TelegramSendMessageInput): string {
-  const material: Record<string, string | number> = { chatId: input.chatId, text: input.text };
+  const material: Record<string, unknown> = { chatId: input.chatId, text: input.text };
   if (input.replyToMessageId !== undefined) material.replyToMessageId = input.replyToMessageId;
+  if (input.replyMarkup !== undefined) material.replyMarkup = input.replyMarkup;
   return canonicalJson(material);
 }
 

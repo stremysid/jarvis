@@ -20,6 +20,11 @@ import {
   type AppendedEvent,
 } from "../persistence/event-repository.js";
 import { takePendingTelegramMemoryReferences } from "../memory/telegram-memory-reference.js";
+import { takePendingTelegramReplyMarkup } from "../channels/telegram/telegram-reply-markup.js";
+import {
+  parseDecisionCallbackData,
+  type TelegramInlineKeyboardMarkup,
+} from "../decisions/telegram-keyboard.js";
 import {
   snapshotVoiceSentReceipt,
   type AssistantStageResult,
@@ -155,6 +160,7 @@ interface DeliveryLeaseBinding {
   providerIdempotencyKey: string;
   leaseTokenHash: Sha256Hex;
   text: string;
+  decisionId: Ulid | null;
 }
 
 export interface ConversationRepositoryOptions {
@@ -336,15 +342,37 @@ function historyPayload(
 function assistantStagePayload(
   text: SuccessfulRedaction,
   memoryItemIds: readonly Ulid[],
+  decision: ReturnType<typeof takePendingTelegramReplyMarkup>,
 ) {
   const payload = historyPayload("telegram", text, false);
-  if (memoryItemIds.length === 0) return payload;
   const issuedItemIds = memoryItemIds.map((itemId) => {
     const issued = sanitizeRedaction(itemId);
     if (!issued.ok) throw new Error("assistant_memory_reference_redaction_failed");
     return issued;
   });
-  return Object.freeze({ ...payload, memoryItemIds: Object.freeze(issuedItemIds) });
+  if (decision === null) {
+    return issuedItemIds.length === 0
+      ? payload
+      : Object.freeze({ ...payload, memoryItemIds: Object.freeze(issuedItemIds) });
+  }
+  const issue = (value: string) => {
+    const issued = sanitizeRedaction(value);
+    if (!issued.ok) throw new Error("assistant_reply_markup_redaction_failed");
+    return issued;
+  };
+  const replyMarkup = Object.freeze({
+    inline_keyboard: Object.freeze(decision.replyMarkup.inline_keyboard.map((row) =>
+      Object.freeze(row.map((button) => Object.freeze({
+        text: issue(button.text),
+        callback_data: issue(button.callback_data),
+      }))))),
+  });
+  return Object.freeze({
+    ...payload,
+    ...(issuedItemIds.length === 0 ? {} : { memoryItemIds: Object.freeze(issuedItemIds) }),
+    decisionId: issue(decision.decisionId),
+    replyMarkup,
+  });
 }
 
 function systemPayload(text: SuccessfulRedaction) {
@@ -574,11 +602,13 @@ export class ConversationRepository {
       throw new Error("model_stream_claim_invalid");
     }
     const memoryItemIds = takePendingTelegramMemoryReferences(binding.turnId);
+    const decision = takePendingTelegramReplyMarkup(binding.turnId);
     const deliveryId = requireDeliveryId(this.deliveryIdFactory());
     const eventId = requireUlid(this.eventIdFactory(), "conversation_event_id");
     const materialHash = await sha256Hex(canonicalJson([
       "conversation-delivery-v2", deliveryId, binding.turnId, binding.principalId,
       targetIdentityId, replyToMessageId, "assistant", text.text, memoryItemIds,
+      decision?.decisionId ?? null, decision?.replyMarkup ?? null,
     ]));
     const providerIdempotencyKey = `conversation:${deliveryId}:${materialHash.slice(0, 16)}`;
     const envelope = await this.createConversationEnvelope({
@@ -587,7 +617,7 @@ export class ConversationRepository {
       principalId: binding.principalId,
       correlationId: binding.turnId,
       causationId: binding.userEventId,
-      payload: assistantStagePayload(text, memoryItemIds),
+      payload: assistantStagePayload(text, memoryItemIds, decision),
       nowIso: observedAt.iso,
     });
     const requestHash = await sha256Hex(canonicalJson(["assistant-stage-v2", binding.turnId, deliveryId, materialHash]));
@@ -795,8 +825,13 @@ export class ConversationRepository {
     if (claimed !== undefined) {
       const stored = this.toStoredDelivery(claimed);
       const event = singleBatchRow<StoredEventRow>(results[1], "conversation_staged_event_missing");
-      const text = await this.validateStagedText(claimed, event);
-      const item = Object.freeze({ ...stored, state: "claimed" as const, text }) as ClaimedConversationDelivery;
+      const staged = await this.validateStagedContent(claimed, event);
+      const item = Object.freeze({
+        ...stored,
+        state: "claimed" as const,
+        text: staged.text,
+        replyMarkup: staged.replyMarkup,
+      }) as ClaimedConversationDelivery;
       const capability = Object.freeze({ deliveryId, materialHash: stored.materialHash }) as DeliveryLeaseCapability;
       this.deliveryLeaseBindings.set(capability, Object.freeze({
         deliveryId,
@@ -809,7 +844,8 @@ export class ConversationRepository {
         materialHash: stored.materialHash,
         providerIdempotencyKey: stored.providerIdempotencyKey,
         leaseTokenHash: tokenHash,
-        text,
+        text: staged.text,
+        decisionId: staged.decisionId,
       }));
       return Object.freeze({ kind: "claimed", capability, item });
     }
@@ -924,6 +960,20 @@ export class ConversationRepository {
     const requestHash = await sha256Hex(canonicalJson([
       "delivery-success-v1", binding.deliveryId, binding.materialHash, receipt.providerMessageId,
     ]));
+    if (binding.decisionId !== null) {
+      const marked = await this.database.prepare(`UPDATE decision_items
+        SET status = 'delivered', delivered_at = ?1
+        WHERE decision_id = ?2 AND principal_id = ?3 AND status = 'open'`)
+        .bind(observedAt.iso, binding.decisionId, binding.principalId).run();
+      if (marked.meta.changes !== 1) {
+        const standing = await this.database.prepare(
+          "SELECT status FROM decision_items WHERE decision_id = ?1 AND principal_id = ?2",
+        ).bind(binding.decisionId, binding.principalId).first<{ status: unknown }>();
+        if (standing?.status !== "delivered" && standing?.status !== "answered") {
+          throw new Error("conversation_decision_delivery_invalid");
+        }
+      }
+    }
     const dependencies = (database: D1Database): D1PreparedStatement[] => {
       const deliveryUpdate = database.prepare(`UPDATE conversation_deliveries
         SET state = 'delivered', resolved_at = ?1, provider_message_id = ?2,
@@ -1252,7 +1302,11 @@ export class ConversationRepository {
     });
   }
 
-  private async validateStagedText(row: ConversationDeliveryRow, event: StoredEventRow): Promise<string> {
+  private async validateStagedContent(row: ConversationDeliveryRow, event: StoredEventRow): Promise<Readonly<{
+    text: string;
+    decisionId: Ulid | null;
+    replyMarkup: TelegramInlineKeyboardMarkup | null;
+  }>> {
     let raw: unknown;
     try { raw = JSON.parse(event.envelope_json); }
     catch { throw new Error("conversation_staged_event_invalid"); }
@@ -1266,10 +1320,15 @@ export class ConversationRepository {
       || envelope.producerVersion !== CONVERSATION_EVENT_PRODUCER_VERSION
     ) throw new Error("conversation_staged_event_invalid");
     if (row.history_mode === "assistant") {
-      const payloadFields = envelope.payload !== null && typeof envelope.payload === "object"
-        && !Array.isArray(envelope.payload) && Object.hasOwn(envelope.payload, "memoryItemIds")
-        ? ["schemaCode", "channelCode", "sensitivityCode", "historyEligible", "text", "memoryItemIds"]
-        : ["schemaCode", "channelCode", "sensitivityCode", "historyEligible", "text"];
+      const hasMemoryIds = envelope.payload !== null && typeof envelope.payload === "object"
+        && !Array.isArray(envelope.payload) && Object.hasOwn(envelope.payload, "memoryItemIds");
+      const hasReplyMarkup = envelope.payload !== null && typeof envelope.payload === "object"
+        && !Array.isArray(envelope.payload) && Object.hasOwn(envelope.payload, "replyMarkup");
+      const payloadFields = [
+        "schemaCode", "channelCode", "sensitivityCode", "historyEligible", "text",
+        ...(hasMemoryIds ? ["memoryItemIds"] : []),
+        ...(hasReplyMarkup ? ["decisionId", "replyMarkup"] : []),
+      ];
       const payload = exactPayload(envelope.payload, payloadFields);
       const memoryItemIds = payload.memoryItemIds;
       if (
@@ -1287,7 +1346,38 @@ export class ConversationRepository {
           || new Set(memoryItemIds).size !== memoryItemIds.length
         )
       ) throw new Error("conversation_staged_event_invalid");
-      return requireSafeText(payload.text, "conversation_staged_text", 65536);
+      const text = requireSafeText(payload.text, "conversation_staged_text", 65536);
+      if (!hasReplyMarkup) return Object.freeze({ text, decisionId: null, replyMarkup: null });
+      const decisionId = requireUlid(payload.decisionId, "conversation_decision_id");
+      const rawMarkup = payload.replyMarkup;
+      if (rawMarkup === null || typeof rawMarkup !== "object" || Array.isArray(rawMarkup)
+        || Reflect.ownKeys(rawMarkup).length !== 1 || !Object.hasOwn(rawMarkup, "inline_keyboard")) {
+        throw new Error("conversation_staged_event_invalid");
+      }
+      const rows = (rawMarkup as Record<string, unknown>).inline_keyboard;
+      if (!Array.isArray(rows) || rows.length < 1 || rows.length > 10) {
+        throw new Error("conversation_staged_event_invalid");
+      }
+      const inlineKeyboard = rows.map((row) => {
+        if (!Array.isArray(row) || row.length !== 1) throw new Error("conversation_staged_event_invalid");
+        const rawButton = row[0];
+        if (rawButton === null || typeof rawButton !== "object" || Array.isArray(rawButton)
+          || Reflect.ownKeys(rawButton).length !== 2
+          || !Object.hasOwn(rawButton, "text") || !Object.hasOwn(rawButton, "callback_data")) {
+          throw new Error("conversation_staged_event_invalid");
+        }
+        const button = rawButton as Record<string, unknown>;
+        const label = requireSafeText(button.text, "conversation_reply_markup_text", 128);
+        const data = requireSafeText(button.callback_data, "conversation_reply_markup_data", 64);
+        const parsed = parseDecisionCallbackData(data);
+        if (parsed === null || parsed.decisionId !== decisionId) throw new Error("conversation_staged_event_invalid");
+        return Object.freeze([Object.freeze({ text: label, callback_data: data })]);
+      });
+      return Object.freeze({
+        text,
+        decisionId,
+        replyMarkup: Object.freeze({ inline_keyboard: Object.freeze(inlineKeyboard) }),
+      });
     }
     const payload = exactPayload(envelope.payload, ["schemaCode", "channelCode", "noticeCode", "historyEligible", "text"]);
     if (
@@ -1298,6 +1388,10 @@ export class ConversationRepository {
       || payload.noticeCode !== 1
       || payload.historyEligible !== false
     ) throw new Error("conversation_staged_event_invalid");
-    return requireSafeText(payload.text, "conversation_staged_text", 65536);
+    return Object.freeze({
+      text: requireSafeText(payload.text, "conversation_staged_text", 65536),
+      decisionId: null,
+      replyMarkup: null,
+    });
   }
 }

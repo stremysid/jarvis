@@ -30,10 +30,7 @@ import {
   type CanonicalMemoryItem,
   type MemoryLifecycleState,
 } from "./memory-types.js";
-import {
-  parseTelegramMemoryAreaQuestion,
-  parseTelegramMemoryControl,
-} from "./telegram-memory-language.js";
+import { parseTelegramMemoryAreaQuestion } from "./telegram-memory-language.js";
 
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
@@ -106,7 +103,7 @@ export const TELEGRAM_MEMORY_CONTROL_TARGET_LIMITS = Object.freeze({
   candidatesExamined: MAX_CONTROL_TARGETS,
 });
 
-export type TelegramMemoryTargetOperation = "forget" | "lift" | "explain";
+export type TelegramMemoryTargetOperation = "forget" | "lift" | "confirm" | "explain";
 
 export interface TelegramMemoryTargetFinder {
   findControlTargets(input: Readonly<{
@@ -122,7 +119,6 @@ export interface TelegramMemoryRetrieverOptions {
   readonly archive: ArchiveBucket;
   readonly now?: () => Date;
   readonly nextId?: () => Ulid;
-  readonly controlAuthority?: Readonly<{ principalId: string; text: string }> | null;
   readonly baseContext?: ContextRetriever;
   readonly retrievalTimeoutMs?: number;
   readonly baseRetrievalTimeoutMs?: number;
@@ -634,13 +630,13 @@ async function timedOutcome<T>(
 function targetStates(operation: TelegramMemoryTargetOperation): readonly MemoryLifecycleState[] {
   if (operation === "forget") return Object.freeze(["active", "proposed"]);
   if (operation === "lift") return Object.freeze(["forgotten"]);
+  if (operation === "confirm") return Object.freeze(["proposed"]);
   return ALL_MEMORY_STATES;
 }
 
 export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemoryTargetFinder {
   private readonly now: () => Date;
   private readonly nextId: () => Ulid;
-  private readonly controlAuthority: Readonly<{ principalId: string; text: string }> | null;
   private readonly baseContext: ContextRetriever | null;
   private readonly retrievalTimeoutMs: number;
   private readonly baseRetrievalTimeoutMs: number;
@@ -666,21 +662,10 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       || this.baseRetrievalTimeoutMs > MAX_BASE_RETRIEVAL_TIMEOUT_MS) {
       throw new TypeError("telegram_memory_base_timeout_invalid");
     }
-    const authority = options.controlAuthority ?? null;
-    this.controlAuthority = authority === null ? null : Object.freeze({
-      principalId: safePrincipal(authority.principalId),
-      text: safeText(authority.text, MAX_QUERY_BYTES, "telegram_memory_query_invalid"),
-    });
   }
 
   async retrieve(input: ContextRetrieverInput): Promise<readonly RetrievedContext[]> {
     const captured = captureInput(input);
-    // The owner-control adapter consumes these before a provider call. Avoid
-    // retrieving memory into a request that must never reach that provider.
-    if (parseTelegramMemoryControl(captured.query) !== null
-      && this.controlAuthority?.principalId === captured.principalId
-      && this.controlAuthority.text === captured.query) return Object.freeze([]);
-
     const memoryLimit = Math.max(1, Math.floor(captured.maxTokens / 4));
     const baseLimit = Math.max(1, captured.maxTokens - memoryLimit);
     const memoryInput = Object.freeze({
@@ -1020,7 +1005,8 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
     turnId?: Ulid;
   }>): Promise<readonly Ulid[]> {
     const principalId = safePrincipal(input.principalId);
-    if (input.operation !== "forget" && input.operation !== "lift" && input.operation !== "explain") {
+    if (input.operation !== "forget" && input.operation !== "lift"
+      && input.operation !== "confirm" && input.operation !== "explain") {
       throw new TypeError("telegram_memory_target_invalid");
     }
     const states = targetStates(input.operation);

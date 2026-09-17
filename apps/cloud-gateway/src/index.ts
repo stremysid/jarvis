@@ -50,19 +50,21 @@ import {
 import { DeviceRepository } from "./persistence/device-repository.js";
 import { EventRepository } from "./persistence/event-repository.js";
 import { PolicyService } from "./policy/policy-service.js";
-import { DeepSeekJsonProvider, DeepSeekModelAdapter } from "./providers/deepseek-provider.js";
+import { DeepSeekAgentProvider, DeepSeekJsonProvider, DeepSeekModelAdapter } from "./providers/deepseek-provider.js";
 import { ProviderCircuitBreaker } from "./providers/provider-circuit-breaker.js";
 import { TelegramRestProvider, withTelegramTyping } from "./providers/telegram-provider.js";
 import { Redactor } from "./security/redaction.js";
-import { TelegramMemoryControlModelAdapter } from "./memory/telegram-memory-controls.js";
+import type { ModelAdapter } from "./model/model-types.js";
 import { TelegramMemoryRetriever } from "./memory/telegram-memory-retriever.js";
 import { MemoryExtractionBudget } from "./memory/memory-extraction-budget.js";
+import { MemoryOwnerControlsService } from "./memory/memory-owner-controls.js";
 import { SchoolCatchupModelAdapter } from "./school/school-catchup-model.js";
 import { SchoolCatchupRepository } from "./school/school-catchup-repository.js";
 import { StudyCoachModelAdapter } from "./school/study-coach-model.js";
 import { StudyCoachRepository } from "./school/study-coach-repository.js";
 import { SchoolObservationRepository } from "./school/school-observation-repository.js";
 import { UniversityTrackerRepository } from "./university/university-tracker-repository.js";
+import { OwnerTelegramAgentAdapter } from "./channels/telegram/owner-telegram-agent.js";
 export { CallSession } from "./voice/call-session-do.js";
 
 const TELEGRAM_WEBHOOK_PATH = "/telegram/webhook";
@@ -194,55 +196,78 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         telegramTurn: true,
         telegramThinking: env.DEEPSEEK_TELEGRAM_THINKING,
       }));
-      const ownerAwareModel = ownerPrincipalId !== undefined && accepted.principalId === ownerPrincipalId
-        ? new StudyCoachModelAdapter({
-          fallbackModel: new SchoolCatchupModelAdapter({
-            model: baseModel,
-            repository: new SchoolCatchupRepository(env.DB),
-            universityRepository: new UniversityTrackerRepository(env.DB),
-            redactor,
-            timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
-            ownerPrincipalId,
-            ownerTurnAuthoritative: accepted.isDirectText,
-            refreshBrightspace: async (now) => runOnDemandBrightspaceRefresh({
-              env,
-              clock: { now: () => new Date(now.getTime()) },
-              delivery: { send: async () => undefined },
-              fetcher: globalThis.fetch.bind(globalThis),
-            }),
-          }),
-          practiceModel: baseModel,
-          repository: new StudyCoachRepository(env.DB),
-          redactor,
-          ownerPrincipalId,
-          ownerTurnAuthoritative: accepted.isDirectText,
-          timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
-        })
-        : baseModel;
       const memory = new TelegramMemoryRetriever({
         database: env.DB,
         archive: env.ARCHIVE,
         observeRetrieval: (metrics) => observer.observeMemoryRetrieval(metrics),
-        controlAuthority: ownerPrincipalId !== undefined
-          && accepted.principalId === ownerPrincipalId
-          && accepted.isMemoryControlAuthoritative
-          ? { principalId: accepted.principalId, text: accepted.text }
-          : null,
       });
-      const model = ownerPrincipalId === undefined
-        ? ownerAwareModel
-        : new TelegramMemoryControlModelAdapter({
+      let model: ModelAdapter = baseModel;
+      if (ownerPrincipalId !== undefined && accepted.principalId === ownerPrincipalId) {
+        const schoolRepository = new SchoolCatchupRepository(env.DB);
+        const universityRepository = new UniversityTrackerRepository(env.DB);
+        const schoolModel = new SchoolCatchupModelAdapter({
+          model: baseModel,
+          repository: schoolRepository,
+          redactor,
+          timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
+          ownerPrincipalId,
+          ownerTurnAuthoritative: accepted.isMemoryControlAuthoritative,
+          agentSelectedScope: "school",
+          fixedActionReceipts: true,
+          refreshBrightspace: async (now) => runOnDemandBrightspaceRefresh({
+            env,
+            clock: { now: () => new Date(now.getTime()) },
+            delivery: { send: async () => undefined },
+            fetcher: globalThis.fetch.bind(globalThis),
+          }),
+        });
+        const universityModel = new SchoolCatchupModelAdapter({
+          model: baseModel,
+          repository: schoolRepository,
+          universityRepository,
+          redactor,
+          timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
+          ownerPrincipalId,
+          ownerTurnAuthoritative: accepted.isMemoryControlAuthoritative,
+          agentSelectedScope: "university",
+          fixedActionReceipts: true,
+        });
+        const studyFallbackModel: ModelAdapter = {
+          async *stream() {
+            yield Object.freeze({
+              index: 0,
+              text: "I couldn't identify one validated study-coach action from that message. Nothing changed.",
+            });
+          },
+        };
+        const studyModel = new StudyCoachModelAdapter({
+          fallbackModel: studyFallbackModel,
+          practiceModel: baseModel,
+          repository: new StudyCoachRepository(env.DB),
+          redactor,
+          ownerPrincipalId,
+          ownerTurnAuthoritative: accepted.isMemoryControlAuthoritative,
+          timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
+        });
+        model = new OwnerTelegramAgentAdapter({
+          provider: new DeepSeekAgentProvider({
+            apiKey,
+            model: env.DEEPSEEK_MODEL,
+            telegramTurn: true,
+            telegramThinking: "disabled",
+          }),
           database: env.DB,
           archive: env.ARCHIVE,
-          fallbackModel: ownerAwareModel,
           ownerPrincipalId,
-          authority: {
-            principalId: accepted.principalId,
-            text: accepted.text,
-            isDirectText: accepted.isMemoryControlAuthoritative,
-          },
+          directOwnerText: accepted.isMemoryControlAuthoritative,
+          authorityText: accepted.text,
           targets: memory,
+          decisions: new DecisionService({ repository: new DecisionRepository(env.DB) }),
+          schoolModel,
+          universityModel,
+          studyCoachModel: studyModel,
         });
+      }
 
       const durableDispatcher = telegramReplyStageSync("dispatcher", () => new DefaultOutboxDispatcher({
         repository,
@@ -472,11 +497,29 @@ async function answerFromTap(env: Env, tap: AcceptedTelegramButtonTap): Promise<
       optionKey: callback.optionKey,
     });
 
+    let confirmedForgetReceipts: readonly string[] = Object.freeze([]);
+    if (result.outcome === "recorded"
+      && result.routing.origin === "telegram-memory-forget"
+      && result.routing.optionKey === "confirm"
+      && result.routing.originReference !== null) {
+      const itemIds = result.routing.originReference.split(",");
+      if (itemIds.length < 2 || itemIds.length > 8) throw new Error("telegram_memory_forget_decision_invalid");
+      const receipts = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).forgetConfirmedDecision({
+        principalId: tap.principalId,
+        callbackEventId: tap.eventId as ReturnType<typeof newUlid>,
+        decisionId: result.routing.decisionId as ReturnType<typeof newUlid>,
+        itemIds: itemIds as ReturnType<typeof newUlid>[],
+      });
+      confirmedForgetReceipts = Object.freeze(receipts.map((receipt) => receipt.receipt));
+    }
+
     if (send === null) return;
     // Every outcome gets an answer. A tap that produced silence is
     // indistinguishable from a bot that has stopped working.
-    const message = result.outcome === "recorded"
-      ? "Got it."
+    const message = confirmedForgetReceipts.length > 0
+      ? confirmedForgetReceipts.join("\n\n")
+      : result.outcome === "recorded"
+        ? "Got it."
       : result.outcome === "already_answered"
         ? "That one is already answered."
         : result.outcome === "not_owner"

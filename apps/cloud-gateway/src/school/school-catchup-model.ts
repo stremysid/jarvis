@@ -129,6 +129,10 @@ interface SchoolCatchupModelDependencies {
   readonly ownerPrincipalId?: string;
   readonly refreshBrightspace?: (now: Date) => Promise<string>;
   readonly ownerTurnAuthoritative?: boolean;
+  /** Narrows an already selected owner-agent tool to its own validated store. */
+  readonly agentSelectedScope?: "school" | "university";
+  /** Uses fixed post-save text when this adapter executes as an agent tool. */
+  readonly fixedActionReceipts?: boolean;
 }
 
 /** A narrow natural-language intent, deliberately separate from slash commands. */
@@ -914,7 +918,14 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
     // An offer, decision or condition report is answered only with fixed text:
     // a receipt built from the stored rows, or a line saying nothing was saved.
     const offerReport = universitySnapshot !== null && isOfferUpdateReport(input.userText, universitySnapshot);
-    const structuredPrompt = boundedStructuredPrompt(input, snapshot, today, universitySnapshot, now);
+    const baseStructuredPrompt = boundedStructuredPrompt(input, snapshot, today, universitySnapshot, now);
+    const selectedScopeInstruction = this.dependencies.agentSelectedScope === "university"
+      ? "\n\nThe owner agent selected university_update for this turn. Set schoolEngaged false. If the current owner message cannot be validated as a university update, set both engaged fields false and save nothing."
+      : "";
+    const structuredPrompt = baseStructuredPrompt !== null
+      && encoder.encode(baseStructuredPrompt + selectedScopeInstruction).byteLength <= MAX_STRUCTURED_PROMPT_BYTES
+      ? baseStructuredPrompt + selectedScopeInstruction
+      : null;
     if (structuredPrompt === null) {
       if (!messageTouchesTracker(input.userText, snapshot, universitySnapshot)) {
         yield* guardedOrdinaryReplyWithNotice(
@@ -1003,6 +1014,14 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       }
       return;
     }
+    if (this.dependencies.agentSelectedScope === "school" && universityPlan?.engaged) {
+      yield Object.freeze({ index: 0, text: "I couldn't validate that as a school update, so I didn't save it." });
+      return;
+    }
+    if (this.dependencies.agentSelectedScope === "university" && schoolPlan.engaged) {
+      yield Object.freeze({ index: 0, text: "I couldn't validate that as a university update, so I didn't save it." });
+      return;
+    }
     if (schoolPlan.engaged) {
       let saveResult: ApplyOwnerCatchupPlanResult | undefined;
       try {
@@ -1043,6 +1062,10 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
           index: 0,
           text: `${schoolPlanReceipt(schoolPlan, snapshot, today)}\n\n${offerNotSavedLine(input.userText, universitySnapshot, true)}`,
         });
+        return;
+      }
+      if (this.dependencies.fixedActionReceipts) {
+        yield Object.freeze({ index: 0, text: schoolPlanReceipt(schoolPlan, snapshot, today) });
         return;
       }
     } else if (universityPlan?.engaged && universitySnapshot !== null) {

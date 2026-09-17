@@ -96,6 +96,7 @@ export class TelegramRestProvider implements TelegramProvider {
       }
       body.reply_to_message_id = input.replyToMessageId;
     }
+    if (input.replyMarkup !== undefined) body.reply_markup = input.replyMarkup;
 
     // A hung request would hold a Worker invocation open until the platform
     // kills it, so the timeout is enforced here rather than relied upon.

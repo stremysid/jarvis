@@ -23,6 +23,8 @@ import {
   type CanonicalTopicPathEntry,
   type CommitInitialMemoryInput,
   type CommitInitialMemoryResult,
+  type ConfirmMemoryItemInput,
+  type ConfirmMemoryItemResult,
   type ForgetMemoryItemInput,
   type ForgetMemoryItemResult,
   type LiftMemoryItemInput,
@@ -42,7 +44,7 @@ import {
   type ResolvedMemoryTopic,
 } from "./memory-types.js";
 
-type MemoryRepositoryWriteOperation = "bootstrap" | "commit" | "forget" | "lift";
+type MemoryRepositoryWriteOperation = "bootstrap" | "commit" | "forget" | "lift" | "confirm";
 
 export interface MemoryRepositoryOptions {
   readonly clock?: () => Date;
@@ -1621,7 +1623,7 @@ export class MemoryRepository {
       const occurredAt = inputTimestamp(input.occurredAt);
       const channel = inputEnum(input.channel, new Set(["telegram", "voice", "system"] as const));
       const intent = inputEnum(expectedIntent, new Set([
-        "remember", "forget", "lift", "explain",
+        "remember", "forget", "lift", "confirm", "explain",
       ] as const));
       const flags = [
         input.forwarded,
@@ -1673,7 +1675,7 @@ export class MemoryRepository {
       const eventSequence = inputInteger(input.eventSequence, 1, Number.MAX_SAFE_INTEGER);
       const occurredAt = inputTimestamp(input.occurredAt);
       const channel = inputEnum(input.channel, new Set(["telegram", "voice", "system"] as const));
-      inputEnum(input.memoryIntent, new Set(["remember", "forget", "lift", "explain"] as const));
+      inputEnum(input.memoryIntent, new Set(["remember", "forget", "lift", "confirm", "explain"] as const));
       const flags = [
         input.forwarded,
         input.quoted,
@@ -2043,6 +2045,153 @@ export class MemoryRepository {
     });
   }
 
+  async confirmItem(input: ConfirmMemoryItemInput): Promise<ConfirmMemoryItemResult> {
+    return this.safely(async () => {
+      const principalId = safeInputText(input.principalId, 256);
+      const itemId = inputUlid(input.itemId);
+      const previousVersionId = inputUlid(input.previousVersionId);
+      const versionId = inputUlid(input.versionId);
+      const transitionId = inputUlid(input.transitionId);
+      const ownerAuthorizingEventId = inputUlid(input.ownerAuthorizingEventId);
+      const reason = safeInputText(input.reason, 512);
+      const policyVersion = safeInputText(input.policyVersion, 128);
+      if (!Array.isArray(input.copiedSourceIds)) refuse();
+      const copiedSourceIds = input.copiedSourceIds.map(inputUlid);
+      const confirmation = Object.freeze({
+        sourceId: inputUlid(input.confirmationSource.sourceId),
+        eventId: inputUlid(input.confirmationSource.eventId),
+        eventSequence: inputInteger(input.confirmationSource.eventSequence, 1, Number.MAX_SAFE_INTEGER),
+        sourceLocation: inputEnum(input.confirmationSource.sourceLocation, new Set(["live"] as const)),
+        r2SegmentId: input.confirmationSource.r2SegmentId,
+        excerpt: this.validateItemText(input.confirmationSource.excerpt),
+        excerptHash: inputHash(input.confirmationSource.excerptHash),
+        channel: inputEnum(input.confirmationSource.channel, new Set(["telegram", "voice"] as const)),
+        occurredAt: inputTimestamp(input.confirmationSource.occurredAt),
+      });
+      if (confirmation.r2SegmentId !== null
+        || confirmation.excerptHash !== await sha256Hex(confirmation.excerpt)
+        || new Set([...copiedSourceIds, confirmation.sourceId]).size !== copiedSourceIds.length + 1) refuse();
+      const captured: ConfirmMemoryItemInput = Object.freeze({
+        principalId,
+        itemId,
+        previousVersionId,
+        versionId,
+        transitionId,
+        ownerAuthorizingEventId,
+        confirmationSource: confirmation,
+        copiedSourceIds: Object.freeze(copiedSourceIds),
+        reason,
+        policyVersion,
+      });
+      const replay = await this.readConfirmReplay(captured);
+      if (replay !== null) return replay;
+      const item = await this.readCurrentItemInternal(principalId, itemId);
+      if (item.version.versionId !== previousVersionId || item.lifecycle.state !== "proposed"
+        || !item.version.uncertain || item.sources.length < 1 || item.sources.length > 7
+        || copiedSourceIds.length !== item.sources.length
+        || confirmation.eventId === item.creationEventId
+        || item.sources.some((source) => source.eventId === confirmation.eventId)) refuse();
+      const createdAt = this.freshNow().toISOString();
+      const statements: D1PreparedStatement[] = [
+        this.database.prepare(`INSERT INTO memory_item_versions (
+          version_id, principal_id, item_id, version_number, text, text_normalization,
+          text_hash, basis, origin, uncertain, sensitivity, valid_from, valid_to,
+          extractor_version, extractor_model_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, 'NFC', ?, 'confirmed', 'authenticated_first_person', 0,
+          ?, ?, ?, ?, ?, ?)`)
+          .bind(
+            versionId,
+            principalId,
+            itemId,
+            item.version.versionNumber + 1,
+            item.version.text,
+            item.version.textHash,
+            item.version.sensitivity,
+            item.version.validFrom,
+            item.version.validTo,
+            item.version.extractorVersion,
+            item.version.extractorModelId,
+            createdAt,
+          ),
+      ];
+      item.sources.forEach((source, position) => {
+        const sourceId = copiedSourceIds[position];
+        if (sourceId === undefined) corrupt();
+        statements.push(this.database.prepare(`INSERT INTO memory_item_sources (
+          source_id, principal_id, item_id, version_id, source_position, event_id,
+          event_sequence, source_location, r2_segment_id, excerpt, excerpt_hash,
+          channel, occurred_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .bind(
+            sourceId,
+            principalId,
+            itemId,
+            versionId,
+            position,
+            source.eventId,
+            source.eventSequence,
+            source.sourceLocation,
+            source.r2SegmentId,
+            source.excerpt,
+            source.excerptHash,
+            source.channel,
+            source.occurredAt,
+            createdAt,
+          ));
+      });
+      statements.push(this.database.prepare(`INSERT INTO memory_item_sources (
+        source_id, principal_id, item_id, version_id, source_position, event_id,
+        event_sequence, source_location, r2_segment_id, excerpt, excerpt_hash,
+        channel, occurred_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'live', NULL, ?, ?, ?, ?, ?)`)
+        .bind(
+          confirmation.sourceId,
+          principalId,
+          itemId,
+          versionId,
+          item.sources.length,
+          confirmation.eventId,
+          confirmation.eventSequence,
+          confirmation.excerpt,
+          confirmation.excerptHash,
+          confirmation.channel,
+          confirmation.occurredAt,
+          createdAt,
+        ));
+      statements.push(this.database.prepare(`INSERT INTO memory_item_transitions (
+        transition_id, principal_id, item_id, transition_number, version_id,
+        lifecycle_state, reason, actor, policy_version, owner_authorizing_event_id, occurred_at
+      ) VALUES (?, ?, ?, ?, ?, 'active', ?, 'owner', ?, ?, ?)`)
+        .bind(
+          transitionId,
+          principalId,
+          itemId,
+          item.lifecycle.transitionNumber + 1,
+          versionId,
+          reason,
+          policyVersion,
+          ownerAuthorizingEventId,
+          this.freshNow().toISOString(),
+        ));
+      try {
+        const fault = repositoryTestSeams.get(this)?.batchFault("confirm", 1) ?? null;
+        if (fault !== null) statements.push(fault);
+        await repositoryTestSeams.get(this)?.beforeBatch("confirm", 1);
+        await this.transactions.batch(statements);
+      } catch (error) {
+        const raced = await this.readConfirmReplay(captured);
+        if (raced !== null) return raced;
+        if (isConstraintRefusal(error)) refuse();
+        throw error;
+      }
+      const confirmed = await this.readCurrentItemInternal(principalId, itemId);
+      if (confirmed.lifecycle.state !== "active" || confirmed.lifecycle.transitionId !== transitionId
+        || confirmed.version.versionId !== versionId || confirmed.version.basis !== "confirmed"
+        || confirmed.version.uncertain) corrupt();
+      return Object.freeze({ item: confirmed, replayed: false });
+    });
+  }
+
   private async readForgetReplay(input: ForgetMemoryItemInput): Promise<ForgetMemoryItemResult | null> {
     const item = await this.readCurrentItemInternal(input.principalId, input.itemId);
     if (item.lifecycle.state !== "forgotten" || item.lifecycle.transitionId !== input.transitionId
@@ -2100,6 +2249,24 @@ export class MemoryRepository {
         || rowUlid(row.correction_transition_id) !== input.transitionId) corrupt();
     }
     return Object.freeze({ item, liftedSuppressionCount: rows.results.length, replayed: true });
+  }
+
+  private async readConfirmReplay(input: ConfirmMemoryItemInput): Promise<ConfirmMemoryItemResult | null> {
+    const item = await this.readCurrentItemInternal(input.principalId, input.itemId);
+    if (item.lifecycle.state !== "active" || item.lifecycle.transitionId !== input.transitionId
+      || item.version.versionId !== input.versionId || item.version.basis !== "confirmed"
+      || item.version.uncertain || item.lifecycle.ownerAuthorizingEventId !== input.ownerAuthorizingEventId
+      || item.sources.length !== input.copiedSourceIds.length + 1) return null;
+    const confirmation = item.sources.at(-1);
+    if (confirmation === undefined
+      || confirmation.sourceId !== input.confirmationSource.sourceId
+      || confirmation.eventId !== input.confirmationSource.eventId
+      || confirmation.eventSequence !== input.confirmationSource.eventSequence
+      || confirmation.excerpt !== input.confirmationSource.excerpt
+      || confirmation.excerptHash !== input.confirmationSource.excerptHash
+      || item.sources.slice(0, -1).some((source, index) =>
+        source.sourceId !== input.copiedSourceIds[index])) corrupt();
+    return Object.freeze({ item, replayed: true });
   }
 
   private async safely<T>(operation: () => Promise<T>): Promise<T> {

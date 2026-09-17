@@ -228,10 +228,6 @@ function productionService(options: {
   const memory = new TelegramMemoryRetriever({
     database: options.retrieverDatabase ?? env.DB,
     archive: env.ARCHIVE,
-    controlAuthority: options.who.principalId === options.ownerPrincipalId
-      && classified.value.isMemoryControlAuthoritative
-      ? { principalId: options.who.principalId, text: options.text }
-      : null,
     ...(options.retrievalTimeoutMs === undefined
       ? {}
       : { retrievalTimeoutMs: options.retrievalTimeoutMs }),
@@ -492,7 +488,7 @@ async function claimedTurn(principalId: string, text: string): Promise<Readonly<
   input: ModelAdapterStreamInput;
 }>> {
   const events = new EventRepository(env.DB);
-  const conversations = new ConversationRepository(env.DB, events);
+  const conversations = new ConversationRepository(env.DB, events, { telegramDirectOwnerText: true });
   const redacted = new Redactor().redactText(text);
   if (!redacted.ok) throw new Error("telegram_memory_test_redaction_failed");
   const turnId = newUlid();
@@ -1854,7 +1850,6 @@ describe("Telegram memory retrieval", () => {
     const controlRetriever = new TelegramMemoryRetriever({
       database: env.DB,
       archive: env.ARCHIVE,
-      controlAuthority: { principalId: RETRIEVAL_ID, text: controlText },
     });
     const controlContext = await controlRetriever.retrieve({
       principalId: RETRIEVAL_ID,
@@ -1868,7 +1863,8 @@ describe("Telegram memory retrieval", () => {
     expect(contexts.some((entry) => entry.text === text)).toBe(true);
     expect(contexts.some((entry) => entry.text.startsWith("History evidence [live D1;"))).toBe(false);
     expect(area.some((entry) => entry.text.includes("area Memory > Inbox / Needs filing"))).toBe(true);
-    expect(controlContext).toEqual([]);
+    expect(controlContext.some((entry) => entry.text.startsWith("Memory evidence ["))).toBe(true);
+    expect(controlContext.some((entry) => entry.text === text)).toBe(true);
     expect(TELEGRAM_MEMORY_RETRIEVAL_LIMITS.d1Statements).toBeLessThan(1_000);
   });
 });

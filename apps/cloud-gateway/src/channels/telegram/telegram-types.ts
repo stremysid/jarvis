@@ -245,6 +245,11 @@ export function classifyTelegramUpdate(raw: unknown): TelegramClassification {
   }
 
   const isDirectText = !BORROWED_TEXT_KEYS.some((key) => key in message);
+  const privateHumanText = (chat.type === "private"
+    || chat.type === undefined && resolvedChatId === telegramUserId)
+    && from.is_bot !== true;
+  const isDirectOwnerText = privateHumanText && isDirectText
+    && !containsQuotedOrPastedControlContent(message, text);
   return {
     kind: "text",
     value: Object.freeze({
@@ -254,8 +259,7 @@ export function classifyTelegramUpdate(raw: unknown): TelegramClassification {
       messageId,
       text,
       isDirectText,
-      isMemoryControlAuthoritative: isDirectText
-        && !containsQuotedOrPastedControlContent(message, text),
+      isMemoryControlAuthoritative: isDirectOwnerText,
     }),
   };
 }
