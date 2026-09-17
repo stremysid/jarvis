@@ -275,6 +275,19 @@ interface InboxRefilingRow {
   readonly last_placement_event_number: unknown;
   readonly confidence: unknown;
   readonly reason: unknown;
+  readonly updated_at: unknown;
+}
+
+interface AutomaticTopicHintRow {
+  readonly top_topic_id: unknown;
+  readonly top_name: unknown;
+  readonly child_topic_id: unknown;
+  readonly child_name: unknown;
+}
+
+interface InboxRefilingCursor {
+  readonly updatedAt: string;
+  readonly itemId: Ulid;
 }
 
 interface PreviousLifecycleRow {
@@ -397,8 +410,10 @@ const AUTOMATIC_TOPIC_CHILD_LIMIT = 40;
 const AUTOMATIC_INBOX_REFILE_LIMIT = 10;
 const AUTOMATIC_INBOX_REFILE_CANDIDATE_LIMIT = 100;
 const AUTOMATIC_TOPIC_COMPONENT_BYTES = 64;
+export const AUTOMATIC_TOPIC_PROMPT_TREE_BYTES = 4_096;
 const AUTOMATIC_FILING_REASON_PREFIX = "automatic filing v1 ";
 const AUTOMATIC_FILING_EVIDENCE = "verified item sources";
+const inboxRefilingCursors = new WeakMap<D1Database, Map<string, InboxRefilingCursor>>();
 const repositoryTestSeams = new WeakMap<MemoryRepository, Readonly<{
   beforeBatch: NonNullable<MemoryRepositoryTestOptions["beforeBatch"]>;
   batchFault: NonNullable<MemoryRepositoryTestOptions["batchFault"]>;
@@ -577,7 +592,9 @@ interface AutomaticCommitPlan {
 }
 
 function foldedTopicName(displayName: string): string {
-  return displayName.normalize("NFKC").toLocaleLowerCase("en-US");
+  return displayName.normalize("NFKC")
+    .replace(/\p{Default_Ignorable_Code_Point}/gu, "")
+    .toLocaleLowerCase("en-US");
 }
 
 function payloadContainsExactExcerpt(payload: JsonValue, excerpt: string): boolean {
@@ -647,10 +664,11 @@ export function normalizeAutomaticTopicPath(
     foldedTopicName(inboxDisplayName),
   ]);
   for (const component of components) {
+    const folded = foldedTopicName(component.display);
     if (utf8.encode(component.display).byteLength > AUTOMATIC_TOPIC_COMPONENT_BYTES
-      || /[>/]/u.test(component.display)
-      || /\p{Cf}/u.test(component.display)
-      || /[\u2028\u2029]/u.test(component.display)
+      || /[>/]/u.test(folded)
+      || /\p{Cf}/u.test(folded)
+      || /[\u2028\u2029]/u.test(folded)
       || inboxNames.has(foldedTopicName(component.display))) return null;
   }
   return Object.freeze(components.map((component) => component.display));
@@ -919,6 +937,7 @@ export class MemoryRepository {
   private readonly idFactory: (now: Date) => Ulid;
   private readonly maximumWriteAttempts: number;
   private readonly archivedEventReader: ArchivedEventReader | undefined;
+  private readonly inboxRefilingCursorByPrincipal: Map<string, InboxRefilingCursor>;
 
   constructor(
     private readonly database: D1Database,
@@ -929,6 +948,9 @@ export class MemoryRepository {
     this.idFactory = options.idFactory ?? newUlid;
     this.maximumWriteAttempts = options.maximumWriteAttempts ?? 2;
     this.archivedEventReader = options.archivedEventReader;
+    const existingCursors = inboxRefilingCursors.get(database);
+    this.inboxRefilingCursorByPrincipal = existingCursors ?? new Map();
+    if (existingCursors === undefined) inboxRefilingCursors.set(database, this.inboxRefilingCursorByPrincipal);
     if (!Number.isSafeInteger(this.maximumWriteAttempts)
       || this.maximumWriteAttempts < 1 || this.maximumWriteAttempts > 3) refuse();
   }
@@ -1004,11 +1026,15 @@ export class MemoryRepository {
     });
   }
 
-  async commitInitialItem(input: CommitInitialMemoryInput): Promise<CommitInitialMemoryResult> {
+  async commitInitialItem(
+    input: CommitInitialMemoryInput,
+    onAutomaticFilingPreparation?: () => void,
+  ): Promise<CommitInitialMemoryResult> {
     return this.safely(async () => {
       const captured = captureInput(input);
       await this.validateHashes(captured);
       await this.requireActivePrincipal(captured.principalId);
+      if (captured.automaticFiling !== null) onAutomaticFilingPreparation?.();
       let plan = await this.prepareAutomaticCommit(captured);
       const replay = await this.inspectReplay(plan.input);
       if (replay === "exact") {
@@ -1022,7 +1048,10 @@ export class MemoryRepository {
 
       let lastError: unknown;
       for (let attempt = 1; attempt <= this.maximumWriteAttempts; attempt += 1) {
-        if (attempt > 1) plan = await this.prepareAutomaticCommit(captured);
+        if (attempt > 1) {
+          if (captured.automaticFiling !== null) onAutomaticFilingPreparation?.();
+          plan = await this.prepareAutomaticCommit(captured);
+        }
         await this.validateSourceReceipts(captured);
         if (plan.topicStatements.length === 0) {
           await this.requireActiveTopic(captured.principalId, plan.input.placement.topicId);
@@ -1509,6 +1538,76 @@ export class MemoryRepository {
     });
   }
 
+  async readAutomaticTopicPromptTree(
+    principalIdInput: string,
+  ): Promise<readonly (readonly [string, readonly string[]])[]> {
+    return this.safely(async () => {
+      const principalId = safeInputText(principalIdInput, 256);
+      const rows = await this.database.prepare(`SELECT
+          top.topic_id AS top_topic_id, top.display_name AS top_name,
+          child.topic_id AS child_topic_id, child.display_name AS child_name
+        FROM memory_topics root
+        JOIN memory_topic_events root_bootstrap
+          ON root_bootstrap.principal_id = root.principal_id
+          AND root_bootstrap.topic_id = root.topic_id
+          AND root_bootstrap.operation = 'create'
+          AND root_bootstrap.actor = 'rules'
+          AND root_bootstrap.reason = ?
+        JOIN memory_topics top
+          ON top.principal_id = root.principal_id
+          AND top.parent_topic_id = root.topic_id
+          AND top.status = 'active'
+        LEFT JOIN memory_topics child
+          ON child.principal_id = top.principal_id
+          AND child.parent_topic_id = top.topic_id
+          AND child.status = 'active'
+        WHERE root.principal_id = ? AND root.status = 'active'
+          AND NOT EXISTS (
+            SELECT 1 FROM memory_topic_events inbox_bootstrap
+            WHERE inbox_bootstrap.principal_id = top.principal_id
+              AND inbox_bootstrap.topic_id = top.topic_id
+              AND inbox_bootstrap.operation = 'create'
+              AND inbox_bootstrap.actor = 'rules'
+              AND inbox_bootstrap.reason = ?
+          )
+        ORDER BY top.created_at ASC, top.topic_id ASC,
+          child.created_at ASC, child.topic_id ASC`)
+        .bind(ROOT_BOOTSTRAP_REASON, principalId, INBOX_BOOTSTRAP_REASON)
+        .all<AutomaticTopicHintRow>();
+      const tree = new Map<Ulid, { name: string; children: string[] }>();
+      for (const row of rows.results) {
+        exactRow(row, new Set(["top_topic_id", "top_name", "child_topic_id", "child_name"]));
+        const topTopicId = rowUlid(row.top_topic_id);
+        const topName = safeRowText(row.top_name, 256);
+        const existing = tree.get(topTopicId);
+        if (existing !== undefined && existing.name !== topName) corrupt();
+        const entry = existing ?? { name: topName, children: [] };
+        if (row.child_topic_id === null) {
+          if (row.child_name !== null) corrupt();
+        } else {
+          rowUlid(row.child_topic_id);
+          entry.children.push(safeRowText(row.child_name, 256));
+        }
+        tree.set(topTopicId, entry);
+      }
+      const bounded: Array<[string, string[]]> = [];
+      for (const entry of tree.values()) {
+        const children: string[] = [];
+        const withTop = [...bounded, [entry.name, children] as const];
+        if (utf8.encode(canonicalJson(withTop)).byteLength > AUTOMATIC_TOPIC_PROMPT_TREE_BYTES) break;
+        bounded.push([entry.name, children]);
+        for (const child of entry.children) {
+          children.push(child);
+          if (utf8.encode(canonicalJson(bounded)).byteLength <= AUTOMATIC_TOPIC_PROMPT_TREE_BYTES) continue;
+          children.pop();
+          break;
+        }
+      }
+      return Object.freeze(bounded.map(([name, children]) =>
+        Object.freeze([name, Object.freeze([...children])] as const)));
+    });
+  }
+
   async refileAutomaticInboxItems(principalIdInput: string): Promise<AutomaticInboxRefilingResult> {
     return this.safely(async () => {
       const principalId = safeInputText(principalIdInput, 256);
@@ -1517,8 +1616,10 @@ export class MemoryRepository {
       if (bootstrapped === null) {
         return Object.freeze({ examinedItemCount: 0, refiledItemCount: 0, failedItemCount: 0 });
       }
+      const cursor = this.inboxRefilingCursorByPrincipal.get(principalId) ?? null;
       const rows = await this.database.prepare(`SELECT placement.placement_id, placement.item_id,
-          placement.last_placement_event_number, event.confidence, event.reason
+          placement.last_placement_event_number, event.confidence, event.reason,
+          placement.updated_at
         FROM memory_item_placement_state placement
         JOIN memory_item_placement_events event
           ON event.principal_id = placement.principal_id
@@ -1534,26 +1635,35 @@ export class MemoryRepository {
           AND state.lifecycle_state = 'active' AND version.uncertain = 0
           AND event.confidence >= 0.6
           AND (instr(event.reason, ?) = 1 OR instr(event.reason, ?) = 1)
-        ORDER BY placement.updated_at ASC, placement.item_id ASC
-        LIMIT ?`).bind(
+        ORDER BY CASE
+          WHEN ?5 IS NULL OR placement.updated_at > ?5
+            OR (placement.updated_at = ?5 AND placement.item_id > ?6)
+          THEN 0 ELSE 1 END,
+          placement.updated_at ASC, placement.item_id ASC
+        LIMIT ?7`).bind(
           principalId,
           bootstrapped.inbox.topicId,
           `${AUTOMATIC_FILING_REASON_PREFIX}{"decision":"inbox_cap",`,
           `${AUTOMATIC_FILING_REASON_PREFIX}{"decision":"inbox_filing_failure",`,
+          cursor?.updatedAt ?? null,
+          cursor?.itemId ?? null,
           AUTOMATIC_INBOX_REFILE_CANDIDATE_LIMIT,
         )
         .all<InboxRefilingRow>();
+      if (rows.results.length === 0) this.inboxRefilingCursorByPrincipal.delete(principalId);
       let examinedItemCount = 0;
       let refiledItemCount = 0;
       let failedItemCount = 0;
       for (const row of rows.results) {
-        if (refiledItemCount >= AUTOMATIC_INBOX_REFILE_LIMIT) break;
+        if (refiledItemCount + failedItemCount >= AUTOMATIC_INBOX_REFILE_LIMIT) break;
         examinedItemCount += 1;
         exactRow(row, new Set([
-          "placement_id", "item_id", "last_placement_event_number", "confidence", "reason",
+          "placement_id", "item_id", "last_placement_event_number", "confidence", "reason", "updated_at",
         ]));
         const placementId = rowUlid(row.placement_id);
         const itemId = rowUlid(row.item_id);
+        const updatedAt = rowTimestamp(row.updated_at);
+        this.inboxRefilingCursorByPrincipal.set(principalId, { updatedAt, itemId });
         const eventNumber = rowInteger(row.last_placement_event_number, 1, Number.MAX_SAFE_INTEGER);
         const confidence = this.rowConfidence(row.confidence);
         const reason = parseAutomaticFilingReason(row.reason);
@@ -2169,7 +2279,7 @@ export class MemoryRepository {
           alias.normalized_alias, alias.path_alias, alias.created_by_topic_event_id,
           alias.created_at, alias.topic_id, 0, ',' || alias.topic_id || ','
         FROM memory_topic_aliases alias
-        WHERE alias.principal_id = ? AND alias.normalized_alias = ?
+        WHERE alias.principal_id = ?
         UNION ALL
         SELECT candidate.alias_id, candidate.principal_id, candidate.display_alias,
           candidate.normalized_alias, candidate.path_alias, candidate.created_by_topic_event_id,
@@ -2194,19 +2304,25 @@ export class MemoryRepository {
       WHERE topic.parent_topic_id = ? AND topic.status = 'active'
       ORDER BY candidate.created_at DESC, candidate.created_by_topic_event_id DESC,
         candidate.alias_id DESC
-      LIMIT 2`).bind(principalId, normalizedAlias, parentTopicId).all<AliasRow>();
+      `).bind(principalId, parentTopicId).all<AliasRow>();
+    let exact: AliasRow | undefined;
+    let folded: AliasRow | undefined;
+    const wantedFold = foldedTopicName(normalizedAlias);
     for (const row of result.results) {
       exactRow(row, aliasFields);
       rowUlid(row.alias_id);
       rowPrincipal(row.principal_id, principalId);
       rowUlid(row.topic_id);
-      safeRowText(row.display_alias, 256);
-      if (safeRowText(row.normalized_alias, 256) !== normalizedAlias) corrupt();
+      const displayAlias = safeRowText(row.display_alias, 256);
+      const storedNormalizedAlias = safeRowText(row.normalized_alias, 256);
+      if (storedNormalizedAlias !== normalizedTopicName(displayAlias)) corrupt();
       safeRowText(row.path_alias, 2048);
       rowUlid(row.created_by_topic_event_id);
       rowTimestamp(row.created_at);
+      if (exact === undefined && storedNormalizedAlias === normalizedAlias) exact = row;
+      if (folded === undefined && foldedTopicName(displayAlias) === wantedFold) folded = row;
     }
-    const newest = result.results[0];
+    const newest = exact ?? folded;
     if (newest === undefined) return null;
     const topic = await this.readTopic(principalId, rowUlid(newest.topic_id));
     if (topic === null || topic.status !== "active" || topic.parentTopicId !== parentTopicId) corrupt();

@@ -16,9 +16,11 @@ import { buildTelegramConversationRepository } from "../../src/index.js";
 import { buildJobTable, type JobEnvironment } from "../../src/jobs/job-table.js";
 import {
   AUTOMATIC_DISTILLATION_STEP_LIMITS,
+  AUTOMATIC_INBOX_REFILE_D1_STATEMENT_CEILING,
   AutomaticMemoryDistillationWorkflow,
 } from "../../src/memory/automatic-distillation.js";
 import {
+  AUTOMATIC_TOPIC_PROMPT_TREE_BYTES,
   automaticFilingReason,
   createMemoryRepositoryForTest,
   MemoryRepository,
@@ -48,17 +50,23 @@ const MODEL_ID = "openai:fake-memory-distillation-v1";
 const redactor = new Redactor();
 let serial = 0;
 
-function queryCountingDatabase(): { readonly database: D1Database; queryCount(): number } {
+function queryCountingDatabase(
+  failRun?: (query: string) => boolean,
+): { readonly database: D1Database; queryCount(): number } {
   let count = 0;
   const originals = new WeakMap<object, D1PreparedStatement>();
-  const wrap = (statement: D1PreparedStatement): D1PreparedStatement => {
+  const wrap = (statement: D1PreparedStatement, query: string): D1PreparedStatement => {
     const wrapped = {
-      bind: (...values: unknown[]) => wrap(statement.bind(...values)),
+      bind: (...values: unknown[]) => wrap(statement.bind(...values), query),
       first: async <T>(columnName?: string) => {
         count += 1;
         return columnName === undefined ? statement.first<T>() : statement.first<T>(columnName);
       },
-      run: async <T>() => { count += 1; return statement.run<T>(); },
+      run: async <T>() => {
+        count += 1;
+        if (failRun?.(query) === true) throw new Error("fixture_d1_write_unavailable");
+        return statement.run<T>();
+      },
       all: async <T>() => { count += 1; return statement.all<T>(); },
       raw: async (options?: { columnNames?: boolean }) => {
         count += 1;
@@ -70,7 +78,7 @@ function queryCountingDatabase(): { readonly database: D1Database; queryCount():
   };
   return {
     database: {
-      prepare: (query: string) => wrap(env.DB.prepare(query)),
+      prepare: (query: string) => wrap(env.DB.prepare(query), query),
       batch: async <T>(statements: D1PreparedStatement[]) => {
         count += statements.length;
         return env.DB.batch<T>(statements.map((statement) => originals.get(statement as object) ?? statement));
@@ -234,6 +242,54 @@ function proposal(
     topicPath,
     filingConfidence,
   });
+}
+
+function multiSourceProposal(
+  events: readonly AppendedEvent[],
+  sourceTexts: readonly string[],
+  text: string,
+  topicPath: readonly string[],
+): Readonly<Record<string, unknown>> {
+  return Object.freeze({
+    text,
+    sourceEventIds: events.map((event) => event.envelope.eventId),
+    sourceExcerpts: events.map((event, index) => ({
+      sourceEventId: event.envelope.eventId,
+      excerpt: sourceTexts[index],
+    })),
+    confidence: 0.95,
+    sensitivity: "normal",
+    topicPath,
+    filingConfidence: 0.9,
+  });
+}
+
+async function createStoredTopic(
+  principalId: string,
+  parentTopicId: Ulid,
+  displayName: string,
+): Promise<Ulid> {
+  const topicId = newUlid();
+  const topicEventId = newUlid();
+  await env.DB.prepare(`INSERT INTO memory_topic_events (
+    topic_event_id, principal_id, topic_id, operation,
+    previous_parent_topic_id, new_parent_topic_id,
+    previous_display_name, previous_normalized_name,
+    new_display_name, new_normalized_name, merge_target_topic_id,
+    reparented_child_ids_json, moved_placement_ids_json, added_aliases_json,
+    reason, actor, owner_authorizing_event_id, occurred_at
+  ) VALUES (?, ?, ?, 'create', NULL, ?, NULL, NULL, ?, ?, NULL,
+    '[]', '[]', '[]', 'automatic filing test topic', 'rules', NULL, ?)`)
+    .bind(
+      topicEventId,
+      principalId,
+      topicId,
+      parentTopicId,
+      displayName,
+      displayName.normalize("NFC").toLocaleLowerCase("en-US"),
+      new Date(Date.now() + serial * 1_000).toISOString(),
+    ).run();
+  return topicId;
 }
 
 function workflow(
@@ -551,7 +607,6 @@ describe("automatic memory distillation", () => {
       ["Ticket 482913"],
       ["School", "Unit\u20282"],
       ["School > Chemistry"],
-      ["School\u200b"],
     ];
     for (const [index, topicPath] of cases.entries()) {
       const principalId = await principal();
@@ -658,19 +713,16 @@ describe("automatic memory distillation", () => {
     expect(await itemCount(principalId)).toBe(0);
   });
 
-  it("does not leave model-created topics when the atomic item commit fails", async () => {
+  it("commits model-created areas and their item in one D1 batch", async () => {
     const principalId = await principal();
     const events = new EventRepository(env.DB);
     const text = "I signed up for the physics olympiad.";
     const event = await appendConversation(events, principalId, text, { directOwnerText: true });
-    const canonical = new MemoryRepository(env.DB);
-    const repository = {
-      bootstrapTopics: (id: string) => canonical.bootstrapTopics(id),
-      commitInitialItem: async (): Promise<never> => { throw new Error("fixture_commit_unavailable"); },
-      resolveOrCreateAutomaticTopicPath: (id: string, path: readonly string[], maximum: number) =>
-        canonical.resolveOrCreateAutomaticTopicPath(id, path, maximum),
-      refileAutomaticInboxItems: (id: string) => canonical.refileAutomaticInboxItems(id),
-    };
+    const repository = createMemoryRepositoryForTest(env.DB, {
+      batchFault: (operation) => operation === "commit"
+        ? env.DB.prepare("INSERT INTO memory_repository_missing_fault_target(value) VALUES (1)")
+        : null,
+    });
 
     const result = await workflow(
       principalId,
@@ -684,6 +736,37 @@ describe("automatic memory distillation", () => {
     expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_topic_events
       WHERE principal_id = ? AND reason = 'model-inference automatic filing path'`)
       .bind(principalId).first("count")).toBe(0);
+    expect(await itemCount(principalId)).toBe(0);
+  });
+
+  it("adds bounded top-two-level existing-area names to the one extraction prompt", async () => {
+    const principalId = await principal();
+    const repository = new MemoryRepository(env.DB);
+    await repository.bootstrapTopics(principalId);
+    await repository.resolveOrCreateAutomaticTopicPath(
+      principalId,
+      ["School", "Chemistry", "Unit 2"],
+      3,
+    );
+    await repository.resolveOrCreateAutomaticTopicPath(principalId, ["Personal"], 1);
+    const events = new EventRepository(env.DB);
+    const text = "I reviewed the chemistry notes.";
+    await appendConversation(events, principalId, text, { directOwnerText: true });
+    const provider = new FakeModelProvider({ completeJson: [] });
+
+    await workflow(principalId, provider, repository).runNext({ runKey: `topic-prompt:${newUlid()}` });
+
+    expect(provider.requests).toHaveLength(1);
+    const request = provider.requests[0];
+    if (request === undefined) throw new Error("automatic_distillation_prompt_missing");
+    const prompt = JSON.parse(request.prompt) as { existingTopicTree: unknown };
+    expect(prompt.existingTopicTree).toEqual([
+      ["School", ["Chemistry"]],
+      ["Personal", []],
+    ]);
+    expect(new TextEncoder().encode(canonicalJson(prompt.existingTopicTree)).byteLength)
+      .toBeLessThanOrEqual(AUTOMATIC_TOPIC_PROMPT_TREE_BYTES);
+    expect(request.prompt).not.toContain("Unit 2");
   });
 
   it("files into an existing path by normalized sibling names without creating duplicates", async () => {
@@ -1108,14 +1191,14 @@ describe("automatic memory distillation", () => {
     });
   });
 
-  it("re-files a later resolvable candidate past ten older unmovable Inbox rows", async () => {
+  it("wraps the re-file cursor past one hundred older unmovable Inbox rows", async () => {
     const principalId = await principal();
     const events = new EventRepository(env.DB);
     const repository = new MemoryRepository(env.DB);
     const topics = await repository.bootstrapTopics(principalId);
     const school = await repository.resolveOrCreateAutomaticTopicPath(principalId, ["School"], 1);
     if (school.topic === null) throw new Error("automatic_distillation_refile_school_missing");
-    for (let index = 0; index < 10; index += 1) {
+    for (let index = 0; index < 100; index += 1) {
       await commitInboxItem(
         repository,
         events,
@@ -1136,11 +1219,13 @@ describe("automatic memory distillation", () => {
       ["School"],
     );
 
-    const result = await repository.refileAutomaticInboxItems(principalId);
+    const first = await repository.refileAutomaticInboxItems(principalId);
+    const second = await repository.refileAutomaticInboxItems(principalId);
 
-    expect(result).toMatchObject({ refiledItemCount: 1, failedItemCount: 0 });
+    expect(first).toMatchObject({ examinedItemCount: 100, refiledItemCount: 0, failedItemCount: 0 });
+    expect(second).toMatchObject({ refiledItemCount: 1, failedItemCount: 0 });
     expect((await placementDetail(principalId, fileable)).topic_id).toBe(school.topic.topicId);
-  });
+  }, 120_000);
 
   it("re-file skips proposed uncertain, low-confidence, and Inbox-target items in SQL and policy", async () => {
     const principalId = await principal();
@@ -1170,6 +1255,42 @@ describe("automatic memory distillation", () => {
     expect(await env.DB.prepare(`SELECT count(*) AS count FROM memory_item_placement_events
       WHERE principal_id = ? AND operation = 'refile'`).bind(principalId).first("count")).toBe(0);
   });
+
+  it("filters non-retryable filing decisions in SQL before the one-hundred-row re-file window", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    const school = await repository.resolveOrCreateAutomaticTopicPath(principalId, ["School"], 1);
+    if (school.topic === null) throw new Error("automatic_distillation_sql_filter_school_missing");
+    for (let index = 0; index < 100; index += 1) {
+      await commitInboxItem(
+        repository,
+        events,
+        principalId,
+        topics.inbox.topicId,
+        `I kept non-retryable filing note ${index}.`,
+        "inbox_low_confidence",
+        ["School"],
+        "active",
+        0.9,
+      );
+    }
+    const fileable = await commitInboxItem(
+      repository,
+      events,
+      principalId,
+      topics.inbox.topicId,
+      "I kept the retryable school filing note.",
+      "inbox_cap",
+      ["School"],
+    );
+
+    const result = await repository.refileAutomaticInboxItems(principalId);
+
+    expect(result).toEqual({ examinedItemCount: 1, refiledItemCount: 1, failedItemCount: 0 });
+    expect((await placementDetail(principalId, fileable)).topic_id).toBe(school.topic.topicId);
+  }, 120_000);
 
   it("re-file matches current names exactly and never follows an alias", async () => {
     const principalId = await principal();
@@ -1203,6 +1324,33 @@ describe("automatic memory distillation", () => {
 
     expect(result).toEqual({ examinedItemCount: 1, refiledItemCount: 0, failedItemCount: 0 });
     expect((await placementDetail(principalId, itemId)).topic_id).toBe(topics.inbox.topicId);
+  });
+
+  it("stops a counted re-file pass after ten failed write attempts", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    const path = ["Retry one", "Retry two", "Retry three", "Retry four"];
+    const target = await repository.resolveOrCreateAutomaticTopicPath(principalId, path, 4);
+    if (target.topic === null) throw new Error("automatic_distillation_failed_refile_target_missing");
+    for (let index = 0; index < 11; index += 1) {
+      await commitInboxItem(
+        repository,
+        events,
+        principalId,
+        topics.inbox.topicId,
+        `I kept failed re-file note ${index}.`,
+        "inbox_filing_failure",
+        path,
+      );
+    }
+    const counted = queryCountingDatabase((query) => query.includes("'refile'"));
+
+    const result = await new MemoryRepository(counted.database).refileAutomaticInboxItems(principalId);
+
+    expect(result).toEqual({ examinedItemCount: 10, refiledItemCount: 0, failedItemCount: 10 });
+    expect(counted.queryCount()).toBeLessThanOrEqual(AUTOMATIC_INBOX_REFILE_D1_STATEMENT_CEILING);
   });
 
   it("keeps a sentence extracted from a direct-marked multi-sentence message uncertain", async () => {
@@ -1274,6 +1422,74 @@ describe("automatic memory distillation", () => {
     expect(counted.queryCount()).toBeLessThanOrEqual(result.budget.d1Statements);
     expect(result.budget.d1Statements).toBeLessThanOrEqual(AUTOMATIC_DISTILLATION_STEP_LIMITS.d1Statements);
   });
+
+  it("charges automatic commit preparation again for every retried write attempt", async () => {
+    const principalId = await principal();
+    const repository = new MemoryRepository(env.DB);
+    await repository.bootstrapTopics(principalId);
+    const names = ["Area one", "Area two", "Area three"];
+    const renamed = ["Renamed one", "Renamed two", "Renamed three"];
+    const created = await repository.resolveOrCreateAutomaticTopicPath(principalId, names, 3);
+    if (created.topic === null) throw new Error("automatic_distillation_retry_alias_path_missing");
+    const ids = created.topic.path.slice(1).map((entry) => entry.topicId);
+    for (let index = 0; index < 3; index += 1) {
+      await renameStoredTopic(
+        principalId,
+        ids[index] ?? newUlid(),
+        names[index] ?? "",
+        renamed[index] ?? "",
+        ["Memory", ...renamed.slice(0, index), names[index]].join("/"),
+      );
+    }
+    const deepest = ids[2];
+    if (deepest === undefined) throw new Error("automatic_distillation_retry_alias_leaf_missing");
+    for (let index = 0; index < 40; index += 1) {
+      await createStoredTopic(principalId, deepest, `Full child ${index}`);
+    }
+    const events = new EventRepository(env.DB);
+    const appended: AppendedEvent[] = [];
+    const texts: string[] = [];
+    for (let index = 0; index < 8; index += 1) {
+      const text = `I measured retry statement sentence ${index}.`;
+      texts.push(text);
+      appended.push(await appendConversation(events, principalId, text, { directOwnerText: true }));
+    }
+    const proposals: Readonly<Record<string, unknown>>[] = [];
+    for (let index = 0; index < 8; index += 1) {
+      for (let offset = 0; offset < 4; offset += 1) {
+        const sourceIndexes = [...Array(8).keys()].filter((position) =>
+          offset === 0 || position === index || position !== (index + offset) % 8);
+        proposals.push(multiSourceProposal(
+          sourceIndexes.map((position) => appended[position] as AppendedEvent),
+          sourceIndexes.map((position) => texts[position] ?? ""),
+          texts[index] ?? "",
+          [...names, "New leaf"],
+        ));
+      }
+    }
+    const counted = queryCountingDatabase();
+    const archive = new ArchivalService({ database: counted.database, bucket: env.ARCHIVE });
+    const retrying = createMemoryRepositoryForTest(counted.database, {
+      archivedEventReader: archive,
+      batchFault: (operation, attempt) => operation === "commit" && attempt === 1
+        ? env.DB.prepare("INSERT INTO memory_repository_missing_fault_target(value) VALUES (1)")
+        : null,
+    });
+
+    const result = await workflow(
+      principalId,
+      new FakeModelProvider({ completeJson: proposals }),
+      retrying,
+      undefined,
+      counted.database,
+    ).runNext({ runKey: `retry-preparation-budget:${newUlid()}` });
+
+    expect(result).toMatchObject({ outcome: "succeeded", createdItemCount: 32 });
+    expect(counted.queryCount()).toBe(3_519);
+    expect(result.budget.d1Statements).toBe(4_022);
+    expect(counted.queryCount()).toBeLessThanOrEqual(result.budget.d1Statements);
+    expect(result.budget.d1Statements).toBeLessThanOrEqual(AUTOMATIC_DISTILLATION_STEP_LIMITS.d1Statements);
+  }, 120_000);
 
   it("charges a failed canonical bootstrap before returning its D1 statement budget", async () => {
     const principalId = await principal();
@@ -2044,7 +2260,7 @@ describe("automatic memory distillation", () => {
     expect(contexts.some((context) => context.text.includes("My favourite subject is math."))).toBe(true);
   });
 
-  it("drains multiple production-default steps per hour while only eligible owner events consume the event budget", async () => {
+  it("stops before a second production-default step when its worst-case charge would consume the re-file reservation", async () => {
     const principalId = await principal();
     const otherPrincipalId = await principal();
     const events = new EventRepository(env.DB);
@@ -2087,17 +2303,120 @@ describe("automatic memory distillation", () => {
     expect(result).toMatchObject({
       ok: true,
       detail: expect.stringContaining(
-        "Memory nothing_new, 0 created, 0 events pending, 0 eligible events pending, 48 skips",
+        "Memory nothing_new, 0 created, 24 events pending, at least 0 eligible events pending, 28 skips",
       ),
     });
-    expect(provider.requests).toHaveLength(2);
+    expect(result.ok && result.detail).toContain("after 1 step, D1 statement allowance reached");
+    expect(provider.requests).toHaveLength(1);
     expect(runs.results).toEqual([
       { run_key: `memory-distill:${now.toISOString().slice(0, 13)}:0`, input_event_count: 36 },
-      { run_key: `memory-distill:${now.toISOString().slice(0, 13)}:1`, input_event_count: 24 },
     ]);
     expect(await env.DB.prepare(`SELECT current_event_sequence FROM memory_cursors
       WHERE principal_id = ? AND cursor_name = 'distillation'`)
-      .bind(principalId).first("current_event_sequence")).toBe(latest);
+      .bind(principalId).first("current_event_sequence")).toBe(latest - 24);
+  });
+
+  it("reserves the 424-statement re-file tail before admitting another distillation step", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    for (let turn = 0; turn < 9; turn += 1) {
+      await appendConversation(events, principalId, `I recorded reserved preference ${turn}.`);
+    }
+    const provider = new FakeModelProvider({ completeJson: [] });
+    const now = new Date();
+    const context: JobEnvironment = {
+      env: {
+        ...env,
+        OWNER_PRINCIPAL_ID: principalId,
+        GITHUB_TOKEN: undefined,
+        GOOGLE_CLIENT_ID: undefined,
+        GOOGLE_CLIENT_SECRET: undefined,
+        GOOGLE_REFRESH_TOKEN: undefined,
+        BRIGHTSPACE_ICAL_URL: undefined,
+      },
+      clock: { now: () => new Date(now.valueOf()) },
+      delivery: { send: async () => undefined },
+      fetcher: globalThis.fetch.bind(globalThis),
+      memoryDistillation: {
+        provider,
+        providerModelId: MODEL_ID,
+        prepare: async () => ({
+          priceId: undefined as never,
+          providerModelId: MODEL_ID as never,
+          d1Statements: 300,
+        }),
+      },
+    };
+    const poll = buildJobTable(context).poll;
+    if (poll === undefined) throw new Error("automatic_distillation_poll_missing");
+
+    const result = await poll();
+
+    expect(provider.requests).toHaveLength(1);
+    expect(result.ok && result.detail).toContain("after 1 step, D1 statement allowance reached");
+  });
+
+  it("does not start re-file when its 424-statement reservation cannot fit", async () => {
+    const principalId = await principal();
+    const events = new EventRepository(env.DB);
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    await repository.resolveOrCreateAutomaticTopicPath(principalId, ["School"], 1);
+    await commitInboxItem(
+      repository,
+      events,
+      principalId,
+      topics.inbox.topicId,
+      "I kept a reserved school note.",
+      "inbox_cap",
+      ["School"],
+    );
+    let refileCandidateReads = 0;
+    const guardedDatabase = new Proxy(env.DB, {
+      get(target, property, receiver): unknown {
+        if (property === "prepare") {
+          return (query: string): D1PreparedStatement => {
+            if (query.includes("event.confidence >= 0.6")) refileCandidateReads += 1;
+            return target.prepare(query);
+          };
+        }
+        const value = Reflect.get(target, property, receiver) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as D1Database;
+    const provider = new FakeModelProvider({ completeJson: [] });
+    const context: JobEnvironment = {
+      env: {
+        ...env,
+        DB: guardedDatabase,
+        OWNER_PRINCIPAL_ID: principalId,
+        GITHUB_TOKEN: undefined,
+        GOOGLE_CLIENT_ID: undefined,
+        GOOGLE_CLIENT_SECRET: undefined,
+        GOOGLE_REFRESH_TOKEN: undefined,
+        BRIGHTSPACE_ICAL_URL: undefined,
+      },
+      clock: { now: () => new Date() },
+      delivery: { send: async () => undefined },
+      fetcher: globalThis.fetch.bind(globalThis),
+      memoryDistillation: {
+        provider,
+        providerModelId: MODEL_ID,
+        prepare: async () => ({
+          priceId: undefined as never,
+          providerModelId: MODEL_ID as never,
+          d1Statements: 4_100,
+        }),
+      },
+    };
+    const poll = buildJobTable(context).poll;
+    if (poll === undefined) throw new Error("automatic_distillation_poll_missing");
+
+    const result = await poll();
+
+    expect(refileCandidateReads).toBe(0);
+    expect(result.ok && result.detail).toContain("D1 statement allowance reached");
+    expect(result.ok && result.detail).toContain("inbox filing 0 refiled");
   });
 
   it("polls Classroom and Brightspace before starting memory distillation", async () => {
@@ -2315,12 +2634,12 @@ describe("automatic memory distillation", () => {
     expect(result).toMatchObject({
       ok: true,
       detail: expect.stringContaining(
-        "1 event pending, 1 eligible event pending, 1 skip (owner_scope_ineligible=1)",
+        "57 events pending, at least 31 eligible events pending, 1 skip (owner_scope_ineligible=1)",
       ),
     });
-    expect(result.ok && result.detail).toContain("after 8 steps");
-    expect(provider.requests).toHaveLength(8);
-    expect(cursor).toBe(latest - 1);
+    expect(result.ok && result.detail).toContain("after 1 step, D1 statement allowance reached");
+    expect(provider.requests).toHaveLength(1);
+    expect(cursor).toBe(latest - 57);
   });
 
   it("keeps production distillation disabled without writing a run or advancing a cursor", async () => {
