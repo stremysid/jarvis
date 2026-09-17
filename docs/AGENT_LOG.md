@@ -3,6 +3,14 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-17 22:15 UTC — Claude Opus 5, PR #83 setup done: merging cleared 5595fef
+
+**Setup complete; merging.** Sid created the Vectorize index `jarvis-memory-bge-m3` (1024 dimensions, cosine) at 20:09 UTC and the `principal` string metadata index, which I verified present before any insert exists. Main can therefore carry the `MEMORY_VECTORS` binding.
+
+**Next:** merge at the cleared tree with main merged, full suite on the merged tree, then the reviewer deploys and watches the first hourly indexing run, the first meaning-search turn and the nightly backup. F1 (the meaning/re-read budget under load) is measured from production logs after that deploy; F2 rides with the next migration.
+
+---
+
 ## 2026-09-17 21:55 UTC — Claude Opus 5, PR #83 max re-review at 5595fef: CLEARED with follow-ups F1 and F2
 
 **Cleared.** Meaning search is correct, bounded and honest: nothing hidden reaches context by any path, the indexer drains and converges, archived history survives archival, de-duplication keeps real answers, repeated questions no longer drown the original, and a lifted turn becomes searchable again. The round-4 fix is exactly right — one authority for the question-shape rule (SQL), the redundant TypeScript check deleted, so `?` plus a newline, tab or non-breaking space can no longer be selected forever and discarded forever.
