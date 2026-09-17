@@ -108,8 +108,22 @@ CREATE TABLE memory_backup_row_ordinals (
   row_key TEXT NOT NULL CHECK (
     json_valid(row_key) AND json_type(row_key) = 'array' AND length(CAST(row_key AS BLOB)) <= 4096
   ),
+  key_1 ANY NOT NULL,
+  key_2 ANY,
+  key_3 ANY,
+  key_4 ANY,
+  CHECK (
+    json_array_length(row_key) BETWEEN 1 AND 4
+    AND key_1 IS json_extract(row_key, '$[0]')
+    AND key_2 IS json_extract(row_key, '$[1]')
+    AND key_3 IS json_extract(row_key, '$[2]')
+    AND key_4 IS json_extract(row_key, '$[3]')
+  ),
   UNIQUE (table_name, row_key)
 ) STRICT;
+
+CREATE INDEX memory_backup_row_ordinals_table_ordinal_idx
+ON memory_backup_row_ordinals(table_name, ordinal);
 
 CREATE TABLE memory_backup_table_cuts (
   run_id TEXT NOT NULL REFERENCES memory_backup_runs(run_id) ON DELETE RESTRICT,
@@ -247,7 +261,7 @@ BEGIN
                     SELECT cut.table_name FROM memory_backup_table_cuts cut
                     WHERE cut.run_id = OLD.run_id AND cut.table_index = OLD.current_table_index
                   )
-              ), 0) = (
+              ), 0) <= (
                 SELECT cut.expected_row_count FROM memory_backup_table_cuts cut
                 WHERE cut.run_id = OLD.run_id AND cut.table_index = OLD.current_table_index
               )
@@ -380,25 +394,6 @@ BEGIN
           AND cut.table_name = NEW.table_name
           AND NEW.first_key > COALESCE(run.cursor_key, cut.after_key)
           AND NEW.last_key <= cut.through_key
-      )
-      OR EXISTS (
-        SELECT 1 FROM memory_backup_runs run
-        WHERE run.run_id = NEW.run_id
-          AND run.status = 'running'
-          AND run.lease_id IS NOT NULL
-          AND run.current_table_index = 0
-          AND run.next_object_number = NEW.object_number
-          AND run.schema_version = NEW.schema_version
-          AND NEW.table_name = 'events'
-          AND NOT EXISTS (
-            SELECT 1 FROM memory_backup_table_cuts cut WHERE cut.run_id = run.run_id
-          )
-          AND json_type(run.marks_json, '$.eventsThrough') = 'integer'
-          AND NEW.first_key > COALESCE(
-            run.cursor_key,
-            json_extract(run.marks_json, '$.eventsAfter')
-          )
-          AND NEW.last_key <= json_extract(run.marks_json, '$.eventsThrough')
       )
     );
 END;

@@ -1,7 +1,8 @@
 import { env } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished } from "vitest";
 import {
   MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES,
+  MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES,
   MEMORY_BACKUP_LATEST_KEY,
   MEMORY_BACKUP_NOTICE,
   MEMORY_BACKUP_TABLES,
@@ -16,6 +17,36 @@ import { clearMemoryBackupDataForTest } from "../persistence/migration.js";
 const runDate = "2026-09-16";
 const instant = new Date("2026-09-16T23:30:00.000Z");
 const backupBucket = env.BACKUP as R2Bucket;
+const migrationSql = import.meta.glob("../../src/persistence/migrations/*.sql", {
+  eager: true,
+  import: "default",
+  query: "?raw",
+}) as Record<string, string>;
+
+function tablesDeclaredByMigrations(): readonly string[] {
+  const tables = new Set<string>();
+  for (const sql of Object.entries(migrationSql).sort(([left], [right]) => left.localeCompare(right))
+    .map(([, source]) => source)) {
+    const changes: Array<Readonly<{ index: number; apply(): void }>> = [];
+    for (const match of sql.matchAll(/CREATE\s+(?:VIRTUAL\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z0-9_]+)/giu)) {
+      changes.push({ index: match.index, apply: () => { tables.add(match[1]!.toLowerCase()); } });
+    }
+    for (const match of sql.matchAll(/DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([a-z0-9_]+)/giu)) {
+      changes.push({ index: match.index, apply: () => { tables.delete(match[1]!.toLowerCase()); } });
+    }
+    for (const match of sql.matchAll(/ALTER\s+TABLE\s+([a-z0-9_]+)\s+RENAME\s+TO\s+([a-z0-9_]+)/giu)) {
+      changes.push({
+        index: match.index,
+        apply: () => {
+          tables.delete(match[1]!.toLowerCase());
+          tables.add(match[2]!.toLowerCase());
+        },
+      });
+    }
+    changes.sort((left, right) => left.index - right.index).forEach((change) => { change.apply(); });
+  }
+  return [...tables].sort();
+}
 
 async function clearBackupBucket(): Promise<void> {
   let cursor: string | undefined;
@@ -161,7 +192,7 @@ describe("nightly verified memory backup", () => {
     const backup = service();
     expect((await backup.runNightly(runDate)).outcome).toBe("pending");
     expect(await env.DB.prepare(`SELECT cursor_key FROM memory_backup_runs
-      WHERE run_date = ?`).bind(runDate).first()).toEqual({ cursor_key: 32 });
+      WHERE run_date = ?`).bind(runDate).first()).toEqual({ cursor_key: 48 });
     const eventObjects = await env.DB.prepare(`SELECT count(*) AS count FROM memory_backup_objects
       WHERE table_name = 'events'`).first<{ count: number }>();
     expect(eventObjects?.count).toBeGreaterThan(1);
@@ -170,20 +201,152 @@ describe("nightly verified memory backup", () => {
     expect(result.invocations).toBeLessThan(10);
   }, 120_000);
 
-  it("classifies every migrated table as authoritative backup data or explicitly derived", async () => {
-    const rows = await env.DB.prepare(`SELECT name FROM sqlite_schema
-      WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'd1_migrations'`)
-      .all<{ name: string }>();
-    const ftsBases = MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES.filter((table) => table.endsWith("_fts"));
-    const migrated = rows.results.map((row) => row.name).filter((name) =>
-      name !== "_cf_METADATA" && !ftsBases.some((base) => name.startsWith(`${base}_`)));
+  it("classifies every table declared by the migration files", () => {
+    const migrated = tablesDeclaredByMigrations();
     const classified = new Set<string>([
       ...MEMORY_BACKUP_TABLES,
       ...MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES,
+      ...MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES,
     ]);
     expect(migrated.filter((table) => !classified.has(table)).sort()).toEqual([]);
     expect(MEMORY_BACKUP_TABLES.filter((table) => !migrated.includes(table))).toEqual([]);
+    expect([...MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES, ...MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES]
+      .filter((table) => !migrated.includes(table))).toEqual([]);
+    expect(classified.size).toBe(MEMORY_BACKUP_TABLES.length
+      + MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES.length
+      + MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES.length);
   });
+
+  it("fails closed and alerts the owner when the live schema contains an unclassified table", async () => {
+    await env.DB.prepare("CREATE TABLE memory_backup_unclassified_probe (id INTEGER PRIMARY KEY)").run();
+    const notices: string[] = [];
+    try {
+      expect(await service({ notices }).runNightly(runDate)).toEqual({
+        outcome: "failed",
+        code: "memory_backup_operation_failed",
+      });
+      expect(notices).toEqual([MEMORY_BACKUP_NOTICE]);
+      expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_backup_runs").first())
+        .toEqual({ count: 0 });
+    } finally {
+      await env.DB.prepare("DROP TABLE memory_backup_unclassified_probe").run();
+    }
+  });
+
+  it("keeps unchanged nightly row counts stable and limits scheduled runs to the last 48 hours", async () => {
+    await appendEvents(8);
+    await env.DB.prepare("DELETE FROM scheduled_runs").run();
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO scheduled_runs (job, run_key, started_at, finished_at, failure)
+        VALUES ('poll', 'old', '2026-09-14T23:29:59.999Z', '2026-09-14T23:30:00.000Z', NULL)`),
+      env.DB.prepare(`INSERT INTO scheduled_runs (job, run_key, started_at, finished_at, failure)
+        VALUES ('poll', 'edge', '2026-09-14T23:30:00.000Z', '2026-09-14T23:31:00.000Z', NULL)`),
+      env.DB.prepare(`INSERT INTO scheduled_runs (job, run_key, started_at, finished_at, failure)
+        VALUES ('poll', 'recent', '2026-09-16T23:00:00.000Z', NULL, NULL)`),
+    ]);
+    expect(await env.DB.prepare(`SELECT count(*) AS count FROM scheduled_runs
+      WHERE started_at >= '2026-09-14T23:30:00.000Z'`).first()).toEqual({ count: 2 });
+    const totals: number[] = [];
+    for (let night = 1; night <= 4; night += 1) {
+      const date = `2026-09-${String(night).padStart(2, "0")}`;
+      expect((await driveBackup(service(), date)).outcome.outcome).toBe("verified");
+      const run = await env.DB.prepare("SELECT run_id FROM memory_backup_runs WHERE run_date = ?")
+        .bind(date).first<{ run_id: string }>();
+      const total = await env.DB.prepare(`SELECT sum(expected_row_count) AS count
+        FROM memory_backup_table_cuts WHERE run_id = ?`).bind(run?.run_id).first<{ count: number }>();
+      totals.push(total?.count ?? -1);
+    }
+    expect(new Set(totals)).toEqual(new Set([totals[0]]));
+    const manifest = await readLatestManifest();
+    const scheduledRows: Array<Record<string, unknown>> = [];
+    for (const object of (manifest.objects as Array<{ table: string; objectKey: string }>)
+      .filter((candidate) => candidate.table === "scheduled_runs")) {
+      const body = await backupBucket.get(object.objectKey);
+      if (body === null) throw new Error("scheduled backup object missing");
+      scheduledRows.push(...(await body.text()).trim().split("\n").map((line) => JSON.parse(line)));
+    }
+    expect(scheduledRows.map((row) => row.run_key)).toEqual(["edge", "recent"]);
+    expect((manifest.tableCuts as Array<Record<string, unknown>>)
+      .find((cut) => cut.table === "scheduled_runs")).toMatchObject({
+      expectedRowCount: 2,
+      exportedRowCount: 2,
+      shortfallRowCount: 0,
+    });
+  }, 300_000);
+
+  it("records rows deleted after the cut as a manifest shortfall", async () => {
+    await env.DB.prepare("DELETE FROM scheduled_runs").run();
+    await env.DB.prepare(`INSERT INTO scheduled_runs (job, run_key, started_at, finished_at, failure)
+      VALUES ('poll', 'deleted-after-cut', '2026-09-16T23:00:00.000Z', NULL, NULL)`).run();
+    const backup = service({ stepsPerInvocation: 2 });
+    const first = await backup.runNightly(runDate);
+    expect(first.outcome).toBe("pending");
+    await env.DB.prepare("DELETE FROM scheduled_runs WHERE job = 'poll' AND run_key = 'deleted-after-cut'").run();
+    expect((await finishBackup(service(), first)).outcome).toBe("verified");
+    const manifest = await readLatestManifest();
+    expect((manifest.tableCuts as Array<Record<string, unknown>>)
+      .find((cut) => cut.table === "scheduled_runs")).toMatchObject({
+      expectedRowCount: 1,
+      exportedRowCount: 0,
+      shortfallRowCount: 1,
+    });
+  }, 120_000);
+
+  it("pages WITHOUT ROWID sources from an ordinal range and indexed primary-key lookups", async () => {
+    const principalId = "principal:backup-query-plan";
+    const jobId = "01k5nm0000000000000000000z";
+    const deleteGuard = await env.DB.prepare(`SELECT sql FROM sqlite_schema
+      WHERE type = 'trigger' AND name = 'memory_literal_search_jobs_delete_forbidden'`)
+      .first<{ sql: string }>();
+    if (deleteGuard === null) throw new Error("literal search delete guard missing");
+    onTestFinished(async () => {
+      await env.DB.prepare("DROP TRIGGER memory_literal_search_jobs_delete_forbidden").run();
+      try {
+        await env.DB.prepare("DELETE FROM memory_literal_search_jobs WHERE job_id = ?").bind(jobId).run();
+        await env.DB.prepare("DELETE FROM principals WHERE principal_id = ?").bind(principalId).run();
+      } finally {
+        await env.DB.prepare(deleteGuard.sql).run();
+      }
+    });
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO principals (
+        principal_id, principal_type, status, display_name, created_at, updated_at
+      ) VALUES (?, 'human', 'active', 'plan', ?, ?)`).bind(
+        principalId, instant.toISOString(), instant.toISOString(),
+      ),
+      env.DB.prepare(`INSERT INTO memory_literal_search_jobs (
+        job_id, principal_id, job_key, attempt, query_text, query_hash,
+        snapshot_event_sequence, checkpoint_event_sequence, scanned_event_count,
+        matched_event_count, status, failure_code, created_at, updated_at, completed_at
+      ) VALUES (?, ?, 'backup-plan', 1, 'backup', ?, 0, 0, 0, 0,
+        'pending', NULL, ?, ?, NULL)`).bind(
+        jobId, principalId, "a".repeat(64), instant.toISOString(), instant.toISOString(),
+      ),
+    ]);
+    const preparedSql: string[] = [];
+    const database = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "prepare") return (sql: string) => {
+          preparedSql.push(sql);
+          return target.prepare(sql);
+        };
+        const value = Reflect.get(target, property) as unknown;
+        return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+      },
+    }) as D1Database;
+    expect(await driveBackup(service({ database }))).toMatchObject({ outcome: { outcome: "verified" } });
+    expect(await env.DB.prepare(`SELECT key_1, key_2 FROM memory_backup_row_ordinals
+      WHERE table_name = 'memory_literal_search_jobs'`).first()).toEqual({ key_1: jobId, key_2: null });
+    const pageSql = preparedSql.find((sql) =>
+      sql.includes(`FROM ordinal_page JOIN "memory_literal_search_jobs" source`));
+    if (pageSql === undefined) throw new Error("WITHOUT ROWID page query missing");
+    expect(pageSql).toContain("SELECT ordinal, key_1, key_2, key_3, key_4");
+    const plan = await env.DB.prepare(`EXPLAIN QUERY PLAN ${pageSql}`)
+      .bind("memory_literal_search_jobs", 0, 1_000_000, 16).all<{ detail: string }>();
+    expect(plan.results.some(({ detail }) => /SCAN source\b/u.test(detail))).toBe(false);
+    expect(plan.results.some(({ detail }) =>
+      /SEARCH source USING (?:(?:COVERING )?INDEX|PRIMARY KEY)/u.test(detail))).toBe(true);
+  }, 120_000);
 
   it("writes the manifest after every data object and advertises it only after read-back", async () => {
     await appendEvents(2);
@@ -211,7 +374,7 @@ describe("nightly verified memory backup", () => {
     expect(writes.slice(manifestIndex + 1).some((key) => key.includes("/staging/"))).toBe(false);
     expect(latestIndex).toBeGreaterThan(manifestIndex);
     expect(reads).toBeGreaterThanOrEqual(5);
-  });
+  }, 120_000);
 
   it("marks a set verified in D1 before writing latest and repairs a failed pointer write", async () => {
     await appendEvents(2);
@@ -424,14 +587,14 @@ describe("nightly verified memory backup", () => {
     const first = await env.DB.prepare(
       "SELECT cursor_key, next_object_number FROM memory_backup_runs WHERE run_date = ?",
     ).bind(runDate).first<{ cursor_key: number; next_object_number: number }>();
-    expect(first).toEqual({ cursor_key: 2, next_object_number: 2 });
+    expect(first).toEqual({ cursor_key: 3, next_object_number: 3 });
 
     const resumed = service({ pageRowLimit: 1, stepsPerInvocation: 2 });
     expect((await resumed.continueActive(runDate)).outcome).toBe("pending");
     const second = await env.DB.prepare(
       "SELECT cursor_key, next_object_number FROM memory_backup_runs WHERE run_date = ?",
     ).bind(runDate).first<{ cursor_key: number | null; next_object_number: number }>();
-    expect(second).toEqual({ cursor_key: null, next_object_number: 3 });
+    expect(second).toEqual({ cursor_key: 1, next_object_number: 4 });
     expect((await finishBackup(service(), { outcome: "pending", detail: "continue" })).outcome).toBe("verified");
   });
 

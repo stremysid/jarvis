@@ -25,15 +25,12 @@ export const MEMORY_BACKUP_TABLES = Object.freeze([
   "principals",
   "device_keys",
   "channel_identities",
-  "identity_challenges",
   "events",
   "idempotency_records",
   "outbox",
   "consumer_cursors",
-  "sync_snapshots",
   "sync_ack_receipts",
   "bootstrap_tokens",
-  "request_nonces",
   "policy_decisions",
   "archive_state",
   "archive_manifests",
@@ -43,7 +40,6 @@ export const MEMORY_BACKUP_TABLES = Object.freeze([
   "outbound_call_attempts",
   "provider_events",
   "call_sessions",
-  "authentication_attempt_reservations",
   "conversation_turns",
   "conversation_deliveries",
   "voice_owner_identity",
@@ -123,20 +119,10 @@ export const MEMORY_BACKUP_TABLES = Object.freeze([
   "university_workflow_revisions",
   "school_study_check_in_claims",
   "school_study_signal_controls",
-  "memory_backup_runs",
-  "memory_backup_objects",
-  "memory_backup_alerts",
 ] as const);
 
-/** Every excluded table can be rebuilt from the authoritative rows above. */
+/** Projections rebuilt during restore from authoritative rows and job receipts. */
 export const MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES = Object.freeze([
-  "component_liveness",
-  "memory_fact_projection_abandoned",
-  "memory_fact_projection_heads",
-  "memory_fact_projection_versions",
-  "memory_fact_projection_pages",
-  "memory_fact_projection_facts",
-  "memory_fact_projection_commits",
   "memory_fact_projection_fts",
   "memory_item_state",
   "memory_item_placement_state",
@@ -147,9 +133,27 @@ export const MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES = Object.freeze([
   "memory_item_fts",
   "memory_episode_fts",
   "memory_history_fts",
+] as const);
+
+/** Ephemeral state, external caches, and receipts maintained by the backup itself. */
+export const MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES = Object.freeze([
+  "component_liveness",
+  "memory_fact_projection_abandoned",
+  "memory_fact_projection_heads",
+  "memory_fact_projection_versions",
+  "memory_fact_projection_pages",
+  "memory_fact_projection_facts",
+  "memory_fact_projection_commits",
   "guest_grant_notice_drain_state",
+  "identity_challenges",
+  "sync_snapshots",
+  "request_nonces",
+  "authentication_attempt_reservations",
+  "memory_backup_runs",
   "memory_backup_row_ordinals",
   "memory_backup_table_cuts",
+  "memory_backup_objects",
+  "memory_backup_alerts",
 ] as const);
 
 export type MemoryBackupTableName = typeof MEMORY_BACKUP_TABLES[number];
@@ -394,6 +398,16 @@ function rowKeyExpression(descriptor: TableDescriptor, alias: string): string {
     .map((column) => `${alias}.${quoteIdentifier(column)}`).join(", ")})`;
 }
 
+function scheduledRunsSince(startedAt: string): string {
+  return new Date(Date.parse(startedAt) - 48 * 60 * 60_000).toISOString();
+}
+
+function isInternalFtsTable(name: string): boolean {
+  return MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES.some(
+    (table) => table.endsWith("_fts") && name.startsWith(`${table}_`),
+  );
+}
+
 function isTransient(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /(?:D1_ERROR|R2|transient|temporar|timeout|timed out|429|5\d\d|internal error|network)/iu.test(message);
@@ -422,6 +436,7 @@ const CUT_COLUMNS = `run_id, table_index, table_name, key_kind, after_key,
 
 const OBJECT_COLUMNS = `run_id, object_number, table_name, object_key, schema_version,
   row_count, byte_count, first_key, last_key, sha256, verified_at`;
+const MAX_ORDINAL_KEY_COLUMNS = 4;
 
 class MemoryBackupRepository {
   private descriptorsPromise: Promise<readonly TableDescriptor[]> | undefined;
@@ -467,6 +482,17 @@ class MemoryBackupRepository {
       "SELECT name, sql FROM sqlite_schema WHERE type = 'table'",
     ).all<SchemaTableRow>();
     const byName = new Map(schema.results.map((row) => [row.name, row]));
+    const classified = new Set<string>([
+      ...MEMORY_BACKUP_TABLES,
+      ...MEMORY_BACKUP_EXCLUDED_DERIVED_TABLES,
+      ...MEMORY_BACKUP_EXCLUDED_OPERATIONAL_TABLES,
+    ]);
+    const unclassified = schema.results.map((row) => row.name).filter((name) =>
+      !name.startsWith("sqlite_") && name !== "d1_migrations" && name !== "_cf_METADATA"
+      && !isInternalFtsTable(name) && !classified.has(name));
+    if (unclassified.length > 0) {
+      throw new Error(`memory_backup_table_unclassified:${unclassified.sort().join(",")}`);
+    }
     const withoutRowid = MEMORY_BACKUP_TABLES.filter((table) => {
       const row = byName.get(table);
       if (row === undefined || row.sql === null) throw new Error(`memory_backup_table_missing:${table}`);
@@ -481,6 +507,9 @@ class MemoryBackupRepository {
       const keys = columns.filter((column) => column.pk > 0)
         .sort((left, right) => left.pk - right.pk).map((column) => column.name);
       if (keys.length === 0) throw new Error(`memory_backup_primary_key_missing:${withoutRowid[index]}`);
+      if (keys.length > MAX_ORDINAL_KEY_COLUMNS) {
+        throw new Error(`memory_backup_primary_key_too_wide:${withoutRowid[index]}`);
+      }
       primaryKeys.set(withoutRowid[index]!, Object.freeze(keys));
     }
     return Object.freeze(MEMORY_BACKUP_TABLES.map((table) => Object.freeze({
@@ -493,20 +522,31 @@ class MemoryBackupRepository {
   async captureRun(runDate: string, now: Date): Promise<MemoryBackupRun> {
     const descriptors = await this.descriptors();
     const timestamp = now.toISOString();
+    const scheduledSince = scheduledRunsSince(timestamp);
     const runId = newUlid(now);
     const statements: D1PreparedStatement[] = [];
     for (const descriptor of descriptors) {
       if (descriptor.keyKind !== "ordinal") continue;
       const table = quoteIdentifier(descriptor.table);
       const rowKey = rowKeyExpression(descriptor, "source");
+      const storedKeys = Array.from({ length: MAX_ORDINAL_KEY_COLUMNS }, (_, index) =>
+        descriptor.primaryKeyColumns[index] === undefined
+          ? "NULL"
+          : `source.${quoteIdentifier(descriptor.primaryKeyColumns[index]!)}`);
+      const filter = descriptor.table === "scheduled_runs" ? "source.started_at >= ? AND " : "";
+      const bindings = descriptor.table === "scheduled_runs"
+        ? [descriptor.table, scheduledSince, descriptor.table]
+        : [descriptor.table, descriptor.table];
       statements.push(this.database.prepare(
-        `INSERT INTO memory_backup_row_ordinals (table_name, row_key)
-         SELECT ?, ${rowKey} FROM ${table} source
-         WHERE NOT EXISTS (
+        `INSERT INTO memory_backup_row_ordinals (
+           table_name, row_key, key_1, key_2, key_3, key_4
+         )
+         SELECT ?, ${rowKey}, ${storedKeys.join(", ")} FROM ${table} source
+         WHERE ${filter}NOT EXISTS (
            SELECT 1 FROM memory_backup_row_ordinals ordinal
            WHERE ordinal.table_name = ? AND ordinal.row_key = ${rowKey}
          ) ORDER BY ${descriptor.primaryKeyColumns.map((column) => `source.${quoteIdentifier(column)}`).join(", ")}`,
-      ).bind(descriptor.table, descriptor.table));
+      ).bind(...bindings));
     }
     statements.push(this.database.prepare(
       `INSERT INTO memory_backup_runs (
@@ -534,22 +574,29 @@ class MemoryBackupRepository {
         return;
       }
       if (descriptor.keyKind === "rowid") {
+        const filter = descriptor.table === "scheduled_runs" ? " WHERE source.started_at >= ?" : "";
         statements.push(this.database.prepare(
           `INSERT INTO memory_backup_table_cuts (
              run_id, table_index, table_name, key_kind, after_key, through_key, expected_row_count
-           ) SELECT ?, ?, ?, 'rowid', 0, max(source.rowid), count(source.rowid) FROM ${table} source`,
-        ).bind(runId, tableIndex, descriptor.table));
+           ) SELECT ?, ?, ?, 'rowid', 0, max(source.rowid), count(source.rowid)
+           FROM ${table} source${filter}`,
+        ).bind(...(descriptor.table === "scheduled_runs"
+          ? [runId, tableIndex, descriptor.table, scheduledSince]
+          : [runId, tableIndex, descriptor.table])));
         return;
       }
       const rowKey = rowKeyExpression(descriptor, "source");
+      const filter = descriptor.table === "scheduled_runs" ? " WHERE source.started_at >= ?" : "";
       statements.push(this.database.prepare(
         `INSERT INTO memory_backup_table_cuts (
            run_id, table_index, table_name, key_kind, after_key, through_key, expected_row_count
          ) SELECT ?, ?, ?, 'ordinal', 0, max(ordinal.ordinal), count(ordinal.ordinal)
          FROM ${table} source
          JOIN memory_backup_row_ordinals ordinal
-           ON ordinal.table_name = ? AND ordinal.row_key = ${rowKey}`,
-      ).bind(runId, tableIndex, descriptor.table, descriptor.table));
+           ON ordinal.table_name = ? AND ordinal.row_key = ${rowKey}${filter}`,
+      ).bind(...(descriptor.table === "scheduled_runs"
+        ? [runId, tableIndex, descriptor.table, descriptor.table, scheduledSince]
+        : [runId, tableIndex, descriptor.table, descriptor.table])));
     });
     try {
       await this.database.batch(statements);
@@ -623,7 +670,7 @@ class MemoryBackupRepository {
       `SELECT coalesce(sum(row_count), 0) AS count FROM memory_backup_objects
        WHERE run_id = ? AND table_name = ?`,
     ).bind(run.runId, cut.table).first<{ count: number }>();
-    if (count === null || count.count !== cut.expectedRowCount) {
+    if (count === null || count.count > cut.expectedRowCount) {
       throw new MemoryBackupError(MEMORY_BACKUP_FAILURE_CODES.cutMismatch);
     }
     const result = await this.database.prepare(
@@ -773,19 +820,31 @@ class MemoryBackupRepository {
       return results;
     }
     if (cut.keyKind === "rowid") {
+      const scheduledFilter = descriptor.table === "scheduled_runs" ? " AND source.started_at >= ?" : "";
       const { results } = await this.database.prepare(
         `SELECT source.*, source.rowid AS __memory_backup_key FROM ${table} source
-         WHERE source.rowid > ? AND source.rowid <= ? ORDER BY source.rowid LIMIT ?`,
-      ).bind(cursor, cut.throughKey, limit).all<Record<string, unknown>>();
+         WHERE source.rowid > ? AND source.rowid <= ?${scheduledFilter}
+         ORDER BY source.rowid LIMIT ?`,
+      ).bind(...(descriptor.table === "scheduled_runs"
+        ? [cursor, cut.throughKey, scheduledRunsSince(run.startedAt), limit]
+        : [cursor, cut.throughKey, limit])).all<Record<string, unknown>>();
       return results;
     }
-    const rowKey = rowKeyExpression(descriptor, "source");
+    const primaryKeyMatch = descriptor.primaryKeyColumns.map((column, index) =>
+      `source.${quoteIdentifier(column)} IS ordinal_page.key_${index + 1}`).join(" AND ");
+    const scheduledFilter = descriptor.table === "scheduled_runs" ? " AND source.started_at >= ?" : "";
     const { results } = await this.database.prepare(
-      `SELECT source.*, ordinal.ordinal AS __memory_backup_key FROM ${table} source
-       JOIN memory_backup_row_ordinals ordinal
-         ON ordinal.table_name = ? AND ordinal.row_key = ${rowKey}
-       WHERE ordinal.ordinal > ? AND ordinal.ordinal <= ? ORDER BY ordinal.ordinal LIMIT ?`,
-    ).bind(cut.table, cursor, cut.throughKey, limit).all<Record<string, unknown>>();
+      `WITH ordinal_page AS (
+         SELECT ordinal, key_1, key_2, key_3, key_4 FROM memory_backup_row_ordinals
+         WHERE table_name = ? AND ordinal > ? AND ordinal <= ?
+         ORDER BY ordinal LIMIT ?
+       )
+       SELECT source.*, ordinal_page.ordinal AS __memory_backup_key
+       FROM ordinal_page JOIN ${table} source ON ${primaryKeyMatch}${scheduledFilter}
+       ORDER BY ordinal_page.ordinal`,
+    ).bind(...(descriptor.table === "scheduled_runs"
+      ? [cut.table, cursor, cut.throughKey, limit, scheduledRunsSince(run.startedAt)]
+      : [cut.table, cursor, cut.throughKey, limit])).all<Record<string, unknown>>();
     return results;
   }
 }
@@ -1095,6 +1154,10 @@ export class MemoryBackupService {
     if (cuts.length !== MEMORY_BACKUP_TABLES.length) {
       throw new MemoryBackupError(MEMORY_BACKUP_FAILURE_CODES.manifestReadback);
     }
+    const exportedRows = new Map<MemoryBackupTableName, number>();
+    for (const object of objects) {
+      exportedRows.set(object.table, (exportedRows.get(object.table) ?? 0) + object.rowCount);
+    }
     const manifest = Object.freeze({
       schemaVersion: "1.0",
       databaseSchemaVersion: run.schemaVersion,
@@ -1102,7 +1165,14 @@ export class MemoryBackupService {
       runId: run.runId,
       startedAt: run.startedAt,
       coverageMarks: run.marks,
-      tableCuts: cuts,
+      tableCuts: cuts.map((cut) => {
+        const exportedRowCount = exportedRows.get(cut.table) ?? 0;
+        return Object.freeze({
+          ...cut,
+          exportedRowCount,
+          shortfallRowCount: cut.expectedRowCount - exportedRowCount,
+        });
+      }),
       objects: objects.map((object) => Object.freeze({
         table: object.table,
         schemaVersion: object.schemaVersion,
