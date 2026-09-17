@@ -1,0 +1,20 @@
+C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-jarvis-reviewer-handoff-621ea3/9bbfb69e-ebed-4621-91d5-57b1a391cd87/scratchpad/work/pr83r4-gates.txt:      Tests  5060 passed (5060)
+C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-jarvis-reviewer-handoff-621ea3/9bbfb69e-ebed-4621-91d5-57b1a391cd87/scratchpad/work/pr83r4-gates.txt: Test Files  191 passed (191)
+C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-jarvis-reviewer-handoff-621ea3/9bbfb69e-ebed-4621-91d5-57b1a391cd87/scratchpad/work/pr83r4-gates.txt:=== TEST
+C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-jarvis-reviewer-handoff-621ea3/9bbfb69e-ebed-4621-91d5-57b1a391cd87/scratchpad/work/pr83r4-suites.txt:      Tests  2 failed | 34 passed | 1 skipped (37)
+C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-jarvis-reviewer-handoff-621ea3/9bbfb69e-ebed-4621-91d5-57b1a391cd87/scratchpad/work/pr83r4-suites.txt:     × DUMP all logged evidence (fails on purpose so Vitest prints it) 1ms
+C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-jarvis-reviewer-handoff-621ea3/9bbfb69e-ebed-4621-91d5-57b1a391cd87/scratchpad/work/pr83r4-suites.txt:     × L1 at 25 ms per D1 round trip, keyword memory survives every AI/Vectorize latency and ready meaning hits are not discarded 7382ms
+C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-jarvis-reviewer-handoff-621ea3/9bbfb69e-ebed-4621-91d5-57b1a391cd87/scratchpad/work/pr83r4-suites.txt: Test Files  1 failed | 1 passed (2)
+C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-jarvis-reviewer-handoff-621ea3/9bbfb69e-ebed-4621-91d5-57b1a391cd87/scratchpad/work/pr83r4-suites.txt:=== LINT
+C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-jarvis-reviewer-handoff-621ea3/9bbfb69e-ebed-4621-91d5-57b1a391cd87/scratchpad/work/pr83r4-suites.txt:=== REVIEWER SUITES
+C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-jarvis-reviewer-handoff-621ea3/9bbfb69e-ebed-4621-91d5-57b1a391cd87/scratchpad/work/pr83r4-suites.txt:=== TYPECHECK
+=== RUN 1
+AssertionError: expected [ 200 ] to deeply equal []
+      Tests  1 failed | 1 passed | 15 skipped (17)
+=== RUN 2
+AssertionError: expected [ 250 ] to deeply equal []
+      Tests  1 failed | 1 passed | 15 skipped (17)
+=== RUN 3
+      Tests  2 passed | 15 skipped (17)
+
+[exited with code 0]
