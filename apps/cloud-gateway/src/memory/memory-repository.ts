@@ -285,11 +285,6 @@ interface AutomaticTopicHintRow {
   readonly child_name: unknown;
 }
 
-interface InboxRefilingCursor {
-  readonly updatedAt: string;
-  readonly itemId: Ulid;
-}
-
 interface PreviousLifecycleRow {
   readonly lifecycle_state: unknown;
   readonly version_id: unknown;
@@ -419,7 +414,6 @@ const AUTOMATIC_TOPIC_COMPONENT_BYTES = 64;
 export const AUTOMATIC_TOPIC_PROMPT_TREE_BYTES = 4_096;
 const AUTOMATIC_FILING_REASON_PREFIX = "automatic filing v1 ";
 const AUTOMATIC_FILING_EVIDENCE = "verified item sources";
-const inboxRefilingCursors = new WeakMap<D1Database, Map<string, InboxRefilingCursor>>();
 const repositoryTestSeams = new WeakMap<MemoryRepository, Readonly<{
   beforeBatch: NonNullable<MemoryRepositoryTestOptions["beforeBatch"]>;
   batchFault: NonNullable<MemoryRepositoryTestOptions["batchFault"]>;
@@ -603,6 +597,16 @@ function foldedTopicName(displayName: string): string {
     .toLocaleLowerCase("en-US");
 }
 
+function hasForbiddenAutomaticTopicDisplayControl(displayName: string): boolean {
+  for (const character of displayName) {
+    if (character === "\u200d") continue;
+    const codePoint = character.codePointAt(0);
+    if (/\p{Cf}/u.test(character)
+      || (codePoint !== undefined && codePoint >= 0xe0000 && codePoint <= 0xe007f)) return true;
+  }
+  return false;
+}
+
 function payloadContainsExactExcerpt(payload: JsonValue, excerpt: string): boolean {
   const pending: Array<{ readonly value: JsonValue; readonly depth: number }> = [{ value: payload, depth: 0 }];
   let visited = 0;
@@ -651,6 +655,8 @@ export function normalizeAutomaticTopicPath(
     || value.length < 1 || value.length > AUTOMATIC_TOPIC_DEPTH_LIMIT + 1) return null;
   const keys = Object.keys(value);
   if (keys.length !== value.length || keys.some((key, index) => key !== String(index))) return null;
+  if (value.some((component) => typeof component === "string"
+    && hasForbiddenAutomaticTopicDisplayControl(component.normalize("NFC")))) return null;
   let components: Array<{ readonly display: string; readonly normalized: string }>;
   try {
     components = value.map(topicComponent);
@@ -671,7 +677,9 @@ export function normalizeAutomaticTopicPath(
   ]);
   for (const component of components) {
     const folded = foldedTopicName(component.display);
-    if (utf8.encode(component.display).byteLength > AUTOMATIC_TOPIC_COMPONENT_BYTES
+    if (folded.length === 0
+      || utf8.encode(component.display).byteLength > AUTOMATIC_TOPIC_COMPONENT_BYTES
+      || hasForbiddenAutomaticTopicDisplayControl(component.display)
       || /[>/]/u.test(folded)
       || /\p{Cf}/u.test(folded)
       || /[\u2028\u2029]/u.test(folded)
@@ -943,7 +951,6 @@ export class MemoryRepository {
   private readonly idFactory: (now: Date) => Ulid;
   private readonly maximumWriteAttempts: number;
   private readonly archivedEventReader: ArchivedEventReader | undefined;
-  private readonly inboxRefilingCursorByPrincipal: Map<string, InboxRefilingCursor>;
 
   constructor(
     private readonly database: D1Database,
@@ -954,9 +961,6 @@ export class MemoryRepository {
     this.idFactory = options.idFactory ?? newUlid;
     this.maximumWriteAttempts = options.maximumWriteAttempts ?? 2;
     this.archivedEventReader = options.archivedEventReader;
-    const existingCursors = inboxRefilingCursors.get(database);
-    this.inboxRefilingCursorByPrincipal = existingCursors ?? new Map();
-    if (existingCursors === undefined) inboxRefilingCursors.set(database, this.inboxRefilingCursorByPrincipal);
     if (!Number.isSafeInteger(this.maximumWriteAttempts)
       || this.maximumWriteAttempts < 1 || this.maximumWriteAttempts > 3) refuse();
   }
@@ -1600,18 +1604,23 @@ export class MemoryRepository {
         }
         tree.set(topTopicId, entry);
       }
-      const bounded: Array<[string, string[]]> = [];
-      for (const entry of tree.values()) {
-        const children: string[] = [];
-        const withTop = [...bounded, [entry.name, children] as const];
-        if (utf8.encode(canonicalJson(withTop)).byteLength > AUTOMATIC_TOPIC_PROMPT_TREE_BYTES) break;
-        bounded.push([entry.name, children]);
-        for (const child of entry.children) {
+      const entries = [...tree.values()];
+      const bounded: Array<[string, string[]]> = entries.map((entry) => [entry.name, []]);
+      if (utf8.encode(canonicalJson(bounded)).byteLength > AUTOMATIC_TOPIC_PROMPT_TREE_BYTES) corrupt();
+      for (let childIndex = 0; ; childIndex += 1) {
+        let foundChild = false;
+        for (let topIndex = 0; topIndex < entries.length; topIndex += 1) {
+          const child = entries[topIndex]?.children[childIndex];
+          if (child === undefined) continue;
+          foundChild = true;
+          const children = bounded[topIndex]?.[1];
+          if (children === undefined) corrupt();
           children.push(child);
-          if (utf8.encode(canonicalJson(bounded)).byteLength <= AUTOMATIC_TOPIC_PROMPT_TREE_BYTES) continue;
-          children.pop();
-          break;
+          if (utf8.encode(canonicalJson(bounded)).byteLength > AUTOMATIC_TOPIC_PROMPT_TREE_BYTES) {
+            children.pop();
+          }
         }
+        if (!foundChild) break;
       }
       return Object.freeze(bounded.map(([name, children]) =>
         Object.freeze([name, Object.freeze([...children])] as const)));
@@ -1626,10 +1635,11 @@ export class MemoryRepository {
       if (bootstrapped === null) {
         return Object.freeze({ examinedItemCount: 0, refiledItemCount: 0, failedItemCount: 0 });
       }
-      const cursor = this.inboxRefilingCursorByPrincipal.get(principalId) ?? null;
-      const rows = await this.database.prepare(`SELECT placement.placement_id, placement.item_id,
-          placement.last_placement_event_number, event.confidence, event.reason,
-          placement.updated_at
+      const retryableReasonInputs = [
+        `${AUTOMATIC_FILING_REASON_PREFIX}{"decision":"inbox_cap",`,
+        `${AUTOMATIC_FILING_REASON_PREFIX}{"decision":"inbox_filing_failure",`,
+      ] as const;
+      const countRow = await this.database.prepare(`SELECT count(*) AS count
         FROM memory_item_placement_state placement
         JOIN memory_item_placement_events event
           ON event.principal_id = placement.principal_id
@@ -1644,23 +1654,53 @@ export class MemoryRepository {
           AND placement.relation = 'primary' AND placement.status = 'active'
           AND state.lifecycle_state = 'active' AND version.uncertain = 0
           AND event.confidence >= 0.6
-          AND (instr(event.reason, ?) = 1 OR instr(event.reason, ?) = 1)
-        ORDER BY CASE
-          WHEN ?5 IS NULL OR placement.updated_at > ?5
-            OR (placement.updated_at = ?5 AND placement.item_id > ?6)
-          THEN 0 ELSE 1 END,
-          placement.updated_at ASC, placement.item_id ASC
-        LIMIT ?7`).bind(
+          AND (instr(event.reason, ?) = 1 OR instr(event.reason, ?) = 1)`)
+        .bind(principalId, bootstrapped.inbox.topicId, ...retryableReasonInputs)
+        .first<CountRow>();
+      if (countRow === null) corrupt();
+      exactRow(countRow, new Set(["count"]));
+      const candidateCount = rowInteger(countRow.count, 0, Number.MAX_SAFE_INTEGER);
+      if (candidateCount === 0) {
+        return Object.freeze({ examinedItemCount: 0, refiledItemCount: 0, failedItemCount: 0 });
+      }
+      const hourIndex = Math.floor(this.freshNow().valueOf() / 3_600_000);
+      const offset = (hourIndex * AUTOMATIC_INBOX_REFILE_CANDIDATE_LIMIT) % candidateCount;
+      const candidateLimit = Math.min(AUTOMATIC_INBOX_REFILE_CANDIDATE_LIMIT, candidateCount);
+      const rows = await this.database.prepare(`WITH candidates AS (
+          SELECT placement.placement_id, placement.item_id,
+          placement.last_placement_event_number, event.confidence, event.reason,
+          placement.updated_at
+          FROM memory_item_placement_state placement
+          JOIN memory_item_placement_events event
+            ON event.principal_id = placement.principal_id
+            AND event.placement_id = placement.placement_id
+            AND event.placement_event_number = placement.last_placement_event_number
+          JOIN memory_item_state state
+            ON state.principal_id = placement.principal_id AND state.item_id = placement.item_id
+          JOIN memory_item_versions version
+            ON version.principal_id = state.principal_id
+            AND version.version_id = state.current_version_id
+          WHERE placement.principal_id = ? AND placement.topic_id = ?
+            AND placement.relation = 'primary' AND placement.status = 'active'
+            AND state.lifecycle_state = 'active' AND version.uncertain = 0
+            AND event.confidence >= 0.6
+            AND (instr(event.reason, ?) = 1 OR instr(event.reason, ?) = 1)
+        ), rotated AS (
+          SELECT candidates.*, 0 AS rotation FROM candidates
+          UNION ALL
+          SELECT candidates.*, 1 AS rotation FROM candidates
+        )
+        SELECT placement_id, item_id, last_placement_event_number, confidence, reason, updated_at
+        FROM rotated
+        ORDER BY rotation ASC, updated_at ASC, item_id ASC
+        LIMIT ? OFFSET ?`).bind(
           principalId,
           bootstrapped.inbox.topicId,
-          `${AUTOMATIC_FILING_REASON_PREFIX}{"decision":"inbox_cap",`,
-          `${AUTOMATIC_FILING_REASON_PREFIX}{"decision":"inbox_filing_failure",`,
-          cursor?.updatedAt ?? null,
-          cursor?.itemId ?? null,
-          AUTOMATIC_INBOX_REFILE_CANDIDATE_LIMIT,
+          ...retryableReasonInputs,
+          candidateLimit,
+          offset,
         )
         .all<InboxRefilingRow>();
-      if (rows.results.length === 0) this.inboxRefilingCursorByPrincipal.delete(principalId);
       let examinedItemCount = 0;
       let refiledItemCount = 0;
       let failedItemCount = 0;
@@ -1672,8 +1712,7 @@ export class MemoryRepository {
         ]));
         const placementId = rowUlid(row.placement_id);
         const itemId = rowUlid(row.item_id);
-        const updatedAt = rowTimestamp(row.updated_at);
-        this.inboxRefilingCursorByPrincipal.set(principalId, { updatedAt, itemId });
+        rowTimestamp(row.updated_at);
         const eventNumber = rowInteger(row.last_placement_event_number, 1, Number.MAX_SAFE_INTEGER);
         const confidence = this.rowConfidence(row.confidence);
         const reason = parseAutomaticFilingReason(row.reason);

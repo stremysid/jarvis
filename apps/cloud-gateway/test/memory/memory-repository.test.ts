@@ -687,6 +687,20 @@ describe("MemoryRepository", () => {
     expect(filler).toMatchObject({ topic: { topicId: school } });
   });
 
+  it("rejects format and bidi controls on display names while keeping emoji joiners and variation selectors", () => {
+    const forbidden = [
+      "\u061c", "\u200b", "\u200c", "\u200e", "\u200f", "\u202a", "\u202b", "\u202c", "\u202d",
+      "\u202e", "\u2066", "\u2067", "\u2068", "\u2069", "\ufeff", String.fromCodePoint(0xe0000),
+      String.fromCodePoint(0xe007f),
+    ];
+    for (const control of forbidden) {
+      expect(normalizeAutomaticTopicPath([`School${control}`])).toBeNull();
+    }
+    expect(normalizeAutomaticTopicPath(["\u3164"])).toBeNull();
+    const emoji = "Projects \u{1f469}\u200d\u{1f4bb} \u2764\ufe0f";
+    expect(normalizeAutomaticTopicPath([emoji])).toEqual([emoji]);
+  });
+
   it("keeps the canonical root and inbox identities after both display names are renamed", async () => {
     const principalId = await seedPrincipal();
     const repository = new MemoryRepository(env.DB);
@@ -988,7 +1002,21 @@ describe("MemoryRepository", () => {
     expect(resolved).toMatchObject({ topic: { topicId: chemistry, matchedBy: "alias" } });
   });
 
-  it("bounds the top-two-level prompt tree by encoded bytes", async () => {
+  it("prefers an exact sibling alias before a newer NFKC-folded alias", async () => {
+    const principalId = await seedPrincipal();
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    const exact = await createTopic(principalId, topics.root.topicId, "Exact alias source");
+    await renameTopic(principalId, exact, "Exact alias source", "Exact alias target", "Memory/Finance");
+    const folded = await createTopic(principalId, topics.root.topicId, "Folded alias source");
+    await renameTopic(principalId, folded, "Folded alias source", "Folded alias target", "Memory/ﬁnance");
+
+    const resolved = await repository.resolveOrCreateAutomaticTopicPath(principalId, ["Finance"], 0);
+
+    expect(resolved).toMatchObject({ topic: { topicId: exact, matchedBy: "alias" } });
+  });
+
+  it("checks the byte bound after each round-robin child while keeping every top-level area", async () => {
     const principalId = await seedPrincipal();
     const repository = new MemoryRepository(env.DB);
     const topics = await repository.bootstrapTopics(principalId);
@@ -1005,8 +1033,9 @@ describe("MemoryRepository", () => {
     const encodedBytes = new TextEncoder().encode(canonicalJson(tree)).byteLength;
 
     expect(encodedBytes).toBeLessThanOrEqual(AUTOMATIC_TOPIC_PROMPT_TREE_BYTES);
-    expect(tree.length).toBeGreaterThan(0);
-    expect(tree.length).toBeLessThan(40);
+    expect(tree).toHaveLength(40);
+    expect(tree.flatMap(([, children]) => children).length).toBeGreaterThan(0);
+    expect(tree.flatMap(([, children]) => children).length).toBeLessThan(40);
     expect(tree.flatMap(([, children]) => children)).not.toContain(MEMORY_INBOX_DISPLAY_NAME);
   });
 
