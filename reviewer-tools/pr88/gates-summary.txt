@@ -1,0 +1,10 @@
+head 92889ea
+lint rc=0
+typecheck rc=0
+test rc=0
+ Test Files  186 passed (186)
+      Tests  4907 passed (4907)
+pr82r2 adversarial:
+     × D5 the same worst step with every first commit attempt failing stays under the charged budget 9367ms
+      Tests  1 failed | 19 passed (20)
+clean: 0

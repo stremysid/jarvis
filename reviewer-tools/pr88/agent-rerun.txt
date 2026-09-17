@@ -1,0 +1,195 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/adversarial-pr88.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr82-adv
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/memory/adversarial-pr88.test.ts (14 tests | 9 failed) 45806ms
+     × K1 a new Worker isolate still reaches a fileable row behind 100 stuck rows within three hourly passes 13765ms
+     × K2 a new D1 binding object (next invocation) still reaches the fileable row within three passes 11606ms
+     × F1 never creates an area whose name folds to nothing (zero-width space, Hangul filler) 871ms
+     × F2 never creates an area containing a bidi override that reads like an existing area 284ms
+     × F3 never stores invisible tag characters (hidden ASCII) in an area name 269ms
+     × P1 lists every top-level area even when earlier areas have many second-level names 373ms
+     × P2 the prompt instructions frame existingTopicTree as untrusted data to reuse, not instructions 1220ms
+     × P5 a failing tree read makes no provider call and is not reported as a provider failure 218ms
+     × B2 the hourly job can still run a second step after a cheap first step (12 owner messages drain in one hour) 326ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 9 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr88.test.ts > PR #88: wrapping re-file cursor > K1 a new Worker isolate still reaches a fileable row behind 100 stuck rows within three hourly passes
+AssertionError: expected 'Inbox / Needs filing' to be 'School' // Object.is equality
+
+Expected: "School"
+Received: "Inbox / Needs filing"
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr88.test.ts:493:69
+    491|     }
+    492|
+    493|     expect((await placementOf(principalId, fileable)).display_name).to…
+       |                                                                     ^
+    494|   }, 180_000);
+    495|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/9]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr88.test.ts > PR #88: wrapping re-file cursor > K2 a new D1 binding object (next invocation) still reaches the fileable row within three passes
+AssertionError: expected 'Inbox / Needs filing' to be 'School' // Object.is equality
+
+Expected: "School"
+Received: "Inbox / Needs filing"
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr88.test.ts:514:69
+    512|     }
+    513|
+    514|     expect((await placementOf(principalId, fileable)).display_name).to…
+       |                                                                     ^
+    515|   }, 180_000);
+    516|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/9]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr88.test.ts > PR #88: NFKC + default-ignorable folding > F1 never creates an area whose name folds to nothing (zero-width space, Hangul filler)
+AssertionError: expected { '3164': 1, '200b': 1 } to deeply equal { '3164': +0, '200b': +0 }
+
+- Expected
++ Received
+
+  {
+-   "200b": 0,
+-   "3164": 0,
++   "200b": 1,
++   "3164": 1,
+  }
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr88.test.ts:549:21
+    547|       created[(name.codePointAt(0) ?? 0).toString(16)] = await modelTo…
+    548|     }
+    549|     expect(created).toEqual({ "200b": 0, "3164": 0 });
+       |                     ^
+    550|   });
+    551|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/9]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr88.test.ts > PR #88: NFKC + default-ignorable folding > F2 never creates an area containing a bidi override that reads like an existing area
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr88.test.ts:561:84
+    559|
+    560|     expect(result.outcome).toBe("succeeded");
+    561|     expect((await topicNames(principalId)).some((name) => /[‪-‮⁦-⁩]/u.…
+       |                                                                                    ^
+    562|   });
+    563|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/9]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr88.test.ts > PR #88: NFKC + default-ignorable folding > F3 never stores invisible tag characters (hidden ASCII) in an area name
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr88.test.ts:571:97
+    569|
+    570|     expect(result.outcome).toBe("succeeded");
+    571|     expect((await topicNames(principalId)).some((name) => /[\u{e0000}-…
+       |                                                                                                 ^
+    572|   });
+    573|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/9]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr88.test.ts > PR #88: existing-area hints in the extraction prompt > P1 lists every top-level area even when earlier areas have many second-level names
+AssertionError: expected [ 'School', 'Clubs' ] to deeply equal [ 'School', 'Clubs', 'Music', …(2) ]
+
+- Expected
++ Received
+
+  [
+    "School",
+    "Clubs",
+-   "Music",
+-   "Work",
+-   "Health",
+  ]
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr88.test.ts:620:40
+    618|
+    619|     expect(new TextEncoder().encode(canonicalJson(tree)).byteLength).t…
+    620|     expect(tree.map(([name]) => name)).toEqual(["School", "Clubs", "Mu…
+       |                                        ^
+    621|   }, 120_000);
+    622|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/9]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr88.test.ts > PR #88: existing-area hints in the extraction prompt > P2 the prompt instructions frame existingTopicTree as untrusted data to reuse, not instructions
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr88.test.ts:641:84
+    639|     expect(prompt.existingTopicTree).toEqual([[injected, []]]);
+    640|     expect(prompt.instructions.join("\n")).not.toContain(injected);
+    641|     expect(prompt.instructions.some((line) => line.includes("existingT…
+       |                                                                                    ^
+    642|   });
+    643|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/9]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr88.test.ts > PR #88: existing-area hints in the extraction prompt > P5 a failing tree read makes no provider call and is not reported as a provider failure
+AssertionError: expected 'distillation_provider_failed' not to be 'distillation_provider_failed' // Object.is equality
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr88.test.ts:697:36
+    695|
+    696|     expect(provider.requests).toHaveLength(0);
+    697|     expect(result.failureCode).not.toBe("distillation_provider_failed"…
+       |                                    ^
+    698|   });
+    699| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/9]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr88.test.ts > PR #88: D1 charging > B2 the hourly job can still run a second step after a cheap first step (12 owner messages drain in one hour)
+AssertionError: expected { stepLimit: 4311, providerCalls: 1 } to deeply equal { stepLimit: 4311, providerCalls: 2 }
+
+- Expected
++ Received
+
+  {
+-   "providerCalls": 2,
++   "providerCalls": 1,
+    "stepLimit": 4311,
+  }
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr88.test.ts:741:8
+    739|       stepLimit: AUTOMATIC_DISTILLATION_STEP_LIMITS.d1Statements,
+    740|       providerCalls: provider.requests.length,
+    741|     }).toEqual({ stepLimit: AUTOMATIC_DISTILLATION_STEP_LIMITS.d1State…
+       |        ^
+    742|     expect(result.ok && result.detail).not.toContain("D1 statement all…
+    743|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/9]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  9 failed | 5 passed (14)
+   Start at  00:51:53
+   Duration  48.03s (transform 818ms, setup 0ms, import 1.41s, tests 45.81s, environment 0ms)
+
