@@ -313,6 +313,26 @@ beforeAll(async () => {
 });
 
 describe("MemoryOwnerControlsService", () => {
+  it("refuses to promote a model-inferred proposal through the free-text confirm service", async () => {
+    const sourceTurn = await seedTurn("I might prefer violet layouts.");
+    const proposed = await commitItemFromTurn(sourceTurn, sourceTurn.text, {
+      lifecycleState: "proposed",
+      origin: "model",
+    });
+    const confirmTurn = await seedTurn("yes, confirm that", { memoryIntent: "confirm" });
+
+    await expectCode(new MemoryOwnerControlsService(env.DB, env.ARCHIVE).confirm({
+      ownerTurn: confirmTurn.input,
+      candidateItemIds: [proposed.itemId],
+      sourceExcerpt: "yes",
+    }), "memory_refused");
+    await expect(new MemoryRepository(env.DB).readCurrentItem(OWNER_ID, proposed.itemId))
+      .resolves.toMatchObject({
+        lifecycle: { state: "proposed" },
+        version: { basis: "inferred", origin: "model", uncertain: true },
+      });
+  });
+
   it("remembers exact text from the authenticated owner's current turn and replays it exactly", async () => {
     const turn = await seedTurn("Please remember that I prefer concise release notes.");
     const service = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);

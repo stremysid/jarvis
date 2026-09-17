@@ -225,6 +225,35 @@ describe("fetching a private Brightspace calendar feed", () => {
     await expect(client.collectDeadlines()).rejects.toThrow("brightspace_feed_too_large");
   });
 
+  it("aborts the Brightspace fetch when the owner-turn signal aborts", async () => {
+    const ownerTurn = new AbortController();
+    let requestSignalWasAborted = false;
+    let markStarted = (): void => undefined;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const fetcher = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      markStarted();
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          requestSignalWasAborted = init.signal?.aborted === true;
+          reject(new Error("aborted"));
+        }, { once: true });
+      });
+    }) as unknown as typeof fetch;
+    const client = new BrightspaceIcalClient({
+      feedUrl: FEED_URL,
+      timeZone: TORONTO,
+      fetchImplementation: fetcher,
+      signal: ownerTurn.signal,
+    });
+
+    const result = client.collectDeadlines();
+    await started;
+    ownerTurn.abort();
+
+    await expect(result).rejects.toThrow("brightspace_feed_unavailable");
+    expect(requestSignalWasAborted).toBe(true);
+  });
+
   it("times out with a fixed unavailable code even when the fetch promise does not settle", async () => {
     vi.useFakeTimers();
     const fetcher = vi.fn(() => new Promise<Response>(() => undefined)) as unknown as typeof fetch;

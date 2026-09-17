@@ -19,6 +19,8 @@ import {
   CONVERSATION_EVENT_SOURCE,
   ConversationRepository,
 } from "../../src/conversation/conversation-repository.js";
+import { recordPendingTelegramReplyMarkup } from "../../src/channels/telegram/telegram-reply-markup.js";
+import { encodeDecisionCallbackData } from "../../src/decisions/telegram-keyboard.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { ProviderFailure, ProviderIdempotencyConflictError } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
@@ -64,8 +66,57 @@ function sequentialFactory<T>(values: readonly T[]): () => T {
   };
 }
 
-function repository(): ConversationRepository {
-  return new ConversationRepository(env.DB, new EventRepository(env.DB), {
+interface DatabaseHook {
+  readonly match: string;
+  readonly mode: "lose_response" | "before";
+  readonly run?: () => Promise<void>;
+  fired: boolean;
+}
+
+/** Real D1 underneath; loses a committed response or races a write before one exact batch. */
+function hookedDatabase(database: D1Database) {
+  const raw = new WeakMap<object, { readonly statement: D1PreparedStatement; readonly sql: string }>();
+  const hooks: DatabaseHook[] = [];
+  const wrap = (statement: D1PreparedStatement, sql: string): D1PreparedStatement => {
+    const proxy = new Proxy(statement, {
+      get(target, property) {
+        if (property === "bind") return (...values: unknown[]) => wrap(target.bind(...values), sql);
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+      },
+    });
+    raw.set(proxy, Object.freeze({ statement, sql }));
+    return proxy;
+  };
+  const proxied = new Proxy(database, {
+    get(target, property) {
+      if (property === "prepare") return (sql: string) => wrap(target.prepare(sql), sql);
+      if (property === "batch") {
+        return async (statements: D1PreparedStatement[]) => {
+          const entries = statements.map((statement) => raw.get(statement) ?? { statement, sql: "" });
+          const hook = hooks.find((candidate) => !candidate.fired
+            && entries.some((entry) => entry.sql.includes(candidate.match)));
+          if (hook !== undefined) hook.fired = true;
+          if (hook?.mode === "before") await hook.run?.();
+          const results = await target.batch(entries.map((entry) => entry.statement));
+          if (hook?.mode === "lose_response") throw new Error("d1_response_lost_after_commit");
+          return results;
+        };
+      }
+      const value = Reflect.get(target, property, target) as unknown;
+      return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as D1Database;
+  return Object.freeze({
+    database: proxied,
+    loseResponse(match: string) { hooks.push({ match, mode: "lose_response", fired: false }); },
+    before(match: string, run: () => Promise<void>) { hooks.push({ match, mode: "before", run, fired: false }); },
+    fired: () => hooks.every((hook) => hook.fired),
+  });
+}
+
+function repository(database: D1Database = env.DB): ConversationRepository {
+  return new ConversationRepository(database, new EventRepository(database), {
     eventIdFactory: sequentialFactory(EVENT_IDS),
     deliveryIdFactory: sequentialFactory(DELIVERY_IDS),
     claimTokenFactory: () => new Uint8Array(32).fill(0x11),
@@ -187,6 +238,134 @@ describe("ConversationRepository", () => {
 
   afterEach(async () => {
     await clearData();
+  });
+
+  it("re-reads getOrCreateTurn when a racing admission wins before its batch", async () => {
+    const hooked = hookedDatabase(env.DB);
+    const input = {
+      turnId: TURN_ID,
+      sessionId: "session:telegram:44112233",
+      principalId: "principal:owner",
+      channel: "telegram" as const,
+      userText: redacted("hello"),
+      now: NOW,
+    };
+    let winner: Awaited<ReturnType<ConversationRepository["getOrCreateTurn"]>> | undefined;
+    hooked.before("INSERT INTO conversation_turns", async () => {
+      winner = await repository().getOrCreateTurn(input);
+    });
+
+    const replay = await repository(hooked.database).getOrCreateTurn(input);
+
+    expect(hooked.fired()).toBe(true);
+    expect(winner?.replayed).toBe(false);
+    expect(replay).toEqual({ turn: winner?.turn, replayed: true });
+  });
+
+  it("re-reads getOrCreateTurn when its admission batch commits but loses the response", async () => {
+    const hooked = hookedDatabase(env.DB);
+    hooked.loseResponse("INSERT INTO conversation_turns");
+
+    const admission = await repository(hooked.database).getOrCreateTurn({
+      turnId: TURN_ID,
+      sessionId: "session:telegram:44112233",
+      principalId: "principal:owner",
+      channel: "telegram",
+      userText: redacted("hello"),
+      now: NOW,
+    });
+
+    expect(hooked.fired()).toBe(true);
+    expect(admission).toMatchObject({ replayed: true, turn: { turnId: TURN_ID, state: "user_committed" } });
+    expect((await env.DB.prepare("SELECT COUNT(*) AS count FROM conversation_turns").first<{ count: number }>())?.count)
+      .toBe(1);
+  });
+
+  it("re-reads stageAssistantDelivery when its staging batch commits but loses the response", async () => {
+    const hooked = hookedDatabase(env.DB);
+    const repo = repository(hooked.database);
+    const { claim } = await admitAndClaim(repo);
+    hooked.loseResponse("INSERT INTO conversation_deliveries");
+
+    const staged = await repo.stageAssistantDelivery({
+      claim: claim.capability,
+      text: redacted("safe answer"),
+      targetIdentityId: "identity:telegram",
+      replyToMessageId: 42,
+      now: LATER,
+    });
+
+    expect(hooked.fired()).toBe(true);
+    expect(staged).toMatchObject({
+      turn: { state: "assistant_staged", stagedDeliveryId: staged.delivery.deliveryId },
+      delivery: { state: "pending", turnId: TURN_ID },
+    });
+  });
+
+  it("falls back to readDeliveryRow when delivery success commits but its returned row is lost", async () => {
+    const hooked = hookedDatabase(env.DB);
+    const repo = repository(hooked.database);
+    const { staged } = await stagedDelivery(repo);
+    const claim = await repo.claimDelivery({ deliveryId: staged.delivery.deliveryId, now: LATER });
+    if (claim.kind !== "claimed") throw new Error("test_lease_failed");
+    repo.beginDelivery(claim.capability, staged.delivery.deliveryId, staged.delivery.materialHash);
+    const receipt = repo.mintProviderDeliveryReceipt({
+      capability: claim.capability,
+      providerMessageId: "telegram-message-101",
+    });
+    hooked.loseResponse("SET state = 'delivered'");
+
+    const delivered = await repo.recordDeliverySuccess({ capability: claim.capability, receipt, now: LATER });
+
+    expect(hooked.fired()).toBe(true);
+    expect(delivered).toMatchObject({
+      state: "delivered",
+      providerMessageId: "telegram-message-101",
+      deliveredAssistantEventId: expect.stringMatching(/^[0-7][0-9a-hjkmnp-tv-z]{25}$/u),
+    });
+  });
+
+  it("rejects staged markup whose callback decision id differs from its staged decision id", async () => {
+    const first = EVENT_IDS[6]!;
+    const second = EVENT_IDS[7]!;
+    recordPendingTelegramReplyMarkup(TURN_ID, Object.freeze({
+      decisionId: first,
+      replyMarkup: Object.freeze({
+        inline_keyboard: Object.freeze([Object.freeze([Object.freeze({
+          text: "Confirm",
+          callback_data: encodeDecisionCallbackData(second, "confirm"),
+        })])]),
+      }),
+    }));
+    const repo = repository();
+    const { staged } = await stagedDelivery(repo);
+
+    await expect(repo.claimDelivery({ deliveryId: staged.delivery.deliveryId, now: LATER }))
+      .rejects.toThrow("conversation_staged_event_invalid");
+  });
+
+  it("refuses delivery settlement when the staged decision cannot be marked delivered", async () => {
+    const decisionId = EVENT_IDS[6]!;
+    recordPendingTelegramReplyMarkup(TURN_ID, Object.freeze({
+      decisionId,
+      replyMarkup: Object.freeze({
+        inline_keyboard: Object.freeze([Object.freeze([Object.freeze({
+          text: "Confirm",
+          callback_data: encodeDecisionCallbackData(decisionId, "confirm"),
+        })])]),
+      }),
+    }));
+    const repo = repository();
+    const { staged } = await stagedDelivery(repo);
+    const claim = await repo.claimDelivery({ deliveryId: staged.delivery.deliveryId, now: LATER });
+    if (claim.kind !== "claimed") throw new Error("test_lease_failed");
+    repo.beginDelivery(claim.capability, staged.delivery.deliveryId, staged.delivery.materialHash);
+    const receipt = repo.mintProviderDeliveryReceipt({
+      capability: claim.capability,
+      providerMessageId: "telegram-message-decision",
+    });
+    await expect(repo.recordDeliverySuccess({ capability: claim.capability, receipt, now: LATER }))
+      .rejects.toThrow("conversation_decision_delivery_invalid");
   });
 
   it("atomically commits one canonical user event and turn, replays exact material, and conflicts changed material", async () => {

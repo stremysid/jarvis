@@ -50,6 +50,7 @@ export interface BrightspaceIcalClientOptions {
   readonly timeZone: string;
   readonly fetchImplementation?: typeof fetch;
   readonly timeoutMs?: number;
+  readonly signal?: AbortSignal;
 }
 
 interface ContentProperty {
@@ -553,6 +554,7 @@ export class BrightspaceIcalClient {
   readonly #timeZone: string;
   readonly #fetch: typeof fetch;
   readonly #timeoutMs: number;
+  readonly #signal: AbortSignal | null;
 
   constructor(options: BrightspaceIcalClientOptions) {
     this.#feedUrl = requireFeedUrl(options.feedUrl);
@@ -565,6 +567,7 @@ export class BrightspaceIcalClient {
     }
     this.#fetch = options.fetchImplementation ?? globalThis.fetch.bind(globalThis);
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.#signal = options.signal ?? null;
     if (!Number.isSafeInteger(this.#timeoutMs) || this.#timeoutMs < 1 || this.#timeoutMs > 60_000) {
       throw failure("brightspace_feed_url_invalid");
     }
@@ -572,6 +575,9 @@ export class BrightspaceIcalClient {
 
   async collectDeadlines(): Promise<BrightspaceCalendarResult> {
     const controller = new AbortController();
+    const abort = (): void => controller.abort();
+    if (this.#signal?.aborted) controller.abort();
+    else this.#signal?.addEventListener("abort", abort, { once: true });
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const timedOut = new Promise<never>((_, reject) => {
@@ -614,6 +620,7 @@ export class BrightspaceIcalClient {
       throw failure("brightspace_feed_unavailable", null, true);
     } finally {
       if (timer !== undefined) clearTimeout(timer);
+      this.#signal?.removeEventListener("abort", abort);
       controller.abort();
     }
   }

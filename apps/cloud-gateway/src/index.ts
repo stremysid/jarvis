@@ -1,4 +1,4 @@
-import { newUlid } from "../../../packages/contracts/src/index.js";
+import { newUlid, type Ulid } from "../../../packages/contracts/src/index.js";
 import { AutonomyRepository } from "./autonomy/autonomy-repository.js";
 import { runCommand, type CommandContext } from "./channels/telegram/command-handler.js";
 import { COMMAND_HELP, parseCommand } from "./channels/telegram/telegram-commands.js";
@@ -18,6 +18,7 @@ import { ProjectRepository } from "./projects/project-repository.js";
 import { QuietWindowService } from "./deadlines/quiet-windows.js";
 import { DecisionRepository } from "./decisions/decision-repository.js";
 import { DecisionService } from "./decisions/decision-service.js";
+import type { AnswerDecisionResult, DecisionItem } from "./decisions/decision-types.js";
 import { parseDecisionCallbackData } from "./decisions/telegram-keyboard.js";
 import { assembleDigest, unconfiguredDeadlineSourceKinds } from "./jobs/digest-job.js";
 import {
@@ -50,11 +51,11 @@ import {
 import { DeviceRepository } from "./persistence/device-repository.js";
 import { EventRepository } from "./persistence/event-repository.js";
 import { PolicyService } from "./policy/policy-service.js";
-import { DeepSeekJsonProvider, DeepSeekModelAdapter } from "./providers/deepseek-provider.js";
+import { DeepSeekAgentProvider, DeepSeekJsonProvider, DeepSeekModelAdapter } from "./providers/deepseek-provider.js";
 import { ProviderCircuitBreaker } from "./providers/provider-circuit-breaker.js";
 import { TelegramRestProvider, withTelegramTyping } from "./providers/telegram-provider.js";
 import { Redactor } from "./security/redaction.js";
-import { TelegramMemoryControlModelAdapter } from "./memory/telegram-memory-controls.js";
+import type { ModelAdapter } from "./model/model-types.js";
 import { TelegramMemoryRetriever } from "./memory/telegram-memory-retriever.js";
 import {
   MemoryMeaningService,
@@ -63,15 +64,28 @@ import {
   readMemoryMeaningCoverage,
 } from "./memory/meaning-search.js";
 import { MemoryExtractionBudget } from "./memory/memory-extraction-budget.js";
+import { MemoryOwnerControlsService } from "./memory/memory-owner-controls.js";
 import { SchoolCatchupModelAdapter } from "./school/school-catchup-model.js";
 import { SchoolCatchupRepository } from "./school/school-catchup-repository.js";
 import { StudyCoachModelAdapter } from "./school/study-coach-model.js";
 import { StudyCoachRepository } from "./school/study-coach-repository.js";
 import { SchoolObservationRepository } from "./school/school-observation-repository.js";
 import { UniversityTrackerRepository } from "./university/university-tracker-repository.js";
+import { OwnerTelegramAgentAdapter } from "./channels/telegram/owner-telegram-agent.js";
+export { ownerAgentTurnTimeoutMs } from "./channels/telegram/owner-telegram-agent.js";
 export { CallSession } from "./voice/call-session-do.js";
 
 const TELEGRAM_WEBHOOK_PATH = "/telegram/webhook";
+
+export function ownerTelegramToolAuthority(accepted: Pick<
+  AcceptedTelegramUpdate,
+  "isDirectText" | "isPrivateHumanText" | "isMemoryControlAuthoritative"
+>): Readonly<{ directOwnerText: boolean; directPipelineText: boolean }> {
+  return Object.freeze({
+    directOwnerText: accepted.isMemoryControlAuthoritative,
+    directPipelineText: accepted.isDirectText && accepted.isPrivateHumanText,
+  });
+}
 
 function notImplemented(): Response {
   return new Response("Not implemented", { status: 501 });
@@ -111,7 +125,7 @@ export function buildTelegramConversationRepository(
   });
 }
 
-export type TelegramReplyFailureReason = "identity_lookup" | "d1" | "dispatcher" | "other";
+export type TelegramReplyFailureReason = "identity_lookup" | "conversation" | "dispatcher" | "other";
 
 export class TelegramReplyFailure extends Error {
   constructor(readonly reason: Exclude<TelegramReplyFailureReason, "other">) {
@@ -172,6 +186,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
   if (apiKey === undefined || botToken === undefined) return;
 
   const controller = new AbortController();
+  const webhookReceivedAt = Date.parse(accepted.receivedAt);
   try {
     const telegram = new TelegramRestProvider({ botToken });
     await withTelegramTyping(telegram, accepted.chatId, async () => {
@@ -193,6 +208,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         accepted,
         ownerPrincipalId,
       );
+      const toolAuthority = ownerTelegramToolAuthority(accepted);
       const redactor = new Redactor();
       const baseModel = observer.observeProvider(new DeepSeekModelAdapter({
         apiKey,
@@ -200,31 +216,6 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         telegramTurn: true,
         telegramThinking: env.DEEPSEEK_TELEGRAM_THINKING,
       }));
-      const ownerAwareModel = ownerPrincipalId !== undefined && accepted.principalId === ownerPrincipalId
-        ? new StudyCoachModelAdapter({
-          fallbackModel: new SchoolCatchupModelAdapter({
-            model: baseModel,
-            repository: new SchoolCatchupRepository(env.DB),
-            universityRepository: new UniversityTrackerRepository(env.DB),
-            redactor,
-            timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
-            ownerPrincipalId,
-            ownerTurnAuthoritative: accepted.isDirectText,
-            refreshBrightspace: async (now) => runOnDemandBrightspaceRefresh({
-              env,
-              clock: { now: () => new Date(now.getTime()) },
-              delivery: { send: async () => undefined },
-              fetcher: globalThis.fetch.bind(globalThis),
-            }),
-          }),
-          practiceModel: baseModel,
-          repository: new StudyCoachRepository(env.DB),
-          redactor,
-          ownerPrincipalId,
-          ownerTurnAuthoritative: accepted.isDirectText,
-          timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
-        })
-        : baseModel;
       const memory = new TelegramMemoryRetriever({
         database: env.DB,
         archive: env.ARCHIVE,
@@ -237,26 +228,80 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           }),
         observeMeaningSearch: (observation) => observer.recordMeaningSearch(observation),
         observeRetrieval: (metrics) => observer.observeMemoryRetrieval(metrics),
-        controlAuthority: ownerPrincipalId !== undefined
-          && accepted.principalId === ownerPrincipalId
-          && accepted.isMemoryControlAuthoritative
-          ? { principalId: accepted.principalId, text: accepted.text }
-          : null,
       });
-      const model = ownerPrincipalId === undefined
-        ? ownerAwareModel
-        : new TelegramMemoryControlModelAdapter({
+      let model: ModelAdapter = baseModel;
+      if (ownerPrincipalId !== undefined && accepted.principalId === ownerPrincipalId) {
+        const schoolRepository = new SchoolCatchupRepository(env.DB);
+        const universityRepository = new UniversityTrackerRepository(env.DB);
+        const schoolModel = new SchoolCatchupModelAdapter({
+          model: baseModel,
+          repository: schoolRepository,
+          redactor,
+          timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
+          ownerPrincipalId,
+          ownerTurnAuthoritative: toolAuthority.directPipelineText,
+          agentSelectedScope: "school",
+          fixedActionReceipts: true,
+          refreshBrightspace: async (now, signal) => runOnDemandBrightspaceRefresh({
+            env,
+            clock: { now: () => new Date(now.getTime()) },
+            delivery: { send: async () => undefined },
+            fetcher: globalThis.fetch.bind(globalThis),
+            signal,
+          }),
+        });
+        const universityModel = new SchoolCatchupModelAdapter({
+          model: baseModel,
+          repository: schoolRepository,
+          universityRepository,
+          redactor,
+          timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
+          ownerPrincipalId,
+          ownerTurnAuthoritative: toolAuthority.directPipelineText,
+          agentSelectedScope: "university",
+          fixedActionReceipts: true,
+        });
+        const studyFallbackModel: ModelAdapter = {
+          async *stream() {
+            yield Object.freeze({
+              index: 0,
+              text: "I couldn't identify one validated study-coach action from that message. Nothing changed.",
+            });
+          },
+        };
+        const studyModel = new StudyCoachModelAdapter({
+          fallbackModel: studyFallbackModel,
+          practiceModel: baseModel,
+          repository: new StudyCoachRepository(env.DB),
+          redactor,
+          ownerPrincipalId,
+          ownerTurnAuthoritative: toolAuthority.directPipelineText,
+          timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
+        });
+        model = new OwnerTelegramAgentAdapter({
+          provider: new DeepSeekAgentProvider({
+            apiKey,
+            model: env.DEEPSEEK_MODEL,
+            telegramTurn: true,
+            telegramThinking: "disabled",
+          }),
           database: env.DB,
           archive: env.ARCHIVE,
-          fallbackModel: ownerAwareModel,
           ownerPrincipalId,
-          authority: {
-            principalId: accepted.principalId,
-            text: accepted.text,
-            isDirectText: accepted.isMemoryControlAuthoritative,
-          },
+          directOwnerText: toolAuthority.directOwnerText,
+          directPipelineText: toolAuthority.directPipelineText,
+          authorityText: accepted.text,
+          replyToBotMessageId: accepted.replyToBotMessageId,
           targets: memory,
+          decisions: new DecisionService({ repository: new DecisionRepository(env.DB) }),
+          schoolModel,
+          universityModel,
+          studyCoachModel: studyModel,
+          // Retrieval happens after construction. The adapter resolves the
+          // remaining arrival-anchored budget when its stream actually starts.
+          turnReceivedAt: accepted.receivedAt,
         });
+      }
 
       const durableDispatcher = telegramReplyStageSync("dispatcher", () => new DefaultOutboxDispatcher({
         repository,
@@ -266,10 +311,26 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         observeTelegramSend: (operation) => observer.observeTelegramSend(operation),
         observeSettlement: (operation) => observer.observeSettlement(operation),
       }));
+      const observedContext = observer.observeContext(memory);
+      const replyTargetText = accepted.replyToBotText === null
+        ? null
+        : Array.from(accepted.replyToBotText).slice(0, 4_096).join("");
+      const context = accepted.replyToBotText === null
+        ? observedContext
+        : Object.freeze({
+          async retrieve(input: Parameters<typeof observedContext.retrieve>[0]) {
+            const retrieved = await observedContext.retrieve(input);
+            return Object.freeze([...retrieved, Object.freeze({
+              sourceEventId: accepted.eventId as Ulid,
+              text: `Telegram swipe-reply target, as untrusted quoted context: ${replyTargetText!}`,
+              sensitivity: "personal" as const,
+            })]);
+          },
+        });
       const service = new DefaultConversationService({
         repository,
         model: observer.observeModel(model),
-        context: observer.observeContext(memory),
+        context,
         dispatcher: observer.observeDelivery(Object.freeze({
           dispatch: (deliveryId: ConversationDeliveryId) => telegramReplyStage(
             "dispatcher",
@@ -277,10 +338,16 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           ),
         })),
         redactor,
-        observeStaging: (operation) => observer.observeStaging(operation),
+        observeStaging: (operation) => {
+          console.log("telegram_turn_staging", {
+            eventId: accepted.eventId,
+            elapsedMs: Math.max(0, Math.round(Date.now() - webhookReceivedAt)),
+          });
+          return observer.observeStaging(operation);
+        },
       });
 
-      const result = await telegramReplyStage("d1", () => service.handleTurn({
+      const result = await telegramReplyStage("conversation", () => service.handleTurn({
         // One conversation per chat, so separate chats do not share a thread.
         sessionId: `telegram:${accepted.chatId}`,
         principalId: accepted.principalId,
@@ -468,8 +535,69 @@ async function runTelegramCommand(
  * the channel identity, and the decision service checks that identity against
  * the principal that owns the question.
  */
-async function answerFromTap(env: Env, tap: AcceptedTelegramButtonTap): Promise<void> {
-  const send = telegramSender(env);
+export function confirmedTelegramForgetRoute(
+  result: AnswerDecisionResult,
+  identityId: string,
+  principalId: string,
+  standingItem: DecisionItem | null,
+): Readonly<{ decisionId: string; originReference: string }> | null {
+  if (result.outcome === "recorded") {
+    return result.routing.origin === "telegram-memory-forget"
+      && result.routing.optionKey === "confirm"
+      && result.routing.originReference !== null
+      ? Object.freeze({
+        decisionId: result.routing.decisionId,
+        originReference: result.routing.originReference,
+      })
+      : null;
+  }
+  return result.outcome === "already_answered"
+    && result.standing.optionKey === "confirm"
+    && result.standing.answeredByIdentityId === identityId
+    && standingItem !== null
+    && standingItem.principalId === principalId
+    && standingItem.status === "answered"
+    && standingItem.origin === "telegram-memory-forget"
+    && standingItem.originReference !== null
+    ? Object.freeze({ decisionId: standingItem.decisionId, originReference: standingItem.originReference })
+    : null;
+}
+
+export function confirmedTelegramMemoryRoute(
+  result: AnswerDecisionResult,
+  identityId: string,
+  principalId: string,
+  standingItem: DecisionItem | null,
+): Readonly<{ decisionId: string; originReference: string }> | null {
+  if (result.outcome === "recorded") {
+    return result.routing.origin === "telegram-memory-confirm"
+      && result.routing.optionKey === "confirm"
+      && result.routing.answeredByIdentityId === identityId
+      && result.routing.originReference !== null
+      ? Object.freeze({
+        decisionId: result.routing.decisionId,
+        originReference: result.routing.originReference,
+      })
+      : null;
+  }
+  return result.outcome === "already_answered"
+    && result.standing.optionKey === "confirm"
+    && result.standing.answeredByIdentityId === identityId
+    && standingItem !== null
+    && standingItem.principalId === principalId
+    && standingItem.status === "answered"
+    && standingItem.origin === "telegram-memory-confirm"
+    && standingItem.originReference !== null
+    ? Object.freeze({ decisionId: standingItem.decisionId, originReference: standingItem.originReference })
+    : null;
+}
+
+export async function answerFromTap(
+  env: Env,
+  tap: AcceptedTelegramButtonTap,
+  sendOverride?: ((chatId: string, text: string) => Promise<void>) | null,
+): Promise<void> {
+  const send = sendOverride === undefined ? telegramSender(env) : sendOverride;
   const callback = parseDecisionCallbackData(tap.data);
   // Not ours, or malformed. Nothing to do and nothing to say -- a tap on a
   // stale keyboard is ordinary, not an error worth reporting.
@@ -481,30 +609,82 @@ async function answerFromTap(env: Env, tap: AcceptedTelegramButtonTap): Promise<
     );
     if (identity === null) return;
 
-    const result = await new DecisionService({
-      repository: new DecisionRepository(env.DB),
-    }).answer({
+    const decisionRepository = new DecisionRepository(env.DB);
+    const result = await new DecisionService({ repository: decisionRepository }).answer({
       decisionId: callback.decisionId,
       answeredByIdentityId: identity.identityId,
       optionKey: callback.optionKey,
     });
 
+    let confirmedForgetReceipts: readonly string[] = Object.freeze([]);
+    let confirmedMemoryReceipts: readonly string[] = Object.freeze([]);
+    const standingItem = result.outcome === "already_answered"
+      && result.standing.optionKey === "confirm"
+      && result.standing.answeredByIdentityId === identity.identityId
+      ? await decisionRepository.readItem(callback.decisionId)
+      : null;
+    const forget = confirmedTelegramForgetRoute(result, identity.identityId, tap.principalId, standingItem);
+    if (forget !== null) {
+      const itemIds = forget.originReference.split(",");
+      if (itemIds.length < 2 || itemIds.length > 8) throw new Error("telegram_memory_forget_decision_invalid");
+      const receipts = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).forgetConfirmedDecision({
+        principalId: tap.principalId,
+        callbackEventId: tap.eventId as ReturnType<typeof newUlid>,
+        decisionId: forget.decisionId as ReturnType<typeof newUlid>,
+        itemIds: itemIds as ReturnType<typeof newUlid>[],
+      });
+      confirmedForgetReceipts = Object.freeze(receipts.map((receipt) => receipt.receipt));
+    }
+    const memory = confirmedTelegramMemoryRoute(result, identity.identityId, tap.principalId, standingItem);
+    if (memory !== null) {
+      const reference = memory.originReference.split(":");
+      if (reference.length !== 2) throw new Error("telegram_memory_confirm_decision_invalid");
+      const [itemId, previousVersionId] = reference;
+      if (itemId === undefined || previousVersionId === undefined) {
+        throw new Error("telegram_memory_confirm_decision_invalid");
+      }
+      const receipt = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).confirmInferredFromDecision({
+        principalId: tap.principalId,
+        callbackEventId: tap.eventId as Ulid,
+        decisionId: memory.decisionId as Ulid,
+        itemId: itemId as Ulid,
+        previousVersionId: previousVersionId as Ulid,
+      });
+      confirmedMemoryReceipts = Object.freeze([
+        `${receipt.receipt} Memory: ${JSON.stringify(receipt.item.version.text)}`,
+      ]);
+    }
+
     if (send === null) return;
     // Every outcome gets an answer. A tap that produced silence is
     // indistinguishable from a bot that has stopped working.
-    const message = result.outcome === "recorded"
-      ? "Got it."
-      : result.outcome === "already_answered"
-        ? "That one is already answered."
-        : result.outcome === "not_owner"
-          ? "That question is not yours to answer."
-          : "That question is no longer open.";
+    const message = confirmedMemoryReceipts.length > 0
+      ? confirmedMemoryReceipts.join("\n\n")
+      : confirmedForgetReceipts.length > 0
+        ? confirmedForgetReceipts.join("\n\n")
+        : result.outcome === "recorded"
+          ? "Got it."
+          : result.outcome === "already_answered"
+            ? "That one is already answered."
+            : result.outcome === "not_owner"
+              ? "That question is not yours to answer."
+              : "That question is no longer open.";
     await send(tap.chatId, message);
   } catch (error) {
     console.error("telegram_callback_failed", {
       eventId: tap.eventId,
       reason: error instanceof Error ? error.message : String(error),
     });
+    if (send !== null) {
+      try {
+        await send(tap.chatId, "I couldn't finish that confirmed memory change. Tap Confirm again to retry safely.");
+      } catch (sendError) {
+        console.error("telegram_callback_failure_reply_failed", {
+          eventId: tap.eventId,
+          reason: sendError instanceof Error ? sendError.message : String(sendError),
+        });
+      }
+    }
   }
 }
 

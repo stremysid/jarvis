@@ -217,6 +217,7 @@ export interface StoredConversationDelivery {
 export interface ClaimedConversationDelivery extends StoredConversationDelivery {
   readonly state: "claimed";
   readonly text: string;
+  readonly replyMarkup: import("../decisions/telegram-keyboard.js").TelegramInlineKeyboardMarkup | null;
 }
 
 export type DeliveryDispatchClaim =

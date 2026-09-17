@@ -73,6 +73,51 @@ export interface ModelStreamTextInput {
   signal: AbortSignal;
 }
 
+/** One OpenAI-compatible function exposed to the owner Telegram agent. */
+export interface ModelFunctionDefinition {
+  readonly name: string;
+  readonly description: string;
+  readonly parameters: Readonly<Record<string, unknown>>;
+}
+
+/** The provider keeps arguments as text until the permission boundary parses them. */
+export interface ModelFunctionCall {
+  readonly id: string;
+  readonly name: string;
+  readonly arguments: string;
+}
+
+export interface ModelFunctionResult {
+  readonly toolCallId: string;
+  readonly name: string;
+  readonly content: string;
+}
+
+export interface ModelAgentCompletionInput {
+  readonly correlationId: string;
+  readonly principalId: string;
+  readonly systemPrompt: string;
+  readonly userText: string;
+  readonly context: readonly ModelContextItem[];
+  readonly tools: readonly ModelFunctionDefinition[];
+  readonly previousToolCalls?: readonly ModelFunctionCall[];
+  readonly toolResults?: readonly ModelFunctionResult[];
+  readonly toolChoice: "auto" | "none";
+  readonly timeoutMs: number;
+  readonly maxOutputTokens: number;
+  readonly signal: AbortSignal;
+}
+
+export interface ModelAgentCompletion {
+  readonly content: string | null;
+  readonly toolCalls: readonly ModelFunctionCall[];
+  readonly finishReason: "stop" | "tool_calls";
+}
+
+export interface ModelAgentProvider {
+  completeAgent(input: ModelAgentCompletionInput): Promise<ModelAgentCompletion>;
+}
+
 export interface ModelCompleteJsonInput {
   correlationId: string;
   principalId: string;
@@ -230,6 +275,12 @@ export interface TelegramSendMessageInput {
   chatId: string;
   text: string;
   replyToMessageId?: number;
+  replyMarkup?: Readonly<{
+    inline_keyboard: readonly (readonly Readonly<{
+      text: string;
+      callback_data: string;
+    }>[])[];
+  }>;
   idempotencyKey: string;
 }
 

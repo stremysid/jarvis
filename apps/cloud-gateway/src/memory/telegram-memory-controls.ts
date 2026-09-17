@@ -226,6 +226,77 @@ interface AppliedControl {
   readonly itemIds: readonly Ulid[];
 }
 
+/** Reconstructs permission authority from the durable current Telegram turn. */
+export async function readTelegramMemoryOwnerTurn(input: Readonly<{
+  database: D1Database;
+  modelInput: Readonly<ModelAdapterStreamInput>;
+  memoryIntent: MemoryControlIntent | null;
+  /** Pipeline tools use the same durable turn proof but their broader ingress authority. */
+  requireDirectOwnerText?: boolean;
+}>): Promise<MemoryOwnerTurnInput> {
+  const modelInput = input.modelInput;
+  const rowValue = await input.database.prepare(`SELECT turn.turn_id, turn.principal_id,
+      turn.channel, turn.user_event_id, turn.state, event.sequence, event.event_id,
+      event.event_type, event.source, event.subject_id, event.occurred_at,
+      event.content_hash, event.envelope_json
+    FROM conversation_turns turn
+    JOIN events event ON event.event_id = turn.user_event_id
+    WHERE turn.turn_id = ? AND turn.principal_id = ? AND turn.channel = 'telegram'`)
+    .bind(modelInput.correlationId, modelInput.principalId).first<OwnerTurnRow>();
+  if (rowValue === null) throw new MemoryRepositoryError("memory_refused");
+  const row = exactRecord(rowValue, OWNER_TURN_FIELDS, "telegram_memory_owner_turn_invalid");
+  const turnId = safeUlid(row.turn_id, "telegram_memory_owner_turn_invalid");
+  const eventId = safeUlid(row.event_id, "telegram_memory_owner_turn_invalid");
+  const userEventId = safeUlid(row.user_event_id, "telegram_memory_owner_turn_invalid");
+  const principalId = safeAtom(row.principal_id, "telegram_memory_owner_turn_invalid");
+  const sequence = row.sequence;
+  const occurredAt = safeTimestamp(row.occurred_at, "telegram_memory_owner_turn_invalid");
+  if (turnId !== modelInput.correlationId || eventId !== userEventId || principalId !== modelInput.principalId
+    || row.channel !== "telegram" || row.state !== "model_claimed"
+    || !Number.isSafeInteger(sequence) || (sequence as number) < 1
+    || row.event_type !== "conversation.user_committed"
+    || row.source !== CONVERSATION_EVENT_SOURCE || row.subject_id !== principalId
+    || typeof row.content_hash !== "string" || !SHA256.test(row.content_hash)
+    || typeof row.envelope_json !== "string" || row.envelope_json.length === 0
+    || !row.envelope_json.isWellFormed()) {
+    throw new MemoryRepositoryError("memory_refused");
+  }
+  let decoded: unknown;
+  try { decoded = JSON.parse(row.envelope_json); }
+  catch { throw new MemoryRepositoryError("memory_corrupt"); }
+  let envelope: EventEnvelope;
+  try { envelope = await validateEnvelope(decoded); }
+  catch { throw new MemoryRepositoryError("memory_corrupt"); }
+  const payload = historyPayload(envelope.payload, "telegram_memory_owner_turn_invalid");
+  const checked = redactor.redactText(modelInput.userText);
+  if (envelope.eventId !== eventId || envelope.eventType !== row.event_type
+    || envelope.source !== row.source || envelope.subjectId !== principalId
+    || envelope.correlationId !== turnId || envelope.occurredAt !== occurredAt
+    || envelope.contentHash !== row.content_hash
+    || envelope.producerVersion !== CONVERSATION_EVENT_PRODUCER_VERSION
+    || payload.schemaCode !== 1 || payload.channelCode !== 2
+    || payload.sensitivityCode !== 1 || payload.historyEligible !== true
+    || input.requireDirectOwnerText !== false && payload.directOwnerText !== true
+    || payload.text !== modelInput.userText || !checked.ok || checked.text !== modelInput.userText) {
+    throw new MemoryRepositoryError("memory_refused");
+  }
+  return Object.freeze({
+    principalId,
+    eventId,
+    eventSequence: sequence as number,
+    occurredAt,
+    channel: "telegram",
+    memoryIntent: input.memoryIntent,
+    forwarded: false,
+    quoted: false,
+    pasted: false,
+    hasAttachment: false,
+    modelGenerated: false,
+    toolGenerated: false,
+    guest: false,
+  });
+}
+
 /**
  * Intercepts an exact trusted Telegram owner turn after it is durably committed
  * but before the provider model. A handled control emits one token at index 0;
@@ -345,64 +416,10 @@ export class TelegramMemoryControlModelAdapter implements ModelAdapter {
     input: Readonly<ModelAdapterStreamInput>,
     memoryIntent: MemoryControlIntent,
   ): Promise<MemoryOwnerTurnInput> {
-    const rowValue = await this.options.database.prepare(`SELECT turn.turn_id, turn.principal_id,
-        turn.channel, turn.user_event_id, turn.state, event.sequence, event.event_id,
-        event.event_type, event.source, event.subject_id, event.occurred_at,
-        event.content_hash, event.envelope_json
-      FROM conversation_turns turn
-      JOIN events event ON event.event_id = turn.user_event_id
-      WHERE turn.turn_id = ? AND turn.principal_id = ? AND turn.channel = 'telegram'`)
-      .bind(input.correlationId, input.principalId).first<OwnerTurnRow>();
-    if (rowValue === null) throw new MemoryRepositoryError("memory_refused");
-    const row = exactRecord(rowValue, OWNER_TURN_FIELDS, "telegram_memory_owner_turn_invalid");
-    const turnId = safeUlid(row.turn_id, "telegram_memory_owner_turn_invalid");
-    const eventId = safeUlid(row.event_id, "telegram_memory_owner_turn_invalid");
-    const userEventId = safeUlid(row.user_event_id, "telegram_memory_owner_turn_invalid");
-    const principalId = safeAtom(row.principal_id, "telegram_memory_owner_turn_invalid");
-    const sequence = row.sequence;
-    const occurredAt = safeTimestamp(row.occurred_at, "telegram_memory_owner_turn_invalid");
-    if (turnId !== input.correlationId || eventId !== userEventId || principalId !== input.principalId
-      || row.channel !== "telegram" || row.state !== "model_claimed"
-      || !Number.isSafeInteger(sequence) || (sequence as number) < 1
-      || row.event_type !== "conversation.user_committed"
-      || row.source !== CONVERSATION_EVENT_SOURCE || row.subject_id !== principalId
-      || typeof row.content_hash !== "string" || !SHA256.test(row.content_hash)
-      || typeof row.envelope_json !== "string" || row.envelope_json.length === 0
-      || !row.envelope_json.isWellFormed()) {
-      throw new MemoryRepositoryError("memory_refused");
-    }
-    let decoded: unknown;
-    try { decoded = JSON.parse(row.envelope_json); }
-    catch { throw new MemoryRepositoryError("memory_corrupt"); }
-    let envelope: EventEnvelope;
-    try { envelope = await validateEnvelope(decoded); }
-    catch { throw new MemoryRepositoryError("memory_corrupt"); }
-    const payload = historyPayload(envelope.payload, "telegram_memory_owner_turn_invalid");
-    const checked = redactor.redactText(input.userText);
-    if (envelope.eventId !== eventId || envelope.eventType !== row.event_type
-      || envelope.source !== row.source || envelope.subjectId !== principalId
-      || envelope.correlationId !== turnId || envelope.occurredAt !== occurredAt
-      || envelope.contentHash !== row.content_hash
-      || envelope.producerVersion !== CONVERSATION_EVENT_PRODUCER_VERSION
-      || payload.schemaCode !== 1 || payload.channelCode !== 2
-      || payload.sensitivityCode !== 1 || payload.historyEligible !== true
-      || payload.text !== input.userText || !checked.ok || checked.text !== input.userText) {
-      throw new MemoryRepositoryError("memory_refused");
-    }
-    return Object.freeze({
-      principalId,
-      eventId,
-      eventSequence: sequence as number,
-      occurredAt,
-      channel: "telegram",
+    return readTelegramMemoryOwnerTurn({
+      database: this.options.database,
+      modelInput: input,
       memoryIntent,
-      forwarded: false,
-      quoted: false,
-      pasted: false,
-      hasAttachment: false,
-      modelGenerated: false,
-      toolGenerated: false,
-      guest: false,
     });
   }
 }

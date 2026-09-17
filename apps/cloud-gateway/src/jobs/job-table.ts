@@ -78,6 +78,7 @@ export interface JobEnvironment {
   readonly liveClock?: { now(): Date };
   readonly delivery: DigestDelivery;
   readonly fetcher: typeof fetch;
+  readonly signal?: AbortSignal;
   readonly memoryDistillation?: Readonly<{
     provider: Pick<ModelProvider, "completeJson">;
     providerModelId: string;
@@ -306,6 +307,7 @@ export async function refreshBrightspace(context: JobEnvironment): Promise<Brigh
       feedUrl,
       timeZone: context.env.DIGEST_TIMEZONE ?? "America/Toronto",
       fetchImplementation: context.fetcher,
+      signal: context.signal,
     });
     const collected = selectBrightspaceWindow(await client.collectDeadlines(), context.clock.now());
     const report = await ingestion.ingest(source.sourceId, {

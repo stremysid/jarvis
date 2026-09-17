@@ -81,7 +81,12 @@ describe("live Telegram reply composition", () => {
     await clearData();
   });
 
-  it("constructs the live DeepSeek adapter with Telegram thinking disabled by default", async () => {
+  it("composes live staging and Telegram-send timings into telegram_turn_outcome", async () => {
+    let measuredNow = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => {
+      measuredNow += 7;
+      return measuredNow;
+    });
     const requests: Array<Readonly<{ url: string; init: RequestInit | undefined }>> = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -136,10 +141,12 @@ describe("live Telegram reply composition", () => {
     expect(Number.isInteger(outcome?.stagingMs)).toBe(true);
     expect(Number.isInteger(outcome?.telegramSendMs)).toBe(true);
     expect(Number.isInteger(outcome?.settlementMs)).toBe(true);
+    expect(outcome?.stagingMs).toBeGreaterThan(0);
+    expect(outcome?.telegramSendMs).toBeGreaterThan(0);
   });
 
   it("logs only fixed outer reply failure reasons without exception text", async () => {
-    for (const reason of ["identity_lookup", "d1", "dispatcher"] as const) {
+    for (const reason of ["identity_lookup", "conversation", "dispatcher"] as const) {
       expect(telegramReplyFailureReason(new TelegramReplyFailure(reason))).toBe(reason);
     }
     expect(telegramReplyFailureReason(new Error("private database response"))).toBe("other");

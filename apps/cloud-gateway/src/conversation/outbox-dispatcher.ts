@@ -5,6 +5,10 @@ import {
   type TelegramSendMessageResult,
 } from "../providers/provider-types.js";
 import { ProviderCircuitBreaker } from "../providers/provider-circuit-breaker.js";
+import {
+  parseDecisionCallbackData,
+  type TelegramInlineKeyboardMarkup,
+} from "../decisions/telegram-keyboard.js";
 import type {
   ClaimedConversationDelivery,
   ConversationDeliveryId,
@@ -45,7 +49,7 @@ const STORED_DELIVERY_FIELDS = new Set([
   "createdAt",
   "updatedAt",
 ]);
-const CLAIMED_DELIVERY_FIELDS = new Set([...STORED_DELIVERY_FIELDS, "text"]);
+const CLAIMED_DELIVERY_FIELDS = new Set([...STORED_DELIVERY_FIELDS, "text", "replyMarkup"]);
 const CLAIMED_DISPATCH_FIELDS = new Set(["kind", "capability", "item"]);
 const OBSERVED_DISPATCH_FIELDS = new Set(["kind", "item"]);
 const SHA256 = /^[a-f0-9]{64}$/u;
@@ -206,6 +210,22 @@ function optionalUlid(value: unknown, error: string): string | null {
   return value;
 }
 
+function snapshotReplyMarkup(value: unknown, error: string): TelegramInlineKeyboardMarkup | null {
+  if (value === null) return null;
+  const root = exactDataRecord(value, new Set(["inline_keyboard"]), error);
+  if (!Array.isArray(root.inline_keyboard) || root.inline_keyboard.length < 1
+    || root.inline_keyboard.length > 10) throw new TypeError(error);
+  const rows = root.inline_keyboard.map((row) => {
+    if (!Array.isArray(row) || row.length !== 1) throw new TypeError(error);
+    const button = exactDataRecord(row[0], new Set(["text", "callback_data"]), error);
+    const text = safeText(button.text, error, 128);
+    const callbackData = safeText(button.callback_data, error, 64);
+    if (parseDecisionCallbackData(callbackData) === null) throw new TypeError(error);
+    return Object.freeze([Object.freeze({ text, callback_data: callbackData })]);
+  });
+  return Object.freeze({ inline_keyboard: Object.freeze(rows) });
+}
+
 function snapshotStoredDelivery(
   value: unknown,
   error: string,
@@ -273,7 +293,12 @@ function snapshotStoredDelivery(
   if (canonicalIsoOrNull(captured.availableAt, error) === null) throw new TypeError(error);
   if (!includeText) return Object.freeze(base) as StoredConversationDelivery;
   if (base.state !== "claimed") throw new TypeError(error);
-  return Object.freeze({ ...base, state: "claimed", text: safeText(captured.text, error, 65_536) });
+  return Object.freeze({
+    ...base,
+    state: "claimed",
+    text: safeText(captured.text, error, 65_536),
+    replyMarkup: snapshotReplyMarkup(captured.replyMarkup, error),
+  });
 }
 
 function snapshotDeliveryClaim(value: unknown, expectedDeliveryId: ConversationDeliveryId): DeliveryDispatchClaim {
@@ -500,6 +525,7 @@ export class DefaultOutboxDispatcher implements OutboxDispatcher {
           chatId: target.providerSubject,
           text: item.text,
           ...(item.replyToMessageId === null ? {} : { replyToMessageId: item.replyToMessageId }),
+          ...(item.replyMarkup === null ? {} : { replyMarkup: item.replyMarkup }),
           idempotencyKey: item.providerIdempotencyKey,
         })),
       ));

@@ -6,6 +6,7 @@ import type {
 } from "../../src/memory/memory-extraction-budget.js";
 import {
   DeepSeekAdapterError,
+  DeepSeekAgentProvider,
   DeepSeekJsonProvider,
   DeepSeekModelAdapter,
   collectStream,
@@ -20,6 +21,172 @@ import {
   snapshotProviderFailure,
 } from "../../src/providers/provider-types.js";
 
+const API_KEY = "sk-test-key";
+
+function agentInput(overrides: Record<string, unknown> = {}) {
+  return {
+    correlationId: "01m1hh9h1yxaeyjgbhfzm4nnth",
+    principalId: "principal-a",
+    systemPrompt: "Return the owner-agent JSON contract.",
+    userText: "remember that math is my favourite",
+    context: [],
+    tools: [{
+      name: "memory_remember",
+      description: "Remember one grounded fact.",
+      parameters: { type: "object", additionalProperties: false, properties: {} },
+    }],
+    toolChoice: "auto" as const,
+    timeoutMs: 20_000,
+    maxOutputTokens: 4_096,
+    signal: new AbortController().signal,
+    ...overrides,
+  };
+}
+
+function agentResponse(choice: unknown): Response {
+  return new Response(JSON.stringify({ choices: [choice] }), {
+    headers: { "content-type": "application/json" },
+  });
+}
+
+describe("DeepSeekAgentProvider", () => {
+  it("pins non-thinking JSON function calling and parses an ordinary answer", async () => {
+    const content = JSON.stringify({ reply: "Hello.", claimedActions: [] });
+    const fetcher = vi.fn<typeof fetch>(async () => agentResponse({
+      finish_reason: "stop",
+      message: { content },
+    }));
+    const provider = new DeepSeekAgentProvider({ apiKey: API_KEY, fetchImplementation: fetcher });
+
+    await expect(provider.completeAgent(agentInput())).resolves.toEqual({
+      content,
+      toolCalls: [],
+      finishReason: "stop",
+    });
+    const request = JSON.parse(fetcher.mock.calls[0]?.[1]?.body as string) as Record<string, unknown>;
+    expect(request).toMatchObject({
+      response_format: { type: "json_object" },
+      thinking: { type: "disabled" },
+      tool_choice: "auto",
+      stream: false,
+    });
+    expect(request.tools).toEqual([{
+      type: "function",
+      function: {
+        name: "memory_remember",
+        description: "Remember one grounded fact.",
+        parameters: { type: "object", additionalProperties: false, properties: {} },
+      },
+    }]);
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ redirect: "manual" });
+  });
+
+  it("parses tool calls and sends their exact results in the follow-up", async () => {
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(agentResponse({
+        finish_reason: "tool_calls",
+        message: {
+          content: null,
+          tool_calls: [{
+            id: "call_1",
+            type: "function",
+            function: { name: "memory_remember", arguments: "{}" },
+          }],
+        },
+      }))
+      .mockResolvedValueOnce(agentResponse({
+        finish_reason: "stop",
+        message: { content: JSON.stringify({ reply: "Done.", claimedActions: [] }) },
+      }));
+    const provider = new DeepSeekAgentProvider({ apiKey: API_KEY, fetchImplementation: fetcher });
+    const first = await provider.completeAgent(agentInput());
+    expect(first).toMatchObject({
+      finishReason: "tool_calls",
+      toolCalls: [{ id: "call_1", name: "memory_remember", arguments: "{}" }],
+    });
+
+    await provider.completeAgent(agentInput({
+      previousToolCalls: first.toolCalls,
+      toolResults: [{ toolCallId: "call_1", name: "memory_remember", content: "{\"status\":\"completed\"}" }],
+      toolChoice: "none",
+    }));
+
+    const request = JSON.parse(fetcher.mock.calls[1]?.[1]?.body as string) as { messages: unknown[] };
+    expect(request.messages.slice(-2)).toEqual([
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [{
+          id: "call_1",
+          type: "function",
+          function: { name: "memory_remember", arguments: "{}" },
+        }],
+      },
+      { role: "tool", tool_call_id: "call_1", content: "{\"status\":\"completed\"}" },
+    ]);
+  });
+
+  it("accepts tool calls accompanied by provider content without treating the content as authority", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => agentResponse({
+      finish_reason: "tool_calls",
+      message: {
+        content: "Sure, saving that now.",
+        tool_calls: [{
+          id: "call_with_content",
+          type: "function",
+          function: { name: "memory_remember", arguments: "{}" },
+        }],
+      },
+    }));
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const provider = new DeepSeekAgentProvider({ apiKey: API_KEY, fetchImplementation: fetcher });
+
+    await expect(provider.completeAgent(agentInput())).resolves.toMatchObject({
+      content: null,
+      finishReason: "tool_calls",
+      toolCalls: [{ id: "call_with_content", name: "memory_remember", arguments: "{}" }],
+    });
+    expect(warning).toHaveBeenCalledWith("deepseek_agent_tool_content_ignored", { characters: 22 });
+    warning.mockRestore();
+  });
+
+  it("validates provider content that accompanies tool calls (R37)", async () => {
+    const provider = new DeepSeekAgentProvider({
+      apiKey: API_KEY,
+      fetchImplementation: async () => agentResponse({
+        finish_reason: "tool_calls",
+        message: {
+          content: { text: "not provider prose" },
+          tool_calls: [{
+            id: "call_bad_content",
+            type: "function",
+            function: { name: "memory_remember", arguments: "{}" },
+          }],
+        },
+      }),
+    });
+
+    await expect(provider.completeAgent(agentInput())).rejects.toThrow("agent_response_invalid");
+  });
+
+  it("refuses redirected and malformed tool responses", async () => {
+    const redirected = new DeepSeekAgentProvider({
+      apiKey: API_KEY,
+      fetchImplementation: async () => new Response(null, { status: 302 }),
+    });
+    await expect(redirected.completeAgent(agentInput())).rejects.toThrow("model_unavailable");
+
+    const malformed = new DeepSeekAgentProvider({
+      apiKey: API_KEY,
+      fetchImplementation: async () => agentResponse({
+        finish_reason: "tool_calls",
+        message: { content: null, tool_calls: [{ id: "bad id", type: "function", function: {} }] },
+      }),
+    });
+    await expect(malformed.completeAgent(agentInput())).rejects.toThrow("agent_response_invalid");
+  });
+});
+
 /**
  * The bounds matter more than the happy path.
  *
@@ -30,7 +197,6 @@ import {
  * an edge case.
  */
 
-const API_KEY = "sk-test-key";
 const SYSTEM_PROMPT = "You are Jarvis, a private personal assistant. Answer briefly and directly. "
   + "Use only the provided context and the user's message. If you do not know something, say so.";
 

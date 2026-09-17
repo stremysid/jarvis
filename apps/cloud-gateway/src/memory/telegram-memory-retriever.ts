@@ -133,7 +133,7 @@ export const TELEGRAM_MEMORY_CONTROL_TARGET_LIMITS = Object.freeze({
   candidatesExamined: MAX_CONTROL_TARGETS,
 });
 
-export type TelegramMemoryTargetOperation = "forget" | "lift" | "explain";
+export type TelegramMemoryTargetOperation = "forget" | "lift" | "confirm" | "explain";
 
 export interface TelegramMemoryTargetFinder {
   findControlTargets(input: Readonly<{
@@ -644,7 +644,8 @@ async function historyEvidence(hit: LiteralHistoryHit): Promise<string> {
 
 function recallableAt(item: CanonicalMemoryItem, now: string): boolean {
   return (item.lifecycle.state === "active"
-      || item.lifecycle.state === "proposed" && item.version.uncertain)
+      || item.lifecycle.state === "proposed" && item.version.uncertain
+        && !(item.version.origin === "model" && item.version.basis === "inferred"))
     && (item.version.validFrom === null || item.version.validFrom <= now)
     && (item.version.validTo === null || item.version.validTo > now);
 }
@@ -781,6 +782,7 @@ async function timedOutcome<T>(
 function targetStates(operation: TelegramMemoryTargetOperation): readonly MemoryLifecycleState[] {
   if (operation === "forget") return Object.freeze(["active", "proposed"]);
   if (operation === "lift") return Object.freeze(["forgotten"]);
+  if (operation === "confirm") return Object.freeze(["proposed"]);
   return ALL_MEMORY_STATES;
 }
 
@@ -1589,7 +1591,8 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
     turnId?: Ulid;
   }>): Promise<readonly Ulid[]> {
     const principalId = safePrincipal(input.principalId);
-    if (input.operation !== "forget" && input.operation !== "lift" && input.operation !== "explain") {
+    if (input.operation !== "forget" && input.operation !== "lift"
+      && input.operation !== "confirm" && input.operation !== "explain") {
       throw new TypeError("telegram_memory_target_invalid");
     }
     const states = targetStates(input.operation);
@@ -1769,6 +1772,8 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
             ON version.principal_id = state.principal_id AND version.version_id = state.current_version_id
           WHERE state.lifecycle_state IN ('active', 'proposed')
             AND (state.lifecycle_state = 'active' OR version.uncertain = 1)
+            AND NOT (state.lifecycle_state = 'proposed'
+              AND version.origin = 'model' AND version.basis = 'inferred')
             AND (version.valid_from IS NULL OR version.valid_from <= ?3)
             AND (version.valid_to IS NULL OR version.valid_to > ?3)
             AND NOT EXISTS (
@@ -1810,6 +1815,8 @@ export class TelegramMemoryRetriever implements ContextRetriever, TelegramMemory
       WHERE memory_item_fts MATCH ? AND version.principal_id = ?
         AND state.lifecycle_state IN ('active', 'proposed')
         AND (state.lifecycle_state = 'active' OR version.uncertain = 1)
+        AND NOT (state.lifecycle_state = 'proposed'
+          AND version.origin = 'model' AND version.basis = 'inferred')
         AND (version.valid_from IS NULL OR version.valid_from <= ?)
         AND (version.valid_to IS NULL OR version.valid_to > ?)
         AND NOT EXISTS (

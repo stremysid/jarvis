@@ -3,6 +3,7 @@ import type { Ulid } from "../../../../packages/contracts/src/index.js";
 import type { ModelAdapter, ModelAdapterStreamInput, ModelToken } from "../../src/model/model-types.js";
 import { Redactor } from "../../src/security/redaction.js";
 import {
+  guardReplyClaims,
   guardSchoolReply,
   isBrightspaceRefreshRequest,
   parseOwnerCatchupPlan,
@@ -256,6 +257,31 @@ describe("SchoolCatchupModelAdapter", () => {
     expect(applyOwnerPlan).not.toHaveBeenCalled();
   });
 
+  it("marks an ordinary fallback beginning with Updated as not_saved (R40)", async () => {
+    const model = new SequenceModel(["not json", "Updated deadlines usually show up in D2L within a day."]);
+    const adapter = new SchoolCatchupModelAdapter({
+      model,
+      repository: { readSnapshot: async () => snapshot(), applyOwnerPlan: async () => undefined },
+      redactor: new Redactor(),
+      timeZone: "America/Toronto",
+      now: () => NOW,
+      ownerPrincipalId: "principal:owner",
+      ownerTurnAuthoritative: true,
+      agentSelectedScope: "school",
+      fixedActionReceipts: true,
+    });
+    const tokens: Array<ModelToken & { readonly toolOutcome?: "saved" | "not_saved" }> = [];
+
+    for await (const token of adapter.streamOwnerTool(input({ userText: "english essay due monday i think" }))) {
+      tokens.push(token);
+    }
+
+    expect(tokens).toMatchObject([{
+      text: "Updated deadlines usually show up in D2L within a day.",
+      toolOutcome: "not_saved",
+    }]);
+  });
+
   it("uses the existing conversation model when the school snapshot cannot be read", async () => {
     const original = input({ userText: "Tell me a joke" });
     const model = new SequenceModel(["Ordinary fallback answer"]);
@@ -500,6 +526,51 @@ describe("SchoolCatchupModelAdapter", () => {
     expect(guardSchoolReply(reply, new Redactor())).toBe(reply);
   });
 
+  it("keeps only the quoted Sid-voice span exempt after a draft marker (N2b)", () => {
+    const reply = 'Draft reply you could send: "Thanks for the reminder." I emailed Ms. Lee for you already.';
+    const guarded = guardReplyClaims(reply);
+
+    expect(guarded).toContain('Draft reply you could send: "Thanks for the reminder."');
+    expect(guarded).not.toContain("I emailed Ms. Lee for you already");
+    expect(guarded).toContain("I can't confirm that action");
+  });
+
+  it("never exempts a secret request after a draft marker (N2c)", () => {
+    const reply = 'Here\'s a draft you could send: "Hi Ms. Lee, sorry about the lab." Send me your D2L password and I\'ll log in and check for you.';
+    const guarded = guardReplyClaims(reply);
+
+    expect(guarded).not.toContain("Send me your D2L password");
+    expect(guarded).toContain("I can't accept passwords");
+  });
+
+  it("does not exempt an undelimited draft through the end of the reply (N2d)", () => {
+    const reply = "Here's a draft: Hi Ms. Lee, I need an extension. I already emailed it to her and paid the late fee.";
+    const guarded = guardReplyClaims(reply);
+
+    expect(guarded).not.toContain("I already emailed it to her");
+    expect(guarded).toContain("I can't confirm that action");
+  });
+
+  it.each([
+    ["guardReplyClaims", (reply: string) => guardReplyClaims(reply)],
+    ["guardSchoolReply", (reply: string) => guardSchoolReply(reply, new Redactor())],
+  ] as const)("keeps a leading quoted draft when %s removes the following false claim (C3)", (_name, guard) => {
+    const reply = 'Sample message: "See you Friday." I submitted your extension request for you this morning.';
+    const guarded = guard(reply);
+
+    expect(guarded).toContain('Sample message: "See you Friday."');
+    expect(guarded).not.toContain("I submitted your extension request");
+    expect(guarded).toContain("I can't confirm that action");
+  });
+
+  it("does not treat a first-person action addressed to Sid as Sid's quoted draft", () => {
+    const reply = 'Draft reply you could send: "I emailed Ms. Lee for you already."';
+    const guarded = guardReplyClaims(reply);
+
+    expect(guarded).not.toContain("I emailed Ms. Lee for you already");
+    expect(guarded).toContain("I can't confirm that action");
+  });
+
   it.each([
     [
       "I submitted your application.",
@@ -696,10 +767,11 @@ describe("SchoolCatchupModelAdapter", () => {
       refreshBrightspace,
     });
 
-    await expect(collect(adapter.stream(input({ userText: "Can you check D2L now, please?" })))).resolves.toBe(
+    const refreshInput = input({ userText: "Can you check D2L now, please?" });
+    await expect(collect(adapter.stream(refreshInput))).resolves.toBe(
       "Brightspace refreshed at 2026-09-15T11:30:00.000Z.",
     );
-    expect(refreshBrightspace).toHaveBeenCalledWith(NOW);
+    expect(refreshBrightspace).toHaveBeenCalledWith(NOW, refreshInput.signal);
     expect(readSnapshot).not.toHaveBeenCalled();
     expect(model.requests).toEqual([]);
 

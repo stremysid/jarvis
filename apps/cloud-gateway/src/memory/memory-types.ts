@@ -50,6 +50,12 @@ export interface InitialMemorySourceInput {
   readonly occurredAt: string;
 }
 
+export interface AppendActiveMemorySourceInput {
+  readonly principalId: string;
+  readonly itemId: Ulid;
+  readonly source: InitialMemorySourceInput;
+}
+
 export interface InitialMemoryVersionInput {
   readonly versionId: Ulid;
   readonly text: string;
@@ -192,7 +198,7 @@ export interface AutomaticInboxRefilingResult {
   readonly failedItemCount: number;
 }
 
-export type MemoryControlIntent = "remember" | "forget" | "lift" | "explain";
+export type MemoryControlIntent = "remember" | "forget" | "lift" | "confirm" | "explain";
 
 export interface MemoryOwnerTurnInput {
   readonly principalId: string;
@@ -273,5 +279,23 @@ export interface LiftMemoryItemInput {
 export interface LiftMemoryItemResult {
   readonly item: CanonicalMemoryItem;
   readonly liftedSuppressionCount: number;
+  readonly replayed: boolean;
+}
+
+export interface ConfirmMemoryItemInput {
+  readonly principalId: string;
+  readonly itemId: Ulid;
+  readonly previousVersionId: Ulid;
+  readonly versionId: Ulid;
+  readonly transitionId: Ulid;
+  readonly ownerAuthorizingEventId: Ulid;
+  readonly confirmationSource: InitialMemorySourceInput;
+  readonly copiedSourceIds: readonly Ulid[];
+  readonly reason: string;
+  readonly policyVersion: string;
+}
+
+export interface ConfirmMemoryItemResult {
+  readonly item: CanonicalMemoryItem;
   readonly replayed: boolean;
 }

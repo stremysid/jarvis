@@ -16,6 +16,7 @@ import {
   MEMORY_TOPIC_REDIRECT_LIMIT,
   MemoryRepositoryError,
   type BootstrapMemoryTopicsResult,
+  type AppendActiveMemorySourceInput,
   type AutomaticInboxRefilingResult,
   type AutomaticTopicPathResult,
   type CanonicalMemoryItem,
@@ -23,6 +24,8 @@ import {
   type CanonicalTopicPathEntry,
   type CommitInitialMemoryInput,
   type CommitInitialMemoryResult,
+  type ConfirmMemoryItemInput,
+  type ConfirmMemoryItemResult,
   type ForgetMemoryItemInput,
   type ForgetMemoryItemResult,
   type LiftMemoryItemInput,
@@ -42,7 +45,7 @@ import {
   type ResolvedMemoryTopic,
 } from "./memory-types.js";
 
-type MemoryRepositoryWriteOperation = "bootstrap" | "commit" | "forget" | "lift";
+type MemoryRepositoryWriteOperation = "bootstrap" | "commit" | "append_source" | "forget" | "lift" | "confirm";
 
 export interface MemoryRepositoryOptions {
   readonly clock?: () => Date;
@@ -403,6 +406,18 @@ interface ValidatedTopic {
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
 const PROVIDER_MODEL = /^(?:deepseek|anthropic|openai):[^\s]{1,182}$/u;
+const REMEMBER_APOSTROPHES = /[\u02bc\u2018\u2019\u2032\uff07`]/gu;
+const REMEMBER_ZERO_WIDTH = /[\u200b-\u200d\u2060\ufeff]/gu;
+
+function normalizedRememberText(value: string): string {
+  return value.normalize("NFC")
+    .replace(REMEMBER_APOSTROPHES, "'")
+    .replace(REMEMBER_ZERO_WIDTH, "")
+    .toLocaleLowerCase("en-CA")
+    .replace(/[^\p{L}\p{N}']+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
 const utf8 = new TextEncoder();
 const ROOT_BOOTSTRAP_REASON = "bootstrap canonical memory root";
 const INBOX_BOOTSTRAP_REASON = "bootstrap explicit low-confidence inbox";
@@ -1139,6 +1154,104 @@ export class MemoryRepository {
     });
   }
 
+  /** Reuses a normalized active owner memory when Telegram retries or restates it. */
+  async findActiveItemByNormalizedText(
+    principalIdInput: string,
+    textInput: string,
+  ): Promise<CanonicalMemoryItem | null> {
+    return this.safely(async () => {
+      const principalId = safeInputText(principalIdInput, 256);
+      const text = this.validateItemText(textInput);
+      const rows = await this.database.prepare(`SELECT item.item_id, version.text
+        FROM memory_items item
+        JOIN memory_item_state state
+          ON state.principal_id = item.principal_id AND state.item_id = item.item_id
+        JOIN memory_item_versions version
+          ON version.principal_id = state.principal_id
+          AND version.version_id = state.current_version_id
+        WHERE item.principal_id = ?1 AND state.lifecycle_state = 'active'
+        ORDER BY item.created_at, item.item_id`).bind(principalId)
+        .all<{ item_id: unknown; text: unknown }>();
+      const comparison = normalizedRememberText(text);
+      for (const row of rows.results) {
+        exactRow(row, new Set(["item_id", "text"]));
+        const itemId = rowUlid(row.item_id);
+        const storedText = safeRowText(row.text, 4096);
+        if (normalizedRememberText(storedText) === comparison) {
+          return this.readCurrentItemInternal(principalId, itemId);
+        }
+      }
+      return null;
+    });
+  }
+
+  async appendSourceToActiveItem(input: AppendActiveMemorySourceInput): Promise<CanonicalMemoryItem> {
+    return this.safely(async () => {
+      const principalId = safeInputText(input.principalId, 256);
+      const itemId = inputUlid(input.itemId);
+      const sourceLocation = inputEnum(input.source.sourceLocation, new Set(["live", "archived"] as const));
+      const r2SegmentId = input.source.r2SegmentId === null ? null : inputHash(input.source.r2SegmentId);
+      if (sourceLocation === "live" && r2SegmentId !== null
+        || sourceLocation === "archived" && r2SegmentId === null) refuse();
+      const source = Object.freeze({
+        sourceId: inputUlid(input.source.sourceId),
+        eventId: inputUlid(input.source.eventId),
+        eventSequence: inputInteger(input.source.eventSequence, 1, Number.MAX_SAFE_INTEGER),
+        sourceLocation,
+        r2SegmentId,
+        excerpt: safeInputText(input.source.excerpt, 8192),
+        excerptHash: inputHash(input.source.excerptHash),
+        channel: inputEnum(input.source.channel, new Set(["telegram", "voice", "system"] as const)),
+        occurredAt: inputTimestamp(input.source.occurredAt),
+      });
+      if (await sha256Hex(source.excerpt) !== source.excerptHash) refuse();
+      await this.requireActivePrincipal(principalId);
+      const item = await this.readCurrentItemInternal(principalId, itemId);
+      if (item.lifecycle.state !== "active") refuse();
+      const replay = item.sources.find((candidate) => candidate.eventId === source.eventId);
+      if (replay !== undefined) {
+        if (replay.excerpt !== source.excerpt || replay.excerptHash !== source.excerptHash
+          || replay.eventSequence !== source.eventSequence || replay.channel !== source.channel) refuse();
+        return item;
+      }
+      if (item.sources.length >= 8) refuse();
+      await this.validateReceipt(principalId, source.eventId, source.eventSequence, source);
+      const createdAt = this.freshNow().toISOString();
+      const statement = this.database.prepare(`INSERT INTO memory_item_sources (
+        source_id, principal_id, item_id, version_id, source_position, event_id,
+        event_sequence, source_location, r2_segment_id, excerpt, excerpt_hash,
+        channel, occurred_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(
+          source.sourceId,
+          principalId,
+          itemId,
+          item.version.versionId,
+          item.sources.length,
+          source.eventId,
+          source.eventSequence,
+          source.sourceLocation,
+          source.r2SegmentId,
+          source.excerpt,
+          source.excerptHash,
+          source.channel,
+          source.occurredAt,
+          createdAt,
+        );
+      const fault = repositoryTestSeams.get(this)?.batchFault("append_source", 1) ?? null;
+      await repositoryTestSeams.get(this)?.beforeBatch("append_source", 1);
+      try {
+        await this.transactions.batch(fault === null ? [statement] : [statement, fault]);
+      } catch (error) {
+        const standing = await this.readCurrentItemInternal(principalId, itemId);
+        if (standing.sources.some((candidate) => candidate.sourceId === source.sourceId
+          && candidate.eventId === source.eventId && candidate.excerptHash === source.excerptHash)) return standing;
+        throw error;
+      }
+      return this.readCurrentItemInternal(principalId, itemId);
+    });
+  }
+
   async readItemVisibility(
     principalIdInput: string,
     itemIdInput: Ulid,
@@ -1804,7 +1917,7 @@ export class MemoryRepository {
       const occurredAt = inputTimestamp(input.occurredAt);
       const channel = inputEnum(input.channel, new Set(["telegram", "voice", "system"] as const));
       const intent = inputEnum(expectedIntent, new Set([
-        "remember", "forget", "lift", "explain",
+        "remember", "forget", "lift", "confirm", "explain",
       ] as const));
       const flags = [
         input.forwarded,
@@ -1856,7 +1969,7 @@ export class MemoryRepository {
       const eventSequence = inputInteger(input.eventSequence, 1, Number.MAX_SAFE_INTEGER);
       const occurredAt = inputTimestamp(input.occurredAt);
       const channel = inputEnum(input.channel, new Set(["telegram", "voice", "system"] as const));
-      inputEnum(input.memoryIntent, new Set(["remember", "forget", "lift", "explain"] as const));
+      inputEnum(input.memoryIntent, new Set(["remember", "forget", "lift", "confirm", "explain"] as const));
       const flags = [
         input.forwarded,
         input.quoted,
@@ -2226,6 +2339,153 @@ export class MemoryRepository {
     });
   }
 
+  async confirmItem(input: ConfirmMemoryItemInput): Promise<ConfirmMemoryItemResult> {
+    return this.safely(async () => {
+      const principalId = safeInputText(input.principalId, 256);
+      const itemId = inputUlid(input.itemId);
+      const previousVersionId = inputUlid(input.previousVersionId);
+      const versionId = inputUlid(input.versionId);
+      const transitionId = inputUlid(input.transitionId);
+      const ownerAuthorizingEventId = inputUlid(input.ownerAuthorizingEventId);
+      const reason = safeInputText(input.reason, 512);
+      const policyVersion = safeInputText(input.policyVersion, 128);
+      if (!Array.isArray(input.copiedSourceIds)) refuse();
+      const copiedSourceIds = input.copiedSourceIds.map(inputUlid);
+      const confirmation = Object.freeze({
+        sourceId: inputUlid(input.confirmationSource.sourceId),
+        eventId: inputUlid(input.confirmationSource.eventId),
+        eventSequence: inputInteger(input.confirmationSource.eventSequence, 1, Number.MAX_SAFE_INTEGER),
+        sourceLocation: inputEnum(input.confirmationSource.sourceLocation, new Set(["live"] as const)),
+        r2SegmentId: input.confirmationSource.r2SegmentId,
+        excerpt: this.validateItemText(input.confirmationSource.excerpt),
+        excerptHash: inputHash(input.confirmationSource.excerptHash),
+        channel: inputEnum(input.confirmationSource.channel, new Set(["telegram", "voice", "system"] as const)),
+        occurredAt: inputTimestamp(input.confirmationSource.occurredAt),
+      });
+      if (confirmation.r2SegmentId !== null
+        || confirmation.excerptHash !== await sha256Hex(confirmation.excerpt)
+        || new Set([...copiedSourceIds, confirmation.sourceId]).size !== copiedSourceIds.length + 1) refuse();
+      const captured: ConfirmMemoryItemInput = Object.freeze({
+        principalId,
+        itemId,
+        previousVersionId,
+        versionId,
+        transitionId,
+        ownerAuthorizingEventId,
+        confirmationSource: confirmation,
+        copiedSourceIds: Object.freeze(copiedSourceIds),
+        reason,
+        policyVersion,
+      });
+      const replay = await this.readConfirmReplay(captured);
+      if (replay !== null) return replay;
+      const item = await this.readCurrentItemInternal(principalId, itemId);
+      if (item.version.versionId !== previousVersionId || item.lifecycle.state !== "proposed"
+        || !item.version.uncertain || item.sources.length < 1 || item.sources.length > 7
+        || copiedSourceIds.length !== item.sources.length
+        || confirmation.eventId === item.creationEventId
+        || item.sources.some((source) => source.eventId === confirmation.eventId)) refuse();
+      const createdAt = this.freshNow().toISOString();
+      const statements: D1PreparedStatement[] = [
+        this.database.prepare(`INSERT INTO memory_item_versions (
+          version_id, principal_id, item_id, version_number, text, text_normalization,
+          text_hash, basis, origin, uncertain, sensitivity, valid_from, valid_to,
+          extractor_version, extractor_model_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, 'NFC', ?, 'confirmed', 'authenticated_first_person', 0,
+          ?, ?, ?, ?, ?, ?)`)
+          .bind(
+            versionId,
+            principalId,
+            itemId,
+            item.version.versionNumber + 1,
+            item.version.text,
+            item.version.textHash,
+            item.version.sensitivity,
+            item.version.validFrom,
+            item.version.validTo,
+            item.version.extractorVersion,
+            item.version.extractorModelId,
+            createdAt,
+          ),
+      ];
+      item.sources.forEach((source, position) => {
+        const sourceId = copiedSourceIds[position];
+        if (sourceId === undefined) corrupt();
+        statements.push(this.database.prepare(`INSERT INTO memory_item_sources (
+          source_id, principal_id, item_id, version_id, source_position, event_id,
+          event_sequence, source_location, r2_segment_id, excerpt, excerpt_hash,
+          channel, occurred_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .bind(
+            sourceId,
+            principalId,
+            itemId,
+            versionId,
+            position,
+            source.eventId,
+            source.eventSequence,
+            source.sourceLocation,
+            source.r2SegmentId,
+            source.excerpt,
+            source.excerptHash,
+            source.channel,
+            source.occurredAt,
+            createdAt,
+          ));
+      });
+      statements.push(this.database.prepare(`INSERT INTO memory_item_sources (
+        source_id, principal_id, item_id, version_id, source_position, event_id,
+        event_sequence, source_location, r2_segment_id, excerpt, excerpt_hash,
+        channel, occurred_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'live', NULL, ?, ?, ?, ?, ?)`)
+        .bind(
+          confirmation.sourceId,
+          principalId,
+          itemId,
+          versionId,
+          item.sources.length,
+          confirmation.eventId,
+          confirmation.eventSequence,
+          confirmation.excerpt,
+          confirmation.excerptHash,
+          confirmation.channel,
+          confirmation.occurredAt,
+          createdAt,
+        ));
+      statements.push(this.database.prepare(`INSERT INTO memory_item_transitions (
+        transition_id, principal_id, item_id, transition_number, version_id,
+        lifecycle_state, reason, actor, policy_version, owner_authorizing_event_id, occurred_at
+      ) VALUES (?, ?, ?, ?, ?, 'active', ?, 'owner', ?, ?, ?)`)
+        .bind(
+          transitionId,
+          principalId,
+          itemId,
+          item.lifecycle.transitionNumber + 1,
+          versionId,
+          reason,
+          policyVersion,
+          ownerAuthorizingEventId,
+          this.freshNow().toISOString(),
+        ));
+      try {
+        const fault = repositoryTestSeams.get(this)?.batchFault("confirm", 1) ?? null;
+        if (fault !== null) statements.push(fault);
+        await repositoryTestSeams.get(this)?.beforeBatch("confirm", 1);
+        await this.transactions.batch(statements);
+      } catch (error) {
+        const raced = await this.readConfirmReplay(captured);
+        if (raced !== null) return raced;
+        if (isConstraintRefusal(error)) refuse();
+        throw error;
+      }
+      const confirmed = await this.readCurrentItemInternal(principalId, itemId);
+      if (confirmed.lifecycle.state !== "active" || confirmed.lifecycle.transitionId !== transitionId
+        || confirmed.version.versionId !== versionId || confirmed.version.basis !== "confirmed"
+        || confirmed.version.uncertain) corrupt();
+      return Object.freeze({ item: confirmed, replayed: false });
+    });
+  }
+
   private async readForgetReplay(input: ForgetMemoryItemInput): Promise<ForgetMemoryItemResult | null> {
     const item = await this.readCurrentItemInternal(input.principalId, input.itemId);
     if (item.lifecycle.state !== "forgotten" || item.lifecycle.transitionId !== input.transitionId
@@ -2283,6 +2543,24 @@ export class MemoryRepository {
         || rowUlid(row.correction_transition_id) !== input.transitionId) corrupt();
     }
     return Object.freeze({ item, liftedSuppressionCount: rows.results.length, replayed: true });
+  }
+
+  private async readConfirmReplay(input: ConfirmMemoryItemInput): Promise<ConfirmMemoryItemResult | null> {
+    const item = await this.readCurrentItemInternal(input.principalId, input.itemId);
+    if (item.lifecycle.state !== "active" || item.lifecycle.transitionId !== input.transitionId
+      || item.version.versionId !== input.versionId || item.version.basis !== "confirmed"
+      || item.version.uncertain || item.lifecycle.ownerAuthorizingEventId !== input.ownerAuthorizingEventId
+      || item.sources.length !== input.copiedSourceIds.length + 1) return null;
+    const confirmation = item.sources.at(-1);
+    if (confirmation === undefined
+      || confirmation.sourceId !== input.confirmationSource.sourceId
+      || confirmation.eventId !== input.confirmationSource.eventId
+      || confirmation.eventSequence !== input.confirmationSource.eventSequence
+      || confirmation.excerpt !== input.confirmationSource.excerpt
+      || confirmation.excerptHash !== input.confirmationSource.excerptHash
+      || item.sources.slice(0, -1).some((source, index) =>
+        source.sourceId !== input.copiedSourceIds[index])) corrupt();
+    return Object.freeze({ item, replayed: true });
   }
 
   private async safely<T>(operation: () => Promise<T>): Promise<T> {
