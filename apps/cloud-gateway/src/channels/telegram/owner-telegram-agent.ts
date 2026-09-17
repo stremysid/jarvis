@@ -126,7 +126,7 @@ export const OWNER_TELEGRAM_TOOL_DEFINITIONS: readonly ModelFunctionDefinition[]
   }),
   Object.freeze({
     name: "memory_confirm",
-    description: "Promote one proposed uncertain memory after Sid explicitly confirms the quoted stored fact now. supportingExcerpt must contain confirmation language copied exactly from Sid's current message.",
+    description: "Confirm one proposed uncertain memory. supportingExcerpt must contain confirmation language copied exactly from Sid's current message. A model-inferred proposal is never promoted from this text; code presents its exact stored wording on a Confirm or Discard keyboard.",
     parameters: Object.freeze({
       type: "object", additionalProperties: false, required: ["itemId", "supportingExcerpt"],
       properties: { itemId: { type: "string" }, supportingExcerpt: { type: "string", minLength: 1, maxLength: 4096 } },
@@ -550,6 +550,14 @@ function exactStoredFactQuestion(previous: string, fact: string): string | null 
     }
   }
   return null;
+}
+
+function modelInferenceDecisionQuestion(fact: string): string {
+  const question = `Confirm or discard this exact model-inferred memory:\n\n${JSON.stringify(fact)}`;
+  // The queue and Telegram must both be able to show the whole stored wording.
+  // Refusing an oversized decision is safer than presenting a truncated fact.
+  if (question.length > 2_048) throw new TypeError("owner_agent_memory_decision_too_large");
+  return question;
 }
 
 function groundedControlExcerpt(
@@ -1019,12 +1027,29 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
     if (!factVocabularyMatches(item.version.text, excerpt, previous?.text ?? "")) {
       throw new TypeError("owner_agent_memory_grounding_invalid");
     }
-    // A model inference needs the staged item plus an exact, visible question;
-    // otherwise an unrelated answer can promote wording Jarvis merely echoed.
-    if (item.version.origin === "model" && item.version.basis === "inferred"
-      && (!stagedTargets.includes(itemId) || previous === null
-        || exactStoredFactQuestion(previous.text, item.version.text) === null)) {
+    if (!stagedTargets.includes(itemId) || previous === null
+      || exactStoredFactQuestion(previous.text, item.version.text) === null) {
       throw new TypeError("owner_agent_item_not_eligible");
+    }
+    if (item.version.origin === "model" && item.version.basis === "inferred") {
+      const question = modelInferenceDecisionQuestion(item.version.text);
+      const decision = await this.dependencies.decisions.raise({
+        principalId: input.principalId,
+        origin: "telegram-memory-confirm",
+        originReference: `${itemId}:${item.version.versionId}`,
+        urgency: "normal",
+        question,
+        detail: "Nothing changes unless Sid taps Confirm. Discard leaves the proposal inactive.",
+        choices: Object.freeze([
+          { key: "confirm", label: "Confirm" },
+          { key: "discard", label: "Discard" },
+        ]),
+      });
+      recordPendingTelegramReplyMarkup(input.correlationId, Object.freeze({
+        decisionId: decision.decisionId as Ulid,
+        replyMarkup: buildDecisionKeyboard(decision),
+      }));
+      return informationalTool(call, question, Object.freeze([itemId]));
     }
     const result = await this.controls().confirm({
       ownerTurn: await this.ownerTurn(input, "confirm"),

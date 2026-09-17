@@ -546,6 +546,35 @@ export function confirmedTelegramForgetRoute(
     : null;
 }
 
+export function confirmedTelegramMemoryRoute(
+  result: AnswerDecisionResult,
+  identityId: string,
+  principalId: string,
+  standingItem: DecisionItem | null,
+): Readonly<{ decisionId: string; originReference: string }> | null {
+  if (result.outcome === "recorded") {
+    return result.routing.origin === "telegram-memory-confirm"
+      && result.routing.optionKey === "confirm"
+      && result.routing.answeredByIdentityId === identityId
+      && result.routing.originReference !== null
+      ? Object.freeze({
+        decisionId: result.routing.decisionId,
+        originReference: result.routing.originReference,
+      })
+      : null;
+  }
+  return result.outcome === "already_answered"
+    && result.standing.optionKey === "confirm"
+    && result.standing.answeredByIdentityId === identityId
+    && standingItem !== null
+    && standingItem.principalId === principalId
+    && standingItem.status === "answered"
+    && standingItem.origin === "telegram-memory-confirm"
+    && standingItem.originReference !== null
+    ? Object.freeze({ decisionId: standingItem.decisionId, originReference: standingItem.originReference })
+    : null;
+}
+
 export async function answerFromTap(
   env: Env,
   tap: AcceptedTelegramButtonTap,
@@ -571,6 +600,7 @@ export async function answerFromTap(
     });
 
     let confirmedForgetReceipts: readonly string[] = Object.freeze([]);
+    let confirmedMemoryReceipts: readonly string[] = Object.freeze([]);
     const standingItem = result.outcome === "already_answered"
       && result.standing.optionKey === "confirm"
       && result.standing.answeredByIdentityId === identity.identityId
@@ -588,19 +618,40 @@ export async function answerFromTap(
       });
       confirmedForgetReceipts = Object.freeze(receipts.map((receipt) => receipt.receipt));
     }
+    const memory = confirmedTelegramMemoryRoute(result, identity.identityId, tap.principalId, standingItem);
+    if (memory !== null) {
+      const reference = memory.originReference.split(":");
+      if (reference.length !== 2) throw new Error("telegram_memory_confirm_decision_invalid");
+      const [itemId, previousVersionId] = reference;
+      if (itemId === undefined || previousVersionId === undefined) {
+        throw new Error("telegram_memory_confirm_decision_invalid");
+      }
+      const receipt = await new MemoryOwnerControlsService(env.DB, env.ARCHIVE).confirmInferredFromDecision({
+        principalId: tap.principalId,
+        callbackEventId: tap.eventId as Ulid,
+        decisionId: memory.decisionId as Ulid,
+        itemId: itemId as Ulid,
+        previousVersionId: previousVersionId as Ulid,
+      });
+      confirmedMemoryReceipts = Object.freeze([
+        `${receipt.receipt} Memory: ${JSON.stringify(receipt.item.version.text)}`,
+      ]);
+    }
 
     if (send === null) return;
     // Every outcome gets an answer. A tap that produced silence is
     // indistinguishable from a bot that has stopped working.
-    const message = confirmedForgetReceipts.length > 0
-      ? confirmedForgetReceipts.join("\n\n")
-      : result.outcome === "recorded"
-        ? "Got it."
-      : result.outcome === "already_answered"
-        ? "That one is already answered."
-        : result.outcome === "not_owner"
-          ? "That question is not yours to answer."
-          : "That question is no longer open.";
+    const message = confirmedMemoryReceipts.length > 0
+      ? confirmedMemoryReceipts.join("\n\n")
+      : confirmedForgetReceipts.length > 0
+        ? confirmedForgetReceipts.join("\n\n")
+        : result.outcome === "recorded"
+          ? "Got it."
+          : result.outcome === "already_answered"
+            ? "That one is already answered."
+            : result.outcome === "not_owner"
+              ? "That question is not yours to answer."
+              : "That question is no longer open.";
     await send(tap.chatId, message);
   } catch (error) {
     console.error("telegram_callback_failed", {

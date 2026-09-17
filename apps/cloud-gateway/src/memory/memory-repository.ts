@@ -2335,7 +2335,7 @@ export class MemoryRepository {
         r2SegmentId: input.confirmationSource.r2SegmentId,
         excerpt: this.validateItemText(input.confirmationSource.excerpt),
         excerptHash: inputHash(input.confirmationSource.excerptHash),
-        channel: inputEnum(input.confirmationSource.channel, new Set(["telegram", "voice"] as const)),
+        channel: inputEnum(input.confirmationSource.channel, new Set(["telegram", "voice", "system"] as const)),
         occurredAt: inputTimestamp(input.confirmationSource.occurredAt),
       });
       if (confirmation.r2SegmentId !== null

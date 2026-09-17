@@ -66,6 +66,14 @@ export interface ConfirmedForgetDecisionInput {
   readonly itemIds: readonly Ulid[];
 }
 
+export interface ConfirmedMemoryDecisionInput {
+  readonly principalId: string;
+  readonly callbackEventId: Ulid;
+  readonly decisionId: Ulid;
+  readonly itemId: Ulid;
+  readonly previousVersionId: Ulid;
+}
+
 export interface TargetedMemoryControlInput {
   readonly ownerTurn: MemoryOwnerTurnInput;
   readonly candidateItemIds: readonly Ulid[];
@@ -367,6 +375,26 @@ function confirmPayload(value: JsonValue): Readonly<{
   });
 }
 
+function confirmedDecisionPayload(value: JsonValue): ReturnType<typeof confirmPayload>
+  & Readonly<{ confirmationExcerpt: string }> {
+  const payload = record(value);
+  exactKeys(payload, [
+    "operation", "targetId", "itemId", "previousVersionId", "versionId",
+    "lifecycleState", "sourceId", "copiedSourceIds", "confirmationExcerpt",
+  ]);
+  if (payload.operation !== "item.transition" || payload.lifecycleState !== "active"
+    || !Array.isArray(payload.copiedSourceIds) || typeof payload.confirmationExcerpt !== "string") refuse();
+  return Object.freeze({
+    transitionId: inputUlid(payload.targetId),
+    itemId: inputUlid(payload.itemId),
+    previousVersionId: inputUlid(payload.previousVersionId),
+    versionId: inputUlid(payload.versionId),
+    sourceId: inputUlid(payload.sourceId),
+    copiedSourceIds: Object.freeze(payload.copiedSourceIds.map(inputUlid)),
+    confirmationExcerpt: payload.confirmationExcerpt,
+  });
+}
+
 function forgetPayload(value: JsonValue): DecodedForgetCommand {
   const payload = record(value);
   exactKeys(payload, [
@@ -646,6 +674,7 @@ export class MemoryOwnerControlsService {
         if (!ownerText.includes(sourceExcerpt)) refuse();
         const item = await this.memory.readCurrentItem(ownerTurn.principalId, itemId);
         if (item.lifecycle.state !== "proposed" || !item.version.uncertain
+          || item.version.origin === "model" && item.version.basis === "inferred"
           || item.sources.length < 1 || item.sources.length > 7) refuse();
         command = await this.appendCommand(ownerTurn, key, requestHash, {
           operation: "item.transition",
@@ -685,6 +714,106 @@ export class MemoryOwnerControlsService {
         policyVersion: MEMORY_CONTROL_POLICY_VERSION,
       });
       const result = await this.memory.confirmItem(confirmationInput);
+      return Object.freeze({
+        item: result.item,
+        receipt: "Confirmed 1 proposed memory for recall. You can ask in ordinary language to forget it.",
+        replayed: command.replayed || result.replayed,
+      });
+    });
+  }
+
+  async confirmInferredFromDecision(input: ConfirmedMemoryDecisionInput): Promise<MemoryConfirmReceipt> {
+    return this.safely(async () => {
+      const principalId = this.validPrincipalId(input.principalId);
+      const callbackEventId = inputUlid(input.callbackEventId);
+      const decisionId = inputUlid(input.decisionId);
+      const itemId = inputUlid(input.itemId);
+      const previousVersionId = inputUlid(input.previousVersionId);
+      await this.readConfirmedDecisionCallback(principalId, callbackEventId, decisionId);
+      await this.requireConfirmedMemoryDecision(
+        principalId,
+        decisionId,
+        `${itemId}:${previousVersionId}`,
+      );
+
+      const requestHash = await sha256Hex(canonicalJson([
+        MEMORY_CONTROL_POLICY_VERSION,
+        "confirmed-memory",
+        principalId,
+        decisionId,
+        itemId,
+        previousVersionId,
+      ]));
+      const key = `${decisionId}:confirm:${itemId}`;
+      const existing = await this.hasCommand(key, requestHash);
+      let command: AppendedEvent;
+      if (existing) {
+        command = await this.appendDecisionCommand({
+          principalId,
+          callbackEventId,
+          key,
+          requestHash,
+          payload: { operation: "item.transition", targetId: this.nextId() },
+        });
+      } else {
+        const item = await this.memory.readCurrentItem(principalId, itemId);
+        if (item.lifecycle.state !== "proposed" || !item.version.uncertain
+          || item.version.origin !== "model" || item.version.basis !== "inferred"
+          || item.version.versionId !== previousVersionId
+          || item.sources.length < 1 || item.sources.length > 7) refuse();
+        const confirmationExcerpt = this.memory.validateItemText(
+          `Confirmed exact stored memory by tap: ${JSON.stringify(item.version.text)}`,
+        );
+        command = await this.appendDecisionCommand({
+          principalId,
+          callbackEventId,
+          key,
+          requestHash,
+          payload: {
+            operation: "item.transition",
+            targetId: this.nextId(),
+            itemId,
+            previousVersionId,
+            versionId: this.nextId(),
+            lifecycleState: "active",
+            sourceId: this.nextId(),
+            copiedSourceIds: item.sources.map(() => this.nextId()),
+            confirmationExcerpt,
+          },
+        });
+      }
+
+      const decoded = decodeStoredCommand(command.envelope.payload, confirmedDecisionPayload);
+      if (decoded.itemId !== itemId || decoded.previousVersionId !== previousVersionId) corrupt();
+      const authorizingCallbackId = inputUlid(command.envelope.causationId);
+      await this.readConfirmedDecisionCallback(
+        principalId,
+        authorizingCallbackId,
+        decisionId,
+      );
+      const confirmationExcerpt = this.memory.validateItemText(decoded.confirmationExcerpt);
+      const result = await this.memory.confirmItem(Object.freeze({
+        principalId,
+        itemId,
+        previousVersionId: decoded.previousVersionId,
+        versionId: decoded.versionId,
+        transitionId: decoded.transitionId,
+        ownerAuthorizingEventId: command.envelope.eventId,
+        confirmationSource: Object.freeze({
+          sourceId: decoded.sourceId,
+          eventId: command.envelope.eventId,
+          eventSequence: command.eventSequence,
+          sourceLocation: "live",
+          r2SegmentId: null,
+          excerpt: confirmationExcerpt,
+          excerptHash: await sha256Hex(confirmationExcerpt),
+          channel: "system",
+          occurredAt: command.envelope.occurredAt,
+        }),
+        copiedSourceIds: decoded.copiedSourceIds,
+        reason: "owner confirmed model-inferred memory by bound decision tap",
+        policyVersion: MEMORY_CONTROL_POLICY_VERSION,
+      }));
       return Object.freeze({
         item: result.item,
         receipt: "Confirmed 1 proposed memory for recall. You can ask in ordinary language to forget it.",
@@ -990,6 +1119,75 @@ export class MemoryOwnerControlsService {
         replayed: command.replayed || result.replayed,
       });
     });
+  }
+
+  private validPrincipalId(value: unknown): string {
+    if (typeof value !== "string" || value.length < 1 || value.length > 256
+      || !value.isWellFormed() || value !== value.normalize("NFC")) refuse();
+    return value;
+  }
+
+  private async readConfirmedDecisionCallback(
+    principalId: string,
+    callbackEventId: Ulid,
+    decisionId: Ulid,
+  ): Promise<void> {
+    const callback = await this.database.prepare(`SELECT event.event_id, event.envelope_json
+      FROM events event
+      JOIN channel_identities identity
+        ON identity.principal_id = ?1 AND identity.channel = 'telegram'
+        AND identity.status = 'active' AND identity.verified_at IS NOT NULL
+        AND event.subject_id = 'telegram:user:' || identity.provider_subject
+      WHERE event.event_id = ?2 AND event.event_type = 'telegram.callback.received'
+        AND event.source = 'channel:telegram'
+      LIMIT 1`).bind(principalId, callbackEventId).first<{
+        event_id: unknown;
+        envelope_json: unknown;
+      }>();
+    if (callback?.event_id !== callbackEventId || typeof callback.envelope_json !== "string"
+      || Reflect.ownKeys(callback).length !== 2) refuse();
+    let envelope: Awaited<ReturnType<typeof validateEnvelope>>;
+    try {
+      envelope = await validateEnvelope(JSON.parse(callback.envelope_json) as unknown);
+    } catch {
+      refuse();
+    }
+    if (envelope.eventId !== callbackEventId || envelope.subjectId.length === 0
+      || envelope.eventType !== "telegram.callback.received" || envelope.source !== "channel:telegram"
+      || envelope.payload === null || typeof envelope.payload !== "object" || Array.isArray(envelope.payload)
+      || (envelope.payload as Record<string, unknown>).data
+        !== encodeDecisionCallbackData(decisionId, "confirm")) refuse();
+  }
+
+  private async requireConfirmedMemoryDecision(
+    principalId: string,
+    decisionId: Ulid,
+    originReference: string,
+  ): Promise<void> {
+    const decision = await this.database.prepare(`SELECT item.decision_id, item.principal_id,
+        item.origin, item.origin_reference, item.status, response.option_key,
+        identity.principal_id AS identity_principal_id
+      FROM decision_items item
+      JOIN decision_responses response ON response.decision_id = item.decision_id
+      JOIN channel_identities identity
+        ON identity.identity_id = response.answered_by_identity_id
+        AND identity.channel = 'telegram' AND identity.status = 'active'
+        AND identity.verified_at IS NOT NULL
+      WHERE item.decision_id = ?1
+      LIMIT 1`).bind(decisionId).first<{
+        decision_id: unknown;
+        principal_id: unknown;
+        origin: unknown;
+        origin_reference: unknown;
+        status: unknown;
+        option_key: unknown;
+        identity_principal_id: unknown;
+      }>();
+    if (decision === null || Reflect.ownKeys(decision).length !== 7
+      || decision.decision_id !== decisionId || decision.principal_id !== principalId
+      || decision.identity_principal_id !== principalId || decision.origin !== "telegram-memory-confirm"
+      || decision.origin_reference !== originReference || decision.status !== "answered"
+      || decision.option_key !== "confirm") refuse();
   }
 
   private async appendCommand(

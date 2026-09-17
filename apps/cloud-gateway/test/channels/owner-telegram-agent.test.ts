@@ -258,7 +258,13 @@ function memoryContext(row: Awaited<ReturnType<typeof memoryRows>>[number]): Ret
   });
 }
 
-async function proposedMemory(harness: OwnerHarness): Promise<Ulid> {
+async function proposedMemory(
+  harness: OwnerHarness,
+  version: Readonly<{
+    basis: "stated" | "inferred";
+    origin: "authenticated_first_person" | "model";
+  }> = Object.freeze({ basis: "inferred", origin: "model" }),
+): Promise<Ulid> {
   await runTurn({
     harness,
     text: "maybe I like art",
@@ -285,14 +291,14 @@ async function proposedMemory(harness: OwnerHarness): Promise<Ulid> {
       versionId: newUlid(),
       text: "I like art",
       textHash: await sha256Hex("I like art"),
-      basis: "inferred",
-      origin: "model",
+      basis: version.basis,
+      origin: version.origin,
       uncertain: true,
       sensitivity: "normal",
       validFrom: null,
       validTo: null,
       extractorVersion: "owner-agent-test-v1",
-      extractorModelId: "openai:owner-agent-test",
+      extractorModelId: version.origin === "model" ? "openai:owner-agent-test" : null,
     },
     sources: [{
       sourceId: newUlid(),
@@ -321,6 +327,13 @@ async function proposedMemory(harness: OwnerHarness): Promise<Ulid> {
     },
   });
   return itemId;
+}
+
+async function proposedOwnerMemory(harness: OwnerHarness): Promise<Ulid> {
+  return proposedMemory(harness, Object.freeze({
+    basis: "stated",
+    origin: "authenticated_first_person",
+  }));
 }
 
 async function acceptCallbackTap(
@@ -399,6 +412,41 @@ async function prepareConfirmedForget(label: string): Promise<Readonly<{
   if (decision === undefined) throw new Error("owner_agent_decision_missing");
   const tap = await acceptCallbackTap(harness, callbackData, "4");
   return Object.freeze({ harness, ids, decisionId: decision.decisionId, tap, decisions });
+}
+
+async function prepareModelConfirmationDecision(label: string): Promise<Readonly<{
+  harness: OwnerHarness;
+  itemId: Ulid;
+  decision: DecisionItem;
+  confirmCallbackData: string;
+  discardCallbackData: string;
+}>> {
+  const harness = await ownerHarness(label);
+  const itemId = await proposedMemory(harness);
+  await runTurn({
+    harness,
+    text: "what uncertain memory do you have?",
+    provider: new FakeAgentProvider([stopped('Should I remember exactly "I like art"?')]),
+  });
+  await runTurn({
+    harness,
+    text: "yes",
+    controlTargetIds: [itemId],
+    provider: new FakeAgentProvider([
+      called(tool(`${label}-confirm`, "memory_confirm", { itemId, supportingExcerpt: "yes" })),
+      stopped("Use Confirm or Discard."),
+    ]),
+  });
+  const markup = harness.telegram.requests.at(-1)?.replyMarkup?.inline_keyboard;
+  const confirmCallbackData = markup?.[0]?.[0]?.callback_data;
+  const discardCallbackData = markup?.[1]?.[0]?.callback_data;
+  if (confirmCallbackData === undefined || discardCallbackData === undefined) {
+    throw new Error("owner_agent_callback_missing");
+  }
+  const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now: () => NOW });
+  const decision = (await decisions.queue(harness.principalId))[0];
+  if (decision === undefined) throw new Error("owner_agent_decision_missing");
+  return Object.freeze({ harness, itemId, decision, confirmCallbackData, discardCallbackData });
 }
 
 function overrideConfirmedForgetDecisionRead(
@@ -893,7 +941,7 @@ describe("owner Telegram agent", () => {
     expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
   });
 
-  it("confirms a staged model inference only after Jarvis asks about the exact quoted fact", async () => {
+  it("keeps a model inference proposed until Sid confirms its exact stored wording by tap", async () => {
     const harness = await ownerHarness("confirm");
     const itemId = await proposedMemory(harness);
     await runTurn({
@@ -920,18 +968,171 @@ describe("owner Telegram agent", () => {
       controlTargetIds: [itemId],
     });
 
-    expect(reply).toContain("Confirmed 1 proposed memory");
+    const beforeTap = await new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId);
+    expect(beforeTap).toMatchObject({
+      lifecycle: { state: "proposed" },
+      version: { basis: "inferred", origin: "model", uncertain: true },
+    });
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+      status: "pending_confirmation",
+    });
+    const exactPrompt = 'Confirm or discard this exact model-inferred memory:\n\n"I like art"';
+    expect(reply).toContain(exactPrompt);
+    expect(harness.telegram.requests.at(-1)?.replyMarkup?.inline_keyboard.slice(0, 2))
+      .toMatchObject([[{ text: "Confirm" }], [{ text: "Discard" }]]);
+
+    const decisions = new DecisionService({ repository: new DecisionRepository(env.DB), now: () => NOW });
+    const decision = (await decisions.queue(harness.principalId))[0];
+    expect(decision).toMatchObject({
+      origin: "telegram-memory-confirm",
+      originReference: `${itemId}:${beforeTap.version.versionId}`,
+      question: exactPrompt,
+      status: "delivered",
+    });
+    const callbackData = harness.telegram.requests.at(-1)?.replyMarkup?.inline_keyboard[0]?.[0]?.callback_data;
+    if (callbackData === undefined) throw new Error("owner_agent_callback_missing");
+    const tap = await acceptCallbackTap(harness, callbackData, "11");
+    const sent: string[] = [];
+    await answerFromTap(env, tap, async (_chatId, text) => { sent.push(text); });
+
+    expect(sent).toEqual([
+      'Confirmed 1 proposed memory for recall. You can ask in ordinary language to forget it. Memory: "I like art"',
+    ]);
     await expect(new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId))
       .resolves.toMatchObject({
         lifecycle: { state: "active" },
         version: { basis: "confirmed", origin: "authenticated_first_person", uncertain: false },
-        sources: expect.arrayContaining([expect.objectContaining({ excerpt: "yes, that's right" })]),
+        sources: expect.arrayContaining([expect.objectContaining({
+          excerpt: 'Confirmed exact stored memory by tap: "I like art"',
+        })]),
       });
   });
 
-  it("does not confirm a staged model inference when yes answers an unrelated question", async () => {
+  it("keeps guarded free-text confirmation for a proposal Sid worded himself", async () => {
+    const harness = await ownerHarness("confirm-owner-worded");
+    const itemId = await proposedOwnerMemory(harness);
+    await runTurn({
+      harness,
+      text: "what uncertain memory do you have?",
+      provider: new FakeAgentProvider([stopped('Should I remember exactly "I like art"?')]),
+    });
+    const provider = new FakeAgentProvider([
+      called(tool("confirm-owner-worded", "memory_confirm", { itemId, supportingExcerpt: "yes" })),
+      stopped("Confirmed.", [{ sentence: "Confirmed.", receiptIds: ["receipt:confirm-owner-worded"] }]),
+    ]);
+
+    const reply = await runTurn({
+      harness,
+      text: "yes",
+      provider,
+      controlTargetIds: [itemId],
+    });
+
+    expect(reply).toContain('Memory: "I like art"');
+    expect(harness.telegram.requests.at(-1)?.replyMarkup).toBeUndefined();
+    await expect(new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId))
+      .resolves.toMatchObject({
+        lifecycle: { state: "active" },
+        version: { basis: "confirmed", origin: "authenticated_first_person", uncertain: false },
+      });
+  });
+
+  it("leaves a model inference proposed when Sid taps Discard and replays that tap", async () => {
+    const prepared = await prepareModelConfirmationDecision("confirm-discard");
+    const sent: string[] = [];
+    const firstTap = await acceptCallbackTap(prepared.harness, prepared.discardCallbackData, "12");
+    await answerFromTap(env, firstTap, async (_chatId, text) => { sent.push(text); });
+    const replayTap = await acceptCallbackTap(prepared.harness, prepared.discardCallbackData, "13");
+    await answerFromTap(env, replayTap, async (_chatId, text) => { sent.push(text); });
+
+    expect(sent).toEqual(["Got it.", "That one is already answered."]);
+    await expect(new MemoryRepository(env.DB).readCurrentItem(
+      prepared.harness.principalId,
+      prepared.itemId,
+    )).resolves.toMatchObject({
+      lifecycle: { state: "proposed" },
+      version: { basis: "inferred", origin: "model", uncertain: true },
+    });
+  });
+
+  it("replays a model-inference Confirm tap without creating another promotion", async () => {
+    const prepared = await prepareModelConfirmationDecision("confirm-replay");
+    const sent: string[] = [];
+    const firstTap = await acceptCallbackTap(prepared.harness, prepared.confirmCallbackData, "14");
+    await answerFromTap(env, firstTap, async (_chatId, text) => { sent.push(text); });
+    const afterFirst = await new MemoryRepository(env.DB).readCurrentItem(
+      prepared.harness.principalId,
+      prepared.itemId,
+    );
+    const replayTap = await acceptCallbackTap(prepared.harness, prepared.confirmCallbackData, "15");
+    await answerFromTap(env, replayTap, async (_chatId, text) => { sent.push(text); });
+    const afterReplay = await new MemoryRepository(env.DB).readCurrentItem(
+      prepared.harness.principalId,
+      prepared.itemId,
+    );
+
+    expect(sent).toEqual([
+      expect.stringContaining('Memory: "I like art"'),
+      expect.stringContaining('Memory: "I like art"'),
+    ]);
+    expect(afterReplay.lifecycle.transitionId).toBe(afterFirst.lifecycle.transitionId);
+    expect(afterReplay.version.versionId).toBe(afterFirst.version.versionId);
+    expect(afterReplay.sources).toHaveLength(afterFirst.sources.length);
+  });
+
+  it("does not promote a model inference from a stale Confirm keyboard", async () => {
+    const prepared = await prepareModelConfirmationDecision("confirm-stale");
+    await env.DB.prepare(`UPDATE decision_items SET status = 'expired', resolved_at = ?1
+      WHERE decision_id = ?2`).bind(NOW.toISOString(), prepared.decision.decisionId).run();
+    const tap = await acceptCallbackTap(prepared.harness, prepared.confirmCallbackData, "16");
+    const sent: string[] = [];
+
+    await answerFromTap(env, tap, async (_chatId, text) => { sent.push(text); });
+
+    expect(sent).toEqual(["That question is no longer open."]);
+    await expect(new MemoryRepository(env.DB).readCurrentItem(
+      prepared.harness.principalId,
+      prepared.itemId,
+    )).resolves.toMatchObject({ lifecycle: { state: "proposed" }, version: { origin: "model" } });
+  });
+
+  it("does not promote when a Confirm decision is bound to a non-current stored version", async () => {
+    const prepared = await prepareModelConfirmationDecision("confirm-stale-version");
+    await env.DB.prepare(`UPDATE decision_items SET origin_reference = ?1
+      WHERE decision_id = ?2`).bind(
+      `${prepared.itemId}:${newUlid()}`,
+      prepared.decision.decisionId,
+    ).run();
+    const tap = await acceptCallbackTap(prepared.harness, prepared.confirmCallbackData, "18");
+    const sent: string[] = [];
+
+    await answerFromTap(env, tap, async (_chatId, text) => { sent.push(text); });
+
+    expect(sent).toEqual(["I couldn't finish that confirmed memory change. Tap Confirm again to retry safely."]);
+    await expect(new MemoryRepository(env.DB).readCurrentItem(
+      prepared.harness.principalId,
+      prepared.itemId,
+    )).resolves.toMatchObject({ lifecycle: { state: "proposed" }, version: { origin: "model" } });
+  });
+
+  it("does not promote a model inference when another verified identity taps Confirm", async () => {
+    const prepared = await prepareModelConfirmationDecision("confirm-wrong-identity");
+    const other = await ownerHarness("confirm-wrong-identity-other");
+    const tap = await acceptCallbackTap(other, prepared.confirmCallbackData, "17");
+    const sent: string[] = [];
+
+    await answerFromTap(env, tap, async (_chatId, text) => { sent.push(text); });
+
+    expect(sent).toEqual(["That question is not yours to answer."]);
+    await expect(new MemoryRepository(env.DB).readCurrentItem(
+      prepared.harness.principalId,
+      prepared.itemId,
+    )).resolves.toMatchObject({ lifecycle: { state: "proposed" }, version: { origin: "model" } });
+  });
+
+  it("keeps the exact quoted-question guard on owner-worded free-text confirmation", async () => {
     const harness = await ownerHarness("confirm-unrelated-question");
-    const itemId = await proposedMemory(harness);
+    const itemId = await proposedOwnerMemory(harness);
     await runTurn({
       harness,
       text: "what uncertain memory do you have?",
@@ -960,12 +1161,15 @@ describe("owner Telegram agent", () => {
 
     expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
     await expect(new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId))
-      .resolves.toMatchObject({ lifecycle: { state: "proposed" }, version: { origin: "model" } });
+      .resolves.toMatchObject({
+        lifecycle: { state: "proposed" },
+        version: { origin: "authenticated_first_person" },
+      });
   });
 
-  it("does not confirm an exact quoted fact when the item was not the staged target", async () => {
+  it("keeps the staged-target guard on owner-worded free-text confirmation", async () => {
     const harness = await ownerHarness("confirm-not-staged");
-    const itemId = await proposedMemory(harness);
+    const itemId = await proposedOwnerMemory(harness);
     await runTurn({
       harness,
       text: "what uncertain memory do you have?",
@@ -991,12 +1195,15 @@ describe("owner Telegram agent", () => {
 
     expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
     await expect(new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId))
-      .resolves.toMatchObject({ lifecycle: { state: "proposed" }, version: { origin: "model" } });
+      .resolves.toMatchObject({
+        lifecycle: { state: "proposed" },
+        version: { origin: "authenticated_first_person" },
+      });
   });
 
-  it("does not confirm a staged model inference from an explicit rejection", async () => {
+  it("keeps the negation guard on owner-worded free-text confirmation", async () => {
     const harness = await ownerHarness("confirm-rejected");
-    const itemId = await proposedMemory(harness);
+    const itemId = await proposedOwnerMemory(harness);
     await runTurn({
       harness,
       text: "what uncertain memory do you have?",
@@ -1023,12 +1230,15 @@ describe("owner Telegram agent", () => {
 
     expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
     await expect(new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId))
-      .resolves.toMatchObject({ lifecycle: { state: "proposed" }, version: { origin: "model" } });
+      .resolves.toMatchObject({
+        lifecycle: { state: "proposed" },
+        version: { origin: "authenticated_first_person" },
+      });
   });
 
-  it("does not confirm a shorter stored fact from a longer quoted fact", async () => {
+  it("keeps the exact stored-text guard on owner-worded free-text confirmation", async () => {
     const harness = await ownerHarness("confirm-exact-quote");
-    const itemId = await proposedMemory(harness);
+    const itemId = await proposedOwnerMemory(harness);
     await runTurn({
       harness,
       text: "what uncertain memory do you have?",
@@ -1055,15 +1265,18 @@ describe("owner Telegram agent", () => {
 
     expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
     await expect(new MemoryRepository(env.DB).readCurrentItem(harness.principalId, itemId))
-      .resolves.toMatchObject({ lifecycle: { state: "proposed" }, version: { origin: "model" } });
+      .resolves.toMatchObject({
+        lifecycle: { state: "proposed" },
+        version: { origin: "authenticated_first_person" },
+      });
   });
 
   it.each([
     ["a bare acknowledgement", "ok", "ok"],
     ["a substring without word boundaries", "yesterday was fine", "yes"],
-  ] as const)("does not confirm a quoted proposal from %s", async (_label, text, excerpt) => {
+  ] as const)("keeps the word-boundary confirm-intent guard for %s", async (_label, text, excerpt) => {
     const harness = await ownerHarness(`confirm-negative-${excerpt}`);
-    const itemId = await proposedMemory(harness);
+    const itemId = await proposedOwnerMemory(harness);
     await runTurn({
       harness,
       text: "what uncertain memory do you have?",
@@ -1088,6 +1301,7 @@ describe("owner Telegram agent", () => {
         lifecycle_state: "proposed",
         excerpt: "maybe I like art",
       })],
+      controlTargetIds: [itemId],
     });
 
     expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
@@ -1095,9 +1309,9 @@ describe("owner Telegram agent", () => {
       .resolves.toMatchObject({ lifecycle: { state: "proposed" } });
   });
 
-  it("does not let retrieved context alone make a model inference confirmable", async () => {
+  it("does not let retrieved context replace the staged-target and quoted-question guards", async () => {
     const harness = await ownerHarness("confirm-context-only");
-    const itemId = await proposedMemory(harness);
+    const itemId = await proposedOwnerMemory(harness);
     const provider = new FakeAgentProvider([
       called(tool("confirm-context-only", "memory_confirm", {
         itemId,
@@ -1166,7 +1380,7 @@ describe("owner Telegram agent", () => {
 
   it("refuses agent-level memory confirmation when its excerpt is absent from Sid's current text", async () => {
     const harness = await ownerHarness("confirm-ungrounded");
-    const itemId = await proposedMemory(harness);
+    const itemId = await proposedOwnerMemory(harness);
     const confirm = vi.spyOn(MemoryOwnerControlsService.prototype, "confirm");
     const provider = new FakeAgentProvider([
       called(tool("confirm-ungrounded", "memory_confirm", { itemId, supportingExcerpt: "yes" })),
