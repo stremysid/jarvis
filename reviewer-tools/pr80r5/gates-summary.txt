@@ -1,0 +1,10 @@
+head d62b23f
+lint rc=0
+typecheck rc=0
+test rc=1
+ FAIL  |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts > Telegram forget recall safety > does not recall a forgotten fact through Jarvis's earlier echo
+ Test Files  1 failed | 189 passed (190)
+      Tests  1 failed | 4952 passed (4953)
+r4 narrow tests:
+      Tests  7 passed (7)
+clean: 0
