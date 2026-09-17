@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   decodeGuestPinVerifierRecord,
   GuestPinVerifier,
@@ -17,20 +17,33 @@ function salt(): Uint8Array {
 }
 
 describe("GuestPinVerifier", () => {
-  it("derives the independent v2 vector and verifies only the exact bound grant", async () => {
+  it("derives the six-pass chained v2 vector, verifies its PIN, and rejects a wrong one or grant", async () => {
     const suppliedSalt = salt();
     const verifier = new GuestPinVerifier(pepper(), () => suppliedSalt);
     const pin = encoder.encode("4827");
+    const iterations: number[] = [];
+    const deriveBits = crypto.subtle.deriveBits.bind(crypto.subtle);
+    const spy = vi.spyOn(crypto.subtle, "deriveBits").mockImplementation((algorithm, baseKey, length) => {
+      if (typeof algorithm === "object" && "iterations" in algorithm
+        && typeof algorithm.iterations === "number") iterations.push(algorithm.iterations);
+      return deriveBits(algorithm, baseKey, length);
+    });
+    const record = await (async () => {
+      try {
+        return await verifier.create(grantId, pin);
+      } finally {
+        spy.mockRestore();
+      }
+    })();
 
-    const record = await verifier.create(grantId, pin);
-
+    expect(iterations).toEqual(Array(6).fill(100_000));
     expect(record).toEqual({
       schemaVersion: "2.0",
       algorithm: "hmac-sha256-pepper+pbkdf2-hmac-sha256",
       pepperVersion: "v1",
       iterations: 600_000,
       saltBase64: "AQIDBAUGBwgJCgsMDQ4PEA==",
-      digestBase64: "Po9SvUoBNaRYpL2zMacUtWInIuJ+daWyKBjxe0+D8A8=",
+      digestBase64: "1LUTeLCxanWuxDEF/HuHm3fSTM3VZfE8wYUbvHjfthQ=",
     });
     expect(Object.isFrozen(record)).toBe(true);
     expect(pin).toEqual(new Uint8Array(4));
@@ -39,6 +52,10 @@ describe("GuestPinVerifier", () => {
     const matching = encoder.encode("4827");
     await expect(verifier.verify(grantId, matching, record)).resolves.toBe(true);
     expect(matching).toEqual(new Uint8Array(4));
+
+    const wrong = encoder.encode("4828");
+    await expect(verifier.verify(grantId, wrong, record)).resolves.toBe(false);
+    expect(wrong).toEqual(new Uint8Array(4));
 
     const crossGrant = encoder.encode("4827");
     await expect(verifier.verify(otherGrantId, crossGrant, record)).resolves.toBe(false);

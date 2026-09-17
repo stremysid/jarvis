@@ -1,3 +1,5 @@
+import { deriveChainedPbkdf2Sha256 } from "./chained-pbkdf2.js";
+
 export interface GuestPinVerifierRecordV2 {
   readonly schemaVersion: "2.0";
   readonly algorithm: "hmac-sha256-pepper+pbkdf2-hmac-sha256";
@@ -172,13 +174,7 @@ export class GuestPinVerifier {
   }
 
   async #deriveDigest(hmac: Uint8Array, salt: Uint8Array): Promise<Uint8Array> {
-    const key = await crypto.subtle.importKey("raw", hmac, "PBKDF2", false, ["deriveBits"]);
-    return new Uint8Array(await crypto.subtle.deriveBits({
-      name: "PBKDF2",
-      hash: "SHA-256",
-      salt,
-      iterations: 600_000,
-    }, key, 256));
+    return deriveChainedPbkdf2Sha256(hmac, salt);
   }
 
   async create(grantId: string, pinDigits: Uint8Array): Promise<GuestPinVerifierRecordV2> {
