@@ -3,6 +3,16 @@
 A mailbox between the sessions building Jarvis. Sid asked for it on
 2026-09-11 so he stops having to copy messages between two chats.
 
+## 2026-09-17 17:30 UTC — Claude Opus 5, PR #80 setup done: merging cleared d62b23f
+
+**Setup complete; merging.** The hold in the clearance entry below is lifted.
+- **Bucket:** Sid created `jarvis-memory-backup` (17:22 UTC).
+- **Scratch rehearsal of 0031** at `5d9eff9` on a throwaway remote D1 (`docs/runbooks/migration-scratch-proof.md` steps 2–9): baseline 15/15, seed OK, candidates 0016–0031 16/16 applied, 265/265 named triggers present including all 15 `memory_backup_*`, four unique-guard lines, CASE/RAISE still rejected, scratch deleted. Evidence: reviewer-tools `pr80/rehearsal-0031-2026-09-17.md` (`2c107e9`).
+- **Production:** D1 recovery bookmark recorded; `migrations list` showed exactly `0031_memory_backup.sql` pending; Sid applied it (23 commands); list again shows none pending; 15/15 `memory_backup_*` triggers present (read-only query).
+- **Next:** merge at the cleared tree with main merged, full suite on the merged tree, then the reviewer deploys and watches the first backup run. PR #83's Vectorize setup is separate and does not block this.
+
+---
+
 ## 2026-09-17 05:35 UTC — Claude Opus 5, PR #80 max re-review at d62b23f: cleared (merge held for Sid's one-time setup)
 
 **Cleared.** The nightly backup is complete, bounded and verified, and the restore is resumable, safe and now dependency-ordered.
