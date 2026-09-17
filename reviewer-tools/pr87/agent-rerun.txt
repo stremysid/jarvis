@@ -1,0 +1,175 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/adversarial-pr87.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr85-adv
+
+Using secrets defined in process.env
+stdout | apps/cloud-gateway/test/memory/adversarial-pr87.test.ts > PR87 narrow: archived fixtures (reset archive; run first) > L1 A1-style archived fixture with the current question in the recent window stays <= 500 ms at 25 ms/RT (3 runs)
+adv87_L1 [{"elapsedMs":340,"roundTrips":40,"statements":65,"maxInflight":8,"logs":[],"timings":null,"metrics":[{"candidatesMs":191,"historyMs":337,"mergeMs":0,"d1RoundTrips":40}],"memory":3,"history":["My favourite school subject is math.","Archived note 5: favourite school subject debate continues.","Archived note 4: favourite school subject debate continues.","Archived note 3: favourite school subject debate continues."],"questionCopies":1},{"elapsedMs":1092,"roundTrips":27,"statements":52,"maxInflight":8,"logs":["telegram_memory_retrieval_memory_timeout"],"timings":{"baseMs":61,"memoryMs":1092,"candidatesMs":1092,"historyMs":1092,"mergeMs":0,"d1RoundTrips":27},"metrics":[{"candidatesMs":1092,"historyMs":1092,"mergeMs":0,"d1RoundTrips":27}],"memory":0,"history":[],"questionCopies":1},{"elapsedMs":1513,"roundTrips":6,"statements":31,"maxInflight":3,"logs":["telegram_memory_retrieval_memory_timeout"],"timings":{"baseMs":1513,"memoryMs":1513,"candidatesMs":1513,"historyMs":1513,"mergeMs":0,"d1RoundTrips":6},"metrics":[{"candidatesMs":1513,"historyMs":1513,"mergeMs":0,"d1RoundTrips":6}],"memory":0,"history":[],"questionCopies":1},{"elapsedMs":346,"roundTrips":40,"statements":65,"maxInflight":8,"logs":[],"timings":null,"metrics":[{"candidatesMs":197,"historyMs":346,"mergeMs":0,"d1RoundTrips":40}],"memory":3,"history":["My favourite school subject is math.","Archived note 5: favourite school subject debate continues.","Archived note 4: favourite school subject debate continues.","Archived note 3: favourite school subject debate continues."],"questionCopies":1},{"elapsedMs":325,"roundTrips":40,"statements":65,"maxInflight":8,"logs":[],"timings":null,"metrics":[{"candidatesMs":175,"historyMs":325,"mergeMs":0,"d1RoundTrips":40}],"memory":3,"history":["My favourite school subject is math.","Archived note 5: favourite school subject debate continues.","Archived note 4: favourite school subject debate continues.","Archived note 3: favourite school subject debate continues."],"questionCopies":1},{"elapsedMs":310,"roundTrips":40,"statements":65,"maxInflight":8,"logs":[],"timings":null,"metrics":[{"candidatesMs":161,"historyMs":309,"mergeMs":0,"d1RoundTrips":40}],"memory":3,"history":["My favourite school subject is math.","Archived note 5: favourite school subject debate continues.","Archived note 4: favourite school subject debate continues.","Archived note 3: favourite school subject debate continues."],"questionCopies":1}]
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr87.test.ts > PR87 narrow: archived fixtures (reset archive; run first) > F1c an open archive circuit keeps live canonical memories when another candidate memory has an archived source
+adv87_F1c {"logs":["telegram_memory_retrieval_fallback"],"live":false,"archived":0}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr87.test.ts > PR87 narrow: F3 literal history on real Telegram turns > F3b the current question is not returned as its own history evidence when it is already indexed (lease reclaim / indexer race)
+adv87_F3b {"history":["Where did I put the quartz stapler?","I put the quartz stapler beside the green printer."],"questionCopies":2}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr87.test.ts > PR87 narrow: F3 literal history on real Telegram turns > F3e an old statement is still recalled after the owner asked about it twice before (past questions and replies outside the window)
+adv87_F3e {"history":["Where did I put the quartz stapler?","Where did I put the quartz stapler?"]}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr87.test.ts > PR87 narrow: F3 memory/history overlap > F3f a canonical memory's own source turn is not repeated as history evidence on the same answer
+adv87_F3f {"memory":1,"history":["My favourite school subject is math."],"repeated":["History evidence [live D1; event 01m2ptj5m9s72gagqdfj5tpz8b; 2026-09-17T04:38:54.855Z; telegram]: My favourite school subject is math."]}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr87.test.ts > PR87 narrow: F1/F4 memory deadline and literal failure isolation > F1a a slow (900 ms) literal FTS query does not discard canonical memory that was ready in ~100 ms
+adv87_F1a {"logs":["telegram_memory_retrieval_memory_timeout"],"elapsedMs":814,"memory":false,"count":64}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr87.test.ts > PR87 narrow: F1/F4 memory deadline and literal failure isolation > F1b a failing literal FTS batch keeps canonical memory and logs only the history fallback
+adv87_F1b {"logs":["telegram_memory_retrieval_history_fallback"],"memory":true}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr87.test.ts > PR87 narrow: F1/F4 memory deadline and literal failure isolation > F1d a failing archive_state read (literal pre-check) keeps canonical live memory
+adv87_F1d {"logs":["telegram_memory_retrieval_history_fallback"],"memory":true}
+
+ ❯ |default| apps/cloud-gateway/test/memory/adversarial-pr87.test.ts (17 tests | 8 failed | 1 skipped) 51133ms
+     × L1 A1-style archived fixture with the current question in the recent window stays <= 500 ms at 25 ms/RT (3 runs) 4387ms
+     × F1c an open archive circuit keeps live canonical memories when another candidate memory has an archived source 646ms
+     × F3b the current question is not returned as its own history evidence when it is already indexed (lease reclaim / indexer race) 726ms
+     × F3e an old statement is still recalled after the owner asked about it twice before (past questions and replies outside the window) 2253ms
+     × F3f a canonical memory's own source turn is not repeated as history evidence on the same answer 2053ms
+     × F1a a slow (900 ms) literal FTS query does not discard canonical memory that was ready in ~100 ms 3011ms
+     × F1b a failing literal FTS batch keeps canonical memory and logs only the history fallback 5613ms
+     × F1d a failing archive_state read (literal pre-check) keeps canonical live memory 5602ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr87.test.ts > PR87 narrow: archived fixtures (reset archive; run first) > L1 A1-style archived fixture with the current question in the recent window stays <= 500 ms at 25 ms/RT (3 runs)
+AssertionError: expected [ Array(1) ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   "telegram_memory_retrieval_memory_timeout",
++ ]
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr87.test.ts:907:22
+    905|     dumpLog("adv87_L1", JSON.stringify(runs));
+    906|     for (const r of runs) {
+    907|       expect(r.logs).toEqual([]);
+       |                      ^
+    908|       expect(r.memory).toBe(3);
+    909|       expect(r.history.length).toBeGreaterThan(0);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr87.test.ts > PR87 narrow: archived fixtures (reset archive; run first) > F1c an open archive circuit keeps live canonical memories when another candidate memory has an archived source
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr87.test.ts:965:53
+    963|       });
+    964|       dumpLog("adv87_F1c", JSON.stringify({ logs, live: hasMemoryEvide…
+    965|       expect(hasMemoryEvidence(contexts, liveText)).toBe(true);
+       |                                                     ^
+    966|     } finally {
+    967|       await setArchiveCircuit("closed");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr87.test.ts > PR87 narrow: F3 literal history on real Telegram turns > F3b the current question is not returned as its own history evidence when it is already indexed (lease reclaim / indexer race)
+AssertionError: expected [ …(2) ] to not include 'Where did I put the quartz stapler?'
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr87.test.ts:1005:25
+    1003|     dumpLog("adv87_F3b", JSON.stringify({ history, questionCopies: con…
+    1004|     expect(history).toContain(STATEMENT);
+    1005|     expect(history).not.toContain(QUESTION);
+       |                         ^
+    1006|   });
+    1007|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr87.test.ts > PR87 narrow: F3 literal history on real Telegram turns > F3e an old statement is still recalled after the owner asked about it twice before (past questions and replies outside the window)
+AssertionError: expected [ …(2) ] to include 'I put the quartz stapler beside the g…'
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr87.test.ts:1059:35
+    1057|     const context = probe.inputs[0]?.context ?? [];
+    1058|     dumpLog("adv87_F3e", JSON.stringify({ history: historyTexts(contex…
+    1059|     expect(historyTexts(context)).toContain(STATEMENT);
+       |                                   ^
+    1060|   });
+    1061| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr87.test.ts > PR87 narrow: F3 memory/history overlap > F3f a canonical memory's own source turn is not repeated as history evidence on the same answer
+AssertionError: expected [ { …(3) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "sensitivity": "personal",
++     "sourceEventId": "01m2ptj5m9s72gagqdfj5tpz8b",
++     "text": "History evidence [live D1; event 01m2ptj5m9s72gagqdfj5tpz8b; 2026-09-17T04:38:54.855Z; telegram]: My favourite school subject is math.",
++   },
++ ]
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr87.test.ts:1074:22
+    1072|     dumpLog("adv87_F3f", JSON.stringify({ memory: memoryIds.size, hist…
+    1073|     expect(memoryIds.size).toBe(1);
+    1074|     expect(repeated).toEqual([]);
+       |                      ^
+    1075|   });
+    1076| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr87.test.ts > PR87 narrow: F1/F4 memory deadline and literal failure isolation > F1a a slow (900 ms) literal FTS query does not discard canonical memory that was ready in ~100 ms
+AssertionError: expected [ Array(1) ] to not include 'telegram_memory_retrieval_memory_time…'
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr87.test.ts:1139:22
+    1137|     }).retrieve(input(owner.principalId));
+    1138|     dumpLog("adv87_F1a", JSON.stringify({ logs, elapsedMs: Math.round(…
+    1139|     expect(logs).not.toContain("telegram_memory_retrieval_memory_timeo…
+       |                      ^
+    1140|     expect(hasMemoryEvidence(contexts, MEMORY)).toBe(true);
+    1141|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr87.test.ts > PR87 narrow: F1/F4 memory deadline and literal failure isolation > F1b a failing literal FTS batch keeps canonical memory and logs only the history fallback
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr87.test.ts:1143:3
+    1141|   });
+    1142|
+    1143|   it("F1b a failing literal FTS batch keeps canonical memory and logs …
+       |   ^
+    1144|     const owner = await seedLiveMemory("adv87-throw-literal", MEMORY);
+    1145|     const logs: string[] = [];
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr87.test.ts > PR87 narrow: F1/F4 memory deadline and literal failure isolation > F1d a failing archive_state read (literal pre-check) keeps canonical live memory
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr87.test.ts:1156:3
+    1154|   });
+    1155|
+    1156|   it("F1d a failing archive_state read (literal pre-check) keeps canon…
+       |   ^
+    1157|     const owner = await seedLiveMemory("adv87-throw-state", MEMORY);
+    1158|     const logs: string[] = [];
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  8 failed | 8 passed | 1 skipped (17)
+   Start at  00:38:38
+   Duration  53.33s (transform 800ms, setup 0ms, import 1.58s, tests 51.13s, environment 0ms)
+

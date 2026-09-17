@@ -1,0 +1,12 @@
+head 5f3c1ce
+lint rc=0
+typecheck rc=0
+test rc=1
+ FAIL  |default| apps/cloud-gateway/test/archive/archival-service.test.ts > ArchivalService > seeks a many-segment tail read and accesses only the terminal manifest object
+ FAIL  |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts > Telegram memory retrieval statement bounds > keeps ready memory when a 900 ms base lookup remains inside its own deadline
+ FAIL  |default| apps/cloud-gateway/test/voice/call-session-do.test.ts > CallSession Durable Object boundary > treats a provider-completed pre-authentication hangup as rejected and releases capacity
+ Test Files  3 failed | 183 passed (186)
+      Tests  3 failed | 4903 passed (4906)
+pr85 adversarial:
+      Tests  7 passed (7)
+clean: 0
