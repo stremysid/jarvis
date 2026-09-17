@@ -329,14 +329,14 @@ const REPLY_CORPUS: readonly { readonly source: string; readonly kind: "claim" |
   {"source":"pr64c/b2r3.mjs","kind":"benign","reply":"The Waterloo AIF has seven short-answer questions.","main":"shown"},
   {"source":"pr64c/b2r3.mjs","kind":"benign","reply":"Your reference from Ms. Lee is the strongest one you have.","main":"shown"},
   {"source":"pr64c/b2r3.mjs","kind":"benign","reply":"McMaster Engineering is a good fit given your physics mark.","main":"shown"},
-  {"source":"pr64c/b2r3.mjs","kind":"benign","reply":"Here's a draft: Dear Ms. Lee, I've applied to Western Medical Sciences and I was hoping you could write my reference.","main":"replaced"},
-  {"source":"pr64c/b2r3.mjs","kind":"benign","reply":"Draft for your counsellor: Hi Mr. Chen, I submitted my OUAC application last week and wanted to check my transcript is going out.","main":"replaced"},
+  {"source":"pr64c/b2r3.mjs","kind":"benign","reply":"Here's a draft: Dear Ms. Lee, I've applied to Western Medical Sciences and I was hoping you could write my reference.","main":"shown"},
+  {"source":"pr64c/b2r3.mjs","kind":"benign","reply":"Draft for your counsellor: Hi Mr. Chen, I submitted my OUAC application last week and wanted to check my transcript is going out.","main":"shown"},
   {"source":"pr64c/b2r3.mjs","kind":"benign","reply":"Here's a draft email: Hi Ms. Lee, thank you for agreeing to write my reference. I've attached my resume.","main":"shown"},
   {"source":"pr64c/b2r3.mjs","kind":"benign","reply":"Draft reply to Waterloo: Thank you for the offer. I have accepted it through OUAC.","main":"shown"},
   {"source":"pr64c/b2r3.mjs","kind":"benign","reply":"Try opening your Western essay with: I learned patience in my grandmother's kitchen.","main":"shown"},
   {"source":"pr64c/b2r3.mjs","kind":"benign","reply":"Tonight: chem stoichiometry for 45 minutes, then 30 minutes on the Western essay.","main":"shown"},
   {"source":"pr64c/b2r3.mjs","kind":"benign","reply":"Checklist for the Waterloo AIF: answer the seven questions, proofread, then submit it yourself on the portal.","main":"shown"},
-  {"source":"pr64c/b2r3.mjs","kind":"benign","reply":"I've added the Western essay to your plan for Saturday.","main":"shown"},
+  {"source":"pr64c/b2r3.mjs","kind":"benign","reply":"I've added the Western essay to your plan for Saturday.","main":"replaced"},
   {"source":"pr64c/b2r3.mjs","kind":"benign","reply":"Plan for this week: finish the chem lab, draft the Waterloo AIF, and review for the math test.","main":"shown"},
   {"source":"pr64c/b2r3.mjs","kind":"benign","reply":"Your study plan is updated: math review moved to Thursday.","main":"shown"},
   {"source":"pr64c/b2r3.mjs","kind":"benign","reply":"I put the Waterloo AIF on your checklist.","main":"shown"},
@@ -514,7 +514,7 @@ const ORDINARY_MESSAGES = [
 ] as const;
 
 describe("PR #64 round-4 regression corpus", () => {
-  describe("requirement 1: main's reply guard, unchanged", () => {
+  describe("requirement 1: sentence-level reply guard", () => {
     it.each(REPLY_CORPUS.map((row) => [row.source, row.kind, row.reply, row.main] as const))(
       "%s %s gives main's outcome: %s -> %s",
       (_source, _kind, reply, main) => {
@@ -527,7 +527,7 @@ describe("PR #64 round-4 regression corpus", () => {
       const replaced = benign.filter((row) => guardSchoolReply(row.reply, passthrough) !== row.reply).length;
       const mainReplaced = benign.filter((row) => row.main === "replaced").length;
       expect(benign.length).toBe(73);
-      expect(mainReplaced).toBe(2);
+      expect(mainReplaced).toBe(1);
       expect(replaced).toBeLessThanOrEqual(mainReplaced);
     });
   });
@@ -962,9 +962,9 @@ describe("PR #64 round-4 regression corpus", () => {
       expect(result.text).toBe("I didn't save anything from that message. Which university and program is it? Send one sentence on its own, like: I got an offer from <university> for <program>. Send any other question separately.");
     });
 
-    it("keeps main's reply guard on an ordinary turn", async () => {
+    it("removes only the unsupported sentence on an ordinary turn", async () => {
       const result = await turn("I'm so behind on the chem lab due tonight", { ...emptyCombined, reply: "Don't stress. I submitted your chem lab on D2L." });
-      expect(result.text).toBe(MAIN_REPLACEMENT);
+      expect(result.text).toBe(`Don't stress.\n\n${MAIN_REPLACEMENT}`);
     });
   });
 });

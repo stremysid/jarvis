@@ -2327,17 +2327,30 @@ describe("Telegram memory retrieval statement bounds", () => {
     );
   });
 
-  it("keeps ready memory when a 900 ms base lookup remains inside its own deadline", async () => {
+  it("starts literal history before a blocked base lookup can consume the memory deadline", async () => {
     const owner = await seedServicePrincipal("slow-base-literal");
     await seedProductionShapedLatencyFixture(owner.principalId);
     const stats = newD1Stats();
     const logs: TelegramMemoryRetrievalLogCode[] = [];
-    const contexts = await new TelegramMemoryRetriever({
-      database: countingDatabase(env.DB, stats, () => 25),
+    const steps: string[] = [];
+    let releaseBase = (): void => undefined;
+    const baseGate = new Promise<void>((resolve) => { releaseBase = resolve; });
+    let markMemoryStarted = (): void => undefined;
+    const memoryStarted = new Promise<void>((resolve) => { markMemoryStarted = resolve; });
+    const retrieval = new TelegramMemoryRetriever({
+      database: countingDatabase(env.DB, stats, () => {
+        if (!steps.includes("memory-started")) {
+          steps.push("memory-started");
+          markMemoryStarted();
+        }
+        return 0;
+      }),
       archive: env.ARCHIVE,
       baseContext: {
         async retrieve() {
-          await new Promise<void>((resolve) => setTimeout(resolve, 900));
+          steps.push("base-started");
+          await baseGate;
+          steps.push("base-released");
           return Object.freeze([]);
         },
       },
@@ -2349,6 +2362,10 @@ describe("Telegram memory retrieval statement bounds", () => {
       query: "What is my favorite school subject?",
       maxTokens: 32_000,
     });
+    await memoryStarted;
+    expect(steps).toEqual(["base-started", "memory-started"]);
+    releaseBase();
+    const contexts = await retrieval;
 
     expect(logs).not.toContain("telegram_memory_retrieval_memory_timeout");
     expect(contexts.some((context) => context.text.includes("My favorite subject is math."))).toBe(true);

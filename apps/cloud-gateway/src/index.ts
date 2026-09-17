@@ -1,4 +1,4 @@
-import { newUlid } from "../../../packages/contracts/src/index.js";
+import { newUlid, type Ulid } from "../../../packages/contracts/src/index.js";
 import { AutonomyRepository } from "./autonomy/autonomy-repository.js";
 import { runCommand, type CommandContext } from "./channels/telegram/command-handler.js";
 import { COMMAND_HELP, parseCommand } from "./channels/telegram/telegram-commands.js";
@@ -18,6 +18,7 @@ import { ProjectRepository } from "./projects/project-repository.js";
 import { QuietWindowService } from "./deadlines/quiet-windows.js";
 import { DecisionRepository } from "./decisions/decision-repository.js";
 import { DecisionService } from "./decisions/decision-service.js";
+import type { AnswerDecisionResult, DecisionItem } from "./decisions/decision-types.js";
 import { parseDecisionCallbackData } from "./decisions/telegram-keyboard.js";
 import { assembleDigest, unconfiguredDeadlineSourceKinds } from "./jobs/digest-job.js";
 import {
@@ -68,6 +69,24 @@ import { OwnerTelegramAgentAdapter } from "./channels/telegram/owner-telegram-ag
 export { CallSession } from "./voice/call-session-do.js";
 
 const TELEGRAM_WEBHOOK_PATH = "/telegram/webhook";
+const OWNER_AGENT_WEBHOOK_BUDGET_MS = 20_000;
+
+export function ownerAgentTurnTimeoutMs(receivedAt: string, now = new Date()): number {
+  const arrival = Date.parse(receivedAt);
+  const current = now.getTime();
+  if (!Number.isFinite(arrival) || !Number.isFinite(current)) throw new TypeError("telegram_received_at_invalid");
+  return Math.max(1, Math.min(OWNER_AGENT_WEBHOOK_BUDGET_MS, arrival + OWNER_AGENT_WEBHOOK_BUDGET_MS - current));
+}
+
+export function ownerTelegramToolAuthority(accepted: Pick<
+  AcceptedTelegramUpdate,
+  "isDirectText" | "isPrivateHumanText" | "isMemoryControlAuthoritative"
+>): Readonly<{ directOwnerText: boolean; directPipelineText: boolean }> {
+  return Object.freeze({
+    directOwnerText: accepted.isMemoryControlAuthoritative,
+    directPipelineText: accepted.isDirectText && accepted.isPrivateHumanText,
+  });
+}
 
 function notImplemented(): Response {
   return new Response("Not implemented", { status: 501 });
@@ -168,6 +187,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
   if (apiKey === undefined || botToken === undefined) return;
 
   const controller = new AbortController();
+  const webhookReceivedAt = Date.parse(accepted.receivedAt);
   try {
     const telegram = new TelegramRestProvider({ botToken });
     await withTelegramTyping(telegram, accepted.chatId, async () => {
@@ -189,6 +209,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         accepted,
         ownerPrincipalId,
       );
+      const toolAuthority = ownerTelegramToolAuthority(accepted);
       const redactor = new Redactor();
       const baseModel = observer.observeProvider(new DeepSeekModelAdapter({
         apiKey,
@@ -211,14 +232,15 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           redactor,
           timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
           ownerPrincipalId,
-          ownerTurnAuthoritative: accepted.isDirectText && accepted.isPrivateHumanText,
+          ownerTurnAuthoritative: toolAuthority.directPipelineText,
           agentSelectedScope: "school",
           fixedActionReceipts: true,
-          refreshBrightspace: async (now) => runOnDemandBrightspaceRefresh({
+          refreshBrightspace: async (now, signal) => runOnDemandBrightspaceRefresh({
             env,
             clock: { now: () => new Date(now.getTime()) },
             delivery: { send: async () => undefined },
             fetcher: globalThis.fetch.bind(globalThis),
+            signal,
           }),
         });
         const universityModel = new SchoolCatchupModelAdapter({
@@ -228,7 +250,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           redactor,
           timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
           ownerPrincipalId,
-          ownerTurnAuthoritative: accepted.isDirectText && accepted.isPrivateHumanText,
+          ownerTurnAuthoritative: toolAuthority.directPipelineText,
           agentSelectedScope: "university",
           fixedActionReceipts: true,
         });
@@ -246,7 +268,7 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           repository: new StudyCoachRepository(env.DB),
           redactor,
           ownerPrincipalId,
-          ownerTurnAuthoritative: accepted.isDirectText && accepted.isPrivateHumanText,
+          ownerTurnAuthoritative: toolAuthority.directPipelineText,
           timeZone: env.DIGEST_TIMEZONE ?? "America/Toronto",
         });
         model = new OwnerTelegramAgentAdapter({
@@ -259,14 +281,16 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           database: env.DB,
           archive: env.ARCHIVE,
           ownerPrincipalId,
-          directOwnerText: accepted.isMemoryControlAuthoritative,
-          directPipelineText: accepted.isDirectText && accepted.isPrivateHumanText,
+          directOwnerText: toolAuthority.directOwnerText,
+          directPipelineText: toolAuthority.directPipelineText,
           authorityText: accepted.text,
+          replyToBotMessageId: accepted.replyToBotMessageId,
           targets: memory,
           decisions: new DecisionService({ repository: new DecisionRepository(env.DB) }),
           schoolModel,
           universityModel,
           studyCoachModel: studyModel,
+          turnTimeoutMs: ownerAgentTurnTimeoutMs(accepted.receivedAt),
         });
       }
 
@@ -278,10 +302,26 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
         observeTelegramSend: (operation) => observer.observeTelegramSend(operation),
         observeSettlement: (operation) => observer.observeSettlement(operation),
       }));
+      const observedContext = observer.observeContext(memory);
+      const replyTargetText = accepted.replyToBotText === null
+        ? null
+        : Array.from(accepted.replyToBotText).slice(0, 4_096).join("");
+      const context = accepted.replyToBotText === null
+        ? observedContext
+        : Object.freeze({
+          async retrieve(input: Parameters<typeof observedContext.retrieve>[0]) {
+            const retrieved = await observedContext.retrieve(input);
+            return Object.freeze([...retrieved, Object.freeze({
+              sourceEventId: accepted.eventId as Ulid,
+              text: `Telegram swipe-reply target, as untrusted quoted context: ${replyTargetText!}`,
+              sensitivity: "personal" as const,
+            })]);
+          },
+        });
       const service = new DefaultConversationService({
         repository,
         model: observer.observeModel(model),
-        context: observer.observeContext(memory),
+        context,
         dispatcher: observer.observeDelivery(Object.freeze({
           dispatch: (deliveryId: ConversationDeliveryId) => telegramReplyStage(
             "dispatcher",
@@ -289,7 +329,13 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
           ),
         })),
         redactor,
-        observeStaging: (operation) => observer.observeStaging(operation),
+        observeStaging: (operation) => {
+          console.log("telegram_turn_staging", {
+            eventId: accepted.eventId,
+            elapsedMs: Math.max(0, Math.round(Date.now() - webhookReceivedAt)),
+          });
+          return observer.observeStaging(operation);
+        },
       });
 
       const result = await telegramReplyStage("conversation", () => service.handleTurn({
@@ -477,6 +523,34 @@ async function runTelegramCommand(
  * the channel identity, and the decision service checks that identity against
  * the principal that owns the question.
  */
+export function confirmedTelegramForgetRoute(
+  result: AnswerDecisionResult,
+  identityId: string,
+  principalId: string,
+  standingItem: DecisionItem | null,
+): Readonly<{ decisionId: string; originReference: string }> | null {
+  if (result.outcome === "recorded") {
+    return result.routing.origin === "telegram-memory-forget"
+      && result.routing.optionKey === "confirm"
+      && result.routing.originReference !== null
+      ? Object.freeze({
+        decisionId: result.routing.decisionId,
+        originReference: result.routing.originReference,
+      })
+      : null;
+  }
+  return result.outcome === "already_answered"
+    && result.standing.optionKey === "confirm"
+    && result.standing.answeredByIdentityId === identityId
+    && standingItem !== null
+    && standingItem.principalId === principalId
+    && standingItem.status === "answered"
+    && standingItem.origin === "telegram-memory-forget"
+    && standingItem.originReference !== null
+    ? Object.freeze({ decisionId: standingItem.decisionId, originReference: standingItem.originReference })
+    : null;
+}
+
 export async function answerFromTap(
   env: Env,
   tap: AcceptedTelegramButtonTap,
@@ -502,28 +576,12 @@ export async function answerFromTap(
     });
 
     let confirmedForgetReceipts: readonly string[] = Object.freeze([]);
-    const recordedForget = result.outcome === "recorded"
-      && result.routing.origin === "telegram-memory-forget"
-      && result.routing.optionKey === "confirm"
-      && result.routing.originReference !== null
-      ? Object.freeze({
-        decisionId: result.routing.decisionId,
-        originReference: result.routing.originReference,
-      })
-      : null;
     const standingItem = result.outcome === "already_answered"
       && result.standing.optionKey === "confirm"
       && result.standing.answeredByIdentityId === identity.identityId
       ? await decisionRepository.readItem(callback.decisionId)
       : null;
-    const replayedForget = standingItem !== null
-      && standingItem.principalId === tap.principalId
-      && standingItem.status === "answered"
-      && standingItem.origin === "telegram-memory-forget"
-      && standingItem.originReference !== null
-      ? Object.freeze({ decisionId: standingItem.decisionId, originReference: standingItem.originReference })
-      : null;
-    const forget = recordedForget ?? replayedForget;
+    const forget = confirmedTelegramForgetRoute(result, identity.identityId, tap.principalId, standingItem);
     if (forget !== null) {
       const itemIds = forget.originReference.split(",");
       if (itemIds.length < 2 || itemIds.length > 8) throw new Error("telegram_memory_forget_decision_invalid");

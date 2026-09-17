@@ -256,6 +256,31 @@ describe("SchoolCatchupModelAdapter", () => {
     expect(applyOwnerPlan).not.toHaveBeenCalled();
   });
 
+  it("marks an ordinary fallback beginning with Updated as not_saved (R40)", async () => {
+    const model = new SequenceModel(["not json", "Updated deadlines usually show up in D2L within a day."]);
+    const adapter = new SchoolCatchupModelAdapter({
+      model,
+      repository: { readSnapshot: async () => snapshot(), applyOwnerPlan: async () => undefined },
+      redactor: new Redactor(),
+      timeZone: "America/Toronto",
+      now: () => NOW,
+      ownerPrincipalId: "principal:owner",
+      ownerTurnAuthoritative: true,
+      agentSelectedScope: "school",
+      fixedActionReceipts: true,
+    });
+    const tokens: Array<ModelToken & { readonly toolOutcome?: "saved" | "not_saved" }> = [];
+
+    for await (const token of adapter.streamOwnerTool(input({ userText: "english essay due monday i think" }))) {
+      tokens.push(token);
+    }
+
+    expect(tokens).toMatchObject([{
+      text: "Updated deadlines usually show up in D2L within a day.",
+      toolOutcome: "not_saved",
+    }]);
+  });
+
   it("uses the existing conversation model when the school snapshot cannot be read", async () => {
     const original = input({ userText: "Tell me a joke" });
     const model = new SequenceModel(["Ordinary fallback answer"]);
@@ -696,10 +721,11 @@ describe("SchoolCatchupModelAdapter", () => {
       refreshBrightspace,
     });
 
-    await expect(collect(adapter.stream(input({ userText: "Can you check D2L now, please?" })))).resolves.toBe(
+    const refreshInput = input({ userText: "Can you check D2L now, please?" });
+    await expect(collect(adapter.stream(refreshInput))).resolves.toBe(
       "Brightspace refreshed at 2026-09-15T11:30:00.000Z.",
     );
-    expect(refreshBrightspace).toHaveBeenCalledWith(NOW);
+    expect(refreshBrightspace).toHaveBeenCalledWith(NOW, refreshInput.signal);
     expect(readSnapshot).not.toHaveBeenCalled();
     expect(model.requests).toEqual([]);
 

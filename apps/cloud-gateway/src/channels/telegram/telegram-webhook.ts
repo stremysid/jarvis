@@ -99,6 +99,8 @@ export interface AcceptedTelegramUpdate {
   readonly isDirectText: boolean;
   readonly isPrivateHumanText: boolean;
   readonly isMemoryControlAuthoritative: boolean;
+  readonly replyToBotMessageId: number | null;
+  readonly replyToBotText: string | null;
 }
 
 export interface AcceptedTelegramButtonTap {
@@ -359,6 +361,8 @@ export async function handleTelegramWebhook(
       isDirectText: message.isDirectText,
       isPrivateHumanText: message.isPrivateHumanText,
       isMemoryControlAuthoritative: message.isMemoryControlAuthoritative,
+      replyToBotMessageId: message.replyToBotMessageId,
+      replyToBotText: message.replyToBotText,
     });
   }
 

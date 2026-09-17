@@ -24,6 +24,7 @@ describe("classifying a Telegram update", () => {
         updateId: 71, telegramUserId: "12345", chatId: "12345", messageId: 5,
         text: "hello", isDirectText: true, isPrivateHumanText: true,
         isMemoryControlAuthoritative: true,
+        replyToBotMessageId: null, replyToBotText: null,
       },
     });
   });

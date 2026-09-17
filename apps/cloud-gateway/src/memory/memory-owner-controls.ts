@@ -55,7 +55,7 @@ export interface RememberMemoryInput {
   readonly kind: MemoryKind;
   readonly sensitivity: MemorySensitivity;
   readonly sourceExcerpt?: string;
-  readonly basis?: "stated" | "confirmed";
+  readonly basis?: "stated" | "confirmed" | "inferred";
   readonly normalizedFromSource?: boolean;
 }
 
@@ -289,8 +289,13 @@ function rememberRemainder(ownerText: string): string {
 
 function normalizeRememberComparison(value: string): string {
   return value
+    .normalize("NFC")
     .replace(APOSTROPHE_LOOKALIKES, "'")
-    .replace(ZERO_WIDTH_CHARACTERS, "");
+    .replace(ZERO_WIDTH_CHARACTERS, "")
+    .toLocaleLowerCase("en-CA")
+    .replace(/[^\p{L}\p{N}']+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
 }
 
 function isAuthorizedRememberText(
@@ -298,15 +303,16 @@ function isAuthorizedRememberText(
   excerpt: string,
   ownerText: string,
   normalizedFromSource: boolean,
+  modelInferred: boolean,
 ): boolean {
   return excerpt.length > 0
     && text === text.trim()
     && ownerText.includes(excerpt)
-    && (normalizedFromSource
+    && (modelInferred || normalizedFromSource
       || normalizeRememberComparison(text) === normalizeRememberComparison(excerpt));
 }
 
-function rememberPayload(value: JsonValue): Readonly<{
+type DecodedRememberPayload = Readonly<{
   transitionId: Ulid;
   itemId: Ulid;
   versionId: Ulid;
@@ -314,13 +320,16 @@ function rememberPayload(value: JsonValue): Readonly<{
   placementId: Ulid;
   placementEventId: Ulid;
   topicId: Ulid;
-}> {
+}>;
+
+function rememberPayload(value: JsonValue): DecodedRememberPayload {
   const payload = record(value);
   exactKeys(payload, [
     "operation", "targetId", "itemId", "versionId", "lifecycleState", "sourceId",
     "placementId", "placementEventId", "topicId",
   ]);
-  if (payload.operation !== "item.transition" || payload.lifecycleState !== "active") refuse();
+  if (payload.operation !== "item.transition"
+    || payload.lifecycleState !== "active" && payload.lifecycleState !== "proposed") refuse();
   const transitionId = inputUlid(payload.targetId);
   return Object.freeze({
     transitionId,
@@ -453,7 +462,9 @@ export class MemoryOwnerControlsService {
       const sensitivity = input.sensitivity;
       const basis = input.basis ?? "stated";
       const normalizedFromSource = input.normalizedFromSource ?? false;
-      if (basis !== "stated" && basis !== "confirmed" || typeof normalizedFromSource !== "boolean") refuse();
+      const modelInferred = basis === "inferred";
+      if (basis !== "stated" && basis !== "confirmed" && basis !== "inferred"
+        || typeof normalizedFromSource !== "boolean" || modelInferred && normalizedFromSource) refuse();
       const requestedExcerpt = input.sourceExcerpt === undefined
         ? null
         : this.memory.validateItemText(input.sourceExcerpt);
@@ -482,7 +493,9 @@ export class MemoryOwnerControlsService {
         );
         sourceExcerpt = requestedExcerpt
           ?? this.memory.validateItemText(rememberRemainder(acceptedTurn.text));
-        if (!isAuthorizedRememberText(text, sourceExcerpt, acceptedTurn.text, normalizedFromSource)) refuse();
+        if (!isAuthorizedRememberText(
+          text, sourceExcerpt, acceptedTurn.text, normalizedFromSource, modelInferred,
+        )) refuse();
       } else {
         acceptedTurn = Object.freeze({
           text: await this.memory.validateOwnerTurn(ownerTurn, "remember"),
@@ -490,33 +503,48 @@ export class MemoryOwnerControlsService {
         });
         sourceExcerpt = requestedExcerpt
           ?? this.memory.validateItemText(rememberRemainder(acceptedTurn.text));
-        if (!isAuthorizedRememberText(text, sourceExcerpt, acceptedTurn.text, normalizedFromSource)) refuse();
-        const duplicate = await this.memory.findActiveItemByExactText(
-          ownerTurn.principalId,
-          text,
-          kind,
-          sensitivity,
-        );
+        if (!isAuthorizedRememberText(
+          text, sourceExcerpt, acceptedTurn.text, normalizedFromSource, modelInferred,
+        )) refuse();
+        const duplicate = modelInferred
+          ? null
+          : await this.memory.findActiveItemByNormalizedText(ownerTurn.principalId, text);
         if (duplicate !== null) {
+          const item = await this.memory.appendSourceToActiveItem({
+            principalId: ownerTurn.principalId,
+            itemId: duplicate.itemId,
+            source: {
+              sourceId: this.nextId(),
+              eventId: ownerTurn.eventId,
+              eventSequence: ownerTurn.eventSequence,
+              sourceLocation: "live",
+              r2SegmentId: null,
+              excerpt: sourceExcerpt,
+              excerptHash: await sha256Hex(sourceExcerpt),
+              channel: ownerTurn.channel,
+              occurredAt: ownerTurn.occurredAt,
+            },
+          });
           return Object.freeze({
-            item: duplicate,
-            receipt: "That memory was already active, so I did not add a duplicate.",
+            item,
+            receipt: "That memory was already active, so I did not add a duplicate; I added Sid's new wording as evidence.",
             replayed: true,
           });
+        } else {
+          const topics = await this.memory.bootstrapTopics(ownerTurn.principalId);
+          const transitionId = this.nextId();
+          command = await this.appendCommand(ownerTurn, key, requestHash, {
+            operation: "item.transition",
+            targetId: transitionId,
+            itemId: this.nextId(),
+            versionId: this.nextId(),
+            lifecycleState: modelInferred ? "proposed" : "active",
+            sourceId: this.nextId(),
+            placementId: this.nextId(),
+            placementEventId: this.nextId(),
+            topicId: topics.inbox.topicId,
+          });
         }
-        const topics = await this.memory.bootstrapTopics(ownerTurn.principalId);
-        const transitionId = this.nextId();
-        command = await this.appendCommand(ownerTurn, key, requestHash, {
-          operation: "item.transition",
-          targetId: transitionId,
-          itemId: this.nextId(),
-          versionId: this.nextId(),
-          lifecycleState: "active",
-          sourceId: this.nextId(),
-          placementId: this.nextId(),
-          placementEventId: this.nextId(),
-          topicId: topics.inbox.topicId,
-        });
       }
       const payload = decodeStoredCommand(command.envelope.payload, rememberPayload);
       const commitInput = Object.freeze<CommitInitialMemoryInput>({
@@ -530,13 +558,13 @@ export class MemoryOwnerControlsService {
           text,
           textHash: await sha256Hex(text),
           basis,
-          origin: "authenticated_first_person",
-          uncertain: false,
+          origin: modelInferred ? "model" : "authenticated_first_person",
+          uncertain: modelInferred,
           sensitivity,
           validFrom: null,
           validTo: null,
           extractorVersion: MEMORY_CONTROL_POLICY_VERSION,
-          extractorModelId: null,
+          extractorModelId: modelInferred ? "deepseek:owner-telegram-agent" : null,
         },
         sources: [{
           sourceId: payload.sourceId,
@@ -551,12 +579,14 @@ export class MemoryOwnerControlsService {
         }],
         transition: {
           transitionId: payload.transitionId,
-          lifecycleState: "active",
-          reason: basis === "confirmed"
+          lifecycleState: modelInferred ? "proposed" : "active",
+          reason: modelInferred
+            ? "model inference kept uncertain because its wording exceeded owner evidence"
+            : basis === "confirmed"
             ? "owner confirmed immediate memory"
             : "owner requested immediate memory",
           policyVersion: MEMORY_CONTROL_POLICY_VERSION,
-          ownerAuthorizingEventId: command.envelope.eventId,
+          ...(modelInferred ? {} : { ownerAuthorizingEventId: command.envelope.eventId }),
         },
         placement: {
           placementId: payload.placementId,
@@ -580,7 +610,9 @@ export class MemoryOwnerControlsService {
         : visibleItem;
       return Object.freeze({
         item: returnedItem,
-        receipt: replayed && !transitionIsCurrent
+        receipt: modelInferred && transitionIsCurrent
+          ? "Saved 1 uncertain model-inferred memory for confirmation; it is not active recall evidence."
+          : replayed && !transitionIsCurrent
           ? result.item.lifecycle.state === "forgotten"
             ? "That remember request was already handled; the memory is currently hidden."
             : "That remember request was already handled; the memory has changed since then."

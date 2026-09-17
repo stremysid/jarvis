@@ -150,6 +150,25 @@ describe("DeepSeekAgentProvider", () => {
     warning.mockRestore();
   });
 
+  it("validates provider content that accompanies tool calls (R37)", async () => {
+    const provider = new DeepSeekAgentProvider({
+      apiKey: API_KEY,
+      fetchImplementation: async () => agentResponse({
+        finish_reason: "tool_calls",
+        message: {
+          content: { text: "not provider prose" },
+          tool_calls: [{
+            id: "call_bad_content",
+            type: "function",
+            function: { name: "memory_remember", arguments: "{}" },
+          }],
+        },
+      }),
+    });
+
+    await expect(provider.completeAgent(agentInput())).rejects.toThrow("agent_response_invalid");
+  });
+
   it("refuses redirected and malformed tool responses", async () => {
     const redirected = new DeepSeekAgentProvider({
       apiKey: API_KEY,

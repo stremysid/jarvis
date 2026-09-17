@@ -326,6 +326,30 @@ describe("StudyCoachModelAdapter", () => {
     expect(practice.inputs).toHaveLength(0);
   });
 
+  it("reports a failed study preference write as not_saved (R39)", async () => {
+    const item = await seed("cadence-write-failure");
+    const turnId = await addTurn(item.principalId, "stop checking in on weekends", 1_000);
+    const update = vi.spyOn(StudyCoachRepository.prototype, "updatePreference")
+      .mockRejectedValueOnce(new Error("write failed"));
+    const tokens: Array<ModelToken & { readonly toolOutcome?: "saved" | "not_saved" }> = [];
+    try {
+      for await (const token of adapter(
+        item.principalId,
+        new FakeModel([]),
+        new FakeModel([]),
+      ).streamOwnerTool(input(item.principalId, turnId, "stop checking in on weekends"))) {
+        tokens.push(token);
+      }
+    } finally {
+      update.mockRestore();
+    }
+
+    expect(tokens).toMatchObject([{
+      text: "I couldn't update the study-coach check-in settings.",
+      toolOutcome: "not_saved",
+    }]);
+  });
+
   it("records a direct observation as one tentative evidence point", async () => {
     const item = await seed("observation", "Acids and bases");
     const text = "I got mole ratios wrong in Chemistry";

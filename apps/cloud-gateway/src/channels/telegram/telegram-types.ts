@@ -32,6 +32,10 @@ export interface AcceptedTelegramText {
   readonly isPrivateHumanText: boolean;
   /** Narrower authority used only by plain-speech memory controls. */
   readonly isMemoryControlAuthoritative: boolean;
+  /** Present only for Telegram's native reply pointer to a bot-authored message. */
+  readonly replyToBotMessageId: number | null;
+  /** Ephemeral quoted bot text supplied to the model as untrusted context. */
+  readonly replyToBotText: string | null;
 }
 
 /**
@@ -123,7 +127,11 @@ function wellFormedText(value: unknown): string | null {
   return normalized;
 }
 
-function containsQuotedOrPastedControlContent(message: Record<string, unknown>, text: string): boolean {
+function containsQuotedOrPastedControlContent(
+  message: Record<string, unknown>,
+  text: string,
+  validBotReply: boolean,
+): boolean {
   if (QUOTED_TEXT_KEYS.some((key) => key in message) || /[\r\n\v\f\u0085\u2028\u2029]/u.test(text)) return true;
   if ("reply_to_message" in message) {
     const replied = message.reply_to_message;
@@ -131,7 +139,7 @@ function containsQuotedOrPastedControlContent(message: Record<string, unknown>, 
     // In a private bot chat, a Telegram reply to the bot is the UI's durable
     // pointer to Jarvis's question. The agent still verifies the exact prior
     // delivered question before a confirmed memory can be stored.
-    if (!isPlainObject(from) || from.is_bot !== true) return true;
+    if (!validBotReply || !isPlainObject(from) || from.is_bot !== true) return true;
   }
   if (!("entities" in message)) return false;
   const entities = message.entities;
@@ -258,8 +266,24 @@ export function classifyTelegramUpdate(raw: unknown): TelegramClassification {
   const privateHumanText = (chat.type === "private"
     || chat.type === undefined && resolvedChatId === telegramUserId)
     && from.is_bot !== true;
+  let replyToBotMessageId: number | null = null;
+  let replyToBotText: string | null = null;
+  let validBotReply = !("reply_to_message" in message);
+  if ("reply_to_message" in message && isPlainObject(message.reply_to_message)) {
+    const replied = message.reply_to_message;
+    const repliedFrom = replied.from;
+    const repliedMessageId = positiveInteger(replied.message_id);
+    const repliedText = "text" in replied ? wellFormedText(replied.text) : null;
+    validBotReply = isPlainObject(repliedFrom) && repliedFrom.is_bot === true && repliedMessageId !== null;
+    if (validBotReply) {
+      replyToBotMessageId = repliedMessageId;
+      replyToBotText = repliedText !== null && encoder.encode(repliedText).byteLength <= MAX_TEXT_BYTES
+        ? repliedText
+        : null;
+    }
+  }
   const isDirectOwnerText = privateHumanText && isDirectText
-    && !containsQuotedOrPastedControlContent(message, text);
+    && !containsQuotedOrPastedControlContent(message, text, validBotReply);
   return {
     kind: "text",
     value: Object.freeze({
@@ -271,6 +295,8 @@ export function classifyTelegramUpdate(raw: unknown): TelegramClassification {
       isDirectText,
       isPrivateHumanText: privateHumanText,
       isMemoryControlAuthoritative: isDirectOwnerText,
+      replyToBotMessageId,
+      replyToBotText,
     }),
   };
 }

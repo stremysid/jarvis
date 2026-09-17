@@ -48,7 +48,7 @@ const SECRET_ADVISORY = new RegExp(
 const THIRD_PARTY = String.raw`\b(?:m(?:s|r)\.?\s+\p{L}[\p{L}'’.-]*|dr\.?\s+\p{L}[\p{L}'’.-]*|(?:your\s+)?(?:teacher|referee|counsellor|guidance(?:\s+office)?|school|university)|ouac(?![-\s]+style))\b`;
 const FIRST_PERSON_AGENT = String.raw`(?:(?:i(?:['’](?:ve|m))?|we(?:['’](?:ve|re))?)|jarvis)`;
 const FIRST_PERSON_ACTION_CLAIM = new RegExp(
-  String.raw`\b${FIRST_PERSON_AGENT}\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?(?<verb>sent\s+in|sending\s+in|turned\s+in|turning\s+in|signed\s+up|signing\s+up|handed\s+in|put\s+in|reached\s+out|reaching\s+out|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked)\b`,
+  String.raw`\b${FIRST_PERSON_AGENT}\s+(?:have\s+|has\s+)?(?:(?:already|just|now|also|successfully)\s+|(?:went|gone)\s+ahead\s+and\s+)?(?<verb>sent\s+in|sending\s+in|turned\s+in|turning\s+in|signed\s+up|signing\s+up|handed\s+in|put\s+in|reached\s+out|reaching\s+out|paid|paying|bought|buying|purchased|purchasing|submitted|submitting|uploaded|uploading|registered|registering|sent|sending|forwarded|forwarding|shared|notified|notifying|told|texted|asked|requested|emailed|emailing|messaged|messaging|called|contacted|contacting|applied|booked|added|saved|scheduled)\b`,
   "giu",
 );
 const FALSE_EXTERNAL_COMPLETIONS = Object.freeze([
@@ -127,7 +127,7 @@ interface SchoolCatchupModelDependencies {
   readonly timeZone: string;
   readonly now?: () => Date;
   readonly ownerPrincipalId?: string;
-  readonly refreshBrightspace?: (now: Date) => Promise<string>;
+  readonly refreshBrightspace?: (now: Date, signal: AbortSignal) => Promise<string>;
   readonly ownerTurnAuthoritative?: boolean;
   /** Narrows an already selected owner-agent tool to its own validated store. */
   readonly agentSelectedScope?: "school" | "university";
@@ -377,13 +377,29 @@ export function guardSchoolReply(
   return guardReplyClaims(reply);
 }
 
-function sentenceAround(value: string, start: number, end: number): { readonly text: string; readonly start: number } {
+function sentenceAround(value: string, start: number, end: number): {
+  readonly text: string;
+  readonly start: number;
+  readonly end: number;
+} {
   const before = Math.max(value.lastIndexOf(".", start - 1), value.lastIndexOf("!", start - 1),
     value.lastIndexOf("?", start - 1), value.lastIndexOf("\n", start - 1));
-  const endings = [value.indexOf(".", end), value.indexOf("!", end), value.indexOf("?", end), value.indexOf("\n", end)]
-    .filter((index) => index >= 0);
-  const after = endings.length === 0 ? value.length : Math.min(...endings);
-  return Object.freeze({ text: value.slice(before + 1, after + 1), start: before + 1 });
+  let cursor = end;
+  let after = value.length;
+  while (cursor < value.length) {
+    const endings = [value.indexOf(".", cursor), value.indexOf("!", cursor), value.indexOf("?", cursor), value.indexOf("\n", cursor)]
+      .filter((index) => index >= 0);
+    if (endings.length === 0) break;
+    const candidate = Math.min(...endings);
+    const prefix = value.slice(0, candidate + 1);
+    if (value[candidate] === "." && /\b(?:mr|mrs|ms|dr|prof)\.$/iu.test(prefix)) {
+      cursor = candidate + 1;
+      continue;
+    }
+    after = candidate;
+    break;
+  }
+  return Object.freeze({ text: value.slice(before + 1, after + 1), start: before + 1, end: after + 1 });
 }
 
 function hasPassiveExternalCompletion(reply: string): boolean {
@@ -421,37 +437,122 @@ function allowedFirstPersonActionClaim(verb: string, tail: string): boolean {
       .test(tail);
   }
   if (action === "booked") return /^\s+(?:out\s+)?(?:no\b|nothing\b)/iu.test(tail);
-  if (action === "put in") {
-    return /^\s+(?:(?:a|the|one|two|\d+)\s+)?(?:note|placeholder\s+due\s+date|reminders?|tracker)\b/iu.test(tail);
-  }
   return false;
 }
 
-function hasUnsafeFirstPersonActionClaim(reply: string): boolean {
+function isReceiptedInternalClaim(
+  sentence: string,
+  verb: string,
+  receipted: ReadonlySet<string>,
+): boolean {
+  const action = verb.toLocaleLowerCase("en-CA").replace(/\s+/gu, " ");
+  return /^(?:put in|added|saved|scheduled)$/u.test(action)
+    && [...receipted].some((claim) => sentence.includes(claim));
+}
+
+function unsafeFirstPersonRanges(
+  reply: string,
+  scan: string,
+  receipted: ReadonlySet<string>,
+): readonly Readonly<{ start: number; end: number }>[] {
+  const ranges: Array<Readonly<{ start: number; end: number }>> = [];
   FIRST_PERSON_ACTION_CLAIM.lastIndex = 0;
-  for (const match of reply.matchAll(FIRST_PERSON_ACTION_CLAIM)) {
+  for (const match of scan.matchAll(FIRST_PERSON_ACTION_CLAIM)) {
     const start = match.index;
     const end = start + match[0].length;
     const sentence = sentenceAround(reply, start, end);
     const tail = sentence.text.slice(end - sentence.start);
-    if (!allowedFirstPersonActionClaim(match.groups?.verb ?? "", tail)) return true;
+    const verb = match.groups?.verb ?? "";
+    if (!allowedFirstPersonActionClaim(verb, tail)
+      && !isReceiptedInternalClaim(sentence.text, verb, receipted)) {
+      ranges.push(Object.freeze({ start: sentence.start, end: sentence.end }));
+    }
   }
-  return false;
+  return Object.freeze(ranges);
 }
 
-export function guardReplyClaims(reply: string): string {
-  const withoutAdvisories = reply.replace(SECRET_ADVISORY, "");
-  if (SECRET_REQUESTS.some((pattern) => pattern.test(withoutAdvisories))) {
-    return SECRET_REPLACEMENT;
+export interface ReplyClaimGuardOptions {
+  readonly receiptedInternalSentences?: readonly string[];
+}
+
+function blankRange(value: string, start: number, end: number): string {
+  return value.slice(0, start)
+    + value.slice(start, end).replace(/[^\r\n]/gu, " ")
+    + value.slice(end);
+}
+
+function exemptDraftAndReportSpans(reply: string): string {
+  let scan = reply;
+  const markers = /\b(?:draft(?:\s+(?:reply|message))?|sample(?:\s+message)?|opening\s+line|practice\s+question)\b[^:\n]{0,96}:/giu;
+  for (const match of reply.matchAll(markers)) {
+    const afterMarker = match.index + match[0].length;
+    const searchFrom = reply.startsWith("\n\n", afterMarker) ? afterMarker + 2 : afterMarker;
+    const paragraphEnd = reply.indexOf("\n\n", searchFrom);
+    scan = blankRange(scan, match.index + match[0].length, paragraphEnd < 0 ? reply.length : paragraphEnd);
   }
-  if (FALSE_EXTERNAL_COMPLETIONS.some((pattern) => pattern.test(reply))
-    || hasUnsafeFirstPersonActionClaim(reply) || hasPassiveExternalCompletion(reply)) {
-    return EXTERNAL_ACTION_REPLACEMENT;
+  const report = /\b(?:great\s+job|nice|sounds\s+like)\b.{0,160}\b(?:your\s+(?:application|aif|supplement|essay|form)\s+(?:is|was)\s+(?:already\s+)?submitted|since\s+you\s+(?:already\s+)?submitted|you\s+called)\b/giu;
+  for (const match of reply.matchAll(report)) {
+    const sentence = sentenceAround(reply, match.index, match.index + match[0].length);
+    scan = blankRange(scan, sentence.start, sentence.end);
   }
-  if (isFalseBrightspaceCheckCompletion(reply)) {
-    return BRIGHTSPACE_CHECK_REPLACEMENT;
+  return scan;
+}
+
+function matches(pattern: RegExp, value: string): readonly RegExpExecArray[] {
+  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+  return Object.freeze([...value.matchAll(new RegExp(pattern.source, flags))]);
+}
+
+function offendingSentenceRanges(value: string, patterns: readonly RegExp[]): readonly Readonly<{
+  start: number;
+  end: number;
+}>[] {
+  const ranges: Array<Readonly<{ start: number; end: number }>> = [];
+  for (const pattern of patterns) {
+    for (const match of matches(pattern, value)) {
+      const sentence = sentenceAround(value, match.index, match.index + match[0].length);
+      ranges.push(Object.freeze({ start: sentence.start, end: sentence.end }));
+    }
   }
-  return reply;
+  return Object.freeze(ranges);
+}
+
+function withoutSentenceRanges(reply: string, ranges: readonly Readonly<{ start: number; end: number }>[]): string {
+  const merged: Array<{ start: number; end: number }> = [];
+  for (const range of [...ranges].sort((left, right) => left.start - right.start || left.end - right.end)) {
+    const previous = merged.at(-1);
+    if (previous !== undefined && range.start <= previous.end) previous.end = Math.max(previous.end, range.end);
+    else merged.push({ start: range.start, end: range.end });
+  }
+  let result = reply;
+  for (const range of merged.reverse()) result = `${result.slice(0, range.start)}${result.slice(range.end)}`;
+  return result.replace(/[ \t]+\n/gu, "\n").replace(/\n{3,}/gu, "\n\n").replace(/[ \t]{2,}/gu, " ").trim();
+}
+
+export function guardReplyClaims(reply: string, options: ReplyClaimGuardOptions = {}): string {
+  const receipted = new Set(options.receiptedInternalSentences ?? []);
+  let scan = exemptDraftAndReportSpans(reply);
+  scan = scan.replace(SECRET_ADVISORY, (value) => " ".repeat(value.length));
+  const secretRanges = offendingSentenceRanges(scan, SECRET_REQUESTS);
+  const externalRanges = [
+    ...offendingSentenceRanges(scan, FALSE_EXTERNAL_COMPLETIONS),
+    ...unsafeFirstPersonRanges(reply, scan, receipted),
+  ];
+  if (hasPassiveExternalCompletion(scan)) {
+    externalRanges.push(...offendingSentenceRanges(scan, [PASSIVE_EXTERNAL_COMPLETION, PASSIVE_EXTERNAL_DELIVERY]));
+  }
+  const brightspaceRanges = isFalseBrightspaceCheckCompletion(scan)
+    ? offendingSentenceRanges(scan, BRIGHTSPACE_CHECK_COMPLETIONS)
+    : [];
+  const all = [...secretRanges, ...externalRanges, ...brightspaceRanges];
+  if (all.length === 0) return reply;
+  const safe = withoutSentenceRanges(reply, all);
+  const replacement = secretRanges.length > 0
+    ? SECRET_REPLACEMENT
+    : externalRanges.length > 0 ? EXTERNAL_ACTION_REPLACEMENT : BRIGHTSPACE_CHECK_REPLACEMENT;
+  if (secretRanges.length === 0 && externalRanges.length > 0
+    && /\bI did not complete the unreceipted action\./u.test(safe)) return safe;
+  return safe.length === 0 ? replacement : `${safe}\n\n${replacement}`;
 }
 
 function boundedUtf8(value: string, maximumBytes: number): string {
@@ -808,14 +909,12 @@ async function* fallbackWithSaveFailure(
 ): AsyncIterable<ModelToken> {
   const ordinaryReply = (await collectJson(model.stream(input))).trim();
   const guardedReply = safeOrdinaryReply(ordinaryReply, redactor);
-  const reply = guardedReply !== ordinaryReply
-    ? guardedReply
-    : PLAN_SAVE_COMPLETIONS.some((pattern) => pattern.test(ordinaryReply))
-      ? scope === "school" ? UNSAVED_FALLBACK_REPLY : UNSAVED_UNIVERSITY_FALLBACK_REPLY
-      : ordinaryReply;
+  const reply = PLAN_SAVE_COMPLETIONS.some((pattern) => pattern.test(ordinaryReply))
+    ? scope === "school" ? UNSAVED_FALLBACK_REPLY : UNSAVED_UNIVERSITY_FALLBACK_REPLY
+    : guardedReply;
   const failureLine = scope === "school" ? SAVE_FAILURE_LINE : UNIVERSITY_SAVE_FAILURE_LINE;
   const text = reply.length === 0 ? failureLine : `${reply}\n\n${failureLine}`;
-  yield Object.freeze({ index: 0, text });
+  yield Object.freeze({ index: 0, text, toolOutcome: "not_saved" as const });
 }
 
 async function* guardedOrdinaryReply(
@@ -827,6 +926,7 @@ async function* guardedOrdinaryReply(
   yield Object.freeze({
     index: 0,
     text: safeOrdinaryReply(reply, redactor),
+    toolOutcome: "not_saved" as const,
   });
 }
 
@@ -837,7 +937,11 @@ async function* guardedOrdinaryReplyWithNotice(
   notice: string,
 ): AsyncIterable<ModelToken> {
   const ordinaryReply = safeOrdinaryReply((await collectJson(model.stream(input))).trim(), redactor);
-  yield Object.freeze({ index: 0, text: ordinaryReply.length === 0 ? notice : `${ordinaryReply}\n\n${notice}` });
+  yield Object.freeze({
+    index: 0,
+    text: ordinaryReply.length === 0 ? notice : `${ordinaryReply}\n\n${notice}`,
+    toolOutcome: "not_saved" as const,
+  });
 }
 
 /** A fixed school receipt, used when a turn's model text must not be shown. */
@@ -879,7 +983,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       return;
     }
     if (isUniversityExecutionRequest(input.userText)) {
-      yield Object.freeze({ index: 0, text: EXECUTION_REQUEST_REFUSAL });
+      yield Object.freeze({ index: 0, text: EXECUTION_REQUEST_REFUSAL, toolOutcome: "not_saved" as const });
       return;
     }
     const now = new Date(this.now().getTime());
@@ -891,13 +995,14 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       try {
         yield Object.freeze({
           index: 0,
-          text: await this.dependencies.refreshBrightspace(now),
+          text: await this.dependencies.refreshBrightspace(now, input.signal),
           toolOutcome: "saved" as const,
         });
       } catch {
         yield Object.freeze({
           index: 0,
           text: "Brightspace refresh failed (brightspace_ingestion_failed). I couldn't read the last-known Brightspace snapshot.",
+          toolOutcome: "not_saved" as const,
         });
       }
       return;
@@ -918,7 +1023,11 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       if (this.dependencies.universityRepository !== undefined && isOfferUpdateReport(input.userText, null)) {
         // Nothing can be saved on this path, so an offer report never gets
         // model text that might describe it as recorded or acted on.
-        yield Object.freeze({ index: 0, text: offerNotSavedLine(input.userText, null, false) });
+        yield Object.freeze({
+          index: 0,
+          text: offerNotSavedLine(input.userText, null, false),
+          toolOutcome: "not_saved" as const,
+        });
         return;
       }
       // A missing migration or a malformed private row must not take down the
@@ -947,7 +1056,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
         );
         return;
       }
-      yield Object.freeze({ index: 0, text: TRACKER_TOO_LARGE_REPLY });
+      yield Object.freeze({ index: 0, text: TRACKER_TOO_LARGE_REPLY, toolOutcome: "not_saved" as const });
       return;
     }
     const structuredInput: ModelAdapterStreamInput = Object.freeze({
@@ -962,7 +1071,7 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       raw = await collectJson(this.dependencies.model.stream(structuredInput));
     } catch (error) {
       if (!(error instanceof RangeError) || error.message !== "school_catchup_model_response_too_large") throw error;
-      yield Object.freeze({ index: 0, text: MODEL_RESPONSE_TOO_LARGE_REPLY });
+      yield Object.freeze({ index: 0, text: MODEL_RESPONSE_TOO_LARGE_REPLY, toolOutcome: "not_saved" as const });
       return;
     }
     let schoolPlan: OwnerCatchupPlan;
@@ -973,7 +1082,11 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       payload = JSON.parse(jsonPayload(raw)) as unknown;
     } catch {
       if (offerReport) {
-        yield Object.freeze({ index: 0, text: offerNotSavedLine(input.userText, universitySnapshot, false) });
+        yield Object.freeze({
+          index: 0,
+          text: offerNotSavedLine(input.userText, universitySnapshot, false),
+          toolOutcome: "not_saved" as const,
+        });
         return;
       }
       yield* guardedOrdinaryReply(this.dependencies.model, input, this.dependencies.redactor);
@@ -1010,7 +1123,11 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
               item.workflowId === proposal.workflowRef && item.kind.startsWith("offer")));
         });
       if (offerReport || proposedOfferUpdate) {
-        yield Object.freeze({ index: 0, text: offerNotSavedLine(input.userText, universitySnapshot, false) });
+        yield Object.freeze({
+          index: 0,
+          text: offerNotSavedLine(input.userText, universitySnapshot, false),
+          toolOutcome: "not_saved" as const,
+        });
         return;
       }
       const scope = response?.universityEngaged === true
@@ -1026,11 +1143,19 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       return;
     }
     if (this.dependencies.agentSelectedScope === "school" && universityPlan?.engaged) {
-      yield Object.freeze({ index: 0, text: "I couldn't validate that as a school update, so I didn't save it." });
+      yield Object.freeze({
+        index: 0,
+        text: "I couldn't validate that as a school update, so I didn't save it.",
+        toolOutcome: "not_saved" as const,
+      });
       return;
     }
     if (this.dependencies.agentSelectedScope === "university" && schoolPlan.engaged) {
-      yield Object.freeze({ index: 0, text: "I couldn't validate that as a university update, so I didn't save it." });
+      yield Object.freeze({
+        index: 0,
+        text: "I couldn't validate that as a university update, so I didn't save it.",
+        toolOutcome: "not_saved" as const,
+      });
       return;
     }
     if (schoolPlan.engaged) {
@@ -1047,7 +1172,11 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       } catch (error) {
         console.warn("school_plan_save_failed", { code: planSaveFailureCode(error) });
         if (offerReport) {
-          yield Object.freeze({ index: 0, text: offerNotSavedLine(input.userText, universitySnapshot, false) });
+          yield Object.freeze({
+            index: 0,
+            text: offerNotSavedLine(input.userText, universitySnapshot, false),
+            toolOutcome: "not_saved" as const,
+          });
           return;
         }
         // Never release the structured reply: it may claim a plan was saved.
@@ -1105,7 +1234,11 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       } catch (error) {
         console.warn("university_plan_save_failed", { code: planSaveFailureCode(error) });
         if (offerReport || offerUpdate) {
-          yield Object.freeze({ index: 0, text: offerNotSavedLine(input.userText, universitySnapshot, false, true) });
+          yield Object.freeze({
+            index: 0,
+            text: offerNotSavedLine(input.userText, universitySnapshot, false, true),
+            toolOutcome: "not_saved" as const,
+          });
           return;
         }
         yield* fallbackWithSaveFailure(this.dependencies.model, input, "university", this.dependencies.redactor);
@@ -1126,9 +1259,17 @@ export class SchoolCatchupModelAdapter implements ModelAdapter {
       }
     }
     if (offerReport) {
-      yield Object.freeze({ index: 0, text: offerNotSavedLine(input.userText, universitySnapshot, false) });
+      yield Object.freeze({
+        index: 0,
+        text: offerNotSavedLine(input.userText, universitySnapshot, false),
+        toolOutcome: "not_saved" as const,
+      });
       return;
     }
-    yield Object.freeze({ index: 0, text: reply });
+    yield Object.freeze({
+      index: 0,
+      text: reply,
+      toolOutcome: schoolPlan.engaged || universityPlan?.engaged ? "saved" as const : "not_saved" as const,
+    });
   }
 }

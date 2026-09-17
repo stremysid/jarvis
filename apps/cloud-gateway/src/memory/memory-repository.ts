@@ -16,6 +16,7 @@ import {
   MEMORY_TOPIC_REDIRECT_LIMIT,
   MemoryRepositoryError,
   type BootstrapMemoryTopicsResult,
+  type AppendActiveMemorySourceInput,
   type AutomaticInboxRefilingResult,
   type AutomaticTopicPathResult,
   type CanonicalMemoryItem,
@@ -44,7 +45,7 @@ import {
   type ResolvedMemoryTopic,
 } from "./memory-types.js";
 
-type MemoryRepositoryWriteOperation = "bootstrap" | "commit" | "forget" | "lift" | "confirm";
+type MemoryRepositoryWriteOperation = "bootstrap" | "commit" | "append_source" | "forget" | "lift" | "confirm";
 
 export interface MemoryRepositoryOptions {
   readonly clock?: () => Date;
@@ -405,6 +406,18 @@ interface ValidatedTopic {
 const ULID = /^[0-7][0-9a-hjkmnp-tv-z]{25}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
 const PROVIDER_MODEL = /^(?:deepseek|anthropic|openai):[^\s]{1,182}$/u;
+const REMEMBER_APOSTROPHES = /[\u02bc\u2018\u2019\u2032\uff07`]/gu;
+const REMEMBER_ZERO_WIDTH = /[\u200b-\u200d\u2060\ufeff]/gu;
+
+function normalizedRememberText(value: string): string {
+  return value.normalize("NFC")
+    .replace(REMEMBER_APOSTROPHES, "'")
+    .replace(REMEMBER_ZERO_WIDTH, "")
+    .toLocaleLowerCase("en-CA")
+    .replace(/[^\p{L}\p{N}']+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
 const utf8 = new TextEncoder();
 const ROOT_BOOTSTRAP_REASON = "bootstrap canonical memory root";
 const INBOX_BOOTSTRAP_REASON = "bootstrap explicit low-confidence inbox";
@@ -1133,35 +1146,101 @@ export class MemoryRepository {
     });
   }
 
-  /** Reuses an exact active owner memory when Telegram retries the same request as a new turn. */
-  async findActiveItemByExactText(
+  /** Reuses a normalized active owner memory when Telegram retries or restates it. */
+  async findActiveItemByNormalizedText(
     principalIdInput: string,
     textInput: string,
-    kindInput: MemoryKind,
-    sensitivityInput: MemorySensitivity,
   ): Promise<CanonicalMemoryItem | null> {
     return this.safely(async () => {
       const principalId = safeInputText(principalIdInput, 256);
       const text = this.validateItemText(textInput);
-      if (!["fact", "preference", "plan", "decision", "relationship"].includes(kindInput)
-        || !["normal", "sensitive"].includes(sensitivityInput)) refuse();
-      const row = await this.database.prepare(`SELECT item.item_id
+      const rows = await this.database.prepare(`SELECT item.item_id, version.text
         FROM memory_items item
         JOIN memory_item_state state
           ON state.principal_id = item.principal_id AND state.item_id = item.item_id
         JOIN memory_item_versions version
           ON version.principal_id = state.principal_id
           AND version.version_id = state.current_version_id
-        WHERE item.principal_id = ?1 AND item.kind = ?2
-          AND state.lifecycle_state = 'active'
-          AND version.text_hash = ?3 AND version.text = ?4
-          AND version.sensitivity = ?5
-        ORDER BY item.created_at, item.item_id
-        LIMIT 1`).bind(principalId, kindInput, await sha256Hex(text), text, sensitivityInput)
-        .first<{ item_id: unknown }>();
-      if (row === null) return null;
-      if (Reflect.ownKeys(row).length !== 1 || typeof row.item_id !== "string" || !ULID.test(row.item_id)) corrupt();
-      return this.readCurrentItemInternal(principalId, row.item_id as Ulid);
+        WHERE item.principal_id = ?1 AND state.lifecycle_state = 'active'
+        ORDER BY item.created_at, item.item_id`).bind(principalId)
+        .all<{ item_id: unknown; text: unknown }>();
+      const comparison = normalizedRememberText(text);
+      for (const row of rows.results) {
+        exactRow(row, new Set(["item_id", "text"]));
+        const itemId = rowUlid(row.item_id);
+        const storedText = safeRowText(row.text, 4096);
+        if (normalizedRememberText(storedText) === comparison) {
+          return this.readCurrentItemInternal(principalId, itemId);
+        }
+      }
+      return null;
+    });
+  }
+
+  async appendSourceToActiveItem(input: AppendActiveMemorySourceInput): Promise<CanonicalMemoryItem> {
+    return this.safely(async () => {
+      const principalId = safeInputText(input.principalId, 256);
+      const itemId = inputUlid(input.itemId);
+      const sourceLocation = inputEnum(input.source.sourceLocation, new Set(["live", "archived"] as const));
+      const r2SegmentId = input.source.r2SegmentId === null ? null : inputHash(input.source.r2SegmentId);
+      if (sourceLocation === "live" && r2SegmentId !== null
+        || sourceLocation === "archived" && r2SegmentId === null) refuse();
+      const source = Object.freeze({
+        sourceId: inputUlid(input.source.sourceId),
+        eventId: inputUlid(input.source.eventId),
+        eventSequence: inputInteger(input.source.eventSequence, 1, Number.MAX_SAFE_INTEGER),
+        sourceLocation,
+        r2SegmentId,
+        excerpt: safeInputText(input.source.excerpt, 8192),
+        excerptHash: inputHash(input.source.excerptHash),
+        channel: inputEnum(input.source.channel, new Set(["telegram", "voice", "system"] as const)),
+        occurredAt: inputTimestamp(input.source.occurredAt),
+      });
+      if (await sha256Hex(source.excerpt) !== source.excerptHash) refuse();
+      await this.requireActivePrincipal(principalId);
+      const item = await this.readCurrentItemInternal(principalId, itemId);
+      if (item.lifecycle.state !== "active") refuse();
+      const replay = item.sources.find((candidate) => candidate.eventId === source.eventId);
+      if (replay !== undefined) {
+        if (replay.excerpt !== source.excerpt || replay.excerptHash !== source.excerptHash
+          || replay.eventSequence !== source.eventSequence || replay.channel !== source.channel) refuse();
+        return item;
+      }
+      if (item.sources.length >= 8) refuse();
+      await this.validateReceipt(principalId, source.eventId, source.eventSequence, source);
+      const createdAt = this.freshNow().toISOString();
+      const statement = this.database.prepare(`INSERT INTO memory_item_sources (
+        source_id, principal_id, item_id, version_id, source_position, event_id,
+        event_sequence, source_location, r2_segment_id, excerpt, excerpt_hash,
+        channel, occurred_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(
+          source.sourceId,
+          principalId,
+          itemId,
+          item.version.versionId,
+          item.sources.length,
+          source.eventId,
+          source.eventSequence,
+          source.sourceLocation,
+          source.r2SegmentId,
+          source.excerpt,
+          source.excerptHash,
+          source.channel,
+          source.occurredAt,
+          createdAt,
+        );
+      const fault = repositoryTestSeams.get(this)?.batchFault("append_source", 1) ?? null;
+      await repositoryTestSeams.get(this)?.beforeBatch("append_source", 1);
+      try {
+        await this.transactions.batch(fault === null ? [statement] : [statement, fault]);
+      } catch (error) {
+        const standing = await this.readCurrentItemInternal(principalId, itemId);
+        if (standing.sources.some((candidate) => candidate.sourceId === source.sourceId
+          && candidate.eventId === source.eventId && candidate.excerptHash === source.excerptHash)) return standing;
+        throw error;
+      }
+      return this.readCurrentItemInternal(principalId, itemId);
     });
   }
 

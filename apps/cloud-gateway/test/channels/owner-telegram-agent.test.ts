@@ -12,8 +12,15 @@ import { D1TelegramIdentityResolver, DefaultOutboxDispatcher } from "../../src/c
 import { DefaultConversationService } from "../../src/conversation/conversation-service.js";
 import { DecisionRepository } from "../../src/decisions/decision-repository.js";
 import { DecisionService } from "../../src/decisions/decision-service.js";
+import type { AnswerDecisionResult, DecisionItem } from "../../src/decisions/decision-types.js";
 import { encodeDecisionCallbackData } from "../../src/decisions/telegram-keyboard.js";
-import { answerFromTap, buildTelegramConversationRepository } from "../../src/index.js";
+import {
+  answerFromTap,
+  buildTelegramConversationRepository,
+  confirmedTelegramForgetRoute,
+  ownerAgentTurnTimeoutMs,
+  ownerTelegramToolAuthority,
+} from "../../src/index.js";
 import type { ModelAdapter, ModelAdapterStreamInput, ModelToken, RetrievedContext } from "../../src/model/model-types.js";
 import { EventRepository } from "../../src/persistence/event-repository.js";
 import { MemoryRepository } from "../../src/memory/memory-repository.js";
@@ -25,6 +32,9 @@ import type {
   ModelAgentCompletionInput,
   ModelAgentProvider,
   ModelFunctionCall,
+  TelegramProvider,
+  TelegramSendMessageInput,
+  TelegramSendMessageResult,
 } from "../../src/providers/provider-types.js";
 import { Redactor } from "../../src/security/redaction.js";
 import { applyMemoryIngressMigration } from "../persistence/migration.js";
@@ -82,10 +92,38 @@ interface OwnerHarness {
   readonly identityId: string;
   readonly providerSubject: string;
   readonly sessionId: string;
-  readonly telegram: FakeTelegramProvider;
+  readonly telegram: FakeTelegramProvider | NumericTelegramProvider;
 }
 
-async function ownerHarness(label: string): Promise<OwnerHarness> {
+class StructuredReceiptModel implements ModelAdapter {
+  constructor(private readonly tokens: readonly Readonly<{
+    text: string;
+    toolOutcome?: "saved" | "not_saved";
+  }>[]) {}
+
+  async *stream(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
+    for await (const token of this.streamOwnerTool(input)) {
+      yield Object.freeze({ index: token.index, text: token.text });
+    }
+  }
+
+  async *streamOwnerTool(_input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
+    for (const [index, token] of this.tokens.entries()) {
+      yield Object.freeze({ index, ...token });
+    }
+  }
+}
+
+class NumericTelegramProvider implements TelegramProvider {
+  readonly requests: TelegramSendMessageInput[] = [];
+
+  async sendMessage(input: TelegramSendMessageInput): Promise<TelegramSendMessageResult> {
+    this.requests.push(Object.freeze({ ...input }));
+    return Object.freeze({ providerMessageId: String(1_000 + this.requests.length) });
+  }
+}
+
+async function ownerHarness(label: string, telegram: FakeTelegramProvider | NumericTelegramProvider = new FakeTelegramProvider()): Promise<OwnerHarness> {
   serial += 1;
   const principalId = `principal:owner-agent:${label}:${serial}`;
   const identityId = `identity:owner-agent:${label}:${serial}`;
@@ -105,7 +143,7 @@ async function ownerHarness(label: string): Promise<OwnerHarness> {
     identityId,
     providerSubject,
     sessionId: `telegram:${providerSubject}`,
-    telegram: new FakeTelegramProvider(),
+    telegram,
   });
 }
 
@@ -118,10 +156,11 @@ async function runTurn(input: {
   readonly directPipelineText?: boolean;
   readonly turnTimeoutMs?: number;
   readonly context?: readonly RetrievedContext[];
-  readonly school?: ReceiptModel;
-  readonly university?: ReceiptModel;
-  readonly study?: ReceiptModel;
+  readonly school?: ModelAdapter;
+  readonly university?: ModelAdapter;
+  readonly study?: ModelAdapter;
   readonly configuredOwnerPrincipalId?: string;
+  readonly replyToBotMessageId?: number | null;
 }): Promise<string> {
   const directOwnerText = input.directOwnerText ?? true;
   const durableDirectOwnerText = input.durableDirectOwnerText ?? directOwnerText;
@@ -140,6 +179,7 @@ async function runTurn(input: {
     directOwnerText,
     directPipelineText: input.directPipelineText,
     authorityText: input.text,
+    replyToBotMessageId: input.replyToBotMessageId,
     targets: { async findControlTargets() { return Object.freeze([]); } },
     decisions: new DecisionService({ repository: new DecisionRepository(env.DB), now: () => NOW }),
     schoolModel: input.school ?? fallback,
@@ -381,6 +421,21 @@ function overrideConfirmedForgetDecisionRead(
 beforeAll(applyMemoryIngressMigration);
 
 describe("owner Telegram agent", () => {
+  it.each([
+    ["memory authority", { isDirectText: true, isPrivateHumanText: true, isMemoryControlAuthoritative: false }, { directOwnerText: false, directPipelineText: true }],
+    ["private-text authority", { isDirectText: true, isPrivateHumanText: false, isMemoryControlAuthoritative: true }, { directOwnerText: true, directPipelineText: false }],
+    ["direct-text authority", { isDirectText: false, isPrivateHumanText: true, isMemoryControlAuthoritative: true }, { directOwnerText: true, directPipelineText: false }],
+  ] as const)("preserves production index authority wiring for %s (R05/R06)", (_label, accepted, expected) => {
+    expect(ownerTelegramToolAuthority(accepted)).toEqual(expected);
+  });
+
+  it("anchors the agent budget to webhook arrival and reserves post-agent time", () => {
+    expect(ownerAgentTurnTimeoutMs("2026-09-17T14:00:00.000Z", new Date("2026-09-17T14:00:03.250Z")))
+      .toBe(16_750);
+    expect(ownerAgentTurnTimeoutMs("2026-09-17T14:00:00.000Z", new Date("2026-09-17T14:00:30.000Z")))
+      .toBe(1);
+  });
+
   it("answers an ordinary turn with exactly one model call", async () => {
     const harness = await ownerHarness("ordinary");
     const provider = new FakeAgentProvider([stopped("Hey Sid.")]);
@@ -429,6 +484,33 @@ describe("owner Telegram agent", () => {
       excerpt: "my fav subject is math",
     }]);
     expect(provider.requests).toHaveLength(2);
+  });
+
+  it.each([
+    ["negation mismatch", "remember I don't like math", "Sid likes math", "like math"],
+    ["one-word unrelated evidence", "ok", "Sid's locker combination is 12-34-56", "ok"],
+  ] as const)("stores failed grounding as uncertain model inference with Sid's exact excerpt: %s", async (
+    label, text, fact, excerpt,
+  ) => {
+    const harness = await ownerHarness(`uncertain-${label.replaceAll(" ", "-")}`);
+    const provider = new FakeAgentProvider([
+      called(tool(`uncertain-${label}`, "memory_remember", {
+        fact, supportingExcerpt: excerpt, evidenceClass: "stated", previousOfferExcerpt: null,
+        kind: "fact", sensitivity: "normal",
+      })),
+      stopped("Noted.", [{ sentence: "Noted.", receiptIds: [`receipt:uncertain-${label}`] }]),
+    ]);
+
+    const reply = await runTurn({ harness, text, provider });
+
+    await expect(memoryRows(harness.principalId)).resolves.toMatchObject([{
+      text: fact,
+      basis: "inferred",
+      lifecycle_state: "proposed",
+      excerpt,
+    }]);
+    expect(reply).toContain(JSON.stringify(excerpt));
+    expect(reply).not.toContain(`Memory: ${JSON.stringify(fact)}`);
   });
 
   it.each([
@@ -507,6 +589,69 @@ describe("owner Telegram agent", () => {
 
     await expect(memoryRows(harness.principalId)).resolves.toEqual([]);
     expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
+  });
+
+  it.each([
+    ["question ending (R13)", "Want me to note it.", "Want me to note it."],
+    ["sentence boundary (R14)", "Prefix Want me to note it? suffix", "Want me to note it?"],
+    ["question uniqueness (R15)", "Want me to note it? Want me to note it?", "Want me to note it?"],
+  ] as const)("rejects confirmed evidence when the previous offer violates %s", async (_label, previous, excerpt) => {
+    const harness = await ownerHarness(`confirmed-shape-${serial}`);
+    await runTurn({ harness, text: "hello", provider: new FakeAgentProvider([stopped(previous)]) });
+    const provider = new FakeAgentProvider([
+      called(tool(`confirmed-shape-${serial}`, "memory_remember", {
+        fact: "Sid's favourite subject is math", supportingExcerpt: "Math", evidenceClass: "confirmed",
+        previousOfferExcerpt: excerpt, kind: "preference", sensitivity: "normal",
+      })),
+      stopped("Nothing changed."),
+    ]);
+
+    await runTurn({ harness, text: "Math", provider });
+
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
+    await expect(memoryRows(harness.principalId)).resolves.toEqual([]);
+  });
+
+  it("requires stated evidence to omit previousOfferExcerpt (R41)", async () => {
+    const harness = await ownerHarness("stated-no-offer");
+    const provider = new FakeAgentProvider([
+      called(tool("stated-no-offer", "memory_remember", {
+        fact: "I like math", supportingExcerpt: "I like math", evidenceClass: "stated",
+        previousOfferExcerpt: "Want me to note it?", kind: "preference", sensitivity: "normal",
+      })),
+      stopped("Nothing changed."),
+    ]);
+
+    await runTurn({ harness, text: "remember I like math", provider });
+
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
+    await expect(memoryRows(harness.principalId)).resolves.toEqual([]);
+  });
+
+  it.each([
+    [1_001, true],
+    [999, false],
+  ] as const)("accepts a swipe confirmation only for the latest delivered Jarvis message: %s", async (
+    replyToBotMessageId, accepted,
+  ) => {
+    const harness = await ownerHarness(`swipe-target-${replyToBotMessageId}`, new NumericTelegramProvider());
+    await runTurn({ harness, text: "hello", provider: new FakeAgentProvider([stopped("Want me to note it?")]) });
+    const provider = new FakeAgentProvider([
+      called(tool(`swipe-target-${replyToBotMessageId}`, "memory_remember", {
+        fact: "Sid's favourite subject is math", supportingExcerpt: "Math", evidenceClass: "confirmed",
+        previousOfferExcerpt: "Want me to note it?", kind: "preference", sensitivity: "normal",
+      })),
+      stopped(accepted ? "Saved." : "Nothing changed.", accepted
+        ? [{ sentence: "Saved.", receiptIds: [`receipt:swipe-target-${replyToBotMessageId}`] }]
+        : []),
+    ]);
+
+    await runTurn({ harness, text: "Math", provider, replyToBotMessageId });
+
+    expect(await memoryRows(harness.principalId)).toHaveLength(accepted ? 1 : 0);
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+      status: accepted ? "completed" : "refused",
+    });
   });
 
   it.each([
@@ -592,7 +737,45 @@ describe("owner Telegram agent", () => {
     });
   });
 
-  it("refuses a tool for model-authored or otherwise non-direct text", async () => {
+  it("rejects conflicting structured pipeline outcomes (R18)", async () => {
+    const harness = await ownerHarness("conflicting-outcomes");
+    const school = new StructuredReceiptModel([
+      { text: "Saved the plan.", toolOutcome: "saved" },
+      { text: " Nothing changed.", toolOutcome: "not_saved" },
+    ]);
+    const provider = new FakeAgentProvider([
+      called(tool("conflicting-outcomes", "school_update", {})),
+      stopped("Nothing changed."),
+    ]);
+
+    const reply = await runTurn({ harness, text: "plan school", provider, school });
+
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+      status: "refused",
+      receiptId: null,
+    });
+    expect(reply).not.toContain("Done");
+  });
+
+  it("treats an unsignalled structured school reply as not saved (R40)", async () => {
+    const harness = await ownerHarness("unsignalled-school");
+    const school = new StructuredReceiptModel([{ text: "Updated deadlines usually arrive within a day." }]);
+    const claim = "I've added the essay to your school tracker.";
+    const provider = new FakeAgentProvider([
+      called(tool("unsignalled-school", "school_update", {})),
+      stopped(claim, [{ sentence: claim, receiptIds: ["receipt:unsignalled-school"] }]),
+    ]);
+
+    const reply = await runTurn({ harness, text: "essay due monday maybe", provider, school });
+
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({
+      status: "not_saved",
+      receiptId: null,
+    });
+    expect(reply).not.toContain(claim);
+  });
+
+  it("refuses a memory tool when directOwnerText is false (R01)", async () => {
     const harness = await ownerHarness("not-direct");
     const provider = new FakeAgentProvider([
       called(tool("remember-refused", "memory_remember", {
@@ -824,6 +1007,115 @@ describe("owner Telegram agent", () => {
     await expect(memoryRows(harness.principalId)).resolves.toMatchObject([{ lifecycle_state: "active" }]);
   });
 
+  it("requires a word-bounded control excerpt for a single forget (R09)", async () => {
+    const harness = await ownerHarness("forget-word-boundary");
+    await runTurn({
+      harness,
+      text: "remember I like calculus",
+      provider: new FakeAgentProvider([
+        called(tool("forget-word-boundary-seed", "memory_remember", {
+          fact: "I like calculus", supportingExcerpt: "I like calculus", evidenceClass: "stated",
+          previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:forget-word-boundary-seed"] }]),
+      ]),
+    });
+    const row = (await memoryRows(harness.principalId))[0]!;
+    const provider = new FakeAgentProvider([
+      called(tool("forget-word-boundary", "memory_forget", {
+        itemIds: [row.item_id], supportingExcerpt: "forget",
+      })),
+      stopped("Nothing changed."),
+    ]);
+
+    await runTurn({ harness, text: "forgetting calculus", provider, context: [memoryContext(row)] });
+
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
+    await expect(memoryRows(harness.principalId)).resolves.toMatchObject([{ lifecycle_state: "active" }]);
+  });
+
+  it("requires current owner grounding before restoring one memory (R11)", async () => {
+    const harness = await ownerHarness("restore-grounding");
+    await runTurn({
+      harness,
+      text: "remember I like calculus",
+      provider: new FakeAgentProvider([
+        called(tool("restore-grounding-seed", "memory_remember", {
+          fact: "I like calculus", supportingExcerpt: "I like calculus", evidenceClass: "stated",
+          previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:restore-grounding-seed"] }]),
+      ]),
+    });
+    const active = (await memoryRows(harness.principalId))[0]!;
+    await runTurn({
+      harness,
+      text: "forget calculus",
+      context: [memoryContext(active)],
+      provider: new FakeAgentProvider([
+        called(tool("restore-grounding-forget", "memory_forget", {
+          itemIds: [active.item_id], supportingExcerpt: "forget calculus",
+        })),
+        stopped("Forgot.", [{ sentence: "Forgot.", receiptIds: ["receipt:restore-grounding-forget"] }]),
+      ]),
+    });
+    const forgotten = (await memoryRows(harness.principalId))[0]!;
+    const provider = new FakeAgentProvider([
+      called(tool("restore-grounding", "memory_restore", {
+        itemId: forgotten.item_id, supportingExcerpt: "restore",
+      })),
+      stopped("Nothing changed."),
+    ]);
+
+    await runTurn({ harness, text: "hello", provider, context: [memoryContext(forgotten)] });
+
+    expect(JSON.parse(provider.requests[1]?.toolResults?.[0]?.content ?? "{}")).toMatchObject({ status: "refused" });
+    await expect(memoryRows(harness.principalId)).resolves.toMatchObject([{ lifecycle_state: "forgotten" }]);
+  });
+
+  it("does not let a forgotten normalized memory block a fresh active remember (R30)", async () => {
+    const harness = await ownerHarness("forgotten-dedupe-filter");
+    await runTurn({
+      harness,
+      text: "remember Sid likes chemistry",
+      provider: new FakeAgentProvider([
+        called(tool("forgotten-dedupe-seed", "memory_remember", {
+          fact: "Sid likes chemistry", supportingExcerpt: "Sid likes chemistry", evidenceClass: "stated",
+          previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:forgotten-dedupe-seed"] }]),
+      ]),
+    });
+    const active = (await memoryRows(harness.principalId))[0]!;
+    await runTurn({
+      harness,
+      text: "forget chemistry",
+      context: [memoryContext(active)],
+      provider: new FakeAgentProvider([
+        called(tool("forgotten-dedupe-forget", "memory_forget", {
+          itemIds: [active.item_id], supportingExcerpt: "forget chemistry",
+        })),
+        stopped("Forgot.", [{ sentence: "Forgot.", receiptIds: ["receipt:forgotten-dedupe-forget"] }]),
+      ]),
+    });
+
+    await runTurn({
+      harness,
+      text: "remember SID LIKES CHEMISTRY!",
+      provider: new FakeAgentProvider([
+        called(tool("forgotten-dedupe-new", "memory_remember", {
+          fact: "SID LIKES CHEMISTRY!", supportingExcerpt: "SID LIKES CHEMISTRY!", evidenceClass: "stated",
+          previousOfferExcerpt: null, kind: "fact", sensitivity: "sensitive",
+        })),
+        stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:forgotten-dedupe-new"] }]),
+      ]),
+    });
+
+    const rows = await memoryRows(harness.principalId);
+    expect(new Set(rows.map((row) => row.item_id)).size).toBe(2);
+    expect(rows.map((row) => row.lifecycle_state).sort()).toEqual(["active", "forgotten"]);
+  });
+
   it("delivers the saved receipt when the follow-up fails and a resend does not duplicate the memory", async () => {
     const harness = await ownerHarness("post-commit-fallback");
     const args = {
@@ -843,7 +1135,12 @@ describe("owner Telegram agent", () => {
       harness,
       text: "remember I like chemistry",
       provider: new FakeAgentProvider([
-        called(tool("post-commit-second", "memory_remember", args)),
+        called(tool("post-commit-second", "memory_remember", {
+          ...args,
+          fact: "I LIKE chemistry.",
+          kind: "fact",
+          sensitivity: "sensitive",
+        })),
         stopped("Saved.", [{ sentence: "Saved.", receiptIds: ["receipt:post-commit-second"] }]),
       ]),
     });
@@ -851,7 +1148,9 @@ describe("owner Telegram agent", () => {
     expect(first).toContain("Remembered 1 memory");
     expect(first).toContain("couldn't write a longer reply");
     expect(second).toContain("did not add a duplicate");
-    await expect(memoryRows(harness.principalId)).resolves.toHaveLength(1);
+    const rows = await memoryRows(harness.principalId);
+    expect(new Set(rows.map((row) => row.item_id)).size).toBe(1);
+    expect(rows).toHaveLength(2);
   });
 
   it("falls back to the saved receipt when an honesty-repair call fails", async () => {
@@ -891,9 +1190,46 @@ describe("owner Telegram agent", () => {
     expect(reply.length).toBeLessThanOrEqual(4_096);
   });
 
-  it("uses the whole-turn deadline and still returns a committed receipt", async () => {
+  it("keeps the follow-up suffix inside the Telegram UTF-16 bound (R42)", async () => {
+    const harness = await ownerHarness("pipeline-suffix-bound");
+    const school = new ReceiptModel(`Saved your school plan. ${"📚 plan; ".repeat(800)}`);
+    const provider = new FakeAgentProvider([
+      called(tool("pipeline-suffix-bound", "school_update", {})),
+      stopped("Short follow-up."),
+    ]);
+
+    const reply = await runTurn({ harness, text: "plan my week", provider, school });
+
+    expect(reply.length).toBeLessThanOrEqual(4_096);
+    expect(reply.endsWith("Short follow-up.")).toBe(true);
+  });
+
+  it("applies the deterministic action guard after a completed tool (R26)", async () => {
+    const harness = await ownerHarness("tool-path-guard");
+    const school = new ReceiptModel("Saved your school plan update.");
+    const falseClaim = "I emailed Ms. Lee about the plan.";
+
+    const reply = await runTurn({
+      harness,
+      text: "plan my week",
+      school,
+      provider: new FakeAgentProvider([
+        called(tool("tool-path-guard", "school_update", {})),
+        stopped(falseClaim),
+      ]),
+    });
+
+    expect(reply).toContain("Saved your school plan update.");
+    expect(reply).not.toContain(falseClaim);
+    expect(reply).not.toContain("Lee about the plan");
+    expect(reply).toContain("can't confirm that action");
+  });
+
+  it("uses the post-execute deadline branch and still returns a committed receipt (R21)", async () => {
     const harness = await ownerHarness("whole-turn-deadline");
     let calls = 0;
+    let secondCallStarted = false;
+    let secondCallAborted = false;
     const provider: ModelAgentProvider = {
       async completeAgent(input) {
         calls += 1;
@@ -903,13 +1239,18 @@ describe("owner Telegram agent", () => {
             previousOfferExcerpt: null, kind: "preference", sensitivity: "normal",
           }));
         }
+        secondCallStarted = true;
         await new Promise<void>((_resolve, reject) => {
-          input.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+          const abort = (): void => {
+            secondCallAborted = true;
+            reject(new Error("aborted"));
+          };
+          if (input.signal.aborted) abort();
+          else input.signal.addEventListener("abort", abort, { once: true });
         });
         throw new Error("unreachable");
       },
     };
-    const started = performance.now();
 
     const reply = await runTurn({
       harness,
@@ -918,9 +1259,73 @@ describe("owner Telegram agent", () => {
       turnTimeoutMs: 40,
     });
 
-    expect(performance.now() - started).toBeLessThan(1_000);
+    expect({ secondCallStarted, secondCallAborted }).toEqual({
+      secondCallStarted: true,
+      secondCallAborted: true,
+    });
     expect(reply).toContain("Remembered 1 memory");
     expect(reply).toContain("couldn't write a longer reply");
+  });
+
+  it("uses deadline text after the first provider call is aborted by the turn deadline", async () => {
+    const harness = await ownerHarness("first-call-deadline");
+    let firstCallStarted = false;
+    let firstCallAborted = false;
+    const provider: ModelAgentProvider = {
+      async completeAgent(input) {
+        firstCallStarted = true;
+        await new Promise<void>((_resolve, reject) => {
+          const abort = (): void => {
+            firstCallAborted = true;
+            reject(new Error("aborted"));
+          };
+          if (input.signal.aborted) abort();
+          else input.signal.addEventListener("abort", abort, { once: true });
+        });
+        throw new Error("unreachable");
+      },
+    };
+
+    const reply = await runTurn({ harness, text: "hello", provider, turnTimeoutMs: 20 });
+
+    expect({ firstCallStarted, firstCallAborted }).toEqual({ firstCallStarted: true, firstCallAborted: true });
+    expect(reply).toBe("I couldn't finish that turn before the deadline. Nothing changed.");
+  });
+
+  it("does not misreport an immediate first-call provider error as a deadline (R22)", async () => {
+    const fallback = new ReceiptModel("Nothing changed.");
+    const model = new OwnerTelegramAgentAdapter({
+      provider: new FakeAgentProvider([new Error("provider unavailable")]),
+      database: env.DB,
+      archive: env.ARCHIVE,
+      ownerPrincipalId: "principal:owner",
+      directOwnerText: true,
+      directPipelineText: true,
+      authorityText: "hello",
+      targets: { async findControlTargets() { return Object.freeze([]); } },
+      decisions: new DecisionService({ repository: new DecisionRepository(env.DB), now: () => NOW }),
+      schoolModel: fallback,
+      universityModel: fallback,
+      studyCoachModel: fallback,
+      turnTimeoutMs: 5_000,
+    });
+    const collect = async (): Promise<void> => {
+      for await (const _token of model.stream({
+        correlationId: newUlid(),
+        principalId: "principal:owner",
+        channel: "telegram",
+        userText: "hello",
+        context: Object.freeze([]),
+        reasoningEffort: "low",
+        firstTokenTimeoutMs: 1_000,
+        timeoutMs: 5_000,
+        contextTokenBudget: 1_000,
+        maxOutputCharacters: 4_096,
+        signal: new AbortController().signal,
+      })) { /* no token is expected */ }
+    };
+
+    await expect(collect()).rejects.toThrow("provider unavailable");
   });
 
   it("refuses memory ids that are absent from context or owned by somebody else", async () => {
@@ -1149,6 +1554,48 @@ describe("owner Telegram agent", () => {
     expect(sent).toEqual(["I couldn't finish that confirmed memory change. Tap Confirm again to retry safely."]);
   });
 
+  it.each([
+    ["identity (R31)", { identityId: "identity:other" }],
+    ["principal (R32)", { principalId: "principal:other" }],
+    ["origin (R33)", { origin: "other-origin" }],
+    ["option (R34)", { optionKey: "explain" }],
+  ] as const)("does not replay a confirmed forget with mismatched %s", (_label, override) => {
+    const result: AnswerDecisionResult = {
+      outcome: "already_answered",
+      standing: {
+        responseId: newUlid(),
+        decisionId: "decision:replay",
+        optionKey: "optionKey" in override ? override.optionKey : "confirm",
+        freeText: null,
+        answeredByIdentityId: "identity:owner",
+        respondedAt: NOW.toISOString(),
+      },
+    };
+    const item: DecisionItem = {
+      decisionId: "decision:replay",
+      principalId: "principal:owner",
+      origin: "origin" in override ? override.origin : "telegram-memory-forget",
+      originReference: `${newUlid()},${newUlid()}`,
+      urgency: "normal",
+      question: "Forget both memories?",
+      detail: null,
+      status: "answered",
+      rank: 0,
+      expiresAt: null,
+      createdAt: NOW.toISOString(),
+      deliveredAt: NOW.toISOString(),
+      resolvedAt: NOW.toISOString(),
+      options: Object.freeze([]),
+    };
+
+    expect(confirmedTelegramForgetRoute(
+      result,
+      "identityId" in override ? override.identityId : "identity:owner",
+      "principalId" in override ? override.principalId : "principal:owner",
+      item,
+    )).toBeNull();
+  });
+
   it("rejects confirmed forget when callback data, item set, answered-confirm state, or principal differs", async () => {
     const first = await prepareConfirmedForget("confirm-guards-a");
     const controls = new MemoryOwnerControlsService(env.DB, env.ARCHIVE);
@@ -1300,6 +1747,8 @@ describe("direct owner Telegram classification", () => {
         isDirectText: true,
         isPrivateHumanText: true,
         isMemoryControlAuthoritative: true,
+        replyToBotMessageId: 1,
+        replyToBotText: "Want me to note it?",
       });
     }
   });

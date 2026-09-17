@@ -40,13 +40,29 @@ const MAX_TOOL_CALLS = 1;
 const MAX_ARGUMENT_BYTES = 4_096;
 const MAX_REPLY_CHARACTERS = 4_096;
 const MAX_PIPELINE_CHARACTERS = 24_000;
-const DEFAULT_TURN_TIMEOUT_MS = 25_000;
+const DEFAULT_TURN_TIMEOUT_MS = 20_000;
 const MAX_CLAIMS = 16;
 const MAX_RECEIPT_IDS = 4;
 const MEMORY_CONTEXT_ITEM = /^(?:Uncertain )?Memory evidence \[[^\]]*\bitem ([0-7][0-9a-hjkmnp-tv-z]{25});/u;
 const encoder = new TextEncoder();
 const POST_COMMIT_FALLBACK = "Done — I couldn't write a longer reply.";
+const NOT_SAVED_FALLBACK = "I couldn't finish that, and nothing was saved.";
 const DEADLINE_FALLBACK = "I couldn't finish that turn before the deadline. Nothing changed.";
+const NEGATION = /\b(?:no|not|never|cannot|can't|don't|doesn't|didn't|won't|wouldn't|shouldn't|isn't|aren't|wasn't|weren't|haven't|hasn't|hadn't)\b|n['’]t\b/iu;
+const CONTENT_WORD = /[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu;
+const CONTENT_STOP_WORDS = new Set([
+  "a", "am", "an", "and", "are", "as", "at", "be", "been", "but", "by", "did", "do", "does",
+  "for", "from", "had", "has", "have", "he", "her", "hers", "him", "his", "i", "in", "is", "it",
+  "its", "me", "mine", "my", "of", "on", "or", "our", "ours", "she", "that", "the", "their",
+  "sid", "subject", "theirs", "them", "they", "this", "to", "was", "we", "were", "what", "which", "who", "with",
+  "you", "your", "yours",
+]);
+const NORMALISATION_ALLOWLIST = new Set(["sid", "favourite"]);
+const CONTROL_INTENT = Object.freeze({
+  forget: /\b(?:forget|delete|remove|hide)\b/iu,
+  lift: /\b(?:restore|unforget|bring\s+back|use\s+(?:it|that)\s+again|remember\s+(?:it|that)\s+again)\b/iu,
+  explain: /\b(?:why|explain|evidence|source|where\s+did|how\s+do\s+you\s+know)\b/iu,
+});
 
 const STRUCTURED_REPLY_EXAMPLE = JSON.stringify({
   reply: "I can help with that.",
@@ -144,6 +160,8 @@ interface OwnerTelegramAgentDependencies {
   /** Main's broader school/study authority: direct text in a private non-bot chat. */
   readonly directPipelineText?: boolean;
   readonly authorityText: string;
+  /** Telegram's durable pointer when Sid swipes on one of Jarvis's messages. */
+  readonly replyToBotMessageId?: number | null;
   readonly targets: TelegramMemoryTargetFinder;
   readonly decisions: {
     raise(input: RaiseDecisionInput): Promise<DecisionItem>;
@@ -177,6 +195,17 @@ interface PreviousAssistantRow {
   readonly staged_event_id: unknown;
   readonly delivered_event_id: unknown;
   readonly delivered_envelope_json: unknown;
+  readonly provider_message_id: unknown;
+}
+
+interface PreviousAssistantEvidence {
+  readonly text: string;
+  readonly providerMessageId: string;
+}
+
+interface RememberGrounding {
+  readonly authoritative: boolean;
+  readonly excerpt: string;
 }
 
 function safeText(value: unknown, maximumBytes: number): string {
@@ -284,7 +313,8 @@ async function collectPipelineOutcome(
   const structured = model as ModelAdapter & {
     readonly streamOwnerTool?: (value: ModelAdapterStreamInput) => AsyncIterable<ModelToken>;
   };
-  const tokens = typeof structured.streamOwnerTool === "function"
+  const hasStructuredOutcome = typeof structured.streamOwnerTool === "function";
+  const tokens = hasStructuredOutcome
     ? structured.streamOwnerTool(input)
     : model.stream(input);
   for await (const token of tokens) {
@@ -299,9 +329,12 @@ async function collectPipelineOutcome(
     }
   }
   const receipt = safeText(text, 65_536);
-  // Production adapters signal their code-observed result. The fixed-receipt
-  // fallback keeps narrow test adapters and older injected adapters compatible.
-  return Object.freeze({ status: signalledStatus ?? (pipelineSaved(receipt) ? "saved" : "not_saved"), receipt });
+  // A production adapter's silence is not evidence of a write. The wording
+  // fallback exists only for narrow injected adapters that predate outcomes.
+  return Object.freeze({
+    status: signalledStatus ?? (hasStructuredOutcome ? "not_saved" : pipelineSaved(receipt) ? "saved" : "not_saved"),
+    receipt,
+  });
 }
 
 function contextItemIds(input: Readonly<ModelAdapterStreamInput>): readonly Ulid[] {
@@ -386,17 +419,22 @@ function removeUnsupportedSentences(reply: ParsedReply, unsupported: readonly Pa
   return `${text}${suffix}`;
 }
 
+function truncateUtf16(value: string, maximumUnits: number): string {
+  if (value.length <= maximumUnits) return value;
+  let bounded = value.slice(0, maximumUnits);
+  const last = bounded.charCodeAt(bounded.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) bounded = bounded.slice(0, -1);
+  return bounded;
+}
+
 function composeTelegramReply(receipts: readonly string[], reply: string): string {
   const receiptText = receipts.join("\n\n");
-  const boundedReply = Array.from(reply).slice(0, MAX_REPLY_CHARACTERS).join("");
+  const boundedReply = truncateUtf16(reply, MAX_REPLY_CHARACTERS);
   if (receiptText.length === 0) return boundedReply;
-  if (boundedReply.length === 0) return Array.from(receiptText).slice(0, MAX_REPLY_CHARACTERS).join("");
+  if (boundedReply.length === 0) return truncateUtf16(receiptText, MAX_REPLY_CHARACTERS);
   const suffix = `\n\n${boundedReply}`;
   if (suffix.length >= MAX_REPLY_CHARACTERS) return boundedReply;
-  const boundedReceipt = Array.from(receiptText)
-    .slice(0, MAX_REPLY_CHARACTERS - suffix.length)
-    .join("")
-    .trimEnd();
+  const boundedReceipt = truncateUtf16(receiptText, MAX_REPLY_CHARACTERS - suffix.length).trimEnd();
   return boundedReceipt.length === 0 ? boundedReply : `${boundedReceipt}${suffix}`;
 }
 
@@ -404,10 +442,54 @@ function pipelineSaved(receipt: string): boolean {
   return /^(?:Saved\b|Updated\b|Recorded\b|Forgot\s+\d+\b|Retired\s+\d+\b|Quiz stopped\b)/iu.test(receipt.trim());
 }
 
+function wordBoundaryOccurrence(message: string, excerpt: string): number {
+  let start = message.indexOf(excerpt);
+  while (start >= 0) {
+    const before = start === 0 ? "" : message[start - 1]!;
+    const afterIndex = start + excerpt.length;
+    const after = afterIndex === message.length ? "" : message[afterIndex]!;
+    const startsWithWord = /^[\p{L}\p{N}]/u.test(excerpt);
+    const endsWithWord = /[\p{L}\p{N}]$/u.test(excerpt);
+    if ((!startsWithWord || before.length === 0 || !/[\p{L}\p{N}]/u.test(before))
+      && (!endsWithWord || after.length === 0 || !/[\p{L}\p{N}]/u.test(after))) return start;
+    start = message.indexOf(excerpt, start + 1);
+  }
+  return -1;
+}
+
 function groundedExcerpt(input: Readonly<ModelAdapterStreamInput>, value: unknown): string {
   const excerpt = safeText(value, 4_096);
-  if (!input.userText.includes(excerpt)) throw new TypeError("owner_agent_memory_grounding_invalid");
+  if (wordBoundaryOccurrence(input.userText, excerpt) < 0) {
+    throw new TypeError("owner_agent_memory_grounding_invalid");
+  }
   return excerpt;
+}
+
+function normalizedContentWord(value: string): string {
+  let word = value.toLocaleLowerCase("en-CA").replace(/[’]/gu, "'");
+  if (word.endsWith("'s")) word = word.slice(0, -2);
+  if (word === "fav" || word === "favorite") return "favourite";
+  if (word === "likes") return "like";
+  return word;
+}
+
+function contentWords(value: string): readonly string[] {
+  const words = value.match(CONTENT_WORD) ?? [];
+  return Object.freeze(words.map(normalizedContentWord).filter((word) =>
+    word.length > 1 && !CONTENT_STOP_WORDS.has(word) && !NEGATION.test(word)));
+}
+
+function rememberGrounding(input: Readonly<ModelAdapterStreamInput>, fact: string, excerpt: string,
+  confirmation: string | null): RememberGrounding {
+  const sourceWords = new Set(contentWords(`${excerpt} ${confirmation ?? ""}`));
+  const meaningful = contentWords(excerpt).length >= 2 || excerpt.trim() === input.userText.trim();
+  const sameNegation = NEGATION.test(input.userText) === NEGATION.test(fact);
+  const vocabularyMatches = contentWords(fact).every((word) =>
+    sourceWords.has(word) || NORMALISATION_ALLOWLIST.has(word));
+  return Object.freeze({
+    authoritative: meaningful && sameNegation && vocabularyMatches,
+    excerpt,
+  });
 }
 
 function isQuestionSentence(previous: string, excerpt: string): boolean {
@@ -420,6 +502,22 @@ function isQuestionSentence(previous: string, excerpt: string): boolean {
     && (after.length === 0 || /^[\p{Lu}\d]/u.test(after));
 }
 
+function isMemoryOfferOrGroundedQuestion(question: string, fact: string): boolean {
+  if (/\b(?:remember|note|save|store|keep)\b/iu.test(question)) return true;
+  const factWords = new Set(contentWords(fact));
+  return contentWords(question).some((word) => factWords.has(word));
+}
+
+function groundedControlExcerpt(
+  input: Readonly<ModelAdapterStreamInput>,
+  value: unknown,
+  operation: keyof typeof CONTROL_INTENT,
+): string {
+  const excerpt = groundedExcerpt(input, value);
+  if (!CONTROL_INTENT[operation].test(excerpt)) throw new TypeError("owner_agent_memory_grounding_invalid");
+  return excerpt;
+}
+
 export class OwnerTelegramAgentAdapter implements ModelAdapter {
   private readonly turnTimeoutMs: number;
 
@@ -428,6 +526,10 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
     safeText(dependencies.authorityText, 65_536);
     if (typeof dependencies.directOwnerText !== "boolean") throw new TypeError("owner_agent_authority_invalid");
     if (dependencies.directPipelineText !== undefined && typeof dependencies.directPipelineText !== "boolean") {
+      throw new TypeError("owner_agent_authority_invalid");
+    }
+    if (dependencies.replyToBotMessageId !== undefined && dependencies.replyToBotMessageId !== null
+      && (!Number.isSafeInteger(dependencies.replyToBotMessageId) || dependencies.replyToBotMessageId <= 0)) {
       throw new TypeError("owner_agent_authority_invalid");
     }
     this.turnTimeoutMs = dependencies.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS;
@@ -480,7 +582,12 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
       if (first.finishReason === "stop") {
         const parsed = this.tryReply(first, false);
         const honest = await this.honestReply(boundedInput, parsed, new Set());
-        yield Object.freeze({ index: 0, text: composeTelegramReply([], guardReplyClaims(honest)) });
+        yield Object.freeze({
+          index: 0,
+          text: composeTelegramReply([], guardReplyClaims(honest.reply, {
+            receiptedInternalSentences: this.receiptedClaims(honest, new Set()),
+          })),
+        });
         return;
       }
 
@@ -491,7 +598,10 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
       const referenced = [...new Set(executed.flatMap((entry) => entry.referencedItemIds))];
       recordPendingTelegramMemoryReferences(input.correlationId, referenced);
       if (deadlineHit) {
-        yield Object.freeze({ index: 0, text: composeTelegramReply(receipts, POST_COMMIT_FALLBACK) });
+        yield Object.freeze({
+          index: 0,
+          text: composeTelegramReply(receipts, receiptIds.size > 0 ? POST_COMMIT_FALLBACK : DEADLINE_FALLBACK),
+        });
         return;
       }
       let second: ModelAgentCompletion;
@@ -511,12 +621,20 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
           signal: controller.signal,
         });
       } catch {
-        yield Object.freeze({ index: 0, text: composeTelegramReply(receipts, POST_COMMIT_FALLBACK) });
+        yield Object.freeze({
+          index: 0,
+          text: composeTelegramReply(receipts, receiptIds.size > 0 ? POST_COMMIT_FALLBACK : NOT_SAVED_FALLBACK),
+        });
         return;
       }
       const parsed = this.tryReply(second, true);
       const honest = await this.honestReply(boundedInput, parsed, receiptIds);
-      yield Object.freeze({ index: 0, text: composeTelegramReply(receipts, guardReplyClaims(honest)) });
+      yield Object.freeze({
+        index: 0,
+        text: composeTelegramReply(receipts, guardReplyClaims(honest.reply, {
+          receiptedInternalSentences: this.receiptedClaims(honest, receiptIds),
+        })),
+      });
     } finally {
       clearTimeout(timer);
       input.signal.removeEventListener("abort", onAbort);
@@ -543,9 +661,9 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
     input: Readonly<ModelAdapterStreamInput>,
     reply: ParsedReply,
     receiptIds: ReadonlySet<string>,
-  ): Promise<string> {
+  ): Promise<ParsedReply> {
     const unsupported = unsupportedClaims(reply, receiptIds);
-    if (unsupported.length === 0) return reply.reply;
+    if (unsupported.length === 0) return reply;
     const rewritePrompt = `${OWNER_TELEGRAM_AGENT_SYSTEM_PROMPT}\n\nRewrite the following draft honestly. Remove every claim that lacks one of these receipt ids: ${JSON.stringify([...receiptIds])}. Return JSON only. Draft: ${JSON.stringify(reply)}`;
     let rewritten: ParsedReply;
     try {
@@ -562,16 +680,26 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
         signal: input.signal,
       });
       if (completion.finishReason !== "stop" || completion.content === null || completion.toolCalls.length > 0) {
-        return receiptIds.size > 0 ? POST_COMMIT_FALLBACK : removeUnsupportedSentences(reply, unsupported);
+        return this.fixedReply(receiptIds.size > 0 ? POST_COMMIT_FALLBACK : removeUnsupportedSentences(reply, unsupported));
       }
       rewritten = parseReply(completion.content, true);
     } catch {
-      return receiptIds.size > 0 ? POST_COMMIT_FALLBACK : removeUnsupportedSentences(reply, unsupported);
+      return this.fixedReply(receiptIds.size > 0 ? POST_COMMIT_FALLBACK : removeUnsupportedSentences(reply, unsupported));
     }
     const stillUnsupported = unsupportedClaims(rewritten, receiptIds);
     return stillUnsupported.length === 0
-      ? rewritten.reply
-      : removeUnsupportedSentences(rewritten, stillUnsupported);
+      ? rewritten
+      : this.fixedReply(removeUnsupportedSentences(rewritten, stillUnsupported));
+  }
+
+  private fixedReply(reply: string): ParsedReply {
+    return Object.freeze({ reply, claimedActions: Object.freeze([]) });
+  }
+
+  private receiptedClaims(reply: ParsedReply, receiptIds: ReadonlySet<string>): readonly string[] {
+    return Object.freeze(reply.claimedActions.filter((claim) =>
+      claim.receiptIds.length > 0 && claim.receiptIds.every((id) => receiptIds.has(id)))
+      .map((claim) => claim.sentence));
   }
 
   private async executeCalls(
@@ -607,6 +735,9 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
     if (call.name.startsWith("memory_")) {
       if (!this.dependencies.directOwnerText) {
         return refusedTool(call, "I refused that memory tool call because this is not Sid's direct current Telegram text. Nothing changed.");
+      }
+      if (!await this.replyTargetsLatestAssistant(input)) {
+        return refusedTool(call, "I refused that memory tool call because the swipe reply does not target Jarvis's latest delivered message. Nothing changed.");
       }
       if (call.name === "memory_remember") return this.remember(input, call);
       if (call.name === "memory_forget") return this.forget(input, call);
@@ -644,10 +775,11 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
     });
   }
 
-  private async previousAssistantText(input: Readonly<ModelAdapterStreamInput>): Promise<string | null> {
+  private async previousAssistant(input: Readonly<ModelAdapterStreamInput>): Promise<PreviousAssistantEvidence | null> {
     const row = await this.dependencies.database.prepare(`SELECT previous.turn_id,
         delivery.staged_event_id, previous.delivered_assistant_event_id AS delivered_event_id,
-        delivered.envelope_json AS delivered_envelope_json
+        delivered.envelope_json AS delivered_envelope_json,
+        delivery.provider_message_id AS provider_message_id
       FROM conversation_turns current
       JOIN events current_user ON current_user.event_id = current.user_event_id
       JOIN conversation_turns previous
@@ -679,7 +811,17 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
     const payload = envelope.payload as Record<string, unknown>;
     if (payload.schemaCode !== 1 || payload.channelCode !== 2 || payload.sensitivityCode !== 1
       || payload.historyEligible !== true) throw new TypeError("owner_agent_previous_reply_invalid");
-    return safeText(payload.text, 65_536);
+    return Object.freeze({
+      text: safeText(payload.text, 65_536),
+      providerMessageId: safeText(row.provider_message_id, 128),
+    });
+  }
+
+  private async replyTargetsLatestAssistant(input: Readonly<ModelAdapterStreamInput>): Promise<boolean> {
+    const target = this.dependencies.replyToBotMessageId ?? null;
+    if (target === null) return true;
+    const previous = await this.previousAssistant(input);
+    return previous !== null && previous.providerMessageId === String(target);
   }
 
   private async eligibleItemIds(
@@ -711,6 +853,7 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
     const fact = safeText(args.fact, 4_096);
     const excerpt = groundedExcerpt(input, args.supportingExcerpt);
     const evidenceClass = args.evidenceClass;
+    let confirmedQuestion: string | null = null;
     if (evidenceClass !== "stated" && evidenceClass !== "confirmed") {
       throw new TypeError("owner_agent_memory_grounding_invalid");
     }
@@ -718,26 +861,34 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
       if (args.previousOfferExcerpt !== null) throw new TypeError("owner_agent_memory_grounding_invalid");
     } else {
       const offer = safeText(args.previousOfferExcerpt, 4_096);
-      const previous = await this.previousAssistantText(input);
-      if (previous === null || !isQuestionSentence(previous, offer)) {
+      const previous = await this.previousAssistant(input);
+      const previousText = previous?.text ?? null;
+      if (previousText === null || !isQuestionSentence(previousText, offer)
+        || !isMemoryOfferOrGroundedQuestion(offer, fact)) {
         throw new TypeError("owner_agent_memory_grounding_invalid");
       }
+      confirmedQuestion = offer;
     }
     const kinds = new Set<MemoryKind>(["fact", "preference", "plan", "decision", "relationship"]);
     const sensitivities = new Set<MemorySensitivity>(["normal", "sensitive"]);
     if (!kinds.has(args.kind as MemoryKind) || !sensitivities.has(args.sensitivity as MemorySensitivity)) {
       throw new TypeError("owner_agent_memory_arguments_invalid");
     }
+    const grounding = rememberGrounding(input, fact, excerpt, confirmedQuestion);
     const result = await this.controls().remember({
       ownerTurn: await this.ownerTurn(input, "remember"),
       text: fact,
       sourceExcerpt: excerpt,
-      basis: evidenceClass,
-      normalizedFromSource: true,
+      basis: grounding.authoritative ? evidenceClass : "inferred",
+      normalizedFromSource: grounding.authoritative,
       kind: args.kind as MemoryKind,
       sensitivity: args.sensitivity as MemorySensitivity,
     });
-    return successfulTool(call, memoryReceipt(result.receipt, fact), Object.freeze([result.item.itemId]));
+    return successfulTool(
+      call,
+      memoryReceipt(result.receipt, grounding.authoritative ? fact : excerpt),
+      Object.freeze([result.item.itemId]),
+    );
   }
 
   private async forget(input: Readonly<ModelAdapterStreamInput>, call: ModelFunctionCall): Promise<ExecutedTool> {
@@ -765,7 +916,7 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
         itemIds,
       );
     }
-    groundedExcerpt(input, args.supportingExcerpt);
+    groundedControlExcerpt(input, args.supportingExcerpt, "forget");
     const item = await new MemoryRepository(this.dependencies.database)
       .readCurrentItem(input.principalId, itemIds[0]!);
     const result = await this.controls().forget({
@@ -778,7 +929,7 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
   private async restore(input: Readonly<ModelAdapterStreamInput>, call: ModelFunctionCall): Promise<ExecutedTool> {
     const args = parseArgumentsWithOptionalExcerpt(call, ["itemId"]);
     const itemId = safeUlid(args.itemId);
-    groundedExcerpt(input, args.supportingExcerpt);
+    groundedControlExcerpt(input, args.supportingExcerpt, "lift");
     await this.requireEligibleItem(input, "lift", itemId);
     const item = await new MemoryRepository(this.dependencies.database).readCurrentItem(input.principalId, itemId);
     const result = await this.controls().lift({
@@ -806,7 +957,7 @@ export class OwnerTelegramAgentAdapter implements ModelAdapter {
   private async explain(input: Readonly<ModelAdapterStreamInput>, call: ModelFunctionCall): Promise<ExecutedTool> {
     const args = parseArgumentsWithOptionalExcerpt(call, ["itemId"]);
     const itemId = safeUlid(args.itemId);
-    groundedExcerpt(input, args.supportingExcerpt);
+    groundedControlExcerpt(input, args.supportingExcerpt, "explain");
     await this.requireEligibleItem(input, "explain", itemId);
     const item = await new MemoryRepository(this.dependencies.database).readCurrentItem(input.principalId, itemId);
     const explanation = await this.controls().explain({

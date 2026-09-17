@@ -50,6 +50,12 @@ export interface InitialMemorySourceInput {
   readonly occurredAt: string;
 }
 
+export interface AppendActiveMemorySourceInput {
+  readonly principalId: string;
+  readonly itemId: Ulid;
+  readonly source: InitialMemorySourceInput;
+}
+
 export interface InitialMemoryVersionInput {
   readonly versionId: Ulid;
   readonly text: string;

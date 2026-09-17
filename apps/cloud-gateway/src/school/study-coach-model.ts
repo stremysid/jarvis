@@ -60,6 +60,15 @@ function normalizedPhrase(value: string): string {
   return normalized(value).replace(/[^\p{L}\p{N}%]+/gu, " ").replace(/\s+/gu, " ").trim();
 }
 
+async function* notSavedFallback(
+  model: ModelAdapter,
+  input: ModelAdapterStreamInput,
+): AsyncIterable<ModelToken> {
+  for await (const token of model.stream(input)) {
+    yield Object.freeze({ index: token.index, text: token.text, toolOutcome: "not_saved" as const });
+  }
+}
+
 function safeText(
   value: unknown,
   redactor: StudyCoachModelDependencies["redactor"],
@@ -433,7 +442,7 @@ export class StudyCoachModelAdapter implements ModelAdapter {
   async *streamOwnerTool(input: ModelAdapterStreamInput): AsyncIterable<ModelToken> {
     if (input.channel !== "telegram" || input.principalId !== this.dependencies.ownerPrincipalId
       || !this.dependencies.ownerTurnAuthoritative) {
-      yield* this.dependencies.fallbackModel.stream(input);
+      yield* notSavedFallback(this.dependencies.fallbackModel, input);
       return;
     }
     const now = new Date(this.now().getTime());
@@ -444,7 +453,7 @@ export class StudyCoachModelAdapter implements ModelAdapter {
       snapshot = await this.dependencies.repository.readSnapshot(input.principalId, today);
     } catch {
       // An unapplied candidate migration must not take down the existing bot.
-      yield* this.dependencies.fallbackModel.stream(input);
+      yield* notSavedFallback(this.dependencies.fallbackModel, input);
       return;
     }
 
@@ -493,7 +502,7 @@ export class StudyCoachModelAdapter implements ModelAdapter {
         () => this.dependencies.repository.readClaimedCheckIn(input.principalId, today),
       );
       if (!claimed.ok || claimed.value === null) {
-        yield* this.dependencies.fallbackModel.stream(input);
+        yield* notSavedFallback(this.dependencies.fallbackModel, input);
         return;
       }
       const operation = await attemptStudyOperation(() => this.dependencies.repository.retireLatestCheckInSignals({
@@ -517,7 +526,7 @@ export class StudyCoachModelAdapter implements ModelAdapter {
     if (correctionIntent(input.userText)) {
       // The catch-up adapter owns course facts. Let it resolve the underlying
       // fact instead of changing only the study-coach projection.
-      yield* this.dependencies.fallbackModel.stream(input);
+      yield* notSavedFallback(this.dependencies.fallbackModel, input);
       return;
     }
 
@@ -537,7 +546,11 @@ export class StudyCoachModelAdapter implements ModelAdapter {
     if (request !== null) {
       const course = resolveCourse(snapshot, null, request.sourcePhrase);
       if (course === null) {
-        yield Object.freeze({ index: 0, text: "Which course should I use for that practice?" });
+        yield Object.freeze({
+          index: 0,
+          text: "Which course should I use for that practice?",
+          toolOutcome: "not_saved" as const,
+        });
         return;
       }
       const asksForCard = /\bcourse[ -]?card\b/iu.test(request.sourcePhrase);
@@ -550,7 +563,11 @@ export class StudyCoachModelAdapter implements ModelAdapter {
           observedAt: now.toISOString(),
         });
       if (source === null) {
-        yield Object.freeze({ index: 0, text: `I don't have course-card evidence for ${course.name} yet.` });
+        yield Object.freeze({
+          index: 0,
+          text: `I don't have course-card evidence for ${course.name} yet.`,
+          toolOutcome: "not_saved" as const,
+        });
         return;
       }
       try {
@@ -561,7 +578,11 @@ export class StudyCoachModelAdapter implements ModelAdapter {
           toolOutcome: "saved" as const,
         });
       } catch {
-        yield Object.freeze({ index: 0, text: "I couldn't make a cited practice set from that source." });
+        yield Object.freeze({
+          index: 0,
+          text: "I couldn't make a cited practice set from that source.",
+          toolOutcome: "not_saved" as const,
+        });
       }
       return;
     }
@@ -576,7 +597,11 @@ export class StudyCoachModelAdapter implements ModelAdapter {
         ? null
         : snapshot.courses.find((candidate) => candidate.courseId === checkIn.courseId) ?? null;
       if (course === null || checkIn === null) {
-        yield Object.freeze({ index: 0, text: "I don't have a current cited study target for that practice." });
+        yield Object.freeze({
+          index: 0,
+          text: "I don't have a current cited study target for that practice.",
+          toolOutcome: "not_saved" as const,
+        });
         return;
       }
       try {
@@ -594,7 +619,11 @@ export class StudyCoachModelAdapter implements ModelAdapter {
           toolOutcome: "saved" as const,
         });
       } catch {
-        yield Object.freeze({ index: 0, text: "I couldn't make a practice set for that cited study target." });
+        yield Object.freeze({
+          index: 0,
+          text: "I couldn't make a practice set for that cited study target.",
+          toolOutcome: "not_saved" as const,
+        });
       }
       return;
     }
@@ -603,7 +632,7 @@ export class StudyCoachModelAdapter implements ModelAdapter {
     if (observation !== null) {
       const course = resolveObservationCourse(snapshot, observation);
       if (course === null) {
-        yield* this.dependencies.fallbackModel.stream(input);
+        yield* notSavedFallback(this.dependencies.fallbackModel, input);
         return;
       }
       const update = await attemptStudyOperation(() => this.dependencies.repository.recordOwnerObservation({
@@ -640,7 +669,7 @@ export class StudyCoachModelAdapter implements ModelAdapter {
           });
           return;
         }
-        yield* this.dependencies.fallbackModel.stream(input);
+        yield* notSavedFallback(this.dependencies.fallbackModel, input);
         return;
       }
       let answered: Awaited<ReturnType<StudyCoachRepository["answerActiveQuiz"]>>;
@@ -654,11 +683,11 @@ export class StudyCoachModelAdapter implements ModelAdapter {
         });
       } catch {
         await attemptStudyOperation(() => this.dependencies.repository.dismissActiveQuiz(input.principalId, now));
-        yield* this.dependencies.fallbackModel.stream(input);
+        yield* notSavedFallback(this.dependencies.fallbackModel, input);
         return;
       }
       if (answered === null) {
-        yield* this.dependencies.fallbackModel.stream(input);
+        yield* notSavedFallback(this.dependencies.fallbackModel, input);
         return;
       }
       let next: StudyPracticeItem | null = null;
@@ -675,6 +704,6 @@ export class StudyCoachModelAdapter implements ModelAdapter {
       return;
     }
 
-    yield* this.dependencies.fallbackModel.stream(input);
+    yield* notSavedFallback(this.dependencies.fallbackModel, input);
   }
 }
