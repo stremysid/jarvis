@@ -600,6 +600,35 @@ describe.sequential("ArchivalService", () => {
     expect(await state()).toEqual({ sealed_through: 3, circuit_state: "closed", circuit_reason: null });
   });
 
+  it("reads one immutable archive segment object at most once across concurrent range checks", async () => {
+    await appendEvents(2);
+    await setCreatedAt(1, exactCutoff);
+    await setCreatedAt(2, exactCutoff);
+    const manifest = await service().archiveEligible(now, 2);
+    if (manifest === null) throw new Error("archive_segment_cache_fixture_missing");
+    const objectReads: string[] = [];
+    const reader = new ArchivalService({
+      database: env.DB,
+      cacheVerifiedSegments: true,
+      bucket: {
+        put: (...args) => env.ARCHIVE.put(...args),
+        get: async (...args) => {
+          objectReads.push(args[0]);
+          return env.ARCHIVE.get(...args);
+        },
+      },
+    });
+
+    const [first, second] = await Promise.all([
+      reader.readArchivedRange(0, 1),
+      reader.readArchivedRange(1, 1),
+    ]);
+
+    expect(first.map((event) => event.eventSequence)).toEqual([1]);
+    expect(second.map((event) => event.eventSequence)).toEqual([2]);
+    expect(objectReads).toEqual([manifest.objectKey]);
+  });
+
   it("seeks a many-segment tail read and accesses only the terminal manifest object", async () => {
     await appendEvents(48);
     for (let sequence = 1; sequence <= 48; sequence += 1) await setCreatedAt(sequence, exactCutoff);

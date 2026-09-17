@@ -23,6 +23,8 @@ export interface ArchivalServiceOptions {
   database: D1Database;
   bucket: ArchiveBucket;
   segmentLimits?: ArchiveSegmentLimitOverrides;
+  /** Safe only when this service instance is scoped to one immutable retrieval operation. */
+  cacheVerifiedSegments?: boolean;
 }
 
 const sha256Pattern = /^[a-f0-9]{64}$/;
@@ -99,6 +101,11 @@ function bytesFrom(body: R2ObjectBody): Promise<ArrayBuffer> {
 export class ArchivalService {
   private readonly repository: ArchiveRepository;
   private readonly segmentLimits: ArchiveSegmentLimits;
+  private readonly decodedSegments = new Map<string, Readonly<{
+    objectKey: string;
+    compressedByteLength: number;
+    decoded: Promise<DecodedArchiveSegment>;
+  }>>();
 
   constructor(private readonly options: ArchivalServiceOptions) {
     this.repository = new ArchiveRepository(options.database);
@@ -275,18 +282,43 @@ export class ArchivalService {
   }
 
   private async verifyManifestObject(manifest: ArchiveManifest): Promise<DecodedArchiveSegment> {
-    const decoded = await this.readAndDecode(
-      manifest.objectKey,
-      manifest.compressedSha256,
-      manifest.compressedByteLength,
-    );
+    if (this.options.cacheVerifiedSegments !== true) {
+      const decoded = await this.readAndDecode(
+        manifest.objectKey,
+        manifest.compressedSha256,
+        manifest.compressedByteLength,
+      );
+      this.validateDecodedManifest(decoded, manifest);
+      return decoded;
+    }
+    let cached = this.decodedSegments.get(manifest.compressedSha256);
+    if (cached === undefined) {
+      cached = Object.freeze({
+        objectKey: manifest.objectKey,
+        compressedByteLength: manifest.compressedByteLength,
+        decoded: this.readAndDecode(
+          manifest.objectKey,
+          manifest.compressedSha256,
+          manifest.compressedByteLength,
+        ),
+      });
+      this.decodedSegments.set(manifest.compressedSha256, cached);
+    } else if (cached.objectKey !== manifest.objectKey
+      || cached.compressedByteLength !== manifest.compressedByteLength) {
+      throw new Error("archive_manifest_mismatch");
+    }
+    const decoded = await cached.decoded;
+    this.validateDecodedManifest(decoded, manifest);
+    return decoded;
+  }
+
+  private validateDecodedManifest(decoded: DecodedArchiveSegment, manifest: ArchiveManifest): void {
     if (decoded.uncompressedByteLength !== manifest.uncompressedByteLength
       || decoded.metadata.startSequence !== manifest.startSequence
       || decoded.metadata.endSequence !== manifest.endSequence
       || decoded.metadata.eventCount !== manifest.eventCount) {
       throw new Error("archive_manifest_mismatch");
     }
-    return decoded;
   }
 
   private async verifyCoverage(

@@ -759,6 +759,33 @@ describe("MemoryRepository", () => {
     });
   });
 
+  it("caches one archived creation and source receipt per event in the batched reader", async () => {
+    const principalId = await seedPrincipal();
+    const archived = await seedArchivedReceipt(principalId);
+    let archivedReads = 0;
+    const reader: ArchivedEventReader = {
+      async readArchivedRange(afterSequence, limit) {
+        archivedReads += 1;
+        return archived.reader.readArchivedRange(afterSequence, limit);
+      },
+    };
+    const repository = new MemoryRepository(env.DB, { archivedEventReader: reader });
+    const topics = await repository.bootstrapTopics(principalId);
+    const input = await inputForArchived(principalId, archived, topics.inbox.topicId);
+    await repository.commitInitialItem(input);
+    archivedReads = 0;
+
+    const batched = await repository.readCurrentItemsWithVisibility(principalId, [input.itemId]);
+    const batchedReads = archivedReads;
+    const [item, visibility] = await Promise.all([
+      repository.readCurrentItem(principalId, input.itemId),
+      repository.readItemVisibility(principalId, input.itemId),
+    ]);
+
+    expect(batched).toEqual([{ item, visibility }]);
+    expect(batchedReads).toBe(1);
+  });
+
   it("continues reading an immutable live source after its event moves to an archive segment", async () => {
     const prepared = await fixture();
     await prepared.repository.commitInitialItem(prepared.input);
@@ -909,6 +936,56 @@ describe("MemoryRepository", () => {
       repository.resolveTopicPath(principalId, ["Memory", "Retired chain"]),
       "memory_corrupt",
     );
+  });
+
+  it("allows up to 128 combined redirect and parent steps in a batched topic walk", async () => {
+    const prepared = await fixture();
+    const topics = await prepared.repository.bootstrapTopics(prepared.principalId);
+    let parentTopicId = topics.root.topicId;
+    for (let index = 0; index < 40; index += 1) {
+      parentTopicId = await createTopic(prepared.principalId, parentTopicId, `Deep parent ${index}`);
+    }
+    const redirects: Ulid[] = [];
+    for (let index = 0; index < 40; index += 1) {
+      redirects.push(await createTopic(prepared.principalId, topics.root.topicId, `Redirect ${index}`));
+    }
+    const firstRedirect = redirects[0];
+    if (firstRedirect === undefined) throw new Error("memory_repository_redirect_fixture_missing");
+    for (let index = 0; index < redirects.length; index += 1) {
+      const source = redirects[index];
+      const target = redirects[index + 1] ?? parentTopicId;
+      if (source === undefined) throw new Error("memory_repository_redirect_fixture_missing");
+      await mergeTopic(prepared.principalId, source, `Redirect ${index}`, target);
+    }
+    await prepared.repository.commitInitialItem({
+      ...prepared.input,
+      placement: { ...prepared.input.placement, topicId: parentTopicId },
+    });
+    const guards = await env.DB.prepare(`SELECT name, sql FROM sqlite_schema
+      WHERE type = 'trigger' AND tbl_name IN (
+        'memory_item_placement_state', 'memory_item_placement_events'
+      )`).all<{ name: string; sql: string }>();
+    for (const guard of guards.results) await env.DB.prepare(`DROP TRIGGER ${guard.name}`).run();
+    try {
+      await env.DB.batch([
+        env.DB.prepare(`UPDATE memory_item_placement_state SET topic_id = ?
+          WHERE principal_id = ? AND placement_id = ?`)
+          .bind(firstRedirect, prepared.principalId, prepared.input.placement.placementId),
+        env.DB.prepare(`UPDATE memory_item_placement_events SET new_topic_id = ?
+          WHERE principal_id = ? AND placement_event_id = ?`)
+          .bind(firstRedirect, prepared.principalId, prepared.input.placement.placementEventId),
+      ]);
+    } finally {
+      for (const guard of guards.results) await env.DB.prepare(guard.sql).run();
+    }
+
+    const [read] = await prepared.repository.readCurrentItemsWithVisibility(
+      prepared.principalId,
+      [prepared.input.itemId],
+    );
+
+    expect(read?.item.topicPath).toHaveLength(41);
+    expect(read?.item.topicPath.at(-1)?.displayName).toBe("Deep parent 39");
   });
 
   it("fails closed on incomplete rows, hash mismatches and source timestamp mismatches", async () => {
