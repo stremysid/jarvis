@@ -1,5 +1,13 @@
 # Known issues
 
+## Local Workers tests do not enforce every production runtime limit
+
+The local Workers test pool permits crypto parameters that production workerd
+rejects, including PBKDF2 iteration counts above 100,000. A green local suite
+therefore does not establish production compatibility for crypto parameters or
+other runtime limits. Tests must assert those limits directly against their
+documented production values.
+
 ## Verified backups do not yet have an owner-enabled R2 bucket lock
 
 The backup worker verifies every object before publishing a manifest, records

@@ -136,7 +136,7 @@ describe("owner-passphrase verifier and Worker-side generation", () => {
       .toThrow("owner_passphrase_candidate_invalid");
   });
 
-  it("constructs and verifies the shared HMAC plus PBKDF2 known answer", async () => {
+  it("constructs the six-pass chained PBKDF2 known answer, verifies its phrase, and rejects a wrong one", async () => {
     const vector = vectors.verifier;
     const verifier = new OwnerPassphraseVerifier(bytes(vector.pepperBase64), "v1", () => bytes(vector.saltBase64));
     const record = await verifier.create(vector.ownerIdentityId, vector.verifierVersion, vector.phrase);

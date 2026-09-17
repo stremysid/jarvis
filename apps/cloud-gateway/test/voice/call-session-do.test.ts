@@ -1400,7 +1400,7 @@ describe("CallSessionCore owner and guest access", () => {
     expect(owner?.status).toBe("active");
   });
 
-  it("fails closed before a second guest PBKDF2 when the Task 4 budget is exhausted", async () => {
+  it("fails closed before a second guest chained PBKDF2 when the Task 4 budget is exhausted", async () => {
     const harness = await accessHarness("guest", 1);
     const deriveBits = vi.spyOn(crypto.subtle, "deriveBits");
     await harness.instance.handleRelayEvent(relaySetup(harness.stored));
@@ -1410,7 +1410,7 @@ describe("CallSessionCore owner and guest access", () => {
 
     expect(harness.instance.phase).toBe("rejected");
     expect(await reservationCount()).toBe(1);
-    expect(deriveBits).toHaveBeenCalledTimes(1);
+    expect(deriveBits).toHaveBeenCalledTimes(6);
   });
 
   it("executes a recognized owner access draft only after explicit PIN selection and exact confirmation", async () => {

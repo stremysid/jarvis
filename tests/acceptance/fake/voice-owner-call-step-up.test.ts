@@ -691,7 +691,7 @@ describe("owner call passphrase step-up", () => {
     } finally { await system.cleanup(); }
   });
 
-  it("commits the durable attempt ordinal before starting the 600,000-round verifier", async () => {
+  it("commits the durable attempt ordinal before every pass of the six-pass 600,000-round verifier", async () => {
     const system = await createFakeCallingSystem();
     const deriveBits = crypto.subtle.deriveBits.bind(crypto.subtle);
     const reservationsAtKdf: number[] = [];
@@ -709,15 +709,18 @@ describe("owner call passphrase step-up", () => {
         return opened;
       })();
       await call.prompt("ablaze abrasion active");
-      expect(reservationsAtKdf).toEqual([1]);
-      expect(spy.mock.calls[0]?.[0]).toMatchObject({ name: "PBKDF2", iterations: 600_000 });
+      expect(reservationsAtKdf).toEqual(Array(6).fill(1));
+      expect(spy).toHaveBeenCalledTimes(6);
+      for (const call of spy.mock.calls) {
+        expect(call[0]).toMatchObject({ name: "PBKDF2", iterations: 100_000 });
+      }
     } finally {
       spy.mockRestore();
       await system.cleanup();
     }
   }, 30_000);
 
-  it("measures both 600,000-round admission and repeat-suppression KDF paths", async () => {
+  it("measures both six-pass 600,000-round admission and repeat-suppression KDF paths", async () => {
     const system = await createFakeCallingSystem();
     const iterations: number[] = [];
     const deriveBits = crypto.subtle.deriveBits.bind(crypto.subtle);
@@ -738,7 +741,7 @@ describe("owner call passphrase step-up", () => {
       await call.prompt(FAKE_OWNER_PASSPHRASE);
       const repeatMs = performance.now() - repeatStart;
 
-      expect(iterations).toEqual([600_000, 600_000]);
+      expect(iterations).toEqual(Array(12).fill(100_000));
       expect(admissionMs).toBeGreaterThan(0);
       expect(repeatMs).toBeGreaterThan(0);
       console.info("owner_step_up_kdf_latency_evidence", JSON.stringify({

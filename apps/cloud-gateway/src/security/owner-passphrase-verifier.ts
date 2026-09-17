@@ -2,6 +2,7 @@ import {
   OWNER_PASSPHRASE_WORD_LIST_VERSION,
   OWNER_PASSPHRASE_WORDS,
 } from "./owner-passphrase-word-list.js";
+import { deriveChainedPbkdf2Sha256 } from "./chained-pbkdf2.js";
 
 export interface OwnerPassphraseVerifierRecordV1 {
   readonly schemaVersion: "1.0";
@@ -257,10 +258,7 @@ export class OwnerPassphraseVerifier {
   }
 
   async #digest(hmac: Uint8Array, salt: Uint8Array): Promise<Uint8Array> {
-    const key = await crypto.subtle.importKey("raw", hmac, "PBKDF2", false, ["deriveBits"]);
-    return new Uint8Array(await crypto.subtle.deriveBits({
-      name: "PBKDF2", hash: "SHA-256", salt, iterations: 600_000,
-    }, key, 256));
+    return deriveChainedPbkdf2Sha256(hmac, salt);
   }
 
   async create(identityId: string, verifierVersion: number, candidate: string): Promise<OwnerPassphraseVerifierRecordV1> {
