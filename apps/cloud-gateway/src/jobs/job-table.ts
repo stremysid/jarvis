@@ -31,6 +31,7 @@ import { ProjectPoller } from "../projects/project-poller.js";
 import { ProjectRepository } from "../projects/project-repository.js";
 import {
   AUTOMATIC_DISTILLATION_STEP_LIMITS,
+  AUTOMATIC_INBOX_REFILE_D1_STATEMENT_CEILING,
   AutomaticMemoryDistillationWorkflow,
 } from "../memory/automatic-distillation.js";
 import { MemoryRepository } from "../memory/memory-repository.js";
@@ -89,7 +90,7 @@ const BRIGHTSPACE_ON_DEMAND_JOB = "brightspace_on_demand";
 const BRIGHTSPACE_ON_DEMAND_COOLDOWN_MS = 5 * 60_000;
 const MEMORY_DISTILLATION_STEPS_PER_POLL = 8;
 const MEMORY_DISTILLATION_WALL_CLOCK_BUDGET_MS = 4 * 60_000;
-const MEMORY_DISTILLATION_D1_STATEMENT_ALLOWANCE = 3_000;
+const MEMORY_DISTILLATION_D1_STATEMENT_ALLOWANCE = 4_500;
 const MEMORY_HISTORY_STEPS_PER_POLL = 8;
 const MEMORY_HISTORY_WALL_CLOCK_BUDGET_MS = 4 * 60_000;
 const MEMORY_HISTORY_D1_STATEMENT_ALLOWANCE = 512;
@@ -511,6 +512,7 @@ async function distilMemory(
     }
     if (step > 0
       && chargedD1Statements + AUTOMATIC_DISTILLATION_STEP_LIMITS.d1Statements + providerD1Ceiling
+        + AUTOMATIC_INBOX_REFILE_D1_STATEMENT_CEILING
         > MEMORY_DISTILLATION_D1_STATEMENT_ALLOWANCE) {
       stoppedByD1Allowance = true;
       break;
@@ -533,6 +535,13 @@ async function distilMemory(
     }
   }
   if (lastResult === null) throw new Error("memory_distillation_step_missing");
+  const canRefile = chargedD1Statements + AUTOMATIC_INBOX_REFILE_D1_STATEMENT_CEILING
+    <= MEMORY_DISTILLATION_D1_STATEMENT_ALLOWANCE;
+  const inboxRefiling = canRefile
+    ? await workflow.refileInboxItems()
+    : Object.freeze({ examinedItemCount: 0, refiledItemCount: 0, failedItemCount: 0 });
+  if (canRefile) chargedD1Statements += AUTOMATIC_INBOX_REFILE_D1_STATEMENT_CEILING;
+  else stoppedByD1Allowance = true;
   const backlogUnit = lastResult.backlogEventCount === 1 ? "event" : "events";
   const eligibleUnit = lastResult.eligibleBacklogEventCount === 1 ? "eligible event" : "eligible events";
   const eligibleQualifier = lastResult.eligibleBacklogIsLowerBound ? "at least " : "";
@@ -551,7 +560,9 @@ async function distilMemory(
         : "";
   const skipDetail = skipReasons.length === 0 ? "" : ` (${skipReasons})`;
   const failureDetail = lastResult.failureCode === null ? "" : `, code=${lastResult.failureCode}`;
-  return `Memory ${lastResult.outcome}, ${createdItemCount} created, ${lastResult.backlogEventCount} ${backlogUnit} pending, ${eligibleQualifier}${lastResult.eligibleBacklogEventCount} ${eligibleUnit} pending, ${skippedEventCount} ${skipUnit}${skipDetail} after ${stepCount} ${stepUnit}${stopReason}${failureDetail}`;
+  const filingDetail = `; inbox filing ${inboxRefiling.refiledItemCount} refiled, `
+    + `${inboxRefiling.failedItemCount} retryable failures`;
+  return `Memory ${lastResult.outcome}, ${createdItemCount} created, ${lastResult.backlogEventCount} ${backlogUnit} pending, ${eligibleQualifier}${lastResult.eligibleBacklogEventCount} ${eligibleUnit} pending, ${skippedEventCount} ${skipUnit}${skipDetail} after ${stepCount} ${stepUnit}${stopReason}${failureDetail}${filingDetail}`;
 }
 
 function statementCountingDatabase(database: D1Database): Readonly<{

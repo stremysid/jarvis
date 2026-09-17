@@ -41,7 +41,7 @@ let principalSerial = 0;
 let topicClock = Date.now() + 1_000;
 
 function nextTimestamp(): string {
-  topicClock += 10;
+  topicClock = Math.max(Date.now() + 1_000, topicClock + 10);
   return new Date(topicClock).toISOString();
 }
 
@@ -650,6 +650,22 @@ describe("MemoryRepository", () => {
     ]);
   });
 
+  it("refuses automatic creation deeper than four areas without creating a partial path", async () => {
+    const principalId = await seedPrincipal();
+    const repository = new MemoryRepository(env.DB);
+    await repository.bootstrapTopics(principalId);
+
+    const result = await repository.resolveOrCreateAutomaticTopicPath(
+      principalId,
+      ["One", "Two", "Three", "Four", "Five"],
+      6,
+    );
+
+    expect(result).toEqual({ topic: null, createdTopicCount: 0, cappedBy: "depth" });
+    expect(await env.DB.prepare("SELECT count(*) AS count FROM memory_topics WHERE principal_id = ?")
+      .bind(principalId).first()).toEqual({ count: 2 });
+  });
+
   it("keeps the canonical root and inbox identities after both display names are renamed", async () => {
     const principalId = await seedPrincipal();
     const repository = new MemoryRepository(env.DB);
@@ -848,6 +864,27 @@ describe("MemoryRepository", () => {
     await renameTopic(principalId, current, "Shared", "Current final", "Memory/Shared");
     const aliasWinner = await repository.resolveTopicPath(principalId, ["Memory", "Shared"]);
     expect(aliasWinner).toMatchObject({ topicId: current, matchedBy: "alias" });
+  });
+
+  it("follows a merged sibling alias during automatic path resolution", async () => {
+    const principalId = await seedPrincipal();
+    const repository = new MemoryRepository(env.DB);
+    const topics = await repository.bootstrapTopics(principalId);
+    const retired = await createTopic(principalId, topics.root.topicId, "Retired area");
+    const survivor = await createTopic(principalId, topics.root.topicId, "Current area");
+    await mergeTopic(principalId, retired, "Retired area", survivor);
+
+    const resolved = await repository.resolveOrCreateAutomaticTopicPath(
+      principalId,
+      ["Retired area"],
+      0,
+    );
+
+    expect(resolved).toMatchObject({
+      topic: { topicId: survivor, matchedBy: "alias" },
+      createdTopicCount: 0,
+      cappedBy: null,
+    });
   });
 
   it("follows merge redirects and fails closed when their bound is exceeded", async () => {
