@@ -1,0 +1,12 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/telegram-memory.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr40
+
+Using secrets defined in process.env
+
+ Test Files  1 passed (1)
+      Tests  53 passed (53)
+   Start at  22:12:00
+   Duration  17.11s (transform 849ms, setup 0ms, import 1.61s, tests 14.82s, environment 0ms)
+

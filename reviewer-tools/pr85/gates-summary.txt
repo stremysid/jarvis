@@ -1,0 +1,7 @@
+head 5b05f62
+lint rc=0
+typecheck rc=0
+test rc=1
+ FAIL  |default| apps/cloud-gateway/test/memory/telegram-memory.test.ts > Telegram memory retrieval statement bounds > starts literal history before a 700 ms base lookup can consume the memory deadline
+ Test Files  1 failed | 185 passed (186)
+      Tests  1 failed | 4893 passed (4894)

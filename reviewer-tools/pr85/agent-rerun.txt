@@ -1,0 +1,96 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/adversarial-pr85.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr85-adv
+
+Using secrets defined in process.env
+stdout | apps/cloud-gateway/test/memory/adversarial-pr85.test.ts > PR85 adversarial: archived-source memory latency (runs first; resets archive) > A1 retrieves three archived-source memories plus archived literal hits well inside 800 ms at 25 ms per D1 round trip
+adv_pr85_archived_latency {"liveRowsAfterArchive":0,"sealedThrough":9,"archivedSources":[["archived"],["archived"],["archived"]],"elapsedMs":656,"statements":73,"roundTrips":48,"maxInflight":6,"logs":[],"metrics":[{"candidatesMs":653,"historyMs":280,"mergeMs":1,"d1RoundTrips":48}],"memoryContexts":3,"historyContexts":["History evidence [R2 c17d4b7e9496d570799","History evidence [R2 c17d4b7e9496d570799","History evidence [R2 c17d4b7e9496d570799","History evidence [R2 c17d4b7e9496d570799"]}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr85.test.ts > PR85 adversarial: literal history coupling > B1 an open archive circuit does not remove live canonical memories from an ordinary Telegram question
+adv_pr85_circuit_open {"logs":["telegram_memory_retrieval_fallback"],"contextCount":64,"memory":[]}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr85.test.ts > PR85 adversarial: literal history in the real Telegram turn > B2 (pre-existing) an old turn outside the recent window is recalled through literal history on a real Telegram question
+adv_pr85_dead_history {"serviceHistory":0,"serviceHasQuestion":true,"directHistory":0}
+
+stdout | apps/cloud-gateway/test/memory/adversarial-pr85.test.ts > PR85 adversarial: base coupling > B3 a 900 ms base lookup (inside its 2,500 ms deadline) does not discard memory that was ready in time
+adv_pr85_slow_base_900 {"logs":["telegram_memory_retrieval_memory_timeout"],"count":0}
+
+ ❯ |default| apps/cloud-gateway/test/memory/adversarial-pr85.test.ts (7 tests | 4 failed) 8762ms
+     × A1 retrieves three archived-source memories plus archived literal hits well inside 800 ms at 25 ms per D1 round trip 1729ms
+     × B1 an open archive circuit does not remove live canonical memories from an ordinary Telegram question 199ms
+     × B2 (pre-existing) an old turn outside the recent window is recalled through literal history on a real Telegram question 919ms
+     × B3 a 900 ms base lookup (inside its 2,500 ms deadline) does not discard memory that was ready in time 2669ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr85.test.ts > PR85 adversarial: archived-source memory latency (runs first; resets archive) > A1 retrieves three archived-source memories plus archived literal hits well inside 800 ms at 25 ms per D1 round trip
+AssertionError: expected 656 to be less than 500
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr85.test.ts:887:23
+    885|     expect(logs).toEqual([]);
+    886|     for (const text of memoryTexts) expect(hasMemoryEvidence(contexts,…
+    887|     expect(elapsedMs).toBeLessThan(500);
+       |                       ^
+    888|
+    889|   }, 60_000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr85.test.ts > PR85 adversarial: literal history coupling > B1 an open archive circuit does not remove live canonical memories from an ordinary Telegram question
+AssertionError: expected [ Array(1) ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   "telegram_memory_retrieval_fallback",
++ ]
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr85.test.ts:927:20
+    925|         memory: context.filter((c) => /memory evidence/iu.test(c.text)…
+    926|       }));
+    927|       expect(logs).toEqual([]);
+       |                    ^
+    928|       expect(hasMemoryEvidence(context, "My favourite school subject i…
+    929|     } finally {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr85.test.ts > PR85 adversarial: literal history in the real Telegram turn > B2 (pre-existing) an old turn outside the recent window is recalled through literal history on a real Telegram question
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr85.test.ts:1039:109
+    1037|       directHistory: direct.filter((c) => c.text.startsWith("History e…
+    1038|     }));
+    1039|     expect(context.some((c) => c.text.startsWith("History evidence") &…
+       |                                                                                                             ^
+    1040|   });
+    1041| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr85.test.ts > PR85 adversarial: base coupling > B3 a 900 ms base lookup (inside its 2,500 ms deadline) does not discard memory that was ready in time
+AssertionError: expected [ Array(1) ] to not include 'telegram_memory_retrieval_memory_time…'
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr85.test.ts:1066:22
+    1064|     });
+    1065|     console.log("adv_pr85_slow_base_900", JSON.stringify({ logs, count…
+    1066|     expect(logs).not.toContain("telegram_memory_retrieval_memory_timeo…
+       |                      ^
+    1067|     expect(contexts.some((context) => context.text.includes("My favori…
+    1068|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 3 passed (7)
+   Start at  22:29:27
+   Duration  10.88s (transform 736ms, setup 0ms, import 1.48s, tests 8.76s, environment 0ms)
+
