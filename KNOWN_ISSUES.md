@@ -148,6 +148,16 @@ integration work must resolve these limits before enabling the affected callers:
   literal-history indexer writes this table today; closing the gap requires an
   atomic replacement protocol or a separate durable current-chunk receipt.
 
+## Meaning-history canonical reads lack two supporting indexes
+
+`memory_history_chunks` has no index on `(principal_id, content_hash)`, which
+meaning recall filters on for each canonical history read, or on
+`(principal_id, start_event_sequence)`, which the related joins also need.
+This is a performance issue rather than a recall-correctness defect. Add both
+indexes to the next migration that ships for another reason, and add that
+migration's `memory-backup-restore-migrations.ts` inventory line in the same
+commit so backups taken at the new schema version remain restorable.
+
 ## Automatic distillation is deliberately provider-disabled in production
 
 The hourly poll now has the complete tiered-read, extraction-policy and

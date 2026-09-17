@@ -48,6 +48,9 @@ export interface CommandContext {
       failure: string | null;
     }[]>;
   };
+  readonly memoryMeaningCoverage?: {
+    read(): Promise<Readonly<{ eligible: number; indexed: number; missing: number }>>;
+  };
   readonly quietWindows?: {
     open(reason: "manual", from: Date, to: Date): Promise<void>;
     closeManual(at: Date): Promise<number>;
@@ -105,6 +108,13 @@ async function status(context: CommandContext): Promise<readonly CommandReply[]>
         lines.push(`${job}: ok at ${last.finishedAt.slice(11, 16)}`);
       }
     }
+  }
+
+  if (context.memoryMeaningCoverage === undefined) {
+    lines.push("Memory meaning: status unavailable");
+  } else {
+    const coverage = await context.memoryMeaningCoverage.read();
+    lines.push(`Memory meaning: ${coverage.indexed}/${coverage.eligible} indexed (${coverage.missing} missing)`);
   }
 
   return one(lines.join("\n"));

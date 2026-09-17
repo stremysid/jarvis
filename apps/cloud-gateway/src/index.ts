@@ -57,6 +57,12 @@ import { TelegramRestProvider, withTelegramTyping } from "./providers/telegram-p
 import { Redactor } from "./security/redaction.js";
 import type { ModelAdapter } from "./model/model-types.js";
 import { TelegramMemoryRetriever } from "./memory/telegram-memory-retriever.js";
+import {
+  MemoryMeaningService,
+  VectorizeMemoryVectorStore,
+  WorkersAiMemoryEmbeddingProvider,
+  readMemoryMeaningCoverage,
+} from "./memory/meaning-search.js";
 import { MemoryExtractionBudget } from "./memory/memory-extraction-budget.js";
 import { MemoryOwnerControlsService } from "./memory/memory-owner-controls.js";
 import { SchoolCatchupModelAdapter } from "./school/school-catchup-model.js";
@@ -213,6 +219,14 @@ async function replyTo(env: Env, accepted: AcceptedTelegramUpdate): Promise<void
       const memory = new TelegramMemoryRetriever({
         database: env.DB,
         archive: env.ARCHIVE,
+        meaningSearch: env.AI === undefined || env.MEMORY_VECTORS === undefined
+          ? undefined
+          : new MemoryMeaningService({
+            database: env.DB,
+            embeddings: new WorkersAiMemoryEmbeddingProvider(env.AI),
+            vectors: new VectorizeMemoryVectorStore(env.MEMORY_VECTORS),
+          }),
+        observeMeaningSearch: (observation) => observer.recordMeaningSearch(observation),
         observeRetrieval: (metrics) => observer.observeMemoryRetrieval(metrics),
       });
       let model: ModelAdapter = baseModel;
@@ -397,6 +411,9 @@ function commandContext(env: Env, principalId: string): CommandContext {
       delivery: { send: async () => undefined },
       fetcher: globalThis.fetch.bind(globalThis),
     }),
+    memoryMeaningCoverage: {
+      read: () => readMemoryMeaningCoverage(env.DB, principalId, clock.now()),
+    },
     quietWindows: {
       // Adapted rather than passed through: the service answers "is this
       // suppressed", and the command needs to open and close a window. Both

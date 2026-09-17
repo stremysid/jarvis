@@ -10,6 +10,7 @@ import {
   deepSeekFailureReason,
   type DeepSeekFailureReason,
 } from "../../providers/deepseek-provider.js";
+import type { TelegramMeaningSearchObservation } from "../../memory/telegram-memory-retriever.js";
 
 export interface TelegramTurnTimings {
   readonly contextRetrievalMs: number;
@@ -25,6 +26,8 @@ export interface TelegramTurnTimings {
   readonly settlementMs: number;
   readonly providerCallCount: number;
   readonly modelFailureReason: DeepSeekFailureReason | null;
+  readonly meaningSearchMs: number;
+  readonly meaningSearchFallbackCode: TelegramMeaningSearchObservation["fallbackCode"];
 }
 
 type MillisecondClock = () => number;
@@ -49,6 +52,8 @@ export class TelegramTurnObserver {
   #settlementMs = 0;
   #providerCallCount = 0;
   #modelFailureReason: DeepSeekFailureReason | null = null;
+  #meaningSearchMs = 0;
+  #meaningSearchFallbackCode: TelegramMeaningSearchObservation["fallbackCode"] = null;
 
   constructor(now: MillisecondClock = defaultClock) {
     this.#now = now;
@@ -140,6 +145,11 @@ export class TelegramTurnObserver {
     });
   }
 
+  recordMeaningSearch(observation: TelegramMeaningSearchObservation): void {
+    this.#meaningSearchMs = observation.meaningSearchMs;
+    this.#meaningSearchFallbackCode = observation.fallbackCode;
+  }
+
   async observeStaging<T>(operation: () => Promise<T>): Promise<T> {
     const startedAt = this.#now();
     try {
@@ -182,6 +192,8 @@ export class TelegramTurnObserver {
       settlementMs: this.#settlementMs,
       providerCallCount: this.#providerCallCount,
       modelFailureReason: this.#modelFailureReason,
+      meaningSearchMs: this.#meaningSearchMs,
+      meaningSearchFallbackCode: this.#meaningSearchFallbackCode,
     });
   }
 }
@@ -207,6 +219,8 @@ export function telegramTurnOutcomeLog(
     telegramSendMs: timings.telegramSendMs,
     settlementMs: timings.settlementMs,
     providerCallCount: timings.providerCallCount,
+    meaningSearchMs: timings.meaningSearchMs,
+    meaningSearchFallbackCode: timings.meaningSearchFallbackCode,
   };
   return Object.freeze(
     timings.modelFailureReason !== null

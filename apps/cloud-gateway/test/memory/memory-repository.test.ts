@@ -529,6 +529,10 @@ async function seedRawInitial(
   options: Readonly<{
     textHash?: Sha256Hex;
     sourceOccurredAt?: string;
+    sourceR2SegmentId?: Sha256Hex | null;
+    sourceChannel?: "telegram" | "voice" | "system";
+    sourceExcerpt?: string;
+    sourceExcerptHash?: Sha256Hex;
     includePlacement?: boolean;
   }> = {},
 ): Promise<void> {
@@ -581,10 +585,10 @@ async function seedRawInitial(
         source.eventId,
         source.eventSequence,
         source.sourceLocation,
-        source.r2SegmentId,
-        source.excerpt,
-        source.excerptHash,
-        source.channel,
+        options.sourceR2SegmentId === undefined ? source.r2SegmentId : options.sourceR2SegmentId,
+        options.sourceExcerpt ?? source.excerpt,
+        options.sourceExcerptHash ?? source.excerptHash,
+        options.sourceChannel ?? source.channel,
         options.sourceOccurredAt ?? source.occurredAt,
         createdAt,
       ),
@@ -853,6 +857,41 @@ describe("MemoryRepository", () => {
 
     expect(batched).toEqual([{ item, visibility }]);
     expect(batchedReads).toBe(1);
+  });
+
+  it("skips only the archive-unavailable item while retaining a valid live retrieval candidate", async () => {
+    const prepared = await fixture();
+    await prepared.repository.commitInitialItem(prepared.input);
+    const archived = await seedArchivedReceipt(prepared.principalId);
+    const archiveRepository = new MemoryRepository(env.DB, {
+      archivedEventReader: archived.reader,
+    });
+    const topics = await archiveRepository.bootstrapTopics(prepared.principalId);
+    const archivedInput = await inputForArchived(
+      prepared.principalId,
+      archived,
+      topics.inbox.topicId,
+    );
+    await archiveRepository.commitInitialItem(archivedInput);
+    const unavailable = new MemoryRepository(env.DB, {
+      archivedEventReader: {
+        async readArchivedRange() {
+          throw new Error("archive_circuit_open");
+        },
+      },
+    });
+
+    try {
+      const selected = await unavailable.readCurrentItemsWithVisibility(
+        prepared.principalId,
+        [archivedInput.itemId, prepared.input.itemId],
+      );
+
+      expect(selected.map(({ item }) => item.itemId)).toEqual([prepared.input.itemId]);
+      expect(selected[0]?.item.version.text).toBe(prepared.input.version.text);
+    } finally {
+      await cleanupHandoffArchive(archived.segmentId);
+    }
   });
 
   it("continues reading an immutable live source after its event moves to an archive segment", async () => {
@@ -1179,6 +1218,44 @@ describe("MemoryRepository", () => {
       prepared.repository.readCurrentItem(otherPrincipalId, prepared.input.itemId),
       "memory_not_found",
     );
+  });
+
+  it("fails closed when any batched archived-source receipt field is changed", async () => {
+    const principalId = await seedPrincipal();
+    const archived = await seedArchivedReceipt(principalId);
+    const repository = new MemoryRepository(env.DB, { archivedEventReader: archived.reader });
+    const topics = await repository.bootstrapTopics(principalId);
+    const guard = await env.DB.prepare(`SELECT sql FROM sqlite_schema
+      WHERE type = 'trigger' AND name = 'memory_item_sources_insert_guard'`)
+      .first<{ sql: string }>();
+    if (guard === null) throw new Error("memory_repository_source_guard_missing");
+    const names = ["R2 segment id", "occurrence time", "channel", "excerpt"] as const;
+    for (const name of names) {
+      const input = await inputForArchived(principalId, archived, topics.inbox.topicId);
+      const changedExcerpt = "A changed excerpt with its own internally valid hash.";
+      const options: NonNullable<Parameters<typeof seedRawInitial>[1]> = name === "R2 segment id"
+        ? { sourceR2SegmentId: "f".repeat(64) as Sha256Hex }
+        : name === "occurrence time"
+          ? { sourceOccurredAt: new Date(Date.parse(archived.occurredAt) + 1_000).toISOString() }
+          : name === "channel"
+            ? { sourceChannel: "voice" }
+            : {
+                sourceExcerpt: changedExcerpt,
+                sourceExcerptHash: await sha256Hex(changedExcerpt),
+              };
+      await env.DB.prepare("DROP TRIGGER memory_item_sources_insert_guard").run();
+      try {
+        await seedRawInitial(input, options);
+      } finally {
+        await env.DB.prepare(guard.sql).run();
+      }
+
+      const error = await expectCode(
+        repository.readCurrentItemsWithVisibility(principalId, [input.itemId]),
+        "memory_corrupt",
+      );
+      expect(error.code, name).toBe("memory_corrupt");
+    }
   });
 
   it("maps D1 diagnostics to one stable non-secret unavailable outcome", async () => {

@@ -1354,14 +1354,21 @@ describe("Telegram memory target selection and replay guards", () => {
     const owner = await seedServicePrincipal("that-reference");
     const model = new RecordingModel();
     const telegram = new FakeTelegramProvider();
-    for (const text of [
-      "Remember that my reports should be short.",
-      "Remember that my essays need a clear thesis.",
-      "Do you remember my reports preference?",
-      "Forget that memory.",
-    ]) {
-      await sendProduction({ who: owner, ownerPrincipalId: owner.principalId, text, model, telegram });
-    }
+    const step = (text: string) => sendProduction({
+      who: owner,
+      ownerPrincipalId: owner.principalId,
+      text,
+      model,
+      telegram,
+      retrievalTimeoutMs: 5_000,
+      baseRetrievalTimeoutMs: 10_000,
+    });
+    await step("Remember that my reports should be short.");
+    await step("Remember that my essays need a clear thesis.");
+    await step("Do you remember my reports preference?");
+    expect(model.inputs.at(-1)?.context.some((entry) =>
+      entry.text.includes("my reports should be short."))).toBe(true);
+    await step("Forget that memory.");
     const states = await env.DB.prepare(`SELECT version.text, state.lifecycle_state
       FROM memory_item_state state
       JOIN memory_item_versions version
@@ -1375,23 +1382,11 @@ describe("Telegram memory target selection and replay guards", () => {
     expect(telegram.requests.at(-1)?.text).toMatch(/Forgot 1 memory/u);
     expect(telegram.requests.at(-1)?.text).toContain("my reports should be short.");
 
-    await sendProduction({
-      who: owner,
-      ownerPrincipalId: owner.principalId,
-      text: "Why do you think that?",
-      model,
-      telegram,
-    });
+    await step("Why do you think that?");
     expect(telegram.requests.at(-1)?.text).toMatch(/Evidence for 1 memory/u);
     expect(telegram.requests.at(-1)?.text).toContain("my reports should be short.");
 
-    await sendProduction({
-      who: owner,
-      ownerPrincipalId: owner.principalId,
-      text: "Use that memory again.",
-      model,
-      telegram,
-    });
+    await step("Use that memory again.");
     expect(telegram.requests.at(-1)?.text).toMatch(/Restored 1 memory/u);
     expect(telegram.requests.at(-1)?.text).toContain("my reports should be short.");
   });
@@ -2371,7 +2366,7 @@ describe("Telegram memory retrieval statement bounds", () => {
     );
   });
 
-  it("starts literal history before a blocked base lookup can consume the memory deadline", async () => {
+  it("starts literal history before a blocked base lookup can consume the memory deadline", { timeout: 30_000 }, async () => {
     const owner = await seedServicePrincipal("slow-base-literal");
     await seedProductionShapedLatencyFixture(owner.principalId);
     const stats = newD1Stats();

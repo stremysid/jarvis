@@ -85,6 +85,8 @@ describe("Telegram turn observability", () => {
       settlementMs: 7,
       providerCallCount: 2,
       modelFailureReason: null,
+      meaningSearchMs: 0,
+      meaningSearchFallbackCode: null,
     });
   });
 
@@ -117,6 +119,8 @@ describe("Telegram turn observability", () => {
       telegramSendMs: 0,
       settlementMs: 0,
       providerCallCount: 1,
+      meaningSearchMs: 0,
+      meaningSearchFallbackCode: null,
       failureReason: reason,
     });
     expect(JSON.stringify(payload)).not.toContain("private provider response body");
@@ -138,8 +142,23 @@ describe("Telegram turn observability", () => {
       settlementMs: 11,
       providerCallCount: 1,
       modelFailureReason: "timeout",
+      meaningSearchMs: 17,
+      meaningSearchFallbackCode: "memory_meaning_search_timeout",
     };
     expect(telegramTurnOutcomeLog("event-1", "delivery_unknown", timings)).not.toHaveProperty("failureReason");
     expect(telegramTurnOutcomeLog("event-1", "cancelled", timings)).not.toHaveProperty("failureReason");
+  });
+
+  it("logs a redacted meaning-search duration and fallback code on every turn outcome", () => {
+    const observer = new TelegramTurnObserver(() => 0);
+    observer.recordMeaningSearch({
+      meaningSearchMs: 450,
+      fallbackCode: "memory_meaning_search_provider_error",
+    });
+
+    expect(telegramTurnOutcomeLog("event-1", "telegram_delivered", observer.snapshot())).toMatchObject({
+      meaningSearchMs: 450,
+      meaningSearchFallbackCode: "memory_meaning_search_provider_error",
+    });
   });
 });

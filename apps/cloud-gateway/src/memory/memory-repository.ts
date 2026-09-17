@@ -500,6 +500,14 @@ function corrupt(): never {
   throw new MemoryRepositoryError("memory_corrupt");
 }
 
+function archiveUnavailable(error: unknown): boolean {
+  return error instanceof Error && error.message === "archive_circuit_open";
+}
+
+function batchAdapterRejectedStatements(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("Invalid input");
+}
+
 function exactRow(value: unknown, fields: ReadonlySet<string>): void {
   if (value === null || typeof value !== "object" || Array.isArray(value)) corrupt();
   const keys = Reflect.ownKeys(value);
@@ -1326,7 +1334,16 @@ export class MemoryRepository {
       if (new Set(itemIds).size !== itemIds.length) refuse();
       if (itemIds.length === 0) return Object.freeze([]);
       const statements = itemIds.flatMap((itemId) => this.retrievalItemStatements(principalId, itemId));
-      const batch = await this.database.batch(statements);
+      let batch: D1Result<unknown>[];
+      try {
+        batch = await this.database.batch(statements);
+      } catch (error) {
+        // Some instrumented D1 adapters proxy prepared statements but do not
+        // unwrap them for batch(). These are read-only statements, so the
+        // compatibility fallback preserves validation without partial writes.
+        if (!batchAdapterRejectedStatements(error)) throw error;
+        batch = await Promise.all(statements.map((statement) => statement.all()));
+      }
       if (batch.length !== statements.length) corrupt();
       const statementsPerItem = 8;
       const receiptCache = new Map<string, Promise<ValidatedBatchedReceipt>>();
@@ -1334,6 +1351,7 @@ export class MemoryRepository {
         itemId,
         index,
       ): Promise<RetrievalMemoryItem | null> => {
+        try {
         const offset = index * statementsPerItem;
         const resultAt = (statementOffset: number): readonly Record<string, unknown>[] => {
           const result = batch[offset + statementOffset];
@@ -1433,6 +1451,12 @@ export class MemoryRepository {
             suppressedSourceIds: Object.freeze(suppressedSourceIds),
           }),
         });
+        } catch (error) {
+          // An open archive is an availability failure for this candidate,
+          // not permission to discard live candidates or weaken corruption.
+          if (archiveUnavailable(error)) return null;
+          throw error;
+        }
       }));
       return Object.freeze(selected.filter((entry): entry is RetrievalMemoryItem => entry !== null));
     });
