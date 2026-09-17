@@ -1,0 +1,7 @@
+      Tests  6 failed | 23 passed (29)
+     × B3b a proposed uncertain memory's fabricated text must not reach Sid's retrieval context 123ms
+     × B3c a proposed uncertain memory must not be promotable without Sid confirming that exact fact 194ms
+     × N2b a draft marker must not smuggle an unreceipted external claim past the guard 1ms
+     × N2c a draft marker must not disable the secret-request guard 2ms
+     × N2d a draft marker with no paragraph break must not exempt the rest of the reply 0ms
+     × N5b memory_confirm must also require a control intent, not any substring 181ms

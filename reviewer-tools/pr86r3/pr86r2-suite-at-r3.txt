@@ -1,0 +1,4 @@
+      Tests  3 failed | 16 passed (19)
+     × F5 a resend where the model words the same fact differently does not create a duplicate 249ms
+     × M1 refuses a fact that contradicts Sid's words ('I don't like math' -> 'Sid likes math') 94ms
+     × M1b refuses an arbitrary fact grounded by a one-word excerpt ('ok') 79ms

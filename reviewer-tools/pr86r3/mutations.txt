@@ -1,0 +1,13 @@
+R01 memory directOwnerText gate	SURVIVED	[]
+R18 conflicting toolOutcome	KILLED	["owner-telegram-agent.test.ts :: rejects conflicting structured pipeline outcomes (R18)"]
+R21 post-execute deadlineHit branch	ANCHOR-MISSING
+R26 guardReplyClaims on the tool path	ANCHOR-MISSING
+R40 unsignalled structured adapter falls back to wording	KILLED	["owner-telegram-agent.test.ts :: treats an unsignalled structured school reply as not saved (R40)"]
+R41 stated requires previousOfferExcerpt null	KILLED	["owner-telegram-agent.test.ts :: stores failed grounding as uncertain model inference with Sid's exact excerpt: negation mismatch","owner-telegram-agent.test.ts :: requires stated evidence to omit previousOfferExcerpt (R41)"]
+R09/R11 control-intent excerpt gate	SURVIVED	[]
+R13 isQuestionSentence requires a ? ending	KILLED	["owner-telegram-agent.test.ts :: stores Sid's misspelled remember request as stated evidence with the exact excerpt","owner-telegram-agent.test.ts :: rejects confirmed evidence when the previous offer violates question ending (R13)"]
+R42 compose suffix bound	SURVIVED	[]
+R30 dedupe active-only filter	ANCHOR-MISSING
+R39 study fallback not_saved	SURVIVED	[]
+R05/R06 index authority wiring	KILLED	["owner-telegram-agent.test.ts :: preserves production index authority wiring for memory authority (R05/R06)"]
+R31-R34 answerFromTap replay identity check	KILLED	["owner-telegram-agent.test.ts :: does not replay a confirmed forget with mismatched identity (R31)"]
