@@ -1,0 +1,33 @@
+npm notice run jarvis@0.1.0 npx
+npm notice run vitest --config vitest.workspace.ts run apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts
+
+ RUN  v4.1.11 C:/Users/Sid/jarvis-pr40
+
+Using secrets defined in process.env
+ ❯ |default| apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts (20 tests | 1 failed) 37910ms
+     × D5 the same worst step with every first commit attempt failing stays under the charged budget 7519ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |default| apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts > PR #82 r2: D1 budget honesty > D5 the same worst step with every first commit attempt failing stays under the charged budget
+AssertionError: expected 'D5 measured=3522 charged=4022' to be 'recorded' // Object.is equality
+
+Expected: "recorded"
+Received: "D5 measured=3522 charged=4022"
+
+ ❯ apps/cloud-gateway/test/memory/adversarial-pr82r2.test.ts:900:94
+    898|
+    899|     expect(result).toMatchObject({ outcome: "succeeded", createdItemCo…
+    900|     expect.soft(`D5 measured=${counted.queryCount()} charged=${result.…
+       |                                                                                              ^
+    901|     expect(counted.queryCount()).toBeLessThanOrEqual(result.budget.d1S…
+    902|   }, 120_000);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 19 passed (20)
+   Start at  01:41:34
+   Duration  40.04s (transform 842ms, setup 0ms, import 1.47s, tests 37.91s, environment 0ms)
+

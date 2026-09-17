@@ -1,0 +1,12 @@
+head 152358f
+lint rc=0
+typecheck rc=0
+test rc=0
+ Test Files  186 passed (186)
+      Tests  4922 passed (4922)
+adversarial-pr88.test.ts:
+      Tests  14 passed (14)
+adversarial-pr82r2.test.ts:
+     × D5 the same worst step with every first commit attempt failing stays under the charged budget 7519ms
+      Tests  1 failed | 19 passed (20)
+clean: 0
