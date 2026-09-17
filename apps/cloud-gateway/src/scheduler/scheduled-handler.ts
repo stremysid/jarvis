@@ -117,7 +117,8 @@ export async function handleScheduled(
 
   // Sequential, not concurrent. These jobs share one D1 database and a
   // Worker's CPU budget, and two of them contending is a slower way to do the
-  // same work. There is never more than one per firing today in any case.
+  // same work. Sunday night deliberately sends the retro before starting the
+  // bounded backup step so owner-facing delivery is not delayed by R2 work.
   for (const item of work) {
     reports.push(await runOne(item.job, item.runKey, dependencies));
   }

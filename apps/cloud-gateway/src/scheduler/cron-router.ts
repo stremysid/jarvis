@@ -33,10 +33,10 @@ export const DAILY_CRON = "30 11,12 * * *";
 const DIGEST_LOCAL_HOUR = 7;
 
 /** Sunday evening, per the plan. Local hour, same reasoning as the digest. */
-const RETRO_LOCAL_HOUR = 19;
-const RETRO_CRON = "30 23,0 * * *";
+const NIGHT_LOCAL_HOUR = 19;
+export const NIGHT_CRON = "30 23,0 * * *";
 
-export type ScheduledJob = "drain" | "poll" | "digest" | "retro";
+export type ScheduledJob = "drain" | "poll" | "digest" | "retro" | "backup";
 
 export interface ScheduledWork {
   readonly job: ScheduledJob;
@@ -91,13 +91,15 @@ export function routeCron(
     return [{ job: "digest", runKey: localDate(instant, timeZone) }];
   }
 
-  if (cron === RETRO_CRON) {
-    if (localHour(instant, timeZone) !== RETRO_LOCAL_HOUR) return [];
+  if (cron === NIGHT_CRON) {
+    if (localHour(instant, timeZone) !== NIGHT_LOCAL_HOUR) return [];
+    const date = localDate(instant, timeZone);
     // Sunday in the owner's week, not in UTC's. Late Sunday evening in
     // Toronto is already Monday in UTC, and keying off the UTC day would send
     // the retro on the wrong evening for half of every year.
-    if (localWeekday(instant, timeZone) !== 0) return [];
-    return [{ job: "retro", runKey: localDate(instant, timeZone) }];
+    return localWeekday(instant, timeZone) === 0
+      ? [{ job: "retro", runKey: date }, { job: "backup", runKey: date }]
+      : [{ job: "backup", runKey: date }];
   }
 
   return [];
@@ -108,5 +110,5 @@ export const ROUTED_CRONS: readonly string[] = Object.freeze([
   DRAIN_CRON,
   POLL_CRON,
   DAILY_CRON,
-  RETRO_CRON,
+  NIGHT_CRON,
 ]);
