@@ -12,6 +12,7 @@ import { ArchivalWorker } from "../archive/archival-worker.js";
 import { ArchiveRepository } from "../archive/archive-repository.js";
 import { ARCHIVE_SEGMENT_LIMITS } from "../archive/segment-codec.js";
 import { TieredEventReader } from "../archive/tiered-event-reader.js";
+import { MemoryBackupService, type MemoryBackupOutcome } from "../backup/memory-backup.js";
 import { ClassroomClient, ClassroomRequestError } from "../deadlines/classroom-client.js";
 import {
   BRIGHTSPACE_WINDOW_ITEM_LIMIT,
@@ -24,6 +25,7 @@ import { DeadlineRepository } from "../deadlines/deadline-repository.js";
 import { GoogleOAuthRequestError, GoogleOAuthTokenProvider } from "../deadlines/google-oauth.js";
 import { DecisionRepository } from "../decisions/decision-repository.js";
 import { DecisionService } from "../decisions/decision-service.js";
+import { localDate } from "../digest/digest-composer.js";
 import { GitHubClient } from "../projects/github-client.js";
 import { ProjectPoller } from "../projects/project-poller.js";
 import { ProjectRepository } from "../projects/project-repository.js";
@@ -785,6 +787,26 @@ async function digest(
   return { ok: true, detail: result.gaps === 0 ? "sent" : `sent with ${result.gaps} gaps` };
 }
 
+function memoryBackup(context: JobEnvironment): MemoryBackupService {
+  return new MemoryBackupService({
+    database: context.env.DB,
+    bucket: context.env.BACKUP,
+    clock: context.clock,
+    notice: context.delivery,
+  });
+}
+
+function backupJobOutcome(result: MemoryBackupOutcome): JobOutcome {
+  return result.outcome === "failed"
+    ? { ok: false, failure: result.code }
+    : { ok: true, detail: result.detail };
+}
+
+async function backup(context: JobEnvironment): Promise<JobOutcome> {
+  const timeZone = context.env.DIGEST_TIMEZONE ?? "America/Toronto";
+  return backupJobOutcome(await memoryBackup(context).runNightly(localDate(context.clock.now(), timeZone)));
+}
+
 /**
  * The frequent tick.
  *
@@ -801,6 +823,9 @@ async function digest(
  * should do.
  */
 async function drain(context: JobEnvironment): Promise<JobOutcome> {
+  const timeZone = context.env.DIGEST_TIMEZONE ?? "America/Toronto";
+  const backupContinuation = await memoryBackup(context)
+    .continueActive(localDate(context.clock.now(), timeZone));
   const principalId = context.env.OWNER_PRINCIPAL_ID;
   if (principalId === undefined) return { ok: false, failure: "OWNER_PRINCIPAL_ID is not set" };
   try {
@@ -825,7 +850,10 @@ async function drain(context: JobEnvironment): Promise<JobOutcome> {
       already_running: "guest notice drain already running",
       expired_run_recovered: "expired guest notice drain moved to failed for retry",
     };
-    return { ok: true, detail: `${open.length} open; ${notices[noticeDetail]}` };
+    if (backupContinuation.outcome === "failed") {
+      return { ok: false, failure: backupContinuation.code };
+    }
+    return { ok: true, detail: `${open.length} open; ${notices[noticeDetail]}; ${backupContinuation.detail}` };
   } catch (error) {
     return { ok: false, failure: describe(error) };
   }
@@ -836,6 +864,7 @@ export function buildJobTable(context: JobEnvironment): JobTable {
     drain: () => drain(context),
     digest: () => digest("daily", context),
     retro: () => digest("retro", context),
+    backup: () => backup(context),
     poll: () => poll(context),
   };
   return jobs as JobTable;
