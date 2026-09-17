@@ -1,0 +1,10 @@
+      Tests  5 failed | 3 passed (8)
+     × Q2 the quoted fact and an unrelated question in ONE sentence must not promote 2330ms
+     × Q3 a question that is genuinely about something else must not promote 2589ms
+     × Q4 two questions where Sid answers the second must not promote the first 2933ms
+     × Q5 re-quoting a question Jarvis asked earlier must not promote 2762ms
+     × Q6 a quoted fact inside a rhetorical question about the chem lab must not promote 2272ms
+C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-jarvis-reviewer-handoff-621ea3/9bbfb69e-ebed-4621-91d5-57b1a391cd87/scratchpad/work/pr86r5-suites.txt: Test Files  2 passed (2)
+C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-jarvis-reviewer-handoff-621ea3/9bbfb69e-ebed-4621-91d5-57b1a391cd87/scratchpad/work/pr86r5-suites.txt:      Tests  59 passed (59)
+C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-jarvis-reviewer-handoff-621ea3/9bbfb69e-ebed-4621-91d5-57b1a391cd87/scratchpad/work/pr86r5-gates.txt: Test Files  193 passed (193)
+C:/Users/Sid/AppData/Local/Temp/claude/C--javis--claude-worktrees-jarvis-reviewer-handoff-621ea3/9bbfb69e-ebed-4621-91d5-57b1a391cd87/scratchpad/work/pr86r5-gates.txt:      Tests  5089 passed (5089)
