@@ -1,6 +1,6 @@
 You are a narrow second reviewer for the Jarvis project (repo ksid1229-ops/jarvis; owner "Sid"). PR #83 (meaning search for memory recall: Workers AI bge-m3 + Vectorize, fused with keyword and literal-history recall) was sent back at `0ab3c56`; round 2 is head `787a1b5`, which also carries the required follow-ups from merged PR #87 (history sub-deadline, over-fetch and dedup, current-turn exclusion, candidate-source dedup, archive-unavailable item skip, kill tests). The main reviewer confirmed: gates 187 files / 4,944 tests green; `adversarial-pr83.test.ts` 5/5 and `adversarial-pr87.test.ts` 16/16 pass. Your job: find regressions and gaps. Treat claims as unproven.
 
-Read first: Claude's entries "PR #83 max review at 0ab3c56" (on the branch) and "PR #87 max review at 5f3c1ce" (on main), and the builder's round-2 entry at the top of `docs/AGENT_LOG.md` on `origin/codex/r2-memory-meaning-search`; `<scratchpad>/pr83-adversarial.md` and `<scratchpad>/pr87-narrow.md`. The diff against main is at `<scratchpad>/pr83r2/source.diff`. Read with `git show 787a1b5:<path>`.
+Read first: Claude's entries "PR #83 max review at 0ab3c56" (on the branch) and "PR #87 max review at 5f3c1ce" (on main), and the builder's round-2 entry at the top of `docs/AGENT_LOG.md` on `origin/codex/r2-memory-meaning-search`; `reviewer-tools/pr83-adversarial.md` and `reviewer-tools/pr87-narrow.md` on branch claude/reviewer-tools (read with `git show origin/claude/reviewer-tools:<path>`). Save the diff first: `git fetch origin && git diff origin/main...787a1b5 -- . ':!docs/AGENT_LOG.md' > <scratchpad>/pr83r2/source.diff`. Read with `git show 787a1b5:<path>`.
 
 CHECK ONLY THESE
 1. Forgetting across all three recall paths together (canonical, literal history, meaning): forget/lift/forget again, suppressed owner turns, a memory restated by Jarvis, archived sources, other principals — nothing hidden may reach context through any path or through fusion/dedup; stale vectors never leak text.
@@ -15,4 +15,4 @@ HOW
 
 OUTPUT: write `<scratchpad>/pr83r2-narrow.md` and return it. One-line verdict and counts; findings High → Low with **Where** (file:line at 787a1b5), **Proven**, **Effect for Sid**, **Fix**; then short "checked and sound" and "unverified" lists. No padding.
 
-<scratchpad> is C:\Users\Sid\AppData\Local\Temp\claude\C--javis--claude-worktrees-jarvis-code-review-0b1695\f3f2b419-52e6-4c42-b275-f2c7a15d27ac\scratchpad
+<scratchpad> is YOUR OWN session scratchpad directory (create pr83r2/ inside it).
